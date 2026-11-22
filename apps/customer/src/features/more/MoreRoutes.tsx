@@ -3,6 +3,8 @@ import { Page, Panel, EmptyState } from '../../shared/ui';
 import { useSession } from '../session';
 import { AcademyRoom } from './Academy';
 import { academyRoute } from './academy-lms';
+import { AcademyDiscussionThreadRoom } from './AcademyDiscussion';
+import { AcademyCourseConversationRoom } from './AcademyCourseMessages';
 import { Agents } from './Agents';
 import { NewAgent, OwnAgentPage, OwnAgentTitle, ownAgentId } from './AgentBuilder';
 import { agentBuilderCopy } from './agent-builder-copy';
@@ -11,10 +13,10 @@ import { AgentApprovals } from './AgentApprovals';
 import { AgentConnect } from './AgentConnect';
 import { agentConnectCopy } from './agent-connect-copy';
 import { AgentRunPage, agentRunId } from './AgentRun';
-import { agentRunCopy } from './agent-run-copy';
 import { agentApprovalsCopy } from './agent-approvals-copy';
 import { agentsTeamCopy } from './agents-team-copy';
 import { Blueprint } from './Blueprint';
+import { BlueprintSharedRoom } from './BlueprintSharedCard';
 import { Campaigns } from './Campaigns';
 import { CampaignDetail } from './campaign-catalogue';
 import { campaignCatalogueCopy } from './campaign-catalogue-copy';
@@ -41,7 +43,9 @@ import { matchMoreRoute, type MoreRoomId } from './more-room-routes';
 import { moreRoomRoutesCopy } from './more-room-routes-copy';
 import { PaperRoom } from './paper-mode';
 import { preservePaperHref } from './trade-context';
-import type { ReactNode } from 'react';
+import { Fragment, type ReactNode } from 'react';
+import { TokenProposalRoom } from './token-proposal/TokenProposalRoom';
+import { LaunchRequirementsRoom } from './launch-requirements/LaunchRequirementsRoom';
 import './more.css';
 export function MoreRoutes({ path }: { path: string }) {
   const { languageFor } = copy.useCopy();
@@ -72,7 +76,14 @@ function MoreRooms({ path }: { path: string }) {
     );
   // Set when the path is one of the six rooms of the set, so `?simulated=true` labels it and refuses its actions.
   let room: MoreRoomId | undefined;
-  if (p === '/academy' || p.startsWith('/academy/')) {
+  // A room drawn on its Volt template: it carries its own title, so it opens without the old page frame.
+  let volt: ReactNode = undefined;
+  const academy = p === '/academy' || p.startsWith('/academy/') ? academyRoute(p) : null;
+  if (userId && academy?.kind === 'discussion' && academy.postId) {
+    volt = <AcademyDiscussionThreadRoom key={academy.postId} courseSlug={academy.courseSlug} postId={academy.postId} />;
+  } else if (userId && academy?.kind === 'messages' && academy.conversationId) {
+    volt = <AcademyCourseConversationRoom key={academy.conversationId} conversationId={academy.conversationId} />;
+  } else if (academy) {
     title = copyText('moreroutes.academy');
     description = copyText('moreroutes.learn.practise.and.join.hosted.sessions');
     content = (
@@ -80,7 +91,7 @@ function MoreRooms({ path }: { path: string }) {
         key={`${p}:${url.search}`}
         pathname={p}
         search={url.search}
-        route={academyRoute(p)}
+        route={academy}
         slug={url.searchParams.get('slug') ?? undefined}
         initialPath={url.searchParams.get('path') ?? undefined}
       />
@@ -98,8 +109,7 @@ function MoreRooms({ path }: { path: string }) {
     content = <NewAgent />;
   } else if (agentRunId(p)) {
     const runId = agentRunId(p)!;
-    title = agentRunCopy.t('title');
-    content = <AgentRunPage key={runId} runId={runId} />;
+    volt = <AgentRunPage key={runId} runId={runId} />;
   } else if (ownAgentId(p)) {
     const id = ownAgentId(p)!;
     title = <OwnAgentTitle id={id} />;
@@ -162,6 +172,8 @@ function MoreRooms({ path }: { path: string }) {
     title = copyText('moreroutes.token');
     description = copyText('moreroutes.exact.stake.records.access.and.governance');
     content = <Token />;
+  } else if (quant && 'bare' in quant && quant.bare) {
+    volt = quant.content;
   } else if (quant) {
     ({ title, description, content } = quant);
   } else if (p === '/support/chat') {
@@ -181,6 +193,10 @@ function MoreRooms({ path }: { path: string }) {
       const page = ROOM_PAGES[room];
       title = moreRoomRoutesCopy.t(hit.route.title);
       description = page.description();
+      if (hit.route.pattern === '/launch/requirements') volt = <LaunchRequirementsRoom paper={paper} />;
+      else if (hit.route.pattern === '/blueprint/shared/:cardId') volt = <BlueprintSharedRoom path={path} paper={paper} />;
+      else if (hit.route.kind === 'detail' && room === 'token')
+        volt = <TokenProposalRoom key={hit.id ?? 'invalid'} invalid={Boolean(hit.invalid)} paper={paper} />;
       content =
         hit.route.kind === 'part' ? (
           page.content(path, paper)
@@ -203,12 +219,15 @@ function MoreRooms({ path }: { path: string }) {
   if (room) {
     const live = new URL(url);
     live.searchParams.delete('simulated');
-    content = (
+    const wrap = (node: ReactNode) => (
       <PaperRoom paper={paper} liveHref={live.pathname + live.search + live.hash}>
-        {content}
+        {node}
       </PaperRoom>
     );
+    content = wrap(content);
+    if (volt) volt = wrap(volt);
   }
+  if (volt) return <Fragment key={userId ?? 'anonymous'}>{volt}</Fragment>;
   return (
     <div className="more-feature">
       <Page

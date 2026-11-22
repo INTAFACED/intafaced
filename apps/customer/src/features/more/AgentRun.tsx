@@ -1,17 +1,26 @@
 import { useEffect, useState } from 'react';
 import { sessionRunSchema, sessionRunStopSchema, type SessionRun } from '@intafaced/contracts/agents-runs';
+import { Button } from '@intafaced/ui/lit';
+import {
+  CheckField,
+  KeyValue,
+  ReadingTemplate,
+  SelectField,
+  ServiceOffNotice,
+  TextAreaField,
+  TextField,
+} from '@intafaced/ui/lit/templates';
 import { useApi } from '../session';
-import { ServiceOffNotice } from '../../shared/service-off';
+import { serviceOffCopy } from '../../shared/service-off';
 import { displayAmount } from '../../shared/money';
-import { Button, DataTable, Panel } from '../../shared/ui';
 import { channelStatus } from '../../screens/notifications/notify-api';
-import { Details, TextArea } from './common';
 import { agentRunCopy } from './agent-run-copy';
 
 export const agentRunSchema = sessionRunSchema;
 export type AgentRun = SessionRun;
 const stopSchema = sessionRunStopSchema;
 
+const NOTICES = ['inapp', 'email', 'sms', 'push'] as const satisfies readonly AgentRun['notice'][];
 const ENDED: readonly AgentRun['state'][] = ['completed', 'stopped', 'failed'];
 /** How often the page reads the run again while it is still going. */
 const POLL_MS = 1000;
@@ -25,11 +34,13 @@ export function agentRunId(path: string): string | null {
 /**
  * One background run (/agents/runs/:runId, J-agents-06): its status, every step it took with its reply and cost, and
  * its result. While it is still going the page reads it again every second; it can be paused, resumed, asked more and
- * stopped. Every answer is svc-agents': a refusal shows its code, and someone else's run id reads as not found.
+ * stopped. Every answer is svc-agents': a refusal shows its code, and someone else's run id reads as not found. On the
+ * reading template: the run's status and steps are its body.
  */
 export function AgentRunPage({ runId }: { runId: string }) {
   const api = useApi();
   const { t } = agentRunCopy.useCopy();
+  const offWords = serviceOffCopy.useCopy();
   const [run, setRun] = useState<AgentRun | null>(null);
   const [missing, setMissing] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -71,12 +82,19 @@ export function AgentRunPage({ runId }: { runId: string }) {
 
   if (missing) {
     return (
-      <Panel title={t('notFound')}>
-        <p>{t('notFoundBody')}</p>
-      </Panel>
+      <ReadingTemplate
+        title={t('title')}
+        state={{ kind: 'ready' }}
+        body={
+          <section aria-labelledby="agent-run-missing">
+            <h2 id="agent-run-missing">{t('notFound')}</h2>
+            <p>{t('notFoundBody')}</p>
+          </section>
+        }
+      />
     );
   }
-  if (!run) return null;
+  if (!run) return <ReadingTemplate title={t('title')} state={{ kind: 'loading' }} body={null} />;
 
   const act = async (path: 'run.background.pause' | 'run.background.resume') => {
     setBusy(true);
@@ -111,70 +129,95 @@ export function AgentRunPage({ runId }: { runId: string }) {
   const taken = run.steps.filter((s) => s.state !== 'in_flight').length;
   const offAction = notice === 'email' ? t('emailAction') : notice === 'sms' ? t('smsAction') : t('pushAction');
   return (
-    <Panel title={t('run')} role="region" aria-label={t('run')}>
-      <Details
-        items={[
-          [t('status'), <span data-testid="run-status">{t(`state_${run.state}`)}</span>],
-          [t('ask'), run.ask],
-          [t('progress'), t('progressValue', { done: taken, total: run.stepsTotal })],
-        ]}
-      />
-      {run.failureCode ? (
-        <p role="alert">
-          {t('failed')} <code>{run.failureCode}</code>
-        </p>
-      ) : null}
-      {run.resumedAt ? <p>{t('resumedFrom')}</p> : null}
-      {channelOff ? <ServiceOffNotice code={channelOff} action={offAction} role="note" /> : null}
-      <DataTable headers={[t('colStep'), t('colState'), t('colReply'), t('colCost')]} label={t('stepsTitle')}>
-        {run.steps.map((step) => (
-          <tr key={step.n}>
-            <td>{step.n}</td>
-            <td>{t(`step_${step.state}`)}</td>
-            <td lang="und">{step.reply ?? '—'}</td>
-            <td>{step.cost === null ? '—' : displayAmount(step.cost)}</td>
-          </tr>
-        ))}
-      </DataTable>
-      <section role="region" aria-label={t('reply')}>
-        <h3>{t('reply')}</h3>
-        {run.state === 'completed' && run.reply ? <p lang="und">{run.reply}</p> : <p className="muted">{t('noReply')}</p>}
-      </section>
-      {run.state === 'stopped' ? (
-        <>
-          <p>{t('stoppedNote')}</p>
-          {run.stop ? (
-            <p className="muted">
-              {run.stop.unpaid ? t('unpaid') : t('settled', { amount: displayAmount(run.stop.billed), asset: run.stop.assetId })}
+    <ReadingTemplate
+      title={t('title')}
+      state={{ kind: 'ready' }}
+      body={
+        <section aria-label={t('run')}>
+          <h2>{t('run')}</h2>
+          <KeyValue
+            rows={[
+              { label: t('status'), value: <span data-testid="run-status">{t(`state_${run.state}`)}</span> },
+              { label: t('ask'), value: run.ask },
+              { label: t('progress'), value: t('progressValue', { done: taken, total: run.stepsTotal }) },
+            ]}
+          />
+          {run.failureCode ? (
+            <p role="alert">
+              {t('failed')} <code>{run.failureCode}</code>
             </p>
           ) : null}
-        </>
-      ) : null}
-      {repeated ? <p role="status">{t('alreadyStopped')}</p> : null}
-      {refusal ? (
-        <p role="alert">
-          {t('refused')} <code>{refusal}</code>
-        </p>
-      ) : null}
-      <div className="actions">
-        {run.state === 'paused' ? (
-          <Button disabled={busy} onClick={() => void act('run.background.resume')}>
-            {t('resume')}
+          {run.resumedAt ? <p>{t('resumedFrom')}</p> : null}
+          {channelOff ? (
+            <ServiceOffNotice
+              code={channelOff}
+              sentence={offWords.t('sentence', { action: offAction, dependency: offWords.t(channelOff) })}
+              role="note"
+            />
+          ) : null}
+          <div role="region" aria-label={t('stepsTitle')} tabIndex={0}>
+            <table className="lt-table">
+              <thead>
+                <tr>
+                  <th scope="col">{t('colStep')}</th>
+                  <th scope="col">{t('colState')}</th>
+                  <th scope="col">{t('colReply')}</th>
+                  <th scope="col">{t('colCost')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {run.steps.map((step) => (
+                  <tr key={step.n}>
+                    <td data-label={t('colStep')}>{step.n}</td>
+                    <td data-label={t('colState')}>{t(`step_${step.state}`)}</td>
+                    <td data-label={t('colReply')} lang="und">
+                      {step.reply ?? '—'}
+                    </td>
+                    <td data-label={t('colCost')}>{step.cost === null ? '—' : displayAmount(step.cost)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <section role="region" aria-label={t('reply')}>
+            <h3>{t('reply')}</h3>
+            {run.state === 'completed' && run.reply ? <p lang="und">{run.reply}</p> : <p>{t('noReply')}</p>}
+          </section>
+          {run.state === 'stopped' ? (
+            <>
+              <p>{t('stoppedNote')}</p>
+              {run.stop ? (
+                <p>{run.stop.unpaid ? t('unpaid') : t('settled', { amount: displayAmount(run.stop.billed), asset: run.stop.assetId })}</p>
+              ) : null}
+            </>
+          ) : null}
+          {repeated ? <p role="status">{t('alreadyStopped')}</p> : null}
+          {refusal ? (
+            <p role="alert">
+              {t('refused')} <code>{refusal}</code>
+            </p>
+          ) : null}
+          <div className="lt-actions">
+            {run.state === 'paused' ? (
+              <Button tone="primary" disabled={busy} onClick={() => void act('run.background.resume')}>
+                {t('resume')}
+              </Button>
+            ) : (
+              <Button tone="primary" disabled={busy || ended} onClick={() => void act('run.background.pause')}>
+                {t('pause')}
+              </Button>
+            )}
+            <Button tone="secondary" disabled={busy || run.state === 'completed' || run.state === 'failed'} onClick={() => void stop()}>
+              {t('stop')}
+            </Button>
+          </div>
+          <TextAreaField label={t('askMoreLabel')} value={more} onChange={setMore} maxLength={20000} />
+          <Button tone="primary" disabled={busy || ended || !more.trim()} onClick={() => void askMore()}>
+            {t('askMore')}
           </Button>
-        ) : (
-          <Button disabled={busy || ended} onClick={() => void act('run.background.pause')}>
-            {t('pause')}
-          </Button>
-        )}
-        <Button variant="secondary" disabled={busy || run.state === 'completed' || run.state === 'failed'} onClick={() => void stop()}>
-          {t('stop')}
-        </Button>
-      </div>
-      <TextArea label={t('askMoreLabel')} value={more} onChange={setMore} maxLength={20000} />
-      <Button disabled={busy || ended || !more.trim()} onClick={() => void askMore()}>
-        {t('askMore')}
-      </Button>
-    </Panel>
+        </section>
+      }
+    />
   );
 }
 
@@ -226,29 +269,18 @@ export function BackgroundRunStart({
 
   return (
     <div>
-      <label className="field">
-        <span>
-          <input type="checkbox" checked={background} onChange={(event) => onBackground(event.target.checked)} /> {t('background')}
-        </span>
-      </label>
+      <CheckField label={t('background')} checked={background} onChange={onBackground} />
       {background ? (
         <>
-          <p className="muted">{t('backgroundHint')}</p>
-          <label className="field">
-            <span>{t('steps')}</span>
-            <input inputMode="numeric" value={steps} onChange={(event) => setSteps(event.target.value)} />
-          </label>
-          <label className="field">
-            <span>{t('notice')}</span>
-            <select value={notice} onChange={(event) => setNotice(event.target.value as AgentRun['notice'])}>
-              {(['inapp', 'email', 'sms', 'push'] as const).map((channel) => (
-                <option key={channel} value={channel}>
-                  {t(`notice_${channel}`)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <Button disabled={disabled || busy || !task || !ask.trim() || count === null} onClick={() => void start()}>
+          <p>{t('backgroundHint')}</p>
+          <TextField label={t('steps')} inputMode="numeric" value={steps} onChange={setSteps} />
+          <SelectField
+            label={t('notice')}
+            value={notice}
+            onChange={(value) => setNotice(NOTICES.find((channel) => channel === value) ?? 'inapp')}
+            options={NOTICES.map((channel) => ({ value: channel, label: t(`notice_${channel}`) }))}
+          />
+          <Button tone="primary" disabled={disabled || busy || !task || !ask.trim() || count === null} onClick={() => void start()}>
             {t('runButton')}
           </Button>
           {refusal ? (

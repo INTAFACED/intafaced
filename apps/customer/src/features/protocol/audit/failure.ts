@@ -6,7 +6,7 @@ import type { UiLocale } from '../../../shared/i18n';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
-export { canTryAgain as canRetry } from '../../../shared/try-again';
+export { canTryAgain as canRetry } from '../../../shared/failure-words';
 
 /** A service sometimes answers with its own refusal code as the message ("token.params_invalid"). */
 const RAW_CODE = /^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/i;

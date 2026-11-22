@@ -121,14 +121,14 @@ export function VipApplyView({ load, send }: { load: Loadable<VipApplications>; 
   };
 
   return (
-    <section className="pub-card" aria-labelledby="vip-apply-title" data-tier-page="vip-apply">
+    <section aria-labelledby="vip-apply-title" data-tier-page="vip-apply">
       <h2 id="vip-apply-title">{copy.t('vipTitle')}</h2>
       <p>{copy.t('vipLead')}</p>
       {load.status === 'loading' ? <p role="status">{copy.t('vipLoading')}</p> : null}
       {load.status === 'error' ? (
         <p role="alert">
           {copy.t('vipLoadFailed')}{' '}
-          <button type="button" className="text-link" onClick={load.retry}>
+          <button type="button" className="lt-link" onClick={load.retry}>
             {copy.t('retry')}
           </button>
         </p>
@@ -149,14 +149,14 @@ export function VipApplyView({ load, send }: { load: Loadable<VipApplications>; 
       ) : null}
       {rules && !waiting ? (
         <form
-          className="form-stack"
+          className="lt-reading-main"
           data-vip="form"
           onSubmit={(event) => {
             event.preventDefault();
             void submit();
           }}
         >
-          <label className="field">
+          <label className="lt-field">
             <span>{copy.t('vipFileLabel')}</span>
             <input
               type="file"
@@ -169,12 +169,12 @@ export function VipApplyView({ load, send }: { load: Loadable<VipApplications>; 
               }}
             />
           </label>
-          <label className="field">
+          <label className="lt-field">
             <span>{copy.t('vipNoteLabel')}</span>
             <textarea value={note} maxLength={1000} rows={3} onChange={(event) => setNote(event.target.value)} />
           </label>
           <p>
-            <button type="submit" className="button button--primary" disabled={!file || busy} aria-busy={busy || undefined}>
+            <button type="submit" className="lt-button lt-button-primary" disabled={!file || busy} aria-busy={busy || undefined}>
               {busy ? copy.t('vipSending') : copy.t('vipSend')}
             </button>
           </p>
@@ -191,7 +191,7 @@ export function VipApplyView({ load, send }: { load: Loadable<VipApplications>; 
           {data.applications.length === 0 ? (
             <p data-vip="none">{copy.t('vipNone')}</p>
           ) : (
-            <table className="pub-table" aria-label={copy.t('vipYoursTitle')}>
+            <table className="lt-table" aria-label={copy.t('vipYoursTitle')}>
               <thead>
                 <tr>
                   <th scope="col">{copy.t('colSent')}</th>

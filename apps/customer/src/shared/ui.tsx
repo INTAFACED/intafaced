@@ -3,10 +3,9 @@ import { BrandIris, Panel } from '@intafaced/ui';
 import { isServiceNotConnected, type ApiResult } from './api';
 import { uiCopy, uiMessage } from './ui-copy';
 import { refusalCopy } from '../data/refusals';
-import { canTryAgain } from './try-again';
-
-export { canTryAgain };
+import { RAW_CODE, canTryAgain, embeddedKey } from './failure-words';
 export { Panel };
+export { canTryAgain };
 
 export function Button({
   variant = 'primary',
@@ -80,13 +79,6 @@ export function EmptyState({ title, children, action }: { title: ReactNode; chil
       {action}
     </div>
   );
-}
-/** A service sometimes answers with its own refusal code as the message ("token.params_invalid"). */
-const RAW_CODE = /^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/i;
-/** A setting or code name inside a sentence, such as "Missing token_params.fee_discount_schedule". Only underscored names count, so "v1.2" and "e.g." stay. */
-const EMBEDDED_KEY = /\b[a-z][a-z0-9]*(?:_[a-z0-9]+)*\.[a-z][a-z0-9]*(?:_[a-z0-9]+)*\b/gi;
-function embeddedKey(message: string): string | undefined {
-  return message.match(EMBEDDED_KEY)?.find((key) => key.includes('_'));
 }
 export function Failure({ result, retry }: { result: Extract<ApiResult<unknown>, { ok: false }>; retry?: () => void }) {
   const { Copy, languageFor, requestedLocale } = uiCopy.useCopy();
