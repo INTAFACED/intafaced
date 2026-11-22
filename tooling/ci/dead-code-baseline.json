@@ -684,6 +684,8 @@
   "apps/customer/src/screens/money/allocation-source.ts#allocationFetcher",
   "apps/customer/src/screens/money/allocation-source.ts#allocationSchema",
   "apps/customer/src/screens/money/deps.ts#ACTIVITY_PAGE_SIZE",
+  "apps/customer/src/screens/money/deps.ts#Pct",
+  "apps/customer/src/screens/money/deps.ts#StatusTag",
   "apps/customer/src/screens/money/movers-model.ts#MOVERS_PER_SIDE",
   "apps/customer/src/screens/money/portfolio-source.ts#FX_RATE_UNSET",
   "apps/customer/src/screens/money/portfolio-source.ts#SERVER_SUMMARY_KEY",
