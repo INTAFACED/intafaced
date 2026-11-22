@@ -390,41 +390,6 @@ function ShareCertificate({ code }: { code: string | null }) {
   );
 }
 
-/**
- * `/academy/certificates/verify/<code>`: the page a shared certificate link opens, signed in or not. It shows exactly what
- * Academy's public check answers for the code (valid or revoked, with the issue date) or its typed refusal.
- */
-export function CertificateVerifyPage({ code }: { code: string | undefined }) {
-  const { t } = copy.useCopy();
-  const parsed = parseVerifyCode(code ?? '');
-  return (
-    <Panel title={t('verifyPageTitle')}>
-      <div className="academy-lms-stack" data-certificate-verify={parsed.kind === 'code' ? parsed.code : ''}>
-        <p className="muted">{t('verifyPageIntro')}</p>
-        {parsed.kind === 'code' ? (
-          <VerifyAnswer code={parsed.code} />
-        ) : (
-          <p role="status">{(code ?? '').trim() ? t('verifyFormat') : t('verifyPageNoCode')}</p>
-        )}
-      </div>
-    </Panel>
-  );
-}
-
-function VerifyAnswer({ code }: { code: string }) {
-  const api = useApi();
-  const { t } = copy.useCopy();
-  const answer = useResource((signal) => verifyCertificate(api, code, signal), `certificate-verify:${code}`);
-  if (answer.resource.status === 'loading') return <Loading label={t('verifyChecking')} />;
-  if (answer.resource.status === 'failed')
-    return (
-      <div data-code={academyCodeOf(answer.resource.failure) ?? undefined}>
-        <AcademyRefusal failure={answer.resource.failure} retry={answer.reload} />
-      </div>
-    );
-  return <VerifyResult code={code} certificate={answer.resource.data} />;
-}
-
 /** The holder as the public check shows it: the name only when the holder agreed to share it. Nothing is shown while that is unknown. */
 export function SheetHolder({ code }: { code: string }) {
   const api = useApi();

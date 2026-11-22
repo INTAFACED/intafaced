@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { parseAmount } from '../../shared/money';
+import type { ApiClient } from '../../shared/api';
 
 /** Read-only pre-listing pattern check (svc-agents `launch.assess`). It is an
  * annotation, never a badge and never a block decision. */
@@ -68,3 +69,7 @@ export function normaliseSymbol(value: string): string {
     .replace(/[^A-Z0-9]/g, '')
     .slice(0, 10);
 }
+
+/** The pre-listing deployer check (svc-agents `launch.assess`, no record yet): the issuer journey's Check calls it here. */
+export const assessLaunch = (api: ApiClient, deployer: string) =>
+  api.query('agents', 'launch.assess', { deployer: deployer.trim() || undefined }, assessResult);

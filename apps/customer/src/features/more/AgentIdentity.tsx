@@ -4,10 +4,12 @@ import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
 import { Button, Failure, Panel } from '../../shared/ui';
 import { navigate } from '../../app/location';
-import { Read, TextArea } from './common';
+import { Read } from './common';
 import { agentBuilderCopy } from './agent-builder-copy';
+import { identityWordsKey } from './new-agent/assistant-words';
 import {
   ownAgentAssistantSchema,
+  ownAgentCatalogueSchema as catalogueSchema,
   ownAgentIdentitySchema,
   ownAgentIssuedTokenSchema,
   ownAgentProposalSchema,
@@ -19,33 +21,17 @@ import {
 } from '@intafaced/contracts/agents-own';
 
 /**
- * An own agent's Identity page (AG-identity-01; J-agents-03 #5) and the builder's drafting assistant (AG-builder-03;
- * J-agents-03 #6). Every answer is svc-agents' own: the token's owner, scopes and expiry as it holds them; a refusal
- * with its code. Nothing here moves money.
+ * An own agent's Identity page (AG-identity-01; J-agents-03 #5), and the calls of the New agent room (`new-agent/`):
+ * its template picker and the builder's drafting assistant (AG-builder-03; J-agents-03 #6), which that room draws. Every
+ * answer is svc-agents' own: the token's owner, scopes and expiry as it holds them; a refusal with its code. Nothing here
+ * moves money.
  */
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 type Words = ReturnType<typeof agentBuilderCopy.useCopy>['t'];
 
-/** The codes this page words; any other failure is the app's own account of it. */
-const CODE_WORDS = {
-  'owner.decision': 'code_owner_decision',
-  'agents.assistant.engine_unavailable': 'code_assistant_engine_unavailable',
-  'agents.assistant.description_blank': 'code_assistant_description_blank',
-  'agents.identity.lifetime_unset': 'code_identity_lifetime_unset',
-  'agents.identity.no_live_token': 'code_identity_no_live_token',
-  'agents.identity.owner_frozen': 'code_identity_owner_frozen',
-  'agents.identity.owner_inactive': 'code_identity_owner_inactive',
-  'agents.identity.owner_unread': 'code_identity_owner_unread',
-  'agents.tool_shape_missing': 'code_tool_shape_missing',
-  'agents.own.money_tool': 'code_own_money_tool',
-  'agents.own.tool_unknown': 'code_own_tool_unknown',
-  'agents.own.too_many': 'code_own_too_many',
-  'agents.own.not_found': 'code_own_not_found',
-} as const;
-
 function Answer({ failed, t }: { failed: Failed; t: Words }) {
-  const key = Object.hasOwn(CODE_WORDS, failed.message) ? CODE_WORDS[failed.message as keyof typeof CODE_WORDS] : null;
+  const key = identityWordsKey(failed.message);
   return key ? (
     <p role="alert">
       {t(key)} <code lang="zxx">{failed.message}</code>
@@ -161,13 +147,36 @@ export function IdentityPage({ agent }: { agent: OwnAgent }) {
 }
 
 /**
- * The builder's drafting assistant. While the owner has not chosen the model it shows the owner-decision notice and
- * drafts nothing; the rest of the builder works without it. A draft is shown with its tools, which passed the check a
- * save meets, and nothing is saved until the person accepts it.
+ * The New agent room's template picker: the templates the service offers (AG-catalogue-02), and a press that makes a
+ * draft of one and opens it, or holds the refusal.
  */
-export function AssistantPanel() {
+export function useAgentPicker() {
   const api = useApi();
-  const { t } = agentBuilderCopy.useCopy();
+  const [refused, setRefused] = useState<Failed | null>(null);
+  const [busy, setBusy] = useState(false);
+  // The templates the service offers (AG-catalogue-02): a template it does not offer has no button.
+  const catalogue = useResource((signal) => api.query('agents', 'own.catalogue', undefined, catalogueSchema, { signal }), 'own-catalogue');
+  // This visit's key for each template: pressing again after an answer that never arrived returns the draft the first
+  // press made, rather than a second one. Each visit to the picker is a new draft.
+  const visit = useRef(`picker:${crypto.randomUUID()}`);
+  async function start(template: string) {
+    setBusy(true);
+    setRefused(null);
+    const res = await api.mutate('agents', 'own.create', { template, createKey: `${visit.current}:${template}` }, ownAgentSchema);
+    setBusy(false);
+    if (res.ok) navigate(`/agents/${res.data.id}`, true);
+    else setRefused(res);
+  }
+  return { catalogue, refused, busy, start };
+}
+
+/**
+ * The builder's drafting assistant, as the New agent room draws it. While the owner has not chosen the model the
+ * engine is null and it drafts nothing; the rest of the builder works without it. A draft is shown with its tools,
+ * which passed the check a save meets, and nothing is saved until the person accepts it.
+ */
+export function useAssistant() {
+  const api = useApi();
   const state = useResource(
     (signal) => api.query('agents', 'own.assistant.state', undefined, ownAgentAssistantSchema, { signal }),
     'own-assistant',
@@ -203,63 +212,5 @@ export function AssistantPanel() {
     if (res.ok) navigate(`/agents/${res.data.id}`, true);
     else setRefused(res);
   }
-
-  return (
-    <Panel title={t('assistantTitle')} role="region" aria-label={t('assistantTitle')}>
-      {engine === null ? (
-        <p role="note">
-          {t('assistantBlocked')} <code lang="zxx">owner.decision</code>
-        </p>
-      ) : engine === 'live' ? (
-        <p role="note">{t('assistantLive')}</p>
-      ) : engine === 'test' ? (
-        <p className="muted">{t('assistantTest')}</p>
-      ) : state.resource.status === 'failed' ? (
-        <Read resource={state.resource} retry={state.reload}>
-          {() => null}
-        </Read>
-      ) : null}
-      <TextArea label={t('describeAgent')} value={description} maxLength={4000} onChange={setDescription} />
-      <Button disabled={busy || !engine || !description.trim()} onClick={() => void draft()}>
-        {t('draftIt')}
-      </Button>
-      {proposal ? (
-        <section aria-label={t('proposalTitle')}>
-          <h3>{t('proposalTitle')}</h3>
-          <p className="muted">{t('proposalSaved')}</p>
-          <dl>
-            <dt>{t('name')}</dt>
-            <dd data-testid="proposal-name">{proposal.name}</dd>
-            <dt>{t('instructions')}</dt>
-            <dd data-testid="proposal-instructions">{proposal.instructions}</dd>
-          </dl>
-          <ul aria-label={t('toolsTitle')}>
-            {proposal.tools.map((tool) => (
-              <li key={tool}>
-                <code lang="zxx">{tool}</code>
-              </li>
-            ))}
-          </ul>
-          {proposal.leftOut.length ? (
-            <ul aria-label={t('proposalLeftOut')}>
-              {proposal.leftOut.map((row) => (
-                <li key={row.tool}>
-                  <code lang="zxx">{row.tool}</code> · <code lang="zxx">{row.code}</code>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-          <div className="depth-card-actions">
-            <Button disabled={busy} onClick={() => void accept(proposal)}>
-              {t('acceptDraft')}
-            </Button>
-            <Button variant="secondary" disabled={busy} onClick={() => setProposal(null)}>
-              {t('discardDraft')}
-            </Button>
-          </div>
-        </section>
-      ) : null}
-      {refused ? <Answer failed={refused} t={t} /> : null}
-    </Panel>
-  );
+  return { state, engine, description, setDescription, proposal, setProposal, refused, busy, draft, accept };
 }

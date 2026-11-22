@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { academyAssignmentViewSchema, academyReviewStateSchema } from '@intafaced/contracts/academy-courses';
+import type { ApiClient } from '../../shared/api';
 import type { AcademyCurriculumSummary } from '@intafaced/contracts/academy-catalogue';
 import type { AcademyCertDefinition, AcademyCertProgress } from '@intafaced/contracts/academy-learner-procedures';
 
@@ -448,3 +450,18 @@ export function academySectionRedirect(pathname: string, search: string): string
   query.delete('section');
   return `/academy/${section}${query.size ? `?${query}` : ''}`;
 }
+
+/**
+ * The assignment page's Academy calls, kept in one place: these calls have no record yet (docs/agents/shape.md rule 1),
+ * and the room on the flow template calls them through here.
+ */
+export const academyAssignmentCalls = {
+  read: (api: ApiClient, itemId: string, signal?: AbortSignal) =>
+    api.query('academy', 'assignment', { itemId }, academyAssignmentViewSchema, { signal }),
+  submit: (api: ApiClient, input: { itemId: string; version: number; text: string | null; fileId: string | null }) =>
+    api.mutate('academy', 'submitAssignment', input, academyAssignmentViewSchema),
+  markRead: (api: ApiClient, input: { itemId: string; version: number; n: number }) =>
+    api.mutate('academy', 'markFeedbackRead', input, academyAssignmentViewSchema),
+  review: (api: ApiClient, input: { itemId: string; taskId: string; marks: string[] }) =>
+    api.mutate('academy', 'submitPeerReview', input, academyReviewStateSchema),
+};

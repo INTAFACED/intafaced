@@ -5,7 +5,7 @@ import { Select } from './common';
 import { DisabledAction, Journey, StatRow, StatusPill, type JourneyStep } from './depth-kit';
 import { launchDepthCopy } from './launch-depth-copy';
 import {
-  assessResult,
+  assessLaunch,
   draftIssues,
   EMPTY_DRAFT,
   LAUNCH_STEPS,
@@ -119,7 +119,7 @@ export function LaunchCheck() {
   const [outcome, setOutcome] = useState<ApiResult<AssessResult> | null>(null);
   async function run() {
     setBusy(true);
-    const result = await api.query('agents', 'launch.assess', { deployer: deployer.trim() || undefined }, assessResult);
+    const result = await assessLaunch(api, deployer);
     setOutcome(result);
     setBusy(false);
   }

@@ -11,7 +11,8 @@ import { AcademyProgrammes } from './AcademyProgrammes';
 import { AcademyVideos } from './AcademyVideos';
 import { AcademyRefusal } from './AcademyLmsParts';
 import { AcademyPublic } from './AcademyPublic';
-import { CertificateShelf, CertificateVerifyPage } from './AcademyCertificates';
+import { CertificateShelf } from './AcademyCertificates';
+import { CertificateVerifyRoom } from './certificate-verify/CertificateVerifyRoom';
 import { replyAccepted } from '@intafaced/contracts/procedure';
 import {
   ACADEMY_CERT_DEFINITIONS,
@@ -24,7 +25,7 @@ import {
 import { AcademyLearning, definitionsHold, progressFits, lessonHref, selectedCertificate, rememberCertificate } from './AcademyLearning';
 import { academyLearningCopy } from './academy-learning-copy';
 import { AcademyCoursePage, AcademyHub } from './AcademyHub';
-import { AcademyAssignment } from './AcademyAssignment';
+import { AcademyAssignmentRoom } from './academy-assignment/AcademyAssignmentRoom';
 import { AcademyProgrammePage } from './AcademyCourseProgrammes';
 import { AcademyDiscussionCourses, AcademyDiscussionPage, AcademyDiscussionThread } from './AcademyDiscussion';
 import { AcademyCourseConversation, AcademyCourseInbox, AcademyCourseMessagesLink } from './AcademyCourseMessages';
@@ -55,7 +56,7 @@ export function AcademyRoom({
   const { userId } = useSession();
   if (redirect) return null;
   // A shared certificate link opens the same public check for everyone, signed in or not.
-  if (route.kind === 'verify') return <CertificateVerifyPage code={route.code} />;
+  if (route.kind === 'verify') return <CertificateVerifyRoom code={route.code} />;
   // A visitor with no account gets the signed-out Academy.
   if (!userId) return <AcademyPublic route={route} />;
   return <Academy route={route} slug={route.kind === 'reader' ? route.slug : slug} initialPath={initialPath} />;
@@ -87,6 +88,8 @@ function Academy({ route, slug, initialPath }: { route: AcademyRoute; slug?: str
     rememberCertificate(userId, id);
     setSelection({ owner: userId, id });
   }
+  // An assignment is one task on the flow template: it draws its own title row and the Academy's tabs.
+  if (route.kind === 'assignment') return <AcademyAssignmentRoom key={route.itemId} slug={route.slug ?? ''} itemId={route.itemId ?? ''} />;
   return (
     <div className="more-grid">
       <Tabs
@@ -110,8 +113,6 @@ function Academy({ route, slug, initialPath }: { route: AcademyRoute; slug?: str
       {route.kind === 'tab' && route.hub && <AcademyHub />}
       {route.kind === 'course' ? (
         <AcademyCoursePage slug={route.slug} signedIn />
-      ) : route.kind === 'assignment' ? (
-        <AcademyAssignment key={route.itemId} slug={route.slug ?? ''} itemId={route.itemId ?? ''} />
       ) : route.kind === 'discussion' ? (
         route.postId ? (
           <AcademyDiscussionThread key={route.postId} courseSlug={route.courseSlug} postId={route.postId} />
