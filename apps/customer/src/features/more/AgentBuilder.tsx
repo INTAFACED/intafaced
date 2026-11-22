@@ -13,16 +13,7 @@ import { Refusal, refusalCode, type Failed } from './agent-room/own-agent';
  * One of the person's own agents (/agents/<id>) is drawn on the kit in `agent-room/`; these names stay here for the
  * routes, the Agents room and the tests that reach them through this file.
  */
-export {
-  Builder,
-  MadeAgents,
-  OwnAgentPage,
-  OwnAgentTitle,
-  PaymentMethod,
-  Refusal,
-  ownAgentId,
-  useOwnAgentTitle,
-} from './agent-room/own-agent';
+export { OwnAgentPage, PaymentMethod, Refusal, ownAgentId } from './agent-room/own-agent';
 
 /** What a failed write says: the service's refusal in words, or the app's own account of a write it could not confirm. */
 function Answer({ failed }: { failed: Failed }) {

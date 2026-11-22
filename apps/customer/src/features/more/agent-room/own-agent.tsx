@@ -255,7 +255,7 @@ function Answer({
 const SAVED_EVENT = 'intafaced:own-agent-saved';
 
 /** The builder form for one draft, and what blocks publishing it. */
-export function Builder({ agent, onSaved }: { agent: OwnAgent; onSaved: (agent: OwnAgent) => void }) {
+function Builder({ agent, onSaved }: { agent: OwnAgent; onSaved: (agent: OwnAgent) => void }) {
   const api = useApi();
   const { t } = agentBuilderCopy.useCopy();
   const catalogue = useResource((signal) => api.call(AGENTS_OWN_CATALOGUE, undefined, { signal }), 'own-catalogue');
@@ -1518,11 +1518,6 @@ function SharingPage({ agent }: { agent: OwnAgent }) {
       </form>
     </Panel>
   );
-}
-
-/** The page title of one of the person's own agents: its name, or that it has none, following each save. */
-export function OwnAgentTitle({ id }: { id: string }) {
-  return <>{useOwnAgentTitle(id)}</>;
 }
 
 /** The words of that title, for a room that takes its title as text. */

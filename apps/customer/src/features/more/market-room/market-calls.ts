@@ -27,7 +27,7 @@ type MarketFailureKey =
   | 'market.the.original.purchase.is.not.present.in'
   | 'market.the.listing.terms.changed.reload.the.catalogue'
   | 'market.the.account.changed.review.this.purchase.again';
-export function marketRefusal(reason: RefusalReason, key: MarketFailureKey) {
+function marketRefusal(reason: RefusalReason, key: MarketFailureKey) {
   return presentActionFailure({ ok: false as const, reason, message: copyText(key) }, (locale) => {
     const current = copy.forLocale(locale);
     return { message: current.t(key), language: current.languageFor(key) };
@@ -40,7 +40,7 @@ export const REVIEW_COPY = {
   suspended: 'market.review.state.suspended',
   taken_down: 'market.review.state.taken.down',
 } as const satisfies Record<ListingReviewState, string>;
-export function originalPurchaseOutcome(row: MarketPurchase): ApiResult<MarketPurchase> {
+function originalPurchaseOutcome(row: MarketPurchase): ApiResult<MarketPurchase> {
   if (row.status === 'pending') return marketRefusal('uncertain', 'market.original.purchase.is.still.pending.settlement.is');
   if (row.status === 'settled' && row.ledgerTxId && row.settledAt) return { ok: true, data: row };
   // A held purchase is paid into the buyer's held pot (MC-market-02); its release or refund comes later.
@@ -51,7 +51,7 @@ export function originalPurchaseOutcome(row: MarketPurchase): ApiResult<MarketPu
   return marketRefusal('uncertain', 'market.the.original.settlement.evidence.is.incomplete.keep');
 }
 /** The service's typed refusal while the refund policy is blank, shown in the room's own words; nothing moved. */
-export const refundPolicyUnset = <T>(result: ApiResult<T>): ApiResult<T> =>
+const refundPolicyUnset = <T>(result: ApiResult<T>): ApiResult<T> =>
   !result.ok && result.code === 'owner.decision'
     ? presentActionFailure(result, (locale) => {
         const current = copy.forLocale(locale);
