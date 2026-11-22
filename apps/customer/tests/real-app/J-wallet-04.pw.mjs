@@ -260,7 +260,7 @@ test(`${J} #1 (the listed book): each entry shows its asset, network, tag and st
     await expect(cells.nth(6)).toHaveText(entry.state === 'pending' ? 'Waiting for approval' : /./);
     // Masked in the list: the first six and last four characters, and the full address only behind Details.
     await expect(cells.nth(3)).toHaveText(`${entry.ref.slice(0, 6)}…${entry.ref.slice(-4)}`);
-    await expect(row.locator('.withdrawal-address-full')).toBeHidden();
+    await expect(row.locator('[data-testid="withdrawal-address-full"]')).toBeHidden();
   }
   const cold = book.find((row) => row.label === 'TEST cold wallet');
   const lookalike = book.find((row) => row.label === 'TEST look-alike');

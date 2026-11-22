@@ -83,14 +83,14 @@ export function Schedules({ open }: { open: (spec: ActionSpec) => void }) {
     if (selected) arrive(heading.current);
   }, [selected?.serial]);
   return (
-    <div lang={languageFor('instructions')} dir={directionFor('instructions')}>
+    <div data-testid="money-standing-orders" lang={languageFor('instructions')} dir={directionFor('instructions')}>
       {selected && (
         <section data-testid="money-selected-instruction" aria-labelledby="money-selected-instruction-heading">
           <header>
             <h2 id="money-selected-instruction-heading" ref={heading} tabIndex={-1}>
               <Copy k="outcomes" />
             </h2>
-            <dl className="lt-kv">
+            <dl className="lt-kv" data-testid="money-standing-reference">
               <dt>
                 <Copy k="instruction" />
               </dt>

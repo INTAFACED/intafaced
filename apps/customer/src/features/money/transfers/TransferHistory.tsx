@@ -31,7 +31,7 @@ export function StandingFacts({ instruction }: { instruction: StandingInstructio
         <dt>
           <Copy k="amount" />
         </dt>
-        <dd className="lt-mono" lang="zxx" dir="ltr">
+        <dd className="lt-mono" lang="zxx" dir="ltr" data-standing-amount>
           {funds(instruction.amount, instruction.assetId)}
         </dd>
       </div>
@@ -148,12 +148,12 @@ function ExecutionRead({ id, asset, refreshInstructions }: { id: string; asset: 
                 <ol>
                   {rows.map((row, index) => (
                     <li key={`${row.occurrence}:${index}`}>
-                      <article aria-label={t('occurrence', { occurrence: row.occurrence })}>
+                      <article data-execution="outcome" aria-label={t('occurrence', { occurrence: row.occurrence })}>
                         <header>
                           <h4>
                             <Copy k="occurrence" params={{ occurrence: row.occurrence }} />
                           </h4>
-                          <dl className="lt-kv">
+                          <dl className="lt-kv" data-execution="status">
                             <dt>
                               <Copy k="status" />
                             </dt>
@@ -162,7 +162,7 @@ function ExecutionRead({ id, asset, refreshInstructions }: { id: string; asset: 
                             </dd>
                           </dl>
                         </header>
-                        <dl className="lt-kv">
+                        <dl className="lt-kv" data-execution="quantity">
                           <dt>
                             <Copy k="quantity" />
                           </dt>
@@ -171,7 +171,7 @@ function ExecutionRead({ id, asset, refreshInstructions }: { id: string; asset: 
                           </dd>
                         </dl>
                         {row.rejectionCode !== null && (
-                          <dl className="lt-kv">
+                          <dl className="lt-kv" data-execution="refusal">
                             <dt className="lt-sr">
                               <Copy k="refusal" />
                             </dt>
@@ -181,7 +181,7 @@ function ExecutionRead({ id, asset, refreshInstructions }: { id: string; asset: 
                           </dl>
                         )}
                         {row.partnerMoveId !== null && (
-                          <dl className="lt-kv" data-testid="money-execution-partner">
+                          <dl className="lt-kv" data-testid="money-execution-partner" data-execution="ledger">
                             <dt>
                               <Copy k="partnerMove" />
                             </dt>
@@ -190,7 +190,7 @@ function ExecutionRead({ id, asset, refreshInstructions }: { id: string; asset: 
                             </dd>
                           </dl>
                         )}
-                        <dl className="lt-kv">
+                        <dl className="lt-kv" data-execution="ledger">
                           <dt>
                             <Copy k="ledger" />
                           </dt>

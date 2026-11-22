@@ -105,6 +105,7 @@ function Lookup({ current, invalid = false }: { current: () => boolean; invalid?
   return (
     <Section title={t('find')} description={t('findNote')}>
       <form
+        data-testid="withdrawal-lookup"
         onSubmit={(event) => {
           event.preventDefault();
           if (!active()) return;
@@ -268,6 +269,7 @@ function List({ current }: { current: () => boolean }) {
                         </div>
                         <a
                           className="lt-link"
+                          data-withdrawal-open
                           href={href(item.id)}
                           aria-label={t('detailFor', { id: item.id })}
                           onClick={(event) => {
@@ -473,7 +475,7 @@ function Detail({ id, current }: { id: string; current: () => boolean }) {
       </p>
       <ReadResult resource={resource} retry={refresh}>
         {(record) => (
-          <div>
+          <div data-testid="withdrawal-detail">
             <div>
               <strong lang="und" data-withdrawal-amount>
                 {hideBalances ? `•••• ${record.assetId}` : amount(record.amount, record.assetId)}
@@ -516,6 +518,7 @@ function Detail({ id, current }: { id: string; current: () => boolean }) {
       </ReadResult>
       <a
         className="lt-link"
+        data-withdrawal-return
         href="/uc/withdraw"
         onClick={(event) => {
           if (!active()) event.preventDefault();
