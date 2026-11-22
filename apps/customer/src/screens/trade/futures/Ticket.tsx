@@ -1020,7 +1020,7 @@ function TierConfirm(props: {
         label={t('Tier confirm accept', { tier: tierWord })}
         checked={props.accepted}
         disabled={props.disabled}
-        onChange={(v) => props.onAccept(v)}
+        onChange={(e) => props.onAccept(e.currentTarget.checked)}
       />
     </section>
   );

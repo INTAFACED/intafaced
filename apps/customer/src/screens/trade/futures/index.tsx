@@ -14,7 +14,7 @@ import { AdlTab } from './AdlTab';
 import { CalculatorTab } from './CalculatorTab';
 import { CollateralTab } from './CollateralTab';
 import { ContractStrip } from './ContractStrip';
-import { EmptyDesk } from './EmptyDesk';
+import { EmptyBook, EmptyChart, EmptyContract, EmptyTicket } from './EmptyDesk';
 import { FundingTab } from './FundingTab';
 import { FuturesChart } from './FuturesChart';
 import { HistoryTab } from './HistoryTab';
@@ -115,12 +115,17 @@ function TodayFuturesScreen({ search }: ScreenProps) {
   let top: React.ReactNode;
   let chart: React.ReactNode = null;
   let side: React.ReactNode = null;
+  let book: React.ReactNode = null;
   if (markets.status === 'loading') top = <Skeleton shape="figure" />;
   else if (markets.status === 'error')
     top = <StateBlock kind="error" title={t('Markets error title')} onRetry={markets.retry} retryLabel={t('Try again')} />;
   else if (markets.status === 'refused') top = <RegionNote variant="refused" title={t('Markets error title')} reason={markets.code} />;
-  else if (!market) top = <EmptyDesk />;
-  else {
+  else if (!market) {
+    top = <EmptyContract />;
+    chart = <EmptyChart />;
+    book = <EmptyBook />;
+    side = <EmptyTicket />;
+  } else {
     top = (
       <ContractStrip
         markets={list}
@@ -192,6 +197,7 @@ function TodayFuturesScreen({ search }: ScreenProps) {
         notices={notices}
         instrument={top}
         chart={chart}
+        book={book}
         ticket={side}
         orders={
           <div className="lt-stack">
