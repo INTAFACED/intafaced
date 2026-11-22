@@ -1,13 +1,15 @@
 import { useState } from 'react';
-import { Button, DataTable, EmptyState, Failure, Loading, Panel } from '../../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { RecordListTemplate } from '@intafaced/ui/lit/templates';
+import { DataTable, EmptyState, Failure, Loading, Panel } from '../volt/parts';
 import { usePreferences } from '../../../shared/preferences';
 import { useAccountAddressWatches } from './account-lists';
-import { WatchShell } from './AddressPage';
+import { Banner } from '../volt/frame';
 import { watchCopy } from './copy';
 
 /**
  * The signed-in account's watched addresses (/chain/watchlist, D-explorer-04): tag and private note per address, read from
- * the account's own record only. An empty list is an empty table and a sentence beside it, never a placeholder row.
+ * the account's own record only, on the record-list template. An empty list is an empty table and a sentence beside it, never a placeholder row.
  */
 export function WatchlistPage() {
   const { language } = usePreferences();
@@ -38,7 +40,7 @@ export function WatchlistPage() {
               <td>{watch.note}</td>
               <td>
                 <Button
-                  variant="secondary"
+                  tone="secondary"
                   disabled={removing !== null}
                   onClick={async () => {
                     setRemoving(watch.address);
@@ -58,8 +60,14 @@ export function WatchlistPage() {
       </>
     );
   return (
-    <WatchShell title={t('watchlistTitle')} description={t('watchlistDescription')}>
-      <Panel title={t('watchlistTitle')}>{body}</Panel>
-    </WatchShell>
+    <div lang={watchCopy.forLocale(language).renderedLocale}>
+      <RecordListTemplate
+        title={t('watchlistTitle')}
+        description={t('watchlistDescription')}
+        state={{ kind: 'ready' }}
+        summary={<Banner />}
+        list={<Panel title={t('watchlistTitle')}>{body}</Panel>}
+      />
+    </div>
   );
 }

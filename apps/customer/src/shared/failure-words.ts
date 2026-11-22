@@ -1,5 +1,5 @@
 import { isServiceNotConnected, type ApiResult } from './api';
-import { canTryAgain } from './ui';
+import { canTryAgain, rawRefusalCode } from './try-again';
 import { uiCopy, uiMessage } from './ui-copy';
 import { refusalCopy } from '../data/refusals';
 
@@ -22,19 +22,11 @@ export interface FailureWords {
   retry?: string;
 }
 
-/** A service sometimes answers with its own refusal code as the message ("token.params_invalid"). */
-const RAW_CODE = /^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/i;
-/** A setting or code name inside a sentence, such as "Missing token_params.fee_discount_schedule". */
-const EMBEDDED_KEY = /\b[a-z][a-z0-9]*(?:_[a-z0-9]+)*\.[a-z][a-z0-9]*(?:_[a-z0-9]+)*\b/gi;
-function embeddedKey(message: string): string | undefined {
-  return message.match(EMBEDDED_KEY)?.find((key) => key.includes('_'));
-}
-
 export function useFailureWords(result: Failed, canRetry: boolean): FailureWords {
   const { t, languageFor, requestedLocale } = uiCopy.useCopy();
   if (isServiceNotConnected(result.code)) return { alert: false, title: t('not_mounted'), body: t('serviceNotConnected') };
   const retry = canRetry && canTryAgain(result) ? t('retry') : undefined;
-  const rawCode = RAW_CODE.test(result.message.trim()) ? result.message.trim() : result.code ? embeddedKey(result.message) : undefined;
+  const rawCode = rawRefusalCode(result);
   if (rawCode && !result.messageCopy) {
     const words = refusalCopy(result.code ?? rawCode);
     const uncertain = result.reason === 'uncertain';
