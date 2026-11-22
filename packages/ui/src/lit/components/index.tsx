@@ -276,6 +276,7 @@ export function Select({ label, hint, error, options, children, onChange, id, cl
 
 /** The kit's one checkbox (b2-basics), here too so a room takes every control from `@intafaced/ui/lit`. */
 export { Checkbox, type CheckboxProps } from './b2-basics.js';
+import { Sheet } from './b2-basics.js';
 
 export type RadioProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type' | 'onChange' | 'children'> & {
   /** The words beside the button; they name it. Buttons of one choice share a `name` inside a `fieldset`. */
@@ -695,6 +696,87 @@ export function Gate({
       <div className="lit-gate__room" inert>
         {children}
       </div>
+    </div>
+  );
+}
+
+export type ReviewSheetProps = {
+  /** The action's name: its button, and the review's confirm. */
+  label: string;
+  /** The review's title (the sheet's name). */
+  reviewTitle: string;
+  /** One line on what confirming does. */
+  description: string;
+  tone?: 'primary' | 'secondary';
+  /** The action may not start; `disabledReason` says why, on hover. */
+  disabled?: boolean;
+  disabledReason?: string;
+  /** The review is open. The room holds the state; the kit only draws it. */
+  opened: boolean;
+  /** The confirm is in flight: both buttons wait and the sheet cannot be dismissed. */
+  busy?: boolean;
+  /** What the confirm reads while it is in flight. */
+  busyLabel: string;
+  /** The last answer is unknown: neither button may send again until it is checked. */
+  blocked?: boolean;
+  /** The review's own confirm stays off until the person has done what it asks; `notReadyReason` says what. */
+  ready?: boolean;
+  notReadyReason?: string;
+  onOpen: () => void;
+  onClose: () => void;
+  onConfirm: () => void;
+  /** What the service said, under the button and inside the review. */
+  outcome?: React.ReactNode;
+  /** A line inside the review above its outcome (how long a "Confirm it's you" lasts). */
+  note?: React.ReactNode;
+  /** The review body: what the person reads before confirming. */
+  children?: React.ReactNode;
+};
+
+/**
+ * A reviewed action: the button opens a review in the kit's Sheet, and the review's own button confirms. The room
+ * keeps every state (open, in flight, the answer) and every word; this draws them, so each confirm looks the same.
+ */
+export function ReviewSheet({
+  label,
+  reviewTitle,
+  description,
+  tone = 'secondary',
+  disabled = false,
+  disabledReason,
+  opened,
+  busy = false,
+  busyLabel,
+  blocked = false,
+  ready = true,
+  notReadyReason,
+  onOpen,
+  onClose,
+  onConfirm,
+  outcome,
+  note,
+  children,
+}: ReviewSheetProps) {
+  return (
+    <div title={disabled ? disabledReason : undefined}>
+      <Button tone={tone} disabled={disabled || busy || blocked} onClick={onOpen}>
+        {label}
+      </Button>
+      {outcome}
+      {opened && (
+        <Sheet open title={reviewTitle} dismissible={!busy} onClose={onClose}>
+          <div data-testid="form-stack">
+            <p className="lt-hint">{description}</p>
+            {children}
+            {note}
+            {outcome}
+            {!ready && notReadyReason ? <p className="lt-hint">{notReadyReason}</p> : null}
+            <Button tone={tone} disabled={!ready || busy || blocked} onClick={onConfirm}>
+              {busy ? busyLabel : label}
+            </Button>
+          </div>
+        </Sheet>
+      )}
     </div>
   );
 }

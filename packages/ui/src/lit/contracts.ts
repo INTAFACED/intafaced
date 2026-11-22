@@ -312,6 +312,7 @@ export const components = {
   EqualChoice: '(B2) Two or more choices of equal weight: cooling-off, payee check, scam stop',
   Table: '(B2) Table with a phone row form (rows become stacked cards under compact)',
   Sheet: '(B2) Bottom sheet on phone, side sheet on computer; a glass layer',
+  ReviewSheet: 'A reviewed action: its button opens a review in the Sheet, whose own button confirms; the room holds the state and words',
   Stepper: '(B2) Steps of a flow',
   Skeleton: '(B2) Loading placeholder shaped like the content, never a flash of "no records"',
   KeyValue: '(B2) Label and value rows (review, receipt, details)',
