@@ -95,36 +95,61 @@
 </div>
 </header>
 <main id="main" tabindex="-1">
-<div class="if-pay" data-testid="pay-room">
-<div class="pay-grid">
-<header data-testid="pay-hero" class="pay-hero">
-<h1>Pay preferences</h1>
-<p>How you pay and get paid.</p>
+<div class="lt-room" data-template="settings" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
+<div>
+<h1 class="lt-title">Pay preferences</h1>
+<p class="lt-description">How you pay and get paid.</p>
+</div>
 </header>
-<section data-testid="pay-card" class="pay-card" aria-label="Pay preferences">
-<div class="pay-body">
-<form class="pay-body" novalidate="">
-<fieldset class="pay-fieldset" disabled="" aria-describedby="pay-room-reason">
-<div class="pay-field">
-<label class="pay-field__label" for="pay-pref-source">Pay from</label>
-<select id="pay-pref-source" class="pay-text">
+<div class="lt-body">
+<div class="lt-grid lt-grid-settings">
+<section class="lt-region" data-region="index" aria-label="Sections">
+<nav aria-label="Room sections">
+<ul>
+<li>
+<a class="lt-link" href="#pay-room-preferences">Paying and getting paid</a>
+</li>
+</ul>
+</nav>
+</section>
+<section class="lt-region" data-region="sections" aria-label="Settings">
+<section id="pay-room-preferences" aria-labelledby="pay-room-preferences-title">
+<h2 id="pay-room-preferences-title">Paying and getting paid</h2>
+<form novalidate="">
+<fieldset disabled="" aria-describedby="pay-room-reason">
+<legend class="lt-sr">Pay preferences</legend>
+<label class="lt-field">
+<span>Pay from</span>
+<select id="pay-pref-source">
 <option value="">Not set</option>
 </select>
-<p class="pay-hint">The balance a payment comes out of first.</p>
-</div>
-<label class="pay-field__label">
-<input type="checkbox"> Let people find me by name, email or phone</label>
-<label class="pay-field__label">
-<input type="checkbox"> Send me a receipt for each payment</label>
+<small>The balance a payment comes out of first.</small>
+</label>
+<label class="lt-field">
+<input type="checkbox">
+<span>Let people find me by name, email or phone</span>
+</label>
+<label class="lt-field">
+<input type="checkbox">
+<span>Send me a receipt for each payment</span>
+</label>
 </fieldset>
 </form>
-<div class="pay-reason" id="pay-room-reason" role="note" data-testid="pay-reason" data-slice="PP-send-request-06">
-<p class="pay-reason__title">Not connected</p>
-<p class="pay-reason__body">Pay preferences are not stored by any service, so these controls are off and nothing is saved.</p>
-</div>
-<a class="pay-recent__link" href="/pay" data-testid="pay-room-back">Back to Pay</a>
+</section>
+<p>
+<a class="lt-tab" href="/pay" data-testid="pay-room-back">Back to Pay</a>
+</p>
+</section>
+<section class="lt-region" data-region="explain" aria-label="What this means">
+<div id="pay-room-reason" role="note" data-testid="pay-reason" data-slice="PP-send-request-06">
+<p>
+<strong>Not connected</strong>
+</p>
+<p>Pay preferences are not stored by any service, so these controls are off and nothing is saved.</p>
 </div>
 </section>
+</div>
 </div>
 </div>
 </main>
