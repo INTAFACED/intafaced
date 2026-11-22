@@ -2,8 +2,8 @@ import { useRef, useState } from 'react';
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
-import { Button, DataTable, Failure, Field, Panel } from '../../shared/ui';
-import { Read } from './common';
+import { Button } from '@intafaced/ui/lit';
+import { DataTable, Failure, Field, Panel, Read } from './agent-room/parts';
 import { agentEvalsCopy, hasEvalWords } from './agent-evals-copy';
 import {
   OWN_AGENT_EVAL_LIMITS,
@@ -185,7 +185,7 @@ function Evaluations({
                 onChange={(event) => setCase(index, { expected: event.target.value })}
               />
               <Button
-                variant="ghost"
+                tone="quiet"
                 onClick={() => {
                   edited();
                   setCases((current) => current.filter((_, i) => i !== index));
@@ -197,7 +197,7 @@ function Evaluations({
           );
         })}
         <Button
-          variant="secondary"
+          tone="secondary"
           disabled={cases.length >= OWN_AGENT_EVAL_LIMITS.cases}
           onClick={() => {
             edited();
@@ -228,7 +228,7 @@ function Evaluations({
             setThreshold(event.target.value);
           }}
         />
-        <Button type="submit" disabled={busy}>
+        <Button tone="primary" type="submit" disabled={busy}>
           {t('start')}
         </Button>
         {refused ? <Answer failed={refused} /> : null}
@@ -244,7 +244,7 @@ function Evaluations({
           <p className="lt-muted">
             {t('scoreLine', { passed: String(latest.passed), total: String(latest.total), threshold: latest.threshold })}
           </p>
-          <Button variant="secondary" disabled={busy} onClick={() => void sendAgain(latest)}>
+          <Button tone="secondary" disabled={busy} onClick={() => void sendAgain(latest)}>
             {t('sendAgain')}
           </Button>
           <p className="lt-muted">{t('sendAgainHint')}</p>

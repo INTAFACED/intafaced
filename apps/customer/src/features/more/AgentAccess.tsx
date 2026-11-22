@@ -1,9 +1,9 @@
 import { useId, useMemo, useState } from 'react';
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
-import { Button, DataTable, Failure, Field, Panel } from '../../shared/ui';
+import { Button, Select } from '@intafaced/ui/lit';
+import { DataTable, Failure, Field, Panel, Read } from './agent-room/parts';
 import { useVenueMode, venueApi, VenueFrame, WalletBar, useOwner } from '../trade';
-import { Read, Select } from './common';
 import { agentAccessCopy } from './agent-access-copy';
 import type { Failed } from './AgentGuardrails';
 import {
@@ -153,7 +153,7 @@ function AccountAccessGrant({ agent, venueId }: { agent: OwnAgent; venueId: stri
           }}
         >
           {listed.value.map((sub) => (
-            <label key={sub.subAccount} className="agent-surface-choice">
+            <label key={sub.subAccount} className="lt-field">
               <input
                 type="checkbox"
                 checked={chosen.has(sub.subAccount)}
@@ -176,7 +176,7 @@ function AccountAccessGrant({ agent, venueId }: { agent: OwnAgent; venueId: stri
             disabled={busy}
             onChange={(event) => setEndsIn(event.target.value)}
           />
-          <Button type="submit" disabled={busy}>
+          <Button tone="primary" type="submit" disabled={busy}>
             {t('grantAccess')}
           </Button>
           {refused ? <Refused failed={refused} /> : null}
@@ -258,7 +258,7 @@ function Policy({ agent, stored }: { agent: OwnAgent; stored: OwnAgentPolicy }) 
           onChange={(value) => setScope(value as OwnAgentPolicyScope)}
           options={OWN_AGENT_POLICY_SCOPES.map((value) => ({ value, label: t(`scope_${value}`) }))}
         />
-        <Button type="submit" disabled={busy}>
+        <Button tone="primary" type="submit" disabled={busy}>
           {t('addRule')}
         </Button>
       </form>
@@ -271,7 +271,12 @@ function Policy({ agent, stored }: { agent: OwnAgent; stored: OwnAgentPolicy }) 
               <td>{t(`action_${rule.action}`)}</td>
               <td>{t(`scope_${rule.scope}`)}</td>
               <td>
-                <Button type="button" disabled={busy} onClick={() => void send(AGENTS_OWN_POLICY_REMOVE, { ruleId: rule.id })}>
+                <Button
+                  tone="primary"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void send(AGENTS_OWN_POLICY_REMOVE, { ruleId: rule.id })}
+                >
                   {t('remove')}
                 </Button>
               </td>
@@ -282,7 +287,7 @@ function Policy({ agent, stored }: { agent: OwnAgent; stored: OwnAgentPolicy }) 
         <p className="lt-muted">{t('noRules')}</p>
       )}
       {/* The page's reset gives a checkbox no size; the builder's choice class gives it one a person can tick. */}
-      <label className="agent-surface-choice" htmlFor={requiredId}>
+      <label className="lt-field" htmlFor={requiredId}>
         <input
           id={requiredId}
           type="checkbox"
