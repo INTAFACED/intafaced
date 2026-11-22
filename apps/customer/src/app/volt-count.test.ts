@@ -73,7 +73,7 @@ describe('the off-kit rule', () => {
       'room/Inner.tsx': `import './room.css';\nexport const Inner = () => <div style={{ color: 'red' }} className={\`field \${x}\`} />;\n`,
       'room/room.css': '',
       'shared/ui.tsx': `export const Page = () => null;\n`,
-      'Card.tsx': `export const Card = () => null;\n`,
+      'Card.tsx': `export const Card = () => <div className="card" />;\n`,
     });
     const kinds = offKitFindings(join(dir, 'room/Room.tsx')).map((f) => `${f.kind} ${f.at.split('/').slice(-1)[0]}`);
     expect(kinds.sort()).toEqual(
@@ -86,5 +86,23 @@ describe('the off-kit rule', () => {
         'own-class Inner.tsx:2',
       ].sort(),
     );
+  });
+
+  it('passes a part from outside the folder that is drawn only from the kit, and fails one that is not', () => {
+    const dir = plant({
+      'room/Room.tsx': [
+        `import { DeskTemplate } from '@intafaced/ui/lit/templates';`,
+        `import { Clean } from '../parts/Clean';`,
+        `import { Dirty } from '../parts/Dirty';`,
+        `export const Room = () => <DeskTemplate><Clean /><Dirty /></DeskTemplate>;`,
+      ].join('\n'),
+      'parts/Clean.tsx': `import { Tag } from '@intafaced/ui/lit';\nimport { Inner } from './Inner';\nexport const Clean = () => <Tag className="lt-chip"><Inner /></Tag>;\n`,
+      'parts/Inner.tsx': `import { Room } from '../room/Room';\nexport const Inner = () => <span className="lt-sr" />;\n`,
+      'parts/Dirty.tsx': `import { Helper } from './Helper';\nexport const Dirty = () => <Helper />;\n`,
+      'parts/Helper.tsx': `export const Helper = () => <div className="flex gap-2" />;\n`,
+    });
+    const found = offKitFindings(join(dir, 'room/Room.tsx'));
+    expect(found.map((f) => `${f.kind} ${f.at.split('/').slice(-1)[0]}`)).toEqual(['outside-component Room.tsx:3']);
+    expect(found[0]!.text).toMatch(/^Dirty from \.\.\/parts\/Dirty, which draws off the kit: own-class at .*Helper\.tsx:1$/);
   });
 });

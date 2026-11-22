@@ -4,7 +4,7 @@ import { test, expect } from './journey.mjs';
 import { journeyState, restartWithSetting, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { closedBarsSince, tapeWindow, utcMinute } from './tape.mjs';
-import { testVenue, venueForThisFile } from './venue.mjs';
+import { otherTraderKey, venueForThisFile, venueRecord } from './venue.mjs';
 
 // J-algo-dev-02, in the running app (docs/roadmap/journeys.json): check that a backtest result is honest before trusting
 // or sharing it. One test per step this build serves, titled "J-algo-dev-02 #<n>", run in order on one TEST developer
@@ -302,10 +302,10 @@ test(`${J} #5 opens the simulated account and turns on margin: the venue's maxim
 }) => {
   const { window } = run.read();
   if (!window) throw new Error(`${J} #1 fixed no window, so this step has nothing to run on`);
-  // The venue's own published rules for its perpetual on BTC, read from the TEST venue itself, never from the page.
-  const markets = await testVenue('/markets', { account: null });
-  expect(markets.status, JSON.stringify(markets.body).slice(0, 300)).toBe(200);
-  const perp = markets.body.value.find((m) => m.kind === 'perpetual' && m.symbol === 'BTC-PERP');
+  // The venue's own published rules for its perpetual on BTC, read from the TEST venue's own record on loopback, never
+  // through our door or the page. The rules are public, so any TEST trader's read of them is the same.
+  const markets = await venueRecord(otherTraderKey(J).address, '/markets');
+  const perp = markets.value.find((m) => m.kind === 'perpetual' && m.symbol === 'BTC-PERP');
   expect(perp, 'the TEST venue lists no BTC-PERP').toBeTruthy();
   expect(perp.maintenanceMarginRate?.known, 'the TEST venue publishes no single maintenance rate on BTC-PERP').toBe(true);
   const venueMax = String(perp.maxLeverageBps / 10_000);
