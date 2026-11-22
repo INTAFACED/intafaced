@@ -172,9 +172,16 @@ type ListingRequest = Extract<
   { kind: 'protocol.pool.hide' | 'protocol.pool.restore' | 'protocol.market.delist' | 'protocol.market.restore' }
 >;
 
-/** The svc-ops procedure, its input (before the approval ids) and the state the answer must show for one listing request. */
+/** The svc-ops call each listing request is sent as. */
+const LISTING_CALLS = {
+  'protocol.pool.hide': { procedure: 'protocolListing.pools.hide' },
+  'protocol.pool.restore': { procedure: 'protocolListing.pools.restore' },
+  'protocol.market.delist': { procedure: 'protocolListing.markets.delist' },
+  'protocol.market.restore': { procedure: 'protocolListing.markets.restore' },
+} as const;
+
+/** The input (before the approval ids) and the state the answer must show for one listing request. */
 function listingCall(request: ListingRequest): {
-  procedure: string;
   input: Record<string, unknown>;
   targetId: string;
   state: 'hidden' | 'visible';
@@ -182,28 +189,24 @@ function listingCall(request: ListingRequest): {
   switch (request.kind) {
     case 'protocol.pool.hide':
       return {
-        procedure: 'protocolListing.pools.hide',
         input: { chainId: request.chainId, poolAddress: request.poolAddress, reasonCode: request.reasonCode, reason: request.reason },
         targetId: poolTargetId(request.chainId, request.poolAddress),
         state: 'hidden',
       };
     case 'protocol.pool.restore':
       return {
-        procedure: 'protocolListing.pools.restore',
         input: { chainId: request.chainId, poolAddress: request.poolAddress },
         targetId: poolTargetId(request.chainId, request.poolAddress),
         state: 'visible',
       };
     case 'protocol.market.delist':
       return {
-        procedure: 'protocolListing.markets.delist',
         input: { symbol: request.symbol, reasonCode: request.reasonCode, reason: request.reason },
         targetId: marketTargetId(request.symbol),
         state: 'hidden',
       };
     case 'protocol.market.restore':
       return {
-        procedure: 'protocolListing.markets.restore',
         input: { symbol: request.symbol },
         targetId: marketTargetId(request.symbol),
         state: 'visible',
@@ -416,7 +419,8 @@ export function opsExecute(ctx: FounderCallContext): ExecuteFn {
       request.kind === 'protocol.market.restore'
     ) {
       const call = listingCall(request);
-      const result = await founderCall(ctx, 'ops', call.procedure, 'POST', { ...call.input, ...ids }, readListingAnswer);
+      const spec = LISTING_CALLS[request.kind];
+      const result = await founderCall(ctx, 'ops', spec.procedure, 'POST', { ...call.input, ...ids }, readListingAnswer);
       if (result.kind !== 'ok') return failureRefusal('svc-ops', 'ops', result);
       const a = result.data;
       if (a.action !== request.kind || a.targetId !== call.targetId || a.state !== call.state) return WRONG_STATE;

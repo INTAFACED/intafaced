@@ -125,6 +125,18 @@ function reply(result: FounderCallResult<unknown>, what: string): { status: numb
   }
 }
 
+/** The svc-academy call each learner change is sent as. */
+const LEARNER_CALLS = {
+  addNote: { procedure: 'admin.addLearnerNote' },
+  markComplete: { procedure: 'admin.markCompleteFor' },
+  voidAttempt: { procedure: 'admin.voidQuizAttempt' },
+  extension: { procedure: 'admin.grantLearnerExtension' },
+  grantAccess: { procedure: 'admin.grantAccess' },
+  reinstate: { procedure: 'admin.reinstateAccess' },
+  tag: { procedure: 'admin.tagLearners' },
+  untag: { procedure: 'admin.untagLearner' },
+} as const satisfies Record<LearnerOp, { procedure: string }>;
+
 export async function changeLearner(
   ctx: FounderCallContext,
   op: LearnerOp,
@@ -133,7 +145,8 @@ export async function changeLearner(
   const change = learnerChange(op, body);
   if ('why' in change) return change;
   const parse = op === 'tag' ? readAdded : readChange;
-  return reply(await founderCall(ctx, 'academy', change.procedure, 'POST', change.input, parse as (raw: unknown) => unknown), change.what);
+  const spec = LEARNER_CALLS[op];
+  return reply(await founderCall(ctx, 'academy', spec.procedure, 'POST', change.input, parse as (raw: unknown) => unknown), change.what);
 }
 
 export { isLearnerOp };
