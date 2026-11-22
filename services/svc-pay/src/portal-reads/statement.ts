@@ -374,6 +374,9 @@ function ambiguousLine(draft: Draft): Lined {
   };
 }
 
+/** How far a dispute's last event may trail its ledger posting and still name its keys. */
+const STATEMENT_DISPUTE_CLOCK_MARGIN_MS = 15 * 60_000;
+
 /**
  * One merchant's ledger statement.
  *
@@ -478,14 +481,20 @@ async function readStatementWindow(
      WHERE p.merchant_id = ${input.merchantId} AND e.event = 'refund.posted'
        AND e.payload->>'refundId' IS NOT NULL
        AND e.ts >= ${from} AND e.ts < ${to}`;
+  // A dispute's outcome (won, shortfall recovered) can post inside the window
+  // long after it opened. So a dispute is a candidate when it opened before `to`
+  // and any event of it (opening, outcome, ledger effect) is at or after `from`,
+  // less a margin for the ledger's clock against this database's. A candidate
+  // only names keys: each transaction's own posting time decides the window.
   const disputes = await sql<Array<{ dispute_id: string; currency: string }>>`
-    SELECT DISTINCT e.payload->>'disputeId' AS dispute_id, p.currency
+    SELECT e.payload->>'disputeId' AS dispute_id, p.currency
       FROM pay.payment_events e
       JOIN pay.payments p ON p.id = e.payment_id
      WHERE p.merchant_id = ${input.merchantId}
        AND e.payload->>'disputeId' IS NOT NULL
-       AND e.event IN ('chargeback.opening_planned', 'disputed')
-       AND e.ts >= ${from} AND e.ts < ${to}`;
+     GROUP BY e.payload->>'disputeId', p.currency
+    HAVING bool_or(e.event IN ('chargeback.opening_planned', 'disputed') AND e.ts < ${to})
+       AND max(e.ts) >= ${new Date(from.getTime() - STATEMENT_DISPUTE_CLOCK_MARGIN_MS)}`;
   const payouts = await sql<Array<{ settlement_id: string; attempt: number; asset_id: string }>>`
     SELECT settlement_id, attempt, asset_id FROM pay.payout_admissions
      WHERE merchant_id = ${input.merchantId}

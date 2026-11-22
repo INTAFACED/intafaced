@@ -97,12 +97,13 @@ async function open(path: string) {
   });
 }
 
-// The blocks intafaced issue 9302 lists, in its order, with the parts issue 9326 adds.
+// The blocks intafaced issue 9302 lists, in its order, with the parts issues 9326 and 9563 add.
 const BLOCKS = [
   'colour',
   'type',
   'balance',
   'object',
+  'money-parts',
   'buttons',
   'inputs',
   'controls',
@@ -114,9 +115,11 @@ const BLOCKS = [
   'rail',
   'icons',
   'chart',
+  'time-line',
   'candles',
   'book',
   'people',
+  'qr',
   'states',
   'sheet',
 ];
@@ -167,6 +170,11 @@ describe('the Volt kit page (intafaced issue 9302), with Volt the only look (iss
     expect(block('candles').querySelector('.pc-root')?.getAttribute('data-candles'), 'the candle chart, with its 40 TEST candles').toBe(
       '40',
     );
+    const codes = block('qr').querySelectorAll('figure.lt-qr');
+    expect(codes, 'two QR codes, md and sm').toHaveLength(2);
+    expect(codes[0]!.querySelector('svg[role="img"]')?.getAttribute('aria-label')).toBe('Scan to open the TEST payment link');
+    expect(codes[1]!.querySelector('figcaption')?.textContent, 'the small one shows its text').toMatch(/^ethereum:0x/);
+    expect(block('qr').querySelector('[role="alert"]')?.textContent, 'and a text too long draws its failure line').toMatch(/too long/);
     const small = block('candles').querySelectorAll('figure.lt-candles');
     expect(small, 'the small candle chart, drawn and empty').toHaveLength(2);
     expect(
@@ -175,6 +183,23 @@ describe('the Volt kit page (intafaced issue 9302), with Volt the only look (iss
     ).toHaveLength(32);
     expect(small[1]!.querySelector('[role="status"]')?.textContent, 'its honest empty line').toMatch(/^No trades/);
     expect(block('book').querySelector('[data-widget], [role="table"], table, [data-testid]'), 'the order book').not.toBeNull();
+    const lines = block('time-line').querySelectorAll('figure.lt-timeline');
+    expect(lines, 'the line over time, drawn and empty').toHaveLength(2);
+    expect(
+      lines[0]!.querySelectorAll('svg[data-chart="kit-time-line"] [data-run]'),
+      'two runs, broken by the hours with no figure',
+    ).toHaveLength(2);
+    expect(lines[0]!.querySelector('.lt-timeline-zero'), 'its zero line').not.toBeNull();
+    const plot = lines[0]!.querySelector<HTMLElement>('.lt-timeline-plot[tabindex="0"]');
+    expect(plot, 'its plot takes the keyboard').not.toBeNull();
+    await act(async () => {
+      plot!.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+    });
+    expect(lines[0]!.querySelector('[role="status"]')?.textContent, 'the readout names the last point').toMatch(
+      /^21 Nov 23:00 UTC: \$.+ TEST$/,
+    );
+    expect(lines[0]!.querySelector('.lt-timeline-cursor'), 'and the cursor marks it').not.toBeNull();
+    expect(lines[1]!.querySelector('[role="status"]')?.textContent, 'its honest empty line').toMatch(/^No points/);
   });
 
   it('/kit shows the markets list: chips filter, headers sort with aria-sort, and only the rows near the view are drawn', async () => {
@@ -209,5 +234,41 @@ describe('the Volt kit page (intafaced issue 9302), with Volt the only look (iss
     first.focus();
     await act(async () => first.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })));
     expect(document.activeElement?.closest('tr')?.dataset.index, 'ArrowDown moves to the next row').toBe(String(start + 1));
+  });
+
+  it('/kit shows the money parts issue 9563 adds, and the info tip opens on focus, tap and hover and closes on Escape', async () => {
+    await open('/kit');
+    const block = host.querySelector('[data-testid="volt-kit"] [data-block="money-parts"]')!;
+    expect(block.querySelector('[data-slot="asset-icon"][data-asset="BTC"] svg'), 'a listed asset draws its art').not.toBeNull();
+    expect(
+      block.querySelector('[data-slot="asset-icon"][data-asset="XYZ"]')?.getAttribute('data-fallback'),
+      'an unknown asset is lettered',
+    ).toBe('lettered');
+    expect(block.querySelector('[data-slot="hero-figure"] .lit-figure[data-size="hero"]'), 'the hero figure').not.toBeNull();
+    expect(block.querySelector('[data-slot="hero-figure"][data-unknown]')?.getAttribute('aria-label'), 'no figure is a dash').toBe(
+      'Not available',
+    );
+    expect(block.querySelector('details.lit-fold [data-part="count"]')?.textContent, 'the fold counts its items').toBe('3');
+    expect(block.querySelectorAll('.lit-stack a.lit-stack__card').length, 'the stack: two cards, each a link').toBe(2);
+
+    const tip = block.querySelector<HTMLButtonElement>('[data-testid="kit-tip"]')!;
+    const bubble = () => block.querySelector('.lit-tip__bubble');
+    const described = document.getElementById(tip.getAttribute('aria-describedby')!);
+    expect(described?.textContent, 'the text is the button’s description, with no hover').toContain('in US dollars');
+    expect(bubble()).toBeNull();
+    await act(async () => tip.focus());
+    expect(tip.getAttribute('aria-expanded'), 'focus opens it').toBe('true');
+    await act(async () => tip.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    expect(bubble(), 'Escape closes it').toBeNull();
+    await act(async () => tip.click());
+    expect(bubble()?.textContent, 'a tap opens it').toContain('in US dollars');
+    await act(async () => tip.click());
+    expect(bubble(), 'a second tap closes it').toBeNull();
+
+    const hide = [...block.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === 'Hide balances')!;
+    await act(async () => hide.click());
+    const hero = block.querySelector('[data-slot="hero-figure"][data-hidden]');
+    expect(hero?.getAttribute('aria-label'), 'hidden, the figure is masked and said so').toBe('Balance hidden');
+    expect(hero?.textContent).not.toContain('12,468');
   });
 });

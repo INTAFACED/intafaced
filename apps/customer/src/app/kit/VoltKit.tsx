@@ -32,7 +32,21 @@ import { VoltStack } from '../../screens/home/VoltStack';
 import type { HomePortfolio } from '../../screens/home/deps';
 import { MobileTabs } from '../TopBar';
 import { useResolvedColours } from '../../shared/resolved-colours';
-import { Book, CandleChart, ComputerRail, Controls, Icons, MarketList, Overlays, SmallCandles, StepsAndSpark, TypeRoles } from './KitParts';
+import {
+  Book,
+  CandleChart,
+  ComputerRail,
+  Controls,
+  Icons,
+  MarketList,
+  MoneyParts,
+  Overlays,
+  ScanCodes,
+  SmallCandles,
+  StepsAndSpark,
+  TypeRoles,
+} from './KitParts';
+import { TimeLines } from './KitTimeLine';
 import './kit.css';
 
 /**
@@ -319,6 +333,14 @@ export default function VoltKit() {
         </div>
       </Block>
 
+      <Block
+        id="money-parts"
+        title="Money parts"
+        note="An asset's mark (a lettered disc when the kit has no art), the info tip, the hero figure shown, hidden and missing, the small-balances fold and the card stack."
+      >
+        <MoneyParts />
+      </Block>
+
       <Block id="buttons" title="Buttons" note="One primary per view. Every variant at rest, disabled and busy.">
         <div className="vk-grid">
           <div className="vk-row">
@@ -510,6 +532,14 @@ export default function VoltKit() {
       </Block>
 
       <Block
+        id="time-line"
+        title="A line over time"
+        note="TEST profit and loss placed by time, so a gap keeps its width, with its dashed zero line. Point at it, or focus it and use the arrow keys, to read a point. Below, its empty line."
+      >
+        <TimeLines />
+      </Block>
+
+      <Block
         id="candles"
         title="The candle chart"
         note="TEST hourly candles, with volume and moving averages. Below, the small one for a pool or a token: placed by time, so a quiet stretch is a gap, and its empty line."
@@ -524,6 +554,14 @@ export default function VoltKit() {
 
       <Block id="people" title="Quick send" note="The people you send to most, a tap away. New.">
         <QuickSend label="Quick send" people={TEST_PEOPLE} add={{ label: 'Add new', href: '/pay/send' }} />
+      </Block>
+
+      <Block
+        id="qr"
+        title="A code to scan"
+        note="Dark on a light ground in every theme, so a phone reads it; its words underneath when asked, and its failure line."
+      >
+        <ScanCodes />
       </Block>
 
       <Block id="states" title="Empty, loading and error">
