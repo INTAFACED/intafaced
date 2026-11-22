@@ -42,7 +42,15 @@ test('a pull request into volt/* that carries main commits its layer lacks is re
   assert.ok(step, "ci.yml has the step 'Judge on main as it is now'");
   const script = step.replace(/^ {10}/gm, '');
   const dir = mkdtempSync(join(tmpdir(), 'volt-sync-'));
-  const env = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
+  const env = {
+    ...process.env,
+    GIT_AUTHOR_NAME: 't',
+    GIT_AUTHOR_EMAIL: 't@t',
+    GIT_COMMITTER_NAME: 't',
+    GIT_COMMITTER_EMAIL: 't@t',
+    GIT_CONFIG_GLOBAL: '/dev/null',
+    GIT_CONFIG_NOSYSTEM: '1',
+  };
   const git = (cwd, ...a) => execFileSync('git', a, { cwd, env, encoding: 'utf8' }).trim();
   const origin = join(dir, 'origin.git');
   const work = join(dir, 'work');
@@ -59,7 +67,15 @@ test('a pull request into volt/* that carries main commits its layer lacks is re
     git(work, 'checkout', '-q', '--detach', `origin/${base}`);
     git(work, 'merge', '-q', '--no-ff', '--no-edit', headSha);
     try {
-      return { ok: true, out: execFileSync('bash', ['-e', '-c', script], { cwd: work, env: { ...env, GITHUB_BASE_REF: base }, encoding: 'utf8', stdio: 'pipe' }) };
+      return {
+        ok: true,
+        out: execFileSync('bash', ['-e', '-c', script], {
+          cwd: work,
+          env: { ...env, GITHUB_BASE_REF: base },
+          encoding: 'utf8',
+          stdio: 'pipe',
+        }),
+      };
     } catch (e) {
       return { ok: false, out: `${e.stdout}${e.stderr}` };
     }
