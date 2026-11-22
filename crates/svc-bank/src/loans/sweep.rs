@@ -7,7 +7,7 @@
 
 use postgres::GenericClient;
 use service_kit::json::Json;
-use service_kit::money::{Amount, format_amount, parse_amount};
+use service_kit::money::{Amount, Rounding, format_amount, mul_div, parse_amount};
 use service_kit::time::Instant;
 
 use super::apply::quote_value;
@@ -420,10 +420,6 @@ fn release_all(d: &Deps<'_>, l: &Loan, held: Amount) -> Result<(), Refusal> {
     super::service::release_collateral_closing(d, l, held).map(|_| ())
 }
 
-fn ceil_div(a: Amount, b: Amount) -> Amount {
-    (a + b - 1) / b
-}
-
 /// `raiseMarginCall`: an open call is the call; a later sweep only re-sends a notice that never got out, on the same
 /// row. A new call's cure is rounded up, and `margin_called_at` is set only if unset, so the grace clock never restarts.
 #[allow(
@@ -443,14 +439,15 @@ fn raise_margin_call(
 ) -> Result<(), Refusal> {
     let debt_value = quote_value(debt, debt_mark.mark.price, Round::Ceil);
     let target = Amount::from(p.policy.target_ltv_bps);
-    let needed = ceil_div(debt_value * 10_000, target);
+    // Wide intermediates, as the TypeScript's bigint: `short * ONE` alone passes i128 at a few thousand units.
+    let needed = mul_div(debt_value, 10_000, target, Rounding::Ceil);
     let have = quote_value(collateral, collateral_mark.mark.price, Round::Floor);
     let short = if needed > have { needed - have } else { 0 };
     let price = collateral_mark.mark.price;
     let cure = if short == 0 {
         0
     } else {
-        ceil_div(short * ONE, price)
+        mul_div(short, ONE, price, Rounding::Ceil)
     };
     let open = with(d.store, |c| {
         c.query(

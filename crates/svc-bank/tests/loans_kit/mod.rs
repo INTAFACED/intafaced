@@ -497,6 +497,21 @@ impl Book {
         .unwrap();
     }
 
+    /// A raw move of the test's own: `value` out of `from` into `to` (`ledger.post({ entries: [credit(from), debit(to)] })`).
+    pub fn shift(&self, from: &LedgerAccount, to: &LedgerAccount, value: &str) {
+        let x = amt(value);
+        let key = format!("shift:{}", uuid());
+        let mut st = self.0.lock().unwrap();
+        Book::book(
+            &mut st,
+            &key,
+            "shift",
+            &Json::str(key.clone()),
+            &[credit(from, x), debit(to, x)],
+        )
+        .unwrap();
+    }
+
     /// `fund(MM_FUNDER, asset, value)` then the seed into `marketMaker(asset)`: the market maker's cash.
     pub fn seed_market_maker(&self, asset: &str, value: &str) {
         self.fund(MM_SWEEP, asset, value);
