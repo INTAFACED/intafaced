@@ -396,6 +396,9 @@ importers:
         specifier: ^3.4.5
         version: 3.4.9
     devDependencies:
+      '@testcontainers/postgresql':
+        specifier: 11.14.0
+        version: 11.14.0
       '@types/node':
         specifier: ^22.20.5
         version: 22.20.5
@@ -1096,9 +1099,6 @@ importers:
         specifier: ^4.6.7
         version: 4.6.7
     devDependencies:
-      '@testcontainers/postgresql':
-        specifier: 11.14.0
-        version: 11.14.0
       '@types/node':
         specifier: ^22.20.5
         version: 22.20.5
@@ -1549,9 +1549,6 @@ importers:
       '@intafaced/svc-protocol':
         specifier: workspace:*
         version: link:../svc-protocol
-      '@testcontainers/postgresql':
-        specifier: 11.14.0
-        version: 11.14.0
       '@types/node':
         specifier: ^22.20.5
         version: 22.20.5
@@ -1610,9 +1607,6 @@ importers:
         specifier: ^4.6.7
         version: 4.6.7
     devDependencies:
-      '@testcontainers/postgresql':
-        specifier: 11.14.0
-        version: 11.14.0
       '@types/node':
         specifier: ^22.20.5
         version: 22.20.5
@@ -1714,9 +1708,6 @@ importers:
       '@intafaced/auth':
         specifier: workspace:*
         version: link:../../packages/auth
-      '@testcontainers/postgresql':
-        specifier: 11.14.0
-        version: 11.14.0
       '@types/node':
         specifier: ^22.20.5
         version: 22.20.5
@@ -1882,9 +1873,6 @@ importers:
         specifier: ^4.6.7
         version: 4.6.7
     devDependencies:
-      '@testcontainers/postgresql':
-        specifier: 11.14.0
-        version: 11.14.0
       '@types/node':
         specifier: ^22.20.5
         version: 22.20.5
@@ -1961,9 +1949,6 @@ importers:
       '@intafaced/service-kit':
         specifier: workspace:*
         version: link:../../packages/service-kit
-      '@testcontainers/postgresql':
-        specifier: 11.14.0
-        version: 11.14.0
       '@types/node':
         specifier: ^22.20.5
         version: 22.20.5
@@ -2208,9 +2193,6 @@ importers:
         specifier: ^4.6.7
         version: 4.6.7
     devDependencies:
-      '@testcontainers/postgresql':
-        specifier: 11.14.0
-        version: 11.14.0
       '@types/node':
         specifier: ^22.20.5
         version: 22.20.5
@@ -2290,9 +2272,6 @@ importers:
       '@intafaced/venue-sim':
         specifier: workspace:*
         version: link:../../packages/venue-sim
-      '@testcontainers/postgresql':
-        specifier: 11.14.0
-        version: 11.14.0
       '@types/node':
         specifier: ^22.20.5
         version: 22.20.5

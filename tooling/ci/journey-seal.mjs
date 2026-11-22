@@ -57,7 +57,7 @@
  *
  *   REPO=owner/name HEAD_SHA=... PR_NUMBER=... node tooling/ci/journey-seal.mjs
  *   REPO=... MERGE_GROUP_BASE_SHA=... MERGE_GROUP_HEAD_SHA=... MERGE_GROUP_HEAD_REF=... node tooling/ci/journey-seal.mjs
- *   REPO=... node tooling/ci/journey-seal.mjs --dry-run <pr> [<sha>]   (any pull request, closed too; read only)
+ *   REPO=... node tooling/ci/journey-seal.mjs --dry-run <pr> [<sha>] [--main <sha>]   (any pull request, closed too; read only)
  *   REPO=... SHA=... [PR_NUMBER=...] [OLD_TITLE=...] [OLD_BODY=...] node tooling/ci/journey-seal.mjs --recheck   (re-runs the seal)
  * CI sets GH_TOKEN; run by hand, it reads through the logged-in gh (github-fetch.mjs).
  */
@@ -68,7 +68,17 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { githubFetch, githubToken } from './github-fetch.mjs';
 import { runJobs } from './run-jobs.mjs';
-import { JOURNEYS_ARTIFACT, fetchInputs, isMainRun, judge, manifestsAt, moneyRule, readReport, rootInputs } from './journey-verdict.mjs';
+import {
+  BASELINE_PATH,
+  JOURNEYS_ARTIFACT,
+  fetchInputs,
+  isMainRun,
+  judge,
+  manifestsAt,
+  moneyRule,
+  readReport,
+  rootInputs,
+} from './journey-verdict.mjs';
 import {
   DISPATCH_GROUP_MAX,
   RUN_FILE,
@@ -756,7 +766,8 @@ export function makeIo(repo, token) {
       }
       return out;
     },
-    verdictOf: (report, run, { headMoney = null } = {}) => fullVerdict({ repo, report, run, inputs: baseInputs(), headMoney }),
+    verdictOf: (report, run, { headMoney = null, headBaseline = null } = {}) =>
+      fullVerdict({ repo, report, run, inputs: baseInputs(), headMoney, headBaseline }),
     // The money rule at a pull request's head (moneyAt), for a money-flag mismatch on its own run (sealPull).
     headMoney: (ref) => moneyVia(repo, token, ref),
   };
@@ -783,7 +794,7 @@ export function journeyFilesAt(root) {
 
 /** One run's verdict, as journey-verdict.mjs would print it with the default branch's baseline, and the journey files
  *  of the full suite (the baseline's named run) its report lacks. GET only, through gh (GH_TOKEN). */
-export function fullVerdict({ repo, report, run, inputs, read = fetchInputs, headMoney = null }) {
+export function fullVerdict({ repo, report, run, inputs, read = fetchInputs, headMoney = null, headBaseline = null }) {
   const { baseline, money, reports, memo } = inputs;
   const got = read({ repo, baseline, thisRun: run, reports, memo, log: () => {} });
   const red = got.problems.map((why) => ({ step: '(input)', why }));
@@ -812,6 +823,8 @@ export function fullVerdict({ repo, report, run, inputs, read = fetchInputs, hea
     issues: got.issues,
     target,
     headMoney,
+    // The baseline the merge would hold: the head's when the pull request changes it (sealPull), else main's.
+    headBaseline: headMoney ? (headBaseline ?? baseline) : null,
   });
   // Where each red step last passed on main before this run (the newest history run that passed it, else the named run
   // when it passed there), or null when it never passed: the merge seal bounds an inherited red by the commits since.
@@ -903,6 +916,12 @@ function moneyVia(repo, token, ref) {
     text: (p) => makeIo(repo, token).text(p, ref),
   });
 }
+
+/** A path the money rule or the baseline is read from (rootInputs, moneyAt): changing one can change a step's money flag. */
+export const moneyInput = (path) =>
+  ['docs/roadmap/journeys.json', 'docs/roadmap/slices.json', BASELINE_PATH].includes(path) ||
+  /^(?:apps|services|packages|tooling)\/[^/]+\/package\.json$/.test(path) ||
+  /^crates\/[^/]+\/Cargo\.toml$/.test(path);
 
 /** A pull request's changed paths, whole: GitHub lists at most 3,000, so a longer list fails closed. */
 export async function pullFiles(get, repo, n) {
@@ -1031,15 +1050,12 @@ const CULPRIT_PULL = /^Revert #(\d+), which turned the Real-app journeys red \(r
  * culprit pull request's title (or ''); `journeyFiles`: the head's journey file names.
  */
 export function autoRevertScope({ pull, repo, paths, commits, culprit, culpritTitle = '', journeyFiles }) {
-  const branch = AUTO_REVERT_BRANCH.exec(String(pull?.head?.ref ?? ''));
-  if (!branch) return null;
+  const origin = autoRevertOrigin({ pull, repo, commits });
+  if (!origin) return null;
   const no = (why) => ({ ok: false, why: `an automatic revert's branch, but ${why}, so it runs the ordinary scope` });
-  if (pull?.head?.repo?.full_name !== repo) return no('its head is not in this repository');
-  if (pull?.user?.login !== AUTO_REVERT_AUTHOR || pull?.user?.type !== 'Bot') return no(`it was not opened by ${AUTO_REVERT_AUTHOR}`);
-  if (!Array.isArray(commits) || commits.length !== 1) return no('it does not hold exactly one commit');
-  const sha = REVERTS_COMMIT.exec(String(commits[0]?.commit?.message ?? ''))?.[1];
-  if (!sha || !sha.startsWith(branch[1])) return no(`its commit does not say it reverts ${branch[1]}`);
-  if (!Array.isArray(culprit?.files) || culprit.sha !== sha) return no(`the reverted commit ${branch[1]} could not be read`);
+  if (!origin.sha) return no(origin.why);
+  const { sha } = origin;
+  if (!Array.isArray(culprit?.files) || culprit.sha !== sha) return no(`the reverted commit ${sha.slice(0, 10)} could not be read`);
   const own = new Set(pullFilePaths(culprit.files));
   const outside = paths.filter((f) => !own.has(f));
   if (outside.length) return no(`it changes ${outside.length} file(s) the reverted commit didn't`);
@@ -1060,6 +1076,108 @@ export function autoRevertScope({ pull, repo, paths, commits, culprit, culpritTi
     files,
     why: `the automatic revert of ${sha.slice(0, 10)} runs the journeys that failed on main and the reverted change's own (${files.length}); main's full journeys run after the merge guards main`,
   };
+}
+
+/**
+ * Whether main-bisect opened this pull request: null off a `revert/auto-<sha10>` branch; else `{ sha }`, the commit it
+ * reverts, or `{ why }` it is not: opened by the factory App from this repository, holding exactly one commit whose message
+ * says it reverts the commit the branch names. `commits`: GET /pulls/n/commits.
+ */
+export function autoRevertOrigin({ pull, repo, commits }) {
+  const branch = AUTO_REVERT_BRANCH.exec(String(pull?.head?.ref ?? ''));
+  if (!branch) return null;
+  if (pull?.head?.repo?.full_name !== repo) return { why: 'its head is not in this repository' };
+  if (pull?.user?.login !== AUTO_REVERT_AUTHOR || pull?.user?.type !== 'Bot') return { why: `it was not opened by ${AUTO_REVERT_AUTHOR}` };
+  if (!Array.isArray(commits) || commits.length !== 1) return { why: 'it does not hold exactly one commit' };
+  const sha = REVERTS_COMMIT.exec(String(commits[0]?.commit?.message ?? ''))?.[1];
+  if (!sha || !sha.startsWith(branch[1])) return { why: `its commit does not say it reverts ${branch[1]}` };
+  return { sha };
+}
+
+/**
+ * Whether main-bisect's revert is a pure revert: merged onto main now, it gives main's tree with the reverted commit's
+ * files back as they were before it, a state main already accepted, and changes nothing else. Then the seal judges no
+ * journeys for it and does not wait for its journeys run: it merges on main's other required checks, and main's full
+ * journeys run after the merge judges it (it bisects and reverts again if red). Intafaced #9603, 22 Nov 2026: the revert
+ * of #9539 waited 1 h 31 m on a seal that judged it like new code (8 steps red on a money-rule mismatch) while main stayed
+ * red and four fix-forward pull requests raced. Null off main-bisect's branch; `{ ok: false, why }` when any proof fails,
+ * and it is judged in full. Every proof, from GitHub (a compare lists up to 300 files, so a longer one fails):
+ *   - opened by main-bisect (autoRevertOrigin), the reverted commit read whole with one parent;
+ *   - the pull request changes exactly the reverted commit's files (`paths`, renames by both names);
+ *   - the reverted commit is in main's history and main has not changed those files since (`sinceCulprit`: compare
+ *     culprit...main): it is main's newest merge, or every merge after it touched other files;
+ *   - its one commit's parent is in main's history (`parentOnMain`: parent...main) and holds the culprit with those files
+ *     unchanged (`parentSince`: culprit...parent), so the merge base is that parent and it agrees with main on them;
+ *   - at its head those files are the culprit's parent's (`restored`: culprit^...head lists none of them).
+ * So a changed line anywhere fails: in another file, `paths`; in one of the culprit's, `restored`. Pure.
+ */
+export function pureRevert({ origin, culprit, parent, paths, sinceCulprit, parentOnMain, parentSince, restored }) {
+  if (!origin) return null;
+  const no = (why) => ({ ok: false, why: `not a pure revert: ${why}, so the seal judges it in full` });
+  if (!origin.sha) return no(origin.why);
+  const { sha } = origin;
+  const short = sha.slice(0, 10);
+  if (culprit?.sha !== sha || !Array.isArray(culprit?.files) || !culprit.files.length || culprit.files.length >= 300)
+    return no(`the reverted commit ${short} could not be read whole`);
+  if (!Array.isArray(culprit.parents) || culprit.parents.length !== 1 || !SHA40.test(String(culprit.parents[0]?.sha)))
+    return no(`the reverted commit ${short} does not have exactly one parent`);
+  if (!SHA40.test(String(parent ?? ''))) return no("its commit's parent could not be read");
+  const own = new Set(pullFilePaths(culprit.files));
+  const mine = new Set(paths ?? []);
+  const extra = [...mine].filter((f) => !own.has(f));
+  const missing = [...own].filter((f) => !mine.has(f));
+  if (extra.length || missing.length)
+    return no(
+      `it changes ${extra.length ? `${extra.length} file(s) the reverted commit didn't (${extra.slice(0, 3).join(', ')})` : ''}${extra.length && missing.length ? ' and ' : ''}${missing.length ? `not ${missing.length} of its files (${missing.slice(0, 3).join(', ')})` : ''}`,
+    );
+  // A compare from `base` to a head that holds it, listed whole; the culprit's files it changes.
+  const changed = (c) => {
+    if (!['ahead', 'identical'].includes(c?.status) || !Array.isArray(c?.files) || c.files.length >= 300) return null;
+    return pullFilePaths(c.files).filter((f) => own.has(f));
+  };
+  const since = changed(sinceCulprit);
+  if (!since) return no(`main's history since ${short} could not be read whole, or does not hold it`);
+  if (since.length) return no(`main changed ${since.length} of its files since ${short} (${since.slice(0, 3).join(', ')})`);
+  if (!changed(parentOnMain)) return no("its commit's parent is not in main's history");
+  const base = changed(parentSince);
+  if (!base) return no(`its commit's parent does not hold ${short}`);
+  if (base.length) return no(`its commit's parent has ${base.length} of the reverted files changed since ${short}`);
+  const left = changed(restored);
+  if (!left) return no("its head could not be compared with the reverted commit's parent");
+  if (left.length) return no(`${left.length} of the reverted files differ from before ${short} (${left.slice(0, 3).join(', ')})`);
+  return {
+    ok: true,
+    sha,
+    why: `a pure revert of ${short}: merged, main's tree has its ${own.size} file(s) back as main held them before it and nothing else changed, so no journeys are judged here; main's full journeys run after the merge judges it`,
+  };
+}
+
+/**
+ * Reads what pureRevert needs through `io` (pullCommits, commit, compare(base, head)), only for main-bisect's branch.
+ * `main`: the branch (or, for a dry run, the commit) the merge lands on. A read that fails is `{ ok: false }`.
+ */
+export async function readPureRevert({ io, repo, pull, number, paths, main = pull?.base?.ref }) {
+  if (!AUTO_REVERT_BRANCH.test(String(pull?.head?.ref ?? ''))) return null;
+  try {
+    const commits = await io.pullCommits(number);
+    const origin = autoRevertOrigin({ pull, repo, commits });
+    if (!origin?.sha) return pureRevert({ origin });
+    const head = String(pull.head.sha);
+    const parents = commits[0]?.parents ?? [];
+    const parent = parents.length === 1 ? parents[0]?.sha : null;
+    const culprit = await io.commit(origin.sha);
+    const before = culprit?.parents?.[0]?.sha;
+    if (!SHA40.test(String(parent)) || !SHA40.test(String(before)) || !main) return pureRevert({ origin, culprit, parent, paths });
+    const [sinceCulprit, parentOnMain, parentSince, restored] = await Promise.all([
+      io.compare(origin.sha, main),
+      io.compare(parent, main),
+      io.compare(origin.sha, parent),
+      io.compare(before, head),
+    ]);
+    return pureRevert({ origin, culprit, parent, paths, sinceCulprit, parentOnMain, parentSince, restored });
+  } catch (e) {
+    return { ok: false, why: `not a pure revert: it could not be read (${e.message}), so the seal judges it in full` };
+  }
 }
 
 /** What the journeys run's planner (real-app-journeys.yml, `--auto-revert-scope`) reads: the narrow files, or null for
@@ -1524,7 +1642,7 @@ export async function reachInputs({ io, paths, head, base, text }) {
 }
 
 /** One pull request's head, judged. */
-export async function sealPull({ repo, number, sha, io: given, requireOpen = true, waitOnRunning = true }) {
+export async function sealPull({ repo, number, sha, io: given, requireOpen = true, waitOnRunning = true, mainAt }) {
   // Main's runs are read once: for the map's age (reachInputs) and for inherited reds (mainReference).
   let mainRuns;
   const headRuns = new Map();
@@ -1567,16 +1685,21 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
   // The revert main-bisect opens (autoRevertScope): it undoes the culprit's journey tests with it, so it names no steps,
   // and it runs the journeys that failed on main and the culprit's own. Anything else on its branch is ordinary.
   const auto = await readAutoRevertScope({ io, repo, pull, number, paths });
-  const touched = auto?.ok
-    ? { ok: true, lines: [`${auto.why}: its journey tests need no steps named`] }
-    : judgeTouched({ repo, title: pull.title, body: pull.body, touched: touchedFiles });
+  // A pure revert of it (pureRevert) returns main to a tree main accepted: no journeys are judged here, and main's full
+  // journeys run after the merge judges it. `pure.ok` takes the GitHub-revert route below, shared setup included.
+  const pure = io.compare ? await readPureRevert({ io, repo, pull, number, paths, main: mainAt }) : null;
+  const touched = pure?.ok
+    ? { ok: true, lines: [pure.why] }
+    : auto?.ok
+      ? { ok: true, lines: [`${auto.why}: its journey tests need no steps named`] }
+      : judgeTouched({ repo, title: pull.title, body: pull.body, touched: touchedFiles });
   // The journeys this pull request can reach (journey-touch.mjs): a journey test file the head removed runs nothing.
   const atHead = new Map();
   for (const f of paths) if (RUN_FILE.test(f)) atHead.set(f, (await text(f, head)) !== null);
   // GitHub's Revert button (revertOf) undoes a change and adds none, so only shared setup still holds it to a run: a red
   // main is fixed or undone within 2 hours (project-state OWNER 180), as judgeSteps and judgeTouched let it.
   // A revert that touches shared setup takes the ordinary scope, as its run does (real-app-journeys.yml's pick step).
-  const reverting = revertOf({ title: pull.title, body: pull.body, repo }) && !paths.some(isSharedSetup);
+  const reverting = (revertOf({ title: pull.title, body: pull.body, repo }) && !paths.some(isSharedSetup)) || Boolean(pure?.ok);
   // A pull request that names a journey is judged on it and its changed journey files, as its run
   // was given them (namedSealInputs), and its product code goes to the map like any other's. What it must run is what its
   // run was given: never the full suite (journey-touch.mjs pullPick), the same bounded set where the map can't narrow it.
@@ -1600,7 +1723,7 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
       : pullPick(paths, journeyTouch(paths, touchAt, inputs, named, tooling), { atHead: touchAt, reach: inputs, named });
   // A stack file narrowed to the journeys using it (theo-01 part 2) no longer needs the full run as shared setup.
   const narrowed = new Set(reach.stack ?? []);
-  const shared = paths.filter((p) => isSharedSetup(p) && !narrowed.has(p));
+  const shared = reverting ? [] : paths.filter((p) => isSharedSetup(p) && !narrowed.has(p));
   const derived = touched.derived ?? [];
   const runs = titleSteps(pull.title).length || derived.length || shared.length || reach.mode !== 'none' ? await io.runs(head) : [];
   const reports = new Map();
@@ -1613,18 +1736,33 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
   // This head's own runs: a step whose baseline money flag main's money rule disagrees with (`mismatch`) is judged again
   // with this head's money rule too, read once and only then (journey-verdict.mjs judge, headMoney). Main's runs keep
   // main's rule alone. The flag a pull request can change for itself is only ever read the stricter way.
+  // A pull request that changes a file the rule or the baseline is read from (moneyInput) is always judged with its head's
+  // rule and the baseline it would merge, so it can't make a baselined step money unseen (#9539); unreadable, it fails closed.
+  const changesMoney = paths.filter(moneyInput);
   let headMoney;
   const ownVerdictOf = async (rep, r) => {
     const v = await verdictOf(rep, r);
-    if (!io.headMoney || !(v?.red ?? []).some((x) => x?.mismatch)) return v;
-    let rule;
+    if (!io.headMoney || !(changesMoney.length || (v?.red ?? []).some((x) => x?.mismatch))) return v;
+    let got;
     try {
-      rule = await (headMoney ??= Promise.resolve().then(() => io.headMoney(head)));
+      got = await (headMoney ??= Promise.resolve().then(async () => {
+        const rule = await io.headMoney(head);
+        if (!paths.includes(BASELINE_PATH)) return { headMoney: rule };
+        const t = await text(BASELINE_PATH, head);
+        if (typeof t !== 'string') throw new Error(`${BASELINE_PATH} is not on this head`);
+        return { headMoney: rule, headBaseline: JSON.parse(t) };
+      }));
     } catch (e) {
       const why = `; this head's own money rule couldn't be read (${e.message}), so it stays red`;
-      return { ...v, red: v.red.map((x) => (x?.mismatch ? { ...x, why: x.why + why } : x)) };
+      const red = v.red.map((x) => (x?.mismatch ? { ...x, why: x.why + why } : x));
+      if (changesMoney.length)
+        red.push({
+          step: '(input)',
+          why: `this pull request changes ${changesMoney.slice(0, 3).join(', ')}${changesMoney.length > 3 ? `, ${changesMoney.length - 3} more` : ''}, which the money rule or the baseline is read from, and its head's couldn't be read (${e.message}), so the seal fails closed`,
+        });
+      return { ...v, red };
     }
-    return io.verdictOf(rep, r, { headMoney: rule });
+    return io.verdictOf(rep, r, got);
   };
   // The area of this pull request, for reds it inherited from main (splitInherited): the journeys it touches and its paths.
   const touches = {
@@ -1696,7 +1834,8 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
         })
       : { ok: true, state: 'none', lines: [] };
   // An automatic revert merges only while main still needs it (revertSpent), whatever its own runs say.
-  const spent = auto?.ok ? await revertSpent({ io, repo, pull, culprit: auto.sha }).catch(() => null) : null;
+  const culprit = pure?.ok ? pure.sha : auto?.ok ? auto.sha : null;
+  const spent = culprit ? await revertSpent({ io, repo, pull, culprit }).catch(() => null) : null;
   const v = {
     ok: steps.ok && full.ok && touched.ok && !spent,
     stepsOk: steps.ok && touched.ok && !spent,
@@ -1708,7 +1847,7 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
       ...(spent ? ['yours'] : []),
     ],
     fullKinds: full.ok ? [] : (full.kinds ?? []),
-    lines: [...steps.lines, ...touched.lines, ...full.lines, ...(spent ? [spent] : [])],
+    lines: [...steps.lines, ...touched.lines, ...full.lines, ...(pure && !pure.ok ? [pure.why] : []), ...(spent ? [spent] : [])],
   };
   return { ...v, lines: v.lines.map((l) => `#${number} (${head.slice(0, 10)}): ${l}`) };
 }
@@ -2130,6 +2269,13 @@ export const whileGoing = ({ going, green }) => (!going.length ? 'seal' : green 
 /** The most CI review runs on one head whose jobs readGoing reads to find the newest that reviewed: one GET each. */
 export const REVIEW_RUNS_READ = 5;
 
+/** What readPureRevert reads, through a GET (makeIo's same paths). */
+const pureIo = (get, repo) => ({
+  pullCommits: (n) => get(`/repos/${repo}/pulls/${n}/commits?per_page=2`),
+  commit: (sha) => get(`/repos/${repo}/commits/${sha}?per_page=300`),
+  compare: (base, head) => get(`/repos/${repo}/compare/${base}...${head}?per_page=1`),
+});
+
 /**
  * inputsGoing on `sha` read through the API (each run read through settledRun unless `settle` is false), journeys counted when any of `pulls` needs them (needsJourneys), and a down
  * judge for every pull request: the head's finished CI review runs' jobs are read, newest first, until one actually
@@ -2176,7 +2322,9 @@ export async function readGoing({ get, repo, sha, pulls, settle = true, unstarte
   for (const p of pulls ?? []) {
     if (needJourneys && needJudge) break;
     const files = await pullFiles(get, repo, p.number);
-    needJourneys ||= needsJourneys(p, files);
+    // A pure revert (pureRevert) is judged on no journeys, so the seal does not wait for its journeys run.
+    needJourneys ||=
+      needsJourneys(p, files) && !(await readPureRevert({ io: pureIo(get, repo), repo, pull: p, number: p.number, paths: files }))?.ok;
     needJudge ||= requiredChecks(files).length > 0;
   }
   {
@@ -2435,8 +2583,11 @@ async function main() {
   }
   const dry = process.argv.indexOf('--dry-run');
   if (dry > 0) {
-    const [n, sha] = process.argv.slice(dry + 1);
-    return report(await sealPull({ repo: REPO, number: Number(n), sha: sha || undefined, io, requireOpen: false }), 'dry run');
+    const [n, sha] = process.argv.slice(dry + 1).filter((a, i, all) => a !== '--main' && all[i - 1] !== '--main');
+    // `--main <sha>`: judge a pure revert against main as it was then (readPureRevert), for a closed pull request.
+    const at = process.argv.indexOf('--main');
+    const mainAt = at > 0 ? process.argv[at + 1] : undefined;
+    return report(await sealPull({ repo: REPO, number: Number(n), sha: sha || undefined, io, requireOpen: false, mainAt }), 'dry run');
   }
   // The factory switch (factory-switch.mjs): this step runs the default branch's copy on every seal since 2026-11-06, so a
   // re-run of a seal whose own workflow predates the switch's step still reads it. Imported here, not at the top, to keep

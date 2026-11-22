@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { storedText } from '@intafaced/db/testing';
 import { describe, expect, it, beforeAll, afterAll } from 'vitest';
@@ -201,7 +201,7 @@ describe('customer card procedures (PG-hard)', () => {
       // name ending in `_test`. intafaced_test is the same server and role.
       db = await createTestDatabase({ service: 'bank', url: testAdminUrl(envUrl), migrations: MIGRATIONS });
     } else {
-      const container = await new PostgreSqlContainer('postgres:16-alpine')
+      const container = await testPostgres('postgres:16-alpine')
         .withDatabase('intafaced_h8a_test')
         .withUsername('intafaced')
         .withPassword('intafaced')

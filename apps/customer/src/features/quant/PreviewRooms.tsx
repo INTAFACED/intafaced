@@ -1,3 +1,6 @@
+// volt-room: /quant/editor
+// volt-room: /quant/tester
+// volt-room: /quant/optimise
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { ChevronDown, ChevronRight, Circle, CircleDot } from 'lucide-react';

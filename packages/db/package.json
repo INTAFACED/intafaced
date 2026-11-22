@@ -17,6 +17,10 @@
     "./testing": {
       "types": "./dist/testing.d.ts",
       "default": "./dist/testing.js"
+    },
+    "./test-postgres": {
+      "types": "./dist/test-postgres.d.ts",
+      "default": "./dist/test-postgres.js"
     }
   },
   "scripts": {
@@ -31,6 +35,7 @@
     "postgres": "^3.4.5"
   },
   "devDependencies": {
+    "@testcontainers/postgresql": "11.14.0",
     "@types/node": "^22.20.5",
     "drizzle-kit": "^0.31.11",
     "rimraf": "^6.1.4",

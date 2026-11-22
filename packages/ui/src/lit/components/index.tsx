@@ -154,6 +154,39 @@ export function Segmented<T extends string>({ options, value, onChange, label, c
   );
 }
 
+export type ToggleChipsProps<T extends string> = {
+  options: readonly { value: T; label: string }[];
+  /** The chip in force, or null when the filter is off. */
+  value: T | null;
+  onChange: (next: T | null) => void;
+  /** The group's name (`Filter by change`). */
+  label: string;
+  /** Pressing the chip in force again turns the filter off (`onChange(null)`); without it one chip always stays on. */
+  clearable?: boolean;
+  className?: string;
+};
+
+/**
+ * A row of filter chips: a named group of pressed buttons (`aria-pressed`), one on at a time, wrapping to a second line
+ * rather than scrolling. Segmented is for a choice that is always made (a range, Buy or Sell); chips filter a list.
+ */
+export function ToggleChips<T extends string>({ options, value, onChange, label, clearable = false, className }: ToggleChipsProps<T>) {
+  return (
+    <div className={clsx('lit-chips', className)} role="group" aria-label={label}>
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          aria-pressed={o.value === value}
+          onClick={() => (o.value !== value ? onChange(o.value) : clearable ? onChange(null) : undefined)}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export type FieldProps = React.InputHTMLAttributes<HTMLInputElement> & { label: string; hint?: string; error?: string };
 
 export function Field({ label, hint, error, id, className, ...rest }: FieldProps) {
