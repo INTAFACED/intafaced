@@ -371,11 +371,5 @@
   "portal:product-new",
   "portal:product-import",
   "portal:product",
-  "portal:settings-stores",
-  "/notice",
-  "/notice/:id",
-  "/announcement/:id",
-  "/fees",
-  "/fees/my-tier",
-  "/academy/learning/course/:slug"
+  "portal:settings-stores"
 ]

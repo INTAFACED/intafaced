@@ -4,7 +4,7 @@ import { ServiceOffNotice as KitServiceOffNotice } from '@intafaced/ui/lit/templ
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { useApi } from '../session';
-import { WALLET_SECTIONS, useWallet, WalletProvider } from '../protocol';
+import { KitWalletProvider, WALLET_SECTIONS, useWallet } from '../protocol';
 import { academyPurchaseCopy as copy } from './academy-purchase-copy';
 import { AcademyRefusal } from './academy-refusal';
 import { KitGuardedButton as GuardedButton } from './academy-guarded';
@@ -28,9 +28,9 @@ const POLL_MS = 2_000;
  */
 export function AcademyCoursePurchase({ slug, onSettled }: { slug: string; onSettled?: () => void }) {
   return (
-    <WalletProvider scope="academy-purchase">
+    <KitWalletProvider scope="academy-purchase">
       <PurchasePanelFrame slug={slug} onSettled={onSettled} />
-    </WalletProvider>
+    </KitWalletProvider>
   );
 }
 
