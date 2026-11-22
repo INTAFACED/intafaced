@@ -453,7 +453,7 @@ export function Select({
         type="button"
         role="combobox"
         className="lt-select-button"
-        data-size={size}
+        data-size={size === 'sm' ? 'sm' : undefined}
         aria-label={labelledBy ? undefined : label}
         aria-labelledby={labelledBy}
         aria-describedby={describedBy}
