@@ -471,6 +471,7 @@ import {
   IDENTITY_AUTH_SIGN_UP_RESEND,
   IDENTITY_AUTH_OAUTH_START,
   IDENTITY_AUTH_SUB_ACCOUNT_SESSION,
+  IDENTITY_AUTH_STEP_UP_OPTIONS,
 } from './identity-auth-procedures.js';
 
 import {
@@ -1948,6 +1949,7 @@ const part_identity_auth_procedures: readonly ProcedureRecord[] = [
   IDENTITY_AUTH_SIGN_UP_RESEND,
   IDENTITY_AUTH_OAUTH_START,
   IDENTITY_AUTH_SUB_ACCOUNT_SESSION,
+  IDENTITY_AUTH_STEP_UP_OPTIONS,
 ];
 
 const part_identity_developer_keys_procedures: readonly ProcedureRecord[] = [
