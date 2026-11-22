@@ -414,7 +414,7 @@ impl AgentsDoor {
         &self.own
     }
 
-    /// The slices' answers: the door's own call and every ported slice (each is, so none answers "not ported" here).
+    /// The slices' answers: the door's own call and every ported slice; `webhooks`, not ported yet, answers "not ported".
     fn handle_call(&self, ctx: &Ctx<'_>) -> Result<Option<Json>, TrpcError> {
         match ctx.call.slice {
             Slice::Door => Ok(Some(Json::obj([
@@ -513,6 +513,8 @@ impl AgentsDoor {
                     team: &self.team,
                 },
             ),
+            // The webhooks slice is not ported yet (PORT.md): the runtime and background ports write no delivery row.
+            Slice::Webhooks => Err(not_ported(Slice::Webhooks)),
         }
     }
 
