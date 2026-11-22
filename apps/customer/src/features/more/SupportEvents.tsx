@@ -97,7 +97,7 @@ export function SupportEvents({ ticketId, ticketUpdatedAt }: { ticketId: string;
                         <p>{t('transition', { from: t(event.fromStatus), to: t(event.toStatus) })}</p>
                       )}
                       {event.note !== null && (
-                        <p className="lt-pre-wrap lt-wrap" lang="und">
+                        <p className="lt-pre-wrap" lang="und">
                           {event.note}
                         </p>
                       )}

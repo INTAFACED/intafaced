@@ -62,7 +62,7 @@ export function PartnerPage() {
           <section aria-labelledby="partner-terms">
             <h2 id="partner-terms">{copy.t('partnerTermsTitle')}</h2>
             {settings.terms ? (
-              <p className="lt-prose-lines" data-testid="partner-terms">
+              <p className="lt-pre-line" data-testid="partner-terms">
                 {settings.terms}
               </p>
             ) : settings.status === 'loading' ? null : settings.status === 'unread' ? (

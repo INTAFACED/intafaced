@@ -201,7 +201,7 @@ function IncidentCard({
           <p className="lt-hint">
             {copy.t('postmortemPublished')} {whenUtc(postmortem.publishedAt)}
           </p>
-          <p className="lt-pre">{postmortem.body}</p>
+          <p className="lt-pre-wrap">{postmortem.body}</p>
         </section>
       ) : null}
     </article>
