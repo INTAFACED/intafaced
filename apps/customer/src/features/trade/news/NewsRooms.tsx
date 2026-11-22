@@ -26,7 +26,7 @@ const STORED_NEWS: readonly NewsItem[] = [];
 const STORED_EVENTS: readonly CalendarEvent[] = [];
 
 /** The feed.news notice, shared by both rooms and the chart's news widget. */
-export function NewsNotice({ text }: { text: string }) {
+function NewsNotice({ text }: { text: string }) {
   const { t } = newsCopy.useCopy();
   return (
     <div className="news-notice" role="status">
