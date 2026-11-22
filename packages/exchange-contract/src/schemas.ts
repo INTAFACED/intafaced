@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { scheduleKeySchema } from '@intafaced/contracts/instruments';
+import { orderSideSchema, timeInForceSchema } from '@intafaced/contracts/order-enums';
 
 /**
  * CCXT-SHAPED PUBLIC EXCHANGE API.
@@ -342,8 +343,7 @@ export type Trade = z.infer<typeof tradeSchema>;
 // ── Orders ───────────────────────────────────────────────────────────────────
 
 export const orderTypeSchema = z.enum(['market', 'limit', 'stop', 'stop_limit', 'take_profit']);
-export const orderSideSchema = z.enum(['buy', 'sell']);
-export const timeInForceSchema = z.enum(['GTC', 'IOC', 'FOK', 'PO', 'MOC', 'GTD', 'GTT']);
+export { orderSideSchema, timeInForceSchema };
 export const orderStatusSchema = z.enum(['open', 'closed', 'canceled', 'expired', 'rejected']);
 
 /**

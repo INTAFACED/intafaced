@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { orderSideSchema } from '@intafaced/exchange-contract';
+import { orderSideSchema } from '@intafaced/contracts/order-enums';
 import { MAX_ALGO_SEED } from './schedule.js';
 import { POV_BASES } from './types.js';
 

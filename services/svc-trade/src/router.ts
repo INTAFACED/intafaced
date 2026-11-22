@@ -27,7 +27,7 @@ import { AuthError, requireTier, TIER_ORDER, type Principal } from '@intafaced/a
 import { checkAccess } from '@intafaced/config';
 import { formatAmount, parseAmount, InsufficientFundsError, LedgerError } from '@intafaced/ledger-client';
 import { publicLedgerCode, publicLedgerMessage, SETTLEMENT_PENDING } from './ledger-public-code.js';
-import { orderSideSchema, timeInForceSchema } from '@intafaced/exchange-contract';
+import { orderSideSchema, timeInForceSchema } from '@intafaced/contracts/order-enums';
 import { TradeError, type FillRecord, type Market, type OrderRecord, type TimeInForce } from './spot/types.js';
 import { MatchingNoBookError } from './spot/matching-client.js';
 import { assertProductionUnsettledAssetClassListing, forexSettlementStatus } from './spot/forex-settlement.js';
@@ -1584,14 +1584,17 @@ export function createTradeRouter(
 
       pause: scopedProcedure('trade:write', { module: 'trade' })
         .input(z.object({ algoId: z.string().min(1) }))
+        .output(algoParentOutputSchema)
         .mutation(({ ctx, input }) => guard(async () => presentAlgo(await trade.pauseAlgo(ctx.principal, input.algoId)))),
 
       resume: scopedProcedure('trade:write', { module: 'trade' })
         .input(z.object({ algoId: z.string().min(1) }))
+        .output(algoParentOutputSchema)
         .mutation(({ ctx, input }) => guard(async () => presentAlgo(await trade.resumeAlgo(ctx.principal, input.algoId)))),
 
       cancel: scopedProcedure('trade:write', { module: 'trade' })
         .input(z.object({ algoId: z.string().min(1) }))
+        .output(algoParentOutputSchema)
         .mutation(({ ctx, input }) => guard(async () => presentAlgo(await trade.cancelAlgo(ctx.principal, input.algoId)))),
     }),
 
