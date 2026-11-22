@@ -10,6 +10,7 @@ import {
   P2P_MERCHANTS_POSTING_ELIGIBILITY,
   P2P_MERCHANTS_PRESENCE,
   P2P_MERCHANTS_TODOS,
+  P2P_MODERATION,
   P2P_BOARD_SORTS,
   P2P_OFFERS_BULK,
   P2P_OFFERS_EDIT_QUOTA,
@@ -82,6 +83,37 @@ export type RevealedInstrument = ProcedureOutput<typeof P2P_INSTRUMENTS_REVEAL_M
 /** What a payment method needs in one market, as svc-p2p's registry publishes it. About the method, never about a person. */
 export type MethodSchema = ProcedureOutput<typeof P2P_INSTRUMENTS_METHODS_LIST>[number];
 export type MethodField = MethodSchema['fields'][number];
+export const disputeSchema = z.object({
+  id,
+  tradeId: id,
+  openedBy: z.string(),
+  openedVia: z.enum(['party', 'timeout']),
+  reason: z.string(),
+  chatThreadId: id.nullable(),
+  status: z.enum(['open', 'resolved']),
+  moderatorId: z.string().nullable(),
+  resolution: z.enum(['release', 'refund']).nullable(),
+  resolutionNotes: z.string().nullable(),
+  deadlineAt: z.string(),
+  openedAt: z.string(),
+  resolvedAt: z.string().nullable(),
+  evidence: z.array(
+    z.object({ seq: z.number().int(), submittedBy: z.string().nullable(), submittedAt: z.string().nullable(), item: z.unknown() }),
+  ),
+  overdue: z.boolean(),
+  escalatedAt: z.string().nullable(),
+  escalations: z.number().int(),
+  lastSeenByModeratorAt: z.string().nullable(),
+});
+export const disputeOpenedSchema = z.object({
+  disputeId: id,
+  tradeId: id,
+  chatThreadId: id,
+  deadlineAt: z.string(),
+  ifNobodyRules: z.literal('escalated_and_held'),
+  moderationConfigured: z.boolean(),
+  moderation: P2P_MODERATION,
+});
 /** A versioned acceptance: the owner-published version and when this person accepted it (advertiser terms). */
 export type P2PRiskNotice = ProcedureOutput<typeof P2P_MERCHANTS_ADVERTISER_TERMS>;
 /** P-ads-merchant-01: the caller's free balance of one coin, as svc-p2p reads it from the ledger. */

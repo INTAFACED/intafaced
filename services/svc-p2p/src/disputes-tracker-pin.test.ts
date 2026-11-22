@@ -5,7 +5,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { P2P_DISPUTES_BACKLOG, P2P_DISPUTES_OPEN } from '@intafaced/contracts/p2p-disputes-procedures';
 
 const ROOT = resolve(import.meta.dirname);
 
@@ -25,9 +24,7 @@ describe('p2p.disputes product pin', () => {
   it('mounts list + backlog + resolve as release|refund only', () => {
     const router = read('router.ts');
     expect(router).toMatch(/disputes:\s*router\(/);
-    // The backlog's guard is its record's: a p2p:read scope, mounted from that record.
-    expect(P2P_DISPUTES_BACKLOG.access).toMatchObject({ caller: 'scope', scope: 'p2p:read' });
-    expect(router).toMatch(/backlog:\s*mountRecord\(\s*P2P_DISPUTES_BACKLOG\b/);
+    expect(router).toMatch(/backlog:\s*scopedProcedure\('p2p:read'/);
     expect(router).toMatch(/resolution:\s*z\.enum\(\['release', 'refund'\]\)/);
     expect(router).toMatch(/not a fake auto-ruling/);
   });
@@ -44,11 +41,7 @@ describe('p2p.disputes product pin', () => {
     const router = read('router.ts');
     expect(schema).toMatch(/p2pDisputes[\s\S]*chatThreadId:\s*uuid\('chat_thread_id'\)/);
     expect(service).toMatch(/INSERT INTO p2p\.p2p_disputes[\s\S]*chat_thread_id/);
-    // The open answer's thread id is its record's: a guid, never left empty.
-    const thread = P2P_DISPUTES_OPEN.output.shape.chatThreadId;
-    expect(thread.safeParse('00000000-0000-4000-8000-000000000000').success).toBe(true);
-    expect(thread.safeParse('').success).toBe(false);
-    expect(thread.safeParse(null).success).toBe(false);
+    expect(router).toMatch(/chatThreadId:\s*z\.string\(\)\.guid\(\)/);
     expect(router).toMatch(/p2p\.chat_thread_unset/);
   });
 });

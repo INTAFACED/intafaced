@@ -1,11 +1,11 @@
-import { jsonValueSchema } from '@intafaced/contracts/procedure-strict-schema';
 import { z } from 'zod';
 import { contractEscrowOffer, contractTermsFor, type ContractEscrowSetting } from './contract-escrow.js';
 import { AuthError, requireMfa, type Principal } from '@intafaced/auth';
 import { mergeRouters, router, scopedProcedure, TRPCError, type Context } from '@intafaced/contracts';
-import { mountRecords, type RefusalOf, type ServiceParts, mountRecord } from '@intafaced/contracts/procedure-mount';
+import { mountRecords, type RefusalOf, type ServiceParts } from '@intafaced/contracts/procedure-mount';
 import {
   P2P_MERCHANTS_PRESENCE,
+  P2P_MODERATION,
   P2P_OFFER,
   P2P_PROCEDURES,
   P2P_REMARK_CASE,
@@ -29,6 +29,7 @@ import {
 import { OpsReads } from './ops/ops-reads.js';
 import type { P2pErasure } from './erasure.js';
 import {
+  MAX_EVIDENCE_PER_CALL,
   P2pError,
   PricingError,
   unknownTrade,
@@ -70,22 +71,6 @@ import { refuseLiveOffersUntilOwnerKms } from './instrument-kms.js';
 import { AdvertiserTermsError } from './advertiser-terms.js';
 import { instrumentKeyHealth } from './instrument-key-provider.js';
 import { cancelReasonOf } from './cancel-reasons.js';
-import {
-  P2P_OPS_OFFERS,
-  P2P_OPS_TRADES,
-  P2P_OPS_LATE_SETTLEMENTS,
-  P2P_OPS_COUNTS,
-  P2P_OPS_DISPUTE_RATE24H,
-} from '@intafaced/contracts/p2p-ops-procedures';
-import { evidenceOutput, disputeOutput } from '@intafaced/contracts/p2p-call-schemas';
-import {
-  P2P_DISPUTES_BACKLOG,
-  P2P_DISPUTES_LIST,
-  P2P_DISPUTES_ESCALATE,
-  P2P_DISPUTES_GET,
-  P2P_DISPUTES_OPEN,
-  P2P_DISPUTES_APPEND_EVIDENCE,
-} from '@intafaced/contracts/p2p-disputes-procedures';
 
 export type P2pRouterOptions = {
   /** Natural-person ids from `P2P_MODERATOR_USER_IDS`. Empty = unconfigured. */
@@ -207,6 +192,66 @@ const blockQuoteOutput = z.object({
   lastLook: z.literal(false),
   bookFill: z.literal(false),
   midInvented: z.literal(false),
+});
+
+/**
+ * ONE PIECE OF EVIDENCE, ON THE WIRE.
+ *
+ * `item` is `z.unknown()` because it is whatever the party submitted and this
+ * service has no business asserting a shape for a screenshot reference or a
+ * bank narrative. What it does assert is the envelope: who, when, and in what
+ * order — the part a moderator has to be able to trust.
+ */
+const evidenceOutput = z.object({
+  seq: z.number().int(),
+  submittedBy: z.string().nullable(),
+  submittedAt: z.string().nullable(),
+  item: z.unknown(),
+});
+
+/**
+ * A DISPUTE, ON THE WIRE — the same shape for `.get` and `.list`.
+ *
+ * `evidence` was the missing field. It was accepted by `disputes.open`, stored
+ * in `p2p_disputes.evidence`, carried on `DisputeRecord`, and then never
+ * serialised by anything: write-only, so a moderator could not read what they
+ * were ruling on. It is here on both reads now.
+ */
+const disputeOutput = z.object({
+  id: z.string().guid(),
+  tradeId: z.string().guid(),
+  openedBy: z.string(),
+  /**
+   * How the dispute was opened. `timeout` means the fiat_sent clock filed it;
+   * `openedBy` is then the party of interest (buyer), not a claim they pressed
+   * "open dispute". Same honesty class as evidence going write-only.
+   */
+  openedVia: z.enum(['party', 'timeout']),
+  reason: z.string(),
+  /** Null only on disputes opened before chat threads were persisted. */
+  chatThreadId: z.string().guid().nullable(),
+  status: z.enum(['open', 'resolved']),
+  moderatorId: z.string().nullable(),
+  resolution: z.enum(['release', 'refund']).nullable(),
+  /**
+   * Moderator notes on the ruling. Accepted by `disputes.resolve`, stored, and
+   * previously never serialised — the same write-only trap evidence had.
+   * Reviewable afterwards is half of ADR D-S-08's "recorded and reviewable".
+   */
+  resolutionNotes: z.string().nullable(),
+  deadlineAt: z.string(),
+  openedAt: z.string(),
+  resolvedAt: z.string().nullable(),
+  evidence: z.array(evidenceOutput),
+  /** True when the SLA has passed. The queue's whole reason to exist. */
+  overdue: z.boolean(),
+  escalatedAt: z.string().nullable(),
+  escalations: z.number().int(),
+  escalatedBy: z.string().nullable(),
+  escalationReason: z.string().nullable(),
+  fourEyes: z.boolean().nullable(),
+  /** Null until a moderator has actually been served this row. */
+  lastSeenByModeratorAt: z.string().nullable(),
 });
 
 type OfferOut = z.infer<typeof P2P_OFFER>;
@@ -944,9 +989,41 @@ export function createP2pRouter(
     }),
 
     disputes: router({
-      open: mountRecord(
-        P2P_DISPUTES_OPEN,
-        async ({ ctx, input }) =>
+      open: merchantApiProcedure('p2p:write')
+        .input(
+          z.object({
+            tradeId: z.string().guid(),
+            reason: z.string().min(1).max(2000),
+            evidence: z.array(z.unknown()).max(MAX_EVIDENCE_PER_CALL).optional(),
+          }),
+        )
+        .output(
+          z.object({
+            disputeId: z.string().guid(),
+            tradeId: z.string().guid(),
+            chatThreadId: z.string().guid(),
+            deadlineAt: z.string(),
+            /**
+             * THE DISPOSITION, DISCLOSED BEFORE IT CAN HAPPEN.
+             *
+             * The ADR asks that a party entering a dispute be told what happens
+             * if nobody rules. The honest answer is now short, and it is this
+             * literal rather than a configurable string because there is no
+             * configuration that could make it say anything else.
+             */
+            ifNobodyRules: z.literal('escalated_and_held'),
+            /**
+             * Whether this deployment has named human moderators. False means
+             * the dispute will escalate-and-hold with nobody able to resolve
+             * until an operator sets `P2P_MODERATOR_USER_IDS` — disclosed here
+             * so a client never implies a console is watching. Named ids are
+             * configured, not a live probe of a person on shift.
+             */
+            moderationConfigured: z.boolean(),
+            moderation: P2P_MODERATION,
+          }),
+        )
+        .mutation(async ({ ctx, input }) =>
           guard(async () => {
             const dispute = await p2p.openDispute({
               tradeId: input.tradeId,
@@ -966,8 +1043,7 @@ export function createP2pRouter(
               ...moderationPublic,
             };
           }),
-        p2pParts,
-      ),
+        ),
 
       /**
        * ADD EVIDENCE TO AN OPEN DISPUTE. A party, and append-only.
@@ -976,9 +1052,15 @@ export function createP2pRouter(
        * but the shape of the thing. A dispute record whose earlier entries can
        * change is a record whose last writer decides what was said.
        */
-      appendEvidence: mountRecord(
-        P2P_DISPUTES_APPEND_EVIDENCE,
-        async ({ ctx, input }) =>
+      appendEvidence: merchantApiProcedure('p2p:write')
+        .input(
+          z.object({
+            tradeId: z.string().guid(),
+            evidence: z.array(z.unknown()).min(1).max(MAX_EVIDENCE_PER_CALL),
+          }),
+        )
+        .output(z.object({ disputeId: z.string().guid(), tradeId: z.string().guid(), evidence: z.array(evidenceOutput) }))
+        .mutation(async ({ ctx, input }) =>
           guard(async () => {
             const dispute = await p2p.appendDisputeEvidence({
               tradeId: input.tradeId,
@@ -993,12 +1075,12 @@ export function createP2pRouter(
               evidence: evidenceVisibleTo(dispute, ctx.principal.userId).map(toEvidenceOut),
             };
           }),
-        p2pParts,
-      ),
+        ),
 
-      get: mountRecord(
-        P2P_DISPUTES_GET,
-        async ({ ctx, input }) =>
+      get: merchantApiProcedure('p2p:read')
+        .input(z.object({ tradeId: z.string().guid() }))
+        .output(disputeOutput)
+        .query(async ({ ctx, input }) =>
           guard(async () => {
             const trade = await p2p.getTrade(input.tradeId);
             const isParty = trade.buyerId === ctx.principal.userId || trade.sellerId === ctx.principal.userId;
@@ -1017,8 +1099,7 @@ export function createP2pRouter(
 
             return toDisputeOut(d, moderator ? null : ctx.principal.userId);
           }),
-        p2pParts,
-      ),
+        ),
 
       /**
        * THE MODERATOR QUEUE. Open disputes, most overdue first, paginated.
@@ -1033,9 +1114,24 @@ export function createP2pRouter(
        * `P2P_MODERATOR_USER_IDS`. An empty allowlist honest-refuses with
        * `p2p.moderation_unreachable` — mounted is not the same as reachable.
        */
-      list: mountRecord(
-        P2P_DISPUTES_LIST,
-        async ({ ctx, input }) =>
+      list: merchantApiProcedure('p2p:read')
+        .input(
+          z
+            .object({
+              status: z.enum(['open', 'resolved']).optional(),
+              /**
+               * Page size. Optional here so omit reaches the service named
+               * refuse (`p2p.dispute_list_limit_unset`) instead of a Zod
+               * "Required" that looks like a typo. Blank is not 50; pass 50
+               * explicitly when that is the page you want.
+               */
+              limit: z.number().int().min(1).max(200).optional(),
+              cursor: z.string().max(200).nullable().optional(),
+            })
+            .optional(),
+        )
+        .output(z.object({ disputes: z.array(disputeOutput), nextCursor: z.string().nullable() }))
+        .query(async ({ ctx, input }) =>
           guard(async () => {
             assertModerator(ctx.principal, moderatorUserIds);
             const page = await p2p.listDisputes({
@@ -1049,8 +1145,7 @@ export function createP2pRouter(
             // round trip for every row, which is how a queue stops being used.
             return { disputes: page.disputes.map((d) => toDisputeOut(d, null)), nextCursor: page.nextCursor };
           }),
-        p2pParts,
-      ),
+        ),
 
       /**
        * P-ads-merchant-19: the open sensitive-remark cases, oldest first, for the same moderators as the dispute queue.
@@ -1082,9 +1177,27 @@ export function createP2pRouter(
        * A moderator re-arms an open dispute the way the timeout sweep does.
        * No escrow movement. The same clientRequestId returns the first result.
        */
-      escalate: mountRecord(
-        P2P_DISPUTES_ESCALATE,
-        async ({ ctx, input }) =>
+      escalate: merchantApiProcedure('p2p:read')
+        .input(
+          z.object({
+            disputeId: z.string().guid(),
+            reason: z.string().min(1).max(2000),
+            clientRequestId: z.string().min(1).max(128),
+          }),
+        )
+        .output(
+          z.object({
+            disputeId: z.string().guid(),
+            tradeId: z.string().guid(),
+            escalatedAt: z.string(),
+            escalations: z.number().int(),
+            deadlineAt: z.string(),
+            actorId: z.string(),
+            reason: z.string(),
+            replay: z.boolean(),
+          }),
+        )
+        .mutation(async ({ ctx, input }) =>
           guard(async () => {
             assertModerator(ctx.principal, moderatorUserIds);
             const row = await p2p.escalateOpenDispute({
@@ -1104,8 +1217,7 @@ export function createP2pRouter(
               replay: row.replay,
             };
           }),
-        p2pParts,
-      ),
+        ),
 
       resolve: merchantApiProcedure('p2p:read')
         .input(
@@ -1221,16 +1333,24 @@ export function createP2pRouter(
        * `p2p:read` could list rows but not see the SLA shape of the backlog
        * (the number that grows when nobody is on shift). Same gate as `list`.
        */
-      backlog: mountRecord(
-        P2P_DISPUTES_BACKLOG,
-        async ({ ctx }) =>
+      backlog: scopedProcedure('p2p:read', { module: 'p2p' })
+        .output(
+          z.object({
+            open: z.number().int().nonnegative(),
+            overdue: z.number().int().nonnegative(),
+            escalated: z.number().int().nonnegative(),
+            neverSeen: z.number().int().nonnegative(),
+            moderationConfigured: z.boolean(),
+            moderation: P2P_MODERATION,
+          }),
+        )
+        .query(async ({ ctx }) =>
           guard(async () => {
             assertModerator(ctx.principal, moderatorUserIds);
             const backlog = await p2p.moderationBacklog();
             return { ...backlog, ...moderationPublic };
           }),
-        p2pRefusal,
-      ),
+        ),
     }),
 
     /**
@@ -1242,9 +1362,37 @@ export function createP2pRouter(
      * only — not either party's `p2p:write`.
      */
     ops: router({
-      lateSettlements: mountRecord(
-        P2P_OPS_LATE_SETTLEMENTS,
-        async ({ input }) =>
+      lateSettlements: scopedProcedure('admin:compliance', { module: 'p2p' })
+        .input(
+          z
+            .object({
+              /**
+               * Page size. Optional here so omit reaches the service named
+               * refuse (`p2p.late_settlements_list_limit_unset`) instead of a
+               * Zod "Required" that looks like a typo. Blank is not 100; pass
+               * 100 explicitly when that is the page you want.
+               */
+              limit: z.number().int().min(1).max(200).optional(),
+            })
+            .optional(),
+        )
+        .output(
+          z.object({
+            trades: z.array(
+              z.object({
+                tradeId: z.string().guid(),
+                status: z.enum(['created', 'escrowed', 'fiat_sent', 'released', 'cancelled', 'disputed']),
+                resolution: z.enum(['released', 'refunded', 'voided']).nullable(),
+                resolutionReason: z.string().nullable(),
+                resolvedAt: z.string(),
+                ageSeconds: z.number().int().nonnegative(),
+                lastSettleError: z.string().nullable(),
+                lastSettleErrorAt: z.string().nullable(),
+              }),
+            ),
+          }),
+        )
+        .query(async ({ input }) =>
           guard(async () => {
             const rows = await p2p.listLateSettlements(input?.limit);
             return {
@@ -1260,12 +1408,39 @@ export function createP2pRouter(
               })),
             };
           }),
-        p2pRefusal,
-      ),
+        ),
 
-      offers: mountRecord(
-        P2P_OPS_OFFERS,
-        async ({ input }) =>
+      offers: scopedProcedure('admin:compliance', { module: 'p2p' })
+        .input(
+          z.object({
+            status: z.enum(['active', 'paused', 'closed']),
+            limit: z.number().int().min(1).max(200).optional(),
+            cursor: z.string().max(500).nullable().optional(),
+          }),
+        )
+        .output(
+          z.object({
+            offers: z.array(
+              z.object({
+                id: z.string().guid(),
+                makerId: z.string(),
+                side: z.enum(['buy', 'sell']),
+                asset: z.string(),
+                fiatCurrency: z.string(),
+                price: z.string(),
+                minAmount: z.string(),
+                maxAmount: z.string(),
+                totalAmount: z.string(),
+                remainingAmount: z.string(),
+                status: z.enum(['active', 'paused', 'closed']),
+                methodIds: z.array(z.string()),
+                createdAt: z.string(),
+              }),
+            ),
+            nextCursor: z.string().nullable(),
+          }),
+        )
+        .query(async ({ input }) =>
           guard(async () =>
             requireOpsReads().offers({
               status: input.status,
@@ -1273,12 +1448,42 @@ export function createP2pRouter(
               ...(input.cursor ? { cursor: input.cursor } : {}),
             }),
           ),
-        p2pRefusal,
-      ),
+        ),
 
-      trades: mountRecord(
-        P2P_OPS_TRADES,
-        async ({ input }) =>
+      trades: scopedProcedure('admin:compliance', { module: 'p2p' })
+        .input(
+          z.object({
+            status: z.enum(['created', 'escrowed', 'fiat_sent', 'released', 'cancelled', 'disputed']),
+            limit: z.number().int().min(1).max(200).optional(),
+            cursor: z.string().max(500).nullable().optional(),
+          }),
+        )
+        .output(
+          z.object({
+            trades: z.array(
+              z.object({
+                id: z.string().guid(),
+                offerId: z.string().guid(),
+                makerId: z.string(),
+                takerId: z.string(),
+                buyerId: z.string(),
+                sellerId: z.string(),
+                asset: z.string(),
+                fiatCurrency: z.string(),
+                amount: z.string(),
+                price: z.string(),
+                fiatAmount: z.string(),
+                method: z.string(),
+                feeBps: z.number().int(),
+                status: z.enum(['created', 'escrowed', 'fiat_sent', 'released', 'cancelled', 'disputed']),
+                resolution: z.enum(['released', 'refunded', 'voided']).nullable(),
+                createdAt: z.string(),
+              }),
+            ),
+            nextCursor: z.string().nullable(),
+          }),
+        )
+        .query(async ({ input }) =>
           guard(async () =>
             requireOpsReads().trades({
               status: input.status,
@@ -1286,12 +1491,37 @@ export function createP2pRouter(
               ...(input.cursor ? { cursor: input.cursor } : {}),
             }),
           ),
-        p2pRefusal,
-      ),
+        ),
 
-      counts: mountRecord(P2P_OPS_COUNTS, async () => guard(async () => requireOpsReads().counts()), p2pRefusal),
+      counts: scopedProcedure('admin:compliance', { module: 'p2p' })
+        .output(
+          z.object({
+            offers: z.object({
+              active: z.number().int().nonnegative(),
+              paused: z.number().int().nonnegative(),
+              closed: z.number().int().nonnegative(),
+            }),
+            trades: z.object({
+              created: z.number().int().nonnegative(),
+              escrowed: z.number().int().nonnegative(),
+              fiat_sent: z.number().int().nonnegative(),
+              released: z.number().int().nonnegative(),
+              cancelled: z.number().int().nonnegative(),
+              disputed: z.number().int().nonnegative(),
+            }),
+          }),
+        )
+        .query(async () => guard(async () => requireOpsReads().counts())),
 
-      disputeRate24h: mountRecord(P2P_OPS_DISPUTE_RATE24H, async () => guard(async () => requireOpsReads().disputeRate24h()), p2pRefusal),
+      disputeRate24h: scopedProcedure('admin:compliance', { module: 'p2p' })
+        .output(
+          z.object({
+            disputesOpened24h: z.number().int().nonnegative(),
+            tradesCreated24h: z.number().int().nonnegative(),
+            rate: z.string().nullable(),
+          }),
+        )
+        .query(async () => guard(async () => requireOpsReads().disputeRate24h())),
     }),
 
     /**
@@ -2396,8 +2626,7 @@ function toEvidenceOut(entry: DisputeRecord['evidence'][number]): z.infer<typeof
     seq: entry.seq,
     submittedBy: entry.submittedBy,
     submittedAt: entry.submittedAt?.toISOString() ?? null,
-    // Read from a jsonb column, so a JSON value: parsed here, where the answer's schema says so.
-    item: jsonValueSchema.parse(entry.item),
+    item: entry.item,
   };
 }
 
