@@ -1,4 +1,5 @@
-import { Badge, EmptyState, KeyValue, Stat, Table, type BadgeTone, type TableColumn } from '@intafaced/ui';
+import { Button, EmptyState, RefusalBox, Stat, Tag } from '@intafaced/ui/lit';
+import { DeskTemplate, KeyValue, Skeleton, Table, type Column } from '@intafaced/ui/lit/templates';
 import type { Position } from '@intafaced/exchange-contract/schemas';
 import type { ScreenProps } from '../../../app/screen-types';
 import { useSession } from '../../../features/session/session';
@@ -14,7 +15,14 @@ import { freeOf } from '../futures/RiskSummary';
 import { navigate } from '../../../app/location';
 import { marginCopy } from './margin-copy';
 
-const BAND_TONE: Record<Band, BadgeTone> = { ok: 'lime', watch: 'warn', danger: 'error', liquidation: 'error', unknown: 'neutral' };
+/** The band's tag; its word always says the band too. */
+const BAND_TONE: Record<Band, 'accent' | 'up' | 'down' | 'neutral'> = {
+  ok: 'up',
+  watch: 'accent',
+  danger: 'down',
+  liquidation: 'down',
+  unknown: 'neutral',
+};
 
 /** The settle asset of a derivative symbol ("BTC/USDT:USDT" -> "USDT"); the quote when the symbol names none. */
 function settleOf(symbol: string): string {
@@ -51,77 +59,52 @@ export default function MarginScreen(_props: ScreenProps) {
     unknown: t('Band unknown'),
   } as const;
 
-  const columns: TableColumn<Position>[] = [
+  const columns: Column<Position>[] = [
     {
-      id: 'contract',
-      header: t('Contract'),
-      pin: 'start',
-      width: 240,
-      value: (p) => p.symbol,
+      key: 'contract',
+      label: t('Contract'),
       cell: (p) => (
-        <span className="inline-flex items-center gap-2 whitespace-nowrap">
-          {p.symbol} <Badge tone={p.side === 'long' ? 'up' : 'down'}>{p.side === 'long' ? 'Long' : 'Short'}</Badge>
+        <span className="lt-toolbar">
+          {p.symbol} <Tag tone={p.side === 'long' ? 'up' : 'down'}>{p.side === 'long' ? 'Long' : 'Short'}</Tag>
         </span>
       ),
     },
-    { id: 'margin', header: t('Margin'), numeric: true, value: (p) => p.collateral, cell: (p) => money(p.collateral) ?? UNKNOWN },
+    { key: 'margin', label: t('Margin'), align: 'end', cell: (p) => money(p.collateral) ?? UNKNOWN },
+    { key: 'maintenance', label: t('Maintenance margin'), align: 'end', cell: (p) => money(p.maintenanceMargin) ?? UNKNOWN },
     {
-      id: 'maintenance',
-      header: t('Maintenance margin'),
-      numeric: true,
-      value: (p) => p.maintenanceMargin,
-      cell: (p) => money(p.maintenanceMargin) ?? UNKNOWN,
-    },
-    {
-      id: 'ratio',
-      width: 210,
-      header: t('Margin ratio'),
-      numeric: true,
-      value: (p) => healthOf(p).marginRatioPct,
+      key: 'ratio',
+      label: t('Margin ratio'),
+      align: 'end',
       cell: (p) => {
         const h = healthOf(p);
         return (
-          <span
-            className="inline-flex items-center justify-end gap-2"
-            title={h.unknownWhy === 'maintenance' ? t('Maintenance not published') : undefined}
-          >
+          <span className="lt-toolbar" title={h.unknownWhy === 'maintenance' ? t('Maintenance not published') : undefined}>
             {h.marginRatioPct ? `${h.marginRatioPct}%` : UNKNOWN}
-            <Badge className="whitespace-nowrap" tone={BAND_TONE[h.band]}>
-              {bandWord[h.band]}
-            </Badge>
+            <Tag tone={BAND_TONE[h.band]}>{bandWord[h.band]}</Tag>
           </span>
         );
       },
     },
+    { key: 'liq', label: t('Liquidation price'), align: 'end', cell: (p) => fmtPrice(p.liquidationPrice, p.markPrice) },
     {
-      id: 'liq',
-      header: t('Liquidation price'),
-      numeric: true,
-      value: (p) => p.liquidationPrice,
-      cell: (p) => fmtPrice(p.liquidationPrice, p.markPrice),
-    },
-    {
-      id: 'distance',
-      header: t('Distance'),
-      numeric: true,
-      value: (p) => liquidationDistancePct(p),
+      key: 'distance',
+      label: t('Distance'),
+      align: 'end',
       cell: (p) => {
         const d = liquidationDistancePct(p);
         return d === null ? UNKNOWN : `${d}%`;
       },
     },
     {
-      id: 'state',
-      width: 210,
-      header: t('State'),
-      value: (p) => stateOf(p),
+      key: 'state',
+      label: t('State'),
       cell: (p) => {
         const call = p.id && calls.status === 'ready' ? calls.data[p.id] : null;
         return (
-          <span className="inline-flex flex-col">
+          <span className="lt-stack">
             <span>{stateOf(p)}</span>
             {call ? (
-              <span className="text-xs text-warn">
+              <span className="lt-warn">
                 {t('Margin call called', { n: String(call.sequence), health: `${bpsToPct(call.healthBps)}%` })}
               </span>
             ) : null}
@@ -130,10 +113,8 @@ export default function MarginScreen(_props: ScreenProps) {
       },
     },
     {
-      id: 'actions',
-      width: 130,
-      header: t('Actions'),
-      headerLabel: t('Actions'),
+      key: 'actions',
+      label: t('Actions'),
       align: 'end',
       cell: (p) => (
         <PositionRowActions
@@ -149,118 +130,124 @@ export default function MarginScreen(_props: ScreenProps) {
     },
   ];
 
-  return (
-    <div className="flex min-w-0 flex-col" data-screen="margin">
-      <ModeStrip active="Margin" />
-      <div className="mx-auto flex w-full max-w-(--if-w-content,1224px) flex-col gap-8 px-(--if-gutter) py-6">
-        <header className="flex flex-col gap-2">
-          <h1 className="text-xl font-semibold text-fg">{t('Margin account')}</h1>
-          <p className="max-w-3xl text-base text-fg-2">{t('Margin intro')}</p>
-        </header>
-
-        {!userId ? (
-          <EmptyState
-            variant="refused"
-            title={t('Sign in title')}
-            reason={t('Needs sign in')}
-            action={{ label: t('Sign in'), href: `/login?redirect=${encodeURIComponent('/trade/margin')}` }}
+  const unread = positions.status === 'refused' || positions.status === 'error';
+  const health = (
+    <section aria-labelledby="margin-health" className="lt-stack">
+      <h2 id="margin-health">{t('Position health')}</h2>
+      {positions.status === 'loading' ? (
+        <Skeleton shape="rows" />
+      ) : rows.length > 0 ? (
+        <Table caption={t('Position health table')} mode="pro" columns={columns} rows={rows} rowKey={(p) => p.id ?? p.symbol} />
+      ) : unread ? (
+        <div className="lt-stack">
+          <RefusalBox
+            refusal={{
+              variant: positions.status === 'refused' ? 'refused' : 'unreachable',
+              title: t('Table error'),
+              body: positions.status === 'refused' ? positions.code : t('Table error'),
+              reference: positions.status === 'refused' ? positions.code : undefined,
+            }}
           />
-        ) : (
-          <section aria-label={t('Margin account')} className="grid grid-cols-2 gap-6 md:grid-cols-5">
-            <Stat
-              label={t('Free balance')}
-              value={money(freeOf(balances, asset))}
-              hint={t('Free balance hint', { asset })}
-              asOf={balances.status === 'ready' ? balances.asOf : null}
-              now={now}
-              staleAfterMs={STALE_AFTER_MS.positions}
-              refused={balances.status === 'refused' || balances.status === 'error'}
-            />
-            <Stat label={t('Margin posted')} value={money(totals?.collateral)} {...stat} />
-            <Stat label={t('Unrealised PnL')} value={money(totals?.unrealizedPnl)} {...stat} />
-            <Stat label={t('Open positions')} value={totals ? String(totals.count) : null} {...stat} />
-            <Stat label={t('Margin calls')} value={callCount === null ? null : String(callCount)} />
-          </section>
-        )}
+          {positions.status === 'error' ? <Button onClick={positions.retry}>{t('Try again')}</Button> : null}
+        </div>
+      ) : (
+        <EmptyState
+          title={t('No positions title')}
+          body={t('No positions body')}
+          action={<Button onClick={() => navigate('/trade/futures')}>{t('Open futures desk')}</Button>}
+        />
+      )}
+      <p className="lt-hint">{t('Band note')}</p>
+    </section>
+  );
 
-        {userId ? (
-          <section aria-labelledby="margin-health" className="flex flex-col gap-3">
-            <h2 id="margin-health" className="text-md font-medium text-fg">
-              {t('Position health')}
-            </h2>
-            <Table
-              label={t('Position health table')}
-              density="dense"
-              columns={columns}
-              rows={rows}
-              getRowId={(p) => p.id ?? p.symbol}
-              status={positions.status === 'loading' ? 'loading' : 'ready'}
-              emptyState={
-                positions.status === 'refused' || positions.status === 'error' ? (
-                  <EmptyState
-                    variant={positions.status === 'refused' ? 'refused' : 'unavailable'}
-                    size="inline"
-                    title={t('Table error')}
-                    reason={positions.status === 'refused' ? positions.code : t('Table error')}
-                    code={positions.status === 'refused' ? positions.code : undefined}
-                    action={positions.status === 'error' ? { label: t('Try again'), onClick: positions.retry } : undefined}
-                  />
-                ) : (
-                  <EmptyState
-                    size="inline"
-                    title={t('No positions title')}
-                    reason={t('No positions body')}
-                    action={{ label: t('Open futures desk'), onClick: () => navigate('/trade/futures') }}
-                  />
-                )
-              }
-            />
-            <p className="text-xs text-fg-2">{t('Band note')}</p>
-          </section>
-        ) : null}
-
-        <section aria-labelledby="margin-rules" className="grid gap-6 lg:grid-cols-2">
-          <div className="flex flex-col gap-3">
-            <h2 id="margin-rules" className="text-md font-medium text-fg">
-              {t('Margin rules')}
-            </h2>
+  return (
+    <div data-screen="margin">
+      <ModeStrip active="Margin" />
+      <DeskTemplate
+        title={t('Margin account')}
+        description={t('Margin intro')}
+        mode="pro"
+        state={{ kind: 'ready' }}
+        notices={
+          userId
+            ? []
+            : [
+                {
+                  id: 'sign-in',
+                  refusal: {
+                    variant: 'refused',
+                    title: t('Sign in title'),
+                    body: t('Needs sign in'),
+                    action: { label: t('Sign in'), href: `/login?redirect=${encodeURIComponent('/trade/margin')}` },
+                  },
+                },
+              ]
+        }
+        instrument={
+          userId ? (
+            <section aria-label={t('Margin account')} className="lt-figures" data-count="5">
+              <Stat
+                label={t('Free balance')}
+                value={money(freeOf(balances, asset))}
+                hint={t('Free balance hint', { asset })}
+                asOf={balances.status === 'ready' ? balances.asOf : null}
+                now={now}
+                staleAfterMs={STALE_AFTER_MS.positions}
+                refused={balances.status === 'refused' || balances.status === 'error'}
+              />
+              <Stat label={t('Margin posted')} value={money(totals?.collateral)} {...stat} />
+              <Stat label={t('Unrealised PnL')} value={money(totals?.unrealizedPnl)} {...stat} />
+              <Stat label={t('Open positions')} value={totals ? String(totals.count) : null} {...stat} />
+              <Stat label={t('Margin calls')} value={callCount === null ? null : String(callCount)} />
+            </section>
+          ) : null
+        }
+        chart={userId ? health : null}
+        ticket={
+          <section aria-labelledby="margin-rules" className="lt-stack">
+            <h2 id="margin-rules">{t('Margin rules')}</h2>
             <KeyValue
-              items={[
+              rows={[
                 { label: t('Margin mode'), value: t('Isolated only') },
                 { label: t('Cross margin'), value: t('Cross margin off') },
                 { label: t('Portfolio margin'), value: t('Portfolio margin off') },
                 { label: t('Hedge mode'), value: t('Hedge mode off') },
                 { label: t('Collateral class'), value: `${t('Collateral cash')}. ${t('Collateral off')}` },
               ]}
-              layout="stacked"
             />
-            <EmptyState variant="unavailable" size="inline" title={t('Switch mode')} reason={t('Switch mode reason')} />
-          </div>
-          <div className="flex flex-col gap-3">
-            <h2 className="text-md font-medium text-fg">{t('Spot margin')}</h2>
-            <EmptyState
-              variant="unavailable"
-              size="inline"
-              title={t('Spot margin title')}
-              reason={t('Spot margin reason')}
-              action={{ label: t('Trade spot'), href: '/trade/spot/BTC-USDT' }}
-              secondaryAction={{ label: t('Bank loans'), href: '/bank/loans' }}
+            <RefusalBox refusal={{ variant: 'parked', title: t('Switch mode'), body: t('Switch mode reason') }} />
+          </section>
+        }
+        orders={
+          <div className="lt-stack">
+            <h2>{t('Spot margin')}</h2>
+            <RefusalBox
+              refusal={{
+                variant: 'parked',
+                title: t('Spot margin title'),
+                body: t('Spot margin reason'),
+                action: { label: t('Trade spot'), href: '/trade/spot/BTC-USDT' },
+              }}
             />
-            <h2 className="mt-4 text-md font-medium text-fg">{t('How liquidation works')}</h2>
-            <ul className="flex list-disc flex-col gap-2 pl-5 text-sm text-fg-2">
+            <a className="lt-link" href="/bank/loans">
+              {t('Bank loans')}
+            </a>
+            <h2>{t('How liquidation works')}</h2>
+            <ul className="lt-stack">
               <li>{t('Liquidation point 1')}</li>
               <li>{t('Liquidation point 2')}</li>
               <li>{t('Liquidation point 3')}</li>
               <li>
                 {t('Liquidation point 4')}{' '}
-                <a className="text-accent-text underline" href="/trade/futures">
+                <a className="lt-link" href="/trade/futures">
                   {t('ADL notice')}
                 </a>
               </li>
             </ul>
           </div>
-        </section>
-      </div>
+        }
+      />
     </div>
   );
 }

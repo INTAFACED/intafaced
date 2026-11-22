@@ -1,4 +1,4 @@
-import { SubNav } from '@intafaced/ui';
+import { Tabs } from '@intafaced/ui/lit/templates';
 
 export type TradeRoom = 'spot' | 'margin' | 'futures' | 'options' | 'copy' | 'bots' | 'execution' | 'otc' | 'convert';
 
@@ -14,7 +14,11 @@ const ROOMS = [
   { id: 'otc', label: 'Quote desk', href: '/otc' },
 ] as const;
 
-/** The one row every Trade room carries (Binance/OKX product switch), so a trader moves between rooms in one click and the row never changes size. */
-export function TradeSubNav({ active, className }: { active: TradeRoom; className?: string }) {
-  return <SubNav aria-label="Trading rooms" items={ROOMS} active={active} className={className} />;
+/**
+ * The one row every Trade room carries (Binance/OKX product switch), so a trader moves between rooms in one click and the
+ * row never changes size. Drawn by the kit's room row; `className` is kept for callers and draws nothing of its own.
+ */
+export function TradeSubNav({ active }: { active: TradeRoom; className?: string }) {
+  const current = ROOMS.find((room) => room.id === active)?.href ?? '';
+  return <Tabs label="Trading rooms" items={ROOMS} current={current} />;
 }
