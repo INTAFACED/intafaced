@@ -186,36 +186,8 @@ pub fn is_aba_routing(value: &str) -> bool {
     sum % 10 == 0
 }
 
-/// `isIbanRef`: an IBAN's shape (two letters, two digits, letters and digits; 15 to 34 long) and its mod-97.
-pub fn is_iban_ref(r: &str) -> bool {
-    let compact: String = r
-        .chars()
-        .filter(|c| !js_space(*c))
-        .collect::<String>()
-        .to_uppercase();
-    let b = compact.as_bytes();
-    let shaped = b.len() > 4
-        && b.iter().take(2).all(u8::is_ascii_uppercase)
-        && b.iter().skip(2).take(2).all(u8::is_ascii_digit)
-        && b.iter()
-            .skip(4)
-            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit());
-    if !shaped || !(15..=34).contains(&b.len()) {
-        return false;
-    }
-    let mut remainder: u32 = 0;
-    for c in b.iter().skip(4).chain(b.iter().take(4)) {
-        let expanded = if c.is_ascii_uppercase() {
-            (u32::from(*c) - 55).to_string()
-        } else {
-            char::from(*c).to_string()
-        };
-        for d in expanded.bytes() {
-            remainder = (remainder * 10 + u32::from(d - b'0')) % 97;
-        }
-    }
-    remainder == 1
-}
+/// `isIbanRef`, the ramps slice's own.
+pub use crate::ramps::refs::is_iban_ref;
 
 fn is_bic(s: &str) -> bool {
     let b = s.as_bytes();
