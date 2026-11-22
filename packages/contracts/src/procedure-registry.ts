@@ -781,6 +781,9 @@ import {
   IDENTITY_ACCOUNT_CONTROLS_ARCHIVE_PROPOSALS,
   IDENTITY_ACCOUNT_CONTROLS_DETAILS_DECIDE,
   IDENTITY_ACCOUNT_CONTROLS_TIERS,
+  IDENTITY_ACCOUNT_CONTROLS_CLOSURE_STATE,
+  IDENTITY_ACCOUNT_CONTROLS_DETAILS_HISTORY,
+  IDENTITY_ACCOUNT_CONTROLS_TIER_STATE,
 } from './identity-account-controls-procedures.js';
 
 import { IDENTITY_ACCOUNT_DIRECTORY_HANDLES } from './identity-account-directory-procedures.js';
@@ -834,7 +837,7 @@ import { IDENTITY_API_VERSION_GET, IDENTITY_API_VERSION_SET } from './identity-a
 
 import { IDENTITY_APPROVAL_POLICY_ROWS, IDENTITY_APPROVAL_POLICY_SET } from './identity-approval-policy-procedures.js';
 
-import { IDENTITY_AUTH_KEYS_STATE } from './identity-auth-keys-procedures.js';
+import { IDENTITY_AUTH_KEYS_STATE, IDENTITY_AUTH_KEYS_ROTATE, IDENTITY_AUTH_KEYS_REMOVE_OLD } from './identity-auth-keys-procedures.js';
 
 import {
   IDENTITY_AUTH_CHALLENGE,
@@ -859,6 +862,8 @@ import {
   IDENTITY_AUTH_SUB_ACCOUNT_SESSION,
   IDENTITY_AUTH_STEP_UP_OPTIONS,
   IDENTITY_AUTH_LOGOUT_ALL,
+  IDENTITY_AUTH_LOGIN,
+  IDENTITY_AUTH_REGISTER,
 } from './identity-auth-procedures.js';
 
 import {
@@ -937,7 +942,12 @@ import { IDENTITY_LINK_PROVIDER_START } from './identity-link-provider-start-pro
 
 import { IDENTITY_LINK_SIGNIN_METHOD } from './identity-link-signin-method-procedures.js';
 
-import { IDENTITY_MFA_RESET_STATUS, IDENTITY_MFA_RESET_CANCEL } from './identity-mfa-reset-procedures.js';
+import {
+  IDENTITY_MFA_RESET_STATUS,
+  IDENTITY_MFA_RESET_CANCEL,
+  IDENTITY_MFA_RESET_CONFIRM,
+  IDENTITY_MFA_RESET_START,
+} from './identity-mfa-reset-procedures.js';
 
 import {
   IDENTITY_OAUTH_APPS_REGISTER,
@@ -1373,6 +1383,7 @@ import {
   PAY_FOUNDER_ADMIN_CONTROL_MERCHANT_GET,
   PAY_FOUNDER_ADMIN_CONTROL_MERCHANT_USAGE,
   PAY_FOUNDER_ADMIN_CONTROL_PRICING_RULES,
+  PAY_FOUNDER_ADMIN_CUSTODY_TASKS_CANCEL,
 } from './pay-founder-admin-procedures.js';
 
 import { PAY_HALTS_OPERATOR_STATUS, PAY_HALTS_SET, PAY_HALTS_HISTORY, PAY_HALTS_PENDING_CLEARS } from './pay-halt-procedures.js';
@@ -1789,7 +1800,12 @@ import { SUPPORT_LIST_QUEUE } from './support-list-queue-procedures.js';
 
 import { SUPPORT_OFFICIAL_CHANNELS } from './support-official-channels-procedures.js';
 
-import { SUPPORT_SAFETY_MINE, SUPPORT_SAFETY_MULE_POLICY } from './support-safety-procedures.js';
+import {
+  SUPPORT_SAFETY_MINE,
+  SUPPORT_SAFETY_MULE_POLICY,
+  SUPPORT_SAFETY_COMPLAIN,
+  SUPPORT_SAFETY_REPORT_BEREAVEMENT,
+} from './support-safety-procedures.js';
 
 import { SUPPORT_TICKET_CHARTS_LOOKUP } from './support-ticket-charts-lookup-procedures.js';
 
@@ -2763,6 +2779,9 @@ const part_identity_account_controls_procedures: readonly ProcedureRecord[] = [
   IDENTITY_ACCOUNT_CONTROLS_ARCHIVE_PROPOSALS,
   IDENTITY_ACCOUNT_CONTROLS_DETAILS_DECIDE,
   IDENTITY_ACCOUNT_CONTROLS_TIERS,
+  IDENTITY_ACCOUNT_CONTROLS_CLOSURE_STATE,
+  IDENTITY_ACCOUNT_CONTROLS_DETAILS_HISTORY,
+  IDENTITY_ACCOUNT_CONTROLS_TIER_STATE,
 ];
 
 const part_identity_account_directory_procedures: readonly ProcedureRecord[] = [IDENTITY_ACCOUNT_DIRECTORY_HANDLES];
@@ -2816,7 +2835,11 @@ const part_identity_api_version_procedures: readonly ProcedureRecord[] = [IDENTI
 
 const part_identity_approval_policy_procedures: readonly ProcedureRecord[] = [IDENTITY_APPROVAL_POLICY_ROWS, IDENTITY_APPROVAL_POLICY_SET];
 
-const part_identity_auth_keys_procedures: readonly ProcedureRecord[] = [IDENTITY_AUTH_KEYS_STATE];
+const part_identity_auth_keys_procedures: readonly ProcedureRecord[] = [
+  IDENTITY_AUTH_KEYS_STATE,
+  IDENTITY_AUTH_KEYS_ROTATE,
+  IDENTITY_AUTH_KEYS_REMOVE_OLD,
+];
 
 const part_identity_auth_procedures: readonly ProcedureRecord[] = [
   IDENTITY_AUTH_CHALLENGE,
@@ -2841,6 +2864,8 @@ const part_identity_auth_procedures: readonly ProcedureRecord[] = [
   IDENTITY_AUTH_SUB_ACCOUNT_SESSION,
   IDENTITY_AUTH_STEP_UP_OPTIONS,
   IDENTITY_AUTH_LOGOUT_ALL,
+  IDENTITY_AUTH_LOGIN,
+  IDENTITY_AUTH_REGISTER,
 ];
 
 const part_identity_developer_keys_procedures: readonly ProcedureRecord[] = [
@@ -2926,7 +2951,12 @@ const part_identity_link_provider_start_procedures: readonly ProcedureRecord[] =
 
 const part_identity_link_signin_method_procedures: readonly ProcedureRecord[] = [IDENTITY_LINK_SIGNIN_METHOD];
 
-const part_identity_mfa_reset_procedures: readonly ProcedureRecord[] = [IDENTITY_MFA_RESET_STATUS, IDENTITY_MFA_RESET_CANCEL];
+const part_identity_mfa_reset_procedures: readonly ProcedureRecord[] = [
+  IDENTITY_MFA_RESET_STATUS,
+  IDENTITY_MFA_RESET_CANCEL,
+  IDENTITY_MFA_RESET_CONFIRM,
+  IDENTITY_MFA_RESET_START,
+];
 
 const part_identity_oauth_procedures: readonly ProcedureRecord[] = [
   IDENTITY_OAUTH_APPS_REGISTER,
@@ -3389,6 +3419,7 @@ const part_pay_founder_admin_procedures: readonly ProcedureRecord[] = [
   PAY_FOUNDER_ADMIN_CONTROL_MERCHANT_GET,
   PAY_FOUNDER_ADMIN_CONTROL_MERCHANT_USAGE,
   PAY_FOUNDER_ADMIN_CONTROL_PRICING_RULES,
+  PAY_FOUNDER_ADMIN_CUSTODY_TASKS_CANCEL,
 ];
 
 const part_pay_halt_procedures: readonly ProcedureRecord[] = [
@@ -3814,7 +3845,12 @@ const part_support_list_queue_procedures: readonly ProcedureRecord[] = [SUPPORT_
 
 const part_support_official_channels_procedures: readonly ProcedureRecord[] = [SUPPORT_OFFICIAL_CHANNELS];
 
-const part_support_safety_procedures: readonly ProcedureRecord[] = [SUPPORT_SAFETY_MINE, SUPPORT_SAFETY_MULE_POLICY];
+const part_support_safety_procedures: readonly ProcedureRecord[] = [
+  SUPPORT_SAFETY_MINE,
+  SUPPORT_SAFETY_MULE_POLICY,
+  SUPPORT_SAFETY_COMPLAIN,
+  SUPPORT_SAFETY_REPORT_BEREAVEMENT,
+];
 
 const part_support_ticket_charts_lookup_procedures: readonly ProcedureRecord[] = [SUPPORT_TICKET_CHARTS_LOOKUP];
 

@@ -2,10 +2,17 @@
 import { useState, type FormEvent } from 'react';
 import { Button } from '@intafaced/ui';
 import { FlowTemplate } from '@intafaced/ui/lit/templates';
-import type { SupportBereavementInput, SupportBereavementRelation } from '@intafaced/contracts/support-safety';
+import type { SupportBereavementRelation } from '@intafaced/contracts/support-safety';
 import { useSession } from '../../session';
 import { safetyCopy, type SafetyCopyKey } from '../safety-copy';
-import { Acknowledgement, EarlierAcknowledgements, safetyState, useMyAcknowledgements, useSafetySend } from '../safety-ack';
+import {
+  Acknowledgement,
+  EarlierAcknowledgements,
+  safetyState,
+  useMyAcknowledgements,
+  useSafetySend,
+  sendBereavement,
+} from '../safety-ack';
 
 /**
  * Report a death (BK-safe-03, J-bank-18 #6), on the flow template. A family member, an executor or a law firm reports that
@@ -30,10 +37,7 @@ export function BereavementRoom() {
   const { userId } = useSession();
   const [form, setForm] = useState(EMPTY);
   const [relation, setRelation] = useState<SupportBereavementRelation>('spouse_or_partner');
-  const { send, busy, sent, refusal } = useSafetySend<Omit<SupportBereavementInput, 'requestKey'>>(
-    'bereavement',
-    'safety.reportBereavement',
-  );
+  const { send, busy, sent, refusal } = useSafetySend('bereavement', sendBereavement);
   const earlier = useMyAcknowledgements('bereavement', sent?.id ?? null);
   const set = (name: keyof typeof EMPTY) => (e: { target: { value: string } }) => setForm((f) => ({ ...f, [name]: e.target.value }));
   const ready =

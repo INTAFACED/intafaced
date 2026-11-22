@@ -291,3 +291,8 @@ export const stateOut = z.object({
   nextRemoval: z.array(z.string()).nullable(),
   availableKeyIds: z.array(z.string()),
 });
+
+export const approval = {
+  approvalId: z.string().min(1).max(128),
+  operationId: z.string().min(1).max(128),
+};

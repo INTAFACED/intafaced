@@ -723,3 +723,18 @@ export const PAY_FOUNDER_ADMIN_CONTROL_PRICING_RULES = defineProcedure({
     { verdict: 'refuse', input: 42 },
   ],
 });
+
+export const PAY_FOUNDER_ADMIN_CUSTODY_TASKS_CANCEL = defineProcedure({
+  ...base,
+  name: 'pay.founderAdmin.custody.tasks.cancel',
+  kind: 'mutation',
+  path: 'founderAdmin.custody.tasks.cancel',
+  access: { caller: 'founder' },
+  refusals: {},
+  input: taskIdInputSchema,
+  output: taskViewSchema,
+  samples: [
+    { verdict: 'accept', input: { taskId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});

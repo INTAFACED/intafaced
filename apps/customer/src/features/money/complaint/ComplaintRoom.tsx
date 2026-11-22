@@ -2,10 +2,10 @@
 import { useState, type FormEvent } from 'react';
 import { Button } from '@intafaced/ui';
 import { FlowTemplate } from '@intafaced/ui/lit/templates';
-import type { SupportComplaintInput, SupportComplaintTopic } from '@intafaced/contracts/support-safety';
+import type { SupportComplaintTopic } from '@intafaced/contracts/support-safety';
 import { useSession } from '../../session';
 import { safetyCopy, type SafetyCopyKey } from '../safety-copy';
-import { Acknowledgement, EarlierAcknowledgements, safetyState, useMyAcknowledgements, useSafetySend } from '../safety-ack';
+import { Acknowledgement, EarlierAcknowledgements, safetyState, useMyAcknowledgements, useSafetySend, sendComplaint } from '../safety-ack';
 
 /**
  * Make a complaint (BK-safe-03, J-bank-18 #5), on the flow template. `support.safety.complain` makes one complaint request
@@ -28,7 +28,7 @@ export function ComplaintRoom() {
   const [topic, setTopic] = useState<SupportComplaintTopic>('account');
   const [details, setDetails] = useState('');
   const [outcome, setOutcome] = useState('');
-  const { send, busy, sent, refusal } = useSafetySend<Omit<SupportComplaintInput, 'requestKey'>>('complaint', 'safety.complain');
+  const { send, busy, sent, refusal } = useSafetySend('complaint', sendComplaint);
   const earlier = useMyAcknowledgements('complaint', sent?.id ?? null);
   const ready = details.trim().length >= 10;
 

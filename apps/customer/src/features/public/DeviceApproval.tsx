@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Button, Failure, Field } from '../../shared/ui';
 import type { ApiResult, DeviceAuthorisation } from '../../shared/api';
-import { sessionSchema, useSession, type Session } from '../session';
+import { useSession, type Session } from '../session';
 import { validAuthSession } from './public-auth-guards';
 import { deviceApprovalCopy } from './device-approval-copy';
+import { IDENTITY_AUTH_DEVICE_COMPLETE, IDENTITY_AUTH_DEVICE_APPROVE } from '@intafaced/contracts/identity-auth-procedures';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -69,7 +70,7 @@ export function DeviceApproval({
     setRefusal(answer);
   }
 
-  async function call(procedure: 'auth.deviceApprove' | 'auth.deviceComplete', input: object, quiet = false) {
+  async function call(send: () => Promise<ApiResult<Session>>, quiet = false) {
     if (done.current) return;
     if (inFlight.current) {
       if (quiet) return;
@@ -81,7 +82,7 @@ export function DeviceApproval({
       setRefusal(null);
     }
     const request = (async () => {
-      finish(await api.mutate('identity', procedure, input, sessionSchema), quiet);
+      finish(await send(), quiet);
     })();
     inFlight.current = request;
     try {
@@ -95,7 +96,7 @@ export function DeviceApproval({
   useEffect(() => {
     if (final) return;
     const timer = setInterval(() => {
-      void call('auth.deviceComplete', { flowId: waiting.flowId, secret: waiting.secret }, true);
+      void call(() => api.call(IDENTITY_AUTH_DEVICE_COMPLETE, { flowId: waiting.flowId, secret: waiting.secret }), true);
     }, POLL_MS);
     return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one poll per waiting request
@@ -110,7 +111,7 @@ export function DeviceApproval({
       return;
     }
     if (input instanceof HTMLInputElement) input.value = '';
-    void call('auth.deviceApprove', { flowId: waiting.flowId, secret: waiting.secret, code });
+    void call(() => api.call(IDENTITY_AUTH_DEVICE_APPROVE, { flowId: waiting.flowId, secret: waiting.secret, code }));
   }
 
   const expires = new Date(waiting.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -145,7 +146,7 @@ export function DeviceApproval({
           <Button
             variant="secondary"
             disabled={busy}
-            onClick={() => void call('auth.deviceComplete', { flowId: waiting.flowId, secret: waiting.secret })}
+            onClick={() => void call(() => api.call(IDENTITY_AUTH_DEVICE_COMPLETE, { flowId: waiting.flowId, secret: waiting.secret }))}
           >
             {t('continue')}
           </Button>
