@@ -1,28 +1,27 @@
 import { useState } from 'react';
 import { Download } from 'lucide-react';
-import { Button } from '../../shared/ui';
-import { refusalCopy } from '../../data/refusals';
-import { decodeBase64, monthRange, saveFile, shortFingerprint } from '../../screens/money/statement-model';
-import { useSession } from '../session';
-import type { Space } from './client';
+import { Button, Field, Select } from '@intafaced/ui/lit';
+import { refusalCopy } from '../../../data/refusals';
+import { decodeBase64, monthRange, saveFile, shortFingerprint } from '../../../screens/money/statement-model';
+import { useSession } from '../../session';
+import type { Space } from '../client';
 import {
   amount,
   date,
   endsField,
   funds,
   iso,
-  NoRows,
   positiveMoney,
-  ResourceView,
   scheduleCadenceField,
   scheduleWindowIssue,
-  Section,
   startsField,
   useBankRead,
   type ActionSpec,
   useBankRecord,
-} from './components';
-import { spaceInflowCopy } from './space-inflow-copy';
+} from '../components';
+import { NoRows, BankSection as Section } from '../bank-frame/BankFrame';
+import { ReadView as ResourceView } from '../../../shared/read-state';
+import { spaceInflowCopy } from '../space-inflow-copy';
 import { BANK_AUTO_INVEST_LIST } from '@intafaced/contracts/bank-auto-invest-procedures';
 import { BANK_TRANSFERS_LIST_SCHEDULES } from '@intafaced/contracts/bank-transfers-procedures';
 import { BANK_STATEMENTS_EXPORT } from '@intafaced/contracts/bank-statements-procedures';
@@ -93,27 +92,27 @@ export function SpaceInflows({ space, spaces, open }: { space: Space; spaces: Sp
     });
 
   return (
-    <div className="money-space-inflows" data-testid="space-inflows">
+    <div className="lt-body" data-testid="space-inflows">
       <Section
         title={t('title')}
         description={t('description')}
         actions={
           <>
-            <Button variant="secondary" onClick={save} disabled={!main}>
+            <Button tone="secondary" onClick={save} disabled={!main}>
               {t('save')}
             </Button>
-            <Button variant="secondary" onClick={addRoundUp} disabled={!automatic}>
+            <Button tone="secondary" onClick={addRoundUp} disabled={!automatic}>
               {t('addRoundup')}
             </Button>
           </>
         }
       >
-        {!main && <p className="money-caption">{t('noMain')}</p>}
-        {policy.resource.status === 'ready' && !automatic && <p className="money-caption">{t('roundupOff')}</p>}
+        {!main && <p className="lt-hint">{t('noMain')}</p>}
+        {policy.resource.status === 'ready' && !automatic && <p className="lt-hint">{t('roundupOff')}</p>}
         {policy.resource.status === 'failed' && (
-          <p className="money-caption">
+          <p className="lt-hint">
             {t('roundupUnread')}{' '}
-            <Button variant="ghost" onClick={policy.reload}>
+            <Button tone="quiet" onClick={policy.reload}>
               {t('retry')}
             </Button>
           </p>
@@ -124,11 +123,11 @@ export function SpaceInflows({ space, spaces, open }: { space: Space; spaces: Sp
             const into = rows.filter((row) => row.toSpaceId === space.id);
             return into.length ? (
               into.map((row) => (
-                <article className="money-record" key={row.id} data-testid="space-inflow-order" data-id={row.id}>
+                <article className="lt-stack" key={row.id} data-testid="space-inflow-order" data-id={row.id}>
                   <header>
                     <h4>{t('order', { amount: funds(row.amount, row.assetId), cadence: cadence(row.cadence) })}</h4>
                   </header>
-                  <dl className="detail-list">
+                  <dl className="lt-kv">
                     <div>
                       <dt>{t('nextRun')}</dt>
                       <dd>{date(row.nextRunAt)}</dd>
@@ -151,11 +150,11 @@ export function SpaceInflows({ space, spaces, open }: { space: Space; spaces: Sp
             const into = rows.filter((row) => row.kind === 'card_roundup' && row.targetSpaceId === space.id);
             return into.length ? (
               into.map((row) => (
-                <article className="money-record" key={row.id} data-testid="space-inflow-roundup" data-id={row.id}>
+                <article className="lt-stack" key={row.id} data-testid="space-inflow-roundup" data-id={row.id}>
                   <header>
                     <h4>{t('roundup', { amount: amount(row.amount, row.assetId) })}</h4>
                   </header>
-                  <dl className="detail-list">
+                  <dl className="lt-kv">
                     <div>
                       <dt>{t('status')}</dt>
                       <dd>{status(row.status)}</dd>
@@ -222,33 +221,32 @@ function SpaceStatement({ space }: { space: Space }) {
 
   return (
     <form
-      className="money-statement"
+      className="lt-stack"
       aria-label={t('statement')}
       onSubmit={(event) => {
         event.preventDefault();
         void download();
       }}
     >
-      <h2 className="money-statement__h">{t('statement')}</h2>
-      <p className="money-detail__note">{t('statementHint')}</p>
-      <div className="money-statement__row">
-        <label className="money-bar__field">
-          <span>{t('month')}</span>
-          <input type="month" value={month} max={monthOf(now)} onChange={(event) => setMonth(event.target.value)} />
-        </label>
-        <label className="money-bar__field">
-          <span>{t('format')}</span>
-          <select value={format} onChange={(event) => setFormat(event.target.value as 'pdf' | 'csv')}>
-            <option value="csv">CSV</option>
-            <option value="pdf">PDF</option>
-          </select>
-        </label>
-        <Button type="submit" variant="secondary" disabled={busy || problem !== null}>
+      <h2>{t('statement')}</h2>
+      <p className="lt-hint">{t('statementHint')}</p>
+      <div className="lt-actions">
+        <Field label={t('month')} type="month" value={month} max={monthOf(now)} onChange={(event) => setMonth(event.target.value)} />
+        <Select
+          label={t('format')}
+          value={format}
+          onChange={(value) => setFormat(value === 'pdf' ? 'pdf' : 'csv')}
+          options={[
+            { value: 'csv', label: 'CSV' },
+            { value: 'pdf', label: 'PDF' },
+          ]}
+        />
+        <Button type="submit" tone="secondary" disabled={busy || problem !== null}>
           <Download size={16} aria-hidden="true" />
           {t('download')}
         </Button>
       </div>
-      <p className="money-detail__note" role="status" aria-live="polite">
+      <p className="lt-hint" role="status" aria-live="polite">
         {problem ??
           (busy
             ? t('preparing')

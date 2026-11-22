@@ -2,17 +2,8 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Space } from './client';
-import type { ActionSpec } from './components';
-import { BANK_CARDS_SET_STATUS } from '@intafaced/contracts/bank-cards-procedures';
-import {
-  BANK_SHARED_POTS_ACCEPT,
-  BANK_SHARED_POTS_CANCEL_INVITE,
-  BANK_SHARED_POTS_FREEZE_CARD,
-  BANK_SHARED_POTS_INVITE,
-  BANK_SHARED_POTS_LINK_CARD,
-  BANK_SHARED_POTS_UNLINK_CARD,
-} from '@intafaced/contracts/bank-shared-pots-procedures';
+import type { Space } from '../client';
+import type { ActionSpec } from '../components';
 
 /**
  * Shared pots on the Spaces page (BK-acct-09, J-bank-07 #6): blank bank values said in words, an invite to the person
@@ -20,16 +11,16 @@ import {
  * with its open invites, the card linked to a pot that its holders can freeze, and the log naming who did what.
  */
 
-vi.mock('../../shared/preferences', async (original) => {
-  const real = await original<typeof import('../../shared/preferences')>();
+vi.mock('../../../shared/preferences', async (original) => {
+  const real = await original<typeof import('../../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 const POT = '11111111-1111-4111-8111-111111111111';
 const MINE = '22222222-2222-4222-8222-222222222222';
 const INVITE = '33333333-3333-4333-8333-333333333333';
 let reads: Record<string, { status: 'ready'; data: unknown }>;
-vi.mock('./components', async (original) => {
-  const real = await original<typeof import('./components')>();
+vi.mock('../components', async (original) => {
+  const real = await original<typeof import('../components')>();
   // The room reads by its records now: each record's read is served from the same answers, by its path.
   const useBankRead = (procedure: string) => ({ resource: reads[procedure] ?? { status: 'loading' }, reload: () => undefined });
   return { ...real, useBankRead, useBankRecord: (record: { path: string }) => useBankRead(record.path) };
@@ -171,7 +162,7 @@ describe('SharedPots', () => {
     expect(invite.textContent).toContain('@Olga_Owner invites you to Flat TEST (USDT) as a contributor.');
     expect(invite.textContent).toContain('This invite ended at');
     act(() => button(invite, 'Accept').click());
-    expect(opened[0]).toMatchObject({ record: BANK_SHARED_POTS_ACCEPT });
+    expect(opened[0]).toMatchObject({ procedure: 'sharedPots.accept' });
     expect(opened[0]!.input({}, 'req')).toEqual({ inviteId: INVITE });
   });
 
@@ -198,7 +189,7 @@ describe('SharedPots', () => {
     const open = mine.querySelector('[data-testid="shared-pot-open-invite"]')!;
     expect(open.textContent).toContain('@Vic_Viewer, viewer: invite ended at');
     act(() => button(open, 'Cancel invite').click());
-    expect(opened[0]).toMatchObject({ record: BANK_SHARED_POTS_CANCEL_INVITE });
+    expect(opened[0]).toMatchObject({ procedure: 'sharedPots.cancelInvite' });
     expect(opened[0]!.input({}, 'req')).toEqual({ inviteId: 'i-old' });
     // The log is read only once it is opened.
     expect(mine.querySelector('[data-testid="shared-pot-log-entry"]')).toBeNull();
@@ -217,7 +208,7 @@ describe('SharedPots', () => {
     await mount();
     act(() => button(host, 'Share a pot').click());
     const spec = opened[0]!;
-    expect(spec.record).toBe(BANK_SHARED_POTS_INVITE);
+    expect(spec.procedure).toBe('sharedPots.invite');
     expect(spec.input({ spaceId: MINE, who: ' @Pia_Partner ', role: 'contributor' }, 'req-2')).toEqual({
       inviteId: 'req-2',
       spaceId: MINE,
@@ -235,7 +226,7 @@ describe('SharedPots', () => {
     expect(card.getAttribute('data-status')).toBe('active');
     expect(card.textContent).toBe('Card •••• 4242: active');
     act(() => button(pot, 'Freeze card').click());
-    expect(opened[0]).toMatchObject({ record: BANK_SHARED_POTS_FREEZE_CARD, title: 'Freeze the card •••• 4242' });
+    expect(opened[0]).toMatchObject({ procedure: 'sharedPots.freezeCard', title: 'Freeze the card •••• 4242' });
     expect(opened[0]!.notes).toEqual(['The card stops paying at once, and the pot’s log names you. Only @Olga_Owner can unfreeze it.']);
     expect(opened[0]!.input({}, 'req')).toEqual({ spaceId: POT });
   });
@@ -250,7 +241,7 @@ describe('SharedPots', () => {
     const mine = host.querySelector('[data-testid="shared-pot-owned"]')!;
     expect(mine.textContent).toContain('No card is linked.');
     act(() => button(mine, 'Link a card').click());
-    expect(opened[0]).toMatchObject({ record: BANK_SHARED_POTS_LINK_CARD });
+    expect(opened[0]).toMatchObject({ procedure: 'sharedPots.linkCard' });
     expect(opened[0]!.fields![0]!.options).toEqual([{ value: 'c-open', label: '•••• 1111 (USDT)' }]);
     expect(opened[0]!.input({ cardId: 'c-open' }, 'req')).toEqual({ spaceId: MINE, cardId: 'c-open' });
   });
@@ -261,10 +252,10 @@ describe('SharedPots', () => {
     await mount();
     const mine = host.querySelector('[data-testid="shared-pot-owned"]')!;
     act(() => button(mine, 'Unfreeze').click());
-    expect(opened[0]).toMatchObject({ record: BANK_CARDS_SET_STATUS });
+    expect(opened[0]).toMatchObject({ procedure: 'cards.setStatus' });
     expect(opened[0]!.input({}, 'req')).toEqual({ cardId: 'c-olga', status: 'active' });
     act(() => button(mine, 'Unlink card').click());
-    expect(opened[1]).toMatchObject({ record: BANK_SHARED_POTS_UNLINK_CARD });
+    expect(opened[1]).toMatchObject({ procedure: 'sharedPots.unlinkCard' });
     expect(opened[1]!.input({}, 'req')).toEqual({ spaceId: MINE });
   });
 

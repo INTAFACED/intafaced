@@ -1,15 +1,16 @@
 import { useState } from 'react';
 import type { z } from 'zod';
-import type { ApiResult } from '../../shared/api';
-import { Button, Failure, Loading } from '../../shared/ui';
-import { parseAmount } from '../../shared/money';
-import { amount, bps, funds, NoRows, positiveMoney, Section, type ActionSpec, useBankRecord } from './components';
-import { type poolSchema, type positionSchema } from './contracts';
-import { earnCopy } from './earn-copy';
-import { useSession } from '../session';
-import { instantSavingsCopy } from './instant-savings-copy';
+import type { ApiResult } from '../../../shared/api';
+import { Button } from '@intafaced/ui/lit';
+import { ReadFailure as Failure, ReadLoading as Loading } from '../../../shared/read-state';
+import { parseAmount } from '../../../shared/money';
+import { amount, bps, funds, positiveMoney, type ActionSpec, useBankRecord } from '../components';
+import { NoRows, BankSection as Section } from '../bank-frame/BankFrame';
+import { bankWrites, type poolSchema, type positionSchema } from '../contracts';
+import { earnCopy } from '../earn-copy';
+import { useSession } from '../../session';
+import { instantSavingsCopy } from '../instant-savings-copy';
 import { BANK_EARN_POOLS, BANK_EARN_POSITIONS, BANK_EARN_INTEREST_HISTORY } from '@intafaced/contracts/bank-earn-procedures';
-import { BANK_EARN_DEPOSIT, BANK_EARN_WITHDRAW } from '@intafaced/contracts/bank-earn-2-procedures';
 
 type Pool = z.infer<typeof poolSchema>;
 type Position = z.infer<typeof positionSchema>;
@@ -37,7 +38,7 @@ export function InstantSavings({ open }: { open: (spec: ActionSpec) => void }) {
   const openSavings = (pool: Pool) =>
     open({
       title: t('openTitle', { asset: pool.assetId }),
-      record: BANK_EARN_DEPOSIT,
+      procedure: 'earn.deposit',
       unit: pool.assetId,
       fields: [positiveMoney(pool.assetId)],
       facts: [
@@ -49,7 +50,7 @@ export function InstantSavings({ open }: { open: (spec: ActionSpec) => void }) {
       preflight: () => checkPool(pool),
       validate: (input) => (parseAmount(String(input.amount)) >= parseAmount(pool.minDeposit) ? null : t('belowMinimum')),
       verifyOutcome: (data, input) => {
-        const returned = data as z.infer<(typeof BANK_EARN_DEPOSIT)['output']>;
+        const returned = data as z.infer<(typeof bankWrites)['earn.deposit']>;
         return returned.positionId === input.positionId && returned.maturesAt === null;
       },
       input: (values, requestId) => ({ poolId: pool.id, positionId: requestId, amount: values.amount }),
@@ -60,7 +61,7 @@ export function InstantSavings({ open }: { open: (spec: ActionSpec) => void }) {
     if (pools.resource.status === 'loading') return <Loading />;
     if (pools.resource.status === 'failed') {
       return pools.resource.failure.code === 'bank.earn_rate_unset' ? (
-        <p className="money-caption" data-testid="instant-savings-rate" data-state="unset">
+        <p className="lt-hint" data-testid="instant-savings-rate" data-state="unset">
           {t('rateUnset')}
         </p>
       ) : (
@@ -74,21 +75,21 @@ export function InstantSavings({ open }: { open: (spec: ActionSpec) => void }) {
     return (
       <>
         {flexible.map((pool) => (
-          <article className="money-record" key={pool.id} data-testid="instant-savings-pool" data-pool={pool.id} data-asset={pool.assetId}>
+          <article className="lt-stack" key={pool.id} data-testid="instant-savings-pool" data-pool={pool.id} data-asset={pool.assetId}>
             <header>
               <div>
                 <h3 lang="und" dir="auto">
                   {pool.name}
                 </h3>
-                <p className="money-caption">{t('minimum', { amount: amount(pool.minDeposit, pool.assetId) })}</p>
+                <p className="lt-hint">{t('minimum', { amount: amount(pool.minDeposit, pool.assetId) })}</p>
               </div>
               <strong data-testid="instant-savings-rate" data-state="set" data-bps={pool.aprBps}>
                 {t('rate', { rate: bps(pool.aprBps) })}
               </strong>
             </header>
-            <p className="money-caption">{t('rateNote')}</p>
-            <div className="actions">
-              <Button variant="secondary" onClick={() => openSavings(pool)}>
+            <p className="lt-hint">{t('rateNote')}</p>
+            <div className="lt-actions">
+              <Button tone="secondary" onClick={() => openSavings(pool)}>
                 {t('open')}
               </Button>
             </div>
@@ -146,7 +147,7 @@ function Savings({ pool, positions, open }: { pool: Pool; positions: Position[];
   const withdraw = (position: Position) =>
     open({
       title: t('withdrawTitle', { amount: amount(position.principal, position.assetId) }),
-      record: BANK_EARN_WITHDRAW,
+      procedure: 'earn.withdraw',
       unit: position.assetId,
       facts: [
         [t('pool'), pool.name],
@@ -155,7 +156,7 @@ function Savings({ pool, positions, open }: { pool: Pool; positions: Position[];
       notes: [t('withdrawNote')],
       preflight: () => checkPosition(position),
       verifyOutcome: (data) => {
-        const returned = data as z.infer<(typeof BANK_EARN_WITHDRAW)['output']>;
+        const returned = data as z.infer<(typeof bankWrites)['earn.withdraw']>;
         return (
           returned.positionId === position.id &&
           returned.status === 'closed' &&
@@ -171,41 +172,41 @@ function Savings({ pool, positions, open }: { pool: Pool; positions: Position[];
     <section data-testid="instant-savings-mine" aria-label={t('yours', { asset: pool.assetId })}>
       <h4>{t('yours', { asset: pool.assetId })}</h4>
       {positions.length ? (
-        <ul className="money-list">
+        <ul className="lt-rows">
           {positions.map((position) => (
             <li key={position.id} data-testid="instant-savings-position" data-position={position.id}>
               <span>
-                {t('saved')}: <span className="numeric">{funds(position.principal, position.assetId)}</span>
+                {t('saved')}: <span className="lt-mono">{funds(position.principal, position.assetId)}</span>
               </span>{' '}
-              <Button variant="ghost" onClick={() => withdraw(position)}>
+              <Button tone="quiet" onClick={() => withdraw(position)}>
                 {t('withdraw')}
               </Button>
             </li>
           ))}
         </ul>
       ) : (
-        <p className="money-caption">{t('nothingSaved')}</p>
+        <p className="lt-hint">{t('nothingSaved')}</p>
       )}
       {history.resource.status === 'loading' && <Loading />}
       {history.resource.status === 'failed' && <Failure result={history.resource.failure} retry={history.reload} />}
       {earned && (
         <>
-          <dl className="money-selected-details">
+          <dl className="lt-kv">
             <div>
               <dt>{t('earned')}</dt>
-              <dd className="numeric" data-testid="instant-savings-earned" data-amount={earned.total}>
+              <dd className="lt-mono" data-testid="instant-savings-earned" data-amount={earned.total}>
                 {funds(earned.total, pool.assetId)}
               </dd>
-              <dd className="money-caption">{t('earnedNote')}</dd>
+              <dd className="lt-hint">{t('earnedNote')}</dd>
               {earned.unitemisedDays > 0 && (
-                <dd className="money-caption" data-testid="instant-savings-unitemised">
+                <dd className="lt-hint" data-testid="instant-savings-unitemised">
                   {t('unitemised', { count: earned.unitemisedDays })}
                 </dd>
               )}
             </div>
           </dl>
           <h4>{t('days')}</h4>
-          {earned.days.length ? <Days pool={pool} days={earned.days} /> : <p className="money-caption">{t('noDays')}</p>}
+          {earned.days.length ? <Days pool={pool} days={earned.days} /> : <p className="lt-hint">{t('noDays')}</p>}
         </>
       )}
     </section>
@@ -221,7 +222,7 @@ function Days({ pool, days }: { pool: Pool; days: Day[] }) {
   const oldest = days[days.length - 1]!.date;
   return (
     <>
-      <ul className="money-list">
+      <ul className="lt-rows">
         {days.map((day) => (
           <li key={day.date} data-testid="instant-savings-day" data-date={day.date} data-amount={day.amount} data-bps={day.rateBps}>
             {t('day', { date: calendarDay(day.date), amount: funds(day.amount, pool.assetId), rate: bps(day.rateBps) })}
@@ -232,7 +233,7 @@ function Days({ pool, days }: { pool: Pool; days: Day[] }) {
         (earlier ? (
           <EarlierDays pool={pool} before={oldest} />
         ) : (
-          <Button variant="ghost" onClick={() => setEarlier(true)}>
+          <Button tone="quiet" onClick={() => setEarlier(true)}>
             {t('earlier')}
           </Button>
         ))}
@@ -245,9 +246,5 @@ function EarlierDays({ pool, before }: { pool: Pool; before: string }) {
   const page = useBankRecord(BANK_EARN_INTEREST_HISTORY, { poolId: pool.id, limit: DAYS_SHOWN, before });
   if (page.resource.status === 'loading') return <Loading />;
   if (page.resource.status === 'failed') return <Failure result={page.resource.failure} retry={page.reload} />;
-  return page.resource.data.days.length ? (
-    <Days pool={pool} days={page.resource.data.days} />
-  ) : (
-    <p className="money-caption">{t('noEarlier')}</p>
-  );
+  return page.resource.data.days.length ? <Days pool={pool} days={page.resource.data.days} /> : <p className="lt-hint">{t('noEarlier')}</p>;
 }

@@ -1,8 +1,7 @@
 //! The programme tests' support works: a migrated database answers through the door.
 #![allow(clippy::unwrap_used, reason = "a test")]
 
-#[path = "prog_support/mod.rs"]
-mod support;
+use crate::prog_support as support;
 
 use svc_academy::ports::Ports;
 

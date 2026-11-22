@@ -21,9 +21,8 @@
     reason = "a test: a failure is the point"
 )]
 
-mod community_support;
-mod join_support;
-mod support;
+use crate::community_support;
+use crate::join_support;
 
 use community_support::{get, s};
 use join_support::{Run, USER, advance, setup};
