@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, publicProcedure, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { formatAmount } from '@intafaced/ledger-client';
 import { ActionApprovalConsumeError, consumeTokenApproval, type ActionApprovalConsumer } from '../action-approval-consume.js';
 import { DualControlError, requireDualControl } from '../dual-control.js';
@@ -7,46 +7,22 @@ import { userCopy } from '../user-copy.js';
 import { checkEligibility, type ParticipantSource } from './eligibility.js';
 import { LaunchError, launchCopy } from './errors.js';
 import { LAUNCH_EVENT_CREATE_ACTION, LAUNCH_EVENT_MOVE_ACTION, LAUNCH_ISSUER_SET_ACTION, launchEventPayload } from './payload.js';
+import { type CreateEventInput, type LaunchEvent, type LaunchService } from './launch-service.js';
+import { launchId, eventOutput, createInput } from '@intafaced/contracts/token-call-schemas';
 import {
-  ALLOCATION_METHODS,
-  ISSUER_STATES,
-  LAUNCH_STATES,
-  LAUNCH_STATUSES,
-  LAUNCH_TYPES,
-  type CreateEventInput,
-  type LaunchEvent,
-  type LaunchService,
-} from './launch-service.js';
-
-const amountString = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amount must be an unsigned decimal string (max 18dp)');
-const launchId = z.string().min(3).max(63);
-const iso = z.string().datetime({ offset: true });
-
-const eventOutput = z.object({
-  id: z.string(),
-  issuer: z.object({ id: z.string(), name: z.string(), state: z.enum(ISSUER_STATES) }),
-  type: z.enum(LAUNCH_TYPES),
-  projectName: z.string(),
-  symbol: z.string(),
-  periods: z.object({
-    announceAt: z.string(),
-    snapshotAt: z.string(),
-    openAt: z.string(),
-    closeAt: z.string(),
-    distributionAt: z.string(),
-  }),
-  status: z.enum(LAUNCH_STATUSES),
-  state: z.enum(LAUNCH_STATES).nullable(),
-  allocation: z.object({
-    method: z.enum(ALLOCATION_METHODS).nullable(),
-    perUserCap: amountString.nullable(),
-    ticketSize: amountString.nullable(),
-    tierWeights: z.array(z.object({ minBasis: amountString, weight: z.number().int() })).nullable(),
-  }),
-  terms: z.object({ price: amountString.nullable(), paymentAsset: z.string().nullable(), rateSource: z.string().nullable() }),
-  snapshot: z.object({ count: z.number().int(), total: amountString, takenAt: z.string() }).nullable(),
-  revision: z.number().int(),
-});
+  TOKEN_LAUNCH_ADMIN_MOVES,
+  TOKEN_LAUNCH_ADMIN_ISSUERS,
+  TOKEN_LAUNCH_ADMIN_EVENTS,
+  TOKEN_LAUNCH_ISSUER_SET,
+  TOKEN_LAUNCH_EVENTS_CREATE,
+  TOKEN_LAUNCH_EVENTS_MOVE,
+  TOKEN_LAUNCH_EVENTS_LIST,
+  TOKEN_LAUNCH_EVENTS_GET,
+  TOKEN_LAUNCH_ELIGIBILITY,
+  TOKEN_LAUNCH_BASIS,
+} from '@intafaced/contracts/token-launch-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { tokenRefusal } from '../refusal.js';
 
 function eventToWire(e: LaunchEvent): z.infer<typeof eventOutput> {
   const amt = (v: bigint | null) => (v === null ? null : formatAmount(v));
@@ -78,31 +54,6 @@ function eventToWire(e: LaunchEvent): z.infer<typeof eventOutput> {
     revision: e.revision,
   };
 }
-
-const createInput = z.object({
-  id: launchId,
-  issuerId: launchId,
-  type: z.enum(LAUNCH_TYPES),
-  projectName: z.string().min(1).max(120),
-  symbol: z.string().min(2).max(12),
-  periods: z.object({ announceAt: iso, snapshotAt: iso, openAt: iso, closeAt: iso, distributionAt: iso }).strict(),
-  allocation: z
-    .object({
-      method: z.enum(ALLOCATION_METHODS).nullable(),
-      perUserCap: amountString.nullable(),
-      ticketSize: amountString.nullable(),
-      tierWeights: z
-        .array(z.object({ minBasis: amountString, weight: z.number().int() }).strict())
-        .max(16)
-        .nullable(),
-    })
-    .strict(),
-  terms: z
-    .object({ price: amountString.nullable(), paymentAsset: z.string().max(12).nullable(), rateSource: z.string().max(120).nullable() })
-    .strict(),
-});
-
-const approvalFields = { approvalId: z.string().max(128).nullish(), operationId: z.string().max(128).nullish() };
 
 function toCreateInput(input: z.infer<typeof createInput>): CreateEventInput {
   const p = input.periods;
@@ -175,29 +126,21 @@ export function createLaunchRouter(launch: LaunchService, options: LaunchRouterO
 
   return router({
     events: router({
-      list: publicProcedure
-        .input(
-          z
-            .object({
-              type: z.enum(LAUNCH_TYPES).optional(),
-              state: z.enum(LAUNCH_STATES).optional(),
-              /** Optional here so an omit reaches `launch.events_list_limit_unset`, not a Zod "Required". */
-              limit: z.number().int().min(1).max(200).optional(),
-            })
-            .default({}),
-        )
-        .output(z.array(eventOutput))
-        .query(({ input }) => guard(async () => (await launch.listEvents(input)).map(eventToWire))),
+      list: mountRecord(
+        TOKEN_LAUNCH_EVENTS_LIST,
+        ({ input }) => guard(async () => (await launch.listEvents(input)).map(eventToWire)),
+        tokenRefusal,
+      ),
 
-      get: publicProcedure
-        .input(z.object({ id: launchId }))
-        .output(eventOutput)
-        .query(({ input }) => guard(async () => eventToWire(await launch.getEvent(input.id)))),
+      get: mountRecord(
+        TOKEN_LAUNCH_EVENTS_GET,
+        ({ input }) => guard(async () => eventToWire(await launch.getEvent(input.id))),
+        tokenRefusal,
+      ),
 
-      create: scopedProcedure('admin:write')
-        .input(createInput.extend(approvalFields))
-        .output(z.object({ id: z.string(), status: z.enum(LAUNCH_STATUSES), revision: z.number().int(), confirmOperatorId: z.string() }))
-        .mutation(({ ctx, input }) =>
+      create: mountRecord(
+        TOKEN_LAUNCH_EVENTS_CREATE,
+        ({ ctx, input }) =>
           guard(async () => {
             const { approvalId, operationId, ...fields } = input;
             const event = toCreateInput(fields);
@@ -215,19 +158,12 @@ export function createLaunchRouter(launch: LaunchService, options: LaunchRouterO
             const confirmOperatorId = requireDualControl(actorId, consumed.approverId);
             return { ...(await launch.createEvent(event, { actorId, approverId: confirmOperatorId })), confirmOperatorId };
           }),
-        ),
+        tokenRefusal,
+      ),
 
-      move: scopedProcedure('admin:write')
-        .input(
-          z.object({
-            id: launchId,
-            to: z.enum(LAUNCH_STATUSES),
-            expectedRevision: z.number().int().min(0),
-            ...approvalFields,
-          }),
-        )
-        .output(eventOutput.extend({ confirmOperatorId: z.string() }))
-        .mutation(({ ctx, input }) =>
+      move: mountRecord(
+        TOKEN_LAUNCH_EVENTS_MOVE,
+        ({ ctx, input }) =>
           guard(async () => {
             const expected = String(input.expectedRevision);
             // A move the service would refuse never spends the founders' approval.
@@ -251,30 +187,14 @@ export function createLaunchRouter(launch: LaunchService, options: LaunchRouterO
             });
             return { ...eventToWire(event), confirmOperatorId };
           }),
-        ),
+        tokenRefusal,
+      ),
     }),
 
     issuer: router({
-      set: scopedProcedure('admin:write')
-        .input(
-          z.object({
-            id: launchId,
-            name: z.string().min(1).max(120),
-            state: z.enum(ISSUER_STATES),
-            expectedRevision: z.number().int().min(0),
-            ...approvalFields,
-          }),
-        )
-        .output(
-          z.object({
-            id: z.string(),
-            name: z.string(),
-            state: z.enum(ISSUER_STATES),
-            revision: z.number().int(),
-            confirmOperatorId: z.string(),
-          }),
-        )
-        .mutation(({ ctx, input }) =>
+      set: mountRecord(
+        TOKEN_LAUNCH_ISSUER_SET,
+        ({ ctx, input }) =>
           guard(async () => {
             const expected = String(input.expectedRevision);
             // An issuer change the service would refuse never spends the founders' approval.
@@ -298,72 +218,42 @@ export function createLaunchRouter(launch: LaunchService, options: LaunchRouterO
             });
             return { ...issuer, confirmOperatorId };
           }),
-        ),
+        tokenRefusal,
+      ),
     }),
 
     // The operator lens (J-more-catalogue-14): every launch, drafts included, every issuer, and the audited moves of
     // each. Reads only; every write above keeps the founders' approval.
     admin: router({
-      events: scopedProcedure('admin:read')
-        .input(z.object({ limit: z.number().int().min(1).max(200).optional() }).default({}))
-        .output(z.array(eventOutput))
-        .query(({ input }) => guard(async () => (await launch.listAllEvents(input)).map(eventToWire))),
+      events: mountRecord(
+        TOKEN_LAUNCH_ADMIN_EVENTS,
+        ({ input }) => guard(async () => (await launch.listAllEvents(input)).map(eventToWire)),
+        tokenRefusal,
+      ),
 
       event: scopedProcedure('admin:read')
         .input(z.object({ id: launchId }))
         .output(eventOutput)
         .query(({ input }) => guard(async () => eventToWire(await launch.getAnyEvent(input.id)))),
 
-      issuers: scopedProcedure('admin:read')
-        .input(z.object({ limit: z.number().int().min(1).max(200).optional() }).default({}))
-        .output(z.array(z.object({ id: z.string(), name: z.string(), state: z.enum(ISSUER_STATES), revision: z.number().int() })))
-        .query(({ input }) => guard(() => launch.listIssuers(input))),
+      issuers: mountRecord(TOKEN_LAUNCH_ADMIN_ISSUERS, ({ input }) => guard(() => launch.listIssuers(input)), tokenRefusal),
 
-      moves: scopedProcedure('admin:read')
-        .input(z.object({ kind: z.enum(['issuer', 'event']), ids: z.array(launchId).min(1).max(200) }))
-        .output(
-          z.record(
-            z.string(),
-            z.array(
-              z.object({
-                ordinal: z.number().int(),
-                from: z.string().nullable(),
-                to: z.string(),
-                actorId: z.string(),
-                approverId: z.string(),
-                cause: z.string().nullable(),
-                at: z.string(),
-              }),
-            ),
-          ),
-        )
-        .query(({ input }) =>
+      moves: mountRecord(
+        TOKEN_LAUNCH_ADMIN_MOVES,
+        ({ input }) =>
           guard(async () => {
             const trails = await launch.moves(input.kind, [...new Set(input.ids)]);
             return Object.fromEntries([...trails].map(([id, moves]) => [id, moves.map((m) => ({ ...m, at: m.at.toISOString() }))]));
           }),
-        ),
+        tokenRefusal,
+      ),
     }),
 
     // No module guard here: an account short of the token module's tier must still read which requirements it misses
     // (J-more-catalogue-11 #4). It reads only its own answer; basis and every write keep the guard.
-    eligibility: scopedProcedure('token:read')
-      .input(z.object({ id: launchId }))
-      .output(
-        z.object({
-          eventId: z.string(),
-          eligible: z.boolean(),
-          requirements: z.array(
-            z.object({
-              id: z.enum(['identity_verification', 'region', 'account_active', 'main_account', 'issuer_onboarded', 'event_open']),
-              met: z.boolean(),
-              required: z.string(),
-              actual: z.string(),
-            }),
-          ),
-        }),
-      )
-      .query(({ ctx, input }) =>
+    eligibility: mountRecord(
+      TOKEN_LAUNCH_ELIGIBILITY,
+      ({ ctx, input }) =>
         guard(async () => {
           const userId = signed(ctx.principal.userId);
           const event = await launch.getEvent(input.id);
@@ -372,25 +262,12 @@ export function createLaunchRouter(launch: LaunchService, options: LaunchRouterO
             subAccount: Boolean(ctx.principal.sub_account),
           });
         }),
-      ),
+      tokenRefusal,
+    ),
 
-    basis: scopedProcedure('token:read', { module: 'token' })
-      .input(z.object({ id: launchId }))
-      .output(
-        z.object({
-          eventId: z.string(),
-          method: z.enum(ALLOCATION_METHODS).nullable(),
-          perUserCap: amountString.nullable(),
-          ticketSize: amountString.nullable(),
-          tierWeights: z.array(z.object({ minBasis: amountString, weight: z.number().int() })).nullable(),
-          basis: amountString.nullable(),
-          reason: z.enum(['snapshot_not_taken', 'no_holdings_at_snapshot']).nullable(),
-          takenAt: z.string().nullable(),
-          tickets: z.string().nullable(),
-          tierWeight: z.number().int().nullable(),
-        }),
-      )
-      .query(({ ctx, input }) =>
+    basis: mountRecord(
+      TOKEN_LAUNCH_BASIS,
+      ({ ctx, input }) =>
         guard(async () => {
           const b = await launch.readBasis(input.id, signed(ctx.principal.userId));
           const amt = (v: bigint | null) => (v === null ? null : formatAmount(v));
@@ -407,7 +284,8 @@ export function createLaunchRouter(launch: LaunchService, options: LaunchRouterO
             tierWeight: b.tierWeight,
           };
         }),
-      ),
+      tokenRefusal,
+    ),
   });
 }
 

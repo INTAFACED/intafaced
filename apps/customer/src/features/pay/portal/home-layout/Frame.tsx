@@ -8,12 +8,15 @@ export function LayoutFrame({
   title,
   purpose,
   action,
+  heading = true,
   children,
 }: {
   here: string;
   title: ReactNode;
   purpose?: ReactNode;
   action?: ReactNode;
+  /** False when the page draws its own title row (a page on its Volt template): the frame then draws no heading. */
+  heading?: boolean;
   children: ReactNode;
 }) {
   const { t } = c.useCopy();
@@ -24,7 +27,7 @@ export function LayoutFrame({
       <div data-testid="pp" className="plo-content pp">
         {dashboard ? (
           <h1 className="pp-sr">{t('overviewHeading')}</h1>
-        ) : (
+        ) : !heading ? null : (
           <header data-testid="plo-heading" className="plo-heading">
             <div>
               <h1>{title}</h1>

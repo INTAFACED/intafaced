@@ -35,6 +35,17 @@ export function RefusalOnceProvider({ children }: { children: ReactNode }) {
   return <RefusalOnce.Provider value={store.current}>{children}</RefusalOnce.Provider>;
 }
 
+/**
+ * "Say each refusal once" for one refusal on the page: `claim()` is true when this part is the one that says `key`; the
+ * words are given back when it goes. Outside the frame's `RefusalOnceProvider` every part says its own.
+ */
+export function useSaidOnce(key: string): () => boolean {
+  const once = useContext(RefusalOnce);
+  const id = useId();
+  useEffect(() => () => once?.release(key, id), [once, key, id]);
+  return () => !once || once.claim(key, id);
+}
+
 /** Loading skeleton (B11): the shape of the page that is coming, announced once to assistive tech. */
 export function PortalLoading({ rows = 3, label }: { rows?: number; label?: string }) {
   const { t } = portalCopy.useCopy();
@@ -51,13 +62,10 @@ export const NotLive = NotLiveCard;
 export function PortalFailure({ result, retry, notLive }: { result: Failed; retry?: () => void; notLive?: string }) {
   const { t } = portalCopy.useCopy();
   const { t: u } = uiCopy.useCopy();
-  const once = useContext(RefusalOnce);
-  const id = useId();
-  const key = `${refusalTitle(result)}|${refusalText(result)}`;
-  useEffect(() => () => once?.release(key, id), [once, key, id]);
+  const claim = useSaidOnce(`${refusalTitle(result)}|${refusalText(result)}`);
   if (isNotLive(result)) return <NotLive reason={notLive ?? notLiveReason(result)} />;
   // The same refusal, twice on one page, is said once.
-  if (once && !once.claim(key, id)) return null;
+  if (!claim()) return null;
   return (
     <div data-testid="failure" className="failure" role={result.reason === 'uncertain' ? 'alert' : 'status'}>
       <h3>{refusalTitle(result)}</h3>

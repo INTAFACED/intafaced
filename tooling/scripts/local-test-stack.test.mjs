@@ -1,3 +1,5 @@
+// tooling-tests: alone. It takes the checkout's index.lock, and finds a free port that a child then binds, which a file
+// beside it could take first.
 // Proves the local test stack's two safety properties without starting anything:
 // local:fund refuses outside its own stack, and the script never supplies a sanctions list.
 import assert from 'node:assert/strict';
