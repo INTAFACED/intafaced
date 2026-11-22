@@ -268,6 +268,17 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
   // The Markets row is one row: every card starts on the first card's line and the row ends with them.
   expect(tiles.every((tile) => Math.round(tile.y) === Math.round(card.y))).toBe(true);
   expect(Math.round(row.y + row.height)).toBe(Math.round(card.y + card.height));
+  // The first screen at 1440x900 (the real app adds a 28 px local-test banner above): on the overview template the total,
+  // the actions and Needs you come first and end on it, and the money object starts on it; the Markets row follows
+  // directly below the money object, under the fold (the template's order, named in the PR for the look's review).
+  const fold = 900 - 28;
+  const actionsBox = await box('[data-testid="home-actions"]');
+  expect(actionsBox.y + actionsBox.height).toBeLessThanOrEqual(fold);
+  const needsBox = await box('[data-region="needs-you"]');
+  expect(needsBox.y + needsBox.height).toBeLessThanOrEqual(fold);
+  const stackBox = await box('[data-testid="volt-stack"]');
+  expect(stackBox.y).toBeLessThanOrEqual(fold);
+  expect(card.y - (stackBox.y + stackBox.height)).toBeLessThanOrEqual(3 * (await token(page, '--lit-gap-section')));
 
   // Order on the page: value -> change -> actions -> Cash/Crypto -> Markets.
   const ys = await page.evaluate(() =>
