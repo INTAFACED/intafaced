@@ -1,10 +1,9 @@
 import { useId, useRef, type HTMLAttributes, type ReactNode } from 'react';
 import { Button, Field } from '@intafaced/ui/lit';
 import { SectionTabs } from '@intafaced/ui/lit/templates';
-import { isServiceNotConnected, type ApiResult } from '../../../shared/api';
-import { uiCopy, uiMessage } from '../../../shared/ui-copy';
-import { refusalCopy } from '../../../data/refusals';
-import { canTryAgain, rawRefusalCode } from '../../../shared/try-again';
+import type { ApiResult } from '../../../shared/api';
+import { uiCopy } from '../../../shared/ui-copy';
+import { useFailureWords } from '../../../shared/failure-words';
 import { useModalDialog } from '../../../shared/modal-dialog';
 
 export { Field };
@@ -129,63 +128,23 @@ export function Dialog({ title, children, onClose }: { title: ReactNode; childre
 
 /** A service's refusal in plain words, with Try again only where a second attempt can change it. */
 export function Failure({ result, retry }: { result: Extract<ApiResult<unknown>, { ok: false }>; retry?: () => void }) {
-  const { Copy, languageFor, requestedLocale } = uiCopy.useCopy();
-  if (isServiceNotConnected(result.code)) {
-    // The gateway's own text is never shown for this answer: say plainly that the service is not connected here.
-    return (
-      <div data-testid="failure" className="lt-refusal" role="status">
-        <h3 className="lt-refusal-title">
-          <Copy k="not_mounted" />
-        </h3>
-        <p className="lt-refusal-body">
-          <Copy k="serviceNotConnected" />
-        </p>
-      </div>
-    );
-  }
-  const rawCode = rawRefusalCode(result);
-  if (rawCode && !result.messageCopy) {
-    // Customers never read a raw code: the same plain sentences the other rooms use for typed refusals.
-    const words = refusalCopy(result.code ?? rawCode);
-    // A write that may have gone through is never called refused or unchanged; the code only gives the support reference.
-    const uncertain = result.reason === 'uncertain';
-    return (
-      <div data-testid="failure" className="lt-refusal" role={uncertain ? 'alert' : 'status'}>
-        <h3 className="lt-refusal-title">{uncertain ? <Copy k="uncertain" /> : words.title}</h3>
-        <p className="lt-refusal-body">{uncertain ? <Copy k="gatewayUncertain" /> : words.body}</p>
-        {!uncertain && words.action && (
-          <a className="lt-link" href={words.action.href}>
-            {words.action.label}
-          </a>
-        )}
-        {words.reference && <small className="lt-ref">{words.reference}</small>}
-        {retry && canTryAgain(result) && (
-          <Button tone="secondary" onClick={retry}>
-            <Copy k="retry" />
-          </Button>
-        )}
-      </div>
-    );
-  }
+  const w = useFailureWords(result, Boolean(retry));
   return (
-    <div data-testid="failure" className="lt-refusal" role={result.reason === 'uncertain' ? 'alert' : 'status'}>
-      <h3 className="lt-refusal-title">
-        <Copy k={result.reason} />
-      </h3>
-      <p className="lt-refusal-body" lang={result.messageCopy ? languageFor(result.messageCopy.key) : undefined}>
-        {result.messageCopy ? uiMessage(result.messageCopy, requestedLocale) : result.message}
+    <div data-testid="failure" className="lt-refusal" role={w.alert ? 'alert' : 'status'}>
+      <h3 className="lt-refusal-title">{w.title}</h3>
+      <p className="lt-refusal-body" lang={w.bodyLang}>
+        {w.body}
       </p>
-      {result.reason === 'unauthorized' ? (
-        <a className="lt-link" href={`/login?redirect=${encodeURIComponent(location.pathname + location.search)}`}>
-          <Copy k="signIn" />
+      {w.action && (
+        <a className="lt-link" href={w.action.href}>
+          {w.action.label}
         </a>
-      ) : (
-        retry &&
-        canTryAgain(result) && (
-          <Button tone="secondary" onClick={retry}>
-            <Copy k="retry" />
-          </Button>
-        )
+      )}
+      {w.reference && <small className="lt-ref">{w.reference}</small>}
+      {w.retry && retry && (
+        <Button tone="secondary" onClick={retry}>
+          {w.retry}
+        </Button>
       )}
     </div>
   );
