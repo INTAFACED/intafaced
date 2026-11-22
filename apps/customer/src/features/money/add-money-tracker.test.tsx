@@ -5,7 +5,7 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 import { TrackerSteps, walletDeliveryMessage } from './AddMoney';
-import { addMoneyRequestSchema, bankReads, type AddMoneyRequest } from './contracts';
+import { addMoneyRequestSchema, type AddMoneyRequest } from './contracts';
 
 /** J-bank-02 #3, #5: one add-money request from created to credited, each step with when, and the amount credited. */
 
@@ -136,8 +136,7 @@ describe('the add-money tracker', () => {
 
   it('reads the new states, and refuses a credited amount that is a number', () => {
     expect(
-      bankReads['addMoney.request'].parse(request({ status: 'credited', creditedAmount: '20', creditedAt: '2026-11-04T10:01:00.000Z' }))
-        .status,
+      addMoneyRequestSchema.parse(request({ status: 'credited', creditedAmount: '20', creditedAt: '2026-11-04T10:01:00.000Z' })).status,
     ).toBe('credited');
     expect(addMoneyRequestSchema.safeParse({ ...request(), creditedAmount: 20 }).success).toBe(false);
   });

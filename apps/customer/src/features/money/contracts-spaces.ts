@@ -119,10 +119,7 @@ export const spaceLockStateSchema = z.object({
 });
 
 /** This area's reads of svc-bank `bank.*`, composed into `bankReads` in contracts.ts. */
-export const spacesReads = {
-  'sorter.list': sorterListSchema,
-  'sharedPots.list': sharedPotsSchema,
-} as const;
+export const spacesReads = {} as const;
 
 /** This area's writes to svc-bank `bank.*`, composed into `bankWrites` in contracts.ts. */
 export const spacesWrites = {

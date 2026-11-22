@@ -79,8 +79,6 @@ export const ruleSchema = z.object({
 
 /** This area's reads of svc-bank `bank.*`, composed into `bankReads` in contracts.ts. */
 export const earnReads = {
-  'earn.pool': earnPoolPageSchema,
-  'earn.rateHistory': rateHistorySchema,
   'autoInvest.policy': z.object({
     enabled: z.boolean(),
     convertWired: z.boolean(),
