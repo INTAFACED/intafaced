@@ -27,6 +27,7 @@ export const venueFeesCopy = defineCopy('venue-fees', {
   colCap: 'Venue’s cap on a builder fee',
   onSell: 'on a sell',
   notSet: 'not set',
+  notOffered: 'not offered here',
   zeroFee: 'Zero fee',
   venueRebate: 'Venue rebate {pct}%',
   pct: '{pct}%',

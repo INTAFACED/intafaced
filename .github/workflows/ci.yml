@@ -459,14 +459,16 @@ jobs:
           git checkout -- crates/svc-tax/tests/it.rs
           plant 'unlisted test file' $'#[test]\nfn planted_unlisted() {}' 'tests/it.rs does not list \["planted.rs"\]' every_test_file_is_listed unlisted
           rm crates/svc-tax/tests/planted.rs
-      # The Rust ledger's posting tables and door callers are recorded from packages/ledger-client/src/gate (who may post
-      # what, which recipe has which legs, who may call each door). A gate change whose recorded tables were not rewritten
+      # The Rust ledger's posting tables, door callers and postRecipe door are recorded from packages/ledger-client (who
+      # may post what, which recipe has which legs, who may call each door, what the door takes and builds). A gate change whose recorded tables were not rewritten
       # fails here, and the check is shown to fail on a planted grant before it is trusted.
       - name: The ledger's recorded gate tables match packages/ledger-client
         run: |
           pnpm install --frozen-lockfile
           pnpm --filter "@intafaced/ledger-client^..." build
           TZ=UTC node --import tsx crates/svc-ledger/scripts/record-posting.mjs --check
+          # The postRecipe door's schema, zod verdicts and svc-bank bodies, from the ledger client's record and recipes.
+          TZ=UTC node --import tsx crates/svc-ledger/scripts/record-post-recipe.mjs --check
           gate=packages/ledger-client/src/gate/caller-allowlist.ts
           sed -i "s#^  'svc-academy': {#  'svc-academy': {\n    deposit: g('ledger', 'planted'),#" "$gate"
           if TZ=UTC node --import tsx crates/svc-ledger/scripts/record-posting.mjs --check > "$RUNNER_TEMP/planted-gate.log" 2>&1; then

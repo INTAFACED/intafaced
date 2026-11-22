@@ -781,9 +781,9 @@ test(`${J} #5 reads the fees and the decline reasons: a TEST 1.50 fee shows its 
   expect(reasons['pay.failed'], 'the unlisted decline counts under the generic reason').toBeGreaterThanOrEqual(1);
 
   const declines = page.getByRole('group', { name: 'Declines' });
-  await expect(declines.getByRole('link', { name: /^Decline rate/ }).locator('.pp-kpi-value')).toHaveText(`${rate}%`);
-  await expect(declines.getByRole('link', { name: /^Declined/ }).locator('.pp-kpi-value')).toHaveText(String(declined.length));
-  await expect(declines.getByRole('link', { name: /^Finished/ }).locator('.pp-kpi-value')).toHaveText(String(finished));
+  await expect(declines.getByRole('link', { name: /^Decline rate/ }).getByTestId('pp-kpi-value')).toHaveText(`${rate}%`);
+  await expect(declines.getByRole('link', { name: /^Declined/ }).getByTestId('pp-kpi-value')).toHaveText(String(declined.length));
+  await expect(declines.getByRole('link', { name: /^Finished/ }).getByTestId('pp-kpi-value')).toHaveText(String(finished));
   const reasonRows = bodyRows(tableIn(page, 'Decline reasons'));
   await expect(reasonRows).toHaveCount(Object.keys(reasons).length);
   for (const r of server.reasons) {

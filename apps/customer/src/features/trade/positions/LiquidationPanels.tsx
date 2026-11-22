@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Button, DataTable, Loading } from '../../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { ScrollTable, Waiting } from '../../more';
 import { usePolled } from '../../protocol';
 import type {
   AsOf,
@@ -10,7 +11,9 @@ import type {
   VenueLiquidationAlert,
   VenueLiquidationStatus,
 } from '../venue-api';
-import { AsOfLine, VENUE_POLL_MS, useAsOfText, useVenueApi } from '../venue/VenueKit';
+import { VENUE_POLL_MS } from '../venue/poll';
+import { useAsOfText, useVenueApi } from '../venue/VenueKit';
+import { AsOfLine } from '../venue/volt/VoltVenue';
 import { positionsCopy } from './positions-copy';
 
 /**
@@ -54,11 +57,11 @@ export function LiquidationPanel({
   const now = read.data?.data ?? null;
   const words = { symbol, venue: v.name };
   return (
-    <section className="dk-panel form-stack" aria-label={t('liquidationTitle', words)} data-testid="position-liquidation">
-      <h3 className="dk-tab-title">{t('liquidationTitle', words)}</h3>
-      <p className="muted">{t('liquidationLead', words)}</p>
+    <section className="lt-stack" aria-label={t('liquidationTitle', words)} data-testid="position-liquidation">
+      <h3>{t('liquidationTitle', words)}</h3>
+      <p className="lt-hint">{t('liquidationLead', words)}</p>
       {read.data?.failure ? (
-        <p className="failure" role="alert">
+        <p className="lt-refusal" role="alert">
           {t('liquidationNotOffered', { venue: v.name, detail: read.data.failure })}
         </p>
       ) : null}
@@ -81,9 +84,9 @@ export function LiquidationPanel({
           <AsOfLine asOf={now.asOf} />
         </>
       ) : read.data === null ? (
-        <Loading label={t('liquidationTitle', words)} />
+        <Waiting label={t('liquidationTitle', words)} />
       ) : null}
-      <Button variant="secondary" onClick={onClose}>
+      <Button tone="secondary" onClick={onClose}>
         {t('close')}
       </Button>
     </section>
@@ -129,21 +132,21 @@ function Liquidations({ owner, venues }: { owner: string; venues: readonly Venue
   );
   const headers = [t('hLiquidation'), t('hMarket'), t('hSide'), t('hState'), t('hPart'), t('hSize'), t('hPrice'), t('hFee'), t('hTime')];
   return (
-    <section className="dk-panel form-stack" aria-label={t('liquidationsTitle')} data-testid="liquidations">
-      <h2 className="dk-tab-title">{t('liquidationsTitle')}</h2>
-      {reads.data === null ? <Loading label={t('liquidationsTitle')} /> : null}
+    <section className="lt-stack" aria-label={t('liquidationsTitle')} data-testid="liquidations">
+      <h2>{t('liquidationsTitle')}</h2>
+      {reads.data === null ? <Waiting label={t('liquidationsTitle')} /> : null}
       {(reads.data ?? []).map(({ venue: v, read }) => (
         <div key={v.id} data-venue={v.id}>
-          <h3 className="dk-tab-title">{t('liquidationsVenue', { venue: v.name })}</h3>
-          <p className="muted">{t('liquidationsLead', { venue: v.name })}</p>
+          <h3>{t('liquidationsVenue', { venue: v.name })}</h3>
+          <p className="lt-hint">{t('liquidationsLead', { venue: v.name })}</p>
           {read.failure ? (
-            <p className="failure" role="alert">
+            <p className="lt-refusal" role="alert">
               {t('liquidationsNotOffered', { venue: v.name, detail: read.failure })}
             </p>
           ) : null}
-          {read.data && read.data.value.length === 0 ? <p className="muted">{t('liquidationsNone', { venue: v.name })}</p> : null}
+          {read.data && read.data.value.length === 0 ? <p className="lt-hint">{t('liquidationsNone', { venue: v.name })}</p> : null}
           {read.data && read.data.value.length > 0 ? (
-            <DataTable label={t('liquidationsVenue', { venue: v.name })} headers={headers}>
+            <ScrollTable label={t('liquidationsVenue', { venue: v.name })} headers={headers}>
               {read.data.value.flatMap((l) =>
                 l.parts.map((p) => (
                   <tr key={p.partId} data-liquidation={l.liquidationId} data-part={p.partId} data-state={l.state}>
@@ -152,20 +155,20 @@ function Liquidations({ owner, venues }: { owner: string; venues: readonly Venue
                     <td data-cell="side">{t(`side_${l.side}`)}</td>
                     <td data-cell="state">{l.state === 'in_progress' ? t('stateInProgress') : t('stateDone')}</td>
                     <td data-cell="part">{p.partId}</td>
-                    <td className="numeric" data-cell="size">
+                    <td className="lt-mono" data-cell="size">
                       {p.size}
                     </td>
-                    <td className="numeric" data-cell="price">
+                    <td className="lt-mono" data-cell="price">
                       {p.price}
                     </td>
-                    <td className="numeric" data-cell="fee">
+                    <td className="lt-mono" data-cell="fee">
                       {t('feeValue', { fee: p.fee, asset: p.feeAsset })}
                     </td>
                     <td data-cell="time">{time(p.liquidatedAt)}</td>
                   </tr>
                 )),
               )}
-            </DataTable>
+            </ScrollTable>
           ) : null}
           {read.data ? <AsOfLine asOf={read.data.asOf} /> : null}
         </div>
@@ -188,12 +191,12 @@ function InsuranceFund({ venue: v }: { venue: VenueRef }) {
   );
   const fund = read.data?.data ?? null;
   return (
-    <section className="dk-panel form-stack" aria-label={t('fundTitle')} data-testid="insurance-fund" data-venue={v.id}>
-      <h2 className="dk-tab-title">{t('fundTitle')}</h2>
-      <p className="muted">{t('fundLead', { venue: v.name })}</p>
-      {read.data === null ? <Loading label={t('fundTitle')} /> : null}
+    <section className="lt-stack" aria-label={t('fundTitle')} data-testid="insurance-fund" data-venue={v.id}>
+      <h2>{t('fundTitle')}</h2>
+      <p className="lt-hint">{t('fundLead', { venue: v.name })}</p>
+      {read.data === null ? <Waiting label={t('fundTitle')} /> : null}
       {read.data?.failure ? (
-        <p className="failure" role="alert">
+        <p className="lt-refusal" role="alert">
           {t('fundFailed', { venue: v.name, detail: read.data.failure })}
         </p>
       ) : null}
@@ -203,7 +206,7 @@ function InsuranceFund({ venue: v }: { venue: VenueRef }) {
           <dt>{t('fundName')}</dt>
           <dd data-line="fund-name">{fund.value.value.name}</dd>
           <dt>{t('fundBalance')}</dt>
-          <dd className="numeric" data-line="fund-balance">
+          <dd className="lt-mono" data-line="fund-balance">
             {t('feeValue', { fee: fund.value.value.balance, asset: fund.value.value.asset })}
           </dd>
           <dt>{t('fundWhere')}</dt>
@@ -253,12 +256,12 @@ function Deleveraging({ owner, venue: v }: { owner: string; venue: VenueRef }) {
     disclosure.reload();
   }
   return (
-    <section className="dk-panel form-stack" aria-label={t('adlTitle')} data-testid="adl" data-venue={v.id}>
-      <h2 className="dk-tab-title">{t('adlTitle')}</h2>
-      <p className="muted">{t('adlLead', { venue: v.name })}</p>
-      {disclosure.data === null ? <Loading label={t('adlTitle')} /> : null}
+    <section className="lt-stack" aria-label={t('adlTitle')} data-testid="adl" data-venue={v.id}>
+      <h2>{t('adlTitle')}</h2>
+      <p className="lt-hint">{t('adlLead', { venue: v.name })}</p>
+      {disclosure.data === null ? <Waiting label={t('adlTitle')} /> : null}
       {disclosure.data?.failure ? (
-        <p className="failure" role="alert">
+        <p className="lt-refusal" role="alert">
           {t('adlFailed', { venue: v.name, detail: disclosure.data.failure })}
         </p>
       ) : null}
@@ -283,18 +286,18 @@ function Deleveraging({ owner, venue: v }: { owner: string; venue: VenueRef }) {
         </>
       ) : null}
       {problem ? (
-        <p className="failure" role="alert" data-testid="adl-problem">
+        <p className="lt-refusal" role="alert" data-testid="adl-problem">
           {t('adlAckFailed', { detail: problem })}
         </p>
       ) : null}
-      <h3 className="dk-tab-title">{t('adlEventsTitle')}</h3>
-      <p className="muted">{t('adlPaysNothing', { venue: v.name })}</p>
+      <h3>{t('adlEventsTitle')}</h3>
+      <p className="lt-hint">{t('adlPaysNothing', { venue: v.name })}</p>
       {events.data?.failure ? (
-        <p className="failure" role="alert">
+        <p className="lt-refusal" role="alert">
           {t('adlFailed', { venue: v.name, detail: events.data.failure })}
         </p>
       ) : null}
-      {events.data?.data && events.data.data.value.length === 0 ? <p className="muted">{t('adlEventsNone', { venue: v.name })}</p> : null}
+      {events.data?.data && events.data.data.value.length === 0 ? <p className="lt-hint">{t('adlEventsNone', { venue: v.name })}</p> : null}
       {(events.data?.data?.value ?? []).map((e) => (
         <div key={e.adlId} data-adl={e.adlId}>
           <p data-line="adl-close">
@@ -306,7 +309,7 @@ function Deleveraging({ owner, venue: v }: { owner: string; venue: VenueRef }) {
               price: e.price,
               pnl: e.realisedPnl,
             })}{' '}
-            <span className="muted">{time(e.deleveragedAt)}</span>
+            <span className="lt-hint">{time(e.deleveragedAt)}</span>
           </p>
           <p data-line="adl-notice">{e.notice}</p>
         </div>
@@ -330,33 +333,33 @@ function PublicAlerts({ venue: v }: { venue: VenueRef }) {
   );
   const alerts = read.data?.data ?? null;
   return (
-    <section className="dk-panel form-stack" aria-label={t('alertsTitle')} data-testid="liquidation-alerts" data-venue={v.id}>
-      <h2 className="dk-tab-title">{t('alertsTitle')}</h2>
-      <p className="muted">{t('alertsLead', { venue: v.name })}</p>
-      {read.data === null ? <Loading label={t('alertsTitle')} /> : null}
+    <section className="lt-stack" aria-label={t('alertsTitle')} data-testid="liquidation-alerts" data-venue={v.id}>
+      <h2>{t('alertsTitle')}</h2>
+      <p className="lt-hint">{t('alertsLead', { venue: v.name })}</p>
+      {read.data === null ? <Waiting label={t('alertsTitle')} /> : null}
       {read.data?.failure ? (
-        <p className="failure" role="alert">
+        <p className="lt-refusal" role="alert">
           {t('alertsFailed', { venue: v.name, detail: read.data.failure })}
         </p>
       ) : null}
-      {alerts && alerts.value.length === 0 ? <p className="muted">{t('alertsNone', { venue: v.name })}</p> : null}
+      {alerts && alerts.value.length === 0 ? <p className="lt-hint">{t('alertsNone', { venue: v.name })}</p> : null}
       {alerts && alerts.value.length > 0 ? (
-        <DataTable label={t('alertsTitle')} headers={[t('hKind'), t('hMarket'), t('hSide'), t('hSize'), t('hPrice'), t('hTime')]}>
+        <ScrollTable label={t('alertsTitle')} headers={[t('hKind'), t('hMarket'), t('hSide'), t('hSize'), t('hPrice'), t('hTime')]}>
           {alerts.value.map((a, i) => (
             <tr key={`${a.alertedAt}:${i}`} data-kind={a.kind} data-symbol={a.symbol}>
               <td data-cell="kind">{a.kind === 'liquidation' ? t('kindLiquidation') : t('kindDeleverage')}</td>
               <td data-cell="symbol">{a.symbol}</td>
               <td data-cell="side">{t(`side_${a.side}`)}</td>
-              <td className="numeric" data-cell="size">
+              <td className="lt-mono" data-cell="size">
                 {a.size}
               </td>
-              <td className="numeric" data-cell="price">
+              <td className="lt-mono" data-cell="price">
                 {a.price}
               </td>
               <td data-cell="time">{time(a.alertedAt)}</td>
             </tr>
           ))}
-        </DataTable>
+        </ScrollTable>
       ) : null}
       {alerts ? <AsOfLine asOf={alerts.asOf} /> : null}
     </section>
