@@ -19,16 +19,22 @@
 </a>
 </header>
 <main id="main">
-<div class="pub-page" data-testid="developers-errors-auth">
-<header class="pub-heading">
-<h1>Authentication and permission errors</h1>
-<p class="muted">For Exchange API</p>
+<div data-testid="developers-errors-auth">
+<div class="lt-room" data-template="reading" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
+<div>
+<h1 class="lt-title">Authentication and permission errors</h1>
+<p class="lt-description">For Exchange API</p>
+</div>
 </header>
-<p class="muted">Every authentication and permission refusal a call to the trading REST API (/api/v1) can answer with. Branch on the code; the detail code names the decision behind it.</p>
-<section class="pub-card" aria-labelledby="dev-auth-errors">
+<div class="lt-body">
+<div class="lt-grid lt-grid-reading-toc">
+<div class="lt-reading-main">
+<section class="lt-region" data-region="body" aria-label="Article">
+<p>Every authentication and permission refusal a call to the trading REST API (/api/v1) can answer with. Branch on the code; the detail code names the decision behind it.</p>
+<section aria-labelledby="dev-auth-errors">
 <h2 id="dev-auth-errors">Authentication and permission errors</h2>
-<div class="table-scroll">
-<table class="pub-table dev-text-table" data-testid="auth-errors-catalogue">
+<table class="lt-table" data-testid="auth-errors-catalogue">
 <thead>
 <tr>
 <th scope="col">Code</th>
@@ -51,7 +57,7 @@
 </td>
 <td>Error: change the request</td>
 <td>Authentication</td>
-<td>No key was sent: the Authorization header is missing.<span class="muted"> Answered by the trading service, in its CCXT dialect.</span>
+<td>No key was sent: the Authorization header is missing.<small> Answered by the trading service, in its CCXT dialect.</small>
 </td>
 <td>Send the key as Authorization: Bearer followed by the key.</td>
 </tr>
@@ -119,7 +125,7 @@
 <td>Permission</td>
 <td>The key does not hold the scope this route needs.</td>
 <td>
-<a class="text-link" href="/developers/permissions">Make a key with the permission the route needs; the permission table lists them.</a>
+<a class="lt-link" href="/developers/permissions">Make a key with the permission the route needs; the permission table lists them.</a>
 </td>
 </tr>
 <tr id="env.mismatch" data-cause="environment" data-code="PermissionDenied" data-severity="error" data-category="permission">
@@ -226,10 +232,22 @@
 </tr>
 </tbody>
 </table>
-</div>
 </section>
-<a class="text-link" href="/developers/permissions">Open the permission table →</a>
-<a class="text-link" href="/developers/errors">← Errors</a>
+</section>
+<section class="lt-region" data-region="related" aria-label="Related">
+<p class="lt-actions">
+<a class="lt-link lt-link-alone" href="/developers/permissions">Open the permission table <span class="lt-arrow lt-arrow-go" aria-hidden="true">
+</span>
+</a>
+<a class="lt-link lt-link-alone" href="/developers/errors">
+<span class="lt-arrow lt-arrow-back" aria-hidden="true">
+</span> Errors</a>
+</p>
+</section>
+</div>
+</div>
+</div>
+</div>
 </div>
 </main>
 <footer class="public-footer">

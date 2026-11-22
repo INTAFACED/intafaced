@@ -546,6 +546,49 @@
   min-block-size: 1.5rem;
 }
 
+/*
+ * A link's arrow: drawn, never typed. Volt's faces carry no arrow glyphs (→ ← ↗), so a typed one falls back to a system
+ * font. `<span class="lt-arrow lt-arrow-go" aria-hidden="true"></span>` after the words (go on), `lt-arrow-back` before
+ * them (go back), `lt-arrow-out` (opens elsewhere). It takes the text's colour and size; go and back point the reading
+ * way in a right-to-left language.
+ */
+.lt-arrow {
+  display: inline-block;
+  inline-size: 1em;
+  block-size: 1em;
+  vertical-align: -0.125em;
+  background-color: currentColor;
+  mask: var(--lt-arrow-shape) center / contain no-repeat;
+  -webkit-mask: var(--lt-arrow-shape) center / contain no-repeat;
+}
+.lt-arrow-go {
+  --lt-arrow-shape: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M4 11h12.2l-5.6-5.6L12 4l8 8-8 8-1.4-1.4 5.6-5.6H4z'/%3E%3C/svg%3E");
+}
+.lt-arrow-back {
+  --lt-arrow-shape: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M20 11H7.8l5.6-5.6L12 4l-8 8 8 8 1.4-1.4L7.8 13H20z'/%3E%3C/svg%3E");
+}
+.lt-arrow-out {
+  --lt-arrow-shape: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M7 5h12v12h-2V8.4L6.4 19 5 17.6 15.6 7H7z'/%3E%3C/svg%3E");
+}
+.lt-arrow-go:dir(rtl),
+.lt-arrow-back:dir(rtl) {
+  transform: scaleX(-1);
+}
+
+/* A link that stands on its own (back to the section, on to the next page): a whole touch target, not a line of text. */
+.lt-link-alone {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
+  /* WCAG 2.5.8's 24 CSS pixels whatever the root size (1.5rem alone drew 22px on /developers/hosts, look gate on ae2755c). */
+  min-block-size: max(1.5rem, 24px); /* look-drift-allow: WCAG 2.5.8 sets the minimum target in CSS pixels */
+}
+
+/* Text written with its own line breaks (published terms, a plain-text section): the breaks show, long lines still wrap. */
+.lt-prose-lines {
+  white-space: pre-line;
+}
+
 .lt-actions,
 .lt-equal {
   display: flex;
