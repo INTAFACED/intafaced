@@ -40,60 +40,6 @@ export const cardSchema = z.object({
   replacesCardId: z.string().nullable().optional(),
   replacedByCardId: z.string().nullable().optional(),
 });
-/** The card room's product list for one country (J-bank-13 #1): eligibility with its reason, limits, terms, designs, speeds. */
-const cardCatalogueSchema = z.object({
-  programme: programmeSchema,
-  network: z.string(),
-  country: z.string(),
-  eligible: z.boolean(),
-  reason: z.string().nullable(),
-  countries: z.array(z.string()),
-  products: z.array(z.object({ type: z.enum(['virtual', 'physical']), held: z.number().int(), limit: z.number().int() })),
-  terms: z.object({
-    version: z.string(),
-    text: z.string(),
-    textHash: z.string(),
-    acceptance: z.object({ id: z.string(), version: z.string(), acceptedAt: z.string() }).nullable(),
-  }),
-  designs: z.array(z.object({ id: z.string(), name: z.string() })),
-  speeds: z.array(z.object({ speed: z.enum(['standard', 'express', 'signed']), days: z.number().int() })),
-  deliveryCountries: z.array(z.string()),
-});
-/** A physical card's delivery (J-bank-13 #3, #4): design, speed, estimate, state, tracking, address and its history. */
-const cardDeliverySchema = z.object({
-  cardId: z.string(),
-  state: z.enum(['ordered', 'produced', 'shipped', 'delivered']),
-  designId: z.string().nullable(),
-  designName: z.string().nullable(),
-  speed: z.string(),
-  estimateDays: z.number().int(),
-  orderedAt: z.string(),
-  expectedBy: z.string(),
-  carrier: z.string().nullable(),
-  trackingRef: z.string().nullable(),
-  /** What the bank says delivery cannot do in this build: `hardware` while no printer or courier is connected. */
-  notConnected: z.enum(['hardware']).nullable(),
-  address: shippingAddressSchema,
-  history: z.array(z.object({ address: shippingAddressSchema, changedAt: z.string() })),
-});
-
-/** Pay from (J-bank-29 #1 #2): svc-bank `cards.payFrom` and `cards.setPayFromOrder`. Each null is "not known". */
-const payFromSchema = z.object({
-  test: z.boolean(),
-  custodyMode: z.enum(['partner_holds', 'wallet_pull']).nullable(),
-  settlementAssetId: z.string().nullable(),
-  assets: z.array(
-    z.object({
-      assetId: z.string(),
-      state: z.enum(['offered', 'not_offered', 'not_known', 'not_listed']),
-      partnerBalance: z.string().nullable(),
-      rate: z.string().nullable(),
-      rateAsOf: z.string().nullable(),
-    }),
-  ),
-  order: z.array(z.string()).nullable(),
-  notUsedForCards: z.array(z.enum(['trading', 'agent'])),
-});
 
 /**
  * svc-bank `cards.controls.*` (J-bank-14 #1, BK-cctl-01): the categories a card can block, its live blocks of a
@@ -115,27 +61,6 @@ const cardControlsSchema = z.object({
 });
 export type CardControls = z.infer<typeof cardControlsSchema>;
 
-/**
- * svc-bank card details, PIN and phone wallets (J-bank-14 #3 #4, BK-cctl-03, BK-cctl-04): which the issuer offers, the
- * revealed details and PIN with when to drop them, and the wallets the card was added to. `test` marks the TEST
- * partner's stand-ins, which the screen labels TEST.
- */
-const cardSecretsOfferedSchema = z.object({
-  details: z.boolean(),
-  pin: z.boolean(),
-  wallet: z.boolean(),
-  test: z.boolean(),
-  /** The card partner itself does not add this person's cards to a phone wallet (J-bank-13 #8). */
-  walletNotOffered: z.boolean().default(false),
-});
-const cardRevealSchema = z.object({
-  pan: z.string(),
-  expiry: z.string(),
-  cvv: z.string(),
-  expiresAt: z.string(),
-  test: z.boolean(),
-});
-const cardPinRevealSchema = z.object({ pin: z.string(), expiresAt: z.string(), test: z.boolean() });
 const cardWalletTokensSchema = z.object({
   test: z.boolean(),
   tokens: z.array(
@@ -230,13 +155,6 @@ const cardDisputeFormSchema = z.object({
 
 /** This area's reads of svc-bank `bank.*`, composed into `bankReads` in contracts.ts. */
 export const cardsReads = {
-  'cards.programme': programmeSchema,
-  'cards.catalogue': cardCatalogueSchema,
-  'cards.payFrom': payFromSchema,
-  'cards.delivery': cardDeliverySchema,
-  'cards.controls.get': cardControlsSchema,
-  'cards.secretsOffered': cardSecretsOfferedSchema,
-  'cards.walletTokens': cardWalletTokensSchema,
   'cards.disputes.form': cardDisputeFormSchema,
   'cards.disputes.list': z.array(cardDisputeCaseSchema.omit({ events: true })),
   'cards.disputes.get': cardDisputeCaseSchema,
@@ -246,19 +164,10 @@ export const cardsReads = {
 export const cardsWrites = {
   'cards.setStatus': z.object({ id: z.string(), status: z.string() }),
   'cards.issue': cardSchema,
-  'cards.order': cardSchema,
-  'cards.updateShipping': cardDeliverySchema,
-  'cards.setPayFromOrder': payFromSchema,
-  'cards.activate': cardSchema,
-  'cards.replace': cardSchema,
   'cards.setLimits': cardSchema,
   'cards.setChannels': cardSchema,
   'cards.controls.block': cardControlsSchema,
   'cards.controls.lift': cardControlsSchema,
-  'cards.reveal': cardRevealSchema,
-  'cards.pin.reveal': cardPinRevealSchema,
-  'cards.threeDS.answer': cardThreeDSChallengeSchema,
-  'cards.fraud.report': cardFraudReportSchema,
   'cards.disputes.open': cardDisputeCaseSchema,
   'cards.disputes.evidence': cardDisputeCaseSchema,
   'cards.disputes.withdraw': cardDisputeCaseSchema,

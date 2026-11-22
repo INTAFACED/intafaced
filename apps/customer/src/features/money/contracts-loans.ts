@@ -141,7 +141,6 @@ export const loansReads = {
   'loans.interestRows': loanInterestRowsSchema,
   'loans.ledgerCheck': loanLedgerCheckSchema,
   'loans.quote': loanQuoteSchema,
-  'loans.eligibility': loanEligibilitySchema,
   'loans.fees': loanFeesSchema,
   'loans.terms': loanTermsSchema,
 } as const;
