@@ -7,15 +7,13 @@ import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import { confirmWithStepUp, type StepUpMethod } from './security-step-up';
 import { trustedDevicesCopy as copy } from './trusted-devices-copy';
+import { approveStepUp, removeStepUp, trustedDeviceCode } from './trusted-devices-api';
 import {
-  approveStepUp,
-  deviceApprovedSchema,
-  deviceRemovedSchema,
-  removeStepUp,
-  signInConfirmedSchema,
-  trustedDeviceCode,
-  trustedDevicesSchema,
-} from './trusted-devices-api';
+  IDENTITY_TRUSTED_DEVICES_LIST,
+  IDENTITY_TRUSTED_DEVICES_REMOVE,
+  IDENTITY_TRUSTED_DEVICES_APPROVE,
+  IDENTITY_TRUSTED_DEVICES_CONFIRM_SIGN_IN,
+} from '@intafaced/contracts/identity-trusted-devices-procedures';
 
 type Pending = { kind: 'remove'; id: string; label: string } | { kind: 'approve'; id: string; label: string };
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
@@ -45,9 +43,7 @@ export function TrustedDevices({ onChanged }: { onChanged?: () => void }) {
   }, []);
   const { resource, reload } = useResource(
     (signal) =>
-      userId
-        ? api.query('identity', 'trustedDevices.list', undefined, trustedDevicesSchema, { signal })
-        : Promise.resolve({ ok: true as const, data: null }),
+      userId ? api.call(IDENTITY_TRUSTED_DEVICES_LIST, undefined, { signal }) : Promise.resolve({ ok: true as const, data: null }),
     `trusted-devices:${userId}`,
   );
 
@@ -71,12 +67,11 @@ export function TrustedDevices({ onChanged }: { onChanged?: () => void }) {
         const requestId = crypto.randomUUID();
         const approval = await confirmWithStepUp(api, removeStepUp(pending.id, requestId), how);
         const answer = approval.ok
-          ? await api.mutate(
-              'identity',
-              'trustedDevices.remove',
-              { deviceId: pending.id, clientRequestId: requestId, stepUpApprovalId: approval.data.stepUpApprovalId },
-              deviceRemovedSchema,
-            )
+          ? await api.call(IDENTITY_TRUSTED_DEVICES_REMOVE, {
+              deviceId: pending.id,
+              clientRequestId: requestId,
+              stepUpApprovalId: approval.data.stepUpApprovalId,
+            })
           : approval;
         if (!mounted.current) return;
         if (!answer.ok) return setFailure(answer);
@@ -84,12 +79,7 @@ export function TrustedDevices({ onChanged }: { onChanged?: () => void }) {
       } else {
         const approval = await confirmWithStepUp(api, approveStepUp(pending.id), how);
         const answer = approval.ok
-          ? await api.mutate(
-              'identity',
-              'trustedDevices.approve',
-              { flowId: pending.id, stepUpApprovalId: approval.data.stepUpApprovalId },
-              deviceApprovedSchema,
-            )
+          ? await api.call(IDENTITY_TRUSTED_DEVICES_APPROVE, { flowId: pending.id, stepUpApprovalId: approval.data.stepUpApprovalId })
           : approval;
         if (!mounted.current) return;
         if (!answer.ok) return setFailure(answer);
@@ -112,7 +102,7 @@ export function TrustedDevices({ onChanged }: { onChanged?: () => void }) {
     setFailure(null);
     setNote(null);
     try {
-      const answer = await api.mutate('identity', 'trustedDevices.confirmSignIn', { deviceId }, signInConfirmedSchema);
+      const answer = await api.call(IDENTITY_TRUSTED_DEVICES_CONFIRM_SIGN_IN, { deviceId });
       if (!mounted.current) return;
       if (!answer.ok) return setFailure(answer);
       setNote(t('confirmed'));

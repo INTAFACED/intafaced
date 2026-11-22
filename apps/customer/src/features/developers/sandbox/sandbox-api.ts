@@ -3,13 +3,10 @@
  * pay service's sandbox store (`pay.sandboxFunds.*`), tRPC through the edge. The shapes are the contract's, so a reply that does not match is refused, never shown.
  */
 import {
-  sandboxCreateOutputSchema,
   sandboxCreateRequestId,
   sandboxFundRequestId,
-  sandboxGetOutputSchema,
   sandboxKeyCreateOutputSchema,
   sandboxKeyCreateRequestId,
-  sandboxListOutputSchema,
   sandboxResetRequestId,
   type SandboxBalance,
   type SandboxDetail,
@@ -23,21 +20,20 @@ import {
   PAY_SANDBOX_FUNDS_FUND,
   PAY_SANDBOX_FUNDS_RESET,
 } from '@intafaced/contracts/pay-sandbox-funds-procedures';
+import {
+  IDENTITY_DEVELOPER_SANDBOXES_LIST,
+  IDENTITY_DEVELOPER_SANDBOXES_GET,
+  IDENTITY_DEVELOPER_SANDBOXES_CREATE,
+} from '@intafaced/contracts/identity-developer-sandboxes-procedures';
 
-export const readSandboxes = (api: ApiClient, signal?: AbortSignal) =>
-  api.query('identity', 'developerSandboxes.list', undefined, sandboxListOutputSchema, { signal });
+export const readSandboxes = (api: ApiClient, signal?: AbortSignal) => api.call(IDENTITY_DEVELOPER_SANDBOXES_LIST, undefined, { signal });
 
 export const readSandbox = (api: ApiClient, sandboxId: string, signal?: AbortSignal) =>
-  api.query('identity', 'developerSandboxes.get', { sandboxId }, sandboxGetOutputSchema, { signal });
+  api.call(IDENTITY_DEVELOPER_SANDBOXES_GET, { sandboxId }, { signal });
 
 /** The request id comes from the list this page read and the name asked for, so a retry after a lost reply returns that sandbox. */
 export const createSandbox = (api: ApiClient, userId: string, listed: SandboxList['sandboxes'], name: string) =>
-  api.mutate(
-    'identity',
-    'developerSandboxes.create',
-    { name, requestId: sandboxCreateRequestId(userId, listed, name) },
-    sandboxCreateOutputSchema,
-  );
+  api.call(IDENTITY_DEVELOPER_SANDBOXES_CREATE, { name, requestId: sandboxCreateRequestId(userId, listed, name) });
 
 /** The sandbox's TEST balance, from the pay service's sandbox store (never the ledger). */
 export const readSandboxBalance = (api: ApiClient, sandboxId: string, signal?: AbortSignal) =>

@@ -1,7 +1,9 @@
-import { z } from 'zod';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import type { Sql } from 'postgres';
 import { revokeAllApiKeys, RevokeAllApiKeysError, revokeCauseOf } from './auth/revoke-all-api-keys.js';
+import { IDENTITY_REVOKE_ALL_API_KEYS } from '@intafaced/contracts/identity-revoke-all-api-keys-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from './record-refusal.js';
 
 /**
  * Top-level revoke-all (not nested under apiKeys) so mergeRouters cannot
@@ -9,10 +11,9 @@ import { revokeAllApiKeys, RevokeAllApiKeysError, revokeCauseOf } from './auth/r
  */
 export function createApiKeyRevokeAllRouter(sql: Sql) {
   return router({
-    revokeAllApiKeys: scopedProcedure('identity:write')
-      .input(z.object({ userId: z.string().guid() }))
-      .output(z.object({ userId: z.string().guid(), revoked: z.number().int() }))
-      .mutation(async ({ ctx, input }) => {
+    revokeAllApiKeys: mountRecord(
+      IDENTITY_REVOKE_ALL_API_KEYS,
+      async ({ ctx, input }) => {
         try {
           return await revokeAllApiKeys(sql, ctx.principal.userId, input.userId, revokeCauseOf(ctx.principal));
         } catch (err) {
@@ -21,6 +22,8 @@ export function createApiKeyRevokeAllRouter(sql: Sql) {
           }
           throw err;
         }
-      }),
+      },
+      codedRefusal,
+    ),
   });
 }

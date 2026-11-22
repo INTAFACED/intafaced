@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { StatusTag } from '@intafaced/ui';
-import { kycHistoryOutputSchema, type KycCase, type KycCaseState } from '@intafaced/contracts/identity-kyc-cases';
+import { type KycCase, type KycCaseState } from '@intafaced/contracts/identity-kyc-cases';
 import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { Button, EmptyState, Failure, Loading } from '../../shared/ui';
 import { usePreferences } from '../../shared/preferences';
 import { stamp } from '../../screens/money/time';
 import { verificationCasesCopy as copy } from './verification-cases-copy';
+import { IDENTITY_KYC_HISTORY } from '@intafaced/contracts/identity-kyc-procedures';
 
 type Tier = KycCase['tier'];
 const PAGE = 10;
@@ -41,7 +42,7 @@ export function VerificationCases({
   const { timeZone } = usePreferences();
   const [limit, setLimit] = useState(PAGE);
   const { resource, reload } = useResource(
-    (signal) => api.query('identity', 'kyc.history', { limit }, kycHistoryOutputSchema, { signal }),
+    (signal) => api.call(IDENTITY_KYC_HISTORY, { limit }, { signal }),
     `verification-cases:${userId}:${limit}:${recordsKey}`,
   );
   const time = (iso: string) => (
