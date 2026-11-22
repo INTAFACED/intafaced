@@ -6,7 +6,6 @@ import { Button, Panel, Tabs } from '../../shared/ui';
 import { Details, Read, Select, presentActionFailure } from './common';
 import { useAcademyAction, type AcademyAction } from './academy-action';
 import { AcademyGrantRecords } from './AcademyGrantRecords';
-import { AcademyRefusal } from './AcademyLmsParts';
 import { AcademyPublic } from './AcademyPublic';
 import { CertificateShelf, CertificateVerifyPage } from './AcademyCertificates';
 import { replyAccepted } from '@intafaced/contracts/procedure';
