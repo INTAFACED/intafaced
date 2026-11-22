@@ -21,6 +21,7 @@ export type SectionLink = { id: string; label: string };
 export function SettingsRoom({
   sections,
   sectionsLabel,
+  index,
   explain,
   state,
   children,
@@ -29,6 +30,8 @@ export function SettingsRoom({
   sections?: readonly SectionLink[];
   /** The index's name (its landmark label). */
   sectionsLabel?: string;
+  /** An index of its own in place of the section links: the row that moves between a group's pages. */
+  index?: ReactNode;
   /** What these settings mean and what changing them does now, in plain words. */
   explain?: ReactNode;
   /** The page's own state once the business is known; ready by default. */
@@ -80,7 +83,8 @@ export function SettingsRoom({
       state={roomState}
       roomAction={action}
       index={
-        sections && sections.length > 0 ? (
+        index ??
+        (sections && sections.length > 0 ? (
           <nav aria-label={sectionsLabel ?? heading.title}>
             <ul>
               {sections.map((s) => (
@@ -92,7 +96,7 @@ export function SettingsRoom({
               ))}
             </ul>
           </nav>
-        ) : undefined
+        ) : undefined)
       }
       sections={body}
       explain={explain}
