@@ -55,7 +55,7 @@ export function Shown({
   testId?: string;
 }) {
   return (
-    <span data-slot={slot} data-testid={testId} dir="ltr">
+    <span data-slot={slot} data-hidden={hidden || undefined} data-testid={testId} dir="ltr">
       {hidden ? MASK : (text ?? '—')}
     </span>
   );
