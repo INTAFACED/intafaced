@@ -23,6 +23,7 @@ export {
   SelectValue,
   Skeleton,
   StateBlock,
+  StatusTag,
   Tabs,
   TabsList,
   TabsPanel,
@@ -45,6 +46,7 @@ export {
   fmtAmount,
   fmtPct,
   fmtPrice,
+  fmtUsd,
   refusalCopy,
   useFavorites,
   useTicker,
@@ -52,7 +54,7 @@ export {
   type Loadable,
   type TickerRow,
 } from '../../../data';
-export { compareDecimal, fractionDigits } from '../../../data/decimal';
+export { compareDecimal, dec, fractionDigits } from '../../../data/decimal';
 export { isHiddenPath } from '../../../app/feature-registry';
 export { defaultDeskPair, normalizePair } from '../../../app/navigation';
 export { navigate } from '../../../app/location';

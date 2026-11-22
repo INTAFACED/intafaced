@@ -10,8 +10,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Trade } from '@intafaced/exchange-contract/schemas';
 import type { RefusalCopy } from '../../../data/types';
-import { refusalCopy } from '../../../data';
-import { draftSchema, type Draft, type Order, type Preview, type TradeApi } from '../../../features/trade/trade-api';
+import { draftSchema, refusalCopy, type Draft, type Order, type Preview, type TradeApi } from './deps';
 import { isNetworkFailure, plainRefusal, readableCode } from './quote-flow';
 import { maxBase } from './order-plan';
 import { dec, divDown, floorToStep, str } from './trade-math';

@@ -114,103 +114,89 @@
 <section data-testid="money-card" class="money-card money-card--activity" aria-label="Activity">
 <div data-testid="money-trade-tab" class="money-trade-tab">
 <h2 data-testid="money-trade-tab__head" class="money-trade-tab__head">Open orders</h2>
-<table data-testid="dk-table" class="lt-table">
+<table data-testid="dk-table" class="dk-table">
 <thead>
 <tr>
 <th>Time</th>
 <th>Market</th>
 <th>Type</th>
 <th>Side</th>
-<th data-align="end">Price</th>
-<th data-align="end">Amount</th>
-<th data-align="end">Filled</th>
-<th data-align="end">Held</th>
+<th class="dk-num">Price</th>
+<th class="dk-num">Amount</th>
+<th class="dk-num">Filled</th>
+<th class="dk-num">Held</th>
 <th>Action</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>
-<a data-testid="dk-order-link" class="lt-link" href="/trade/orders/o1" title="Open this order’s details">14 Oct, 09:00</a>
+<td class="if-num">
+<a data-testid="dk-order-link" class="dk-order-link" href="/trade/orders/o1" title="Open this order’s details">14 Oct, 09:00</a>
 </td>
 <td>BTC/USDT</td>
+<td>Limit</td>
 <td>
-<span class="lt-actions">Limit</span>
+<span class="dk-side" data-side="buy">Buy</span>
 </td>
-<td>
-<span data-side="buy">Buy</span>
-</td>
-<td data-align="end">62,500.00</td>
-<td data-align="end">0.0001</td>
-<td data-align="end">0</td>
-<td data-align="end">
+<td class="dk-num if-num">62,500.00</td>
+<td class="dk-num if-num">0.0001</td>
+<td class="dk-num if-num">0</td>
+<td class="dk-num if-num">
 <span title="Not stated: the service did not say what this order holds">—</span>
 </td>
 <td>
-<span class="lt-actions">
-<span class="lt-actions">
-<button aria-label="Cancel buy order for 0.00008 BTC" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Cancel</button>
+<span class="dk-bt-actions">
+<span class="dk-bt-cancel">
+<button type="button" tabindex="0" data-slot="button" data-variant="secondary" aria-label="Cancel buy order for 0.00008 BTC" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-7 px-3 text-sm rounded-pill">Cancel</button>
 </span>
 </span> </td>
 </tr>
 </tbody>
 </table>
 <h2 data-testid="money-trade-tab__head" class="money-trade-tab__head">Order history</h2>
-<table data-testid="dk-table" class="lt-table">
+<table data-testid="dk-table" class="dk-table">
 <thead>
 <tr>
 <th>Time</th>
 <th>Market</th>
 <th>Type</th>
 <th>Side</th>
-<th data-align="end">Price</th>
-<th data-align="end">Amount</th>
-<th data-align="end">Filled</th>
+<th class="dk-num">Price</th>
+<th class="dk-num">Amount</th>
+<th class="dk-num">Filled</th>
 <th>Status</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>
-<a data-testid="dk-order-link" class="lt-link" href="/trade/orders/o2" title="Open this order’s details">14 Oct, 08:01</a>
+<td class="if-num">
+<a data-testid="dk-order-link" class="dk-order-link" href="/trade/orders/o2" title="Open this order’s details">14 Oct, 08:01</a>
 </td>
 <td>BTC/USDT</td>
+<td>Limit</td>
 <td>
-<span class="lt-actions">Limit</span>
+<span class="dk-side" data-side="buy">Buy</span>
 </td>
+<td class="dk-num if-num">65,100.00</td>
+<td class="dk-num if-num">0.0002</td>
+<td class="dk-num if-num">0.0002</td>
 <td>
-<span data-side="buy">Buy</span>
-</td>
-<td data-align="end">65,100.00</td>
-<td data-align="end">0.0002</td>
-<td data-align="end">0.0002</td>
-<td>
-<span data-status="filled">
-<span class="lt-chip" data-status="done">
-<span class="lt-chip-mark" aria-hidden="true">
-</span>Filled</span>
-</span> </td>
+<span data-slot="status-tag" data-status="filled" class="inline-flex h-5 items-center whitespace-nowrap rounded-xs border border-current/40 px-1.5 text-2xs text-accent-text bg-lime-soft">Filled</span> </td>
 </tr>
 <tr>
-<td>
-<a data-testid="dk-order-link" class="lt-link" href="/trade/orders/o3" title="Open this order’s details">13 Oct, 17:00</a>
+<td class="if-num">
+<a data-testid="dk-order-link" class="dk-order-link" href="/trade/orders/o3" title="Open this order’s details">13 Oct, 17:00</a>
 </td>
 <td>BTC/USDT</td>
+<td>Limit</td>
 <td>
-<span class="lt-actions">Limit</span>
+<span class="dk-side" data-side="buy">Buy</span>
 </td>
+<td class="dk-num if-num">60,000.00</td>
+<td class="dk-num if-num">0.0001</td>
+<td class="dk-num if-num">0</td>
 <td>
-<span data-side="buy">Buy</span>
-</td>
-<td data-align="end">60,000.00</td>
-<td data-align="end">0.0001</td>
-<td data-align="end">0</td>
-<td>
-<span data-status="cancelled">
-<span class="lt-chip" data-status="failed">
-<span class="lt-chip-mark" aria-hidden="true">
-</span>Cancelled</span>
-</span> </td>
+<span data-slot="status-tag" data-status="cancelled" class="inline-flex h-5 items-center whitespace-nowrap rounded-xs border border-current/40 px-1.5 text-2xs text-down-text">Cancelled</span> </td>
 </tr>
 </tbody>
 </table>
