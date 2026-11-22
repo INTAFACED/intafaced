@@ -153,7 +153,10 @@ describe('components', () => {
 
   it('Select is a labelled native select whose change hands back the value', () => {
     const out = html(<Select label="Role" value="b" options={['a', { value: 'b', label: 'Bee' }]} hint="Pick one" />);
-    expect(out).toMatch(/^<label class="lt-field"><span>Role<\/span><select>/);
+    // Named by its words alone, not by its words and the chosen option (J-developer-08 #3 finds "Status" exactly).
+    const named = out.match(/^<label class="lt-field"><span id="([^"]+)">Role<\/span><select aria-labelledby="([^"]+)">/);
+    expect(named?.[1]).toBeTruthy();
+    expect(named?.[2]).toBe(named?.[1]);
     expect(out).toContain('<option value="a">a</option><option value="b" selected="">Bee</option>');
     expect(out).toContain('<small>Pick one</small>');
   });
