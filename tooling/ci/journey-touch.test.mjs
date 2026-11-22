@@ -1,7 +1,7 @@
 // node --test tooling/ci/journey-touch.test.mjs
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, normalize, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,6 +16,7 @@ import {
   ROOT_DEPLOY_FILE,
   RUN_FILE,
   STACK_FILE,
+  UNPLACED,
   PICK_ARTIFACT,
   afterReuse,
   checkoutJourneyTexts,
@@ -864,16 +865,13 @@ test('14 Nov, #8322: a named change to venue-reads.mjs runs the journeys importi
   assert.equal(v.mode, 'files');
   assert.deepEqual(v.files, ['J-bank-13.pw.mjs', 'J-cex-spot-01.pw.mjs', 'J-cex-spot-03.pw.mjs']);
   assert.deepEqual(v.stack, [VENUE_READS]);
-  // The real folder: the journeys that import it (J-cex-spot-05 and J-copy-bots-otc-14 through venue.mjs, J-copy-bots-otc-16 directly too, on the venue).
+  // The real folder: a direct importer (J-cex-spot-01) and one through venue.mjs (J-cex-spot-05) are found. Held as a
+  // subset, never the exact list: a new journey importing it is not a tooling change (#9174 and #9367 each lost a push
+  // to the exact list; weed project-state#3684).
   const real = checkoutJourneyTexts(ROOT);
-  assert.deepEqual(stackImporters([VENUE_READS], real), [
-    'J-cex-spot-01.pw.mjs',
-    'J-cex-spot-02.pw.mjs',
-    'J-cex-spot-03.pw.mjs',
-    'J-cex-spot-05.pw.mjs',
-    'J-copy-bots-otc-14.pw.mjs',
-    'J-copy-bots-otc-16.pw.mjs',
-  ]);
+  const found = stackImporters([VENUE_READS], real);
+  for (const f of ['J-cex-spot-01.pw.mjs', 'J-cex-spot-05.pw.mjs']) assert.ok(found.includes(f), `${f} imports venue-reads.mjs`);
+  assert.deepEqual(found, [...found].sort(), 'sorted');
 });
 
 test('14 Nov, #8310: a named change to look-fixtures.mjs with product code runs the named journey and its importers', () => {
@@ -1152,6 +1150,25 @@ test('--json --files-from: a pull request file list, judged against this checkou
   assert.equal(run(['.github/workflows/ci.yml', 'services/svc-bank/src/a.test.ts']).mode, 'none', 'nothing a journeys run reads');
   assert.equal(run(['apps/customer/tests/real-app/J-zzz-99.pw.mjs']).mode, 'none', 'a journey file the head removed runs nothing');
   rmSync(dir, { recursive: true, force: true });
+});
+
+// 22 Nov 2026: tooling no rule places made the CLI import tooling-reach.mjs, which imports this file back; with main()
+// awaited at the top level the import waited on this file's own evaluation, so the run exited 13 and the journeys run
+// fell back to the CANARY while the seal demanded the bounded set (#9640). Run from an empty folder: the import cycle is
+// the same, and no tree is scanned, so the test costs well under a second of the tooling-tests gate's budget.
+test('--json --files-from: tooling no rule places is judged, not left unsettled (the tooling-reach import cycle)', () => {
+  const path = 'tooling/design/volt-count.mjs';
+  assert.equal(pathKind(path).why, UNPLACED, `${path} is a path no rule places, so the CLI imports tooling-reach.mjs`);
+  const dir = execFileSync('mktemp', ['-d'], { encoding: 'utf8' }).trim();
+  writeFileSync(join(dir, 'changed.txt'), `${path}\n`);
+  const r = spawnSync('node', [join(ROOT, 'tooling/ci/journey-touch.mjs'), '--json', '--files-from', 'changed.txt'], {
+    cwd: dir,
+    encoding: 'utf8',
+    timeout: 60_000,
+  });
+  rmSync(dir, { recursive: true, force: true });
+  assert.equal(r.status, 0, `exit ${r.status}\n${r.stderr}`);
+  assert.ok(['none', 'files'].includes(JSON.parse(r.stdout).mode), r.stdout);
 });
 
 test('real-app-journeys.yml runs on ready pull requests, tests their head, and an empty plan says nothing', () => {

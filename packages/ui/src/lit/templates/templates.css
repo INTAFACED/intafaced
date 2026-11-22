@@ -201,6 +201,10 @@
   .lt-grid-reading-toc {
     grid-template-columns: 13.75rem minmax(0, 45rem);
   }
+  /* A page with no contents list: the article takes the reading column alone, not the contents list's column. */
+  .lt-grid-reading-toc:not(:has(> [data-region='toc'])) {
+    grid-template-columns: minmax(0, 45rem);
+  }
   .lt-grid-reading-toc > [data-region='toc'] {
     position: sticky;
     inset-block-start: calc(var(--lit-topbar-h) + var(--lit-gap-section));
@@ -404,7 +408,24 @@
   flex-direction: column;
   gap: var(--lit-gap-section);
 }
+/* A settings room's section index: each link a full-height target (WCAG 2.5.8), a plain list, never bullets. */
+.lt-grid-settings > [data-region='index'] :is(ul, ol) {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.lt-grid-settings > [data-region='index'] a {
+  display: flex;
+  align-items: center;
+  min-block-size: 2.25rem;
+}
 @container room (min-width: 1024px) {
+  /* On a computer the index is a column beside the sections, so a row of tabs stands as a column, never cut off. */
+  .lt-grid-settings > [data-region='index'] .lt-tabs {
+    flex-direction: column;
+    overflow-x: visible;
+    animation: none;
+  }
   .lt-grid-settings > .lt-gate-area {
     grid-column: 2 / -1;
   }
@@ -619,6 +640,8 @@
   font-family: var(--lit-font-mono);
   direction: ltr;
   unicode-bidi: isolate;
+  /* An address, key or account ID has no spaces: it breaks anywhere rather than spill out of its box on a phone. */
+  overflow-wrap: anywhere;
 }
 /* Code inside a mono block keeps the kit's mono face, not the browser's own `monospace`. */
 .lt-mono :where(code, kbd, samp, pre) {
@@ -1140,6 +1163,9 @@ button.lt-tab:focus-visible {
 }
 
 .lt-row-link {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 1.75rem;
   color: inherit;
   text-decoration: none;
 }
@@ -1147,6 +1173,39 @@ button.lt-tab:focus-visible {
 .lt-row-link:focus-visible {
   outline: 2px solid var(--lit-focus);
   outline-offset: 2px;
+}
+
+/* Table: a sortable header. */
+.lt-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.lt-sort:focus-visible {
+  outline: 0.125rem solid var(--lit-focus);
+  outline-offset: 0.125rem;
+}
+
+.lt-sort-mark {
+  font-size: var(--lit-type-micro-size);
+}
+
+.lt-table tr[data-empty] td {
+  block-size: auto;
+  padding-block: var(--lit-gap-item);
+}
+
+/* A long table's undrawn rows: one spacer above and one below hold their height (the cell carries its size). */
+.lt-table tr[data-spacer] td {
+  padding: 0;
+  border: 0;
 }
 
 /* Phone: each row becomes a stacked block, each value under its own label. */
@@ -1204,6 +1263,19 @@ button.lt-tab:focus-visible {
 }
 .lt-chart[data-tone='down'] .lt-chart-line {
   stroke: var(--lit-down);
+}
+
+/* Sparkline: a card's small trend line; in a table row, a shorter and fixed-width one. */
+.lt-spark svg {
+  block-size: 3.5rem;
+}
+
+.lt-spark[data-size='row'] {
+  inline-size: 7.5rem;
+}
+
+.lt-spark[data-size='row'] svg {
+  block-size: 2rem;
 }
 
 .lt-chart-area {
@@ -2215,4 +2287,51 @@ button.lt-tab:focus-visible {
   .lt-print-alone .lt-no-print {
     display: none;
   }
+}
+
+/* ---- a limit's use, and a sample of someone else's brand ---- */
+
+.lt-meter {
+  position: relative;
+  display: block;
+  block-size: calc(var(--lit-gap-item) / 1.5);
+  border-radius: var(--lit-radius-control);
+  background: var(--lit-solid-bg-raised);
+  overflow: hidden;
+}
+
+.lt-meter-fill {
+  display: block;
+  block-size: 100%;
+  background: var(--lit-accent);
+}
+
+.lt-meter[data-full] .lt-meter-fill {
+  background: var(--lit-warn-text);
+}
+
+.lt-brand {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-item);
+  padding: var(--lit-pad-panel);
+  border: 1px solid var(--lit-line);
+  border-radius: var(--lit-radius-tile);
+}
+
+.lt-brand-logo {
+  max-block-size: 3rem;
+  max-inline-size: 10rem;
+  object-fit: contain;
+}
+
+.lt-brand-button {
+  display: inline-block;
+  inline-size: fit-content;
+  padding-block: calc(var(--lit-gap-item) / 2);
+  padding-inline: var(--lit-gap-item);
+  border-radius: var(--lit-radius-control);
+  background: var(--lt-brand, var(--lit-accent));
+  color: var(--lt-on-brand, var(--lit-text-1));
 }

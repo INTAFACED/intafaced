@@ -1,3 +1,6 @@
+// volt-room: /quant/sandbox
+// volt-room: /quant/studio
+// volt-room: /quant/backtest
 import { t as copyText, Text } from './copy';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';

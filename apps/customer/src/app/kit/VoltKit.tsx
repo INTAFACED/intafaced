@@ -32,7 +32,7 @@ import { VoltStack } from '../../screens/home/VoltStack';
 import type { HomePortfolio } from '../../screens/home/deps';
 import { MobileTabs } from '../TopBar';
 import { useResolvedColours } from '../../shared/resolved-colours';
-import { Book, CandleChart, ComputerRail, Controls, Icons, Overlays, StepsAndSpark, TypeRoles } from './KitParts';
+import { Book, CandleChart, ComputerRail, Controls, Icons, MarketList, Overlays, StepsAndSpark, TypeRoles } from './KitParts';
 import './kit.css';
 
 /**
@@ -416,6 +416,14 @@ export default function VoltKit() {
 
       <Block id="steps" title="Stepper and sparklines">
         <StepsAndSpark />
+      </Block>
+
+      <Block
+        id="list"
+        title="A markets list: filter chips, a sortable table and row sparklines"
+        note="120 TEST rows; only those near the view are drawn."
+      >
+        <MarketList />
       </Block>
 
       <Block id="rows" title="Rows, lists, a table and tags">
