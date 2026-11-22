@@ -5,7 +5,7 @@ import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
 import { p2pInstrumentDetailsDigest } from '@intafaced/contracts/p2p-rule-class';
 import type { StepUpBegin } from '../../account';
-import { StepUpConfirm } from '../../money';
+import { StepUpInline } from '../../money';
 import { MethodStatus, MethodsFailure, MethodsLoad, MethodsNotice, MethodsPages, MethodsSection, ReviewedChange } from './methods-parts';
 import { payCopy } from '../copy';
 import type { PersonalPayApi } from '../pay-api';
@@ -208,7 +208,7 @@ function RemoveMethod({ pay, instrumentId, onRemoved }: { pay: PersonalPayApi; i
         <div>
           <ImpactRead key={impactRead} pay={pay} instrumentId={instrumentId} onRead={setImpact} />
           {approval === undefined ? (
-            <StepUpConfirm
+            <StepUpInline
               request={() => changeStepUp(instrumentId, 'remove', '')}
               words={stepUpWords(t, 'stepUpSendRemove')}
               disabled={impact === null}
@@ -688,7 +688,7 @@ function AddMethod({
             </dl>
             {/* Confirming saves: the passkey or code approves exactly these details. */}
             {digest === null ? null : (
-              <StepUpConfirm
+              <StepUpInline
                 request={() => changeStepUp(instrumentId.current, 'create', digest)}
                 words={stepUpWords(t, 'stepUpSendSave')}
                 disabled={busy}

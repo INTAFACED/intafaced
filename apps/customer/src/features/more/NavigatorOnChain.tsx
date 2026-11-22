@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
   NAVIGATOR_ONCHAIN_TEST_CHAIN_ID,
-  navigatorOnchainBindingReadSchema,
   navigatorOnchainBindingSchema,
-  navigatorOnchainSignerSchema,
   type NavigatorOnchainBinding,
 } from '@intafaced/contracts/agents-onchain';
 import type { ProtocolSessionKey, ProtocolSessionsList } from '@intafaced/contracts/protocol-sessions';
@@ -28,6 +26,11 @@ import {
 } from '../protocol';
 import { Select } from './common';
 import { navigatorOnchainCopy } from './navigator-onchain-copy';
+import {
+  AGENTS_NAVIGATOR_ONCHAIN_SIGNER,
+  AGENTS_NAVIGATOR_ONCHAIN_BINDING,
+  AGENTS_NAVIGATOR_ONCHAIN_REVOKE,
+} from '@intafaced/contracts/agents-navigator-procedures';
 
 type T = ReturnType<typeof navigatorOnchainCopy.forLocale>['t'];
 type Agents = ReturnType<typeof useApi>;
@@ -110,7 +113,7 @@ function OnChainSigner({ owner, chainId }: { owner: string; chainId: number }) {
   const agents = useApi();
   const protocol = useMemo(() => createProtocolApi(agents), [agents]);
   const signer = useResource(
-    (signal) => agents.query('agents', 'navigator.onchain.signer', { chainId }, navigatorOnchainSignerSchema, { signal }),
+    (signal) => agents.call(AGENTS_NAVIGATOR_ONCHAIN_SIGNER, { chainId }, { signal }),
     `navigator-onchain:signer:${chainId}`,
   );
   const account = useResource((signal) => protocol.predictAccount(owner, signal), `navigator-onchain:account:${owner.toLowerCase()}`);
@@ -202,7 +205,7 @@ function OnChainControls({
   const { t } = navigatorOnchainCopy.useCopy();
   const wallet = useWallet();
   const bindingRead = useResource(
-    (signal) => agents.query('agents', 'navigator.onchain.binding', { chainId, account }, navigatorOnchainBindingReadSchema, { signal }),
+    (signal) => agents.call(AGENTS_NAVIGATOR_ONCHAIN_BINDING, { chainId, account }, { signal }),
     `navigator-onchain:binding:${chainId}:${account.toLowerCase()}`,
   );
   const chainRead = useResource((signal) => protocol.sessionsList(account, signal), `navigator-onchain:sessions:${account.toLowerCase()}`);
@@ -308,7 +311,7 @@ function OnChainControls({
     setNotice(null);
     setBusy(true);
     try {
-      const asked = await agents.mutate('agents', 'navigator.onchain.revoke', { chainId, account }, navigatorOnchainBindingSchema);
+      const asked = await agents.call(AGENTS_NAVIGATOR_ONCHAIN_REVOKE, { chainId, account });
       if (!asked.ok) return setProblem(asked.message);
       setBinding(asked.data);
       const built = await protocol.buildSessionRevoke({ account, sessionKey: signer });
