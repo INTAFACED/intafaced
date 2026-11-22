@@ -227,6 +227,13 @@
 
 /* ---- the desk: explicit areas for every panel ---- */
 
+/* A desk screen sits straight in the app's main, with no page around it: its own gutter keeps the title and the panels
+   off the window's edge. A desk inside a page (a feature room) already has the page's. */
+.lt-room[data-template='desk']:not(.page .lt-room) {
+  padding-inline: var(--lit-gap-item);
+  padding-block-end: var(--lit-gap-section);
+}
+
 .lt-desk {
   display: grid;
   gap: var(--lit-gap-item);
@@ -281,6 +288,14 @@
       'instrument instrument'
       'chart ticket'
       'orders orders';
+  }
+  /* A desk whose main area has nothing to show (margin before sign-in): its ticket and orders share the width side by
+     side, never a wide empty column beside a narrow one. */
+  .lt-desk[data-desk='pro']:not(:has(> [data-region='pairs'], > [data-region='book'], > [data-region='tape'], > [data-region='chart'])) {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas:
+      'instrument instrument'
+      'ticket orders';
   }
   .lt-desk[data-desk='simple'] {
     grid-template-columns: minmax(0, 1fr) 21.25rem;
