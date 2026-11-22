@@ -118,7 +118,7 @@ export function attributionHref(page: { hostname: string; pathname: string }): s
 }
 
 /** The chart's attribution, a visible link beside the plot and outside its image. */
-export function ChartAttribution() {
+function ChartAttribution() {
   return (
     <a
       data-testid="wc-attribution"
