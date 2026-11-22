@@ -4,7 +4,7 @@
 //! `testPartner.*` is the person's own TEST partner: off the TEST stack every call refuses `bank.test_partner_off`,
 //! because there is no TEST partner to switch. Three of them stand in for another slice's work once the TEST partner
 //! is on: `settlePayment` records a bank API payment's state change and its webhooks (`bank-api`), and `cardRefund`
-//! gives back a partner-held card capture (`cards`); each answers "not ported" for that slice until it is.
+//! gives back a partner-held card capture (`card-ops`, whose refund it is); each answers "not ported" for that slice until it is.
 //! `fundBusiness` and `businessStatement` read the business account's owner here (`bank.business_accounts`).
 
 use service_kit::json::Json;
@@ -311,7 +311,7 @@ pub fn answer(w: &Wiring, store: &Store, ctx: &Ctx<'_>) -> Option<Result<Option<
         }
         "testPartner.cardRefund" => {
             on(w)?;
-            Err(Refusal::Trpc(not_ported(Slice::Cards)))
+            Err(Refusal::Trpc(not_ported(Slice::CardOps)))
         }
         "convertCash.offers" => Ok(cash_leg::offers(
             w.cash_legs.as_ref().filter(|_| w.partner.is_some()),
