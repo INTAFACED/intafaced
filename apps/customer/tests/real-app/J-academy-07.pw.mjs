@@ -7,6 +7,7 @@ import { test, expect } from './journey.mjs';
 import { CHAIN_ID, TOKEN_USD, connectWallet, fundOnTestChain, testChain } from './dex.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { api, STACK_PORTS } from './stack.mjs';
+import { chainBalance } from './venue.mjs';
 import { installTestWallet, testWalletKey } from './test-wallet.mjs';
 import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
 
@@ -146,9 +147,9 @@ async function transfersIn(hash) {
     .filter((log) => log.topics[0] === TRANSFER_TOPIC && log.address.toLowerCase() === TOKEN_USD.address)
     .map((log) => ({ from: log.topics[1], to: log.topics[2], value: BigInt(log.data) }));
 }
+/** A wallet's TEST USD as the TEST chain itself reports it (the fixture's chain read), in the token's units. */
 async function usdOf(address) {
-  const balanceOf = `0x70a08231${word(address).slice(2)}`;
-  return BigInt(await chainRpc('eth_call', [{ to: TOKEN_USD.address, data: balanceOf }, 'latest']));
+  return chainBalance(TOKEN_USD.address, address);
 }
 
 /** One booked ledger transaction, found by its business key, as svc-ledger itself holds it (founder A, admin:treasury). */
@@ -466,12 +467,16 @@ test(`${J} #5 a second Buy or a lost reply is still one purchase and no second s
 test(`${J} #6 Pay by card, with no card partner set, shows that card payment needs a card partner and is switched off`, async ({
   page,
 }) => {
+  const payer = privateKeyToAccount(run.walletKey).address;
+  const before = await usdOf(payer);
   const { panel } = await openCourse(page, run.priced.slug);
   const card = panel.getByRole('group', { name: 'Pay by card' });
   await expect(card.getByRole('button', { name: 'Pay by card' })).toBeDisabled();
   await expect(card.getByText('Card payment needs a card partner. It is switched off in this build.').first()).toBeVisible();
   await expect(card).toContainText('rail.card');
   expect((await purchaseView(run.priced.slug)).card).toEqual({ state: 'off', code: 'rail.card' });
+  // Switched off means nothing is charged: the wallet's TEST USD on the chain is what it was.
+  expect(await usdOf(payer)).toBe(before);
 });
 
 test(`${J} #7 staff with the refund permission refund: INTAFACED sends the TEST amount once from its own funds with the chain reference; the grant ends and the grant audit shows it with its reason`, async ({
