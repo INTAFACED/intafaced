@@ -179,15 +179,7 @@ export function MyOffersRoom({ pay, userId }: { pay: PersonalPayApi; userId: str
                               const own = isOwnOffer(offer, userId);
                               const record = traders[offer.makerId.toLowerCase()];
                               return (
-                                <li
-                                  key={offer.id}
-                                  data-testid="p2p-offer-row"
-                                  // J-p2p-03 #6 finds My offers' row by this class (`li.p2p-offer-row`): it stays until
-                                  // that step finds the row by its test id, as the board's step does.
-                                  className="p2p-offer-row"
-                                  data-offer-id={offer.id}
-                                  data-own={own ? 'true' : undefined}
-                                >
+                                <li key={offer.id} data-testid="p2p-offer-row" data-offer-id={offer.id} data-own={own ? 'true' : undefined}>
                                   <div>
                                     <strong>
                                       <OfferSide offer={offer} own={own} />

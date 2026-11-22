@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react';
 import { decodeEventLog, parseAbi } from 'viem';
-import { Button } from '@intafaced/ui';
+import { Button, Radio } from '@intafaced/ui/lit';
 import type { ProtocolEscrowBuildInput, ProtocolEscrowDeal } from '@intafaced/contracts/protocol-escrow';
 import { useResource } from '../../../shared/resource';
 import { useApi } from '../../session';
 import { createProtocolApi, shortAddress, useWallet, waitMined, WalletProvider, type SequenceResult } from '../../protocol';
-import { PayDetails, PayTime } from '../components';
+import { Details, Time } from '../p2p-flow/parts';
 import type { PersonalPayApi } from '../pay-api';
 import type { ContractEscrowOffer, Offer, Trade } from '../schemas';
 import { contractEscrowCopy } from './contract-escrow-copy';
@@ -62,30 +62,22 @@ export function ContractEscrowChoice({ state }: { state: ContractEscrowChoiceSta
   const { wallet, kind, setKind, terms, address, blocked } = state;
   const network = terms?.network?.label ?? '';
   return (
-    <fieldset className="field" data-testid="take-escrow-type">
+    <fieldset data-testid="take-escrow-type">
       <legend>{t('escrowType')}</legend>
-      <p className="muted">{t('escrowChosenAtOrder')}</p>
-      <label>
-        <input type="radio" name="escrow-type" checked={kind === 'ledger'} onChange={() => setKind('ledger')} />{' '}
-        <span>{t('escrowLedger')}</span> <small className="muted">{t('escrowLedgerHint')}</small>
-      </label>
-      <label>
-        <input
-          type="radio"
-          name="escrow-type"
-          checked={kind === 'contract'}
-          disabled={blocked !== null}
-          onChange={() => setKind('contract')}
-        />{' '}
-        <span>{t('escrowContract')}</span> <small className="muted">{network ? t('escrowContractHint', { network }) : null}</small>
-      </label>
+      <p className="lt-hint">{t('escrowChosenAtOrder')}</p>
+      <Radio name="escrow-type" checked={kind === 'ledger'} onSelect={() => setKind('ledger')}>
+        <span>{t('escrowLedger')}</span> <small className="lt-hint">{t('escrowLedgerHint')}</small>
+      </Radio>
+      <Radio name="escrow-type" checked={kind === 'contract'} disabled={blocked !== null} onSelect={() => setKind('contract')}>
+        <span>{t('escrowContract')}</span> <small className="lt-hint">{network ? t('escrowContractHint', { network }) : null}</small>
+      </Radio>
       {blocked ? (
-        <small className="muted" data-testid="take-escrow-contract-blocker" role="note">
+        <small className="lt-hint" data-testid="take-escrow-contract-blocker" role="note">
           {blocked}
         </small>
       ) : null}
       {terms ? (
-        <PayDetails
+        <Details
           values={[
             [
               t('network'),
@@ -98,20 +90,20 @@ export function ContractEscrowChoice({ state }: { state: ContractEscrowChoiceSta
       ) : null}
       {kind === 'contract' && !blocked ? (
         address ? (
-          <p className="muted" data-testid="take-escrow-wallet">
+          <p className="lt-hint" data-testid="take-escrow-wallet">
             {t('escrowWallet', { address })}
           </p>
         ) : (
-          <div className="stack">
-            <p className="muted">{t('escrowConnect')}</p>
+          <div>
+            <p className="lt-hint">{t('escrowConnect')}</p>
             {wallet.wallets.length === 0 ? (
-              <p className="muted">{t('escrowNoWallet')}</p>
+              <p className="lt-hint">{t('escrowNoWallet')}</p>
             ) : (
               wallet.wallets.map((entry) => (
                 <Button
                   key={entry.info.uuid}
                   type="button"
-                  variant="secondary"
+                  tone="secondary"
                   disabled={wallet.status === 'connecting'}
                   onClick={() => void wallet.connect(entry)}
                 >
@@ -120,7 +112,7 @@ export function ContractEscrowChoice({ state }: { state: ContractEscrowChoiceSta
               ))
             )}
             {wallet.guard && !wallet.guard.ok ? (
-              <Button type="button" variant="secondary" onClick={() => void wallet.switchNetwork()}>
+              <Button type="button" tone="secondary" onClick={() => void wallet.switchNetwork()}>
                 {t('escrowSwitchNetwork')}
               </Button>
             ) : null}
@@ -311,8 +303,8 @@ function ContractEscrowInner({
     chainDeal?.state === 'disputed' && chainDeal.disputeDeadline !== null && chainDeal.chainTime >= chainDeal.disputeDeadline;
 
   return (
-    <section className="stack" data-testid="order-contract-escrow" aria-label={t('orderEscrow')}>
-      <PayDetails
+    <section data-testid="order-contract-escrow" aria-label={t('orderEscrow')}>
+      <Details
         values={[
           [
             t('orderEscrow'),
@@ -341,73 +333,69 @@ function ContractEscrowInner({
         <p role="alert">{t('dealUnread', { reason: deal.resource.failure.message || deal.resource.failure.code || '' })}</p>
       ) : null}
       {seller && trade.status === 'fiat_sent' ? (
-        <p className="muted" data-testid="order-contract-seller-paid">
+        <p className="lt-hint" data-testid="order-contract-seller-paid">
           {t('sellerPaid')}
         </p>
       ) : null}
       {(seller || buyer) && !['released', 'cancelled'].includes(trade.status) ? (
         wallet.status === 'connected' && wallet.guard && !wallet.guard.ok ? (
-          <div className="stack" data-testid="order-contract-network">
+          <div data-testid="order-contract-network">
             <p role="alert">
               {t('wrongNetwork', { network })} {t('mainnetOff')}
             </p>
-            <Button type="button" variant="secondary" onClick={() => void wallet.switchNetwork()}>
+            <Button type="button" tone="secondary" onClick={() => void wallet.switchNetwork()}>
               {t('escrowSwitchNetwork')}
             </Button>
           </div>
         ) : !connected ? (
-          <div className="stack">
+          <div>
             {wallet.wallets.map((entry) => (
               <Button
                 key={entry.info.uuid}
-                variant="secondary"
+                tone="secondary"
                 disabled={wallet.status === 'connecting'}
                 onClick={() => void wallet.connect(entry)}
               >
                 {t('escrowConnectButton', { name: entry.info.name })}
               </Button>
             ))}
-            {wallet.wallets.length === 0 ? <p className="muted">{t('escrowNoWallet')}</p> : null}
+            {wallet.wallets.length === 0 ? <p className="lt-hint">{t('escrowNoWallet')}</p> : null}
           </div>
         ) : wrongWallet ? (
           <p role="alert">{t('wrongWallet', { address: shortAddress(wrongWallet) })}</p>
         ) : (
-          <div className="actions" data-testid="order-contract-actions">
+          <div className="lt-actions" data-testid="order-contract-actions">
             {seller && trade.status === 'created' && !dealId && pendingLock ? (
-              <Button variant="primary" disabled={busy} onClick={() => void act(() => attachLock(pendingLock))}>
+              <Button tone="primary" disabled={busy} onClick={() => void act(() => attachLock(pendingLock))}>
                 {busy ? t('busy') : t('attachLock', { dealId: pendingLock.dealId })}
               </Button>
             ) : seller && trade.status === 'created' ? (
-              <Button variant="primary" disabled={busy} onClick={() => void fund()}>
+              <Button tone="primary" disabled={busy} onClick={() => void fund()}>
                 {busy ? t('busy') : t('fund')}
               </Button>
             ) : null}
             {seller && trade.status === 'fiat_sent' && chainDeal?.state === 'locked' ? (
-              <Button variant="primary" disabled={busy} onClick={() => void onDeal('release', t('releaseStep', { dealId: dealId! }))}>
+              <Button tone="primary" disabled={busy} onClick={() => void onDeal('release', t('releaseStep', { dealId: dealId! }))}>
                 {t('release')}
               </Button>
             ) : null}
             {seller && trade.status === 'escrowed' && chainDeal?.state === 'locked' ? (
-              <Button variant="secondary" disabled={busy} onClick={() => void onDeal('refund', t('refundStep', { dealId: dealId! }))}>
+              <Button tone="secondary" disabled={busy} onClick={() => void onDeal('refund', t('refundStep', { dealId: dealId! }))}>
                 {t('refund')}
               </Button>
             ) : null}
             {(seller || buyer) && trade.status === 'fiat_sent' && chainDeal?.state === 'locked' ? (
-              <Button variant="secondary" disabled={busy} onClick={() => void onDeal('dispute', t('disputeStep', { dealId: dealId! }))}>
+              <Button tone="secondary" disabled={busy} onClick={() => void onDeal('dispute', t('disputeStep', { dealId: dealId! }))}>
                 {t('dispute')}
               </Button>
             ) : null}
             {settleable ? (
-              <Button
-                variant="secondary"
-                disabled={busy}
-                onClick={() => void onDeal('settleTimeout', t('settleStep', { dealId: dealId! }))}
-              >
+              <Button tone="secondary" disabled={busy} onClick={() => void onDeal('settleTimeout', t('settleStep', { dealId: dealId! }))}>
                 {t('settle')}
               </Button>
             ) : null}
             {dealId ? (
-              <Button variant="ghost" disabled={busy} onClick={() => void act(sync)}>
+              <Button tone="quiet" disabled={busy} onClick={() => void act(sync)}>
                 {t('sync')}
               </Button>
             ) : null}
@@ -416,8 +404,8 @@ function ContractEscrowInner({
       ) : null}
       {problem ? <p role="alert">{problem}</p> : null}
       {trade.escrowedAt ? (
-        <p className="muted">
-          <PayTime value={trade.escrowedAt} />
+        <p className="lt-hint">
+          <Time value={trade.escrowedAt} />
         </p>
       ) : null}
     </section>

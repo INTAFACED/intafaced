@@ -9,7 +9,8 @@ import type { ApiResult } from '../../shared/api';
 import { base64Of, kib } from '../../shared/file-base64';
 import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
-import { Button, Failure, Loading } from '../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { ReadFailure, ReadLoading } from '../../shared/read-state';
 import { encodeQr, qrPath } from '../../shared/qr';
 import { verificationSelfieCopy as copy } from './verification-selfie-copy';
 import {
@@ -54,7 +55,7 @@ function PhoneCode({ value, label, failed }: { value: string; label: string; fai
   }, [value]);
   if (!drawn) return <p data-testid="verification__selfie-qr-failed">{failed}</p>;
   return (
-    <div className="verification__selfie-qr" data-testid="verification__selfie-qr">
+    <div className="lt-qr" data-testid="verification__selfie-qr">
       <svg viewBox={`0 0 ${drawn.size} ${drawn.size}`} role="img" aria-label={label} shapeRendering="crispEdges">
         <path d={drawn.d} fill="black" /* look-drift-allow: a QR code needs dark on light in every theme */ />
       </svg>
@@ -273,18 +274,18 @@ export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: strin
           <h3>
             <Copy k="failedTitle" />
           </h3>
-          <Failure result={resource.failure} retry={reload} />
+          <ReadFailure result={resource.failure} retry={reload} />
         </>
       );
-    if (!data) return <Loading />;
+    if (!data) return <ReadLoading />;
     const { latest, liveness, handoffTtlSeconds } = data;
     const phoneLink = handoff ? `${window.location.origin}/verification?handoff=${handoff.token}` : null;
     return (
-      <div className="stack">
+      <div>
         <p data-testid="verification__selfie-manual" data-face-check={data.faceCheck}>
           <Copy k="manual" />
         </p>
-        <p className="muted" data-testid="verification__selfie-liveness">
+        <p className="lt-hint" data-testid="verification__selfie-liveness">
           {liveness.recheckFor ? <Copy k="livenessFor" params={{ actions: liveness.recheckFor.join(', ') }} /> : <Copy k="livenessNone" />}
         </p>
         {latest && (
@@ -304,21 +305,26 @@ export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: strin
         ) : (
           !linkRefused &&
           link !== 'done' && (
-            <div className="verification__selfie-camera">
+            <div>
               {stream ? (
                 <>
                   <video ref={preview} autoPlay muted playsInline aria-label={t('cameraLabel')} />
-                  <div className="verification__selfie-actions">
-                    <Button type="button" disabled={disabled || busy} onClick={() => void take()}>
+                  <div className="lt-actions">
+                    <Button type="button" tone="primary" disabled={disabled || busy} onClick={() => void take()}>
                       <Copy k={busy ? 'sending' : 'take'} />
                     </Button>
-                    <Button type="button" variant="secondary" disabled={busy} onClick={() => setStream(null)}>
+                    <Button type="button" tone="secondary" disabled={busy} onClick={() => setStream(null)}>
                       <Copy k="stopCamera" />
                     </Button>
                   </div>
                 </>
               ) : (
-                <Button type="button" disabled={disabled || busy || (token !== null && link === null)} onClick={() => void openCamera()}>
+                <Button
+                  type="button"
+                  tone="primary"
+                  disabled={disabled || busy || (token !== null && link === null)}
+                  onClick={() => void openCamera()}
+                >
                   <Copy k="openCamera" />
                 </Button>
               )}
@@ -331,9 +337,9 @@ export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: strin
           </p>
         )}
         {token === null && !opened.broken && (
-          <div className="stack" data-testid="verification__selfie-phone">
+          <div data-testid="verification__selfie-phone">
             {!phoneLink || !handoff ? (
-              <Button type="button" variant="secondary" disabled={disabled || busy} onClick={() => void startHandoff()}>
+              <Button type="button" tone="secondary" disabled={disabled || busy} onClick={() => void startHandoff()}>
                 <Copy k="usePhone" />
               </Button>
             ) : (
@@ -351,12 +357,12 @@ export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: strin
                 ) : (
                   <>
                     <PhoneCode value={phoneLink} label={t('qrLabel')} failed={t('qrFailed')} />
-                    <p className="verification__selfie-link">
-                      <a href={phoneLink} data-testid="verification__selfie-link">
+                    <p>
+                      <a className="lt-link" href={phoneLink} data-testid="verification__selfie-link">
                         {phoneLink}
                       </a>
                     </p>
-                    <p className="muted" data-testid="verification__selfie-link-until">
+                    <p className="lt-hint" data-testid="verification__selfie-link-until">
                       <Copy
                         k="phoneUntil"
                         params={{ time: new Date(handoff.until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}
@@ -365,11 +371,11 @@ export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: strin
                   </>
                 )}
                 {handoffTtlSeconds && (
-                  <p className="muted">
+                  <p className="lt-hint">
                     <Copy k="phoneRule" params={{ minutes: String(Math.round(handoffTtlSeconds / 60)) }} />
                   </p>
                 )}
-                <Button type="button" variant="secondary" disabled={disabled || busy} onClick={() => void startHandoff()}>
+                <Button type="button" tone="secondary" disabled={disabled || busy} onClick={() => void startHandoff()}>
                   <Copy k="newLink" />
                 </Button>
               </>
@@ -381,17 +387,17 @@ export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: strin
   };
 
   return (
-    <section className="verification__cases" aria-labelledby="verification-selfie-title" data-testid="verification__selfie">
+    <section aria-labelledby="verification-selfie-title" data-testid="verification__selfie">
       <h2 id="verification-selfie-title">
         <Copy k="title" />
       </h2>
-      <p className="muted">
+      <p className="lt-hint">
         <Copy k="intro" />
       </p>
       {body()}
       {problem && (
         <div role="alert" data-testid="verification__selfie-problem">
-          {problem.kind === 'copy' ? <p>{problem.text}</p> : <Failure result={problem.result} retry={problem.retry} />}
+          {problem.kind === 'copy' ? <p>{problem.text}</p> : <ReadFailure result={problem.result} retry={problem.retry} />}
         </div>
       )}
     </section>
