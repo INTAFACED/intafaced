@@ -2,7 +2,6 @@
 // the data layer in ../../../data and the existing trade client. Rooms import from here, never from the kit paths.
 export {
   AlertDialog,
-  AlertDialogClose,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
@@ -40,7 +39,6 @@ export {
   TooltipTrigger,
   formatAsOf,
   freshnessOf,
-  sortRows,
   nextSort,
   type SortState,
   type TableColumn,
