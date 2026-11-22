@@ -29,7 +29,7 @@ import {
 } from './ast.mjs';
 import { answerFromCallers } from './answer.mjs';
 import { chainOf, procedures } from './router.mjs';
-import { asWritten, closureOf, contractsExports, declaresSame, usedOutside } from './closure.mjs';
+import { asWritten, closureOf, contractsExports, declaresName, declaresSame, usedOutside } from './closure.mjs';
 import { doorOf } from './door.mjs';
 import { founderPartsFor } from './founder-guard.mjs';
 import { partsFor } from './guard-check.mjs';
@@ -404,12 +404,30 @@ function build(opts, planned) {
         (m) => !fresh.includes(m) && movedTo.get(keyOf(m)) !== shared && taken.has(m.name) && taken.get(m.name) !== keyOf(m),
       );
     const target = clash ? file : shared;
+    // The record file may already declare one of these names, from an earlier run (svc-pay's
+    // pay-founder-admin-procedures.ts keeps its own `id`): the same declaration there is that copy, which the new records
+    // read where it stands; another declaration under that name can't share the file, so these records stay by name.
+    let here = target === file ? fresh : [];
+    if (target === file) {
+      const other = fresh.find((m) => declaresName(file, m.name) && !declaresSame(file, m.name, m.text));
+      if (other) {
+        for (const r of recs)
+          for (const site of r.sites)
+            planned.hand.push({
+              site,
+              why: `helper ${other.name} clashes with another ${other.name} in this record file: a rerun places it`,
+            });
+        groups.set(file, []);
+        return build(opts, { ...planned, records: planned.records.filter((r) => !recs.includes(r)) });
+      }
+      here = fresh.filter((m) => !declaresSame(file, m.name, m.text));
+    }
     for (const m of fresh) {
       movedTo.set(keyOf(m), target);
       if (target === shared) taken.set(m.name, keyOf(m));
     }
     const placed = closure.moved.map((m) => ({ name: m.name, file: movedTo.get(keyOf(m)) }));
-    created.set(file, writeRecords(opts, file, recs, { ...closure, moved: target === file ? fresh : [] }, placed, created.get(file)));
+    created.set(file, writeRecords(opts, file, recs, { ...closure, moved: here }, placed, created.get(file)));
     if (target === shared && fresh.length) {
       // A helper this group sends to the shared file may read one an earlier group kept beside its own record (a name
       // clash put it there): the shared file imports it from that record file.

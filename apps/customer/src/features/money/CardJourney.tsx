@@ -4,7 +4,8 @@ import { Button, Dialog, Field } from '../../shared/ui';
 import type { ApiResult } from '../../shared/api';
 import { useSession } from '../session';
 import { useBankRecord } from './components';
-import { bankWrites, type cardSchema } from './contracts';
+import type { ProcedureOutput } from '@intafaced/contracts/procedure';
+import { type cardSchema } from './contracts';
 import { cardOrderCopy } from './card-order-copy';
 import { StepUpConfirm } from './StepUpConfirm';
 import './bank-depth.css';
@@ -438,7 +439,7 @@ const timeOf = (iso: string) =>
     timeZoneName: 'short',
   }).format(new Date(iso));
 
-type PayFrom = z.infer<(typeof bankWrites)['cards.setPayFromOrder']>;
+type PayFrom = ProcedureOutput<typeof BANK_CARDS_PAY_FROM>;
 
 /**
  * Pay from (J-bank-29 #1 and #2): which assets the card partner can spend from, and how it spends (it holds the crypto,
@@ -465,7 +466,7 @@ export function CardPayFrom() {
 function PayFromPanel({ view: p, reload }: { view: PayFrom; reload: () => void }) {
   const { t } = cardOrderCopy.useCopy();
   const { api } = useSession();
-  const offered = p.assets.filter((a) => a.state === 'offered').map((a) => a.assetId);
+  const offered: string[] = p.assets.filter((a) => a.state === 'offered').map((a) => a.assetId);
   // The saved order first (what is still offered), then every other offered asset, so none can be left out of reach.
   const [draft, setDraft] = useState<string[]>(() => {
     const saved = (p.order ?? []).filter((a) => offered.includes(a));

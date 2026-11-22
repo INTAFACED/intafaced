@@ -276,8 +276,6 @@ export const accountsReads = {
   'accounts.features': accountTermsSchema,
   'accounts.profile': bankProfileSchema,
   'addMoney.methods': addMoneyMethodsSchema,
-  'addMoney.request': addMoneyRequestSchema,
   'currencies.list': currencySetSchema,
   'accountDetails.list': z.object({ currencies: z.array(accountDetailsRowSchema) }),
-  'eligibility.get': eligibilitySchema,
 } as const;

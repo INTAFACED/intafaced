@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { bankReads, bankWrites, cardSchema, myRoleSchema, pendingApprovalsSchema } from './contracts';
+import { BANK_BUSINESS_RESOLVE_RECIPIENT_SPACE } from '@intafaced/contracts/bank-business-procedures';
+import { bankWrites, cardSchema, myRoleSchema, pendingApprovalsSchema, teamSchema } from './contracts';
 
 const card = {
   id: '7d0a2cd4-6a46-4f6b-9d8f-0d5f27ec7b11',
@@ -43,17 +44,15 @@ describe('what the card service returns', () => {
 describe('what the team reads return', () => {
   it('reads members with their role and handle', () => {
     expect(
-      bankReads['business.members'].parse({
+      teamSchema.parse({
         members: [{ accountId: 'a', userId: 'u', role: 'checker', handle: 'ada' }],
         pendingControls: [],
       }),
     ).toEqual({ members: [{ accountId: 'a', userId: 'u', role: 'checker', handle: 'ada' }] });
-    expect(
-      bankReads['business.members'].safeParse({ members: [{ accountId: 'a', userId: 'u', role: 'owner', handle: 'ada' }] }).success,
-    ).toBe(false);
+    expect(teamSchema.safeParse({ members: [{ accountId: 'a', userId: 'u', role: 'owner', handle: 'ada' }] }).success).toBe(false);
   });
   it('reads a recipient lookup as found with an account, found without one, or not found', () => {
-    const read = bankReads['business.resolveRecipientSpace'];
+    const read = BANK_BUSINESS_RESOLVE_RECIPIENT_SPACE.output;
     expect(read.parse({ found: false })).toEqual({ found: false });
     expect(read.parse({ found: true, handle: 'ada', assetId: 'USDT', spaceId: null })).toMatchObject({ spaceId: null });
     expect(read.safeParse({ found: true, handle: 'ada', assetId: 'USDT', spaceId: 'not-a-uuid' }).success).toBe(false);

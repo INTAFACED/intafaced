@@ -54,6 +54,7 @@ import {
   categoryPolicyViewSchema,
 } from './business-category.js';
 import { jsonValueSchema } from './procedure-strict-schema.js';
+import { payPageSchema } from './pay-merchant-reads.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-pay `founderAdmin.*`, one record per call: svc-pay mounts each (`mountRecord`) and every app caller calls it by its record. */
@@ -735,6 +736,99 @@ export const PAY_FOUNDER_ADMIN_CUSTODY_TASKS_CANCEL = defineProcedure({
   output: taskViewSchema,
   samples: [
     { verdict: 'accept', input: { taskId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** The answer of `founderAdmin.ops.notes.add` and `.retract`, and each item of `.list`: one `OperatorNoteView`. */
+export const operatorNoteSchema = z
+  .object({
+    noteId: z.string().min(1),
+    merchantId: z.string().min(1),
+    body: z.string(),
+    tags: z.array(z.string()),
+    flagged: z.boolean(),
+    authorId: z.string().min(1),
+    createdAt: z.string().min(1),
+    retractedAt: z.string().min(1).nullable(),
+    retractedBy: z.string().min(1).nullable(),
+    retractReason: z.string().min(1).nullable(),
+  })
+  .strict();
+
+/**
+ * CURSOR PAGINATION for every merchant-operations list.
+ *
+ * Newest first, keyed on (timestamp, id) so equal timestamps never skip or
+ * repeat a row. The cursor is opaque to the client. The timestamp travels as a
+ * MICROSECOND string straight from Postgres: a JS `Date` has milliseconds and
+ * would drop digits, and a page boundary that drops digits loses rows.
+ *
+ * WHEN BINDING THAT STRING, WRITE `(${ts}::text)::timestamptz`, NEVER
+ * `${ts}::timestamptz`. postgres.js serialises a parameter typed timestamptz
+ * through `new Date(...)`, which cuts it to milliseconds and silently skips the
+ * rows between the cut and the real boundary (found by a flaky page walk).
+ *
+ * `limit` is accepted as optional in the input schema so that leaving it out
+ * reaches a named refusal instead of a Zod "Required", and is never defaulted
+ * (same rule as every svc-pay list: blank is not 50).
+ */
+export const limitInput = z.number().int().min(1).max(200).optional();
+
+export const cursorInput = z.string().min(1).max(512).optional();
+
+export const PAY_FOUNDER_ADMIN_OPS_NOTES_ADD = defineProcedure({
+  ...base,
+  name: 'pay.founderAdmin.ops.notes.add',
+  kind: 'mutation',
+  path: 'founderAdmin.ops.notes.add',
+  access: { caller: 'founder' },
+  refusals: {},
+  input: z.object({
+    merchantId: id,
+    body: z.string().trim().min(1).max(4000),
+    tags: z.array(z.string().trim().min(1).max(40)).max(20).default([]),
+    flagged: z.boolean().default(false),
+  }),
+  output: operatorNoteSchema,
+  samples: [
+    { verdict: 'accept', input: { merchantId: '11111111-1111-4111-8111-111111111111', body: 'USDC' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_FOUNDER_ADMIN_OPS_NOTES_RETRACT = defineProcedure({
+  ...base,
+  name: 'pay.founderAdmin.ops.notes.retract',
+  kind: 'mutation',
+  path: 'founderAdmin.ops.notes.retract',
+  access: { caller: 'founder' },
+  refusals: {},
+  input: z.object({ noteId: id, reason: z.string().trim().min(3).max(500) }),
+  output: operatorNoteSchema,
+  samples: [
+    { verdict: 'accept', input: { noteId: '11111111-1111-4111-8111-111111111111', reason: 'USDC' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_FOUNDER_ADMIN_OPS_NOTES_LIST = defineProcedure({
+  ...base,
+  name: 'pay.founderAdmin.ops.notes.list',
+  kind: 'query',
+  path: 'founderAdmin.ops.notes.list',
+  access: { caller: 'founder' },
+  refusals: {},
+  input: z.object({
+    merchantId: id,
+    limit: limitInput,
+    cursor: cursorInput,
+    flaggedOnly: z.boolean().optional(),
+    includeRetracted: z.boolean().optional(),
+  }),
+  output: payPageSchema(operatorNoteSchema),
+  samples: [
+    { verdict: 'accept', input: { merchantId: '11111111-1111-4111-8111-111111111111' } },
     { verdict: 'refuse', input: 42 },
   ],
 });

@@ -253,14 +253,7 @@ export const railPayeeCheckSchema = z.object({
 
 /** This area's reads of svc-bank `bank.*`, composed into `bankReads` in contracts.ts. */
 export const paymentsReads = {
-  'directDebits.list': directDebitsViewSchema,
   'calendar.window': calendarViewSchema,
-  'rules.get': rulesViewSchema,
-  'cashOut.quote': cashOutQuoteSchema,
-  // The same wire shape Pay reads (J-bank-04 #3): one definition of `bank.transfers.quote`.
-  'transfers.quote': transferQuoteSchema,
-  'railSends.requirements': railRequirementsSchema,
-  'safety.regionNotice': regionNoticeSchema,
   // Read by name through Activity's source table; its schema is the record's own, so it cannot drift from the bank's.
   'transfers.listSchedules': BANK_TRANSFERS_LIST_SCHEDULES.output,
 } as const;
