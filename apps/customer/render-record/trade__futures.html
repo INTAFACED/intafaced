@@ -116,8 +116,7 @@
 <div class="lt-body">
 <div class="lt-desk" data-desk="pro">
 <section class="lt-region" data-region="instrument" aria-label="Price">
-<div data-testid="futures-empty-desk" class="lt-stack">
-<section aria-label="Contract" class="lt-row">
+<section data-testid="futures-empty-desk" aria-label="Contract" class="lt-row">
 <div class="lt-select">
 <button type="button" role="combobox" class="lt-select-button" aria-label="Choose a contract" aria-haspopup="listbox" aria-expanded="false" aria-controls="_r_3_-list" disabled="">
 <span>No contract</span>
@@ -127,11 +126,14 @@
 </div>
 <span class="lt-note">No futures contract is listed</span>
 </section>
-<div class="lt-cols-3">
+</section>
+<section class="lt-region" data-region="chart" aria-label="Chart">
 <section aria-label="Chart" class="lt-panel">
 <p class="lt-strong">Chart</p>
 <p class="lt-note">No futures contract is listed</p>
 </section>
+</section>
+<section class="lt-region" data-region="book" aria-label="Order book">
 <section aria-label="Order book" class="lt-panel">
 <h2 class="lt-panel-title">Order book</h2>
 <div class="lt-stack-tight lt-tight lt-note">
@@ -166,6 +168,8 @@
 </div>
 <p class="lt-note">No futures contract is listed</p>
 </section>
+</section>
+<section class="lt-region" data-region="ticket" aria-label="Order">
 <aside aria-label="Ticket" class="lt-panel">
 <div class="lt-cols-2">
 <button disabled="" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Long</button>
@@ -203,8 +207,6 @@
 <button disabled="" type="button" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">Open position</button>
 <p class="lt-note">No futures contract is listed</p>
 </aside>
-</div>
-</div>
 </section>
 <section class="lt-region" data-region="orders" aria-label="Orders and positions">
 <div class="lt-stack">
