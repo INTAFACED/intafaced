@@ -286,7 +286,7 @@ export const components = {
   Switch: 'Glass disc knob toggle',
   Segmented: 'Ranges, Buy/Sell, Simple/Pro',
   ToggleChips: "A list's filter chips: a named group of pressed buttons, one on at a time, optionally pressed off",
-  Field: 'Input with label, hint and typed error',
+  Field: 'Input with label, hint and typed error; a decorative mark before the text (the @ of a handle) and a control after it (Paste)',
   SelectField: 'A labelled native list to pick from, in the field look',
   TextField: 'A labelled box of several lines, with hint and typed error, in the field look',
   Choice: 'A tick or round choice with its words on one row',
