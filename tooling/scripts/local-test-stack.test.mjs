@@ -933,11 +933,27 @@ try {
       if (statSync(full).isDirectory()) return f === 'vendor' || f === 'node_modules' ? [] : walk(full);
       return /\.(ts|tsx)$/.test(f) && !/\.(test|pw|spec)\./.test(f) ? [full] : [];
     });
+  // A call by its record (`api.call(P2P_DISPUTES_OPEN, …)`, `callAs(api, RECORD, …)`) names no module in its text: the
+  // record carries it. Each published record is known by the name the call-records codemod gives it, with its module.
+  const { recordName } = await import('../codemod/call-records/index.mjs');
+  const recordModule = new Map();
+  const published = join(repo, 'packages', 'contracts', 'procedures');
+  for (const f of readdirSync(published).filter((x) => x.endsWith('.schema.json'))) {
+    const { procedures } = JSON.parse(readFileSync(join(published, f), 'utf8'));
+    for (const r of Object.values(procedures)) if (r.module && r.path) recordModule.set(recordName(r.module, r.path), r.module);
+  }
+  assert.ok(recordModule.size >= 100, `could not read contracts' published records (${recordModule.size})`);
   const used = new Set();
   for (const f of walk(join(repo, 'apps', 'customer', 'src'))) {
     const src = readFileSync(f, 'utf8');
     for (const m of src.matchAll(/\b(?:query|mutate|plain)\(\s*'([a-z0-9]+)'/g)) used.add(m[1]);
     for (const m of src.matchAll(/'\/api\/([a-z0-9]+)/g)) used.add(m[1]);
+    // A record passed as an argument, imports and `typeof` reads left out: those call nothing.
+    const code = src.replace(/^import [^;]*?;/gm, '');
+    for (const m of code.matchAll(/(?<!typeof\s*)[(,]\s*([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)\b/g)) {
+      const module = recordModule.get(m[1]);
+      if (module) used.add(module);
+    }
   }
   used.delete('v1'); // public exchange REST, served by svc-trade
   used.add('trade');
