@@ -895,10 +895,15 @@ test("a procedure on the service's own founderProcedure names caller founder and
   const file = join(dir, 'src/router.ts');
   const guard = chains.get('list').guard;
   assert.deepEqual(founderPartsFor(file, guard, { name: 'payRefusal', file: join(dir, 'src/errors.ts'), exported: true }), {
-    name: '{ refusalOf: payRefusal, founder: founder }',
+    name: '{ refusalOf: payRefusal, founder }',
     file,
     imports: [{ file: join(dir, 'src/errors.ts'), name: 'payRefusal' }],
   });
+  // A guard written as a call is handed whole.
+  assert.equal(
+    founderPartsFor(file, chains.get('direct').guard, { name: 'payRefusal', file, exported: false }).name,
+    '{ refusalOf: payRefusal, founder: founderProcedure(deps.founderAuthority) }',
+  );
   // No refusal reader: the call stays.
   assert.equal(founderPartsFor(file, guard, undefined), undefined);
 });

@@ -89,7 +89,7 @@ export function founderAccess(p, node) {
 export function founderPartsFor(file, guard, reader) {
   if (!reader) return undefined;
   return {
-    name: `{ refusalOf: ${reader.name}, founder: ${guard.founder} }`,
+    name: `{ refusalOf: ${reader.name}, ${guard.founder === 'founder' ? 'founder' : `founder: ${guard.founder}`} }`,
     file,
     imports: reader.file === file ? [] : [{ file: reader.file, name: reader.name }],
   };
