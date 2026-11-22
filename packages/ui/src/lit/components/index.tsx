@@ -63,13 +63,36 @@ export type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   /** sm: a dense desk or table control. */
   size?: 'sm' | 'md' | 'lg';
   block?: boolean;
+  /** Its action is under way: it stays focusable but answers no click (aria-disabled, aria-busy). */
+  loading?: boolean;
 };
 
-export function Button({ tone = 'secondary', size = 'md', block, className, type = 'button', ...rest }: ButtonProps) {
+export function Button({
+  tone = 'secondary',
+  size = 'md',
+  block,
+  loading = false,
+  className,
+  type = 'button',
+  onClick,
+  ...rest
+}: ButtonProps) {
   return (
     <button
       {...rest}
       type={type}
+      disabled={rest.disabled && !loading}
+      aria-disabled={loading || rest['aria-disabled'] || undefined}
+      aria-busy={loading || rest['aria-busy'] || undefined}
+      data-loading={loading || undefined}
+      onClick={
+        loading
+          ? (event) => {
+              // Busy: no second submit and no second action, while focus stays where it was.
+              event.preventDefault();
+            }
+          : onClick
+      }
       className={clsx('lit-button', className)}
       data-slot="button"
       data-variant={tone === 'quiet' ? 'ghost' : tone}

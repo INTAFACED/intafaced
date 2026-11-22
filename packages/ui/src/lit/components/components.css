@@ -1052,3 +1052,170 @@
   background: var(--lit-secondary-bg);
   color: var(--lit-text-2);
 }
+.lit-button[aria-disabled='true'] {
+  cursor: progress;
+}
+
+/* Amount field (b2-amount.tsx): label, the figure to the end edge, unit, steppers and the Max and BBO keys. */
+.lt-amount {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-inline-size: 0;
+}
+.lt-amount-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-block-size: var(--lit-control-h);
+  padding-inline: 12px;
+  border: 1px solid var(--lit-line-strong);
+  border-radius: var(--lit-radius-control);
+  background: var(--lit-solid-bg-raised);
+}
+.lt-amount-box:has(input:focus-visible) {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+.lt-amount-box[data-invalid] {
+  border-color: var(--lit-down);
+}
+.lt-amount[data-disabled] .lt-amount-box {
+  color: var(--lit-text-disabled);
+}
+.lt-amount[data-size='hero'] .lt-amount-box {
+  justify-content: center;
+  min-block-size: 56px;
+  border: 0;
+  background: none;
+}
+.lt-amount-label {
+  flex: none;
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+}
+.lt-amount-label[data-hidden] {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.lt-amount-input {
+  flex: 1;
+  min-inline-size: 0;
+  border: 0;
+  background: none;
+  color: var(--lit-text-1);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+  outline: none;
+}
+.lt-amount[data-size='hero'] .lt-amount-input {
+  flex: none;
+  max-inline-size: 100%;
+  font-size: var(--lit-type-hero-size);
+  text-align: center;
+}
+.lt-amount-input::placeholder {
+  color: var(--lit-text-3);
+}
+.lt-amount-unit {
+  flex: none;
+  color: var(--lit-text-2);
+}
+.lt-amount-steps {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+}
+.lt-amount-steps > button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 20px;
+  block-size: 16px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--lit-text-2);
+  cursor: pointer;
+}
+.lt-amount-key {
+  flex: none;
+  min-block-size: 24px;
+  padding-inline: 10px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--lit-solid-bg-sunken);
+  color: var(--lit-text-2);
+  font: inherit;
+  font-size: var(--lit-type-micro-size);
+  cursor: pointer;
+}
+.lt-amount-key:disabled {
+  color: var(--lit-text-disabled);
+  cursor: not-allowed;
+}
+
+/* Chart overlay (b2-controls.tsx): order lines, the axis plus key and a point menu over a drawn chart. */
+.lt-chart-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+.lt-chart-mark {
+  position: absolute;
+  padding: 2px 8px;
+  border: 1px solid var(--lit-line-strong);
+  border-radius: calc(var(--lit-radius-control) - 4px);
+  background: var(--lit-solid-bg-raised);
+  color: var(--lit-text-1);
+  font: inherit;
+  font-size: var(--lit-type-micro-size);
+  transform: translateY(-50%);
+}
+.lt-chart-mark[data-mark='line'],
+.lt-chart-mark[data-mark='preview'] {
+  inset-inline-start: 8px;
+}
+.lt-chart-mark[data-mark='preview'] {
+  border-style: dashed;
+}
+.lt-chart-mark[data-mark='line'] {
+  pointer-events: auto;
+  cursor: ns-resize;
+  touch-action: none;
+}
+.lt-chart-mark[data-side='buy'] {
+  border-color: var(--lit-up);
+}
+.lt-chart-mark[data-side='sell'] {
+  border-color: var(--lit-down);
+}
+.lt-chart-mark[data-mark='plus'] {
+  inset-inline-end: 4px;
+  inline-size: 20px;
+  block-size: 20px;
+  padding: 0;
+  pointer-events: auto;
+  cursor: pointer;
+}
+.lt-chart-mark[data-mark='menu'] {
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  transform: none;
+  pointer-events: auto;
+}
+.lt-chart-mark[data-mark='menu'] > button {
+  padding: 4px 8px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}

@@ -299,12 +299,15 @@ export function Dialog({
   children,
   onClose,
   closeLabel,
+  closeLang,
 }: {
   title: React.ReactNode;
   children: React.ReactNode;
   onClose: () => void;
   /** The close button's name, from the room's copy ("Close"). */
   closeLabel: string;
+  /** The close word's language, when the copy fell back to another one than the page's. */
+  closeLang?: string;
 }) {
   const ref = React.useRef<HTMLDialogElement>(null);
   const titleId = React.useId();
@@ -334,7 +337,15 @@ export function Dialog({
         <h2 id={titleId} className="lt-dialog-title">
           {title}
         </h2>
-        <button type="button" className="lit-button" data-tone="quiet" data-size="sm" aria-label={closeLabel} onClick={onClose}>
+        <button
+          type="button"
+          className="lit-button"
+          data-tone="quiet"
+          data-size="sm"
+          aria-label={closeLabel}
+          lang={closeLang}
+          onClick={onClose}
+        >
           ×
         </button>
       </header>
@@ -353,4 +364,34 @@ export function Checkbox({ className, ...props }: CheckboxPrimitive.Root.Props) 
       </CheckboxPrimitive.Indicator>
     </CheckboxPrimitive.Root>
   );
+}
+
+// ---- Chart overlay: marks drawn over a chart's canvas at the chart's own pixel positions ------------------------
+
+/** A layer over a drawn chart: fills its host, lets the pointer through except on its marks. */
+export function ChartOverlay({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+  return <div {...props} className={clsx('lt-chart-overlay', className)} />;
+}
+
+export type ChartMarkProps = Omit<React.HTMLAttributes<HTMLElement>, 'style'> & {
+  /** line: an order's label on its price; preview: an order not placed yet; plus: the price axis's add key; menu: a small menu at a point. */
+  kind: 'line' | 'preview' | 'plus' | 'menu';
+  /** Distance from the overlay's block start, in CSS pixels, as the chart library reports it. */
+  y: number;
+  /** Distance from the overlay's inline start, in CSS pixels (a menu at the pointer). */
+  x?: number;
+  /** A mark the person acts on (drag, press) is a button. */
+  as?: 'div' | 'button';
+  /** A button mark that can't be used right now. */
+  disabled?: boolean;
+};
+
+/** One mark on a ChartOverlay, placed at the chart's coordinates; buy and sell read `data-side`. */
+export function ChartMark({ kind, y, x, as = 'div', disabled, className, ...props }: ChartMarkProps) {
+  const style: React.CSSProperties = { insetBlockStart: `${y}px`, ...(x === undefined ? {} : { insetInlineStart: `${x}px` }) };
+  if (as === 'button')
+    return (
+      <button type="button" {...props} disabled={disabled} data-mark={kind} className={clsx('lt-chart-mark', className)} style={style} />
+    );
+  return <div {...props} data-mark={kind} className={clsx('lt-chart-mark', className)} style={style} />;
 }
