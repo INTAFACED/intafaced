@@ -1,5 +1,9 @@
-// post-merge-trust: the pure pieces Main trust decides with, on fixtures, and a scan of the tool's own source.
-import { readFileSync } from 'node:fs';
+// post-merge-trust: the pure pieces Main trust decides with, on fixtures, and the script run as Main trust runs it.
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -31,6 +35,73 @@ import {
 
 // Equal as JSON, the comparison every case here was written against.
 const eq = (got, want, m) => assert.equal(JSON.stringify(got), JSON.stringify(want), m);
+
+// ---- post-merge-trust.mjs run as Main trust runs it, with DRY_RUN=1 (each write is printed, not sent) and its GETs
+// answered from routes, so a test reads every issue it would open ----
+const STUB_FETCH = `import { readFileSync } from 'node:fs';
+const routes = JSON.parse(readFileSync(process.env.STUB_ROUTES, 'utf8'));
+globalThis.fetch = async (url, init = {}) => {
+  const u = new URL(String(url));
+  const path = u.pathname + u.search;
+  const r = routes.find((x) => new RegExp(x.path).test(path));
+  if (!r) return new Response(JSON.stringify({ message: 'Not Found: ' + path }), { status: 404 });
+  return new Response(JSON.stringify(r.json), { status: 200 });
+};
+`;
+const ROOT_DIR = fileURLToPath(new URL('../..', import.meta.url));
+/** Runs post-merge-trust.mjs with `env` and `routes`: { status, stdout, writes: [{ method, path, body }] }. */
+function mainTrust(env, routes) {
+  const dir = mkdtempSync(join(tmpdir(), 'main-trust-'));
+  try {
+    writeFileSync(join(dir, 'stub.mjs'), STUB_FETCH);
+    writeFileSync(join(dir, 'routes.json'), JSON.stringify(routes));
+    const r = spawnSync(
+      process.execPath,
+      ['--import', pathToFileURL(join(dir, 'stub.mjs')).href, join(ROOT_DIR, 'tooling/ci/post-merge-trust.mjs')],
+      {
+        encoding: 'utf8',
+        env: {
+          PATH: process.env.PATH,
+          STUB_ROUTES: join(dir, 'routes.json'),
+          DRY_RUN: '1',
+          GITHUB_REPOSITORY: 'o/r',
+          WORKFLOW_ID: '1',
+          RUN_ID: '9',
+          HEAD_SHA: 'c'.repeat(40),
+          ...env,
+        },
+      },
+    );
+    const writes = [...r.stdout.matchAll(/^DRY_RUN (\w+) (\S+)(?:\n(\{[\s\S]*?\n\}))?$/gm)].map((m) => ({
+      method: m[1],
+      path: m[2],
+      body: m[3] ? JSON.parse(m[3]) : null,
+    }));
+    return { status: r.status, stdout: r.stdout, stderr: r.stderr, writes };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+const trustRun = (id, conclusion, at) => ({
+  id,
+  conclusion,
+  event: 'push',
+  created_at: at,
+  head_sha: String(id).padStart(40, 'b'),
+  html_url: `u/${id}`,
+});
+/** The GETs Main trust reads: this run, its jobs and their annotations, main's runs before it, an issue search. */
+const trustRoutes = ({ previous, jobs = [], annotations = [], found = [] }) => [
+  { path: '^/repos/o/r/actions/runs/9$', json: { id: 9, created_at: '2026-11-20T00:00:00Z' } },
+  { path: '^/repos/o/r/actions/runs/9/jobs', json: { total_count: jobs.length, jobs } },
+  { path: '^/repos/o/r/check-runs/\\d+/annotations', json: annotations },
+  { path: '^/repos/o/r/actions/workflows/1/runs', json: { workflow_runs: [previous] } },
+  { path: '^/repos/o/r/actions/runs/9/artifacts', json: { artifacts: [] } },
+  { path: '^/search/issues', json: { items: found } },
+  { path: '^/repos/o/r/compare/', json: { commits: [] } },
+];
+const opened = (r) =>
+  r.writes.filter((w) => w.method === 'POST' && w.path === '/repos/o/r/issues').map((w) => [w.body.title, w.body.labels]);
 
 test('journey step states, newly passing and failing steps, newly broken tests', () => {
   const spec = (title, ...statuses) => ({ title, tests: statuses.map((status) => ({ status })) });
@@ -301,10 +372,47 @@ test('issue labels: every issue for a red main opens labelled', () => {
     'a set-aside issue opens labelled flaky',
   );
   eq(newIssuePayload('Broken on main: CI', 'b'), { title: 'Broken on main: CI', body: 'b' }, 'no labels asked, none sent');
-  // Every path that opens an issue for a red main passes its labels: no path opens one bare.
-  const src = readFileSync(new URL('./post-merge-trust.mjs', import.meta.url), 'utf8');
-  const bare = [...src.matchAll(/upsertIssue\(repo, (?:[^()]|\([^()]*\)|\{[^}]*\})*\)/g)]
-    .map((m) => m[0])
-    .filter((c) => !c.includes('ISSUE_LABELS.') && !c.includes('labels = []'));
-  eq(bare, [], 'no caller opens an issue without labels');
+  // Every path that opens an issue for a red main passes its labels: no path opens one bare. Each is run here: a check
+  // failed twice, a check still red that no issue tracks, a journeys run cut by its time limit with a shard that sent no
+  // report, and an issue already open (it gets the labels with its comment).
+  const broken = mainTrust(
+    { WORKFLOW_NAME: 'PR checks', CONCLUSION: 'failure', RUN_ATTEMPT: '2' },
+    trustRoutes({ previous: trustRun(8, 'success', '2026-11-19T00:00:00Z') }),
+  );
+  eq(opened(broken), [['Broken on main: PR checks', ['regression']]], `a check failed twice: ${broken.stdout}${broken.stderr}`);
+  const stillRed = mainTrust(
+    { WORKFLOW_NAME: 'PR checks', CONCLUSION: 'failure', RUN_ATTEMPT: '1' },
+    trustRoutes({ previous: trustRun(8, 'failure', '2026-11-19T00:00:00Z') }),
+  );
+  eq(
+    opened(stillRed),
+    [['Broken on main: PR checks', ['regression']]],
+    `a check still red, untracked: ${stillRed.stdout}${stillRed.stderr}`,
+  );
+  const cut = mainTrust(
+    { WORKFLOW_NAME: 'Real-app journeys', CONCLUSION: 'cancelled', RUN_ATTEMPT: '1' },
+    trustRoutes({
+      previous: trustRun(8, 'success', '2026-11-19T00:00:00Z'),
+      jobs: [{ id: 5, name: 'Journeys (shard 1 of 1)', conclusion: 'cancelled' }],
+      annotations: [{ message: 'The job has exceeded the maximum execution time of 30m0s' }],
+    }),
+  );
+  eq(
+    opened(cut),
+    [
+      ['Broken on main: Real-app journeys (time limit)', ['regression']],
+      [LOST_SHARD_TITLE, ['regression']],
+    ],
+    `a time limit and a lost shard: ${cut.stdout}${cut.stderr}`,
+  );
+  const tracked = mainTrust(
+    { WORKFLOW_NAME: 'PR checks', CONCLUSION: 'failure', RUN_ATTEMPT: '2' },
+    trustRoutes({ previous: trustRun(8, 'success', '2026-11-19T00:00:00Z'), found: [{ number: 41, title: 'Broken on main: PR checks' }] }),
+  );
+  eq(opened(tracked), [], 'an open issue is commented on, not opened again');
+  eq(
+    tracked.writes.filter((w) => w.path === '/repos/o/r/issues/41/labels').map((w) => w.body),
+    [{ labels: ['regression'] }],
+    'an issue opened before the labels existed gets them on its next comment',
+  );
 });

@@ -24,6 +24,7 @@ import {
   text,
   walk,
 } from './ast.mjs';
+import { answerFromCallers } from './answer.mjs';
 import { chainOf, procedures } from './router.mjs';
 import { closureOf, contractsExports, usedOutside } from './closure.mjs';
 import { doorOf } from './door.mjs';
@@ -169,10 +170,14 @@ function plan(opts) {
     }
     const proc = procs.get(path);
     if (!proc) {
+      // A path the reader found but could not take as one procedure is named with its own reason.
+      const own = unread.find((u) => u.path === path);
       for (const s of list)
         hand.push({
           site: s,
-          why: `${opts.service} has no procedure ${path} the codemod can read${unread.length ? ` (${unread.length} router parts unread)` : ''}`,
+          why: own
+            ? `${opts.service} ${path}: ${own.why}`
+            : `${opts.service} has no procedure ${path} the codemod can read${unread.length ? ` (${unread.length} router parts unread)` : ''}`,
         });
       continue;
     }
@@ -186,6 +191,16 @@ function plan(opts) {
       continue;
     }
     const chain = chainOf(proc);
+    if (!chain.output) {
+      // No answer schema in the router: the record takes its callers' own, or the reason it can't names the caller.
+      const taken = answerFromCallers(REPO, list, { schemaOf: schemaArgOf, checksOf: answerChecks });
+      const at = chain.problems.findIndex((x) => x.startsWith('no .output()'));
+      if (taken.output) {
+        chain.problems.splice(at, 1);
+        chain.output = taken.output.node;
+        chain.outputP = taken.output.p;
+      } else chain.problems[at] = `no .output(), and the callers' own can't stand for it: ${taken.why}`;
+    }
     let reader = door ? undefined : readerFor(readers, proc.p.file, chain.guard);
     if (door) {
       // The door is the wire: its kind and access stand for the router's, which only checks them against it; a guard
@@ -279,7 +294,7 @@ function build(opts, planned) {
   for (const [file, recs] of groups) {
     const roots = recs.flatMap((r) => [
       { p: r.proc.p, node: r.chain.input, where: `${r.path} input` },
-      { p: r.proc.p, node: r.chain.output, where: `${r.path} output` },
+      { p: r.chain.outputP ?? r.proc.p, node: r.chain.output, where: `${r.path} output` },
     ]);
     const closure = closureOf(REPO, roots);
     if (closure.problems.length) {
@@ -447,7 +462,7 @@ function tables(changes, planned, done) {
 }
 
 /** The schema a caller parses the answer with, or undefined. */
-function schemaArgOf(s) {
+export function schemaArgOf(s) {
   if (s.shape === 'desk-read' || s.shape === 'ops-entry') return undefined;
   const a = s.node.arguments;
   if (s.shape === 'founderCall') return s.reader ? undefined : a[5]?.arguments?.[0];
@@ -652,7 +667,7 @@ function writeRecords(opts, file, recs, closure, placed, pending) {
       `  access: ${r.chain.guard.text},`,
       `  refusals: ${r.reader.refusals ? JSON.stringify(r.reader.refusals).replace(/"/g, "'").replace(/','/g, "', '").replace(/':'/g, "': '") : '{}'},`,
       `  input: ${r.chain.input ? exactInput(p, r.chain.input, lines, r.path) : 'NO_INPUT'},`,
-      `  output: ${text(p, r.chain.output)},`,
+      `  output: ${text(r.chain.outputP ?? p, r.chain.output)},`,
       `  samples: ${r.chain.input ? "[{ verdict: 'accept', input: {} }, { verdict: 'refuse', input: 42 }]" : "[{ verdict: 'accept' }]"},`,
       '});',
       '',
