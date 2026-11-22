@@ -203,6 +203,23 @@ export function Checkbox({ children, onCheckedChange, className, ...rest }: Chec
   );
 }
 
+export type RadioProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type' | 'onChange' | 'children'> & {
+  /** The words beside the button; they name it. Buttons of one choice share a `name` inside a `fieldset`. */
+  children: React.ReactNode;
+  /** Called when this button becomes the chosen one. */
+  onSelect?: () => void;
+};
+
+/** One answer of a short choice, one row: the browser's own radio button in the kit's accent, its words beside it. */
+export function Radio({ children, onSelect, className, ...rest }: RadioProps) {
+  return (
+    <label className={clsx('lt-field', className)}>
+      <input {...rest} type="radio" onChange={(e) => e.target.checked && onSelect?.()} />
+      <span>{children}</span>
+    </label>
+  );
+}
+
 /** A typed part of a formatted number (packages/i18n `formatMoneyToParts` and friends return these). */
 export type FigurePart = { readonly type: string; readonly value: string };
 
