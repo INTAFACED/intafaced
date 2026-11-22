@@ -184,8 +184,8 @@ export function Tabs(props: TabsProps) {
     0,
     items.findIndex((t) => t.value === value),
   );
-  const move = (event: React.KeyboardEvent, index: number) => {
-    const next = nextTabIndex(index, event.key, items.length);
+  const move = (event: React.KeyboardEvent<HTMLElement>, index: number) => {
+    const next = nextTabIndex(index, event.key, items.length, isRightToLeft(event.currentTarget));
     if (next === null) return;
     const item = items[next];
     if (!item) return;
@@ -218,14 +218,24 @@ export function Tabs(props: TabsProps) {
   );
 }
 
-/** The tab an arrow, Home or End key moves to from `index` (wrapping), or null for any other key. */
-export function nextTabIndex(index: number, key: string, count: number): number | null {
+/**
+ * The tab an arrow, Home or End key moves to from `index` (wrapping), or null for any other key. On a right-to-left
+ * page the row reads from the right, so ArrowLeft moves to the next tab and ArrowRight to the one before.
+ */
+export function nextTabIndex(index: number, key: string, count: number, rtl = false): number | null {
   if (count === 0) return null;
-  if (key === 'ArrowRight' || key === 'ArrowDown') return (index + 1) % count;
-  if (key === 'ArrowLeft' || key === 'ArrowUp') return (index - 1 + count) % count;
+  const forward = rtl ? 'ArrowLeft' : 'ArrowRight';
+  const back = rtl ? 'ArrowRight' : 'ArrowLeft';
+  if (key === forward || key === 'ArrowDown') return (index + 1) % count;
+  if (key === back || key === 'ArrowUp') return (index - 1 + count) % count;
   if (key === 'Home') return 0;
   if (key === 'End') return count - 1;
   return null;
+}
+
+/** Whether an element sits in a right-to-left run: the nearest `dir` on it or an ancestor says `rtl`. */
+export function isRightToLeft(el: Pick<Element, 'closest'>): boolean {
+  return el.closest('[dir]')?.getAttribute('dir')?.toLowerCase() === 'rtl';
 }
 
 /** What a keyboard can reach inside a panel. */
@@ -630,9 +640,18 @@ type DecimalBoxProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value'
 };
 
 function DecimalBox({ value, onValueChange, precision, tick, min, max, onBlur, onKeyDown, ...rest }: DecimalBoxProps) {
+  const ref = React.useRef<HTMLInputElement>(null);
+  const caret = React.useRef<number | null>(null);
+  // After a cleaned keystroke the value changes and the box draws again: put the caret back where the person typed.
+  React.useLayoutEffect(() => {
+    const at = caret.current;
+    caret.current = null;
+    if (at !== null && ref.current && ref.current === document.activeElement) placeCaret(ref.current, at);
+  });
   return (
     <input
       {...rest}
+      ref={ref}
       onKeyDown={(e) => {
         onKeyDown?.(e);
         if (tick === undefined || rest.readOnly || rest.disabled || e.defaultPrevented) return;
@@ -647,8 +666,21 @@ function DecimalBox({ value, onValueChange, precision, tick, min, max, onBlur, o
       spellCheck={false}
       value={value}
       onChange={(e) => {
-        const next = nextDecimalValue(value, e.currentTarget.value, { precision });
-        if (next !== value) onValueChange(next);
+        const box = e.currentTarget;
+        const raw = box.value;
+        const next = nextDecimalValue(value, raw, { precision });
+        // What was refused or cleaned away sat before the caret: the caret keeps its place in what stays.
+        const at = Math.max(0, (box.selectionStart ?? raw.length) - (raw.length - next.length));
+        if (next !== value) {
+          caret.current = at;
+          onValueChange(next);
+          return;
+        }
+        // A refused keystroke changes no value, so nothing draws again; React puts the old text back once this event
+        // is done, which sends the caret to the end. Put it back after that.
+        queueMicrotask(() => {
+          if (box.isConnected && box.value === value) placeCaret(box, at);
+        });
       }}
       onPaste={(e) => {
         if (rest.readOnly || rest.disabled) return;
@@ -663,6 +695,11 @@ function DecimalBox({ value, onValueChange, precision, tick, min, max, onBlur, o
       }}
     />
   );
+}
+
+function placeCaret(box: HTMLInputElement, at: number) {
+  const pos = Math.min(at, box.value.length);
+  box.setSelectionRange(pos, pos);
 }
 
 /** A checkbox with its words, as one row: the box, then the label (`lt-field`). */
