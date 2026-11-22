@@ -19,6 +19,8 @@ export interface Column<Row> {
   cell: (row: Row) => React.ReactNode;
   /** The cell's own marks (`data-cell`, `data-testid`). */
   cellMarks?: (row: Row) => DataMarks;
+  /** The column header's own marks (`data-col`, `data-testid`). */
+  headMarks?: DataMarks;
   /** Figures align to the end. */
   align?: 'start' | 'end';
   /** Shown only in Pro (column chooser default). */
@@ -59,6 +61,10 @@ export interface TableProps<Row> {
   empty?: React.ReactNode;
   /** The row's own marks (`data-testid`, the record's id). */
   rowMarks?: (row: Row) => DataMarks;
+  /** The header row's own marks (`data-testid`). */
+  headMarks?: DataMarks;
+  /** The rows are placeholders while the list loads: the table says it is busy. */
+  busy?: boolean;
   virtual?: VirtualRows;
 }
 
@@ -159,6 +165,8 @@ export function Table<Row>({
   onSort,
   empty,
   rowMarks,
+  headMarks,
+  busy,
   virtual,
 }: TableProps<Row>) {
   const cols = columns.filter((c) => mode === 'pro' || !c.pro);
@@ -206,12 +214,13 @@ export function Table<Row>({
       </tr>
     ) : null;
   return (
-    <table className="lt-table" data-mode={mode} aria-rowcount={windowed ? rows.length + 1 : undefined}>
+    <table className="lt-table" data-mode={mode} aria-rowcount={windowed ? rows.length + 1 : undefined} aria-busy={busy || undefined}>
       <caption className="lt-sr">{caption}</caption>
       <thead>
-        <tr aria-rowindex={windowed ? 1 : undefined}>
+        <tr {...headMarks} aria-rowindex={windowed ? 1 : undefined}>
           {cols.map((c) => (
             <th
+              {...c.headMarks}
               key={c.key}
               scope="col"
               data-align={c.align ?? 'start'}

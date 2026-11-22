@@ -8,7 +8,7 @@ import { Button, DataTable } from '@intafaced/ui';
 import { Field } from './ui-kit';
 import type { BusinessPayApi } from './pay-api';
 import { PayDetails, PayNotice, PayPagination, PaySection, PayState, ReviewedAction, Status } from './components';
-import { validatedMutation } from './BusinessPay';
+import { validatedRecordMutation } from './BusinessPay';
 import * as s from './schemas';
 import { MerchantRefund } from './MerchantRefund';
 import { PAY_RAIL_HEALTH } from '@intafaced/contracts/pay-rail-health-procedures';
@@ -18,6 +18,7 @@ import {
   PAY_PAYMENT_CAPTURE,
   PAY_PAYMENT_GET,
   PAY_PAYMENT_HISTORY,
+  PAY_PAYMENT_CREATE,
 } from '@intafaced/contracts/pay-payment-procedures';
 
 /** The status filter as the record takes it: one of the payment states the select lists, or none. */
@@ -50,7 +51,7 @@ export function MerchantPayments({ pay, room }: { pay: BusinessPayApi; room: 'pa
     `pay:payments:${merchantId}:${room}:${status}:${limit}`,
   );
   return (
-    <div className="stack">
+    <div className="lt-stack">
       {room === 'payments' && (
         <CreatePayment
           pay={pay}
@@ -130,20 +131,20 @@ export function MerchantPayments({ pay, room }: { pay: BusinessPayApi; room: 'pa
                   <tr key={payment.id}>
                     <td>
                       {paymentLabel(payment)}
-                      <small className="pay-cell-note">{payment.createdAt}</small>
+                      <small className="lt-hint">{payment.createdAt}</small>
                     </td>
-                    <td className="numeric">
+                    <td className="lt-num">
                       {portalAmount(payment.amount, payment.assetId)} {payment.assetId}
                     </td>
-                    <td className="numeric">
+                    <td className="lt-num">
                       {portalAmount(payment.capturedAmount, payment.assetId)} {payment.assetId}
                     </td>
-                    <td className="numeric">
+                    <td className="lt-num">
                       {portalAmount(payment.refundedAmount, payment.assetId)} {payment.assetId}
                     </td>
                     <td>
                       <Status value={payment.status} />
-                      <small className="pay-cell-note">{payment.railAdapter}</small>
+                      <small className="lt-hint">{payment.railAdapter}</small>
                     </td>
                     <td>
                       <Button variant="ghost" onClick={() => setOpenedId(payment.id)}>
@@ -239,7 +240,7 @@ function CreatePayment({ pay, onCreated }: { pay: BusinessPayApi; onCreated: (pa
             hint={payCopy.t('useTheMethodSuppliedByYourConnected')}
             required
           />
-          <label className="field">
+          <label className="lt-field">
             <PayCopy k="livePaymentRail" />
             <select value={railAdapter} onChange={(event) => setRailAdapter(event.target.value)}>
               <option value="">{payCopy.t('chooseAConnectedLiveRail')}</option>
@@ -283,9 +284,9 @@ function CreatePayment({ pay, onCreated }: { pay: BusinessPayApi; onCreated: (pa
             }
             perform={() =>
               rail
-                ? validatedMutation(
+                ? validatedRecordMutation(
                     pay,
-                    'payment.create',
+                    PAY_PAYMENT_CREATE,
                     { merchantId, amount, assetId, method, railAdapter, ...(customerRef ? { customerRef } : {}) },
                     z.object({
                       merchantId: s.id,
@@ -295,7 +296,6 @@ function CreatePayment({ pay, onCreated }: { pay: BusinessPayApi; onCreated: (pa
                       railAdapter: z.string().min(1),
                       customerRef: z.string().optional(),
                     }),
-                    s.paymentSchema,
                     'pay:write',
                     'payment-create',
                   )
@@ -356,7 +356,7 @@ function PaymentDetail({
     >
       <PayState resource={current.resource} retry={current.reload}>
         {(payment) => (
-          <div className="form-stack">
+          <div className="lt-stack">
             <PayDetails
               values={[
                 [payCopy.t('payment'), payment.id],
@@ -375,7 +375,7 @@ function PaymentDetail({
                 <PayCopy k="refreshPaymentStatusAndInspectTheHistory" />
               </PayNotice>
             )}
-            <div className="actions">
+            <div className="lt-actions">
               {payment.status === 'created' && (
                 <ReviewedAction
                   title={payCopy.t('authorizePayment')}
@@ -405,7 +405,7 @@ function PaymentDetail({
                       {events.map((event) => (
                         <div key={event.id}>
                           <span>{event.event}</span>
-                          <small className="muted">{event.ts}</small>
+                          <small className="lt-muted">{event.ts}</small>
                         </div>
                       ))}
                     </div>

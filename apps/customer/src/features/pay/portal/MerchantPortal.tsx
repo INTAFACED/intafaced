@@ -15,6 +15,7 @@ import { headerActionReason } from './access/headerActions';
 import { MerchantAccessProvider, useMerchantAccess } from './access/MerchantAccess';
 import { RefusalOnceProvider } from './components';
 import { authorityFromAccess } from './access/authority';
+import { PortalHeadingContext } from './volt/heading';
 
 /**
  * The merchant portal shell (W3a). Every page here is scoped by the server from the signed session, so the
@@ -79,7 +80,7 @@ export function PortalPage({ route, ctx, pay = null }: { route: PortalRoute; ctx
   return (
     <PortalFrame
       route={route}
-      ownTitle={Boolean(room.ownTitle) && !noBusiness}
+      ownTitle={!noBusiness && room.ownTitle === true}
       actionOff={noBusiness}
       actionReason={noBusiness ? undefined : headerActionReason(route.room, ctx.access, pay)}
     >
@@ -90,15 +91,15 @@ export function PortalPage({ route, ctx, pay = null }: { route: PortalRoute; ctx
 
 export function PortalFrame({
   route,
-  ownTitle = false,
   actionOff = false,
   actionReason,
+  ownTitle = false,
   children,
 }: {
   route: PortalRoute;
-  /** The page draws its own title (`ownTitle` on its room): the frame draws no heading. */
-  ownTitle?: boolean;
   actionOff?: boolean;
+  /** The page draws its own title row (its room's `ownTitle`): the frame hands it the heading and draws none. */
+  ownTitle?: boolean;
   /** Why the header action is switched off for this person (their role lacks the scope). Null or left out: it works. */
   actionReason?: string | null;
   children: ReactNode;
@@ -108,26 +109,21 @@ export function PortalFrame({
   const room = rooms[route.room];
   const copy = room.header(route);
   const here = typeof room.here === 'function' ? room.here(route) : (room.here ?? `/pay/${route.room}`);
+  const action = actionOff ? (
+    <DisabledAction action={copy.action} />
+  ) : actionReason ? (
+    <DisabledAction action={copy.action} reason={actionReason} />
+  ) : (
+    copy.action
+  );
   return (
-    <LayoutFrame
-      here={here}
-      heading={!ownTitle}
-      title={copy.title}
-      purpose={copy.purpose}
-      action={
-        actionOff ? (
-          <DisabledAction action={copy.action} />
-        ) : actionReason ? (
-          <DisabledAction action={copy.action} reason={actionReason} />
-        ) : (
-          copy.action
-        )
-      }
-    >
+    <LayoutFrame here={here} title={copy.title} purpose={copy.purpose} action={action} heading={!ownTitle}>
       <ExactMoneyContext.Provider
         value={Boolean(route.param || route.step) || route.room.endsWith('-new') || route.room === 'money-activity'}
       >
-        {children}
+        <PortalHeadingContext.Provider value={ownTitle ? { title: copy.title, purpose: copy.purpose, action } : null}>
+          {children}
+        </PortalHeadingContext.Provider>
       </ExactMoneyContext.Provider>
     </LayoutFrame>
   );

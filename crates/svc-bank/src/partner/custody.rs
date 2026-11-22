@@ -231,6 +231,35 @@ impl Held<'_> {
         self.partner.lock().report(account, now)
     }
 
+    /// `balances`: every figure the partner gives for the person's accounts.
+    pub fn balances(&self, user_id: &str, now: Instant) -> Vec<Balance> {
+        self.partner.lock().balances(user_id, now)
+    }
+
+    /// `limits`.
+    pub fn limits(
+        &self,
+        user_id: &str,
+        asset_id: &str,
+        now: Instant,
+    ) -> Result<super::SendLimits, Refusal> {
+        self.partner.lock().limits(user_id, asset_id, now)
+    }
+
+    /// `purchases.holds`.
+    pub fn purchase_holds(
+        &self,
+        user_id: &str,
+        now: Instant,
+    ) -> Result<Option<super::desks::Holds>, Refusal> {
+        self.partner.lock().purchase_holds(user_id, now)
+    }
+
+    /// `openOrders`.
+    pub fn open_orders(&self, user_id: &str) -> Vec<super::OpenOrder> {
+        self.partner.lock().open_orders(user_id)
+    }
+
     /// `moveByKey`.
     pub fn move_by_key(&self, key: &str) -> Option<Move> {
         self.partner.lock().book.by_key(key).cloned()

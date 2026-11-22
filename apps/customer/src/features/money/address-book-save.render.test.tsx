@@ -99,7 +99,7 @@ async function mount() {
   await act(async () => mounted.render(<WithdrawalAddresses />));
 }
 function field(label: string): HTMLInputElement | HTMLSelectElement {
-  const found = [...document.querySelectorAll('label.field')].find((l) => l.querySelector('span')?.textContent === label);
+  const found = [...document.querySelectorAll('label.lt-field')].find((l) => l.querySelector('span')?.textContent === label);
   return found!.querySelector('input, select') as HTMLInputElement | HTMLSelectElement;
 }
 async function type(label: string, value: string) {

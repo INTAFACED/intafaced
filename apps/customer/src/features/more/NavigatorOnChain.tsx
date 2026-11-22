@@ -5,7 +5,7 @@ import {
   type NavigatorOnchainBinding,
 } from '@intafaced/contracts/agents-onchain';
 import type { ProtocolSessionKey, ProtocolSessionsList } from '@intafaced/contracts/protocol-sessions';
-import { Button, Failure, Field } from '../../shared/ui';
+import { Button, Field, Tag } from '@intafaced/ui/lit';
 import { useResource } from '../../shared/resource';
 import { ServiceOffNotice } from '../../shared/service-off';
 import { useApi } from '../session';
@@ -26,6 +26,7 @@ import {
 } from '../protocol';
 import { Select } from './common';
 import { navigatorOnchainCopy } from './navigator-onchain-copy';
+import { FailureNote } from './volt-parts';
 import {
   AGENTS_NAVIGATOR_ONCHAIN_SIGNER,
   AGENTS_NAVIGATOR_ONCHAIN_BINDING,
@@ -87,9 +88,9 @@ function OnChainPanel() {
   const wallet = useWallet();
   const connected = wallet.status === 'connected' && wallet.address !== null;
   return (
-    <section aria-label={t('title')} className="navigator-onchain">
+    <section aria-label={t('title')} className="lt-stack">
       <h4>{t('title')}</h4>
-      <p className="muted">{t('intro')}</p>
+      <p className="lt-muted">{t('intro')}</p>
       <p role="note">
         <strong>{t('ceiling')}</strong> {t('ceilingRule')}
       </p>
@@ -120,10 +121,10 @@ function OnChainSigner({ owner, chainId }: { owner: string; chainId: number }) {
   const testnet = chainId === NAVIGATOR_ONCHAIN_TEST_CHAIN_ID;
   const label = testnet ? (
     <p>
-      <span className="pill" data-network="testnet">
+      <Tag tone="neutral" data-network="testnet">
         {t('testnet')}
-      </span>{' '}
-      <span className="muted">{t('testnetNote')}</span>
+      </Tag>{' '}
+      <span className="lt-muted">{t('testnetNote')}</span>
     </p>
   ) : null;
   if (signer.resource.status === 'loading' || account.resource.status === 'loading')
@@ -139,7 +140,7 @@ function OnChainSigner({ owner, chainId }: { owner: string; chainId: number }) {
     return (
       <>
         {label}
-        {off ? <ServiceOffNotice code={off} action={t('actionGrant')} /> : <Failure result={failure} retry={signer.reload} />}
+        {off ? <ServiceOffNotice code={off} action={t('actionGrant')} /> : <FailureNote result={failure} retry={signer.reload} />}
       </>
     );
   }
@@ -150,7 +151,7 @@ function OnChainSigner({ owner, chainId }: { owner: string; chainId: number }) {
         {isFactoryUnset(account.resource.failure.message) ? (
           <p role="status">{t('factoryUnset')}</p>
         ) : (
-          <Failure result={account.resource.failure} retry={account.reload} />
+          <FailureNote result={account.resource.failure} retry={account.reload} />
         )}
       </>
     );
@@ -442,12 +443,13 @@ function OnChainControls({
           }}
         />
       )}
-      <p className="muted numeric">{t('signer', { address: signer })}</p>
-      <p className="muted numeric">{t('account', { address: account })}</p>
-      <form aria-label={t('formLabel')} className="protocol-quote" onSubmit={(event) => void prepare(event)} noValidate>
+      <p className="lt-muted lt-num">{t('signer', { address: signer })}</p>
+      <p className="lt-muted lt-num">{t('account', { address: account })}</p>
+      <form aria-label={t('formLabel')} className="lt-stack" onSubmit={(event) => void prepare(event)} noValidate>
+        {/* The old kit's field until the kit has one whose label holds its input, as navigator-onchain.dom.test.tsx reads it. */}
         <Field label={t('capLabel')} hint={t('capHint')} inputMode="decimal" value={cap} onChange={(event) => setCap(event.target.value)} />
         <Field label={t('callsLabel')} hint={t('callsHint')} value={calls} onChange={(event) => setCalls(event.target.value)} />
-        <p className="muted numeric">
+        <p className="lt-muted lt-num">
           {router
             ? t('defaultCall', { selector: NAVIGATOR_DEFAULT_SELECTOR, router })
             : deployments.resource.status === 'loading'
@@ -467,39 +469,39 @@ function OnChainControls({
           ]}
         />
         {formProblem && <p role="alert">{formProblem}</p>}
-        <div className="actions">
-          <Button type="submit" disabled={locked}>
+        <div className="lt-actions">
+          <Button type="submit" tone="primary" disabled={locked}>
             {t('prepare')}
           </Button>
         </div>
       </form>
       {binding && status && <KeyFacts t={t} binding={binding} chain={chain} chainKey={key} status={status} />}
-      {chainRead.resource.status === 'failed' && <Failure result={chainRead.resource.failure} retry={chainRead.reload} />}
+      {chainRead.resource.status === 'failed' && <FailureNote result={chainRead.resource.failure} retry={chainRead.reload} />}
       {binding && (status === 'active' || status === 'later' || status === 'revoking') && (
-        <div className="actions">
-          <Button variant="secondary" disabled={locked} onClick={() => void revoke()}>
+        <div className="lt-actions">
+          <Button tone="secondary" disabled={locked} onClick={() => void revoke()}>
             {t('revoke')}
           </Button>{' '}
-          <span className="muted">{t('revokeNote')}</span>
+          <span className="lt-muted">{t('revokeNote')}</span>
         </div>
       )}
       {call && (
-        <div className="navigator-onchain-call">
+        <div className="lt-stack">
           <h5>{t('callTitle')}</h5>
           <p>{t(call.kind === 'grant' ? 'callGrant' : 'callRevoke')}</p>
           <dl>
             <dt>{t('callTo')}</dt>
-            <dd className="numeric">
+            <dd className="lt-num">
               <code lang="zxx">{call.to}</code>
             </dd>
             <dt>{t('callData')}</dt>
-            <dd className="numeric">
-              <code data-testid="unsigned-call" lang="zxx" className="navigator-onchain-data">
+            <dd className="lt-num">
+              <code data-testid="unsigned-call" lang="zxx" className="lt-wrap">
                 {call.data}
               </code>
             </dd>
           </dl>
-          <Button disabled={locked} onClick={() => void sign(call)}>
+          <Button tone="primary" disabled={locked} onClick={() => void sign(call)}>
             {t('sign')}
           </Button>
         </div>
@@ -528,19 +530,19 @@ function KeyFacts({
   const source = chainKey ?? binding;
   const prepared = chainKey ? '' : ` (${t('preparedOnly')})`;
   return (
-    <div className="navigator-onchain-key">
+    <div className="lt-stack">
       <h5>{t('bindingTitle')}</h5>
       <dl>
         <dt>{t('termScope')}</dt>
-        <dd className="numeric">{t('scope', { selectors: source.selectors.join(', '), targets: source.targets.join(', ') }) + prepared}</dd>
+        <dd className="lt-num">{t('scope', { selectors: source.selectors.join(', '), targets: source.targets.join(', ') }) + prepared}</dd>
         <dt>{t('termExpiry')}</dt>
-        <dd className="numeric">{utcTime(new Date(source.validUntil * 1000).toISOString()) + prepared}</dd>
+        <dd className="lt-num">{utcTime(new Date(source.validUntil * 1000).toISOString()) + prepared}</dd>
         <dt>{t('termStatus')}</dt>
         <dd>
           <span data-testid="binding-status">{t(`status_${status}`)}</span>
         </dd>
         <dt>{t('termSpent')}</dt>
-        <dd className="numeric">
+        <dd className="lt-num">
           {t('spent', {
             spent: chainKey ? formatUnits(BigInt(chainKey.spentWei), 18, 18) : '0',
             cap: formatUnits(BigInt(source.spendLimitWei), 18, 18),
@@ -548,7 +550,7 @@ function KeyFacts({
         </dd>
       </dl>
       {chainKey && !sameGrant(binding, chainKey) && <p role="note">{t('otherScope')}</p>}
-      {chain && <p className="muted">{t('asOf', { block: chain.blockNumber, time: utcTime(chain.blockTime) })}</p>}
+      {chain && <p className="lt-muted">{t('asOf', { block: chain.blockNumber, time: utcTime(chain.blockTime) })}</p>}
     </div>
   );
 }

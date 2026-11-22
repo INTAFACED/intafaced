@@ -97,35 +97,37 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div class="promotions">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div class="lt-room" data-template="overview" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<h1>Promotions &amp; invitations</h1>
-<p class="muted">Your invitation link and referral records. Visits are not sign-ups or commission payments.</p>
+<h1 class="lt-title">Promotions &amp; invitations</h1>
+<p class="lt-description">Your invitation link and referral records. Visits are not sign-ups or commission payments.</p>
 </div>
 </header>
-<nav class="promotions__tabs" aria-label="Promotion sections">
-<a href="/uc/promotion">Overview</a>
-<a href="/uc/promotion/mycards">Invitation link</a>
-<a href="/uc/promotion/mypromotion">Referral records</a>
-<a href="/uc/promotion/points" aria-current="page">Points programme</a>
-<a href="/uc/promotion/perks">Tier and perks</a>
+<div class="lt-body">
+<section class="lt-region" data-region="rooms">
+<nav class="lt-tabs" aria-label="Promotion sections">
+<a href="/uc/promotion" class="lt-tab">Overview</a>
+<a href="/uc/promotion/mycards" class="lt-tab">Invitation link</a>
+<a href="/uc/promotion/mypromotion" class="lt-tab">Referral records</a>
+<a href="/uc/promotion/points" class="lt-tab" aria-current="page">Points programme</a>
+<a href="/uc/promotion/perks" class="lt-tab">Tier and perks</a>
 </nav>
-<section class="points-programme" aria-label="Points programme" data-testid="points-programme" data-state="failed">
-<section class="if-panel" data-live="false">
-<header class="if-panel__header">
-<h2 class="if-panel__title">Points programme</h2>
-</header>
-<div class="if-panel__body">
-<p class="muted">Read from the campaigns service each time you open this page. Every control is here; none of them runs yet.</p>
+</section>
+<div class="lt-grid lt-grid-main-side">
+<div class="lt-col-main">
+<section class="lt-region" data-region="sections" aria-label="Activity">
+<section aria-label="Points programme" data-testid="points-programme" data-state="failed">
+<div class="lt-stack">
+<h2>Points programme</h2>
+<p class="lt-hint">Read from the campaigns service each time you open this page. Every control is here; none of them runs yet.</p>
 <div data-testid="points-failed">
-<div data-testid="failure" class="failure" role="status">
-<h3>
+<div data-testid="failure" class="lt-refusal" role="status">
+<h3 class="lt-refusal-title">
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
 </h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
 </button>
 </div>
@@ -133,6 +135,10 @@
 </div>
 </section>
 </section>
+</div>
+<div class="lt-col-side">
+</div>
+</div>
 </div>
 </div>
 </div>

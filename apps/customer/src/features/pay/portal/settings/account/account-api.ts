@@ -1,8 +1,18 @@
-import { z } from 'zod';
 import * as p from '../../schemas';
 import { type PortalTools } from '../../api-tools';
 import * as s from './schemas';
 import './refusals';
+import {
+  PAY_SUBMERCHANT_CREATE,
+  PAY_SUBMERCHANT_SUMMARY,
+  PAY_SUBMERCHANT_LIST,
+  PAY_SUBMERCHANT_GET,
+} from '@intafaced/contracts/pay-submerchant-procedures';
+import {
+  PAY_SUBMERCHANT_PERMISSION_AREAS,
+  PAY_SUBMERCHANT_PERMISSION_LIST,
+  PAY_SUBMERCHANT_PERMISSION_HISTORY,
+} from '@intafaced/contracts/pay-submerchant-permission-procedures';
 
 const cursorPart = (cursor: string | undefined) => (cursor ? { cursor } : {});
 
@@ -11,7 +21,7 @@ const cursorPart = (cursor: string | undefined) => (cursor ? { cursor } : {});
  * feed, the filtered team list and the platform network. The business is always passed by the page from the
  * resolved access; the service checks it against the signed session again.
  */
-export const accountApi = ({ query, mutate, list }: PortalTools) => ({
+export const accountApi = ({ query, mutate, list, mutateRecord, queryRecord }: PortalTools) => ({
   // ---- business profile (merchant.businessProfile.*) ----
   profileGet: (merchantId: string, signal?: AbortSignal) => query('merchant.businessProfile.get', { merchantId }, s.profileSchema, signal),
   profileHistory: (merchantId: string, cursor: string | undefined, signal?: AbortSignal) =>
@@ -62,22 +72,21 @@ export const accountApi = ({ query, mutate, list }: PortalTools) => ({
     ),
 
   // ---- network ----
-  subList: (merchantId: string, signal?: AbortSignal) =>
-    query('submerchant.list', { merchantId, limit: 100 }, z.array(s.subMerchantSchema), signal),
-  subGet: (merchantId: string, signal?: AbortSignal) => query('submerchant.get', { merchantId }, s.subMerchantSchema, signal),
+  subList: (merchantId: string, signal?: AbortSignal) => queryRecord(PAY_SUBMERCHANT_LIST, { merchantId, limit: 100 }, signal),
+  subGet: (merchantId: string, signal?: AbortSignal) => queryRecord(PAY_SUBMERCHANT_GET, { merchantId }, signal),
   subSummary: (merchantId: string, signal?: AbortSignal) =>
-    query('submerchant.summary', { merchantId, recentPaymentsLimit: 10, grantsLimit: 50 }, s.subSummarySchema, signal),
+    queryRecord(PAY_SUBMERCHANT_SUMMARY, { merchantId, recentPaymentsLimit: 10, grantsLimit: 50 }, signal),
   subCreate: (input: { parentMerchantId: string; userId: string; feeBps: number }) =>
-    mutate(
-      'submerchant.create',
-      { parentMerchantId: input.parentMerchantId, userId: input.userId, pricing: { feeBps: input.feeBps } },
-      s.subMerchantSchema,
-    ),
-  permAreas: (signal?: AbortSignal) => query('submerchantPermission.areas', undefined, z.array(z.string()), signal),
+    mutateRecord(PAY_SUBMERCHANT_CREATE, {
+      parentMerchantId: input.parentMerchantId,
+      userId: input.userId,
+      pricing: { feeBps: input.feeBps },
+    }),
+  permAreas: (signal?: AbortSignal) => queryRecord(PAY_SUBMERCHANT_PERMISSION_AREAS, undefined, signal),
   permGrants: (subjectMerchantId: string, signal?: AbortSignal) =>
-    query('submerchantPermission.list', { subjectMerchantId, limit: 50 }, z.array(s.grantSchema), signal),
+    queryRecord(PAY_SUBMERCHANT_PERMISSION_LIST, { subjectMerchantId, limit: 50 }, signal),
   permHistory: (subjectMerchantId: string, signal?: AbortSignal) =>
-    query('submerchantPermission.history', { subjectMerchantId, limit: 50 }, z.array(s.permissionEventSchema), signal),
+    queryRecord(PAY_SUBMERCHANT_PERMISSION_HISTORY, { subjectMerchantId, limit: 50 }, signal),
   permGrant: (input: { granteeMerchantId: string; subjectMerchantId: string; area: string; reason: string }) =>
     mutate('submerchantPermission.grant', input, s.permissionEventSchema),
   permRevoke: (input: { granteeMerchantId: string; subjectMerchantId: string; area: string; reason: string }) =>

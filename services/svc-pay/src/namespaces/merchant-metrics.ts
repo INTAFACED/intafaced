@@ -1,19 +1,16 @@
 import type { MerchantPartnerTerms } from '@intafaced/contracts';
-import {
-  merchantMetricsInputSchema,
-  merchantMetricsSnapshotSchema,
-  merchantMetricsSeriesInputSchema,
-  merchantMetricsSeriesSchema,
-  merchantSettlementAssetsInputSchema,
-  merchantSettlementAssetsSchema,
-  merchantPartnerTermsInputSchema,
-  merchantPartnerTermsSchema,
-} from '@intafaced/contracts/merchant-metrics';
 import { router } from '@intafaced/contracts/trpc';
 import { metricsToTrpcError, type MetricsRuntime } from '../metrics/index.js';
 import { toPayfacTrpcError } from './metrics-errors.js';
 import { notBuilt } from './errors.js';
-import { ownMerchantRead } from '../own-merchant-read.js';
+import {
+  PAY_MERCHANT_METRICS_SNAPSHOT,
+  PAY_MERCHANT_METRICS_SERIES,
+  PAY_MERCHANT_METRICS_PARTNER_TERMS,
+  PAY_MERCHANT_METRICS_SETTLEMENT_ASSETS,
+} from '@intafaced/contracts/pay-merchant-metrics-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { payRefusal } from '../record-refusal.js';
 
 /**
  * `merchantMetrics.*` - a merchant's own read model (W2). Global metrics are `founderAdmin.*`.
@@ -28,7 +25,6 @@ export function createMerchantMetricsRouter(
   /** The acquiring partner's terms for one business (`partner-terms.ts`). Absent: `partnerTerms` refuses `pay.not_built`. */
   partnerTerms?: (merchantId: string) => MerchantPartnerTerms,
 ) {
-  const read = ownMerchantRead();
   const wrap = async <T>(fn: () => Promise<T>): Promise<T> => {
     try {
       return await fn();
@@ -38,55 +34,55 @@ export function createMerchantMetricsRouter(
   };
   return router({
     merchantMetrics: router({
-      snapshot: read
-        .input(merchantMetricsInputSchema)
-        .output(merchantMetricsSnapshotSchema)
-        .query(({ ctx, input }) =>
+      snapshot: mountRecord(
+        PAY_MERCHANT_METRICS_SNAPSHOT,
+        ({ ctx, input }) =>
           metrics
             ? wrap(async () => {
                 await metrics.authority.assertCanRead(ctx.principal?.userId, input.merchantId);
                 return metrics.reader.merchantSnapshot(input.merchantId, input.window);
               })
             : notBuilt('merchantMetrics.snapshot'),
-        ),
-      series: read
-        .input(merchantMetricsSeriesInputSchema)
-        .output(merchantMetricsSeriesSchema)
-        .query(({ ctx, input }) =>
+        payRefusal,
+      ),
+      series: mountRecord(
+        PAY_MERCHANT_METRICS_SERIES,
+        ({ ctx, input }) =>
           metrics
             ? wrap(async () => {
                 await metrics.authority.assertCanRead(ctx.principal?.userId, input.merchantId);
                 return metrics.reader.merchantSeries(input);
               })
             : notBuilt('merchantMetrics.series'),
-        ),
+        payRefusal,
+      ),
       /** Each asset the business can settle in, with its ledger figures; refuses `pay.settlement_assets_unset` when no list is set. */
-      settlementAssets: read
-        .input(merchantSettlementAssetsInputSchema)
-        .output(merchantSettlementAssetsSchema)
-        .query(({ ctx, input }) =>
+      settlementAssets: mountRecord(
+        PAY_MERCHANT_METRICS_SETTLEMENT_ASSETS,
+        ({ ctx, input }) =>
           metrics
             ? wrap(async () => {
                 await metrics.authority.assertCanRead(ctx.principal?.userId, input.merchantId);
                 return metrics.reader.merchantSettlementAssets(input.merchantId);
               })
             : notBuilt('merchantMetrics.settlementAssets'),
-        ),
+        payRefusal,
+      ),
       /**
        * The acquiring partner's terms for this business: reserve rule, who covers a chargeback shortfall, the currencies
        * it offers and its instant payout. A term the partner has not given is `{ known: false }`, never a zero.
        */
-      partnerTerms: read
-        .input(merchantPartnerTermsInputSchema)
-        .output(merchantPartnerTermsSchema)
-        .query(({ ctx, input }) =>
+      partnerTerms: mountRecord(
+        PAY_MERCHANT_METRICS_PARTNER_TERMS,
+        ({ ctx, input }) =>
           metrics && partnerTerms
             ? wrap(async () => {
                 await metrics.authority.assertCanRead(ctx.principal?.userId, input.merchantId);
                 return partnerTerms(input.merchantId);
               })
             : notBuilt('merchantMetrics.partnerTerms'),
-        ),
+        payRefusal,
+      ),
     }),
   });
 }

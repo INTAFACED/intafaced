@@ -28,7 +28,7 @@ export function ExportResults({
   const request = useRequestId(`export:${key}`);
   const [done, setDone] = useState(false);
   return (
-    <div className="pp-actions">
+    <div className="lt-actions">
       <PortalReview
         title={t('exp_title')}
         variant="secondary"
@@ -48,7 +48,7 @@ export function ExportResults({
       {done && (
         <span role="status">
           {t('exp_queued')}{' '}
-          <a className="text-link" href="/pay/reports/exports">
+          <a className="lt-link" href="/pay/reports/exports">
             {t('exp_open')}
           </a>
         </span>

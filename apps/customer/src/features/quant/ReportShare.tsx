@@ -131,7 +131,7 @@ export function ShareTab({ runId, created: [created, setCreated] }: { runId: str
   return (
     <div data-testid="quant-share">
       <h4>{t('shareTitle')}</h4>
-      <p className="muted">{t('shareIntro')}</p>
+      <p className="lt-muted">{t('shareIntro')}</p>
       {state.resource.status === 'loading' && <Loading label={t('shareLoading')} />}
       {state.resource.status === 'failed' && refusal(state.resource.failure)}
       {state.resource.status === 'ready' && (
@@ -160,7 +160,7 @@ function ShareState(props: { state: QuantShareState; busy: boolean; onCreate: (s
   return (
     <div data-testid="quant-share-state" data-active={String(state.active)} data-links={state.links}>
       <p>{state.active ? t('shareActive') : t('shareNone')}</p>
-      <p className="muted">{t('shareCount', { count: state.links })}</p>
+      <p className="lt-muted">{t('shareCount', { count: state.links })}</p>
       {state.active ? (
         <Button onClick={props.onRevoke} disabled={props.busy} data-testid="quant-share-revoke">
           {t('revoke')}
@@ -195,7 +195,7 @@ function CreatedLink({ created }: { created: QuantShareCreated }) {
         {t('linkLabel')}
         <input readOnly value={url} data-testid="quant-share-link" onFocus={(event) => event.currentTarget.select()} />
       </label>
-      <p role="note" className="muted">
+      <p role="note" className="lt-muted">
         {t('linkOnce')}
       </p>
       {created.embed ? (
@@ -204,7 +204,7 @@ function CreatedLink({ created }: { created: QuantShareCreated }) {
             {t('embedLabel')}
             <textarea readOnly rows={3} value={absoluteSnippet(created.embed.snippet)} data-testid="quant-share-embed-code" />
           </label>
-          <p className="muted">{t('embedOrigins', { origins: created.embed.origins.join(', ') })}</p>
+          <p className="lt-muted">{t('embedOrigins', { origins: created.embed.origins.join(', ') })}</p>
           <p role="note" data-testid="quant-share-embed-blocked">
             {t('embedFramePolicy')}
           </p>

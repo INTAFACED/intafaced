@@ -141,7 +141,7 @@ const mount = async () => {
 /** Types into a field the way React hears it. */
 function type(label: RegExp, value: string) {
   const field = [...form().querySelectorAll('label')].find((node) => label.test(node.textContent ?? ''))!;
-  const control = field.querySelector('input, select') as HTMLInputElement | HTMLSelectElement;
+  const control = (field.querySelector('input, select') ?? field.control) as HTMLInputElement | HTMLSelectElement;
   const proto = control instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
   Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(control, value);
   control.dispatchEvent(new Event(control instanceof HTMLSelectElement ? 'change' : 'input', { bubbles: true }));

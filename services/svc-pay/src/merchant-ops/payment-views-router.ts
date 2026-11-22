@@ -8,17 +8,17 @@ import {
   paymentViewCreateInputSchema,
   paymentViewDeletedSchema,
   paymentViewDeleteInputSchema,
-  paymentViewListSchema,
   paymentViewSchema,
   paymentViewUpdateInputSchema,
 } from '@intafaced/contracts/pay-payment-views';
-import { z } from 'zod';
 import { ownMerchantRead } from '../own-merchant-read.js';
 import { teamMemberWrite } from '../team-member-write.js';
 import { MerchantOpsError, wrapOps } from './errors.js';
-import { cursorInput, limitInput } from './pagination.js';
 import { PaymentPrivacy, PaymentViews } from './payment-views.js';
 import { resolveMerchantCaller } from './roles.js';
+import { PAY_PAYMENT_VIEWS_LIST } from '@intafaced/contracts/pay-payment-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { payRefusal } from '../record-refusal.js';
 
 /**
  * `payment.views.*`, `payment.unmask` and `payment.unmaskReads` (M-adv-payments-core-01), spread into the `payment`
@@ -38,10 +38,11 @@ export function paymentPrivacyProcedures(sql: Sql | null, privacy: PaymentPrivac
     resolveMerchantCaller(need().sql, ctx.principal);
   return {
     views: router({
-      list: read
-        .input(z.object({ limit: limitInput, cursor: cursorInput }).strict())
-        .output(paymentViewListSchema)
-        .query(({ ctx, input }) => wrapOps(async () => need().views.list(await callerOf(ctx), input))),
+      list: mountRecord(
+        PAY_PAYMENT_VIEWS_LIST,
+        ({ ctx, input }) => wrapOps(async () => need().views.list(await callerOf(ctx), input)),
+        payRefusal,
+      ),
       create: write
         .input(paymentViewCreateInputSchema)
         .output(paymentViewSchema)

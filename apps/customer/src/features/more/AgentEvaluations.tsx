@@ -2,8 +2,8 @@ import { useRef, useState } from 'react';
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
-import { Button, DataTable, Failure, Field, Panel } from '../../shared/ui';
-import { Read } from './common';
+import { Button } from '@intafaced/ui/lit';
+import { DataTable, Failure, Field, Panel, Read } from './agent-room/parts';
 import { agentEvalsCopy, hasEvalWords } from './agent-evals-copy';
 import {
   OWN_AGENT_EVAL_LIMITS,
@@ -69,7 +69,7 @@ export function EvaluationsPage({ agent }: { agent: OwnAgent }) {
   );
   return (
     <Panel title={t('title')} role="region" aria-label={t('title')}>
-      <p className="muted">{t('intro')}</p>
+      <p className="lt-muted">{t('intro')}</p>
       <Read resource={loaded.resource} retry={loaded.reload}>
         {(evals) => (
           <Evaluations agent={agent} evals={evals} again={again} keys={keys.current} onChanged={() => setVersion((v) => v + 1)} />
@@ -155,7 +155,7 @@ function Evaluations({
       ) : (
         <section aria-label={t('testSetTitle')}>
           <h3>{t('testSetTitle')}</h3>
-          <p className="muted">{t('testSetCount', { count: String(evals.testSet.length) })}</p>
+          <p className="lt-muted">{t('testSetCount', { count: String(evals.testSet.length) })}</p>
         </section>
       )}
 
@@ -167,7 +167,7 @@ function Evaluations({
         }}
       >
         <h3>{t('startTitle')}</h3>
-        {cases.length === 0 ? <p className="muted">{t('noCases')}</p> : null}
+        {cases.length === 0 ? <p className="lt-muted">{t('noCases')}</p> : null}
         {cases.map((entry, index) => {
           const n = String(index + 1);
           return (
@@ -185,7 +185,7 @@ function Evaluations({
                 onChange={(event) => setCase(index, { expected: event.target.value })}
               />
               <Button
-                variant="ghost"
+                tone="quiet"
                 onClick={() => {
                   edited();
                   setCases((current) => current.filter((_, i) => i !== index));
@@ -197,7 +197,7 @@ function Evaluations({
           );
         })}
         <Button
-          variant="secondary"
+          tone="secondary"
           disabled={cases.length >= OWN_AGENT_EVAL_LIMITS.cases}
           onClick={() => {
             edited();
@@ -228,7 +228,7 @@ function Evaluations({
             setThreshold(event.target.value);
           }}
         />
-        <Button type="submit" disabled={busy}>
+        <Button tone="primary" type="submit" disabled={busy}>
           {t('start')}
         </Button>
         {refused ? <Answer failed={refused} /> : null}
@@ -241,13 +241,13 @@ function Evaluations({
             {t('score')}: <strong data-testid="eval-score">{latest.score}%</strong> · {t('verdict')}:{' '}
             <strong data-testid="eval-verdict">{t(`verdict_${latest.verdict}`)}</strong> · TEST
           </p>
-          <p className="muted">
+          <p className="lt-muted">
             {t('scoreLine', { passed: String(latest.passed), total: String(latest.total), threshold: latest.threshold })}
           </p>
-          <Button variant="secondary" disabled={busy} onClick={() => void sendAgain(latest)}>
+          <Button tone="secondary" disabled={busy} onClick={() => void sendAgain(latest)}>
             {t('sendAgain')}
           </Button>
-          <p className="muted">{t('sendAgainHint')}</p>
+          <p className="lt-muted">{t('sendAgainHint')}</p>
           {again ? <p role="status">{t('sameRun', { requestId: again.requestId })}</p> : null}
           {againRefused ? <Answer failed={againRefused} /> : null}
           <DataTable
@@ -286,7 +286,7 @@ function Evaluations({
           </tr>
         ))}
       </DataTable>
-      {evals.runs.length === 0 ? <p className="muted">{t('noRuns')}</p> : null}
+      {evals.runs.length === 0 ? <p className="lt-muted">{t('noRuns')}</p> : null}
     </>
   );
 }

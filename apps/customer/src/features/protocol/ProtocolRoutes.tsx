@@ -3,8 +3,10 @@ import { NotFoundRoute, PendingRoute } from './PendingRoute';
 import { ADDRESS_SHAPE, matchWeb3Route } from './routes';
 import { SUBNAV } from './blockers';
 import { WalletRoom } from './wallet/WalletRoom';
+import { WalletHomeRoom } from './wallet/WalletHomeRoom';
 import { AccountsRoom } from './wallet/AccountsRoom';
 import { ActivityRoom } from './wallet/ActivityRoom';
+import { ReceiveRoom } from './wallet/ReceivePanel';
 import { AddressBookRoom } from './wallet/AddressBookRoom';
 import { ApprovalsRoom } from './wallet/ApprovalsRoom';
 import { SessionKeysRoom } from './wallet/SessionKeysRoom';
@@ -12,7 +14,7 @@ import { WalletGroupRoom } from './wallet/WalletGroupRoom';
 import { VenueWalletRoom } from './venue-wallet/VenueWalletRoom';
 import { EmbeddedWalletRoom } from './embedded-wallet/EmbeddedWalletRoom';
 import { ClaimPage } from './wallet/ClaimPage';
-import { ConventionPage, HoldingPage } from './wallet/PortfolioPanel';
+import { ConventionPage, HoldingPage } from './wallet/HoldingPages';
 import { TokenPage } from './tokens/TokenPage';
 import { TokensRoom } from './tokens/TokensRoom';
 import { NewPool } from './liquidity/NewPool';
@@ -26,8 +28,14 @@ import { ContractPage } from './contracts/ContractPage';
 import { OrdersRoom } from './orders/OrdersRoom';
 import { BlocksRoom } from './chain-blocks/BlocksRoom';
 import { ValidatorsRoom } from './chain-validators/ValidatorsRoom';
+import { ValidatorPage } from './chain-validators/ValidatorPage';
+import { ChainRoom } from './chain-status/ChainRoom';
+import { OverviewRoom } from './protocol-overview/OverviewRoom';
+import { RailsRoom } from './rails/RailsRoom';
 import { ContractsRoom } from './protocol-contracts/ContractsRoom';
 import { PoolsRoom } from './dex-pools/PoolsRoom';
+import { LendRoom } from './lend/LendRoom';
+import { VenueRoom } from './venue/VenueRoom';
 import { OwnFreezeNotice } from '../account';
 
 /**
@@ -60,6 +68,9 @@ function routeBody(path: string, found: NonNullable<ReturnType<typeof matchWeb3R
   if (route.wallet === 'addressBook') return <AddressBookRoom />;
   if (route.wallet === 'approvals') return <ApprovalsRoom />;
   if (route.wallet === 'sessionKeys') return <SessionKeysRoom />;
+  if (route.wallet === 'overview') return <WalletHomeRoom />;
+  // Receive is drawn on its own monitor template (J-dex-protocol-04 #4).
+  if (route.wallet === 'receive') return <ReceiveRoom />;
   if (route.wallet) return <WalletRoom section={route.wallet} />;
   if (route.tokens === 'list') return <TokensRoom />;
   if (route.tokens === 'detail') return <TokenPage address={safeDecode(params.address)} />;
@@ -105,22 +116,25 @@ function routeBody(path: string, found: NonNullable<ReturnType<typeof matchWeb3R
   if (route.pending) {
     const { param } = route.pending;
     const value = param ? params[param.name] : undefined;
+    const valid = !param || (value !== undefined && param.shape.test(safeDecode(value) ?? ''));
+    // The validator page is its own room on the monitor template.
+    if (route.pending.page === 'validatorDetail') return <ValidatorPage validatorId={safeDecode(value)} valid={valid} />;
     return (
-      <PendingRoute
-        room={route.room}
-        page={route.pending.page}
-        blocker={route.pending.blocker}
-        param={safeDecode(value)}
-        valid={!param || (value !== undefined && param.shape.test(safeDecode(value) ?? ''))}
-      />
+      <PendingRoute room={route.room} page={route.pending.page} blocker={route.pending.blocker} param={safeDecode(value)} valid={valid} />
     );
   }
   if (route.room === 'wallet' || !route.tab) return <NotFoundRoute path={path} />;
   // The record-list tabs are rooms of their own on their template; the other tabs stay in the parked room.
   if (route.room === 'chain' && route.tab === 'blocks') return <BlocksRoom />;
   if (route.room === 'chain' && route.tab === 'validators') return <ValidatorsRoom />;
+  // The monitor tabs are rooms of their own on their template too.
+  if (route.room === 'chain' && route.tab === 'status') return <ChainRoom />;
+  if (route.room === 'protocol' && route.tab === 'overview') return <OverviewRoom />;
+  if (route.room === 'protocol' && route.tab === 'rails') return <RailsRoom />;
   if (route.room === 'protocol' && route.tab === 'contracts') return <ContractsRoom />;
   if (route.room === 'dex' && route.tab === 'pools') return <PoolsRoom />;
+  if (route.room === 'dex' && route.tab === 'lend') return <LendRoom />;
+  if (route.room === 'dex' && route.tab === 'venue') return <VenueRoom />;
   const slug = route.room;
   // The tab room reads the tab from the path; the first tab lives at the room root.
   const subPath = route.tab === SUBNAV[slug][0]!.id ? '' : route.tab;

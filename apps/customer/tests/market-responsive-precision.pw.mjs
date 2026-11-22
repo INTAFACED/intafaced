@@ -95,7 +95,7 @@ async function geometry(row) {
     const text = amount.firstChild;
     last.setStart(text, text.textContent.length - 1);
     last.setEnd(text, text.textContent.length);
-    const button = element.querySelector('.market-catalogue-decision > .button');
+    const button = element.querySelector('.market-catalogue-decision > :is(.button, .lt-button)');
     const vendor = element.querySelector('.market-catalogue-facts code');
     const offer = element.querySelector('.market-catalogue-facts > div:nth-child(2) dd');
     const vendorRange = document.createRange();

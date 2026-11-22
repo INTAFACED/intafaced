@@ -234,7 +234,7 @@ for (const mismatch of ['foreign', 'duplicate', 'backwards', 'negative', 'amount
     await login(page);
     await inspect(page);
     await expect(selected(page).locator('.agent-session-history')).toHaveCount(0);
-    await expect(selected(page).locator('.failure')).toBeVisible();
+    await expect(selected(page).locator(':is(.failure, .lt-refusal)')).toBeVisible();
     expect(state.writes).toEqual([]);
   });
 test('native recorded-window filter and exact larger bound preserve original session', async ({ page, context }) => {
@@ -301,7 +301,7 @@ for (const locale of ['es', 'fr'])
     await expect(dialog).not.toHaveAccessibleName('Review metered engine request');
     await expect(dialog.getByText(' Original user request <unaltered> ', { exact: true })).toHaveAttribute('lang', 'und');
     await shot(page, 'review-' + locale);
-    await dialog.locator('.actions button').last().click();
+    await dialog.locator(':is(.actions, .lt-actions) button').last().click();
     await expect.poll(() => state.writes.filter((r) => r.proc === 'run.complete').length).toBe(1);
     const request = state.writes.find((r) => r.proc === 'run.complete').input;
     expect(request).toMatchObject({

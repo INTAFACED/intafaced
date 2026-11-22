@@ -12,7 +12,8 @@ import { useListFilters } from '../ui/FilterRow';
 import type { ListState } from '../hooks';
 import type { Dispute, MerchantRecord } from '../schemas';
 import { DisputesView } from './Disputes';
-import { CheckoutSettingsView, HomePanelsView } from './HomePanels';
+import { CheckoutSettingsView } from './CheckoutSettings';
+import { HomePanelsView } from './HomePanels';
 import { assetChoices } from './asset-choices';
 import { definite, neverRan } from './not-available';
 import { InvoiceCreate } from './Invoices';
@@ -77,7 +78,7 @@ describe('Home panels, in plain words', () => {
   });
   it('shows no lime chip for a completed state: the status chips are the soft ones', () => {
     const out = panels();
-    expect(out).toContain('pp-chip pp-chip--done');
+    expect(out).toContain('data-testid="pp-chip" class="lt-chip" data-status="done"');
     expect(out).not.toMatch(/bg-lime|text-lime|text-accent-text/);
   });
   it('tells one fee story, with the TEST label from the server and no basis points', () => {

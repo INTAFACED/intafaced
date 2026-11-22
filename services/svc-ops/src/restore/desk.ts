@@ -1,4 +1,4 @@
-import type { JointWatermark, RestoreStep } from '@intafaced/contracts';
+import type { JointWatermark, RestoreStep, RestoreStepDetail } from '@intafaced/contracts';
 import { jointWatermark, nextRestoreStep, RESTORE_SERVICES, RESTORE_STEPS } from '@intafaced/contracts/ops-restore-watermarks';
 import {
   assertIdempotencyKey,
@@ -242,7 +242,7 @@ export function createRestoreDesk(deps: RestoreDeskDeps) {
         );
         throw new OpsError(OPS_RESTORE_STEP_OUT_OF_ORDER, `The next step is ${expected ?? 'none (finished)'}, not ${input.step}.`);
       }
-      let detail: Record<string, unknown> = { attested: true };
+      let detail: RestoreStepDetail = { attested: true };
       if (!existing && input.step !== 'restore_clean') {
         const live = await haltedJoint(run, input.step, input.actor);
         detail = { attested: true, joint: live.joint };

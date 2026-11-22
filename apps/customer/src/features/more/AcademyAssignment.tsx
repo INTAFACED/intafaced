@@ -80,7 +80,7 @@ function OutcomeLine({ outcome, retry }: { outcome: Outcome; retry?: () => void 
     );
   if (outcome.kind === 'uncertain')
     return (
-      <p role="status" className="failure" data-testid="assignment-outcome">
+      <p role="status" className="lt-refusal" data-testid="assignment-outcome">
         {t('asgUncertain')}
       </p>
     );
@@ -88,7 +88,7 @@ function OutcomeLine({ outcome, retry }: { outcome: Outcome; retry?: () => void 
   const words =
     academyCodeOf(outcome.failure) === 'academy.video_storage_unconfigured' ? t('asgStorageUnset') : academyRefusalText(outcome.failure, t);
   return (
-    <div role="status" className="failure" data-testid="assignment-outcome" data-code={academyCodeOf(outcome.failure) ?? undefined}>
+    <div role="status" className="lt-refusal" data-testid="assignment-outcome" data-code={academyCodeOf(outcome.failure) ?? undefined}>
       {words === null ? <AcademyRefusal failure={outcome.failure} retry={retry} /> : <p>{words}</p>}
     </div>
   );
@@ -121,12 +121,12 @@ export function AssignmentSubmissions({ data }: { data: AcademyAssignmentView })
   const { language } = usePreferences();
   if (data.submissions.length === 0)
     return (
-      <p className="muted" data-testid="assignment-submissions">
+      <p className="lt-muted" data-testid="assignment-submissions">
         {t('asgNothingYet')}
       </p>
     );
   return (
-    <ol className="academy-lms-stack" data-testid="assignment-submissions">
+    <ol className="lt-stack" data-testid="assignment-submissions">
       {data.submissions.map((s) => (
         <li key={s.version} className="academy-lms-card">
           <strong>{t('asgVersion', { version: s.version })}</strong>
@@ -136,7 +136,7 @@ export function AssignmentSubmissions({ data }: { data: AcademyAssignmentView })
             <span>{t('asgSubmittedAt', { date: when(s.submittedAt, language) })}</span>
           </span>
           {s.text && (
-            <p className="muted" lang="und">
+            <p className="lt-muted" lang="und">
               {s.text}
             </p>
           )}
@@ -168,12 +168,12 @@ export function AssignmentGrade({
   const { language } = usePreferences();
   if (!grade)
     return (
-      <p className="muted" data-testid="assignment-grade">
+      <p className="lt-muted" data-testid="assignment-grade">
         {t('grdNone')}
       </p>
     );
   return (
-    <section className="academy-lms-stack" data-testid="assignment-grade" aria-label={t('grdTitle')}>
+    <section className="lt-stack" data-testid="assignment-grade" aria-label={t('grdTitle')}>
       <h3>{t('grdTitle')}</h3>
       <strong>{t('grdScore', { score: grade.score, points: grade.points })}</strong>
       {grade.entered !== null && <p data-testid="assignment-grade-late">{t('grdLate', { entered: grade.entered })}</p>}
@@ -199,9 +199,9 @@ export function AssignmentBrief({ data }: { data: AcademyAssignmentView }) {
   const { t } = copy.useCopy();
   const { language } = usePreferences();
   return (
-    <div className="academy-lms-stack">
+    <div className="lt-stack">
       <nav className="academy-lms-crumbs" aria-label={t('breadcrumb')}>
-        <a className="text-link" href={academyCourseHref(data.courseSlug)} lang="und">
+        <a className="lt-link" href={academyCourseHref(data.courseSlug)} lang="und">
           {t('asgBack')}
         </a>
       </nav>
@@ -266,10 +266,10 @@ export function AcademyAssignment({ slug, itemId }: { slug: string; itemId: stri
     const notEnrolled = academyCodeOf(failure) === 'academy.enrolment_required';
     return (
       <Panel title={t('asgBrief')}>
-        <div className="academy-lms-stack" data-academy-assignment={itemId}>
+        <div className="lt-stack" data-academy-assignment={itemId}>
           <OutcomeLine outcome={{ kind: 'refused', failure }} retry={notEnrolled ? undefined : view.reload} />
           {notEnrolled && (
-            <a className="button button--primary" href={academyCourseHref(slug)}>
+            <a className="lt-button lt-button-primary" href={academyCourseHref(slug)}>
               {t('linkedOpenPublic')}
             </a>
           )}
@@ -340,12 +340,12 @@ export function AcademyAssignment({ slug, itemId }: { slug: string; itemId: stri
         <AssignmentBrief data={data} />
       </Panel>
       <Panel title={t('asgSubmissions')}>
-        <div className="academy-lms-stack">
+        <div className="lt-stack">
           {closed ? (
-            <p className="muted">{t('asgWithdrawn')}</p>
+            <p className="lt-muted">{t('asgWithdrawn')}</p>
           ) : (
             <form
-              className="academy-lms-stack"
+              className="lt-stack"
               onSubmit={(event) => {
                 event.preventDefault();
                 void handIn();

@@ -435,7 +435,7 @@ export class SpaceService {
 
   /**
    * Work set of every space that can still hold a visible balance.
-   * unnamedAssets / spendSummary — not a list page. A page here would hide
+   * unnamedAssets / spendSummary's primary space — not a list page. A page here would hide
    * named assets and invent unnamed ones.
    *
    * Live rows always. An archived named space stays only while its ledger
@@ -460,7 +460,7 @@ export class SpaceService {
 
   /**
    * EVERY named space this user has ever owned, archived or not, funded or not.
-   * For history reads (`bank.activity.list`), which must still see a closed
+   * For history reads (`bank.activity.list`, `spendSummary`), which must still see a closed
    * Space's postings: a move into one is a move between the user's own pots,
    * not a payment to a stranger. Filtered by `user_id`, so never another user's.
    */

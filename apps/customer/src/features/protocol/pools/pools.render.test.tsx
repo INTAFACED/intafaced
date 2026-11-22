@@ -23,10 +23,18 @@ const call = vi.fn((record: { module: string; path: string; kind: string }, inpu
 vi.mock('../../session/session', () => ({ useApi: () => ({ query, mutate, call }) }));
 import { PoolsList } from './PoolsList';
 import { PoolPage } from './PoolPage';
-import { candleGeometry, compareDecimal } from './PriceChart';
+import { candlePlaces } from '@intafaced/ui/lit/templates';
+import { compareDecimal, poolCandles } from './PriceChart';
+import { poolsCopy } from './copy';
 import { bpsPercent } from './format';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+/** Where the kit draws the pool's candles: the room's candles, placed by the kit's own chart. */
+const candleGeometry = (candles: Parameters<typeof poolCandles>[0], window: { start: number; seconds: number; width: number }) =>
+  candlePlaces(
+    poolCandles(candles, (d) => d.toISOString(), poolsCopy.forLocale('en').t),
+    window,
+  );
 const POOL = `0x${'9'.repeat(40)}`;
 const A = { address: `0x${'a'.repeat(40)}`, symbol: 'TESTA', name: 'TEST Token A', decimals: 6 };
 const B = { address: `0x${'b'.repeat(40)}`, symbol: 'TESTB', name: 'TEST Token B', decimals: 18 };
@@ -301,7 +309,7 @@ describe('pool figures', () => {
     expect(bpsPercent(1000)).toBe('10.00');
   });
   it('draws nothing for no candles, and a flat day without dividing by zero', () => {
-    expect(candleGeometry([], { start: 0, seconds: 86_400, width: 3600 })).toBeNull();
+    expect(candleGeometry([], { start: 0, seconds: 86_400, width: 3600 })).toEqual([]);
     const flat = candleGeometry([{ start: 0, open: '1', high: '1', low: '1', close: '1', volume1: '0', swaps: 1 }], {
       start: 0,
       seconds: 86_400,

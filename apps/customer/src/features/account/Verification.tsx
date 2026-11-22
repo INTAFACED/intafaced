@@ -360,7 +360,7 @@ export function Verification() {
         <EmptyState
           title={t('signIn')}
           action={
-            <a data-testid="text-link" className="text-link" href="/login?redirect=%2Fverification">
+            <a data-testid="text-link" className="lt-link" href="/login?redirect=%2Fverification">
               <Copy k="signIn" />
             </a>
           }
@@ -411,7 +411,7 @@ export function Verification() {
                   <p>
                     <Copy k="paused" />
                   </p>
-                  <p className="muted">
+                  <p className="lt-muted">
                     <Copy k="privacy" />
                   </p>
                   <a className="button button--secondary" href="/support">
@@ -433,7 +433,7 @@ export function Verification() {
                       <Copy k="returned" />
                     </h3>
                     {record(receipt.row)}
-                    <p className="muted">
+                    <p className="lt-muted">
                       <Copy k="replyBoundary" />
                     </p>
                   </>
@@ -465,7 +465,7 @@ export function Verification() {
                     <Button variant="secondary" disabled={busy} onClick={() => void finalize(receipt)}>
                       <Copy k="finish" />
                     </Button>
-                    <p className="muted">
+                    <p className="lt-muted">
                       <Copy k="finishBody" />
                     </p>
                   </div>
@@ -494,7 +494,7 @@ export function Verification() {
                 <div lang="und">
                   <Failure result={resource.failure} retry={reload} />
                 </div>
-                <p className="muted">
+                <p className="lt-muted">
                   <Copy k="readBoundary" />
                 </p>
               </>
@@ -512,7 +512,7 @@ export function Verification() {
                       label={t(resource.data.tier)}
                     />
                   </h2>
-                  <p className="muted">
+                  <p className="lt-muted">
                     <Copy k="currentBody" />
                   </p>
                 </div>
@@ -525,7 +525,7 @@ export function Verification() {
                       <Copy k="refresh" />
                     </Button>
                   </div>
-                  <p className="muted">
+                  <p className="lt-muted">
                     <Copy k="window" params={{ limit }} />
                   </p>
                   {offeredTiers.length > 0 && (
@@ -567,7 +567,7 @@ export function Verification() {
                     </Button>
                   )}
                   {limit === 200 && (
-                    <p className="muted">
+                    <p className="lt-muted">
                       <Copy k="maximum" />
                     </p>
                   )}
@@ -582,7 +582,7 @@ export function Verification() {
                         </p>
                       )}
                       {record(selected)}
-                      <p className="muted">
+                      <p className="lt-muted">
                         <Copy k="recordBoundary" />
                       </p>
                     </section>
@@ -595,20 +595,20 @@ export function Verification() {
             <h2>
               <Copy k="requestTitle" />
             </h2>
-            <p className="muted">
+            <p className="lt-muted">
               <Copy k="requestBody" />
             </p>
             {casesKey !== null && <VerificationAttempts recordsKey={`${casesKey}:${lockRefusals}`} onLocked={setLocked} />}
             {offeredTiers.length > 0 ? (
               <form
                 ref={form}
-                className="form-stack"
+                className="lt-stack"
                 onSubmit={(event) => {
                   event.preventDefault();
                   open();
                 }}
               >
-                <label className="field">
+                <label className="lt-field">
                   <span>
                     <Copy k="tier" />
                   </span>
@@ -648,7 +648,7 @@ export function Verification() {
                 <Copy k="topLevel" />
               </p>
             )}
-            <p className="muted">
+            <p className="lt-muted">
               <Copy k="documentBoundary" />
             </p>
             <a data-testid="text-link" className="text-link" href="/support">
@@ -682,7 +682,7 @@ export function Verification() {
                 <h2>
                   <trading.Copy k="bankTitle" />
                 </h2>
-                <p className="muted">
+                <p className="lt-muted">
                   <trading.Copy k="bankBody" />
                 </p>
                 <Button variant="secondary" onClick={() => setBankRoute(true)}>
@@ -722,7 +722,7 @@ export function Verification() {
               <p>
                 <Copy k="consequence" />
               </p>
-              <p className="muted">
+              <p className="lt-muted">
                 <Copy k="permissionBoundary" />
               </p>
               <Button disabled={busy} onClick={() => void dispatch(review)}>

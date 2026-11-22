@@ -134,14 +134,31 @@ test(`${J} #1 opens Staking: the venue's validators, each with its commission, s
   page,
 }) => {
   test.setTimeout(240_000);
+  // Every staking-terms reply the room takes, with the venue's as-of time it carries.
+  const replied = [];
+  page.on('response', async (r) => {
+    if (!new URL(r.url()).pathname.endsWith('/api/v1/venue/staking') || !r.ok()) return;
+    replied.push((await r.json().catch(() => null))?.asOf);
+  });
+  const before = (await testVenue('/staking', {})).body.asOf;
   await openRoom(page);
   const { displayName } = await venueInfo();
   const t = await terms();
   const section = page.getByTestId('staking-terms');
   await expect(section.locator('tr[data-validator]')).toHaveCount(t.validators.length, { timeout: 30_000 });
   await expect(page.getByTestId('staking-source')).toContainText(`From ${displayName}`);
-  const asOf = await page.getByTestId('staking-source').locator('[data-as-of]').getAttribute('data-as-of');
+  // The as-of time is the venue's own: the time of a read the venue gave the room, between two reads of the venue's own.
+  // One read of the cell, so a poll that lands in between can't pair one reply's time with another's words.
+  const [asOf, asOfText] = await page
+    .getByTestId('staking-source')
+    .locator('[data-as-of]')
+    .evaluate((el) => [el.getAttribute('data-as-of'), el.textContent]);
+  const after = (await testVenue('/staking', {})).body.asOf;
   expect(Number.isNaN(Date.parse(asOf ?? ''))).toBe(false);
+  await expect.poll(() => replied.includes(asOf)).toBe(true);
+  expect(Date.parse(asOf)).toBeGreaterThanOrEqual(Date.parse(before));
+  expect(Date.parse(asOf)).toBeLessThanOrEqual(Date.parse(after));
+  expect(asOfText).toBe(`As of ${await localTime(page, asOf)}`);
   // Each validator is the venue's own figures.
   for (const v of t.validators) {
     const row = validatorRow(page, v.address);
@@ -182,6 +199,22 @@ test(`${J} #1 opens Staking: the venue's validators, each with its commission, s
   } finally {
     const on = await testVenue('/test/staking-published', { rewardRate: true });
     expect(on.status, JSON.stringify(on.body)).toBe(200);
+  }
+  // TEST: the venue withholds its discount tiers; the room says it doesn't publish them and shows no tier of ours.
+  const noTiers = await testVenue('/test/staking-published', { tiers: false });
+  expect(noTiers.status, JSON.stringify(noTiers.body)).toBe(200);
+  try {
+    expect(noTiers.body.value.discountTiers).toBeNull();
+    await page.reload();
+    await expect(page.getByTestId('staking-tiers-unpublished')).toHaveText(`${displayName} doesn’t publish its staking tiers.`, {
+      timeout: 30_000,
+    });
+    await expect(page.getByTestId('staking-tiers')).toHaveCount(0);
+    await expect(page.locator('tr[data-tier]')).toHaveCount(0);
+  } finally {
+    const on = await testVenue('/test/staking-published', { tiers: true });
+    expect(on.status, JSON.stringify(on.body)).toBe(200);
+    expect(on.body.value.discountTiers).toHaveLength(t.discountTiers.length);
   }
 });
 
@@ -292,12 +325,21 @@ test(`${J} #4 opens My tier: the venue's staking discount for the staked amount,
       expect(rate.known ? sameDecimal(shown, rate.value) : shown === '', `${m.symbol} ${cell}`).toBe(true);
     }
     if (m.before.takerFeeBps.known && toUnits(m.after.takerFeeBps.value) < toUnits(m.before.takerFeeBps.value)) lowered += 1;
-    // Our builder fee, named apart, the same as before any staking.
+    // Our builder fee, named apart, the same as before any staking. It comes from a second read: the cell has no value
+    // until that read answers, so wait for it. A venue market we don't list carries none of ours: "not offered here".
     const ours = builder[m.symbol];
-    if (ours) {
-      const shown = await row.locator('[data-cell="builder-fee"]').getAttribute('data-value');
-      expect(ours.known ? sameDecimal(shown, ours.value) : shown === '', `${m.symbol} builder fee`).toBe(true);
-    }
+    const cell = row.locator('[data-cell="builder-fee"]');
+    await expect
+      .poll(
+        async () => {
+          const shown = await cell.getAttribute('data-value');
+          if (shown === null) return false;
+          return ours?.known ? sameDecimal(shown, ours.value) : shown === '';
+        },
+        { message: `${m.symbol} builder fee`, timeout: 20_000 },
+      )
+      .toBe(true);
+    if (!ours) await expect(cell).toHaveText('not offered here');
   }
   expect(lowered).toBeGreaterThan(0);
   const now = await (await door()).get('/api/v1/venue/fees');

@@ -1,3 +1,4 @@
+// volt-room: /uc/safe
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { StaffAccessLink } from './StaffAccess';
 import { flushSync } from 'react-dom';
@@ -7,7 +8,15 @@ import { currentReturnLocation, navigate } from '../../app/location';
 import { safeReturnTo } from '../../app/navigation';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, Dialog, Failure, Field, Loading, Page } from '../../shared/ui';
+import { Button, Checkbox, Field } from '@intafaced/ui/lit';
+import { SettingsTemplate, Sheet } from '@intafaced/ui/lit/templates';
+import { Failure, Loading } from './kit-parts';
+import { identitySessionCopy } from './identity-session-copy';
+import { changePasswordCopy } from './change-password-copy';
+import { passkeyNamesCopy } from './passkey-names-copy';
+import { signinMethodsCopy } from './signin-methods-copy';
+import { recoveryKeysCopy } from './recovery-keys-copy';
+import { copy as accountCopy } from './copy';
 import { IdentitySessions } from './IdentitySessions';
 import { ApiKeyRecords } from './ApiKeyRecords';
 import { ChangePassword } from './ChangePassword';
@@ -48,13 +57,13 @@ import {
 import { nativeRegistration, registrationFor, registrationPayload } from './security-webauthn';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
-import './security.css';
 import { VerifyEmail } from './VerifyEmail';
-import { WithdrawStepUp } from '../money';
-import { IDENTITY_WEBAUTHN_REMOVE } from '@intafaced/contracts/identity-webauthn-procedures';
+import { StepUpSheet } from '../money';
+import { IDENTITY_WEBAUTHN_REMOVE, IDENTITY_WEBAUTHN_REGISTER_OPTIONS } from '@intafaced/contracts/identity-webauthn-procedures';
 import { IDENTITY_TOTP_ENROL } from '@intafaced/contracts/identity-totp-procedures';
 import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 import { IDENTITY_AUTH_LOGOUT_ALL } from '@intafaced/contracts/identity-auth-procedures';
+import { callAs } from '../../shared/api';
 
 type Problem = 'changed' | 'keyChanged' | 'setupChanged' | 'storage' | 'another' | 'locks' | 'unsupported' | 'cancelled' | 'ceremonyFailed';
 type Original = {
@@ -86,6 +95,40 @@ type Response = {
   unconfirmed?: boolean;
 };
 const emptyJournal: SecurityJournal = { records: [], failed: false };
+
+/** The room's sections, each a link to its part of the page. */
+function SecurityIndex() {
+  const { t } = copy.useCopy();
+  const names = passkeyNamesCopy.useCopy().t;
+  const methods = signinMethodsCopy.useCopy().t;
+  const password = changePasswordCopy.useCopy().t;
+  const recovery = recoveryKeysCopy.useCopy().t;
+  const sessions = identitySessionCopy.useCopy().t;
+  const records = accountCopy.useCopy().t;
+  const links: readonly (readonly [string, string])[] = [
+    ['passkeys', t('passkeys')],
+    ['authenticator', t('authenticator')],
+    ['passkey-names', names('title')],
+    ['signin-methods', methods('title')],
+    ['password', password('title')],
+    ['recovery-keys', recovery('title')],
+    ['sessions', sessions('title')],
+    ['api-key-records', records('api.records.title')],
+  ];
+  return (
+    <nav aria-label={t('sectionsLabel')}>
+      <ul>
+        {links.map(([id, label]) => (
+          <li key={id}>
+            <a className="lt-link" href={`#security-${id}`}>
+              {label}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  );
+}
 
 export function Security() {
   const { api, userId, clear } = useSession();
@@ -322,10 +365,10 @@ export function Security() {
     controller.current = abort;
     const preparation = makeRecord(intent, 'options');
     if (!save(intent, preparation)) return;
-    const options = await intent.client.mutate(
-      'identity',
-      'webauthn.registerOptions',
-      {},
+    const options = await callAs(
+      intent.client,
+      IDENTITY_WEBAUTHN_REGISTER_OPTIONS,
+      undefined,
       registrationFor(intent.owner),
       sending(intent, abort.signal),
     );
@@ -546,7 +589,7 @@ export function Security() {
   }
   function references(owner: string, request?: string, credential?: string) {
     return (
-      <dl className="security__context">
+      <dl className="lt-kv">
         <div>
           <dt>
             <Copy k="owner" />
@@ -579,398 +622,411 @@ export function Security() {
   const sessionBlocked = familyBlocked(journal, 'sessions');
   const uncertainty = journal.records.filter((row) => row.state === 'sent');
   return (
-    <div lang={languageFor('title')} className="security">
-      <Page title={<Copy k="title" />} description={<Copy k="description" />}>
-        <VerifyEmail />
-        <SecurityChecklist revision={methodsRevision} />
-        <MfaResetWaiting />
-        {uncertainty.map((record) => {
-          const preparation = record.kind === 'options' || record.kind === 'setup';
-          const retained = currentResponse?.guardRetained && currentResponse.record?.requestId === record.requestId;
-          const sending =
-            busy &&
-            activeStage !== null &&
-            sameActor(activeStage.intent) &&
-            activeStage.record.owner === record.owner &&
-            activeStage.record.requestId === record.requestId &&
-            activeStage.record.kind === record.kind;
-          const heading = sending ? 'sent' : retained ? 'guardRetained' : preparation ? 'preparationUnknown' : 'unknown';
-          return (
-            <section key={record.requestId} className="security__unknown stack" aria-label={t(heading)}>
-              <h2>
-                <Copy k={heading} />
-              </h2>
-              <p>
-                <Copy k={kindLabel(record.kind)} />
-              </p>
-              <p>
-                <Copy
-                  k={
-                    retained
-                      ? 'guardBody'
-                      : record.kind === 'options'
-                        ? 'optionsBoundary'
-                        : record.kind === 'setup'
-                          ? 'setupBoundary'
-                          : 'unknownBody'
-                  }
-                />
-              </p>
-              {references(record.owner, record.requestId, record.credential)}
-              {!preparation && (
-                <p className="muted">
-                  <Copy k="lookup" />
-                </p>
-              )}
-              <a href="/support" className="text-link security__support">
-                <Copy k="support" />
-              </a>
-            </section>
-          );
-        })}
-        {(problem || journal.failed) && (
-          <p data-testid="notice" className="notice" role="status">
-            <Copy k={journal.failed ? 'storage' : problem!} />
-          </p>
-        )}
-        <StaffAccessLink />
-        <div className="security__layout">
-          <section data-testid="security__passkeys" className="security__passkeys security__card" aria-label={t('passkeys')}>
-            <div className="section-heading">
-              <h2>
-                <Copy k="passkeys" />
-              </h2>
-              <Button variant="secondary" disabled={blocked('options')} onClick={() => open('options')}>
-                <Copy k="add" />
-              </Button>
-            </div>
-            {resource.status === 'ready' && resource.data.length >= limit && (
-              <p className="muted">
-                <Copy k="window" params={{ limit }} />
+    <div lang={languageFor('title')}>
+      <SettingsTemplate
+        title={t('title')}
+        description={t('description')}
+        state={{ kind: 'ready' }}
+        index={
+          <>
+            <SecurityIndex />
+            <StaffAccessLink />
+          </>
+        }
+        explain={<p>{t('explain')}</p>}
+        sections={
+          <>
+            <VerifyEmail />
+            <SecurityChecklist revision={methodsRevision} />
+            <MfaResetWaiting />
+            {uncertainty.map((record) => {
+              const preparation = record.kind === 'options' || record.kind === 'setup';
+              const retained = currentResponse?.guardRetained && currentResponse.record?.requestId === record.requestId;
+              const sending =
+                busy &&
+                activeStage !== null &&
+                sameActor(activeStage.intent) &&
+                activeStage.record.owner === record.owner &&
+                activeStage.record.requestId === record.requestId &&
+                activeStage.record.kind === record.kind;
+              const heading = sending ? 'sent' : retained ? 'guardRetained' : preparation ? 'preparationUnknown' : 'unknown';
+              return (
+                <section key={record.requestId} data-testid="security__unknown" aria-label={t(heading)}>
+                  <h2>
+                    <Copy k={heading} />
+                  </h2>
+                  <p>
+                    <Copy k={kindLabel(record.kind)} />
+                  </p>
+                  <p>
+                    <Copy
+                      k={
+                        retained
+                          ? 'guardBody'
+                          : record.kind === 'options'
+                            ? 'optionsBoundary'
+                            : record.kind === 'setup'
+                              ? 'setupBoundary'
+                              : 'unknownBody'
+                      }
+                    />
+                  </p>
+                  {references(record.owner, record.requestId, record.credential)}
+                  {!preparation && (
+                    <p className="lt-hint">
+                      <Copy k="lookup" />
+                    </p>
+                  )}
+                  <a href="/support" className="lt-link">
+                    <Copy k="support" />
+                  </a>
+                </section>
+              );
+            })}
+            {(problem || journal.failed) && (
+              <p data-testid="notice" className="lt-hint" role="status">
+                <Copy k={journal.failed ? 'storage' : problem!} />
               </p>
             )}
-            {resource.status === 'loading' ? (
-              <Loading />
-            ) : resource.status === 'failed' ? (
-              <div lang="und">
-                <Failure result={resource.failure} retry={reload} />
-              </div>
-            ) : resource.data.length === 0 ? (
-              <div className="security__empty">
-                <h3>
-                  <Copy k="empty" />
-                </h3>
-                <p className="muted">
-                  <Copy k="emptyBody" />
+            <div>
+              <section data-testid="security__passkeys" id="security-passkeys" aria-label={t('passkeys')}>
+                <div className="lt-toolbar">
+                  <h2>
+                    <Copy k="passkeys" />
+                  </h2>
+                  <Button tone="secondary" disabled={blocked('options')} onClick={() => open('options')}>
+                    <Copy k="add" />
+                  </Button>
+                </div>
+                {resource.status === 'ready' && resource.data.length >= limit && (
+                  <p className="lt-hint">
+                    <Copy k="window" params={{ limit }} />
+                  </p>
+                )}
+                {resource.status === 'loading' ? (
+                  <Loading />
+                ) : resource.status === 'failed' ? (
+                  <div lang="und">
+                    <Failure result={resource.failure} retry={reload} />
+                  </div>
+                ) : resource.data.length === 0 ? (
+                  <div>
+                    <h3>
+                      <Copy k="empty" />
+                    </h3>
+                    <p className="lt-hint">
+                      <Copy k="emptyBody" />
+                    </p>
+                  </div>
+                ) : (
+                  <ul data-testid="security__rows">
+                    {resource.data.map((key) => (
+                      <li key={key.credentialId} data-testid="security__row">
+                        <div>
+                          <time dateTime={key.createdAt} lang={requestedLocale}>
+                            {t('added', { time: stamp(key.createdAt, timeZone) })}
+                          </time>
+                          <span data-testid="security__ref" className="lt-ref" lang="zxx">
+                            {key.credentialId}
+                          </span>
+                          {key.transports && (
+                            <span data-testid="security__ref" className="lt-ref" lang="zxx">
+                              {key.transports.join(', ')}
+                            </span>
+                          )}
+                        </div>
+                        <Button
+                          tone="secondary"
+                          disabled={blocked('remove')}
+                          aria-label={t('reviewCredential', { id: key.credentialId })}
+                          onClick={() => open('remove', key)}
+                        >
+                          <Copy k="reviewRemoval" />
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <div className="lt-actions">
+                  <Button tone="secondary" onClick={reload}>
+                    <Copy k="refresh" />
+                  </Button>
+                  {resource.status === 'ready' && resource.data.length >= limit ? (
+                    limit < 200 ? (
+                      <Button tone="quiet" onClick={() => setLimit((value) => Math.min(200, value + 50))}>
+                        <Copy k="expand" />
+                      </Button>
+                    ) : (
+                      <p className="lt-hint">
+                        <Copy k="maximum" />
+                      </p>
+                    )
+                  ) : null}
+                </div>
+              </section>
+              <section data-testid="security__authenticator" id="security-authenticator" aria-label={t('authenticator')}>
+                <h2 ref={authenticatorHeading} tabIndex={-1}>
+                  <Copy k="authenticator" />
+                </h2>
+                <p>
+                  <Copy k="authenticatorBody" />
                 </p>
-              </div>
-            ) : (
-              <ul data-testid="security__rows" className="security__rows">
-                {resource.data.map((key) => (
-                  <li key={key.credentialId} data-testid="security__row" className="security__row">
+                <p className="lt-sr" data-testid="security__announcement" role="status" aria-live="polite" aria-atomic="true">
+                  {visibleSetup && !codesShown ? <Copy k="setupReady" /> : null}
+                </p>
+                {visibleSetup ? (
+                  <div>
                     <div>
-                      <time dateTime={key.createdAt} lang={requestedLocale}>
-                        {t('added', { time: stamp(key.createdAt, timeZone) })}
-                      </time>
-                      <span data-testid="security__ref" className="security__ref" lang="zxx">
-                        {key.credentialId}
-                      </span>
-                      {key.transports && (
-                        <span data-testid="security__ref" className="security__ref" lang="zxx">
-                          {key.transports.join(', ')}
-                        </span>
+                      <h3 ref={setupHeading} tabIndex={-1}>
+                        <Copy k="continue" />
+                      </h3>
+                      {!codesShown && (
+                        <p className="lt-hint" aria-hidden="true">
+                          <Copy k="setupReady" />
+                        </p>
                       )}
                     </div>
-                    <Button
-                      variant="secondary"
-                      disabled={blocked('remove')}
-                      aria-label={t('reviewCredential', { id: key.credentialId })}
-                      onClick={() => open('remove', key)}
-                    >
-                      <Copy k="reviewRemoval" />
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <div className="actions">
-              <Button variant="secondary" onClick={reload}>
-                <Copy k="refresh" />
-              </Button>
-              {resource.status === 'ready' && resource.data.length >= limit ? (
-                limit < 200 ? (
-                  <Button variant="ghost" onClick={() => setLimit((value) => Math.min(200, value + 50))}>
-                    <Copy k="expand" />
-                  </Button>
-                ) : (
-                  <p className="muted">
-                    <Copy k="maximum" />
-                  </p>
-                )
-              ) : null}
-            </div>
-          </section>
-          <section data-testid="security__authenticator" className="security__authenticator security__card" aria-label={t('authenticator')}>
-            <h2 ref={authenticatorHeading} tabIndex={-1}>
-              <Copy k="authenticator" />
-            </h2>
-            <p>
-              <Copy k="authenticatorBody" />
-            </p>
-            <p className="security__announcement" role="status" aria-live="polite" aria-atomic="true">
-              {visibleSetup && !codesShown ? <Copy k="setupReady" /> : null}
-            </p>
-            {visibleSetup ? (
-              <div className="stack">
-                <div className="security__setup-intro">
-                  <h3 className="security__setup-heading" ref={setupHeading} tabIndex={-1}>
-                    <Copy k="continue" />
-                  </h3>
-                  {!codesShown && (
-                    <p className="security__setup-ready" aria-hidden="true">
-                      <Copy k="setupReady" />
-                    </p>
-                  )}
-                </div>
-                {!codesShown && (
-                  <>
-                    <p>
-                      <Copy k="setupBody" />
-                    </p>
-                    <Button variant="secondary" onClick={() => setShowKey((value) => !value)}>
-                      <Copy k={showKey ? 'hideKey' : 'showKey'} />
-                    </Button>
-                    {showKey && (
-                      <div data-security-sensitive="true">
-                        <Field label={<Copy k="setupKey" />} lang="zxx" readOnly autoComplete="off" value={visibleSetup.data.secret} />
-                        <details>
-                          <summary>
-                            <Copy k="uri" />
-                          </summary>
-                          <code data-testid="security__ref" className="security__ref" lang="zxx">
-                            {visibleSetup.data.uri}
-                          </code>
-                        </details>
-                      </div>
+                    {!codesShown && (
+                      <>
+                        <p>
+                          <Copy k="setupBody" />
+                        </p>
+                        <Button tone="secondary" onClick={() => setShowKey((value) => !value)}>
+                          <Copy k={showKey ? 'hideKey' : 'showKey'} />
+                        </Button>
+                        {showKey && (
+                          <div data-security-sensitive="true">
+                            <Field label={t('setupKey')} lang="zxx" readOnly autoComplete="off" value={visibleSetup.data.secret} />
+                            <details>
+                              <summary>
+                                <Copy k="uri" />
+                              </summary>
+                              <code data-testid="security__ref" className="lt-ref" lang="zxx">
+                                {visibleSetup.data.uri}
+                              </code>
+                            </details>
+                          </div>
+                        )}
+                        <form onSubmit={(event) => void confirmSetup(event)}>
+                          <Field
+                            label={t('code')}
+                            name="security-totp-confirm"
+                            inputMode="numeric"
+                            pattern="[0-9]{6}"
+                            required
+                            autoComplete="one-time-code"
+                            value={code}
+                            onChange={(event) => setCode(event.target.value)}
+                            data-security-sensitive="true"
+                          />
+                          <Button tone="primary" type="submit" disabled={blocked('confirm')}>
+                            <Copy k="confirm" />
+                          </Button>
+                        </form>
+                      </>
                     )}
-                    <form className="stack" onSubmit={(event) => void confirmSetup(event)}>
-                      <Field
-                        label={<Copy k="code" />}
-                        name="security-totp-confirm"
-                        inputMode="numeric"
-                        pattern="[0-9]{6}"
-                        required
-                        autoComplete="one-time-code"
-                        value={code}
-                        onChange={(event) => setCode(event.target.value)}
-                        data-security-sensitive="true"
-                      />
-                      <Button type="submit" disabled={blocked('confirm')}>
-                        <Copy k="confirm" />
-                      </Button>
-                    </form>
-                  </>
-                )}
-                {visibleSetup.confirmed && (
-                  <p data-testid="notice" className="notice" role="status">
-                    <Copy k="confirmationAccepted" />
-                  </p>
-                )}
-                {codesShown && (
-                  // Shown once, after the authenticator works. "I saved them" drops the codes and the setup key from
-                  // this page; nothing here is ever written to storage.
-                  <div data-testid="security__recovery" className="security__recovery stack" data-security-sensitive="true">
-                    <h3>
-                      <Copy k="recoveryTitle" />
-                    </h3>
-                    {!visibleSetup.confirmed && (
-                      <p data-testid="notice" className="notice" role="status">
-                        <Copy k="recoveryUnknown" />
+                    {visibleSetup.confirmed && (
+                      <p data-testid="notice" className="lt-hint" role="status">
+                        <Copy k="confirmationAccepted" />
                       </p>
                     )}
-                    <p>
-                      <Copy k="recoveryOnce" />
-                    </p>
-                    <ul data-testid="recovery-codes" className="recovery-codes">
-                      {visibleSetup.data.recoveryCodes.map((value) => (
-                        <li key={value} lang="zxx">
-                          {value}
-                        </li>
-                      ))}
-                    </ul>
-                    <label className="security__check">
-                      <input type="checkbox" checked={codesKept} onChange={(event) => setCodesKept(event.target.checked)} />
-                      <Copy k="recoveryCheck" />
-                    </label>
-                    <Button disabled={!codesKept} onClick={codesSaved}>
-                      <Copy k="recoverySaved" />
+                    {codesShown && (
+                      // Shown once, after the authenticator works. "I saved them" drops the codes and the setup key from
+                      // this page; nothing here is ever written to storage.
+                      <div data-testid="security__recovery" data-security-sensitive="true">
+                        <h3>
+                          <Copy k="recoveryTitle" />
+                        </h3>
+                        {!visibleSetup.confirmed && (
+                          <p data-testid="notice" className="lt-hint" role="status">
+                            <Copy k="recoveryUnknown" />
+                          </p>
+                        )}
+                        <p>
+                          <Copy k="recoveryOnce" />
+                        </p>
+                        <ul data-testid="recovery-codes" className="lt-mono">
+                          {visibleSetup.data.recoveryCodes.map((value) => (
+                            <li key={value} lang="zxx">
+                              {value}
+                            </li>
+                          ))}
+                        </ul>
+                        <Checkbox checked={codesKept} onCheckedChange={setCodesKept}>
+                          <Copy k="recoveryCheck" />
+                        </Checkbox>
+                        <Button tone="primary" disabled={!codesKept} onClick={codesSaved}>
+                          <Copy k="recoverySaved" />
+                        </Button>
+                      </div>
+                    )}
+                    <Button tone="secondary" disabled={blocked('setup')} onClick={() => open('setup')}>
+                      <Copy k="newSetup" />
                     </Button>
                   </div>
+                ) : (
+                  <Button tone="primary" disabled={blocked('setup')} onClick={() => open('setup')}>
+                    <Copy k="start" />
+                  </Button>
                 )}
-                <Button variant="secondary" disabled={blocked('setup')} onClick={() => open('setup')}>
-                  <Copy k="newSetup" />
-                </Button>
-              </div>
-            ) : (
-              <Button disabled={blocked('setup')} onClick={() => open('setup')}>
-                <Copy k="start" />
-              </Button>
-            )}
-            <p className="muted">
-              <Copy k="memory" />
-            </p>
-          </section>
-          <Devices onChanged={() => setSeatVersion((value) => value + 1)} />
-          <CompromiseDeviceReview />
-          <SessionLimits />
-          <TrustedDevices onChanged={() => setSeatVersion((value) => value + 1)} />
-          <PasskeyNames revision={passkeyRevision} />
-          <SigninMethods revision={passkeyRevision} onChanged={methodsChanged} />
-          <AntiPhishing />
-          <Authenticator
-            onChanged={(change) => {
-              methodsChanged();
-              // A replace ended the other sessions: the sessions list below reads them again.
-              if (change?.sessionsEnded) setSeatVersion((value) => value + 1);
-            }}
-          />
-          <ChangePassword onChanged={() => setSeatVersion((value) => value + 1)} />
-          <RecoveryKeys />
-          <SecurityLock />
-          <CompromisedEntry />
-          <FreezeAccount />
-          <CloseAccount />
-          <section data-testid="security__card" className="security__sessions security__card">
-            {sessionBlocked && (
-              <p className="muted">
-                <Copy k="blockedSessions" />
-              </p>
-            )}
-            <fieldset className="security__session-inspection" disabled={sessionBlocked}>
-              <IdentitySessions key={`${userId}:${seatVersion}:${sessionBlocked ? 'readonly' : 'writable'}`} />
-            </fieldset>
-            {sessionBlocked && (
-              <Button variant="secondary" onClick={() => setSeatVersion((value) => value + 1)}>
-                <Copy k="inspectSessions" />
-              </Button>
-            )}
-            <div className="security__global stack">
-              <p className="muted">
-                <Copy k="globalBody" />
-              </p>
-              <Button variant="secondary" disabled={blocked('logout')} onClick={() => open('logout')}>
-                <Copy k="globalReview" />
-              </Button>
-            </div>
-          </section>
-        </div>
-        {currentResponse &&
-          (currentResponse.answer.ok ? (
-            currentResponse.receipt && (
-              <section data-testid="notice" className="notice stack" aria-label={t('receipt')}>
-                <h2>
-                  <Copy k="receipt" />
-                </h2>
-                <p role="status">
-                  <Copy k={currentResponse.receipt} />
+                <p className="lt-hint">
+                  <Copy k="memory" />
                 </p>
-                {references(currentResponse.original.owner, currentResponse.record?.requestId, currentResponse.record?.credential)}
               </section>
-            )
-          ) : (
-            <div lang="und">
-              {currentResponse.answer.code === 'auth.mfa_required' &&
-              currentResponse.record &&
-              isPreEffectRefusal(currentResponse.record.kind, currentResponse.answer) ? (
-                // The factor gate refused before any change: this session has not passed a second factor. Confirming it is
-                // them here sends the same change once more; signing in again with the code or a passkey also works.
-                <div data-testid="failure" className="failure" role="status">
-                  <h3>{secondFactor.title}</h3>
-                  {stepUpKind(currentResponse.record?.kind) ? (
-                    <p lang={languageFor('stepUpBody')}>{t('stepUpBody')}</p>
-                  ) : (
-                    <p>{secondFactor.body}</p>
-                  )}
-                  {stepUpKind(currentResponse.record?.kind) && (
-                    <Button onClick={() => setStepUp(currentResponse)}>
-                      <Copy k="stepUpConfirm" />
-                    </Button>
-                  )}
-                  <a className="text-link" href={`${secondFactor.action?.href ?? '/login'}?redirect=${encodeURIComponent('/uc/safe')}`}>
-                    {secondFactor.action?.label}
-                  </a>
+              <Devices onChanged={() => setSeatVersion((value) => value + 1)} />
+              <CompromiseDeviceReview />
+              <SessionLimits />
+              <TrustedDevices onChanged={() => setSeatVersion((value) => value + 1)} />
+              <PasskeyNames revision={passkeyRevision} />
+              <SigninMethods revision={passkeyRevision} onChanged={methodsChanged} />
+              <AntiPhishing />
+              <Authenticator
+                onChanged={(change) => {
+                  methodsChanged();
+                  // A replace ended the other sessions: the sessions list below reads them again.
+                  if (change?.sessionsEnded) setSeatVersion((value) => value + 1);
+                }}
+              />
+              <ChangePassword onChanged={() => setSeatVersion((value) => value + 1)} />
+              <RecoveryKeys />
+              <SecurityLock />
+              <CompromisedEntry />
+              <FreezeAccount />
+              <CloseAccount />
+              <section data-testid="security__card" id="security-sessions">
+                {sessionBlocked && (
+                  <p className="lt-hint">
+                    <Copy k="blockedSessions" />
+                  </p>
+                )}
+                <fieldset data-testid="security__session-inspection" disabled={sessionBlocked}>
+                  <IdentitySessions key={`${userId}:${seatVersion}:${sessionBlocked ? 'readonly' : 'writable'}`} />
+                </fieldset>
+                {sessionBlocked && (
+                  <Button tone="secondary" onClick={() => setSeatVersion((value) => value + 1)}>
+                    <Copy k="inspectSessions" />
+                  </Button>
+                )}
+                <div>
+                  <p className="lt-hint">
+                    <Copy k="globalBody" />
+                  </p>
+                  <Button tone="secondary" disabled={blocked('logout')} onClick={() => open('logout')}>
+                    <Copy k="globalReview" />
+                  </Button>
                 </div>
-              ) : (
-                <Failure
-                  result={currentResponse.unconfirmed ? { ...currentResponse.answer, reason: 'uncertain' } : currentResponse.answer}
-                />
-              )}
-              {currentResponse.answer.code && (
-                <p data-testid="security__ref" className="security__ref" lang="zxx">
-                  {currentResponse.answer.code}
-                </p>
-              )}
+              </section>
             </div>
-          ))}
-        {stepUp && sameActor(stepUp.original) && (
-          <WithdrawStepUp
-            why={t('stepUpWhy')}
-            run={(token) => afterStepUp(stepUp, token)}
-            onDone={() => setStepUp(null)}
-            onCancel={() => setStepUp(null)}
-          />
-        )}
-        <ApiKeyRecords />
-        {review && sameActor(review) && (
-          <Dialog
-            title={
-              <Copy
-                k={
+            {currentResponse &&
+              (currentResponse.answer.ok ? (
+                currentResponse.receipt && (
+                  <section data-testid="notice" aria-label={t('receipt')}>
+                    <h2>
+                      <Copy k="receipt" />
+                    </h2>
+                    <p role="status">
+                      <Copy k={currentResponse.receipt} />
+                    </p>
+                    {references(currentResponse.original.owner, currentResponse.record?.requestId, currentResponse.record?.credential)}
+                  </section>
+                )
+              ) : (
+                <div lang="und">
+                  {currentResponse.answer.code === 'auth.mfa_required' &&
+                  currentResponse.record &&
+                  isPreEffectRefusal(currentResponse.record.kind, currentResponse.answer) ? (
+                    // The factor gate refused before any change: this session has not passed a second factor. Confirming it is
+                    // them here sends the same change once more; signing in again with the code or a passkey also works.
+                    <div data-testid="failure" className="lt-refusal" role="status">
+                      <h3 className="lt-refusal-title">{secondFactor.title}</h3>
+                      {stepUpKind(currentResponse.record?.kind) ? (
+                        <p lang={languageFor('stepUpBody')}>{t('stepUpBody')}</p>
+                      ) : (
+                        <p>{secondFactor.body}</p>
+                      )}
+                      {stepUpKind(currentResponse.record?.kind) && (
+                        <Button tone="primary" onClick={() => setStepUp(currentResponse)}>
+                          <Copy k="stepUpConfirm" />
+                        </Button>
+                      )}
+                      <a className="lt-link" href={`${secondFactor.action?.href ?? '/login'}?redirect=${encodeURIComponent('/uc/safe')}`}>
+                        {secondFactor.action?.label}
+                      </a>
+                    </div>
+                  ) : (
+                    <Failure
+                      result={currentResponse.unconfirmed ? { ...currentResponse.answer, reason: 'uncertain' } : currentResponse.answer}
+                    />
+                  )}
+                  {currentResponse.answer.code && (
+                    <p data-testid="security__ref" className="lt-ref" lang="zxx">
+                      {currentResponse.answer.code}
+                    </p>
+                  )}
+                </div>
+              ))}
+            {stepUp && sameActor(stepUp.original) && (
+              <StepUpSheet
+                why={t('stepUpWhy')}
+                run={(token) => afterStepUp(stepUp, token)}
+                onDone={() => setStepUp(null)}
+                onCancel={() => setStepUp(null)}
+              />
+            )}
+            <ApiKeyRecords />
+            {review && sameActor(review) && (
+              <Sheet
+                open
+                title={t(
                   review.kind === 'remove'
                     ? 'removeTitle'
                     : review.kind === 'setup'
                       ? 'startReview'
                       : review.kind === 'logout'
                         ? 'globalTitle'
-                        : 'add'
-                }
-              />
-            }
-            onClose={() => {
-              if (!busy) {
-                original.current = null;
-                setReview(null);
-              }
-            }}
-          >
-            <div className="stack">
-              <p>
-                <Copy
-                  k={
-                    review.kind === 'remove'
-                      ? 'removeBody'
-                      : review.kind === 'setup'
-                        ? 'replacement'
-                        : review.kind === 'logout'
-                          ? 'globalConsequence'
-                          : 'addBody'
+                        : 'add',
+                )}
+                onClose={() => {
+                  if (!busy) {
+                    original.current = null;
+                    setReview(null);
                   }
-                />
-              </p>
-              {references(review.owner, undefined, review.credential?.credentialId)}
-              <Button
-                variant={review.kind === 'remove' || review.kind === 'logout' ? 'danger' : 'primary'}
-                disabled={blocked(review.kind)}
-                onClick={confirmReview}
+                }}
               >
-                <Copy
-                  k={review.kind === 'remove' ? 'remove' : review.kind === 'setup' ? 'start' : review.kind === 'logout' ? 'logout' : 'add'}
-                />
-              </Button>
-            </div>
-          </Dialog>
-        )}
-      </Page>
+                <div>
+                  <p>
+                    <Copy
+                      k={
+                        review.kind === 'remove'
+                          ? 'removeBody'
+                          : review.kind === 'setup'
+                            ? 'replacement'
+                            : review.kind === 'logout'
+                              ? 'globalConsequence'
+                              : 'addBody'
+                      }
+                    />
+                  </p>
+                  {references(review.owner, undefined, review.credential?.credentialId)}
+                  <Button tone="primary" disabled={blocked(review.kind)} onClick={confirmReview}>
+                    <Copy
+                      k={
+                        review.kind === 'remove'
+                          ? 'remove'
+                          : review.kind === 'setup'
+                            ? 'start'
+                            : review.kind === 'logout'
+                              ? 'logout'
+                              : 'add'
+                      }
+                    />
+                  </Button>
+                </div>
+              </Sheet>
+            )}
+          </>
+        }
+      />
     </div>
   );
 }

@@ -81,7 +81,7 @@ export function VerificationCases({
                 </h3>
                 <StatusTag status={tagOf[c.state]} label={t(c.state)} />
               </div>
-              <p className="muted">
+              <p className="lt-muted">
                 <Copy k="submittedAt" /> {time(c.submittedAt)}
                 {c.decidedAt && (
                   <>
@@ -106,7 +106,7 @@ export function VerificationCases({
                       <p>
                         <Copy k="reasonCode" params={{ code: c.reason.code }} />
                       </p>
-                      <p className="muted">
+                      <p className="lt-muted">
                         <Copy k="reasonCodeUnlisted" />
                       </p>
                     </>
@@ -132,7 +132,7 @@ export function VerificationCases({
                       <Button variant="secondary" disabled={resubmitDisabled} onClick={() => onResubmit(c.tier)}>
                         <Copy k="resubmit" />
                       </Button>
-                      <p className="muted">
+                      <p className="lt-muted">
                         <Copy k="resubmitHelp" />
                       </p>
                     </>
