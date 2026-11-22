@@ -161,7 +161,7 @@ test(`${J} #3 a new business reads its KPI area: one explanation with a link to 
         as.map((a) => ({
           label: a.querySelector('span')?.textContent?.split(' · ')[0],
           value: a.querySelector('strong')?.textContent?.trim(),
-          none: a.querySelector('strong .pp-none')?.getAttribute('title') ?? null,
+          none: a.querySelector('strong [data-testid="pp-none"]')?.getAttribute('title') ?? null,
         })),
       );
     const expected = [
