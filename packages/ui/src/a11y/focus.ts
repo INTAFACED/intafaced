@@ -34,6 +34,20 @@ export function obscuredInsets(bars: Iterable<Bar>): { top: number; bottom: numb
 export const FOCUS_CLEARANCE = 8;
 
 /**
+ * Whether a newly focused element should be scrolled clear of the bars: only keyboard focus (`:focus-visible`), which is
+ * what SC 2.4.11 covers. A press with the mouse or a finger focuses a control under the pointer; scrolling then would move
+ * it out from under a drag that has just started (the chart's drawing handles, J-charts-desk-06 #4).
+ */
+export function clearsFocus(el: { matches(selector: string): boolean; closest(selector: string): unknown }): boolean {
+  if (el.closest(`[${OBSCURES_ATTRIBUTE}]`)) return false;
+  try {
+    return el.matches(':focus-visible');
+  } catch {
+    return false;
+  }
+}
+
+/**
  * How far to scroll so a focused box clears the bars: positive scrolls down (the box is under a bottom bar), negative up
  * (under a top bar), 0 when it is clear. `topEdge` is where the top bars end, `bottomEdge` where the bottom bars start,
  * both in viewport pixels from each bar's own box, so a floating bar's offset from the edge counts. A box taller than the
@@ -93,7 +107,7 @@ export function trackObscuringBars(root: HTMLElement = document.documentElement)
   // control under the dock stays there (Chromium, look gate on /trade/calendar at 200% text). Scroll it clear here.
   const clearFocus = (event: FocusEvent): void => {
     const el = event.target;
-    if (!(el instanceof Element) || bars.length === 0 || el.closest(`[${OBSCURES_ATTRIBUTE}]`)) return;
+    if (!(el instanceof Element) || bars.length === 0 || !clearsFocus(el)) return;
     let topEdge = 0;
     let bottomEdge = window.innerHeight;
     for (const bar of bars) {

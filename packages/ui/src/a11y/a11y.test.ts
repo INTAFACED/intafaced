@@ -10,6 +10,7 @@ import {
   applySurfaces,
   composite,
   focusScroll,
+  clearsFocus,
   contrastRatio,
   isLargeText,
   meetsContrast,
@@ -227,6 +228,24 @@ describe('focus not obscured', () => {
     // Taller than the space between the bars: its top stays in view rather than its bottom.
     expect(focusScroll({ top: 100, bottom: 900 }, { topEdge: 48, bottomEdge: 686 })).toBe(44);
     expect(focusScroll({ top: 100, bottom: 110 }, { topEdge: 48, bottomEdge: 686 }, 0)).toBe(0);
+  });
+
+  it('scrolls only for keyboard focus, never for a press that focuses the control under the pointer', () => {
+    const el = (visible: boolean, inBar = false) => ({
+      matches: (s: string) => s === ':focus-visible' && visible,
+      closest: () => (inBar ? {} : null),
+    });
+    expect(clearsFocus(el(true))).toBe(true);
+    // J-charts-desk-06 #4: a mouse press on the chart focused it, the page scrolled, and the drag missed its drawing.
+    expect(clearsFocus(el(false))).toBe(false);
+    expect(clearsFocus(el(true, true))).toBe(false);
+    const noSelector = {
+      matches: () => {
+        throw new SyntaxError('unknown pseudo-class');
+      },
+      closest: () => null,
+    };
+    expect(clearsFocus(noSelector)).toBe(false);
   });
 });
 
