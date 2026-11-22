@@ -1125,6 +1125,8 @@ dependencies = [
 name = "svc-bank"
 version = "0.0.0"
 dependencies = [
+ "base64 0.22.1",
+ "hmac 0.12.1",
  "postgres",
  "service-kit",
  "sha2 0.10.9",

@@ -1,4 +1,5 @@
 // volt-room: /uc/promotion
+// volt-room: /uc/invitingmining
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Button, Field } from '@intafaced/ui/lit';
 import { OverviewTemplate, Sheet } from '@intafaced/ui/lit/templates';

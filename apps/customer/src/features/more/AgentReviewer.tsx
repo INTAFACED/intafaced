@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
-import { Button, DataTable, Field, Panel } from '../../shared/ui';
-import { Read, Select } from './common';
+import { Button, Select } from '@intafaced/ui/lit';
+import { DataTable, Field, Panel, Read } from './agent-room/parts';
 import { Answer, toolWords, type Failed } from './AgentGuardrails';
 import { agentGuardrailsCopy } from './agent-guardrails-copy';
 import { agentReviewerCopy } from './agent-reviewer-copy';
@@ -166,7 +166,7 @@ function ReviewerCheck({ agent }: { agent: OwnAgent }) {
                 options={offered.tools.map((entry) => ({ value: entry.name, label: toolWords(tools, entry.name) }))}
               />
               <Field label={t('checkInput')} value={text} maxLength={4000} onChange={(event) => setText(event.target.value)} />
-              <Button disabled={busy || !chosen} onClick={() => void ask(chosen)}>
+              <Button tone="primary" disabled={busy || !chosen} onClick={() => void ask(chosen)}>
                 {t('checkButton')}
               </Button>
             </>

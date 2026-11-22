@@ -237,6 +237,8 @@ pub struct BankDoor {
     transfers: crate::transfers::Wiring,
     /// Slice `earn`'s owner values (`earn::Settings`); identity and the ledger are the slices' above.
     earn: crate::earn::Settings,
+    /// Slice `loans`'s marks, venue, affiliates and owner values (`loans::Wiring`).
+    loans: crate::loans::Wiring,
     /// `TEST_AGE_DOOR`: whether `POST /internal/test/age` ages a record.
     test_age_open: bool,
 }
@@ -284,6 +286,7 @@ impl BankDoor {
             spaces: crate::spaces::Wiring::none(),
             transfers: crate::transfers::Wiring::none(),
             earn: crate::earn::Settings::default(),
+            loans: crate::loans::Wiring::none(),
             test_age_open: false,
         })
     }
@@ -328,6 +331,42 @@ impl BankDoor {
             settings: &self.earn,
             now,
         })
+    }
+
+    /// `f` given slice `loans`'s dependencies at `now`.
+    pub fn loans_deps<T>(
+        &self,
+        now: Instant,
+        f: impl FnOnce(&crate::loans::ports::Deps<'_>) -> T,
+    ) -> T {
+        let bus_calls = crate::loans::ports::BusMarginCalls {
+            bus: self.transfers.bus.as_ref(),
+            producer: "svc-bank",
+            now,
+        };
+        let record_only = crate::loans::ports::RecordOnly;
+        f(&crate::loans::ports::Deps {
+            store: &self.store,
+            ledger: self.spaces.ledger.as_ref(),
+            custody_layer: &self.partner.custody_layer,
+            approvals: self.transfers.approvals.as_ref(),
+            prices: self.loans.prices.as_ref(),
+            venue: self.loans.venue.as_ref(),
+            margin_calls: if self.loans.publish_margin_calls {
+                &bus_calls
+            } else {
+                &record_only
+            },
+            affiliates: self.loans.affiliates.as_ref(),
+            settings: &self.loans.settings,
+            now,
+        })
+    }
+
+    /// Slice `loans`'s wiring, built by the binary from the environment.
+    pub fn with_loans(mut self, wiring: crate::loans::Wiring) -> BankDoor {
+        self.loans = wiring;
+        self
     }
 
     /// Slice `earn`'s owner values, built by the binary from the environment.
@@ -393,6 +432,14 @@ impl BankDoor {
                 ctx,
             )
             .unwrap_or_else(|| Err(not_ported(Slice::Transfers))),
+            Slice::OpsDesk => crate::ops_desk::answer(
+                &self.transfers,
+                &self.spaces,
+                &self.partner,
+                &self.store,
+                ctx,
+            )
+            .unwrap_or_else(|| Err(not_ported(Slice::OpsDesk))),
             Slice::Earn => {
                 let user = ctx
                     .principal
@@ -409,6 +456,23 @@ impl BankDoor {
                     })
                 })
                 .unwrap_or_else(|| Err(not_ported(Slice::Earn)))
+            }
+            Slice::Loans => {
+                let user = ctx
+                    .principal
+                    .map(|p| p.user_id.as_str())
+                    .unwrap_or_default();
+                self.loans_deps(ctx.now, |d| {
+                    crate::loans::router::answer(d, user, ctx.call.path, &ctx.input)
+                })
+                .map(|r| {
+                    r.map(Some).map_err(|e| {
+                        crate::errors::to_trpc(e, || {
+                            service_kit::approvals::random_uuid().unwrap_or_default()
+                        })
+                    })
+                })
+                .unwrap_or_else(|| Err(not_ported(Slice::Loans)))
             }
             other => Err(not_ported(other)),
         }

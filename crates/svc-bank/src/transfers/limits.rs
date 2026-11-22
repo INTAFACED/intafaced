@@ -254,7 +254,7 @@ pub fn request(
     }
 }
 
-fn list_limit_unset() -> Refusal {
+pub fn list_limit_unset() -> Refusal {
     refuse(
         "bank.limit_request_list_limit_unset",
         "Limit request page size is required; blank is not 50",
@@ -307,11 +307,9 @@ pub struct Decision<'a> {
     pub decider_id: &'a str,
 }
 
-/// `LimitRequestService.decide`: the decided request and whether it repeats a decision already made.
-pub fn decide(
-    c: &mut impl GenericClient,
-    d: &Decision<'_>,
-) -> Result<(LimitRequest, bool), Refusal> {
+/// `decide`'s checks of the decision itself, made before any read: a short note, an approval with no grant, a decline
+/// with one.
+pub fn check_decision(d: &Decision<'_>) -> Result<(), Refusal> {
     let note = d.note.trim();
     if note.encode_utf16().count() < 10 {
         return Err(refuse(
@@ -328,6 +326,16 @@ pub fn decide(
     if !d.approve && d.granted.is_some() {
         return Err(refuse("bank.validation_failed", "A decline grants nothing"));
     }
+    Ok(())
+}
+
+/// `LimitRequestService.decide`: the decided request and whether it repeats a decision already made.
+pub fn decide(
+    c: &mut impl GenericClient,
+    d: &Decision<'_>,
+) -> Result<(LimitRequest, bool), Refusal> {
+    check_decision(d)?;
+    let note = d.note.trim();
     let status = if d.approve { "approved" } else { "declined" };
     let granted = d.granted.map(format_amount);
     let Some(row) = by_id(c, d.request_id)? else {

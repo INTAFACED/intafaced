@@ -1,7 +1,7 @@
 //! The calls slice `spaces` makes out of svc-bank, each as the TypeScript makes it:
 //!
 //! - [`Ledger`]: svc-ledger's reads (`packages/ledger-client` `createHttpLedgerClient` through `src/ledger-client.ts`): `/trpc/balance`,
-//!   `/trpc/balances` and the asset registry `/trpc/assetsList` (`createLedgerAssetRegistry`), each a signed POST of its JSON body, 3 s an
+//!   `/trpc/balances`, `/trpc/historyPage` (`createLedgerHistoryPages`, 8 s an attempt, one retry, 12 s in all; `ops-desk`'s entries) and the asset registry `/trpc/assetsList` (`createLedgerAssetRegistry`), each a signed POST of its JSON body, 3 s an
 //!   attempt, one retry on a network failure, a 502/503/504 or an unreadable body, 5 s in all. svc-bank holds no balance:
 //!   every figure a space shows is one of these reads, made at request time.
 //! - [`Directory`]: svc-identity's business directory (`business/business-directory.ts`): handles for user ids and
@@ -97,6 +97,38 @@ pub struct LedgerBalance {
     pub amount: Amount,
 }
 
+/// One page request to svc-ledger's `historyPage` (`LedgerPageRequest`); the kind is always `available`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HistoryRequest<'a> {
+    pub owner_type: &'a str,
+    pub owner_id: &'a str,
+    pub asset_id: Option<&'a str>,
+    pub limit: i64,
+    pub cursor: Option<&'a str>,
+}
+
+/// One entry of a history page (`LedgerPageEntry`), as `createLedgerHistoryPages` keeps it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HistoryEntry {
+    pub tx_id: String,
+    pub module: String,
+    pub reason: String,
+    /// `debit` or `credit`.
+    pub direction: String,
+    pub amount: Amount,
+    pub posted_at: String,
+    pub asset_id: String,
+    /// The ledger's entry id when it sends one in shape (`^\d{1,19}$`); none otherwise.
+    pub entry_id: Option<String>,
+}
+
+/// One page and the cursor of the next, none at the end.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HistoryPage {
+    pub entries: Vec<HistoryEntry>,
+    pub next_cursor: Option<String>,
+}
+
 /// svc-ledger's reads. An `Err` is a read that failed; its words are for the log only.
 pub trait Ledger: Send + Sync {
     /// `balance(ref)`.
@@ -115,6 +147,10 @@ pub trait Ledger: Send + Sync {
     }
     /// `getTxByKey`: the transaction booked under a business key, with its legs; none when the key is empty.
     fn tx_by_key(&self, _key: &str) -> Result<Option<LedgerTx>, String> {
+        Err(UNWIRED.to_owned())
+    }
+    /// `historyPage` (`createLedgerHistoryPages`): one page of an owner's `available` entries, newest first.
+    fn history_page(&self, _request: &HistoryRequest<'_>) -> Result<HistoryPage, String> {
         Err(UNWIRED.to_owned())
     }
     /// `postRecipe`: svc-ledger builds the post from a `packages/ledger-client` recipe and these business inputs, and
@@ -259,6 +295,13 @@ pub const READ: Budget = Budget {
     deadline_ms: DEADLINE_MS,
 };
 
+/// `HISTORY_BUDGET`: 8 s an attempt, one retry, 12 s in all.
+pub const HISTORY: Budget = Budget {
+    attempt_ms: 8_000,
+    retries: 1,
+    deadline_ms: 12_000,
+};
+
 /// `POST_BUDGET`: 10 s an attempt, two retries, 25 s in all. A retried post is the same body under the same key.
 pub const POST: Budget = Budget {
     attempt_ms: 10_000,
@@ -289,6 +332,8 @@ pub struct TxEntry {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LedgerTx {
     pub id: String,
+    /// The business key it was booked under (`idempotencyKey`).
+    pub key: String,
     pub posted_at: service_kit::time::Instant,
     pub entries: Vec<TxEntry>,
 }
@@ -383,7 +428,7 @@ fn post_failure(f: CallFailure) -> PostFailure {
 }
 
 /// A booked transaction from `txById`'s or a receipt's JSON.
-fn ledger_tx(id: &str, posted_at: &str, entries: &Json) -> Result<LedgerTx, String> {
+fn ledger_tx(id: &str, key: &str, posted_at: &str, entries: &Json) -> Result<LedgerTx, String> {
     let at = service_kit::time::js_date(posted_at)
         .filter(|t| t.iso() == posted_at)
         .ok_or_else(|| "svc-ledger answer: postedAt is not an ISO instant".to_owned())?;
@@ -407,6 +452,7 @@ fn ledger_tx(id: &str, posted_at: &str, entries: &Json) -> Result<LedgerTx, Stri
         .collect::<Result<Vec<_>, String>>()?;
     Ok(LedgerTx {
         id: id.to_owned(),
+        key: key.to_owned(),
         posted_at: at,
         entries,
     })
@@ -481,7 +527,13 @@ impl Ledger for LedgerHttp {
                 if !matches!(&entries, Json::Array(e) if e.len() >= 2) {
                     return Err("svc-ledger answer: fewer than two legs".to_owned());
                 }
-                ledger_tx(tx_id, &text(&answer, "postedAt")?, &entries).map(Some)
+                ledger_tx(
+                    tx_id,
+                    &text(&answer, "idempotencyKey")?,
+                    &text(&answer, "postedAt")?,
+                    &entries,
+                )
+                .map(Some)
             }
             _ => Err("svc-ledger answer: found is not a boolean".to_owned()),
         }
@@ -507,6 +559,61 @@ impl Ledger for LedgerHttp {
         }
     }
 
+    fn history_page(&self, request: &HistoryRequest<'_>) -> Result<HistoryPage, String> {
+        // The ledger's schema is strict: exactly these keys, never `purpose` or `before`.
+        let mut body = vec![
+            ("ownerType".to_owned(), Json::str(request.owner_type)),
+            ("ownerId".to_owned(), Json::str(request.owner_id)),
+            ("kind".to_owned(), Json::str("available")),
+        ];
+        if let Some(a) = request.asset_id {
+            body.push(("assetId".to_owned(), Json::str(a)));
+        }
+        body.push(("limit".to_owned(), Json::int(request.limit)));
+        if let Some(c) = request.cursor {
+            body.push(("cursor".to_owned(), Json::str(c)));
+        }
+        let answer = self
+            .call_with("/trpc/historyPage", &Json::Object(body), HISTORY)
+            .map_err(|f| f.message)?;
+        let Some(Json::Array(rows)) = answer.get("entries") else {
+            return Err("svc-ledger answer: entries is not a list".to_owned());
+        };
+        let entries = rows
+            .iter()
+            .map(|e| {
+                Ok(HistoryEntry {
+                    tx_id: text(e, "txId")?,
+                    module: text(e, "module")?,
+                    reason: text(e, "reason")?,
+                    direction: text(e, "direction")?,
+                    // Round-tripped through the scaled amount, so a malformed one is refused here, not shown.
+                    amount: parse_amount(&text(e, "amount")?)?,
+                    posted_at: text(e, "postedAt")?,
+                    asset_id: text(e, "assetId")?,
+                    entry_id: match e.get("entryId") {
+                        Some(Json::String(id))
+                            if (1..=19).contains(&id.len())
+                                && id.bytes().all(|b| b.is_ascii_digit()) =>
+                        {
+                            Some(id.clone())
+                        }
+                        _ => None,
+                    },
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        let next_cursor = match answer.get("nextCursor") {
+            Some(Json::String(c)) => Some(c.clone()),
+            Some(Json::Null) => None,
+            _ => return Err("svc-ledger answer: nextCursor".to_owned()),
+        };
+        Ok(HistoryPage {
+            entries,
+            next_cursor,
+        })
+    }
+
     fn post_recipe(&self, recipe: &str, input: &Json, key: &str) -> Result<LedgerTx, PostFailure> {
         let body = Json::obj([("recipe", Json::str(recipe)), ("input", input.clone())]);
         let answer = self
@@ -526,7 +633,7 @@ impl Ledger for LedgerHttp {
             .get("entries")
             .cloned()
             .unwrap_or(Json::Array(Vec::new()));
-        ledger_tx(&id, &at, &entries).map_err(|e| unknown(&e))
+        ledger_tx(&id, key, &at, &entries).map_err(|e| unknown(&e))
     }
 }
 

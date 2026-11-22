@@ -62,7 +62,7 @@ pub fn interest_list_limit(limit: Option<f64>) -> Result<i64, Refusal> {
 }
 
 /// `assertJobBatchLimit`: a job's batch, or its own `*_unset` refusal; never the number it used to invent.
-fn job_batch_limit(
+pub fn job_batch_limit(
     limit: Option<f64>,
     unset: &str,
     invented: i64,
@@ -1257,13 +1257,7 @@ pub struct StatusChange {
     pub approved_by: String,
 }
 
-/// The second person's approval, as `consumeOpsApprovalPair` answers it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Approved {
-    pub approval_id: String,
-    pub requester_id: String,
-    pub approver_id: String,
-}
+pub use crate::ops_approval::Approved;
 
 /// `setPoolStatus`: an approved close or reopen of a pool (BK-earn-04), a pool-level pause only. The pool row is
 /// locked first; the same change sent again answers its recorded row and spends nothing; an unchanged status refuses
