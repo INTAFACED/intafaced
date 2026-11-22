@@ -1,3 +1,4 @@
+// volt-room: /dex/pools
 import { RecordListTemplate } from '@intafaced/ui/lit/templates';
 import { PoolsList } from '../pools/PoolsList';
 import { TokensNav } from '../tokens/TokensRoom';

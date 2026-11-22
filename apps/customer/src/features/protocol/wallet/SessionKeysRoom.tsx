@@ -1,3 +1,4 @@
+// volt-room: /wallet/session-keys
 import { RecordListTemplate } from '@intafaced/ui/lit/templates';
 import { SessionKeysPanel } from './SessionKeysPanel';
 import { useWalletFrame } from './wallet-frame';

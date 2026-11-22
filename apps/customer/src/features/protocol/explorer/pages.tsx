@@ -1,3 +1,5 @@
+// volt-room: /chain/blocks/:height
+// volt-room: /chain/tx/:hash
 import { useMemo, useState, type ReactNode } from 'react';
 import { navigate } from '../../../app/location';
 import { useApi } from '../../session';

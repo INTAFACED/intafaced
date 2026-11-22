@@ -1,3 +1,4 @@
+// volt-room: /quant/live
 import { RecordListTemplate } from '@intafaced/ui/lit/templates';
 import { useResource } from '../../../shared/resource';
 import { ReadView } from '../../../shared/record/record-parts';

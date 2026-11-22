@@ -1,3 +1,4 @@
+// volt-room: /uc/assets
 import { useId } from 'react';
 import { EmptyState } from '@intafaced/ui/lit';
 import { RecordListTemplate } from '@intafaced/ui/lit/templates';

@@ -1,3 +1,4 @@
+// volt-room: /trade/screener
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { z } from 'zod';
 import { ohlcvSchema } from '@intafaced/exchange-contract/schemas';

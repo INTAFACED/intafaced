@@ -1,3 +1,4 @@
+// volt-room: /chain/validators
 import { RecordListTemplate } from '@intafaced/ui/lit/templates';
 import { Banner, useProtocolTab } from '../volt/frame';
 import { DataTable, EmptyState, Panel } from '../volt/parts';

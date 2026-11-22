@@ -1,3 +1,4 @@
+// volt-room: /quant/data
 import { QUANT_LAKE_KINDS, type QuantLakeCatalogue } from '@intafaced/contracts/quant-research';
 import { useState } from 'react';
 import { useResource } from '../../shared/resource';

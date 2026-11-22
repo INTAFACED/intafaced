@@ -1,3 +1,4 @@
+// volt-room: /wallet/approvals
 import { RecordListTemplate } from '@intafaced/ui/lit/templates';
 import { ApprovalsPanel } from './ApprovalsPanel';
 import { PermitForm } from './PermitForm';

@@ -1,3 +1,4 @@
+// volt-room: /wallet/groups/:groupId
 import { RecordListTemplate } from '@intafaced/ui/lit/templates';
 import { WalletGroupPanel } from './WalletGroupPanel';
 import { useWalletFrame } from './wallet-frame';

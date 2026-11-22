@@ -1,3 +1,4 @@
+// volt-room: /uc/paydividends
 import { useMemo, useState } from 'react';
 import { type DistributionKind, type DistributionRecord } from '@intafaced/contracts/campaigns-catalogue';
 import { useApi } from '../session';

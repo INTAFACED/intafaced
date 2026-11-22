@@ -1,3 +1,4 @@
+// volt-room: /chain/watchlist
 import { useState } from 'react';
 import { Button } from '@intafaced/ui/lit';
 import { RecordListTemplate } from '@intafaced/ui/lit/templates';

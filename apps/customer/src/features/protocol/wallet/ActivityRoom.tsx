@@ -1,3 +1,4 @@
+// volt-room: /wallet/activity
 import { RecordListTemplate } from '@intafaced/ui/lit/templates';
 import { ActivityPanel } from './ActivityPanel';
 import { useWalletFrame } from './wallet-frame';

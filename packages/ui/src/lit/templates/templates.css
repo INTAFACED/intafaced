@@ -614,6 +614,8 @@
   font-family: var(--lit-font-mono);
   direction: ltr;
   unicode-bidi: isolate;
+  /* An address, key or account ID has no spaces: it breaks anywhere rather than spill out of its box on a phone. */
+  overflow-wrap: anywhere;
 }
 
 .lt-receipt,

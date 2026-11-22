@@ -1,3 +1,8 @@
+// volt-room: /pay/scheduled
+// volt-room: /pay/cases
+// volt-room: /pay/history/:transferId
+// volt-room: /pay/cases/:caseId
+// volt-room: /pay/bills/invoices/:invoiceId
 import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { Button, EmptyState } from '@intafaced/ui/lit';
 import { KeyValue, RecordListTemplate, RefusalBox, Skeleton, type KeyValueRow, type RoomState } from '@intafaced/ui/lit/templates';

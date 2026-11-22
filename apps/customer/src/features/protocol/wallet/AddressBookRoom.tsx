@@ -1,3 +1,4 @@
+// volt-room: /wallet/address-book
 import { RecordListTemplate } from '@intafaced/ui/lit/templates';
 import { AddressBookPanel } from './AddressBookPanel';
 import { useWalletFrame } from './wallet-frame';

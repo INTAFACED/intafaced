@@ -1,3 +1,4 @@
+// volt-room: /protocol/contracts
 import { RecordListTemplate } from '@intafaced/ui/lit/templates';
 import { ContractsPanel } from '../NetworkPanels';
 import { AssetLinkReview, VenueReadDocs } from '../venue/AssetLink';

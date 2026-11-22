@@ -1,3 +1,4 @@
+// volt-room: /chain/blocks
 import { RecordListTemplate } from '@intafaced/ui/lit/templates';
 import { BlocksList } from '../explorer/pages';
 import { Answer, flag, orNone, Rows } from '../volt/answer';

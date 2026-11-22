@@ -1,3 +1,4 @@
+// volt-room: /academy/rooms/messages
 import type { ApiResult } from '../../../shared/api';
 import { RecordListTemplate, Tabs } from '@intafaced/ui/lit/templates';
 import { usePreferences } from '../../../shared/preferences';
