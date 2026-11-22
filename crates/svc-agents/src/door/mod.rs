@@ -410,7 +410,7 @@ impl AgentsDoor {
         &self.own
     }
 
-    /// The slices' answers: the door's own call, the ported slices, and "not ported" for the rest.
+    /// The slices' answers: the door's own call and every ported slice (each is, so none answers "not ported" here).
     fn handle_call(&self, ctx: &Ctx<'_>) -> Result<Option<Json>, TrpcError> {
         match ctx.call.slice {
             Slice::Door => Ok(Some(Json::obj([
@@ -491,6 +491,14 @@ impl AgentsDoor {
                     own: &self.own,
                 },
             ),
+            Slice::OwnSharing => crate::own::sharing_slice::handle(
+                ctx,
+                &crate::own::sharing_slice::Deps {
+                    store: &self.store,
+                    rt: &self.runtime,
+                    own: &self.own,
+                },
+            ),
             Slice::Team => crate::team::slice::handle(
                 ctx,
                 &crate::team::slice::Deps {
@@ -501,7 +509,6 @@ impl AgentsDoor {
                     team: &self.team,
                 },
             ),
-            other => Err(not_ported(other)),
         }
     }
 
