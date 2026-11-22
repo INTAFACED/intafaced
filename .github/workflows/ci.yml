@@ -75,7 +75,7 @@ jobs:
   gates:
     name: Doctrine gates
     runs-on: ubuntu-24.04
-    timeout-minutes: 10 # healthy run: about 2 min (the tooling tests are about 40 s of it)
+    timeout-minutes: 10 # healthy run: about 5 to 6 min, the tooling tests about 4 of it (22 Nov)
     permissions:
       contents: read
       actions: read # the journey baseline guard downloads the journeys runs' reports on main
@@ -290,6 +290,38 @@ jobs:
           fi
           node "$lint"
 
+  fast-gates:
+    # Every Doctrine gate but the tooling tests (and the three that plant files in the tree), all at once: a red one is
+    # named about two minutes after the push, not after the tooling tests' four. The pre-push hook ran these before each
+    # push until 22 Nov; on the box, under a dozen builders, that was 3 to 4 minutes of a 7-minute push (project-state
+    # #3676). The Doctrine gates job above runs the whole list again and is the one the seal requires, so this job only
+    # says it sooner.
+    name: Fast gates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10 # healthy run: about 2 min, most of it the install
+    permissions:
+      contents: read
+    # The lint ratchet reads main-bisect's automatic revert by these, as in the Doctrine gates job.
+    env:
+      PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+      PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+      PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+      PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
+      PR_COMMITS: ${{ github.event.pull_request.commits }}
+      PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # as in the Doctrine gates job: the lint ratchet judges the change against its merge-base with main
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Fast gates
+        run: node tooling/ci/gates.mjs --fast
+
   changes:
     name: Affected tests
     runs-on: ubuntu-24.04
@@ -379,6 +411,11 @@ jobs:
             sleep 1
           done
           echo "::error::Postgres settings did not change: $got"; exit 1
+      # Format, clippy and the unit tests first, so a red one is named about two minutes into the job, before the database
+      # suites below take their 5 to 10 (the pre-push hook ran rust:check before each push until 22 Nov, project-state
+      # #3676). rust:check then runs everything, reusing what this step built.
+      - name: Format, clippy and unit tests first
+        run: cargo fmt --all --check && cargo clippy --workspace --all-targets --locked -- -D warnings && cargo test --workspace --locked --lib --bins
       - name: rust:check
         run: pnpm rust:check
       # Every run also proves the check can fail: rust:check must fail, for the planted reason, on a clippy warning
