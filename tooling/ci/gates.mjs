@@ -40,8 +40,9 @@
  *        (the tooling tests read the workflows too); every other gate runs as always. `--base <ref>` compares against
  *        another ref (a stacked branch). An unreadable diff runs everything. CI and main never pass the flag: they
  *        keep the full run (U4, project-state #1574).
- *   node tooling/ci/gates.mjs --before-push
- *        what .githooks/pre-push runs: every gate but LEFT_TO_CI_BEFORE_PUSH, all at once.
+ *   node tooling/ci/gates.mjs --fast
+ *        CI's Fast gates job: every gate but LEFT_TO_FULL_RUN, all at once, so a red gate is named in about two minutes
+ *        of the push, not after the tooling tests' four (the Doctrine gates job still runs the whole list and blocks).
  */
 import { readdirSync, existsSync, readFileSync } from 'node:fs';
 import { join, basename, resolve } from 'node:path';
@@ -438,8 +439,8 @@ function manifestCheck() {
   }
 
   const ids = new Set(GATES.map((g) => g.id));
-  for (const id of Object.keys(LEFT_TO_CI_BEFORE_PUSH)) {
-    if (!ids.has(id)) problems.push(`LEFT_TO_CI_BEFORE_PUSH names "${id}", which is not a gate. Remove the entry.`);
+  for (const id of Object.keys(LEFT_TO_FULL_RUN)) {
+    if (!ids.has(id)) problems.push(`LEFT_TO_FULL_RUN names "${id}", which is not a gate. Remove the entry.`);
   }
 
   // The other half of the drift: CI must consume THIS list, not its own copy.
@@ -466,21 +467,18 @@ export function gatesToRun(gates, changed) {
   return reachesTooling ? gates : gates.filter((g) => g.id !== 'tooling-tests');
 }
 
-// ── --before-push: the gates .githooks/pre-push runs, all at once ───────────
-/** The gates a push leaves to CI, each with why. Every other gate reads the pushed tree in seconds and runs before it. */
-export const LEFT_TO_CI_BEFORE_PUSH = {
-  'tooling-tests': 'about four minutes on the Mac; the hook runs the ones that read journey files itself',
-  'truth-check': 'CI runs it on every pull request and on main',
-  'lint-ratchet': "the hook runs it itself, on the pushed files with main's rules",
-  'cross-package-reads': 'the hook runs it itself when a test or what it checks changed',
-  'secret-scan-mutation': 'proves secret-scan on planted files (19 s on the Mac): only a change to the scanner reaches it',
+// ── --fast: the gates CI's Fast gates job runs, all at once ─────────────────
+/** The gates the fast run leaves to the Doctrine gates job's full run, each with why. Every other gate runs at once. */
+export const LEFT_TO_FULL_RUN = {
+  'tooling-tests': 'about four minutes on CI, the bulk of the full run; the push runs the ones that read journey files itself',
+  'secret-scan-mutation': 'plants secret-shaped files in the tree, which the secret scan beside it would read at once',
   'money-property-mutation':
-    'rewrites packages/ledger-client/src/money.ts in place and runs vitest per mutant (15 s): only a change to the money primitives reaches it',
-  'empty-denominator': 'runs every gate against an empty tree (21 s on the Mac): only a change to a gate reaches it',
+    'rewrites packages/ledger-client/src/money.ts in place while it runs, which the scans beside it would read at once',
+  'empty-denominator': 'runs every gate again against an empty tree: only a change to a gate reaches it',
 };
 
-export function gatesBeforePush(gates) {
-  return gates.filter((g) => !Object.hasOwn(LEFT_TO_CI_BEFORE_PUSH, g.id));
+export function gatesFast(gates) {
+  return gates.filter((g) => !Object.hasOwn(LEFT_TO_FULL_RUN, g.id));
 }
 
 /**
@@ -550,13 +548,13 @@ export function runGate(gate) {
 }
 
 async function main() {
-  const beforePush = process.argv.includes('--before-push');
+  const fast = process.argv.includes('--fast');
   const changedOnly = process.argv.includes('--changed');
   // `--base <ref>` for a branch stacked on another (default origin/main).
   const baseAt = process.argv.indexOf('--base');
   const base = baseAt > 0 ? process.argv[baseAt + 1] : 'origin/main';
   const changed = changedOnly ? changedSinceMain(ROOT, base) : null;
-  const gates = beforePush ? gatesBeforePush(GATES) : gatesToRun(GATES, changed);
+  const gates = fast ? gatesFast(GATES) : gatesToRun(GATES, changed);
 
   if (process.argv.includes('--list')) {
     for (const gate of gates) console.log(gate.id);
@@ -572,7 +570,7 @@ async function main() {
 
   console.log(`\n══ DOCTRINE GATES (${gates.length}) ══\n`);
   if (changedOnly && changed === null) console.log(`  --changed: the diff against ${base} is unreadable, so every gate runs\n`);
-  else if (beforePush) console.log(`  --before-push: all at once; left to CI: ${Object.keys(LEFT_TO_CI_BEFORE_PUSH).join(', ')}\n`);
+  else if (fast) console.log(`  --fast: all at once; left to the full run: ${Object.keys(LEFT_TO_FULL_RUN).join(', ')}\n`);
   else if (gates.length < GATES.length)
     console.log('  --changed: nothing under tooling/ or .github/ changed, so the tooling tests are left to CI\n');
 
@@ -581,9 +579,9 @@ async function main() {
   let totalMs = 0;
   const runStarted = process.hrtime.bigint();
 
-  // CI runs one gate at a time; a push runs its gates at once and still reports them in the list's order.
+  // The full run takes one gate at a time; the fast run takes its gates at once and still reports them in the list's order.
   const results = [];
-  if (beforePush) results.push(...(await Promise.all(gates.map(runGate))));
+  if (fast) results.push(...(await Promise.all(gates.map(runGate))));
   else for (const gate of gates) results.push(await runGate(gate));
 
   for (const [i, gate] of gates.entries()) {
@@ -633,5 +631,5 @@ async function main() {
   }
 
   const wallMs = Number((process.hrtime.bigint() - runStarted) / 1000000n);
-  console.log(`\n✓ all ${gates.length} doctrine gates passed — ${totalMs}ms total${beforePush ? `, ${wallMs}ms at once` : ''}\n`);
+  console.log(`\n✓ all ${gates.length} doctrine gates passed — ${totalMs}ms total${fast ? `, ${wallMs}ms at once` : ''}\n`);
 }
