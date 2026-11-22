@@ -1917,9 +1917,9 @@ async function gatesApi() {
 }
 
 /** Verification tier "full" for the friend only, through the two labelled test operators. Never approves anyone else's request. */
-async function verifyFriend(ctx, friend) {
+export async function verifyFriend(ctx, friend, gates = undefined) {
   const { log, secrets } = ctx;
-  const gates = await gatesApi();
+  gates ??= await gatesApi();
   const gctx = await gates.makeContext({ log });
   const before = gates.listAccountsAndTiers(secrets);
   const submitted = await gates.submitOwnedAccounts(gctx, before);

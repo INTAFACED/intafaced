@@ -42,5 +42,82 @@
       "ref": "tooling/scripts/local-test-gates.test.mjs#engine-drop loses exactly one cancel"
     },
     "why": "Reads NATS_STREAM_PREFIX from the env the stack hands svc-trade and svc-matching (localTestServiceEnvs) and checks TRADE_CANCELS.stream against both."
+  },
+  {
+    "file": "tooling/scripts/local-test-gates.test.mjs",
+    "target": "local-test-world.mjs",
+    "verdict": "rewrite",
+    "asserts": "populate's verifyFriend submits only the owned accounts' requests, never the founders', and approves only the friend's.",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/scripts/local-test-gates.test.mjs#populate (which approves only its friend) does not submit the founders' requests"
+    },
+    "why": "verifyFriend is given its gates (today's gatesApi() by default) and is called with a stand-in that records submitOwnedAccounts' arguments (no { founders: true }) and approvePending's (only the friend), and that another pending request stops it before any approval."
+  },
+  {
+    "file": "tooling/scripts/local-test-gates.test.mjs",
+    "target": "local-test-gates.mjs",
+    "verdict": "rewrite",
+    "asserts": "The CLI help names every core command (apply, operators, lifecycle, open, verify, status).",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/scripts/local-test-gates.test.mjs#The CLI help names every command"
+    },
+    "why": "The usage text main prints for an unknown command is now the pure gatesUsage(), and the test parses its command names. The second check in that block, that the gates module writes no table, is deleted: it was never true (ageAccount runs UPDATE identity.users SET, rewindCopyCursor UPDATE trade.copy_follows, both test-stack clock moves) and its regex missed schema-qualified names, so it held no property; no guard replaces it."
+  },
+  {
+    "file": "tooling/scripts/local-test-stack.test.mjs",
+    "target": "local-test-stack.mjs",
+    "verdict": "rewrite",
+    "asserts": "Each built part's start (a service, the Customer app, the invitation site, the console) first stops a process of its own on another build, on its own port.",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/scripts/local-test-stack.test.mjs#Each built part's start stops a process on another build first"
+    },
+    "why": "startNodeService, startCustomer, startInvitation and startAdmin are given their stop (stopForNewBuild by default); the test calls each with a stand-in stop that records and ends the start, and checks it ran first, once, with the part's name and port."
+  },
+  {
+    "file": "tooling/scripts/local-test-stack.test.mjs",
+    "target": "local-test-stack.mjs",
+    "verdict": "rewrite",
+    "asserts": "Only a new anvil forgets the old chain: its record goes before the new node starts, forgetting stops a running indexer and empties its schema in the stack's one database, and what it stopped comes back even under --only.",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/scripts/local-test-stack.test.mjs#A new TEST chain empties what services stored from the old one"
+    },
+    "why": "The new-anvil step is startNewAnvil, the forget is forgetOldChain and the start list is withRenewed, each called with stand-ins; with afterSeed's existing test (a seeded new chain forgets once, a running one never) the old 'one call site' count is held by behaviour."
+  },
+  {
+    "file": "tooling/scripts/local-test-stack.test.mjs",
+    "target": "local-test-stack.mjs",
+    "verdict": "rewrite",
+    "asserts": "A halted indexer still answering /health reads HALTED (with /ready's reason) in the health table, which fails the start; only the indexer reads /ready.",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/scripts/local-test-stack.test.mjs#A halted indexer still answers /health"
+    },
+    "why": "healthTable's service row is serviceHealthRow and indexerHalt is given its HTTP get; the test feeds stand-in reads and checks the row, the reason parse, and healthAllOk."
+  },
+  {
+    "file": "tooling/scripts/local-test-stack.test.mjs",
+    "target": "local-test-stack.mjs",
+    "verdict": "rewrite",
+    "asserts": "A running service on another build, or one not running, is restarted: the old build stops before its schema is migrated, only what starts is migrated, and a service stopped for a new chain that the start did not plan is migrated before it comes back.",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/scripts/local-test-stack.test.mjs#A running service on another build is restarted onto the new one"
+    },
+    "why": "cmdStart's steps are stopThenMigrate and migrateRenewed, given stop and migrate (today's by default); the test records the call order and schemas."
+  },
+  {
+    "file": "tooling/scripts/local-test-stack.test.mjs",
+    "target": "local-test-stack.mjs",
+    "verdict": "rewrite",
+    "asserts": "With no TEST chain the start leaves the indexer out before the start order (Edge never waits on it), the health rows read absent, off or DOWN as defined, only absent and off pass, and restart is a stop then a full start.",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/scripts/local-test-stack.test.mjs#With no TEST chain (no anvil on the machine) the stack leaves the indexer out"
+    },
+    "why": "startServices is given the chain and the start, adapterHealthRow and serviceHealthRow their reads, cmdRestart its slot, stop and start; the test calls each with stand-ins, and healthAllOk and adaptersWanted directly."
   }
 ]

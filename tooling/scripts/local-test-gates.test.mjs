@@ -70,6 +70,7 @@ import {
   stackFounderScopes,
   isCancelOf,
   TRADE_CANCELS,
+  gatesUsage,
 } from './local-test-gates.mjs';
 import { FOUNDER_STEPS_NAME, FOUNDER_VAULT_NAME, draftFounderVault } from './local-test-founders.mjs';
 import { TEST_SPOT_LISTINGS, UNQUOTED_TEST_SPOT, UNTRADED_TEST_SPOT, localTestDatabaseUrl } from './seed-spot-test-listing.mjs';
@@ -767,19 +768,45 @@ assert.equal(refusalText({ json: null, text: 'plain' }), 'plain');
 // populate (which approves only its friend) does not submit the founders' requests. That verify does is held by every
 // journeys shard: its `apply` publishes the P2P methods as the founders, which svc-p2p refuses without their verified tier.
 {
-  const world = readFileSync(resolve(here, 'local-test-world.mjs'), 'utf8');
-  assert.match(world, /gates\.submitOwnedAccounts\(gctx, before\);/);
+  const { verifyFriend } = await import('./local-test-world.mjs');
+  const friend = { userId: 'friend-1' };
+  const before = { users: [], approved: new Map(), pending: [{ userId: 'friend-1', tier: 'full' }] };
+  const calls = [];
+  const gates = {
+    makeContext: async () => 'gctx',
+    listAccountsAndTiers: () => before,
+    submitOwnedAccounts: async (...args) => (calls.push(['submit', ...args]), []),
+    approvePending: async (...args) => (calls.push(['approve', ...args]), [{ ok: true }]),
+  };
+  const v = await verifyFriend({ log: () => {}, secrets: {} }, friend, gates);
+  assert.deepEqual(v, { ok: true, why: '1 approved' });
+  assert.deepEqual(
+    calls,
+    [
+      ['submit', 'gctx', before],
+      ['approve', 'gctx', null, { userIds: ['friend-1'] }],
+    ],
+    "populate submits only the owned accounts (no { founders: true }) and approves only the friend's request",
+  );
+  // Another pending request stops it before anything is approved.
+  calls.length = 0;
+  before.pending.push({ userId: 'someone-else', tier: 'full' });
+  assert.equal((await verifyFriend({ log: () => {}, secrets: {} }, friend, gates)).ok, false);
+  assert.deepEqual(
+    calls.map((c) => c[0]),
+    ['submit'],
+    'nothing approved when someone else is pending',
+  );
 }
 
 // The CLI help names every command.
-const src = readFileSync(script, 'utf8');
-for (const cmd of ['apply', 'operators', 'lifecycle', 'open', 'verify', 'status']) assert.ok(src.includes(`'${cmd}'`), cmd);
-// Nothing in the gates module writes a table directly.
-assert.equal(
-  /\b(INSERT INTO|UPDATE \w+ SET|DELETE FROM)\b/i.test(src.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '')),
-  false,
-  'gates must not write database rows',
-);
+{
+  const named = gatesUsage()
+    .replace(/^usage: local-test-gates\.mjs /, '')
+    .split(' | ')
+    .map((c) => c.split(' ')[0]);
+  for (const cmd of ['apply', 'operators', 'lifecycle', 'open', 'verify', 'status']) assert.ok(named.includes(cmd), cmd);
+}
 
 // Charts owner values (C-ops-04): the LOCAL TEST values are the documented ones, IFC/USDT is never given one, and the
 // data class approval hashes exactly as svc-trade recomputes it (the same golden vector as its router test).
