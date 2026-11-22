@@ -62,11 +62,12 @@ async function sign(prepared: PreparedVenueAction) {
 }
 
 /** The partner as svc-bank answers for it: 100 TEST EUR held, 1.08 USDC a euro, paid into the venue once per key. */
-function partner(opts: { offered?: boolean; loseNext?: number } = {}) {
+function partner(opts: { offered?: boolean; loseNext?: number; dropNext?: number; unreadable?: boolean } = {}) {
   const legs = new Map<string, BankCashLeg>();
   const asked: string[] = [];
   let held = a('100');
   let lose = opts.loseNext ?? 0;
+  let drop = opts.dropNext ?? 0;
   const port: CashLegPort = {
     async offers(forwarded) {
       expect(forwarded).toEqual(FWD);
@@ -77,6 +78,11 @@ function partner(opts: { offered?: boolean; loseNext?: number } = {}) {
     async carry(forwarded, ask) {
       expect(forwarded).toEqual(FWD);
       asked.push(ask.legKey);
+      // A request lost before the partner recorded it: nothing moved and nothing is held under the key.
+      if (drop > 0) {
+        drop -= 1;
+        return { state: 'unknown' };
+      }
       let leg = legs.get(ask.legKey);
       if (!leg) {
         const spend = a(ask.spend);
@@ -108,6 +114,7 @@ function partner(opts: { offered?: boolean; loseNext?: number } = {}) {
       return { state: 'carried', leg };
     },
     async leg(_forwarded, k) {
+      if (opts.unreadable) return 'unread';
       return legs.get(k) ?? null;
     },
   };
@@ -206,34 +213,57 @@ describe('venue Convert: cash through a coin (#11)', () => {
     expect(p.held()).toBe(a('90'));
   });
 
-  it('recovers an already-carried cash leg after the quote window closes', async () => {
+  it('past the window, a carried cash leg is read back, never carried again, and named in the refusal', async () => {
     const p = partner({ loseNext: 1 });
     let t = Date.now();
     const { door, converts } = desk(p.port, { now: () => new Date(t) });
-    const q = await converts.quote(door, principal, {
-      owner,
-      from: 'EUR',
-      to: 'BTC',
-      amount: a('10'),
-      quoteKey: nextKey(),
-    });
+    const q = await converts.quote(door, principal, { owner, from: 'EUR', to: 'BTC', amount: a('10'), quoteKey: nextKey() });
     const input = { owner, quoteId: q.quoteId };
-    await expect(converts.accept(door, principal, input)).rejects.toMatchObject({
-      code: 'trade.convert_cash_leg_unknown',
-    });
+    await expect(converts.accept(door, principal, input)).rejects.toMatchObject({ code: 'trade.convert_cash_leg_unknown' });
     expect(p.held()).toBe(a('90'));
+    const coin = await usdc();
     t = q.freshUntil.getTime() + 1;
-    const recovered = await converts.accept(door, principal, input);
-    expect(recovered).toMatchObject({
-      cashLeg: { legKey: cashLegKey(owner, q.quoteId), state: 'delivered', paid: '10' },
-    });
+    const late = converts.accept(door, principal, input);
+    await expect(late).rejects.toMatchObject({ code: 'trade.convert_quote_expired' });
+    await expect(late).rejects.toThrow(/cash leg was carried: 10 EUR became 10\.8 USDC/);
+    // Read back, not carried: the partner was asked to carry once, inside the window.
+    expect(p.asked).toEqual([cashLegKey(owner, q.quoteId)]);
     expect(p.legs.size).toBe(1);
     expect(p.held()).toBe(a('90'));
-    // The venue order at the stale price is still never sent: past the window an unsigned action is refused.
-    const signature = await sign(recovered.prepared);
-    await expect(converts.submit(door, principal, { actionKey: recovered.actionKey, signature })).rejects.toMatchObject({
-      code: 'trade.convert_quote_expired',
-    });
+    expect(await usdc()).toBe(coin);
+  });
+
+  it('past the window, a cash leg the partner never recorded asks the partner for nothing', async () => {
+    const p = partner({ dropNext: 1 });
+    let t = Date.now();
+    const { door, converts } = desk(p.port, { now: () => new Date(t) });
+    const q = await converts.quote(door, principal, { owner, from: 'EUR', to: 'BTC', amount: a('10'), quoteKey: nextKey() });
+    const input = { owner, quoteId: q.quoteId };
+    await expect(converts.accept(door, principal, input)).rejects.toMatchObject({ code: 'trade.convert_cash_leg_unknown' });
+    expect(p.legs.size).toBe(0);
+    const coin = await usdc();
+    t = q.freshUntil.getTime() + 1;
+    const late = converts.accept(door, principal, input);
+    await expect(late).rejects.toMatchObject({ code: 'trade.convert_quote_expired' });
+    await expect(late).rejects.toThrow(/Nothing was signed or sent/);
+    expect(p.asked).toEqual([cashLegKey(owner, q.quoteId)]);
+    expect(p.legs.size).toBe(0);
+    expect(p.held()).toBe(a('100'));
+    expect(await usdc()).toBe(coin);
+  });
+
+  it('past the window, a cash leg the partner cannot read is unknown, and nothing is carried', async () => {
+    const p = partner({ loseNext: 1, unreadable: true });
+    let t = Date.now();
+    const { door, converts } = desk(p.port, { now: () => new Date(t) });
+    const q = await converts.quote(door, principal, { owner, from: 'EUR', to: 'BTC', amount: a('10'), quoteKey: nextKey() });
+    const input = { owner, quoteId: q.quoteId };
+    await expect(converts.accept(door, principal, input)).rejects.toMatchObject({ code: 'trade.convert_cash_leg_unknown' });
+    t = q.freshUntil.getTime() + 1;
+    await expect(converts.accept(door, principal, input)).rejects.toMatchObject({ code: 'trade.convert_cash_leg_unknown' });
+    expect(p.asked).toEqual([cashLegKey(owner, q.quoteId)]);
+    expect(p.legs.size).toBe(1);
+    expect(p.held()).toBe(a('90'));
   });
 
   it('a price past its window asks the partner for nothing', async () => {
