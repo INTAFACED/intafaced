@@ -9,14 +9,15 @@ import {
 } from '@intafaced/contracts';
 import { parseAmount } from '@intafaced/ledger-client/money';
 import type { Bar } from '../engine/bars.js';
-import type { FeePort, HistoryPort } from '../engine/ports.js';
+import { tradeVenuePricePort, type FeePort, type HistoryPort, type VenuePricePort } from '../engine/ports.js';
 import { createMemoryQuota } from '../quota/memory.js';
 import { createQuantRouter } from '../router.js';
 import { RUN_RESULT_MAX_BYTES } from '../runs/limit.js';
 import { createMemoryRunRepository } from '../runs/memory-repository.js';
 import { createMemoryStrategyRepository } from '../studio/memory-repository.js';
 
-// AL-live-01: paper runs on the exchange's own closed candles, derived on read; J-algo-dev-03 #6's concurrent-run quota.
+// AL-live-01: paper runs on the venue's own closed candles, derived on read (J-algo-dev-04 #2); J-algo-dev-03 #6's
+// concurrent-run quota.
 const SECRET = 'a-quant-paper-test-edge-secret-long-enough';
 const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-quant' });
 const ACCOUNT_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -52,32 +53,44 @@ function signed(userId: string, scopes: string[] = ['trade:read']) {
   });
 }
 
-/** Hourly closed bars, rising then falling, at every hour the read asks for: the exchange's own tape, as svc-trade gives it. */
+/** Hourly closed bars, rising then falling, at every hour the read asks for: the venue's own prints, as svc-trade gives them. */
 const CLOSES = ['100', '110', '120', '130', '115', '100', '90', '95', '105', '120'];
-function history(read: { fromMs: number; toMs: number }[] = []): HistoryPort {
+function hourly(fromMs: number, toMs: number): Bar[] {
+  const bars: Bar[] = [];
+  for (let t = Math.ceil(fromMs / HOUR) * HOUR, i = 0; t + HOUR <= toMs; t += HOUR, i += 1) {
+    const close = CLOSES[i % CLOSES.length]!;
+    const open = i === 0 ? close : CLOSES[(i - 1) % CLOSES.length]!;
+    bars.push({
+      openTimeMs: t,
+      open: parseAmount(open),
+      high: parseAmount(close > open ? close : open),
+      low: parseAmount(close < open ? close : open),
+      close: parseAmount(close),
+    });
+  }
+  return bars;
+}
+/** The venue's candle read: BTC-USDC's prints on a TEST venue, or a read that does not answer. */
+function venue(read: { fromMs: number; toMs: number }[] = [], answer: 'up' | 'down' = 'up'): VenuePricePort {
   return {
     wired: true,
     async bars({ fromMs, toMs }) {
       read.push({ fromMs, toMs });
-      const bars: Bar[] = [];
-      for (let t = Math.ceil(fromMs / HOUR) * HOUR, i = 0; t + HOUR <= toMs; t += HOUR, i += 1) {
-        const close = CLOSES[i % CLOSES.length]!;
-        const open = i === 0 ? close : CLOSES[(i - 1) % CLOSES.length]!;
-        bars.push({
-          openTimeMs: t,
-          open: parseAmount(open),
-          high: parseAmount(close > open ? close : open),
-          low: parseAmount(close < open ? close : open),
-          close: parseAmount(close),
-        });
-      }
-      return bars;
+      if (answer === 'down') return { unavailable: "the venue's price read answered 404 (trade.user_venue_off)" };
+      return { venueMarket: 'BTC-USDC', test: true, bars: hourly(fromMs, toMs) };
     },
   };
 }
+/** Our own exchange's tape: a paper run never reads it. */
+const ownTape: HistoryPort = {
+  wired: true,
+  bars: async () => {
+    throw new Error('a paper run read our own tape');
+  },
+};
 const fees: FeePort = { wired: true, fee: async () => ({ version: 'local-test:v1', makerBps: 8, takerBps: 10 }) } as FeePort;
 
-function setup(options: { concurrent?: string } = {}) {
+function setup(options: { concurrent?: string; venue?: 'up' | 'down' } = {}) {
   let offset = 0;
   const quota = createMemoryQuota({ defaultProfile: 'TEST default' });
   const app = createQuantRouter({
@@ -87,7 +100,8 @@ function setup(options: { concurrent?: string } = {}) {
     strategies: createMemoryStrategyRepository(quota.gate),
     runs: createMemoryRunRepository(RUN_RESULT_MAX_BYTES, quota.gate),
     quota: quota.repository,
-    history: history(),
+    history: ownTape,
+    venuePrices: venue([], options.venue ?? 'up'),
     fees,
     now: () => Date.now() + offset,
   });
@@ -170,6 +184,8 @@ describe('paper runs (AL-live-01)', () => {
     t.later(12);
     const priced = await t.a.paper.get({ runId: first.runId });
     expect(priced.priced).toBe(true);
+    // The prices are the venue's own, on its spot market on the strategy's asset: never our own tape (ownTape throws).
+    expect(priced.prices).toEqual({ venueMarket: 'BTC-USDC', test: true, unavailable: null });
     expect(priced.trades.length).toBeGreaterThan(0);
     // No fill uses a price from before the start.
     for (const trade of priced.trades) expect(Date.parse(trade.ts)).toBeGreaterThan(Date.parse(first.startedAt));
@@ -188,6 +204,116 @@ describe('paper runs (AL-live-01)', () => {
     expect((await t.a.paper.stop({ runId: first.runId })).stoppedAt).toBe(stopped.stoppedAt);
     await expect(t.b.paper.get({ runId: first.runId })).rejects.toMatchObject({ code: 'NOT_FOUND' });
     await expect(t.b.paper.stop({ runId: first.runId })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  it('stays unpriced while the venue is not read, saying why: nothing fills and no bar is invented', async () => {
+    const t = setup({ venue: 'down' });
+    await t.plan();
+    const s = await saved(t.a);
+    const first = await t.a.paper.start(start(s.id, 0));
+    t.later(12);
+    const read = await t.a.paper.get({ runId: first.runId });
+    expect(read).toMatchObject({
+      priced: false,
+      pricedThrough: null,
+      trades: [],
+      equity: [],
+      position: { symbol: 'BTC/USDT', qty: '0' },
+      totals: { startCash: '1000', fees: '0', net: '0', endEquity: '1000' },
+      prices: { venueMarket: null, test: false, unavailable: "the venue's price read answered 404 (trade.user_venue_off)" },
+    });
+  });
+
+  it("reads the venue's spot candles on the strategy's asset, keeps only whole closed bars, and names a read that fails", async () => {
+    const now = Date.UTC(2026, 10, 22, 6, 30, 20);
+    const asked: string[] = [];
+    const answer = (status: number, body: unknown) => async (url: string) => {
+      asked.push(url);
+      return { ok: status === 200, status, json: async () => body };
+    };
+    const candles = {
+      venueId: 'test-venue-sim',
+      symbol: 'BTC-USDC',
+      test: true,
+      asOf: new Date(now).toISOString(),
+      value: [
+        // Before the window: left out.
+        { openAt: '2026-11-22T06:26:00.000Z', openPrice: '1', highPrice: '1', lowPrice: '1', closePrice: '1', baseVolume: '1' },
+        {
+          openAt: '2026-11-22T06:28:00.000Z',
+          openPrice: '60010',
+          highPrice: '60010',
+          lowPrice: '59990',
+          closePrice: '59990',
+          baseVolume: '0.002',
+        },
+        {
+          openAt: '2026-11-22T06:29:00.000Z',
+          openPrice: '59990',
+          highPrice: '60010',
+          lowPrice: '59990',
+          closePrice: '60010',
+          baseVolume: '0.002',
+        },
+        // Still open at now: never seen.
+        {
+          openAt: '2026-11-22T06:30:00.000Z',
+          openPrice: '60010',
+          highPrice: '60010',
+          lowPrice: '60010',
+          closePrice: '60010',
+          baseVolume: '0.001',
+        },
+      ],
+    };
+    const window = { symbol: 'BTC/USDT', barSize: '1m' as const, fromMs: Date.UTC(2026, 10, 22, 6, 28), toMs: now };
+    const port = tradeVenuePricePort({ tradeUrl: 'http://trade.test/', now: () => now, fetch: answer(200, candles) });
+    const read = await port.bars(window);
+    expect(asked).toEqual(['http://trade.test/api/v1/venue/spot-candles?base=BTC&interval=1m&limit=500']);
+    expect(read).toEqual({
+      venueMarket: 'BTC-USDC',
+      test: true,
+      bars: [
+        {
+          openTimeMs: Date.UTC(2026, 10, 22, 6, 28),
+          open: parseAmount('60010'),
+          high: parseAmount('60010'),
+          low: parseAmount('59990'),
+          close: parseAmount('59990'),
+        },
+        {
+          openTimeMs: Date.UTC(2026, 10, 22, 6, 29),
+          open: parseAmount('59990'),
+          high: parseAmount('60010'),
+          low: parseAmount('59990'),
+          close: parseAmount('60010'),
+        },
+      ],
+    });
+    const off = tradeVenuePricePort({
+      tradeUrl: 'http://trade.test',
+      now: () => now,
+      fetch: answer(404, { intafacedCode: 'trade.user_venue_off' }),
+    });
+    expect(await off.bars(window)).toEqual({ unavailable: "the venue's price read answered 404 (trade.user_venue_off)" });
+    const garbled = tradeVenuePricePort({
+      tradeUrl: 'http://trade.test',
+      now: () => now,
+      fetch: answer(200, { value: [{ openAt: 'x' }] }),
+    });
+    expect(await garbled.bars(window)).toEqual({ unavailable: "the venue's price read answered rows that are not candles" });
+    const down = tradeVenuePricePort({
+      tradeUrl: 'http://trade.test',
+      now: () => now,
+      fetch: async () => {
+        throw new Error('ECONNREFUSED');
+      },
+    });
+    expect(await down.bars(window)).toEqual({ unavailable: "the venue's price read did not answer" });
+    // A run older than the venue's read reaches is refused by name, never read in part.
+    await expect(port.bars({ ...window, fromMs: now - 500 * 60_000 })).rejects.toThrow(
+      /^quant.backtest_history_range — the run started more than 500 bars of 1m ago/,
+    );
   });
 
   it('counts running paper runs against the concurrent-run limit; a stopped run no longer counts', async () => {

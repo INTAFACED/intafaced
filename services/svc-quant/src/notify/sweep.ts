@@ -1,4 +1,4 @@
-import type { FeePort, HistoryPort } from '../engine/ports.js';
+import type { FeePort, VenuePricePort } from '../engine/ports.js';
 import { paperView } from '../paper/view.js';
 import type { RunRepository } from '../runs/repository.js';
 import type { StrategyRepository } from '../studio/repository.js';
@@ -30,7 +30,7 @@ export interface SweepDeps {
   readonly notify: NotifyRepository;
   readonly runs: RunRepository;
   readonly strategies: StrategyRepository;
-  readonly history: HistoryPort;
+  readonly prices: VenuePricePort;
   readonly fees: FeePort;
   readonly sink: FillSink;
   readonly now?: () => number;
@@ -44,7 +44,7 @@ const STOPPED_GRACE_MS = 10 * 60_000;
 
 /**
  * The server-side fill alert sweep (AL-live-06, AL-alerts-01). For each alert, the paper runs of its strategy version are
- * read as the screen reads them, from the exchange's own closed candles; each fill made at or after the alert was created
+ * read as the screen reads them, from the venue's own closed candles; each fill made at or after the alert was created
  * and not yet announced is published, then marked. Nothing here needs a browser. A crash between publish and mark
  * publishes the same event id again, and svc-notify writes one notice per id. Returns how many fills were published.
  */
@@ -89,7 +89,7 @@ async function sweepOne(
     const view = await paperView(
       paper,
       { id: strategy.id, version: version.version, modules: version.modules, risk: version.risk },
-      { fees: deps.fees, history: deps.history },
+      { fees: deps.fees, prices: deps.prices },
       nowMs,
     );
     if (view.trades.length === 0) continue;

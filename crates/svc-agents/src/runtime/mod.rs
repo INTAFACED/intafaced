@@ -335,15 +335,9 @@ pub fn agent_definition(
 /// \`CATALOGUE_ONLY_AGENTS\` (\`fleet/catalogue-only.ts\`): listed, and never opened.
 pub const CATALOGUE_ONLY_AGENTS: [&str; 4] = ["launch", "growth", "portfolio", "risk-compliance"];
 
-/// \`productKindOff\` (\`fleet/control.ts\`).
+/// `productKindOff`, the ops slice's (`ops::fleet`).
 fn product_kind_off(pool: &Pool) -> Result<bool, RunError> {
-    Ok(db::with_client(pool, |c| {
-        Ok(c.query_one(
-            "SELECT EXISTS (SELECT 1 FROM agents.agent_kind_switches WHERE kind = 'product')",
-            &[],
-        )?
-        .try_get(0)?)
-    })?)
+    Ok(crate::ops::fleet::product_kind_off(pool)?)
 }
 
 fn agent_not_found(message: String, key: &str, params: Vec<(String, Json)>) -> RunError {

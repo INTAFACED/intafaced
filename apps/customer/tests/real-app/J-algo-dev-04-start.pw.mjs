@@ -1,21 +1,37 @@
-// World: book
-// Market: live
+// World: restart
 import { test, expect } from './journey.mjs';
 import { fromUnits, journeyState, times, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
-import { closedBarsSince, utcMinute } from './tape.mjs';
-import { LABEL, dataOf, openStrategy, read, runRows, saveSignalStrategy, savedStrategyId, startForm, stopRun } from './paper-strategy.mjs';
+import { venueForThisFile } from './venue.mjs';
+import {
+  LABEL,
+  VENUE_MARKET,
+  dataOf,
+  openStrategy,
+  read,
+  runRows,
+  saveSignalStrategy,
+  savedStrategyId,
+  startForm,
+  stopRun,
+  venueCandles,
+  venueTape,
+} from './paper-strategy.mjs';
 
 // J-algo-dev-04 #2 to #4, in the running app (docs/roadmap/journeys.json): start a paper run of a saved strategy on the
 // exchange's own prices, retry the start after a lost reply, and choose an outside feed. Run in order on one TEST developer
 // of this file's own, who starts signed in with a saved signal-rules strategy version and no paper run; #3 and #4 count the
 // run #2 started, so they stay after it here. #1 is in J-algo-dev-04.pw.mjs, #5 to #8 in J-algo-dev-04-alerts.pw.mjs. The
-// paper run trades on the local TEST market maker's own 1 minute bars of BTC/USDT; every figure is paper and nothing here
+// paper run of BTC/USDT prices from the venue's own prints on BTC-USDC: svc-trade's user-venue door is on for this file,
+// on the stack's TEST venue, which another TEST trader trades both ways every 15 s (venueTape), and every check of a fill,
+// position or equity reads the TEST venue's own candles, never our door. Every figure is paper or TEST and nothing here
 // moves money (svc-quant imports no ledger client).
 const J = 'J-algo-dev-04';
 const run = journeyState(`${J}-start-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
 test.describe.configure({ mode: 'default' });
+venueForThisFile(test);
+const tape = venueTape(test, 'algo-dev-04-start');
 
 function state() {
   const read = run.read();
@@ -74,6 +90,12 @@ test(`${J} #2 sets cash TEST and an empty holdings list, keeps the own-exchange 
     equity: [],
   });
   expect(begun.position).toEqual({ symbol: 'BTC/USDT', qty: '0' });
+  // The prices are the venue's own prints on its spot market on BTC, a TEST venue here: never a book of ours.
+  expect(begun.prices).toEqual({ venueMarket: VENUE_MARKET, test: true, unavailable: null });
+  await expect(view.getByTestId('quant-paper-prices')).toHaveText(
+    `Prices: the venue’s own trades on ${VENUE_MARKET}, never a book of ours.`,
+  );
+  await expect(view.getByTestId('quant-paper-prices')).toHaveAttribute('data-venue-market', VENUE_MARKET);
   expect(begun.totals).toMatchObject({ startCash: '1000', fees: '0', net: '0', endEquity: '1000' });
   await expect(view).toHaveAttribute('data-priced', 'false');
   await expect(view.getByText('Waiting for the first price since the start.', { exact: false })).toBeVisible();
@@ -91,11 +113,13 @@ test(`${J} #2 sets cash TEST and an empty holdings list, keeps the own-exchange 
 
   // The run fills on the venue's own bars as they close.
   await expect
-    .poll(async () => (await read(who, 'quant', 'paper.get', { runId })).trades.length, {
-      timeout: 12 * 60_000,
-      intervals: [15_000],
-      message: 'the paper run made no fill on the TEST tape; is the TEST market maker running (pnpm local:market)?',
-    })
+    .poll(
+      async () => {
+        await tape.trade();
+        return (await read(who, 'quant', 'paper.get', { runId })).trades.length;
+      },
+      { timeout: 12 * 60_000, intervals: [15_000], message: "the paper run made no fill on the TEST venue's own prints" },
+    )
     .toBeGreaterThan(0);
 
   // The run page shows the run as the service holds it; read both again if a bar closed in between.
@@ -120,17 +144,20 @@ test(`${J} #2 sets cash TEST and an empty holdings list, keeps the own-exchange 
   await expect(view.getByRole('region', { name: 'Paper fills' }).getByRole('table')).toBeVisible();
   expect(after.claimLabel).toBe(LABEL);
 
-  // Each fill is at the open of a closed bar of our exchange's own BTC/USDT tape, after the start: never an earlier price.
-  const bars = await closedBarsSince(utcMinute(Math.ceil((Date.now() - Date.parse(after.startedAt)) / 60_000) + 1));
+  expect(after.prices).toEqual({ venueMarket: VENUE_MARKET, test: true, unavailable: null });
+
+  // Each fill is at the open of a closed candle of the TEST venue's own BTC-USDC prints, read from the venue itself, after
+  // the start: never an earlier price, and never a price of ours.
+  const candles = await venueCandles(tape.owner);
   for (const fill of after.trades) {
     expect(Date.parse(fill.ts)).toBeGreaterThan(Date.parse(after.startedAt));
-    const bar = bars.find(([at]) => at === Date.parse(fill.ts));
-    expect(bar, `a TEST bar at ${fill.ts}`).toBeTruthy();
-    expect(toUnits(fill.barPrice)).toBe(toUnits(String(bar[1])));
+    const candle = candles.get(Date.parse(fill.ts));
+    expect(candle, `the TEST venue's candle at ${fill.ts}`).toBeTruthy();
+    expect(toUnits(fill.barPrice)).toBe(toUnits(candle.openPrice));
   }
 
   // The position and equity follow from those fills: the position is what was bought less what was sold, and equity is
-  // the cash left after every fill and its fee plus the position at the close of the last bar read, from the same tape.
+  // the cash left after every fill and its fee plus the position at the close of the venue's last candle read.
   let qty = 0n;
   let cash = toUnits('1000');
   for (const fill of after.trades) {
@@ -144,9 +171,9 @@ test(`${J} #2 sets cash TEST and an empty holdings list, keeps the own-exchange 
     }
   }
   expect(after.position).toEqual({ symbol: 'BTC/USDT', qty: fromUnits(qty) });
-  const last = bars.find(([at]) => at + 60_000 === Date.parse(after.pricedThrough));
-  expect(last, `the TEST bar ending ${after.pricedThrough}`).toBeTruthy();
-  const mark = (qty * toUnits(String(last[4]))) / 10n ** 18n;
+  const last = candles.get(Date.parse(after.pricedThrough) - 60_000);
+  expect(last, `the TEST venue's candle ending ${after.pricedThrough}`).toBeTruthy();
+  const mark = (qty * toUnits(last.closePrice)) / 10n ** 18n;
   expect(toUnits(after.totals.endEquity)).toBe(cash + mark);
 });
 

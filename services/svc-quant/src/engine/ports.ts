@@ -129,6 +129,91 @@ export function tradeHistoryPort(options: {
   };
 }
 
+/**
+ * The prices a paper run trades on (J-algo-dev-04 #2): closed candles of the venue's own prints on the spot market we list
+ * on the strategy's asset, read from svc-trade's public route (`GET /api/v1/venue/spot-candles?base=BTC&interval=1m`),
+ * never a book of ours. An answer that says where the prices come from, or why there are none: the run is then unpriced
+ * and nothing fills, and no bar is invented.
+ */
+export type VenuePrices = { readonly venueMarket: string; readonly test: boolean; readonly bars: Bar[] } | { readonly unavailable: string };
+
+export interface VenuePricePort {
+  readonly wired: boolean;
+  /** Closed bars that start at or after `fromMs` and end by `toMs`, oldest first. An interval with no print is absent. */
+  bars(query: { readonly symbol: string; readonly barSize: BarSize; readonly fromMs: number; readonly toMs: number }): Promise<VenuePrices>;
+}
+
+/** The venue's candle read answers at most this many candles, the newest (svc-trade's `limit` cap on the route). */
+const VENUE_BARS_BACK = 500;
+
+const venueCandles = z.object({
+  symbol: z.string().min(1),
+  test: z.boolean(),
+  value: z.array(z.object({ openAt: z.string(), openPrice: price, highPrice: price, lowPrice: price, closePrice: price })),
+});
+
+export function missingVenuePrices(): VenuePricePort {
+  return {
+    wired: false,
+    bars: async () => ({ unavailable: "the venue's price read is not wired (TRADE_URL is unset)" }),
+  };
+}
+
+export function tradeVenuePricePort(options: {
+  readonly tradeUrl: string;
+  readonly now: () => number;
+  readonly fetch?: Fetch;
+  readonly timeoutMs?: number;
+}): VenuePricePort {
+  const base = options.tradeUrl.replace(/\/+$/, '');
+  const fetchImpl: Fetch = options.fetch ?? ((url, init) => globalThis.fetch(url, init));
+  return {
+    wired: true,
+    async bars({ symbol, barSize, fromMs, toMs }) {
+      const span = barSpanMs(barSize);
+      const now = options.now();
+      // One candle short of the route's cap, so the venue's own count (on its own clock) never lands one over it.
+      if (fromMs < now - (VENUE_BARS_BACK - 1) * span) {
+        throw new QuantError(
+          QUANT_BACKTEST_HISTORY_RANGE,
+          `the run started more than ${VENUE_BARS_BACK} bars of ${barSize} ago; the venue's price read reaches back that far`,
+        );
+      }
+      const asset = baseAssetOf(symbol);
+      const url = `${base}/api/v1/venue/spot-candles?base=${encodeURIComponent(asset)}&interval=${barSize}&limit=${VENUE_BARS_BACK}`;
+      let answer: { status: number; body: unknown };
+      try {
+        answer = await getJson(fetchImpl, url, options.timeoutMs ?? 10_000);
+      } catch {
+        return { unavailable: "the venue's price read did not answer" };
+      }
+      if (answer.status !== 200) return { unavailable: `the venue's price read answered ${answer.status} (${codeOf(answer.body)})` };
+      const read = venueCandles.safeParse(answer.body);
+      if (!read.success) return { unavailable: "the venue's price read answered rows that are not candles" };
+      const end = Math.min(toMs, now);
+      const byOpen = new Map<number, Bar>();
+      for (const candle of read.data.value) {
+        const openTimeMs = Date.parse(candle.openAt);
+        // Only whole, closed intervals inside the window: the strategy never sees a bar that has not closed.
+        if (!Number.isFinite(openTimeMs) || openTimeMs < fromMs || openTimeMs + span > end || openTimeMs % span !== 0) continue;
+        if (byOpen.has(openTimeMs)) return { unavailable: "the venue's price read answered two candles for one interval" };
+        byOpen.set(openTimeMs, {
+          openTimeMs,
+          open: parseAmount(candle.openPrice),
+          high: parseAmount(candle.highPrice),
+          low: parseAmount(candle.lowPrice),
+          close: parseAmount(candle.closePrice),
+        });
+      }
+      return {
+        venueMarket: read.data.symbol,
+        test: read.data.test,
+        bars: [...byOpen.values()].sort((a, b) => a.openTimeMs - b.openTimeMs),
+      };
+    },
+  };
+}
+
 export function tradeFeePort(options: { readonly tradeUrl: string; readonly fetch?: Fetch; readonly timeoutMs?: number }): FeePort {
   const base = options.tradeUrl.replace(/\/+$/, '');
   const fetchImpl = options.fetch ?? (globalThis.fetch as unknown as Fetch);

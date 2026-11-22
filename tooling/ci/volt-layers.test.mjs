@@ -5,7 +5,11 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 const wf = (name) => readFileSync(new URL(`../../.github/workflows/${name}`, import.meta.url), 'utf8');
-const trigger = (text, event) => /^on:\n([\s\S]*?)\n(?=\S)/m.exec(text)?.[1].split(/\n(?=  \S)/).find((b) => b.startsWith(`  ${event}:`)) ?? '';
+const trigger = (text, event) =>
+  /^on:\n([\s\S]*?)\n(?=\S)/m
+    .exec(text)?.[1]
+    .split(/\n(?=  \S)/)
+    .find((b) => b.startsWith(`  ${event}:`)) ?? '';
 
 test('a pull request into volt/* runs no journeys and starts no seal', () => {
   assert.match(trigger(wf('real-app-journeys.yml'), 'pull_request'), /branches-ignore: \['volt\/\*\*'\]/);
