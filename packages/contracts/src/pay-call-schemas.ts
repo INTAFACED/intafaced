@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { payPricingSnapshotViewSchema, payMerchantFailureSchema } from './pay-merchant-reads.js';
+import { assetIdSchema as brandedAssetIdSchema } from './asset-id.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** The schemas svc-pay's records share, moved from the service so the records and every caller read one copy. */
@@ -65,7 +66,7 @@ export const APPROVAL_STATUSES = ['pending', 'approved', 'executed', 'rejected',
 export const requestViewSchema = z.object({
   id,
   userId: id,
-  assetId: z.string(),
+  assetId: brandedAssetIdSchema,
   amount: z.string(),
   rail: z.string(),
   destination: z.object({ kind: z.string(), ref: z.string() }),
