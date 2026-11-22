@@ -11,7 +11,13 @@ import { z } from 'zod';
 import type { ApiClient } from '../shared/api';
 import { IDENTITY_USERS_SEARCH_PAYEES } from '@intafaced/contracts/identity-handles';
 import { handleNamed, type ResolveOutcome } from './identity';
-import { IDENTITY_RECEIVE_CONTACTS_LIST } from '@intafaced/contracts/identity-receive-contacts-procedures';
+import {
+  IDENTITY_RECEIVE_CONTACTS_LIST,
+  IDENTITY_RECEIVE_CONTACTS_ADD,
+  IDENTITY_RECEIVE_CONTACTS_VERIFY,
+  IDENTITY_RECEIVE_CONTACTS_REMOVE,
+} from '@intafaced/contracts/identity-receive-contacts-procedures';
+import { callAs, type AppProcedure } from '../shared/api';
 
 const receiveContactListSchema = z.object({
   contacts: z.array(z.object({ id: z.string().guid(), channel: z.enum(['email', 'phone']), target: z.string(), verified: z.boolean() })),
@@ -49,16 +55,17 @@ export async function fetchReceiveContacts(api: ApiClient, signal?: AbortSignal)
   return known(result.code) ? { kind: 'refused', code: result.code } : { kind: 'failed' };
 }
 
-async function change(api: ApiClient, procedure: string, input: unknown): Promise<ReceiveContactOutcome> {
-  const result = await api.mutate('identity', procedure, input, receiveContactListSchema);
+async function change(api: ApiClient, procedure: AppProcedure, input: unknown): Promise<ReceiveContactOutcome> {
+  const result = await callAs(api, procedure, input, receiveContactListSchema);
   if (result.ok) return { kind: 'ok', list: result.data };
   return known(result.code) ? { kind: 'refused', code: result.code } : { kind: 'failed' };
 }
 
 export const addReceiveContact = (api: ApiClient, input: { channel: ReceiveChannel; target: string }) =>
-  change(api, 'receiveContacts.add', input);
-export const verifyReceiveContact = (api: ApiClient, input: { id: string; code: string }) => change(api, 'receiveContacts.verify', input);
-export const removeReceiveContact = (api: ApiClient, input: { id: string }) => change(api, 'receiveContacts.remove', input);
+  change(api, IDENTITY_RECEIVE_CONTACTS_ADD, input);
+export const verifyReceiveContact = (api: ApiClient, input: { id: string; code: string }) =>
+  change(api, IDENTITY_RECEIVE_CONTACTS_VERIFY, input);
+export const removeReceiveContact = (api: ApiClient, input: { id: string }) => change(api, IDENTITY_RECEIVE_CONTACTS_REMOVE, input);
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE = /^\+[1-9][0-9]{7,14}$/;
