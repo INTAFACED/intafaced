@@ -253,8 +253,9 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
           title={mine ? payCopy.t('yourOffers') : payCopy.t('offerBoard')}
           description={mine ? t('ownerWindow') : undefined}
           action={
-            <a className="lt-link" href="/uc/ad/create">
+            <a className="lt-link lt-link-alone" href="/uc/ad/create">
               <PayCopy k="createOffer" />
+              <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
             </a>
           }
         >
