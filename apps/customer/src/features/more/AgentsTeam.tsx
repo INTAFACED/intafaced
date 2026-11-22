@@ -30,6 +30,11 @@ type Role = AgentsTeamRole;
 type Team = AgentsTeamView;
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
+/** A grant change sent and not yet seen in a team read. */
+type PendingGrant = { memberUserId: string; role: Role; allow: boolean; deny: boolean; version: number };
+/** The stored version of one member's grant for one role in a team read; 0 when the read holds none. */
+const grantVersion = (team: Team, memberUserId: string, role: Role) =>
+  team.members.find((m) => m.userId === memberUserId)?.grants.find((g) => g.role === role)?.version ?? 0;
 /** Each refusal the room words itself, by its code (`agents.<key>`, a run's hold refusals as `agents.team.<key>`). */
 const ERR_KEYS = {
   'agents.role_not_member': 'err_role_not_member',
@@ -198,22 +203,23 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
   const asset = team.pool?.assetId ?? '';
   const [busy, setBusy] = useState(false);
   const [rolesNote, setRolesNote] = useState<Note | null>(null);
-  const [override, setOverride] = useState<Record<string, boolean>>({});
-  // A saved tick stays shown, and the boxes stay locked, until the team is read again: the box never flips back to the
-  // old value in between, and the next change is sent on the grant's new version, never the one just used.
-  useEffect(() => {
-    setOverride({});
-    setBusy(false);
-  }, [team]);
+  const [pending, setPending] = useState<PendingGrant | null>(null);
+  // A changed grant stays shown, and the boxes stay locked, until a team read that holds the change (the grant's newer
+  // version) lands: a read sent before the save never flips the box back, and the next change is sent on the grant's
+  // new version, never the one just used.
+  const unseen = pending && grantVersion(team, pending.memberUserId, pending.role) <= pending.version ? pending : null;
+  const shownGrant = (memberUserId: string, g: Team['members'][number]['grants'][number]) =>
+    unseen && unseen.memberUserId === memberUserId && unseen.role === g.role ? unseen : g;
 
   /** Saves one member's allow and deny for one role as that grant's next change. */
   async function saveGrant(memberUserId: string, role: Role, allow: boolean, deny: boolean, version: number) {
     setBusy(true);
+    setPending({ memberUserId, role, allow, deny, version });
     const result = await api.call(AGENTS_TEAM_GRANTS_SET, { businessId, memberUserId, role, allow, deny, revision: version + 1 });
-    if (!result.ok) setBusy(false);
+    setBusy(false);
     setRolesNote(result.ok ? { ok: true, text: t('saved') } : { ok: false, failed: result as Refusal });
-    // A refused change shows the stored value again at once; a saved one keeps its tick until the reload lands.
-    if (!result.ok) setOverride({});
+    // A refused change shows the stored value again at once; a saved one keeps its tick until a read holding it lands.
+    if (!result.ok) setPending(null);
     reload();
     return result.ok;
   }
@@ -274,7 +280,7 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
     reload();
   }
 
-  const locked = busy || !team.canManage;
+  const locked = busy || !!unseen || !team.canManage;
 
   return (
     <>
@@ -299,12 +305,9 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
               </td>
               <td>{t(`business_${m.businessRole}`)}</td>
               {m.grants.map((g) => {
-                const allow = override[`${m.userId}:${g.role}:allow`] ?? g.allow;
-                const deny = override[`${m.userId}:${g.role}:deny`] ?? g.deny;
-                const toggle = (effect: 'allow' | 'deny', value: boolean) => {
-                  setOverride((o) => ({ ...o, [`${m.userId}:${g.role}:${effect}`]: value }));
+                const { allow, deny } = shownGrant(m.userId, g);
+                const toggle = (effect: 'allow' | 'deny', value: boolean) =>
                   void saveGrant(m.userId, g.role, effect === 'allow' ? value : allow, effect === 'deny' ? value : deny, g.version);
-                };
                 return (
                   <td key={g.role}>
                     <label>
