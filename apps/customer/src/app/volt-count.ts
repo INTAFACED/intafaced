@@ -10,8 +10,8 @@
  *     - `stylesheet`: an imported `.css` file (styles of the room's own);
  *     - `inline-style`: a `style=` attribute (a `data-style=` attribute is data, not a style);
  *     - `old-kit`: an import from `@intafaced/ui` other than `@intafaced/ui/lit…`, or from the app's `shared/ui`;
- *     - `outside-component`: a component (a capitalised name) imported from a `.tsx` file outside the room's folder
- *       that itself draws off the kit: that file is judged by this same rule, in its own folder, so a part several rooms
+ *     - `outside-component`: a component (a capitalised name) imported from a `.tsx` file outside the room's folder,
+ *       directly or through a `.ts` entry that re-exports it (a feature's `index.ts`), that itself draws off the kit: that file is judged by this same rule, in its own folder, so a part several rooms
  *       share is drawn from the kit once, where it lives (hooks, copy and helpers from there are not judged);
  *     - `own-class`: a class name written in `className` that is not the kit's (`lt-…`).
  * A room that fails 1 is `not-migrated` (or `no-template` when the registry has no row for it); one that fails 2 is
@@ -57,7 +57,7 @@ export interface VoltCount {
 }
 
 const VOLT_RULE =
-  "In Volt: room-templates.ts names the screen file (migrated.file), it imports @intafaced/ui/lit, and it and the files it reaches by relative import inside its own folder import no stylesheet, set no style=, import nothing from @intafaced/ui outside /lit nor from shared/ui, import no component (a capitalised name) from a .tsx outside the folder unless that file passes this same rule, and write no className that is not the kit's lt- class.";
+  "In Volt: room-templates.ts names the screen file (migrated.file), it imports @intafaced/ui/lit, and it and the files it reaches by relative import inside its own folder import no stylesheet, set no style=, import nothing from @intafaced/ui outside /lit nor from shared/ui, import no component (a capitalised name) from a .tsx outside the folder, directly or re-exported through a .ts such as a feature's index.ts, unless that file passes this same rule, and write no className that is not the kit's lt- class.";
 
 const SRC = resolve(dirname(new URL(import.meta.url).pathname), '..');
 const at = (file: string, line: number) => `${relative(SRC, file)}:${line}`;
@@ -70,21 +70,79 @@ function resolveImport(from: string, spec: string): string | undefined {
 }
 
 /** Each value import in `source` (type-only imports draw nothing), with its line. */
-function imports(source: string): { spec: string; line: number; names: string[] }[] {
-  const found: { spec: string; line: number; names: string[] }[] = [];
+interface Import {
+  kind: 'import' | 'export';
+  spec: string;
+  line: number;
+  names: string[];
+  /** For a re-export, the names it hands on (after `as`). */
+  exported: string[];
+  /** `export * from`: hands on every name of its source. */
+  star: boolean;
+}
+function imports(source: string): Import[] {
+  const found: Import[] = [];
   const pattern = /^[ \t]*(import|export)\b(?!\s+type\s)(?:[^'";]*?\bfrom)?\s*['"]([^'"]+)['"]/gm;
   for (const m of source.matchAll(pattern)) {
     if (m[1] === 'export' && !/\bfrom\s*['"]/.test(m[0])) continue;
     const clause = m[0].replace(/^[ \t]*(import|export)\b/, '').replace(/\bfrom\s*['"][^'"]+['"]$/, '');
-    const names = clause
+    const parts = clause
       .replace(/[{}*]/g, ',')
       .split(',')
       .map((n) => n.trim())
-      .filter((n) => n && !n.startsWith('type '))
-      .map((n) => n.split(/\s+as\s+/)[0]!.trim());
-    found.push({ spec: m[2]!, line: source.slice(0, m.index).split('\n').length, names });
+      .filter((n) => n && !n.startsWith('type '));
+    // An import binds the name before `as` to its source; an export names the one after it to its importers.
+    const names = parts.map((n) => n.split(/\s+as\s+/)[0]!.trim());
+    const exported = parts.map((n) =>
+      n
+        .split(/\s+as\s+/)
+        .pop()!
+        .trim(),
+    );
+    found.push({
+      kind: m[1] as 'import' | 'export',
+      spec: m[2]!,
+      line: source.slice(0, m.index).split('\n').length,
+      names,
+      exported,
+      star: /\*/.test(clause) && !/\*\s+as\b/.test(clause),
+    });
   }
   return found;
+}
+
+/**
+ * The `.tsx` files that draw the components `names` imported from `target`: `target` itself when it is a `.tsx`, or,
+ * for a `.ts` entry (a feature's `index.ts`), the `.tsx` each name is re-exported from, followed through every
+ * `export … from` and `export * from` until it reaches one. A name defined in the `.ts` itself draws nothing here.
+ */
+export function componentFiles(target: string, names: string[], seen: Set<string> = new Set()): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  const wanted = names.filter((n) => /^[A-Z]/.test(n));
+  if (wanted.length === 0 || seen.has(target)) return out;
+  seen.add(target);
+  if (target.endsWith('.tsx')) return out.set(target, wanted);
+  if (!target.endsWith('.ts')) return out;
+  for (const re of imports(readFileSync(target, 'utf8'))) {
+    if (re.kind !== 'export' || !re.spec.startsWith('.')) continue;
+    const from = resolveImport(target, re.spec);
+    if (!from) continue;
+    // Each name asked for here, against the name its source gives it; the finding keeps the name the room wrote.
+    const handed = wanted.flatMap((n) => {
+      if (re.star) return [[n, n] as const];
+      const i = re.exported.indexOf(n);
+      return i < 0 ? [] : [[n, re.names[i]!] as const];
+    });
+    for (const [file, drawn] of componentFiles(
+      from,
+      handed.map(([, source]) => source),
+      new Set(seen),
+    )) {
+      const asked = handed.filter(([, source]) => drawn.includes(source)).map(([n]) => n);
+      out.set(file, [...(out.get(file) ?? []), ...asked]);
+    }
+  }
+  return out;
 }
 
 /**
@@ -113,15 +171,18 @@ export function offKitFindings(entry: string, judged: Map<string, Finding[]> = n
         if (/(^|\/)shared\/ui(\.tsx?|\/.*)$/.test(target)) findings.push({ kind: 'old-kit', at: where, text: spec });
         else if (target.startsWith(folder + '/')) {
           if (!/\.test\.tsx?$/.test(target)) queue.push(target);
-        } else if (target.endsWith('.tsx') && names.some((n) => /^[A-Z]/.test(n))) {
-          if (!judged.has(target)) judged.set(target, offKitFindings(target, judged));
-          const off = judged.get(target)!;
-          if (off.length > 0)
-            findings.push({
-              kind: 'outside-component',
-              at: where,
-              text: `${names.filter((n) => /^[A-Z]/.test(n)).join(', ')} from ${spec}, which draws off the kit: ${off[0]!.kind} at ${off[0]!.at}${off.length > 1 ? ` (+${off.length - 1} more)` : ''}`,
-            });
+        } else {
+          for (const [part, drawn] of componentFiles(target, names)) {
+            if (!judged.has(part)) judged.set(part, offKitFindings(part, judged));
+            const off = judged.get(part)!;
+            const via = part === target ? spec : `${spec} (${relative(SRC, part)})`;
+            if (off.length > 0)
+              findings.push({
+                kind: 'outside-component',
+                at: where,
+                text: `${drawn.join(', ')} from ${via}, which draws off the kit: ${off[0]!.kind} at ${off[0]!.at}${off.length > 1 ? ` (+${off.length - 1} more)` : ''}`,
+              });
+          }
         }
       }
     }
