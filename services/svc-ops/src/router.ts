@@ -85,6 +85,7 @@ import { OPS_RECORD_VENUE_COST } from '@intafaced/contracts/ops-record-venue-cos
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { opsRefusal } from './refusal.js';
 import { OPS_RESTORE_WATERMARKS } from '@intafaced/contracts/ops-restore-procedures';
+import { restoreBackupListSchema, restoreRunDetailSchema, restoreRunListSchema } from '@intafaced/contracts/ops-restore-watermarks';
 import { OPS_VENUE_ECONOMICS } from '@intafaced/contracts/ops-venue-economics-procedures';
 
 /**
@@ -643,36 +644,41 @@ export function createOpsRouter(
         opsRefusal,
       ),
       // A blank URL is unconfigured. A probe that fails or is unwired stays unprobed. A manifest is listed as returned.
-      backups: scopedProcedure('admin:read', guards).query(async () => {
-        const archive = archivePosture(desks.restoreArchiveUrl);
-        if (!archive.configured || !desks.restoreArchiveProbe || desks.restoreArchiveUrl == null) {
-          return { asOf: now(), archive, backups: [] as const, reason: archive.code };
-        }
-        let probed: RestoreArchiveProbeResult;
-        try {
-          probed = await desks.restoreArchiveProbe(desks.restoreArchiveUrl);
-        } catch {
-          probed = { probed: false };
-        }
-        if (!probed.probed) {
-          return { asOf: now(), archive, backups: [] as const, reason: OPS_RESTORE_ARCHIVE_UNPROBED };
-        }
-        return {
-          asOf: now(),
-          archive: { configured: true as const, probed: true as const, code: null },
-          backups: probed.backups,
-          reason: probed.backups.length === 0 ? 'The archive listed no backups.' : 'The archive listed these backups.',
-        };
-      }),
-      runs: scopedProcedure('admin:read', guards).query(async () => {
-        try {
-          return { asOf: now(), runs: [...(await requireRestoreDesk(desks.restoreDesk).list())] };
-        } catch (err) {
-          mapError(err);
-        }
-      }),
+      backups: scopedProcedure('admin:read', guards)
+        .output(restoreBackupListSchema)
+        .query(async () => {
+          const archive = archivePosture(desks.restoreArchiveUrl);
+          if (!archive.configured || !desks.restoreArchiveProbe || desks.restoreArchiveUrl == null) {
+            return { asOf: now(), archive, backups: [] as const, reason: archive.code };
+          }
+          let probed: RestoreArchiveProbeResult;
+          try {
+            probed = await desks.restoreArchiveProbe(desks.restoreArchiveUrl);
+          } catch {
+            probed = { probed: false };
+          }
+          if (!probed.probed) {
+            return { asOf: now(), archive, backups: [] as const, reason: OPS_RESTORE_ARCHIVE_UNPROBED };
+          }
+          return {
+            asOf: now(),
+            archive: { configured: true as const, probed: true as const, code: null },
+            backups: probed.backups,
+            reason: probed.backups.length === 0 ? 'The archive listed no backups.' : 'The archive listed these backups.',
+          };
+        }),
+      runs: scopedProcedure('admin:read', guards)
+        .output(restoreRunListSchema)
+        .query(async () => {
+          try {
+            return { asOf: now(), runs: [...(await requireRestoreDesk(desks.restoreDesk).list())] };
+          } catch (err) {
+            mapError(err);
+          }
+        }),
       run: scopedProcedure('admin:read', guards)
         .input(z.object({ restoreNo: z.string().min(1).max(128) }))
+        .output(restoreRunDetailSchema)
         .query(async ({ input }) => {
           try {
             return await requireRestoreDesk(desks.restoreDesk).get(input.restoreNo);

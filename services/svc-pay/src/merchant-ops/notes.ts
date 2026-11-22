@@ -1,4 +1,5 @@
 import type { Sql } from 'postgres';
+import { z } from 'zod';
 import { MerchantOpsError } from './errors.js';
 import { iso } from './money.js';
 import { decodeCursor, encodeCursor, requireLimit, toPage } from './pagination.js';
@@ -25,6 +26,22 @@ export interface OperatorNoteView {
   readonly retractedBy: string | null;
   readonly retractReason: string | null;
 }
+
+/** The answer of `founderAdmin.ops.notes.add` and `.retract`, and each item of `.list`: one `OperatorNoteView`. */
+export const operatorNoteSchema = z
+  .object({
+    noteId: z.string().min(1),
+    merchantId: z.string().min(1),
+    body: z.string(),
+    tags: z.array(z.string()),
+    flagged: z.boolean(),
+    authorId: z.string().min(1),
+    createdAt: z.string().min(1),
+    retractedAt: z.string().min(1).nullable(),
+    retractedBy: z.string().min(1).nullable(),
+    retractReason: z.string().min(1).nullable(),
+  })
+  .strict();
 
 interface Row {
   id: string;

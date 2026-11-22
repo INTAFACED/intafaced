@@ -26,7 +26,7 @@ import {
   StatusEmailNotConnected,
   type ReceiptAssetPlaces,
 } from './receipt-branding.js';
-import { OperatorNotes } from './notes.js';
+import { OperatorNotes, operatorNoteSchema } from './notes.js';
 import { cursorInput, limitInput } from './pagination.js';
 import { PayoutList } from './payouts.js';
 import { reportOptions, zonedFilters } from './merchant-disp-bill-rep-report-options.js';
@@ -705,6 +705,7 @@ export function createFounderOpsRouter(deps: MerchantOpsDeps) {
             flagged: z.boolean().default(false),
           }),
         )
+        .output(operatorNoteSchema)
         .mutation(({ ctx, input }) => wrapOps(async () => need().notes.add(founderIdOf(ctx), input))),
       list: founder
         .input(
@@ -716,9 +717,11 @@ export function createFounderOpsRouter(deps: MerchantOpsDeps) {
             includeRetracted: z.boolean().optional(),
           }),
         )
+        .output(payPageSchema(operatorNoteSchema))
         .query(({ input }) => wrapOps(async () => need().notes.list(input))),
       retract: founder
         .input(z.object({ noteId: id, reason: z.string().trim().min(3).max(500) }))
+        .output(operatorNoteSchema)
         .mutation(({ ctx, input }) => wrapOps(async () => need().notes.retract(founderIdOf(ctx), input))),
     }),
     receiptTemplate: router({

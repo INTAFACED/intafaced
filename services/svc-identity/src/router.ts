@@ -159,6 +159,7 @@ import {
   lapseOutput,
   rebindForCustomer,
 } from '@intafaced/contracts/identity-call-schemas';
+import { authenticationOptions, registrationOptions } from '@intafaced/contracts/identity-call-schemas';
 import {
   IDENTITY_AUTH_CHALLENGE,
   IDENTITY_AUTH_DEVICE_APPROVE,
@@ -2354,7 +2355,7 @@ export function createIdentityRouter(
      * the same session tokens as password login, with `mfa: true`.
      */
     webauthn: router({
-      registerOptions: protectedProcedure.mutation(async ({ ctx }) => {
+      registerOptions: protectedProcedure.output(registrationOptions).mutation(async ({ ctx }) => {
         if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
         try {
           return await auth.startWebauthnRegistration(ctx.principal.userId, factorActor(ctx.principal, privilegedUserIds));
@@ -2387,14 +2388,17 @@ export function createIdentityRouter(
           }
         }),
 
-      authOptions: publicProcedure.input(z.object({ identifier: z.string().min(1) })).mutation(async ({ input }) => {
-        if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
-        try {
-          return await auth.startWebauthnAuthentication(input.identifier);
-        } catch (err) {
-          throw toTrpcError(err);
-        }
-      }),
+      authOptions: publicProcedure
+        .input(z.object({ identifier: z.string().min(1) }))
+        .output(authenticationOptions)
+        .mutation(async ({ input }) => {
+          if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
+          try {
+            return await auth.startWebauthnAuthentication(input.identifier);
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
 
       authVerify: publicProcedure
         .input(

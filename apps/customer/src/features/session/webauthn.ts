@@ -1,26 +1,8 @@
 import { z } from 'zod';
 import { authoredRefusal, type ApiClient, type ApiResult } from '../../shared/api';
 import { sessionSchema, type Session } from './session';
-import { credentialDescriptor, authenticationOptions } from '@intafaced/contracts/identity-call-schemas';
+import { authenticationOptions, registrationOptions } from '@intafaced/contracts/identity-call-schemas';
 import { IDENTITY_AUTH_STEP_UP_OPTIONS } from '@intafaced/contracts/identity-auth-procedures';
-
-const registrationOptions = z.object({
-  challenge: z.string(),
-  rp: z.object({ id: z.string().optional(), name: z.string() }),
-  user: z.object({ id: z.string(), name: z.string(), displayName: z.string() }),
-  pubKeyCredParams: z.array(z.object({ type: z.literal('public-key'), alg: z.number().int() })),
-  timeout: z.number().optional(),
-  excludeCredentials: z.array(credentialDescriptor).optional(),
-  authenticatorSelection: z
-    .object({
-      authenticatorAttachment: z.enum(['platform', 'cross-platform']).optional(),
-      residentKey: z.enum(['discouraged', 'preferred', 'required']).optional(),
-      requireResidentKey: z.boolean().optional(),
-      userVerification: z.enum(['required', 'preferred', 'discouraged']).optional(),
-    })
-    .optional(),
-  attestation: z.enum(['none', 'indirect', 'direct', 'enterprise']).optional(),
-});
 
 function bytes(value: string): ArrayBuffer {
   const base64 = value.replace(/-/g, '+').replace(/_/g, '/');
