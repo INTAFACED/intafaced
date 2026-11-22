@@ -784,7 +784,6 @@ const BACKEND_PKGS = [
   'svc-bank',
   'svc-trade',
   'svc-pay',
-  'svc-matching',
   'svc-token',
   'svc-p2p',
   'svc-notify',
@@ -1188,7 +1187,7 @@ function javaBin() {
   return path.join(ensureToolchain(javaTools()).JAVA_HOME, 'bin', 'java');
 }
 
-// ── Rust services (svc-tax, svc-academy, svc-ledger, svc-agents) ───────────────────────────────────
+// ── Rust services (svc-tax, svc-academy, svc-ledger, svc-matching, svc-agents) ───────────────────────────────────
 
 /** The stack's Rust services: each `local-stack-services/<name>.mjs` that says `rust: true` runs `crates/svc-<name>`. */
 function rustServices() {
