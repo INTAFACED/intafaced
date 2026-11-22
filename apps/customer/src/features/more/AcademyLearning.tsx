@@ -1,18 +1,20 @@
-import { useId, type ReactNode } from 'react';
-import { Button, Panel } from '../../shared/ui';
-import { Details, Limit, Read, Select, type ActionControls } from './common';
+import type { ReactNode } from 'react';
+import { Button } from '@intafaced/ui/lit';
+import { SelectField } from '@intafaced/ui/lit/templates';
+import type { ActionControls } from './common';
 import { t as copyText } from './copy';
 import { academyLearningCopy as copy } from './academy-learning-copy';
 import { isAcademyPath } from './academy-lms';
 import { AcademyCatalogue } from './AcademyCatalogue';
 import { academyLmsCopy } from './academy-lms-copy';
-import { kindLabel, pathLabel } from './AcademyLmsParts';
+import { kindLabel, pathLabel } from './academy-labels';
 import { lessonHref, useLearningState } from './academy-learning-state';
-import './academy-learning.css';
+import { KitDetails } from './volt-action';
+import { KitLimit, KitRead, Section } from './volt-parts';
 
 /**
- * The hub's Learning tab: the original completion left behind, the catalogue, the learning path and the library. A lesson
- * opens in the reader (academy-reader/), which draws the same reads with the kit; the reads are academy-learning-state.ts.
+ * The hub's Learning tab drawn with the kit (intafaced issue 9566): the original completion left behind, the catalogue,
+ * the learning path and the library. A lesson opens in the reader (academy-reader/); the reads are academy-learning-state.ts.
  */
 export function AcademyLearning({
   initialPath,
@@ -28,7 +30,6 @@ export function AcademyLearning({
   const current = copy.useCopy(),
     { t: lms } = academyLmsCopy.useCopy();
   const { t, Copy } = current;
-  const certificateControl = useId();
   const {
     path,
     setPath,
@@ -46,59 +47,53 @@ export function AcademyLearning({
     certificateLink,
   } = useLearningState({ initialPath, certId, action });
   const recovery = pending && (
-    <section className="academy-learning-unknown" aria-label={t('unknownCompletion')}>
-      <h3>
+    <section className="lt-refusal" aria-label={t('unknownCompletion')}>
+      <h3 className="lt-refusal-title">
         <Copy k="unknownCompletion" />
       </h3>
-      <p>
+      <p className="lt-refusal-body">
         <Copy k="unknownBoundary" />
       </p>
-      <Details
+      <KitDetails
         items={[
           [t('lessonReference'), <code lang="zxx">{pending.slug}</code>],
           ...(pending.certId ? [[t('certificateReference'), <code lang="zxx">{pending.certId}</code>] as [string, ReactNode]] : []),
         ]}
       />
-      <p className="muted">
+      <p className="lt-hint">
         <Copy k="lookupDependency" />
       </p>
-      <div className="academy-learning-actions">
-        <a className="academy-learning-link" href={lessonHref(pending.slug, pending.certId)}>
+      <div className="lt-actions">
+        <a className="lt-link lt-link-alone" href={lessonHref(pending.slug, pending.certId)}>
           <Copy k="returnOriginal" />
         </a>
-        <a className="academy-learning-link" href="/support">
+        <a className="lt-link lt-link-alone" href="/support">
           <Copy k="contactSupport" />
         </a>
       </div>
     </section>
   );
   const pathPanel = (
-    <div className="academy-learning-stack">
-      <Read resource={definitions.resource} retry={definitions.reload} empty={t('noCertificate')}>
+    <div className="lt-stack">
+      <KitRead resource={definitions.resource} retry={definitions.reload} empty={t('noCertificate')}>
         {(rows) => (
-          <label className="field" htmlFor={certificateControl}>
-            <span>
-              <Copy k="publishedCertificate" />
-            </span>
-            <select id={certificateControl} value={certId} onChange={(event) => chooseCertificate(event.target.value)}>
-              <option value="" lang={current.languageFor('chooseCertificate')}>
-                {t('chooseCertificate')}
-              </option>
-              {rows.map((c) => (
-                <option key={c.id} value={c.id} lang="und">
-                  {c.title}
-                </option>
-              ))}
-            </select>
-          </label>
+          <SelectField
+            label={<Copy k="publishedCertificate" />}
+            value={certId}
+            onChange={chooseCertificate}
+            options={[
+              { value: '', label: t('chooseCertificate'), lang: current.languageFor('chooseCertificate') },
+              ...rows.map((c) => ({ value: c.id, label: c.title, lang: 'und' })),
+            ]}
+          />
         )}
-      </Read>
+      </KitRead>
       {!certId && (
-        <p className="muted">
+        <p className="lt-hint">
           <Copy k="certificateHint" />
         </p>
       )}
-      <Read resource={progress.resource} retry={progress.reload}>
+      <KitRead resource={progress.resource} retry={progress.reload}>
         {(p) =>
           p &&
           selected && (
@@ -107,32 +102,32 @@ export function AcademyLearning({
               <p role="status">
                 <Copy k="completedCount" params={{ completed: p.completedCount, required: p.requiredCount }} />
               </p>
-              <p className="muted">
+              <p className="lt-hint">
                 <Copy k="progressBoundary" />
               </p>
-              <div className="academy-learning-actions">
-                <Button variant="secondary" onClick={progress.reload}>
+              <div className="lt-actions">
+                <Button tone="secondary" onClick={progress.reload}>
                   <Copy k="refreshProgress" />
                 </Button>
               </div>
               <h3>
                 <Copy k="requiredLessons" />
               </h3>
-              <Read resource={pathItems.resource} retry={pathItems.reload}>
+              <KitRead resource={pathItems.resource} retry={pathItems.reload}>
                 {(rows) => (
                   <>
-                    <ul className="academy-learning-lessons">
+                    <ul className="lt-stack">
                       {selected.requiredItemSlugs.map((s) => {
                         const lesson = rows.find((r) => r.slug === s);
                         return (
-                          <li key={s}>
-                            <div>
+                          <li key={s} className="lt-actions">
+                            <div className="lt-stack">
                               <strong lang={lesson ? 'und' : 'zxx'}>{lesson?.title ?? s}</strong>
-                              <small className="academy-learning-ref">
+                              <small className="lt-hint">
                                 <Copy k={p.missingItemSlugs.includes(s) ? 'stillRequired' : 'recorded'} />
                               </small>
                             </div>
-                            <a className="academy-learning-link" href={lessonHref(s, certId, lesson?.path)}>
+                            <a className="lt-link lt-link-alone" href={lessonHref(s, certId, lesson?.path)}>
                               <Copy k="readLesson" />
                             </a>
                           </li>
@@ -140,14 +135,14 @@ export function AcademyLearning({
                       })}
                     </ul>
                     {p.missingItemSlugs.length > 0 ? (
-                      <div className="academy-learning-stack">
+                      <div className="lt-stack">
                         <h3>
                           <Copy k="nextLesson" />
                         </h3>
                         <strong lang={rows.some((r) => r.slug === p.missingItemSlugs[0]) ? 'und' : 'zxx'}>
                           {rows.find((r) => r.slug === p.missingItemSlugs[0])?.title ?? p.missingItemSlugs[0]}
                         </strong>
-                        <a className="academy-learning-link" href={lessonHref(p.missingItemSlugs[0]!, certId)}>
+                        <a className="lt-link lt-link-alone" href={lessonHref(p.missingItemSlugs[0]!, certId)}>
                           <Copy k="readNext" />
                         </a>
                       </div>
@@ -156,23 +151,23 @@ export function AcademyLearning({
                         <Copy k="allRecorded" />
                       </p>
                     )}
-                    <a className="academy-learning-link" href={certificateLink}>
+                    <a className="lt-link lt-link-alone" href={certificateLink}>
                       <Copy k="returnCertificate" />
                     </a>
-                    {rows.length >= 200 && <Limit count={rows.length} limit={200} cap={200} onChange={() => {}} />}
+                    {rows.length >= 200 && <KitLimit count={rows.length} limit={200} cap={200} onChange={() => {}} />}
                   </>
                 )}
-              </Read>
+              </KitRead>
             </>
           )
         }
-      </Read>
+      </KitRead>
     </div>
   );
   return (
-    <div lang={current.languageFor('learningPath')} className="academy-learning-stack">
+    <div lang={current.languageFor('learningPath')} className="lt-stack">
       {recovery}
-      <Read resource={overview.resource} retry={overview.reload}>
+      <KitRead resource={overview.resource} retry={overview.reload}>
         {(data) => (
           <AcademyCatalogue
             lessons={data.lessons}
@@ -181,13 +176,13 @@ export function AcademyLearning({
             selectedPath={isAcademyPath(initialPath) ? initialPath : null}
           />
         )}
-      </Read>
-      <Panel title={t('learningPath')} data-testid="academy-learning-path">
+      </KitRead>
+      <Section title={t('learningPath')} data-testid="academy-learning-path" className="lt-stack">
         {pathPanel}
-      </Panel>
-      <Panel title={copyText('academy.learning.library')}>
-        <div className="more-inline">
-          <Select
+      </Section>
+      <Section title={copyText('academy.learning.library')} className="lt-stack">
+        <div className="lt-actions">
+          <SelectField
             label={copyText('academy.learning.path')}
             value={path}
             onChange={setPath}
@@ -199,7 +194,7 @@ export function AcademyLearning({
               })),
             ]}
           />
-          <Select
+          <SelectField
             label={copyText('academy.content.kind')}
             value={kind}
             onChange={setKind}
@@ -209,12 +204,12 @@ export function AcademyLearning({
             ]}
           />
         </div>
-        <Read resource={list.resource} retry={list.reload} empty={copyText('academy.no.curriculum.items.match.this.path')}>
+        <KitRead resource={list.resource} retry={list.reload} empty={copyText('academy.no.curriculum.items.match.this.path')}>
           {(rows) => (
             <>
-              <div className="more-rooms">
+              <div className="lt-stack">
                 {rows.map((r) => (
-                  <a className="more-room-link" key={r.slug} href={lessonHref(r.slug, certId, r.path)}>
+                  <a className="lt-link lt-stack" key={r.slug} href={lessonHref(r.slug, certId, r.path)}>
                     <small>
                       <span>{kindLabel(lms, r.kind)}</span> · <Copy k="readingMinutes" params={{ minutes: r.estimatedMinutes }} />
                     </small>
@@ -223,11 +218,11 @@ export function AcademyLearning({
                   </a>
                 ))}
               </div>
-              <Limit count={rows.length} limit={limit} cap={200} onChange={setLimit} />
+              <KitLimit count={rows.length} limit={limit} cap={200} onChange={setLimit} />
             </>
           )}
-        </Read>
-      </Panel>
+        </KitRead>
+      </Section>
     </div>
   );
 }

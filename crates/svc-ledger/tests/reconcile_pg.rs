@@ -19,7 +19,7 @@
     reason = "a test: a failure is the point"
 )]
 
-mod support;
+use crate::support;
 
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering};

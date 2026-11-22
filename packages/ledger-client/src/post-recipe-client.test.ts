@@ -6,8 +6,10 @@ import { classifyPostOutcome } from './post-outcome.js';
 import { LEDGER_ACK_INVALID_MESSAGE } from './http-client.js';
 import { recipes } from './recipes/index.js';
 import { LedgerError } from './types.js';
+import { LEDGER_POST_ALLOWLIST } from './gate/caller-allowlist.js';
 import {
   LEDGER_POST_RECIPE,
+  POST_RECIPE_NAMES,
   POST_RECIPE_INPUT_INVALID,
   POST_RECIPE_UNKNOWN,
   createHttpRecipePoster,
@@ -66,6 +68,89 @@ const poster = (fetch: typeof globalThis.fetch, extra: Record<string, unknown> =
     sleep: async () => {},
     ...extra,
   });
+
+const PAYEE = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const SPACE = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+const TRANSFER = {
+  transferId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+  occurrence: 0,
+  from: { ownerType: 'user', ownerId: USER, assetId: 'USDC', kind: 'available' },
+  to: { ownerType: 'user', ownerId: PAYEE, assetId: 'USDC', kind: 'available' },
+  amount: '12.5',
+  kind: 'manual',
+  keySpace: 'p2p',
+} as const;
+const HOLD = { holdId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', userId: PAYEE, assetId: 'USDC', amount: '12.5' } as const;
+const refusesInput = (body: unknown) =>
+  expect(() => postRecipeRequest(body)).toThrow(expect.objectContaining({ code: POST_RECIPE_INPUT_INVALID }));
+
+describe('who may call the door', () => {
+  it("every caller the record names holds a grant for a recipe the door posts (svc-trade's feeCharge goes through post)", () => {
+    const granted = Object.entries(LEDGER_POST_ALLOWLIST)
+      .filter(([, grants]) => POST_RECIPE_NAMES.some((name) => (grants as Record<string, unknown>)[name]))
+      .map(([service]) => service);
+    for (const caller of LEDGER_POST_RECIPE.access.callers) expect(granted).toContain(caller);
+    expect(LEDGER_POST_RECIPE.access.callers).toContain('svc-bank');
+  });
+});
+
+describe("postRecipeRequest: svc-bank's recipes are the registry's, key and body", () => {
+  it('bankTransfer in every key space svc-bank books is exactly recipes.bankTransfer over the converted inputs', () => {
+    const cases = [
+      { ...TRANSFER, keySpace: 'own', to: { ownerType: 'subaccount', ownerId: SPACE, assetId: 'USDC', kind: 'available' } },
+      TRANSFER,
+      { ...TRANSFER, occurrence: 7, kind: 'scheduled', keySpace: 'sched' },
+      { ...TRANSFER, keySpace: 'rail', to: { ownerType: 'treasury', ownerId: 'rail:card-sandbox', assetId: 'USDC', kind: 'available' } },
+      {
+        ...TRANSFER,
+        occurrence: 1,
+        keySpace: 'rail',
+        from: { ownerType: 'treasury', ownerId: 'rail:card-sandbox', assetId: 'USDC', kind: 'available' },
+      },
+      { ...TRANSFER, transferId: `claim-1:user:${USER}:USDC:available:`, occurrence: 2, keySpace: 'recovery' },
+    ] as const;
+    for (const input of cases) {
+      const { request } = postRecipeRequest({ recipe: 'bankTransfer', input });
+      expect(request).toEqual(recipes.bankTransfer({ ...input, amount: 12_500_000_000_000_000_000n }));
+      expect(request.idempotencyKey).toBe(`bank.transfer.${input.keySpace}:${input.transferId}:${input.occurrence}`);
+      expect(request.entries.map((e) => [e.direction, e.account.ownerId])).toEqual([
+        ['credit', input.from.ownerId],
+        ['debit', input.to.ownerId],
+      ]);
+    }
+  });
+
+  it('the three holds on received funds are exactly the registry recipes', () => {
+    const amount = 12_500_000_000_000_000_000n;
+    expect(postRecipeRequest({ recipe: 'payReceivedHold', input: HOLD }).request).toEqual(recipes.payReceivedHold({ ...HOLD, amount }));
+    const outcome = { ...HOLD, heldAmount: '12.5' };
+    expect(postRecipeRequest({ recipe: 'payReceivedRelease', input: outcome }).request).toEqual(
+      recipes.payReceivedRelease({ ...HOLD, amount, heldAmount: amount }),
+    );
+    expect(postRecipeRequest({ recipe: 'payReceivedReturn', input: { ...outcome, payerUserId: USER } }).request).toEqual(
+      recipes.payReceivedReturn({ ...HOLD, amount, heldAmount: amount, payerUserId: USER }),
+    );
+  });
+
+  it('refuses what the record or the recipe refuses: no key space, a key space with the wrong kind, one account twice, two assets, a lock, a zero amount', () => {
+    const { keySpace: _dropped, ...legacy } = TRANSFER;
+    refusesInput({ recipe: 'bankTransfer', input: legacy });
+    refusesInput({ recipe: 'bankTransfer', input: { ...TRANSFER, kind: 'scheduled' } });
+    refusesInput({ recipe: 'bankTransfer', input: { ...TRANSFER, keySpace: 'sched' } });
+    refusesInput({ recipe: 'bankTransfer', input: { ...TRANSFER, to: TRANSFER.from } });
+    refusesInput({ recipe: 'bankTransfer', input: { ...TRANSFER, to: { ...TRANSFER.to, assetId: 'USDT' } } });
+    refusesInput({ recipe: 'bankTransfer', input: { ...TRANSFER, to: { ...TRANSFER.to, kind: 'hold', purpose: 'x' } } });
+    refusesInput({ recipe: 'bankTransfer', input: { ...TRANSFER, amount: '0' } });
+    refusesInput({ recipe: 'bankTransfer', input: { ...TRANSFER, occurrence: 1.5 } });
+  });
+
+  it('refuses a partial release or return, a return to the recipient, and a zero hold', () => {
+    refusesInput({ recipe: 'payReceivedHold', input: { ...HOLD, amount: '0' } });
+    refusesInput({ recipe: 'payReceivedRelease', input: { ...HOLD, amount: '5', heldAmount: '12.5' } });
+    refusesInput({ recipe: 'payReceivedReturn', input: { ...HOLD, amount: '5', heldAmount: '12.5', payerUserId: USER } });
+    refusesInput({ recipe: 'payReceivedReturn', input: { ...HOLD, heldAmount: '12.5', payerUserId: PAYEE } });
+  });
+});
 
 describe('postRecipeRequest: the post the door books', () => {
   it('is exactly the registry recipe over the converted inputs', () => {

@@ -8,8 +8,7 @@
     reason = "a test helper: each test file uses part of it, and a failure is the point"
 )]
 
-#[path = "../support/mod.rs"]
-mod support;
+use crate::support;
 
 pub use support::TestDb;
 

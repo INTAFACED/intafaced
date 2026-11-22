@@ -320,9 +320,20 @@ export const components = {
   LineChart: '(B2) Price or value over time',
   AreaChart: '(B2) Value over time with a lit fill',
   Sparkline: '(B2) A small trend line for a card or a row, named for a screen reader; nothing from fewer than two points',
+  Candles:
+    "(B2) Candles over time: rise and fall from role tokens and in words (data-rising, each candle's title), placed by time so a gap stays a gap; an honest empty line for none",
   Bars: '(B2) Bars (volume, monthly totals)',
+  QrCode:
+    '(B2) A scannable code: dark modules on a light ground in every theme, a four-module quiet zone, a bounded size, a name for a screen reader and its text on the figure',
   Parts: '(B2) Parts of a whole that reconcile to the total, with a list fallback',
   SplitGrid: 'One, two or four panels with borders the person drags to resize them (SplitCell, SplitBorder): the chart grid',
+  TimeLine:
+    '(B2) A line placed by time, so a gap keeps its real width; a zero line, a readout by pointer or arrow keys, an honest empty line for none',
+  AssetIcon: "An asset's round mark: the kit's artwork for a listed asset, a lettered disc for any other, never a guessed logo",
+  InfoTip: 'A short explanation behind an (i) button: opens on hover, focus and tap, closes on Escape; also the description',
+  HeroFigure: 'The one large figure a room is about: masked when balances are hidden, a dash when there is none, never animated',
+  Fold: 'A group closed until opened (small balances), with its count: the native disclosure',
+  CardStack: 'The account as two cards you hold, each a link: matte black metal in front, the lit card behind',
 } as const;
 export type ComponentName = keyof typeof components;
 

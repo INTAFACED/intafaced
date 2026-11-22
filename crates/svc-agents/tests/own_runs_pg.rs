@@ -23,7 +23,7 @@
     reason = "a test: a failure is the point"
 )]
 
-mod support;
+use crate::support;
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};

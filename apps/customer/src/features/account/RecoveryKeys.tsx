@@ -3,7 +3,8 @@ import { RECOVERY_LABEL_MAX, recoveryViewSchema, type RecoveryKeyChange, type Re
 import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, Failure, Field, Loading } from '../../shared/ui';
+import { Button, Field } from '@intafaced/ui/lit';
+import { Failure, Loading } from './kit-parts';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import { recoveryKeysCopy as copy } from './recovery-keys-copy';
@@ -188,7 +189,7 @@ export function RecoveryKeys() {
   return (
     <section
       data-testid="security__recovery-keys"
-      className="security__recovery-keys security__card"
+
       aria-label={t('title')}
       lang={languageFor('title')}
     >
@@ -198,57 +199,59 @@ export function RecoveryKeys() {
         <strong>{t('promise')}</strong>
       </p>
       {current.keys.length === 0 ? (
-        <p className="muted" role="status">
+        <p className="lt-hint" role="status">
           {t('noKeys')}
         </p>
       ) : current.ready && current.heir?.active && current.threshold ? (
-        <p className="notice" role="status">
+        <p className="lt-hint" role="status">
           {t('ready', { threshold: current.threshold, count: current.activeKeys, heir: current.heir.handle })}
         </p>
       ) : (
-        <p className="muted" role="status">
+        <p className="lt-hint" role="status">
           {t('notReady', { missing: missing.join(', ') })}
         </p>
       )}
       {note && (
-        <p className="notice" role="status">
+        <p className="lt-hint" role="status">
           {note}
         </p>
       )}
       {problem && (
-        <p className="error-text" role="alert">
+        <p className="lt-hint" role="alert">
           {problem}
         </p>
       )}
       {failure && <Failure result={failure} />}
       {shown && (
-        <section className="stack security__confirm" aria-label={t('madeTitle', { label: shown.label })}>
+        <section aria-label={t('madeTitle', { label: shown.label })}>
           <h3>{t('madeTitle', { label: shown.label })}</h3>
           <p>{t('madeBody')}</p>
           {shown.unsure && (
-            <p className="error-text" role="alert">
+            <p className="lt-hint" role="alert">
               {t('madeUnsure')}
             </p>
           )}
-          <label className="field">
+          <label className="lt-field">
             <span>{t('madeField', { label: shown.label })}</span>
             <textarea readOnly rows={3} value={shown.key.text} lang="zxx" data-security-sensitive="true" />
           </label>
-          <div className="row">
+          <div className="lt-actions">
             <Button
-              variant="secondary"
+              tone="secondary"
               onClick={() => saveFile(`intafaced-recovery-key-${shown.key.fingerprint.slice(0, 8)}.txt`, shown.key.text)}
             >
               {t('download')}
             </Button>
-            <Button onClick={() => setShown(null)}>{t('done')}</Button>
+            <Button tone="primary" onClick={() => setShown(null)}>
+              {t('done')}
+            </Button>
           </div>
         </section>
       )}
       {waiting && (
         <form
           ref={form}
-          className="stack security__confirm"
+
           aria-label={t('confirmTitle')}
           noValidate
           onSubmit={(event: FormEvent<HTMLFormElement>) => {
@@ -267,14 +270,14 @@ export function RecoveryKeys() {
             disabled={busy}
             data-security-sensitive="true"
           />
-          <div className="row">
-            <Button type="submit" disabled={busy}>
+          <div className="lt-actions">
+            <Button tone="primary" type="submit" disabled={busy}>
               {busy ? t('working') : t('save')}
             </Button>
-            <Button variant="secondary" disabled={busy} onClick={() => form.current && void confirm('passkey', form.current)}>
+            <Button tone="secondary" disabled={busy} onClick={() => form.current && void confirm('passkey', form.current)}>
               {t('savePasskey')}
             </Button>
-            <Button variant="ghost" disabled={busy} onClick={() => (setWaiting(null), setProblem(null))}>
+            <Button tone="quiet" disabled={busy} onClick={() => (setWaiting(null), setProblem(null))}>
               {t('cancel')}
             </Button>
           </div>
@@ -282,14 +285,14 @@ export function RecoveryKeys() {
       )}
 
       <h3>{t('heirTitle')}</h3>
-      <p className="muted">
+      <p className="lt-hint">
         {current.heir && !current.heir.active
           ? t('heirGone', { heir: current.heir.handle })
           : current.heir && current.threshold
             ? t('heirNow', { heir: current.heir.handle, threshold: current.threshold })
             : t('heirNone')}
       </p>
-      <form className="stack" aria-label={t('heirTitle')} noValidate onSubmit={(event) => void savePlan(event, live.length)}>
+      <form aria-label={t('heirTitle')} noValidate onSubmit={(event) => void savePlan(event, live.length)}>
         <Field label={t('heirField')} name="heir" autoComplete="off" disabled={busy} defaultValue={current.heir?.handle ?? ''} />
         <Field
           label={t('thresholdField')}
@@ -302,8 +305,8 @@ export function RecoveryKeys() {
           defaultValue={current.threshold ?? ''}
           hint={t('thresholdHint', { count: live.length })}
         />
-        <div className="row">
-          <Button type="submit" variant="secondary" disabled={busy}>
+        <div className="lt-actions">
+          <Button type="submit" tone="secondary" disabled={busy}>
             {t('savePlan')}
           </Button>
         </div>
@@ -311,23 +314,23 @@ export function RecoveryKeys() {
 
       <h3>{t('keysTitle')}</h3>
       {current.keys.length > 0 && (
-        <ul data-testid="security__rows" className="security__rows">
+        <ul data-testid="security__rows">
           {current.keys.map((key) => (
-            <li key={key.id} data-testid="security__row" className="security__row" aria-label={key.label}>
+            <li key={key.id} data-testid="security__row" aria-label={key.label}>
               <div>
                 <strong>{key.label}</strong>{' '}
-                <span className="muted">
+                <span className="lt-hint">
                   {key.revokedAt
                     ? t('keyRevoked', { time: stamp(key.revokedAt, timeZone) })
                     : t('keyAdded', { time: stamp(key.createdAt, timeZone) })}
                 </span>{' '}
-                <span className="muted security__fingerprint" lang="zxx">
+                <span className="lt-hint" lang="zxx">
                   {t('fingerprint', { fingerprint: shortFingerprint(key.fingerprint) })}
                 </span>
               </div>
               {!key.revokedAt && (
                 <Button
-                  variant="secondary"
+                  tone="secondary"
                   disabled={busy}
                   aria-label={t('revokeLabel', { label: key.label })}
                   onClick={() =>
@@ -349,18 +352,18 @@ export function RecoveryKeys() {
         </ul>
       )}
 
-      <form className="stack" aria-label={t('makeTitle')} noValidate onSubmit={(event) => void make(event)}>
+      <form aria-label={t('makeTitle')} noValidate onSubmit={(event) => void make(event)}>
         <h3>{t('makeTitle')}</h3>
-        <p className="muted">{t('makeBody')}</p>
+        <p className="lt-hint">{t('makeBody')}</p>
         <Field label={t('labelField')} name="label" maxLength={RECOVERY_LABEL_MAX} autoComplete="off" disabled={busy || shown !== null} />
-        <div className="row">
-          <Button type="submit" disabled={busy || shown !== null}>
+        <div className="lt-actions">
+          <Button tone="primary" type="submit" disabled={busy || shown !== null}>
             {t('make')}
           </Button>
         </div>
       </form>
-      <div className="actions">
-        <Button variant="secondary" onClick={() => (setView(null), reload())}>
+      <div className="lt-actions">
+        <Button tone="secondary" onClick={() => (setView(null), reload())}>
           {t('refresh')}
         </Button>
       </div>

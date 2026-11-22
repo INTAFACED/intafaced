@@ -10,7 +10,7 @@
 //! answer is the handler's: while the Rust door answers it "not ported" it is owed by the call's slice, counted and
 //! printed, and fails nothing. One difference that is not owed fails the test.
 //!
-//! For one slice: `WIRE_REPLAY_SLICE=<slice> cargo test -p svc-bank --test wire_replay -- --nocapture` prints that
+//! For one slice: `WIRE_REPLAY_SLICE=<slice> cargo test -p svc-bank --test it -- wire_replay:: --nocapture` prints that
 //! slice's owed answers, and `WIRE_REPLAY_STRICT=<slice>` also fails while it owes any.
 #![allow(
     clippy::unwrap_used,
@@ -230,6 +230,13 @@ fn mask(body: &str) -> String {
             end += if bytes[end] == b'\\' { 2 } else { 1 };
         }
         out = format!("{}<stack>{}", &out[..at + key.len()], &after[end..]);
+    }
+    let reference = "Bank operation failed (ref ";
+    if let Some(at) = out.find(reference) {
+        let start = at + reference.len();
+        if let Some(len) = out[start..].find(')') {
+            out = format!("{}<ref>{}", &out[..start], &out[start + len..]);
+        }
     }
     out
 }

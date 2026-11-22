@@ -118,13 +118,39 @@
 </nav>
 <div data-testid="acct-body" class="acct-body legacy-room">
 <div lang="en" style="display: contents;">
-<div class="api-keys" lang="en">
-<header class="api-keys__head">
-<h1>API keys</h1>
-<p class="muted">Keys let your own programs read your account and trade for you. Each key holds only the permissions you give it.</p>
-<a class="button button--primary" href="/uc/safe/api-keys/new">Create a key</a>
+<div lang="en">
+<div class="lt-room" data-template="settings" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
+<div>
+<h1 class="lt-title">API keys</h1>
+<p class="lt-description">Keys let your own programs read your account and trade for you. Each key holds only the permissions you give it.</p>
+</div>
+<div class="lt-room-action">
+<a class="lt-button lt-button-primary" href="/uc/safe/api-keys/new">Create a key</a>
+</div>
 </header>
-<section data-testid="security__card" class="api-keys__safety security__card" aria-labelledby="api-keys-safety">
+<div class="lt-body">
+<div class="lt-grid lt-grid-settings">
+<section class="lt-region" data-region="index" aria-label="Sections">
+<nav aria-label="API key sections">
+<ul>
+<li>
+<a class="lt-link" href="#api-keys-safety">Keeping a key safe</a>
+</li>
+<li>
+<a class="lt-link" href="#api-keys-cap">Keys on this account</a>
+</li>
+<li>
+<a class="lt-link" href="#api-version-title">API version</a>
+</li>
+<li>
+<a class="lt-link" href="#api-keys-apps">Connected apps</a>
+</li>
+</ul>
+</nav>
+</section>
+<section class="lt-region" data-region="sections" aria-label="Settings">
+<section data-testid="security__card" aria-labelledby="api-keys-safety">
 <h2 id="api-keys-safety">Keeping a key safe</h2>
 <ul>
 <li>Make one key for each program, so you can switch one off without stopping the others.</li>
@@ -135,7 +161,7 @@
 <li>No key can withdraw or move money off the platform. That needs you, signed in on a device.</li>
 </ul>
 </section>
-<div data-testid="failure" class="lt-refusal failure" role="status">
+<div data-testid="failure" class="lt-refusal" role="status">
 <h3 class="lt-refusal-title">
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
 </h3>
@@ -144,10 +170,10 @@
 <span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
 </button>
 </div>
-<section data-testid="api-version" class="api-keys__version security__card" aria-labelledby="api-version-title">
+<section data-testid="api-version" aria-labelledby="api-version-title">
 <h2 id="api-version-title">API version</h2>
-<p class="muted">A program names the API version it was written for in the intafaced-version header. A key call without the header uses this account default. With neither, the call is refused, never answered as the newest version.</p>
-<div data-testid="failure" class="lt-refusal failure" role="status">
+<p class="lt-hint">A program names the API version it was written for in the intafaced-version header. A key call without the header uses this account default. With neither, the call is refused, never answered as the newest version.</p>
+<div data-testid="failure" class="lt-refusal" role="status">
 <h3 class="lt-refusal-title">
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
 </h3>
@@ -161,20 +187,22 @@
 <li>
 <code>2026-11-20</code> · newest</li>
 </ul>
-<form class="api-keys__version-form">
-<label>Version to use by default <select>
+<form class="lt-toolbar">
+<label class="lt-field">
+<span id="_r_3_-label">Version to use by default</span>
+<select aria-labelledby="_r_3_-label">
 <option value="2026-11-20">2026-11-20</option>
 </select>
-</label> <button type="submit" class="button button--primary " disabled="">Set as default</button>
+</label> <button disabled="" type="submit" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">Set as default</button>
 </form>
 <h3>Deprecated fields</h3>
 <ul data-testid="api-version__deprecations">
 <li>
 <code>POST /api/v1/orders stopPx</code> · Use instead: <code>stopPrice</code> · Deprecated in 2026-11-20 · Removal date: removal date not set</li>
 </ul>
-<p class="muted">A reply to a request that sends a deprecated field carries the Deprecation header and an intafaced-advisories entry.</p>
+<p class="lt-hint">A reply to a request that sends a deprecated field carries the Deprecation header and an intafaced-advisories entry.</p>
 </section>
-<div data-testid="failure" class="lt-refusal failure" role="status">
+<div data-testid="failure" class="lt-refusal" role="status">
 <h3 class="lt-refusal-title">
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
 </h3>
@@ -183,10 +211,17 @@
 <span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
 </button>
 </div>
-<section data-testid="security__card" class="api-keys__apps security__card" aria-labelledby="api-keys-apps">
+<section data-testid="security__card" aria-labelledby="api-keys-apps">
 <h2 id="api-keys-apps">Connected apps</h2>
-<p class="muted">No connected apps. This platform gives no outside app access to an account, so there is none to remove. Your own programs use the API keys on this page.</p>
+<p class="lt-hint">No connected apps. This platform gives no outside app access to an account, so there is none to remove. Your own programs use the API keys on this page.</p>
 </section>
+</section>
+<section class="lt-region" data-region="explain" aria-label="What this means">
+<p>A key acts for you inside the permissions it holds and, when you list IP addresses, only from those. Revoking a key stops it at once and cannot be undone; no key can withdraw or move money off the platform.</p>
+</section>
+</div>
+</div>
+</div>
 </div>
 </div>
 </div>

@@ -142,6 +142,8 @@ pub struct Ctx<'a> {
     /// `ctx.service`: the verified calling service, if any.
     pub service: Option<&'a str>,
     pub region: &'a str,
+    /// The jurisdiction check the door runs (`checkAccess`), for a handler that reports it (`safety.regionNotice`).
+    pub jurisdiction: &'a Jurisdiction,
     pub now: Instant,
 }
 
@@ -229,6 +231,10 @@ pub struct BankDoor {
     store: Store,
     /// Slice `partner`'s TEST partner, freeze and stand-ins (`partner::router::Wiring`); none until handed in.
     partner: crate::partner::router::Wiring,
+    /// Slice `spaces`'s ledger and directory reads and owner values (`spaces::Wiring`); none until handed in.
+    spaces: crate::spaces::Wiring,
+    /// Slice `transfers`'s identity reads, bus and owner values (`transfers::Wiring`); none until handed in.
+    transfers: crate::transfers::Wiring,
     /// `TEST_AGE_DOOR`: whether `POST /internal/test/age` ages a record.
     test_age_open: bool,
 }
@@ -273,6 +279,8 @@ impl BankDoor {
             edge_key: None,
             store: config.store,
             partner: crate::partner::router::Wiring::none(),
+            spaces: crate::spaces::Wiring::none(),
+            transfers: crate::transfers::Wiring::none(),
             test_age_open: false,
         })
     }
@@ -292,9 +300,34 @@ impl BankDoor {
         (self.now)()
     }
 
+    /// `f` given slice `transfers`' dependencies, read now: what a job or a recovery pass hands the slice.
+    pub fn transfers_deps<T>(&self, f: impl FnOnce(&crate::transfers::Deps<'_>) -> T) -> T {
+        let custody = self.partner.custody(&self.store);
+        f(&crate::transfers::Deps {
+            store: &self.store,
+            ledger: self.spaces.ledger.as_ref(),
+            custody: &custody,
+            partner: &self.partner,
+            spaces: &self.spaces,
+            w: &self.transfers,
+            now: self.now(),
+        })
+    }
+
     /// Slice `partner`'s wiring, built by the binary from the environment.
     pub fn with_partner(mut self, wiring: crate::partner::router::Wiring) -> BankDoor {
         self.partner = wiring;
+        self
+    }
+
+    /// Slice `spaces`'s wiring, built by the binary from the environment.
+    pub fn with_spaces(mut self, wiring: crate::spaces::Wiring) -> BankDoor {
+        self.spaces = wiring;
+        self
+    }
+
+    pub fn with_transfers(mut self, wiring: crate::transfers::Wiring) -> BankDoor {
+        self.transfers = wiring;
         self
     }
 
@@ -326,6 +359,18 @@ impl BankDoor {
                 .unwrap_or_else(|| Err(not_ported(Slice::CreditPreviews))),
             Slice::Partner => crate::partner::router::answer(&self.partner, &self.store, ctx)
                 .unwrap_or_else(|| Err(not_ported(Slice::Partner))),
+            Slice::Spaces => {
+                crate::spaces::router::answer(&self.spaces, &self.partner, &self.store, ctx)
+                    .unwrap_or_else(|| Err(not_ported(Slice::Spaces)))
+            }
+            Slice::Transfers => crate::transfers::router::answer(
+                &self.transfers,
+                &self.spaces,
+                &self.partner,
+                &self.store,
+                ctx,
+            )
+            .unwrap_or_else(|| Err(not_ported(Slice::Transfers))),
             other => Err(not_ported(other)),
         }
     }
@@ -512,6 +557,7 @@ impl BankDoor {
             principal: principal.as_ref(),
             service: service.as_deref(),
             region: &region,
+            jurisdiction: &self.jurisdiction,
             now,
         })
     }

@@ -10,7 +10,7 @@
 //! code's answer. Any other answer is the handler's: while it differs it is owed by the call's slice, counted and
 //! printed, and fails nothing. One difference that is not owed fails the test.
 //!
-//! For one slice: `WIRE_REPLAY_SLICE=<slice> cargo test -p svc-academy --test wire_replay -- --nocapture` prints that
+//! For one slice: `WIRE_REPLAY_SLICE=<slice> cargo test -p svc-academy --test it -- wire_replay:: --nocapture` prints that
 //! slice's owed differences, and `WIRE_REPLAY_STRICT=<slice>` also fails while it owes any.
 #![allow(
     clippy::unwrap_used,

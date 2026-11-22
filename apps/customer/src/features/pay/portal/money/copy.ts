@@ -19,6 +19,8 @@ const en = {
   purposeApprovals: 'Payouts waiting for a second person on your team. Nobody can approve a payout they asked for.',
   pagePricing: 'Pricing and fees',
   purposePricing: 'What INTAFACED charges your account. You cannot change it here, but you can work out what any payment would cost.',
+  pricingExplain:
+    'INTAFACED sets these prices; you can’t change them here. Each change is kept in the history below, and the calculator asks the same engine that prices your live payments.',
   pageTopUp: 'Top up',
   purposeTopUp: 'Add money to your business balance from outside INTAFACED.',
   actTopUp: 'Top up',
@@ -31,6 +33,8 @@ const en = {
   tuOffPending: 'Request is off until we know top up is set up for your account.',
   pageLimits: 'Limits and tier',
   purposeLimits: 'How much you can take in and pay out, how much of each limit is used, and when it resets.',
+  limitsExplain:
+    'Your tier sets these limits. Asking for more sends a request for review: nothing changes until INTAFACED answers it, and you can withdraw it until then.',
   colGross: 'Gross',
   colFees: 'Fees',
   colNet: 'Net',
@@ -179,6 +183,8 @@ const en = {
   purposePayoutNew: 'Choose a settlement and where it goes, check your limit, review, then ask.',
   pageDestinations: 'Payout destinations',
   purposeDestinations: 'Where your payouts can go. Full numbers and addresses are never shown again once saved.',
+  destinationsExplain:
+    'A new destination starts unverified and can’t receive a payout. Verifying or replacing one needs a fresh confirmation, then a waiting time before it becomes active.',
   actPayOut: 'Pay out',
   actIssueRefund: 'Issue a refund',
   actConvert: 'Convert',

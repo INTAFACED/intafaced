@@ -153,6 +153,16 @@
   display: none;
 }
 
+/* A room with nothing in its side column gives the main column the whole width, never an empty third. */
+.lt-grid-main-side:has(> .lt-col-side:empty) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* A region whose part drew nothing (a banner with nothing to say) draws no empty box. */
+.lt-region:empty {
+  display: none;
+}
+
 .lt-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -445,11 +455,9 @@
   min-block-size: 2.25rem;
 }
 @container room (min-width: 1024px) {
-  /* On a computer the index is a column beside the sections, so a row of tabs stands as a column, never cut off. */
+  /* On a computer the index is a column beside the sections, so a row of tabs stands as a column. */
   .lt-grid-settings > [data-region='index'] .lt-tabs {
     flex-direction: column;
-    overflow-x: visible;
-    animation: none;
   }
   .lt-grid-settings > .lt-gate-area {
     grid-column: 2 / -1;
@@ -1033,16 +1041,16 @@
   font-weight: 400;
 }
 
+/* A row of tabs wraps onto a second line rather than scrolling, so on a phone or at large text every tab stays in view
+   and whole: none sits under a fade or past the edge. */
 .lt-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: calc(var(--lit-gap-item) / 2);
-  overflow-x: auto;
-  scrollbar-width: none;
 }
-/* A row that scrolls (tabs, a room's section index: add lt-scroll-row) fades at its far end until it is scrolled
-   there, so a cut tab reads as "more", not as broken. The timeline is inactive when nothing overflows, so a row
-   that fits never fades. */
-.lt-tabs,
+/* A row that scrolls (a room's section index: add lt-scroll-row) fades at its far end until it is scrolled there, so a
+   cut link reads as "more", not as broken. The timeline is inactive when nothing overflows, so a row that fits never
+   fades. */
 .lt-scroll-row {
   animation: lt-tabs-more linear both;
   animation-timeline: scroll(self inline);
@@ -1056,7 +1064,6 @@
     mask-image: none;
   }
 }
-[dir='rtl'] .lt-tabs,
 [dir='rtl'] .lt-scroll-row {
   animation-name: lt-tabs-more-rtl;
 }
@@ -1081,8 +1088,12 @@
   border-radius: 999px; /* look-drift-allow: a full pill at any height; no radius role is fully round */
   color: var(--lit-text-2);
   text-decoration: none;
-  white-space: nowrap;
   border: 1px solid var(--lit-line);
+  /* A tab keeps its width and never squeezes over its neighbour: the row wraps instead (.lt-tabs). One line while it
+     fits; a label longer than the whole row (long copy, large text) wraps inside its pill. */
+  flex-shrink: 0;
+  max-inline-size: 100%;
+  text-align: center;
 }
 
 .lt-tab[aria-current='page'],
@@ -1283,6 +1294,52 @@ button.lt-tab:focus-visible {
   outline-offset: 2px;
 }
 
+/*
+ * A record row that is one link across its whole row (a holding, a space, a service): `data-span="row"` on the link. A
+ * leading mark (a lettered `.lt-person-face`), then the record's `.lt-lines` taking the room, then its figures
+ * (`data-part="figures"`) at the end, then the arrow. On a phone the figures drop to their own line under the name.
+ */
+.lt-row-link[data-span='row'] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--lit-gap-item);
+  inline-size: 100%;
+  min-block-size: var(--lit-row-h);
+}
+
+.lt-row-link[data-span='row'] > * {
+  flex: none;
+}
+
+.lt-row-link[data-span='row'] > .lt-lines {
+  flex: 1 1 10rem;
+}
+
+.lt-row-link[data-span='row'] > [data-part='figures'] {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: calc(var(--lit-gap-item) / 4);
+  min-inline-size: min(100%, 16rem);
+  text-align: end;
+}
+
+.lt-row-link[data-span='row'] > [data-part='figures'] > .lt-kv {
+  align-self: stretch;
+}
+
+.lt-row-link[data-span='row'] > .lt-arrow {
+  align-self: center;
+  color: var(--lit-text-2);
+}
+
+@container room (max-width: 599px) {
+  .lt-row-link[data-span='row'] > [data-part='figures'] {
+    order: 1;
+    flex-basis: 100%;
+  }
+}
+
 /* Table: a sortable header. */
 .lt-sort {
   display: inline-flex;
@@ -1386,6 +1443,63 @@ button.lt-tab:focus-visible {
   block-size: 2rem;
 }
 
+/* QrCode: a scanner needs dark on light in every theme, so the ground and the modules are the kit's one fixed pair. */
+.lt-qr {
+  margin: 0;
+  inline-size: 100%;
+  max-inline-size: 13rem;
+  display: grid;
+  gap: var(--lit-gap-item);
+}
+.lt-qr[data-size='sm'] {
+  max-inline-size: 11rem;
+}
+.lt-qr svg {
+  display: block;
+  inline-size: 100%;
+  block-size: auto;
+  border-radius: var(--lit-radius-tile);
+  forced-color-adjust: none;
+}
+.lt-qr-ground {
+  fill: white; /* look-drift-allow: a QR code needs a fixed light ground for scanners in every theme; no role token stays light in both schemes */
+}
+.lt-qr-modules {
+  fill: black; /* look-drift-allow: a QR code needs fixed dark modules for scanners in every theme; no role token stays dark in both schemes */
+}
+.lt-qr-value {
+  font-family: var(--lit-font-mono);
+  font-size: var(--lit-type-label-size);
+  color: var(--lit-text-2);
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.lt-qr-failed {
+  margin: 0;
+  color: var(--lit-warn-text);
+}
+
+/* Candles: rise in the up role, fall in the down role; the wick keeps its width however the chart stretches. */
+.lt-candle line {
+  stroke-width: 1;
+}
+.lt-candle[data-rising='true'] {
+  stroke: var(--lit-up);
+  fill: var(--lit-up);
+}
+.lt-candle[data-rising='false'] {
+  stroke: var(--lit-down);
+  fill: var(--lit-down);
+}
+.lt-candle rect {
+  stroke: none;
+}
+.lt-candles figcaption,
+.lt-candles-empty {
+  margin: 0;
+  color: var(--lit-text-2);
+}
+
 .lt-chart-area {
   fill: var(--lit-accent-deep);
   opacity: 0.6;
@@ -1421,6 +1535,75 @@ button.lt-tab:focus-visible {
   position: absolute;
   inset-block: 0;
   background: var(--lit-accent);
+}
+
+/* TimeLine: a line placed by time; the zero line dashed, the cursor and the readout over the plot. */
+.lt-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--lit-gap-item) / 2);
+}
+
+.lt-timeline-plot {
+  position: relative;
+  border-radius: var(--lit-radius-control);
+}
+
+.lt-timeline-plot:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+
+.lt-timeline svg {
+  block-size: 15rem;
+  touch-action: pan-y;
+  stroke-linejoin: round;
+}
+
+.lt-timeline-dot {
+  stroke-width: 8;
+  stroke-linecap: round;
+}
+
+.lt-timeline-zero {
+  stroke: var(--lit-line-strong);
+  stroke-dasharray: 6 6;
+}
+
+.lt-timeline-cursor {
+  stroke: var(--lit-line-strong);
+}
+
+.lt-timeline-readout {
+  position: absolute;
+  inset-block-start: calc(var(--lit-gap-item) / 2);
+  inset-inline-start: calc(var(--lit-gap-item) / 2);
+  margin: 0;
+  padding: calc(var(--lit-gap-item) / 4) calc(var(--lit-gap-item) / 2);
+  border: 1px solid var(--lit-line);
+  border-radius: calc(var(--lit-radius-control) / 2);
+  background: var(--lit-solid-bg-raised);
+  color: var(--lit-text-1);
+  font-size: var(--lit-type-label-size);
+  pointer-events: none;
+}
+
+.lt-timeline-readout:empty {
+  display: none;
+}
+
+.lt-timeline figcaption {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: calc(var(--lit-gap-item) / 2);
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+}
+
+.lt-timeline-empty {
+  margin: 0;
+  color: var(--lit-text-2);
 }
 
 .lt-bar {
@@ -1571,11 +1754,16 @@ button.lt-tab:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
+  min-inline-size: 0;
 }
 
+/* The control fills its field and gives way when the row it sits in is narrower than its own width, so a row of fields
+   on a phone, or at twice the text size, never runs past the screen. */
 .lt-field input:not([type='checkbox'], [type='radio']),
 .lt-field select,
 .lt-field textarea {
+  inline-size: 100%;
+  min-inline-size: 0;
   min-block-size: var(--lit-control-h);
   padding-inline: var(--lit-gap-item);
   border: 1px solid var(--lit-line-strong);
@@ -1637,6 +1825,17 @@ button.lt-tab:focus-visible {
    text alternative (an aria-label that says it is sample data). */
 .lt-blurred {
   filter: blur(0.125rem);
+}
+
+/* Secondary words at the size around them: the colour only. */
+.lt-muted {
+  color: var(--lit-text-2);
+}
+
+/* Figures that line up in a column: tabular digits, breaking anywhere rather than spilling out of their box. */
+.lt-num {
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 
 /* Direction: a credit and a bid read up, a debit and an ask read down, with a sign as well as colour. Only inside a
