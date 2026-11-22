@@ -36,7 +36,7 @@ const words: Record<string, () => Words> = {
 
 function Frame({ room, children }: { room: PortalRoom; children: ReactNode }) {
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <DeveloperNav room={room} />
       {children}
     </div>

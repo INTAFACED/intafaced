@@ -154,7 +154,7 @@ async function render(toWallet = true) {
   await act(async () => mounted.render(<WithdrawForm toWallet={toWallet} />));
 }
 function field(label: string): HTMLInputElement | HTMLSelectElement {
-  const found = [...document.querySelectorAll('label.field')].find((l) => l.querySelector('span')?.textContent === label);
+  const found = [...document.querySelectorAll('label.lt-field')].find((l) => l.querySelector('span')?.textContent === label);
   if (!found) throw new Error(`no field labelled ${label}`);
   return found.querySelector('input, select') as HTMLInputElement | HTMLSelectElement;
 }

@@ -57,7 +57,7 @@ export function AgentsDashboard() {
   const refusal = resource.status === 'failed' ? RANGE_REFUSALS[resource.failure.message as keyof typeof RANGE_REFUSALS] : undefined;
   return (
     <Panel title={t('dashboardTitle')} role="region" aria-label={t('dashboardTitle')}>
-      <p className="muted">{t('dashboardIntro')}</p>
+      <p className="lt-muted">{t('dashboardIntro')}</p>
       <form
         className="more-columns"
         onSubmit={(event) => {
@@ -76,7 +76,7 @@ export function AgentsDashboard() {
       {refusal ? (
         <p role="alert">{t(refusal)}</p>
       ) : !asked ? (
-        <p className="muted">{t('chooseRange')}</p>
+        <p className="lt-muted">{t('chooseRange')}</p>
       ) : (
         <Read resource={resource} retry={summary.reload}>
           {(data) => (data ? <DashboardFigures data={data} /> : null)}
@@ -119,7 +119,7 @@ function DashboardFigures({ data }: { data: ProcedureOutput<typeof AGENTS_ANALYT
           <dd data-testid="dashboard-spend">{money(totals.spend)}</dd>
         </div>
       </dl>
-      <p className="muted">{t('spendBasis')}</p>
+      <p className="lt-muted">{t('spendBasis')}</p>
       {data.days.length ? (
         <DataTable
           headers={[
@@ -213,7 +213,7 @@ export function AgentsActivity({ title, note, empty }: { title: string; note: Re
 
   return (
     <Panel title={title}>
-      <label className="field">
+      <label className="lt-field">
         <span>{t('activityFilter')}</span>
         <select value={outcome} onChange={(event) => setOutcome(event.target.value as Outcome)}>
           <option value="">{t('outcomeAll')}</option>
@@ -222,7 +222,7 @@ export function AgentsActivity({ title, note, empty }: { title: string; note: Re
           <option value="failed">{t('failed')}</option>
         </select>
       </label>
-      <label className="field">
+      <label className="lt-field">
         <span>{t('rowsToLoad')}</span>
         <select value={String(limit)} onChange={(event) => setLimit(Number(event.target.value))}>
           {LOAD_SIZES.map((size) => (
@@ -240,7 +240,7 @@ export function AgentsActivity({ title, note, empty }: { title: string; note: Re
         )}
       </Read>
       <div className="more-columns">
-        <label className="field">
+        <label className="lt-field">
           <span>{t('exportFormat')}</span>
           <select value={format} onChange={(event) => setFormat(event.target.value as 'csv' | 'json')}>
             <option value="csv">{t('formatCsv')}</option>
@@ -252,18 +252,18 @@ export function AgentsActivity({ title, note, empty }: { title: string; note: Re
         </Button>
       </div>
       {exported ? <p role="status">{exported.ok ? t('exported', { count: exported.count }) : t('exportFailed')}</p> : null}
-      <p className="muted">{t('exportNote')}</p>
+      <p className="lt-muted">{t('exportNote')}</p>
       <Read resource={rows.resource} retry={rows.reload} empty={outcome ? t('noActions') : empty}>
         {(list) => (
           <>
             <ActionTable rows={list} />
             {count.resource.status === 'ready' && count.resource.data.total > list.length ? (
-              <p className="muted">{t('logShowing', { shown: list.length, total: count.resource.data.total })}</p>
+              <p className="lt-muted">{t('logShowing', { shown: list.length, total: count.resource.data.total })}</p>
             ) : null}
           </>
         )}
       </Read>
-      <p className="muted">{note}</p>
+      <p className="lt-muted">{note}</p>
     </Panel>
   );
 }
@@ -340,7 +340,7 @@ export function AgentsUsage() {
   );
   return (
     <Panel title={t('usageTitle')} role="region" aria-label={t('usageTitle')}>
-      <p className="muted">{t('usageIntro')}</p>
+      <p className="lt-muted">{t('usageIntro')}</p>
       <Read resource={usage.resource} retry={usage.reload}>
         {(data) =>
           data.windowCount === 0 ? (
@@ -367,13 +367,13 @@ export function AgentsUsage() {
                 ))}
               </DataTable>
               {data.windowCount > data.windows.length ? (
-                <p className="muted">{t('usageShowing', { shown: data.windows.length, total: data.windowCount })}</p>
+                <p className="lt-muted">{t('usageShowing', { shown: data.windows.length, total: data.windowCount })}</p>
               ) : null}
             </>
           )
         }
       </Read>
-      <p className="muted">{t('spendBasis')}</p>
+      <p className="lt-muted">{t('spendBasis')}</p>
     </Panel>
   );
 }
@@ -437,7 +437,7 @@ function RunTrace({ sessionId, requestId }: { sessionId: string; requestId: stri
   return (
     <section>
       <h3>{t('traceTitle')}</h3>
-      <p className="muted">{t('traceIntro')}</p>
+      <p className="lt-muted">{t('traceIntro')}</p>
       <Read resource={trace.resource} retry={trace.reload}>
         {(run) => (
           <>

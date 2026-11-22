@@ -62,7 +62,7 @@ pub fn interest_list_limit(limit: Option<f64>) -> Result<i64, Refusal> {
 }
 
 /// `assertJobBatchLimit`: a job's batch, or its own `*_unset` refusal; never the number it used to invent.
-fn job_batch_limit(
+pub fn job_batch_limit(
     limit: Option<f64>,
     unset: &str,
     invented: i64,

@@ -158,7 +158,7 @@ function RulesForm({ agent, stored }: { agent: OwnAgent; stored: OwnAgentRule[] 
         void save();
       }}
     >
-      <p className="muted">{t('rulesIntro')}</p>
+      <p className="lt-muted">{t('rulesIntro')}</p>
       {agent.tools.length ? (
         <>
           <Select
@@ -184,7 +184,7 @@ function RulesForm({ agent, stored }: { agent: OwnAgent; stored: OwnAgentRule[] 
           </Button>
         </>
       ) : (
-        <p className="muted">{t('noTools')}</p>
+        <p className="lt-muted">{t('noTools')}</p>
       )}
       {saved ? <p role="status">{t('ruleSaved')}</p> : null}
       {refused ? <Answer failed={refused} /> : null}
@@ -196,7 +196,7 @@ function RulesForm({ agent, stored }: { agent: OwnAgent; stored: OwnAgentRule[] 
           ))}
         </ul>
       ) : (
-        <p className="muted">{t('noRules')}</p>
+        <p className="lt-muted">{t('noRules')}</p>
       )}
     </form>
   );
@@ -231,7 +231,7 @@ export function PermissionsPage({ agent }: { agent: OwnAgent }) {
         </Read>
       </Panel>
       <Panel title={t('domainsTitle')}>
-        <p className="muted">{t('domainsNone')}</p>
+        <p className="lt-muted">{t('domainsNone')}</p>
       </Panel>
       <Panel title={t('modeTitle')}>
         <p role="note">{t('modeParked')}</p>
@@ -257,7 +257,7 @@ function Consents({ agent, classes, stored }: { agent: OwnAgent; classes: OwnAge
     setRows((current) => [...current.filter((row) => row.dataClass !== dataClass), res.data]);
     setWithdrawn(dataClass);
   }
-  if (!classes.length) return <p className="muted">{t('classesEmpty')}</p>;
+  if (!classes.length) return <p className="lt-muted">{t('classesEmpty')}</p>;
   return (
     <>
       <ul aria-label={t('classesTitle')}>
@@ -361,7 +361,7 @@ export function TryTool({
   return (
     <>
       <Panel title={t('tryTitle')} role="region" aria-label={t('tryTitle')}>
-        <p className="muted">{t('tryIntro')}</p>
+        <p className="lt-muted">{t('tryIntro')}</p>
         <Read resource={catalogue.resource} retry={catalogue.reload}>
           {(offered) => {
             const declared = offered.tools.find((entry) => entry.name === tool);
@@ -379,7 +379,7 @@ export function TryTool({
                     options={agent.tools.map((name) => ({ value: name, label: toolWords(t, name) }))}
                   />
                 ) : (
-                  <p className="muted">{t('noTools')}</p>
+                  <p className="lt-muted">{t('noTools')}</p>
                 )}
                 {Object.keys(declared?.shape?.input ?? {}).map((field) => (
                   <Field
@@ -452,7 +452,7 @@ function ApprovalRequests({ agent, version }: { agent: OwnAgent; version: number
                 </tr>
               ))}
             </DataTable>
-            {rows.length === 0 ? <p className="muted">{t('requestsEmpty')}</p> : null}
+            {rows.length === 0 ? <p className="lt-muted">{t('requestsEmpty')}</p> : null}
           </>
         )}
       </Read>

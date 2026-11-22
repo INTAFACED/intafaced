@@ -8,7 +8,7 @@
  */
 // hand-declared-ok: svc-bank's cards.list and cards.partnerHeld answers have no browser-safe schema in packages/contracts; this narrows them
 import { useId, useMemo, useState } from 'react';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import { Field } from '../../shared/ui';
 import { displayAmount } from '../../shared/money';
 import { useSession } from '../../features/session/session';
@@ -202,13 +202,13 @@ export default function PayYourself({
   const prepared = s?.moves.filter((m) => m.status === 'prepared') ?? [];
 
   return (
-    <div className="form-stack" data-testid="pay-yourself-home">
-      <section aria-label={t('spendableTitle')} data-testid="spendable-now" className="form-stack">
+    <div className="lt-stack" data-testid="pay-yourself-home">
+      <section aria-label={t('spendableTitle')} data-testid="spendable-now" className="lt-stack">
         <h2>{t('spendableTitle')}</h2>
         <p data-testid="spendable-total">
           {parts.total !== null ? t('spendableTotal', { amount: displayAmount(parts.total) }) : t('spendableNoTotal')}
         </p>
-        <p className="muted">{t('spendableNote')}</p>
+        <p className="lt-muted">{t('spendableNote')}</p>
         <ul>
           {parts.parts.map((part) => (
             <li key={part.id} data-spendable={part.id}>
@@ -222,13 +222,13 @@ export default function PayYourself({
               {part.state === 'read' ? (
                 <>
                   <strong data-part-amount>{displayAmount(part.amount)} USD</strong>{' '}
-                  <span className="muted" data-part-source>
+                  <span className="lt-muted" data-part-source>
                     {part.id === 'partner' ? t('sourcePartner') : part.id === 'venue' ? t('sourceVenue') : t('sourceWallet')}, {t('asOf')}{' '}
                     <At iso={part.asOf} />
                   </span>
                 </>
               ) : (
-                <span className="muted">{part.state === 'reading' ? t('partReading') : t('partUnread')}</span>
+                <span className="lt-muted">{part.state === 'reading' ? t('partReading') : t('partUnread')}</span>
               )}
             </li>
           ))}
@@ -236,7 +236,7 @@ export default function PayYourself({
         {s && onItsWay(s.credits).length > 0 ? (
           <div data-testid="on-its-way">
             <h3>{t('onItsWayTitle')}</h3>
-            <p className="muted">{t('onItsWayNote')}</p>
+            <p className="lt-muted">{t('onItsWayNote')}</p>
             <ul>
               {onItsWay(s.credits).map((c) => (
                 <li key={c.key} data-credit={c.txHash}>
@@ -260,20 +260,20 @@ export default function PayYourself({
         {venue.data ? (
           <p>
             <strong data-locked-amount>{displayAmount(lockedInTrades(venueRows))} USD</strong>{' '}
-            <span className="muted">
+            <span className="lt-muted">
               {t('sourceVenue')}, {t('asOf')} <At iso={venue.data.asOf} />
             </span>
           </p>
         ) : (
-          <p className="muted">{venue.failure ? t('partUnread') : t('partReading')}</p>
+          <p className="lt-muted">{venue.failure ? t('partUnread') : t('partReading')}</p>
         )}
-        <p className="muted">{t('lockedNote')}</p>
+        <p className="lt-muted">{t('lockedNote')}</p>
       </section>
 
-      <section aria-label={t('payTitle')} data-testid="pay-yourself" className="form-stack">
+      <section aria-label={t('payTitle')} data-testid="pay-yourself" className="lt-stack">
         <h2>{t('payTitle')}</h2>
         {!s ? (
-          <p className="muted">{t('partReading')}</p>
+          <p className="lt-muted">{t('partReading')}</p>
         ) : !payIn ? (
           <p data-testid="pay-in-unset">{t('payInUnset')}</p>
         ) : 'unread' in s.realised ? (
@@ -286,11 +286,11 @@ export default function PayYourself({
               {t('realised', { amount: displayAmount(s.realised.amount) })} ({lastSent ? t('realisedSince') : t('realisedEver')}),{' '}
               {t('asOf')} <At iso={s.realised.asOf} />
             </p>
-            {shownAmount === '' && !ask ? <p className="muted">{t('realisedNone')}</p> : null}
+            {shownAmount === '' && !ask ? <p className="lt-muted">{t('realisedNone')}</p> : null}
             {!ask ? (
-              <div className="form-stack">
+              <div className="lt-stack">
                 <Field label={t('amountLabel')} inputMode="decimal" value={shownAmount} onChange={(e) => setAmount(e.target.value)} />
-                <Button disabled={busy} onClick={() => void begin(manualMoveKey(owner, Date.now()), shownAmount)}>
+                <Button tone="primary" disabled={busy} onClick={() => void begin(manualMoveKey(owner, Date.now()), shownAmount)}>
                   {t('payButton', { amount: displayAmount(canonicalAmount(shownAmount) ?? '0', 2) })}
                 </Button>
               </div>
@@ -307,11 +307,11 @@ export default function PayYourself({
         {ask && payIn ? (
           <Review ask={ask} t={t} partner={partnerName} partnerFee={s?.partnerFee ?? null}>
             {ask.phase === 'review' ? (
-              <div className="form-stack">
-                <Button disabled={busy} onClick={() => setAsk({ ...ask, phase: 'stepUp' })}>
+              <div className="lt-stack">
+                <Button tone="primary" disabled={busy} onClick={() => setAsk({ ...ask, phase: 'stepUp' })}>
                   {t('continue')}
                 </Button>
-                <Button variant="secondary" disabled={busy} onClick={() => setAsk(null)}>
+                <Button tone="secondary" disabled={busy} onClick={() => setAsk(null)}>
                   {t('cancel')}
                 </Button>
               </div>
@@ -331,7 +331,7 @@ export default function PayYourself({
                   disabled={busy}
                   onApproved={(id) => void send(ask, payIn.address, id)}
                 />
-                <Button variant="secondary" disabled={busy} onClick={() => setAsk(null)}>
+                <Button tone="secondary" disabled={busy} onClick={() => setAsk(null)}>
                   {t('cancel')}
                 </Button>
               </div>
@@ -340,7 +340,7 @@ export default function PayYourself({
         ) : null}
         {lastSent && s ? <Tracker move={lastSent} summary={s} owner={owner} t={t} partner={partnerName} account={account} /> : null}
         {prepared.map((m) => (
-          <div key={m.id} data-testid="prepared-move" className="form-stack">
+          <div key={m.id} data-testid="prepared-move" className="lt-stack">
             <h3>{t('preparedTitle')}</h3>
             <p>
               {t('preparedLine', {
@@ -350,7 +350,7 @@ export default function PayYourself({
               })}
             </p>
             {!ask ? (
-              <Button disabled={busy} onClick={() => void begin(m.moveKey, m.amount)}>
+              <Button tone="primary" disabled={busy} onClick={() => void begin(m.moveKey, m.amount)}>
                 {t('preparedSign', { amount: displayAmount(m.amount, 2) })}
               </Button>
             ) : null}
@@ -386,9 +386,9 @@ function FromWallet({
   const send = `/wallet/send?${new URLSearchParams({ to: payIn.address, token: payIn.token }).toString()}`;
   const newest = [...credits].sort((a, b) => Date.parse(b.seenAt) - Date.parse(a.seenAt));
   return (
-    <section aria-label={t('fromWalletTitle', { partner })} data-testid="pay-in-route" className="form-stack">
+    <section aria-label={t('fromWalletTitle', { partner })} data-testid="pay-in-route" className="lt-stack">
       <h2>{t('fromWalletTitle', { partner })}</h2>
-      <p className="muted">{t('fromWalletNote', { partner, n: String(payIn.confirmations) })}</p>
+      <p className="lt-muted">{t('fromWalletNote', { partner, n: String(payIn.confirmations) })}</p>
       <dl>
         <div>
           <dt>{t('fromWalletAddress')}</dt>
@@ -429,14 +429,14 @@ function FromWallet({
                     : `${t('statePending')}, ${t('partnerConfirmations', { n: String(c.confirmations), m: String(c.required) })}`}
               </span>
               {', '}
-              <span className="muted" data-credit-source>
+              <span className="lt-muted" data-credit-source>
                 {t('sourcePartner')}, {t('asOf')} <At iso={c.availableAt ?? c.seenAt} />
               </span>
             </li>
           ))}
         </ul>
       ) : (
-        <p className="muted" data-testid="pay-in-none">
+        <p className="lt-muted" data-testid="pay-in-none">
           {t('fromWalletNone')}
         </p>
       )}
@@ -459,7 +459,7 @@ function Review({
 }) {
   const terms = ask.terms;
   return (
-    <div data-testid="pay-review" className="form-stack">
+    <div data-testid="pay-review" className="lt-stack">
       <h3>{t('reviewTitle')}</h3>
       <dl>
         <dt>{t('reviewAmount')}</dt>
@@ -479,7 +479,7 @@ function Review({
           {terms && terms.arrivalSeconds !== null ? t('reviewArrivalValue', { seconds: String(terms.arrivalSeconds) }) : t('notPublished')}
         </dd>
       </dl>
-      <p className="muted">{t('reviewSign')}</p>
+      <p className="lt-muted">{t('reviewSign')}</p>
       {children}
     </div>
   );
@@ -551,7 +551,7 @@ function Tracker({
   const held = card.data?.held ?? null;
   const available = held?.figures?.available ?? null;
   return (
-    <div data-testid="pay-tracker" className="form-stack">
+    <div data-testid="pay-tracker" className="lt-stack">
       <h3>{t('trackerTitle')}</h3>
       <dl>
         <dt>{t('trackVenue')}</dt>
@@ -582,7 +582,9 @@ function Tracker({
                   {t('stateAvailable')} <At iso={credit.availableAt} />
                 </span>
               ) : (
-                <span className="muted">{t('partnerConfirmations', { n: String(credit.confirmations), m: String(credit.required) })}</span>
+                <span className="lt-muted">
+                  {t('partnerConfirmations', { n: String(credit.confirmations), m: String(credit.required) })}
+                </span>
               )}
             </>
           ) : null}
@@ -613,7 +615,7 @@ function Rule({ summary, t, onSaved }: { summary: PayYourselfSummary; t: T; onSa
   }
   const rule = summary.rule;
   return (
-    <div data-testid="pay-rule" className="form-stack">
+    <div data-testid="pay-rule" className="lt-stack">
       <h3>{t('ruleTitle')}</h3>
       <p data-rule-now>
         {rule
@@ -631,7 +633,9 @@ function Rule({ summary, t, onSaved }: { summary: PayYourselfSummary; t: T; onSa
         </select>
       </div>
       <Field label={t('ruleCap')} inputMode="decimal" value={cap} onChange={(e) => setCap(e.target.value)} />
-      <Button onClick={() => void save()}>{t('ruleSave')}</Button>
+      <Button tone="primary" onClick={() => void save()}>
+        {t('ruleSave')}
+      </Button>
       {note ? <p role="status">{note}</p> : null}
     </div>
   );

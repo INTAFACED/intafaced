@@ -54,7 +54,7 @@ fn time_of(s: &str) -> Result<Instant, Refusal> {
     js_date(s).ok_or_else(|| Refusal::Other(format!("{s} is no date")))
 }
 
-fn f(k: &str, v: impl Into<String>) -> (String, String) {
+pub fn f(k: &str, v: impl Into<String>) -> (String, String) {
     (k.to_owned(), v.into())
 }
 

@@ -501,7 +501,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
         <>
           <div className="agent-session-journey">
             <Panel title={sessionCopy.t('records')} role="region" aria-label={sessionCopy.t('records')}>
-              <p className="muted">{sessionCopy.t('intro')}</p>
+              <p className="lt-muted">{sessionCopy.t('intro')}</p>
               <Button variant="secondary" onClick={log.reload}>
                 {sessionCopy.t('refreshRecords')}
               </Button>
@@ -513,7 +513,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                   const visible = sessions.filter((row) => !sessionFilter || row.agentId === sessionFilter);
                   return (
                     <>
-                      <label className="field">
+                      <label className="lt-field">
                         <span>{sessionCopy.t('filter')}</span>
                         <select value={sessionFilter} onChange={(event) => setSessionFilter(event.target.value)}>
                           <option value="">{sessionCopy.t('allAgents')}</option>
@@ -563,7 +563,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                   );
                 }}
               </Read>
-              <p className="muted">{sessionCopy.t('coverage')}</p>
+              <p className="lt-muted">{sessionCopy.t('coverage')}</p>
             </Panel>
             <Panel title={sessionCopy.t('selected')} role="region" aria-label={sessionCopy.t('selected')}>
               {selectedSession ? (
@@ -573,7 +573,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                     <br />
                     <code lang="zxx">{selectedSession.id}</code>
                   </p>
-                  <p className="muted">{sessionCopy.t('readOnly')}</p>
+                  <p className="lt-muted">{sessionCopy.t('readOnly')}</p>
                   {selectedSession.agentId === 'navigator' ? (
                     <NavigatorOrders sessionId={selectedSession.id} revision={ordersRevision} />
                   ) : null}
@@ -617,7 +617,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                       )
                     }
                   </Read>
-                  <p className="muted">{sessionCopy.t('usageBoundary')}</p>
+                  <p className="lt-muted">{sessionCopy.t('usageBoundary')}</p>
                   <Read resource={steadyDetail} retry={selectedDetail.reload}>
                     {(detail) =>
                       detail ? (
@@ -655,16 +655,16 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                       </>
                     )}
                   </Read>
-                  <p className="muted">{sessionCopy.t('original')}</p>
-                  <p className="muted">{sessionCopy.t('resultBoundary')}</p>
+                  <p className="lt-muted">{sessionCopy.t('original')}</p>
+                  <p className="lt-muted">{sessionCopy.t('resultBoundary')}</p>
                 </>
               ) : (
-                <p className="muted">{sessionCopy.t('choose')}</p>
+                <p className="lt-muted">{sessionCopy.t('choose')}</p>
               )}
               {action.feedback}
             </Panel>
           </div>
-          <p className="muted">{sessionCopy.t('permission')}</p>
+          <p className="lt-muted">{sessionCopy.t('permission')}</p>
           <div className="more-columns">
             <div>
               <Panel title={copyText('agents.agent.permissions')}>
@@ -700,7 +700,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                             </tr>
                           ))}
                         </DataTable>
-                        <p className="muted">
+                        <p className="lt-muted">
                           <Text k="agents.opening.a.session.permits.engine.tasks.within" />
                         </p>
                         <Button
@@ -969,7 +969,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                         )}
                       </section>
                       {reply.provenance ? <ResearchProvenance provenance={reply.provenance} /> : null}
-                      <p className="muted">
+                      <p className="lt-muted">
                         {reply.metered
                           ? copyText('agents.metered.cost', { value1: reply.cost, value2: reply.assetId })
                           : copyText('agents.the.service.labeled.this.response.unmetered')}{' '}
@@ -1027,7 +1027,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                   </Read>
                 </>
               ) : (
-                <p className="muted">
+                <p className="lt-muted">
                   <Text k="agents.review.a.registered.agent.and.open.its" />
                 </p>
               )}
@@ -1079,7 +1079,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                   <ul>
                     {c.citations.map((r) => (
                       <li key={r.slug}>
-                        <a className="text-link" href={`/academy/${encodeURIComponent(r.slug)}`}>
+                        <a className="lt-link" href={`/academy/${encodeURIComponent(r.slug)}`}>
                           {r.title}
                         </a>
                       </li>
@@ -1107,13 +1107,13 @@ export function Agents({ paper = false }: { paper?: boolean }) {
               [copyText('agents.launch.and.risk.drafts'), copyText('agents.draft.assessment.is.not.issuance.screening.list')],
             ]}
           />
-          <a className="text-link" href={preservePaperHref('/trade/copy', paper)}>
+          <a className="lt-link" href={preservePaperHref('/trade/copy', paper)}>
             <Text k="agents.open.copy" />
           </a>
-          <a className="text-link" href="/support">
+          <a className="lt-link" href="/support">
             <Text k="agents.open.support" />
           </a>
-          <a className="text-link" href="/agents/connect">
+          <a className="lt-link" href="/agents/connect">
             <agentConnectCopy.Copy k="title" />
           </a>
         </Panel>
@@ -1238,7 +1238,7 @@ function CostEstimate({
       <p data-testid="worst-case">
         {cap && assetId && parseAmount(cap) > 0n ? t('worstCase', { amount: displayAmount(cap), asset: assetId }) : t('worstCaseNoCap')}
       </p>
-      <p className="muted">{t('worstCaseBasis')}</p>
+      <p className="lt-muted">{t('worstCaseBasis')}</p>
       <p>
         {history === undefined
           ? t('historyUnloaded')

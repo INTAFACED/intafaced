@@ -16,6 +16,7 @@ pub mod earn;
 pub mod env;
 pub mod errors;
 pub mod errors_table;
+pub mod loans;
 pub mod migrate;
 pub mod ops_approval;
 pub mod ops_desk;

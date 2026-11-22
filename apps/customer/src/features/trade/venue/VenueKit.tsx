@@ -50,7 +50,7 @@ export function AsOfLine({ asOf }: { asOf: string | null }) {
   const text = useAsOfText();
   if (!asOf) return null;
   return (
-    <p className="muted" data-testid="venue-as-of">
+    <p className="lt-muted" data-testid="venue-as-of">
       {text(asOf)}
     </p>
   );
@@ -100,13 +100,13 @@ export function WalletBar() {
           <dl className="protocol-facts">
             <div>
               <dt>{t('Connected address')}</dt>
-              <dd className="numeric" data-testid="venue-wallet-address">
+              <dd className="lt-num" data-testid="venue-wallet-address">
                 {wallet.address.toLowerCase()}
               </dd>
             </div>
             <div>
               <dt>{t('Network')}</dt>
-              <dd className="numeric">{wallet.chainId ?? ''}</dd>
+              <dd className="lt-num">{wallet.chainId ?? ''}</dd>
             </div>
           </dl>
           {wallet.guard && !wallet.guard.ok ? (
@@ -120,7 +120,7 @@ export function WalletBar() {
           </Button>
         </>
       ) : wallet.wallets.length === 0 ? (
-        <p className="muted">{t('No wallet')}</p>
+        <p className="lt-muted">{t('No wallet')}</p>
       ) : (
         wallet.wallets.map((entry) => (
           <Button key={entry.info.uuid} disabled={wallet.status === 'connecting'} onClick={() => void wallet.connect(entry)}>
@@ -129,7 +129,7 @@ export function WalletBar() {
         ))
       )}
       {wallet.problem ? (
-        <p className="failure" role="alert">
+        <p className="lt-refusal" role="alert">
           {wallet.problem}
         </p>
       ) : null}
@@ -394,7 +394,7 @@ export function ReadProblem({ failure, venueName }: { failure: { message: string
   if (!failure) return null;
   const down = failure.code === 'trade.venue.venue_down';
   return (
-    <p className="failure" role="alert" data-testid="venue-read-problem">
+    <p className="lt-refusal" role="alert" data-testid="venue-read-problem">
       {down ? t('Venue down', { venue: venueName, detail: failure.message }) : t('Read failed', { detail: failure.message })}
     </p>
   );
@@ -412,20 +412,20 @@ export function BalancesPanel({ balances, test }: { balances: AsOf<VenueBalance[
           {balances.value.map((b) => (
             <tr key={b.asset} data-asset={b.asset}>
               <td>{b.asset}</td>
-              <td className="numeric" data-cell="free">
+              <td className="lt-num" data-cell="free">
                 {displayAmount(b.free)}
               </td>
-              <td className="numeric" data-cell="used">
+              <td className="lt-num" data-cell="used">
                 {displayAmount(b.locked)}
               </td>
-              <td className="numeric" data-cell="total">
+              <td className="lt-num" data-cell="total">
                 {displayAmount(b.total)}
               </td>
             </tr>
           ))}
         </DataTable>
       ) : balances ? (
-        <p className="muted">{t('No balances')}</p>
+        <p className="lt-muted">{t('No balances')}</p>
       ) : null}
       <AsOfLine asOf={balances?.asOf ?? null} />
     </section>
@@ -454,7 +454,7 @@ export function FillsTable({
     <div data-testid="venue-fills">
       <TestMark test={test} />
       {rows.length === 0 ? (
-        <p className="muted">{t('No fills')}</p>
+        <p className="lt-muted">{t('No fills')}</p>
       ) : (
         <DataTable
           label={t('Trade history')}
@@ -478,26 +478,26 @@ export function FillsTable({
               <td>{asOfText(f.filledAt)}</td>
               <td>{f.symbol}</td>
               <td>{word(t, 'side', f.side)}</td>
-              <td className="numeric" data-cell="price">
+              <td className="lt-num" data-cell="price">
                 {displayAmount(f.price)}
               </td>
-              <td className="numeric" data-cell="amount">
+              <td className="lt-num" data-cell="amount">
                 {displayAmount(f.amount)}
               </td>
               {withTotal ? (
-                <td className="numeric" data-cell="total">
+                <td className="lt-num" data-cell="total">
                   {displayAmount(fillTotal(f))} {f.symbol.split('-')[1] ?? ''}
                 </td>
               ) : null}
               <td data-cell="role">{word(t, 'role', f.role)}</td>
-              <td className="numeric" data-cell="venue-fee">
+              <td className="lt-num" data-cell="venue-fee">
                 <VenueFeeCell amount={f.venueFee} />
               </td>
-              <td className="numeric" data-cell="builder-fee">
+              <td className="lt-num" data-cell="builder-fee">
                 {f.builderFee}
               </td>
               <td>{f.feeAsset}</td>
-              <td className="numeric" data-cell="realised">
+              <td className="lt-num" data-cell="realised">
                 {f.realisedPnl === null ? t('Not known') : f.realisedPnl}
               </td>
               {tagOf ? <td data-cell="tag">{f.venueClientOrderId ? (tagOf(f.venueClientOrderId) ?? '') : ''}</td> : null}
@@ -568,7 +568,7 @@ export function OrdersTable({
     <div data-testid="venue-open-orders">
       <TestMark test={test} />
       {rows.length === 0 ? (
-        <p className="muted">{t('No open orders')}</p>
+        <p className="lt-muted">{t('No open orders')}</p>
       ) : (
         <DataTable
           label={t('Open orders')}
@@ -602,7 +602,7 @@ export function OrdersTable({
               ) : null}
               <td>
                 {o.venueClientOrderId ? (
-                  <a className="text-link" data-testid="venue-order-link" href={`/trade/orders/${o.venueClientOrderId}`}>
+                  <a className="lt-link" data-testid="venue-order-link" href={`/trade/orders/${o.venueClientOrderId}`}>
                     {o.symbol}
                   </a>
                 ) : (
@@ -612,16 +612,16 @@ export function OrdersTable({
               <td>{word(t, 'side', o.side)}</td>
               <td>{word(t, 'type', o.type)}</td>
               <td data-cell="tif">{word(t, 'tif', o.timeInForce)}</td>
-              <td className="numeric" data-cell="price">
+              <td className="lt-num" data-cell="price">
                 {displayAmount(o.price)}
               </td>
-              <td className="numeric" data-cell="amount">
+              <td className="lt-num" data-cell="amount">
                 {displayAmount(o.amount)}
               </td>
-              <td className="numeric" data-cell="filled">
+              <td className="lt-num" data-cell="filled">
                 {displayAmount(o.filled)}
               </td>
-              <td className="numeric" data-cell="locked">
+              <td className="lt-num" data-cell="locked">
                 {displayAmount(o.locked)} {o.lockedAsset}
               </td>
               <td data-cell="status">{word(t, 'status', o.status)}</td>

@@ -100,7 +100,7 @@ export function AddressTable({
                         ? [row.assetId, row.network, row.tag].filter((part) => part).join(' · ')
                         : t('aNotReturned')}
                     </td>
-                    <td className="numeric" lang="und" data-withdrawal-private>
+                    <td className="lt-num" lang="und" data-withdrawal-private>
                       {shortenAddress(row.ref)}
                     </td>
                     <td>{date(row.addedAt)}</td>
@@ -242,7 +242,7 @@ export function UseAddress({ row, onClose, onApproved }: { row: Destination; onC
   const problem = failed === null ? null : (moneyRefusalWords(failed) ?? t('aUseFailed'));
   const words = answer ? readinessWords(answer, row.label ?? shortenAddress(row.ref), t) : null;
   return (
-    <div className="bd-stack" data-testid="address-use">
+    <div className="lt-stack" data-testid="address-use">
       {!answer && !problem && <p role="status">{t('aUseChecking')}</p>}
       {words && !approvedHere && <p role={answer?.state === 'ready' ? 'status' : 'alert'}>{words.text}</p>}
       {problem && <p role="alert">{problem}</p>}
@@ -260,7 +260,7 @@ export function UseAddress({ row, onClose, onApproved }: { row: Destination; onC
       )}
       <p>
         {words?.locked && (
-          <a className="button button--secondary" href="/uc/safe">
+          <a className="lt-button lt-button-secondary" href="/uc/safe">
             {t('aUseSecurity')}
           </a>
         )}
@@ -305,7 +305,7 @@ export function ApproveHere({ row, onApproved }: { row: Destination; onApproved?
   const label = row.label ?? shortenAddress(row.ref);
   if (done) {
     return (
-      <div className="bd-stack" data-testid="address-approve-here">
+      <div className="lt-stack" data-testid="address-approve-here">
         <p role="status">
           {done.coolingOffEndsAt ? t('apDone', { label, time: date(done.coolingOffEndsAt) }) : t('apDoneNoTime', { label })}
         </p>
@@ -313,7 +313,7 @@ export function ApproveHere({ row, onApproved }: { row: Destination; onApproved?
     );
   }
   return (
-    <div className="bd-stack" data-testid="address-approve-here">
+    <div className="lt-stack" data-testid="address-approve-here">
       {refused && <p role="alert">{refused}</p>}
       <p>
         <Button
@@ -401,7 +401,7 @@ export function ApprovalMail({ destinationId, openUntil }: { destinationId: stri
     }
   }
   return (
-    <div className="bd-stack" data-testid="address-approval-mail">
+    <div className="lt-stack" data-testid="address-approval-mail">
       {until && (
         <p role="status">{asked ? t('aApprovalMailAsked', { time: date(asked) }) : t('aUseApprovalOpen', { time: date(until) })}</p>
       )}
@@ -493,13 +493,13 @@ export function ProveOwnership({ row, onProved, onClose }: { row: Destination; o
     }
   }
   return (
-    <div className="bd-stack" data-testid="wallet-proof">
+    <div className="lt-stack" data-testid="wallet-proof">
       <strong>{t('aProveTitle', { label: row.label ?? address })}</strong>
       <p>{t('aProveLead', { address })}</p>
       {!offer && !problem && <p role="status">{t('aProveStarting')}</p>}
       {offer && !provedUntil && !lapsed && (
-        <form className="bd-stack" onSubmit={verify} noValidate>
-          <label data-testid="field" className="field">
+        <form className="lt-stack" onSubmit={verify} noValidate>
+          <label data-testid="field" className="lt-field">
             <span>{t('aProveMessage')}</span>
             <textarea readOnly value={offer.message} rows={6} lang="und" data-testid="wallet-proof-message" />
             <small>{t('aProveUntil', { time: date(offer.expiresAt) })}</small>
@@ -518,7 +518,7 @@ export function ProveOwnership({ row, onProved, onClose }: { row: Destination; o
             </Button>
             {copied && <small role="status"> {t('aProveCopied')}</small>}
           </p>
-          <label data-testid="field" className="field">
+          <label data-testid="field" className="lt-field">
             <span>{t('aProveSignature')}</span>
             <textarea
               value={signature}
@@ -675,8 +675,8 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
   }
   return (
     <>
-      <form className="bd-stack" onSubmit={submit} noValidate aria-label={t('aAddTitle')}>
-        <label data-testid="field" className="field">
+      <form className="lt-stack" onSubmit={submit} noValidate aria-label={t('aAddTitle')}>
+        <label data-testid="field" className="lt-field">
           <span>{t('aLabel')}</span>
           <input
             value={draft.label}
@@ -689,7 +689,7 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
             {t(shown('label') ?? 'aLabelHint')}
           </small>
         </label>
-        <label data-testid="field" className="field">
+        <label data-testid="field" className="lt-field">
           <span>{t('aAsset')}</span>
           <select
             value={draft.assetId}
@@ -708,7 +708,7 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
           </select>
           {shown('asset') && <small role="alert">{t('aAssetPick')}</small>}
         </label>
-        <label data-testid="field" className="field">
+        <label data-testid="field" className="lt-field">
           <span>{t('aNetwork')}</span>
           <select
             value={draft.network}
@@ -726,7 +726,7 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
           </select>
           <small id="address-network-hint">{t('aNetworkHint')}</small>
         </label>
-        <label data-testid="field" className="field">
+        <label data-testid="field" className="lt-field">
           <span>{t('aAddress')}</span>
           <input
             value={draft.address}
@@ -741,7 +741,7 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
             {t(shown('address') ?? 'aAddressHint')}
           </small>
         </label>
-        <label data-testid="field" className="field">
+        <label data-testid="field" className="lt-field">
           <span>{t('aTag')}</span>
           <input
             value={draft.tag}
@@ -755,7 +755,7 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
           </small>
         </label>
         {lookalike && (
-          <div className="bd-stack" role="alert" data-testid="address-lookalike">
+          <div className="lt-stack" role="alert" data-testid="address-lookalike">
             <strong>{t('aLookalikeTitle')}</strong>
             <p>
               {lookalike.label
