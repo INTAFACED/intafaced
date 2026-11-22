@@ -315,6 +315,12 @@ import {
   BLUEPRINT_ERASE,
 } from './blueprint-procedures.js';
 
+import { CAMPAIGNS_DISTRIBUTION_MINE } from './campaigns-distribution-procedures.js';
+
+import { CAMPAIGNS_DROPS_ROOM, CAMPAIGNS_DROPS_CLAIM } from './campaigns-drops-procedures.js';
+
+import { CAMPAIGNS_POINTS_PROGRAMME, CAMPAIGNS_POINTS_CONVERT, CAMPAIGNS_POINTS_REDEEM } from './campaigns-points-procedures.js';
+
 import {
   CAMPAIGNS_PARTICIPATION_JOIN,
   CAMPAIGNS_PARTICIPATION_REQUEST_REVIEW,
@@ -350,6 +356,14 @@ import {
   CAMPAIGNS_OPS_CAMPAIGNS_EXPORTS_REQUEST,
   CAMPAIGNS_OPS_CAMPAIGNS_EXPORTS_DOWNLOAD,
 } from './campaigns-procedures.js';
+
+import { CAMPAIGNS_REFERRAL_INVITEES } from './campaigns-referral-procedures.js';
+
+import { CAMPAIGNS_REWARDS_MINE } from './campaigns-rewards-procedures.js';
+
+import { CAMPAIGNS_TASKS_WELCOME_LIST, CAMPAIGNS_TASKS_WELCOME_CLAIM } from './campaigns-tasks-procedures.js';
+
+import { CAMPAIGNS_TGE_CLAIM } from './campaigns-tge-procedures.js';
 
 import {
   DEX_HEALTH,
@@ -1631,6 +1645,16 @@ const part_blueprint_procedures: readonly ProcedureRecord[] = [
   BLUEPRINT_ERASE,
 ];
 
+const part_campaigns_distribution_procedures: readonly ProcedureRecord[] = [CAMPAIGNS_DISTRIBUTION_MINE];
+
+const part_campaigns_drops_procedures: readonly ProcedureRecord[] = [CAMPAIGNS_DROPS_ROOM, CAMPAIGNS_DROPS_CLAIM];
+
+const part_campaigns_points_procedures: readonly ProcedureRecord[] = [
+  CAMPAIGNS_POINTS_PROGRAMME,
+  CAMPAIGNS_POINTS_CONVERT,
+  CAMPAIGNS_POINTS_REDEEM,
+];
+
 const part_campaigns_procedures: readonly ProcedureRecord[] = [
   CAMPAIGNS_PARTICIPATION_JOIN,
   CAMPAIGNS_PARTICIPATION_REQUEST_REVIEW,
@@ -1666,6 +1690,14 @@ const part_campaigns_procedures: readonly ProcedureRecord[] = [
   CAMPAIGNS_OPS_CAMPAIGNS_EXPORTS_REQUEST,
   CAMPAIGNS_OPS_CAMPAIGNS_EXPORTS_DOWNLOAD,
 ];
+
+const part_campaigns_referral_procedures: readonly ProcedureRecord[] = [CAMPAIGNS_REFERRAL_INVITEES];
+
+const part_campaigns_rewards_procedures: readonly ProcedureRecord[] = [CAMPAIGNS_REWARDS_MINE];
+
+const part_campaigns_tasks_procedures: readonly ProcedureRecord[] = [CAMPAIGNS_TASKS_WELCOME_LIST, CAMPAIGNS_TASKS_WELCOME_CLAIM];
+
+const part_campaigns_tge_procedures: readonly ProcedureRecord[] = [CAMPAIGNS_TGE_CLAIM];
 
 const part_dex_procedures: readonly ProcedureRecord[] = [
   DEX_HEALTH,
@@ -2718,7 +2750,14 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_bank_personal_request_procedures,
   ...part_bank_spaces_list,
   ...part_blueprint_procedures,
+  ...part_campaigns_distribution_procedures,
+  ...part_campaigns_drops_procedures,
+  ...part_campaigns_points_procedures,
   ...part_campaigns_procedures,
+  ...part_campaigns_referral_procedures,
+  ...part_campaigns_rewards_procedures,
+  ...part_campaigns_tasks_procedures,
+  ...part_campaigns_tge_procedures,
   ...part_dex_procedures,
   ...part_execution_procedures,
   ...part_fix_procedures,
