@@ -229,6 +229,7 @@ test(`${J} #3 reads ramp metrics: orders by state, partner health and quote expi
 
 test(`${J} #4 opens direct debit mandates: the partner's mandates with state, blocks and refunds; failures by reason`, async ({
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(300_000);
   const who = await partnerHeldPerson(browser, 'jb28dd');
@@ -341,5 +342,8 @@ test(`${J} #4 opens direct debit mandates: the partner's mandates with state, bl
     .getByTestId('dd-failure-reason')
     .evaluateAll((els) => Object.fromEntries(els.map((e) => [e.getAttribute('data-code'), Number(e.getAttribute('data-count'))])));
   expect(shown).toEqual(byReason);
+  // The step's picture: the desk's direct debit report, with this person's three mandates, as the partner reports them.
+  await report.scrollIntoViewIfNeeded();
+  await stepPicture(page);
   await page.context().close();
 });
