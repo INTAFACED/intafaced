@@ -1,10 +1,18 @@
 import { useState, type FormEvent } from 'react';
+import { BANK_CARDS_UPDATE_SHIPPING } from '@intafaced/contracts/bank-cards-procedures';
+import { BANK_CARDS_SET_PAY_FROM_ORDER } from '@intafaced/contracts/bank-cards-procedures';
+import { BANK_CARDS_REPLACE } from '@intafaced/contracts/bank-cards-procedures';
+import { BANK_CARDS_ACTIVATE } from '@intafaced/contracts/bank-cards-procedures';
+import { BANK_CARDS_DELIVERY } from '@intafaced/contracts/bank-cards-procedures';
+import { BANK_CARDS_PAY_FROM } from '@intafaced/contracts/bank-cards-procedures';
+import { BANK_CARDS_CASHBACK } from '@intafaced/contracts/bank-cards-procedures';
+import { BANK_CARDS_USES } from '@intafaced/contracts/bank-cards-procedures';
 import type { z } from 'zod';
 import { Button, Field, Radio } from '@intafaced/ui/lit';
 import { Sheet } from '@intafaced/ui/lit/templates';
 import type { ApiResult } from '../../../shared/api';
 import { useSession } from '../../session';
-import { useBankRead } from '../components';
+import { useBankRecord } from '../components';
 import { bankWrites, type cardSchema } from '../contracts';
 import { cardOrderCopy } from '../card-order-copy';
 import { StepUpInline } from '../bank-settings/StepUpInline';
@@ -58,7 +66,7 @@ function Uses({ card }: { card: CardRecord }) {
 
 function UsesOf({ cardId, limit }: { cardId: string; limit: number }) {
   const { t } = cardOrderCopy.useCopy();
-  const uses = useBankRead('cards.uses', { cardId });
+  const uses = useBankRecord(BANK_CARDS_USES, { cardId });
   const made = uses.resource.status === 'ready' ? uses.resource.data.usesMade : null;
   return (
     <p className="lt-hint" data-testid="card-uses">
@@ -111,7 +119,7 @@ function ChangeAddress({
       postalCode: draft.postalCode ?? '',
       country: draft.country ?? '',
     };
-    const result = await api.mutate('bank', 'cards.updateShipping', { cardId, requestId, address }, bankWrites['cards.updateShipping']);
+    const result = await api.call(BANK_CARDS_UPDATE_SHIPPING, { cardId, requestId, address });
     setBusy(false);
     if (!result.ok) return setFailure(result);
     onDone();
@@ -138,7 +146,7 @@ function ChangeAddress({
 
 function Delivery({ card }: { card: CardRecord }) {
   const { t } = cardOrderCopy.useCopy();
-  const delivery = useBankRead('cards.delivery', { cardId: card.id });
+  const delivery = useBankRecord(BANK_CARDS_DELIVERY, { cardId: card.id });
   const [changing, setChanging] = useState(false);
   if (delivery.resource.status === 'loading') return null;
   if (delivery.resource.status === 'failed') {
@@ -220,12 +228,7 @@ function Activate({ card, onDone, onClose }: { card: CardRecord; onDone: () => v
   async function activate(stepUpApprovalId: string | null) {
     setBusy(true);
     setFailure(null);
-    const result = await api.mutate(
-      'bank',
-      'cards.activate',
-      { cardId: card.id, ...(stepUpApprovalId ? { stepUpApprovalId } : {}) },
-      bankWrites['cards.activate'],
-    );
+    const result = await api.call(BANK_CARDS_ACTIVATE, { cardId: card.id, ...(stepUpApprovalId ? { stepUpApprovalId } : {}) });
     setBusy(false);
     if (!result.ok) return setFailure(result);
     onDone();
@@ -262,7 +265,7 @@ function Report({ card, onDone, onClose }: { card: CardRecord; onDone: (replacem
     setBusy(true);
     setFailure(null);
     const replacementId = await reportId(card.id, reason);
-    const result = await api.mutate('bank', 'cards.replace', { cardId: card.id, replacementId, reason }, bankWrites['cards.replace']);
+    const result = await api.call(BANK_CARDS_REPLACE, { cardId: card.id, replacementId, reason });
     setBusy(false);
     if (!result.ok) return setFailure(result);
     onDone(result.data.id);
@@ -361,7 +364,7 @@ function percentOf(bps: number): string {
  */
 export function CardCashback() {
   const { t } = cardOrderCopy.useCopy();
-  const read = useBankRead('cards.cashback', undefined);
+  const read = useBankRecord(BANK_CARDS_CASHBACK, undefined);
   if (read.resource.status === 'loading') return null;
   if (read.resource.status === 'failed') {
     return (
@@ -448,7 +451,7 @@ type PayFrom = z.infer<(typeof bankWrites)['cards.setPayFromOrder']>;
  */
 export function CardPayFrom() {
   const { t } = cardOrderCopy.useCopy();
-  const read = useBankRead('cards.payFrom', undefined);
+  const read = useBankRecord(BANK_CARDS_PAY_FROM, undefined);
   if (read.resource.status === 'loading') return null;
   if (read.resource.status === 'failed') {
     return (
@@ -483,7 +486,7 @@ function PayFromPanel({ view: p, reload }: { view: PayFrom; reload: () => void }
     if (busy) return;
     setBusy(true);
     setFailure(null);
-    const result = await api.mutate('bank', 'cards.setPayFromOrder', { assetIds: draft }, bankWrites['cards.setPayFromOrder']);
+    const result = await api.call(BANK_CARDS_SET_PAY_FROM_ORDER, { assetIds: draft });
     setBusy(false);
     if (!result.ok) return setFailure(result);
     reload();

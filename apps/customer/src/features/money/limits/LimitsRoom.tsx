@@ -1,8 +1,13 @@
 // volt-room: /bank/limits
+import { BANK_TRANSFERS_QUOTE } from '@intafaced/contracts/bank-transfers-procedures';
+import { BANK_FEES_PARTNER } from '@intafaced/contracts/bank-fees-procedures';
+import { BANK_PLANS_LIST } from '@intafaced/contracts/bank-plans-procedures';
+import { BANK_FEES_SCHEDULE_GET } from '@intafaced/contracts/bank-fees-procedures';
+import { BANK_FEES_ACCOUNT } from '@intafaced/contracts/bank-fees-procedures';
 import { useState } from 'react';
 import { Select } from '@intafaced/ui/lit';
 import { defineCopy } from '../../../shared/i18n';
-import { useBankRead } from '../components';
+import { useBankRecord } from '../components';
 import { useHoldings } from '../holdings';
 import { BankSettingsRoom } from '../bank-settings/BankSettingsRoom';
 import { Panel } from '../bank-settings/parts';
@@ -80,12 +85,12 @@ function LimitsRoom() {
   const assets = held.resource.status === 'ready' ? held.resource.data.assets : [];
   const [chosen, setChosen] = useState('');
   const assetId = chosen || assets[0]?.assetId || '';
-  const quote = useBankRead('transfers.quote', { assetId, amount: '0' }, Boolean(assetId));
-  const partner = useBankRead('fees.partner', { assetId }, Boolean(assetId));
+  const quote = useBankRecord(BANK_TRANSFERS_QUOTE, { assetId, amount: '0' }, Boolean(assetId));
+  const partner = useBankRecord(BANK_FEES_PARTNER, { assetId }, Boolean(assetId));
   const heldAtPartner = partner.resource.status === 'ready' && partner.resource.data.held ? partner.resource.data : null;
-  const sendFees = useBankRead('fees.schedule.get', undefined);
-  const accountFees = useBankRead('fees.account', undefined);
-  const plans = useBankRead('plans.list', undefined);
+  const sendFees = useBankRecord(BANK_FEES_SCHEDULE_GET, undefined);
+  const accountFees = useBankRecord(BANK_FEES_ACCOUNT, undefined);
+  const plans = useBankRecord(BANK_PLANS_LIST, undefined);
   const refusal = (failure: { code?: string | null; message: string }) => (
     <p role="alert" data-code={failure.code ?? ''}>
       {t('failed', { message: failure.message })}

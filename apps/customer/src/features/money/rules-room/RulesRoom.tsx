@@ -1,12 +1,15 @@
 // volt-room: /bank/rules
+import { BANK_RULES_GET } from '@intafaced/contracts/bank-rules-procedures';
+import { BANK_RULES_CREATE_MONEY_RULE } from '@intafaced/contracts/bank-rules-procedures';
+import { BANK_RULES_SET_REMINDER } from '@intafaced/contracts/bank-rules-procedures';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Button, Field, Select } from '@intafaced/ui/lit';
 import type { RoomState } from '@intafaced/ui/lit/templates';
 import { useSession } from '../../session';
 import { CATEGORY_CHANNELS } from '../../../screens/notifications/notify-api';
 import { useCategoryPrefs } from '../../../screens/notifications/use-category-prefs';
-import { useBankRead, useSpaces } from '../components';
-import { reminderLeadChoices, rulesWrites, type ReminderRule } from '../contracts';
+import { useSpaces, useBankRecord } from '../components';
+import { reminderLeadChoices, type ReminderRule } from '../contracts';
 import { BankSettingsRoom } from '../bank-settings/BankSettingsRoom';
 import { Failure, Loading, Panel, useRoomRefusal } from '../bank-settings/parts';
 import { choiceWords } from '../Rules';
@@ -57,13 +60,11 @@ function ReminderPanel({
     setBusy(true);
     setSaid(null);
     const leadHours = choice === 'off' ? null : (Number(choice) as Lead);
-    const answer = await api.mutate(
-      'bank',
-      'rules.setReminder',
-      // One id per attempt at one choice: a retry of a lost answer is the same write, and another choice is a new one.
-      { leadHours, expectedRevision: rule?.revision ?? 0, clientRequestId: `reminder:${rule?.revision ?? 0}:${choice}:${requestId}` },
-      rulesWrites.setReminder,
-    );
+    const answer = await api.call(BANK_RULES_SET_REMINDER, {
+      leadHours,
+      expectedRevision: rule?.revision ?? 0,
+      clientRequestId: `reminder:${rule?.revision ?? 0}:${choice}:${requestId}`,
+    });
     setBusy(false);
     if (!answer.ok) {
       const words =
@@ -159,6 +160,8 @@ function ChoicesPanel() {
 }
 
 /** The money rule editor: every field there, and saving is the bank's own refusal while the terms are unpublished. */
+const MONEY_RULE_CADENCES = ['daily', 'weekly', 'monthly'] as const;
+
 function MoneyRulePanel({ code }: { code: string }) {
   const { t } = rulesCopy.useCopy();
   const { api } = useSession();
@@ -170,32 +173,29 @@ function MoneyRulePanel({ code }: { code: string }) {
   const set = (key: keyof typeof form) => (event: { target: { value: string } }) =>
     setForm((now) => ({ ...now, [key]: event.target.value }));
   const decimal = /^\d+(\.\d{1,18})?$/;
+  // The select offers only these; one the bank does not know is never sent.
+  const cadence = MONEY_RULE_CADENCES.find((c) => c === form.cadence);
   const complete =
     form.name.trim() !== '' &&
     form.from !== '' &&
     form.to !== '' &&
     form.from !== form.to &&
     decimal.test(form.amount) &&
-    (form.trigger === 'date' || decimal.test(form.above));
+    (form.trigger === 'date' ? cadence !== undefined : decimal.test(form.above));
 
   async function save(event: FormEvent) {
     event.preventDefault();
     if (!complete) return setSaid(t('moneyIncomplete'));
     setBusy(true);
     setSaid(null);
-    const answer = await api.mutate(
-      'bank',
-      'rules.createMoneyRule',
-      {
-        name: form.name.trim(),
-        fromSpaceId: form.from,
-        toSpaceId: form.to,
-        trigger: form.trigger === 'date' ? { kind: 'date', cadence: form.cadence } : { kind: 'balance', above: form.above },
-        amount: form.amount,
-        clientRequestId: `money-rule:${requestId}`,
-      },
-      rulesWrites.createMoneyRule,
-    );
+    const answer = await api.call(BANK_RULES_CREATE_MONEY_RULE, {
+      name: form.name.trim(),
+      fromSpaceId: form.from,
+      toSpaceId: form.to,
+      trigger: form.trigger === 'date' && cadence ? { kind: 'date', cadence } : { kind: 'balance', above: form.above },
+      amount: form.amount,
+      clientRequestId: `money-rule:${requestId}`,
+    });
     setBusy(false);
     if (answer.ok) return;
     const words = answer.code === 'bank.rule_terms_unset' ? t('moneyRefused') : answer.message;
@@ -264,7 +264,7 @@ const SECTIONS = [
 export function RulesRoom() {
   const { t } = rulesCopy.useCopy();
   const refusalOf = useRoomRefusal();
-  const view = useBankRead('rules.get', undefined);
+  const view = useBankRecord(BANK_RULES_GET, undefined);
   const [said, setSaid] = useState<Said>(null);
   let state: RoomState = { kind: 'ready' };
   let retry: (() => void) | undefined;

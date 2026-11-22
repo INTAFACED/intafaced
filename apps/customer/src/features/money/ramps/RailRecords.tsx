@@ -1,8 +1,10 @@
 import { useLayoutEffect, useRef, useState } from 'react';
+import { BANK_RAMPS_FIAT_SETTLE } from '@intafaced/contracts/bank-ramps-procedures';
+import { BANK_RAMPS_PROGRAMME } from '@intafaced/contracts/bank-ramps-procedures';
 import type { z } from 'zod';
 import { Button, Segmented } from '@intafaced/ui/lit';
 import { bankReads } from '../contracts';
-import { funds, useBankRead, usePageLimit } from '../components';
+import { funds, useBankRead, usePageLimit, useBankRecord } from '../components';
 import { currentOwnerRecord, ReportedTime, useBankView } from '../bank-context';
 import { Continuation, Panel, ResourceView } from '../bank-settings/parts';
 import { railCopy } from '../rail-copy';
@@ -263,8 +265,8 @@ function RailWindow({ direction }: { direction: Direction }) {
 function ConnectionDetails() {
   const { Copy } = railCopy.useCopy();
   const current = useBankView();
-  const programme = useBankRead('ramps.programme', undefined),
-    fiat = useBankRead('ramps.fiatSettle', undefined);
+  const programme = useBankRecord(BANK_RAMPS_PROGRAMME, undefined),
+    fiat = useBankRecord(BANK_RAMPS_FIAT_SETTLE, undefined);
   return (
     <details>
       <summary>

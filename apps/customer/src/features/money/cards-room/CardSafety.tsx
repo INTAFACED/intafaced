@@ -1,10 +1,15 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import { BANK_CARDS_THREE_DS_ANSWER } from '@intafaced/contracts/bank-cards-procedures';
+import { BANK_CARDS_FRAUD_REPORT } from '@intafaced/contracts/bank-cards-procedures';
+import { BANK_CARDS_FRAUD_LIST } from '@intafaced/contracts/bank-cards-procedures';
+import { BANK_CARDS_THREE_DS_LIST } from '@intafaced/contracts/bank-cards-procedures';
+import { BANK_CARDS_AUTHORIZATIONS } from '@intafaced/contracts/bank-cards-procedures';
 import type { z } from 'zod';
 import type { ApiResult } from '../../../shared/api';
 import { Button, Field } from '@intafaced/ui/lit';
 import { useSession } from '../../session';
-import { useBankRead } from '../components';
-import { bankWrites, type cardSchema, type CardThreeDSChallenge } from '../contracts';
+import { useBankRecord } from '../components';
+import { type cardSchema, type CardThreeDSChallenge } from '../contracts';
 import { Panel, ResourceView } from '../bank-settings/parts';
 import { Refusal } from './CardJourney';
 import { DeclineReason } from './CardBlocks';
@@ -26,7 +31,7 @@ const timeOf = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { ho
 
 export function CardThreeDSPanel({ card }: { card: CardRecord }) {
   const { t } = cardSafetyCopy.useCopy();
-  const read = useBankRead('cards.threeDS.list', { cardId: card.id });
+  const read = useBankRecord(BANK_CARDS_THREE_DS_LIST, { cardId: card.id });
   // A wrong code's count lives here, outside the list: the reload after an answer remounts each challenge.
   const [wrong, setWrong] = useState<Record<string, number>>({});
   return (
@@ -88,12 +93,11 @@ function ThreeDSChallenge({
   async function send(typed: string | null) {
     setBusy(true);
     setFailure(null);
-    const done = await api.mutate(
-      'bank',
-      'cards.threeDS.answer',
-      { cardId: card.id, challengeId: challenge.id, ...(typed === null ? {} : { code: typed }) },
-      bankWrites['cards.threeDS.answer'],
-    );
+    const done = await api.call(BANK_CARDS_THREE_DS_ANSWER, {
+      cardId: card.id,
+      challengeId: challenge.id,
+      ...(typed === null ? {} : { code: typed }),
+    });
     setBusy(false);
     setCode('');
     if (!done.ok) return setFailure(withPlainRefusal(done));
@@ -158,8 +162,8 @@ function ThreeDSChallenge({
 export function CardFraudPanel({ card }: { card: CardRecord }) {
   const { api } = useSession();
   const { t } = cardSafetyCopy.useCopy();
-  const payments = useBankRead('cards.authorizations', { cardId: card.id, limit: 20 });
-  const reports = useBankRead('cards.fraud.list', { cardId: card.id });
+  const payments = useBankRecord(BANK_CARDS_AUTHORIZATIONS, { cardId: card.id, limit: 20 });
+  const reports = useBankRecord(BANK_CARDS_FRAUD_LIST, { cardId: card.id });
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<Failed | null>(null);
   const [locked, setLocked] = useState(false);
@@ -169,7 +173,7 @@ export function CardFraudPanel({ card }: { card: CardRecord }) {
   async function report(authorizationId: string) {
     setBusy(true);
     setFailure(null);
-    const done = await api.mutate('bank', 'cards.fraud.report', { cardId: card.id, authorizationId }, bankWrites['cards.fraud.report']);
+    const done = await api.call(BANK_CARDS_FRAUD_REPORT, { cardId: card.id, authorizationId });
     setBusy(false);
     if (!done.ok) return setFailure(withPlainRefusal(done));
     setLocked(true);

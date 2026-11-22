@@ -1,10 +1,11 @@
 import { useState, type FormEvent } from 'react';
+import { BANK_CARDS_AUTHORIZATIONS } from '@intafaced/contracts/bank-cards-procedures';
 import type { z } from 'zod';
 import type { ApiResult } from '../../../shared/api';
 import { displayAmount } from '../../../shared/money';
 import { Button, Field } from '@intafaced/ui/lit';
 import { useSession } from '../../session';
-import { useBankRead } from '../components';
+import { useBankRead, useBankRecord } from '../components';
 import { bankWrites, type cardSchema } from '../contracts';
 import { Panel, ResourceView } from '../bank-settings/parts';
 import { Refusal } from './CardJourney';
@@ -26,7 +27,7 @@ const timeOf = (iso: string) =>
 
 export function CardDisputesPanel({ card }: { card: CardRecord }) {
   const { t } = cardDisputesCopy.useCopy();
-  const payments = useBankRead('cards.authorizations', { cardId: card.id, limit: 50 });
+  const payments = useBankRecord(BANK_CARDS_AUTHORIZATIONS, { cardId: card.id, limit: 50 });
   const cases = useBankRead('cards.disputes.list', { cardId: card.id });
   const [chosen, setChosen] = useState<string | null>(null);
   return (

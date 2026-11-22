@@ -1,4 +1,5 @@
 // volt-room: /bank/loans/detail
+import { BANK_LOANS_LIST } from '@intafaced/contracts/bank-loans-procedures';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Download } from 'lucide-react';
 import { Button, Field, Select } from '@intafaced/ui/lit';
@@ -6,7 +7,7 @@ import type { RoomState } from '@intafaced/ui/lit/templates';
 import { useSession } from '../../session';
 import type { ApiResult } from '../../../shared/api';
 import { decodeBase64, saveFile, shortFingerprint } from '../../../screens/money/statement-model';
-import { amount, bps, date, useBankRead } from '../components';
+import { amount, bps, date, useBankRead, useBankRecord } from '../components';
 import { loanStatementSchema, type LoanInterestRows, type LoanLedgerCheck, type LoanProjection, type PayoffQuote } from '../contracts';
 import { BankSettingsRoom } from '../bank-settings/BankSettingsRoom';
 import { Loading, Panel } from '../bank-settings/parts';
@@ -531,7 +532,7 @@ const SECTIONS = [
  */
 export function LoanDetailRoom({ loanId }: { loanId: string | null }) {
   const { t } = loanDetailCopy.useCopy();
-  const loans = useBankRead('loans.list', { limit: 200 }, loanId !== null);
+  const loans = useBankRecord(BANK_LOANS_LIST, { limit: 200 }, loanId !== null);
   const back = { label: t('back'), href: '/bank/loans' };
   const loan = loans.resource.status === 'ready' ? loans.resource.data.find((one) => one.id === loanId) : undefined;
   let state: RoomState = { kind: 'ready' };

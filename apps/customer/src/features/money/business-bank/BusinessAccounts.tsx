@@ -1,4 +1,7 @@
 import { useEffect, useState } from 'react';
+import { BANK_BUSINESS_LIST } from '@intafaced/contracts/bank-business-procedures';
+import { BANK_BUSINESS_MY_ROLE } from '@intafaced/contracts/bank-business-procedures';
+import { BANK_BUSINESS_PENDING } from '@intafaced/contracts/bank-business-procedures';
 import type { z } from 'zod';
 import { Button, EmptyState, Tag } from '@intafaced/ui/lit';
 import { useSession } from '../../session';
@@ -20,8 +23,17 @@ import {
   type Role,
 } from '../business-model';
 import { businessCopy } from '../business-copy';
-import { amount as exactAmount, date, funds, positiveMoney, useBankRead, usePageLimit, type ActionSpec } from '../components';
-import type { businessSchema, pendingApprovalSchema } from '../contracts';
+import {
+  amount as exactAmount,
+  date,
+  funds,
+  positiveMoney,
+  usePageLimit,
+  type ActionSpec,
+  useBankRecord,
+  useBankRecordAs,
+} from '../components';
+import { myRoleSchema, pendingApprovalsSchema, type businessSchema, type pendingApprovalSchema } from '../contracts';
 import { assetSelectField, useHoldings } from '../holdings';
 import { t as copyText } from '../copy';
 
@@ -171,7 +183,7 @@ function Approvals({
     return () => controller.abort();
   }, [api, userId]);
   const [limit, setLimit] = usePageLimit();
-  const query = useBankRead('business.pending', { accountId, limit });
+  const query = useBankRecordAs(BANK_BUSINESS_PENDING, { accountId, limit }, pendingApprovalsSchema);
   return (
     <Panel level={3} title={t('approvalsTitle')} lead={t('approvalsLead')}>
       <ResourceView resource={query.resource} reload={query.reload}>
@@ -204,7 +216,7 @@ function AccountCard({ account, spaces, open }: { account: Business; spaces: rea
   const { t } = businessCopy.useCopy();
   const [panel, setPanel] = useState<'team' | 'person' | 'payroll' | null>(null);
   const own = companySpaces(spaces, account.assetId);
-  const roleRead = useBankRead('business.myRole', { accountId: account.id });
+  const roleRead = useBankRecordAs(BANK_BUSINESS_MY_ROLE, { accountId: account.id }, myRoleSchema);
   const role: RoleState = roleRead.resource;
   const known = roleOf(role);
   const mayProposeUnknown = known === null || canSend(known);
@@ -300,7 +312,7 @@ function AccountCard({ account, spaces, open }: { account: Business; spaces: rea
 export function BusinessSections({ open }: { open: (spec: ActionSpec) => void }) {
   const { t } = businessCopy.useCopy();
   const [limit, setLimit] = usePageLimit();
-  const query = useBankRead('business.list', { limit });
+  const query = useBankRecord(BANK_BUSINESS_LIST, { limit });
   const held = useHoldings();
   const assets = held.resource.status === 'ready' ? held.resource.data.assets : [];
   const spaces: OwnSpace[] = held.resource.status === 'ready' ? held.resource.data.spaces : [];

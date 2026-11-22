@@ -1,13 +1,17 @@
 import { useLayoutEffect, useRef, useState } from 'react';
+import type { ProcedureOutput } from '@intafaced/contracts/procedure';
+import { BANK_CARDS_PROGRAMME } from '@intafaced/contracts/bank-cards-procedures';
+import { BANK_CARDS_AUTHORIZATIONS } from '@intafaced/contracts/bank-cards-procedures';
+import { BANK_CARDS_LIST } from '@intafaced/contracts/bank-cards-procedures';
 import { DecisionMerchant, DeclineReason } from './CardBlocks';
 import type { z } from 'zod';
 import { Button } from '@intafaced/ui/lit';
 import { displayAmount } from '../../../shared/money';
 import { currentOwnerRecord, ReportedTime, useBankView } from '../bank-context';
 import { cardCopy } from '../card-copy';
-import { bps, funds, useBankRead, usePageLimit, type ActionSpec } from '../components';
+import { bps, funds, usePageLimit, type ActionSpec, useBankRecord } from '../components';
 import { Continuation, Panel, ResourceView } from '../bank-settings/parts';
-import type { bankReads, cardSchema } from '../contracts';
+import type { cardSchema } from '../contracts';
 import { t as copyText, Text } from '../copy';
 import { CardControlPanels, CardFace, OrderCard } from './CardPanels';
 import { maskedPan, orderBlock, type OrderBlock } from '../card-controls';
@@ -18,7 +22,7 @@ import { cardOrderCopy } from '../card-order-copy';
 import { cardFeedCopy } from '../card-feed-copy';
 
 type CardRecord = z.infer<typeof cardSchema>;
-type CardDecision = z.infer<(typeof bankReads)['cards.authorizations']>[number];
+type CardDecision = ProcedureOutput<typeof BANK_CARDS_AUTHORIZATIONS>[number];
 
 export function CardReference({ id }: { id: string }) {
   const { Copy } = cardCopy.useCopy();
@@ -411,7 +415,7 @@ function CardRead({
   const { Copy, t, languageFor, directionFor } = cardCopy.useCopy();
   const current = useBankView();
   const [limit, setLimit] = usePageLimit();
-  const query = useBankRead('cards.authorizations', { cardId: card.id, limit });
+  const query = useBankRecord(BANK_CARDS_AUTHORIZATIONS, { cardId: card.id, limit });
   const failure = query.resource.status === 'failed' ? query.resource.failure : null;
   const notFound = failure?.status === 400 && failure.code === 'bank.card_not_found';
   const [previouslyMissing, setPreviouslyMissing] = useState(false);
@@ -556,8 +560,8 @@ export function OwnerCards({ open }: { open: (spec: ActionSpec) => void }) {
   const { Copy, t, languageFor, directionFor } = cardCopy.useCopy();
   const current = useBankView();
   const [limit, setLimit] = usePageLimit();
-  const programme = useBankRead('cards.programme', undefined);
-  const query = useBankRead('cards.list', { limit });
+  const programme = useBankRecord(BANK_CARDS_PROGRAMME, undefined);
+  const query = useBankRecord(BANK_CARDS_LIST, { limit });
   const held = useHoldings();
   const orderProgramme =
     programme.resource.status === 'loading'

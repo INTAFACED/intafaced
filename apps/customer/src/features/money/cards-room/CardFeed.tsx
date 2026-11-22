@@ -1,6 +1,8 @@
 import type { z } from 'zod';
+import { BANK_CARDS_RECURRING } from '@intafaced/contracts/bank-cards-procedures';
+import { BANK_CARDS_AUTHORIZATIONS } from '@intafaced/contracts/bank-cards-procedures';
 import { displayAmount } from '../../../shared/money';
-import { useBankRead } from '../components';
+import { useBankRecord } from '../components';
 import type { cardSchema } from '../contracts';
 import { Panel, ResourceView } from '../bank-settings/parts';
 import { cardFeedCopy } from '../card-feed-copy';
@@ -19,7 +21,7 @@ const dateOf = (iso: string) => new Date(iso).toLocaleDateString(undefined, { ye
 
 export function CardRecurringPanel({ card }: { card: CardRecord }) {
   const { t } = cardFeedCopy.useCopy();
-  const read = useBankRead('cards.recurring', { cardId: card.id, limit: 50 });
+  const read = useBankRecord(BANK_CARDS_RECURRING, { cardId: card.id, limit: 50 });
   return (
     <Panel level={3} title={t('recurringTitle')} lead={t('recurringLead')}>
       <ResourceView resource={read.resource} reload={read.reload}>
@@ -55,7 +57,7 @@ export function CardRecurringPanel({ card }: { card: CardRecord }) {
 
 export function CardRefundsPanel({ card }: { card: CardRecord }) {
   const { t } = cardFeedCopy.useCopy();
-  const read = useBankRead('cards.authorizations', { cardId: card.id, limit: 50 });
+  const read = useBankRecord(BANK_CARDS_AUTHORIZATIONS, { cardId: card.id, limit: 50 });
   return (
     <Panel level={3} title={t('refundsTitle')} lead={t('refundsLead')}>
       <ResourceView resource={read.resource} reload={read.reload}>

@@ -1,10 +1,13 @@
 // volt-room: /bank/ramps/accounts
+import { BANK_LINKED_ACCOUNTS_REMOVE } from '@intafaced/contracts/bank-linked-accounts-procedures';
+import { BANK_LINKED_ACCOUNTS_LINK } from '@intafaced/contracts/bank-linked-accounts-procedures';
+import { BANK_LINKED_ACCOUNTS_LIST } from '@intafaced/contracts/bank-linked-accounts-procedures';
 import { useState, type FormEvent } from 'react';
 import { Button, EmptyState, Field } from '@intafaced/ui/lit';
 import type { Resource } from '../../../shared/resource';
 import { useSession } from '../../session';
-import { date, useBankRead } from '../components';
-import { linkedAccountWrites, type LinkedAccount } from '../contracts';
+import { date, useBankRecord } from '../components';
+import type { LinkedAccount } from '../contracts';
 import { BankSettingsRoom } from '../bank-settings/BankSettingsRoom';
 import { Failure, Loading, Panel } from '../bank-settings/parts';
 import { StepUpSheet } from '../bank-settings/StepUpSheet';
@@ -188,7 +191,7 @@ function LinkForm({ onLinked }: { onLinked: () => void }) {
         <StepUpSheet
           why={t('linkWhy')}
           run={async (token) => {
-            const answer = await api.mutate('bank', 'linkedAccounts.link', input, linkedAccountWrites.link, { bearer: token });
+            const answer = await api.call(BANK_LINKED_ACCOUNTS_LINK, input, { bearer: token });
             if (!answer.ok) {
               // The bank's own refusals in the person's words, with the code to quote; anything else as the bank said it.
               const words = answer.code ? refusalWords[answer.code] : undefined;
@@ -221,7 +224,7 @@ const SECTIONS = [
 export function LinkedAccountsRoom() {
   const { t } = linkedAccountsCopy.useCopy();
   const { api } = useSession();
-  const list = useBankRead('linkedAccounts.list', undefined);
+  const list = useBankRecord(BANK_LINKED_ACCOUNTS_LIST, undefined);
   const [removing, setRemoving] = useState<LinkedAccount | null>(null);
   const [removed, setRemoved] = useState<string | null>(null);
   return (
@@ -256,9 +259,7 @@ export function LinkedAccountsRoom() {
       {removing && (
         <StepUpSheet
           why={t('removeWhy', { account: `${removing.label} (${removing.ibanMasked})` })}
-          run={(token) =>
-            api.mutate('bank', 'linkedAccounts.remove', { accountId: removing.accountId }, linkedAccountWrites.remove, { bearer: token })
-          }
+          run={(token) => api.call(BANK_LINKED_ACCOUNTS_REMOVE, { accountId: removing.accountId }, { bearer: token })}
           onDone={() => {
             setRemoved(removing.label);
             setRemoving(null);
