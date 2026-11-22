@@ -368,6 +368,23 @@ fn earn_settings(env: &BankEnv) -> earn::Settings {
     }
 }
 
+/// One signer for svc-bank's calls to `audience`: the shared secret, and the keyring's key when one is published.
+fn call_signer(env: &BankEnv, audience: &str) -> Result<CallSigner, String> {
+    let s2s = s2s_from_env(
+        env.str("S2S_AUTH_MODE").unwrap_or("off"),
+        env.str("S2S_KEYRING"),
+        env.str("S2S_SIGNING_KID"),
+        env.str("S2S_SIGNING_KEY"),
+        "svc-bank",
+    )?;
+    let keyed = match (s2s.signer, s2s.mode) {
+        (Some(signer), Some(mode)) => Some((signer, mode)),
+        _ => None,
+    };
+    let secret = env.str("INTERNAL_SERVICE_SECRET").unwrap_or_default();
+    Ok(CallSigner::new("svc-bank", audience, secret, keyed))
+}
+
 /// Slice `cards`' wiring (`index.ts`'s `cardIssuerFor` and `cards` options): the issuer (`none` unless chosen; the
 /// simulator refused in a live posture), the TEST partner card's switches and the simulator's cashback (each refused at
 /// boot outside dev or test), and the owner's card values, blank where unset.
@@ -389,7 +406,15 @@ fn cards_wiring(env: &BankEnv) -> Result<cards::Wiring, String> {
             live,
             partner,
         ),
-        rank: Box::new(cards::NoRankTier),
+        rank: match env.str("IDENTITY_URL") {
+            Some(url) => Box::new(cards::reads::IdentityRankTier::new(
+                url,
+                call_signer(env, "svc-identity")?,
+                Box::new(UreqFetch::new()),
+            )),
+            None => Box::new(cards::NoRankTier),
+        },
+        holds: Default::default(),
         settings: cards::Settings {
             module_enabled: env.flag("BANK_CARDS_ENABLED").unwrap_or(true),
             programme: cards::terms::parse_programme(raw("BANK_CARD_PROGRAMME_JSON")),

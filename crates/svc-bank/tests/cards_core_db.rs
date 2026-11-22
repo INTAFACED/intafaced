@@ -177,6 +177,7 @@ fn bank(db: &TestDb, s: Setup) -> BankDoor {
     .with_cards(CardsWiring {
         issuer: s.issuer,
         rank: Box::new(NoRankTier),
+        holds: Default::default(),
         settings: CardSettings {
             module_enabled: s.enabled,
             ..CardSettings::default()

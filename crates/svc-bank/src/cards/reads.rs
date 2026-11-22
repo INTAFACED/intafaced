@@ -8,8 +8,8 @@
 //! never 0.
 //!
 //! The TEST partner card's book ([`CardHoldBook`]) lives in this process, as the TypeScript's `testPartnerCardHolds`
-//! does. Its holds are made by slice `card-ops`' hold instruction; until that is ported nothing writes one, so a call
-//! reads a book with no holds, which is the TEST figures plus the TEST partner's credits ([`book_for_call`]).
+//! does, kept once in the slice's wiring (`Wiring::holds`). Its holds are made by slice `card-ops`' hold instruction;
+//! until that is ported nothing writes one, so a call reads the TEST figures plus the TEST partner's credits.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Mutex;
@@ -376,11 +376,6 @@ impl HoldReads for TestCardHolds<'_> {
             as_of: self.now.iso(),
         })))
     }
-}
-
-/// A book no instruction has written to: what every call reads until `card-ops` keeps one in the slice's wiring.
-pub fn book_for_call() -> Mutex<CardHoldBook> {
-    Mutex::new(CardHoldBook::default())
 }
 
 /// `partnerHolds`: the TEST partner card, only with the TEST partner and the simulator both chosen (not in a live
@@ -1149,8 +1144,7 @@ pub fn answer(d: &Deps<'_>, ctx: &Ctx<'_>) -> Option<Result<Json, Refusal>> {
     let user = principal_user(ctx);
     let card_id = text(input, "cardId");
     let limit = input.get("limit").as_number();
-    let book = book_for_call();
-    let test_holds = test_card_holds(d, &book);
+    let test_holds = test_card_holds(d, &d.w.holds);
     let holds = test_holds.as_ref().map(|h| h as &dyn HoldReads);
     Some(match path {
         "cards.authorizations" => own(d, user, card_id).and_then(|_| {
@@ -1325,7 +1319,7 @@ mod tests {
         )
         .unwrap();
         let issuer = Issuer::sim(terms.clone());
-        let book = book_for_call();
+        let book = Mutex::new(CardHoldBook::default());
         let t0 = Instant(1_700_000_000_000);
         {
             let mut b = book.lock().unwrap();

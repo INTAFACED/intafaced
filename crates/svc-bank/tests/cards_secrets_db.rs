@@ -210,6 +210,7 @@ fn bank(s: &Setup) -> Option<Bank> {
     let cards = CardWiring {
         issuer: Issuer::sim(terms),
         rank: Box::new(svc_bank::cards::NoRankTier),
+        holds: Default::default(),
         settings: CardSettings {
             pin_try_limit: Some(3),
             ..CardSettings::default()

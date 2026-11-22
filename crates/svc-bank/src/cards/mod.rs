@@ -98,6 +98,9 @@ impl Default for Settings {
 pub struct Wiring {
     pub issuer: Issuer,
     pub rank: Box<dyn RankTier>,
+    /// The TEST partner card's hold book (`testPartnerCardHolds`), one per process: `cards.partnerHeld` reads it and
+    /// slice `card-ops`' hold, capture, release and refund instructions write it.
+    pub holds: std::sync::Mutex<reads::CardHoldBook>,
     pub settings: Settings,
 }
 
@@ -107,6 +110,7 @@ impl Wiring {
         Wiring {
             issuer: Issuer::None,
             rank: Box::new(NoRankTier),
+            holds: Default::default(),
             settings: Settings::default(),
         }
     }

@@ -262,6 +262,7 @@ fn bank(db: &TestDb, ledger: &Book, o: &Owner) -> Bank {
     .with_cards(CardsWiring {
         issuer: Issuer::sim(PartnerTerms::nothing_reported()),
         rank: Box::new(NoRankTier),
+        holds: Default::default(),
         settings: CardSettings::default(),
     })
     .with_spaces(Wiring {

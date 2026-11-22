@@ -233,6 +233,7 @@ fn bank_with(s: Setup) -> Option<Bank> {
     .with_cards(CardsWiring {
         issuer: s.issuer,
         rank: s.rank,
+        holds: Default::default(),
         settings: Settings {
             spend_assets: s.spend_assets,
             cashback_rates: s.cashback_rates,
@@ -662,7 +663,7 @@ fn the_markets_price_never_stands_in_for_the_partners_quote_and_a_quote_that_is_
     let Some((b, _)) = pay_from_bank(quoting(), true) else {
         return;
     };
-    let book = reads::book_for_call();
+    let book = std::sync::Mutex::new(reads::CardHoldBook::default());
     let view = pay_from_with(
         &b,
         AT,
@@ -696,7 +697,7 @@ fn a_partner_quote_older_than_the_conversion_policys_window_or_dated_in_the_futu
             })))
         })
     };
-    let book = reads::book_for_call();
+    let book = std::sync::Mutex::new(reads::CardHoldBook::default());
     let btc = |q| row(&pay_from_with(&b, AT, &book, Some(q)), "BTC");
     assert_eq!(
         btc(aged(max_age + 1)),
@@ -713,7 +714,7 @@ fn a_partner_whose_quote_throws_reads_each_rate_not_known_and_pay_from_still_ope
     let Some((b, _)) = pay_from_bank(quoting(), true) else {
         return;
     };
-    let book = reads::book_for_call();
+    let book = std::sync::Mutex::new(reads::CardHoldBook::default());
     let view = pay_from_with(
         &b,
         AT,
@@ -831,6 +832,7 @@ fn refuses_an_order_naming_an_asset_the_partner_cannot_spend_from_twice_or_none_
             let w = CardsWiring {
                 issuer: Issuer::sim(terms),
                 rank: Box::new(Ranks(BTreeMap::new())),
+                holds: Default::default(),
                 settings: d.settings().clone(),
             };
             let d2 = Deps { t: d.t, w: &w };
@@ -955,7 +957,7 @@ fn pay_from_shows_the_partners_own_quote_and_its_time_and_none_without_a_partner
     let Some((b, _)) = holds_bank() else {
         return;
     };
-    let book = reads::book_for_call();
+    let book = std::sync::Mutex::new(reads::CardHoldBook::default());
     let view = pay_from_with(&b, AT_HOLDS, &book, None);
     let offered: Vec<[String; 5]> = rows(&view)
         .into_iter()
@@ -1001,7 +1003,7 @@ fn _3_a_charge_of_25_is_held_from_usdc_the_first_asset_at_the_partners_rate_and_
             &[&auth, &AT_HOLDS],
         )
         .unwrap();
-    let book = reads::book_for_call();
+    let book = std::sync::Mutex::new(reads::CardHoldBook::default());
     let conversion = HoldConversion {
         settlement_asset_id: "USDC".to_owned(),
         settlement_amount: "25".to_owned(),
@@ -1143,7 +1145,7 @@ fn planted_an_approved_authorisation_is_held_by_the_partner_from_the_partner_bal
             ..Auth::default()
         },
     );
-    let book = reads::book_for_call();
+    let book = std::sync::Mutex::new(reads::CardHoldBook::default());
     let terms = PartnerTerms {
         balances: Some(vec![("USDC".to_owned(), "100".to_owned())]),
         ..partner()
@@ -1179,7 +1181,7 @@ fn frozen_reads_stay_open_figures_and_the_partner_held_view() {
             ..Auth::default()
         },
     );
-    let book = reads::book_for_call();
+    let book = std::sync::Mutex::new(reads::CardHoldBook::default());
     let terms = PartnerTerms {
         balances: Some(vec![("USDC".to_owned(), "100".to_owned())]),
         ..partner()
@@ -1223,7 +1225,7 @@ fn testpartner_set_takes_custody_and_cardhold_partnerheld_reads_only_at_the_part
             &[&auth],
         )
         .unwrap();
-    let book = reads::book_for_call();
+    let book = std::sync::Mutex::new(reads::CardHoldBook::default());
     let terms = PartnerTerms {
         balances: Some(vec![("USDC".to_owned(), "100".to_owned())]),
         ..partner()

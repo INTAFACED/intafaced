@@ -74,6 +74,7 @@ fn bank(db: &TestDb, issuer: Issuer, published: bool) -> BankDoor {
     .with_cards(CardsWiring {
         issuer,
         rank: Box::new(svc_bank::cards::NoRankTier),
+        holds: Default::default(),
         settings: Settings {
             programme: if published {
                 Some(parse_programme(Some(TERMS)).unwrap())

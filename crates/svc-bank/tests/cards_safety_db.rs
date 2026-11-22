@@ -108,6 +108,7 @@ fn bank(db: &TestDb, terms: PartnerTerms, three_ds_try_limit: Option<i64>) -> Ba
     .with_cards(Wiring {
         issuer: Issuer::sim(terms),
         rank: Box::new(NoRankTier),
+        holds: Default::default(),
         settings: Settings {
             pin_try_limit: Some(3),
             three_ds_try_limit,
