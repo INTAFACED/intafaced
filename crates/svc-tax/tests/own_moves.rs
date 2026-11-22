@@ -1,7 +1,7 @@
 //! `own-moves.test.ts`, case for case. TEST lines only; SPACE is one of the customer's own spaces.
 #![allow(clippy::indexing_slicing, reason = "a test: a failure is the point")]
 
-mod common;
+use crate::common;
 
 use common::{amt, utc};
 use svc_tax::own_moves::{OwnMove, SpaceInflow, pair_own_moves};
