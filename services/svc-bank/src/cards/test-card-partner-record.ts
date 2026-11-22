@@ -28,6 +28,8 @@ export const TEST_CARD_PARTNER_RECORD_ID = 'test-card-partner';
 /** The paths below the base. */
 export const TEST_CARD_PARTNER_RECORD_PATHS = ['/venue', '/balances', '/credits', '/terms', '/holds', '/funding'] as const;
 
+const RECORD_PATHS: ReadonlySet<string> = new Set(TEST_CARD_PARTNER_RECORD_PATHS);
+
 type Recorder = Pick<CardIssuerAdapter, 'programme'> & {
   testRecord(userId: string): TestCardPartnerBook;
   /** The TEST partner card's holds, when the stack runs them (card-sim with the TEST partner); absent, `/holds` lists none. */
@@ -45,7 +47,7 @@ export async function answerTestCardPartnerRecord(
     if (method !== 'GET') return [405, { error: 'GET only' }];
     return [200, { label: 'TEST', venue: { id: TEST_CARD_PARTNER_RECORD_ID, displayName: issuer.programme.displayName } }];
   }
-  if (!(TEST_CARD_PARTNER_RECORD_PATHS as readonly string[]).includes(path)) return [404, { error: 'no such path' }];
+  if (!RECORD_PATHS.has(path)) return [404, { error: 'no such path' }];
   if (method !== 'POST') return [405, { error: 'POST only' }];
   const account = (body as { account?: { venueId?: unknown; owner?: unknown; subAccount?: unknown } } | null)?.account;
   if (account?.venueId !== TEST_CARD_PARTNER_RECORD_ID) return [400, { error: `account.venueId must be ${TEST_CARD_PARTNER_RECORD_ID}` }];
