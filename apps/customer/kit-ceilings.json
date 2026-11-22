@@ -62,7 +62,6 @@
     "apps/customer/src/features/money/WithdrawalAddresses.tsx": 8,
     "apps/customer/src/features/money/WithdrawForm.tsx": 7,
     "apps/customer/src/features/more/AcademyAssignment.tsx": 2,
-    "apps/customer/src/features/more/AcademyLearning.tsx": 1,
     "apps/customer/src/features/more/AcademyPeerReview.tsx": 1,
     "apps/customer/src/features/more/AcademyVideoPlayer.tsx": 6,
     "apps/customer/src/features/more/AgentAccess.tsx": 2,
