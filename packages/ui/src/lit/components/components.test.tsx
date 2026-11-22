@@ -9,6 +9,7 @@ import {
   ActionKey,
   Button,
   Change,
+  Checkbox,
   Dock,
   Field,
   Figure,
@@ -17,6 +18,7 @@ import {
   Rail,
   RefusalBox,
   RiskMoment,
+  Select,
   Surface,
   type DoorLink,
 } from './index.js';
@@ -145,6 +147,24 @@ describe('components', () => {
   it('Field keeps a caller description next to its own hint', () => {
     const out = html(<Field label="Amount" hint="Max 500" aria-describedby="terms" id="a" />);
     expect(out).toContain('aria-describedby="terms a-hint"');
+  });
+
+  it('Select is a labelled native select whose change hands back the value', () => {
+    const out = html(<Select label="Role" value="b" options={['a', { value: 'b', label: 'Bee' }]} hint="Pick one" />);
+    expect(out).toMatch(/^<label class="lt-field"><span>Role<\/span><select>/);
+    expect(out).toContain('<option value="a">a</option><option value="b" selected="">Bee</option>');
+    expect(out).toContain('<small>Pick one</small>');
+  });
+
+  it('Checkbox is a native tick box named by its words or its own label', () => {
+    const out = html(
+      <Checkbox checked readOnly aria-label="Allow Runner">
+        Allowed
+      </Checkbox>,
+    );
+    expect(out).toMatch(/^<label class="lt-field"><input [^>]*type="checkbox"[^>]*\/><span>Allowed<\/span><\/label>$/);
+    expect(out).toContain('checked=""');
+    expect(out).toContain('aria-label="Allow Runner"');
   });
 
   it('LegalSlot holds no copy of its own, and an unset text shows a refusal in words, never the id', () => {

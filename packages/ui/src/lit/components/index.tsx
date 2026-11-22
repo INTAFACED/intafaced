@@ -158,6 +158,51 @@ export function Field({ label, hint, error, id, className, ...rest }: FieldProps
   );
 }
 
+export type SelectOption = string | { value: string; label: string };
+
+export type SelectProps = Omit<React.SelectHTMLAttributes<HTMLSelectElement>, 'onChange' | 'children'> & {
+  label: string;
+  options: readonly SelectOption[];
+  onChange?: (value: string) => void;
+  hint?: string;
+};
+
+/** A choice from a short list: the browser's own select, in the kit's field, its words above it. */
+export function Select({ label, options, onChange, hint, className, ...rest }: SelectProps) {
+  return (
+    <label className={clsx('lt-field', className)}>
+      <span>{label}</span>
+      <select {...rest} onChange={(e) => onChange?.(e.target.value)}>
+        {options.map((o) => {
+          const value = typeof o === 'string' ? o : o.value;
+          return (
+            <option key={value} value={value}>
+              {typeof o === 'string' ? o : o.label}
+            </option>
+          );
+        })}
+      </select>
+      {hint ? <small>{hint}</small> : null}
+    </label>
+  );
+}
+
+export type CheckboxProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type' | 'onChange' | 'children'> & {
+  /** The words beside the box. A box whose words don't name it alone (a column of "Allowed" ticks) also takes an `aria-label`. */
+  children: React.ReactNode;
+  onCheckedChange?: (checked: boolean) => void;
+};
+
+/** A tick box and its words, one row, the browser's own control in the kit's accent. */
+export function Checkbox({ children, onCheckedChange, className, ...rest }: CheckboxProps) {
+  return (
+    <label className={clsx('lt-field', className)}>
+      <input {...rest} type="checkbox" onChange={(e) => onCheckedChange?.(e.target.checked)} />
+      <span>{children}</span>
+    </label>
+  );
+}
+
 /** A typed part of a formatted number (packages/i18n `formatMoneyToParts` and friends return these). */
 export type FigurePart = { readonly type: string; readonly value: string };
 
