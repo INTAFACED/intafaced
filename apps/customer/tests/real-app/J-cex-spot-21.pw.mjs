@@ -499,6 +499,7 @@ test(`${J} #9 with the venue's maximum of pending staking withdrawals already pe
   await expect(form(page).getByTestId('staking-limit-refused')).toHaveAttribute('data-limit', String(limit));
   // Nothing retried: no "send again", nothing more signed or sent, and the venue's queue and balance are as they were.
   await expect(form(page).getByTestId('staking-again')).toHaveCount(0);
+  // oxlint-disable-next-line garden/no-wait-for-timeout -- proving nothing happens: no retry is sent after the refusal
   await page.waitForTimeout(3_000);
   expect(signatures(wallet)).toBe(asked + 1);
   expect(calls.of('submit')).toHaveLength(1);

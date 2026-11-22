@@ -1240,7 +1240,9 @@ async function route(
     }
     case '/test/staking': {
       // J-cex-spot-21 #6 #7 #8 #9: one account's staking, as the venue's clock or the venue itself moves it.
-      const reward = body.reward as Record<string, unknown> | undefined;
+      const given: unknown = body.reward;
+      const reward: Record<string, unknown> | null =
+        given !== null && typeof given === 'object' ? Object.fromEntries(Object.entries(given)) : null;
       sim.testStaking(account(body), {
         ...(typeof body.passLockUp === 'string' ? { passLockUp: body.passLockUp } : {}),
         ...(body.passQueue === true ? { passQueue: true } : {}),
