@@ -322,6 +322,11 @@ export const components = {
   Sparkline: '(B2) A small trend line for a card or a row, named for a screen reader; nothing from fewer than two points',
   Bars: '(B2) Bars (volume, monthly totals)',
   Parts: '(B2) Parts of a whole that reconcile to the total, with a list fallback',
+  AssetIcon: "An asset's round mark: the kit's artwork for a listed asset, a lettered disc for any other, never a guessed logo",
+  InfoTip: 'A short explanation behind an (i) button: opens on hover, focus and tap, closes on Escape; also the description',
+  HeroFigure: 'The one large figure a room is about: masked when balances are hidden, a dash when there is none, never animated',
+  Fold: 'A group closed until opened (small balances), with its count: the native disclosure',
+  CardStack: 'The account as two cards you hold, each a link: matte black metal in front, the lit card behind',
 } as const;
 export type ComponentName = keyof typeof components;
 
