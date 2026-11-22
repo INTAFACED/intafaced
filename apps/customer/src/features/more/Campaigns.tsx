@@ -7,8 +7,9 @@ import { Journey, type JourneyStep } from './depth-kit';
 import { CampaignCatalogue, MyCampaigns } from './campaign-catalogue';
 import { MyVouchers } from './campaign-vouchers';
 import { campaignsDepthCopy } from './campaigns-depth-copy';
-import { COPY_MAX, HEADLINE_MAX, proposalRequest, proposalResult, type ProposalResult } from './campaign-proposal';
+import { COPY_MAX, HEADLINE_MAX, proposalRequest, type ProposalResult } from './campaign-proposal';
 import type { ApiResult } from '../../shared/api';
+import { AGENTS_GROWTH_PROPOSE } from '@intafaced/contracts/agents-growth-procedures';
 
 type Tab = 'Catalogue' | 'Journey' | 'Mine' | 'Propose';
 const TABS: readonly Tab[] = ['Catalogue', 'Journey', 'Mine', 'Propose'];
@@ -80,7 +81,7 @@ function Propose() {
   async function send() {
     if (!request) return;
     setBusy(true);
-    const result = await api.mutate('agents', 'growth.propose', request, proposalResult);
+    const result = await api.call(AGENTS_GROWTH_PROPOSE, request);
     setOutcome(result);
     setBusy(false);
     setConfirming(false);

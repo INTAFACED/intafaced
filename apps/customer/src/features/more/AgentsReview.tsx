@@ -10,17 +10,12 @@ import { refusalWords } from './AgentsCatalogue';
 import { ACTION_LOG_HEADER, actionLogRows } from './agents-catalogue';
 import { downloadCsv, toCsv } from './depth-csv';
 import { agentsReviewCopy } from './agents-review-copy';
-import {
-  ACTION_LOG_EXPORT_PAGE,
-  actionLogCountSchema,
-  actionLogExportPageSchema,
-  actionLogRowSchema,
-  analyticsSummarySchema,
-  runTraceSchema,
-  usageGroupSchema,
-  usageSummarySchema,
-  type ActionLogRow,
-} from '@intafaced/contracts/agents-review';
+import { ACTION_LOG_EXPORT_PAGE, usageGroupSchema, type ActionLogRow } from '@intafaced/contracts/agents-review';
+import { AGENTS_RUN_TRACE } from '@intafaced/contracts/agents-run-procedures';
+import { AGENTS_LOG_MINE, AGENTS_LOG_COUNT, AGENTS_LOG_EXPORT } from '@intafaced/contracts/agents-log-procedures';
+import { AGENTS_USAGE_SUMMARY } from '@intafaced/contracts/agents-usage-procedures';
+import { AGENTS_ANALYTICS_SUMMARY } from '@intafaced/contracts/agents-analytics-procedures';
+import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 
 /**
  * What my agents did (J-agents-13): the dashboard over a range of days, the activity log with its outcome filter and a
@@ -48,11 +43,9 @@ export function AgentsDashboard() {
   const summary = useResource(
     (signal) =>
       asked
-        ? api.query(
-            'agents',
-            'analytics.summary',
+        ? api.call(
+            AGENTS_ANALYTICS_SUMMARY,
             { from: asked.from, to: asked.to, includeTest: asked.includeTest },
-            analyticsSummarySchema,
             {
               signal,
             },
@@ -93,7 +86,7 @@ export function AgentsDashboard() {
   );
 }
 
-function DashboardFigures({ data }: { data: z.infer<typeof analyticsSummarySchema> }) {
+function DashboardFigures({ data }: { data: ProcedureOutput<typeof AGENTS_ANALYTICS_SUMMARY> }) {
   const { t } = agentsReviewCopy.useCopy();
   const preferences = usePreferences();
   const money = (lines: readonly { assetId: string; amount: string }[]) =>
@@ -186,13 +179,10 @@ export function AgentsActivity({ title, note, empty }: { title: string; note: Re
     [exported, setExported] = useState<{ ok: true; count: number } | { ok: false } | null>(null);
   const filter = outcome ? { outcome } : {};
   const rows = useResource(
-      (signal) => api.query('agents', 'log.mine', { limit, ...filter }, z.array(actionLogRowSchema).max(limit), { signal }),
+      (signal) => api.call(AGENTS_LOG_MINE, { limit, ...filter }, { signal }),
       `agent-activity:${userId}:${outcome}:${limit}`,
     ),
-    count = useResource(
-      (signal) => api.query('agents', 'log.count', filter, actionLogCountSchema, { signal }),
-      `agent-activity-count:${userId}:${outcome}`,
-    );
+    count = useResource((signal) => api.call(AGENTS_LOG_COUNT, filter, { signal }), `agent-activity-count:${userId}:${outcome}`);
 
   async function exportAll() {
     setExporting(true);
@@ -203,12 +193,7 @@ export function AgentsActivity({ title, note, empty }: { title: string; note: Re
     let cursor: string | null | undefined;
     try {
       do {
-        const page = await api.query(
-          'agents',
-          'log.export',
-          { ...filter, limit: EXPORT_PAGE, requestId, format, ...(cursor ? { cursor } : {}) },
-          actionLogExportPageSchema,
-        );
+        const page = await api.call(AGENTS_LOG_EXPORT, { ...filter, limit: EXPORT_PAGE, requestId, format, ...(cursor ? { cursor } : {}) });
         if (!page.ok) {
           setExported({ ok: false });
           return;
@@ -335,10 +320,7 @@ export function AgentsUsage() {
     { userId } = useSession();
   const { t } = agentsReviewCopy.useCopy();
   const preferences = usePreferences();
-  const usage = useResource(
-    (signal) => api.query('agents', 'usage.summary', { limit: USAGE_PAGE }, usageSummarySchema, { signal }),
-    `agent-usage-summary:${userId}`,
-  );
+  const usage = useResource((signal) => api.call(AGENTS_USAGE_SUMMARY, { limit: USAGE_PAGE }, { signal }), `agent-usage-summary:${userId}`);
   const cost = (amount: string, assetId: string) => (preferences.hideBalances ? '••••' : `${displayAmount(amount)} ${assetId}`);
   const groupTable = (
     label: string,
@@ -447,7 +429,7 @@ function RunTrace({ sessionId, requestId }: { sessionId: string; requestId: stri
   const { t } = agentsReviewCopy.useCopy();
   const preferences = usePreferences();
   const trace = useResource(
-    (signal) => api.query('agents', 'run.trace', { sessionId, requestId }, runTraceSchema, { signal }),
+    (signal) => api.call(AGENTS_RUN_TRACE, { sessionId, requestId }, { signal }),
     `agent-run-trace:${userId}:${sessionId}:${requestId}`,
   );
   const cost = (amount: string | null, assetId: string | null) =>
