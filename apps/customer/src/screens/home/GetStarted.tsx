@@ -62,7 +62,16 @@ function Row({ step }: { step: Step }) {
   );
   return (
     <li>
-      <a data-testid="home-started__row" className="lt-row-link" href={step.href} data-step={step.id} data-status={step.status}>
+      {/* One link across the whole row, at the kit's row height: a step whose answer comes back done (no hint line) keeps
+          its row's place. */}
+      <a
+        data-testid="home-started__row"
+        className="lt-row-link"
+        data-span="row"
+        href={step.href}
+        data-step={step.id}
+        data-status={step.status}
+      >
         {body}
       </a>
     </li>

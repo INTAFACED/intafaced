@@ -76,7 +76,7 @@ export function MarketsRow({
 }) {
   const points = sparklines.status === 'ready' ? sparklines.data : {};
   return (
-    <div data-testid="home-cards" className="lt-actions">
+    <div data-testid="home-cards" className="lt-tiles">
       {cards.map((item) => (
         <MarketCard key={item.symbol} item={item} tickers={tickers} points={points[item.symbol]} favoriting={favoriting} />
       ))}
@@ -84,10 +84,10 @@ export function MarketsRow({
   );
 }
 
-/** As many placeholders as the final row will have, so nothing moves when the data arrives (critic M4). */
+/** As many placeholders as the final row will have, in the cards' own row, so nothing moves when the data arrives (critic M4). */
 export function MarketsSkeleton({ count = 4 }: { count?: number }) {
   return (
-    <div data-testid="home-cards" aria-hidden="true">
+    <div data-testid="home-cards" className="lt-tiles" aria-hidden="true">
       <Ghost shape="grid" count={Math.min(4, count)} />
     </div>
   );

@@ -252,9 +252,10 @@ function HomeSimple() {
   const started = useStartedTile(portfolio, side.includes('started'));
   // What "Needs you" shows, so the inbox row is never a notice it already carries.
   const [needsYou, setNeedsYou] = useState<NeedsYouShown | null>(null);
-  // The total and its label: the template's hero. The actions are its own region.
+  // The total and its label: the template's hero, one stack the template keeps at one height (heroReserve). The actions
+  // are its own region.
   const hero = (
-    <>
+    <div className="lt-stack">
       <div data-testid="home-label" className="lt-actions">
         <span>{t('Est. total value')}</span>
         <Button
@@ -273,7 +274,7 @@ function HomeSimple() {
         )}
       </div>
       {launch ? <HomeStanding status={launch} hidden={hideBalances} /> : <Balance portfolio={portfolio} hidden={hideBalances} />}
-    </>
+    </div>
   );
 
   const tile = (id: (typeof main)[number]) => {
@@ -368,6 +369,9 @@ function HomeSimple() {
           </>
         }
         hero={hero}
+        // The label row, the figure and two lines under it (a unit note and today's change): one height while loading
+        // and once loaded, so nothing below moves when the balance arrives.
+        heroReserve={2}
         actions={<ActionPills loading={portfolio.status === 'loading'} mode={actionMode} />}
         needsYou={lead ? tile(lead) : undefined}
         sections={

@@ -58,6 +58,8 @@ import { shownTiles } from './tiles';
 /** How many markets and assets Home Pro lists before it points to the full screen. */
 const MARKET_ROWS = 10;
 const ASSET_ROWS = 8;
+/** Placeholder rows while the holdings load. */
+const GHOST_ROWS = 3;
 /** One request asks for this many open orders; a full page is shown as "100+". */
 const ORDERS_PAGE = 100;
 /** The pair the Trade button opens for an asset, as the desk's address. Cash (USDT, USDC) has no market to open. */
@@ -128,8 +130,10 @@ function ActionRow({ loading, mode }: { loading: boolean; mode: ActionMode }) {
   ).filter((action) => !isHiddenPath(action.href.split('?')[0]!));
   // The actions come in the order of the mode's list, as in Simple.
   const ordered = wanted ? [...live].sort((a, b) => wanted.indexOf(a.label) - wanted.indexOf(b.label)) : live;
+  // While loading, the keys' placeholder row is the whole tray, not one more key beside the others.
+  const tray = loading ? undefined : 'lt-actions';
   return (
-    <nav data-testid="hp-actions" className="lt-actions" aria-label={tp('Quick actions')}>
+    <nav data-testid="hp-actions" className={tray} aria-label={tp('Quick actions')}>
       {loading ? (
         <Skeleton shape="keys" count={ordered.length} />
       ) : (
@@ -314,10 +318,17 @@ function Summary({
 /** Pro's figures beside the total: cash, crypto and the orders waiting on the market. */
 function ProStats({ portfolio, orders, hidden }: { portfolio: Loadable<HomePortfolio>; orders: OpenOrders; hidden: boolean }) {
   const { t } = homeCopy.useCopy();
+  // While loading, each figure's place holds a placeholder one figure line tall under its label, so the row keeps its shape.
   if (portfolio.status === 'loading')
     return (
-      <div className="lt-actions" aria-hidden="true">
-        <Skeleton shape="text" count={2} />
+      <div className="lt-actions" aria-busy="true">
+        <Stat label={t('Cash')}>
+          <Skeleton shape="text" count={1} />
+        </Stat>
+        <Stat label={t('Crypto')}>
+          <Skeleton shape="text" count={1} />
+        </Stat>
+        <OrdersStat orders={orders} />
       </div>
     );
   if (portfolio.status !== 'ready' || portfolio.data.holdings.length === 0) return null;
@@ -341,6 +352,7 @@ function Assets({ portfolio, hidden }: { portfolio: Loadable<HomePortfolio>; hid
   const holdings = portfolio.status === 'ready' ? portfolio.data.holdings : [];
   const rows = holdings.slice(0, ASSET_ROWS);
   const head = [tp('Asset'), tp('Amount'), tp('Value'), tp('Today')];
+  const loading = portfolio.status === 'loading';
   return (
     <section data-testid="hp-assets-panel" className="lt-stack" aria-labelledby="hp-assets-title">
       <div className="lt-title-row">
@@ -349,74 +361,82 @@ function Assets({ portfolio, hidden }: { portfolio: Loadable<HomePortfolio>; hid
           {tp('View all assets')}
         </a>
       </div>
-      {portfolio.status === 'loading' ? (
-        <div data-testid="hp-assets" aria-busy="true" aria-label={tp('Your assets')}>
-          <div data-testid="hp-assets__row">
-            <Skeleton shape="rows" count={3} />
-          </div>
-        </div>
-      ) : (
-        <table data-testid="hp-assets" className="lt-table" aria-label={tp('Your assets')}>
-          <thead>
-            <tr data-testid="hp-assets__row--head">
-              {head.map((words) => (
-                <th key={words} scope="col">
-                  {words}
-                </th>
-              ))}
-              <th scope="col">
-                <span className="lt-sr">{tp('Trade')}</span>
+      <table data-testid="hp-assets" className="lt-table" aria-label={tp('Your assets')} aria-busy={loading || undefined}>
+        <thead>
+          <tr data-testid="hp-assets__row--head">
+            {head.map((words) => (
+              <th key={words} scope="col">
+                {words}
               </th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((holding) => {
-              const name = assetName(holding.asset, copy);
-              const pct = changeRatio(holding);
-              const desk = deskFor(holding);
-              const target = desk && !isHiddenPath(desk.split('?')[0]!) ? desk : null;
-              const assetLabel = (
-                <>
-                  <AssetIcon asset={holding.asset} />
-                  <span>{holding.asset}</span>
-                  {name ? <span className="lt-hint">{name}</span> : null}
-                </>
-              );
-              return (
-                <tr data-testid="hp-assets__row" key={holding.asset} data-asset={holding.asset}>
-                  <td data-label={head[0]}>
-                    {/* The desk for coins with a market; cash has none, so no link (the coin page is M3). */}
-                    {target ? (
-                      <a className="lt-row-link" href={target}>
-                        {assetLabel}
-                      </a>
-                    ) : (
-                      <span className="lt-actions">{assetLabel}</span>
-                    )}
-                  </td>
-                  <td data-label={head[1]} data-align="end">
-                    <Amount value={fmtAmount(holding.total, { round: 'down' })} hidden={hidden} />
-                  </td>
-                  <td data-label={head[2]} data-align="end">
-                    <Money value={holding.usdValue === null ? null : fmtUsd(holding.usdValue)} hidden={hidden} />
-                  </td>
-                  <td data-label={head[3]} data-align="end">
-                    {/* Cash has no price move: "—", as on Money (critic L7). */}
-                    <Pct value={holding.class === 'cash' || pct === null ? null : fmtPct(pct)} />
-                  </td>
-                  <td data-align="end">
-                    {target ? (
-                      <a className="lt-button lt-button-secondary" href={target} aria-label={tp('Trade {asset}', { asset: holding.asset })}>
-                        {tp('Trade')}
-                      </a>
-                    ) : null}
-                  </td>
+            ))}
+            <th scope="col">
+              <span className="lt-sr">{tp('Trade')}</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {loading
+            ? // While loading, three rows of placeholders at the rows' own height, under the real header.
+              Array.from({ length: GHOST_ROWS }, (_, ghost) => (
+                <tr data-testid="hp-assets__row" key={ghost} aria-hidden="true">
+                  {head.map((words) => (
+                    <td key={words} data-label={words}>
+                      <Skeleton shape="text" count={1} />
+                    </td>
+                  ))}
+                  <td />
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
+              ))
+            : rows.map((holding) => {
+                const name = assetName(holding.asset, copy);
+                const pct = changeRatio(holding);
+                const desk = deskFor(holding);
+                const target = desk && !isHiddenPath(desk.split('?')[0]!) ? desk : null;
+                const assetLabel = (
+                  <>
+                    <AssetIcon asset={holding.asset} />
+                    <span>{holding.asset}</span>
+                    {name ? <span className="lt-hint">{name}</span> : null}
+                  </>
+                );
+                return (
+                  <tr data-testid="hp-assets__row" key={holding.asset} data-asset={holding.asset}>
+                    <td data-label={head[0]}>
+                      {/* The desk for coins with a market; cash has none, so no link (the coin page is M3). */}
+                      {target ? (
+                        <a className="lt-row-link" href={target}>
+                          {assetLabel}
+                        </a>
+                      ) : (
+                        <span className="lt-actions">{assetLabel}</span>
+                      )}
+                    </td>
+                    <td data-label={head[1]} data-align="end">
+                      <Amount value={fmtAmount(holding.total, { round: 'down' })} hidden={hidden} />
+                    </td>
+                    <td data-label={head[2]} data-align="end">
+                      <Money value={holding.usdValue === null ? null : fmtUsd(holding.usdValue)} hidden={hidden} />
+                    </td>
+                    <td data-label={head[3]} data-align="end">
+                      {/* Cash has no price move: "—", as on Money (critic L7). */}
+                      <Pct value={holding.class === 'cash' || pct === null ? null : fmtPct(pct)} />
+                    </td>
+                    <td data-align="end">
+                      {target ? (
+                        <a
+                          className="lt-button lt-button-secondary"
+                          href={target}
+                          aria-label={tp('Trade {asset}', { asset: holding.asset })}
+                        >
+                          {tp('Trade')}
+                        </a>
+                      ) : null}
+                    </td>
+                  </tr>
+                );
+              })}
+        </tbody>
+      </table>
     </section>
   );
 }
@@ -590,6 +610,9 @@ export function HomePro() {
         </>
       }
       hero={<Summary portfolio={portfolio} hidden={hideBalances} launch={launch} />}
+      // The label row, the figure and two lines under it (a unit note and today's change): one height while loading and
+      // once loaded, so nothing below moves when the balance arrives.
+      heroReserve={2}
       actions={actions}
       pro={stats}
       sections={

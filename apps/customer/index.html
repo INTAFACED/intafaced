@@ -97,6 +97,10 @@
         inline-size: 6.9286rem;
         block-size: 1rem;
       }
+      /* the hero keeps the height Home's overview gives it (heroReserve 2: the label row, the figure and two lines) */
+      #boot-frame [data-region='hero'] {
+        --lt-reserve: 2;
+      }
       /* a section head: one line of its title */
       #boot-frame .bf-head {
         inline-size: 6.25rem;
@@ -161,13 +165,17 @@
         <div class="lt-body">
           <div class="lt-grid lt-grid-main-side">
             <div class="lt-col-main">
-              <div class="lt-region" data-region="hero">
-                <div class="bf-label"><span class="bf-line"></span></div>
-                <div class="bf-total">
-                  <div class="lt-ghost" data-ghost="figure" data-busy=""><span class="lt-ghost-item"></span></div>
-                </div>
-                <div class="bf-change">
-                  <div class="lt-ghost" data-ghost="text" data-busy=""><span class="lt-ghost-item"></span></div>
+              <div class="lt-region" data-region="hero" data-reserve="">
+                <div class="lt-stack">
+                  <div class="bf-label"><span class="bf-line"></span></div>
+                  <div>
+                    <div class="bf-total">
+                      <div class="lt-ghost" data-ghost="figure" data-busy=""><span class="lt-ghost-item"></span></div>
+                    </div>
+                    <div class="bf-change">
+                      <div class="lt-ghost" data-ghost="text" data-busy=""><span class="lt-ghost-item"></span></div>
+                    </div>
+                  </div>
                 </div>
               </div>
               <div class="lt-region" data-region="actions">
@@ -196,7 +204,7 @@
                   </div>
                   <div class="lt-stack">
                     <span class="bf-line bf-head bf-markets-head"></span>
-                    <div class="bf-cards">
+                    <div class="bf-cards lt-tiles">
                       <div class="lt-ghost" data-ghost="grid" data-busy="">
                         <span class="lt-ghost-item"></span><span class="lt-ghost-item"></span><span class="lt-ghost-item"></span
                         ><span class="lt-ghost-item"></span>
