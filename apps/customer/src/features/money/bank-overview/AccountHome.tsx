@@ -1,12 +1,23 @@
 import { useState } from 'react';
-import type { ApiResult } from '../../shared/api';
-import { Button, Failure, Loading } from '../../shared/ui';
-import { useSession } from '../session';
-import { AccountDetailsPanel } from './AccountDetails';
-import { accountHomeCopy } from './account-home-copy';
-import { funds, useBankRead } from './components';
-import { currencyWrites, type AccountCurrency, type AccountTerms } from './contracts';
-import { DepthPanel, Fact } from './DepthParts';
+import type { ReactNode } from 'react';
+import { Button, Select } from '@intafaced/ui/lit';
+import type { ApiResult } from '../../../shared/api';
+import { ReadFailure, ReadLoading } from '../../../shared/read-state';
+import { useSession } from '../../session';
+import { AccountDetailsPanel } from '../account-details/AccountDetails';
+import { Panel as DepthPanel } from '../account-details/parts';
+import { accountHomeCopy } from '../account-home-copy';
+import { funds, useBankRead } from '../components';
+import { currencyWrites, type AccountCurrency, type AccountTerms } from '../contracts';
+
+function Fact({ label, children }: { label: ReactNode; children: ReactNode }) {
+  return (
+    <div>
+      <dt>{label}</dt>
+      <dd>{children}</dd>
+    </div>
+  );
+}
 
 /**
  * The account itself on the Bank Overview (BK-acct-01, BK-acct-03): the base-tier terms the bank published, the currencies
@@ -22,10 +33,10 @@ type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 function Refused({ title, body, code }: { title: string; body: string; code?: string | undefined }) {
   const { t } = accountHomeCopy.useCopy();
   return (
-    <div data-testid="failure" className="failure" role="status">
-      <h3>{title}</h3>
-      <p>{body}</p>
-      {code && <small className="muted">{t('reference', { code })}</small>}
+    <div data-testid="failure" className="lt-refusal" data-refusal="refused" role="status">
+      <h3 className="lt-refusal-title">{title}</h3>
+      <p className="lt-refusal-body">{body}</p>
+      {code && <small className="lt-ref">{t('reference', { code })}</small>}
     </div>
   );
 }
@@ -61,7 +72,7 @@ function PanelFailure({ failure, retry }: { failure: Refusal; retry: () => void 
   return failure.code === 'bank.company_account_unwired' || failure.code === 'bank.profile_not_held' ? (
     <ProfileRefused failure={failure} />
   ) : (
-    <Failure result={failure} retry={retry} />
+    <ReadFailure result={failure} retry={retry} />
   );
 }
 
@@ -75,7 +86,7 @@ function ProfilePanel() {
     <DepthPanel title={t('profileTitle')} lead={t('profileLead')}>
       <div data-testid="account-profile">
         {resource.status === 'loading' ? (
-          <Loading />
+          <ReadLoading />
         ) : resource.status === 'failed' ? (
           <PanelFailure failure={resource.failure} retry={read.reload} />
         ) : resource.data.business === null ? (
@@ -85,7 +96,7 @@ function ProfilePanel() {
             <p>
               <strong lang="und">{t('profileBusiness', { name: resource.data.business.name })}</strong>
             </p>
-            <p className="money-caption">{t('profileRole', { role: roleLabel(resource.data.business.role) })}</p>
+            <p className="lt-hint">{t('profileRole', { role: roleLabel(resource.data.business.role) })}</p>
           </>
         )}
       </div>
@@ -96,7 +107,7 @@ function ProfilePanel() {
 function TermsFacts({ terms }: { terms: AccountTerms }) {
   const { t } = accountHomeCopy.useCopy();
   return (
-    <dl className="bd-facts" data-testid="account-terms">
+    <dl className="lt-kv" data-testid="account-terms">
       <Fact label={t('tier')}>
         <span lang="und">{terms.tier}</span>
       </Fact>
@@ -109,7 +120,7 @@ function TermsFacts({ terms }: { terms: AccountTerms }) {
           // A published overdraft the bank cannot book yet (J-bank-02 #8): the fee, then the blocker by name.
           <>
             {funds(terms.overdraftFee, terms.currency)} · {t('overdraftOff')}{' '}
-            <small className="muted">{t('reference', { code: terms.overdraftBlocker ?? 'bank.overdraft_switched_off' })}</small>
+            <small className="lt-ref">{t('reference', { code: terms.overdraftBlocker ?? 'bank.overdraft_switched_off' })}</small>
           </>
         )}
       </Fact>
@@ -134,7 +145,7 @@ function TermsPanel() {
   return (
     <DepthPanel title={t('termsTitle')} lead={t('termsLead')}>
       {resource.status === 'loading' ? (
-        <Loading />
+        <ReadLoading />
       ) : resource.status === 'failed' ? (
         resource.failure.code === 'bank.account_terms_unset' ? (
           <Refused title={t('termsUnsetTitle')} body={t('termsUnsetBody')} code={resource.failure.code} />
@@ -151,12 +162,12 @@ function TermsPanel() {
 function CurrencyRow({ row, onRemove, busy }: { row: AccountCurrency; onRemove: () => void; busy: boolean }) {
   const { t } = accountHomeCopy.useCopy();
   return (
-    <div className="money-space-row" data-testid={`currency-${row.assetId}`}>
+    <div className="lt-title-row" data-testid={`currency-${row.assetId}`}>
       <strong lang="und">{row.assetId}</strong>
-      <span className="numeric" dir="ltr">
+      <span className="lt-mono" dir="ltr">
         {funds(row.balance, row.assetId)}
       </span>
-      <Button variant="ghost" onClick={onRemove} disabled={busy}>
+      <Button tone="quiet" onClick={onRemove} disabled={busy}>
         {t('remove', { asset: row.assetId })}
       </Button>
     </div>
@@ -200,7 +211,7 @@ function CurrenciesPanel() {
   if (resource.status === 'loading') {
     return (
       <DepthPanel title={t('currenciesTitle')} lead={t('currenciesLead')}>
-        <Loading />
+        <ReadLoading />
       </DepthPanel>
     );
   }
@@ -215,33 +226,24 @@ function CurrenciesPanel() {
   const choice = picked || addable?.[0] || '';
   return (
     <DepthPanel title={t('currenciesTitle')} lead={t('currenciesLead')}>
-      <div className="bd-stack">
+      <div className="lt-stack">
         {currencies.length === 0 ? (
-          <p className="money-caption">{t('noCurrencies')}</p>
+          <p className="lt-hint">{t('noCurrencies')}</p>
         ) : (
           currencies.map((row) => (
             <CurrencyRow key={row.assetId} row={row} busy={busy} onRemove={() => void write('remove', row.assetId, row.spaceId)} />
           ))
         )}
         {addable === null ? (
-          <p className="money-caption">
-            {t('addUnset')} {addableBlocker && <small className="muted">{t('reference', { code: addableBlocker })}</small>}
+          <p className="lt-hint">
+            {t('addUnset')} {addableBlocker && <small className="lt-ref">{t('reference', { code: addableBlocker })}</small>}
           </p>
         ) : addable.length === 0 ? (
-          <p className="money-caption">{t('addNone')}</p>
+          <p className="lt-hint">{t('addNone')}</p>
         ) : (
-          <div className="actions">
-            <label className="field">
-              <span>{t('addLabel')}</span>
-              <select value={choice} onChange={(event) => setPicked(event.target.value)}>
-                {addable.map((id) => (
-                  <option key={id} value={id}>
-                    {id}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <Button onClick={() => void write('add', choice)} disabled={busy || choice === ''}>
+          <div className="lt-actions">
+            <Select label={t('addLabel')} value={choice} onChange={setPicked} options={addable} />
+            <Button tone="primary" onClick={() => void write('add', choice)} disabled={busy || choice === ''}>
               {busy ? t('working') : t('add')}
             </Button>
           </div>
@@ -251,20 +253,20 @@ function CurrenciesPanel() {
         {outcome?.kind === 'inUse' && (
           <div data-testid="currency-in-use">
             <Refused title={t('inUseTitle', { asset: outcome.asset })} body={t('inUseBody')} code={outcome.code} />
-            <div className="actions">
+            <div className="lt-actions">
               <a
-                className="button button--secondary"
+                className="lt-button lt-button-secondary"
                 href={outcome.spaceId ? `/bank/transfers?from=${encodeURIComponent(outcome.spaceId)}` : '/bank/transfers'}
               >
                 {t('send')}
               </a>
-              <a className="button button--secondary" href="/trade/convert">
+              <a className="lt-button lt-button-secondary" href="/trade/convert">
                 {t('convert')}
               </a>
             </div>
           </div>
         )}
-        {outcome?.kind === 'refused' && <Failure result={outcome.result} />}
+        {outcome?.kind === 'refused' && <ReadFailure result={outcome.result} />}
       </div>
     </DepthPanel>
   );
@@ -272,7 +274,7 @@ function CurrenciesPanel() {
 
 export function AccountHome() {
   return (
-    <div className="bd-stack" data-testid="account-home">
+    <div className="lt-stack" data-testid="account-home">
       <ProfilePanel />
       <TermsPanel />
       <CurrenciesPanel />

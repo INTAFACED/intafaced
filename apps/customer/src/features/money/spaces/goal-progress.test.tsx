@@ -2,13 +2,13 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
 // Server rendering has no browser store; read the stored preferences once.
-vi.mock('../../shared/preferences', async (original) => {
-  const real = await original<typeof import('../../shared/preferences')>();
+vi.mock('../../../shared/preferences', async (original) => {
+  const real = await original<typeof import('../../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 import { GoalProgress, MovementBars } from './GoalAndMovement';
-import { goalChartCopy } from './goal-chart-copy';
-import { goalShare, movementShares } from './goal-progress';
+import { goalChartCopy } from '../goal-chart-copy';
+import { goalShare, movementShares } from '../goal-progress';
 
 describe('goal share', () => {
   it('is exact, rounded down, and capped at the target', () => {
