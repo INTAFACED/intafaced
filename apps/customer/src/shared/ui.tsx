@@ -1,10 +1,9 @@
-import { useId, useRef, type ReactNode, type ButtonHTMLAttributes, type InputHTMLAttributes } from 'react';
+import { useEffect, useId, useRef, type ReactNode, type ButtonHTMLAttributes, type InputHTMLAttributes } from 'react';
 import { BrandIris, Panel } from '@intafaced/ui';
 import { isServiceNotConnected, type ApiResult } from './api';
 import { uiCopy, uiMessage } from './ui-copy';
 import { refusalCopy } from '../data/refusals';
-import { canTryAgain, rawRefusalCode } from './try-again';
-import { useModalDialog } from './modal-dialog';
+import { canTryAgain, failureRawCode } from './failure-words';
 export { Panel };
 export { canTryAgain };
 
@@ -96,7 +95,7 @@ export function Failure({ result, retry }: { result: Extract<ApiResult<unknown>,
       </div>
     );
   }
-  const rawCode = rawRefusalCode(result);
+  const rawCode = failureRawCode(result);
   if (rawCode && !result.messageCopy) {
     // Customers never read a raw code: use the same plain sentences the other rooms use for typed refusals.
     const words = refusalCopy(result.code ?? rawCode);
@@ -186,7 +185,15 @@ export function Dialog({ title, children, onClose }: { title: ReactNode; childre
   const { t, languageFor } = uiCopy.useCopy();
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
-  useModalDialog(ref);
+  useEffect(() => {
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const dialog = ref.current;
+    dialog?.showModal();
+    return () => {
+      dialog?.close();
+      previous?.focus();
+    };
+  }, []);
   return (
     <dialog
       className="dialog"

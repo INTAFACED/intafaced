@@ -1,4 +1,13 @@
 import { z } from 'zod';
+import {
+  limit,
+  id,
+  listInputSchema,
+  APPROVAL_STATUSES,
+  requestViewSchema,
+  getInputSchema,
+  decideInputSchema,
+} from '@intafaced/contracts/pay-call-schemas';
 
 /**
  * Wire shapes for withdrawal multi-approval (W-withdraw-11). Every input object is `.strict()`. Amounts are decimal strings,
@@ -7,10 +16,7 @@ import { z } from 'zod';
  */
 const amount = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amounts are unsigned decimal strings with at most 18 decimal places');
 const assetId = z.string().min(1).max(32);
-const id = z.string().guid();
-const limit = z.number().int().min(1).max(200);
 
-export const APPROVAL_STATUSES = ['pending', 'approved', 'executed', 'rejected', 'expired', 'canceled', 'failed'] as const;
 export type ApprovalStatus = (typeof APPROVAL_STATUSES)[number];
 
 export const proposeInputSchema = z
@@ -24,10 +30,6 @@ export const proposeInputSchema = z
   .strict();
 export type ProposeInput = z.infer<typeof proposeInputSchema>;
 
-export const decideInputSchema = z.object({ requestId: id }).strict();
-export const getInputSchema = z.object({ requestId: id }).strict();
-/** `limit` is optional here so an omitted bound reaches `withdrawal_approval.list_limit_unset` and not a parse error. */
-export const listInputSchema = z.object({ limit: limit.optional(), after: id.optional() }).strict();
 export type ListInput = z.infer<typeof listInputSchema>;
 export const listForTeamInputSchema = z
   .object({
@@ -76,26 +78,6 @@ export const policyViewSchema = z.object({
 });
 export type PolicyView = z.infer<typeof policyViewSchema>;
 
-export const requestViewSchema = z.object({
-  id,
-  userId: id,
-  assetId: z.string(),
-  amount: z.string(),
-  rail: z.string(),
-  destination: z.object({ kind: z.string(), ref: z.string() }),
-  clientRef: z.string(),
-  teamAccountId: id,
-  requiredApprovals: z.number().int(),
-  approvalCount: z.number().int(),
-  /** Whether the viewer already approved. A viewer who is not the initiator never sees who else did. */
-  approvedByMe: z.boolean(),
-  holdAtSubmit: z.boolean(),
-  status: z.enum(APPROVAL_STATUSES),
-  failureCode: z.string().nullable(),
-  expiresAt: z.string().datetime({ offset: true }),
-  createdAt: z.string().datetime({ offset: true }),
-  decidedAt: z.string().datetime({ offset: true }).nullable(),
-});
 export type RequestView = z.infer<typeof requestViewSchema>;
 
 export const settleResultSchema = z.object({
@@ -105,3 +87,4 @@ export const settleResultSchema = z.object({
   failures: z.array(z.object({ requestId: id, code: z.string() })),
 });
 export type SettleResult = z.infer<typeof settleResultSchema>;
+export { requestViewSchema, decideInputSchema };

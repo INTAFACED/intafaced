@@ -1,11 +1,12 @@
 import { useRef, useState } from 'react';
-import { kycPoaReadSchema, kycPoaSubmissionSchema, type KycPoaRead, type KycPoaSubmission } from '@intafaced/contracts/identity-kyc-poa';
+import { type KycPoaRead, type KycPoaSubmission } from '@intafaced/contracts/identity-kyc-poa';
 import type { ApiResult } from '../../shared/api';
 import { base64Of, kib, localToday } from '../../shared/file-base64';
 import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
 import { verificationPoaCopy as copy } from './verification-poa-copy';
+import { IDENTITY_KYC_PROOF_OF_ADDRESS_READ, IDENTITY_KYC_PROOF_OF_ADDRESS_SUBMIT } from '@intafaced/contracts/identity-kyc-procedures';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 /** A refusal from the service keeps its typed code beside the plain words; a check made here before sending has none. */
@@ -25,7 +26,7 @@ export function VerificationProofOfAddress({ recordsKey, disabled }: { recordsKe
   const [country, setCountry] = useState<string | null>(null);
   const chosen = country && /^[A-Z]{2}$/.test(country) ? country : undefined;
   const { resource, reload } = useResource(
-    (signal) => api.query('identity', 'kyc.proofOfAddress.read', chosen ? { country: chosen } : {}, kycPoaReadSchema, { signal }),
+    (signal) => api.call(IDENTITY_KYC_PROOF_OF_ADDRESS_READ, chosen ? { country: chosen } : {}, { signal }),
     `verification-poa:${userId}:${recordsKey}:${chosen ?? ''}`,
   );
   const [type, setType] = useState('');
@@ -113,12 +114,13 @@ export function VerificationProofOfAddress({ recordsKey, disabled }: { recordsKe
         } catch {
           return setProblem({ kind: 'copy', text: t('unreadable') });
         }
-        const answer = await api.mutate(
-          'identity',
-          'kyc.proofOfAddress.submit',
-          { type, country: shownCountry, issuedOn, contentType: file.type, bytesBase64 },
-          kycPoaSubmissionSchema,
-        );
+        const answer = await api.call(IDENTITY_KYC_PROOF_OF_ADDRESS_SUBMIT, {
+          type,
+          country: shownCountry,
+          issuedOn,
+          contentType: file.type,
+          bytesBase64,
+        });
         if (!answer.ok) return refused(answer);
         setSent(answer.data);
         reload();

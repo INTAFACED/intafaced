@@ -7,11 +7,16 @@ import { navigate } from '../../app/location';
 import { publicAuthContext } from './auth-context';
 import { validAuthSession } from './public-auth-guards';
 import { secondsLeft } from './sign-up';
-import { codeSignInCode, loginCodeAcceptedSchema } from './code-sign-in';
+import { codeSignInCode } from './code-sign-in';
 import { codeSignInCopy } from './code-sign-in-copy';
 import { DeviceApproval } from './DeviceApproval';
-import { RecoveryCodeUsed, signInAnswerSchema } from './RecoveryCodeUsed';
+import { RecoveryCodeUsed } from './RecoveryCodeUsed';
 import '../../shared/public-pages.css';
+import {
+  IDENTITY_AUTH_LOGIN_CODE_REQUEST,
+  IDENTITY_AUTH_LOGIN_WITH_CODE,
+  IDENTITY_AUTH_LOGIN_CODE_RESEND,
+} from '@intafaced/contracts/identity-auth-procedures';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 type Pending = { flowId: string; name: string; resendAt: number };
@@ -58,7 +63,7 @@ export function CodeSignIn() {
     await flight.run(async () => {
       setBusy(true);
       setRefusal(null);
-      const answer = await api.mutate('identity', 'auth.loginCodeRequest', { identifier: name }, loginCodeAcceptedSchema);
+      const answer = await api.call(IDENTITY_AUTH_LOGIN_CODE_REQUEST, { identifier: name });
       if (!mounted.current) return;
       setBusy(false);
       if (!answer.ok) {
@@ -89,12 +94,7 @@ export function CodeSignIn() {
     await flight.run(async () => {
       setBusy(true);
       setRefusal(null);
-      const answer = await api.mutate(
-        'identity',
-        'auth.loginWithCode',
-        { flowId: pending.flowId, code, ...(totpCode ? { totpCode } : {}) },
-        signInAnswerSchema,
-      );
+      const answer = await api.call(IDENTITY_AUTH_LOGIN_WITH_CODE, { flowId: pending.flowId, code, ...(totpCode ? { totpCode } : {}) });
       if (!mounted.current) return;
       setBusy(false);
       if (!answer.ok) {
@@ -131,7 +131,7 @@ export function CodeSignIn() {
     await flight.run(async () => {
       setBusy(true);
       setRefusal(null);
-      const answer = await api.mutate('identity', 'auth.loginCodeResend', { flowId: pending.flowId }, loginCodeAcceptedSchema);
+      const answer = await api.call(IDENTITY_AUTH_LOGIN_CODE_RESEND, { flowId: pending.flowId });
       if (!mounted.current) return;
       setBusy(false);
       if (!answer.ok) {

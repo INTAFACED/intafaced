@@ -16,7 +16,6 @@ import {
 } from '@intafaced/contracts/academy-admin-procedures';
 import { identityLearnerCardResultSchema } from '@intafaced/contracts/identity-learner-card';
 import {
-  founderCall,
   founderAskedCall,
   founderRecordCall,
   parseWith,
@@ -26,8 +25,10 @@ import {
   type PartLabels,
   explainRefusal,
   type RefusalView,
+  founderRecordRead,
 } from '@/lib/desk';
 import { ENROLMENT_COPY, type EnrolmentReply, type EnrolmentView, type MailView, type ReportsView } from './enrolment-model';
+import { IDENTITY_LEARNER_CARD_LOOKUP } from '@intafaced/contracts/identity-learner-card-procedures';
 
 /**
  * Staff enrolment, invitations, course email and learner exports (J-academy-15), as the signed-in operator. Addresses
@@ -52,7 +53,7 @@ const readCard = parseWith(identityLearnerCardResultSchema);
 async function accountOf(ctx: FounderCallContext, term: string): Promise<{ userId: string | null } | { failed: RefusalView }> {
   const value = term.trim();
   const input = value.startsWith('@') ? { handle: value.slice(1) } : value.includes('@') ? { email: value } : { handle: value };
-  const found = await founderCall(ctx, 'identity', 'learnerCard.lookup', 'GET', input, readCard);
+  const found = await founderRecordRead(ctx, IDENTITY_LEARNER_CARD_LOOKUP, input, readCard);
   if (found.kind === 'ok') return { userId: found.data.card?.id ?? null };
   const why = failure(found);
   return { failed: why.reply.ok ? enrolmentRefusal(null, 502, true) : why.reply };
