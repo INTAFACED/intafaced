@@ -1,4 +1,5 @@
-import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import { ledgerTransactionsExistSchema } from '@intafaced/contracts/ledger-reconciliation';
 
 /** Which asked ids the ledger has booked, or why it could not be asked. Never "none found" in place of a failure. */

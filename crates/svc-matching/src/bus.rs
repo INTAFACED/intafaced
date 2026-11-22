@@ -19,6 +19,7 @@ pub fn subject_of(name: &str) -> Option<&'static str> {
         "orderFilled" => Some("matching.order.filled"),
         "orderCancelled" => Some("matching.order.cancelled"),
         "orderTriggered" => Some("matching.order.triggered"),
+        "spreadFilled" => Some("matching.spread.filled"),
         _ => None,
     }
 }

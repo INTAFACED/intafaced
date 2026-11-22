@@ -1,6 +1,6 @@
 /** `subAccounts.getFeatures` and `subAccounts.setFeatures`. Own sub-account, session only. */
 import { z } from 'zod';
-import { protectedProcedure, TRPCError } from '@intafaced/contracts';
+import { protectedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { SUB_ACCOUNT_KINDS } from '../auth/auth-service.js';
 import { userCopy } from '../user-copy.js';
 import { SUB_ACCOUNT_FEATURES, SubAccountFeatureError, type SubAccountFeatureService } from './sub-account-features.js';

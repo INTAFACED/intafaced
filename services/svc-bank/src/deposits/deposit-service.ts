@@ -1,12 +1,7 @@
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
-import {
-  PAY_CUSTODY_DEPOSIT_UNSUPPORTED_CASE_MAX,
-  PAY_CUSTODY_DEPOSIT_UNSUPPORTED_MAX,
-  type AssetState,
-  type PayCustodyDepositStatus,
-  type RegistryAsset,
-} from '@intafaced/contracts';
+import type { AssetState, PayCustodyDepositStatus, RegistryAsset } from '@intafaced/contracts';
+import { PAY_CUSTODY_DEPOSIT_UNSUPPORTED_CASE_MAX, PAY_CUSTODY_DEPOSIT_UNSUPPORTED_MAX } from '@intafaced/contracts/pay-custody-deposit';
 import { BankError, type BankErrorCode } from '../errors.js';
 import { readRegistry, registryAllowsDeposit, type AssetRegistryReads } from '../assets/supported-assets.js';
 import {

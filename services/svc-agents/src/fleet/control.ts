@@ -1,6 +1,6 @@
 import type { Sql } from 'postgres';
 import { z } from 'zod';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { transaction, type Queryable } from '@intafaced/db';
 import { OWN_TOOLS } from '../own/catalog.js';
 

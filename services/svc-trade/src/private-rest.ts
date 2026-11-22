@@ -13,7 +13,8 @@ import { attachAlgoRestRoutes, type AlgoRestPort } from './algo/algo-rest.js';
 import { attachRfqExportRoute } from './otc/rfq-history-rest.js';
 import { attachIcebergDisplay, readRawDisplayQty, TRADE_ICEBERG_DISPLAY_INVALID, type IcebergDisplayStore } from './spot/iceberg-door.js';
 import { checkAccess } from '@intafaced/config';
-import { createEdgeContext, type Context, type EdgeRequest } from '@intafaced/contracts';
+import type { Context, EdgeRequest } from '@intafaced/contracts';
+import { createEdgeContext } from '@intafaced/contracts/edge';
 import { createOrderRequestSchema, type CreateOrderRequest } from '@intafaced/exchange-contract';
 import {
   ZERO,

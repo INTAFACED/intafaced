@@ -1,8 +1,5 @@
 import { z } from 'zod';
 import {
-  router,
-  merchantControlGetInputSchema,
-  merchantControlProfileSchema,
   founderChangeSubmitInputSchema,
   founderChangeSubmitResultSchema,
   founderChangeConfirmInputSchema,
@@ -14,13 +11,18 @@ import {
   founderControlAuditListSchema,
   founderPendingChangeListInputSchema,
   founderPendingChangeListSchema,
+} from '@intafaced/contracts/founder-admin';
+import {
+  merchantControlGetInputSchema,
+  merchantControlProfileSchema,
   founderLimitRequestListInputSchema,
   founderLimitRequestListSchema,
   founderLimitRequestCloseInputSchema,
   founderLimitRequestCloseResultSchema,
   payoutApprovalSchema,
   payControlUsageSchema,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/merchant-control';
+import { router } from '@intafaced/contracts/trpc';
 import type { ChangeOutcome } from '../control/changes.js';
 import { toContractApproval } from '../control/approvals.js';
 import { ControlError } from '../control/errors.js';

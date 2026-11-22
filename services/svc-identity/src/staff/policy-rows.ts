@@ -19,15 +19,13 @@
  * until a read succeeds again: an instance that cannot see a row another instance tightened never keeps the old one.
  */
 import type { Sql } from 'postgres';
+import type { ActionApprovalPolicyEntry, ApprovalPolicySetInput, PolicyGovernedActionType } from '@intafaced/contracts';
 import {
   APPROVAL_POLICY_SET_ACTION_TYPE,
   CONSOLE_SETTABLE_POLICY_ACTION_TYPES,
   isConsoleSettablePolicyActionType,
   approvalPolicySetPayloadFields,
-  type ActionApprovalPolicyEntry,
-  type ApprovalPolicySetInput,
-  type PolicyGovernedActionType,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/action-approval-policy';
 import { approvalPolicyEntries, approvalPolicySource, type ApprovalPolicySource } from '../auth/action-approval-policy.js';
 import { PrivilegedDualControlError, requirePrivilegedDualControl } from '../auth/privileged-dual-control.js';
 import type { ActionApprovalService } from '../auth/action-approval-service.js';

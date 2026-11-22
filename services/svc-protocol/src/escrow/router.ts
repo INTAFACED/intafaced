@@ -1,4 +1,5 @@
-import { ESCROW_AUDIT_EXTERNAL, ESCROW_DEAL_NOT_FOUND, ESCROW_NOT_DEPLOYED, router, TRPCError } from '@intafaced/contracts';
+import { ESCROW_AUDIT_EXTERNAL, ESCROW_DEAL_NOT_FOUND, ESCROW_NOT_DEPLOYED } from '@intafaced/contracts/protocol-escrow';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { PROTOCOL_ESCROW_BUILD, PROTOCOL_ESCROW_DEAL, PROTOCOL_ESCROW_STATUS } from '@intafaced/contracts/protocol-chain-procedures';
 import { protocolRefusal } from '../refusal.js';

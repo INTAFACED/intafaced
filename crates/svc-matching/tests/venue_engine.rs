@@ -107,6 +107,7 @@ fn engine_on(journal: MemoryJournal, clocked: bool) -> MatchingEngine {
         snapshot_every: 0,
         sink: Box::new(MemorySnapshotSink::default()),
         enabled: true,
+        spread_fills: true,
     })
 }
 

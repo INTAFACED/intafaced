@@ -1,4 +1,5 @@
-import { PAY_CUSTODY_DEPOSIT_PENDING_STATUSES, type PayCustodyDepositPort } from '@intafaced/contracts';
+import type { PayCustodyDepositPort } from '@intafaced/contracts';
+import { PAY_CUSTODY_DEPOSIT_PENDING_STATUSES } from '@intafaced/contracts/pay-custody-deposit';
 import type { CustodyDepositCatalogue, CustodyDepositPort, DepositAsset } from './custody-port.js';
 
 /**

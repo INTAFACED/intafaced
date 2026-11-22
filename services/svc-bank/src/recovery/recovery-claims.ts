@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
-import { recoveryClaimMessage, type RecoveryClaimVerifyRequest, type RecoveryEstate } from '@intafaced/contracts';
+import type { RecoveryClaimVerifyRequest, RecoveryEstate } from '@intafaced/contracts';
+import { recoveryClaimMessage } from '@intafaced/contracts/identity-recovery';
 import {
   DEFINITE_POST_REFUSAL_CODES,
   LedgerError,

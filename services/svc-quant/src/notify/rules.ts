@@ -1,11 +1,10 @@
+import type { QuantAlertField, QuantNotifyChannel } from '@intafaced/contracts';
 import {
   QUANT_ALERT_FIELDS,
   QUANT_ALERT_TEMPLATE_MAX,
   QUANT_NOTIFY_CHANNELS,
   QUANT_NOTIFY_UNAVAILABLE_CHANNELS,
-  type QuantAlertField,
-  type QuantNotifyChannel,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/quant-algo';
 import { QUANT_ALERT_TEMPLATE_INVALID, QUANT_NOTIFY_CHANNEL_UNAVAILABLE, QuantError } from '../errors.js';
 
 const FIELD = /\{([^{}]*)\}/g;

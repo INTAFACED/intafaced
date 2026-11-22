@@ -1,12 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { nodeHTTPRequestHandler } from '@trpc/server/adapters/node-http';
-import {
-  createEdgeContext,
-  EdgeTrustError,
-  type EdgeContextOptions,
-  type ServiceAuthMode,
-  type ServiceVerifier,
-} from '@intafaced/contracts';
+import type { EdgeContextOptions, ServiceAuthMode, ServiceVerifier } from '@intafaced/contracts';
+import { createEdgeContext, EdgeTrustError } from '@intafaced/contracts/edge';
 import type { LedgerClient } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import type { JobSource } from './job-source.js';
