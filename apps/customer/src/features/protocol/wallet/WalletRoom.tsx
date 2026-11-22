@@ -11,12 +11,7 @@ import { Actions, toSource } from '../ParkedProtocolRoom';
 import '../protocol.css';
 import { walletCopy } from './copy';
 import { APP_CHAIN_ID } from './eip1193';
-import { AccountsPanel } from './AccountsPanel';
-import { ActivityPanel } from './ActivityPanel';
-import { AddressBookPanel } from './AddressBookPanel';
 import { ClaimLinksPanel } from './ClaimLinksPanel';
-import { ApprovalsPanel } from './ApprovalsPanel';
-import { PermitForm } from './PermitForm';
 import { PortfolioPanel } from './PortfolioPanel';
 import { WalletPositions } from './WalletPositions';
 import { TrackerPanel } from './TrackerPanel';
@@ -24,8 +19,6 @@ import { ReceivePanel } from './ReceivePanel';
 import { SafetyPanel } from './SafetyPanel';
 import { ScanPanel } from './ScanPanel';
 import { SendPanel } from './SendPanel';
-import { SessionKeysPanel } from './SessionKeysPanel';
-import { WalletGroupPanel } from './WalletGroupPanel';
 import { WALLET_SECTIONS, type WalletSection } from '../routes';
 import { useWallet } from './WalletProvider';
 
@@ -39,13 +32,7 @@ const relayProjectId: string = ((import.meta.env.VITE_WALLET_RELAY_PROJECT_ID as
  * /wallet: connect, the connected wallet, the network guard and its sections, each at its own path. A section that a
  * later slice builds shows its full layout and its real state (nothing to show, or what it needs), never a blank.
  */
-export function WalletRoom({
-  section: initial,
-  groupId,
-}: {
-  section: Section;
-  /** A wallet group's page, under Address book. */ groupId?: string;
-}) {
+export function WalletRoom({ section: initial }: { section: Section }) {
   const { language } = usePreferences();
   const { t } = walletCopy.forLocale(language);
   const { t: tp } = protocolCopy.forLocale(language);
@@ -166,32 +153,11 @@ export function WalletRoom({
       <ScanPanel />
     ) : section === 'claimLinks' ? (
       <ClaimLinksPanel />
-    ) : section === 'activity' ? (
-      <ActivityPanel />
     ) : section === 'tracker' ? (
       <TrackerPanel />
-    ) : section === 'accounts' ? (
-      <AccountsPanel />
     ) : section === 'safety' ? (
       <SafetyPanel />
-    ) : section === 'sessionKeys' ? (
-      <SessionKeysPanel />
-    ) : section === 'addressBook' ? (
-      groupId === undefined ? (
-        <AddressBookPanel />
-      ) : (
-        <WalletGroupPanel groupId={groupId} />
-      )
-    ) : (
-      <>
-        {section === 'approvals' && (
-          <>
-            <ApprovalsPanel />
-            <PermitForm />
-          </>
-        )}
-      </>
-    );
+    ) : null;
 
   return (
     <div className="legacy-room protocol-room" lang={walletCopy.forLocale(language).renderedLocale} data-route="wallet">
