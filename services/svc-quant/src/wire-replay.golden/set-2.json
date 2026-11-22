@@ -2249,7 +2249,7 @@
   },
   "set paper.start valid signed": {
     "status": 200,
-    "body": "{\"result\":{\"data\":{\"runId\":\"run_<uuid-9>\",\"strategyId\":\"studio_<uuid-4>\",\"strategyVersion\":1,\"state\":\"running\",\"startedAt\":\"<time>\",\"stoppedAt\":null,\"cash\":\"1000\",\"feed\":\"own_venue\",\"holdings\":[],\"costs\":{\"feeRole\":\"taker\",\"slippageBps\":\"0\",\"delayBars\":0},\"symbol\":\"BTC/USDT\",\"barSize\":\"1h\",\"priced\":false,\"pricedThrough\":null,\"trades\":[],\"equity\":[],\"position\":{\"symbol\":\"BTC/USDT\",\"qty\":\"0\"},\"totals\":{\"startCash\":\"1000\",\"fees\":\"0\",\"net\":\"0\",\"endEquity\":\"1000\"},\"simulated\":true,\"live\":false,\"claimLabel\":\"Paper — not live performance\"}}}"
+    "body": "{\"result\":{\"data\":{\"runId\":\"run_<uuid-9>\",\"strategyId\":\"studio_<uuid-4>\",\"strategyVersion\":1,\"state\":\"running\",\"startedAt\":\"<time>\",\"stoppedAt\":null,\"cash\":\"1000\",\"feed\":\"own_venue\",\"holdings\":[],\"costs\":{\"feeRole\":\"taker\",\"slippageBps\":\"0\",\"delayBars\":0},\"symbol\":\"BTC/USDT\",\"barSize\":\"1h\",\"prices\":{\"venueMarket\":\"BTC-USDC\",\"test\":true,\"unavailable\":null},\"priced\":false,\"pricedThrough\":null,\"trades\":[],\"equity\":[],\"position\":{\"symbol\":\"BTC/USDT\",\"qty\":\"0\"},\"totals\":{\"startCash\":\"1000\",\"fees\":\"0\",\"net\":\"0\",\"endEquity\":\"1000\"},\"simulated\":true,\"live\":false,\"claimLabel\":\"Paper — not live performance\"}}}"
   },
   "set paper.start valid signed-US": {
     "status": 403,
@@ -2261,7 +2261,7 @@
   },
   "set paper.start valid tier-none": {
     "status": 200,
-    "body": "{\"result\":{\"data\":{\"runId\":\"run_<uuid-9>\",\"strategyId\":\"studio_<uuid-4>\",\"strategyVersion\":1,\"state\":\"running\",\"startedAt\":\"<time>\",\"stoppedAt\":null,\"cash\":\"1000\",\"feed\":\"own_venue\",\"holdings\":[],\"costs\":{\"feeRole\":\"taker\",\"slippageBps\":\"0\",\"delayBars\":0},\"symbol\":\"BTC/USDT\",\"barSize\":\"1h\",\"priced\":false,\"pricedThrough\":null,\"trades\":[],\"equity\":[],\"position\":{\"symbol\":\"BTC/USDT\",\"qty\":\"0\"},\"totals\":{\"startCash\":\"1000\",\"fees\":\"0\",\"net\":\"0\",\"endEquity\":\"1000\"},\"simulated\":true,\"live\":false,\"claimLabel\":\"Paper — not live performance\"}}}"
+    "body": "{\"result\":{\"data\":{\"runId\":\"run_<uuid-9>\",\"strategyId\":\"studio_<uuid-4>\",\"strategyVersion\":1,\"state\":\"running\",\"startedAt\":\"<time>\",\"stoppedAt\":null,\"cash\":\"1000\",\"feed\":\"own_venue\",\"holdings\":[],\"costs\":{\"feeRole\":\"taker\",\"slippageBps\":\"0\",\"delayBars\":0},\"symbol\":\"BTC/USDT\",\"barSize\":\"1h\",\"prices\":{\"venueMarket\":\"BTC-USDC\",\"test\":true,\"unavailable\":null},\"priced\":false,\"pricedThrough\":null,\"trades\":[],\"equity\":[],\"position\":{\"symbol\":\"BTC/USDT\",\"qty\":\"0\"},\"totals\":{\"startCash\":\"1000\",\"fees\":\"0\",\"net\":\"0\",\"endEquity\":\"1000\"},\"simulated\":true,\"live\":false,\"claimLabel\":\"Paper — not live performance\"}}}"
   },
   "set paper.start valid member": {
     "status": 404,
@@ -2385,7 +2385,7 @@
   },
   "set paper.start extra-key signed": {
     "status": 200,
-    "body": "{\"result\":{\"data\":{\"runId\":\"run_<uuid-9>\",\"strategyId\":\"studio_<uuid-4>\",\"strategyVersion\":1,\"state\":\"running\",\"startedAt\":\"<time>\",\"stoppedAt\":null,\"cash\":\"1000\",\"feed\":\"own_venue\",\"holdings\":[],\"costs\":{\"feeRole\":\"taker\",\"slippageBps\":\"0\",\"delayBars\":0},\"symbol\":\"BTC/USDT\",\"barSize\":\"1h\",\"priced\":false,\"pricedThrough\":null,\"trades\":[],\"equity\":[],\"position\":{\"symbol\":\"BTC/USDT\",\"qty\":\"0\"},\"totals\":{\"startCash\":\"1000\",\"fees\":\"0\",\"net\":\"0\",\"endEquity\":\"1000\"},\"simulated\":true,\"live\":false,\"claimLabel\":\"Paper — not live performance\"}}}"
+    "body": "{\"result\":{\"data\":{\"runId\":\"run_<uuid-9>\",\"strategyId\":\"studio_<uuid-4>\",\"strategyVersion\":1,\"state\":\"running\",\"startedAt\":\"<time>\",\"stoppedAt\":null,\"cash\":\"1000\",\"feed\":\"own_venue\",\"holdings\":[],\"costs\":{\"feeRole\":\"taker\",\"slippageBps\":\"0\",\"delayBars\":0},\"symbol\":\"BTC/USDT\",\"barSize\":\"1h\",\"prices\":{\"venueMarket\":\"BTC-USDC\",\"test\":true,\"unavailable\":null},\"priced\":false,\"pricedThrough\":null,\"trades\":[],\"equity\":[],\"position\":{\"symbol\":\"BTC/USDT\",\"qty\":\"0\"},\"totals\":{\"startCash\":\"1000\",\"fees\":\"0\",\"net\":\"0\",\"endEquity\":\"1000\"},\"simulated\":true,\"live\":false,\"claimLabel\":\"Paper — not live performance\"}}}"
   },
   "set paper.start extra-key ops": {
     "status": 404,

@@ -8,7 +8,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { rewrite } from '../codemod/tsc-entry/rewrite.mjs';
-import { checkerOf, installShims, planOf } from './tsc.mjs';
+import { checkerOf, installShims, planOf, threadsOf } from './tsc.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, '..', '..');
@@ -281,4 +281,27 @@ test('the setup points every node_modules/.bin/tsc at the one command, so a hand
   const version = spawnSync('sh', [join(root, 'apps/x/node_modules/.bin/tsc'), '--version'], { encoding: 'utf8' });
   assert.equal(version.status, 0);
   assert.match(version.stdout, /Version 7\./);
+});
+
+test("a builder's own pnpm install keeps the shims: the root postinstall writes them again, off CI only (row d99)", () => {
+  const postinstall = JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8')).scripts.postinstall;
+  assert.match(postinstall, /node tooling\/scripts\/tsc-shims\.mjs$/);
+  const root = mkdtempSync(join(tmpdir(), 'tsc-postinstall-'));
+  temps.push(root);
+  const sh = (env) => spawnSync('sh', ['-c', postinstall], { cwd: root, encoding: 'utf8', env: { PATH: process.env.PATH, ...env } });
+  // The Docker image installs from the manifests alone, before tooling/ is copied: the install must not fail there.
+  assert.equal(sh({}).status, 0);
+  mkdirSync(join(root, 'tooling', 'scripts'), { recursive: true });
+  writeFileSync(join(root, 'tooling', 'scripts', 'tsc-shims.mjs'), "import { writeFileSync } from 'node:fs';\nwriteFileSync('ran', '');\n");
+  assert.equal(sh({ CI: '1' }).status, 0);
+  assert.ok(!existsSync(join(root, 'ran')), "CI keeps pnpm's own tsc");
+  assert.equal(sh({}).status, 0);
+  assert.ok(existsSync(join(root, 'ran')), 'off CI the shims are written');
+});
+
+test("off CI tsc runs on one thread; CI and a caller's own setting keep theirs (row d99)", () => {
+  assert.deepEqual(threadsOf(['--noEmit'], {}), ['--noEmit', '--singleThreaded']);
+  assert.deepEqual(threadsOf(['--noEmit'], { CI: 'true' }), ['--noEmit']);
+  assert.deepEqual(threadsOf(['--checkers=4', '--noEmit'], {}), ['--checkers=4', '--noEmit']);
+  assert.deepEqual(threadsOf(['-b', '--builders', '2'], {}), ['-b', '--builders', '2']);
 });
