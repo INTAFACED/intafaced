@@ -9,6 +9,13 @@ import { BrandLockup, BrandMark, BrandWordmark } from '../../brand/brand.js';
 import { doors as doorOrder, type Door, type GateReason, type LegalSlotProps, type Refusal } from '../contracts.js';
 
 export * from './b3-live.js';
+export * from './b4-choose.js';
+
+// App-shell services a room calls but never draws: the toast viewport and the hide-balances switch are chrome the
+// app shell mounts once (its ToastProvider and HideBalancesProvider), not room parts. A room asks for a toast or reads
+// whether balances are hidden, and the shell draws the rest.
+export { useToast, type ToastOptions } from '../../components/toast.js';
+export { useHideBalances, HIDDEN_MASK } from '../../components/numbers.js';
 
 type Div = React.HTMLAttributes<HTMLDivElement>;
 
