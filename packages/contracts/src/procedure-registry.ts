@@ -1821,6 +1821,8 @@ import {
   TOKEN_LAUNCH_BASIS,
 } from './token-launch-procedures.js';
 
+import { TOKEN_MINT_EPOCH } from './token-mint-epoch-procedures.js';
+
 import { TOKEN_NEXT_EMISSION_EPOCH } from './token-next-emission-epoch-procedures.js';
 
 import {
@@ -3838,6 +3840,8 @@ const part_token_launch_procedures: readonly ProcedureRecord[] = [
   TOKEN_LAUNCH_BASIS,
 ];
 
+const part_token_mint_epoch_procedures: readonly ProcedureRecord[] = [TOKEN_MINT_EPOCH];
+
 const part_token_next_emission_epoch_procedures: readonly ProcedureRecord[] = [TOKEN_NEXT_EMISSION_EPOCH];
 
 const part_token_procedures: readonly ProcedureRecord[] = [
@@ -4228,6 +4232,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_tax_procedures,
   ...part_token_distribute_revenue_procedures,
   ...part_token_launch_procedures,
+  ...part_token_mint_epoch_procedures,
   ...part_token_next_emission_epoch_procedures,
   ...part_token_procedures,
   ...part_trade_admin_procedures,

@@ -88,6 +88,7 @@ import { TOKEN_DISTRIBUTE_REVENUE } from '@intafaced/contracts/token-distribute-
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { tokenRefusal } from './refusal.js';
 import { TOKEN_NEXT_EMISSION_EPOCH } from '@intafaced/contracts/token-next-emission-epoch-procedures';
+import { TOKEN_MINT_EPOCH } from '@intafaced/contracts/token-mint-epoch-procedures';
 
 /** The founders' approval that publishes the fee-decay schedule; the router binds the ladder and the version it replaces. */
 export const FEE_DISCOUNT_PUBLISH_ACTION = 'token.fee_discount.publish';
@@ -573,10 +574,9 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
 
     // ── Emissions ──────────────────────────────────────────────────────────
 
-    mintEpoch: jobProcedure
-      .input(z.object({ epoch: z.number().int().nonnegative().optional() }).default({}))
-      .output(z.object({ epoch: z.number().int(), minted: amountString }))
-      .mutation(async ({ input }) =>
+    mintEpoch: mountRecord(
+      TOKEN_MINT_EPOCH,
+      async ({ input }) =>
         guard(async () => {
           if (!emissionsEnabled) {
             throw new TRPCError({
@@ -587,7 +587,8 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
           const result = input.epoch === undefined ? await token.mintNextEpoch() : await token.mintEpoch(input.epoch);
           return { epoch: result.epoch, minted: formatAmount(result.minted) };
         }),
-      ),
+      tokenRefusal,
+    ),
 
     nextEmissionEpoch: mountRecord(
       TOKEN_NEXT_EMISSION_EPOCH,
