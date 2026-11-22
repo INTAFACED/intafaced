@@ -136,7 +136,7 @@ export function AddressTable({
                         <summary>{t('aDetails')}</summary>
                         <p>
                           {t('aFullAddress')}:{' '}
-                          <span lang="und" data-withdrawal-private>
+                          <span lang="und" data-withdrawal-private data-testid="withdrawal-address-full">
                             {row.ref}
                           </span>
                         </p>

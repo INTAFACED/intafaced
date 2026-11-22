@@ -1,5 +1,5 @@
 import { type ReactNode } from 'react';
-import { Button, EmptyState, Field } from '@intafaced/ui/lit';
+import { Button, EmptyState, Field, type FieldProps } from '@intafaced/ui/lit';
 import { Sheet, Skeleton } from '@intafaced/ui/lit/templates';
 import type { ApiResult } from '../../../shared/api';
 import { useFailureWords } from '../../../shared/failure-words';
@@ -38,8 +38,10 @@ export function Failure({ result, retry }: { result: Failed; retry?: () => void 
   );
 }
 
-/** A labelled text input: the kit's `Field`, under the name the transfer parts already use. */
-export const TextField = Field;
+/** A labelled text input, the kit's `Field`: the label names the input; the error, else the hint, follows it. */
+export function TextField({ hint, error, ...input }: Omit<FieldProps, 'error'> & { error?: string }) {
+  return <Field {...input} hint={error ?? hint} aria-invalid={Boolean(error)} />;
+}
 
 /** A read's three states: loading, failed with its retry, or its data. */
 export function Loaded<T>({ resource, reload, children }: { resource: Resource<T>; reload: () => void; children: (data: T) => ReactNode }) {
@@ -81,7 +83,7 @@ export function NoRows({ title, children }: { title: string; children?: string }
 /** How many records came back of the limit asked, and the way to ask for more up to the service's 200. */
 export function Continuation({ count, limit, onMore }: { count: number; limit: number; onMore: () => void }) {
   return (
-    <div>
+    <div data-testid="money-continuation">
       <span>
         {count}
         <Text k="components.records.returned.requested.limit" />.{' '}

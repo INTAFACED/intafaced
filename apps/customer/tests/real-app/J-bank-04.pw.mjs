@@ -251,7 +251,7 @@ test(`${J} #1 opens Send and picks the rail: each rail has its own form, and wit
   const form = panel.getByTestId('rail-send-form');
   for (const [label, fields] of Object.entries(forms)) {
     await how.selectOption({ label });
-    await expect(form.locator('label > span:first-child')).toHaveText(fields);
+    await expect(form.locator('label')).toHaveText(fields);
     await expect(panel.getByTestId('rail-send-notice')).toHaveText(
       `Send over ${label} needs bank rails. It is switched off in this build. Reference: rail.bank`,
     );
@@ -316,12 +316,7 @@ test(`${J} #2 adds a recipient: forms per country, a name check and an invite, a
   await expect(how.locator('option')).toHaveText(['', 'SEPA (euro bank account)', 'Phone number or email']);
   await how.selectOption({ label: 'SEPA (euro bank account)' });
   const form = book.getByTestId('payee-form');
-  await expect(form.locator('label > span:first-child')).toHaveText([
-    'Account holder’s full name',
-    'IBAN',
-    'BIC (optional)',
-    'Transfer type',
-  ]);
+  await expect(form.locator('label')).toHaveText(['Account holder’s full name', 'IBAN', 'BIC (optional)', 'Transfer type']);
   await form.getByLabel('Account holder’s full name').fill('Bea TEST');
   // A French IBAN is not an account in Germany: the bank says so on the form, before any code is asked for.
   await form.getByLabel('IBAN').fill('FR14 2004 1010 0505 0001 3M02 606');
