@@ -543,7 +543,9 @@
   font: inherit;
   text-decoration: underline;
   cursor: pointer;
-  min-block-size: 1.5rem;
+  /* SC 2.5.8 counts CSS pixels: 1.5rem is 22px at the look's root size. Takes effect where the link stands alone (a
+     flex item, as in .lt-actions); a link inside a sentence keeps the line's height. */
+  min-block-size: 24px;
 }
 
 .lt-actions,
