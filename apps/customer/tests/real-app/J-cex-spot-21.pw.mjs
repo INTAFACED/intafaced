@@ -174,7 +174,7 @@ test(`${J} #1 opens Staking: the venue's validators, each with its commission, s
   const off = await testVenue('/test/staking-published', { rewardRate: false });
   expect(off.status, JSON.stringify(off.body)).toBe(200);
   try {
-    expect(off.body.rewardRateBps).toBeNull();
+    expect(off.body.value.rewardRateBps).toBeNull();
     await page.reload();
     await expect(page.getByTestId('staking-reward-rate')).toHaveText('not published', { timeout: 30_000 });
     await expect(page.getByTestId('staking-reward-rate')).toHaveAttribute('data-value', '');

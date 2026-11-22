@@ -194,18 +194,7 @@ function Room({ status }: { status: VenueUp }) {
         <div>
           <TestMark test={status.test} t={t} />
           <WalletBar t={t} />
-          {owner ? (
-            <div role="group" aria-label={t('mineTitle')}>
-              <Button data-testid="staking-stake" onClick={() => setForm({ action: 'to_staking', validator: null, amount: '' })}>
-                {t('stake')}
-              </Button>
-              <Button data-testid="staking-unstake" onClick={() => setForm({ action: 'to_spot', validator: null, amount: '' })}>
-                {t('unstake')}
-              </Button>
-            </div>
-          ) : (
-            <p>{t('connectFirst')}</p>
-          )}
+          {owner ? null : <p>{t('connectFirst')}</p>}
         </div>
       }
       panels={
