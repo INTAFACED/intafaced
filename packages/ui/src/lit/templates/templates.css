@@ -881,7 +881,8 @@ button.lt-tab {
 }
 
 .lt-tab[aria-current='page'],
-.lt-tab[aria-pressed='true'] {
+.lt-tab[aria-pressed='true'],
+.lt-tab[aria-selected='true'] {
   color: var(--lit-text-1);
   background: var(--lit-solid-bg-raised);
   border-color: var(--lit-control-rim-active);
