@@ -204,6 +204,21 @@ test('moves a className whose every class has a kit twin, once each, and leaves 
   assert.deepEqual(left, ['4: className "muted pay-total" (pay-total has no recipe)']);
 });
 
+test('leaves a class on words with a typed arrow, which the kit draws instead', () => {
+  const source = [
+    'export const a = <a className="text-link" href="/x">Open →</a>;',
+    'export const b = <a className="text-link" href="/y">{t(\'Back\')} {\'↗\'}</a>;',
+    'export const c = <a className="text-link" href="/z">{t(\'Open\')}</a>;',
+    '',
+  ].join('\n');
+  const { text, left } = recipe(source);
+  assert.deepEqual(left, [
+    '1: className "text-link" on words with a typed arrow, which the kit draws (lt-arrow)',
+    '2: className "text-link" on words with a typed arrow, which the kit draws (lt-arrow)',
+  ]);
+  assert.match(text, /<a className="lt-link" href="\/z">/);
+});
+
 test("every class the map moves to is the kit's own", () => {
   const css = readFileSync(new URL('../../packages/ui/src/lit/templates/templates.css', import.meta.url), 'utf8');
   const missing = [...new Set(Object.values(CLASSES))].filter((kit) => !new RegExp(`\\.${kit}[\\s,{:]`).test(css));

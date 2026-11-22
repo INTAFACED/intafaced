@@ -46,6 +46,7 @@ export const CLASSES = {
   // A wrapping row of controls.
   actions: 'lt-actions',
   'pp-actions': 'lt-actions',
+  'cb-action-row': 'lt-actions',
   // Something that did not happen, with its reason and a way on: the kit's refusal box.
   failure: 'lt-refusal',
   // A small secondary line under a control or a figure.
@@ -63,6 +64,8 @@ const TONES = { primary: 'primary', secondary: 'secondary', ghost: 'quiet' };
 const BADGE_TONES = { neutral: 'neutral', lime: 'accent', up: 'up', down: 'down' };
 const STATUSES = { pending: 'pending', failed: 'failed', filled: 'done' };
 const NO_TWIN = new Set(['size', 'shape', 'fullWidth', 'render', 'nativeButton']);
+// Volt's faces carry no arrow glyphs: the kit draws a link's arrow (`lt-arrow`), so a typed one needs the redraw.
+const ARROW = /[←-⇿]/u;
 
 const attrName = (a) => (a.type === 'JSXAttribute' && a.name.type === 'JSXIdentifier' ? a.name.name : undefined);
 const stringValue = (a) => (a.value?.type === 'Literal' && typeof a.value.value === 'string' ? a.value.value : undefined);
@@ -159,10 +162,13 @@ export function recipe(source) {
   const elements = [];
   const classes = [];
   const names = [];
+  const elementOf = new Map();
   walk(program, (node, parent) => {
     if (node.type === 'ImportDeclaration') imports.push(node);
-    else if (node.type === 'JSXElement' && node.openingElement.name.type === 'JSXIdentifier') elements.push(node);
-    else if (attrName(node) === 'className') classes.push(node);
+    else if (node.type === 'JSXElement') {
+      elementOf.set(node.openingElement, node);
+      if (node.openingElement.name.type === 'JSXIdentifier') elements.push(node);
+    } else if (attrName(node) === 'className') classes.push({ attr: node, opening: parent });
     else if (node.type === 'Identifier' || node.type === 'JSXIdentifier') names.push({ node, parent });
   });
 
@@ -234,7 +240,7 @@ export function recipe(source) {
   }
 
   const computed = [];
-  for (const attr of classes) {
+  for (const { attr, opening } of classes) {
     const value = stringValue(attr);
     if (value === undefined) {
       if (attr.value?.type === 'JSXExpressionContainer') computed.push(`${lineOf(attr.start)}: className={…}, computed, needs judgement`);
@@ -248,6 +254,15 @@ export function recipe(source) {
     }
     const kit = [...new Set(names.map((c) => CLASSES[c] ?? c))].join(' ');
     if (kit === value) continue;
+    const typed = (elementOf.get(opening)?.children ?? []).some(
+      (c) =>
+        (c.type === 'JSXText' && ARROW.test(c.value)) ||
+        (c.type === 'JSXExpressionContainer' && typeof c.expression.value === 'string' && ARROW.test(c.expression.value)),
+    );
+    if (typed) {
+      left.push(`${lineOf(attr.start)}: className "${value}" on words with a typed arrow, which the kit draws (lt-arrow)`);
+      continue;
+    }
     edits.push({ start: attr.value.start, end: attr.value.end, text: `"${kit}"` });
     changed++;
   }
