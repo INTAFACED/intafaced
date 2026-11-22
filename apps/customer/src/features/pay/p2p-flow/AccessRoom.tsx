@@ -1,5 +1,5 @@
 import { useId, useState } from 'react';
-import { Button, Field, NativeSelect, NativeTextArea } from '@intafaced/ui/lit';
+import { Button, Field, Select, TextArea } from '@intafaced/ui/lit';
 import { FlowTemplate, StatusChip } from '@intafaced/ui/lit/templates';
 import type { ApiResult } from '../../../shared/api';
 import { useResource, type Resource } from '../../../shared/resource';
@@ -164,7 +164,6 @@ function AppealStatus({ appeal }: { appeal: CompletionAppeal }) {
 function AppealForm({ pay, onDone }: { pay: PersonalPayApi; onDone: () => void }) {
   const { t, requestedLocale } = completionCopy.useCopy();
   const formId = useId();
-  const orderLabelId = useId();
   // The orders an appeal can name: cancelled or disputed after escrow (the ones the rate counts against the person).
   const orders = useResource(
     async (signal): Promise<ApiResult<Trade[]>> => {
@@ -208,26 +207,25 @@ function AppealForm({ pay, onDone }: { pay: PersonalPayApi; onDone: () => void }
           >
             <h3 id={formId}>{t('appealForm')}</h3>
             <p className="lt-hint">{t('appealOnce')}</p>
-            <label className="lt-field">
-              <span id={orderLabelId}>{t('appealOrder')}</span>
-              {/* Named by its own word only: a wrapping label's text also holds every option's text. */}
-              <NativeSelect aria-labelledby={orderLabelId} value={tradeId} onChange={(event) => setTradeId(event.target.value)} required>
-                <option value="">{t('appealPick')}</option>
-                {list.map((trade) => (
-                  <option key={trade.id} value={trade.id}>
-                    {t('appealOrderOption', {
-                      id: trade.id,
-                      status: t(trade.status === 'disputed' ? 'disputed' : 'cancelled'),
-                      when: day.format(new Date(trade.createdAt)),
-                    })}
-                  </option>
-                ))}
-              </NativeSelect>
-            </label>
-            <label className="lt-field">
-              <span>{t('appealReason')}</span>
-              <NativeTextArea value={reason} maxLength={2000} required onChange={(event) => setReason(event.target.value)} />
-            </label>
+            <Select label={t('appealOrder')} value={tradeId} onChange={(event) => setTradeId(event.target.value)} required>
+              <option value="">{t('appealPick')}</option>
+              {list.map((trade) => (
+                <option key={trade.id} value={trade.id}>
+                  {t('appealOrderOption', {
+                    id: trade.id,
+                    status: t(trade.status === 'disputed' ? 'disputed' : 'cancelled'),
+                    when: day.format(new Date(trade.createdAt)),
+                  })}
+                </option>
+              ))}
+            </Select>
+            <TextArea
+              label={t('appealReason')}
+              value={reason}
+              maxLength={2000}
+              required
+              onChange={(event) => setReason(event.target.value)}
+            />
             <Button type="submit" tone="primary" disabled={!ready}>
               {busy ? t('appealSending') : t('appealSend')}
             </Button>

@@ -1,4 +1,4 @@
-import { Button, Field, NativeSelect } from '@intafaced/ui/lit';
+import { Button, Field, Select } from '@intafaced/ui/lit';
 import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import type { PersonalPayApi } from '../pay-api';
 import { payCopy } from '../copy';
@@ -121,40 +121,31 @@ export function MyOffersRoom({ pay, userId }: { pay: PersonalPayApi; userId: str
                     onChange={(event) => setAsset(event.target.value.toUpperCase())}
                     maxLength={16}
                   />
-                  <label className="lt-field">
-                    {payCopy.t('fiatCurrency')}
-                    <NativeSelect value={fiat} onChange={(event) => setFiat(event.target.value)}>
-                      <option value="">{payCopy.t('allReturnedCurrencies')}</option>
-                      {currencies.resource.status === 'ready' &&
-                        currencies.resource.data.map((currency) => (
-                          <option key={currency.code} value={currency.code}>
-                            {currency.code} · {currency.name}
+                  <Select label={payCopy.t('fiatCurrency')} value={fiat} onChange={(event) => setFiat(event.target.value)}>
+                    <option value="">{payCopy.t('allReturnedCurrencies')}</option>
+                    {currencies.resource.status === 'ready' &&
+                      currencies.resource.data.map((currency) => (
+                        <option key={currency.code} value={currency.code}>
+                          {currency.code} · {currency.name}
+                        </option>
+                      ))}
+                  </Select>
+                  <Select label={payCopy.t('makerSide')} value={side} onChange={(event) => setSide(event.target.value)}>
+                    <option value="">{payCopy.t('buyAndSell')}</option>
+                    <option value="sell">{payCopy.t('sellingAsset')}</option>
+                    <option value="buy">{payCopy.t('buyingAsset')}</option>
+                  </Select>
+                  <Select label={p2pDepth.t('filterMethod')} value={method} onChange={(event) => setMethod(event.target.value)}>
+                    <option value="">{p2pDepth.t('anyMethod')}</option>
+                    {registeredMethods.resource.status === 'ready' &&
+                      [...new Map(registeredMethods.resource.data.map((entry) => [entry.methodId, entry.label])).entries()].map(
+                        ([methodId, label]) => (
+                          <option key={methodId} value={methodId}>
+                            {label}
                           </option>
-                        ))}
-                    </NativeSelect>
-                  </label>
-                  <label className="lt-field">
-                    {payCopy.t('makerSide')}
-                    <NativeSelect value={side} onChange={(event) => setSide(event.target.value)}>
-                      <option value="">{payCopy.t('buyAndSell')}</option>
-                      <option value="sell">{payCopy.t('sellingAsset')}</option>
-                      <option value="buy">{payCopy.t('buyingAsset')}</option>
-                    </NativeSelect>
-                  </label>
-                  <label className="lt-field">
-                    {p2pDepth.t('filterMethod')}
-                    <NativeSelect value={method} onChange={(event) => setMethod(event.target.value)}>
-                      <option value="">{p2pDepth.t('anyMethod')}</option>
-                      {registeredMethods.resource.status === 'ready' &&
-                        [...new Map(registeredMethods.resource.data.map((entry) => [entry.methodId, entry.label])).entries()].map(
-                          ([methodId, label]) => (
-                            <option key={methodId} value={methodId}>
-                              {label}
-                            </option>
-                          ),
-                        )}
-                    </NativeSelect>
-                  </label>
+                        ),
+                      )}
+                  </Select>
                   <Field
                     label={t('fiatAmount')}
                     value={fiatAmount}
@@ -162,16 +153,14 @@ export function MyOffersRoom({ pay, userId }: { pay: PersonalPayApi; userId: str
                     onChange={(event) => setFiatAmount(event.target.value)}
                     maxLength={40}
                   />
-                  <label className="lt-field">
-                    {t('sort')}
-                    <NativeSelect
-                      value={sort}
-                      onChange={(event) => setSort(event.target.value === 'price_desc' ? 'price_desc' : 'price_asc')}
-                    >
-                      <option value="price_asc">{t('sortPriceAsc')}</option>
-                      <option value="price_desc">{t('sortPriceDesc')}</option>
-                    </NativeSelect>
-                  </label>
+                  <Select
+                    label={t('sort')}
+                    value={sort}
+                    onChange={(event) => setSort(event.target.value === 'price_desc' ? 'price_desc' : 'price_asc')}
+                  >
+                    <option value="price_asc">{t('sortPriceAsc')}</option>
+                    <option value="price_desc">{t('sortPriceDesc')}</option>
+                  </Select>
                   <Button type="submit">{payCopy.t('applyFilters')}</Button>
                 </form>
                 {currencies.resource.status === 'failed' && <Failure result={currencies.resource.failure} retry={currencies.reload} />}

@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
-import { Button, CheckRow, ChoiceGroup, Field, NativeSelect } from '@intafaced/ui/lit';
-import { Sheet } from '@intafaced/ui/lit/templates';
+import { Button, ChoiceGroup, Field, Select } from '@intafaced/ui/lit';
+import { Checkbox, Sheet } from '@intafaced/ui/lit/templates';
 import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
 import type { PersonalPayApi } from '../pay-api';
@@ -100,16 +100,13 @@ function PresenceForm({ pay, current, onSaved }: { pay: PersonalPayApi; current:
           <Field label={t('presenceZone')} value={timezone} onChange={(event) => setTimezone(event.target.value)} />
           {windows.map((row, index) => (
             <div className="lt-actions" key={index} data-testid="presence-window">
-              <label className="lt-field">
-                <Copy k="presenceDay" />{' '}
-                <NativeSelect value={row.day} onChange={(event) => change(index, { day: Number(event.target.value) })}>
-                  {DAYS.map((day) => (
-                    <option key={day} value={day}>
-                      {t(dayKey(day))}
-                    </option>
-                  ))}
-                </NativeSelect>
-              </label>
+              <Select label={t('presenceDay')} value={row.day} onChange={(event) => change(index, { day: Number(event.target.value) })}>
+                {DAYS.map((day) => (
+                  <option key={day} value={day}>
+                    {t(dayKey(day))}
+                  </option>
+                ))}
+              </Select>
               <Field
                 label={t('presenceFrom')}
                 type="time"
@@ -215,17 +212,17 @@ export function BulkAds({
                 <Copy k="bulkPick" />
               </legend>
               {ads.map((ad) => (
-                <CheckRow
-                  key={ad.id}
-                  labelProps={{ 'data-testid': 'bulk-ad', 'data-offer-id': ad.id }}
-                  label={
-                    <span>
-                      {side(ad)} · {ad.status}
-                    </span>
-                  }
-                  checked={picked.includes(ad.id)}
-                  onChange={(event) => setPicked((ids) => (event.target.checked ? [...ids, ad.id] : ids.filter((id) => id !== ad.id)))}
-                />
+                <div key={ad.id} data-testid="bulk-ad" data-offer-id={ad.id}>
+                  <Checkbox
+                    label={
+                      <>
+                        {side(ad)} · {ad.status}
+                      </>
+                    }
+                    checked={picked.includes(ad.id)}
+                    onChange={(event) => setPicked((ids) => (event.target.checked ? [...ids, ad.id] : ids.filter((id) => id !== ad.id)))}
+                  />
+                </div>
               ))}
             </fieldset>
           )
@@ -252,7 +249,7 @@ export function BulkAds({
         ))}
       </div>
       {asking ? (
-        <Sheet open title={t('bulkConfirmTitle')} onClose={() => (busy ? undefined : setAsking(null))}>
+        <Sheet open title={t('bulkConfirmTitle')} dismissible={!busy} onClose={() => (busy ? undefined : setAsking(null))}>
           <div data-testid="bulk-confirm">
             <p>
               <Copy k={asking === 'pause' ? 'bulkConfirmPause' : asking === 'resume' ? 'bulkConfirmResume' : 'bulkConfirmRemove'} />

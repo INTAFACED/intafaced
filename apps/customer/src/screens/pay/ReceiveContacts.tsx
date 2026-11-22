@@ -204,7 +204,8 @@ export function ReceiveContacts() {
       <Sheet
         open={open}
         title={step.kind === 'address' ? payCopy.t('Add a way to receive') : payCopy.t('Enter the code')}
-        onClose={() => setOpen(false)}
+        dismissible={!busy}
+        onClose={() => !busy && setOpen(false)}
       >
         {!open ? null : step.kind === 'address' ? (
           <form className="lt-body" onSubmit={(event) => void add(event)} noValidate>

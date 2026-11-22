@@ -175,7 +175,7 @@ export function AdvertiserTermsSheet({
     else setFailed(true);
   };
   return (
-    <Sheet open title={t('termsTitle')} onClose={() => (busy ? undefined : onClose())}>
+    <Sheet open title={t('termsTitle')} dismissible={!busy} onClose={() => (busy ? undefined : onClose())}>
       <div data-testid="advertiser-terms">
         <p className="lt-hint">{t('termsVersion', { version })}</p>
         <ul>

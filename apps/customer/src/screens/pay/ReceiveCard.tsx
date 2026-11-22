@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { Copy, Link2, Share2 } from 'lucide-react';
-import { Button, EmptyState, QrMark, RefusalBox, useToast } from '@intafaced/ui/lit';
-import { Skeleton } from '@intafaced/ui/lit/templates';
+import { Button, EmptyState, RefusalBox, useToast } from '@intafaced/ui/lit';
+import { QrCode, Skeleton } from '@intafaced/ui/lit/templates';
 import { encodeQr, PAY_QR_KEY_UNSET, qrPath, requestPath, useSession } from './deps';
 import { payCopy } from './copy';
 import { personalCopy } from './personal-copy';
@@ -142,5 +142,5 @@ function PayQr({ value }: { value: string }) {
     }
   }, [value]);
   if (!drawn) return <p role="alert">{t('qrFailed')}</p>;
-  return <QrMark d={drawn.d} size={drawn.size} label={t('qrLabel')} data-testid="pay-qr" />;
+  return <QrCode d={drawn.d} size={drawn.size} label={t('qrLabel')} failed={t('qrFailed')} data-testid="pay-qr" />;
 }

@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Button, Field, QrMark } from '@intafaced/ui/lit';
+import { Button, Field } from '@intafaced/ui/lit';
+import { QrCode } from '@intafaced/ui/lit/templates';
 import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
 import { encodeQr, qrPath } from '../../../shared/qr';
@@ -158,7 +159,8 @@ function MadeLink({ url, expiresAt }: { url: string; expiresAt: string }) {
       >
         <Copy k={copied ? 'copied' : 'copyLink'} />
       </Button>
-      {drawn ? <QrMark d={drawn.d} size={drawn.size} label={t('qrLabel')} /> : null}
+      {/* Drawn only once encoded, so QrCode's failed line never shows here. */}
+      {drawn ? <QrCode d={drawn.d} size={drawn.size} label={t('qrLabel')} failed="" /> : null}
     </div>
   );
 }

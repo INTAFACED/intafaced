@@ -142,7 +142,8 @@ export function RecentPanel() {
                       </span>
                     </span>
                   </span>
-                  <span>
+                  {/* .lt-actions: the receipt link stands alone here, so it takes the kit's 24 px target (WCAG 2.5.8). */}
+                  <span className="lt-actions">
                     <span className="lt-mono" lang="zxx" data-direction={out ? 'out' : 'in'} data-testid="recent-payment-amount">
                       {amount}
                     </span>
@@ -157,9 +158,12 @@ export function RecentPanel() {
         )}
         {lookFurther}
         {feed.status === 'ready' ? (
-          <a className="lt-link" href="/money/activity?tab=transfers">
-            {copy.t('seeAll')}
-          </a>
+          // A link standing alone: .lt-actions gives it the kit's 24 px target (WCAG 2.5.8).
+          <div className="lt-actions">
+            <a className="lt-link" href="/money/activity?tab=transfers">
+              {copy.t('seeAll')}
+            </a>
+          </div>
         ) : null}
       </section>
 
@@ -202,7 +206,7 @@ export function RecentPanel() {
                       {stamp(item.postedAt, timeZone, now)}
                     </span>
                   </span>
-                  <span>
+                  <span className="lt-actions">
                     <a className="lt-link" href={receiptHref(item)}>
                       {copy.t('receipt')}
                     </a>

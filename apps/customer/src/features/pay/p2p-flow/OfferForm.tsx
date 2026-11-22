@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react';
-import { Button, CheckRow, ChoiceGroup, EmptyState, Field, NativeSelect, NativeTextArea } from '@intafaced/ui/lit';
+import { Button, ChoiceGroup, EmptyState, Field, Select, TextArea } from '@intafaced/ui/lit';
+import { Checkbox } from '@intafaced/ui/lit/templates';
 import { useResource } from '../../../shared/resource';
 import type { ApiResult } from '../../../shared/api';
 import type { PersonalPayApi } from '../pay-api';
@@ -398,22 +399,19 @@ function Fields({
         <div className="lt-toolbar">
           {text('asset', t('fieldAsset'), { upper: true })}
           {fiat.resource.status === 'ready' ? (
-            <label className="lt-field">
-              <span>{t('fieldFiat')}</span>
-              <NativeSelect
-                value={values.fiatCurrency}
-                onChange={(event) => set('fiatCurrency', event.target.value)}
-                aria-invalid={Boolean(shown('fiatCurrency'))}
-              >
-                <option value="">{t('fieldFiatPick')}</option>
-                {fiat.resource.data.map((currency) => (
-                  <option key={currency.code} value={currency.code}>
-                    {currency.code} · {currency.name}
-                  </option>
-                ))}
-              </NativeSelect>
-              {shown('fiatCurrency') ? <small>{shown('fiatCurrency')}</small> : null}
-            </label>
+            <Select
+              label={t('fieldFiat')}
+              error={shown('fiatCurrency')}
+              value={values.fiatCurrency}
+              onChange={(event) => set('fiatCurrency', event.target.value)}
+            >
+              <option value="">{t('fieldFiatPick')}</option>
+              {fiat.resource.data.map((currency) => (
+                <option key={currency.code} value={currency.code}>
+                  {currency.code} · {currency.name}
+                </option>
+              ))}
+            </Select>
           ) : (
             <Field
               label={t('fieldFiat')}
@@ -459,7 +457,7 @@ function Fields({
               {methods.resource.data
                 .filter((method) => method.enabled || values.methods.includes(method.methodId))
                 .map((method) => (
-                  <CheckRow
+                  <Checkbox
                     key={`${method.methodId}:${method.country}`}
                     label={<span lang="und">{method.label}</span>}
                     checked={values.methods.includes(method.methodId)}
@@ -476,27 +474,25 @@ function Fields({
             </div>
           ) : null}
           {choseNonInstant ? (
-            <CheckRow
-              labelProps={{ 'data-testid': 'offer-non-instant-consent' }}
-              label={<span>{settlementCopy.t('consentLabel')}</span>}
-              checked={values.acceptsNonInstant}
-              // The consent is given at post; an edit keeps what the ad was posted with.
-              disabled={mode === 'edit'}
-              onChange={(event) => set('acceptsNonInstant', event.target.checked)}
-            />
+            <div data-testid="offer-non-instant-consent">
+              <Checkbox
+                label={settlementCopy.t('consentLabel')}
+                checked={values.acceptsNonInstant}
+                // The consent is given at post; an edit keeps what the ad was posted with.
+                disabled={mode === 'edit'}
+                onChange={(event) => set('acceptsNonInstant', event.target.checked)}
+              />
+            </div>
           ) : null}
           {shown('methods') ? <small>{shown('methods')}</small> : null}
         </div>
-        <label className="lt-field">
-          <span>{t('fieldTerms')}</span>
-          <NativeTextArea
-            value={values.terms}
-            maxLength={4100}
-            onChange={(event) => set('terms', event.target.value)}
-            aria-invalid={Boolean(shown('terms'))}
-          />
-          {shown('terms') ? <small>{shown('terms')}</small> : null}
-        </label>
+        <TextArea
+          label={t('fieldTerms')}
+          error={shown('terms')}
+          value={values.terms}
+          maxLength={4100}
+          onChange={(event) => set('terms', event.target.value)}
+        />
       </fieldset>
       {mode === 'edit' ? (
         <Details

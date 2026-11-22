@@ -1,5 +1,5 @@
 import { useId, useRef, useState } from 'react';
-import { Button, NativeSelect, RefusalBox, type Refusal } from '@intafaced/ui/lit';
+import { Button, RefusalBox, Select, type Refusal } from '@intafaced/ui/lit';
 import { isServiceNotConnected, type ApiResult } from '../../shared/api';
 import type { Resource } from '../../shared/resource';
 import { uiCopy, uiMessage } from '../../shared/ui-copy';
@@ -230,17 +230,14 @@ function GlobalDetailsByCurrency({ read }: { read: { resource: Resource<{ curren
   const chosen = rows.find((row) => row.currency === currency);
   return (
     <div className="lt-review" data-testid="receive-details">
-      <label className="lt-field">
-        <span>{t('receiveCurrency')}</span>
-        <NativeSelect value={currency} onChange={(event) => setCurrency(event.target.value)}>
-          <option value="">{t('receiveChoose')}</option>
-          {rows.map((row) => (
-            <option key={row.currency} value={row.currency}>
-              {row.currency}
-            </option>
-          ))}
-        </NativeSelect>
-      </label>
+      <Select label={t('receiveCurrency')} value={currency} onChange={(event) => setCurrency(event.target.value)}>
+        <option value="">{t('receiveChoose')}</option>
+        {rows.map((row) => (
+          <option key={row.currency} value={row.currency}>
+            {row.currency}
+          </option>
+        ))}
+      </Select>
       {chosen && <GlobalDetailsList rows={[chosen]} />}
     </div>
   );

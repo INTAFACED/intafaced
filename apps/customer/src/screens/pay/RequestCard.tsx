@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link2, Share2 } from 'lucide-react';
-import { Button, EmptyState, Field, QrMark, useToast } from '@intafaced/ui/lit';
-import { Skeleton } from '@intafaced/ui/lit/templates';
+import { Button, DecimalField, EmptyState, Field, useToast } from '@intafaced/ui/lit';
+import { QrCode, Skeleton } from '@intafaced/ui/lit/templates';
 import {
   addRequest,
   cleanAmount,
@@ -37,7 +37,7 @@ function RequestQr({ value }: { value: string }) {
     }
   }, [value]);
   if (!drawn) return <p className="lt-hint">{t('qrFailed')}</p>;
-  return <QrMark d={drawn.d} size={drawn.size} label={t('qrLabel')} data-testid="pay-qr" />;
+  return <QrCode d={drawn.d} size={drawn.size} label={t('qrLabel')} failed={t('qrFailed')} data-testid="pay-qr" />;
 }
 
 /** A load that failed, with its retry: the kit's empty state, announced as an alert as before. */
@@ -212,14 +212,16 @@ function CreateRequest({ userId, payeeId, assets }: { userId: string; payeeId: s
                 ))}
               </select>
             </div>
-            <Field
+            {/* The old kit's AmountInput rules: a typed "," is the decimal point, a paste is cleaned ("1,234.56"). */}
+            <DecimalField
               label={t('reqAmount')}
-              type="text"
-              inputMode="decimal"
-              value={amount}
-              autoComplete="off"
+              aria-label={t('reqAmount')}
               placeholder="0"
-              onChange={(event) => setAmount(event.target.value)}
+              precision={18}
+              typedMark="either"
+              value={amount}
+              onValueChange={setAmount}
+              data-testid="request-amount"
             />
           </div>
           <Field

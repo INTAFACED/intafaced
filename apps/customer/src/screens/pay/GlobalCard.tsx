@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react';
-import { Button, EmptyState, Field } from '@intafaced/ui/lit';
+import { Button, DecimalField, EmptyState, Field } from '@intafaced/ui/lit';
 import { confirmWithStepUp, refusalCopy, useSession } from './deps';
 import type { ApiResult } from './deps';
 import { payCopy } from './copy';
@@ -8,7 +8,6 @@ import { globalCopy } from './global-copy';
 import { Reason, sourceLabel, Steps, useSources } from './journey';
 import { createGlobalApi } from './global-api';
 import { GlobalAccountDetails } from './GlobalAccountDetails';
-import { settledAmount, typedAmount } from './GlobalAmount';
 import {
   amountProblem,
   askedField,
@@ -774,24 +773,17 @@ export function GlobalCard() {
         </fieldset>
         <fieldset className="lt-region lt-review" disabled={locked || stepUpOpen}>
           <div className="lt-field">
-            <Field
+            {/* The old kit's AmountInput rules: a typed "," is the decimal point, a paste is cleaned ("1,234.56"). */}
+            <DecimalField
               label={g('amountLabel')}
-              type="text"
-              inputMode="decimal"
-              autoComplete="off"
-              autoCorrect="off"
-              spellCheck={false}
               enterKeyHint="done"
               aria-label={g('amountLabel')}
               placeholder="0"
+              precision={18}
+              typedMark="either"
               value={amount}
-              onChange={(event) => {
-                const next = typedAmount(event.currentTarget.value, 18);
-                if (next !== null && next !== amount) setAmount(next);
-              }}
-              onBlur={() => {
-                if (settledAmount(amount) !== amount) setAmount(settledAmount(amount));
-              }}
+              onValueChange={setAmount}
+              data-testid="global-amount"
             />
             <select aria-label={payCopy.t('Asset to send')} value={source?.id ?? ''} onChange={(event) => setSourceId(event.target.value)}>
               {sources.length === 0 ? <option value="">{g('noSource')}</option> : null}

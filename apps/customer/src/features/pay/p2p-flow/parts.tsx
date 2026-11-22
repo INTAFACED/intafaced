@@ -317,7 +317,7 @@ export function ReviewedAction<T>({
       </Button>
       <MutationResult result={result} title={title} refreshed={Boolean(onConfirmed)} />
       {opened && (
-        <Sheet open title={payCopy.t('review', { title })} onClose={close}>
+        <Sheet open title={payCopy.t('review', { title })} dismissible={!busy} onClose={close}>
           <div data-testid="form-stack">
             <p className="lt-hint">{description}</p>
             {review}

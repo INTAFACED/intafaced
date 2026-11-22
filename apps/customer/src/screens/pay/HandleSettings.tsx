@@ -171,7 +171,7 @@ export function HandleSettings({ handle, onRenamed }: { handle: string; onRename
         </Button>
       </div>
 
-      <Sheet open={open} title={payCopy.t('Change your handle')} onClose={() => setOpen(false)}>
+      <Sheet open={open} title={payCopy.t('Change your handle')} dismissible={!saving} onClose={() => !saving && setOpen(false)}>
         {open ? (
           <form className="lt-body" onSubmit={(event) => void save(event)} noValidate>
             <p className="lt-description">{payCopy.t('Change handle body')}</p>
