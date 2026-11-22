@@ -26,6 +26,7 @@ import {
   staleRulesRerun,
   touchesMoney,
 } from './ci-jobs-seal.mjs';
+import { SHARD_COUNT } from './ci-affected.mjs';
 
 const SHA = 'a'.repeat(40);
 const run = (id, over = {}) => ({ id, head_sha: SHA, event: 'pull_request', path: CI_WORKFLOW_PATH, status: 'completed', ...over });
@@ -458,3 +459,77 @@ test('jobResults: a failed shard beside skipped ones reads as failure', () => {
   assert.equal(jobResults(jobs)['tests-full'], 'failure');
   assert.equal(jobResults([job(10, 'Tests (1/16)', 'skipped'), job(12, 'Tests (3/16)')])['tests-full'], 'skipped');
 });
+
+// #9920 merged on 22 Nov 2026 with its Look gate red: the required seal never asked for the Look job (classify() never
+// set `look`) and never read it (jobResults had no `look`, and its jobs are named `Look / …` by look-pr.yml).
+const PR_9920 = JSON.parse(readFileSync(new URL('./fixtures/ci-jobs-seal-9920.json', import.meta.url), 'utf8'));
+const lookGreen = (jobs) =>
+  jobs.map((j) => (j.name.startsWith('Look / ') ? { ...j, conclusion: 'success' } : j)).filter((j) => j.name !== 'CI jobs');
+
+test('#9920: the real run with two red Look gate shards fails the seal and names the Look gate', () => {
+  const v = judgeCiJobs({ run: PR_9920.run, jobs: PR_9920.jobs, files: PR_9920.files });
+  assert.equal(v.ok, false, v.lines.join('\n'));
+  assert.equal(v.wait, false);
+  assert.ok(
+    v.lines.some((l) => /look was failure \(the change draws a Customer room\)/.test(l)),
+    v.lines.join('\n'),
+  );
+});
+
+test('#9920 known good: the same run with the Look gate green passes', () => {
+  const v = judgeCiJobs({ run: PR_9920.run, jobs: lookGreen(PR_9920.jobs), files: PR_9920.files });
+  assert.equal(v.ok, true, v.lines.join('\n'));
+});
+
+test('#9920: a change that draws a Customer room needs the Look job: missing or skipped fails, a merge queue needs none', () => {
+  const noLook = lookGreen(PR_9920.jobs).filter((j) => !j.name.startsWith('Look'));
+  for (const jobs of [noLook, [...noLook, job(99, 'Look', 'skipped')]]) {
+    const v = judgeCiJobs({ run: PR_9920.run, jobs, files: PR_9920.files });
+    assert.equal(v.ok, false);
+    assert.ok(
+      v.lines.some((l) => /look was (missing|skipped)/.test(l)),
+      v.lines.join('\n'),
+    );
+  }
+  // Unreadable files (null) draw a room as far as the seal can tell.
+  assert.ok(judgeCiJobs({ run: PR_9920.run, jobs: noLook, files: null }).lines.some((l) => /look was missing/.test(l)));
+  // A merge queue's commit: ci.yml runs no Look job there (its look gate is main's daily one).
+  const queue = judgeCiJobs({ run: PR_9920.run, jobs: [...noLook, ...fullShards()], files: [], forceFull: true });
+  assert.ok(!queue.lines.some((l) => /look/.test(l)), queue.lines.join('\n'));
+});
+
+test('#9920: a red Look job fails even when this head draws no room; a skipped one beside no room passes', () => {
+  const red = [...green(), job(50, 'Look / Build (after)'), job(51, 'Look / Look gate on the rooms it changes (1/3)', 'failure')];
+  assert.equal(judgeCiJobs({ run: run(1), jobs: red, files: product }).ok, false);
+  assert.equal(judgeCiJobs({ run: run(1), jobs: [...green(), job(50, 'Look', 'skipped')], files: product }).ok, true);
+});
+
+test('jobResults: the Look job and its reusable workflow jobs (`Look / …`) read as one result; a red one outranks the rest', () => {
+  assert.equal(jobResults(PR_9920.jobs).look, 'failure');
+  assert.equal(jobResults(lookGreen(PR_9920.jobs)).look, 'success');
+  assert.equal(jobResults([job(1, 'Look', 'skipped')]).look, 'skipped');
+  assert.equal(jobResults(green()).look, undefined);
+  assert.equal(jobResults([job(1, 'Lookout')]).look, undefined);
+});
+
+test('any other job of the run that ran red fails the seal, whatever sealNeeded knows of it; the seal jobs themselves do not', () => {
+  for (const conclusion of ['failure', 'cancelled', 'timed_out', 'action_required', 'startup_failure']) {
+    const v = judgeCiJobs({ run: run(1), jobs: [...green(), job(40, 'Fast gates', conclusion)], files: product });
+    assert.equal(v.ok, false, conclusion);
+    assert.ok(
+      v.lines.some((l) => l.includes(`Fast gates was ${conclusion}`)),
+      v.lines.join('\n'),
+    );
+    assert.equal(judgeCiJobs({ run: run(1), jobs: [...green(), job(40, 'A job added later', conclusion)], files: product }).ok, false);
+  }
+  for (const conclusion of ['success', 'skipped', 'neutral'])
+    assert.equal(judgeCiJobs({ run: run(1), jobs: [...green(), job(40, 'Fast gates', conclusion)], files: product }).ok, true, conclusion);
+  // ci.yml's own `CI jobs` (the pull request's copy, which a factory pause turns red until its seal is re-run elsewhere)
+  // and START_JOB, which starts this seal, are not CI's verdict.
+  for (const name of ['CI jobs', 'CI merge seal', 'Start the seal'])
+    assert.equal(judgeCiJobs({ run: run(1), jobs: [...green(), job(40, name, 'failure')], files: product }).ok, true, name);
+});
+
+function fullShards() {
+  return Array.from({ length: SHARD_COUNT }, (_, i) => job(200 + i, `Tests (${i + 1}/${SHARD_COUNT})`));
+}
