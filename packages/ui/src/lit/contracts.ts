@@ -286,6 +286,8 @@ export const components = {
   Switch: 'Glass disc knob toggle',
   Segmented: 'Ranges, Buy/Sell, Simple/Pro',
   Field: 'Input with label, hint and typed error',
+  TextArea: 'Several lines of text with label, hint and typed error',
+  Select: 'One choice from a list, with label, hint and typed error',
   DecimalField: 'Field for a decimal string (money, quantities): refuses an invalid keystroke, cleans a paste to its precision',
   ChoiceGroup: 'One choice of several, as radios each with its label and hint',
   Freshness: 'Data freshness: Live, Stale or Unknown as a shape and a word, with its as-of time; turns Stale by itself',

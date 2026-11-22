@@ -246,6 +246,9 @@ export function Select({ label, hint, error, options, children, id, className, .
   );
 }
 
+/** The kit's one checkbox (b2-basics), here too so a room takes every control from `@intafaced/ui/lit`. */
+export { Checkbox } from './b2-basics.js';
+
 /** A typed part of a formatted number (packages/i18n `formatMoneyToParts` and friends return these). */
 export type FigurePart = { readonly type: string; readonly value: string };
 
