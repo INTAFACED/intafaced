@@ -1,5 +1,5 @@
 import { useCallback, useState, type FormEvent } from 'react';
-import { Button, Checkbox, Field, Select } from '@intafaced/ui/lit';
+import { Button, Checkbox, Field, Select, TextArea } from '@intafaced/ui/lit';
 import {
   bankAccountClosureRowSchema as closureRowSchema,
   bankAccountClosureSchema as closureSchema,
@@ -191,10 +191,7 @@ function Reviews({ version, changed }: { version: number; changed: () => void })
               <Checkbox name="accurate" defaultChecked>
                 {t('reviewAccurate')}
               </Checkbox>
-              <label className="lt-field">
-                <span>{t('reviewNote')}</span>
-                <textarea name="note" maxLength={500} />
-              </label>
+              <TextArea label={t('reviewNote')} name="note" maxLength={500} />
               <Button type="submit" tone="primary">
                 {t('reviewAnswer')}
               </Button>

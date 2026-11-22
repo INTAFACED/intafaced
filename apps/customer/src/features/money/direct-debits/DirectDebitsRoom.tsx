@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Button, EmptyState } from '@intafaced/ui/lit';
+import { Button, EmptyState, TextArea } from '@intafaced/ui/lit';
 import { Sheet, type RoomState } from '@intafaced/ui/lit/templates';
 import { useSession } from '../../session';
 import { amount, date, useBankRead } from '../components';
@@ -273,17 +273,15 @@ function RefundDialog({ row, onDone, onCancel }: { row: DirectDebitCollection; o
     <Sheet open title={t('refundTitle')} onClose={onCancel}>
       <form onSubmit={(event) => void submit(event)} noValidate>
         <p>{t('refundLead', { amount: amount(row.amount, row.assetId), creditor: row.creditorName, time: date(row.settledAt) })}</p>
-        <label className="lt-field">
-          <span>{t('refundReason')}</span>
-          <textarea
-            value={reason}
-            maxLength={500}
-            rows={3}
-            onChange={(event) => setReason(event.target.value)}
-            aria-invalid={tried && bad}
-          />
-          <small>{tried && bad ? t('refundReasonBad') : t('refundReasonHint')}</small>
-        </label>
+        <TextArea
+          label={t('refundReason')}
+          value={reason}
+          maxLength={500}
+          rows={3}
+          onChange={setReason}
+          aria-invalid={tried && bad}
+          hint={tried && bad ? t('refundReasonBad') : t('refundReasonHint')}
+        />
         {error && <p role="alert">{error}</p>}
         <div className="lt-actions">
           <Button type="submit" tone="primary" disabled={busy}>

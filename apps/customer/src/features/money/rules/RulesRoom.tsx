@@ -202,6 +202,10 @@ function MoneyRulePanel({ code }: { code: string }) {
   }
 
   const options = spaces.resource.status === 'ready' ? spaces.resource.data : [];
+  const spaceOptions = [
+    { value: '', label: t('pickSpace') },
+    ...options.map((space) => ({ value: space.id, label: `${space.name} (${space.assetId})` })),
+  ];
   return (
     <Panel id="rules-money" title={t('moneyTitle')} lead={t('moneyLead')}>
       <p role="note" data-testid="rules-money-not-set">
@@ -210,28 +214,8 @@ function MoneyRulePanel({ code }: { code: string }) {
       {spaces.resource.status === 'failed' && <Failure result={spaces.resource.failure} retry={spaces.reload} />}
       <form onSubmit={(event) => void save(event)} noValidate data-testid="rules-money">
         <Field label={t('moneyName')} value={form.name} maxLength={60} onChange={set('name')} />
-        <label className="lt-field">
-          <span>{t('moneyFrom')}</span>
-          <select value={form.from} onChange={set('from')}>
-            <option value="">{t('pickSpace')}</option>
-            {options.map((space) => (
-              <option key={space.id} value={space.id} lang="und">
-                {space.name} ({space.assetId})
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="lt-field">
-          <span>{t('moneyTo')}</span>
-          <select value={form.to} onChange={set('to')}>
-            <option value="">{t('pickSpace')}</option>
-            {options.map((space) => (
-              <option key={space.id} value={space.id} lang="und">
-                {space.name} ({space.assetId})
-              </option>
-            ))}
-          </select>
-        </label>
+        <Select label={t('moneyFrom')} value={form.from} onChange={(value) => set('from')({ target: { value } })} options={spaceOptions} />
+        <Select label={t('moneyTo')} value={form.to} onChange={(value) => set('to')({ target: { value } })} options={spaceOptions} />
         <Select
           label={t('moneyTrigger')}
           value={form.trigger}
