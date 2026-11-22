@@ -5,63 +5,15 @@ import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { PERMISSION_AREAS, SubMerchantError, refuseSubMerchantWithoutConsent, type SubMerchantService } from './submerchants.js';
 import { readSubMerchantSummary } from './merchant-portal/summary.js';
 import { MAX_FEE_BPS } from './fee-bps-bound.js';
-
-/**
- * THE PAYFAC SURFACE (§6.1) — sub-merchant trees and the permissions over them.
- *
- * ══ AUTHORIZATION IS ENFORCED HERE, NOT DOCUMENTED HERE ══════════════════════
- *
- * Every procedure below does the same three things in the same order, and none
- * of them is optional:
- *
- *   1. `scopedProcedure(…, { module: 'pay' })` — the caller holds a pay scope and
- *      passes the §22 jurisdiction matrix, exactly like every other procedure in
- *      this service.
- *   2. `actor()` — the caller's OWN merchant node, resolved from the
- *      authenticated principal. There is no `actorMerchantId` on the wire, so
- *      there is nothing to forge; a caller who is not a merchant is refused
- *      before any tree is walked.
- *   3. The service's subtree fence and permission check, which throw
- *      `pay.merchant_not_found` (outside the tree reads exactly like a missing
- *      id) / `pay.submerchant_permission_denied` (inside the tree, no grant).
- *
- * Step 2 is the one that would be easy to get wrong. `pay:write` is a MERCHANT'S
- * scope, held by every merchant on the platform — so if the merchant node came
- * from the request body, any merchant could name any other merchant as the node
- * they were "acting as" and the tree fence would be measuring the wrong actor
- * entirely. The scope says what kind of caller this is; the tree says what they
- * can reach; and only the principal decides which node they are.
- *
- * ══ WHY ITS OWN ROUTER FILE ══════════════════════════════════════════════════
- *
- * Merged into the pay router with `mergeRouters` in `index.ts`, the same way
- * `merchant-state-router.ts` is, so there is still one wire surface and the edge
- * still forwards `/api/pay` to a single router. `router.ts` is already a
- * thousand lines covering the gateway surface; the payfac surface has a
- * different reader and a different authorization model, and keeping it separate
- * is what stops the second from being read as a footnote to the first.
- */
-
-const areaSchema = z.enum(PERMISSION_AREAS);
-
-const subMerchantView = z.object({
-  id: z.string().guid(),
-  userId: z.string(),
-  parentMerchantId: z.string().guid().nullable(),
-  mode: z.enum(['gateway', 'psp', 'payfac']),
-  status: z.enum(['pending', 'active', 'suspended', 'closed']),
-  kybStatus: z.enum(['none', 'pending', 'approved', 'rejected']),
-  settlingParty: z.string(),
-  /**
-   * Nullable, and NOT defaulted to zero. A sub-merchant onboarded by some other
-   * path may carry no `feeBps`, and rendering that as `0` would tell an operator
-   * the merchant is processed free of charge. `settleWindow` already refuses to
-   * settle rather than assume a rate; a read surface must not assume one either.
-   */
-  feeBps: z.number().int().nullable(),
-  depth: z.number().int(),
-  createdAt: z.string().datetime({ offset: true }),
-});
+import { subMerchantView, areaSchema, permissionEventView } from '@intafaced/contracts/pay-call-schemas';
+import { PAY_SUBMERCHANT_LIST, PAY_SUBMERCHANT_GET } from '@intafaced/contracts/pay-submerchant-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { payRefusal } from './record-refusal.js';
+import {
+  PAY_SUBMERCHANT_PERMISSION_AREAS,
+  PAY_SUBMERCHANT_PERMISSION_LIST,
+  PAY_SUBMERCHANT_PERMISSION_HISTORY,
+} from '@intafaced/contracts/pay-submerchant-permission-procedures';
 
 const summaryPayment = z
   .object({
@@ -116,31 +68,6 @@ const subMerchantSummaryView = subMerchantView
       .nullable(),
   })
   .strict();
-
-const grantView = z.object({
-  granteeMerchantId: z.string().guid(),
-  subjectMerchantId: z.string().guid(),
-  area: areaSchema,
-  reason: z.string(),
-  actorId: z.string(),
-  actorMerchantId: z.string().guid(),
-  grantedAt: z.string().datetime({ offset: true }),
-});
-
-const permissionEventView = z.object({
-  id: z.string().guid(),
-  /** A `bigserial` ordering key. A string, never arithmetic. */
-  seq: z.string(),
-  granteeMerchantId: z.string().guid(),
-  subjectMerchantId: z.string().guid(),
-  area: z.string(),
-  action: z.enum(['grant', 'revoke']),
-  reason: z.string(),
-  actorId: z.string(),
-  actorMerchantId: z.string().guid(),
-  actorScope: z.string(),
-  createdAt: z.string().datetime({ offset: true }),
-});
 
 /**
  * The narrow slice of `PayService` this router needs: the principal's own
@@ -282,37 +209,28 @@ export function createSubMerchantRouter(subMerchants: SubMerchantService, mercha
         ),
 
       /** Direct children of a node the caller can reach. Requires `submerchant`. */
-      list: scopedProcedure('pay:read', { module: 'pay' })
-        .input(
-          z.object({
-            merchantId: z.string().guid(),
-            /**
-             * Page size. Optional so omit reaches `pay.submerchant_list_limit_unset`.
-             * Blank is not 100; pass 100 explicitly.
-             */
-            limit: z.number().int().min(1).max(500).optional(),
-          }),
-        )
-        .output(z.array(subMerchantView))
-        .query(({ ctx, input }) =>
+      list: mountRecord(
+        PAY_SUBMERCHANT_LIST,
+        ({ ctx, input }) =>
           wrap(async () => {
             const actorMerchantId = await actor(ctx.principal?.userId);
             const rows = await subMerchants.listSubMerchants(actorMerchantId, input.merchantId, input.limit);
             return rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() }));
           }),
-        ),
+        payRefusal,
+      ),
 
       /** One node's record. Requires `merchant.profile`, not `submerchant`. */
-      get: scopedProcedure('pay:read', { module: 'pay' })
-        .input(z.object({ merchantId: z.string().guid() }))
-        .output(subMerchantView)
-        .query(({ ctx, input }) =>
+      get: mountRecord(
+        PAY_SUBMERCHANT_GET,
+        ({ ctx, input }) =>
           wrap(async () => {
             const actorMerchantId = await actor(ctx.principal?.userId);
             const record = await subMerchants.getSubMerchant(actorMerchantId, input.merchantId);
             return { ...record, createdAt: record.createdAt.toISOString() };
           }),
-        ),
+        payRefusal,
+      ),
 
       /**
        * Child summary for `/pay/network/:child`. Same subtree fence as `get`.
@@ -409,46 +327,28 @@ export function createSubMerchantRouter(subMerchants: SubMerchantService, mercha
         ),
 
       /** The live grants over one node. Implicit authority is not listed — it is not a grant. */
-      list: scopedProcedure('pay:read', { module: 'pay' })
-        .input(
-          z.object({
-            subjectMerchantId: z.string().guid(),
-            /**
-             * Page size. Optional so omit reaches `pay.submerchant_permission_list_limit_unset`.
-             * Blank is not 50; pass 50 explicitly.
-             */
-            limit: z.number().int().min(1).max(200).optional(),
-          }),
-        )
-        .output(z.array(grantView))
-        .query(({ ctx, input }) =>
+      list: mountRecord(
+        PAY_SUBMERCHANT_PERMISSION_LIST,
+        ({ ctx, input }) =>
           wrap(async () => {
             const actorMerchantId = await actor(ctx.principal?.userId);
             const rows = await subMerchants.listPermissions(actorMerchantId, input.subjectMerchantId, input.limit);
             return rows.map((r) => ({ ...r, grantedAt: r.grantedAt.toISOString() }));
           }),
-        ),
+        payRefusal,
+      ),
 
       /** Grants AND revokes, newest first — the answer to "who could do this, and when". */
-      history: scopedProcedure('pay:read', { module: 'pay' })
-        .input(
-          z.object({
-            subjectMerchantId: z.string().guid(),
-            /**
-             * Page size. Optional so omit reaches `pay.submerchant_permission_history_limit_unset`.
-             * Blank is not 50; pass 50 explicitly.
-             */
-            limit: z.number().int().min(1).max(200).optional(),
-          }),
-        )
-        .output(z.array(permissionEventView))
-        .query(({ ctx, input }) =>
+      history: mountRecord(
+        PAY_SUBMERCHANT_PERMISSION_HISTORY,
+        ({ ctx, input }) =>
           wrap(async () => {
             const actorMerchantId = await actor(ctx.principal?.userId);
             const rows = await subMerchants.permissionHistory(actorMerchantId, input.subjectMerchantId, input.limit);
             return rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() }));
           }),
-        ),
+        payRefusal,
+      ),
 
       /**
        * The area vocabulary, so a console does not hard-code its own copy.
@@ -458,9 +358,7 @@ export function createSubMerchantRouter(subMerchants: SubMerchantService, mercha
        * the areas describe what this platform lets a facilitator delegate, which
        * is not something an anonymous caller needs.
        */
-      areas: scopedProcedure('pay:read', { module: 'pay' })
-        .output(z.array(areaSchema))
-        .query(() => [...PERMISSION_AREAS]),
+      areas: mountRecord(PAY_SUBMERCHANT_PERMISSION_AREAS, () => [...PERMISSION_AREAS], payRefusal),
     }),
   });
 }

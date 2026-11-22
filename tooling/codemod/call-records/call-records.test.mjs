@@ -398,6 +398,104 @@ test('a useBankRead, payCall and founderEdgeCall call each moves to its record f
   );
 });
 
+test("the Business API's calls, named by their call alone, are svc-pay's and move to its record form; a near shape stays", () => {
+  const repo = mkdtempSync(join(tmpdir(), 'call-records-'));
+  const put = (path, lines) => {
+    mkdirSync(join(repo, dirname(path)), { recursive: true });
+    writeFileSync(join(repo, path), `${lines.join('\n')}\n`);
+  };
+  const pay = 'apps/customer/src/features/pay';
+  put(`${pay}/pay-api.ts`, ['export function createBusinessPayApi() { return {}; }', 'export type BusinessPayApi = {};']);
+  put(`${pay}/Room.tsx`, [
+    "import { createBusinessPayApi, type BusinessPayApi } from './pay-api';",
+    'export function Balance({ pay }: { pay: BusinessPayApi }) {',
+    "  return pay.query('merchant.balances', { merchantId }, balanceSchema, signal);",
+    '}',
+    'export function Capture() {',
+    '  const pay = useMemo(() => createBusinessPayApi(api, userId, authority), [api]);',
+    "  return pay.mutate('payment.capture', { paymentId }, paymentSchema, 'pay:write', `payment:${paymentId}`, 'captured');",
+    '}',
+    // Near: a call that names its service first, and a query on something that is not the Business API.
+    "export const named = (api) => api.query('pay', 'merchant.me', undefined, meSchema);",
+    "export const other = (portal: PortalApi) => portal.query('merchant.listLinks', { merchantId }, linksSchema, signal);",
+  ]);
+  execFileSync('git', ['init', '-q'], { cwd: repo });
+  execFileSync('git', ['add', '.'], { cwd: repo });
+
+  const sites = findSites(repo).filter((s) => s.shape !== 'keyed-schema');
+  assert.deepEqual(
+    sites.map((s) => [s.shape, s.module, s.path, s.kind]).sort(),
+    [
+      ['payMutate', 'pay', 'payment.capture', 'mutation'],
+      ['payQuery', 'pay', 'merchant.balances', 'query'],
+      ['query', 'merchant.listLinks', undefined, 'query'],
+      ['query', 'pay', 'merchant.me', 'query'],
+    ].sort(),
+  );
+  const of = (path) => sites.find((s) => s.path === path);
+  for (const path of ['merchant.balances', 'payment.capture']) assert.equal(of(path).problem, undefined);
+  assert.equal(text(load(of('merchant.balances').file), schemaArgOf(of('merchant.balances'))), 'balanceSchema');
+  const moved = (s, name) => {
+    const changes = new Changes();
+    rewriteSite(changes, s, name, '@intafaced/contracts/x');
+    return applyEdits(load(s.file).src, changes.of(s.file).edits);
+  };
+  assert.match(
+    moved(of('merchant.balances'), 'PAY_MERCHANT_BALANCES'),
+    /return pay\.queryRecord\(PAY_MERCHANT_BALANCES, \{ merchantId \}, signal\);$/m,
+  );
+  assert.match(
+    moved(of('payment.capture'), 'PAY_PAYMENT_CAPTURE'),
+    /return pay\.mutateRecord\(PAY_PAYMENT_CAPTURE, \{ paymentId \}, 'pay:write', `payment:\$\{paymentId\}`, 'captured'\);$/m,
+  );
+});
+
+test('a name imported from a contracts subpath is read from that file, though another contracts file exports the name too', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'call-records-'));
+  const put = (path, lines) => {
+    mkdirSync(join(repo, dirname(path)), { recursive: true });
+    writeFileSync(join(repo, path), `${lines.join('\n')}\n`);
+  };
+  // asset-id sorts first and exports a looser assetIdSchema under the same name (svc-pay's merchant.balances).
+  put('packages/contracts/src/asset-id.ts', ["import { z } from 'zod';", 'export const assetIdSchema = z.string().brand();']);
+  put('packages/contracts/src/pay-call-schemas.ts', [
+    "import { z } from 'zod';",
+    "import { assetIdSchema as branded } from './asset-id.js';",
+    'export const assetIdSchema = z.string().min(1).max(16);',
+  ]);
+  put('svc/router.ts', [
+    "import { z } from 'zod';",
+    "import { assetIdSchema } from '@intafaced/contracts/pay-call-schemas';",
+    "import { assetIdSchema as root } from '@intafaced/contracts';",
+    'const a = z.object({ assetId: assetIdSchema });',
+  ]);
+  const p = load(join(repo, 'svc/router.ts'));
+  const c = closureOf(repo, [{ p, node: p.program.body[3].declarations[0].init, where: 'r' }]);
+  assert.deepEqual(c.problems, []);
+  assert.equal(c.fromContracts.get('assetIdSchema').file, join(repo, 'packages/contracts/src/pay-call-schemas.ts'));
+});
+
+test('a Business API test double gets the record form of each method it has; an API client double does not', async () => {
+  const { businessDoubleEdits } = await import('./pay-business.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-'));
+  const file = join(dir, 'a.test.ts');
+  writeFileSync(
+    file,
+    [
+      'const pay = { authority, query } as unknown as BusinessPayApi;',
+      'const both = { query, mutate, queryRecord } as unknown as BusinessPayApi;',
+      'const api = { query, mutate } as unknown as ApiClient;',
+      '',
+    ].join('\n'),
+  );
+  const p = load(file);
+  const out = applyEdits(p.src, businessDoubleEdits(p));
+  assert.match(out.split('\n')[0], /, query, queryRecord\( ?this: \{ query: .*\[record\.path, input, record\.output,/);
+  assert.doesNotMatch(out.split('\n')[0], /mutateRecord/);
+  assert.match(out.split('\n')[1], /, queryRecord, mutateRecord\(/);
+  assert.equal(out.split('\n')[2], 'const api = { query, mutate } as unknown as ApiClient;');
+});
+
 test('the report sorts each hand reason into the kind one script change or one decision closes', async () => {
   const { reasonOf } = await import('./report.mjs');
   assert.equal(
@@ -884,6 +982,85 @@ test("a guard whose one check runs inside the service's own error mapper names i
     partsFor([], file, guard, () => undefined),
     undefined,
   );
+});
+
+test("a procedure on the service's own founderProcedure names caller founder and mounts with that guard; a near shape is read as what it is", async () => {
+  const { procedures, chainOf } = await import('./router.mjs');
+  const { founderPartsFor } = await import('./founder-guard.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-founder-'));
+  mkdirSync(join(dir, 'src'));
+  writeFileSync(
+    join(dir, 'src/founder-procedure.ts'),
+    [
+      "import { middleware, protectedProcedure } from '@intafaced/contracts/trpc';",
+      'export function founderProcedure(authority) {',
+      '  const guard = async ({ ctx, next }) => next({ ctx: { ...ctx, founderUserId: await authority(ctx) } });',
+      '  return protectedProcedure.use(middleware(guard));',
+      '}',
+      '',
+    ].join('\n'),
+  );
+  // The same name, built on a scope: not the founder guard.
+  writeFileSync(
+    join(dir, 'src/other.ts'),
+    "import { scopedProcedure } from '@intafaced/contracts';\nexport function founderProcedure(a) { return scopedProcedure('admin:read'); }\n",
+  );
+  writeFileSync(
+    join(dir, 'src/router.ts'),
+    [
+      "import { protectedProcedure, router, TRPCError } from '@intafaced/contracts/trpc';",
+      "import { founderProcedure } from './founder-procedure.js';",
+      "import { founderProcedure as scopeFounder } from './other.js';",
+      'type Founder = ReturnType<typeof founderProcedure>;',
+      'const typed = (founder: Founder) => router({ inner: founder.output(o).query(h) });',
+      'const untyped = (founder) => router({ inner: founder.output(o).query(h) });',
+      'export function createSvcRouter(deps) {',
+      '  const founder = founderProcedure(deps.founderAuthority);',
+      '  const lookalike = protectedProcedure.use(async ({ ctx, next }) => {',
+      "    if (!(await deps.isFounder(ctx))) throw new TRPCError({ code: 'FORBIDDEN' });",
+      '    return next();',
+      '  });',
+      '  return router({',
+      '    list: founder.output(o).query(h),',
+      '    direct: founderProcedure(deps.founderAuthority).input(i).output(o).mutation(h),',
+      '    typed: typed(founder),',
+      '    untyped: untyped(founder),',
+      '    named: scopeFounder(deps.founderAuthority).output(o).query(h),',
+      '    lookalike: lookalike.output(o).query(h),',
+      '  });',
+      '}',
+      '',
+    ].join('\n'),
+  );
+  const { procedures: found } = procedures(dir);
+  const chains = new Map([...found].map(([path, proc]) => [path, chainOf(proc)]));
+  const access = Object.fromEntries(
+    [...chains].map(([path, c]) => [path, c.problems.length ? c.problems.join('; ') : `${c.guard.text} ${c.guard.founder ?? ''}`.trim()]),
+  );
+  assert.deepEqual(access, {
+    // The record names the founder; the mount is handed the guard expression the procedure stood on, where it stood.
+    list: "{ caller: 'founder' } founder",
+    direct: "{ caller: 'founder' } founderProcedure(deps.founderAuthority)",
+    'typed.inner': "{ caller: 'founder' } founder",
+    // A parameter nothing says is the founder guard, a scope guard under the same name, a founder check of its own: none is.
+    'untyped.inner': 'guard founder (param) is not one a record names',
+    named: "{ caller: 'scope', scope: 'admin:read' }",
+    lookalike: 'guard use() chained: not one a record names',
+  });
+  const file = join(dir, 'src/router.ts');
+  const guard = chains.get('list').guard;
+  assert.deepEqual(founderPartsFor(file, guard, { name: 'payRefusal', file: join(dir, 'src/errors.ts'), exported: true }), {
+    name: '{ refusalOf: payRefusal, founder }',
+    file,
+    imports: [{ file: join(dir, 'src/errors.ts'), name: 'payRefusal' }],
+  });
+  // A guard written as a call is handed whole.
+  assert.equal(
+    founderPartsFor(file, chains.get('direct').guard, { name: 'payRefusal', file, exported: false }).name,
+    '{ refusalOf: payRefusal, founder: founderProcedure(deps.founderAuthority) }',
+  );
+  // No refusal reader: the call stays.
+  assert.equal(founderPartsFor(file, guard, undefined), undefined);
 });
 
 test("a record naming its service's own check mounts with the router file's parts, else with its refusal reader and the check's export", async () => {

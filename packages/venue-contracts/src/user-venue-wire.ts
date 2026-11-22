@@ -104,6 +104,12 @@ const AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   'vaultValue',
   'creditedAmount',
   'leaderShare',
+  // UserVenueLockSplit, UserVenueValidator, UserVenueStakingTier and VenueStakingDiscount (J-cex-spot-21)
+  'delegated',
+  'unstaking',
+  'totalStake',
+  'fromStaked',
+  'countedStake',
   // MaybeKnown<Amount>.value and AsOf<Amount>.value
   'value',
 ]);
@@ -153,6 +159,8 @@ const NULLABLE_AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   // UserVenueVault.vaultValue and UserVenueVaultTransfer.leaderShare (J-derivatives-31): null where not published or a deposit
   'vaultValue',
   'leaderShare',
+  // UserVenueValidator.totalStake (J-cex-spot-21 #1): null where not published
+  'totalStake',
 ]);
 
 const DATE_FIELDS: ReadonlySet<string> = new Set([
@@ -203,6 +211,9 @@ const DATE_FIELDS: ReadonlySet<string> = new Set([
   // UserVenueVaultPosition and UserVenueVaultTransfer (J-derivatives-31)
   'lockUpEndsAt',
   'transferredAt',
+  // UserVenueStakingAccount (J-cex-spot-21 #7 #8)
+  'arrivesAt',
+  'rewardedAt',
 ]);
 
 /**
