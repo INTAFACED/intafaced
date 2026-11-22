@@ -57,7 +57,7 @@ export function WalletBar() {
         </div>
       )}
       {wallet.problem ? (
-        <p className="lt-hint" data-part="error" role="alert">
+        <p className="lt-refusal" role="alert">
           {wallet.problem}
         </p>
       ) : null}
