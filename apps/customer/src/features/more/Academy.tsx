@@ -28,7 +28,8 @@ import { AcademyCoursePage, AcademyHub } from './AcademyHub';
 import { AcademyAssignmentRoom } from './academy-assignment/AcademyAssignmentRoom';
 import { AcademyProgrammePage } from './AcademyCourseProgrammes';
 import { AcademyDiscussionCourses, AcademyDiscussionPage, AcademyDiscussionThread } from './AcademyDiscussion';
-import { AcademyCourseConversation, AcademyCourseInbox, AcademyCourseMessagesLink } from './AcademyCourseMessages';
+import { AcademyCourseConversation, AcademyCourseMessagesLink } from './AcademyCourseMessages';
+import { AcademyInboxRoom } from './academy-inbox/AcademyInboxRoom';
 import { AcademyAccessGrants, AcademyMyLearning } from './AcademyMyLearning';
 import { AcademyCourseProgress, AcademyPlanner } from './AcademyProgressPage';
 import { AcademyCourseOutline } from './AcademyCourseOutline';
@@ -90,6 +91,8 @@ function Academy({ route, slug, initialPath }: { route: AcademyRoute; slug?: str
   }
   // An assignment is one task on the flow template: it draws its own title row and the Academy's tabs.
   if (route.kind === 'assignment') return <AcademyAssignmentRoom key={route.itemId} slug={route.slug ?? ''} itemId={route.itemId ?? ''} />;
+  // The course-team inbox is a record list on its Volt template: it draws its own title row and the Academy's tabs.
+  if (route.kind === 'messages' && !route.conversationId) return <AcademyInboxRoom />;
   return (
     <div className="more-grid">
       <Tabs
@@ -122,9 +125,7 @@ function Academy({ route, slug, initialPath }: { route: AcademyRoute; slug?: str
       ) : route.kind === 'messages' ? (
         route.conversationId ? (
           <AcademyCourseConversation key={route.conversationId} conversationId={route.conversationId} />
-        ) : (
-          <AcademyCourseInbox />
-        )
+        ) : null
       ) : route.kind === 'programme' ? (
         <AcademyProgrammePage key={route.slug} slug={route.slug} />
       ) : route.kind === 'progress' ? (
