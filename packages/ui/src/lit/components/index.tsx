@@ -59,13 +59,22 @@ export type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   tone?: 'primary' | 'secondary' | 'quiet';
   size?: 'md' | 'lg';
   block?: boolean;
+  /** Working: the button stays in focus order, says it is busy and takes no click. */
+  busy?: boolean;
 };
 
-export function Button({ tone = 'secondary', size = 'md', block, className, type = 'button', ...rest }: ButtonProps) {
+export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function Button(
+  { tone = 'secondary', size = 'md', block, busy, className, type = 'button', onClick, ...rest },
+  ref,
+) {
   return (
     <button
       {...rest}
+      ref={ref}
       type={type}
+      onClick={busy ? undefined : onClick}
+      aria-busy={busy || undefined}
+      aria-disabled={busy || rest['aria-disabled'] || undefined}
       className={clsx('lit-button', className)}
       data-slot="button"
       data-variant={tone === 'quiet' ? 'ghost' : tone}
@@ -74,7 +83,7 @@ export function Button({ tone = 'secondary', size = 'md', block, className, type
       data-block={block || undefined}
     />
   );
-}
+});
 
 export type ActionKeyProps = React.ButtonHTMLAttributes<HTMLButtonElement> & { icon: React.ReactNode; label: string; lit?: boolean };
 

@@ -1308,3 +1308,180 @@
   outline: 2px solid var(--lit-focus);
   outline-offset: 0.25rem;
 }
+
+/* ---- form and overlay parts (components/controls.tsx) and small generic layout ---- */
+
+/* A tight column: a control with its words, a short list of lines. */
+.lt-stack {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--lit-gap-item) / 2);
+  min-inline-size: 0;
+}
+
+/* Words in a caution or a failure tone; never the only cue (the words say it too). */
+.lt-warn {
+  color: var(--lit-warn-text);
+}
+
+.lt-error {
+  color: var(--lit-error-text);
+}
+
+.lt-field-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--lit-gap-item);
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+}
+
+.lt-field-error {
+  color: var(--lit-error-text);
+  font-size: var(--lit-type-label-size);
+}
+
+.lt-field-error:empty {
+  display: none;
+}
+
+.lt-input {
+  display: flex;
+  align-items: center;
+  gap: var(--lit-gap-item);
+  min-block-size: var(--lit-control-h);
+  padding-inline: var(--lit-gap-item);
+  border: 1px solid var(--lit-line-strong);
+  border-radius: var(--lit-radius-control);
+  background: var(--lit-solid-bg-raised);
+  color: var(--lit-text-1);
+}
+
+.lt-input:has(input:focus-visible) {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+
+.lt-input[data-invalid] {
+  border-color: var(--lit-down);
+}
+
+.lt-input[data-disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.lt-input input {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  border: 0;
+  padding: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+
+.lt-input[data-kind='decimal'] input {
+  font-variant-numeric: tabular-nums;
+}
+
+.lt-input[data-align='end'] input {
+  text-align: end;
+}
+
+.lt-input [data-part='trailing'] {
+  flex: none;
+  color: var(--lit-text-2);
+}
+
+.lt-scrim {
+  position: fixed;
+  inset: 0;
+  background: var(--lit-scrim);
+}
+
+.lt-dialog {
+  position: fixed;
+  inset-block-start: 50%;
+  inset-inline-start: 50%;
+  translate: -50% -50%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-item);
+  inline-size: min(100vw - 2rem, 28rem);
+  max-block-size: calc(100dvh - 2rem);
+  overflow-y: auto;
+  padding: var(--lit-pad-panel);
+  background: var(--lit-glass-bg);
+  backdrop-filter: var(--lit-glass-blur);
+  color: var(--lit-text-1);
+  border: 1px solid var(--lit-glass-rim);
+  border-radius: var(--lit-radius-panel);
+  box-shadow: var(--lit-glass-shadow);
+  outline: none;
+}
+
+[dir='rtl'] .lt-dialog {
+  translate: 50% -50%;
+}
+
+.lt-dialog-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--lit-gap-item);
+}
+
+.lt-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-item);
+}
+
+.lt-dialog-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--lit-gap-item);
+}
+
+.lt-menu-layer {
+  outline: none;
+}
+
+.lt-menu {
+  display: flex;
+  flex-direction: column;
+  min-inline-size: 12rem;
+  max-block-size: var(--available-height);
+  overflow-y: auto;
+  padding: calc(var(--lit-gap-item) / 2);
+  background: var(--lit-glass-bg);
+  backdrop-filter: var(--lit-glass-blur);
+  border: 1px solid var(--lit-glass-rim);
+  border-radius: var(--lit-radius-control);
+  box-shadow: var(--lit-glass-shadow);
+  outline: none;
+}
+
+.lt-menu-item {
+  display: flex;
+  align-items: center;
+  min-block-size: var(--lit-control-h);
+  padding-inline: var(--lit-gap-item);
+  border-radius: calc(var(--lit-radius-control) / 2);
+  color: var(--lit-text-1);
+  cursor: pointer;
+  outline: none;
+}
+
+.lt-menu-item[data-highlighted] {
+  background: var(--lit-solid-bg-raised);
+}
+
+.lt-menu-item[data-disabled] {
+  color: var(--lit-text-disabled);
+  cursor: not-allowed;
+}
