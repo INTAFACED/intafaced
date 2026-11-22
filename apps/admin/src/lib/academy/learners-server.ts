@@ -1,6 +1,5 @@
 import 'server-only';
 import {
-  academyLearnerChangeSchema,
   academyLearnerPageSchema,
   academyLearnerProgressSchema,
   academyLearnersSchema,
@@ -8,7 +7,7 @@ import {
 } from '@intafaced/contracts/academy-learner-desk';
 import { identityLearnerCardResultSchema } from '@intafaced/contracts/identity-learner-card';
 import {
-  founderCall,
+  founderAskedCall,
   parseWith,
   type FounderCallContext,
   type FounderCallResult,
@@ -65,13 +64,6 @@ const readProgress = parseWith(academyLearnerProgressSchema);
 const readCard = parseWith(identityLearnerCardResultSchema);
 const readReport = parseWith(academyLearnersSchema);
 const readTags = parseWith(academyLearnerTagsSchema);
-const readChange = parseWith(academyLearnerChangeSchema);
-/** `admin.tagLearners` answers how many learners took the tag. */
-const readAdded = (raw: unknown): { added: number } | null =>
-  raw !== null && typeof raw === 'object' && Number.isInteger((raw as { added?: unknown }).added)
-    ? { added: (raw as { added: number }).added }
-    : null;
-
 export async function loadLearner(ctx: FounderCallContext, userId: string): Promise<LearnerView> {
   const [card, page, progress] = await Promise.all([
     founderRecordRead(ctx, IDENTITY_LEARNER_CARD_LOOKUP, { userId }, readCard),
@@ -132,8 +124,7 @@ export async function changeLearner(
 ): Promise<{ status: number; reply: LearnerDeskReply } | { why: string }> {
   const change = learnerChange(op, body);
   if ('why' in change) return change;
-  const parse = op === 'tag' ? readAdded : readChange;
-  return reply(await founderCall(ctx, 'academy', change.procedure, 'POST', change.input, parse as (raw: unknown) => unknown), change.what);
+  return reply(await founderAskedCall(ctx, change.record, change.input), change.what);
 }
 
 export { isLearnerOp };

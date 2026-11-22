@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { defineProcedure, NO_INPUT } from './procedure.js';
-import { destinationViewOutput, rampProgrammeOutput } from './bank-call-schemas.js';
+import { destinationViewOutput, rampProgrammeOutput, onrampOutput, offrampOutput } from './bank-call-schemas.js';
 import { assetIdSchema } from './asset-id.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
@@ -269,6 +269,52 @@ export const BANK_RAMPS_DESTINATIONS_REMOVE = defineProcedure({
   output: z.object({ destinationId: z.string(), removed: z.literal(true) }),
   samples: [
     { verdict: 'accept', input: { destinationId: '11111111-1111-4111-8111-111111111111', idempotencyKey: 'USDC' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_RAMPS_ONRAMPS = defineProcedure({
+  ...base,
+  name: 'bank.ramps.onramps',
+  kind: 'query',
+  path: 'ramps.onramps',
+  access: { caller: 'scope', scope: 'bank:read', module: 'bank' },
+  refusals: {},
+  input: z
+    .object({
+      /**
+       * Page size. Optional so omit reaches `bank.onramps_list_limit_unset`
+       * instead of a Zod "Required". Blank is not 50; pass 50 explicitly.
+       */
+      limit: z.number().int().min(1).max(200).optional(),
+    })
+    .optional(),
+  output: z.array(onrampOutput),
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_RAMPS_OFFRAMPS = defineProcedure({
+  ...base,
+  name: 'bank.ramps.offramps',
+  kind: 'query',
+  path: 'ramps.offramps',
+  access: { caller: 'scope', scope: 'bank:read', module: 'bank' },
+  refusals: {},
+  input: z
+    .object({
+      /**
+       * Page size. Optional so omit reaches `bank.offramps_list_limit_unset`
+       * instead of a Zod "Required". Blank is not 50; pass 50 explicitly.
+       */
+      limit: z.number().int().min(1).max(200).optional(),
+    })
+    .optional(),
+  output: z.array(offrampOutput),
+  samples: [
+    { verdict: 'accept', input: {} },
     { verdict: 'refuse', input: 42 },
   ],
 });

@@ -2,17 +2,20 @@ import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { Button, Page, Tabs } from '../../shared/ui';
 import { useSession } from '../session';
+import type { Resource } from '../../shared/resource';
 import { savePreferences, usePreferences } from '../../shared/preferences';
 import { t, Text } from './copy';
 import { ScheduleExecutions } from './ScheduleHistory';
 import { onrampSchema, offrampSchema, scheduleSchema } from './contracts';
-import { Continuation, date, funds, NoRows, ResourceView, Section, useBankRead, usePageLimit } from './components';
+import { Continuation, date, funds, NoRows, ResourceView, Section, usePageLimit, useBankRecord } from './components';
+import { BANK_RAMPS_ONRAMPS, BANK_RAMPS_OFFRAMPS } from '@intafaced/contracts/bank-ramps-procedures';
+import { BANK_TRANSFERS_LIST_SCHEDULES } from '@intafaced/contracts/bank-transfers-procedures';
 
 type Record = z.infer<typeof onrampSchema> | z.infer<typeof offrampSchema> | z.infer<typeof scheduleSchema>;
 const sources = {
-  incoming: { procedure: 'ramps.onramps', label: 'activity.incoming', title: 'rooms.incoming.rail.records' },
-  outgoing: { procedure: 'ramps.offramps', label: 'activity.outgoing', title: 'rooms.outgoing.rail.records' },
-  scheduled: { procedure: 'transfers.listSchedules', label: 'activity.scheduled', title: 'rooms.standing.orders' },
+  incoming: { label: 'activity.incoming', title: 'rooms.incoming.rail.records' },
+  outgoing: { label: 'activity.outgoing', title: 'rooms.outgoing.rail.records' },
+  scheduled: { label: 'activity.scheduled', title: 'rooms.standing.orders' },
 } as const;
 type Source = keyof typeof sources;
 const sourceKeys = Object.keys(sources) as Source[];
@@ -88,7 +91,12 @@ function ActivitySource({ source, asset }: { source: Source; asset?: string }) {
   const [limit, setLimit] = usePageLimit();
   const [selected, setSelected] = useState<string | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
-  const query = useBankRead(sources[source].procedure, { limit });
+  // Each source reads its own call; only the one shown asks svc-bank.
+  const incoming = useBankRecord(BANK_RAMPS_ONRAMPS, { limit }, source === 'incoming');
+  const outgoing = useBankRecord(BANK_RAMPS_OFFRAMPS, { limit }, source === 'outgoing');
+  const scheduled = useBankRecord(BANK_TRANSFERS_LIST_SCHEDULES, { limit }, source === 'scheduled');
+  const query: { resource: Resource<readonly Record[]>; reload: () => void } =
+    source === 'incoming' ? incoming : source === 'outgoing' ? outgoing : scheduled;
   const all = query.resource.status === 'ready' ? query.resource.data : [];
   const rows = asset ? all.filter((row) => row.assetId === asset) : all;
   const row = rows.find((record) => record.id === selected);

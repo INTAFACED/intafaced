@@ -1,15 +1,20 @@
 import { useLayoutEffect, useRef, useState } from 'react';
-import type { z } from 'zod';
 import { Button } from '../../shared/ui';
-import { bankReads } from './contracts';
-import { Continuation, funds, ResourceView, Section, useBankRead, usePageLimit, useBankRecord } from './components';
+import type { Resource } from '../../shared/resource';
+import type { ProcedureOutput } from '@intafaced/contracts/procedure';
+import { Continuation, funds, ResourceView, Section, usePageLimit, useBankRecord } from './components';
 import { currentOwnerRecord, ReportedTime, useBankView } from './bank-context';
 import { railCopy } from './rail-copy';
 import { Text, t as copyText } from './copy';
-import { BANK_RAMPS_PROGRAMME, BANK_RAMPS_FIAT_SETTLE } from '@intafaced/contracts/bank-ramps-procedures';
+import {
+  BANK_RAMPS_PROGRAMME,
+  BANK_RAMPS_FIAT_SETTLE,
+  BANK_RAMPS_ONRAMPS,
+  BANK_RAMPS_OFFRAMPS,
+} from '@intafaced/contracts/bank-ramps-procedures';
 
 type Direction = 'in' | 'out';
-type RailRecord = z.infer<(typeof bankReads)['ramps.onramps']>[number] | z.infer<(typeof bankReads)['ramps.offramps']>[number];
+type RailRecord = ProcedureOutput<typeof BANK_RAMPS_ONRAMPS>[number] | ProcedureOutput<typeof BANK_RAMPS_OFFRAMPS>[number];
 
 function Reference({ value }: { value: string }) {
   const { Copy } = railCopy.useCopy();
@@ -126,7 +131,10 @@ function RailWindow({ direction }: { direction: Direction }) {
   const { Copy, t, languageFor, directionFor } = railCopy.useCopy();
   const current = useBankView();
   const [limit, setLimit] = usePageLimit();
-  const query = useBankRead(direction === 'in' ? 'ramps.onramps' : 'ramps.offramps', { limit });
+  // Each direction reads its own call; only the one shown asks svc-bank.
+  const onramps = useBankRecord(BANK_RAMPS_ONRAMPS, { limit }, direction === 'in');
+  const offramps = useBankRecord(BANK_RAMPS_OFFRAMPS, { limit }, direction === 'out');
+  const query: { resource: Resource<RailRecord[]>; reload: () => void } = direction === 'in' ? onramps : offramps;
   const [selected, setSelected] = useState<{ id: string; serial: number } | null>(null);
   const serial = useRef(0),
     heading = useRef<HTMLHeadingElement>(null),

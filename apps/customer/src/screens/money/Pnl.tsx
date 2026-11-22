@@ -286,7 +286,7 @@ function TransfersCard({
           aria-label={t('Include transfers')}
           checked={on}
           disabled={save === null || busy}
-          onCheckedChange={(include: boolean) => void save?.({ procedure: 'setIncludeTransfers', input: { include } })}
+          onCheckedChange={(include: boolean) => void save?.({ choice: 'includeTransfers', input: { include } })}
         />{' '}
         {t('Include transfers')}
       </label>
@@ -566,7 +566,7 @@ function LotPick({ book, sale, save, busy, copy }: { book: LotBook; sale: LotBoo
       disabled={busy}
       onChange={(event) =>
         void save({
-          procedure: 'pickSaleLot',
+          choice: 'saleLot',
           input: { saleTxId: sale.txId, assetId: sale.assetId, lotId: event.target.value === '' ? null : event.target.value },
         })
       }
@@ -607,9 +607,7 @@ function ChoicesCard({ book, save, busy, message, copy }: { book: LotBook; save:
               aria-label={t('Method for all coins')}
               value={choices.accountMethod ?? book.method}
               disabled={busy}
-              onChange={(event) =>
-                void save({ procedure: 'setLotMethod', input: { assetId: null, method: event.target.value as LotMethod } })
-              }
+              onChange={(event) => void save({ choice: 'lotMethod', input: { assetId: null, method: event.target.value as LotMethod } })}
             >
               {LOT_METHODS.map((m) => (
                 <option key={m} value={m}>
@@ -627,7 +625,7 @@ function ChoicesCard({ book, save, busy, message, copy }: { book: LotBook; save:
             aria-label={t('Method for one day')}
             onSubmit={(event) => {
               event.preventDefault();
-              void save({ procedure: 'setDayMethod', input: { day, assetId: dayAsset === '' ? null : dayAsset, method: dayMethod } });
+              void save({ choice: 'dayMethod', input: { day, assetId: dayAsset === '' ? null : dayAsset, method: dayMethod } });
             }}
           >
             <span data-testid="money-note" className="money-note">
@@ -666,7 +664,7 @@ function ChoicesCard({ book, save, busy, message, copy }: { book: LotBook; save:
                     type="button"
                     className="money-alloc__opt"
                     disabled={busy}
-                    onClick={() => void save({ procedure: 'setDayMethod', input: { day: d.day, assetId: d.assetId, method: null } })}
+                    onClick={() => void save({ choice: 'dayMethod', input: { day: d.day, assetId: d.assetId, method: null } })}
                   >
                     {t('Remove')}
                   </button>
@@ -781,7 +779,7 @@ function LotRows({
               disabled={busy}
               onChange={(event) =>
                 void save({
-                  procedure: 'setLotMethod',
+                  choice: 'lotMethod',
                   input: { assetId: asset, method: event.target.value === '' ? null : (event.target.value as LotMethod) },
                 })
               }
@@ -1078,7 +1076,7 @@ export default function Pnl({ search = '' }: { search?: string }) {
                 size={40}
                 disabled={saver.busy}
                 onClick={() =>
-                  void saver.save({ procedure: 'setLotMethod', input: { assetId: null, method: data.method } }).then((saved) => {
+                  void saver.save({ choice: 'lotMethod', input: { assetId: null, method: data.method } }).then((saved) => {
                     if (saved) navigate('/money/pnl', true);
                   })
                 }

@@ -31,6 +31,8 @@ const poolAnswer = (state: string, outcome = 'applied') => ({
   state,
   outcome,
   note: null,
+  // svc-ops' own answer names the key its retry is stored under; the record holds the console to that whole answer.
+  idempotencyKey: `protocol.pool.hide:84532:${POOL.toLowerCase()}:appr_1`,
 });
 
 afterEach(() => vi.unstubAllGlobals());

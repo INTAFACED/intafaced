@@ -888,6 +888,80 @@
         }
       ]
     },
+    "academy.admin.addLearnerNote": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "admin.addLearnerNote",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:read",
+        "module": "academy"
+      },
+      "refusals": {
+        "academy.reason_required": "BAD_REQUEST",
+        "academy.permission_denied": "FORBIDDEN"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": ["userId", "body", "key"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "done": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["userId", "done"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "userId": "22222222-2222-4222-8222-222222222222",
+            "body": "A note",
+            "key": "note-1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "userId": "22222222-2222-4222-8222-222222222222",
+            "body": "",
+            "key": "note-1"
+          }
+        }
+      ]
+    },
     "academy.admin.assignment": {
       "service": "svc-academy",
       "module": "academy",
@@ -8904,6 +8978,93 @@
         }
       ]
     },
+    "academy.admin.grantAccess": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "admin.grantAccess",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:read",
+        "module": "academy"
+      },
+      "refusals": {
+        "academy.reason_required": "BAD_REQUEST",
+        "academy.permission_denied": "FORBIDDEN",
+        "academy.grant_expired": "FORBIDDEN"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "pathSlug": {
+            "type": "string",
+            "enum": ["foundations", "markets", "builder", "sovereign"]
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "expiresAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["userId", "pathSlug", "reason", "expiresAt"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "done": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["userId", "done"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "userId": "22222222-2222-4222-8222-222222222222",
+            "pathSlug": "foundations",
+            "reason": "a reason",
+            "expiresAt": null
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "userId": "22222222-2222-4222-8222-222222222222",
+            "pathSlug": "no-such-course",
+            "reason": "a reason",
+            "expiresAt": null
+          }
+        }
+      ]
+    },
     "academy.admin.grantCertException": {
       "service": "svc-academy",
       "module": "academy",
@@ -9203,6 +9364,94 @@
         {
           "verdict": "refuse",
           "input": 42
+        }
+      ]
+    },
+    "academy.admin.grantLearnerExtension": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "admin.grantLearnerExtension",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:read",
+        "module": "academy"
+      },
+      "refusals": {
+        "academy.reason_required": "BAD_REQUEST",
+        "academy.permission_denied": "FORBIDDEN",
+        "academy.curriculum_not_found": "NOT_FOUND"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "itemSlug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "until": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": ["userId", "itemSlug", "until", "reason", "key"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "done": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["userId", "done"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "userId": "22222222-2222-4222-8222-222222222222",
+            "itemSlug": "an-item",
+            "until": "2030-01-01T00:00:00.000Z",
+            "reason": "a reason",
+            "key": "extension-1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "userId": "22222222-2222-4222-8222-222222222222",
+            "itemSlug": "an-item",
+            "until": "tomorrow",
+            "reason": "a reason",
+            "key": "extension-1"
+          }
         }
       ]
     },
@@ -11963,6 +12212,86 @@
         }
       ]
     },
+    "academy.admin.markCompleteFor": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "admin.markCompleteFor",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:read",
+        "module": "academy"
+      },
+      "refusals": {
+        "academy.reason_required": "BAD_REQUEST",
+        "academy.permission_denied": "FORBIDDEN"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "itemSlug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": ["userId", "itemSlug", "reason", "key"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "done": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["userId", "done"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "userId": "22222222-2222-4222-8222-222222222222",
+            "itemSlug": "an-item",
+            "reason": "a reason",
+            "key": "complete-1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "userId": "not-an-id",
+            "itemSlug": "an-item",
+            "reason": "a reason",
+            "key": "complete-1"
+          }
+        }
+      ]
+    },
     "academy.admin.moderationQueue": {
       "service": "svc-academy",
       "module": "academy",
@@ -13807,6 +14136,103 @@
         {
           "verdict": "refuse",
           "input": 42
+        }
+      ]
+    },
+    "academy.admin.reinstateAccess": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "admin.reinstateAccess",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:read",
+        "module": "academy"
+      },
+      "refusals": {
+        "academy.reason_required": "BAD_REQUEST",
+        "academy.permission_denied": "FORBIDDEN",
+        "academy.grant_not_found": "NOT_FOUND",
+        "academy.grant_active": "CONFLICT",
+        "academy.revision_stale": "CONFLICT"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "grantId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "expiresAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "n": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["userId", "grantId", "reason", "expiresAt", "n"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "done": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["userId", "done"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "userId": "22222222-2222-4222-8222-222222222222",
+            "grantId": "22222222-2222-4222-8222-222222222222",
+            "reason": "a reason",
+            "expiresAt": null,
+            "n": 1
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "userId": "22222222-2222-4222-8222-222222222222",
+            "grantId": "22222222-2222-4222-8222-222222222222",
+            "reason": "a reason",
+            "expiresAt": null,
+            "n": 0
+          }
         }
       ]
     },
@@ -19389,6 +19815,78 @@
         }
       ]
     },
+    "academy.admin.untagLearner": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "admin.untagLearner",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:read",
+        "module": "academy"
+      },
+      "refusals": {
+        "academy.reason_required": "BAD_REQUEST",
+        "academy.permission_denied": "FORBIDDEN"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "tag": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": ["userId", "tag", "reason"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "done": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["userId", "done"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "userId": "22222222-2222-4222-8222-222222222222",
+            "tag": "cohort-1",
+            "reason": "a reason"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "userId": "22222222-2222-4222-8222-222222222222",
+            "tag": "Not A Tag",
+            "reason": "a reason"
+          }
+        }
+      ]
+    },
     "academy.admin.updateCourse": {
       "service": "svc-academy",
       "module": "academy",
@@ -19623,6 +20121,80 @@
             "priceAsset": "USDT",
             "courseId": "22222222-2222-4222-8222-222222222222",
             "revision": 1
+          }
+        }
+      ]
+    },
+    "academy.admin.voidQuizAttempt": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "admin.voidQuizAttempt",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:read",
+        "module": "academy"
+      },
+      "refusals": {
+        "academy.reason_required": "BAD_REQUEST",
+        "academy.permission_denied": "FORBIDDEN",
+        "academy.attempt_not_found": "NOT_FOUND"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "attemptId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": ["userId", "attemptId", "reason"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "done": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["userId", "done"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "userId": "22222222-2222-4222-8222-222222222222",
+            "attemptId": "22222222-2222-4222-8222-222222222222",
+            "reason": "a reason"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "userId": "22222222-2222-4222-8222-222222222222",
+            "attemptId": "not-an-id",
+            "reason": "a reason"
           }
         }
       ]
