@@ -4,10 +4,10 @@ import * as React from 'react';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { obscuredInsets } from '../../a11y/focus.js';
 import { LegalSlotsSwitch, RoomFrame } from '../templates/frame.js';
-import { arrowTarget, moveFocusByArrow } from './arrow-focus.js';
+import { arrowFocusIn, arrowTarget, moveFocusByArrow } from './arrow-focus.js';
 import { RoomBar, SectionTabs } from './b2-basics.js';
 import { Segmented, ToggleChips } from './index.js';
 
@@ -91,51 +91,30 @@ describe('RoomBar', () => {
 
 describe('arrow keys in a row of pressed buttons', () => {
   it('the arrow along the row moves one, wrapping; Home and End go to the ends; other keys do nothing', () => {
-    expect(arrowTarget('ArrowRight', 3, 6)).toBe(4);
-    expect(arrowTarget('ArrowLeft', 4, 6)).toBe(3);
-    expect(arrowTarget('ArrowRight', 5, 6)).toBe(0);
-    expect(arrowTarget('ArrowLeft', 0, 6)).toBe(5);
-    expect(arrowTarget('Home', 3, 6)).toBe(0);
-    expect(arrowTarget('End', 3, 6)).toBe(5);
-    for (const key of ['ArrowUp', 'ArrowDown', 'Enter', ' ', 'Tab', 'a']) expect(arrowTarget(key, 3, 6)).toBeNull();
+    expect(arrowTarget({ key: 'ArrowRight', at: 3, count: 6 })).toBe(4);
+    expect(arrowTarget({ key: 'ArrowLeft', at: 4, count: 6 })).toBe(3);
+    expect(arrowTarget({ key: 'ArrowRight', at: 5, count: 6 })).toBe(0);
+    expect(arrowTarget({ key: 'ArrowLeft', at: 0, count: 6 })).toBe(5);
+    expect(arrowTarget({ key: 'Home', at: 3, count: 6 })).toBe(0);
+    expect(arrowTarget({ key: 'End', at: 3, count: 6 })).toBe(5);
+    for (const key of ['ArrowUp', 'ArrowDown', 'Enter', ' ', 'Tab', 'a']) expect(arrowTarget({ key: key, at: 3, count: 6 })).toBeNull();
   });
 
   it('right to left, the left arrow goes forward', () => {
-    expect(arrowTarget('ArrowLeft', 3, 6, true)).toBe(4);
-    expect(arrowTarget('ArrowRight', 3, 6, true)).toBe(2);
+    expect(arrowTarget({ key: 'ArrowLeft', at: 3, count: 6, rtl: true })).toBe(4);
+    expect(arrowTarget({ key: 'ArrowRight', at: 3, count: 6, rtl: true })).toBe(2);
   });
 
   it('nothing to move to when focus is not on one of the row’s buttons', () => {
-    expect(arrowTarget('ArrowRight', -1, 6)).toBeNull();
-    expect(arrowTarget('ArrowRight', 0, 0)).toBeNull();
+    expect(arrowTarget({ key: 'ArrowRight', at: -1, count: 6 })).toBeNull();
+    expect(arrowTarget({ key: 'ArrowRight', at: 0, count: 0 })).toBeNull();
   });
 
-  /** A row of buttons as the handler sees it, with `focus` recorded. */
-  function row(direction: 'ltr' | 'rtl' = 'ltr') {
+  /** A row of buttons, with `focus` recorded, and a key pressed on one of them. */
+  function row(rtl = false) {
     const focused: string[] = [];
     const buttons = RANGES.map((label) => ({ label, focus: () => focused.push(label) }));
-    const el = {
-      querySelectorAll: (selector: string) => {
-        expect(selector, 'only the row’s own enabled buttons').toBe(':scope > button:not(:disabled)');
-        return buttons;
-      },
-      ownerDocument: { defaultView: { getComputedStyle: () => ({ direction }) } },
-    };
-    const press = (key: string, from: string, mods: Partial<Record<'altKey' | 'ctrlKey' | 'metaKey' | 'shiftKey', boolean>> = {}) => {
-      const preventDefault = vi.fn();
-      moveFocusByArrow({
-        key,
-        target: buttons.find((b) => b.label === from),
-        currentTarget: el,
-        preventDefault,
-        altKey: false,
-        ctrlKey: false,
-        metaKey: false,
-        shiftKey: false,
-        ...mods,
-      } as unknown as React.KeyboardEvent<HTMLElement>);
-      return preventDefault.mock.calls.length > 0;
-    };
+    const press = (key: string, from: string) => arrowFocusIn({ buttons, from: buttons.find((b) => b.label === from), key, rtl });
     return { focused, press };
   }
 
@@ -147,17 +126,17 @@ describe('arrow keys in a row of pressed buttons', () => {
     expect(r.focused).toEqual(['1Y', '6M', 'All']);
   });
 
-  it('leaves other keys and modified arrows to the browser', () => {
+  it('leaves other keys, and a key pressed off the row’s buttons, to the browser', () => {
     const r = row();
     expect(r.press('Enter', '6M')).toBe(false);
     expect(r.press('Tab', '6M')).toBe(false);
-    expect(r.press('ArrowRight', '6M', { shiftKey: true })).toBe(false);
-    expect(r.press('ArrowRight', '6M', { altKey: true })).toBe(false);
+    expect(r.press(' ', '6M')).toBe(false);
+    expect(r.press('ArrowRight', 'none')).toBe(false);
     expect(r.focused).toEqual([]);
   });
 
   it('follows the row’s own direction', () => {
-    const r = row('rtl');
+    const r = row(true);
     r.press('ArrowLeft', '6M');
     expect(r.focused).toEqual(['1Y']);
   });
@@ -183,14 +162,10 @@ describe('the rows that take the arrow keys', () => {
   });
 
   it('Segmented, ToggleChips and SectionTabs each answer the arrow keys on the row', () => {
-    const rows = [
-      <Segmented key="s" label="Range" options={[{ value: 'a', label: 'A' }]} value="a" onChange={() => undefined} />,
-      <ToggleChips key="c" label="Filter" options={[{ value: 'a', label: 'A' }]} value={null} onChange={() => undefined} />,
-      <SectionTabs key="t" label="Sections" items={[{ value: 'a', label: 'A' }]} value="a" onChange={() => undefined} />,
-    ];
-    for (const el of rows) {
-      const props = (el.type as (p: unknown) => React.ReactElement<{ onKeyDown?: unknown }>)(el.props);
-      expect(props.props.onKeyDown, String((el.type as { name: string }).name)).toBe(moveFocusByArrow);
-    }
+    const one = [{ value: 'a', label: 'A' }] as const;
+    const none = () => undefined;
+    expect(Segmented({ label: 'Range', options: one, value: 'a', onChange: none }).props.onKeyDown).toBe(moveFocusByArrow);
+    expect(ToggleChips({ label: 'Filter', options: one, value: null, onChange: none }).props.onKeyDown).toBe(moveFocusByArrow);
+    expect(SectionTabs({ label: 'Sections', items: one, value: 'a', onChange: none }).props.onKeyDown).toBe(moveFocusByArrow);
   });
 });
