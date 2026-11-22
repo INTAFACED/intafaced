@@ -1,10 +1,11 @@
 import { useState } from 'react';
+import { Checkbox } from '@intafaced/ui/lit/templates';
 import type { z } from 'zod';
-import { amount, bps, Section } from './components';
-import type { earnPoolSchema } from './contracts';
-import { earnPoolCopy } from './earn-pool-copy';
-import { COMPARE_MAX, rowDiffers, togglePick } from './earn-rate-history';
-import './earn-pool.css';
+import { amount, bps } from '../components';
+import type { earnPoolSchema } from '../contracts';
+import { earnPoolCopy } from '../earn-pool-copy';
+import { COMPARE_MAX, rowDiffers, togglePick } from '../earn-rate-history';
+import { BankSection } from '../bank-frame/BankFrame';
 
 export type EarnPool = z.infer<typeof earnPoolSchema>;
 type Copy = ReturnType<typeof earnPoolCopy.useCopy>['t'];
@@ -76,47 +77,47 @@ export function EarnCompare({ pools }: { pools: EarnPool[] }) {
   const columns = chosen.map((pool) => poolFactRows(pool, t));
   return (
     <div data-testid="earn-compare">
-      <Section title={t('compareTitle')} description={t('compareDescription')}>
-        <fieldset className="money-earn-compare__picker">
-          <legend className="money-visually-hidden">{t('compareTitle')}</legend>
+      <BankSection title={t('compareTitle')} description={t('compareDescription')}>
+        <fieldset className="lt-actions">
+          <legend className="lt-sr">{t('compareTitle')}</legend>
           {pools.map((pool) => {
             const on = picked.includes(pool.id);
             return (
-              <label key={pool.id} className="money-check money-earn-compare__pick">
-                <input
-                  type="checkbox"
-                  checked={on}
-                  disabled={!on && full}
-                  aria-label={t('comparePick', { name: pool.name })}
-                  data-pool={pool.id}
-                  onChange={() => setPicked((current) => togglePick(current, pool.id))}
-                />
-                <span lang="und" dir="auto">
-                  {pool.name}
-                </span>
-              </label>
+              <Checkbox
+                key={pool.id}
+                checked={on}
+                disabled={!on && full}
+                aria-label={t('comparePick', { name: pool.name })}
+                data-pool={pool.id}
+                onChange={() => setPicked((current) => togglePick(current, pool.id))}
+                label={
+                  <span lang="und" dir="auto">
+                    {pool.name}
+                  </span>
+                }
+              />
             );
           })}
         </fieldset>
         {full && (
-          <p className="money-caption" data-testid="earn-compare-full">
+          <p className="lt-hint" data-testid="earn-compare-full">
             {t('compareMax')}
           </p>
         )}
         {chosen.length < 2 ? (
-          <p className="money-caption" data-testid="earn-compare-few">
+          <p className="lt-hint" data-testid="earn-compare-few">
             {t('compareFew')}
           </p>
         ) : (
-          <div className="money-table-scroll">
-            <table className="money-earn-compare__table" data-testid="earn-compare-table">
-              <caption className="money-caption">{t('compareCaption')}</caption>
+          <div>
+            <table className="lt-table" data-testid="earn-compare-table">
+              <caption className="lt-hint">{t('compareCaption')}</caption>
               <thead>
                 <tr>
                   <td />
                   {chosen.map((pool) => (
                     <th scope="col" key={pool.id} data-pool={pool.id}>
-                      <a className="text-link" href={poolHref(pool.id)} aria-label={t('compareOpen', { name: pool.name })}>
+                      <a className="lt-link" href={poolHref(pool.id)} aria-label={t('compareOpen', { name: pool.name })}>
                         <span lang="und" dir="auto">
                           {pool.name}
                         </span>
@@ -133,7 +134,7 @@ export function EarnCompare({ pools }: { pools: EarnPool[] }) {
                     <tr key={row.key} data-row={row.key} data-differs={differs ? 'true' : 'false'}>
                       <th scope="row">
                         {row.label}
-                        {differs && <span className="money-earn-compare__differs"> · {t('differs')}</span>}
+                        {differs && <span className="lt-hint"> · {t('differs')}</span>}
                       </th>
                       {values.map((value, column) => (
                         <td key={chosen[column]!.id} data-pool={chosen[column]!.id}>
@@ -147,7 +148,7 @@ export function EarnCompare({ pools }: { pools: EarnPool[] }) {
             </table>
           </div>
         )}
-      </Section>
+      </BankSection>
     </div>
   );
 }
