@@ -959,6 +959,7 @@ if (testPartner) {
   app.post(`${TEST_PARTNER_RECORD_BASE}/balances`, read);
   app.post(`${TEST_PARTNER_RECORD_BASE}/moves`, read);
   app.post(`${TEST_PARTNER_RECORD_BASE}/onboarding`, read);
+  app.post(`${TEST_PARTNER_RECORD_BASE}/account-details`, read);
   app.post(`${TEST_PARTNER_RECORD_BASE}/direct-debits`, read);
   app.post(`${TEST_PARTNER_RECORD_BASE}/dd-refund`, read);
 }
