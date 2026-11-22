@@ -51,10 +51,11 @@ import { usePreferences } from '../../shared/preferences';
 import './security.css';
 import { VerifyEmail } from './VerifyEmail';
 import { WithdrawStepUp } from '../money';
-import { IDENTITY_WEBAUTHN_REMOVE } from '@intafaced/contracts/identity-webauthn-procedures';
+import { IDENTITY_WEBAUTHN_REMOVE, IDENTITY_WEBAUTHN_REGISTER_OPTIONS } from '@intafaced/contracts/identity-webauthn-procedures';
 import { IDENTITY_TOTP_ENROL } from '@intafaced/contracts/identity-totp-procedures';
 import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 import { IDENTITY_AUTH_LOGOUT_ALL } from '@intafaced/contracts/identity-auth-procedures';
+import { callAs } from '../../shared/api';
 
 type Problem = 'changed' | 'keyChanged' | 'setupChanged' | 'storage' | 'another' | 'locks' | 'unsupported' | 'cancelled' | 'ceremonyFailed';
 type Original = {
@@ -322,10 +323,10 @@ export function Security() {
     controller.current = abort;
     const preparation = makeRecord(intent, 'options');
     if (!save(intent, preparation)) return;
-    const options = await intent.client.mutate(
-      'identity',
-      'webauthn.registerOptions',
-      {},
+    const options = await callAs(
+      intent.client,
+      IDENTITY_WEBAUTHN_REGISTER_OPTIONS,
+      undefined,
       registrationFor(intent.owner),
       sending(intent, abort.signal),
     );

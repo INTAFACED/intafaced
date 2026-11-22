@@ -207,6 +207,70 @@ test("--door: the router read from the commit before its deletion keeps one copy
   assert.equal(git('status', '--porcelain', '--', 'services', 'crates'), '', 'the router read from the old commit is gone again');
 });
 
+test('a helper the shared file names another way lands beside its record once: an earlier copy there with the same text is the one', () => {
+  // svc-pay's founderAdmin.ops.notes run: the router's `id` clashes with pay-call-schemas.ts's own `id`, so it goes to the
+  // record file, which an earlier run already gave the same `id`. Writing it again broke the contracts build.
+  const root = mkdtempSync(join(tmpdir(), 'call-records-here-'));
+  const here = new URL('.', import.meta.url).pathname;
+  const mark = '// Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.';
+  const files = {
+    'services/svc-notes/src/errors.ts': 'export const refusalOf: RefusalOf = () => undefined;\n',
+    'services/svc-notes/src/router.ts': [
+      "import { z } from 'zod';",
+      'const id = z.string().guid();',
+      'const noteOut = z.object({ noteId: z.string() });',
+      'export function createNotesRouter() {',
+      "  return router({ own: router({ get: scopedProcedure('notes:read').input(z.object({ noteId: id })).output(noteOut).query(({ input }) => get(input)) }) });",
+      '}',
+      '',
+    ].join('\n'),
+    'apps/customer/src/features/notes/note.ts': [
+      "import { z } from 'zod';",
+      "export const a = (api) => api.query('notes', 'own.get', { noteId: 'x' }, z.object({ noteId: z.string() }));",
+      '',
+    ].join('\n'),
+    'packages/contracts/src/notes-call-schemas.ts': "import { z } from 'zod';\n\nexport const id = z.string().min(1);\n",
+    'packages/contracts/src/notes-own-procedures.ts': [
+      "import { z } from 'zod';",
+      "import { defineProcedure } from './procedure.js';",
+      '',
+      mark,
+      '',
+      'export const id = z.string().guid();',
+      '',
+    ].join('\n'),
+  };
+  for (const [f, body] of Object.entries(files)) {
+    mkdirSync(dirname(join(root, f)), { recursive: true });
+    writeFileSync(join(root, f), body);
+  }
+  mkdirSync(join(root, 'tooling/codemod'), { recursive: true });
+  execFileSync('cp', ['-R', here.replace(/\/$/, ''), join(root, 'tooling/codemod/call-records')]);
+  execFileSync('cp', [join(here, '../../../packages/contracts/package.json'), join(root, 'packages/contracts/package.json')]);
+  execFileSync('ln', ['-s', join(here, '../../../node_modules'), join(root, 'node_modules')]);
+  writeFileSync(join(root, '.gitignore'), 'node_modules\n');
+  const git = (...a) => execFileSync('git', a, { cwd: root, encoding: 'utf8' });
+  git('init', '-q');
+  git('add', '.');
+  git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'before');
+  const index = join(root, 'tooling/codemod/call-records/index.mjs');
+  execFileSync('node', [index, '--module', 'notes', '--write', '--json', join(root, '.git/summary.json')], {
+    cwd: root,
+    encoding: 'utf8',
+    stdio: 'pipe',
+  });
+  const summary = JSON.parse(readFileSync(join(root, '.git/summary.json'), 'utf8'));
+  assert.deepEqual(summary.records, ['NOTES_OWN_GET']);
+  const record = readFileSync(join(root, 'packages/contracts/src/notes-own-procedures.ts'), 'utf8');
+  assert.equal(record.match(/export const id = z\.string\(\)\.guid\(\);/g)?.length, 1, 'the copy already there is the one');
+  assert.match(record, /export const NOTES_OWN_GET = defineProcedure/);
+  assert.doesNotMatch(
+    readFileSync(join(root, 'packages/contracts/src/notes-call-schemas.ts'), 'utf8'),
+    /guid/,
+    "the shared file keeps its own id and takes none of the router's",
+  );
+});
+
 test('the report plans a door service from the commit before its TypeScript was deleted, refuses one in flight, and skips a name no service has', async () => {
   const { howToPlan } = await import('./report.mjs');
   const root = mkdtempSync(join(tmpdir(), 'call-records-how-'));

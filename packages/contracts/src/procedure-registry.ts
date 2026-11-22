@@ -1032,7 +1032,11 @@ import { IDENTITY_WAITLIST_WAVES_LIST, IDENTITY_WAITLIST_WAVES_RELEASE, IDENTITY
 
 import { IDENTITY_WALLET_LINK_CHALLENGE } from './identity-wallet-link-challenge-procedures.js';
 
-import { IDENTITY_WEBAUTHN_REMOVE } from './identity-webauthn-procedures.js';
+import {
+  IDENTITY_WEBAUTHN_REMOVE,
+  IDENTITY_WEBAUTHN_AUTH_OPTIONS,
+  IDENTITY_WEBAUTHN_REGISTER_OPTIONS,
+} from './identity-webauthn-procedures.js';
 
 import {
   INDEXER_EXPLORER_BLOCKS_LIST,
@@ -1222,7 +1226,7 @@ import { OPS_HOME_CONFIG, OPS_VALUATION_PRICES, OPS_OUTREACH_PUBLIC_SETTINGS } f
 
 import { OPS_RECORD_VENUE_COST } from './ops-record-venue-cost-procedures.js';
 
-import { OPS_RESTORE_WATERMARKS } from './ops-restore-procedures.js';
+import { OPS_RESTORE_WATERMARKS, OPS_RESTORE_BACKUPS, OPS_RESTORE_RUNS, OPS_RESTORE_RUN } from './ops-restore-procedures.js';
 
 import { OPS_STAFF_HOLDS_LIST } from './ops-staff-holds-procedures.js';
 
@@ -1383,7 +1387,12 @@ import {
   PAY_FOUNDER_ADMIN_CONTROL_MERCHANT_GET,
   PAY_FOUNDER_ADMIN_CONTROL_MERCHANT_USAGE,
   PAY_FOUNDER_ADMIN_CONTROL_PRICING_RULES,
+  PAY_FOUNDER_ADMIN_OPS_NOTES_ADD,
+  PAY_FOUNDER_ADMIN_OPS_NOTES_RETRACT,
+  PAY_FOUNDER_ADMIN_OPS_NOTES_LIST,
 } from './pay-founder-admin-procedures.js';
+
+import { PAY_FRAUD_LIST_OPEN_REVIEWS } from './pay-fraud-procedures.js';
 
 import { PAY_HALTS_OPERATOR_STATUS, PAY_HALTS_SET, PAY_HALTS_HISTORY, PAY_HALTS_PENDING_CLEARS } from './pay-halt-procedures.js';
 
@@ -3043,7 +3052,11 @@ const part_identity_waitlist_procedures: readonly ProcedureRecord[] = [
 
 const part_identity_wallet_link_challenge_procedures: readonly ProcedureRecord[] = [IDENTITY_WALLET_LINK_CHALLENGE];
 
-const part_identity_webauthn_procedures: readonly ProcedureRecord[] = [IDENTITY_WEBAUTHN_REMOVE];
+const part_identity_webauthn_procedures: readonly ProcedureRecord[] = [
+  IDENTITY_WEBAUTHN_REMOVE,
+  IDENTITY_WEBAUTHN_AUTH_OPTIONS,
+  IDENTITY_WEBAUTHN_REGISTER_OPTIONS,
+];
 
 const part_indexer_procedures: readonly ProcedureRecord[] = [
   INDEXER_EXPLORER_BLOCKS_LIST,
@@ -3242,7 +3255,12 @@ const part_ops_public_procedures: readonly ProcedureRecord[] = [OPS_HOME_CONFIG,
 
 const part_ops_record_venue_cost_procedures: readonly ProcedureRecord[] = [OPS_RECORD_VENUE_COST];
 
-const part_ops_restore_procedures: readonly ProcedureRecord[] = [OPS_RESTORE_WATERMARKS];
+const part_ops_restore_procedures: readonly ProcedureRecord[] = [
+  OPS_RESTORE_WATERMARKS,
+  OPS_RESTORE_BACKUPS,
+  OPS_RESTORE_RUNS,
+  OPS_RESTORE_RUN,
+];
 
 const part_ops_staff_holds_procedures: readonly ProcedureRecord[] = [OPS_STAFF_HOLDS_LIST];
 
@@ -3409,7 +3427,12 @@ const part_pay_founder_admin_procedures: readonly ProcedureRecord[] = [
   PAY_FOUNDER_ADMIN_CONTROL_MERCHANT_GET,
   PAY_FOUNDER_ADMIN_CONTROL_MERCHANT_USAGE,
   PAY_FOUNDER_ADMIN_CONTROL_PRICING_RULES,
+  PAY_FOUNDER_ADMIN_OPS_NOTES_ADD,
+  PAY_FOUNDER_ADMIN_OPS_NOTES_RETRACT,
+  PAY_FOUNDER_ADMIN_OPS_NOTES_LIST,
 ];
+
+const part_pay_fraud_procedures: readonly ProcedureRecord[] = [PAY_FRAUD_LIST_OPEN_REVIEWS];
 
 const part_pay_halt_procedures: readonly ProcedureRecord[] = [
   PAY_HALTS_OPERATOR_STATUS,
@@ -4214,6 +4237,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_pay_checkout_procedures,
   ...part_pay_deposit_procedures,
   ...part_pay_founder_admin_procedures,
+  ...part_pay_fraud_procedures,
   ...part_pay_halt_procedures,
   ...part_pay_kyb_procedures,
   ...part_pay_merchant_procedures,
