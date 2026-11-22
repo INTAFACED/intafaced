@@ -1255,7 +1255,18 @@ test('activity: a signed statement for a finished month downloads and shows its 
         signature: 'sig',
         rowCount: 3,
         generatedAt: '2026-10-20T02:00:00.000Z',
-        proof: {},
+        // The proof svc-bank's router declares for every export: the statement record reads it whole.
+        proof: {
+          holderUserId: '11111111-1111-4111-8111-111111111111',
+          from: input.from,
+          to: input.to,
+          assetId: null,
+          spaceId: null,
+          report: 'statement',
+          rowCount: 3,
+          generatedAt: '2026-10-20T02:00:00.000Z',
+          sha256: 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789',
+        },
       }),
     },
   });
