@@ -5,7 +5,6 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createDecipheriv, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -102,7 +101,6 @@ const sourceDir = mkdtempSync(join(tmpdir(), 'local-test-gates-source-'));
 writeFileSync(join(sourceDir, 'tsconfig.json'), JSON.stringify({ compilerOptions: { paths: sourcePaths } }));
 const source = register({ namespace: 'local-test-gates', tsconfig: join(sourceDir, 'tsconfig.json') });
 const load = (rel) => source.import(pathToFileURL(join(root, rel)).href, import.meta.url);
-const fastify = createRequire(join(root, 'services', 'svc-matching', 'package.json'))('fastify');
 // A consumer that records what a door asked to consume, then refuses, so nothing behind the door runs.
 const recordingConsumer = (ConsumeError) => {
   const asked = [];
@@ -251,18 +249,15 @@ const { createHash } = await import('node:crypto');
 const sha = (o) => `sha256:${createHash('sha256').update(JSON.stringify(o)).digest('hex')}`;
 assert.equal(matchingPayloadHash('matching.open', { marketId: 'm-1' }), sha({ actionType: 'matching.open', marketId: 'm-1' }));
 assert.equal(identityPayloadHash('kyc.approve', { recordId: 'r-1' }), sha({ targetId: 'kyc.approve', recordId: 'r-1' }));
-const matchingConsume = await load('services/svc-matching/src/action-approval-consume.ts');
 const { identityActionPayloadHash } = await load('services/svc-identity/src/auth/privileged-dual-control.ts');
-for (const [action, fields] of [
-  ['matching.open', { marketId: 'm-1' }],
-  ['matching.halt', { marketId: 'BTC-USDT' }],
-  ['matching.resume_all', {}],
+// svc-matching is Rust: its hash recipe is pinned here and in crates/svc-matching/tests/venue_doors.rs
+// (approval_the_book_doors_ask_for_exactly_the_local_stacks_book_proposal), on the same vectors.
+for (const [action, fields, hash] of [
+  ['matching.open', { marketId: 'm-1' }, 'sha256:d1b8734fa80d08dc49bab77a4e6cbd60aa49dcda1ead127042023eafdbcf214d'],
+  ['matching.halt', { marketId: 'BTC-USDT' }, 'sha256:bc67143d044abfa4bd00f20d3a104b688fd1997b078b8ec48f092da08e88328d'],
+  ['matching.resume_all', {}, 'sha256:c39d8a688d3a5879de3a9aee8fd0de2bc9c4f373979fb32b36bae01493314b77'],
 ]) {
-  assert.equal(
-    matchingPayloadHash(action, fields),
-    matchingConsume.matchingActionPayloadHash(action, fields),
-    `${action}: matching's hash recipe changed; update matchingPayloadHash`,
-  );
+  assert.equal(matchingPayloadHash(action, fields), hash, `${action}: matching's hash recipe changed; update matchingPayloadHash`);
 }
 for (const [target, fields] of [
   ['kyc.approve', { recordId: 'r-1' }],
@@ -294,38 +289,19 @@ for (const action of ['halt', 'resume']) {
   assert.equal(p.payloadHash, matchingPayloadHash(`matching.${action}`, { marketId: 'm-1' }));
 }
 assert.throws(() => bookProposal('delete', 'm-1'));
-// svc-matching's book doors (POST /markets/:id/open|halt|resume, as svc-trade calls them) ask for exactly the proposal.
-{
-  const { registerRoutes } = await load('services/svc-matching/src/router.ts');
-  const { MatchingEngine } = await load('services/svc-matching/src/engine/engine.ts');
-  const { MemoryJournal } = await load('services/svc-matching/src/engine/journal.ts');
-  const { MemoryEventBus } = await load('packages/events/src/index.ts');
-  const { serviceAuthHeadersForBody } = await load('packages/contracts/src/index.ts');
-  const secret = 'local-test-gates-matching-secret-32ch!!';
-  const approvals = recordingConsumer(matchingConsume.ActionApprovalConsumeError);
-  const engine = new MatchingEngine({ journal: new MemoryJournal(), bus: new MemoryEventBus('svc-matching'), snapshotEvery: 0 });
-  const app = fastify({ logger: false });
-  registerRoutes(app, engine, secret, { bodyBind: 'require', approvals, operatorIds: new Set(['ops-1']) });
-  await app.ready();
-  try {
-    for (const [i, action] of ['open', 'halt', 'resume'].entries()) {
-      const payload = JSON.stringify({ operatorId: 'ops-1', approvalId: 'appr-1', operationId: 'op-1' });
-      await app.inject({
-        method: 'POST',
-        url: `/markets/m-1/${action}`,
-        headers: { 'content-type': 'application/json', ...serviceAuthHeadersForBody('svc-trade', secret, payload) },
-        payload,
-      });
-      assert.equal(approvals.asked.length, i + 1, `matching ${action} never asked identity to consume`);
-      assert.deepEqual(
-        askedOf(approvals.asked[i]),
-        boundTo(bookProposal(action, 'm-1')),
-        `matching ${action} recipe changed; update bookProposal`,
-      );
-    }
-  } finally {
-    await app.close();
-  }
+// svc-matching's book doors (POST /markets/:id/open|halt|resume, as svc-trade calls them) ask for exactly the proposal:
+// pinned here, and crates/svc-matching/tests/venue_doors.rs drives the Rust doors and requires these same fields.
+for (const [action, hash] of [
+  ['open', 'sha256:d1b8734fa80d08dc49bab77a4e6cbd60aa49dcda1ead127042023eafdbcf214d'],
+  ['halt', 'sha256:dacc3af5283c2cd7b6113459bb586e4d97f1a5af58473beda1ca8b0c65225110'],
+  ['resume', 'sha256:645fb6b2f169c96df7475dc651500fc7d36597a58acd4b9dcceb2004d723ec57'],
+]) {
+  const p = bookProposal(action, 'm-1');
+  assert.deepEqual(
+    [p.targetService, p.targetId, p.expectedVersion, p.payloadHash],
+    ['svc-matching', `${action}:m-1`, '1', hash],
+    `matching ${action} recipe changed; update bookProposal`,
+  );
 }
 // svc-identity's kyc.approve asks for exactly kycApproveProposal for that record.
 {

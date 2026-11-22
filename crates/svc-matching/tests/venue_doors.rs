@@ -554,6 +554,71 @@ fn approval_the_door_asks_identity_for_exactly_this_action_target_and_version() 
     );
 }
 
+/// The local stack's `bookProposal` (`tooling/scripts/local-test-gates.mjs`): the open, halt and resume doors ask
+/// identity for exactly the proposal the stack approves, its hashes pinned on both sides (`local-test-gates.test.mjs`).
+#[test]
+fn approval_the_book_doors_ask_for_exactly_the_local_stacks_book_proposal() {
+    for (action, hash) in [
+        (
+            "open",
+            "sha256:d1b8734fa80d08dc49bab77a4e6cbd60aa49dcda1ead127042023eafdbcf214d",
+        ),
+        (
+            "halt",
+            "sha256:dacc3af5283c2cd7b6113459bb586e4d97f1a5af58473beda1ca8b0c65225110",
+        ),
+        (
+            "resume",
+            "sha256:645fb6b2f169c96df7475dc651500fc7d36597a58acd4b9dcceb2004d723ec57",
+        ),
+    ] {
+        let echo = Echo::new(&format!("matching.{action}"));
+        let seen = echo.seen.clone();
+        let door = door_with(Box::new(echo), FOUNDERS);
+        post(
+            &door,
+            &market_url("m-1", action),
+            &approved("founder-a", "ops-2"),
+        );
+        let asked = seen.lock().unwrap();
+        assert_eq!(
+            asked.len(),
+            1,
+            "matching {action} never asked identity to consume"
+        );
+        assert_eq!(asked[0].target_service, "svc-matching");
+        assert_eq!(asked[0].target_id, format!("{action}:m-1"));
+        assert_eq!(asked[0].expected_version, "1");
+        assert_eq!(
+            asked[0].payload_hash, hash,
+            "matching {action}'s hash recipe"
+        );
+    }
+    for (action, fields, hash) in [
+        (
+            "matching.open",
+            &[("marketId", "m-1")][..],
+            "sha256:d1b8734fa80d08dc49bab77a4e6cbd60aa49dcda1ead127042023eafdbcf214d",
+        ),
+        (
+            "matching.halt",
+            &[("marketId", "BTC-USDT")][..],
+            "sha256:bc67143d044abfa4bd00f20d3a104b688fd1997b078b8ec48f092da08e88328d",
+        ),
+        (
+            "matching.resume_all",
+            &[][..],
+            "sha256:c39d8a688d3a5879de3a9aee8fd0de2bc9c4f373979fb32b36bae01493314b77",
+        ),
+    ] {
+        assert_eq!(
+            svc_matching::approval::action_payload_hash(action, fields),
+            hash,
+            "{action}"
+        );
+    }
+}
+
 #[test]
 fn approval_blank_identity_url_consumer_refuses_instead_of_inventing_a_second_person() {
     let got = Unwired.consume(&ConsumeInput {

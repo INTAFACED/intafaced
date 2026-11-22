@@ -53,12 +53,6 @@
       "cache": false,
       "env": ["INTAFACED_RUN_ID", "INTAFACED_INFRA_JOURNAL", "REQUIRE_PAY_EVM"]
     },
-    "@intafaced/svc-matching#test": {
-      "dependsOn": ["^build", "@intafaced/sbe-codec#build:jar"],
-      "outputs": ["coverage/**"],
-      "cache": false,
-      "env": ["INTAFACED_RUN_ID", "INTAFACED_INFRA_JOURNAL", "REQUIRE_PAY_EVM"]
-    },
     "@intafaced/svc-ws#test": {
       "dependsOn": ["^build", "@intafaced/sbe-codec#build:jar"],
       "outputs": ["coverage/**"],
@@ -397,7 +391,6 @@
         "$TURBO_ROOT$/services/svc-identity/**",
         "$TURBO_ROOT$/services/svc-indexer/**",
         "$TURBO_ROOT$/services/svc-market/**",
-        "$TURBO_ROOT$/services/svc-matching/**",
         "$TURBO_ROOT$/services/svc-notify/**",
         "$TURBO_ROOT$/services/svc-p2p/**",
         "$TURBO_ROOT$/services/svc-pay/**",
@@ -499,25 +492,18 @@
       "outputs": [],
       "dependsOn": [
         "^build",
-        "@intafaced/db#build",
-        "@intafaced/events#build",
         "@intafaced/exchange-contract#build",
         "@intafaced/money-math#build",
         "@intafaced/safe-regex#build",
-        "@intafaced/sbe-codec#build",
         "@intafaced/ui#build"
       ],
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/apps/customer/**",
-        "$TURBO_ROOT$/packages/db/**",
-        "$TURBO_ROOT$/packages/events/**",
         "$TURBO_ROOT$/packages/exchange-contract/**",
         "$TURBO_ROOT$/packages/money-math/**",
         "$TURBO_ROOT$/packages/safe-regex/**",
-        "$TURBO_ROOT$/packages/sbe-codec/**",
         "$TURBO_ROOT$/packages/ui/**",
-        "$TURBO_ROOT$/services/svc-matching/**",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
       ]

@@ -4,7 +4,7 @@
  *
  * The models are found, never listed: every tracked `*.tla` file must sit in `services/<service>/model/` beside an
  * executable `check.sh`, or the plan fails naming it. A change is checked when it touches a service that has a model,
- * a file under `services/` or `packages/` that one of a model's COVERS files names (the OneHold model covers
+ * a file under `services/`, `packages/` or `crates/` that one of a model's COVERS files names (the OneHold model covers
  * svc-matching's book and the ledger recipes that build its fill and release keys), the workflow or this script. A checked change runs every model in the repo, not only the touched one.
  *
  *   node tooling/ci/model-check.mjs plan < changed-paths.txt   one path per line; prints the plan as JSON
@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 
 export const SELF = ['.github/workflows/model-check.yml', 'tooling/ci/model-check.mjs'];
 const MODEL_FILE = /^(services\/[^/]+)\/model\/([^/]+)\.tla$/;
-const NAMED_PATH = /(?:services|packages)\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)+/g;
+const NAMED_PATH = /(?:services|packages|crates)\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)+/g;
 
 /** The repo's tracked files, relative to root. */
 export function trackedFiles(root) {
@@ -74,7 +74,7 @@ function coverTexts(root, model, files) {
   return out;
 }
 
-/** The paths under `services/` or `packages/` that a model's COVERS files name, outside the model's own service. */
+/** The paths under `services/`, `packages/` or `crates/` that a model's COVERS files name, outside the model's own service. */
 export function namedPaths(root, model, files) {
   const tracked = new Set(files);
   const out = new Set();
