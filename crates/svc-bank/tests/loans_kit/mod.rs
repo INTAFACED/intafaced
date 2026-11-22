@@ -164,6 +164,8 @@ struct BookState {
     lose_reply: Option<(String, Loss)>,
     /// Refuse the next post whose key starts with this, before it books: (prefix, code, message).
     refuse_next: Option<(String, String, String)>,
+    /// Fail the next post whose key starts with this, before it books, with no code: (prefix, message).
+    drop_next: Option<(String, String)>,
     /// Every post fails before it reaches the book (`svc-ledger unreachable`).
     down: bool,
     /// Every read fails.
@@ -588,6 +590,12 @@ impl Book {
             Some((prefix.to_owned(), code.to_owned(), message.to_owned()));
     }
 
+    /// The next post whose key starts with `prefix` fails before the ledger commits, naming nothing (a thrown
+    /// `Error(message)` in the TypeScript's wrapped `ledger.post`).
+    pub fn drop_next(&self, prefix: &str, message: &str) {
+        self.0.lock().unwrap().drop_next = Some((prefix.to_owned(), message.to_owned()));
+    }
+
     pub fn down(&self, down: bool) {
         self.0.lock().unwrap().down = down;
     }
@@ -676,6 +684,12 @@ impl Ledger for Book {
                 message,
                 attempts: 1,
             });
+        }
+        if let Some((prefix, message)) = st.drop_next.clone()
+            && key.starts_with(prefix.as_str())
+        {
+            st.drop_next = None;
+            return Err(PostFailure::Unknown(message));
         }
         let (entries, want) = entries(recipe, input)?;
         assert_eq!(key, want, "the recipe's own key");
@@ -1144,7 +1158,12 @@ impl Kit {
 
     /// The door wired with this kit's stand-ins.
     pub fn door(&self) -> BankDoor {
-        door_for(self)
+        door_for(self, door::system_now)
+    }
+
+    /// The door with its clock held at one instant (the TypeScript's `vi.useFakeTimers({ now })`).
+    pub fn door_at(&self, now: fn() -> Instant) -> BankDoor {
+        door_for(self, now)
     }
 }
 
@@ -1171,7 +1190,7 @@ pub fn policy(f: impl FnOnce(&mut LiquidationPolicy)) -> LiquidationPolicy {
 // ---------------------------------------------------------------------------------------------------------------
 // The door
 
-fn door_for(k: &Kit) -> BankDoor {
+fn door_for(k: &Kit, now: fn() -> Instant) -> BankDoor {
     let env: BTreeMap<String, String> = [("APP_ENV", "test"), ("NODE_ENV", "test")]
         .iter()
         .map(|(a, b)| ((*a).to_owned(), (*b).to_owned()))
@@ -1186,7 +1205,7 @@ fn door_for(k: &Kit) -> BankDoor {
             trpc_bind: BodyBind::AcceptBoth,
         },
         env,
-        now: door::system_now,
+        now,
         store: k.db.store(),
     })
     .unwrap()
