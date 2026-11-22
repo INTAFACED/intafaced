@@ -861,8 +861,8 @@ export const ACADEMY_ADMIN_ADD_LEARNER_NOTE = defineProcedure({
   input: academyAddLearnerNoteInputSchema,
   output: academyLearnerChangeSchema,
   samples: [
-    { verdict: 'accept', input: { userId: ID, body: 'A note', key: 'note-1' } },
-    { verdict: 'refuse', input: { userId: ID, body: '', key: 'note-1' } },
+    { verdict: 'accept', input: { userId: ID, body: 'A note', key: 'sample' } },
+    { verdict: 'refuse', input: { userId: ID, body: '', key: 'sample' } },
   ],
 });
 
@@ -876,8 +876,8 @@ export const ACADEMY_ADMIN_MARK_COMPLETE_FOR = defineProcedure({
   input: academyMarkCompleteForInputSchema,
   output: academyLearnerChangeSchema,
   samples: [
-    { verdict: 'accept', input: { userId: ID, itemSlug: 'an-item', reason: REASON, key: 'complete-1' } },
-    { verdict: 'refuse', input: { userId: NOT_ID, itemSlug: 'an-item', reason: REASON, key: 'complete-1' } },
+    { verdict: 'accept', input: { userId: ID, itemSlug: 'an-item', reason: REASON, key: 'sample' } },
+    { verdict: 'refuse', input: { userId: NOT_ID, itemSlug: 'an-item', reason: REASON, key: 'sample' } },
   ],
 });
 
@@ -906,8 +906,8 @@ export const ACADEMY_ADMIN_GRANT_LEARNER_EXTENSION = defineProcedure({
   input: academyGrantLearnerExtensionInputSchema,
   output: academyLearnerChangeSchema,
   samples: [
-    { verdict: 'accept', input: { userId: ID, itemSlug: 'an-item', until: UNTIL, reason: REASON, key: 'extension-1' } },
-    { verdict: 'refuse', input: { userId: ID, itemSlug: 'an-item', until: 'tomorrow', reason: REASON, key: 'extension-1' } },
+    { verdict: 'accept', input: { userId: ID, itemSlug: 'an-item', until: UNTIL, reason: REASON, key: 'sample' } },
+    { verdict: 'refuse', input: { userId: ID, itemSlug: 'an-item', until: 'tomorrow', reason: REASON, key: 'sample' } },
   ],
 });
 

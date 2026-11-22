@@ -949,7 +949,7 @@
           "input": {
             "userId": "22222222-2222-4222-8222-222222222222",
             "body": "A note",
-            "key": "note-1"
+            "key": "sample"
           }
         },
         {
@@ -957,7 +957,7 @@
           "input": {
             "userId": "22222222-2222-4222-8222-222222222222",
             "body": "",
-            "key": "note-1"
+            "key": "sample"
           }
         }
       ]
@@ -9440,7 +9440,7 @@
             "itemSlug": "an-item",
             "until": "2030-01-01T00:00:00.000Z",
             "reason": "a reason",
-            "key": "extension-1"
+            "key": "sample"
           }
         },
         {
@@ -9450,7 +9450,7 @@
             "itemSlug": "an-item",
             "until": "tomorrow",
             "reason": "a reason",
-            "key": "extension-1"
+            "key": "sample"
           }
         }
       ]
@@ -12278,7 +12278,7 @@
             "userId": "22222222-2222-4222-8222-222222222222",
             "itemSlug": "an-item",
             "reason": "a reason",
-            "key": "complete-1"
+            "key": "sample"
           }
         },
         {
@@ -12287,7 +12287,7 @@
             "userId": "not-an-id",
             "itemSlug": "an-item",
             "reason": "a reason",
-            "key": "complete-1"
+            "key": "sample"
           }
         }
       ]
