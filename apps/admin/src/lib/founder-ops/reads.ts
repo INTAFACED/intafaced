@@ -8,7 +8,7 @@ import {
   type FounderRiskSummaryInput,
 } from '@intafaced/contracts';
 import { PAY_HALTS_PENDING_CLEARS } from '@intafaced/contracts/pay-halt-procedures';
-import { payCall, payRecordCall, type PayCallContext, type PayCallResult, payRecordRead } from '@/lib/merchants';
+import { payRecordCall, type PayCallContext, type PayCallResult, payRecordRead } from '@/lib/merchants';
 import { asNotePage } from './notes';
 import { one, PAGE_LIMIT, RISK_TOP_N, RISK_WINDOWS, sectionRequest, type Query, type RiskWindowKey } from './read-model';
 import {
@@ -19,6 +19,7 @@ import {
   PAY_FOUNDER_ADMIN_LIVE_SUMMARY,
   PAY_FOUNDER_ADMIN_RISK_SUMMARY,
   PAY_FOUNDER_ADMIN_METRICS_MERCHANT,
+  PAY_FOUNDER_ADMIN_OPS_NOTES_LIST,
 } from '@intafaced/contracts/pay-founder-admin-procedures';
 
 /**
@@ -104,10 +105,9 @@ export function loadBalances(ctx: PayCallContext, merchantId: string) {
 /** A merchant's operator notes, newest first. Retracted notes are listed only when asked for. */
 export function loadNotes(ctx: PayCallContext, merchantId: string, query: Query | undefined) {
   const cursor = one(query, 'cursor');
-  return payCall(
+  return payRecordRead(
     ctx,
-    'founderAdmin.ops.notes.list',
-    'GET',
+    PAY_FOUNDER_ADMIN_OPS_NOTES_LIST,
     {
       merchantId,
       limit: PAGE_LIMIT,
