@@ -200,12 +200,17 @@ export type SelectProps = Omit<React.SelectHTMLAttributes<HTMLSelectElement>, 'o
   hint?: string;
 };
 
-/** A choice from a short list: the browser's own select, in the kit's field, its words above it. */
+/**
+ * A choice from a short list: the browser's own select, in the kit's field, its words above it. The words name it
+ * through `aria-labelledby` (unless the caller names it with `aria-label`): a select inside its label would otherwise be named by the label and its chosen option
+ * ("Status All statuses").
+ */
 export function Select({ label, options, onChange, hint, className, ...rest }: SelectProps) {
+  const labelId = `${React.useId()}-label`;
   return (
     <label className={clsx('lt-field', className)}>
-      <span>{label}</span>
-      <select {...rest} onChange={(e) => onChange?.(e.target.value)}>
+      <span id={labelId}>{label}</span>
+      <select aria-labelledby={rest['aria-label'] ? undefined : labelId} {...rest} onChange={(e) => onChange?.(e.target.value)}>
         {options.map((o) => {
           const value = typeof o === 'string' ? o : o.value;
           return (
