@@ -16,6 +16,7 @@ import {
   type OwnAgentSchedules,
   type OwnAgentTrigger,
 } from '@intafaced/contracts/agents-own';
+import { AGENTS_OWN_SCHEDULES_CREATE, AGENTS_OWN_TRIGGERS_CREATE } from '@intafaced/contracts/agents-own-procedures';
 
 /**
  * An own agent's Schedules and Triggers pages (AG-sessions-02). Every answer is svc-agents': a schedule's status, next
@@ -138,12 +139,14 @@ function Schedules({ agent, held, onChanged }: { agent: OwnAgent; held: OwnAgent
   async function create() {
     setBusy(true);
     setRefused(null);
-    const res = await api.mutate(
-      'agents',
-      'own.schedules.create',
-      { id: agent.id, createKey: keys.next(), repeat, intervalMinutes: repeat === 'repeat' ? interval : '', perRunCap: cap, ask },
-      ownAgentScheduleSchema,
-    );
+    const res = await api.call(AGENTS_OWN_SCHEDULES_CREATE, {
+      id: agent.id,
+      createKey: keys.next(),
+      repeat,
+      intervalMinutes: repeat === 'repeat' ? interval : '',
+      perRunCap: cap,
+      ask,
+    });
     setBusy(false);
     if (res.ok || refusalCode(res)) keys.settle();
     if (!res.ok) return setRefused(res);
@@ -314,12 +317,7 @@ function Triggers({ agent, held, onChanged }: { agent: OwnAgent; held: OwnAgentT
   async function create() {
     setBusy(true);
     setRefused(null);
-    const res = await api.mutate(
-      'agents',
-      'own.triggers.create',
-      { id: agent.id, createKey: keys.next(), subject, perRunCap: cap, ask },
-      ownAgentTriggerSchema,
-    );
+    const res = await api.call(AGENTS_OWN_TRIGGERS_CREATE, { id: agent.id, createKey: keys.next(), subject, perRunCap: cap, ask });
     setBusy(false);
     if (res.ok || refusalCode(res)) keys.settle();
     if (!res.ok) return setRefused(res);
