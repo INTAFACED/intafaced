@@ -395,6 +395,7 @@ impl BankDoor {
             transfers: &self.transfers,
             w: &self.ramps,
             now,
+            clock: self.now,
         })
     }
 

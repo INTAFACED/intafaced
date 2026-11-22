@@ -83,6 +83,8 @@ pub struct Deps<'a> {
     pub transfers: &'a crate::transfers::Wiring,
     pub w: &'a Wiring,
     pub now: Instant,
+    /// The door's clock, for a check that reads the time again before it records (`verifyWalletProof`).
+    pub clock: fn() -> Instant,
 }
 
 /// The slice's answer to a call that passed the door, or `None` when no part of the slice answers its path yet.
