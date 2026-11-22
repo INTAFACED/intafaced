@@ -102,6 +102,8 @@ import {
   ACADEMY_ADMIN_GRANT_CERT_EXCEPTION,
 } from './academy-admin-records.js';
 
+import { ACADEMY_AMBASSADOR_BADGE } from './academy-ambassador-badge-procedures.js';
+
 import { ACADEMY_AMBASSADOR_PAY_PLANE } from './academy-ambassador-pay-plane-procedures.js';
 
 import { ACADEMY_AMBASSADORS } from './academy-ambassadors-procedures.js';
@@ -109,6 +111,8 @@ import { ACADEMY_AMBASSADORS } from './academy-ambassadors-procedures.js';
 import { ACADEMY_APPLY_RESIDENCY } from './academy-apply-residency-procedures.js';
 
 import { ACADEMY_APPOINT_AMBASSADOR } from './academy-appoint-ambassador-procedures.js';
+
+import { ACADEMY_ASSESSMENT_GET, ACADEMY_ASSESSMENT_ATTEMPTS } from './academy-assessment-procedures.js';
 
 import { ACADEMY_AUTHORED_COURSE } from './academy-authored-course-procedures.js';
 
@@ -135,6 +139,8 @@ import { ACADEMY_DECIDE_RESIDENCY } from './academy-decide-residency-procedures.
 import { ACADEMY_FREEZE_AMBASSADOR } from './academy-freeze-ambassador-procedures.js';
 
 import { ACADEMY_HEALTH } from './academy-health-procedures.js';
+
+import { ACADEMY_ITEM_VIDEO } from './academy-item-video-procedures.js';
 
 import {
   ACADEMY_ROOMS,
@@ -184,11 +190,17 @@ import { ACADEMY_MY_CERTS } from './academy-my-certs-procedures.js';
 
 import { ACADEMY_MY_COMPLETIONS } from './academy-my-completions-procedures.js';
 
+import { ACADEMY_MY_ENROLLMENTS } from './academy-my-enrollments-procedures.js';
+
 import { ACADEMY_MY_LEARNING } from './academy-my-learning-procedures.js';
+
+import { ACADEMY_MY_RESIDENCIES } from './academy-my-residencies-procedures.js';
 
 import { ACADEMY_OPEN_COURSE_CONVERSATION } from './academy-open-course-conversation-procedures.js';
 
 import { ACADEMY_OPEN_RESIDENCIES } from './academy-open-residencies-procedures.js';
+
+import { ACADEMY_PAPER_DRILL } from './academy-paper-drill-procedures.js';
 
 import { ACADEMY_PAPER_OPS_STATUS } from './academy-paper-ops-status-procedures.js';
 
@@ -239,6 +251,12 @@ import { ACADEMY_UNDO_CURRICULUM_COMPLETE } from './academy-undo-curriculum-comp
 import { ACADEMY_UNPIN_LESSON } from './academy-unpin-lesson-procedures.js';
 
 import { ACADEMY_UPLOAD_ASSIGNMENT_FILE } from './academy-upload-assignment-file-procedures.js';
+
+import { ACADEMY_VIDEO_PLAYBACK } from './academy-video-playback-procedures.js';
+
+import { ACADEMY_VIDEO_PLAYER } from './academy-video-player-procedures.js';
+
+import { ACADEMY_VIDEO_PROGRESS_GET, ACADEMY_VIDEO_PROGRESS_SET } from './academy-video-progress-procedures.js';
 
 import { ACADEMY_VIDEOS } from './academy-videos-procedures.js';
 
@@ -1574,6 +1592,8 @@ const part_academy_admin_records: readonly ProcedureRecord[] = [
   ACADEMY_ADMIN_GRANT_CERT_EXCEPTION,
 ];
 
+const part_academy_ambassador_badge_procedures: readonly ProcedureRecord[] = [ACADEMY_AMBASSADOR_BADGE];
+
 const part_academy_ambassador_pay_plane_procedures: readonly ProcedureRecord[] = [ACADEMY_AMBASSADOR_PAY_PLANE];
 
 const part_academy_ambassadors_procedures: readonly ProcedureRecord[] = [ACADEMY_AMBASSADORS];
@@ -1581,6 +1601,8 @@ const part_academy_ambassadors_procedures: readonly ProcedureRecord[] = [ACADEMY
 const part_academy_apply_residency_procedures: readonly ProcedureRecord[] = [ACADEMY_APPLY_RESIDENCY];
 
 const part_academy_appoint_ambassador_procedures: readonly ProcedureRecord[] = [ACADEMY_APPOINT_AMBASSADOR];
+
+const part_academy_assessment_procedures: readonly ProcedureRecord[] = [ACADEMY_ASSESSMENT_GET, ACADEMY_ASSESSMENT_ATTEMPTS];
 
 const part_academy_authored_course_procedures: readonly ProcedureRecord[] = [ACADEMY_AUTHORED_COURSE];
 
@@ -1607,6 +1629,8 @@ const part_academy_decide_residency_procedures: readonly ProcedureRecord[] = [AC
 const part_academy_freeze_ambassador_procedures: readonly ProcedureRecord[] = [ACADEMY_FREEZE_AMBASSADOR];
 
 const part_academy_health_procedures: readonly ProcedureRecord[] = [ACADEMY_HEALTH];
+
+const part_academy_item_video_procedures: readonly ProcedureRecord[] = [ACADEMY_ITEM_VIDEO];
 
 const part_academy_learner_procedures: readonly ProcedureRecord[] = [
   ACADEMY_ROOMS,
@@ -1656,11 +1680,17 @@ const part_academy_my_certs_procedures: readonly ProcedureRecord[] = [ACADEMY_MY
 
 const part_academy_my_completions_procedures: readonly ProcedureRecord[] = [ACADEMY_MY_COMPLETIONS];
 
+const part_academy_my_enrollments_procedures: readonly ProcedureRecord[] = [ACADEMY_MY_ENROLLMENTS];
+
 const part_academy_my_learning_procedures: readonly ProcedureRecord[] = [ACADEMY_MY_LEARNING];
+
+const part_academy_my_residencies_procedures: readonly ProcedureRecord[] = [ACADEMY_MY_RESIDENCIES];
 
 const part_academy_open_course_conversation_procedures: readonly ProcedureRecord[] = [ACADEMY_OPEN_COURSE_CONVERSATION];
 
 const part_academy_open_residencies_procedures: readonly ProcedureRecord[] = [ACADEMY_OPEN_RESIDENCIES];
+
+const part_academy_paper_drill_procedures: readonly ProcedureRecord[] = [ACADEMY_PAPER_DRILL];
 
 const part_academy_paper_ops_status_procedures: readonly ProcedureRecord[] = [ACADEMY_PAPER_OPS_STATUS];
 
@@ -1711,6 +1741,12 @@ const part_academy_undo_curriculum_complete_procedures: readonly ProcedureRecord
 const part_academy_unpin_lesson_procedures: readonly ProcedureRecord[] = [ACADEMY_UNPIN_LESSON];
 
 const part_academy_upload_assignment_file_procedures: readonly ProcedureRecord[] = [ACADEMY_UPLOAD_ASSIGNMENT_FILE];
+
+const part_academy_video_playback_procedures: readonly ProcedureRecord[] = [ACADEMY_VIDEO_PLAYBACK];
+
+const part_academy_video_player_procedures: readonly ProcedureRecord[] = [ACADEMY_VIDEO_PLAYER];
+
+const part_academy_video_progress_procedures: readonly ProcedureRecord[] = [ACADEMY_VIDEO_PROGRESS_GET, ACADEMY_VIDEO_PROGRESS_SET];
 
 const part_academy_videos_procedures: readonly ProcedureRecord[] = [ACADEMY_VIDEOS];
 
@@ -2998,10 +3034,12 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_academy_abandon_course_purchase_procedures,
   ...part_academy_admin_procedures,
   ...part_academy_admin_records,
+  ...part_academy_ambassador_badge_procedures,
   ...part_academy_ambassador_pay_plane_procedures,
   ...part_academy_ambassadors_procedures,
   ...part_academy_apply_residency_procedures,
   ...part_academy_appoint_ambassador_procedures,
+  ...part_academy_assessment_procedures,
   ...part_academy_authored_course_procedures,
   ...part_academy_cert_paths_procedures,
   ...part_academy_cert_verify_procedures,
@@ -3015,13 +3053,17 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_academy_decide_residency_procedures,
   ...part_academy_freeze_ambassador_procedures,
   ...part_academy_health_procedures,
+  ...part_academy_item_video_procedures,
   ...part_academy_learner_procedures,
   ...part_academy_my_access_grants_procedures,
   ...part_academy_my_certs_procedures,
   ...part_academy_my_completions_procedures,
+  ...part_academy_my_enrollments_procedures,
   ...part_academy_my_learning_procedures,
+  ...part_academy_my_residencies_procedures,
   ...part_academy_open_course_conversation_procedures,
   ...part_academy_open_residencies_procedures,
+  ...part_academy_paper_drill_procedures,
   ...part_academy_paper_ops_status_procedures,
   ...part_academy_peer_review_file_procedures,
   ...part_academy_peer_review_procedures,
@@ -3047,6 +3089,9 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_academy_undo_curriculum_complete_procedures,
   ...part_academy_unpin_lesson_procedures,
   ...part_academy_upload_assignment_file_procedures,
+  ...part_academy_video_playback_procedures,
+  ...part_academy_video_player_procedures,
+  ...part_academy_video_progress_procedures,
   ...part_academy_videos_procedures,
   ...part_academy_withdraw_residency_procedures,
   ...part_agents_webhooks_procedures,
