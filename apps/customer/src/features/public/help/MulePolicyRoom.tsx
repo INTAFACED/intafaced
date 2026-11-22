@@ -51,12 +51,12 @@ export function MulePolicyRoom() {
             <p>{t('reportBody')}</p>
             <ul>
               <li>
-                <a className="lt-link" href="/bank/safety/scam">
+                <a className="lt-link lt-link-alone" href="/bank/safety/scam">
                   {t('reportScam')}
                 </a>
               </li>
               <li>
-                <a className="lt-link" href="/support/new">
+                <a className="lt-link lt-link-alone" href="/support/new">
                   {t('contactSupport')}
                 </a>
               </li>
