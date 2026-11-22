@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button, Field, SelectField, TextField } from '@intafaced/ui/lit';
+import { Button, Field, Select, TextArea } from '@intafaced/ui/lit';
 import type { StatusPage } from '../status';
 import { statusCopy } from '../status-copy';
 
@@ -35,21 +35,18 @@ export function StatusBadgeShare({ components }: { components: StatusPage['compo
     <section className="lt-stack" aria-labelledby="status-share" data-testid="status-share">
       <h2 id="status-share">{copy.t('shareTitle')}</h2>
       <p className="lt-hint">{copy.t('shareLead')}</p>
-      <SelectField
+      <Select
         label={copy.t('shareWhat')}
         value={componentId ?? ''}
-        onChange={(event) => {
-          setComponentId(event.target.value || null);
+        onChange={(value) => {
+          setComponentId(value || null);
           setCopied(false);
         }}
-      >
-        <option value="">{copy.t('shareWholePage')}</option>
-        {components.map((component) => (
-          <option key={component.id} value={component.id}>
-            {component.name}
-          </option>
-        ))}
-      </SelectField>
+        options={[
+          { value: '', label: copy.t('shareWholePage') },
+          ...components.map((component) => ({ value: component.id, label: component.name })),
+        ]}
+      />
       <p>
         <img src={image} alt={alt} data-testid="status-share-image" />
       </p>
@@ -60,7 +57,7 @@ export function StatusBadgeShare({ components }: { components: StatusPage['compo
         data-testid="status-share-url"
         onFocus={(event) => event.currentTarget.select()}
       />
-      <TextField
+      <TextArea
         label={copy.t('shareSnippet')}
         readOnly
         rows={3}

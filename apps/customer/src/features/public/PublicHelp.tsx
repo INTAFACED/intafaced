@@ -3,8 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { parsesAs, type ApiClient, type ApiResult } from '../../shared/api';
 import { SUPPORT_GET_KB, SUPPORT_SEARCH_KB } from '@intafaced/contracts/support-customer-procedures';
-import { Button, SelectField } from '@intafaced/ui/lit';
-import { ReadingTemplate, TextField, type RoomState } from '@intafaced/ui/lit/templates';
+import { Button } from '@intafaced/ui/lit';
+import { ReadingTemplate, SelectField, TextField, type RoomState } from '@intafaced/ui/lit/templates';
 import { useLocation } from '../../app/location';
 import { safeReturnTo } from '../../app/navigation';
 import { useResource } from '../../shared/resource';
@@ -269,14 +269,9 @@ export function PublicHelp() {
                 label={t('articleLanguage')}
                 name="help-language"
                 value={reading}
-                onChange={(event) => setPicked({ id: article.id, code: event.target.value })}
-              >
-                {offered.map((row) => (
-                  <option key={row.tag} value={row.code} lang={row.code}>
-                    {languageName(row.code, row.code)}
-                  </option>
-                ))}
-              </SelectField>
+                onChange={(code) => setPicked({ id: article.id, code })}
+                options={offered.map((row) => ({ value: row.code, label: languageName(row.code, row.code), lang: row.code }))}
+              />
               {instead && (
                 <p className="lt-hint" role="status" data-testid="help-language-fallback">
                   {t('languageFallback', {
