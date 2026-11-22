@@ -8,16 +8,10 @@
  * this; the body is bound to the signature. Read-only: it posts nothing.
  */
 import type { FastifyInstance } from 'fastify';
-import {
-  PAY_CUSTODY_OPEN_ITEMS_RAIL,
-  payCustodyRailOpenItemsInputSchema,
-  retainRawBody,
-  verifyServiceRequest,
-  type PayCustodyOpenItemsInput,
-  type PayCustodyOpenItemsReply,
-  type ServiceAuthMode,
-  type ServiceVerifier,
-} from '@intafaced/contracts';
+import type { PayCustodyOpenItemsInput, PayCustodyOpenItemsReply, ServiceAuthMode, ServiceVerifier } from '@intafaced/contracts';
+import { PAY_CUSTODY_OPEN_ITEMS_RAIL, payCustodyRailOpenItemsInputSchema } from '@intafaced/contracts/pay-custody-deposit';
+import { retainRawBody } from '@intafaced/contracts/raw-body';
+import { verifyServiceRequest } from '@intafaced/contracts/service-auth-http';
 
 export interface CustodyOpenItemsRouteDeps {
   readonly internalSecret: string;

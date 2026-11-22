@@ -8,7 +8,9 @@
  */
 
 import type { FastifyInstance } from 'fastify';
-import { retainRawBody, verifyServiceRequest, type ServiceAuthMode, type ServiceVerifier } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceVerifier } from '@intafaced/contracts';
+import { retainRawBody } from '@intafaced/contracts/raw-body';
+import { verifyServiceRequest } from '@intafaced/contracts/service-auth-http';
 import type { MerchantRole } from './merchant-ops/roles.js';
 import { payStepUpPermissions } from './merchant-ops/roles.js';
 

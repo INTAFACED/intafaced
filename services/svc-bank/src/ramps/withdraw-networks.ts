@@ -1,4 +1,5 @@
-import { assetAllows, type RegistryAsset } from '@intafaced/contracts';
+import type { RegistryAsset } from '@intafaced/contracts';
+import { assetAllows } from '@intafaced/contracts/asset-registry';
 import { BankError } from '../errors.js';
 import { ASSET_REGISTRY_UNAVAILABLE, askRegistry } from '../assets/supported-assets.js';
 

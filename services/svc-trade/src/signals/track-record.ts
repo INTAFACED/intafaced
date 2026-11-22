@@ -4,7 +4,8 @@
  * checks it against the owner's provider criteria. Nothing here moves money; it counts rows of `trade.fills`.
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { verifyServiceRequest, type ServiceAuthMode, type ServiceVerifier } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceVerifier } from '@intafaced/contracts';
+import { verifyServiceRequest } from '@intafaced/contracts/service-auth-http';
 import type { Sql } from 'postgres';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

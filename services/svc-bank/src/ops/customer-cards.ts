@@ -11,7 +11,7 @@
  * The page size is the caller's and is not defaulted: blank refuses `bank.cards_list_limit_unset`, as on the owner's list,
  * checked once, before the audit line, and capped at the owner list's 200. Nothing is inserted and there is no export.
  */
-import { scopedProcedure } from '@intafaced/contracts';
+import { scopedProcedure } from '@intafaced/contracts/trpc';
 import { z } from 'zod';
 import type { BankServices } from '../bank-service.js';
 import { cardOutput, presentCard } from '../cards/card-view.js';

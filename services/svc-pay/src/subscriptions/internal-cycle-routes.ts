@@ -21,14 +21,10 @@
  */
 
 import type { FastifyInstance } from 'fastify';
-import {
-  DEFAULT_SERVICE_BODY_BIND_MODE,
-  retainRawBody,
-  verifyServiceRequest,
-  type ServiceAuthMode,
-  type ServiceVerifier,
-  type ServiceBodyBindMode,
-} from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceVerifier, ServiceBodyBindMode } from '@intafaced/contracts';
+import { retainRawBody } from '@intafaced/contracts/raw-body';
+import { DEFAULT_SERVICE_BODY_BIND_MODE } from '@intafaced/contracts/service-auth';
+import { verifyServiceRequest } from '@intafaced/contracts/service-auth-http';
 import { formatAmount } from '@intafaced/ledger-client';
 import { PayError, assertCycleListLimit, assertDueSubscriptionsBatchLimit } from '../payment-service.js';
 import type { RunReport, SubscriptionService } from './subscription-service.js';

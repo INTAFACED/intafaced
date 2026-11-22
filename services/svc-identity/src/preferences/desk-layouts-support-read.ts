@@ -9,12 +9,8 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Sql } from 'postgres';
-import {
-  SUPPORT_CHARTS_READERS,
-  SUPPORT_DESK_LAYOUTS_PATH,
-  type ServiceBodyBindMode,
-  type SupportDeskLayoutsRead,
-} from '@intafaced/contracts';
+import type { ServiceBodyBindMode, SupportDeskLayoutsRead } from '@intafaced/contracts';
+import { SUPPORT_CHARTS_READERS, SUPPORT_DESK_LAYOUTS_PATH } from '@intafaced/contracts/support-charts-lookup';
 import { serviceOfRequest, type IdentityS2s } from '../s2s-door.js';
 import { DESK_LAYOUTS_NAMESPACE, parseDeskLayoutsShape } from './desk-layouts.js';
 

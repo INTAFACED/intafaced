@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import Fastify from 'fastify';
-import { s2sFromEnv } from '@intafaced/contracts';
+import { s2sFromEnv } from '@intafaced/contracts/s2s-env';
 import { edgeTrustFromEnv } from '@intafaced/config';
 import { JetStreamEventBus } from '@intafaced/events';
 import { createReplayLedgerClient } from './replay-ledger-client.js';

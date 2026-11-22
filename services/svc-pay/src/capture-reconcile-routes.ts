@@ -9,7 +9,9 @@
  */
 
 import type { FastifyInstance } from 'fastify';
-import { retainRawBody, verifyServiceRequest, type ServiceAuthMode, type ServiceVerifier } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceVerifier } from '@intafaced/contracts';
+import { retainRawBody } from '@intafaced/contracts/raw-body';
+import { verifyServiceRequest } from '@intafaced/contracts/service-auth-http';
 import { CaptureReconcileError, captureReconcileInputFromBody, type CaptureReconcileMode } from './capture-reconcile.js';
 import { PayError, type PayService } from './payment-service.js';
 

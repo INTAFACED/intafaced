@@ -1,11 +1,5 @@
-import {
-  jointWatermark,
-  nextRestoreStep,
-  RESTORE_SERVICES,
-  RESTORE_STEPS,
-  type JointWatermark,
-  type RestoreStep,
-} from '@intafaced/contracts';
+import type { JointWatermark, RestoreStep } from '@intafaced/contracts';
+import { jointWatermark, nextRestoreStep, RESTORE_SERVICES, RESTORE_STEPS } from '@intafaced/contracts/ops-restore-watermarks';
 import {
   assertIdempotencyKey,
   archivePosture,

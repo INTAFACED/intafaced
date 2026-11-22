@@ -1,13 +1,8 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { Sql } from 'postgres';
-import {
-  SERVICE_MAIL_PATH,
-  serviceCallSigner,
-  serviceMailAcceptedSchema,
-  type ServiceAuthMode,
-  type ServiceMailRequest,
-  type ServiceSigner,
-} from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceMailRequest, ServiceSigner } from '@intafaced/contracts';
+import { SERVICE_MAIL_PATH, serviceMailAcceptedSchema } from '@intafaced/contracts/identity';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import { transaction } from '@intafaced/db';
 import { BankError, type BankErrorCode } from '../errors.js';
 import { assertSecurityLockOpen, type SecurityLockPort } from '../security-lock.js';

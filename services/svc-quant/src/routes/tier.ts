@@ -1,4 +1,5 @@
-import { QUANT_QUOTA_RESOURCES, router } from '@intafaced/contracts';
+import { QUANT_QUOTA_RESOURCES } from '@intafaced/contracts/quant-algo';
+import { router } from '@intafaced/contracts/trpc';
 import { toTrpc, type QuantCore, quantRefusal } from './core.js';
 import { QUANT_TIER_LIST } from '@intafaced/contracts/quant-tier-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';

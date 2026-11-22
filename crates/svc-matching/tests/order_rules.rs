@@ -144,6 +144,7 @@ fn replay(journal: Box<dyn EngineJournal + Send>) -> MatchingEngine {
         snapshot_every: 0,
         sink: Box::new(MemorySnapshotSink::default()),
         enabled: true,
+        spread_fills: false,
     });
     engine.recover().unwrap();
     engine

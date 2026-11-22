@@ -4,12 +4,9 @@
  * signed-out read and nothing else. No notify address, a refusal, a timeout or a reply that does not parse all read as
  * null, which the lifecycle read publishes as `unavailable`, never as "no maintenance".
  */
-import {
-  MARKET_MAINTENANCE_PROCEDURE,
-  marketMaintenanceReadSchema,
-  unwrapTrpcData,
-  type MarketMaintenanceRead,
-} from '@intafaced/contracts';
+import type { MarketMaintenanceRead } from '@intafaced/contracts';
+import { unwrapTrpcData } from '@intafaced/contracts/action-approval-client';
+import { MARKET_MAINTENANCE_PROCEDURE, marketMaintenanceReadSchema } from '@intafaced/contracts/market-maintenance';
 
 export type MarketMaintenanceBoard = () => Promise<MarketMaintenanceRead | null>;
 

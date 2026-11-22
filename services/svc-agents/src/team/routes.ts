@@ -12,10 +12,8 @@ import {
   agentsTeamRunSessionSchema,
   agentsTeamUsageSchema,
   agentsTeamViewSchema,
-  router,
-  scopedProcedure,
-  TRPCError,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/agents-team';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { AgentError } from '../errors.js';
 import { OwnAgentRefusal } from '../own/catalog.js';
 import { executeProcedure } from '../procedures.js';

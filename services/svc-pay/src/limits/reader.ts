@@ -7,7 +7,7 @@ import type { WithdrawalLimitMode } from './config.js';
 import { GUARD_WITHDRAWAL_TIER_UNWIRED, limitInForce, readIdentitySide, type KycTierOf } from './guards.js';
 import type { LimitOverrideOf } from './identity-override.js';
 import type { LimitSource } from './source.js';
-import { asAssetId } from '@intafaced/contracts';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 
 /** Limits are not enforced in this deployment (`PAY_WITHDRAWAL_LIMITS` is `off`), so there is no allowance to show. */
 export const GUARD_WITHDRAWAL_LIMITS_OFF = 'pay.guard_withdrawal_limits_off' as const;

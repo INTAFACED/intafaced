@@ -1,5 +1,5 @@
+import type { MerchantPartnerTerms } from '@intafaced/contracts';
 import {
-  router,
   merchantMetricsInputSchema,
   merchantMetricsSnapshotSchema,
   merchantMetricsSeriesInputSchema,
@@ -8,8 +8,8 @@ import {
   merchantSettlementAssetsSchema,
   merchantPartnerTermsInputSchema,
   merchantPartnerTermsSchema,
-  type MerchantPartnerTerms,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/merchant-metrics';
+import { router } from '@intafaced/contracts/trpc';
 import { metricsToTrpcError, type MetricsRuntime } from '../metrics/index.js';
 import { toPayfacTrpcError } from './metrics-errors.js';
 import { notBuilt } from './errors.js';
