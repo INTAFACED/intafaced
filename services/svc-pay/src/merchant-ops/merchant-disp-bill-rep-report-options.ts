@@ -64,9 +64,24 @@ export function zonedMidnight(day: string, timeZone: string): Date {
   const check = new Date(wall);
   if (check.getUTCFullYear() !== Number(m[1]) || check.getUTCMonth() !== Number(m[2]) - 1 || check.getUTCDate() !== Number(m[3]))
     throw badPeriod();
-  let t = wall - zoneOffsetMs(wall, timeZone);
-  t = wall - zoneOffsetMs(t, timeZone);
-  return new Date(t);
+  // Every offset the zone holds around this day; local midnight is `wall - offset` for one of them.
+  const DAY_MS = 86_400_000;
+  const offsets = [...new Set([-DAY_MS, 0, DAY_MS].map((d) => zoneOffsetMs(wall + d, timeZone)))];
+  const localAt = (t: number) => t + zoneOffsetMs(t, timeZone);
+  // A repeated midnight (clocks set back) begins at its earliest occurrence.
+  const exact = offsets.map((o) => wall - o).filter((t) => localAt(t) === wall);
+  if (exact.length > 0) return new Date(Math.min(...exact));
+  // Midnight skipped (clocks set forward): the day begins at the transition, the
+  // first instant whose local time is at or past midnight. Search to the second.
+  let lo = wall - Math.max(...offsets);
+  let hi = wall - Math.min(...offsets);
+  if (localAt(lo) >= wall || localAt(hi) < wall) throw badPeriod();
+  while (hi - lo > 1000) {
+    const mid = lo + Math.max(1000, Math.floor((hi - lo) / 2000) * 1000);
+    if (localAt(mid) >= wall) hi = mid;
+    else lo = mid;
+  }
+  return new Date(hi);
 }
 
 export interface ZonedPeriod {

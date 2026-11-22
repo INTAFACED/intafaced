@@ -25,7 +25,7 @@ import { agentRunCopy } from './agent-run-copy';
 import { Blueprint } from './Blueprint';
 import { BlueprintSharedRoom } from './BlueprintSharedCard';
 import { BlueprintRoom } from './blueprint-room/BlueprintRoom';
-import { Campaigns } from './Campaigns';
+import { Campaigns, CampaignsRoom } from './Campaigns';
 import { CampaignDetail } from './campaign-detail/CampaignDetailRoom';
 import { campaignCatalogueCopy } from './campaign-catalogue-copy';
 import { DropRoom } from './DropRoom';
@@ -162,9 +162,7 @@ function MoreRooms({ path }: { path: string }) {
     room = 'blueprint';
     volt = <BlueprintRoom path={path} />;
   } else if (p === '/campaigns') {
-    title = copyText('moreroutes.campaigns');
-    description = copyText('moreroutes.your.campaign.participation');
-    content = <Campaigns />;
+    volt = <CampaignsRoom title={copyText('moreroutes.campaigns')} description={copyText('moreroutes.your.campaign.participation')} />;
   } else if (p === '/campaigns/mine') {
     title = <campaignCatalogueCopy.Copy k="myCampaigns" />;
     description = <campaignCatalogueCopy.Copy k="mineTitle" />;

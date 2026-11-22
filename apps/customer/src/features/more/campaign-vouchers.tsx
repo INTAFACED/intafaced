@@ -9,7 +9,9 @@ import {
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
-import { Button, DataTable, EmptyState, Failure, Field, Loading, Panel } from '../../shared/ui';
+import { Button, Field } from '@intafaced/ui/lit';
+import { FailureBox, LoadingLine, RecordTable } from '../../shared/record/record-parts';
+import { EmptyNote } from './volt-parts';
 import { campaignVouchersCopy } from './campaign-vouchers-copy';
 
 /**
@@ -63,19 +65,19 @@ function Refusal({ result }: { result: Failed }) {
   const code = codeOf(result.code);
   if (code) {
     return (
-      <p role="status" className="muted" data-testid="voucher-refusal" data-code={code}>
+      <p role="status" className="lt-hint" data-testid="voucher-refusal" data-code={code}>
         {t(code)}
       </p>
     );
   }
   if (result.reason === 'unreachable' || result.reason === 'uncertain' || result.reason === 'aborted') {
     return (
-      <p role="status" className="muted" data-testid="voucher-lost">
+      <p role="status" className="lt-hint" data-testid="voucher-lost">
         {t('lost')}
       </p>
     );
   }
-  return <Failure result={result} />;
+  return <FailureBox result={result} />;
 }
 
 export function MyVouchers() {
@@ -114,18 +116,19 @@ export function MyVouchers() {
   };
 
   return (
-    <Panel title={t('title')}>
+    <section>
+      <h2>{t('title')}</h2>
       <form aria-label={t('formLabel')} onSubmit={onSubmit}>
         <Field label={t('code')} value={code} maxLength={32} autoComplete="off" onChange={(event) => setCode(event.target.value)} />
-        <div className="depth-card-actions">
-          <Button type="submit" variant="ghost" disabled={busy !== null || !code.trim()}>
+        <div className="lt-actions">
+          <Button type="submit" tone="quiet" disabled={busy !== null || !code.trim()}>
             {busy === 'check' ? t('checking') : t('check')}
           </Button>
-          <Button disabled={busy !== null || !code.trim()} onClick={() => void claim()}>
+          <Button tone="primary" disabled={busy !== null || !code.trim()} onClick={() => void claim()}>
             {busy === 'claim' ? t('claiming') : t('claim')}
           </Button>
         </div>
-        <p className="muted">{t('formNote')}</p>
+        <p className="lt-hint">{t('formNote')}</p>
       </form>
       {checked ? (
         <p role="status" data-testid="voucher-validation">
@@ -159,15 +162,15 @@ export function MyVouchers() {
       {refusal ? <Refusal result={refusal} /> : null}
       <div data-testid="my-vouchers" data-state={wallet.resource.status}>
         {wallet.resource.status === 'loading' ? (
-          <Loading label={t('loading')} />
+          <LoadingLine label={t('loading')} />
         ) : wallet.resource.status === 'failed' ? (
-          <Failure result={wallet.resource.failure} retry={wallet.reload} />
+          <FailureBox result={wallet.resource.failure} retry={wallet.reload} />
         ) : wallet.resource.data.vouchers.length === 0 ? (
           <div data-testid="vouchers-empty">
-            <EmptyState title={t('none')}>{t('noneBody')}</EmptyState>
+            <EmptyNote title={t('none')}>{t('noneBody')}</EmptyNote>
           </div>
         ) : (
-          <DataTable
+          <RecordTable
             label={t('listLabel')}
             headers={[t('colCode'), t('colCampaign'), t('colState'), t('colLeft'), t('colUseBy'), t('colRedeem')]}
           >
@@ -184,11 +187,11 @@ export function MyVouchers() {
                 }}
               />
             ))}
-          </DataTable>
+          </RecordTable>
         )}
       </div>
-      <p className="muted">{t('redeemNote')}</p>
-    </Panel>
+      <p className="lt-hint">{t('redeemNote')}</p>
+    </section>
   );
 }
 
@@ -319,7 +322,7 @@ function VoucherRow({
                       {t('paidTo', { wallet: r.reward.payout.toWallet })}
                     </span>{' '}
                     <a
-                      className="text-link"
+                      className="lt-link"
                       data-testid="voucher-chain-tx"
                       data-tx={r.reward.payout.chainTx}
                       href={`/chain/tx/${encodeURIComponent(r.reward.payout.chainTx)}`}
@@ -347,7 +350,7 @@ function VoucherRow({
               maxLength={40}
               onChange={(event) => setAmount(event.target.value)}
             />
-            <Button disabled={busy || !amount.trim()} onClick={() => void redeem()}>
+            <Button tone="primary" disabled={busy || !amount.trim()} onClick={() => void redeem()}>
               {busy ? t('redeeming') : t('redeem')}
             </Button>
           </>
