@@ -4,10 +4,11 @@ import { Button } from '@intafaced/ui/lit';
 import { useSession } from '../../session';
 import { refusalCopy } from '../../../data';
 import { decodeBase64, saveFile, shortFingerprint } from '../../../screens/money/statement-model';
-import { statementFileSchema, statementJobsSchema, type StatementJob } from '../contracts';
+import { type StatementJob } from '../contracts';
 import { statementCentreCopy } from '../statement-centre-copy';
 import { statementDocumentsCopy } from '../statement-documents-copy';
 import { refusedWords } from '../statement-refusals';
+import { BANK_STATEMENTS_JOBS_LIST, BANK_STATEMENTS_JOBS_DOWNLOAD } from '@intafaced/contracts/bank-statements-procedures';
 
 type Load =
   | { kind: 'loading' }
@@ -34,7 +35,7 @@ export function StatementDocuments({ version }: { version: number }) {
   const latest = useRef(0);
   const read = useCallback(async () => {
     const asked = ++latest.current;
-    const result = await api.query('bank', 'statements.jobs.list', undefined, statementJobsSchema);
+    const result = await api.call(BANK_STATEMENTS_JOBS_LIST, undefined);
     if (asked !== latest.current) return;
     if (!result.ok) {
       const code = result.code ?? null;
@@ -57,7 +58,7 @@ export function StatementDocuments({ version }: { version: number }) {
 
   async function download(job: StatementJob) {
     setSaid(null);
-    const result = await api.query('bank', 'statements.jobs.download', { id: job.id }, statementFileSchema);
+    const result = await api.call(BANK_STATEMENTS_JOBS_DOWNLOAD, { id: job.id });
     if (!result.ok) {
       const code = result.code ?? null;
       const words =

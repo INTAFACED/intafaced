@@ -7,7 +7,8 @@
 // Every finding of `garden/no-call-by-name` is one site the codemod finds, and each site is counted once, under the
 // service its call names: planned (a TypeScript router, or a door the Rust crate serves, its router read from the commit
 // before it was deleted), refused (its port in flight, or its plan failed: the reason and the count), or named by why it
-// has no service run (no service of that name; no service named at all). The totals add up to the rule's count.
+// has no service run (no service of that name; no service named at all). The totals add up to the rule's count, with
+// `wrapperSenders` for a wrapper whose sender the rule counts once where the codemod finds each caller.
 //
 // Without --deep it only plans (index.mjs without --write): `planned` is what the plan rewrites, before the run's own
 // export, samples and type checks, so it is not what a run moves. With --deep each planned service is run for real
@@ -71,6 +72,22 @@ const EXPORT_CONSTRUCTS = [
 function exportReason(why) {
   const found = EXPORT_CONSTRUCTS.filter(([re]) => re.test(why)).map(([, name]) => name);
   return `record can't be exported as written${found.length ? `: ${found.join(' + ')}` : ''}`;
+}
+
+/**
+ * What the rule counts beyond the sites for wrappers that take their call name (wrapper.mjs): the codemod finds one site
+ * per caller, while the rule counts the wrapper's sender once, and a caller only where it names the call in a property
+ * (`procedure: 'x.y'`). The sum over wrappers of (rule findings - sites), negative when callers pass plain strings.
+ */
+export function wrapperSenders(sites) {
+  const by = new Map();
+  for (const s of sites) {
+    if (!s.wrapper) continue;
+    const w = by.get(s.wrapper.key) ?? by.set(s.wrapper.key, { sites: 0, findings: 1 }).get(s.wrapper.key);
+    w.sites += 1;
+    if (s.node?.type === 'Property') w.findings += 1;
+  }
+  return [...by.values()].reduce((a, w) => a + w.findings - w.sites, 0);
 }
 
 /** The commit that deleted services/<service>: its parent holds the router a door's records are read from. */
@@ -280,8 +297,9 @@ function main() {
   totals.byShape = shapes;
   const refusedSites = Object.values(totals.refused).reduce((a, r) => a + r.sites, 0);
   const noServiceSites = Object.values(noService).reduce((a, b) => a + b, 0);
+  totals.wrapperSenders = wrapperSenders(nodes.values());
   // What the rule counts and no row above names: 0 when every finding is a site the codemod finds.
-  totals.unnamed = totals.ruleFindings - totals.sites - refusedSites - noServiceSites;
+  totals.unnamed = totals.ruleFindings - totals.sites - refusedSites - noServiceSites - totals.wrapperSenders;
   const report = { at: new Date().toISOString(), head: git('rev-parse', 'HEAD').trim(), totals, services: rows };
   if (out) writeFileSync(out, `${JSON.stringify(report, null, 2)}\n`);
   console.log(JSON.stringify({ totals }, null, 2));

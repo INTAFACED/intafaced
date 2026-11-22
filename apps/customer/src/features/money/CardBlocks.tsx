@@ -3,13 +3,14 @@ import type { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 import { Button, Field } from '../../shared/ui';
 import { useSession } from '../session';
-import { ResourceView, useBankRead } from './components';
-import { bankWrites, type CardControls, type cardSchema } from './contracts';
+import { ResourceView, useBankRecord } from './components';
+import { type CardControls, type cardSchema } from './contracts';
 import { ChannelSwitch, DepthPanel } from './DepthParts';
 import { Refusal } from './CardJourney';
 import { cardBlocksCopy, declineKey } from './card-blocks-copy';
 import { withPlainRefusal } from './money-refusal-copy';
 import './bank-depth.css';
+import { BANK_CARDS_CONTROLS_GET, BANK_CARDS_CONTROLS_BLOCK, BANK_CARDS_CONTROLS_LIFT } from '@intafaced/contracts/bank-cards-procedures';
 
 /**
  * A card's controls (J-bank-14 #1, BK-cctl-01): the categories, merchants and countries the person blocked, and the
@@ -22,7 +23,7 @@ type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
 export function CardBlocksPanel({ card }: { card: CardRecord }) {
   const { t } = cardBlocksCopy.useCopy();
-  const read = useBankRead('cards.controls.get', { cardId: card.id });
+  const read = useBankRecord(BANK_CARDS_CONTROLS_GET, { cardId: card.id });
   return (
     <DepthPanel title={t('blocksTitle')} lead={t('blocksLead')} id={`card-blocks-${card.id}`}>
       <ResourceView resource={read.resource} reload={read.reload}>
@@ -43,11 +44,17 @@ function Blocks({ card, stored }: { card: CardRecord; stored: CardControls }) {
   useEffect(() => setControls(stored), [stored]);
   const closed = card.status === 'closed';
 
-  async function send(procedure: 'cards.controls.block' | 'cards.controls.lift', input: Record<string, unknown>) {
+  async function send(
+    change:
+      | { procedure: 'cards.controls.block'; kind: 'category' | 'merchant' | 'country'; value: string }
+      | { procedure: 'cards.controls.lift'; controlId: string },
+  ) {
     setBusy(true);
     setFailure(null);
     try {
-      const done = await api.mutate('bank', procedure, { cardId: card.id, ...input }, bankWrites[procedure]);
+      const done = await (change.procedure === 'cards.controls.block'
+        ? api.call(BANK_CARDS_CONTROLS_BLOCK, { cardId: card.id, kind: change.kind, value: change.value })
+        : api.call(BANK_CARDS_CONTROLS_LIFT, { cardId: card.id, controlId: change.controlId }));
       if (!done.ok) {
         setFailure(withPlainRefusal(done));
         return false;
@@ -62,7 +69,7 @@ function Blocks({ card, stored }: { card: CardRecord; stored: CardControls }) {
   const blockedCategory = (category: string) => live('category').find((c) => c.value === category);
   const submit = (kind: 'merchant' | 'country', value: string, clear: () => void) => async (event: FormEvent) => {
     event.preventDefault();
-    if (await send('cards.controls.block', { kind, value })) clear();
+    if (await send({ procedure: 'cards.controls.block', kind, value })) clear();
   };
   const blockedList = (kind: 'merchant' | 'country', label: string) => {
     const rows = live(kind);
@@ -73,7 +80,11 @@ function Blocks({ card, stored }: { card: CardRecord; stored: CardControls }) {
             <span lang="und" dir="auto">
               {c.value}
             </span>{' '}
-            <Button variant="ghost" disabled={busy || closed} onClick={() => void send('cards.controls.lift', { controlId: c.id })}>
+            <Button
+              variant="ghost"
+              disabled={busy || closed}
+              onClick={() => void send({ procedure: 'cards.controls.lift', controlId: c.id })}
+            >
               {t('allowAgain')}
             </Button>
           </li>
@@ -99,8 +110,8 @@ function Blocks({ card, stored }: { card: CardRecord; stored: CardControls }) {
               disabled={busy || closed}
               onToggle={() =>
                 void (block
-                  ? send('cards.controls.lift', { controlId: block.id })
-                  : send('cards.controls.block', { kind: 'category', value: category }))
+                  ? send({ procedure: 'cards.controls.lift', controlId: block.id })
+                  : send({ procedure: 'cards.controls.block', kind: 'category', value: category }))
               }
             />
           );

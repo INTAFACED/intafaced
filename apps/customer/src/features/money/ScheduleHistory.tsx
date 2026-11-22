@@ -12,6 +12,7 @@ import {
   Section,
   useBankRead,
   usePageLimit,
+  useBankRecord,
   type ActionSpec,
 } from './components';
 
@@ -22,6 +23,7 @@ import type { scheduleSchema } from './contracts';
 import { standingCopy } from './standing-copy';
 
 import { currentOwnerRecord, useBankView } from './bank-context';
+import { BANK_TRANSFERS_EXECUTIONS } from '@intafaced/contracts/bank-transfers-procedures';
 
 export type StandingInstruction = z.infer<typeof scheduleSchema>;
 
@@ -230,7 +232,7 @@ function ExecutionRead({ id, asset, refreshInstructions }: { id: string; asset: 
 
 /** One standing instruction's executions, newest first, as the bank reports them. Shared with the Transfers room. */
 export function useExecutionsRead(scheduleId: string, limit: number) {
-  return useBankRead('transfers.executions', { scheduleId, limit });
+  return useBankRecord(BANK_TRANSFERS_EXECUTIONS, { scheduleId, limit });
 }
 
 /** The person's standing instructions, newest first. */

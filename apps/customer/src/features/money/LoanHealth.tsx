@@ -2,16 +2,18 @@ import type { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { parseAmount } from '../../shared/money';
 import { useSession } from '../session';
-import { bankReads, type loanSchema } from './contracts';
-import { amount, bps, funds, positiveMoney, useBankRead, usePageLimit, type ActionSpec } from './components';
+import { type loanSchema } from './contracts';
+import { amount, bps, funds, positiveMoney, useBankRecord, usePageLimit, type ActionSpec } from './components';
 import { t as copyText } from './copy';
 import { availableRow, loanFormFacts, loanLiveRows } from './form-preview';
 import { useHoldings } from './holdings';
 import { loanCopy, loanStatusLabel } from './loan-copy';
 import './loan.css';
+import { BANK_LOANS_PRODUCTS, BANK_LOANS_LIST, BANK_LOANS_HEALTH, BANK_LOANS_RELEASABLE } from '@intafaced/contracts/bank-loans-procedures';
+import type { ProcedureOutput } from '@intafaced/contracts/procedure';
 
 type Loan = z.infer<typeof loanSchema>;
-type Product = z.infer<(typeof bankReads)['loans.products']>[number];
+type Product = ProcedureOutput<typeof BANK_LOANS_PRODUCTS>[number];
 type LoanAction = 'repay' | 'addCollateral' | 'releaseExcess' | 'close';
 const statuses = ['pending', 'active', 'margin_call', 'liquidating', 'repaid', 'liquidated'];
 
@@ -37,7 +39,7 @@ export function loanStatusNote(status: string): string | null {
 
 function currentLoanPreflight(api: ApiClient, loan: Loan, action: LoanAction, limit: number): NonNullable<ActionSpec['preflight']> {
   return async (input): Promise<ApiResult<null>> => {
-    const latest = await api.query('bank', 'loans.list', { limit }, bankReads['loans.list']);
+    const latest = await api.call(BANK_LOANS_LIST, { limit });
     if (!latest.ok)
       return { ok: false, reason: 'error', code: 'money.loan_read_unavailable', message: loanCopy.t('readFailed', { loanId: loan.id }) };
     const matches = latest.data.filter((row) => row.id === loan.id);
@@ -61,7 +63,7 @@ async function readReleasable(
   asked: unknown,
   signal?: AbortSignal,
 ): Promise<{ rows: [string, string][]; blocked: string | null }> {
-  const read = await api.query('bank', 'loans.releasable', { loanId }, bankReads['loans.releasable'], { signal });
+  const read = await api.call(BANK_LOANS_RELEASABLE, { loanId }, { signal });
   if (!read.ok)
     return {
       rows: [],
@@ -82,9 +84,9 @@ async function readReleasable(
 export function useLoansRoom() {
   const { api } = useSession();
   const [limit, setLimit] = usePageLimit();
-  const products = useBankRead('loans.products', { limit });
-  const loans = useBankRead('loans.list', { limit });
-  const health = useBankRead('loans.health', undefined);
+  const products = useBankRecord(BANK_LOANS_PRODUCTS, { limit });
+  const loans = useBankRecord(BANK_LOANS_LIST, { limit });
+  const health = useBankRecord(BANK_LOANS_HEALTH, undefined);
   const held = useHoldings();
   const heldRows = held.resource.status === 'ready' ? held.resource.data.holdings : null;
   return {

@@ -163,6 +163,8 @@ describe('GET /api/pay-ops', () => {
     expect(json.reads['pay.failed-standing'].part).toMatchObject({ kind: 'failed', code: 'bank.party_handles_unset', forbidden: false });
     expect(json.reads['pay.failed-standing'].part.message).toContain('IDENTITY_URL');
   });
+  // The desk reads ops.transferHealth through its record, svc-bank's own answer schema, which the router also checks
+  // before replying: a drift in any section refuses the whole answer, so both of its reads fail and neither shows a table.
   it('an answer that drifts from the service’s schema is a failed read, never a table', async () => {
     vi.stubGlobal(
       'fetch',
@@ -175,7 +177,7 @@ describe('GET /api/pay-ops', () => {
     );
     const json = await (await payOps.GET(get('/api/pay-ops'))).json();
     expect(json.reads['pay.oneoff-24h'].part).toMatchObject({ kind: 'failed', message: expect.stringContaining('shape') });
-    expect(json.reads['pay.standing-24h'].part.kind).toBe('ok');
+    expect(json.reads['pay.standing-24h'].part.kind).toBe('failed');
   });
   it('a service that is down is a failed read, not zero', async () => {
     vi.stubGlobal(

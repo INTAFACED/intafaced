@@ -1,8 +1,9 @@
 import { Skeleton } from '@intafaced/ui/lit/templates';
-import { date, funds, useBankRead } from '../components';
-import type { IncomingLine } from '../contracts';
+import { date, funds, useBankRecordAs } from '../components';
+import { incomingPageSchema, type IncomingLine } from '../contracts';
 import { incomingCopy } from '../incoming-copy';
 import { FailureNote, Panel } from './parts';
+import { BANK_ACTIVITY_LIST } from '@intafaced/contracts/bank-activity-procedures';
 
 /**
  * Incoming payments (J-bank-02 #7): what came into the account, read from the ledger through `bank.activity.list`
@@ -83,7 +84,7 @@ export function IncomingRules() {
 
 export function IncomingPayments() {
   const { t } = incomingCopy.useCopy();
-  const read = useBankRead('activity.list', { limit: 20, direction: 'in', kind: [...INCOMING_KINDS] });
+  const read = useBankRecordAs(BANK_ACTIVITY_LIST, { limit: 20, direction: 'in', kind: [...INCOMING_KINDS] }, incomingPageSchema);
   const { resource } = read;
   return (
     <Panel title={t('title')} lead={t('lead')}>
