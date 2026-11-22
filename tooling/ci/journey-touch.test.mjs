@@ -864,16 +864,13 @@ test('14 Nov, #8322: a named change to venue-reads.mjs runs the journeys importi
   assert.equal(v.mode, 'files');
   assert.deepEqual(v.files, ['J-bank-13.pw.mjs', 'J-cex-spot-01.pw.mjs', 'J-cex-spot-03.pw.mjs']);
   assert.deepEqual(v.stack, [VENUE_READS]);
-  // The real folder: the journeys that import it (J-cex-spot-05 and J-copy-bots-otc-14 through venue.mjs, J-copy-bots-otc-16 directly too, on the venue).
+  // The real folder: a direct importer (J-cex-spot-01) and one through venue.mjs (J-cex-spot-05) are found. Held as a
+  // subset, never the exact list: a new journey importing it is not a tooling change (#9174 and #9367 each lost a push
+  // to the exact list; weed project-state#3684).
   const real = checkoutJourneyTexts(ROOT);
-  assert.deepEqual(stackImporters([VENUE_READS], real), [
-    'J-cex-spot-01.pw.mjs',
-    'J-cex-spot-02.pw.mjs',
-    'J-cex-spot-03.pw.mjs',
-    'J-cex-spot-05.pw.mjs',
-    'J-copy-bots-otc-14.pw.mjs',
-    'J-copy-bots-otc-16.pw.mjs',
-  ]);
+  const found = stackImporters([VENUE_READS], real);
+  for (const f of ['J-cex-spot-01.pw.mjs', 'J-cex-spot-05.pw.mjs']) assert.ok(found.includes(f), `${f} imports venue-reads.mjs`);
+  assert.deepEqual(found, [...found].sort(), 'sorted');
 });
 
 test('14 Nov, #8310: a named change to look-fixtures.mjs with product code runs the named journey and its importers', () => {
