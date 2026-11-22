@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import type { AgentsRouterDeps } from '../router.js';
 import type { RunRouteKit } from './routes.js';
 import { executeProcedure } from '../procedures.js';

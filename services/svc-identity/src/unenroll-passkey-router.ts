@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import type { Sql } from 'postgres';
 import { UnenrollPasskeyError } from './auth/unenroll-passkey.js';
 import { assertMayRemoveFactor, factorActor, factorGateTrpcError } from './auth/factor-gate.js';

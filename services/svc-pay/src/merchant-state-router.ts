@@ -1,14 +1,12 @@
 import { z } from 'zod';
 import {
-  router,
-  protectedProcedure,
-  TRPCError,
   accountControlInputSchema,
   accountControlResultSchema,
   accountControlLookupInputSchema,
   accountControlStateSchema,
   accountControlHistoryInputSchema,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/account-controls';
+import { router, protectedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { MerchantAccountControls, MerchantControlError } from './merchant-account-controls.js';
 import type { MerchantStateService } from './merchant-state-service.js';
 

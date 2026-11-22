@@ -18,7 +18,8 @@ import { NO_PAUSES, mirrorPausedReason, type PauseSnapshot } from './platform-pa
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount, type LedgerClient } from '@intafaced/ledger-client';
 import { requireScope, type Principal } from '@intafaced/auth';
-import { StepUpCheckError, type StepUpCheck } from '@intafaced/contracts';
+import type { StepUpCheck } from '@intafaced/contracts';
+import { StepUpCheckError } from '@intafaced/contracts/step-up-check';
 import type { AlgoQuotedMark } from '../algo/types.js';
 import {
   copyLimitPriceFromPlan,

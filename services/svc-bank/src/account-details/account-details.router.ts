@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, publicProcedure, scopedProcedure } from '@intafaced/contracts';
+import { router, publicProcedure, scopedProcedure } from '@intafaced/contracts/trpc';
 import type { BankServices } from '../bank-service.js';
 import { ACCOUNT_DETAIL_REQUEST_STATES } from './account-details.js';
 import { profileField } from '../account-home/profile.js';

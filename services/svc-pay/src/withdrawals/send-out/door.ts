@@ -1,10 +1,7 @@
 import type { Sql } from 'postgres';
-import {
-  bankSendDestinationInputSchema,
-  type BankSendDestinationPort,
-  type BankSendDestinationState,
-  asAssetId,
-} from '@intafaced/contracts';
+import type { BankSendDestinationPort, BankSendDestinationState } from '@intafaced/contracts';
+import { asAssetId } from '@intafaced/contracts/asset-id';
+import { bankSendDestinationInputSchema } from '@intafaced/contracts/bank-send-destination';
 import { parseAmount, type Amount } from '@intafaced/ledger-client';
 import { PayError, type PayErrorCode } from '../../payment-service.js';
 import { WithdrawalQuoteError } from '../quotes/errors.js';

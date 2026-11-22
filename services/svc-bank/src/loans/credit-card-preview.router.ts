@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { router, scopedProcedure, TRPCError, previewRefusalSchema } from '@intafaced/contracts';
+import { previewRefusalSchema } from '@intafaced/contracts/preview-refusal';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { BANK_CREDIT_CARD_APPLICATION, BANK_CREDIT_CARD_PREVIEW } from '@intafaced/contracts/bank-credit-preview-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { previewRefusalOnly } from './loan-servicing-preview.js';

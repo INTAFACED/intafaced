@@ -1,6 +1,6 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import { createEdgeContext } from '@intafaced/contracts';
+import { createEdgeContext } from '@intafaced/contracts/edge';
 import { deskVsAgentSplit } from './desk-vs-agent-split.js';
 import { supportHealthHonesty, supportStoreHonesty } from './identity-grounding-honesty.js';
 import { describeSupportSettlement } from './settlement-refuse.js';

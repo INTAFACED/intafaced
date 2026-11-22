@@ -73,6 +73,7 @@ fn engine_on(journal: MemoryJournal, clock: Option<fn() -> i64>, enabled: bool) 
         snapshot_every: 0,
         sink: Box::new(MemorySnapshotSink::default()),
         enabled,
+        spread_fills: false,
     })
 }
 

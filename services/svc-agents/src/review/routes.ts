@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import type { Sql } from 'postgres';
 import type { AgentRuntime } from '../runtime.js';
 import { toActionOutput } from '../router.js';

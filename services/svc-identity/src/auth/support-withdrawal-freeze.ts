@@ -15,19 +15,21 @@
 import type { Queryable } from '@intafaced/db';
 import type { FastifyInstance } from 'fastify';
 import type { Sql } from 'postgres';
+import type {
+  ServiceBodyBindMode,
+  SupportWithdrawalFreezeInput,
+  SupportWithdrawalFreezeRecordsInput,
+  SupportWithdrawalFreezeRecordsResult,
+  SupportWithdrawalFreezeResult,
+} from '@intafaced/contracts';
+import { retainRawBody } from '@intafaced/contracts/raw-body';
 import {
-  retainRawBody,
   SUPPORT_WITHDRAWAL_FREEZE_CALLERS,
   SUPPORT_WITHDRAWAL_FREEZE_PATH,
   SUPPORT_WITHDRAWAL_FREEZE_RECORDS_PATH,
   supportWithdrawalFreezeInputSchema,
   supportWithdrawalFreezeRecordsInputSchema,
-  type ServiceBodyBindMode,
-  type SupportWithdrawalFreezeInput,
-  type SupportWithdrawalFreezeRecordsInput,
-  type SupportWithdrawalFreezeRecordsResult,
-  type SupportWithdrawalFreezeResult,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/support-withdrawal-freeze';
 import { SecurityLockError, type SecurityLock } from './security-lock.js';
 import { serviceOfRequest, type IdentityS2s } from '../s2s-door.js';
 

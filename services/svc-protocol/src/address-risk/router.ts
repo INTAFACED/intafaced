@@ -1,4 +1,4 @@
-import { router, TRPCError } from '@intafaced/contracts';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import {
   PROTOCOL_ADDRESS_REPORTS_SUBMIT,
   PROTOCOL_ADDRESS_RISK_READ,

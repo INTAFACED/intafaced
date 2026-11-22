@@ -27,6 +27,7 @@ import {
 import { chainOf, procedures } from './router.mjs';
 import { closureOf, contractsExports, usedOutside } from './closure.mjs';
 import { doorOf } from './door.mjs';
+import { partsFor } from './guard-check.mjs';
 import { findSites } from './sites.mjs';
 
 const REPO = resolve(new URL('../../..', import.meta.url).pathname);
@@ -89,8 +90,8 @@ function refusalReaders(serviceDir) {
   return out;
 }
 /** A record naming its service's own check (`check:`) is mounted with the parts that hand it over, in its router's file. */
-function readerFor(readers, file, access = '') {
-  if (/\bcheck: '/.test(access)) return readers.find((r) => r.parts && r.file === file);
+function readerFor(readers, file, guard = undefined) {
+  if (/\bcheck: '/.test(guard?.text ?? '')) return partsFor(readers, file, guard, () => readerFor(readers, file));
   return (
     readers.find((r) => !r.parts && r.file === file) ??
     readers
@@ -184,7 +185,7 @@ function plan(opts) {
       continue;
     }
     const chain = chainOf(proc);
-    let reader = door ? undefined : readerFor(readers, proc.p.file, chain.guard?.text);
+    let reader = door ? undefined : readerFor(readers, proc.p.file, chain.guard);
     if (door) {
       // The door is the wire: its kind and access stand for the router's, which only checks them against it; a guard
       // the router writes its own way is the door's access all the same.
@@ -206,7 +207,7 @@ function plan(opts) {
       const why =
         chain.problems.join('; ') ||
         (/\bcheck: '/.test(chain.guard?.text ?? '')
-          ? `${path} names its service's own check, but its router's file declares no \`: ServiceParts\` to mount it with`
+          ? `${path} names its service's own check, but its router's file declares no \`: ServiceParts\` and the check is not exported to mount it with`
           : `${opts.service} has no refusal reader this file can import (no exported \`: RefusalOf\`)`);
       for (const s of list) hand.push({ site: s, why });
       continue;
@@ -394,7 +395,8 @@ function build(opts, planned) {
       changes.edit(p.file, node.start, node.end, `mountRecord(${r.name}, ${text(p, r.chain.handler)}, ${reader.name})`);
       changes.imp(p.file, contractsSpec(file), r.name);
       changes.imp(p.file, '@intafaced/contracts/procedure-mount', 'mountRecord');
-      if (reader.file !== p.file) changes.imp(p.file, relImport(p.file, reader.file), reader.name);
+      for (const i of reader.imports ?? [{ file: reader.file, name: reader.name }])
+        if (i.file !== p.file) changes.imp(p.file, relImport(p.file, i.file), i.name);
       for (const s of r.sites) rewriteSite(changes, s, r.name, contractsSpec(file), !r.chain.input);
       done.push(r);
     }
