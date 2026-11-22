@@ -16,5 +16,3 @@ export interface Feature {
 }
 
 export const FEATURES: Feature[];
-export const PHASE_ORDER: string[];
-export const PHASE_NAMES: Record<string, string>;
