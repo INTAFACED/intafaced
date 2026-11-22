@@ -96,7 +96,7 @@ export function wrapperSenders(sites) {
  * The sites the rule does not count: a tool's caller that names its call bare (`query('x.y', ...)` taken from the portal's
  * tools, `validatedMutation(pay, 'x.y', ...)`; tool-forms.mjs). The rule counts the tool's own sender, its caller none.
  */
-export const toolCallers = (sites) => [...sites].filter((s) => toolShape(s)).length;
+const toolCallers = (sites) => [...sites].filter((s) => toolShape(s)).length;
 
 /** The commit that deleted services/<service>: its parent holds the router a door's records are read from. */
 const deletedAt = (service) => git('log', '--diff-filter=D', '-1', '--format=%H', '--', `services/${service}/src/router.ts`).trim();

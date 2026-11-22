@@ -25,7 +25,7 @@ const PAY = {
   list: { form: 'listRecord', module: 'pay', kind: 'query', path: 0, input: 2, item: 1, args: [3, 4] },
 };
 /** Each tools type, the file that declares it, and the tools it hands out by name. */
-export const TOOLS = {
+const TOOLS = {
   PortalTools: { home: /\/apps\/customer\/src\/features\/pay\/portal\/api-tools\.ts$/, tools: PAY },
   SettingsBTools: {
     home: /\/apps\/customer\/src\/features\/pay\/portal\/settings\/b-client\.ts$/,
@@ -37,7 +37,7 @@ export const TOOLS = {
   },
 };
 /** Each helper imported by name, the file that declares it, and where its call name, input and answer schema are. */
-export const IMPORTED = {
+const IMPORTED = {
   validatedMutation: {
     home: /\/apps\/customer\/src\/features\/pay\/BusinessPay\.tsx$/,
     form: 'validatedRecordMutation',

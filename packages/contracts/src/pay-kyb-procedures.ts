@@ -192,7 +192,7 @@ export const PAY_KYB_DOCUMENTS_UPLOAD = defineProcedure({
   samples: [
     {
       verdict: 'accept',
-      input: { applicationId: '11111111-1111-4111-8111-111111111111', key: 'abc', contentType: 'USDC', bytesBase64: 'USDC' },
+      input: { applicationId: '11111111-1111-4111-8111-111111111111', contentType: 'USDC', bytesBase64: 'USDC', key: 'sample' },
     },
     { verdict: 'refuse', input: 42 },
   ],
