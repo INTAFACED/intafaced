@@ -195,6 +195,10 @@
   .lt-grid-reading-toc {
     grid-template-columns: 13.75rem minmax(0, 45rem);
   }
+  /* A page with no contents list: the article takes the reading column alone, not the contents list's column. */
+  .lt-grid-reading-toc:not(:has(> [data-region='toc'])) {
+    grid-template-columns: minmax(0, 45rem);
+  }
   .lt-grid-reading-toc > [data-region='toc'] {
     position: sticky;
     inset-block-start: calc(var(--lit-topbar-h) + var(--lit-gap-section));
