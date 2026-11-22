@@ -1,4 +1,4 @@
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { Panel } from '../../shared/ui';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import {

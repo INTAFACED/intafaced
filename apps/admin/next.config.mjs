@@ -16,6 +16,14 @@ const here = dirname(fileURLToPath(import.meta.url));
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  // The build script checks types first, with the repo's one checker (tooling/scripts/tsc.mjs, on this tsconfig and the
+  // route types `next typegen` writes, the files Next's own check reads). Next's check would repeat it with TypeScript
+  // 7.0's tsc beside Turbopack: 1.63 to 1.76 GB against 0.62 GB on a shared machine. On CI tsc.mjs runs that same tsc.
+  typescript: { ignoreBuildErrors: true },
+  // One worker collects the routes' page data and renders the one static page. Next's default is a worker per core less
+  // one: 15 on a 16-core machine, each loading the app, 2.7 GB together beside Turbopack's 2.2 GB, for the same wall
+  // time (81 s with 15, 83 s with 1, back to back). Turbopack's own compile threads are not these workers.
+  experimental: { cpus: 1 },
   // pnpm workspace: trace from the repo root so the symlinked @intafaced/*
   // packages are resolved from packages/ rather than guessed at.
   outputFileTracingRoot: join(here, '..', '..'),

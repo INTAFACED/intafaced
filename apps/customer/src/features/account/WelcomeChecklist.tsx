@@ -1,16 +1,12 @@
 import { useMemo, useState } from 'react';
-import {
-  welcomeChecklistSchema,
-  welcomeClaimResultSchema,
-  type TaskEvent,
-  type WelcomeChecklist as Checklist,
-} from '@intafaced/contracts/campaigns-catalogue';
-import { useApi } from '../session/session';
+import { type TaskEvent, type WelcomeChecklist as Checklist } from '@intafaced/contracts/campaigns-catalogue';
+import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
 import { Button, DataTable, EmptyState, Failure, Loading, Panel } from '../../shared/ui';
 import { welcomeChecklistCopy } from './welcome-checklist-copy';
 import { timeLeft } from './time-left';
+import { CAMPAIGNS_TASKS_WELCOME_LIST, CAMPAIGNS_TASKS_WELCOME_CLAIM } from '@intafaced/contracts/campaigns-tasks-procedures';
 
 /**
  * The welcome checklist on /uc/promotion (CM-rewards-hub-03, J-campaigns-04): the account's
@@ -63,15 +59,12 @@ function useFormat() {
 export function WelcomeChecklist() {
   const api = useApi();
   const { t } = welcomeChecklistCopy.useCopy();
-  const list = useResource(
-    (signal) => api.query('campaigns', 'tasks.welcome.list', {}, welcomeChecklistSchema, { signal }),
-    'welcome-checklist',
-  );
+  const list = useResource((signal) => api.call(CAMPAIGNS_TASKS_WELCOME_LIST, {}, { signal }), 'welcome-checklist');
   const [refusal, setRefusal] = useState<{ event: TaskEvent; result: Failed } | null>(null);
   const [busy, setBusy] = useState<TaskEvent | null>(null);
   const claim = async (event: TaskEvent) => {
     setBusy(event);
-    const result = await api.mutate('campaigns', 'tasks.welcome.claim', { event }, welcomeClaimResultSchema);
+    const result = await api.call(CAMPAIGNS_TASKS_WELCOME_CLAIM, { event });
     setBusy(null);
     setRefusal(result.ok ? null : { event, result });
     list.reload();
@@ -162,7 +155,11 @@ function Tasks({
                     : task.record
                       ? task.record.state === 'posted' && task.record.postedAt
                         ? t('record_posted', { when: when(task.record.postedAt) })
-                        : t('record_open', { state: task.record.state })
+                        : task.record.state === 'paid' && task.record.payout
+                          ? t('record_paid', { wallet: task.record.payout.toWallet, when: when(task.record.payout.at) })
+                          : task.record.state === 'owed' && task.record.owed
+                            ? t('record_owed', { when: when(task.record.owed.at) })
+                            : t('record_open', { state: task.record.state })
                       : task.doneAt
                         ? t('doneAt', { when: when(task.doneAt) })
                         : t(`openWhy_${key(task.event)}`)}
@@ -179,7 +176,23 @@ function Tasks({
                           : null}
                   </span>
                 ) : null}
-                {task.record?.ledgerTxId ? (
+                {/* A paid reward's chain transaction, in the app's explorer: it left our wallet for theirs, never a balance. */}
+                {task.record?.payout ? (
+                  <>
+                    {' '}
+                    <a
+                      className="text-link"
+                      data-testid="welcome-chain-tx"
+                      data-tx={task.record.payout.chainTx}
+                      href={`/chain/tx/${encodeURIComponent(task.record.payout.chainTx)}`}
+                      lang="zxx"
+                    >
+                      {t('chainTxLink', { tx: task.record.payout.chainTx })}
+                    </a>
+                  </>
+                ) : null}
+                {/* A posted reward's transaction is in the customer's own activity; a paid one's booking is ours, not theirs. */}
+                {task.record?.ledgerTxId && task.record.state !== 'paid' ? (
                   <>
                     {' '}
                     <a

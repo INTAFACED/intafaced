@@ -1,8 +1,5 @@
 import { z } from 'zod';
 import {
-  router,
-  scopedProcedure,
-  anyScopeProcedure,
   merchantControlGetInputSchema,
   merchantControlProfileSchema,
   merchantControlApprovalListInputSchema,
@@ -19,24 +16,18 @@ import {
   merchantLimitWithdrawInputSchema,
   merchantLimitWithdrawResultSchema,
   payoutApprovalSchema,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/merchant-control';
+import { router, scopedProcedure, anyScopeProcedure } from '@intafaced/contracts/trpc';
 import type { Principal } from '@intafaced/auth';
 import { ControlError } from '../control/errors.js';
 import type { ControlService } from '../control/service.js';
 import { isInteractivePrincipal, type MerchantRole } from '../merchant-ops/roles.js';
 import { toContractApproval } from '../control/approvals.js';
-import {
-  approvalCancelInputSchema,
-  approvalRequestInputSchema,
-  pricingPreviewInputSchema,
-  pricingQuoteSchema,
-  usageInputSchema,
-  usageViewSchema,
-} from '../control/schemas.js';
+import { approvalCancelInputSchema, approvalRequestInputSchema, pricingPreviewInputSchema, usageInputSchema } from '../control/schemas.js';
 import { guarded } from './control-errors.js';
 import { teamMemberWrite } from '../team-member-write.js';
 import { notBuilt } from './errors.js';
-import { merchantReserveViewSchema } from '../merchant-pay-dev-out/reserve-read.js';
+import { merchantReserveViewSchema, payControlUsageSchema, payPricingQuoteSchema } from '@intafaced/contracts/merchant-control';
 import { refuseTopUpUnwired } from '../merchant-pay-dev-out/top-up.js';
 import { ownMerchantRead } from '../own-merchant-read.js';
 import { projectTierList } from '../team-read-projection.js';
@@ -157,7 +148,7 @@ export function createMerchantControlRouter(control?: ControlService) {
       }),
       usage: read
         .input(usageInputSchema)
-        .output(usageViewSchema)
+        .output(payControlUsageSchema)
         .query(({ ctx, input }) =>
           guarded(async () => {
             await control.assertCanView(principalOf(ctx), input.merchantId);
@@ -180,7 +171,7 @@ export function createMerchantControlRouter(control?: ControlService) {
       pricing: router({
         preview: read
           .input(pricingPreviewInputSchema)
-          .output(pricingQuoteSchema)
+          .output(payPricingQuoteSchema)
           .query(({ ctx, input }) =>
             guarded(async () => {
               await control.assertCanView(principalOf(ctx), input.merchantId);

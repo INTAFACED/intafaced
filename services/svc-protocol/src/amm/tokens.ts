@@ -1,4 +1,13 @@
 import { formatUnits, parseUnits, type Address, type Hex } from 'viem';
+import type {
+  TokenBasics,
+  TokenListRow,
+  TokenPageData,
+  TokensBrief,
+  TokensLeaderboard,
+  TokensList,
+  TokenWindowId,
+} from '@intafaced/contracts';
 import {
   ORGANIC_SCORE_UNSET,
   TOKEN_WINDOW_SECONDS,
@@ -9,14 +18,7 @@ import {
   TOKEN_NOT_LISTED,
   TOKEN_UNSUPPORTED,
   TRUST_CRITERIA_UNSET,
-  type TokenBasics,
-  type TokenListRow,
-  type TokenPageData,
-  type TokensBrief,
-  type TokensLeaderboard,
-  type TokensList,
-  type TokenWindowId,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/protocol-tokens';
 
 /**
  * The token pages, worked out from the pool factory's own pools and their logs (D-portfolio-wallet-06, -07,

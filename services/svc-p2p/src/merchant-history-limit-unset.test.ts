@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { P2P_MERCHANTS_HISTORY } from '@intafaced/contracts/p2p-procedures';
 import { P2pError } from './p2p-service.js';
 import { MerchantService, assertMerchantHistoryLimit } from './merchant-service.js';
 import { P2P_COPY, resolveP2pCopy } from './user-copy.js';
@@ -62,7 +63,10 @@ describe('merchants.history limit unset refuse', () => {
     expect(call).toBeGreaterThan(-1);
     const fn = src.slice(Math.max(0, call - 900), call + 120);
     expect(fn).toContain('history(input.userId, input.limit)');
-    expect(fn).toContain('p2p.merchant_history_limit_unset');
+    // The record keeps the page size optional, so an omitted one reaches the service's named refusal, never a default.
+    const omitted = P2P_MERCHANTS_HISTORY.input.safeParse({ userId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' });
+    expect(omitted.success && omitted.data.limit).toBeUndefined();
+    expect(P2P_MERCHANTS_HISTORY.refusals['p2p.merchant_history_limit_unset']).toBe('PRECONDITION_FAILED');
     expect(fn).not.toMatch(/input\.limit \?\? 50/);
     expect(fn).not.toMatch(/\?\? 50/);
     expect(fn).not.toMatch(/\?\? 100/);

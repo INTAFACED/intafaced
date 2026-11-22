@@ -6,7 +6,21 @@ vi.mock('../../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 const session = { userId: null as string | null };
-vi.mock('../../session/session', () => ({ useSession: () => session, useApi: () => ({ query: () => new Promise(() => undefined) }) }));
+vi.mock('../../session/session', () => ({
+  useSession: () => session,
+  useApi: () => ({
+    query: () => new Promise(() => undefined),
+    call(
+      this: { query: (...args: never[]) => unknown },
+      record: { kind: string; module: string; path: string; output: unknown },
+      input?: unknown,
+      opts?: unknown,
+    ) {
+      if (record.kind !== 'query') throw new TypeError('this API double has no mutate');
+      return Reflect.apply(this.query, this, [record.module, record.path, input, record.output, opts]);
+    },
+  }),
+}));
 const answers: Record<string, unknown> = {};
 vi.mock('../../../shared/resource', () => ({
   useResource: (_load: unknown, key: string) => ({ resource: answers[key] ?? { status: 'loading' }, reload: () => undefined }),

@@ -212,7 +212,7 @@ export function l4(marketId: MarketId): L4Result {
 
 export function installL3Queue(ctor: typeof MatchingEngine = MatchingEngine): void {
   const proto = ctor.prototype as {
-    existingBook(marketId: MarketId): BookView | null;
+    existingBook: MatchingEngine['existingBook'];
     l3Queue?: (marketId: MarketId) => L3Queue;
     l2Depth?: (marketId: MarketId, n?: number | null) => L2Depth;
     queueProbability?: (input: QueueProbabilityInput) => QueueProbabilityResult;

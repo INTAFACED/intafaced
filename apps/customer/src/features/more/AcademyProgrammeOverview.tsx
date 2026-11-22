@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import type { Resource } from '../../shared/resource';
 import { Loading, Panel } from '../../shared/ui';
@@ -27,15 +27,16 @@ import {
   settleByReading,
 } from './academy-flows';
 import { useAcademyTracking } from './academy-tracking';
+import { ACADEMY_ENROLL_CERT_PATH } from '@intafaced/contracts/academy-learner-procedures';
 import { AcademyRefusal, GuardedButton, pathLabel } from './AcademyLmsParts';
 import { usePreferences } from '../../shared/preferences';
+import { ACADEMY_RESIDENCY_PAY_QUOTE } from '@intafaced/contracts/academy-residency-pay-quote-procedures';
 
 const badge = z.object({
   userId: z.string().guid(),
   isAmbassador: z.boolean(),
   status: z.enum(['active', 'frozen']).nullable(),
 });
-const payQuote = z.object({ status: z.literal('refuse'), payable: z.literal(false), message: z.string(), code: z.string() });
 
 /** Programme depth from real answers: path enrolment, prerequisites, grants, ambassador status and residency pay state. */
 export function AcademyProgrammeOverview({ action }: { action: ProgrammeAction }) {
@@ -134,7 +135,11 @@ function PathProgrammes({ lessons, action }: { lessons: readonly LessonSummary[]
       ),
       run: async (canDispatch) => {
         if (!canDispatch()) return changed();
-        const sent = await api.mutate('academy', 'enrollCertPath', { pathSlug: path }, enrolReceipt(userId, path));
+        const sent = await api.call(
+          ACADEMY_ENROLL_CERT_PATH,
+          { pathSlug: path },
+          { accept: (r) => enrolReceipt(userId, path).safeParse(r).success },
+        );
         const settled = await settleByReading(
           sent,
           () => readEnrolments(api, userId),
@@ -360,10 +365,7 @@ function AmbassadorStatus() {
         : Promise.resolve({ ok: true as const, data: null }),
     `ambassador:${userId}`,
   );
-  const pay = useResource(
-    (signal) => api.query('academy', 'residencyPayQuote', undefined, payQuote, { signal }),
-    `residency-pay:${userId}`,
-  );
+  const pay = useResource((signal) => api.call(ACADEMY_RESIDENCY_PAY_QUOTE, undefined, { signal }), `residency-pay:${userId}`);
   return (
     <Panel title={t('ambassadorTitle')}>
       <div className="academy-lms-stack">

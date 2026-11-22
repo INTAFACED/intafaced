@@ -7,7 +7,7 @@ import { TradeError } from '../spot/types.js';
 import { attachAlgoRestRoutes, type AlgoRestPort } from './algo-rest.js';
 import type { TwapParent } from './types.js';
 
-const OWNER = { userId: '11111111-1111-4111-8111-111111111111', sid: 's-1', scopes: ['trade:read', 'trade:write'] } as unknown as Principal;
+const OWNER = { userId: '11111111-1111-4111-8111-111111111111', sid: 's-1', scopes: ['trade:read', 'trade:write'] } as Principal;
 const T0 = new Date('2026-10-31T00:00:00Z');
 
 function parent(over: Partial<TwapParent> = {}): TwapParent {
@@ -35,7 +35,7 @@ function parent(over: Partial<TwapParent> = {}): TwapParent {
     triggerPrice: null,
     triggeredAt: null,
     ...over,
-  } as unknown as TwapParent;
+  } as TwapParent;
 }
 
 /** An algo port that records each call and answers what the test sets. */
@@ -174,7 +174,7 @@ describe('the algo order public API (CB-execution-08, J-copy-bots-otc-19 #7)', (
 
   it('a key without trade:write is refused scope.denied, and a write from a region that may not trade is refused, with no engine call', async () => {
     const { algo, calls } = fakeAlgo();
-    await mount(algo, { principal: { ...OWNER, scopes: ['trade:read'] } as unknown as Principal });
+    await mount(algo, { principal: { ...OWNER, scopes: ['trade:read'] } as Principal });
     const write = await app.inject({ method: 'POST', url: '/api/v1/algo', payload: TWAP });
     expect(write.statusCode).toBe(403);
     expect(write.json()).toMatchObject({ code: 'PermissionDenied', intafacedCode: 'scope.denied' });

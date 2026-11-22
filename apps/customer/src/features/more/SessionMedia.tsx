@@ -1,9 +1,9 @@
 import { t as copyText, Text } from './copy';
 import { useEffect, useRef, useState } from 'react';
-import { z } from 'zod';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { Button, Failure } from '../../shared/ui';
 import type { ApiResult } from '../../shared/api';
+import { ACADEMY_STREAM_CREDENTIAL } from '@intafaced/contracts/academy-stream-credential-procedures';
 type MediaTrack = { kind: string; attach: () => HTMLMediaElement; detach: () => HTMLMediaElement[] };
 type LocalParticipant = {
   permissions?: { canPublish?: boolean };
@@ -56,7 +56,6 @@ function track(value: unknown): MediaTrack | null {
   const t = value as Partial<MediaTrack>;
   return typeof t.kind === 'string' && typeof t.attach === 'function' && typeof t.detach === 'function' ? (t as MediaTrack) : null;
 }
-const credential = z.object({ url: z.string().url(), token: z.string().min(1), expiresAt: z.string().datetime({ offset: true }) });
 export function SessionMedia({ sessionId, sessionStatus }: { sessionId: string; sessionStatus: string }) {
   const api = useApi(),
     { userId } = useSession(),
@@ -94,7 +93,7 @@ export function SessionMedia({ sessionId, sessionStatus }: { sessionId: string; 
       run = ++generation.current;
     setFailure(null);
     setPhase('credentials');
-    const res = await api.mutate('academy', 'streamCredential', { sessionId }, credential);
+    const res = await api.call(ACADEMY_STREAM_CREDENTIAL, { sessionId });
     if (run !== generation.current || actor.current !== actorId) return;
     if (!res.ok) {
       setFailure(res);

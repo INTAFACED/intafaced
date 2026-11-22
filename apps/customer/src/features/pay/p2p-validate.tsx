@@ -4,7 +4,7 @@ import { useResource } from '../../shared/resource';
 import { PayFailure } from './components';
 import { Button } from '@intafaced/ui';
 import { formatDateTime } from './portal/ui/format';
-import { StepUpConfirm } from '../money/StepUpConfirm';
+import { StepUpConfirm } from '../money';
 import type { PersonalPayApi } from './pay-api';
 import { releaseCopy } from './p2p-release-copy';
 import { validateCopy } from './p2p-validate-copy';

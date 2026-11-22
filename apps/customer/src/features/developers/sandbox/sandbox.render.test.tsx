@@ -19,16 +19,20 @@ const unsetBalance = {
   resetsPerDay: null,
   resetsToday: 0,
 };
-const world = vi.hoisted(() => ({
-  userId: 'u1' as string | null,
-  list: undefined as unknown as () => Promise<unknown>,
-  get: undefined as unknown as () => Promise<unknown>,
-  create: undefined as unknown as (name: string) => Promise<unknown>,
-  createKey: undefined as unknown as (asked: unknown) => Promise<unknown>,
-  fund: undefined as unknown as (read: unknown) => Promise<unknown>,
-  reset: undefined as unknown as (read: unknown) => Promise<unknown>,
-  balance: undefined as unknown as () => Promise<unknown>,
-}));
+const world = vi.hoisted(() => {
+  // Each test sets the calls it reads; one it forgot refuses loudly instead of answering.
+  const unset = (): Promise<unknown> => Promise.reject(new Error('this test did not set the call'));
+  return {
+    userId: 'u1' as string | null,
+    list: unset as () => Promise<unknown>,
+    get: unset as () => Promise<unknown>,
+    create: unset as (name: string) => Promise<unknown>,
+    createKey: unset as (asked: unknown) => Promise<unknown>,
+    fund: unset as (read: unknown) => Promise<unknown>,
+    reset: unset as (read: unknown) => Promise<unknown>,
+    balance: unset as () => Promise<unknown>,
+  };
+});
 vi.mock('../../session/session', () => ({ useSession: () => ({ userId: world.userId, api: {} }) }));
 vi.mock('./sandbox-api', async (original) => {
   const real = await original<typeof import('./sandbox-api')>();

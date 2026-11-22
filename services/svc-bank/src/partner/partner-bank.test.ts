@@ -18,7 +18,8 @@ import {
   reportedAmount,
   type PartnerAccountRef,
 } from './partner-bank.js';
-import { TEST_PARTNER_LABEL, TEST_PARTNER_STALE_AFTER_MS, testPartner, testPartnerCustody } from './test-partner.js';
+import { TEST_PARTNER_STALE_AFTER_MS, testPartner, testPartnerCustody } from './test-partner.js';
+import { TEST_PARTNER_LABEL } from './test-partner-book.js';
 import { stopGuardedCustody } from './partner-stops.js';
 
 const ADA = 'ada-0001';
@@ -284,7 +285,7 @@ describe('the custody switch as svc-bank reads it', () => {
 });
 
 describe("ledgerPostingFreeze: svc-ledger's /health as svc-bank reads it", () => {
-  const answer = (status: number, body: unknown) => (async () => new Response(JSON.stringify(body), { status })) as unknown as typeof fetch;
+  const answer = (status: number, body: unknown) => (async () => new Response(JSON.stringify(body), { status })) as typeof fetch;
   it('reads posting enabled only from an exact postingEnabled: true', async () => {
     expect(await ledgerPostingFreeze('http://ledger.test', answer(200, { ok: true, postingEnabled: true })).postingEnabled()).toBe(true);
     expect(await ledgerPostingFreeze('http://ledger.test', answer(200, { ok: true, postingEnabled: false })).postingEnabled()).toBe(false);
@@ -298,8 +299,7 @@ describe("ledgerPostingFreeze: svc-ledger's /health as svc-bank reads it", () =>
 
 describe("svc-ledger's posting freeze, read with its cause (project-state #1790)", () => {
   const answering = (status: number, body: unknown) =>
-    (async () =>
-      new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch;
+    (async () => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })) as typeof fetch;
 
   it('reads posting enabled, and a freeze with the cause svc-ledger names', async () => {
     await expect(ledgerPostingFreeze('http://ledger', answering(200, { postingEnabled: true })).read!()).resolves.toEqual({

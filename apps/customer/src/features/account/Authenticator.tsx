@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
@@ -8,18 +8,21 @@ import { usePreferences } from '../../shared/preferences';
 import { authenticatorCopy as copy } from './authenticator-copy';
 import { CodesHelp } from './CodesHelp';
 import {
-  disabledAnswer,
   isProof,
   isSixDigits,
   replacedAnswer,
-  replaceStarted,
   stepUpBegun,
   stepUpBeginInput,
   stepUpDone,
   stepUpProof,
-  totpStatus,
   type StepUpScope,
 } from './authenticator-api';
+import {
+  IDENTITY_TOTP_MANAGE_STATUS,
+  IDENTITY_TOTP_MANAGE_REPLACE_START,
+  IDENTITY_TOTP_MANAGE_DISABLE,
+  IDENTITY_TOTP_MANAGE_RENAME,
+} from '@intafaced/contracts/identity-totp-manage-procedures';
 
 type Mode =
   | { kind: 'idle' }
@@ -62,9 +65,7 @@ export function Authenticator({ onChanged }: { onChanged?: (change?: { sessionsE
   }, []);
   const { resource, reload } = useResource(
     (signal) =>
-      userId
-        ? api.query('identity', 'totpManage.status', undefined, totpStatus, { signal })
-        : Promise.resolve({ ok: true as const, data: null }),
+      userId ? api.call(IDENTITY_TOTP_MANAGE_STATUS, undefined, { signal }) : Promise.resolve({ ok: true as const, data: null }),
     `authenticator:${userId}`,
   );
 
@@ -120,12 +121,10 @@ export function Authenticator({ onChanged }: { onChanged?: (change?: { sessionsE
         return;
       }
       // The confirmation just given lets a session that signed in without its second factor start the replace too.
-      const started = await api.mutate(
-        'identity',
-        'totpManage.replaceStart',
-        { clientRequestId: requestId, stepUpApprovalId: approved.data.stepUpApprovalId },
-        replaceStarted,
-      );
+      const started = await api.call(IDENTITY_TOTP_MANAGE_REPLACE_START, {
+        clientRequestId: requestId,
+        stepUpApprovalId: approved.data.stepUpApprovalId,
+      });
       if (fail(started)) return;
       if (mounted.current) setMode({ kind: 'replace', requestId, approvalId: approved.data.stepUpApprovalId, ...started.data });
     });
@@ -136,11 +135,9 @@ export function Authenticator({ onChanged }: { onChanged?: (change?: { sessionsE
     const proof = read(new FormData(event.currentTarget), 'next-code');
     if (!isProof(proof)) return setProblem('invalidProof');
     await run(async () => {
-      const answer = await api.mutate(
-        'identity',
-        'totpManage.disable',
+      const answer = await api.call(
+        IDENTITY_TOTP_MANAGE_DISABLE,
         { code: proof, clientRequestId: step.requestId, stepUpApprovalId: step.approvalId },
-        disabledAnswer,
         { keepSessionFor: ['auth.mfa_invalid'] },
       );
       // The service spends the approval before it checks the code, so any refusal needs a fresh confirmation.
@@ -195,7 +192,7 @@ export function Authenticator({ onChanged }: { onChanged?: (change?: { sessionsE
     event.preventDefault();
     const label = read(new FormData(event.currentTarget), 'label');
     await run(async () => {
-      const answer = await api.mutate('identity', 'totpManage.rename', { label }, totpStatus);
+      const answer = await api.call(IDENTITY_TOTP_MANAGE_RENAME, { label });
       if (fail(answer)) return;
       if (mounted.current) done(t('renamed'));
     });

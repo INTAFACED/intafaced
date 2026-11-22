@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { envScreeningList, SHIPPED_BUSINESS_BLOCKS } from '@intafaced/config';
-import { router, publicProcedure, scopedProcedure, TRPCError, forwardedPrincipalHeaders } from '@intafaced/contracts';
+import { forwardedPrincipalHeaders } from '@intafaced/contracts/edge';
+import { router, publicProcedure, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { executeProcedure } from './procedures.js';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
@@ -42,6 +43,7 @@ import { watchApprovalFixtures } from './merchant/watch.js';
 import { runMerchantWatchSession } from './merchant/session-run.js';
 import type { PayMetricsPort } from './merchant/pay-metrics-port.js';
 import type { SpotTickersPort } from './scanner/spot-tickers-port.js';
+import type { ResearchEnvironment } from '@intafaced/contracts/agents-research';
 import type { CopyLeaderFixturesPort } from './copy-intel/live-leader-fixtures-port.js';
 import { REFUSAL_CODES, serialiseGuardrail, toolRefusalCodes } from './fleet/guardrails.js';
 import { draftTicketComment } from './support-agent/comment-draft.js';
@@ -57,7 +59,13 @@ import { refuseIdentityKycReviewWrite } from './risk-compliance/kyc-review-write
 import { envCoachGrounding, runCoachSession, type CoachGrounding } from './coach/grounded-session.js';
 import { describeCoachPolicy } from './coach/policy.js';
 import { coachRunRoutes } from './coach/router.js';
+// The session API's reads with an input each, kept beside the router and compared with it (session-reads.test.ts);
+// J-agents-12 #1 reads them from here, through the built router it already loads.
+export { isSessionRead, sessionReadInputs, type SessionReadIds } from './session-reads.js';
 import { runRoutes } from './runs/routes.js';
+import { backgroundRunRoutes } from './runs/background-routes.js';
+import type { SessionRunSettings } from './runs/background.js';
+import { reviewRoutes } from './review/routes.js';
 import { sessionEventsRoute } from './runs/session-events.js';
 import type { RunStore } from './runs/store.js';
 import { NO_TIER_LAWS, type TierLaws } from './tier-laws.js';
@@ -71,14 +79,24 @@ import { listSessions } from './ops/ops-sessions.js';
 import { engineForTasks, engineOfAdapter, resolveRoute, routeIsMetered, type RouteDef, type RouteEngine } from './gateway/routing.js';
 import { spendRouter } from './spend/routes.js';
 import { OWN_RUN_TASK, ownRouter } from './own/routes.js';
-import type { OwnTemplate } from './own/catalog.js';
+import { declaredToolShape, type OwnTemplate } from './own/catalog.js';
 import type { PolicyBaseline } from './own/guardrails.js';
+import type { OwnSelfFreezeRead } from './own/self-freeze.js';
 import type { TeamMembershipPort } from './team/membership.js';
 import { teamRouter } from './team/routes.js';
-import { opsLogRouter, parseReasons, type OpsLogSettings } from './oplog/routes.js';
+import { opsLogRouter, type OpsLogSettings } from './oplog/routes.js';
+import { alertsRouter } from './alerts/routes.js';
 import { fleetRouter, type FleetSettings } from './fleet/control.js';
+import { readRouteOverrides, routeDeskProcedures, type RouteChangeStore, type RouteTableSync } from './gateway/route-changes.js';
 import type { BackgroundSettings } from './own/background.js';
+import type { Cadence } from './own/automation.js';
 import type { LinkedWalletsPort } from './own/payment-method.js';
+import type { RetentionPeriods } from './own/memory.js';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { AGENTS_WEBHOOK_DELIVERIES, AGENTS_WEBHOOK_LIST, AGENTS_WEBHOOK_REGISTER } from '@intafaced/contracts/agents-webhooks-procedures';
+import { agentsRefusal } from './record-refusal.js';
+import { RunWebhookConflict, type RunWebhooks } from './webhooks/run-webhooks.js';
+import { WebhookUrlRefusal } from './webhooks/webhook-url-guard.js';
 
 /**
  * The internal tRPC surface (§1: "Fastify + tRPC (internal) / REST (public)").
@@ -307,13 +325,34 @@ async function guard<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 export interface AgentsRouterDeps {
+  /** The run webhooks (J-agents-12 #5); absent, every webhook call refuses `agents.webhooks_unwired`. */
+  readonly runWebhooks?: RunWebhooks | null;
   readonly runtime: AgentRuntime;
   /** The owner's values for the operator agent log. Absent, every value is blank and each read refuses its code. */
   readonly opsLog?: OpsLogSettings;
   /** The operator fleet registry's owner values (AG-registry-01). Absent is blank: the registry read refuses. */
   readonly fleet?: FleetSettings;
+  /**
+   * Founders' changes to the routing table (J-agents-20): the store and the sync that lays them over the configured
+   * table. Absent: the founders' route desk refuses `agents.capability_unavailable`; `routes.list` is unchanged.
+   */
+  readonly routeChanges?: { readonly store: RouteChangeStore; readonly sync: RouteTableSync };
   /** Background test runs of own agents (AG-control-02). Absent is blank: a new background run refuses. */
   readonly ownBackground?: BackgroundSettings;
+  /** The owner's cadence values for own agents' schedules (AG-sessions-02). Absent is blank: a new schedule refuses. */
+  readonly ownCadence?: Cadence;
+  /**
+   * Identity's read of the owner's own freeze (J-wallet-13), asked before every agent action and every change that gives
+   * an agent more. Absent, those refuse agents.identity.owner_freeze_unread: an unread freeze counts as frozen.
+   */
+  readonly selfFreeze?: OwnSelfFreezeRead | null;
+  /** Background runs of a person's sessions (AG-sessions-04, J-agents-06). Absent is blank: a new one refuses. */
+  readonly sessionRuns?: SessionRunSettings;
+  /**
+   * Research answers' provenance (RC-agents-09): the owner's uncertainty scale (null is blank: a research answer refuses
+   * agents.uncertainty_scale_unset) and where this deployment's market data is. Absent is blank.
+   */
+  readonly research?: { readonly scale: readonly string[] | null; readonly environment: ResearchEnvironment };
   /** Identity's list of a person's linked wallets, for an own agent's payment method (J-agents-02 #4). */
   readonly ownLinkedWallets?: LinkedWalletsPort | null;
   readonly gateway: ModelGateway;
@@ -370,6 +409,8 @@ export interface AgentsRouterDeps {
   readonly ownAssistantModel?: string | null;
   /** Owner value: how long an own agent's held call waits for the person, in seconds (AG-approvals-01). Blank refuses holding. */
   readonly ownApprovalTtlSeconds?: number | null;
+  /** The owner's retention periods in days (AG-guardrails-04); a kind left out is "not set". */
+  readonly ownRetention?: RetentionPeriods;
   /** AGENTS_REVIEWER_MODEL: the automatic reviewer's model (AG-approvals-02); blank sends every call to the person. */
   readonly ownReviewerModel?: string | null;
   /**
@@ -397,16 +438,21 @@ export interface AgentsRouterDeps {
  * or a service forwarding their principal does not make it, even with `agents:read`.
  */
 function personReadProcedure() {
-  return scopedProcedure('agents:read', { module: 'agents', person: true }).use(({ ctx, next }) => {
-    if (ctx.principal.kid || ctx.principal.sub_account) {
-      throw new TRPCError({ code: 'FORBIDDEN', message: 'agents.select_person_only' });
-    }
-    return next();
-  });
+  return scopedProcedure('agents:read', { module: 'agents', person: true, ownSession: 'agents.select_person_only' });
 }
 
-/** The `agents:execute` builder, for route modules mounted below. */
-export type ExecuteProcedure = typeof executeProcedure;
+/** One run webhook call: unwired refuses by name, and each refusal leaves as its typed code. */
+async function webhookCall<T>(deps: AgentsRouterDeps, fn: (hooks: RunWebhooks) => Promise<T>): Promise<T> {
+  const hooks = deps.runWebhooks;
+  if (!hooks) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'agents.webhooks_unwired' });
+  try {
+    return await fn(hooks);
+  } catch (err) {
+    if (err instanceof WebhookUrlRefusal) throw new TRPCError({ code: 'BAD_REQUEST', message: err.code, cause: err });
+    if (err instanceof RunWebhookConflict) throw new TRPCError({ code: 'CONFLICT', message: err.code, cause: err });
+    throw err;
+  }
+}
 
 export function createAgentsRouter(deps: AgentsRouterDeps) {
   const {
@@ -478,6 +524,8 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
     requireSettleService(ctx.service);
     return next({ ctx });
   });
+
+  const review = reviewRoutes(deps, { guard, ownedSession });
 
   return router({
     health: publicProcedure.output(z.object({ ok: z.literal(true), service: z.string() })).query(() => ({
@@ -590,6 +638,16 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
             };
           }),
         ),
+      // The founders' desk over the same table: provider and model aliases, and changes made by two founders (J-agents-20).
+      ...routeDeskProcedures({
+        sql,
+        gateway,
+        store: deps.routeChanges?.store,
+        sync: deps.routeChanges?.sync,
+        feeAssetId,
+        routeEngine,
+        overrides: readRouteOverrides,
+      }),
     }),
 
     agent: router({
@@ -611,6 +669,8 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
                   maxCallsPerSession: z.number().int().nullable(),
                   /** Every refusal the runtime can return for this tool under this guardrail, in check order. */
                   refusals: z.array(z.enum(REFUSAL_CODES)),
+                  /** The tool's declared input and output (own/catalog.ts `declaredToolShape`); null when it declares none. */
+                  shape: z.object({ input: z.record(z.string(), z.string()), output: z.record(z.string(), z.string()) }).nullable(),
                 }),
               ),
               /** The permission mode the agent runs under; null when the guardrail names none, which refuses live writes. */
@@ -664,6 +724,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
                 requiresApproval: t.requiresApproval,
                 maxCallsPerSession: t.maxCallsPerSession ?? null,
                 refusals: toolRefusalCodes(guardrail, t),
+                shape: declaredToolShape(t.name),
               })),
               capacityMode: guardrail.capacityMode ?? null,
               limits: {
@@ -761,6 +822,12 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
                 state: z.enum(['open', 'unpaid', 'settled']),
                 amount: z.string().nullable(),
                 chargeKey: z.string().nullable(),
+                /**
+                 * How a settled window was paid: `ledger` (the custodial fee charge), or `partner` with the partner's own
+                 * name and payment id (earned as owed, then collected from the person's payment method). Null until paid.
+                 */
+                paidBy: z.enum(['ledger', 'partner']).nullable(),
+                payment: z.object({ ref: z.string(), label: z.string() }).nullable(),
               }),
             ),
             /**
@@ -788,9 +855,12 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
                 charged_amount: string | null;
                 charge_key: string | null;
                 charge_tx_id: string | null;
+                paid_by: 'ledger' | 'partner' | null;
+                payment_ref: string | null;
+                payment_label: string | null;
               }>
             >`
-              SELECT window_id, opened_at, sealed_at, charged_amount::text, charge_key, charge_tx_id
+              SELECT window_id, opened_at, sealed_at, charged_amount::text, charge_key, charge_tx_id, paid_by, payment_ref, payment_label
                 FROM agents.usage_windows
                WHERE session_id = ${session.id}
                ORDER BY opened_at, window_id
@@ -820,6 +890,12 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
                 state: row.sealed_at === null ? ('open' as const) : row.charge_tx_id ? ('settled' as const) : ('unpaid' as const),
                 amount: row.charged_amount === null ? null : formatAmount(parseAmount(row.charged_amount)),
                 chargeKey: row.charge_key,
+                // A window paid before `paid_by` was kept was a ledger fee charge: that was the only path.
+                paidBy:
+                  row.charge_tx_id && row.sealed_at !== null && row.charged_amount !== null && parseAmount(row.charged_amount) > 0n
+                    ? (row.paid_by ?? 'ledger')
+                    : null,
+                payment: row.paid_by === 'partner' && row.payment_ref ? { ref: row.payment_ref, label: row.payment_label ?? '' } : null,
               })),
               runs: runs.map((run) => ({
                 requestId: run.request_id,
@@ -927,9 +1003,38 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
       events: sessionEventsRoute(deps, { guard, ownedSession }),
     }),
 
-    run: router(runRoutes(deps, { guard, executeProcedure, ownedSession })),
+    /** Webhooks for the runs a person started in their own session, registered and read with their key (J-agents-12 #5). */
+    webhook: router({
+      register: mountRecord(
+        AGENTS_WEBHOOK_REGISTER,
+        ({ ctx, input }) => webhookCall(deps, (hooks) => hooks.register(ctx.principal.userId, input)),
+        agentsRefusal,
+      ),
+      list: mountRecord(
+        AGENTS_WEBHOOK_LIST,
+        ({ ctx, input }) => webhookCall(deps, (hooks) => hooks.list(ctx.principal.userId, input.limit)),
+        agentsRefusal,
+      ),
+      deliveries: mountRecord(
+        AGENTS_WEBHOOK_DELIVERIES,
+        ({ ctx, input }) => webhookCall(deps, (hooks) => hooks.deliveries(ctx.principal.userId, input)),
+        agentsRefusal,
+      ),
+    }),
+
+    run: router({
+      ...runRoutes(deps, { guard, ownedSession }),
+      background: router(backgroundRunRoutes(deps, { guard, ownedSession })),
+      trace: review.runTrace,
+    }),
+
+    /** What my agents did over a range of days (AG-analytics-01). */
+    analytics: router({ summary: review.analyticsSummary }),
 
     usage: router({
+      /** Usage by agent, user and task from sealed windows (AG-usage-02). Bills nothing. */
+      summary: review.usageSummary,
+
       /** What the current window would cost if it settled now. Bills nothing. */
       current: scopedProcedure('agents:read', { module: 'agents' })
         .input(z.object({ sessionId: z.string().guid() }))
@@ -1014,11 +1119,19 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
     /** THE USER-VISIBLE LOG (§8.2). Always the caller's own. Blank limit refuses — never invent 100. */
     log: router({
       mine: scopedProcedure('agents:read', { module: 'agents' })
-        .input(z.object({ limit: z.number().int().min(1).max(500).optional() }).optional())
+        .input(
+          z
+            .object({ limit: z.number().int().min(1).max(500).optional(), outcome: z.enum(['executed', 'refused', 'failed']).optional() })
+            .optional(),
+        )
         .output(z.array(actionOutput))
         .query(({ ctx, input }) =>
-          guard(async () => (await runtime.userLog(ctx.principal.userId, assertUserLogPageLimit(input?.limit))).map(toActionOutput)),
+          guard(async () =>
+            (await runtime.userLog(ctx.principal.userId, assertUserLogPageLimit(input?.limit), input?.outcome ?? null)).map(toActionOutput),
+          ),
         ),
+      count: review.logCount,
+      export: review.logExport,
     }),
 
     /**
@@ -1658,6 +1771,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
         chain: deps.navigatorTrading?.chain ?? null,
         linkedWallets: deps.ownLinkedWallets ?? null,
         session: (sessionId) => runtime.session(sessionId),
+        selfFreeze: deps.selfFreeze ?? null,
       }),
       policy: publicProcedure
         .output(
@@ -4100,13 +4214,18 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
       tokenLifetimeMinutes: deps.ownTokenLifetimeMinutes ?? null,
       assistantModel: deps.ownAssistantModel ?? null,
       approvalTtlSeconds: deps.ownApprovalTtlSeconds ?? null,
+      retention: deps.ownRetention ?? {},
       reviewerModel: deps.ownReviewerModel ?? null,
       background: deps.ownBackground ?? null,
       linkedWallets: deps.ownLinkedWallets ?? null,
+      cadence: deps.ownCadence ?? null,
+      selfFreeze: deps.selfFreeze ?? null,
     }),
     /** A business team's agent roles, pool, projects, runs and usage (AG-governance-01). Membership is svc-bank's, read per call. */
     team: teamRouter({ sql, membership: deps.teamMembership, feeAssetId, runtime }),
     opsLog: opsLogRouter(sql, deps.opsLog ?? { reasons: null, limit: null, retentionDays: null }),
+    /** The operator's agent alert rules, their alerts, and this environment's policy overrides (AG-analytics-02, AG-guardrails-02). */
+    opsAlerts: alertsRouter(sql, deps.policyBaseline ?? {}, () => runtime.publishAgentAlerts()),
     /** Every agent on the platform for an operator: the registry, its export and the switches (AG-registry-01, AG-control-02). */
     fleet: fleetRouter(sql, deps.fleet ?? { registryLimit: null }),
   });

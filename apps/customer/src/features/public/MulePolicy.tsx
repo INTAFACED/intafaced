@@ -1,9 +1,9 @@
-import { supportMulePolicySchema } from '@intafaced/contracts/support-safety';
 import { Failure, Loading } from '../../shared/ui';
 import { useResource } from '../../shared/resource';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { defineCopy } from '../../shared/i18n';
 import './help.css';
+import { SUPPORT_SAFETY_MULE_POLICY } from '@intafaced/contracts/support-safety-procedures';
 
 const copy = defineCopy('public.mule-policy', {
   title: 'Money mule policy',
@@ -22,10 +22,7 @@ const copy = defineCopy('public.mule-policy', {
 export function MulePolicy() {
   const { t, languageFor } = copy.useCopy();
   const { api } = useSession();
-  const { resource, reload } = useResource(
-    (signal) => api.query('support', 'safety.mulePolicy', undefined, supportMulePolicySchema, { signal }),
-    'mule-policy',
-  );
+  const { resource, reload } = useResource((signal) => api.call(SUPPORT_SAFETY_MULE_POLICY, undefined, { signal }), 'mule-policy');
   return (
     <div data-testid="mule-policy" className="help stack" lang={languageFor('title')}>
       <header>

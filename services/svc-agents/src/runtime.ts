@@ -1,10 +1,11 @@
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { publishPendingAgentAlerts } from './alerts/routes.js';
+import { transaction, type Queryable } from '@intafaced/db';
 import type { EventBus } from '@intafaced/events';
 import { formatAmount, InsufficientFundsError, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { fundsRefusalParams, fundsShortfall, readFunds, type FundsPort } from './funds.js';
 import { AgentError, MeteredReplayError } from './errors.js';
-import { AuditLog, type ActionKind, type AuditedAction } from './fleet/audit.js';
+import { AuditLog, type ActionKind, type ActionStatus, type AuditedAction } from './fleet/audit.js';
 import {
   evaluateCompletion,
   evaluateToolCall,
@@ -17,7 +18,7 @@ import {
 } from './fleet/guardrails.js';
 import { digestOfText, type ModelGateway } from './gateway/gateway.js';
 import type { RouteDef } from './gateway/routing.js';
-import { type SettlementResult, type UsageMeter, type UsageDayView, type UsageWindowView } from './metering/meter.js';
+import { type SettlementResult, type UsageMeter, type UsageDayView, type UsageWindowView, UsageOwedError } from './metering/meter.js';
 import { meteringOffSettlementStub, shouldMeterUsage } from './metering/product-law.js';
 import { asksForReturnsRanking, COPY_INTEL_SESSION_AGENT_ID } from './copy-intel/returns-board-refuse.js';
 import { usageCost } from './metering/pricing.js';
@@ -600,7 +601,7 @@ export class AgentRuntime {
     //      block it was read at and that block's time, or why it could not be read (J-agents-02 #4).
     if (!this.spend && this.funds && shouldMeter && worstCaseCost > 0n) {
       const funds = this.funds;
-      const read = await readFunds(() => funds.available(session.userId, this.feeAssetId, session.agentId));
+      const read = await readFunds(() => funds.available(session.userId, this.feeAssetId, session.agentId, session.id));
       const outcome = read.ok ? fundsShortfall(read.reading, 0n, worstCaseCost) : read;
       if (outcome !== null) {
         throw await this.appendRefusal(
@@ -640,7 +641,9 @@ export class AgentRuntime {
     let reservationKey = input.requestId;
     const funds = this.funds;
     const fundsRead =
-      funds && shouldMeter && worstCaseCost > 0n ? () => funds.available(session.userId, this.feeAssetId, session.agentId) : null;
+      funds && shouldMeter && worstCaseCost > 0n
+        ? () => funds.available(session.userId, this.feeAssetId, session.agentId, session.id)
+        : null;
     if (this.spend) {
       try {
         let held = await this.spend.reserve({
@@ -1122,6 +1125,11 @@ export class AgentRuntime {
     return publishPendingUsageAlerts(this.sql, this.bus, userId);
   }
 
+  /** Hands the operator's pending agent alerts to notifications while they are on (J-agents-16 #3). */
+  async publishAgentAlerts(): Promise<number> {
+    return publishPendingAgentAlerts(this.sql, this.bus);
+  }
+
   /** Publishes held tool calls not yet announced to their owner, each on its request (J-agents-05 #4); all of them unscoped. */
   async publishApprovalRequests(scope: Parameters<typeof publishPendingApprovalRequests>[2] = {}): Promise<number> {
     return publishPendingApprovalRequests(this.sql, this.bus, scope);
@@ -1233,6 +1241,11 @@ export class AgentRuntime {
   }
 
   /** Settle every open window of a session. Used when a session closes. */
+  /** The session's usage windows not yet settled, in the order settleSession settles them. */
+  async openWindowIds(sessionId: string): Promise<string[]> {
+    return this.meter.openWindows(sessionId);
+  }
+
   async settleSession(sessionId: string): Promise<SettlementResult[]> {
     const windows = await this.meter.openWindows(sessionId);
     const results: SettlementResult[] = [];
@@ -1249,7 +1262,8 @@ export class AgentRuntime {
     try {
       await this.settleSession(sessionId);
     } catch (err) {
-      if (!(err instanceof InsufficientFundsError)) throw err;
+      // A window the person's partner did not pay is owed the same way (launch money model, J-agents-01).
+      if (!(err instanceof InsufficientFundsError) && !(err instanceof UsageOwedError)) throw err;
       throw new AgentError(
         `A usage window of session ${sessionId} could not be paid`,
         'agents.window_unpaid',
@@ -1261,8 +1275,8 @@ export class AgentRuntime {
 
   // ── The user-visible log (§8.2) ────────────────────────────────────────────
 
-  async userLog(userId: string, limit: number): Promise<AuditedAction[]> {
-    return this.audit.forUser(userId, limit);
+  async userLog(userId: string, limit: number, status: ActionStatus | null = null): Promise<AuditedAction[]> {
+    return this.audit.forUser(userId, limit, status);
   }
 
   async sessionLog(sessionId: string, limit: number): Promise<AuditedAction[]> {
@@ -1403,7 +1417,7 @@ export function estimateInputTokens(system: string | undefined, messages: readon
  * wrote its action row: the row and its text land together or not at all. The purge is index.ts's timer
  * (purgeExpiredTranscripts), never this transaction.
  */
-async function keepTranscript(tx: Sql, actionId: string, userId: string, text: string, days: number): Promise<void> {
+async function keepTranscript(tx: Queryable, actionId: string, userId: string, text: string, days: number): Promise<void> {
   await tx`
     INSERT INTO agents.agent_transcripts (action_id, user_id, text, expires_at)
     VALUES (${actionId}, ${userId}, ${text}, now() + make_interval(days => ${days}))

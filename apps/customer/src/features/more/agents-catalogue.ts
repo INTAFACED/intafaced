@@ -38,6 +38,8 @@ export const guardrailSchema = z
         maxCallsPerSession: z.number().int().nullable(),
         /** Every refusal the runtime can return for this tool, as codes, in the order it checks them. */
         refusals: z.array(z.string()),
+        /** The tool's declared input and output fields, each with its type in words; null when it declares none. */
+        shape: z.object({ input: z.record(z.string(), z.string()), output: z.record(z.string(), z.string()) }).nullable(),
       }),
     ),
     capacityMode: z.string().nullable(),

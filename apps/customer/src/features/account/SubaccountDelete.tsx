@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Field } from '../../shared/ui';
 import { subAccountDeleteCopy as copy } from './sub-account-delete-copy';
-import { BLOCKER_KEYS, DELETE_REFUSAL_KEYS, deleteCheck, deleteResult, deleteStepUp, isSixDigits } from './sub-account-delete';
+import { BLOCKER_KEYS, DELETE_REFUSAL_KEYS, deleteStepUp, isSixDigits } from './sub-account-delete';
 import { confirmWithStepUp } from './security-step-up';
+import { IDENTITY_SUB_ACCOUNTS_DELETE_CHECK, IDENTITY_SUB_ACCOUNTS_DELETE } from '@intafaced/contracts/identity-sub-accounts-procedures';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -30,7 +31,7 @@ export function SubaccountDelete({ subAccountId, onDeleted }: { subAccountId: st
   const check = useResource(
     (signal) =>
       userId && asking
-        ? api.query('identity', 'subAccounts.deleteCheck', { subAccountId }, deleteCheck, { signal })
+        ? api.call(IDENTITY_SUB_ACCOUNTS_DELETE_CHECK, { subAccountId }, { signal })
         : Promise.resolve({ ok: true as const, data: null }),
     `subaccount-delete-check:${userId}:${subAccountId}:${asking}`,
   );
@@ -44,12 +45,11 @@ export function SubaccountDelete({ subAccountId, onDeleted }: { subAccountId: st
       const approved = await confirmWithStepUp(api, deleteStepUp(subAccountId, requestId), { totpCode: code });
       if (!mounted.current) return;
       if (!approved.ok) return setFailure(approved);
-      const answer = await api.mutate(
-        'identity',
-        'subAccounts.delete',
-        { subAccountId, stepUpApprovalId: approved.data.stepUpApprovalId, clientRequestId: requestId },
-        deleteResult,
-      );
+      const answer = await api.call(IDENTITY_SUB_ACCOUNTS_DELETE, {
+        subAccountId,
+        stepUpApprovalId: approved.data.stepUpApprovalId,
+        clientRequestId: requestId,
+      });
       if (!mounted.current) return;
       // The service spends the approval first, so after any refusal the next try starts a new confirmation.
       if (!answer.ok) {

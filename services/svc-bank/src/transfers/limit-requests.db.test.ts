@@ -11,19 +11,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { issueAccessToken, verifyAccessToken, type Scope } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
-import {
-  MemoryLedger,
-  formatAmount,
-  parseAmount,
-  recipes,
-  subAccountAvailable,
-  userAvailable,
-  type Amount,
-} from '@intafaced/ledger-client';
+import { MemoryLedger, formatAmount, parseAmount, recipes } from '@intafaced/ledger-client';
 import { createBankRouter } from '../router.js';
 import { createBankServices, memoryLedgerHistory, memoryRecipientState, type BankServices } from '../bank-service.js';
 import type { LedgerHistoryPages } from '../activity/activity-service.js';
 import { memoryPartyHandles } from './party-handles.js';
+import { LimitRequestService } from './limit-requests.js';
 
 const ADA = '11111111-1111-4111-8111-111111111111';
 const BOB = '22222222-2222-4222-8222-222222222222';
@@ -221,6 +214,39 @@ describe('limit-increase requests (BK-acct-04)', () => {
     });
     // A different kind is its own request.
     await ada.limits.requestIncrease({ ...input, requestId: randomUUID(), kind: 'per_transfer' });
+  });
+
+  it('a retry racing its first call replays the one row; a new id racing it for the same open slot refuses open (#8902)', async () => {
+    await publish();
+    for (let round = 0; round < 20; round += 1) {
+      await db.sql`TRUNCATE bank.limit_increase_requests`;
+      const requestId = randomUUID();
+      const input = { requestId, assetId: 'USDT', kind: 'daily' as const, requested: parseAmount('500'), reason: REASON };
+      const results = await Promise.allSettled(Array.from({ length: 6 }, () => new LimitRequestService(db.sql).request(ADA, input)));
+      const rejected = results.filter((r) => r.status === 'rejected').map((r) => (r as PromiseRejectedResult).reason);
+      expect(rejected).toEqual([]);
+      const values = results.map((r) => (r as PromiseFulfilledResult<{ id: string; replayed: boolean }>).value);
+      expect(values.every((v) => v.id === requestId)).toBe(true);
+      expect(values.filter((v) => !v.replayed)).toHaveLength(1);
+      expect(await db.sql`SELECT id FROM bank.limit_increase_requests`).toEqual([{ id: requestId }]);
+    }
+    // Different ids for the same open slot: exactly one opens, every other refuses as already open.
+    await db.sql`TRUNCATE bank.limit_increase_requests`;
+    const others = await Promise.allSettled(
+      Array.from({ length: 6 }, () =>
+        new LimitRequestService(db.sql).request(ADA, {
+          requestId: randomUUID(),
+          assetId: 'USDT',
+          kind: 'daily',
+          requested: parseAmount('500'),
+          reason: REASON,
+        }),
+      ),
+    );
+    expect(others.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    for (const r of others.filter((r) => r.status === 'rejected')) {
+      expect((r as PromiseRejectedResult).reason).toMatchObject({ code: 'bank.limit_request_open' });
+    }
   });
 
   it('refuses a short reason, a zero amount, an asset with no published limits, a missing page size and the wrong scopes', async () => {

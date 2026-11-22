@@ -41,6 +41,16 @@ async function network(context, page, baseURL) {
     closesAt: new Date(now + 3600000).toISOString(),
     title: null,
     authorId: actor,
+    bodyMd: null,
+    discussionLink: null,
+    businessKey: null,
+    revision: 0,
+    votingType: 'basic',
+    choices: null,
+    snapshot: null,
+    ranking: null,
+    cancel: null,
+    counts: { votes: 0, for: 0, against: 0, abstain: 0 },
   };
   const other = {
     ...proposal,
@@ -118,6 +128,7 @@ async function network(context, page, baseURL) {
           userId: actor,
           choice: state.choice,
           weight: state.responseWeight,
+          ballot: null,
           castAt: new Date().toISOString(),
           signedBy: `0x${'cd'.repeat(20)}`,
         };
@@ -177,6 +188,7 @@ async function network(context, page, baseURL) {
         return route.fulfill({ status: 403, json: { error: { message: provider, data: { cause: { code: 'token.already_voted' } } } } });
       const value = {
         ...p,
+        choiceTally: null,
         tally: {
           forWeight: '125.250000000000000001',
           againstWeight: '40',

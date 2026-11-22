@@ -46,6 +46,16 @@
       "value": "3",
       "note": "TEST number of the latest announcements Home's strip shows. Not an owner decision; it only lets J-home-ia-06 #2-#4 run on the test stack, and `LOCAL_STACK_OPS_HOME_NOTICE_STRIP_LIMIT=off` leaves it blank for #1's refusal."
     },
+    "OPS_HOME_RECENT_ACTIVITY_LIMIT": {
+      "service": "ops",
+      "value": "3",
+      "note": "TEST number of the newest movements Home's Recent activity lists. Not an owner decision; it only lets J-home-ia-01 #5 run on the test stack, and `LOCAL_STACK_OPS_HOME_RECENT_ACTIVITY_LIMIT=off` leaves it blank for the list's \"not set\"."
+    },
+    "OPS_VALUATION_TEST_PRICES": {
+      "service": "ops",
+      "value": "USDC=1,USDT=1",
+      "note": "TEST prices in USD that Home and Assets value holdings with. Not an owner decision and not a market price: it only lets J-home-ia-01 #1 and #3 show a total on the test stack, read only while `LOCAL_STACK_VALUATION_PRICES=test`. BTC and the TEST chain's tokens have no price here, so the BTC unit and an unpriced asset can be seen."
+    },
     "OPS_RECON_ALERT_REPEAT_SECONDS": {
       "service": "ops",
       "value": "5",

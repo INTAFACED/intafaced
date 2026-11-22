@@ -13,7 +13,7 @@ import { ADDRESS_SHAPE } from '../routes';
 import { QuickTicket } from './QuickTicket';
 import { InfoUpdate } from './InfoUpdate';
 import { TabList } from './TabList';
-import { useApi, useSession } from '../../session/session';
+import { useApi, useSession } from '../../session';
 import { useAccountTokenWatchlist, type ListWrite } from '../watch/account-lists';
 import { tokensCopy, type TokensTranslate } from './copy';
 import { exactUnits, isoTime, percentFromBps, shortAddress } from './format';
@@ -501,7 +501,8 @@ function TokenBody({ address, t }: { address: string; t: TokensTranslate }) {
 
 /**
  * The open scam reports about this address (D-developer-compliance-01), from the address risk read: a count only, never
- * who reported. It reads on its own, so it shows even where the token's own read refuses.
+ * who reported. It reads on its own, so it shows even where the token's own read refuses. The same read carries the
+ * token's standing (D-launch-listing-02): the Blocked badge, and the gating of a permissioned token.
  */
 function ScamReports({ address, t }: { address: string; t: TokensTranslate }) {
   const transport = useApi();
@@ -514,6 +515,20 @@ function ScamReports({ address, t }: { address: string; t: TokensTranslate }) {
         {resource.status === 'failed' && <Failure result={resource.failure} retry={reload} />}
         {resource.status === 'ready' && (
           <>
+            {resource.data.blocked && (
+              <p data-testid="token-blocked">
+                <span className="badge">{t('standingBlocked')}</span> {t('standingBlockedNote', { reason: resource.data.blocked.reason })}
+              </p>
+            )}
+            {resource.data.permissioned && (
+              <p data-testid="token-permissioned">
+                <span className="badge">{t('standingPermissioned')}</span>{' '}
+                {t('standingPermissionedNote', {
+                  checker: resource.data.permissioned.checkerAddress,
+                  pool: resource.data.permissioned.pool,
+                })}
+              </p>
+            )}
             <p data-testid="scam-reports">
               {resource.data.openReports === 1 ? t('scamOne') : t('scamMany', { count: String(resource.data.openReports) })}
             </p>

@@ -326,3 +326,29 @@ describe('OTO (a buy with one close attached)', () => {
     expect(exitSideOff('buy', 'oto')).toBe(false);
   });
 });
+
+// J-cex-spot-14 #7: a higher-risk zone market takes limit orders only, under its owner cap, and none while it is unset.
+describe('checkOrder in the higher-risk zone', () => {
+  const zoned = { ...market, minCost: '1', zone: 'higher_risk' as const, zoneOrderCap: '100' };
+  it('refuses a market order with the zone reason and takes a limit under the cap', () => {
+    expect(checkOrder({ side: 'buy', type: 'market', price: '', amount: '1' }, zoned, ref)).toEqual({
+      ok: false,
+      problem: { kind: 'zone' },
+    });
+    expect(checkOrder({ side: 'buy', type: 'limit', price: '10', amount: '1' }, zoned, ref).ok).toBe(true);
+  });
+  it('takes a limit worth exactly the cap and refuses one over it', () => {
+    expect(checkOrder({ side: 'buy', type: 'limit', price: '10', amount: '10' }, zoned, ref).ok).toBe(true);
+    expect(checkOrder({ side: 'buy', type: 'limit', price: '10.01', amount: '10' }, zoned, ref)).toEqual({
+      ok: false,
+      problem: { kind: 'zoneCap', cap: '100' },
+    });
+  });
+  it('takes no order while the cap is unset, and restricts nothing outside the zone', () => {
+    expect(checkOrder({ side: 'buy', type: 'limit', price: '10', amount: '1' }, { ...zoned, zoneOrderCap: null }, ref)).toEqual({
+      ok: false,
+      problem: { kind: 'zoneUnset' },
+    });
+    expect(checkOrder({ side: 'buy', type: 'market', price: '', amount: '1' }, { ...zoned, zone: null }, ref).ok).toBe(true);
+  });
+});

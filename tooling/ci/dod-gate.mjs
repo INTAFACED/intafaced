@@ -88,7 +88,8 @@ function checkService(serviceDir) {
     // imports it for `Amount`/`parseAmount` and posts nothing at all, so the
     // old test flagged its router as an untested money path. Widening a gate
     // until it cries wolf is how a gate gets ignored.
-    if (/ledger\.post\(|recipes\.[a-zA-Z]/.test(content)) moneyFiles.push(file);
+    // `postRecipe(` names a recipe on svc-ledger's door, which runs it: the same money path.
+    if (/ledger\.post\(|recipes\.[a-zA-Z]|\bpostRecipe\(/.test(content)) moneyFiles.push(file);
   }
   const testFiles = [...walk(srcDir, ['.test.ts'])];
 

@@ -12,6 +12,7 @@ vi.mock('../../../../shared/preferences', async (original) => {
 // TEST DATA beyond the safe integer range, with 18 decimal places.
 const snapshot: Snapshot = {
   merchantId: 'TEST',
+  window: { kind: 'preset', preset: 'rolling_30d' },
   freshness: { asOf: '2026-10-16T00:00:00Z', lagSeconds: 2 },
   balances: [{ assetCode: 'USDT', available: '9007199254740993.123456789123456789', clearing: '1.5' }],
   paymentCount: 0,

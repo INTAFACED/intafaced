@@ -29,6 +29,7 @@ import {
   type VenueMarketRow,
   type VenueMarketsView,
 } from './venue-markets-model';
+import { isRecord } from '@intafaced/contracts/guards';
 
 /**
  * The venue markets desk (J-cex-spot-16) through svc-edge: svc-trade `admin.venueMarkets.*` and identity's two-person
@@ -40,7 +41,6 @@ export const VENUE_MARKETS_POLICY_VERSION = 'trade-venue-markets-v1';
 export const readVenueMarkets = (ctx: TradeCtx): Promise<Outcome<VenueMarketsView>> =>
   edgeCall(ctx, trpcSpec('trade', 'admin.venueMarkets.list', 'query', {}, parseVenueMarketsView));
 
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const text = (v: unknown): string => (typeof v === 'string' ? v : '');
 const bad = (code: string, message: string) => refused(code, message, 400);
 

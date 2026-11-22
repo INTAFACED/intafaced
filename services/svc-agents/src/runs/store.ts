@@ -1,6 +1,12 @@
 import type { Sql } from 'postgres';
+import { z } from 'zod';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
+import type { ResearchProvenance } from '@intafaced/contracts/agents-research';
 import { assertMove, type RunState } from './machine.js';
+import { enqueueRunFinished, finishedEventId } from '../webhooks/run-webhooks.js';
+
+/** The states a run ends in; each ending is delivered once to the person's run webhooks (J-agents-12 #5). */
+const ENDINGS: readonly RunState[] = ['completed', 'refused', 'failed'];
 
 /**
  * The run entity on Postgres (AG-sessions-01, ENGINE RS-1 to RS-4). `admit` writes the run row and its first event in
@@ -23,6 +29,8 @@ export interface StoredRun {
   readonly assetId: string | null;
   readonly metered: boolean | null;
   readonly actionId: string | null;
+  /** Where a research answer's facts came from (RC-agents-09), written with its reply; null for any other run. */
+  readonly provenance: ResearchProvenance | null;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -40,6 +48,8 @@ export interface RunOutcome {
   readonly assetId?: string;
   readonly metered?: boolean;
   readonly actionId?: string;
+  /** A research answer's provenance, stored in the same write as its reply. */
+  readonly provenance?: ResearchProvenance;
   /** The typed code a refusal or a failure ended on. */
   readonly code?: string;
 }
@@ -61,6 +71,7 @@ interface RunRow {
   asset_id: string | null;
   metered: boolean | null;
   action_id: string | null;
+  provenance: ResearchProvenance | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -79,6 +90,7 @@ const toRun = (row: RunRow): StoredRun => ({
   assetId: row.asset_id,
   metered: row.metered,
   actionId: row.action_id,
+  provenance: row.provenance,
   createdAt: row.created_at.toISOString(),
   updatedAt: row.updated_at.toISOString(),
 });
@@ -118,7 +130,7 @@ export function createRunStore(sql: Sql): RunStore {
           VALUES (${runKey}, ${input.userId}, ${input.sessionId}, ${input.requestId}, ${input.agentId}, ${input.task}, 'admitted')
           ON CONFLICT (run_key) DO NOTHING
           RETURNING id, run_key, user_id, session_id, request_id, agent_id, task, state, reply, cost::text, asset_id,
-                    metered, action_id, created_at, updated_at
+                    metered, action_id, provenance, created_at, updated_at
         `;
         if (inserted) {
           await tx`INSERT INTO agents.agent_run_events (run_id, sequence, state) VALUES (${inserted.id}, 1, 'admitted')`;
@@ -126,7 +138,7 @@ export function createRunStore(sql: Sql): RunStore {
         }
         const [stored] = await tx<RunRow[]>`
           SELECT id, run_key, user_id, session_id, request_id, agent_id, task, state, reply, cost::text, asset_id,
-                 metered, action_id, created_at, updated_at
+                 metered, action_id, provenance, created_at, updated_at
             FROM agents.agent_runs WHERE run_key = ${runKey}
         `;
         if (!stored) throw new Error(`agents run ${runKey} conflicted but is not stored`);
@@ -153,17 +165,41 @@ export function createRunStore(sql: Sql): RunStore {
                  asset_id = COALESCE(${outcome.assetId ?? null}, asset_id),
                  metered = COALESCE(${outcome.metered ?? null}::boolean, metered),
                  action_id = COALESCE(${outcome.actionId ?? null}::uuid, action_id),
+                 provenance = ${to === 'completed' && outcome.provenance ? tx.json(outcome.provenance) : null},
                  updated_at = now()
            WHERE id = ${runId}
           RETURNING id, run_key, user_id, session_id, request_id, agent_id, task, state, reply, cost::text, asset_id,
-                    metered, action_id, created_at, updated_at
+                    metered, action_id, provenance, created_at, updated_at
         `;
-        await tx`
+        const [event] = z
+          .object({ sequence: z.number().int() })
+          .array()
+          .length(1)
+          .parse(
+            await tx`
           INSERT INTO agents.agent_run_events (run_id, sequence, state, code)
           SELECT ${runId}, COALESCE(MAX(sequence), 0) + 1, ${to}, ${outcome.code ?? null}
             FROM agents.agent_run_events WHERE run_id = ${runId}
-        `;
-        return toRun(row!);
+          RETURNING sequence
+        `,
+          );
+        const run = toRun(row!);
+        if (ENDINGS.includes(to) && event) {
+          await enqueueRunFinished(tx, {
+            eventId: finishedEventId('run', run.id, event.sequence),
+            kind: 'run',
+            userId: run.userId,
+            runId: run.id,
+            sessionId: run.sessionId,
+            agentId: run.agentId,
+            state: to,
+            reply: run.reply,
+            cost: run.cost,
+            assetId: run.assetId,
+            refusalCodes: to === 'refused' && outcome.code ? [outcome.code] : [],
+          });
+        }
+        return run;
       });
     },
 
@@ -176,7 +212,7 @@ export function createRunStore(sql: Sql): RunStore {
         UPDATE agents.agent_runs SET updated_at = now()
          WHERE id = ${runId} AND state = 'running' AND updated_at < ${staleBefore}
         RETURNING id, run_key, user_id, session_id, request_id, agent_id, task, state, reply, cost::text, asset_id,
-                  metered, action_id, created_at, updated_at
+                  metered, action_id, provenance, created_at, updated_at
       `;
       return row ? toRun(row) : null;
     },
@@ -185,7 +221,7 @@ export function createRunStore(sql: Sql): RunStore {
     async get(runId: string, userId: string): Promise<{ run: StoredRun; refusalCodes: string[] } | null> {
       const [row] = await sql<RunRow[]>`
         SELECT id, run_key, user_id, session_id, request_id, agent_id, task, state, reply, cost::text, asset_id,
-               metered, action_id, created_at, updated_at
+               metered, action_id, provenance, created_at, updated_at
           FROM agents.agent_runs WHERE id = ${runId} AND user_id = ${userId}
       `;
       if (!row) return null;
@@ -219,7 +255,7 @@ export function createRunStore(sql: Sql): RunStore {
     async forSession(sessionId: string, limit: number): Promise<StoredRun[]> {
       const rows = await sql<RunRow[]>`
         SELECT id, run_key, user_id, session_id, request_id, agent_id, task, state, reply, cost::text, asset_id,
-               metered, action_id, created_at, updated_at
+               metered, action_id, provenance, created_at, updated_at
           FROM agents.agent_runs WHERE session_id = ${sessionId} ORDER BY created_at, id LIMIT ${limit}
       `;
       return rows.map(toRun);

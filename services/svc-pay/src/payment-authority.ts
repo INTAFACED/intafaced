@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import { createHash } from 'node:crypto';
 import type { Principal } from '@intafaced/auth';
 import type { IdentityOperationIntent } from '@intafaced/contracts';
@@ -5,7 +6,7 @@ import type { Sql } from 'postgres';
 /** Owner-only seam: resolve immutable provenance and recheck it under the merchant guard. */
 export interface OwnerIdentityAuthorityPort {
   resolve(
-    tx: Sql,
+    tx: Queryable,
     operation: Extract<IdentityOperationIntent['operation'], { service: 'svc-pay' }>,
     authority: IdentityOperationIntent['authority'],
   ): Promise<IdentityOperationIntent['authority']>;

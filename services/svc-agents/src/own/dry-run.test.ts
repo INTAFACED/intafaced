@@ -1,11 +1,10 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import postgres from 'postgres';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
-import { assertTestDatabase, postgresAvailable } from '@intafaced/db';
+import { createTestDatabase, postgresAvailable, resolveTestDatabaseUrl } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
 import { MemoryLedger } from '@intafaced/ledger-client';
 import { ModelGateway } from '../gateway/gateway.js';
@@ -19,6 +18,7 @@ import { UserSpendStore } from '../spend/store.js';
 import type { OwnAgentTestRun } from '@intafaced/contracts/agents-own';
 import type { PolicyBaseline } from './guardrails.js';
 import { OWN_RUN_TASK } from './routes.js';
+import { MemorySelfFreezeRead } from './self-freeze.js';
 
 /**
  * Dry runs and test runs of a person's own agent (AG-spend-04, AG-testing-01; J-agents-04 #3, #4): a dry run reports
@@ -26,7 +26,9 @@ import { OWN_RUN_TASK } from './routes.js';
  * is a test run, listed apart from live runs and left out of live analytics unless the person includes test runs.
  */
 
-const URL = process.env.TEST_DATABASE_URL_AGENTS ?? 'postgres://svc_agents:svc_agents@localhost:5433/intafaced_test';
+// Its own database, made from the migrations (createTestDatabase), as automation.test.ts has: no lock shared with
+// other files to wait on, and no other file's rows.
+const URL = resolveTestDatabaseUrl(undefined, 'postgres://intafaced_ops:intafaced_ops@localhost:5433/intafaced_test');
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzleDir = join(here, '..', '..', 'drizzle');
 const migrations = readdirSync(drizzleDir)
@@ -87,13 +89,8 @@ if (!available) {
     it('skipped', () => undefined);
   });
 } else {
-  const sql = postgres(URL, {
-    max: 6,
-    connection: { search_path: 'agents,public', application_name: 'svc-agents-own-dry-run-test' },
-    onnotice: () => undefined,
-  });
-  await assertTestDatabase(sql, 'svc-agents');
-  let lockConn: Awaited<ReturnType<typeof sql.reserve>>;
+  const db = await createTestDatabase({ service: 'agents', url: URL, migrations });
+  const sql = db.sql;
   let provider: MockModelProvider | UpstreamModelProvider;
   let ledger: MemoryLedger;
 
@@ -126,6 +123,9 @@ if (!available) {
       funds: { available: async () => 100n * 10n ** 18n },
     });
     const router = createAgentsRouter({
+      // An open freeze read: nobody here is frozen (J-wallet-13 fails closed without one).
+      selfFreeze: new MemorySelfFreezeRead(),
+
       runtime,
       gateway,
       meter,
@@ -161,33 +161,12 @@ if (!available) {
     if (provider instanceof MockModelProvider) expect(provider.callCount).toBe(0);
   };
 
-  beforeAll(async () => {
-    lockConn = await sql.reserve();
-    await lockConn`select pg_advisory_lock(842671)`;
-    try {
-      for (const migration of migrations) await sql.unsafe(migration);
-    } finally {
-      await lockConn`select pg_advisory_unlock(842671)`;
-    }
-  }, 120_000);
-
   beforeEach(async () => {
-    await lockConn`select pg_advisory_lock(842671)`;
-    await sql`
-      TRUNCATE agents.own_agent_background_runs, agents.own_agent_surfaces, agents.own_agent_versions, agents.own_agent_co_owners, agents.own_agent_session_versions, agents.own_agent_test_runs, agents.own_agent_approval_requests, agents.own_agent_consents, agents.own_agent_rules,
-               agents.own_agent_limits, agents.own_agents, agents.spend_reservations, agents.user_spend_limits, agents.think_claims,
-               agents.usage_records, agents.usage_windows, agents.agent_place_intents, agents.agent_actions, agents.agent_sessions
-      RESTART IDENTITY CASCADE
-    `;
-  });
-
-  afterEach(async () => {
-    await lockConn`select pg_advisory_unlock(842671)`;
+    await db.truncateAll();
   });
 
   afterAll(async () => {
-    lockConn.release();
-    await sql.end({ timeout: 5 });
+    await db.drop();
   });
 
   describe('a dry run of one tool call (J-agents-04 #3)', () => {

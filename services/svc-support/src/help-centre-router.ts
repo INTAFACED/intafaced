@@ -1,15 +1,11 @@
 import { TRPCError } from '@trpc/server';
 import {
-  publicProcedure,
-  scopedProcedure,
   supportHelpCentreChangeListSchema,
   supportHelpCentreChangesInputSchema,
   supportHelpCentreLanguageInputSchema,
   supportHelpCentreLanguageSchema,
   supportHelpCentreSchema,
   supportHelpCentreSetInputSchema,
-  supportHelpCentreTranslationListInputSchema,
-  supportHelpCentreTranslationListSchema,
   supportHelpCentreTranslationSchema,
   supportHelpCentreTranslationSetInputSchema,
   SUPPORT_HELP_CENTRE_REVISION_STALE,
@@ -18,7 +14,10 @@ import {
   SUPPORT_HELP_CENTRE_LIST_LIMIT_UNSET,
   SUPPORT_HELP_CENTRE_IDEMPOTENCY_CONFLICT,
   SUPPORT_HELP_CENTRE_OFF,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/support-help-centre';
+import { publicProcedure, scopedProcedure } from '@intafaced/contracts/trpc';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { SUPPORT_DESK_HELP_CENTRE_TRANSLATIONS, SUPPORT_HELP_CENTRE } from '@intafaced/contracts/support-desk-settings-procedures';
 import type { Principal } from '@intafaced/auth';
 import {
   HelpCentreConflictError,
@@ -30,6 +29,7 @@ import {
   helpCentreChangesOf,
   type HelpCentreBook,
 } from './help-centre.js';
+import { supportRefusal } from './record-refusal.js';
 import { kbViewerOf, requireSupportOps, type SupportService } from './support-service.js';
 import { userCopy } from './user-copy.js';
 
@@ -41,19 +41,19 @@ import { userCopy } from './user-copy.js';
  */
 export function helpCentreProcedures(book: HelpCentreBook, support: Pick<SupportService, 'listStaff'>) {
   return {
-    helpCentre: publicProcedure.output(supportHelpCentreSchema).query(() => book.get()),
+    helpCentre: mountRecord(SUPPORT_HELP_CENTRE, () => book.get(), supportRefusal),
 
     setHelpCentre: scopedProcedure('support:ops')
       .input(supportHelpCentreSetInputSchema)
       .output(supportHelpCentreSchema)
       .mutation(async ({ ctx, input }) => {
-        requireSupportOps(ctx.principal!);
-        await requireLead(support, ctx.principal!.userId);
+        requireSupportOps(ctx.principal);
+        await requireLead(support, ctx.principal.userId);
         try {
           return await book.set({
             changes: helpCentreChangesOf(input),
             expectedRevision: input.expectedRevision,
-            by: ctx.principal!.userId,
+            by: ctx.principal.userId,
             reason: input.reason,
             at: new Date().toISOString(),
           });
@@ -77,33 +77,34 @@ export function helpCentreProcedures(book: HelpCentreBook, support: Pick<Support
       .input(supportHelpCentreTranslationSetInputSchema)
       .output(supportHelpCentreTranslationSchema)
       .mutation(async ({ ctx, input }) => {
-        requireSupportOps(ctx.principal!);
-        await requireLead(support, ctx.principal!.userId);
+        requireSupportOps(ctx.principal);
+        await requireLead(support, ctx.principal.userId);
         try {
-          return await book.setTranslation({ ...input, by: ctx.principal!.userId, at: new Date().toISOString() });
+          return await book.setTranslation({ ...input, by: ctx.principal.userId, at: new Date().toISOString() });
         } catch (err) {
           throw mapHelpCentre(err);
         }
       }),
 
-    helpCentreTranslations: scopedProcedure('support:ops')
-      .input(supportHelpCentreTranslationListInputSchema)
-      .output(supportHelpCentreTranslationListSchema)
-      .query(async ({ ctx, input }) => {
-        requireSupportOps(ctx.principal!);
+    helpCentreTranslations: mountRecord(
+      SUPPORT_DESK_HELP_CENTRE_TRANSLATIONS,
+      async ({ ctx, input }) => {
+        requireSupportOps(ctx.principal);
         try {
           return await book.listTranslations(input.limit);
         } catch (err) {
           throw mapHelpCentre(err);
         }
-      }),
+      },
+      supportRefusal,
+    ),
 
     /** The settings change log, newest first: revision, who, why, when, before and after. A blank page size refuses. */
     helpCentreChanges: scopedProcedure('support:ops')
       .input(supportHelpCentreChangesInputSchema)
       .output(supportHelpCentreChangeListSchema)
       .query(async ({ ctx, input }) => {
-        requireSupportOps(ctx.principal!);
+        requireSupportOps(ctx.principal);
         try {
           return await book.listChanges(input.limit);
         } catch (err) {

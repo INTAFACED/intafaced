@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { z } from 'zod';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Dialog, EmptyState, Failure, Field, Loading, Page } from '../../shared/ui';
@@ -31,12 +30,13 @@ import { RankPerks } from './RankPerks';
 import { Membership } from './Membership';
 import { VerifyEmail } from './VerifyEmail';
 import { AccountStatus } from './AccountStatus';
-import { EligibilityStatement } from '../money/Eligibility';
+import { EligibilityStatement } from '../money';
 import { CopyButton } from '../../screens/account/CopyButton';
 import { useIdentity } from '../../screens/pay/identity-state';
 import { featureById } from '../../app/feature-registry';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
+import { IDENTITY_SUB_ACCOUNTS_CREATE, IDENTITY_SUB_ACCOUNTS_REVOKE } from '@intafaced/contracts/identity-sub-accounts-procedures';
 
 type Original = {
   owner: string;
@@ -247,20 +247,12 @@ export function Account() {
         if (!same(intent)) return;
         const answer =
           intent.kind === 'create'
-            ? await intent.client.mutate(
-                'identity',
-                'subAccounts.create',
+            ? await intent.client.call(
+                IDENTITY_SUB_ACCOUNTS_CREATE,
                 { label: intent.label, ...(intent.purpose ? { purpose: intent.purpose } : {}) },
-                z.object({ id: z.string().guid() }),
                 { signal: controller.signal },
               )
-            : await intent.client.mutate(
-                'identity',
-                'subAccounts.revoke',
-                { subAccountId: intent.row!.id },
-                z.object({ revoked: z.boolean() }),
-                { signal: controller.signal },
-              );
+            : await intent.client.call(IDENTITY_SUB_ACCOUNTS_REVOKE, { subAccountId: intent.row!.id }, { signal: controller.signal });
         if (!same(intent)) return;
         const known =
           answer.ok || (intent.kind === 'create' && isCreateRefusal(answer)) || (intent.kind === 'revoke' && isDeleteRefusal(answer));

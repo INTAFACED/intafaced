@@ -3,7 +3,7 @@ import type { AbiParameter } from 'viem';
 import { loadArtifact } from './artifacts.js';
 import { accountFactoryAbi, erc20ReadAbi, smartAccountAbi, tokenFactoryAbi } from './abi.js';
 import { factoryAbi, poolAbi } from '../amm/abi.js';
-// eslint-disable-next-line -- .mjs helper shared with scripts/compile-contracts.mjs; there is no .d.ts and none is wanted
+// A .mjs helper shared with scripts/compile-contracts.mjs; there is no .d.ts and none is wanted.
 import { collectSources, computeSourceHash, SUITES, suiteSources } from '../../scripts/contract-sources.mjs';
 
 /**

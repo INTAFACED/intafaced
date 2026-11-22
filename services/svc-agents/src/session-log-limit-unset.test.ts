@@ -58,7 +58,7 @@ function captureSql() {
     calls.push({ sql: strings.join('?'), values: [...values] });
     return Promise.resolve([]);
   };
-  return { sql: tag as unknown as Sql, calls };
+  return { sql: tag as Sql, calls };
 }
 
 describe('assertSessionLogPageLimit', () => {

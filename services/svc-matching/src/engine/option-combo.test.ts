@@ -47,7 +47,7 @@ function namedLegs(over: Partial<ComboLeg>[] = []): ComboLeg[] {
     { name: 'call', ratio: A('1'), strike: A('100'), expiry: EXPIRY },
     { name: 'put', ratio: A('-1'), strike: A('100'), expiry: EXPIRY },
   ];
-  return base.map((leg, i) => ({ ...leg, ...(over[i] ?? {}) }));
+  return base.map((leg, i) => ({ ...leg, ...over[i] }));
 }
 
 function order(spec: {

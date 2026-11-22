@@ -8,8 +8,6 @@ import {
   merchantMetricsSeriesSchema,
   merchantControlProfileSchema,
   merchantMetricsSnapshotSchema,
-  payHaltEventSchema,
-  payHaltOperatorStatusSchema,
   type FounderGlobalMetrics,
   type FounderMerchantDrilldown,
   type FounderMerchantList,
@@ -25,8 +23,9 @@ import {
 import { asPricingRule, asTier, asUsage, type PricingRuleView, type TierView, type UsageView } from './control-model';
 import { addDays, dayOf, midnight } from './dates';
 import { listInputFor, type MerchantListQuery } from './list-params';
-import { payCall, parseWith, type PayCallContext, type PayCallResult } from './pay-call';
-import { loadPendingClears } from '@/lib/founder-ops/reads';
+import { PAY_HALTS_HISTORY, PAY_HALTS_OPERATOR_STATUS } from '@intafaced/contracts/pay-halt-procedures';
+import { payCall, payRecordCall, parseWith, type PayCallContext, type PayCallResult } from './pay-call';
+import { loadPendingClears } from '@/lib/founder-ops';
 import {
   asEvent,
   asList,
@@ -160,12 +159,6 @@ export function loadRegistryHistory(
   return payCall(ctx, 'founderAdmin.registries.history', 'GET', { registry: kind, entryKey, limit: 50 }, (raw) => asList(raw, asEvent));
 }
 
-const parseHalts = (raw: unknown) =>
-  asList(raw, (item) => {
-    const parsed = payHaltEventSchema.safeParse(item);
-    return parsed.success ? parsed.data : null;
-  });
-
 export interface TreasuryData {
   readonly exposure: PayCallResult<FounderTreasuryExposure>;
   readonly halts: PayCallResult<PayHaltEvent[]>;
@@ -180,8 +173,8 @@ export interface TreasuryData {
 export async function loadTreasury(ctx: PayCallContext, now: Date = new Date()): Promise<TreasuryData> {
   const [exposure, halts, status, pending] = await Promise.all([
     payCall(ctx, 'founderAdmin.treasury.exposure', 'GET', {}, parseWith(founderTreasuryExposureSchema)),
-    payCall(ctx, 'payHalts.history', 'GET', { limit: 50 }, parseHalts),
-    payCall(ctx, 'payHalts.operatorStatus', 'GET', {}, parseWith(payHaltOperatorStatusSchema)),
+    payRecordCall(ctx, PAY_HALTS_HISTORY, { limit: 50 }),
+    payRecordCall(ctx, PAY_HALTS_OPERATOR_STATUS, undefined),
     loadPendingClears(ctx),
   ]);
   return { exposure, halts, status, pending, readAt: now.toISOString() };
@@ -307,8 +300,8 @@ export interface MerchantHaltsData {
 
 export async function loadMerchantHalts(ctx: PayCallContext, merchantId: string, now: Date = new Date()): Promise<MerchantHaltsData> {
   const [status, history, pending] = await Promise.all([
-    payCall(ctx, 'payHalts.operatorStatus', 'GET', {}, parseWith(payHaltOperatorStatusSchema)),
-    payCall(ctx, 'payHalts.history', 'GET', { target: { level: 'merchant', merchantId }, limit: 50 }, parseHalts),
+    payRecordCall(ctx, PAY_HALTS_OPERATOR_STATUS, undefined),
+    payRecordCall(ctx, PAY_HALTS_HISTORY, { target: { level: 'merchant', merchantId }, limit: 50 }),
     loadPendingClears(ctx),
   ]);
   return { status, history, pending, readAt: now.toISOString() };

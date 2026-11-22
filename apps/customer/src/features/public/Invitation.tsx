@@ -4,12 +4,11 @@ import type { ApiClient, ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Loading } from '../../shared/ui';
 import { useLocation } from '../../app/location';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { invitationCopy as copy } from './invitation-copy';
 import { ReferrerChange } from './ReferrerChange';
 import { useShareVisit } from './share-visit';
 import {
-  attachWindowSchema,
   currentReferrerFor,
   finishInvitation,
   invitationKey,
@@ -25,6 +24,8 @@ import {
   type ReferralRefusal,
 } from './invitation-guards';
 import './invitation.css';
+import { callAs } from '../../shared/api';
+import { IDENTITY_AFFILIATES_MY_REFERRER, IDENTITY_AFFILIATES_ATTACH_WINDOW } from '@intafaced/contracts/identity-affiliates-procedures';
 
 type Context = { client: ApiClient; owner: string | null; token: string | null; url: string; generation: number };
 type Original = Context & { owner: string; capability: string };
@@ -250,7 +251,7 @@ export function Invitation() {
           if (latest.failed) setProblem('storage');
           return;
         }
-        const fresh = await intent.client.query('identity', 'affiliates.myReferrer', undefined, currentReferrerFor(intent.owner), {
+        const fresh = await callAs(intent.client, IDENTITY_AFFILIATES_MY_REFERRER, undefined, currentReferrerFor(intent.owner), {
           signal: controller.signal,
         });
         if (!same(intent)) return;
@@ -331,7 +332,7 @@ export function Invitation() {
     readAbort.current = controller;
     const sequence = ++readSequence.current;
     setRead({ context: captured, status: 'loading' });
-    const answer = await captured.client.query('identity', 'affiliates.myReferrer', undefined, currentReferrerFor(captured.owner), {
+    const answer = await callAs(captured.client, IDENTITY_AFFILIATES_MY_REFERRER, undefined, currentReferrerFor(captured.owner), {
       signal: controller.signal,
     });
     if (!sameContext(captured) || sequence !== readSequence.current) return;
@@ -633,7 +634,7 @@ function AttachWindowNote() {
   const { api } = useSession();
   const { t, requestedLocale } = copy.useCopy();
   const { resource, reload } = useResource(
-    (signal) => api.query('identity', 'affiliates.attachWindow', undefined, attachWindowSchema, { signal }),
+    (signal) => api.call(IDENTITY_AFFILIATES_ATTACH_WINDOW, undefined, { signal }),
     'referral-attach-window',
   );
   const when = (value: string) =>

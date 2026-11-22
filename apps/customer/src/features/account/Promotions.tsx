@@ -1,9 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import type { ApiClient } from '../../shared/api';
 import { Button, Dialog, EmptyState, Page } from '../../shared/ui';
 import { PartnerProgramme } from './PartnerProgramme';
 import { ReferralCode } from './ReferralCode';
+import { ReferralInvitees } from './ReferralInvitees';
 import { ReferralRecords } from './ReferralRecords';
 import { RewardsHub } from './RewardsHub';
 import { ShareSheet } from './ShareSheet';
@@ -27,6 +28,8 @@ import {
   type ShareOriginal,
 } from './promotions-guards';
 import './promotions.css';
+import { callAs } from '../../shared/api';
+import { IDENTITY_AFFILIATES_CREATE_SHARE, IDENTITY_AFFILIATES_REVOKE_SHARE } from '@intafaced/contracts/identity-affiliates-procedures';
 
 type Intent = {
   owner: string;
@@ -50,16 +53,24 @@ type Known = {
 type Problem = 'storage' | 'locks' | 'another';
 const empty: ShareJournal = { records: [], failed: false };
 
-export type PromotionsView = 'overview' | 'link' | 'records';
+export type PromotionsView = 'overview' | 'link' | 'records' | 'points' | 'perks';
 /** Each promotion address opens its own section; the bare address and the invitations address show both. */
 export function promotionsViewFor(path: string): PromotionsView {
   const clean = path.split('?')[0]!.replace(/\/+$/, '');
+  if (clean === '/uc/promotion/points') return 'points';
+  if (clean === '/uc/promotion/perks') return 'perks';
   return clean === '/uc/promotion/mycards' ? 'link' : clean === '/uc/promotion/mypromotion' ? 'records' : 'overview';
 }
-const promotionTabs: ReadonlyArray<{ view: PromotionsView; href: string; label: 'tabOverview' | 'tabLink' | 'tabRecords' }> = [
+const promotionTabs: ReadonlyArray<{
+  view: PromotionsView;
+  href: string;
+  label: 'tabOverview' | 'tabLink' | 'tabRecords' | 'tabPoints' | 'tabPerks';
+}> = [
   { view: 'overview', href: '/uc/promotion', label: 'tabOverview' },
   { view: 'link', href: '/uc/promotion/mycards', label: 'tabLink' },
   { view: 'records', href: '/uc/promotion/mypromotion', label: 'tabRecords' },
+  { view: 'points', href: '/uc/promotion/points', label: 'tabPoints' },
+  { view: 'perks', href: '/uc/promotion/perks', label: 'tabPerks' },
 ];
 export function PromotionTabs({ view }: { view: PromotionsView }) {
   const { t } = copy.useCopy();
@@ -272,10 +283,10 @@ export function Promotions({ path = '/uc/promotion' }: { path?: string }) {
         // has no particular-token/CAS input; the frozen snapshot is separate.
         const answer =
           intent.kind === 'create'
-            ? await intent.client.mutate('identity', 'affiliates.createShare', {}, currentLinkReply(intent.owner), {
+            ? await callAs(intent.client, IDENTITY_AFFILIATES_CREATE_SHARE, undefined, currentLinkReply(intent.owner), {
                 signal: controller.signal,
               })
-            : await intent.client.mutate('identity', 'affiliates.revokeShare', {}, currentRevocationReply(intent.owner), {
+            : await callAs(intent.client, IDENTITY_AFFILIATES_REVOKE_SHARE, undefined, currentRevocationReply(intent.owner), {
                 signal: controller.signal,
               });
         if (!same(intent)) return;
@@ -566,6 +577,7 @@ export function Promotions({ path = '/uc/promotion' }: { path?: string }) {
           {view === 'overview' && <PartnerProgramme />}
           {view !== 'link' && (
             <div id="promotion-referrals">
+              <ReferralInvitees />
               <ReferralRecords />
             </div>
           )}

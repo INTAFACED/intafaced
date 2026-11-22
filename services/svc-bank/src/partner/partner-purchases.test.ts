@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { parseAmount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import { paidByFor } from './partner-purchases.js';
-import { TEST_PURCHASE_HOLD_DAYS, testPartner, testPartnerPurchases } from './test-partner.js';
+import { testPartner, testPartnerPurchases } from './test-partner.js';
+import { TEST_PURCHASE_HOLD_DAYS } from './test-partner-purchases.js';
 import { partnerPayoutsAccount } from './partner-bank.js';
 
 // J-wallet-01 #3: a purchase through the TEST partner is credited at the partner once per key, the partner holds it back

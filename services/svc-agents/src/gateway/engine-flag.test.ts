@@ -113,7 +113,7 @@ describe('route and agent engine flag', () => {
         const found = definitions.get(agentId);
         return found ? { guardrail: found, enabled: true } : null;
       },
-    } as unknown as AgentsRouterDeps['runtime'],
+    } as AgentsRouterDeps['runtime'],
     gateway,
     meter: {} as AgentsRouterDeps['meter'],
     feeAssetId: 'FEE',

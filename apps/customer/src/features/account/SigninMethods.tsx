@@ -1,17 +1,20 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { z } from 'zod';
-import { useSession } from '../session/session';
+import { signWithBrowserWallet, useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
 import { ServiceOffNotice } from '../../shared/service-off';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
-import { shortAddress } from '../protocol/wallet/eip1193';
-import { signWithBrowserWallet, walletChallengeSchema } from '../session/browser-wallet';
+import { shortAddress } from '../protocol';
 import { signinMethodsCopy as copy } from './signin-methods-copy';
-import { cleanPhone, methodStepUp, signinMethods, walletMethod, waysIn, type MethodName } from './signin-methods';
+import { cleanPhone, methodStepUp, walletMethod, waysIn, type MethodName } from './signin-methods';
 import { confirmWithStepUp, type StepUpMethod } from './security-step-up';
+import { IDENTITY_SIGNIN_METHODS } from '@intafaced/contracts/identity-signin-methods-procedures';
+import { IDENTITY_LINK_SIGNIN_METHOD } from '@intafaced/contracts/identity-link-signin-method-procedures';
+import { IDENTITY_WALLET_LINK_CHALLENGE } from '@intafaced/contracts/identity-wallet-link-challenge-procedures';
+import { IDENTITY_LINK_PROVIDER_START } from '@intafaced/contracts/identity-link-provider-start-procedures';
+import { IDENTITY_UNLINK_SIGNIN_METHOD } from '@intafaced/contracts/identity-unlink-signin-method-procedures';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 /** One change on its way: sent once without a confirmation, so a refusal costs none, then again with one. */
@@ -24,7 +27,6 @@ type Change = {
 };
 type Off = { code: 'vendor.sms' | 'idp.social'; action: string };
 // hand-declared-ok: svc-identity's sign-in methods and provider link answers have no browser-safe schema in packages/contracts yet
-const started = z.object({ provider: z.string(), authorizationUrl: z.string().url(), expiresAt: z.string() });
 
 /**
  * Ways to sign in, in Security (I-account-lifecycle-07): the password, a code by email, passkeys, wallets, a phone
@@ -54,24 +56,25 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
     };
   }, []);
   const { resource, reload } = useResource(
-    (signal) =>
-      userId ? api.query('identity', 'signinMethods', {}, signinMethods, { signal }) : Promise.resolve({ ok: true as const, data: null }),
+    (signal) => (userId ? api.call(IDENTITY_SIGNIN_METHODS, {}, { signal }) : Promise.resolve({ ok: true as const, data: null })),
     `signin-methods:${userId}:${revision}`,
   );
 
   const clear = () => (setFailure(null), setOff(null), setProblem(null), setNote(null));
   const send = (change: Change, stepUpApprovalId?: string) =>
-    api.mutate(
-      'identity',
-      change.change === 'link' ? 'linkSigninMethod' : 'unlinkSigninMethod',
-      {
-        method: change.method,
-        clientRequestId: change.clientRequestId,
-        ...(stepUpApprovalId ? { stepUpApprovalId } : {}),
-        ...change.extra,
-      },
-      signinMethods,
-    );
+    change.change === 'link'
+      ? api.call(IDENTITY_LINK_SIGNIN_METHOD, {
+          method: change.method,
+          clientRequestId: change.clientRequestId,
+          ...(stepUpApprovalId ? { stepUpApprovalId } : {}),
+          ...change.extra,
+        })
+      : api.call(IDENTITY_UNLINK_SIGNIN_METHOD, {
+          method: change.method,
+          clientRequestId: change.clientRequestId,
+          ...(stepUpApprovalId ? { stepUpApprovalId } : {}),
+          ...change.extra,
+        });
 
   function answered(change: Change, answer: ApiResult<unknown>) {
     if (!mounted.current) return;
@@ -126,12 +129,7 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
     clear();
     setBusy(true);
     try {
-      const answer = await api.mutate(
-        'identity',
-        'linkSigninMethod',
-        { method: 'sms_code', clientRequestId: crypto.randomUUID(), phone },
-        signinMethods,
-      );
+      const answer = await api.call(IDENTITY_LINK_SIGNIN_METHOD, { method: 'sms_code', clientRequestId: crypto.randomUUID(), phone });
       if (!mounted.current) return;
       if (answer.ok) {
         setTexted(phone);
@@ -150,7 +148,7 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
     setBusy(true);
     try {
       const signed = await signWithBrowserWallet((address, chainId) =>
-        api.mutate('identity', 'walletLinkChallenge', { address, chainId, origin: location.origin }, walletChallengeSchema),
+        api.call(IDENTITY_WALLET_LINK_CHALLENGE, { address, chainId, origin: location.origin }),
       );
       if (!mounted.current) return;
       if (signed.status === 'none') return setProblem(t('noWallet'));
@@ -176,7 +174,7 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
     clear();
     setBusy(true);
     try {
-      const answer = await api.mutate('identity', 'linkProviderStart', { provider: 'social' }, started);
+      const answer = await api.call(IDENTITY_LINK_PROVIDER_START, { provider: 'social' });
       if (!mounted.current) return;
       const target = answer.ok ? new URL(answer.data.authorizationUrl) : null;
       if (target?.protocol === 'https:') return location.assign(target.href);

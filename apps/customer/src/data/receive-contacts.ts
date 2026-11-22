@@ -9,9 +9,11 @@
  */
 import { z } from 'zod';
 import type { ApiClient } from '../shared/api';
-import { resolveHandleSchema, type ResolveOutcome } from './identity';
+import { IDENTITY_USERS_SEARCH_PAYEES } from '@intafaced/contracts/identity-handles';
+import { handleNamed, type ResolveOutcome } from './identity';
+import { IDENTITY_RECEIVE_CONTACTS_LIST } from '@intafaced/contracts/identity-receive-contacts-procedures';
 
-export const receiveContactListSchema = z.object({
+const receiveContactListSchema = z.object({
   contacts: z.array(z.object({ id: z.string().guid(), channel: z.enum(['email', 'phone']), target: z.string(), verified: z.boolean() })),
   max: z.number().int().positive().nullable(),
 });
@@ -42,7 +44,7 @@ export type ReceiveContactOutcome =
 const known = (code: string | undefined): code is ReceiveContactCode => (RECEIVE_CONTACT_CODES as readonly string[]).includes(code ?? '');
 
 export async function fetchReceiveContacts(api: ApiClient, signal?: AbortSignal): Promise<ReceiveContactOutcome> {
-  const result = await api.query('identity', 'receiveContacts.list', undefined, receiveContactListSchema, { signal });
+  const result = await api.call(IDENTITY_RECEIVE_CONTACTS_LIST, undefined, { signal });
   if (result.ok) return { kind: 'ok', list: result.data };
   return known(result.code) ? { kind: 'refused', code: result.code } : { kind: 'failed' };
 }
@@ -74,15 +76,10 @@ export async function resolveContact(api: ApiClient, raw: string, signal?: Abort
   const kind = contactKind(raw);
   if (kind === null) return { kind: 'notFound' };
   const value = raw.trim();
-  const result = await api.query(
-    'identity',
-    'users.searchPayees',
-    kind === 'email' ? { email: value } : { phone: value },
-    resolveHandleSchema,
-    {
-      signal,
-    },
-  );
+  const result = await api.call(IDENTITY_USERS_SEARCH_PAYEES, kind === 'email' ? { email: value } : { phone: value }, {
+    signal,
+    accept: handleNamed,
+  });
   if (result.ok)
     return result.data.found
       ? { kind: 'found', userId: result.data.userId, handle: result.data.handle, self: result.data.self }

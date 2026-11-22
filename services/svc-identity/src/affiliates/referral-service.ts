@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import {
   buildAffiliateMemberListBoard,
   buildAffiliateNodeStatus,
@@ -60,10 +60,14 @@ export function publishedAffiliateMembersLimit(value: number | undefined | null)
   return value;
 }
 
+/** Told of each edge once it has committed (the bus announcement, `identity.referral.created`). */
+export type ReferralAttached = (edge: ReferralEdge) => Promise<void>;
+
 export class ReferralService {
   constructor(
     private readonly sql: Sql,
     private readonly maxDepth: number = DEFAULT_MAX_REFERRAL_DEPTH,
+    private readonly attached?: ReferralAttached,
   ) {}
 
   /** Parent map for accrual dry-run (userId → referrerId). */
@@ -71,7 +75,7 @@ export class ReferralService {
     return this.loadParentMapFrom(this.sql);
   }
 
-  private async loadParentMapFrom(sql: Sql): Promise<Map<string, string>> {
+  private async loadParentMapFrom(sql: Queryable): Promise<Map<string, string>> {
     const rows = await sql<Array<{ user_id: string; referrer_id: string }>>`
       SELECT user_id, referrer_id FROM referral_edges
     `;
@@ -141,7 +145,7 @@ export class ReferralService {
     };
   }
 
-  private async userExists(sql: Sql, userId: string): Promise<boolean> {
+  private async userExists(sql: Queryable, userId: string): Promise<boolean> {
     const rows = await sql<Array<{ id: string }>>`
       SELECT id FROM users WHERE id = ${userId} LIMIT 1
     `;
@@ -174,8 +178,9 @@ export class ReferralService {
       throw new ReferralError('Self-referral is refused', 'referral.self');
     }
 
+    let edge: ReferralEdge;
     try {
-      return await transaction(
+      edge = await transaction(
         this.sql,
         async (tx) => {
           // Transaction-scoped: released on commit/rollback. Serialises attribute writers.
@@ -239,6 +244,9 @@ export class ReferralService {
       }
       throw err;
     }
+    // After the commit: the edge stands whatever the announcement does. The caller decides how a failed one is logged.
+    await this.attached?.(edge);
+    return edge;
   }
 
   async parentOf(userId: string): Promise<string | null> {

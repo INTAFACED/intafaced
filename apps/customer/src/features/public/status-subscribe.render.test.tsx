@@ -17,6 +17,7 @@ const answer = (procedure: string, input: unknown) => {
 const api = {
   query: async (_module: string, procedure: string, input: unknown) => answer(procedure, input),
   mutate: async (_module: string, procedure: string, input: unknown) => answer(procedure, input),
+  call: async (record: { path: string }, input: unknown) => answer(record.path, input),
 };
 vi.mock('../../data/hooks', () => ({ useDataEnv: () => ({ api, poller: {}, userId: null }) }));
 vi.mock('../../shared/preferences', async (original) => {

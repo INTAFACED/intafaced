@@ -44,6 +44,7 @@ describe('fetchMe', () => {
   it('is "failed" on a server error or an answer of the wrong shape', async () => {
     expect(await fetchMe(client(() => error(500)).api)).toEqual({ kind: 'failed' });
     expect(await fetchMe(client(() => trpc({ userId: 'nope', handle: 'a' })).api)).toEqual({ kind: 'failed' });
+    expect(await fetchMe(client(() => trpc({ userId: ID, handle: '', emailVerified: true })).api)).toEqual({ kind: 'failed' });
   });
 });
 

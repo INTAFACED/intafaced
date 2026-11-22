@@ -10,13 +10,12 @@
  *    `local-test:` approvals and screening `off` through.
  * 3. Done bar: every APP_ENV assignment in docker-compose.apps.yml is
  *    `${APP_ENV:?...}`; docker-compose.yml and docker-compose.outreach.yml
- *    never set APP_ENV at all (infra-only / overlay); staging-deploy.yml
- *    passes APP_ENV to every remote `docker compose` call.
+ *    never set APP_ENV at all (infra-only / overlay).
  * 4. Class N
- * 5. Paths: docker-compose*.yml, .github/workflows/staging-deploy.yml
+ * 5. Paths: docker-compose*.yml
  * 6. RED: pin fails on any APP_ENV default, or on a file that gains one.
- * 7. Collision: staging fail-closed value is pinned by staging-deploy.yml
- *    itself; this pin only covers the compose side.
+ * 7. Collision: staging-deploy.yml and its pin on the remote compose calls
+ *    were removed on 15 Nov 2026 (restore both from commit 9ef9844c1d).
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -49,15 +48,6 @@ describe('compose APP_ENV has no default in real-deploy files (#4610)', () => {
     for (const file of ['docker-compose.yml', 'docker-compose.outreach.yml']) {
       expect(read(file), `${file} must not set APP_ENV`).not.toMatch(/\bAPP_ENV\b/);
     }
-  });
-
-  it('staging-deploy.yml passes APP_ENV into every remote docker compose call', () => {
-    const wf = read('.github/workflows/staging-deploy.yml');
-    expect(wf).toMatch(/APP_ENV=staging docker compose -f docker-compose\.apps\.yml up -d/);
-    // the post-deploy health step runs `compose ps`, which also needs APP_ENV
-    expect(wf).toMatch(
-      /"APP_ENV='\$APP_ENV' bash -s"[^\n]*<<'REMOTE'\n\s+set -euo pipefail\n\s+cd "\$HOME\/intafaced-staging"\n\n\s+report\(\)/,
-    );
   });
 
   it('.env.example keeps the local-dev convenience (APP_ENV=dev) for platform:up', () => {

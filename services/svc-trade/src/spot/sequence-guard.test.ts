@@ -452,7 +452,7 @@ describe('svc-trade sequence-guard (H8a PG-hard)', () => {
       }, 'm'),
     ).rejects.toBe(outage);
     for (const sequence of [null, undefined, '7', -1, 1.5]) {
-      await expect(probeEngineSequence(async () => ({ sequence }) as unknown as EngineDepth, 'm')).rejects.toMatchObject({
+      await expect(probeEngineSequence(async () => ({ sequence }) as EngineDepth, 'm')).rejects.toMatchObject({
         code: 'trade.matching_unavailable',
       });
     }

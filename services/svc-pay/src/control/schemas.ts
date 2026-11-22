@@ -12,9 +12,8 @@ import {
   payTimestampSchema,
   payVersionSchema,
   payoutApprovalSchema,
-  payBpsSchema,
   payPayoutFeeSchema,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/merchant-control';
 
 /**
  * Wire shapes W1 needs beyond packages/contracts/src/merchant-control.ts.
@@ -141,49 +140,7 @@ export const pricingPreviewInputSchema = z
   })
   .strict();
 
-export const pricingQuoteSchema = z
-  .object({
-    ruleId: z.string().guid(),
-    appliedLayer: z.enum(['global', 'tier', 'merchant']),
-    ruleChain: z.array(
-      z.object({ layer: z.enum(['global', 'tier', 'merchant']), ruleId: z.string().guid(), version: payVersionSchema }).strict(),
-    ),
-    monthlyVolumeBefore: payAmountStringSchema,
-    bandFrom: payAmountStringSchema,
-    feeBps: payBpsSchema,
-    flatFee: payAmountStringSchema.nullable(),
-    spreadBps: payBpsSchema.nullable(),
-    roundingBeneficiary: z.enum(['platform', 'merchant']),
-    roundingMode: z.enum(['ceil', 'floor']),
-    bpsFee: payAmountStringSchema,
-    feeBeforeClamp: payAmountStringSchema,
-    fee: payAmountStringSchema,
-    spread: payAmountStringSchema.nullable(),
-    net: z.string().regex(/^-?\d+(\.\d{1,18})?$/),
-  })
-  .strict();
-export type PricingQuoteView = z.infer<typeof pricingQuoteSchema>;
-
 export const usageInputSchema = z.object({ merchantId: payMerchantIdSchema }).strict();
-export const usageViewSchema = z
-  .object({
-    merchantId: payMerchantIdSchema,
-    tierId: payRiskTierIdSchema.nullable(),
-    asOf: payTimestampSchema,
-    rows: z.array(
-      z
-        .object({
-          kind: z.enum(['per_payment', 'daily_intake', 'monthly_intake', 'daily_payout', 'beneficiaries_per_day']),
-          assetCode: payAssetCodeSchema.nullable(),
-          limit: z.string(),
-          used: z.string().nullable(),
-          remaining: z.string().nullable(),
-          resetsAt: payTimestampSchema.nullable(),
-        })
-        .strict(),
-    ),
-  })
-  .strict();
 
 export const approvalRequestInputSchema = z
   .object({

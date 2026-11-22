@@ -1,5 +1,6 @@
 import { REASON_MAX, isTicketId, type ActionGate, type Priority } from './model';
 import type { TicketStatus } from './types';
+import { isRecord } from '@intafaced/contracts/guards';
 
 /**
  * Bulk change of support requests, as the console reads and sends it.
@@ -42,17 +43,6 @@ export function bulkChangeOf(form: BulkForm): BulkChange | null {
 export interface BulkPolicyView {
   /** The owner's batch size, or null while it is not set. */
   readonly cap: number | null;
-}
-
-const isRecord = (v: unknown): v is Record<string, unknown> => Boolean(v && typeof v === 'object' && !Array.isArray(v));
-
-/** `bulkPolicy`: exactly `{ cap, missing }`, with `missing` named only while `cap` is blank. Anything else is null. */
-export function readBulkPolicy(raw: unknown): BulkPolicyView | null {
-  if (!isRecord(raw)) return null;
-  const { cap, missing } = raw;
-  if (cap === null) return missing === 'support.bulk_cap' ? { cap: null } : null;
-  if (typeof cap === 'number' && Number.isInteger(cap) && cap > 0 && missing === null) return { cap };
-  return null;
 }
 
 export type BulkOutcome = 'changed' | 'unchanged' | 'refused';

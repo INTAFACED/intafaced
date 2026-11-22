@@ -5,14 +5,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { BankError } from '../errors.js';
-import {
-  SWITCHES_OFF,
-  TEST_PARTNER_UNLISTED_DECLINE,
-  moneyHeldBy,
-  partnerUnset,
-  testPartner,
-  type TestPartnerSwitches,
-} from '../partner/test-partner.js';
+import { TEST_PARTNER_UNLISTED_DECLINE, moneyHeldBy, partnerUnset, testPartner } from '../partner/test-partner.js';
+import { SWITCHES_OFF, type TestPartnerSwitches } from '../partner/test-partner-switches.js';
 import { NOTHING_REPORTED, type CardPartnerTerms } from './partner-terms.js';
 import { PartnerCardRefusal, TEST_CARD_HOLD_DAYS, partnerCardKey, testPartnerCardHolds } from './partner-card-holds.js';
 

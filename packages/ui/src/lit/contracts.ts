@@ -1,23 +1,18 @@
 /**
- * Lit glass: the frozen contracts every lane builds against.
+ * Volt: the frozen contracts every lane builds against.
  *
  * This file names things; it holds no values and no styling. Values live in `./tokens.ts`, components in
- * `./components/`, templates in `./templates/`, the 3D objects in `./fx/`. A name added here goes through the
+ * `./components/`, templates in `./templates/`. A name added here goes through the
  * kit's owner (the lit lead); removing or renaming one is a breaking change for every room built on it.
  *
- * The look is scoped: it only applies under `data-look="lit"` on the root element, and only the customer app
- * loads `@intafaced/ui/lit/lit.css`. The founder console (apps/admin) never imports anything under `lit/`
- * (`lit.test.ts` checks that). With the look switched off, the same role tokens resolve to today's skin, so a
- * room moved onto a template shows its new layout in the old colours, flat, never a mix of two skins.
+ * Volt is the customer app's only look (the owner's pick, 2026-11-21): the app's page carries `data-look="lit"` on its
+ * root from its first byte (apps/customer/index.html), and only the customer app loads `@intafaced/ui/lit/lit.css`.
+ * The founder console (apps/admin) never imports anything under `lit/` (`lit.test.ts` checks that). Without
+ * `data-look` (the kit gallery's flat view) the same role tokens resolve to today's skin.
  */
 
-/** The `data-look` value that switches the skin on. */
+/** The `data-look` value the customer app's root carries. */
 export const LIT_LOOK = 'lit' as const;
-
-/** `data-accent` on the root. Blue is the default (owner decision, 26 Oct 2026); the others are a switch. */
-export const accents = ['blue', 'ember', 'violet', 'emerald'] as const;
-export type Accent = (typeof accents)[number];
-export const defaultAccent: Accent = 'blue';
 
 /**
  * `data-surfaces` on the root. `solid` replaces every glass and translucent surface with an opaque one and
@@ -28,7 +23,7 @@ export const defaultAccent: Accent = 'blue';
 export const surfaceModes = ['glass', 'solid'] as const;
 export type SurfaceMode = (typeof surfaceModes)[number];
 
-/** `data-theme` on the root, as the app already uses it. Dark ships; light values exist and are tested. */
+/** `data-theme` on the root, as the app already uses it. The beta is dark only; light values exist, are tested and stay behind the scheme switch. */
 export const schemes = ['dark', 'light'] as const;
 export type Scheme = (typeof schemes)[number];
 
@@ -37,7 +32,7 @@ export const modes = ['simple', 'pro'] as const;
 export type Mode = (typeof modes)[number];
 
 /**
- * Image roles (`field`, `glass-bg`, `primary-bg`, `secondary-bg`, `key-bg`, `key-lit-bg`) hold a colour in the
+ * Image roles (`field`, `glass-bg`, `primary-bg`, `secondary-bg`, `key-bg`, `key-lit-bg`, `object-bg`, `object-spark-bg`) hold a colour in the
  * flat skin and a gradient in the lit skin, so they are only ever used with the `background` shorthand. Every
  * other colour role is a plain colour in every skin. Shadow roles are `box-shadow` values.
  *
@@ -106,6 +101,13 @@ export const roles = {
   'key-shadow': 'Shadow stack of an action key',
   'key-lit-bg': 'The one key that is the light',
   'key-lit-shadow': 'Glow and wall of the lit key',
+
+  // The money object (a card, a stack, a coin): the account drawn as a thing you hold, in both schemes.
+  'object-bg': 'The money object face. Image role: use with the `background` shorthand only',
+  'object-fg': 'Text and figures on the money object face',
+  'object-shadow': 'Edge light and weight of the money object (shadow stack)',
+  'object-spark-bg': "The money object lit as the screen's one spark. Image role: `background` shorthand only",
+  'object-spark-fg': 'Text and figures on the lit money object',
   'control-bg': 'Input, select, segmented control body',
   'control-rim': 'Their outline at rest',
   'control-rim-active': 'Their outline when focused or selected (not the focus ring)',

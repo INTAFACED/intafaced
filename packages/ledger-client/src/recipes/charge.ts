@@ -117,6 +117,11 @@ export interface ChargeEarnInput {
   readonly price: ChargePrice;
   /** How many units were sold or used: a whole number, at least one. */
   readonly units: bigint;
+  /**
+   * When `userId` is a business that owes it (a team run, J-agents-11): the member whose use it was, named in the
+   * transaction's meta. The receivable stays the business's alone.
+   */
+  readonly memberUserId?: string;
 }
 
 /** Earn a charge a customer owes us: `charge-receivable:<module>.<userId>` → `fees:<module>`. Refused while the price is unset. */
@@ -133,11 +138,13 @@ export function chargeEarn(input: ChargeEarnInput): PostRequest {
   const amount = perUnit * input.units;
   if (amount === 0n) throw new InvalidEntryError('a charge must be above zero; a free sale posts nothing');
 
+  const member = input.memberUserId === undefined ? null : requireUser(input.memberUserId);
+
   return {
     idempotencyKey: requireKey(earnedChargeKey(module, saleId)),
     module,
     reason: 'charge.earned',
-    meta: { saleId, userId, perUnit: formatAmount(perUnit), units: input.units.toString() },
+    meta: { saleId, userId, perUnit: formatAmount(perUnit), units: input.units.toString(), ...(member ? { memberUserId: member } : {}) },
     entries: [debit(houseFees(module, assetId), amount), credit(chargeReceivableAccount(module, userId, assetId), amount)],
   };
 }

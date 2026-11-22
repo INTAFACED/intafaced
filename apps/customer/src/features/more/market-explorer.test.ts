@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { assetsOf, filterListings, isFiltered, NO_FILTER, periodUnit, type ListingRow } from './market-explorer';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 
 const row = (id: string, over: Partial<ListingRow>): ListingRow => ({
   id,
@@ -7,7 +8,7 @@ const row = (id: string, over: Partial<ListingRow>): ListingRow => ({
   title: id,
   description: '',
   offerType: 'one_time',
-  assetId: 'IFC',
+  assetId: asAssetId('IFC'),
   price: '10',
   periodSeconds: null,
   status: 'active',
@@ -21,7 +22,7 @@ const rows = [
     price: '10',
     offerType: 'subscription',
     periodSeconds: 2_592_000,
-    assetId: 'USDT',
+    assetId: asAssetId('USDT'),
     createdAt: '2026-10-01T00:00:00.000Z',
   }),
 ];

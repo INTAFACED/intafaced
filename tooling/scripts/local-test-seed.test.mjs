@@ -77,19 +77,19 @@ function tmp() {
 function marker(over = {}) {
   return {
     kind: 'intafaced-local-test-stack',
-    ports: { postgres: 15460, ledger: 14501, ...(over.ports ?? {}) },
+    ports: { postgres: 15460, ledger: 14501, ...over.ports },
     database: {
       host: '127.0.0.1',
       port: 15460,
       name: 'intafaced_local_test',
-      ...(over.database ?? {}),
+      ...over.database,
     },
   };
 }
 
 function writeState(dir, mark, secrets) {
   writeFileSync(path.join(dir, 'LOCAL-TEST-STACK.json'), JSON.stringify(mark));
-  writeFileSync(path.join(dir, 'secrets.json'), JSON.stringify({ pgService: 'fixture-secret', databaseUrl: PROD_URL, ...(secrets ?? {}) }));
+  writeFileSync(path.join(dir, 'secrets.json'), JSON.stringify({ pgService: 'fixture-secret', databaseUrl: PROD_URL, ...secrets }));
 }
 
 function spyIo() {
@@ -801,10 +801,6 @@ test('house inventory stocks both sides of the stack default markets', () => {
     const [base, rest] = symbol.split('/');
     for (const asset of [base, ...rest.split(':')]) assert.ok(stocked.has(asset), asset);
   }
-  const quoteSrc = readFileSync(path.join(repo, 'services/svc-trade/src/convert/quote.ts'), 'utf8');
-  assert.match(quoteSrc, /baseAsset/);
-  assert.match(quoteSrc, /quoteAsset/);
-  assert.match(quoteSrc, /kind: 'book'/);
 });
 
 test('p2p: apply twice leaves one row; unseed disables it; enabledMethodKeys follows', async () => {

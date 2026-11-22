@@ -15,6 +15,7 @@
  * beside the key. With no sealing key configured such a create refuses `identity.key_signing_unset` before the factor
  * is spent; there is never a moment the key exists unsigned.
  */
+import type { Queryable } from '@intafaced/db';
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { FOUNDER_DESK_SCOPES, SCOPES, isKeyForbiddenScope, expandScopes, isPayStepUpScope, isScope, type Scope } from '@intafaced/auth';
@@ -75,7 +76,9 @@ export type DeveloperKeyRefusal =
   | 'auth.agent_scope_forbidden'
   | 'identity.developer_roles_unset'
   | 'identity.developer_role_read_only'
-  | 'identity.developer_role_none';
+  | 'identity.developer_role_none'
+  | 'identity.key_rotate_overlap_unset'
+  | 'identity.key_rotate_overlap_too_long';
 
 export class DeveloperKeyError extends Error {
   constructor(
@@ -272,7 +275,7 @@ export function toRecord(row: KeyRow): ApiKeyRecord {
   };
 }
 
-async function liveKeyCount(sql: Sql, userId: string): Promise<number> {
+async function liveKeyCount(sql: Queryable, userId: string): Promise<number> {
   const rows = await sql<Array<{ n: number }>>`
     SELECT count(*)::int AS n FROM api_keys
     WHERE user_id = ${userId} AND revoked = false AND (expires_at IS NULL OR expires_at > now())
@@ -283,7 +286,7 @@ async function liveKeyCount(sql: Sql, userId: string): Promise<number> {
 export type DeveloperKeysDeps = {
   sql: Sql;
   gate: ApiKeyFactorGate;
-  kycTier: (userId: string, sql?: Sql) => Promise<KycTier>;
+  kycTier: (userId: string, sql?: Queryable) => Promise<KycTier>;
   capByTier: ReadonlyMap<KycTier, number> | null;
   /**
    * The service's own rule for who may hold a key at all (on the live service: an enrolled, verified passkey,
@@ -303,14 +306,19 @@ export type DeveloperKeysDeps = {
   developerRoles?: readonly DeveloperRole[] | null;
   /** svc-trade's answer to "is this account an approved lead" (`lead-key-check.ts`). Absent: a `copy:lead` key refuses as unavailable. */
   leadCheck?: LeadCheck;
+  /**
+   * The owner's longest rotation overlap in seconds (`IDENTITY_API_KEY_ROTATE_OVERLAP_MAX_SECONDS`). Null or absent: a
+   * rotation with an overlap above 0 refuses `identity.key_rotate_overlap_unset`; an overlap of 0 still rotates.
+   */
+  rotateOverlapMaxSeconds?: number | null;
   now?: () => Date;
 };
 
 export { signsByDefault };
 
-type Caller = { userId: string; sid: string; kid?: string | undefined; sub_account?: string | undefined; scopes: readonly string[] };
+export type Caller = { userId: string; sid: string; kid?: string | undefined; sub_account?: string | undefined; scopes: readonly string[] };
 
-async function capFor(deps: DeveloperKeysDeps, userId: string, sql: Sql): Promise<number | null> {
+async function capFor(deps: DeveloperKeysDeps, userId: string, sql: Queryable): Promise<number | null> {
   if (!deps.capByTier) return null;
   return deps.capByTier.get(await deps.kycTier(userId, sql)) ?? null;
 }
@@ -332,7 +340,7 @@ async function replayOf(sql: Sql, userId: string, requestId: string, fingerprint
 
 class SameRequestRace extends Error {}
 
-async function assertNameFree(sql: Sql, userId: string, name: string): Promise<void> {
+async function assertNameFree(sql: Queryable, userId: string, name: string): Promise<void> {
   const taken = await sql<Array<{ id: string }>>`
     SELECT id FROM api_keys
     WHERE user_id = ${userId} AND revoked = false AND (expires_at IS NULL OR expires_at > now()) AND lower(name) = lower(${name})
@@ -345,7 +353,7 @@ async function assertNameFree(sql: Sql, userId: string, name: string): Promise<v
  * A portfolio-scoped key (DV-sub-accounts-01): the account must be the caller's own live sub-account, an organisation
  * key's caller must be an admin of that organisation, and the account must hold fewer live keys than the owner's cap.
  */
-async function assertAccountKeyAllowed(deps: DeveloperKeysDeps, userId: string, checked: Checked, sql: Sql): Promise<void> {
+async function assertAccountKeyAllowed(deps: DeveloperKeysDeps, userId: string, checked: Checked, sql: Queryable): Promise<void> {
   if (checked.accountId === null) return;
   if (checked.orgId !== null) {
     // The owner (the organisation's admin) always may; a member only with a published `keys_admin` role (DV-console-01).
@@ -380,7 +388,7 @@ async function assertAccountKeyAllowed(deps: DeveloperKeysDeps, userId: string, 
   }
 }
 
-async function assertUnderCap(deps: DeveloperKeysDeps, userId: string, sql: Sql): Promise<void> {
+async function assertUnderCap(deps: DeveloperKeysDeps, userId: string, sql: Queryable): Promise<void> {
   const cap = await capFor(deps, userId, sql);
   if (cap === null) throw new DeveloperKeyError('The number of API keys an account may hold is not set', 'identity.key_cap_unset');
   if ((await liveKeyCount(sql, userId)) >= cap) {
@@ -518,9 +526,9 @@ export async function listDeveloperKeys(deps: DeveloperKeysDeps, userId: string,
   };
 }
 
-const notFound = () => new DeveloperKeyError('No key with this id on your account', 'identity.key_not_found');
+export const notFound = () => new DeveloperKeyError('No key with this id on your account', 'identity.key_not_found');
 
-async function ownKey(sql: Sql, userId: string, keyId: string): Promise<KeyRow & { require_non_empty_ip_allowlist: boolean }> {
+export async function ownKey(sql: Sql, userId: string, keyId: string): Promise<KeyRow & { require_non_empty_ip_allowlist: boolean }> {
   // Another account's key and a missing key answer the same: not found.
   const rows = await sql<Array<KeyRow & { require_non_empty_ip_allowlist: boolean }>>`
     SELECT ${sql.unsafe(KEY_COLUMNS)}, require_non_empty_ip_allowlist FROM api_keys WHERE id = ${keyId} AND user_id = ${userId}

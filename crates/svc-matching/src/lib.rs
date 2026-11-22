@@ -1,0 +1,35 @@
+//! svc-matching in Rust: the shell of its port from `services/svc-matching`, which stays the service that runs until
+//! the switch. The shell holds what every later slice stands on: the environment (`env`), the refusals and how each
+//! door answers them (`errors`, with the recorded user copy in `errors_table`), and the doors (`door`): every route
+//! `index.ts` and `router.ts` serve, who may call each, and each door's input checks before it reaches the engine
+//! (`refines` holds the exchange contract's own checks inside those schemas). Past the door a call is owed by its
+//! slice; `PORT.md` lists the slices and what each ports.
+//!
+//! The `journal` slice adds the engine journal (`journal`): records, how they are written and read back, the file's one
+//! writer, named gaps, and replay's rules over the books.
+//!
+//! The `book` slice adds the order book (`book`), the engine over it (`engine`: the journal before every move, the
+//! order events, the cold start, reconcile), and the doors that reach it (`door::book`). The `serve` slice adds the
+//! binary that serves them (`main.rs`): what the process says about itself (`status`: `/health`, `/ready` and each
+//! order operation's latency), the replay hold check and the boot that runs it (`holds`), admission and the expiry pass
+//! in the engine (`engine::admission`), and the scrape.
+//!
+//! The `spreads` slice adds options and combos to the book (`book::order_book`'s option and combo layers), owner-listed
+//! spreads with their own books (`book::spread`, the spread layer, the engine's listings and `spreadFilled`), the
+//! identity approval a listing spends (`approval`), and the spread doors (`door::spreads`).
+//! The `venue` slice adds the mode switches, the venue halt, dead sessions and the surveillance evidence
+//! (`engine::venue`), their doors (`door::venue`), and the identity approval each switch spends (`approval`).
+
+pub mod approval;
+pub mod book;
+pub mod bus;
+pub mod door;
+pub mod engine;
+pub mod env;
+pub mod errors;
+pub mod errors_table;
+pub mod holds;
+pub mod journal;
+pub mod refines;
+pub mod rulebook;
+pub mod status;

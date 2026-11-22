@@ -1,38 +1,21 @@
 import { useState } from 'react';
-import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Loading } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { partnerProgrammeCopy as copy } from './partner-programme-copy';
+import {
+  IDENTITY_AFFILIATES_MY_PARTNER_APPLICATION,
+  IDENTITY_AFFILIATES_PARTNER_ELIGIBILITY,
+  IDENTITY_AFFILIATES_APPLY_PARTNER,
+  IDENTITY_AFFILIATES_MY_SUB_TREE,
+} from '@intafaced/contracts/identity-affiliates-procedures';
+import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 
 // Become an affiliate partner (CM-referral-05, RC-campaigns-07; J-campaigns-07). Apply against the owner's qualified
 // invitee count, see the decision, and as an approved partner open the partner portal and my own sub-tree to the
 // programme depth. Blank owner values refuse by name and nothing is recorded.
-// hand-declared-ok: svc-identity's affiliates procedures have no browser-safe schema in packages/contracts yet
-const eligibilitySchema = z.object({
-  requiredCount: z.number().int().positive(),
-  qualifiedCount: z.number().int().nonnegative(),
-  eligible: z.boolean(),
-});
-const categories = ['not_enough_activity', 'incomplete_application', 'compliance', 'other'] as const;
-const applicationSchema = z.object({
-  applicationId: z.string().uuid(),
-  state: z.enum(['submitted', 'approved', 'rejected']),
-  qualifiedCount: z.number().int().nonnegative(),
-  requiredCount: z.number().int().positive(),
-  approvalReason: z.string().nullable(),
-  rejectCategory: z.enum(categories).nullable(),
-  reapplyAt: z.string().nullable(),
-  createdAt: z.string(),
-  decidedAt: z.string().nullable(),
-});
-const subTreeSchema = z.object({
-  depth: z.number().int().positive(),
-  members: z.array(z.object({ handle: z.string(), level: z.number().int().positive(), joinedAt: z.string() })),
-  beyondDepth: z.number().int().nonnegative(),
-});
-type Application = z.infer<typeof applicationSchema>;
+type Application = ProcedureOutput<typeof IDENTITY_AFFILIATES_APPLY_PARTNER>;
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 
 const categoryKey = {
@@ -77,10 +60,10 @@ function Programme() {
   const { api } = useSession();
   const { t, Copy } = copy.useCopy();
   const { resource, reload } = useResource(
-    (signal) => api.query('identity', 'affiliates.myPartnerApplication', undefined, applicationSchema.nullable(), { signal }),
+    (signal) => api.call(IDENTITY_AFFILIATES_MY_PARTNER_APPLICATION, undefined, { signal }),
     'partner-application',
   );
-  const [eligibility, setEligibility] = useState<z.infer<typeof eligibilitySchema> | null>(null);
+  const [eligibility, setEligibility] = useState<ProcedureOutput<typeof IDENTITY_AFFILIATES_PARTNER_ELIGIBILITY> | null>(null);
   const [filed, setFiled] = useState<Application | null>(null);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
   const [busy, setBusy] = useState(false);
@@ -88,7 +71,7 @@ function Programme() {
   async function check() {
     setBusy(true);
     setRefusal(null);
-    const answer = await api.query('identity', 'affiliates.partnerEligibility', undefined, eligibilitySchema);
+    const answer = await api.call(IDENTITY_AFFILIATES_PARTNER_ELIGIBILITY, undefined);
     setBusy(false);
     if (answer.ok) setEligibility(answer.data);
     else setRefusal(answer);
@@ -97,7 +80,7 @@ function Programme() {
     setBusy(true);
     setRefusal(null);
     // Pressing again is safe: the service returns the open application.
-    const answer = await api.mutate('identity', 'affiliates.applyPartner', {}, applicationSchema);
+    const answer = await api.call(IDENTITY_AFFILIATES_APPLY_PARTNER, {});
     setBusy(false);
     if (answer.ok) {
       setFiled(answer.data);
@@ -214,14 +197,14 @@ function Status({ application }: { application: Application }) {
 function Portal({ application }: { application: Application }) {
   const { api } = useSession();
   const { t, Copy } = copy.useCopy();
-  const [tree, setTree] = useState<z.infer<typeof subTreeSchema> | null>(null);
+  const [tree, setTree] = useState<ProcedureOutput<typeof IDENTITY_AFFILIATES_MY_SUB_TREE> | null>(null);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
   const [busy, setBusy] = useState(false);
 
   async function open() {
     setBusy(true);
     setRefusal(null);
-    const answer = await api.query('identity', 'affiliates.mySubTree', undefined, subTreeSchema);
+    const answer = await api.call(IDENTITY_AFFILIATES_MY_SUB_TREE, undefined);
     setBusy(false);
     if (answer.ok) setTree(answer.data);
     else {

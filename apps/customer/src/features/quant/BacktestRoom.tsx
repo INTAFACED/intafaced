@@ -1,36 +1,33 @@
 import {
   QUANT_FEE_ROLES,
-  quantAccountRulesSchema,
   QUANT_FILL_TIMINGS,
   QUANT_SPLIT_PRESETS,
   QUANT_VERDICT_CRITERIA,
   quantOutOfSampleFrom,
-  quantBacktestFeeSchema,
-  quantBacktestResultSchema,
   quantStrategyHeadSchema,
   quantStrategyListOutputSchema,
-  type QuantBacktestMetrics,
   type QuantBacktestResult,
-  type QuantCheck,
   type QuantMetric,
   type QuantShareCreated,
   type QuantSplitPreset,
   type QuantStrategyHead,
 } from '@intafaced/contracts/quant-algo';
 import { DATAFEED_INTERVAL_MS } from '@intafaced/contracts/datafeed';
+import { QUANT_BACKTEST_ACCOUNT_RULES, QUANT_BACKTEST_FEE, QUANT_BACKTEST_START } from '@intafaced/contracts/quant-backtest-procedures';
+import { QUANT_STUDIO_LIST } from '@intafaced/contracts/quant-studio-procedures';
 import { useState, type ReactNode } from 'react';
 import { z } from 'zod';
-import type { ApiResult } from '../../shared/api';
+import { parsesAs, type ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, EmptyState, Field, Loading, Panel, Tabs } from '../../shared/ui';
 import { QuotaAwareFailure } from './quota-refusal';
-import { downloadCsv } from '../more/depth-csv';
-import { utcInput } from '../more/quant-analysis';
-import { Read, Select } from '../more/common';
-import { useApi } from '../session/session';
+import { downloadCsv, utcInput, Read, Select } from '../more';
+import { useApi } from '../session';
 import { equityGeometry, tradesCsv, tradesCsvName } from './backtest-chart';
 import { backtestCopy } from './backtest-copy';
 import { ReportTab, ShareTab, type CreatedShare } from './ReportShare';
+import { MonteCarloPanel } from './MonteCarloPanel';
+import { researchCopy } from './research-copy';
 import { ChecksTab, LogText, MetricsTab } from './result-figures';
 import { reportCopy } from './report-copy';
 import { RunHistory } from './RunHistory';
@@ -59,7 +56,7 @@ function namedRefusal(message: string): Refusal | null {
   if (timing) return { input: 'fillTiming', detail: timing[1]!.trim(), blank: blank(timing[1]!) };
   const split = /^quant\.backtest_window_invalid — (split — |out-of-sample start )(.*)$/.exec(message);
   if (split) return { input: split[1]!.startsWith('split') ? 'split' : 'oosFrom', detail: split[2]!.trim(), blank: false };
-  const account = /^quant\.account_rule_unset — (leverage|maximum leverage|margin call level|stop-out level) — (.*)$/.exec(message);
+  const account = /^quant\.account_rule_unset — (leverage|maximum leverage|maintenance level|margin call level) — (.*)$/.exec(message);
   if (account) {
     const own = account[1] === 'leverage';
     return {
@@ -82,7 +79,7 @@ export function BacktestRoom() {
   const api = useApi();
   const { t } = backtestCopy.useCopy();
   const list = useResource(
-    (signal) => api.query('quant', 'studio.list', { limit: STRATEGY_PAGE }, page, { signal }),
+    (signal) => api.call(QUANT_STUDIO_LIST, { limit: STRATEGY_PAGE }, { signal, accept: parsesAs(page) }),
     'quant-backtest-strategies',
   );
   const [strategyId, setStrategyId] = useState('');
@@ -140,24 +137,19 @@ export function BacktestRoom() {
     setBusy(true);
     setRefusal(null);
     setFailure(null);
-    const res = await api.mutate(
-      'quant',
-      'backtest.start',
-      {
-        strategyId: strategy.id,
-        strategyVersion: strategy.version,
-        cash,
-        // A field the browser cannot read as a UTC minute is sent as typed, and the service names it.
-        from: utcInput(from) ?? from,
-        to: utcInput(to) ?? to,
-        fillTiming,
-        costs: { feeRole, slippageBps: slippage, delayBars: delay },
-        ...(split ? { split: { preset: split, ...(split === 'custom' ? { outOfSampleFrom: utcInput(oosFrom) ?? oosFrom } : {}) } } : {}),
-        ...(enforceHoldout ? { enforceHoldout: true } : {}),
-        ...(onMargin ? { simulatedAccount: { leverage } } : {}),
-      },
-      quantBacktestResultSchema,
-    );
+    const res = await api.call(QUANT_BACKTEST_START, {
+      strategyId: strategy.id,
+      strategyVersion: strategy.version,
+      cash,
+      // A field the browser cannot read as a UTC minute is sent as typed, and the service names it.
+      from: utcInput(from) ?? from,
+      to: utcInput(to) ?? to,
+      fillTiming,
+      costs: { feeRole, slippageBps: slippage, delayBars: delay },
+      ...(split ? { split: { preset: split, ...(split === 'custom' ? { outOfSampleFrom: utcInput(oosFrom) ?? oosFrom } : {}) } } : {}),
+      ...(enforceHoldout ? { enforceHoldout: true } : {}),
+      ...(onMargin ? { simulatedAccount: { leverage } } : {}),
+    });
     setBusy(false);
     if (res.ok) {
       setResult(res.data);
@@ -295,7 +287,7 @@ export function BacktestRoom() {
                           maxLength={8}
                           error={errorFor('leverage')}
                         />
-                        <AccountRules />
+                        {strategy?.modules && <AccountRules symbol={strategy.modules.symbol} />}
                         {selectError('accountRule')}
                       </>
                     ) : (
@@ -379,26 +371,36 @@ function SplitPreview(props: { from: string; to: string; preset: QuantSplitPrese
   );
 }
 
-/** The owner's published margin rules, read only; a blank one reads "not set" and a margin run refuses it by name. */
-function AccountRules() {
+/**
+ * The margin rules for the strategy's market, read only (J-algo-dev-02 #5): the venue's published maximum leverage and
+ * maintenance level, read from the venue, and our own margin-call warning, labelled as ours. A figure the venue does not
+ * publish reads "not published", our blank warning reads "not set"; a margin run refuses either by name.
+ */
+function AccountRules({ symbol }: { symbol: string }) {
   const api = useApi();
   const { t } = backtestCopy.useCopy();
-  const rules = useResource(
-    (signal) => api.query('quant', 'backtest.accountRules', undefined, quantAccountRulesSchema, { signal }),
-    'quant-account-rules',
-  );
+  const rules = useResource((signal) => api.call(QUANT_BACKTEST_ACCOUNT_RULES, { symbol }, { signal }), `quant-account-rules:${symbol}`);
   return (
     <Read resource={rules.resource} retry={rules.reload}>
       {(data) => (
-        <div data-testid="quant-account-rules">
-          <p className="muted">{t('accountRulesIntro')}</p>
+        <div data-testid="quant-account-rules" data-venue-market={data.venueMarket ?? ''}>
+          {data.test ? (
+            <p className="muted" data-testid="quant-account-rules-test">
+              {t('venueRulesTest')}
+            </p>
+          ) : null}
+          <p className="muted">{data.venueMarket ? t('venueRulesIntro', { market: data.venueMarket }) : t('venueRulesNoMarket')}</p>
           <dl className="quant-bar-totals">
-            {(['maxLeverage', 'marginCallPercent', 'stopOutPercent'] as const).map((name) => (
-              <div key={name} data-rule={name} data-value={data[name] ?? ''}>
+            {(['maxLeverage', 'maintenancePercent'] as const).map((name) => (
+              <div key={name} data-rule={name} data-value={data[name] ?? ''} data-source="venue">
                 <dt>{t(`rule_${name}`)}</dt>
-                <dd lang={data[name] === null ? undefined : 'zxx'}>{data[name] ?? t('notSet')}</dd>
+                <dd lang={data[name] === null ? undefined : 'zxx'}>{data[name] ?? t('notPublished')}</dd>
               </div>
             ))}
+            <div data-rule="marginCallPercent" data-value={data.marginCallPercent ?? ''} data-source="ours">
+              <dt>{t('rule_marginCallPercent')}</dt>
+              <dd lang={data.marginCallPercent === null ? undefined : 'zxx'}>{data.marginCallPercent ?? t('notSet')}</dd>
+            </div>
           </dl>
           <p>{t('accountMode')}</p>
         </div>
@@ -411,10 +413,7 @@ function AccountRules() {
 function FeeLedger({ symbol }: { symbol: string }) {
   const api = useApi();
   const { t } = backtestCopy.useCopy();
-  const fee = useResource(
-    (signal) => api.query('quant', 'backtest.fee', { symbol }, quantBacktestFeeSchema, { signal }),
-    `quant-fee:${symbol}`,
-  );
+  const fee = useResource((signal) => api.call(QUANT_BACKTEST_FEE, { symbol }, { signal }), `quant-fee:${symbol}`);
   return (
     <div data-testid="quant-fee-ledger">
       <Read resource={fee.resource} retry={fee.reload}>
@@ -424,7 +423,7 @@ function FeeLedger({ symbol }: { symbol: string }) {
   );
 }
 
-const RESULT_TABS = ['summary', 'metrics', 'checks', 'charts', 'trades', 'log', 'report', 'share'] as const;
+const RESULT_TABS = ['summary', 'metrics', 'checks', 'charts', 'trades', 'montecarlo', 'log', 'report', 'share'] as const;
 const CHART_W = 1000;
 const CHART_H = 300;
 type ResultTab = (typeof RESULT_TABS)[number];
@@ -450,6 +449,7 @@ function BacktestResult({ result }: { result: QuantBacktestResult }) {
           checks: t('tabChecks'),
           charts: t('tabCharts'),
           trades: t('tabTrades'),
+          montecarlo: researchCopy.t('mcTitle'),
           log: t('tabLog'),
           report: reportCopy.t('tabReport'),
           share: reportCopy.t('tabShare'),
@@ -460,6 +460,7 @@ function BacktestResult({ result }: { result: QuantBacktestResult }) {
       {tab === 'checks' && <ChecksTab checks={result.checks} />}
       {tab === 'charts' && <ResultCharts result={result} />}
       {tab === 'trades' && <ResultTrades result={result} />}
+      {tab === 'montecarlo' && <MonteCarloPanel runId={result.runId} />}
       {tab === 'log' && <ResultLog result={result} />}
       {tab === 'report' && <ReportTab runId={result.runId} />}
       {tab === 'share' && <ShareTab runId={result.runId} created={created} />}
@@ -570,10 +571,34 @@ function ResultSummary({ result }: { result: QuantBacktestResult }) {
           ? t('marginAccount', {
               leverage: result.account.leverage,
               call: result.account.marginCallPercent ?? '',
-              stopOut: result.account.stopOutPercent ?? '',
+              maintenance: result.account.maintenancePercent ?? '',
+              market: result.account.venueMarket ?? '',
             })
           : t('cashAccount')}
       </p>
+      <h4>{t('riskEventsTitle')}</h4>
+      {result.riskEvents.length ? (
+        <ul>
+          {result.riskEvents.map((event) => (
+            <li
+              key={event.ts}
+              data-testid="quant-risk-event"
+              data-kind={event.kind}
+              data-mode={event.mode}
+              data-ts={event.ts}
+              data-equity={event.equity}
+              data-floor={event.floor}
+            >
+              <span lang="zxx">{utcText(event.ts)}</span>{' '}
+              {t(event.mode === 'close_out' ? 'riskEventCloseOut' : 'riskEvent', { equity: event.equity, floor: event.floor })}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="muted" data-testid="quant-risk-events-none">
+          {t(result.assumptions.includes('equity_stop_at_bar_low') ? 'riskEventsNone' : 'riskEventsUnset')}
+        </p>
+      )}
       <p lang="zxx" data-testid="quant-bar-run-id">
         {t('runId', { id: result.runId })}
       </p>

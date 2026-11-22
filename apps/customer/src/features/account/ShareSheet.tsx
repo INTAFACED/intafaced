@@ -1,20 +1,15 @@
 import { useState } from 'react';
-import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Loading } from '../../shared/ui';
-import { useSession } from '../session/session';
-import { SHARE_SURFACES, type ShareSurface as Surface } from '../public/share-visit';
+import { useSession } from '../session';
+import { type ShareSurface as Surface } from '../public';
 import { shareSheetCopy as copy } from './share-sheet-copy';
+import { IDENTITY_AFFILIATES_SHARE_STATS, IDENTITY_AFFILIATES_SHARE_TAG } from '@intafaced/contracts/identity-affiliates-procedures';
 
 // One-tap share (RC-campaigns-06, J-campaigns-05 #2): a signed share tag for the person's live invitation link, one per
 // surface, and the visits each surface counted. The tag never makes a link; the link has its own reviewed request above.
 // hand-declared-ok: svc-identity's affiliates procedures have no browser-safe schema in packages/contracts yet
-const tagSchema = z.object({ tag: z.string().min(1), token: z.string().guid(), surface: z.enum(SHARE_SURFACES) });
-const statsSchema = z.object({
-  token: z.string().guid(),
-  surfaces: z.array(z.object({ surface: z.enum(SHARE_SURFACES), visits: z.number().int().nonnegative() })),
-});
 type Failure = Extract<ApiResult<unknown>, { ok: false }>;
 
 /** The address a tag opens: the invitation page, which counts the visit and then shows the invitation. */
@@ -30,10 +25,7 @@ export function ShareSheet({ surface = 'promotion' }: { surface?: Surface }) {
 function OwnerShareSheet({ surface }: { surface: Surface }) {
   const { api } = useSession();
   const { t, Copy } = copy.useCopy();
-  const { resource, reload } = useResource(
-    (signal) => api.query('identity', 'affiliates.shareStats', undefined, statsSchema, { signal }),
-    'share-stats',
-  );
+  const { resource, reload } = useResource((signal) => api.call(IDENTITY_AFFILIATES_SHARE_STATS, undefined, { signal }), 'share-stats');
   const [href, setHref] = useState<string | null>(null);
   const [refused, setRefused] = useState<Failure | null>(null);
   const [busy, setBusy] = useState(false);
@@ -45,7 +37,7 @@ function OwnerShareSheet({ surface }: { surface: Surface }) {
     setRefused(null);
     setDone(null);
     // Safe to press again: the same link and surface always sign to the same tag.
-    const answer = await api.mutate('identity', 'affiliates.shareTag', { surface }, tagSchema);
+    const answer = await api.call(IDENTITY_AFFILIATES_SHARE_TAG, { surface });
     setBusy(false);
     if (!answer.ok) {
       setRefused(answer);

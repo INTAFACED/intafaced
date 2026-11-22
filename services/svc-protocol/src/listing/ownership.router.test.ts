@@ -37,11 +37,10 @@ function listingCaller(over: { ttl?: number | null; read?: { owner: Address; blo
   };
   const deps = {
     chain: { config: { chainId: 84532, rpcUrl: 'http://127.0.0.1:1' }, client: {} },
-    registry: {},
     relay: {},
     relayEnabled: () => false,
     listing: { store, ttlSeconds: () => (over.ttl === undefined ? 300 : over.ttl), chain },
-  } as unknown as ProtocolRouterDeps;
+  } as ProtocolRouterDeps;
   return createProtocolRouter(deps).createCaller(anonymous()).listing;
 }
 

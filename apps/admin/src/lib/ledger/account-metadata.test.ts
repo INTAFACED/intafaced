@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readDeskRequest, confirmPhrase, describeRequest } from '@/lib/desk/approval-packet';
+import { readDeskRequest, confirmPhrase, describeRequest } from '@/lib/desk';
 import { metadataSetBody, parseAccountMetadata, parseMetadataWrite, revisionOf, type AccountMetadata } from './account-metadata';
 import { decodeMetadataDelete } from './account-metadata-delete';
 

@@ -1,13 +1,12 @@
-import { quantQuickStartOutputSchema } from '@intafaced/contracts/quant-algo';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { EmptyState, Panel } from '../../shared/ui';
 import { StrategyTable } from './StrategyTable';
-import { Read } from '../more/common';
-import { preservePaperHref } from '../more/trade-context';
+import { Read, preservePaperHref } from '../more';
 import { algoCopy } from './algo-copy';
 import { QuantRooms } from './QuantRooms';
 import './algo.css';
+import { QUANT_QUICK_START } from '@intafaced/contracts/quant-quick-start-procedures';
 
 /** The Algo dev home: every room, the quick start ticked from the account's own stored rows, and its saved strategies. */
 export function AlgoHome({ paper = false }: { paper?: boolean }) {
@@ -40,10 +39,7 @@ export function AlgoHome({ paper = false }: { paper?: boolean }) {
 function SignedIn({ paper, userId }: { paper: boolean; userId: string }) {
   const api = useApi();
   const { t } = algoCopy.useCopy();
-  const progress = useResource(
-    (signal) => api.query('quant', 'quickStart', undefined, quantQuickStartOutputSchema, { signal }),
-    `quant-quick-start:${userId}`,
-  );
+  const progress = useResource((signal) => api.call(QUANT_QUICK_START, undefined, { signal }), `quant-quick-start:${userId}`);
   return (
     <div className="more-columns">
       <Panel title={t('quickStart')}>

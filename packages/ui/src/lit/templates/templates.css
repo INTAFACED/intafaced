@@ -381,7 +381,24 @@
   flex-direction: column;
   gap: var(--lit-gap-section);
 }
+/* A settings room's section index: each link a full-height target (WCAG 2.5.8), a plain list, never bullets. */
+.lt-grid-settings > [data-region='index'] :is(ul, ol) {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.lt-grid-settings > [data-region='index'] a {
+  display: flex;
+  align-items: center;
+  min-block-size: 2.25rem;
+}
 @container room (min-width: 1024px) {
+  /* On a computer the index is a column beside the sections, so a row of tabs stands as a column, never cut off. */
+  .lt-grid-settings > [data-region='index'] .lt-tabs {
+    flex-direction: column;
+    overflow-x: visible;
+    animation: none;
+  }
   .lt-grid-settings > .lt-gate-area {
     grid-column: 2 / -1;
   }
@@ -1010,6 +1027,19 @@
   opacity: 0.6;
 }
 
+/* The soft fill (AreaChart soft): the line's own light, fading to nothing at the base. */
+.lt-chart-area[data-soft] {
+  opacity: 1;
+}
+.lt-chart-soft-top {
+  stop-color: var(--lt-chart-soft, var(--lit-accent));
+  stop-opacity: 0.3;
+}
+.lt-chart-soft-bottom {
+  stop-color: var(--lt-chart-soft, var(--lit-accent));
+  stop-opacity: 0;
+}
+
 .lt-chart-live {
   fill: var(--lit-accent);
 }
@@ -1164,7 +1194,9 @@
   gap: 0.25rem;
 }
 
-.lt-field input {
+.lt-field input:not([type='checkbox'], [type='radio']),
+.lt-field select,
+.lt-field textarea {
   min-block-size: var(--lit-control-h);
   padding-inline: var(--lit-gap-item);
   border: 1px solid var(--lit-line-strong);
@@ -1172,6 +1204,43 @@
   background: var(--lit-solid-bg-raised);
   color: var(--lit-text-1);
   font: inherit;
+}
+
+.lt-field textarea {
+  padding-block: 0.5rem;
+}
+
+.lt-field :is(input, select, textarea):focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+
+.lt-field [aria-invalid='true'] {
+  border-color: var(--lit-down);
+}
+
+.lt-field small {
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+}
+
+/* A field whose control is a checkbox or radio reads as one row: the box, then its words. */
+.lt-field:has(> input:is([type='checkbox'], [type='radio'])) {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* The app's base reset (packages/ui/src/theme/base.css) leaves every input with appearance: none and no size, which
+   draws a tick as nothing: keep the browser's own control, sized, in the kit's accent. */
+.lt-field input:is([type='checkbox'], [type='radio']) {
+  appearance: auto;
+  flex: none;
+  inline-size: 1rem;
+  block-size: 1rem;
+  margin: 0;
+  accent-color: var(--lit-accent);
+  cursor: pointer;
 }
 
 .lt-button:disabled {
@@ -1201,4 +1270,58 @@
 
 .lt-chip[data-returned] .lt-chip-mark {
   background: var(--lit-text-2);
+}
+
+/* ---- QuickSend: the people row, round faces with names under them, after one key that adds a person ---- */
+
+.lt-people ul {
+  display: flex;
+  gap: var(--lit-gap-item);
+  margin: 0;
+  padding: 0;
+  overflow-x: auto;
+  list-style: none;
+  scrollbar-width: none;
+}
+.lt-person {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  inline-size: 4.5rem;
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+  text-decoration: none;
+  border-radius: var(--lit-radius-tile);
+}
+.lt-person-face {
+  display: grid;
+  place-items: center;
+  inline-size: 3.75rem;
+  block-size: 3.75rem;
+  border-radius: 50%;
+  background: var(--lit-solid-bg-raised);
+  box-shadow: var(--lit-solid-lip);
+  color: var(--lit-text-1);
+  font-weight: 600;
+  font-size: 1.0625rem;
+  letter-spacing: 0.02em;
+}
+.lt-person[data-add] .lt-person-face {
+  background: var(--lit-accent-deep);
+  color: var(--lit-accent);
+  box-shadow: none;
+}
+.lt-person-name {
+  max-inline-size: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lt-person:hover .lt-person-name {
+  color: var(--lit-text-1);
+}
+.lt-person:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 0.25rem;
 }

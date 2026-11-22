@@ -1,10 +1,11 @@
 import { useEffect, useRef, useReducer, type FormEvent } from 'react';
 import { Button, Field } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { MAX_INPUT_LENGTH, singleFlight } from '../../shared/password';
 import { passwordCopy } from '../../shared/password-copy';
-import { changeIssue, changeReducer, changedSchema, initialChange } from './change-password';
+import { changeIssue, changeReducer, initialChange } from './change-password';
 import { changePasswordCopy } from './change-password-copy';
+import { IDENTITY_AUTH_CHANGE_PASSWORD } from '@intafaced/contracts/identity-auth-procedures';
 
 /**
  * The change-password card in Security. Passwords are read from the form when it is sent and cleared straight
@@ -54,9 +55,13 @@ export function ChangePassword({ onChanged }: { onChanged?: () => void }) {
     const startedFor = userId;
     const answered = await flight.run(async () => {
       dispatch({ type: 'submit', issue: null });
-      return api.mutate('identity', 'auth.changePassword', { currentPassword: current, newPassword: next }, changedSchema, {
-        signal: abort.current?.signal,
-      });
+      return api.call(
+        IDENTITY_AUTH_CHANGE_PASSWORD,
+        { currentPassword: current, newPassword: next },
+        {
+          signal: abort.current?.signal,
+        },
+      );
     });
     // Whatever the answer, nothing typed stays in the page: the person retypes after a refusal.
     wipe('current-password', 'new-password', 'confirm-password');

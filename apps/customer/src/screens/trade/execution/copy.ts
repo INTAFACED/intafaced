@@ -219,6 +219,9 @@ const messages = {
 
   // Iceberg
   'New iceberg': 'New iceberg',
+  'Lead trade': 'Lead trade',
+  'Iceberg orders are never lead trades, so followers don’t copy them.':
+    'Iceberg orders are never lead trades, so followers don’t copy them.',
   'Display size ({asset})': 'Display size ({asset})',
   'Venue reference hint': 'Some venues ask for at least one fifteenth of the total. That is a venue reference, not a platform rule.',
   'Venue reference minimum {min}': 'Venue reference, not a platform rule: one fifteenth of the total is {min}.',

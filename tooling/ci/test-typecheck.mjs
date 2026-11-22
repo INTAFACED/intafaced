@@ -79,7 +79,7 @@
  * exactly what the turbo `typecheck` task already guarantees. Every package's
  * script is now:
  *
- *     tsc -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs
+ *     node ../../tooling/scripts/tsc.mjs -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs
  *
  * so `pnpm typecheck`, `pnpm verify` and CI all run it, in parallel, cached, with
  * the dependency graph already resolved. `tooling/ci/gates.mjs` lists it under
@@ -126,19 +126,6 @@ const PINNED = {
 
   // 1 — packages/db
   'packages/db': [[1, "src/db.test.ts | TS2339 | Property 'dbCredentials' does not exist on type 'Config'."]],
-
-  // 7 — services/svc-academy
-  'services/svc-academy': [
-    [
-      2,
-      "src/certs/xp-emit.test.ts | TS2741 | Property 'source' is missing in type '{ userId: string; certId: string; xpDelta: string; idempotencyKey: string; }' but required in type 'XpEarnedIntent'.",
-    ],
-    // bulk-score.test seasonId-required pins retired after calendar-gate type tighten (W6 L02).
-    [
-      3,
-      "src/tournaments/season-lifecycle.test.ts | TS2322 | Type 'SeasonRecord' is not assignable to type '{ id: string; slug: string; title: string; rulesSummary: string; startsAt: Date; endsAt: null; status: 'scheduled'; }'.",
-    ],
-  ],
 
   // 5 — services/svc-agents
   'services/svc-agents': [
@@ -192,9 +179,6 @@ const PINNED = {
     ],
   ],
 
-  // 1 — services/svc-ledger
-  'services/svc-ledger': [[1, 'src/s2s-http.test.ts | TS2554 | Expected 4 arguments, but got 3.']],
-
   // 0 — services/svc-notify (Wave 13 L12: spawnSync arity fixed; pin deleted)
   'services/svc-notify': [],
 
@@ -210,14 +194,10 @@ const PINNED = {
     ],
   ],
 
-  // 9 — services/svc-pay (broadcast-store TS2352 pin retired — cast via unknown)
+  // 7 — services/svc-pay (broadcast-store TS2352 pin retired — cast via unknown; rails.test.ts's read-only adapter now has its mode)
   'services/svc-pay': [
     [1, "src/ledger-client.test.ts | TS2552 | Cannot find name 'RequestInfo'. Did you mean 'RequestInit'?"],
     [4, "src/rails/posture.test.ts | TS2339 | Property 'message' does not exist on type 'Error | { txHash: string; }'."],
-    [
-      2,
-      "src/rails/rails.test.ts | TS2741 | Property 'mode' is missing in type '{ id: string; capabilities: readonly [\"authorize\"]; health: () => { healthy: boolean; latencyMs: number; lastUpdate: Date; }; authorize: (p: PaymentIntent) => Promise<RailResult>; capture: (ref: string) => Promise<RailResult>; refund: (ref: string, amount: Amount) => Promise<RailResult>; payout: (s: SettlementInstru...' but required in type 'RailAdapter'.",
-    ],
     [
       1,
       "src/router.test.ts | TS2741 | Property 'service' is missing in type '{ principal: null; region: string; requestId: string; }' but required in type 'Context'.",
@@ -280,7 +260,8 @@ function repoRoot(from) {
 }
 
 const ROOT = repoRoot(process.cwd());
-const TSC = join(ROOT, 'node_modules', 'typescript', 'bin', 'tsc');
+// The repo's one type-check command: incremental, one at a time per project (tooling/scripts/tsc.mjs).
+const TSC = join(ROOT, 'tooling', 'scripts', 'tsc.mjs');
 
 /** `packages/contracts` — the key PINNED uses, on any platform. */
 function keyFor(dir) {
@@ -306,7 +287,7 @@ function normalise(line) {
 }
 
 function run(dir) {
-  const res = spawnSync(process.execPath, [TSC, '-p', 'tsconfig.test.json'], { cwd: dir, encoding: 'utf8' });
+  const res = spawnSync(process.execPath, [TSC, '-p', 'tsconfig.test.json', '--noEmit'], { cwd: dir, encoding: 'utf8' });
   const out = ((res.stdout ?? '') + (res.stderr ?? '')).trim();
 
   const found = new Map();

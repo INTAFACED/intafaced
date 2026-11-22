@@ -1,4 +1,4 @@
-import { scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { scopedProcedure } from '@intafaced/contracts/trpc';
 
 /**
  * Running an agent spends the person's money, so only the person runs one (OWNER 107): their own signed-in session,
@@ -6,10 +6,5 @@ import { scopedProcedure, TRPCError } from '@intafaced/contracts';
  * service forwarding their principal.
  */
 export function executeProcedure() {
-  return scopedProcedure('agents:execute', { module: 'agents', person: true }).use(({ ctx, next }) => {
-    if (ctx.principal.kid || ctx.principal.sub_account) {
-      throw new TRPCError({ code: 'FORBIDDEN', message: 'agents.execute_person_only' });
-    }
-    return next();
-  });
+  return scopedProcedure('agents:execute', { module: 'agents', person: true, ownSession: 'agents.execute_person_only' });
 }

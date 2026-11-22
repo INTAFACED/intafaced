@@ -5,8 +5,8 @@
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs",
+    "build": "node ../../tooling/scripts/tsc.mjs -p tsconfig.json",
+    "typecheck": "node ../../tooling/scripts/tsc.mjs -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs",
     "test": "vitest run",
     "db:migrate": "node scripts/migrate.mjs"
   },
@@ -15,7 +15,8 @@
     "@intafaced/contracts": "workspace:*",
     "@intafaced/db": "workspace:*",
     "@intafaced/ledger-client": "workspace:*",
-    "@trpc/server": "^11.25.0",
+    "@intafaced/telemetry": "workspace:*",
+    "@trpc/server": "^11.28.0",
     "postgres": "^3.4.5",
     "zod": "^4.6.7"
   },

@@ -3,16 +3,15 @@
 import { useRef, useState } from 'react';
 import { StepReplyView } from '@/components/approval-workbench';
 import { ControlDesk, type ControlAction } from '@/components/control-desk';
+import { REASON_MAX, REASON_MIN } from '@/lib/approval-fields';
 import {
-  REASON_MAX,
-  REASON_MIN,
   validReason,
   type CardFundingKind,
   type CardStatus,
   type ResidencyDecision,
   type VendorDecision,
 } from '@/lib/desk/approval-packet';
-import type { StepReply } from '@/lib/desk/approval-types';
+import type { StepReply } from '@/lib/approval-types';
 import { ambassadorVerb, disputeEscalationOffered, listingTakedownOffered, rowText, vendorDecisions } from '@/lib/ops-desk/actions-model';
 import { postDirect } from '@/lib/ops-desk/direct-browser';
 import { describeDirect, newRequestKey } from '@/lib/ops-desk/direct-model';

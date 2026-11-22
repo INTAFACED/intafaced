@@ -34,7 +34,7 @@ import { testWalletKey } from './test-wallet.mjs';
 import { bodyRows, tableIn } from './tables.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { PASSKEY_ORIGIN, virtualAuthenticator } from './identity-factors.mjs';
-import { api, ORIGIN } from './stack.mjs';
+import { api, ORIGIN, STACK_PORTS } from './stack.mjs';
 import { testVenue, venueAccount, venueForThisFile, venueInfo, venueRecord } from './venue.mjs';
 
 // J-dex-protocol-08, in the running app (docs/roadmap/journeys.json): keep my wallet safe with approvals, session keys,
@@ -171,7 +171,7 @@ const REPO = fileURLToPath(new URL('../../../../', import.meta.url));
 async function protocolDb(run) {
   const ctx = await makeContext({ log: () => undefined });
   const postgres = createRequire(nodePath.join(REPO, 'services', 'svc-protocol', 'package.json'))('postgres');
-  const port = ctx.marker.ports.postgres ?? 15460;
+  const port = ctx.marker.ports.postgres ?? STACK_PORTS.postgres;
   const sql = postgres(`postgres://svc_protocol:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
     max: 1,
     onnotice: () => {},
@@ -568,12 +568,16 @@ test.describe('the embedded login', () => {
     await expect(page.getByText('wallet.export_spent')).toBeVisible();
     await expect(shown).toHaveCount(0);
     const second = fromProvider.slice(heard);
-    expect(second.length).toBeGreaterThan(0);
-    for (const answer of second) {
+    // The export's own answers (its challenge, and the export if one was sent) all refuse it. The wallet room's chain
+    // reads through the provider's connection (`/client/rpc`, J-wallet-24's deposit panel) also land here: they are
+    // not the export, but none of them may carry the key either.
+    const exportAnswers = second.filter((a) => /\/client\/(challenge|export)$/.test(a.path));
+    expect(exportAnswers.length).toBeGreaterThan(0);
+    for (const answer of exportAnswers) {
       expect(answer.status).toBe(410);
       expect(JSON.parse(answer.text)).toMatchObject({ error: 'export_spent' });
-      expect(answer.text.toLowerCase()).not.toContain(key.slice(2).toLowerCase());
     }
+    for (const answer of second) expect(answer.text.toLowerCase()).not.toContain(key.slice(2).toLowerCase());
     // Refused before any passkey prompt.
     expect((await held())[0].signCount).toBe(promptsBefore);
 

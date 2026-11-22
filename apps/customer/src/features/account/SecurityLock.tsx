@@ -1,20 +1,18 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import { securityLockCopy as copy } from './security-lock-copy';
-import {
-  lockStage,
-  securityLockChangeSchema,
-  securityLockRefusal,
-  securityLockSchema,
-  unlockStepUp,
-  type SecurityLockRefusal,
-} from './security-lock';
+import { lockStage, securityLockRefusal, unlockStepUp, type SecurityLockRefusal } from './security-lock';
 import { confirmWithStepUp, type StepUpMethod } from './security-step-up';
+import {
+  IDENTITY_SECURITY_LOCK_READ,
+  IDENTITY_SECURITY_LOCK_SET,
+  IDENTITY_SECURITY_LOCK_REQUEST_UNLOCK,
+} from '@intafaced/contracts/identity-security-lock-procedures';
 
 type Mode = 'view' | 'lock' | 'unlock';
 
@@ -42,9 +40,7 @@ export function SecurityLock() {
   }, []);
   const { resource, reload } = useResource(
     (signal) =>
-      userId
-        ? api.query('identity', 'securityLock.read', undefined, securityLockSchema, { signal })
-        : Promise.resolve({ ok: true as const, data: null }),
+      userId ? api.call(IDENTITY_SECURITY_LOCK_READ, undefined, { signal }) : Promise.resolve({ ok: true as const, data: null }),
     `security-lock:${userId}`,
   );
 
@@ -71,7 +67,7 @@ export function SecurityLock() {
     setProblem(null);
     setNote(null);
     try {
-      const answer = await api.mutate('identity', 'securityLock.set', {}, securityLockChangeSchema);
+      const answer = await api.call(IDENTITY_SECURITY_LOCK_SET, {});
       if (!mounted.current || settle(answer)) return;
       setMode('view');
       setNote(t(keep ? 'keptNote' : answer.data.changed ? 'lockedNote' : 'alreadyLocked'));
@@ -94,12 +90,10 @@ export function SecurityLock() {
       const how: StepUpMethod = method === 'code' ? { totpCode: otp } : { passkey: true };
       const approval = await confirmWithStepUp(api, unlockStepUp(requestId), how);
       const answer = approval.ok
-        ? await api.mutate(
-            'identity',
-            'securityLock.requestUnlock',
-            { clientRequestId: requestId, stepUpApprovalId: approval.data.stepUpApprovalId },
-            securityLockChangeSchema,
-          )
+        ? await api.call(IDENTITY_SECURITY_LOCK_REQUEST_UNLOCK, {
+            clientRequestId: requestId,
+            stepUpApprovalId: approval.data.stepUpApprovalId,
+          })
         : approval;
       if (!mounted.current || settle(answer)) return;
       setMode('view');

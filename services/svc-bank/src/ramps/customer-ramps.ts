@@ -1,4 +1,4 @@
-import { assertRampFeeKnown, rampQuoteExpired, type TestPartner } from '../partner/test-partner.js';
+import { assertRampFeeKnown, rampQuoteExpired, type TestPartnerDoors } from '../partner/test-partner.js';
 import { assertWithdrawNetwork, type WithdrawNetworkSource } from './withdraw-networks.js';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
@@ -45,7 +45,7 @@ export interface CustomerRampDeps {
   /** The TEST rate stand-in of the local stack (`ramp-sim`), for the asks it lists. Null everywhere else. */
   standIn?: OnrampStandIn | null;
   /** The TEST ramp's switches (CUSTODY-DELTA §4: quote expired, fee not known), on a dev or test stack only. */
-  testRamp?: TestPartner | null;
+  testRamp?: TestPartnerDoors | null;
   payments: OnrampPaymentPort | null;
   fees: OfframpFeeSource | null;
   destinations: UserWithdrawDestinations;
@@ -243,7 +243,7 @@ export async function quoteOnramp(
 
 export async function createOnramp(
   deps: CustomerRampDeps,
-  input: { userId: string; onrampId: string; quoteId: string; method: OnrampMethod },
+  input: { userId: string; onrampId: string; quoteId: string; method: OnrampMethod; walletAddress?: string },
 ): Promise<CustomerOnrampView> {
   assertUuid(input.onrampId, 'onrampId');
   assertUuid(input.quoteId, 'quoteId');
@@ -273,6 +273,8 @@ export async function createOnramp(
     userId: input.userId,
     assetId: quote.asset_id,
     amount: formatAmount(parseAmount(quote.amount)),
+    ...(input.walletAddress ? { walletAddress: input.walletAddress } : {}),
+    quoteExpiresAt: quote.expires_at,
   });
   if (!instruction) {
     throw new BankError(

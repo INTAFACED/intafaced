@@ -78,6 +78,9 @@ const messages = {
   'Activity after verify body': 'Deposits, trades and transfers appear here after verification.',
   'No activity yet': 'No activity',
   'No activity body': 'Deposits, trades and transfers show here.',
+  'Activity limit unset': 'Number of movements not set',
+  'Activity limit unset body':
+    'The owner has not set how many of your newest movements Home lists, so none are listed here. All of them are in Activity.',
   'Couldn’t load your activity': 'Couldn’t load your activity.',
   'Activity deposit': 'Deposit',
   'Activity welcome_funds': 'Welcome funds',
@@ -264,6 +267,9 @@ export const homeCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCo
     'Activity after verify body': 'Los depósitos, operaciones y transferencias aparecen aquí tras la verificación.',
     'No activity yet': 'Sin actividad',
     'No activity body': 'Los depósitos, las operaciones y las transferencias aparecen aquí.',
+    'Activity limit unset': 'Número de movimientos sin definir',
+    'Activity limit unset body':
+      'El propietario no ha definido cuántos de tus movimientos más recientes muestra Inicio, así que aquí no se muestra ninguno. Todos están en Actividad.',
     'Couldn’t load your activity': 'No se pudo cargar tu actividad.',
     'Activity deposit': 'Depósito',
     'Activity welcome_funds': 'Fondos de bienvenida',
@@ -450,6 +456,9 @@ export const homeCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCo
     'Activity after verify body': 'Les dépôts, ordres et virements apparaissent ici après la vérification.',
     'No activity yet': 'Aucune activité',
     'No activity body': 'Les dépôts, les échanges et les virements s’affichent ici.',
+    'Activity limit unset': 'Nombre de mouvements non défini',
+    'Activity limit unset body':
+      'Le propriétaire n’a pas défini combien de vos mouvements les plus récents l’accueil affiche, donc aucun n’est affiché ici. Ils sont tous dans Activité.',
     'Couldn’t load your activity': 'Impossible de charger votre activité.',
     'Activity deposit': 'Dépôt',
     'Activity welcome_funds': 'Fonds de bienvenue',

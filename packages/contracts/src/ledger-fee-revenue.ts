@@ -3,7 +3,7 @@
  *
  * A read over the ledger, served to svc-ops so the venue report can set revenue
  * against the operator-entered costs in the same asset. The ledger answers per
- * venue and asset (project-state OWNER.md item 288; b2 change 3): fees earned
+ * venue and asset (b2 change 3): fees earned
  * (debits to `fees:*` accounts), fees given back (credits out of them:
  * corrections and distributions), the signed difference, and fees collected.
  * Earned is not cash: a builder fee the venue charged is owed to us until the
@@ -18,6 +18,7 @@
  */
 
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 
 export const LEDGER_FEE_REVENUE_WINDOW_INVALID = 'ledger.fee_revenue_window_invalid' as const;
 
@@ -34,7 +35,7 @@ export type LedgerFeeRevenueInput = z.infer<typeof ledgerFeeRevenueInputSchema>;
 export const ledgerFeeRevenueAssetSchema = z.object({
   /** The venue that charged the fee for us (our builder fee), or null for a fee of our own that no venue pays. */
   venueId: z.string().min(1).nullable(),
-  assetId: z.string().min(1),
+  assetId: assetIdSchema.min(1),
   /** Sum of debits to house fee accounts: fees earned, not yet cash. Decimal string. */
   earned: z.string().regex(decimal),
   /** Sum of credits from house fee accounts. Decimal string. */

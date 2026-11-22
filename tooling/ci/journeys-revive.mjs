@@ -37,17 +37,23 @@
  * It runs after each Real-app journeys run on main ends (main-trust.yml post-merge, `prs`), so it follows main's
  * report coming back within minutes, and on the hourly `revive` tick after the main pass, for any other input outage.
  *
- * A refused request (403, 429) stops the tick, never retried, and opens one issue (REFUSED_TITLE) when GitHub still takes it.
+ * A refused request (403, 429) stops the tick, never retried, and opens one issue (REFUSED_TITLE) when GitHub still takes it;
+ * a spent hourly budget (remaining 0, with its reset: refusal.mjs budgetSpentUntil) stops it too, with no issue, since the
+ * next tick after the reset starts again from scratch.
  *
- *   node tooling/ci/journeys-revive.mjs        main runs, then pull requests (GITHUB_REPOSITORY, GH_TOKEN; DRY_RUN=1 writes nothing)
+ *   node tooling/ci/journeys-revive.mjs        main runs, then pull requests (GITHUB_REPOSITORY; DRY_RUN=1 writes nothing;
+ *                                              CI sets GH_TOKEN, by hand it reads through gh: github-fetch.mjs)
  *   node tooling/ci/journeys-revive.mjs prs    pull requests only
  *   node tooling/ci/journeys-revive.mjs main   main runs only (after each CI run on main: GitHub's cron here runs late or never)
  *   node tooling/ci/journeys-revive.mjs held   open armed pull requests held only by main's reds that main has since lost
  *                                              get a fresh head (heldTick; FACTORY_APP_KEY, after each journeys run on main)
  * Its tests: tooling/ci/journeys-revive.test.mjs.
  */
+import { runJobs } from './run-jobs.mjs';
 import { downloadReport, isMainRun, JOURNEYS_FILE } from './journey-verdict.mjs';
-import { refusalDetail } from './refusal.mjs';
+import { JOURNEY_TEST, journeyOf } from './journey-seal.mjs';
+import { budgetSpentUntil, refusalDetail } from './refusal.mjs';
+import { githubFetch, githubToken } from './github-fetch.mjs';
 
 export const MAX_ATTEMPT = 5;
 /** Minutes to wait after attempt n ended before asking for attempt n + 1. */
@@ -198,9 +204,9 @@ export async function mainBack({ repo, io }) {
   return { back: true, runs };
 }
 
-/** API calls one verdict's inputs spend, with room (98 history runs read on 12 Nov 2026: 208 calls; it grows by two
- *  per main run until the baseline is rewritten, HISTORY_MAX 150 runs). A re-run asked with less left would only spend
- *  one of the run's re-runs on the same limit. */
+/** API calls one verdict's inputs spend, with room (98 history runs read on 12 Nov 2026: 208 calls; two per run the
+ *  stored pass history does not cover, at most HISTORY_MAX 150 such runs, plus one list call per 100 runs on main since
+ *  the baseline). A re-run asked with less left would only spend one of the run's re-runs on the same limit. */
 export const VERDICT_CALLS = 400;
 
 /** The pull request runs worth reading: this repository's, finished red, in the window, attempts left. */
@@ -322,7 +328,7 @@ export async function mainSteps({ repo, now, io }) {
  * any more. Anything else (an `(input)` row, a step main never had red, a step still red on main) is its own and
  * stays red.
  */
-export function heldOnly({ repo, pr, run, jobs, rows, main }) {
+export function heldOnly({ repo, pr, run, jobs, rows, main, changed = null }) {
   if (pr.state !== 'open' || pr.draft || !pr.auto_merge || pr.head?.repo?.full_name !== repo)
     return { why: 'not an open armed pull request of this repository' };
   if (!run || run.head_sha !== pr.head?.sha || run.status !== 'completed' || run.conclusion !== 'failure')
@@ -334,11 +340,20 @@ export function heldOnly({ repo, pr, run, jobs, rows, main }) {
   if (Date.parse(run.created_at) >= Date.parse(main.newest.created_at))
     return { why: `its run started after main's newest run ${main.newest.run_number}` };
   const steps = rows.map(rowStep);
-  const own2 = rows.filter((_, i) => !steps[i] || !main.before.has(steps[i]));
+  // Main's: a step main was red on, or (project-state#2065 d32 (a)) a step whose journey test file main changed after
+  // this head left it (`changed`, journey ids; null: not read yet, and `needs` names the journeys to read).
+  const mains = (s) => main.before.has(s) || Boolean(changed?.has(journeyOf(s)));
+  const own2 = rows.filter((_, i) => !steps[i] || !mains(steps[i]));
+  if (own2.length && changed === null && steps.every(Boolean))
+    return { why: `its own red (${own2.join(' | ').slice(0, 200)})`, needs: [...new Set(own2.map((r) => journeyOf(rowStep(r))))].sort() };
   if (own2.length) return { why: `its own red (${own2.join(' | ').slice(0, 200)})` };
   const still = steps.filter((s) => main.now.has(s));
   if (still.length) return { why: `held by ${still.join(', ')}, still red on main's newest run ${main.newest.run_number}` };
-  return { held: true, why: `red only on ${steps.join(', ')}, which main's newest run ${main.newest.run_number} is no longer red on` };
+  const fixed = [...new Set(steps.filter((s) => !main.before.has(s)).map(journeyOf))];
+  return {
+    held: true,
+    why: `red only on ${steps.join(', ')}, which main's newest run ${main.newest.run_number} is no longer red on${fixed.length ? ` (main changed the test of ${fixed.join(', ')} since this head)` : ''}`,
+  };
 }
 
 /**
@@ -355,6 +370,12 @@ export async function heldTick({ repo, now, io }) {
   let main;
   for (const pr of await io.openPulls()) {
     if (pr.draft || !pr.auto_merge || pr.head?.repo?.full_name !== repo) continue;
+    // Held by the factory, as the pull holds it (project-state tooling/pull/next.mjs): a fresh head would only spend runs.
+    const label = (pr.labels ?? []).map((l) => l?.name ?? l).find((l) => HELD_LABELS.includes(l));
+    if (label) {
+      out.push(`#${pr.number}: labelled ${label}, left as it is`);
+      continue;
+    }
     const runs = (await io.headRuns(pr.head.sha)).sort((a, b) => b.run_number - a.run_number);
     const run = runs[0];
     if (!run || run.status !== 'completed' || run.conclusion !== 'failure') continue;
@@ -363,17 +384,48 @@ export async function heldTick({ repo, now, io }) {
     const rows = verdictReds(await io.jobLog(jobs.find((j) => j.name === JUDGE_JOB)));
     if (main === undefined) main = await mainSteps({ repo, now, io });
     if (main === null) return [...out, "main's newest journeys run has no readable verdict: nothing moved"];
-    const { held, why } = heldOnly({ repo, pr, run, jobs, rows, main });
+    let verdict = heldOnly({ repo, pr, run, jobs, rows, main });
+    if (verdict.needs?.length) {
+      // A step main never had red: main's, when main changed its journey test file since this head left main. A read
+      // that fails leaves it the pull request's own.
+      let changed = new Set();
+      try {
+        changed = await io.testsChangedSince(pr.head.sha, main.newest.head_sha, verdict.needs);
+      } catch (e) {
+        if (isRefusal(e)) throw e;
+      }
+      verdict = heldOnly({ repo, pr, run, jobs, rows, main, changed });
+    }
+    const { held, why } = verdict;
     if (!held) {
       out.push(`#${pr.number}: run ${run.run_number}: ${why}, left as it is`);
       continue;
     }
+    // A pull request that conflicts with main can't be updated by GitHub (422): only its builder can merge main.
+    const now2 = await io.pull(pr.number);
+    if (now2?.mergeable === false) {
+      out.push(`#${pr.number}: run ${run.run_number} ${why}; it conflicts with main, so GitHub can't update it: its builder merges main`);
+      continue;
+    }
     const r = await io.updateBranch(pr);
-    out.push(
-      `#${pr.number}: run ${run.run_number} ${why}; ${r.ok ? 'branch updated from main, a fresh head' : `GitHub did not update it (${r.status})`}`,
-    );
+    out.push(`#${pr.number}: run ${run.run_number} ${why}; ${r.ok ? 'branch updated from main, a fresh head' : notUpdated(r)}`);
   }
   return out;
+}
+
+/**
+ * The labels the pull holds a pull request with (project-state tooling/pull/next.mjs): the held pass leaves those. A
+ * `design` pull request is not one: it merges like any other since the owner's 20 Nov decision (project-state decision
+ * PR #3428; the pull's hold on it went in project-state #3444).
+ */
+export const HELD_LABELS = ['blocked', 'parked', 'factory-fix'];
+
+/** Why GitHub did not update a branch, from its answer: a 422 says a conflict or a head that moved. */
+export function notUpdated(r) {
+  const m = String(r.message ?? '');
+  if (r.status === 422 && /conflict/i.test(m)) return 'it conflicts with main, so GitHub did not update it (422): its builder merges main';
+  if (r.status === 422 && /head|sha/i.test(m)) return 'its head moved since it was read (422): the next pass reads the new head';
+  return `GitHub did not update it (${r.status}${m ? `: ${m.slice(0, 120)}` : ''})`;
 }
 
 /** The App token the held pass writes with: update a branch (contents), read pull requests and runs; workflows so a
@@ -389,10 +441,10 @@ async function gh(method, path, body, raw = false) {
     console.log(`DRY_RUN ${method} ${path}`);
     return { status: 0, json: null };
   }
-  const res = await fetch(`https://api.github.com${path}`, {
+  const res = await githubFetch(`https://api.github.com${path}`, {
     method,
     headers: {
-      authorization: `Bearer ${process.env.GH_TOKEN}`,
+      authorization: `Bearer ${githubToken()}`,
       accept: 'application/vnd.github+json',
       'x-github-api-version': '2022-11-28',
       'content-type': 'application/json',
@@ -402,8 +454,11 @@ async function gh(method, path, body, raw = false) {
   const text = await res.text();
   // AGENTS.md's one exception: "already running" on a re-run only means a re-run is in progress.
   if (res.status === 403 && /already running/i.test(text)) return { status: 403, json: null, alreadyRunning: true };
-  if (res.status === 403 || res.status === 429)
-    throw new Error(`GitHub ${res.status} on ${method} ${path}: stopping, not retrying${refusalDetail(res.headers, text)}`);
+  if (res.status === 403 || res.status === 429) {
+    const e = new Error(`GitHub ${res.status} on ${method} ${path}: stopping, not retrying${refusalDetail(res.headers, text)}`);
+    e.budgetSpentUntil = budgetSpentUntil(res.status, res.headers);
+    throw e;
+  }
   if (method === 'GET' && !res.ok) throw new Error(`GitHub ${res.status} on GET ${path}`);
   if (raw) return { status: res.status, text };
   return { status: res.status, json: text ? JSON.parse(text) : null };
@@ -443,8 +498,10 @@ export function githubIo(repo) {
     pull: async (n) => (await gh('GET', `/repos/${repo}/pulls/${n}`)).json,
     headRuns: async (sha) =>
       (await gh('GET', `/repos/${repo}/actions/workflows/${JOURNEYS_FILE}/runs?head_sha=${sha}&per_page=100`)).json.workflow_runs,
-    jobs: async (run) =>
-      (await gh('GET', `/repos/${repo}/actions/runs/${run.id}/attempts/${run.run_attempt || 1}/jobs?per_page=100`)).json.jobs,
+    jobs: (run) =>
+      runJobs(`/repos/${repo}/actions/runs/${run.id}/attempts/${run.run_attempt || 1}/jobs`, async (p) => (await gh('GET', p)).json).then(
+        (jobs) => jobs ?? [],
+      ),
     // GET /rate_limit spends no budget.
     budget: async () => (await gh('GET', '/rate_limit')).json.resources.core,
     jobLog: async (job) => (await gh('GET', `/repos/${repo}/actions/jobs/${job.id}/logs`, undefined, true)).text,
@@ -452,13 +509,32 @@ export function githubIo(repo) {
     // A merge commit from main onto the branch; expected_head_sha so a head that moved since is not touched (422).
     updateBranch: async (pr) => {
       const r = await gh('PUT', `/repos/${repo}/pulls/${pr.number}/update-branch`, { expected_head_sha: pr.head.sha });
-      return { ok: r.status === 0 || (r.status >= 200 && r.status < 300), status: r.status };
+      return { ok: r.status === 0 || (r.status >= 200 && r.status < 300), status: r.status, message: r.json?.message };
+    },
+    // The journeys (of `ids`) whose test files on main at `mainSha` were changed by a commit `head` doesn't hold.
+    testsChangedSince: async (head, mainSha, ids) => {
+      const dir = 'apps/customer/tests/real-app';
+      const list = (await gh('GET', `/repos/${repo}/contents/${dir}?ref=${mainSha}`)).json;
+      const out = new Set();
+      for (const id of ids)
+        for (const f of (list ?? []).filter((e) => e?.type === 'file' && JOURNEY_TEST.exec(`${dir}/${e.name}`)?.[1] === id)) {
+          const last = (await gh('GET', `/repos/${repo}/commits?sha=${mainSha}&path=${encodeURIComponent(`${dir}/${f.name}`)}&per_page=1`))
+            .json?.[0];
+          if (!last?.sha) continue;
+          const c = (await gh('GET', `/repos/${repo}/compare/${last.sha}...${head}`)).json;
+          if (!['ahead', 'identical'].includes(c?.status)) out.add(id);
+        }
+      return out;
     },
   };
 }
 
-/** After a refusal: one issue, if GitHub still takes it; its own failure is only logged. */
-async function nameRefusal(io, e) {
+/** After a refusal: one issue, if GitHub still takes it; its own failure is only logged. A spent budget opens none. */
+export async function nameRefusal(io, e) {
+  if (e.budgetSpentUntil) {
+    console.error(`journeys-revive: the API budget is spent until ${e.budgetSpentUntil}; the next tick after it starts again, no issue`);
+    return;
+  }
   try {
     if (await io.openIssue(REFUSED_TITLE)) return;
     await io.createIssue(
@@ -472,8 +548,8 @@ async function nameRefusal(io, e) {
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const repo = process.env.GITHUB_REPOSITORY;
-  if (!repo || !process.env.GH_TOKEN) {
-    console.error('✖ journeys-revive: GITHUB_REPOSITORY and GH_TOKEN are required');
+  if (!repo) {
+    console.error('✖ journeys-revive: GITHUB_REPOSITORY is required');
     process.exit(1);
   }
   const io = githubIo(repo);
@@ -488,7 +564,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       // An App token: a branch updated with GITHUB_TOKEN starts no workflow, so its checks and seal would never run.
       if (process.env.DRY_RUN !== '1') {
         if (!process.env.FACTORY_APP_KEY) throw new Error('FACTORY_APP_KEY is required for held');
-        const { mintToken } = await import('./factory-builder.mjs');
+        const { mintToken } = await import('./app-token.mjs');
         process.env.GH_TOKEN = await mintToken({ pem: process.env.FACTORY_APP_KEY, repo, spec: HELD_TOKEN });
         console.log(`::add-mask::${process.env.GH_TOKEN}`);
       }

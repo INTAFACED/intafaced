@@ -3,6 +3,7 @@
  * Exchange still goes through AuthService; this wraps it so a non-listed IP
  * cannot mint a JWT. Empty list stays open. Missing IP fails closed.
  */
+import type { Queryable } from '@intafaced/db';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Sql } from 'postgres';
 import { AuthError, type AuthService } from './auth-service.js';
@@ -22,7 +23,7 @@ export class ApiKeyIpError extends Error {
 }
 
 export async function bindApiKeyIpAllowlist(
-  sql: Sql,
+  sql: Queryable,
   userId: string,
   keyId: string,
   ips: string[],

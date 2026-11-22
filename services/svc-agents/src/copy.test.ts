@@ -10,7 +10,6 @@ import {
   copyKeyCount,
   refusedCopyKeys,
   copyCatalogBoardCard,
-  copyCatalogStatusLine,
   parseCopyCatalogStatusLine,
   copyCatalogStatusLineMatches,
   copyCatalogEnComplete,

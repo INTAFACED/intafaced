@@ -47,14 +47,10 @@ export function ownAnswer(result: ApiResult<AccountOperatorEntitlement>, userId:
  * console link; everyone else gets a pointer to where their own tools live, and never a founder control.
  */
 export function TeamDesk({ href }: { href: string | undefined }) {
-  const { userId, mode, restoring, restoreFailed, retryRestore } = useSession();
+  const { userId, mode, restoreFailed, retryRestore } = useSession();
   if (userId) return <SignedInTeamDesk href={href} userId={userId} mode={mode} />;
-  // Until the boot refresh answers, a signed-in founder is not yet known; a refresh that failed is not a sign-out.
-  const check: FounderCheck = restoring
-    ? { kind: 'checking' }
-    : restoreFailed
-      ? { kind: 'unread', retry: retryRestore }
-      : { kind: 'signed_out' };
+  // The app renders no room until the boot refresh answers; a refresh that failed is not a sign-out.
+  const check: FounderCheck = restoreFailed ? { kind: 'unread', retry: retryRestore } : { kind: 'signed_out' };
   return <TeamDeskView href={href} check={check} mode={mode} />;
 }
 

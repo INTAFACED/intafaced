@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { houseFees, rewardsEngine, treasuryWallet, venueBuilderAccount } from '../accounts.js';
+import { houseFees, rewardsEngine, treasuryWallet } from '../accounts.js';
 import { movesCustomerBalance } from '../custody-layer.js';
 import { MemoryLedger } from '../memory-ledger.js';
 import { formatAmount, parseAmount as amt } from '../money.js';
@@ -189,9 +189,30 @@ describe('rewardOwe and rewardPayOut on the book', () => {
     const p = pay('10', '0xpay1');
     await ledger.post(p);
     await ledger.post(p);
-    expect(p.idempotencyKey).toBe(`campaigns:reward-paid:campaign:${CAMPAIGN}:${USER}:first-trade:0xpay1`);
+    expect(p.idempotencyKey).toBe('campaigns:reward-paid:0xpay1');
     expect(await bal(campaignBudgetAccount(CAMPAIGN))).toBe('20');
     expect(await bal(treasuryWallet('base:ops', 'USDC'))).toBe('-20');
+  });
+
+  it('one chain transaction pays one reward: the same transaction booked against a second reward is refused and moves nothing', async () => {
+    await ourMoneyAtTheWallet('30');
+    await fundBudget('30');
+    const other = `campaign:${CAMPAIGN}:${USER}:second-trade`;
+    await ledger.post(owe());
+    await ledger.post(owe({ rewardId: other }));
+    await ledger.post(pay('10', '0xpay1'));
+    await expect(ledger.post(pay('10', '0xpay1', other))).rejects.toBeInstanceOf(LedgerError);
+    expect(await bal(rewardOwedAccount(other))).toBe('10');
+    expect(await bal(treasuryWallet('base:ops', 'USDC'))).toBe('-20');
+  });
+
+  it("keys a campaign task reward's payment within the ledger's 200 characters", () => {
+    const uuid = '0f5b1c7e-9a7d-4c4e-8f5e-2b7a1d9c3e4f';
+    const rewardId = `campaign:${uuid}:task-${uuid}-${uuid}-once`;
+    const chainTx = `0x${'ab'.repeat(32)}`;
+    const p = recipes.rewardPayOut({ rewardId, from: WALLET, toWallet: CUSTOMER_WALLET, chainTx, assetId: 'USDC', amount: amt('1') });
+    expect(p.idempotencyKey).toBe(`campaigns:reward-paid:${chainTx}`);
+    expect(p.meta).toMatchObject({ rewardId, chainTx });
   });
 
   it('invariant: budget + owed + paid out equals what was set aside, and what we hold falls by exactly what we paid', async () => {
@@ -273,5 +294,51 @@ describe('bad inputs are refused before anything is built', () => {
     expect(() => recipes.campaignBudgetFund({ campaignId: CAMPAIGN, decisionId: 'a', assetId: 'USDC', amount: 0n })).toThrow(
       InvalidEntryError,
     );
+  });
+});
+
+describe('Reclaim: a reward we owe and have not paid, cancelled by a risk decision (J-campaigns-18 #4)', () => {
+  const rewardId = `campaign:${CAMPAIGN}:${USER}:first-trade`;
+  const reclaim = (amount: string, over: Partial<Parameters<typeof recipes.rewardReclaim>[0]> = {}) =>
+    recipes.rewardReclaim({ campaignId: CAMPAIGN, rewardId, caseId: 'risk-1', assetId: 'USDC', amount: amt(amount), ...over });
+
+  it('moves what is still owed back to the rewards engine once, under campaigns:reclaim:', async () => {
+    await ourMoneyAtTheWallet('10');
+    await fundBudget('10');
+    await ledger.post(owe());
+    const engineBefore = await bal(rewardsEngine('USDC'));
+    const first = await ledger.post(reclaim('10'));
+    expect(reclaim('10').idempotencyKey).toBe(`campaigns:reclaim:${rewardId}`);
+    // The same key again returns the first transaction and books nothing twice.
+    const again = await ledger.post(reclaim('10'));
+    expect(again.id).toBe(first.id);
+    expect(await bal(rewardOwedAccount(rewardId))).toBe('0');
+    // The rewards engine, where the budget came from, holds the 10 again.
+    expect(formatAmount(amt(await bal(rewardsEngine('USDC'))) - amt(engineBefore))).toBe('10');
+    expect(movesCustomerBalance(reclaim('10').entries)).toBe(false);
+  });
+
+  it('never reclaims more than is still owed: the owed pot cannot go below zero', async () => {
+    await ourMoneyAtTheWallet('10');
+    await fundBudget('10');
+    await ledger.post(owe());
+    await expect(ledger.post(reclaim('11'))).rejects.toThrow(InsufficientFundsError);
+    expect(await bal(rewardOwedAccount(rewardId))).toBe('10');
+  });
+
+  it('a reward paid to the wallet leaves nothing owed, so a reclaim after it is refused and nothing moves', async () => {
+    await ourMoneyAtTheWallet('10');
+    await fundBudget('10');
+    await ledger.post(owe());
+    await ledger.post(pay('10', '0xpaid'));
+    await expect(ledger.post(reclaim('10'))).rejects.toThrow(InsufficientFundsError);
+    expect(await bal(rewardOwedAccount(rewardId))).toBe('0');
+  });
+
+  it('refuses bad inputs before anything is built', () => {
+    expect(() => reclaim('0')).toThrow(InvalidEntryError);
+    expect(() => reclaim('1', { assetId: 'USDT' })).toThrow(InvalidEntryError);
+    expect(() => reclaim('1', { caseId: 'a:b' })).toThrow(InvalidEntryError);
+    expect(() => reclaim('1', { rewardId: `campaign:other:${USER}:x` })).toThrow(/own campaign/);
   });
 });

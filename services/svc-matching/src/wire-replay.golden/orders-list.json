@@ -1,0 +1,542 @@
+{
+  "blank GET /markets/BTC-USDT/orders?limit=10 limit-10 anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders?limit=10 limit-10 svc-trade": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"marketId\":\"BTC-USDT\",\"orders\":[{\"marketId\":\"BTC-USDT\",\"orderId\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb\",\"accountId\":\"acct-1\",\"kind\":\"book\",\"side\":\"buy\",\"price\":\"30000\",\"remaining\":\"1.5\",\"sequence\":1,\"version\":1}]}"
+  },
+  "blank GET /markets/BTC-USDT/orders?limit=10 limit-10 svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders?limit=10 limit-10 svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders?limit=10 limit-10 svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders?limit=10 limit-10 svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders?limit=10 limit-10 founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders?limit=10 limit-10 reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders?limit=10 limit-10 founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders no-limit anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders no-limit svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.resting_orders_limit_unset\",\"message\":\"matching.resting_orders_limit_unset\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders no-limit svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders no-limit svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders no-limit svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders no-limit svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders no-limit founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders no-limit reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders no-limit founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders?limit=0 limit-0 anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders?limit=0 limit-0 svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.resting_orders_limit_unset\",\"message\":\"matching.resting_orders_limit_unset\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders?limit=0 limit-0 svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders?limit=0 limit-0 svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders?limit=0 limit-0 svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders?limit=0 limit-0 svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders?limit=0 limit-0 founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders?limit=0 limit-0 reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders?limit=0 limit-0 founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders?limit=501 limit-501 anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders?limit=501 limit-501 svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.resting_orders_limit_unset\",\"message\":\"matching.resting_orders_limit_unset\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders?limit=501 limit-501 svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders?limit=501 limit-501 svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders?limit=501 limit-501 svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders?limit=501 limit-501 svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders?limit=501 limit-501 founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders?limit=501 limit-501 reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders?limit=501 limit-501 founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders?limit=ten limit-word anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders?limit=ten limit-word svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.resting_orders_limit_unset\",\"message\":\"matching.resting_orders_limit_unset\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders?limit=ten limit-word svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders?limit=ten limit-word svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders?limit=ten limit-word svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders?limit=ten limit-word svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders?limit=ten limit-word founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders?limit=ten limit-word reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank GET /markets/BTC-USDT/orders?limit=ten limit-word founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank GET /markets/NOPE-USD/orders?limit=10 unknown-market anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank GET /markets/NOPE-USD/orders?limit=10 unknown-market svc-trade": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"MarketNotFound\",\"message\":\"We could not find that.\"}"
+  },
+  "blank GET /markets/NOPE-USD/orders?limit=10 unknown-market svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank GET /markets/NOPE-USD/orders?limit=10 unknown-market svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "blank GET /markets/NOPE-USD/orders?limit=10 unknown-market svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "blank GET /markets/NOPE-USD/orders?limit=10 unknown-market svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "blank GET /markets/NOPE-USD/orders?limit=10 unknown-market founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank GET /markets/NOPE-USD/orders?limit=10 unknown-market reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "blank GET /markets/NOPE-USD/orders?limit=10 unknown-market founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set GET /markets/BTC-USDT/orders?limit=10 limit-10 anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set GET /markets/BTC-USDT/orders?limit=10 limit-10 svc-trade": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"marketId\":\"BTC-USDT\",\"orders\":[{\"marketId\":\"BTC-USDT\",\"orderId\":\"cccccccc-cccc-4ccc-8ccc-cccccccccccc\",\"accountId\":\"mm\",\"kind\":\"book\",\"side\":\"sell\",\"price\":\"30100\",\"remaining\":\"2\",\"sequence\":1,\"version\":1},{\"marketId\":\"BTC-USDT\",\"orderId\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb\",\"accountId\":\"acct-1\",\"kind\":\"book\",\"side\":\"buy\",\"price\":\"30000\",\"remaining\":\"1.5\",\"sequence\":2,\"version\":1}]}"
+  },
+  "set GET /markets/BTC-USDT/orders?limit=10 limit-10 svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set GET /markets/BTC-USDT/orders?limit=10 limit-10 svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set GET /markets/BTC-USDT/orders?limit=10 limit-10 svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set GET /markets/BTC-USDT/orders?limit=10 limit-10 svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set GET /markets/BTC-USDT/orders?limit=10 limit-10 founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set GET /markets/BTC-USDT/orders?limit=10 limit-10 reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set GET /markets/BTC-USDT/orders?limit=10 limit-10 founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set GET /markets/BTC-USDT/orders no-limit anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set GET /markets/BTC-USDT/orders no-limit svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.resting_orders_limit_unset\",\"message\":\"matching.resting_orders_limit_unset\"}"
+  },
+  "set GET /markets/BTC-USDT/orders no-limit svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set GET /markets/BTC-USDT/orders no-limit svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set GET /markets/BTC-USDT/orders no-limit svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set GET /markets/BTC-USDT/orders no-limit svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set GET /markets/BTC-USDT/orders no-limit founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set GET /markets/BTC-USDT/orders no-limit reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set GET /markets/BTC-USDT/orders no-limit founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set GET /markets/BTC-USDT/orders?limit=0 limit-0 anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set GET /markets/BTC-USDT/orders?limit=0 limit-0 svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.resting_orders_limit_unset\",\"message\":\"matching.resting_orders_limit_unset\"}"
+  },
+  "set GET /markets/BTC-USDT/orders?limit=0 limit-0 svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set GET /markets/BTC-USDT/orders?limit=0 limit-0 svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set GET /markets/BTC-USDT/orders?limit=0 limit-0 svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set GET /markets/BTC-USDT/orders?limit=0 limit-0 svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set GET /markets/BTC-USDT/orders?limit=0 limit-0 founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set GET /markets/BTC-USDT/orders?limit=0 limit-0 reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set GET /markets/BTC-USDT/orders?limit=0 limit-0 founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set GET /markets/BTC-USDT/orders?limit=501 limit-501 anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set GET /markets/BTC-USDT/orders?limit=501 limit-501 svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.resting_orders_limit_unset\",\"message\":\"matching.resting_orders_limit_unset\"}"
+  },
+  "set GET /markets/BTC-USDT/orders?limit=501 limit-501 svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set GET /markets/BTC-USDT/orders?limit=501 limit-501 svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set GET /markets/BTC-USDT/orders?limit=501 limit-501 svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set GET /markets/BTC-USDT/orders?limit=501 limit-501 svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set GET /markets/BTC-USDT/orders?limit=501 limit-501 founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set GET /markets/BTC-USDT/orders?limit=501 limit-501 reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set GET /markets/BTC-USDT/orders?limit=501 limit-501 founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set GET /markets/BTC-USDT/orders?limit=ten limit-word anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set GET /markets/BTC-USDT/orders?limit=ten limit-word svc-trade": {
+    "status": 400,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"matching.resting_orders_limit_unset\",\"message\":\"matching.resting_orders_limit_unset\"}"
+  },
+  "set GET /markets/BTC-USDT/orders?limit=ten limit-word svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set GET /markets/BTC-USDT/orders?limit=ten limit-word svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set GET /markets/BTC-USDT/orders?limit=ten limit-word svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set GET /markets/BTC-USDT/orders?limit=ten limit-word svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set GET /markets/BTC-USDT/orders?limit=ten limit-word founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set GET /markets/BTC-USDT/orders?limit=ten limit-word reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set GET /markets/BTC-USDT/orders?limit=ten limit-word founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set GET /markets/NOPE-USD/orders?limit=10 unknown-market anon": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set GET /markets/NOPE-USD/orders?limit=10 unknown-market svc-trade": {
+    "status": 404,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"MarketNotFound\",\"message\":\"We could not find that.\"}"
+  },
+  "set GET /markets/NOPE-USD/orders?limit=10 unknown-market svc-execution": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set GET /markets/NOPE-USD/orders?limit=10 unknown-market svc-ledger": {
+    "status": 403,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Forbidden\",\"message\":\"You do not have access to this.\"}"
+  },
+  "set GET /markets/NOPE-USD/orders?limit=10 unknown-market svc-trade-unbound": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"missing-body-digest\"}"
+  },
+  "set GET /markets/NOPE-USD/orders?limit=10 unknown-market svc-trade-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"bad-signature\"}"
+  },
+  "set GET /markets/NOPE-USD/orders?limit=10 unknown-market founder": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set GET /markets/NOPE-USD/orders?limit=10 unknown-market reader": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  },
+  "set GET /markets/NOPE-USD/orders?limit=10 unknown-market founder-wrong-secret": {
+    "status": 401,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"code\":\"Unauthenticated\",\"message\":\"Sign in to continue.\",\"rejected\":\"unauthenticated\"}"
+  }
+}

@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { asDesk, deskPeople, ensureDeskGroup } from './help-centre.mjs';
 import { awayBid, fundedTrader } from './desk.mjs';
-import { api, ORIGIN, ROOT, stackFile, tool } from './stack.mjs';
+import { api, ORIGIN, ROOT, STACK_PORTS, stackFile, tool } from './stack.mjs';
 
 // J-support-public-20, in the running app (docs/roadmap/journeys.json): a support agent handles a customer's "my deposit
 // or withdrawal is missing" request without moving money, lifting a restriction or reading what they are not entitled to.
@@ -260,7 +260,7 @@ async function supportDb() {
   const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
   const ctx = await gates.makeContext({ log: () => {} });
   const postgres = createRequire(path.join(ROOT, 'services', 'svc-support', 'package.json'))('postgres');
-  const port = ctx.marker.ports.postgres ?? 15460;
+  const port = ctx.marker.ports.postgres ?? STACK_PORTS.postgres;
   return postgres(`postgres://svc_support:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
     max: 1,
     onnotice: () => {},

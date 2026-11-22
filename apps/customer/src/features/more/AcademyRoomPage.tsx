@@ -1,20 +1,21 @@
 import { useState } from 'react';
 import { z } from 'zod';
 import { academyCurriculumSummarySchema } from '@intafaced/contracts/academy-catalogue';
+import { ACADEMY_CURRICULUM, ACADEMY_ROOM_KINDS } from '@intafaced/contracts/academy-learner-procedures';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
 import { Button } from '../../shared/ui';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { academyRoomPageCopy as copy } from './academy-room-page-copy';
 import { lessonHref } from './AcademyLearning';
 import { Select, type ActionControls } from './common';
+import { ACADEMY_UNPIN_LESSON } from '@intafaced/contracts/academy-unpin-lesson-procedures';
+import { ACADEMY_PIN_LESSON } from '@intafaced/contracts/academy-pin-lesson-procedures';
 
 /** A lesson as the room read hands it back: the catalogue's own summary, as the contract declares it. */
-export const pinnedLessonSchema = academyCurriculumSummarySchema;
+const pinnedLessonSchema = academyCurriculumSummarySchema;
 type PinnedLesson = z.infer<typeof pinnedLessonSchema>;
 type CalendarSession = { id: string; title: string; status: 'scheduled' | 'live' | 'ended' | 'cancelled'; startsAt: string };
-
-const ok = z.object({ ok: z.literal(true) });
 
 /** RC-academy-06: the lessons the room's host pinned, in the order pinned; the host pins and unpins here. */
 export function RoomPinnedLessons({
@@ -64,7 +65,7 @@ export function RoomPinnedLessons({
                         confirm: t('unpin'),
                         success: t('unpinned'),
                         content: <p>{t('unpinBody', { title: lesson.title })}</p>,
-                        run: () => api.mutate('academy', 'unpinLesson', { roomId, itemSlug: lesson.slug }, ok),
+                        run: () => api.call(ACADEMY_UNPIN_LESSON, { roomId, itemSlug: lesson.slug }),
                         done,
                       })
                     }
@@ -82,8 +83,6 @@ export function RoomPinnedLessons({
   );
 }
 
-const catalogueItem = pinnedLessonSchema.pick({ slug: true, title: true });
-
 function PinLessonForm({
   roomId,
   pinned,
@@ -98,10 +97,7 @@ function PinLessonForm({
   const { t, Copy } = copy.useCopy();
   const api = useApi();
   const [slug, setSlug] = useState('');
-  const catalogue = useResource(
-    (signal) => api.query('academy', 'curriculum', { limit: 200 }, z.array(catalogueItem), { signal }),
-    `room-pin-catalogue:${roomId}`,
-  );
+  const catalogue = useResource((signal) => api.call(ACADEMY_CURRICULUM, { limit: 200 }, { signal }), `room-pin-catalogue:${roomId}`);
   const items = catalogue.resource.status === 'ready' ? catalogue.resource.data : [];
   const open = items.filter((item) => !pinned.some((p) => p.slug === item.slug));
   const chosen = open.find((item) => item.slug === slug);
@@ -115,7 +111,7 @@ function PinLessonForm({
           confirm: t('pinConfirm'),
           success: t('pinned'),
           content: <p>{t('pinBody', { title: chosen.title })}</p>,
-          run: () => api.mutate('academy', 'pinLesson', { roomId, itemSlug: chosen.slug }, ok),
+          run: () => api.call(ACADEMY_PIN_LESSON, { roomId, itemSlug: chosen.slug }),
           done: () => {
             setSlug('');
             done();
@@ -194,7 +190,7 @@ export function RoomCalendar({ sessions }: { sessions: readonly CalendarSession[
   );
 }
 
-export const ROOM_KINDS = ['general', 'futures', 'options', 'meme_war_room', 'forex', 'defi_lab', 'merchant_clinic'] as const;
+export const ROOM_KINDS = ACADEMY_ROOM_KINDS;
 
 /** Narrow the room list to one specialist kind (futures, merchant clinic, ...); blank shows every kind. */
 export function RoomKindFilter({ value, onChange }: { value: string; onChange: (kind: string) => void }) {

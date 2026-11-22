@@ -1,7 +1,7 @@
 import { formatWhen } from '@/lib/as-of';
 import type { OpsCapitalPlace, OpsCapitalScenario, OpsCapitalSnapshot } from '@intafaced/contracts/ops-capital';
 import { CAPITAL_REFUSAL_WORDS, PARTNER_SOURCE, STATE_WORDS, accountName, reserveWords } from '@/lib/capital/model';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 import '../desk.css';
 
 /** A part that could not be read: "unknown", with svc-ops' own words and the code. Never a zero. */

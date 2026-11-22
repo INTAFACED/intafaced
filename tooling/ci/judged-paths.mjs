@@ -18,8 +18,8 @@ export const JUDGE_PATHS = [
   [/^apps\/customer\/src\/screens\/[^/]+\/[^/]+\.fixtures\.mjs$/, 'the screen fixtures the look sweeps answer from'],
   [/^apps\/customer\/src\/app\/(feature-registry|path-match)\.ts$/, 'the feature registry and path matcher the journeys import'],
   [
-    /^apps\/customer\/src\/(app\/(navigation|navigation-copy|screen-types)|features\/protocol\/routes|shared\/(preferences|locale))\.ts$/,
-    'the route table J-home-ia-02 #2 reads (navigation.ts) and the files it imports',
+    /^apps\/customer\/src\/(app\/(navigation|navigation-copy|screen-types|rooms\/[^/]+)|features\/protocol\/routes|shared\/(preferences|locale))\.ts$/,
+    'the route table J-home-ia-02 #2 reads (navigation.ts, its area files in rooms/) and the files it imports',
   ],
   [/^apps\/customer\/deployment\/(host-dispatch|render-security-headers)\.mjs$/, 'the host dispatch and headers the journeys import'],
   [/^services\/svc-fix\/scripts\/ensure-toolchain\.mjs$/, 'the FIX toolchain the journeys start'],
@@ -48,8 +48,9 @@ export const leftToJudge = (change, { judgeRuns }) => Boolean(judgeRuns) && chan
 
 /**
  * Whether ci-review.yml's `review` job (the CI review, whose test part is the judge) runs for a pull request's head, as
- * its `if:` says: the head is this repository's own and the base is main (`JUDGE_JOB_CONDITIONS`); its third term only
- * skips an `edited` event that changes no base, which a head's own opening or push has already reviewed.
+ * its `if:` says: the head is this repository's own and the base is main (`JUDGE_JOB_CONDITIONS`); its other terms only
+ * skip an `edited` event that changes no base, which a head's own opening or push has already reviewed, and a draft,
+ * which is reviewed on the same head when it is marked ready and can't merge before.
  * test-diff-guard.mjs reads it from CI's env; judged-paths.test.mjs holds the workflow's condition to exactly these, so
  * the guard can't leave a file to a judge that doesn't run.
  */

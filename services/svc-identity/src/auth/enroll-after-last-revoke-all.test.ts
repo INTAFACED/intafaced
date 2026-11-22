@@ -29,7 +29,7 @@ function fakeSql(creds: unknown[] | null, keys: KeyRow[]) {
     }
     throw new Error(`unexpected sql: ${text}`);
   };
-  const sql = Object.assign(fn, { keys }) as unknown as Parameters<typeof revokeAllApiKeysAfterNewlyEnrolledPasskey>[0] & {
+  const sql = Object.assign(fn, { keys }) as Parameters<typeof revokeAllApiKeysAfterNewlyEnrolledPasskey>[0] & {
     keyWrites: number;
     keys: KeyRow[];
   };

@@ -110,6 +110,10 @@ interface RecoveryReceivedHolds {
   sweep(limit: number): Promise<readonly RecoveryJobResult[]>;
 }
 
+interface RecoveryWebhookDeliveries {
+  drain(limit: number): Promise<readonly RecoveryJobResult[]>;
+}
+
 export interface BankRecoveryJobsConfig {
   /** `null` or omitted = blank interval, timer disabled. */
   intervalMs: number | null | undefined;
@@ -129,6 +133,8 @@ export interface BankRecoveryJobsDeps {
   cashOuts?: RecoveryCashOuts;
   /** Holds on received funds whose step was lost or whose release date has come. Omitted = not scheduled. */
   receivedHolds?: RecoveryReceivedHolds;
+  /** Bank API webhook deliveries still due (J-bank-24 #5), posted after a crash left them. Omitted = not scheduled. */
+  webhookDeliveries?: RecoveryWebhookDeliveries;
   /** Dedicated lock connection. Not the pool the job bodies borrow from. */
   lock?: Sql;
   /** Test double. Production uses `trySessionAdvisoryLock` on `lock`. */
@@ -162,6 +168,7 @@ const JOB_NAMES = [
   'bank.recovery.announce_posted_transfers',
   'bank.recovery.redrive_cash_outs',
   'bank.recovery.sweep_received_holds',
+  'bank.recovery.deliver_bank_api_webhooks',
 ] as const;
 
 function unrefTimer(id: ReturnType<typeof setTimeout>): void {
@@ -209,6 +216,8 @@ export function startBankRecoveryJobs(deps: BankRecoveryJobsDeps): BankRecoveryJ
   if (cashOuts) jobs.push({ name: JOB_NAMES[4], run: () => cashOuts.redrive(noticeBatch) });
   const receivedHolds = deps.receivedHolds;
   if (receivedHolds) jobs.push({ name: JOB_NAMES[5], run: () => receivedHolds.sweep(noticeBatch) });
+  const webhookDeliveries = deps.webhookDeliveries;
+  if (webhookDeliveries) jobs.push({ name: JOB_NAMES[6], run: () => webhookDeliveries.drain(noticeBatch) });
 
   let stoppedFlag = false;
   let running = false;

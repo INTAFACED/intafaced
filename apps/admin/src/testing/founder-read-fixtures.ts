@@ -270,6 +270,8 @@ const rows = {
       status: 'disabled' as const,
       disabledReason: 'too_many_failures',
       consecutiveFailures: 7,
+      eventTypes: ['payment.captured', 'payment.refunded'],
+      previousSecretUntil: null,
       createdAt: T,
       updatedAt: T2,
     },

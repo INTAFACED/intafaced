@@ -1,8 +1,5 @@
 import { TRPCError } from '@trpc/server';
 import {
-  publicProcedure,
-  router,
-  scopedProcedure,
   SUPPORT_BEREAVEMENT_DATE_INVALID,
   SUPPORT_SAFETY_KEY_REUSED,
   SUPPORT_SCAM_TRANSFER_NOT_YOURS,
@@ -10,14 +7,16 @@ import {
   supportBereavementInputSchema,
   supportScamReportInputSchema,
   supportComplaintInputSchema,
-  supportMulePolicySchema,
   supportSafetyAcknowledgementSchema,
-  supportSafetyAcknowledgementsSchema,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/support-safety';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import type { SafetyCases } from './safety-cases.js';
 import { SupportError } from './support-service.js';
 import { mapError } from './router.js';
 import { userCopy } from './user-copy.js';
+import { SUPPORT_SAFETY_MINE, SUPPORT_SAFETY_MULE_POLICY } from '@intafaced/contracts/support-safety-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { supportRefusal } from './record-refusal.js';
 
 /**
  * `support.safety.*` (BK-safe-02 and BK-safe-03; J-bank-18 #3, #5 and #6): a scam report, a complaint and a bereavement
@@ -61,17 +60,19 @@ export function safetyRouter(safety: SafetyCases) {
       }),
 
     /** The owner's money-mule policy, or that none is published (public: the policy page reads it signed out too). */
-    mulePolicy: publicProcedure.output(supportMulePolicySchema).query(() => safety.mulePolicy()),
+    mulePolicy: mountRecord(SUPPORT_SAFETY_MULE_POLICY, () => safety.mulePolicy(), supportRefusal),
 
-    mine: scopedProcedure('support:read')
-      .output(supportSafetyAcknowledgementsSchema)
-      .query(async ({ ctx }) => {
+    mine: mountRecord(
+      SUPPORT_SAFETY_MINE,
+      async ({ ctx }) => {
         try {
           return { acknowledgements: await safety.mine(ctx.principal!.userId) };
         } catch (err) {
           mapSafety(err);
         }
-      }),
+      },
+      supportRefusal,
+    ),
   });
 }
 

@@ -4,7 +4,7 @@ import { navigate } from '../../../app/location';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
 import { Button, EmptyState, Failure, Field, Loading, Page, Panel } from '../../../shared/ui';
-import { useApi } from '../../session/session';
+import { useApi } from '../../session';
 import { createProtocolApi, type ProtocolApi } from '../api';
 import { protocolCopy } from '../copy';
 import { ADDRESS_SHAPE } from '../routes';

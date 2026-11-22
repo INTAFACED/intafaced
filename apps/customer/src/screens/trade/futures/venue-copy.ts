@@ -36,6 +36,7 @@ export const MARKET_RULE_WORDS = {
   'Open interest value': '{size} {base} open, as the venue reports it',
   'Open interest cap': 'Open-interest cap',
   'Open interest cap value': 'At most {cap} {base} open, set by its deployer',
+  'Open interest venue cap value': 'At most {cap} {base} open, set by the venue',
   'Open interest no cap': 'No cap set by its deployer',
   // A deployer's halt or a split that settled the market's positions (J-derivatives-27 #9 #10): the venue's report.
   event_deployer_halt:
@@ -104,6 +105,8 @@ export const futuresVenueCopy = defineCopy('trade.futures.venue', {
   Price: 'Price',
   'Worst price': 'Worst price (slippage limit)',
   'Margin asset': 'Margin asset',
+  'Label optional': 'Label (optional)',
+  'Label bad': 'A label is up to 36 letters, digits and . _ : - with no spaces. Nothing was sent.',
   'Margin mismatch': 'Margin on {symbol} is posted in {settle}; {asset} cannot be used as its margin. Nothing was sent.',
   'Review long': 'Review long',
   'Review short': 'Review short',

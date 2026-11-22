@@ -210,6 +210,21 @@ const gated = (tool: OwnTool): OwnTool =>
 
 export const OWN_TOOLS: readonly OwnTool[] = [...[...READ_TOOLS, ...WRITE_TOOLS].map(gated), ...MONEY_TOOLS];
 
+/**
+ * Every declared tool shape (AG-tools-01) by tool name, as this catalogue holds it, for any agent that declares the tool:
+ * a product agent's detail page (`agent.get`) shows the same shape a person's own agent attaches. The Rust port reads
+ * the same table from `crates/svc-agents/src/tool_shapes.json` (`scripts/record-door.mjs` writes it;
+ * `tool-shapes-rust.test.ts` fails while it is stale).
+ */
+export const DECLARED_TOOL_SHAPES: Readonly<Record<string, Readonly<OwnAgentToolShape>>> = Object.fromEntries(
+  OWN_TOOLS.flatMap((tool) => (tool.shape ? [[tool.name, tool.shape] as const] : [])),
+);
+
+/** A tool's declared input and output; null when it declares none, which the page says in words and never guesses. */
+export function declaredToolShape(name: string): Readonly<OwnAgentToolShape> | null {
+  return Object.hasOwn(DECLARED_TOOL_SHAPES, name) ? (DECLARED_TOOL_SHAPES[name] ?? null) : null;
+}
+
 export const OWN_TEMPLATES = {
   'service-starter': { tools: ['support.kb.search', 'support.ticket.read', 'identity.account.read'] },
   blank: { tools: [] },
@@ -285,6 +300,8 @@ export type OwnRefusalCode =
   | 'agents.identity.owner_unread'
   | 'agents.identity.owner_frozen'
   | 'agents.identity.owner_inactive'
+  | 'agents.identity.owner_frozen_self'
+  | 'agents.identity.owner_freeze_unread'
   | 'agents.assistant.engine_unavailable'
   | 'agents.assistant.description_blank'
   | 'agents.spend.cap_unset'
@@ -302,6 +319,10 @@ export type OwnRefusalCode =
   | 'agents.policy_no_match'
   | 'agents.policy_rule_not_found'
   | 'agents.access_expiry_unset'
+  | 'agents.memory.not_found'
+  | 'agents.retention_unset'
+  | 'agents.privacy.confirm_required'
+  | 'agents.share.no_co_owners'
   | 'agents.access_expiry_invalid'
   | 'agents.access_none_chosen'
   | 'agents.access_request_invalid'
@@ -336,7 +357,15 @@ export type OwnRefusalCode =
   | 'agents.output.schema_unsupported'
   | 'agents.payment_method.wallet_not_linked'
   | 'agents.payment_method.account_inactive'
-  | 'agents.payment_method.wallets_unread';
+  | 'agents.payment_method.wallets_unread'
+  | 'agents.schedule_cadence_unset'
+  | 'agents.schedule.min_interval_unset'
+  | 'agents.schedule.interval_invalid'
+  | 'agents.schedule.interval_below_minimum'
+  | 'agents.schedule.ask_blank'
+  | 'agents.schedule.not_found'
+  | 'agents.trigger_subject_invalid'
+  | 'agents.trigger.not_found';
 
 export class OwnAgentRefusal extends Error {
   constructor(

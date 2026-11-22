@@ -48,8 +48,8 @@ describe('listApplications limit unset refuse', () => {
 
   it('router does not invent 50 when listApplications omits limit', () => {
     const src = readFileSync(join(ROOT, 'services/svc-market/src/router.ts'), 'utf8');
-    const start = src.indexOf('listApplications: scopedProcedure');
-    const end = src.indexOf('vet: scopedProcedure', start);
+    const start = src.indexOf('listApplications: mountRecord(');
+    const end = src.indexOf('vet: mountRecord(', start);
     const fn = src.slice(start, end === -1 ? undefined : end);
     expect(fn).toContain('limit: input?.limit');
     expect(fn).not.toMatch(/input\?\.limit \?\? 50/);

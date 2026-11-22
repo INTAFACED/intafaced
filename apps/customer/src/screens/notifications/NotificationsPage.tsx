@@ -6,7 +6,7 @@ import { centreCopy } from './centre-copy';
 import { NotifyNav } from './NotifyNav';
 import { CATEGORIES, categoryOf, type Category } from './prefs';
 import { InboxFailure, NotificationRow } from './NotificationRow';
-import { useInboxView } from './use-notifications';
+import { useInboxPolicy, useInboxView, type InboxState } from './use-notifications';
 
 type Tab = 'all' | 'unread';
 type Topic = 'all' | Category;
@@ -19,12 +19,25 @@ const TOPIC = {
   token: 'topicToken',
   agents: 'topicAgents',
 } as const satisfies Record<Topic, string>;
-const PAGE = 20;
 
 export default function NotificationsPage() {
   const copy = notifyCopy.useCopy();
   const [tab, setTab] = useState<Tab>('all');
-  const { inbox, state, markets } = useInboxView({ limit: PAGE, unreadOnly: tab === 'unread' });
+  // The owner's page size (notify.inboxPolicy). Unset, the list is never asked for: the page says why instead.
+  const policy = useInboxPolicy();
+  const pageSize = policy.status === 'ready' ? policy.data.pageSize : null;
+  const view = useInboxView({ limit: pageSize ?? 1, unreadOnly: tab === 'unread', enabled: pageSize !== null });
+  const { inbox, markets } = view;
+  // The settings read itself failing shows as the list failing, in the same plain words.
+  const state: InboxState =
+    policy.status === 'ready'
+      ? view.state
+      : policy.status === 'refused'
+        ? { status: 'failed', failure: { ok: false, reason: 'forbidden', code: policy.code, message: policy.code } }
+        : policy.status === 'error'
+          ? { status: 'failed', failure: { ok: false, reason: 'unreachable', message: 'inbox settings unreadable' } }
+          : { status: 'loading' };
+  const retry = policy.status === 'error' ? policy.retry : inbox.reload;
   const centre = centreCopy.useCopy();
   const [topic, setTopic] = useState<Topic>('all');
   const now = Date.now();
@@ -73,10 +86,12 @@ export default function NotificationsPage() {
         aria-label={copy.t('Notification list')}
         aria-busy={state.status === 'loading' || undefined}
       >
-        {state.status === 'loading' ? (
+        {policy.status === 'ready' && pageSize === null ? (
+          <StateBlock kind="refused" title={copy.t('Inbox not set up title')} body={copy.t('Inbox not set up body')} />
+        ) : state.status === 'loading' ? (
           <StateBlock kind="loading" rows={5} rowHeight={72} label={copy.t('Notification list')} className="nf-card__loading" />
         ) : state.status === 'failed' ? (
-          <InboxFailure state={state} onRetry={inbox.reload} />
+          <InboxFailure state={state} onRetry={retry} />
         ) : state.items.length === 0 ? (
           <StateBlock
             kind="empty"

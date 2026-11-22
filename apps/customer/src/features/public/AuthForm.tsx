@@ -16,13 +16,20 @@ import { Button, Field, Failure } from '../../shared/ui';
 import { authoredRefusal, type ApiClient, type ApiResult, type SecondStep } from '../../shared/api';
 import { uiCopy } from '../../shared/ui-copy';
 import { LanguageMenu } from '../../shared/LanguageMenu';
-import { useAccountViewStatus } from '../account/ViewSync';
+import { useAccountViewStatus } from '../account';
 import { savePreferences } from '../../shared/preferences';
 import { passwordIssue } from '../../shared/password';
-import { useSession, sessionSchema, type Session } from '../session/session';
-import { signAssertion, signInWithPasskey } from '../session/webauthn';
-import { findBrowserWallet, signWithBrowserWallet, walletChallengeSchema } from '../session/browser-wallet';
-import type { Eip1193Provider } from '../protocol/wallet/eip1193';
+import {
+  findBrowserWallet,
+  sessionSchema,
+  signAssertion,
+  signInWithPasskey,
+  signWithBrowserWallet,
+  useSession,
+  walletChallengeSchema,
+  type Session,
+} from '../session';
+import type { Eip1193Provider } from '../protocol';
 import { useLocation, navigate } from '../../app/location';
 import { findRoom, roomTitle } from '../../app/navigation';
 import { publicAuthContext, publicAuthHref } from './auth-context';

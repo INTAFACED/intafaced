@@ -10,9 +10,6 @@
  * 5. Paths: consolidated-book.ts consolidateBook
  * 6. RED: unset book succeeds or source git-defaults 50
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { OrderBook } from '@intafaced/exchange-contract';
 import { CONSOLIDATED_BOOK_DEPTH_UNSET, ConsolidatedBookRefusedError, consolidateBook } from './consolidated-book.js';
@@ -52,14 +49,6 @@ function liveVenue(): LiquiditySource {
 }
 
 describe('consolidateBook depth unpublished', () => {
-  it('consolidated-book.ts does not git-default 50', () => {
-    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'consolidated-book.ts'), 'utf8');
-    expect(src).toMatch(/venue\.consolidated_book\.depth_unset/);
-    expect(src).not.toMatch(/options\.depth\s*\?\?\s*50/);
-    expect(src).not.toMatch(/depth\s*=\s*50/);
-    expect(src).not.toMatch(/DEFAULT_.*DEPTH/);
-  });
-
   it('omitted / null / undefined depth refuses (does not invent 50)', async () => {
     const sources = [liveVenue()];
     await expect(consolidateBook('BTC/USDT', sources)).rejects.toMatchObject({

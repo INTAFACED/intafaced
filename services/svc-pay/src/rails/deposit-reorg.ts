@@ -1,4 +1,5 @@
 import { recipes, type Amount, type LedgerClient } from '@intafaced/ledger-client';
+import { postPayLedger } from '../ledger-receipt.js';
 
 /**
  * WAL-0070. A deposit credited from block hash H stops being spendable when
@@ -81,7 +82,8 @@ export class DepositBlockReorg {
       if (reported == null) continue;
       const next = reported.trim();
       if (next.length === 0 || sameHash(credit.blockHash, next)) continue;
-      const tx = await this.ledger.post(
+      const tx = await postPayLedger(
+        this.ledger,
         recipes.depositReverse({
           depositId: credit.depositId,
           userId: credit.userId,

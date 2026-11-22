@@ -1,0 +1,849 @@
+{
+  "cases": [
+    {
+      "name": "valid",
+      "config": {
+        "secret": "placeholder-ledger-shell-access-secret-long",
+        "keyId": null,
+        "verifyOnly": []
+      },
+      "parts": [
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+        "eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzY29wZXMiOlsiYWRtaW46dHJlYXN1cnkiXSwidGllciI6ImJhc2ljIiwibWZhIjp0cnVlLCJzaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJpc3MiOiJpbnRhZmFjZWQiLCJhdWQiOiJpbnRhZmFjZWQuYXBpIiwiaWF0IjoxMDAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDB9",
+        "IJYHcxaNNkhXgXJmQL74f06uBU8p6TSnYgxkuf1u5s8"
+      ],
+      "answer": {
+        "ok": {
+          "userId": "11111111-1111-4111-8111-111111111111",
+          "scopes": ["admin:treasury"],
+          "tier": "basic",
+          "mfa": true,
+          "kid": null,
+          "subAccount": null,
+          "exp": 4102444800
+        }
+      }
+    },
+    {
+      "name": "valid no-mfa no-tier",
+      "config": {
+        "secret": "placeholder-ledger-shell-access-secret-long",
+        "keyId": null,
+        "verifyOnly": []
+      },
+      "parts": [
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+        "eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzY29wZXMiOlsiYWRtaW46dHJlYXN1cnkiXSwic2lkIjoiMzMzMzMzMzMtMzMzMy00MzMzLTgzMzMtMzMzMzMzMzMzMzMzIiwiaXNzIjoiaW50YWZhY2VkIiwiYXVkIjoiaW50YWZhY2VkLmFwaSIsImlhdCI6MTAwMDAwMDAwMCwiZXhwIjo0MTAyNDQ0ODAwfQ",
+        "G1DnbDeswgjy8J9ko6E2PdYv7G8X9Cwx4407QSeWnzM"
+      ],
+      "answer": {
+        "ok": {
+          "userId": "11111111-1111-4111-8111-111111111111",
+          "scopes": ["admin:treasury"],
+          "tier": "none",
+          "mfa": false,
+          "kid": null,
+          "subAccount": null,
+          "exp": 4102444800
+        }
+      }
+    },
+    {
+      "name": "aud array",
+      "config": {
+        "secret": "placeholder-ledger-shell-access-secret-long",
+        "keyId": null,
+        "verifyOnly": []
+      },
+      "parts": [
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+        "eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzY29wZXMiOlsiYWRtaW46dHJlYXN1cnkiXSwidGllciI6ImJhc2ljIiwibWZhIjp0cnVlLCJzaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJpc3MiOiJpbnRhZmFjZWQiLCJhdWQiOlsieCIsImludGFmYWNlZC5hcGkiXSwiaWF0IjoxMDAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDB9",
+        "ig6UXJRid4DTDH62hh9_akPcgTJ1C4qlykHIwjzUCbo"
+      ],
+      "answer": {
+        "ok": {
+          "userId": "11111111-1111-4111-8111-111111111111",
+          "scopes": ["admin:treasury"],
+          "tier": "basic",
+          "mfa": true,
+          "kid": null,
+          "subAccount": null,
+          "exp": 4102444800
+        }
+      }
+    },
+    {
+      "name": "wrong secret",
+      "config": {
+        "secret": "placeholder-ledger-shell-access-secret-long",
+        "keyId": null,
+        "verifyOnly": []
+      },
+      "parts": [
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+        "eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzY29wZXMiOlsiYWRtaW46dHJlYXN1cnkiXSwidGllciI6ImJhc2ljIiwibWZhIjp0cnVlLCJzaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJpc3MiOiJpbnRhZmFjZWQiLCJhdWQiOiJpbnRhZmFjZWQuYXBpIiwiaWF0IjoxMDAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDB9",
+        "0v_eZqF35k2fV5pqT_pv9VNv-HcRlKIjA66KtvcxeAQ"
+      ],
+      "answer": {
+        "refused": {
+          "message": "Access token could not be verified",
+          "code": "token.invalid"
+        }
+      }
+    },
+    {
+      "name": "expired",
+      "config": {
+        "secret": "placeholder-ledger-shell-access-secret-long",
+        "keyId": null,
+        "verifyOnly": []
+      },
+      "parts": [
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+        "eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzY29wZXMiOlsiYWRtaW46dHJlYXN1cnkiXSwidGllciI6ImJhc2ljIiwibWZhIjp0cnVlLCJzaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJpc3MiOiJpbnRhZmFjZWQiLCJhdWQiOiJpbnRhZmFjZWQuYXBpIiwiaWF0IjoxMDAwMDAwMDAwLCJleHAiOjEwMDAwMDAwMDB9",
+        "mjxUxBBP1lIXY61aTd9wfO8Ze1WcdfN2FG25H-ODopw"
+      ],
+      "answer": {
+        "refused": {
+          "message": "Access token expired",
+          "code": "token.expired"
+        }
+      }
+    },
+    {
+      "name": "no exp",
+      "config": {
+        "secret": "placeholder-ledger-shell-access-secret-long",
+        "keyId": null,
+        "verifyOnly": []
+      },
+      "parts": [
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+        "eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzY29wZXMiOlsiYWRtaW46dHJlYXN1cnkiXSwidGllciI6ImJhc2ljIiwibWZhIjp0cnVlLCJzaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJpc3MiOiJpbnRhZmFjZWQiLCJhdWQiOiJpbnRhZmFjZWQuYXBpIiwiaWF0IjoxMDAwMDAwMDAwfQ",
+        "n6XGh8uhPxjVc28D2NvebGTOun_s6mPkg8IpB11bAjM"
+      ],
+      "answer": {
+        "refused": {
+          "message": "Token claims rejected",
+          "code": "token.invalid"
+        }
+      }
+    },
+    {
+      "name": "exp string",
+      "config": {
+        "secret": "placeholder-ledger-shell-access-secret-long",
+        "keyId": null,
+        "verifyOnly": []
+      },
+      "parts": [
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+        "eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzY29wZXMiOlsiYWRtaW46dHJlYXN1cnkiXSwidGllciI6ImJhc2ljIiwibWZhIjp0cnVlLCJzaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJpc3MiOiJpbnRhZmFjZWQiLCJhdWQiOiJpbnRhZmFjZWQuYXBpIiwiaWF0IjoxMDAwMDAwMDAwLCJleHAiOiI0MTAyNDQ0ODAwIn0",
+        "qQxWRLkR7LPCZvscNoGqk-IjkJG1bL3GxynptOOxaIU"
+      ],
+      "answer": {
+        "refused": {
+          "message": "Token claims rejected",
+          "code": "token.invalid"
+        }
+      }
+    },
+    {
+      "name": "wrong issuer",
+      "config": {
+        "secret": "placeholder-ledger-shell-access-secret-long",
+        "keyId": null,
+        "verifyOnly": []
+      },
+      "parts": [
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+        "eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzY29wZXMiOlsiYWRtaW46dHJlYXN1cnkiXSwidGllciI6ImJhc2ljIiwibWZhIjp0cnVlLCJzaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJpc3MiOiJzb21lb25lIiwiYXVkIjoiaW50YWZhY2VkLmFwaSIsImlhdCI6MTAwMDAwMDAwMCwiZXhwIjo0MTAyNDQ0ODAwfQ",
+        "G2COLlV66HHRx3KF4byMLYTxvDEOKPXDam6EH6KGJdo"
+      ],
+      "answer": {
+        "refused": {
+          "message": "Token claims rejected",
+          "code": "token.invalid"
+        }
+      }
+    },
+    {
+      "name": "no issuer",
+      "config": {
+        "secret": "placeholder-ledger-shell-access-secret-long",
+        "keyId": null,
+        "verifyOnly": []
+      },
+      "parts": [
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+        "eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzY29wZXMiOlsiYWRtaW46dHJlYXN1cnkiXSwidGllciI6ImJhc2ljIiwibWZhIjp0cnVlLCJzaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJhdWQiOiJpbnRhZmFjZWQuYXBpIiwiaWF0IjoxMDAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDB9",
+        "isoIYbD-DC0SovS9ihC2ioMQ3qORIkEfa2Ck0s0cd-s"
+      ],
+      "answer": {
+        "refused": {
+          "message": "Token claims rejected",
+          "code": "token.invalid"
+        }
+      }
+    },
+    {
+      "name": "wrong audience",
+      "config": {
+        "secret": "placeholder-ledger-shell-access-secret-long",
+        "keyId": null,
+        "verifyOnly": []
+      },
+      "parts": [
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+        "eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzY29wZXMiOlsiYWRtaW46dHJlYXN1cnkiXSwidGllciI6ImJhc2ljIiwibWZhIjp0cnVlLCJzaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJpc3MiOiJpbnRhZmFjZWQiLCJhdWQiOiJvdGhlciIsImlhdCI6MTAwMDAwMDAwMCwiZXhwIjo0MTAyNDQ0ODAwfQ",
+        "D2UzB87Kk-VXxjbAr9xT84TwPYdGUJVQzFw0qAh6xJ4"
+      ],
+      "answer": {
+        "refused": {
+          "message": "Token claims rejected",
+          "code": "token.invalid"
+        }
+      }
+    },
+    {
+      "name": "nbf future",
+      "config": {
+        "secret": "placeholder-ledger-shell-access-secret-long",
+        "keyId": null,
+        "verifyOnly": []
+      },
+      "parts": [
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+        "eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzY29wZXMiOlsiYWRtaW46dHJlYXN1cnkiXSwidGllciI6ImJhc2ljIiwibWZhIjp0cnVlLCJzaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJpc3MiOiJpbnRhZmFjZWQiLCJhdWQiOiJpbnRhZmFjZWQuYXBpIiwiaWF0IjoxMDAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDAsIm5iZiI6NDEwMjQ0NDc5OX0",
+        "oFKUO9QvCSN_aEwhLxFmkKRAbjYnW2KF54TAUiJxRZM"
+      ],
+      "answer": {
+        "refused": {
+          "message": "Token claims rejected",
+          "code": "token.invalid"
+        }
+      }
+    },
+    {
+      "name": "nbf past",
+      "config": {
+        "secret": "placeholder-ledger-shell-access-secret-long",
+        "keyId": null,
+        "verifyOnly": []
+      },
+      "parts": [
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+        "eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzY29wZXMiOlsiYWRtaW46dHJlYXN1cnkiXSwidGllciI6ImJhc2ljIiwibWZhIjp0cnVlLCJzaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJpc3MiOiJpbnRhZmFjZWQiLCJhdWQiOiJpbnRhZmFjZWQuYXBpIiwiaWF0IjoxMDAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDAsIm5iZiI6MTAwMDAwMDAwMH0",
+        "Wo4Lg_P0C7gYKQrB5GqWFByg77mKf2-mV_ikbufxLAU"
+      ],
+      "answer": {
+        "ok": {
+          "userId": "11111111-1111-4111-8111-111111111111",
+          "scopes": ["admin:treasury"],
+          "tier": "basic",
+          "mfa": true,
+          "kid": null,
+          "subAccount": null,
+          "exp": 4102444800
+        }
+      }
+    },
+    {
+      "name": "iat string",
+      "config": {
+        "secret": "placeholder-ledger-shell-access-secret-long",
+        "keyId": null,
+        "verifyOnly": []
+      },
+      "parts": [
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+        "eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzY29wZXMiOlsiYWRtaW46dHJlYXN1cnkiXSwidGllciI6ImJhc2ljIiwibWZhIjp0cnVlLCJzaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJpc3MiOiJpbnRhZmFjZWQiLCJhdWQiOiJpbnRhZmFjZWQuYXBpIiwiaWF0Ijoibm93IiwiZXhwIjo0MTAyNDQ0ODAwfQ",
+        "vQde7G6ToMHuDhvswvFhKV2x4BFxC722FWIyp24Xzyo"
+      ],
+      "answer": {
+        "refused": {
+          "message": "Token claims rejected",
+          "code": "token.invalid"
+        }
+      }
+    },
+    {
+      "name": "alg none",
+      "config": {
+        "secret": "placeholder-ledger-shell-access-secret-long",
+        "keyId": null,
+        "verifyOnly": []
+      },
+      "parts": [
+        "eyJhbGciOiJub25lIn0",
+        "eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzY29wZXMiOlsiYWRtaW46dHJlYXN1cnkiXSwidGllciI6ImJhc2ljIiwibWZhIjp0cnVlLCJzaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJpc3MiOiJpbnRhZmFjZWQiLCJhdWQiOiJpbnRhZmFjZWQuYXBpIiwiaWF0IjoxMDAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDB9",
+        ""
+      ],
+      "answer": {
+        "refused": {
+          "message": "Access token could not be verified",
+          "code": "token.invalid"
+        }
+      }
+    },
+    {
+      "name": "alg HS512",
+      "config": {
+        "secret": "placeholder-ledger-shell-access-secret-long",
+        "keyId": null,
+        "verifyOnly": []
+      },
+      "parts": [
+        "eyJhbGciOiJIUzUxMiJ9",
+        "eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzY29wZXMiOlsiYWRtaW46dHJlYXN1cnkiXSwidGllciI6ImJhc2ljIiwibWZhIjp0cnVlLCJzaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJpc3MiOiJpbnRhZmFjZWQiLCJhdWQiOiJpbnRhZmFjZWQuYXBpIiwiaWF0IjoxMDAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDB9",
+        "hb6p6veV2YRvBz-0ayjeMsJpXIIm4FpILqy675FlaN0"
+      ],
+      "answer": {
+        "refused": {
+          "message": "Access token could not be verified",
+          "code": "token.invalid"
+        }
+      }
+    },
+    {
+      "name": "two parts",
+      "config": {
+        "secret": "placeholder-ledger-shell-access-secret-long",
+        "keyId": null,
+        "verifyOnly": []
+      },
+      "parts": [
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+        "eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzY29wZXMiOlsiYWRtaW46dHJlYXN1cnkiXSwidGllciI6ImJhc2ljIiwibWZhIjp0cnVlLCJzaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJpc3MiOiJpbnRhZmFjZWQiLCJhdWQiOiJpbnRhZmFjZWQuYXBpIiwiaWF0IjoxMDAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDB9"
+      ],
+      "answer": {
+        "refused": {
+          "message": "Access token could not be verified",
+          "code": "token.invalid"
+        }
+      }
+    },
+    {
+      "name": "not a token",
+      "config": {
+        "secret": "placeholder-ledger-shell-access-secret-long",
+        "keyId": null,
+        "verifyOnly": []
+      },
+      "parts": ["not-a-token"],
+      "answer": {
+        "refused": {
+          "message": "Access token could not be verified",
+          "code": "token.invalid"
+        }
+      }
+    },
+    {
+      "name": "header not json",
+      "config": {
+        "secret": "placeholder-ledger-shell-access-secret-long",
+        "keyId": null,
+        "verifyOnly": []
+      },
+      "parts": [
+        "{nope",
+        "eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzY29wZXMiOlsiYWRtaW46dHJlYXN1cnkiXSwidGllciI6ImJhc2ljIiwibWZhIjp0cnVlLCJzaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJpc3MiOiJpbnRhZmFjZWQiLCJhdWQiOiJpbnRhZmFjZWQuYXBpIiwiaWF0IjoxMDAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDB9",
+        "TuYt7PhdmDyJwMMaxSMIN7_vpCzm_XaWK_rsQ5NbUOA"
+      ],
+      "answer": {
+        "refused": {
+          "message": "Access token could not be verified",
+          "code": "token.invalid"
+        }
+      }
+    },
+    {
+      "name": "header null",
+      "config": {
+        "secret": "placeholder-ledger-shell-access-secret-long",
+        "keyId": null,
+        "verifyOnly": []
+      },
+      "parts": [
+        "bnVsbA",
+        "eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzY29wZXMiOlsiYWRtaW46dHJlYXN1cnkiXSwidGllciI6ImJhc2ljIiwibWZhIjp0cnVlLCJzaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJpc3MiOiJpbnRhZmFjZWQiLCJhdWQiOiJpbnRhZmFjZWQuYXBpIiwiaWF0IjoxMDAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDB9",
+        "0KJc3K1ehJYGin5s7YGfD5jcaJIbFwt_lHfJ4ojNZms"
+      ],
+      "answer": {
+        "refused": {
+          "message": "Access token could not be verified",
+          "code": "token.invalid"
+        }
+      }
+    },
+    {
+      "name": "payload array",
+      "config": {
+        "secret": "placeholder-ledger-shell-access-secret-long",
+        "keyId": null,
+        "verifyOnly": []
+      },
+      "parts": ["eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9", "WzFd", "Ey9hAdb8pEL2KYgM4nVVOX2zZ9YNWm7Vhx0Sf1sbkpY"],
+      "answer": {
+        "refused": {
+          "message": "Access token could not be verified",
+          "code": "token.invalid"
+        }
+      }
+    },
+    {
+      "name": "sub not a guid",
+      "config": {
+        "secret": "placeholder-ledger-shell-access-secret-long",
+        "keyId": null,
+        "verifyOnly": []
+      },
+      "parts": [
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+        "eyJzdWIiOiJub2JvZHkiLCJzY29wZXMiOlsiYWRtaW46dHJlYXN1cnkiXSwidGllciI6ImJhc2ljIiwibWZhIjp0cnVlLCJzaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJpc3MiOiJpbnRhZmFjZWQiLCJhdWQiOiJpbnRhZmFjZWQuYXBpIiwiaWF0IjoxMDAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDB9",
+        "TMbhyY_w2rRVt2Zf2rzBmH98p-v5jx0NvdPinTk4h40"
+      ],
+      "answer": {
+        "refused": {
+          "message": "Access token payload is malformed",
+          "code": "token.malformed"
+        }
+      }
+    },
+    {
+      "name": "no sid",
+      "config": {
+        "secret": "placeholder-ledger-shell-access-secret-long",
+        "keyId": null,
+        "verifyOnly": []
+      },
+      "parts": [
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+        "eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzY29wZXMiOlsiYWRtaW46dHJlYXN1cnkiXSwidGllciI6ImJhc2ljIiwibWZhIjp0cnVlLCJpc3MiOiJpbnRhZmFjZWQiLCJhdWQiOiJpbnRhZmFjZWQuYXBpIiwiaWF0IjoxMDAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDB9",
+        "Yj7JRuqe0iTtqS62cNMCNlB1O4ZYxVQuwT-IgBWT9xg"
+      ],
+      "answer": {
+        "refused": {
+          "message": "Access token payload is malformed",
+          "code": "token.malformed"
+        }
+      }
+    },
+    {
+      "name": "scopes string",
+      "config": {
+        "secret": "placeholder-ledger-shell-access-secret-long",
+        "keyId": null,
+        "verifyOnly": []
+      },
+      "parts": [
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+        "eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzY29wZXMiOiJhZG1pbjp0cmVhc3VyeSIsInRpZXIiOiJiYXNpYyIsIm1mYSI6dHJ1ZSwic2lkIjoiMzMzMzMzMzMtMzMzMy00MzMzLTgzMzMtMzMzMzMzMzMzMzMzIiwiaXNzIjoiaW50YWZhY2VkIiwiYXVkIjoiaW50YWZhY2VkLmFwaSIsImlhdCI6MTAwMDAwMDAwMCwiZXhwIjo0MTAyNDQ0ODAwfQ",
+        "z3DII4UmCJmrY0rwcwM3pFHWe8Zsz2XM_kXvNW6ngG8"
+      ],
+      "answer": {
+        "refused": {
+          "message": "Access token payload is malformed",
+          "code": "token.malformed"
+        }
+      }
+    },
+    {
+      "name": "mfa string",
+      "config": {
+        "secret": "placeholder-ledger-shell-access-secret-long",
+        "keyId": null,
+        "verifyOnly": []
+      },
+      "parts": [
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+        "eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzY29wZXMiOlsiYWRtaW46dHJlYXN1cnkiXSwidGllciI6ImJhc2ljIiwibWZhIjoieWVzIiwic2lkIjoiMzMzMzMzMzMtMzMzMy00MzMzLTgzMzMtMzMzMzMzMzMzMzMzIiwiaXNzIjoiaW50YWZhY2VkIiwiYXVkIjoiaW50YWZhY2VkLmFwaSIsImlhdCI6MTAwMDAwMDAwMCwiZXhwIjo0MTAyNDQ0ODAwfQ",
+        "N96Mtz5X9dS0YKc_v5Q0fBRfvJAcD4u9p-U_k6UiLww"
+      ],
+      "answer": {
+        "refused": {
+          "message": "Access token payload is malformed",
+          "code": "token.malformed"
+        }
+      }
+    },
+    {
+      "name": "tier unknown",
+      "config": {
+        "secret": "placeholder-ledger-shell-access-secret-long",
+        "keyId": null,
+        "verifyOnly": []
+      },
+      "parts": [
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+        "eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzY29wZXMiOlsiYWRtaW46dHJlYXN1cnkiXSwidGllciI6ImdvbGQiLCJtZmEiOnRydWUsInNpZCI6IjMzMzMzMzMzLTMzMzMtNDMzMy04MzMzLTMzMzMzMzMzMzMzMyIsImlzcyI6ImludGFmYWNlZCIsImF1ZCI6ImludGFmYWNlZC5hcGkiLCJpYXQiOjEwMDAwMDAwMDAsImV4cCI6NDEwMjQ0NDgwMH0",
+        "nrXLsf6GF0HWdnbs_uBF_xtbmiC7Bsh2JjJaY1r29pA"
+      ],
+      "answer": {
+        "refused": {
+          "message": "Access token payload is malformed",
+          "code": "token.malformed"
+        }
+      }
+    },
+    {
+      "name": "tier null",
+      "config": {
+        "secret": "placeholder-ledger-shell-access-secret-long",
+        "keyId": null,
+        "verifyOnly": []
+      },
+      "parts": [
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+        "eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzY29wZXMiOlsiYWRtaW46dHJlYXN1cnkiXSwidGllciI6bnVsbCwibWZhIjp0cnVlLCJzaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJpc3MiOiJpbnRhZmFjZWQiLCJhdWQiOiJpbnRhZmFjZWQuYXBpIiwiaWF0IjoxMDAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDB9",
+        "I07tiOXEEqSP_Iw5oZV4vbAtxH0pgnhvqJAygHhxRhY"
+      ],
+      "answer": {
+        "refused": {
+          "message": "Access token payload is malformed",
+          "code": "token.malformed"
+        }
+      }
+    },
+    {
+      "name": "api key",
+      "config": {
+        "secret": "placeholder-ledger-shell-access-secret-long",
+        "keyId": null,
+        "verifyOnly": []
+      },
+      "parts": [
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+        "eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzY29wZXMiOlsiYWRtaW46dHJlYXN1cnkiXSwidGllciI6ImJhc2ljIiwibWZhIjp0cnVlLCJzaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJpc3MiOiJpbnRhZmFjZWQiLCJhdWQiOiJpbnRhZmFjZWQuYXBpIiwiaWF0IjoxMDAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDAsImtpZCI6ImtleS0xIiwia2V5X2VudiI6ImxpdmUifQ",
+        "dlwewvml7dYMcpc2_5VI6AI4DxjSAHWEkXay1SdkCgg"
+      ],
+      "answer": {
+        "ok": {
+          "userId": "11111111-1111-4111-8111-111111111111",
+          "scopes": ["admin:treasury"],
+          "tier": "basic",
+          "mfa": true,
+          "kid": "key-1",
+          "subAccount": null,
+          "exp": 4102444800
+        }
+      }
+    },
+    {
+      "name": "key_env unknown",
+      "config": {
+        "secret": "placeholder-ledger-shell-access-secret-long",
+        "keyId": null,
+        "verifyOnly": []
+      },
+      "parts": [
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+        "eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzY29wZXMiOlsiYWRtaW46dHJlYXN1cnkiXSwidGllciI6ImJhc2ljIiwibWZhIjp0cnVlLCJzaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJpc3MiOiJpbnRhZmFjZWQiLCJhdWQiOiJpbnRhZmFjZWQuYXBpIiwiaWF0IjoxMDAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDAsImtpZCI6ImtleS0xIiwia2V5X2VudiI6InByb2QifQ",
+        "imQDwpz-L4SJePgCR2k6x5EleL4i7vhPNKRAftcmek4"
+      ],
+      "answer": {
+        "refused": {
+          "message": "Access token payload is malformed",
+          "code": "token.malformed"
+        }
+      }
+    },
+    {
+      "name": "sub account",
+      "config": {
+        "secret": "placeholder-ledger-shell-access-secret-long",
+        "keyId": null,
+        "verifyOnly": []
+      },
+      "parts": [
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+        "eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzY29wZXMiOlsiYWRtaW46dHJlYXN1cnkiXSwidGllciI6ImJhc2ljIiwibWZhIjp0cnVlLCJzaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJpc3MiOiJpbnRhZmFjZWQiLCJhdWQiOiJpbnRhZmFjZWQuYXBpIiwiaWF0IjoxMDAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDAsInN1Yl9hY2NvdW50IjoiNDQ0NDQ0NDQtNDQ0NC00NDQ0LTg0NDQtNDQ0NDQ0NDQ0NDQ0In0",
+        "kbTPfpnz-bvPSRkj8sjBhUwze6mObD0V2mj1FOqfrfU"
+      ],
+      "answer": {
+        "ok": {
+          "userId": "11111111-1111-4111-8111-111111111111",
+          "scopes": ["admin:treasury"],
+          "tier": "basic",
+          "mfa": true,
+          "kid": null,
+          "subAccount": "44444444-4444-4444-8444-444444444444",
+          "exp": 4102444800
+        }
+      }
+    },
+    {
+      "name": "staff",
+      "config": {
+        "secret": "placeholder-ledger-shell-access-secret-long",
+        "keyId": null,
+        "verifyOnly": []
+      },
+      "parts": [
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+        "eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzY29wZXMiOlsiYWRtaW46dHJlYXN1cnkiXSwidGllciI6ImJhc2ljIiwibWZhIjp0cnVlLCJzaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJpc3MiOiJpbnRhZmFjZWQiLCJhdWQiOiJpbnRhZmFjZWQuYXBpIiwiaWF0IjoxMDAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDAsInN0YWZmUGVybWlzc2lvbnMiOlsibGVkZ2VyOnJlYWQiXSwic3RhZmZFbnYiOiJsb2NhbCJ9",
+        "1QhVMBNivsZEAF-PIxYgeJ6XntPTxrxnplsA0PaXsG4"
+      ],
+      "answer": {
+        "ok": {
+          "userId": "11111111-1111-4111-8111-111111111111",
+          "scopes": ["admin:treasury"],
+          "tier": "basic",
+          "mfa": true,
+          "kid": null,
+          "subAccount": null,
+          "exp": 4102444800
+        }
+      }
+    },
+    {
+      "name": "staff without env",
+      "config": {
+        "secret": "placeholder-ledger-shell-access-secret-long",
+        "keyId": null,
+        "verifyOnly": []
+      },
+      "parts": [
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+        "eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzY29wZXMiOlsiYWRtaW46dHJlYXN1cnkiXSwidGllciI6ImJhc2ljIiwibWZhIjp0cnVlLCJzaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJpc3MiOiJpbnRhZmFjZWQiLCJhdWQiOiJpbnRhZmFjZWQuYXBpIiwiaWF0IjoxMDAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDAsInN0YWZmUGVybWlzc2lvbnMiOlsibGVkZ2VyOnJlYWQiXX0",
+        "8w0RL7ENxszs1vvJ0Cv2gARq65LZZcb4ITMaYIQ7XfA"
+      ],
+      "answer": {
+        "refused": {
+          "message": "Access token payload is malformed",
+          "code": "token.malformed"
+        }
+      }
+    },
+    {
+      "name": "staff twice",
+      "config": {
+        "secret": "placeholder-ledger-shell-access-secret-long",
+        "keyId": null,
+        "verifyOnly": []
+      },
+      "parts": [
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+        "eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzY29wZXMiOlsiYWRtaW46dHJlYXN1cnkiXSwidGllciI6ImJhc2ljIiwibWZhIjp0cnVlLCJzaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJpc3MiOiJpbnRhZmFjZWQiLCJhdWQiOiJpbnRhZmFjZWQuYXBpIiwiaWF0IjoxMDAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDAsInN0YWZmUGVybWlzc2lvbnMiOlsibGVkZ2VyOnJlYWQiLCJsZWRnZXI6cmVhZCJdLCJzdGFmZkVudiI6ImxvY2FsIn0",
+        "X2FHHDDpgg5NOgGRa8yF_CT3C6FMo8BBsY-zKwDcssk"
+      ],
+      "answer": {
+        "refused": {
+          "message": "Access token payload is malformed",
+          "code": "token.malformed"
+        }
+      }
+    },
+    {
+      "name": "staff unknown",
+      "config": {
+        "secret": "placeholder-ledger-shell-access-secret-long",
+        "keyId": null,
+        "verifyOnly": []
+      },
+      "parts": [
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+        "eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzY29wZXMiOlsiYWRtaW46dHJlYXN1cnkiXSwidGllciI6ImJhc2ljIiwibWZhIjp0cnVlLCJzaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJpc3MiOiJpbnRhZmFjZWQiLCJhdWQiOiJpbnRhZmFjZWQuYXBpIiwiaWF0IjoxMDAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDAsInN0YWZmUGVybWlzc2lvbnMiOlsidmF1bHQ6b3BlbiJdLCJzdGFmZkVudiI6ImxvY2FsIn0",
+        "WA5hmLynYUOxVaam32bPHL4k6hMoj4OXAVdwmK6VTT8"
+      ],
+      "answer": {
+        "refused": {
+          "message": "Access token payload is malformed",
+          "code": "token.malformed"
+        }
+      }
+    },
+    {
+      "name": "staff on a key",
+      "config": {
+        "secret": "placeholder-ledger-shell-access-secret-long",
+        "keyId": null,
+        "verifyOnly": []
+      },
+      "parts": [
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+        "eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzY29wZXMiOlsiYWRtaW46dHJlYXN1cnkiXSwidGllciI6ImJhc2ljIiwibWZhIjp0cnVlLCJzaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJpc3MiOiJpbnRhZmFjZWQiLCJhdWQiOiJpbnRhZmFjZWQuYXBpIiwiaWF0IjoxMDAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDAsImtpZCI6ImsiLCJzdGFmZlBlcm1pc3Npb25zIjpbImxlZGdlcjpyZWFkIl0sInN0YWZmRW52IjoibG9jYWwifQ",
+        "CBrlRKBnnC89bPSjuRNDTuBOmUU2ekH14eMVlzj402E"
+      ],
+      "answer": {
+        "refused": {
+          "message": "Access token payload is malformed",
+          "code": "token.malformed"
+        }
+      }
+    },
+    {
+      "name": "env without staff",
+      "config": {
+        "secret": "placeholder-ledger-shell-access-secret-long",
+        "keyId": null,
+        "verifyOnly": []
+      },
+      "parts": [
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+        "eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzY29wZXMiOlsiYWRtaW46dHJlYXN1cnkiXSwidGllciI6ImJhc2ljIiwibWZhIjp0cnVlLCJzaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJpc3MiOiJpbnRhZmFjZWQiLCJhdWQiOiJpbnRhZmFjZWQuYXBpIiwiaWF0IjoxMDAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDAsInN0YWZmRW52IjoibG9jYWwifQ",
+        "pCpyaKQbxl25rkx7lK7cypna8T72p5ZsxX5on4BRQcg"
+      ],
+      "answer": {
+        "refused": {
+          "message": "Access token payload is malformed",
+          "code": "token.malformed"
+        }
+      }
+    },
+    {
+      "name": "rotated: signing key",
+      "config": {
+        "secret": "placeholder-ledger-shell-access-secret-long",
+        "keyId": "k2",
+        "verifyOnly": [
+          {
+            "keyId": "k1",
+            "secret": "placeholder-older-ledger-shell-secret-long"
+          }
+        ]
+      },
+      "parts": [
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImsyIn0",
+        "eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzY29wZXMiOlsiYWRtaW46dHJlYXN1cnkiXSwidGllciI6ImJhc2ljIiwibWZhIjp0cnVlLCJzaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJpc3MiOiJpbnRhZmFjZWQiLCJhdWQiOiJpbnRhZmFjZWQuYXBpIiwiaWF0IjoxMDAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDB9",
+        "4szDkLhQuzkY5u0-0N0cKkgUF13Yw6OPIWJ9SdxC9vM"
+      ],
+      "answer": {
+        "ok": {
+          "userId": "11111111-1111-4111-8111-111111111111",
+          "scopes": ["admin:treasury"],
+          "tier": "basic",
+          "mfa": true,
+          "kid": null,
+          "subAccount": null,
+          "exp": 4102444800
+        }
+      }
+    },
+    {
+      "name": "rotated: verify-only key",
+      "config": {
+        "secret": "placeholder-ledger-shell-access-secret-long",
+        "keyId": "k2",
+        "verifyOnly": [
+          {
+            "keyId": "k1",
+            "secret": "placeholder-older-ledger-shell-secret-long"
+          }
+        ]
+      },
+      "parts": [
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImsxIn0",
+        "eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzY29wZXMiOlsiYWRtaW46dHJlYXN1cnkiXSwidGllciI6ImJhc2ljIiwibWZhIjp0cnVlLCJzaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJpc3MiOiJpbnRhZmFjZWQiLCJhdWQiOiJpbnRhZmFjZWQuYXBpIiwiaWF0IjoxMDAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDB9",
+        "EltPlZNgkbgc54mr9-6KgXtnPGO7cxbKCXIfj0PH5Y0"
+      ],
+      "answer": {
+        "ok": {
+          "userId": "11111111-1111-4111-8111-111111111111",
+          "scopes": ["admin:treasury"],
+          "tier": "basic",
+          "mfa": true,
+          "kid": null,
+          "subAccount": null,
+          "exp": 4102444800
+        }
+      }
+    },
+    {
+      "name": "rotated: no kid, older key",
+      "config": {
+        "secret": "placeholder-ledger-shell-access-secret-long",
+        "keyId": "k2",
+        "verifyOnly": [
+          {
+            "keyId": "k1",
+            "secret": "placeholder-older-ledger-shell-secret-long"
+          }
+        ]
+      },
+      "parts": [
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+        "eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzY29wZXMiOlsiYWRtaW46dHJlYXN1cnkiXSwidGllciI6ImJhc2ljIiwibWZhIjp0cnVlLCJzaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJpc3MiOiJpbnRhZmFjZWQiLCJhdWQiOiJpbnRhZmFjZWQuYXBpIiwiaWF0IjoxMDAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDB9",
+        "w3I_ilyGdCsArj1X2w5NqIvwqzUsp5A5nZFbG7yCyqY"
+      ],
+      "answer": {
+        "ok": {
+          "userId": "11111111-1111-4111-8111-111111111111",
+          "scopes": ["admin:treasury"],
+          "tier": "basic",
+          "mfa": true,
+          "kid": null,
+          "subAccount": null,
+          "exp": 4102444800
+        }
+      }
+    },
+    {
+      "name": "rotated: unknown kid",
+      "config": {
+        "secret": "placeholder-ledger-shell-access-secret-long",
+        "keyId": "k2",
+        "verifyOnly": [
+          {
+            "keyId": "k1",
+            "secret": "placeholder-older-ledger-shell-secret-long"
+          }
+        ]
+      },
+      "parts": [
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6Ims5In0",
+        "eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzY29wZXMiOlsiYWRtaW46dHJlYXN1cnkiXSwidGllciI6ImJhc2ljIiwibWZhIjp0cnVlLCJzaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJpc3MiOiJpbnRhZmFjZWQiLCJhdWQiOiJpbnRhZmFjZWQuYXBpIiwiaWF0IjoxMDAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDB9",
+        "B039xKwlIaqF_fj--p5e3bGy6WZMSk7B2KNOmQxuhsA"
+      ],
+      "answer": {
+        "refused": {
+          "message": "Access token could not be verified",
+          "code": "token.invalid"
+        }
+      }
+    },
+    {
+      "name": "rotated: kid a number",
+      "config": {
+        "secret": "placeholder-ledger-shell-access-secret-long",
+        "keyId": "k2",
+        "verifyOnly": [
+          {
+            "keyId": "k1",
+            "secret": "placeholder-older-ledger-shell-secret-long"
+          }
+        ]
+      },
+      "parts": [
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6Mn0",
+        "eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzY29wZXMiOlsiYWRtaW46dHJlYXN1cnkiXSwidGllciI6ImJhc2ljIiwibWZhIjp0cnVlLCJzaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJpc3MiOiJpbnRhZmFjZWQiLCJhdWQiOiJpbnRhZmFjZWQuYXBpIiwiaWF0IjoxMDAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDB9",
+        "yS5_s27xb4t5nQQchm234xjYcbJNAgxUjL6If9UNvUw"
+      ],
+      "answer": {
+        "refused": {
+          "message": "Access token could not be verified",
+          "code": "token.invalid"
+        }
+      }
+    },
+    {
+      "name": "short secret",
+      "config": {
+        "secret": "short-placeholder",
+        "keyId": null,
+        "verifyOnly": []
+      },
+      "parts": [
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+        "eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzY29wZXMiOlsiYWRtaW46dHJlYXN1cnkiXSwidGllciI6ImJhc2ljIiwibWZhIjp0cnVlLCJzaWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJpc3MiOiJpbnRhZmFjZWQiLCJhdWQiOiJpbnRhZmFjZWQuYXBpIiwiaWF0IjoxMDAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDB9",
+        "gkQDiUOLiDJl3jfEzMtS0IWI6fH4EqHLOn8qGZ1uIu4"
+      ],
+      "answer": {
+        "refused": {
+          "message": "Access token could not be verified",
+          "code": "token.invalid"
+        }
+      }
+    }
+  ]
+}

@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
-import { createTestDatabase, type TestDatabase } from '@intafaced/db';
+import { createTestDatabase, type TestDatabase, resolveTestDatabaseUrl } from '@intafaced/db';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 
 /**
@@ -22,7 +22,7 @@ const migrations = readdirSync(drizzleDir)
   .sort()
   .map((name) => readFileSync(join(drizzleDir, name), 'utf8'));
 
-const URL = process.env.TEST_DATABASE_URL ?? 'postgres://Nitro@127.0.0.1:5432/intafaced_test';
+const URL = resolveTestDatabaseUrl(undefined, 'postgres://intafaced_ops:intafaced_ops@localhost:5433/intafaced_test');
 
 const SESSION = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const WINDOW = '2026-10-07T01';

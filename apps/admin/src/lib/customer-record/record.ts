@@ -1,7 +1,11 @@
-import { BANK_CUSTOMER_BALANCES, FORBID_BANK_OPS } from '@/lib/ops-desk/catalog';
+import { BANK_CUSTOMER_BALANCES, FORBID_BANK_OPS, readOf, type Column, type ReadSpec, type Unavailable } from '@/lib/ops-desk';
 import type { KycSelfieForCompliance } from '@intafaced/contracts/identity-kyc-selfie';
-import type { Column, ReadSpec, Unavailable } from '@/lib/ops-desk/types';
+import {
+  IDENTITY_DEVELOPER_SUPPORT_CALLS,
+  IDENTITY_DEVELOPER_SUPPORT_KEYS,
+} from '@intafaced/contracts/identity-developer-support-procedures';
 import type { CustomerTab } from './tabs';
+import { IDENTITY_KYC_HISTORY_FOR, IDENTITY_KYC_SELFIE_LIST_FOR } from '@intafaced/contracts/identity-kyc-procedures';
 
 export {
   CUSTOMER_TABS,
@@ -11,6 +15,7 @@ export {
   TAB_LABELS,
   customerId,
   customerTab,
+  requestIdQuery,
   type CustomerTab,
 } from './tabs';
 
@@ -295,9 +300,8 @@ export function kycCasesRead(userId: string, caseId?: string): ReadSpec {
     id: caseId === undefined ? 'identity.kyc-cases' : 'identity.kyc-case',
     title: 'Verification cases',
     note: 'Each identity verification this person asked for, newest first, as identity holds it: the level, the state and when it was decided. Open a case to see its documents.',
-    module: 'identity',
     plainName: 'identity’s verification cases',
-    procedure: 'kyc.historyFor',
+    ...readOf(IDENTITY_KYC_HISTORY_FOR),
     input: { userId, limit: KYC_CASE_LIMIT },
     shape: 'list',
     rowsKey: 'cases',
@@ -319,6 +323,78 @@ export function kycCasesRead(userId: string, caseId?: string): ReadSpec {
   };
 }
 
+const DEVELOPER_KEY_LIMIT = 50;
+const DEVELOPER_CALL_LIMIT = 50;
+
+/**
+ * The Developer API tab (J-developer-17, DV-errors-02, DV-keys-06): this account's API keys, and its keys' calls, newest first.
+ * A request id the customer gives narrows the calls to that one call; one no key of this account made (another account's
+ * included) is refused not found. A call shows what was called, the status, the typed error code the reply carried and
+ * whether it came from outside the key's IP list: never a body, a header value or a secret.
+ */
+function developerReads(userId: string, requestId: string | undefined): ReadSpec[] {
+  const keys: ReadSpec = {
+    ...readOf(IDENTITY_DEVELOPER_SUPPORT_KEYS),
+    id: 'identity.developer-keys',
+    title: 'API keys',
+    note: 'Every API key of this account, newest first, as its owner’s own list shows it: name, prefix, permissions, IP list and whether it still works. Never the key itself, its hash or its signing secret.',
+    plainName: 'identity’s API keys',
+    input: { userId, limit: DEVELOPER_KEY_LIMIT },
+    shape: 'list',
+    rowsKey: 'keys',
+    idKey: 'id',
+    page: DEVELOPER_KEY_LIMIT,
+    columns: [
+      col('name', 'Name', 'text'),
+      col('prefix', 'Prefix', 'text'),
+      col('mode', 'Mode', 'text'),
+      col('revoked', 'Revoked', 'bool'),
+      col('lastUsedAt', 'Last used', 'time', { nullable: true }),
+      col('createdAt', 'Created', 'time', { detail: true }),
+      col('expiresAt', 'Ends', 'time', { nullable: true, detail: true }),
+      col('revokedAt', 'Revoked at', 'time', { nullable: true, detail: true }),
+      col('revokedBy', 'Revoked by', 'text', { nullable: true, detail: true }),
+      col('kind', 'Kind', 'text', { detail: true }),
+      col('id', 'Key id', 'text', { detail: true }),
+    ],
+    emptyText: 'This account has no API key: it has never made one.',
+    forbiddenText:
+      'Identity did not accept your session for this read (a customer’s API keys are for staff with the support lookup permission).',
+  };
+  const calls: ReadSpec = {
+    ...readOf(IDENTITY_DEVELOPER_SUPPORT_CALLS),
+    id: 'identity.developer-calls',
+    title: requestId === undefined ? 'API calls' : `API call ${requestId}`,
+    note: 'Calls this account’s keys made, newest first, as the front door answered them: what was called, the status, the typed error code the reply carried and whether the caller was outside the key’s IP list. Never a body, a header value or a key.',
+    plainName: 'identity’s API call log',
+    input: { userId, limit: DEVELOPER_CALL_LIMIT, ...(requestId === undefined ? {} : { requestId }) },
+    shape: 'list',
+    rowsKey: 'calls',
+    idKey: 'requestId',
+    page: DEVELOPER_CALL_LIMIT,
+    columns: [
+      col('at', 'When', 'time'),
+      col('requestId', 'Request id', 'text'),
+      col('keyName', 'Key', 'text'),
+      col('method', 'Method', 'text'),
+      col('path', 'Path', 'text'),
+      col('status', 'Status', 'int'),
+      col('errorCode', 'Error code', 'code', { nullable: true }),
+      col('outsideIpList', 'Outside IP list', 'bool'),
+      col('keyPrefix', 'Key prefix', 'text', { detail: true }),
+      col('keyId', 'Key id', 'text', { detail: true }),
+    ],
+    emptyText: 'This account’s keys have made no call.',
+    forbiddenText:
+      'Identity did not accept your session for this read (a customer’s API calls are for staff with the support lookup permission).',
+    refusals: {
+      'identity.developer_request_not_found':
+        'Not found: no call by this account’s keys has this request id. Check the id with the customer; a request id another account’s key made is not shown here.',
+    },
+  };
+  return [keys, calls];
+}
+
 export interface CustomerTabPlan {
   readonly reads: readonly ReadSpec[];
   /** What this tab cannot show for one account, and why. */
@@ -328,8 +404,19 @@ export interface CustomerTabPlan {
 const un = (id: string, label: string, reason: string): Unavailable => ({ id, label, reason, need: null });
 
 /** What a tab reads for `userId`, and what it says it cannot read. */
-export function tabPlan(tab: CustomerTab, userId: string): CustomerTabPlan {
+export function tabPlan(tab: CustomerTab, userId: string, query: { readonly requestId?: string } = {}): CustomerTabPlan {
   switch (tab) {
+    case 'developer':
+      return {
+        reads: developerReads(userId, query.requestId),
+        unwired: [
+          un(
+            'developer.bodies',
+            'Request and reply bodies',
+            'Identity keeps no body, header value or message of an API call, on purpose: a body can hold a secret. The error code above is what the reply named; ask the customer for the rest, never their key or signing secret.',
+          ),
+        ],
+      };
     case 'money':
       return {
         reads: [
@@ -411,9 +498,8 @@ export function tabPlan(tab: CustomerTab, userId: string): CustomerTabPlan {
             id: 'identity.selfies',
             title: 'Selfies',
             note: 'Every selfie this account sent for comparison with its ID photo, newest first: how it was taken, its status and when it was decided. No automatic liveness or face-match check runs on a selfie: a person compares it. The selfie’s photo is the document named in its row; open that document above to compare. A selfie that waits can be accepted or rejected here, with a second founder’s approval.',
-            module: 'identity',
             plainName: 'identity’s selfie step',
-            procedure: 'kyc.selfie.listFor',
+            ...readOf(IDENTITY_KYC_SELFIE_LIST_FOR),
             input: { userId, limit: SELFIE_LIMIT },
             shape: 'list',
             rowsKey: 'selfies',

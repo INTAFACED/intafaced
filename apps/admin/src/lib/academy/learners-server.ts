@@ -7,11 +7,22 @@ import {
   academyLearnerTagsSchema,
 } from '@intafaced/contracts/academy-learner-desk';
 import { identityLearnerCardResultSchema } from '@intafaced/contracts/identity-learner-card';
-import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
-import { partFrom, type PartLabels } from '@/lib/desk/part';
-import { explainRefusal, type RefusalView } from '@/lib/desk/refusal-copy';
+import {
+  founderCall,
+  parseWith,
+  type FounderCallContext,
+  type FounderCallResult,
+  partFrom,
+  type PartLabels,
+  explainRefusal,
+  type RefusalView,
+  founderRecordRead,
+} from '@/lib/desk';
 import type { LearnerDeskReply, LearnersView, LearnerView } from './learners-model';
 import { isLearnerOp, learnerChange, type LearnerOp } from './learners-ops';
+import { ACADEMY_ADMIN_LEARNER, ACADEMY_ADMIN_LEARNER_PROGRESS, ACADEMY_ADMIN_LEARNERS } from '@intafaced/contracts/academy-admin-records';
+import { ACADEMY_ADMIN_LEARNER_TAGS } from '@intafaced/contracts/academy-admin-procedures';
+import { IDENTITY_LEARNER_CARD_LOOKUP } from '@intafaced/contracts/identity-learner-card-procedures';
 
 /**
  * One learner on the staff desk (J-academy-14), as the signed-in operator. svc-academy records the operator from their own
@@ -63,9 +74,9 @@ const readAdded = (raw: unknown): { added: number } | null =>
 
 export async function loadLearner(ctx: FounderCallContext, userId: string): Promise<LearnerView> {
   const [card, page, progress] = await Promise.all([
-    founderCall(ctx, 'identity', 'learnerCard.lookup', 'GET', { userId }, readCard),
-    founderCall(ctx, 'academy', 'admin.learner', 'GET', { userId }, readPage),
-    founderCall(ctx, 'academy', 'admin.learnerProgress', 'GET', { userId }, readProgress),
+    founderRecordRead(ctx, IDENTITY_LEARNER_CARD_LOOKUP, { userId }, readCard),
+    founderRecordRead(ctx, ACADEMY_ADMIN_LEARNER, { userId }, readPage),
+    founderRecordRead(ctx, ACADEMY_ADMIN_LEARNER_PROGRESS, { userId }, readProgress),
   ]);
   return {
     userId,
@@ -81,14 +92,14 @@ export async function findLearner(ctx: FounderCallContext, term: string) {
   const value = term.trim();
   // A handle may be typed with its @; an address has an @ after its first character.
   const input = value.startsWith('@') ? { handle: value.slice(1) } : value.includes('@') ? { email: value } : { handle: value };
-  return partFrom(await founderCall(ctx, 'identity', 'learnerCard.lookup', 'GET', input, readCard), (d) => d.card, IDENTITY);
+  return partFrom(await founderRecordRead(ctx, IDENTITY_LEARNER_CARD_LOOKUP, input, readCard), (d) => d.card, IDENTITY);
 }
 
 /** The learners report. Rows name accounts by id: each learner's page reads identity once, when it is opened. */
 export async function loadLearners(ctx: FounderCallContext, tag: string | null): Promise<LearnersView> {
   const [report, tags] = await Promise.all([
-    founderCall(ctx, 'academy', 'admin.learners', 'GET', tag ? { tag } : {}, readReport),
-    founderCall(ctx, 'academy', 'admin.learnerTags', 'GET', undefined, readTags),
+    founderRecordRead(ctx, ACADEMY_ADMIN_LEARNERS, tag ? { tag } : {}, readReport),
+    founderRecordRead(ctx, ACADEMY_ADMIN_LEARNER_TAGS, undefined, readTags),
   ]);
   return { tag, report: partFrom(report, (d) => d, ACADEMY), tags: partFrom(tags, (d) => d, ACADEMY) };
 }

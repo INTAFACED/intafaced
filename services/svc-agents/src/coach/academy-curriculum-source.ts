@@ -1,13 +1,16 @@
-import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
+import { ACADEMY_INTERNAL_CURRICULUM } from '@intafaced/contracts/academy-procedures';
+import { callHttpRecord } from '@intafaced/contracts/procedure-http';
 import type { CoachCatalogItem, CoachGrounding } from './grounded-session.js';
 
 /**
  * Academy curriculum read-port for AI Coach (§8.2).
  *
- * GET `{ACADEMY_URL}/internal/curriculum` with svc-agents service auth.
- * Titles come from academy's response — this module never copies catalog
- * titles into source. Fail closed to empty items (chatbot refuse), never
- * invent. `licensedLibraryImported` stays false (Class X licensed dump).
+ * Called through svc-academy's record (`ACADEMY_INTERNAL_CURRICULUM`, `{ACADEMY_URL}/internal/curriculum`) with
+ * svc-agents service auth; the record parses the reply. Titles come from academy's response — this module never copies
+ * catalog titles into source. A refusal, a transport failure or a reply the record refuses is the empty catalog
+ * (chatbot refuse), never invention. `licensedLibraryImported` stays false (Class X licensed dump).
  */
 
 export interface CoachCurriculumSource {
@@ -36,34 +39,6 @@ export class FixedAcademyCurriculumSource implements CoachCurriculumSource {
   }
 }
 
-function asItems(body: unknown): unknown[] {
-  if (Array.isArray(body)) return body;
-  if (body !== null && typeof body === 'object' && 'items' in body) {
-    const items = (body as { items: unknown }).items;
-    if (Array.isArray(items)) return items;
-  }
-  return [];
-}
-
-function parseItem(raw: unknown): CoachCatalogItem | null {
-  if (raw === null || typeof raw !== 'object') return null;
-  const slug = (raw as { slug?: unknown }).slug;
-  const title = (raw as { title?: unknown }).title;
-  if (typeof slug !== 'string' || slug.trim() === '') return null;
-  if (typeof title !== 'string' || title.trim() === '') return null;
-  return { slug: slug.trim(), title: title.trim() };
-}
-
-/** Parse academy's curriculum JSON. Unreadable → empty catalog, never invention. */
-export function parseAcademyCurriculumPayload(body: unknown): CoachGrounding {
-  const items: CoachCatalogItem[] = [];
-  for (const raw of asItems(body)) {
-    const item = parseItem(raw);
-    if (item) items.push(item);
-  }
-  return { items, licensedLibraryImported: false };
-}
-
 export function createAcademyCurriculumSource(
   baseUrl: string,
   internalSecret: string,
@@ -71,29 +46,27 @@ export function createAcademyCurriculumSource(
   /** svc-agents' own key. With it the call is key-signed; `dual` also sends the shared-secret form, `keypair` does not. */
   s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
 ): CoachCurriculumSource {
-  const url = baseUrl.replace(/\/$/, '');
-  const sign = serviceCallSigner({ service: 'svc-agents', audience: 'svc-academy', legacySecret: internalSecret, s2s });
+  const sign = serviceCallSigner({
+    service: 'svc-agents',
+    audience: ACADEMY_INTERNAL_CURRICULUM.service,
+    legacySecret: internalSecret,
+    s2s,
+  });
 
   return {
     async load(): Promise<CoachGrounding> {
-      let response: Response;
       try {
-        const target = `${url}/internal/curriculum`;
-        response = await fetchImpl(target, {
-          method: 'GET',
-          headers: {
-            'content-type': 'application/json',
-            ...sign('', { method: 'GET', url: new URL(target), contentType: 'application/json' }),
-          },
+        const reply = await callHttpRecord(ACADEMY_INTERNAL_CURRICULUM, {
+          baseUrl,
+          input: undefined,
+          sign,
+          errorOf: (path, status) => new Error(`${path}: ${status}`),
+          fetcher: fetchImpl,
         });
+        return { items: reply.items.map(({ slug, title }) => ({ slug, title })), licensedLibraryImported: false };
       } catch {
         return EMPTY;
       }
-
-      if (!response.ok) return EMPTY;
-
-      const body = await response.json().catch(() => null);
-      return parseAcademyCurriculumPayload(body);
     },
   };
 }

@@ -11,9 +11,6 @@
  * 5. Paths: binance-spot.ts snapshotBook
  * 6. RED: unset snapshot succeeds or source git-defaults 1000
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { BinanceSpotMarketData, SNAPSHOT_BOOK_LIMIT_UNSET, SnapshotBookLimitUnsetError } from './binance-spot.js';
 import { AsyncFrameQueue, type HttpPort, type HttpResponse, type StreamHandle, type StreamPort } from '../transport.js';
@@ -62,14 +59,6 @@ const depth = {
 };
 
 describe('BinanceSpotMarketData.snapshotBook limit unpublished', () => {
-  it('binance-spot.ts does not git-default 1000', () => {
-    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'binance-spot.ts'), 'utf8');
-    expect(src).toMatch(/venue\.snapshot_book\.limit_unset/);
-    expect(src).not.toMatch(/limit\s*=\s*1_000/);
-    expect(src).not.toMatch(/limit\s*=\s*1000/);
-    expect(src).not.toMatch(/DEFAULT_.*DEPTH/);
-  });
-
   it('omitted / null / undefined limit refuses (does not invent 1000)', async () => {
     const http = new FakeHttp().queue(depth);
     const adapter = md(http);

@@ -39,6 +39,9 @@ import { ADMIN, founderSignIn } from './admin.mjs';
 // markets no other journey trades: ETH/USDC at zero fee, and IFC/USDT, which #3 leaves blank for a moment. #5-#6 add a
 // TEST tier programme only for as long as they run, and #11 once more. #9 adds TEST terms for paying fees in IFC and a
 // TEST stake-discount ladder, and takes the terms away again. Step 7 joins this file with the slice that builds it.
+// At launch the person trades on their own venue account: #1 #2 #3 #4 #6 #9 are proven there, in
+// J-cex-spot-10-venue.pw.mjs. Their checks here, of today's custodial desk, are kept and titled "part of", so they count
+// for no step.
 const J = 'J-cex-spot-10';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
@@ -241,7 +244,7 @@ async function checkOf(page, act) {
   return res.json();
 }
 
-test(`${J} #1 previews a maker limit and a taker market: the fee line names the role and its rate, from the order check`, async ({
+test(`${J}, part of #1, checked on today's custodial desk: previews a maker limit and a taker market: the fee line names the role and its rate, from the order check`, async ({
   page,
 }) => {
   const who = await fundedTrader(page, 'js10', '5000');
@@ -270,7 +273,7 @@ test(`${J} #1 previews a maker limit and a taker market: the fee line names the 
   expect(held(await (await api(who)).balances(), 'USDT')).toBe(0n);
 });
 
-test(`${J} #2 opens the public fee page: maker and taker by pair group and tier, a blank one "not set", the network fee apart`, async ({
+test(`${J}, part of #2, checked on today's custodial desk: opens the public fee page: maker and taker by pair group and tier, a blank one "not set", the network fee apart`, async ({
   page,
 }) => {
   await publish(SCHEDULE, 'TEST schedule by pair group and tier');
@@ -303,7 +306,9 @@ test(`${J} #2 opens the public fee page: maker and taker by pair group and tier,
   }
 });
 
-test(`${J} #3 orders on a market whose fee is blank: refused "Fee schedule not set" before anything is held`, async ({ page }) => {
+test(`${J}, part of #3, checked on today's custodial desk: orders on a market whose fee is blank: refused "Fee schedule not set" before anything is held`, async ({
+  page,
+}) => {
   // Two schedule versions (blank, then restored) on top of the desk.
   test.setTimeout(180_000);
   const who = account();
@@ -344,7 +349,7 @@ test(`${J} #3 orders on a market whose fee is blank: refused "Fee schedule not s
   }
 });
 
-test(`${J} #4 fills on a zero-fee pair and a rebate pair: "Zero fee" on one, a maker rebate on the other, never a negative fee`, async ({
+test(`${J}, part of #4, checked on today's custodial desk: fills on a zero-fee pair and a rebate pair: "Zero fee" on one, a maker rebate on the other, never a negative fee`, async ({
   page,
 }) => {
   // A schedule version (and its restore) on top of two fills and two desks.
@@ -520,7 +525,7 @@ test(`${J} #5 opens My tier: the tier, the volume counted and from what, what is
   await expect(page.locator('[data-tier-page=thresholds-not-set]')).toHaveText('Thresholds not set. Every account is on the regular tier.');
 });
 
-test(`${J} #6 crosses the threshold during the day: the tier changes at the next snapshot, and its row shows the figures`, async ({
+test(`${J}, part of #6, checked on today's custodial desk: crosses the threshold during the day: the tier changes at the next snapshot, and its row shows the figures`, async ({
   page,
 }) => {
   // Two schedule versions, a fill, and a wait of up to three minutes for the snapshot.
@@ -968,7 +973,9 @@ const TEST_LADDER = {
   ],
 };
 
-test(`${J} #9 chooses to pay trading fees in IFC: the published discount with its decay, the fee posting in IFC`, async ({ page }) => {
+test(`${J}, part of #9, checked on today's custodial desk: chooses to pay trading fees in IFC: the published discount with its decay, the fee posting in IFC`, async ({
+  page,
+}) => {
   // A ladder, a stake, a schedule version and its restore around one desk order.
   test.setTimeout(240_000);
   const who = account();

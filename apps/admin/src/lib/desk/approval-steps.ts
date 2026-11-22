@@ -2,11 +2,19 @@ import 'server-only';
 import { actionApprovalSchema, type ActionApproval } from '@intafaced/contracts';
 import { confirmPhrase, encodePacket, isApprovalId, needsStepUp, readDeskRequest, type DeskRequest } from './approval-packet';
 import { payloadHashFor, proposeInputFor } from './approval-hash';
-import { founderCall, parseWith, type FounderCallContext, type FounderCallFailure } from './founder-call';
-import { explainRefusal } from './refusal-copy';
-import type { ApprovalView, ExecuteReply, StepName, StepReply } from './approval-types';
+import { IDENTITY_ACTION_APPROVAL_LIST } from '@intafaced/contracts/identity-action-approval-procedures';
+import { founderRecordCall, parseWith, type FounderCallContext, type FounderCallFailure, founderRecordRead } from './founder-call';
+import { explainRefusal } from '../refusal-copy';
+import type { ApprovalView, ExecuteReply, StepName, StepReply } from '../approval-types';
+import { isRecord } from '@intafaced/contracts/guards';
+import {
+  IDENTITY_ACTION_APPROVAL_PROPOSE,
+  IDENTITY_ACTION_APPROVAL_APPROVE,
+  IDENTITY_ACTION_APPROVAL_REJECT,
+  IDENTITY_ACTION_APPROVAL_REVOKE,
+} from '@intafaced/contracts/identity-action-approval-records';
 
-export type { ApprovalView, ExecuteReply, StepName, StepReply } from './approval-types';
+export type { ApprovalView, ExecuteReply, StepName, StepReply } from '../approval-types';
 
 /**
  * `stepUpCode` is the running founder's fresh authenticator code, sent only with an execute step whose service asks for
@@ -43,10 +51,6 @@ export interface StepBody {
 }
 
 export type ParsedStep = { readonly ok: true; readonly body: StepBody } | { readonly ok: false; readonly error: string };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
 
 /** Trim the reason the way the services will before hashing, then read the request strictly. */
 function normalisedRequest(raw: unknown): DeskRequest | null {
@@ -150,13 +154,59 @@ export function approvalMatchesRequest(approval: ActionApproval, request: DeskRe
   );
 }
 
+/** How many of the founder's own newest approvals are read back, and how often, after a propose whose answer was lost. */
+const RECOVER_LIMIT = 20;
+const RECOVER_READS = 3;
+const RECOVER_GAP_MS = 1_500;
+const RECOVER_READ_TIMEOUT_MS = 3_000;
+/** Identity's clock and this console's may differ; a row stamped this long before the ask still counts as this ask's. */
+const RECOVER_CLOCK_SLACK_MS = 60_000;
+
+/**
+ * A propose whose answer never came back (a timeout or a dropped connection) may still have been stored. The desk tells the
+ * founder to read the current state before asking again; this does that read for them. It reads the founder's own newest
+ * approvals and returns the PENDING one identity stored for exactly this request since it was asked (same action, target,
+ * version and payload hash), so the packet is made for the row that exists instead of leaving a stored request nobody can
+ * approve. Nothing is proposed again here: when no such row is read, the outcome stays "not known".
+ */
+async function storedProposal(ctx: FounderCallContext, request: DeskRequest, askedAt: number): Promise<ActionApproval | null> {
+  for (let read = 0; read < RECOVER_READS; read += 1) {
+    if (read > 0) await new Promise((resolve) => setTimeout(resolve, RECOVER_GAP_MS));
+    const mine = await founderRecordCall(
+      ctx,
+      IDENTITY_ACTION_APPROVAL_LIST,
+      { view: 'mine', limit: RECOVER_LIMIT },
+      { timeoutMs: RECOVER_READ_TIMEOUT_MS },
+    );
+    if (mine.kind !== 'ok') continue;
+    const match = mine.data.approvals
+      .filter(
+        (a) =>
+          a.status === 'PENDING' &&
+          a.requesterId.toLowerCase() === ctx.session.userId.toLowerCase() &&
+          Date.parse(a.createdAt) >= askedAt - RECOVER_CLOCK_SLACK_MS &&
+          approvalMatchesRequest(a, request),
+      )
+      .sort((x, y) => Date.parse(y.createdAt) - Date.parse(x.createdAt))[0];
+    if (match) return match;
+  }
+  return null;
+}
+
 export async function runStep(ctx: FounderCallContext, body: StepBody, execute: ExecuteFn): Promise<StepReply> {
   const { step, request } = body;
 
   if (step === 'propose' && request) {
-    const proposed = await founderCall(ctx, 'identity', 'actionApproval.propose', 'POST', proposeInputFor(request), parseApproval);
-    if (proposed.kind !== 'ok') return failureReply(step, proposed);
-    const a = proposed.data;
+    const askedAt = Date.now();
+    const proposed = await founderRecordRead(ctx, IDENTITY_ACTION_APPROVAL_PROPOSE, proposeInputFor(request), parseApproval);
+    let a: ActionApproval;
+    if (proposed.kind === 'ok') a = proposed.data;
+    else {
+      // The answer was lost, not refused: read back whether identity stored it before saying "not known".
+      const stored = proposed.kind === 'unavailable' && proposed.uncertain ? await storedProposal(ctx, request, askedAt) : null;
+      if (!stored) return failureReply(step, proposed);
+      a = stored;
+    }
     if (!approvalMatchesRequest(a, request)) {
       // Identity stored something other than what was asked. Do not hand a packet for it to anyone.
       return {
@@ -186,12 +236,9 @@ export async function runStep(ctx: FounderCallContext, body: StepBody, execute: 
   }
 
   if (step === 'approve' && request && body.approvalId) {
-    const approved = await founderCall(
+    const approved = await founderRecordRead(
       ctx,
-      'identity',
-      'actionApproval.approve',
-      'POST',
-      // The approver signs off on the payload THEY read, recomputed here from the decoded request.
+      IDENTITY_ACTION_APPROVAL_APPROVE,
       { approvalId: body.approvalId, expectedPayloadHash: payloadHashFor(request) },
       parseApproval,
     );
@@ -205,14 +252,9 @@ export async function runStep(ctx: FounderCallContext, body: StepBody, execute: 
   }
 
   if ((step === 'reject' || step === 'revoke') && body.approvalId) {
-    const done = await founderCall(
-      ctx,
-      'identity',
-      step === 'reject' ? 'actionApproval.reject' : 'actionApproval.revoke',
-      'POST',
-      { approvalId: body.approvalId },
-      parseApproval,
-    );
+    const done = await (step === 'reject'
+      ? founderRecordRead(ctx, IDENTITY_ACTION_APPROVAL_REJECT, { approvalId: body.approvalId }, parseApproval)
+      : founderRecordRead(ctx, IDENTITY_ACTION_APPROVAL_REVOKE, { approvalId: body.approvalId }, parseApproval));
     if (done.kind !== 'ok') return failureReply(step, done);
     return { ok: true, step, approval: viewOf(done.data) };
   }

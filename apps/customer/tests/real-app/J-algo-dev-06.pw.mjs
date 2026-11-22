@@ -1,9 +1,12 @@
-// World: none
+// World: restart
 // Market: live
 import { test, expect } from './journey.mjs';
-import { journeyState } from './stack.mjs';
+import { api, journeyState } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
+import { userIdOf } from './copy.mjs';
+import { approvalPanel } from './quant-approval.mjs';
 import { tapeWindow } from './tape.mjs';
+import { venueForThisFile } from './venue.mjs';
 
 // J-algo-dev-06, in the running app (docs/roadmap/journeys.json): promote a strategy to live under my own limits. One test
 // per step, titled "J-algo-dev-06 #<n>", run in order on one TEST developer who starts signed in, verified, with a
@@ -12,13 +15,19 @@ import { tapeWindow } from './tape.mjs';
 // gives this journey its passing verdict, the out-of-sample criteria are set wide (TEST) and put back as they were right
 // after; the gate's own criteria are TEST values this file sets and blanks again at its end. Every figure in Algo dev is
 // simulated; nothing here moves money. Step 4 (the risk disclosure) is deferred until launch prep (owner decision
-// 2026-10-27, OWNER 87). Steps #3 (RC-algo-dev-01), #5 (AL-risk-01), #6 to #8 (AL-live-02) and #9 (AL-live-05) are not
-// built yet: each slice adds its step's test, checking every clause of the step's words against the screen it builds.
+// 2026-10-27, OWNER 87). The platform's live switch for strategies (`live.enabled`) is an owner value too: blank (off) in
+// this build, which #6 and #7 read. #3 turns the account's second-approver rule on for a teammate's review and off again
+// before #6. Steps #5 (AL-risk-01), #8 (AL-live-02, live on) and #9 (AL-live-05) are not built yet: each slice adds its
+// step's test, checking every clause of the step's words.
 const J = 'J-algo-dev-06';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const STRATEGY = 'TEST promotion strategy';
+const STOP_STRATEGY = 'TEST stop-loss strategy';
+const CODE_STRATEGY = 'TEST approval strategy';
 
 test.describe.configure({ mode: 'default' });
+// svc-trade's user-venue door is on for this file, so #7 reads the person's live runs where a deploy would store them.
+venueForThisFile(test);
 
 function developer() {
   const who = run.read().account;
@@ -37,7 +46,8 @@ async function criteriaDoor() {
   const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
   const ctx = await gates.makeContext({ log: () => {} });
   const founders = await gates.approverSessions(ctx);
-  const token = await founders.a.tradeOpsToken();
+  // An operator token lives 300 s and #1's backtest can outlast it, so each call mints its own.
+  const token = () => founders.a.tradeOpsToken();
   const data = (res, what) => {
     const got = res.json?.result?.data;
     if (!got) throw new Error(`${what} refused: ${res.status} ${res.text.slice(0, 300)}`);
@@ -47,7 +57,7 @@ async function criteriaDoor() {
   const stamp = `${process.env.JOURNEY_RUN_ID ?? 'local'}:${Date.now()}`;
   return {
     async read() {
-      return data(await ctx.edge.query('quant', 'ops.criteria.get', undefined, token), 'ops.criteria.get').criteria;
+      return data(await ctx.edge.query('quant', 'ops.criteria.get', undefined, await token()), 'ops.criteria.get').criteria;
     },
     async set(name, value, toBoot = false) {
       n += 1;
@@ -56,7 +66,7 @@ async function criteriaDoor() {
           'quant',
           'ops.criteria.set',
           { name, value, toBoot, reason: `LOCAL TEST ${J}`, idempotencyKey: `journey:${J}:${stamp}:${n}:${name}` },
-          token,
+          await token(),
         ),
         'ops.criteria.set',
       );
@@ -65,7 +75,7 @@ async function criteriaDoor() {
 }
 
 /** Saves a signal-rules strategy on 1 minute bars of BTC/USDT at version 1, with every risk limit set. TEST inputs. */
-async function saveSignalStrategy(page, name) {
+async function saveSignalStrategy(page, name, { stopLoss = '' } = {}) {
   await page.goto('/quant/studio');
   const fresh = page.getByRole('button', { name: 'Start a new strategy' });
   if (await fresh.isVisible()) await fresh.click();
@@ -84,6 +94,7 @@ async function saveSignalStrategy(page, name) {
   await builder.getByLabel('Slow average (bars)').fill('2');
   await builder.getByRole('combobox', { name: /^Size each entry by/ }).selectOption('quantity');
   await builder.getByLabel('Size', { exact: true }).fill('0.01');
+  if (stopLoss) await builder.getByLabel('Stop loss (percent, optional)').fill(stopLoss);
   await page.getByRole('button', { name: 'Save to library', exact: true }).click();
   await expect(page.getByTestId('quant-save-state')).toHaveText('Saved as version 1.');
 }
@@ -123,9 +134,9 @@ async function startPaper(page) {
 }
 
 const OOS = ['oos.minTrades', 'oos.minReturnPercent', 'oos.maxDrawdownPercent', 'oos.maxShortfallPercent'];
-const GATE = ['gate.paperMinutes', 'gate.maxDrawdownPercent'];
+const GATE = ['gate.paperMinutes', 'gate.maxDrawdownPercent', 'live.enabled'];
 
-// The gate's TEST criteria go back to blank whatever happened, so no later file reads this journey's values.
+// The gate's TEST criteria and the live switch go back to blank whatever happened, so no later file reads this journey's values.
 test.afterAll(async () => {
   const door = await criteriaDoor();
   for (const name of GATE) await door.set(name, null, true);
@@ -281,4 +292,271 @@ test(`${J} #2 fixes the criteria and presses Promote again: the gate approves, o
     .getByRole('button', { name: /^Stop the paper run started / })
     .click();
   await expect(page.getByTestId('quant-paper-note')).toContainText('The paper run is stopped.');
+});
+
+/** Opens the deploy wizard from the Bots room's Paper strategies list, on the row of the strategy named `name`. */
+async function openWizard(page, name) {
+  await page.goto('/trade/bots?tab=paper');
+  const row = page.getByRole('row').filter({ hasText: name });
+  await row.getByRole('link', { name: 'Deploy live' }).click();
+  await expect(page).toHaveURL(/\/trade\/bots\/new\?from=/);
+  const wizard = page.getByTestId('quant-live-deploy');
+  await expect(wizard.getByTestId('quant-live-strategy')).toHaveText(`Strategy: ${name}`);
+  return wizard;
+}
+
+test(`${J} #3 with the account's second-approver rule on, asks a teammate to approve the version before live: an approval request naming the version; any code or config change voids it and asks again; with the rule off, going live asks no approval`, async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(15 * 60_000);
+  const id = strategyId();
+  const mate = await signUp(page, 'ja06m');
+  await verify(page, mate);
+  const mateId = await userIdOf(mate);
+  run.write({ mate });
+  await signIn(page, developer());
+  const ownerPage = `/quant/strategies/${encodeURIComponent(id)}`;
+  const session = await api(developer());
+  /** The teammate, in their own browser, approves the one waiting request for version 1 of a strategy shared with them. */
+  const mateApproves = async (sid) => {
+    const mateContext = await browser.newContext();
+    try {
+      const matePage = await mateContext.newPage();
+      await signIn(matePage, mate);
+      const matePanel = await approvalPanel(matePage, `/quant/shared/${encodeURIComponent(sid)}`);
+      await expect(matePanel.getByTestId('quant-approval-row')).toHaveAttribute('data-version', '1');
+      await matePanel.getByLabel('Reason (optional)', { exact: true }).fill('TEST reviewed');
+      await matePanel.getByRole('button', { name: 'Approve version 1', exact: true }).click();
+      await expect(matePanel.getByTestId('quant-approval-row')).toHaveAttribute('data-decision', 'approved');
+      await expect(matePanel.getByTestId('quant-approval-row')).toHaveAttribute('data-reviewer', mateId);
+    } finally {
+      await mateContext.close();
+    }
+  };
+  try {
+    // The rule starts not set: the wizard asks no approval.
+    let wizard = await openWizard(page, STRATEGY);
+    await expect(wizard.getByTestId('quant-live-approval')).toHaveAttribute('data-required', 'false');
+
+    // The owner turns the rule on for the account; version 1 can't go live until a different member approves it.
+    let panel = await approvalPanel(page, ownerPage);
+    await expect(panel.getByTestId('quant-approval-policy')).toHaveAttribute('data-required', '');
+    await panel.getByRole('button', { name: 'Require an independent reviewer', exact: true }).click();
+    await expect(panel.getByTestId('quant-approval-policy')).toHaveAttribute('data-required', 'true');
+    await expect(panel.getByTestId('quant-approval-live')).toHaveText('Version 1 can’t go live until a different member approves it.');
+
+    // The owner shares the strategy with the teammate and asks for a review: one request, naming version 1.
+    const form = page.getByTestId('quant-team').getByTestId('quant-share-form');
+    await form.getByLabel('Teammate account id', { exact: true }).fill(mateId);
+    await form.getByLabel(/^Permission for the teammate/).selectOption('view');
+    await form.getByLabel('Allow live control (stop paper runs)', { exact: true }).uncheck();
+    await form.getByRole('button', { name: 'Save permission', exact: true }).click();
+    await expect(form.getByTestId('quant-share-note')).toHaveText(`Saved: ${mateId} can view it.`);
+    await panel.getByRole('button', { name: 'Ask for a review of version 1', exact: true }).click();
+    const rows = panel.getByTestId('quant-approval-row');
+    await expect(rows).toHaveCount(1);
+    await expect(rows.first()).toHaveAttribute('data-version', '1');
+    await expect(rows.first()).toHaveAttribute('data-decision', 'pending');
+    await expect(rows.first()).toContainText('Waiting for review');
+
+    // Before anyone approves, Deploy is refused for the approval and nothing is stored.
+    wizard = await openWizard(page, STRATEGY);
+    const approval = wizard.getByTestId('quant-live-approval');
+    await expect(approval).toHaveAttribute('data-allowed', 'false');
+    await expect(approval).toContainText('Version 1 needs a different member’s approval before it goes live.');
+    await wizard.getByLabel('Amount your wallet moves (TEST USDC)', { exact: true }).fill('25');
+    await wizard.getByRole('button', { name: 'Deploy version 1', exact: true }).click();
+    await expect(wizard.getByTestId('quant-deploy-refusal')).toHaveAttribute('data-code', 'quant.approval_required');
+    await expect(wizard.getByTestId('quant-deploy-refusal')).toContainText('nothing was deployed and nothing was stored');
+    const listed = await session.get('/api/v1/quant/live-runs');
+    expect(listed.status, JSON.stringify(listed.body).slice(0, 300)).toBe(200);
+    expect(listed.body.runs).toEqual([]);
+
+    // The teammate sees the request for version 1 and approves it.
+    await mateApproves(id);
+    panel = await approvalPanel(page, ownerPage);
+    await expect(panel.getByTestId('quant-approval-live')).toHaveText('Version 1 may go live.');
+    wizard = await openWizard(page, STRATEGY);
+    await expect(wizard.getByTestId('quant-live-approval')).toHaveAttribute('data-allowed', 'true');
+    await expect(wizard.getByTestId('quant-live-approval')).toHaveText('A different member approved version 1 as it is now.');
+
+    // A config change on the same version, one risk cap (TEST), voids the approval and the panel asks again.
+    await page.goto(ownerPage);
+    const screen = page.getByTestId('quant-risk-screen');
+    await screen.locator('[data-cap="maxPositionNotional"]').fill('400');
+    await screen.getByRole('button', { name: 'Save caps', exact: true }).click();
+    await expect(screen.getByTestId('quant-risk-note')).toHaveText('Caps saved.');
+    panel = await approvalPanel(page, ownerPage);
+    await expect(panel.getByTestId('quant-approval-row')).toHaveAttribute('data-current', 'false');
+    await expect(panel.getByTestId('quant-approval-row')).toContainText('No: changed since');
+    await expect(panel.getByTestId('quant-approval-live')).toHaveAttribute('data-allowed', 'false');
+    await expect(panel.getByTestId('quant-approval-again')).toHaveText(
+      'Version 1 has no review that still counts: the strategy changed after its last review. Ask a teammate to review version 1.',
+    );
+    wizard = await openWizard(page, STRATEGY);
+    await expect(wizard.getByTestId('quant-live-approval')).toHaveAttribute('data-allowed', 'false');
+    await wizard.getByLabel('Amount your wallet moves (TEST USDC)', { exact: true }).fill('25');
+    await wizard.getByRole('button', { name: 'Deploy version 1', exact: true }).click();
+    await expect(wizard.getByTestId('quant-deploy-refusal')).toHaveAttribute('data-code', 'quant.approval_required');
+    // Asked again: a second request for version 1, bound to it as it is now.
+    panel = await approvalPanel(page, ownerPage);
+    await panel.getByRole('button', { name: 'Ask for a review of version 1', exact: true }).click();
+    await expect(panel.getByTestId('quant-approval-row')).toHaveCount(2);
+    await expect(panel.locator('[data-testid="quant-approval-row"][data-decision="pending"][data-current="true"]')).toHaveAttribute(
+      'data-version',
+      '1',
+    );
+    await expect(panel.getByTestId('quant-approval-again')).toHaveCount(0);
+
+    // A code change voids it too. On a second strategy (TEST), so this journey's own stays at version 1 for #6 and #7: the
+    // teammate approves version 1, a changed rule saves version 2, which no review counts for, and the panel asks again.
+    await saveSignalStrategy(page, CODE_STRATEGY);
+    await page.goto('/quant/strategies');
+    const codeId = await page.getByTestId('quant-strategy-row').filter({ hasText: CODE_STRATEGY }).getAttribute('data-id');
+    expect(codeId).toBeTruthy();
+    const codePage = `/quant/strategies/${encodeURIComponent(codeId)}`;
+    panel = await approvalPanel(page, codePage);
+    await expect(panel.getByTestId('quant-approval-policy')).toHaveAttribute('data-required', 'true');
+    const share = page.getByTestId('quant-team').getByTestId('quant-share-form');
+    await share.getByLabel('Teammate account id', { exact: true }).fill(mateId);
+    await share.getByLabel(/^Permission for the teammate/).selectOption('view');
+    await share.getByLabel('Allow live control (stop paper runs)', { exact: true }).uncheck();
+    await share.getByRole('button', { name: 'Save permission', exact: true }).click();
+    await expect(share.getByTestId('quant-share-note')).toHaveText(`Saved: ${mateId} can view it.`);
+    await panel.getByRole('button', { name: 'Ask for a review of version 1', exact: true }).click();
+    await expect(panel.getByTestId('quant-approval-row')).toHaveAttribute('data-version', '1');
+    await mateApproves(codeId);
+    panel = await approvalPanel(page, codePage);
+    await expect(panel.getByTestId('quant-approval-live')).toHaveText('Version 1 may go live.');
+    await page.getByRole('link', { name: 'Open in Studio', exact: true }).click();
+    await page.getByTestId('quant-signal-builder').getByLabel('Slow average (bars)', { exact: true }).fill('3');
+    await page.getByRole('button', { name: 'Save to library', exact: true }).click();
+    await expect(page.getByTestId('quant-save-state')).toHaveText('Saved as version 2.');
+    panel = await approvalPanel(page, codePage);
+    await expect(panel.getByTestId('quant-approval-live')).toHaveAttribute('data-version', '2');
+    await expect(panel.getByTestId('quant-approval-live')).toHaveText('Version 2 can’t go live until a different member approves it.');
+    await expect(panel.getByTestId('quant-approval-again')).toHaveText(
+      'Version 2 has no review that still counts: the strategy changed after its last review. Ask a teammate to review version 2.',
+    );
+    wizard = await openWizard(page, CODE_STRATEGY);
+    await expect(wizard.getByTestId('quant-live-approval')).toHaveAttribute('data-allowed', 'false');
+    await expect(wizard.getByTestId('quant-live-approval')).toContainText(
+      'Version 2 needs a different member’s approval before it goes live.',
+    );
+    await wizard.getByLabel('Amount your wallet moves (TEST USDC)', { exact: true }).fill('25');
+    await wizard.getByRole('button', { name: 'Deploy version 2', exact: true }).click();
+    await expect(wizard.getByTestId('quant-deploy-refusal')).toHaveAttribute('data-code', 'quant.approval_required');
+    expect((await session.get('/api/v1/quant/live-runs')).body.runs).toEqual([]);
+    panel = await approvalPanel(page, codePage);
+    await panel.getByRole('button', { name: 'Ask for a review of version 2', exact: true }).click();
+    await expect(panel.locator('[data-testid="quant-approval-row"][data-decision="pending"]')).toHaveAttribute('data-version', '2');
+    await expect(panel.getByTestId('quant-approval-again')).toHaveCount(0);
+    panel = await approvalPanel(page, ownerPage);
+
+    // With the rule off, going live asks no approval: Deploy refuses only because live is off.
+    await panel.getByRole('button', { name: 'Stop requiring a reviewer', exact: true }).click();
+    await expect(panel.getByTestId('quant-approval-policy')).toHaveAttribute('data-required', 'false');
+    await expect(panel.getByTestId('quant-approval-live')).toHaveText('Version 1 may go live.');
+    wizard = await openWizard(page, STRATEGY);
+    await expect(wizard.getByTestId('quant-live-approval')).toHaveAttribute('data-required', 'false');
+    await expect(wizard.getByTestId('quant-live-approval')).toHaveText('Your account asks no approval before a strategy goes live.');
+    await wizard.getByLabel('Amount your wallet moves (TEST USDC)', { exact: true }).fill('25');
+    await wizard.getByRole('button', { name: 'Deploy version 1', exact: true }).click();
+    await expect(wizard.getByTestId('quant-deploy-refusal')).toHaveAttribute('data-code', 'quant.live_disabled');
+    expect((await session.get('/api/v1/quant/live-runs')).body.runs).toEqual([]);
+  } finally {
+    // The rule goes back off whatever happened here, so #7 reads only the live switch.
+    const off = await session.post('/api/quant/trpc/approval.policy.set', {
+      required: false,
+      idempotencyKey: `journey:${J}:${process.env.JOURNEY_RUN_ID ?? 'local'}:policy-off`,
+    });
+    expect(off.status, JSON.stringify(off.body).slice(0, 300)).toBe(200);
+  }
+});
+
+test(`${J} #6 opens the deploy wizard from the Bots room and runs the compile check: unsupported order types are named at the check (a stop order on a live deploy is refused); the wizard states, in TEST, the move from the venue account to the strategy's sub-account that the wallet will sign`, async ({
+  page,
+}) => {
+  test.setTimeout(10 * 60_000);
+  const id = strategyId();
+  const door = await criteriaDoor();
+  // Live is off in this build: the owner's switch is blank.
+  await door.set('live.enabled', null);
+  await signIn(page, developer());
+
+  // A second strategy of the same rules with a stop loss of 2 % (TEST), so the check has a stop order to name.
+  await saveSignalStrategy(page, STOP_STRATEGY, { stopLoss: '2' });
+
+  const wizard = await openWizard(page, STOP_STRATEGY);
+  await expect(wizard.getByTestId('quant-live-switch')).toHaveAttribute('data-live', 'off');
+  await wizard.getByRole('button', { name: 'Run the compile check' }).click();
+  const compile = wizard.getByTestId('quant-live-compile');
+  await expect(compile).toHaveAttribute('data-compiles', 'false');
+  const part = (source) => compile.locator(`[data-testid="quant-live-order-type"][data-source="${source}"]`);
+  // The stop loss is a stop order, refused on a live deploy, by name.
+  await expect(part('stop_loss')).toHaveAttribute('data-type', 'stop');
+  await expect(part('stop_loss')).toHaveAttribute('data-supported', 'false');
+  await expect(part('stop_loss')).toHaveAttribute('data-code', 'trade.order_type_unsupported');
+  await expect(part('stop_loss')).toContainText('Stop loss at 2 %');
+  await expect(part('stop_loss')).toContainText('Stop order');
+  await expect(part('stop_loss')).toContainText('Refused: a live deploy places no stop order');
+  // The signal rules' entry is named too: the live runner trades order blocks only in this build.
+  await expect(part('signal_entry')).toHaveAttribute('data-code', 'quant.live_plan_unsupported');
+  await expect(part('signal_entry')).toContainText('Refused: the live runner trades order blocks only in this build');
+  await expect(compile).toContainText('does not compile for live: 2 of its orders can’t be placed');
+
+  // The journey's own promoted strategy: the check names its unsupported part the same way, and no stop order.
+  const own = await openWizard(page, STRATEGY);
+  await expect(page).toHaveURL(new RegExp(`from=${encodeURIComponent(id)}$`));
+  await own.getByRole('button', { name: 'Run the compile check' }).click();
+  const ownCompile = own.getByTestId('quant-live-compile');
+  await expect(ownCompile.getByTestId('quant-live-order-type')).toHaveCount(1);
+  await expect(ownCompile.locator('[data-source="signal_entry"]')).toHaveAttribute('data-supported', 'false');
+
+  // The TEST statement of the one move the person's own wallet would sign.
+  const funding = own.getByTestId('quant-live-funding');
+  await expect(funding).toHaveText('Enter the amount your wallet will move to the strategy’s sub-account.');
+  await own.getByLabel('Amount your wallet moves (TEST USDC)').fill('25');
+  await expect(funding).toHaveText(
+    'TEST: your own wallet will sign one move of 25 TEST USDC from your venue account to this strategy’s own venue sub-account. INTAFACED moves nothing and the ledger posts nothing; the venue holds the funds.',
+  );
+});
+
+test(`${J} #7 presses Deploy while live is off: a refusal that live is disabled and no intent row exists`, async ({ page }) => {
+  test.setTimeout(10 * 60_000);
+  const id = strategyId();
+  const door = await criteriaDoor();
+  await door.set('live.enabled', null);
+  await signIn(page, developer());
+  const wizard = await openWizard(page, STRATEGY);
+  await expect(page).toHaveURL(new RegExp(`from=${encodeURIComponent(id)}$`));
+  await expect(wizard.getByTestId('quant-live-switch')).toHaveAttribute('data-live', 'off');
+  await expect(wizard.getByTestId('quant-live-switch')).toHaveText(
+    'Live trading for strategies is switched off on INTAFACED. You can run the check, and Deploy refuses until it is switched on.',
+  );
+  await wizard.getByLabel('Amount your wallet moves (TEST USDC)').fill('25');
+
+  const deploys = [];
+  page.on('response', (res) => {
+    if (res.url().includes('/trpc/live.deploy')) deploys.push(res.status());
+  });
+  await wizard.getByRole('button', { name: 'Deploy version 1' }).click();
+  const refusal = wizard.getByTestId('quant-deploy-refusal');
+  await expect(refusal).toHaveAttribute('data-code', 'quant.live_disabled');
+  await expect(refusal).toContainText(
+    'Live trading for strategies is switched off on INTAFACED, so nothing was deployed and nothing was stored.',
+  );
+  expect(deploys).toEqual([412]);
+
+  // No intent row: the person's live runs, as svc-trade stores them, hold none, and nothing was asked of the wallet.
+  const session = await api(developer());
+  const listed = await session.get('/api/v1/quant/live-runs');
+  expect(listed.status, JSON.stringify(listed.body).slice(0, 300)).toBe(200);
+  expect(listed.body.runs).toEqual([]);
+  // The version itself is as it was: still a candidate, with its one recorded decision.
+  await page.goto(`/quant/strategies/${encodeURIComponent(id)}`);
+  const life = page.getByTestId('quant-lifecycle-version');
+  await expect(life).toHaveAttribute('data-stage', 'candidate');
+  await expect(life.getByTestId('quant-gate-decisions')).toHaveAttribute('data-count', '1');
 });

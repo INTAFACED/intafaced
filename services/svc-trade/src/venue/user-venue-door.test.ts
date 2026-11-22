@@ -448,6 +448,7 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
     let t = Date.UTC(2026, 10, 9, 12);
     const { d } = door({ builder: null, now: () => new Date(t) });
     const venue = await d.venue();
+    const listed = venue.markets.bind(venue);
     const markets = vi.spyOn(venue, 'markets');
     // A sell: once its market is found, the blank builder fee refuses it, before the venue is asked.
     const unlisted = (n: number) => d.preview(principal, owner, order(n, { symbol: 'NEW-USDC', side: 'sell' }));
@@ -461,7 +462,7 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
     // After 5 seconds a miss reads the list again, so a market the venue lists now is found.
     t += 1;
     markets.mockImplementationOnce(async (account) => {
-      const list = await HttpUserVenue.prototype.markets.call(venue, account);
+      const list = await listed(account);
       return { ...list, value: [...list.value, { ...list.value.find((m) => m.symbol === 'BTC-USDC')!, symbol: 'NEW-USDC' }] };
     });
     await expect(unlisted(43)).rejects.toMatchObject({ refusal: { code: 'builder_fee_not_published' } });
@@ -654,6 +655,8 @@ describe('the deposit route and a withdrawal read back through the door (J-walle
     minimum: '5',
     confirmations: 3,
     network: 'TEST chain',
+    // The venue's own warning for any other chain (J-wallet-24 #1).
+    warning: 'TEST: send only TEST USDC on TEST chain.',
   };
   let server: http.Server;
   let sim: TestVenueSimulator;
@@ -700,6 +703,8 @@ describe('the deposit route and a withdrawal read back through the door (J-walle
       status: 'pending',
       fee: { known: true, value: a('1') },
       networkFee: { known: false },
+      // When the venue took it (J-cex-spot-07 #5: a statement places the withdrawal by this time).
+      requestedAt: expect.any(Date),
     });
     sim.settleWithdrawals();
     expect((await venue.withdrawal(account, prepared.prepared.nonce)).value?.status).toBe('done');
@@ -740,12 +745,13 @@ describe('the deposit route and a withdrawal read back through the door (J-walle
       address: ROUTE.address,
       asset: ROUTE.asset,
     };
-    expect(readDepositRoute(bare)).toEqual({ ...bare, minimum: null, confirmations: null, network: null });
-    expect(readDepositRoute({ ...ROUTE, minimum: 5, confirmations: 0, network: ' ' })).toEqual({
+    expect(readDepositRoute(bare)).toEqual({ ...bare, minimum: null, confirmations: null, network: null, warning: null });
+    expect(readDepositRoute({ ...ROUTE, minimum: 5, confirmations: 0, network: ' ', warning: 7 })).toEqual({
       ...bare,
       minimum: null,
       confirmations: null,
       network: null,
+      warning: null,
     });
     expect(readDepositRoute(null)).toBeNull();
     expect(readDepositRoute({ ...ROUTE, address: 'nowhere' })).toBeNull();

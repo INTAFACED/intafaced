@@ -1,13 +1,6 @@
-import { z } from 'zod';
-import {
-  ACADEMY_CURRICULUM_PATHS,
-  academyPublicCourseCardSchema,
-  academyPublicCourseSchema,
-  academyPublicHubSchema,
-  type AcademyPublicHubLesson,
-} from '@intafaced/contracts/academy-catalogue';
+import { ACADEMY_CURRICULUM_PATHS, type AcademyPublicHubLesson } from '@intafaced/contracts/academy-catalogue';
 import { safeReturnTo } from '../../app/navigation';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import { ServiceOffNotice } from '../../shared/service-off';
 import { EmptyState, Loading, Panel } from '../../shared/ui';
@@ -18,6 +11,9 @@ import { AcademyRefusal, kindLabel, pathLabel } from './AcademyLmsParts';
 import { AcademyCourseEnrol } from './AcademyCourseEnrol';
 import { AcademyAuthoredCourse, AcademyAuthoredCourseCards, AcademyLinkedCourse } from './AcademyAuthoredCourse';
 import './academy-public.css';
+import { ACADEMY_PUBLIC_HUB } from '@intafaced/contracts/academy-public-hub-procedures';
+import { ACADEMY_PUBLIC_COURSE } from '@intafaced/contracts/academy-public-course-procedures';
+import { ACADEMY_PUBLIC_COURSES } from '@intafaced/contracts/academy-public-courses-procedures';
 
 /**
  * The hub above the five tabs on `/academy` (AC-articles-01): the featured slot holds only what staff chose, and says
@@ -26,7 +22,7 @@ import './academy-public.css';
 export function AcademyHub() {
   const api = useApi();
   const { t, Copy } = copy.useCopy();
-  const hub = useResource((signal) => api.query('academy', 'publicHub', undefined, academyPublicHubSchema, { signal }), 'public-hub');
+  const hub = useResource((signal) => api.call(ACADEMY_PUBLIC_HUB, undefined, { signal }), 'public-hub');
   const featured = hub.resource.status === 'ready' ? hub.resource.data.featured : null;
   const lesson = hub.resource.status === 'ready' ? hub.resource.data.lesson : null;
   return (
@@ -99,10 +95,7 @@ export function FeaturedLessonCard({ lesson }: { lesson: AcademyPublicHubLesson 
 export function AcademyCourse({ slug, signedIn }: { slug: string | undefined; signedIn: boolean }) {
   const api = useApi();
   const { t, Copy } = copy.useCopy();
-  const course = useResource(
-    (signal) => api.query('academy', 'publicCourse', { slug: slug ?? '' }, academyPublicCourseSchema, { signal }),
-    `public-course:${slug ?? ''}`,
-  );
+  const course = useResource((signal) => api.call(ACADEMY_PUBLIC_COURSE, { slug: slug ?? '' }, { signal }), `public-course:${slug ?? ''}`);
   const back = (
     <a className="text-link" href="/academy/learning">
       <Copy k="courseBack" />
@@ -196,10 +189,7 @@ export function AcademyCoursePage({ slug, signedIn }: { slug: string | undefined
 export function AcademyCourseCards() {
   const api = useApi();
   const { t, Copy } = copy.useCopy();
-  const cards = useResource(
-    (signal) => api.query('academy', 'publicCourses', undefined, z.array(academyPublicCourseCardSchema), { signal }),
-    'public-courses',
-  );
+  const cards = useResource((signal) => api.call(ACADEMY_PUBLIC_COURSES, undefined, { signal }), 'public-courses');
   if (cards.resource.status === 'loading') return <Loading />;
   if (cards.resource.status === 'failed') return <AcademyRefusal failure={cards.resource.failure} retry={cards.reload} />;
   if (cards.resource.data.length === 0)

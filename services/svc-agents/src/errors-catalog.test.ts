@@ -5,7 +5,6 @@ import {
   isAgentErrorCode,
   agentProviderErrorCodes,
   agentErrorCatalogBoardCard,
-  agentErrorCatalogStatusLine,
   parseAgentErrorCatalogStatusLine,
   agentErrorCatalogStatusLineMatches,
   agentErrorCatalogExportHeader,

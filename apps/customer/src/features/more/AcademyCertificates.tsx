@@ -3,14 +3,11 @@ import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Field, Loading, Panel } from '../../shared/ui';
 import { usePreferences } from '../../shared/preferences';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { Details, Read } from './common';
 import { academyLmsCopy as copy } from './academy-lms-copy';
-import { z } from 'zod';
 import {
   academyVerifyHref,
-  certPathRow,
-  certXpPlaneRow,
   certificateXp,
   certificateCards,
   certificateDocument,
@@ -30,6 +27,8 @@ import { academyCodeOf, verifyCertificate, type VerifiedCertificate } from './ac
 import { useAcademyTracking } from './academy-tracking';
 import { ProgrammeCertificates } from './AcademyCourseProgrammes';
 import { AcademyRefusal, CertificateChip, GuardedButton, ProgressBar, StatusChip, pathLabel } from './AcademyLmsParts';
+import { ACADEMY_CERT_XP_PLANE } from '@intafaced/contracts/academy-cert-xp-plane-procedures';
+import { ACADEMY_CERT_PATHS } from '@intafaced/contracts/academy-cert-paths-procedures';
 
 const param = (name: string) => (typeof window === 'undefined' ? '' : (new URLSearchParams(window.location.search).get(name) ?? ''));
 
@@ -106,7 +105,7 @@ function Shelf({
  */
 function UnpublishedPaths() {
   const api = useApi();
-  const answer = useResource((signal) => api.query('academy', 'certPaths', undefined, z.array(certPathRow), { signal }), 'cert-paths');
+  const answer = useResource((signal) => api.call(ACADEMY_CERT_PATHS, undefined, { signal }), 'cert-paths');
   if (answer.resource.status === 'loading') return <Loading />;
   if (answer.resource.status === 'failed') return <AcademyRefusal failure={answer.resource.failure} retry={answer.reload} />;
   return (
@@ -191,7 +190,7 @@ function IssueLine({ progress }: { progress: CertificateCard['progress'] }) {
     return (
       <p data-testid="certificate-issue">
         {issue.issuesAt
-          ? t('issueDelayed', { date: formatMoment(issue.issuesAt.toISOString(), language), wait: words })
+          ? t('issueDelayed', { date: formatMoment(issue.issuesAt, language), wait: words })
           : t('issueAfterWait', { wait: words })}
       </p>
     );
@@ -342,7 +341,7 @@ function SheetDesign({ design }: { design: NonNullable<CertGrant['design']> }) {
 function CertificateXp({ certId }: { certId: string }) {
   const api = useApi();
   const { t } = copy.useCopy();
-  const plane = useResource((signal) => api.query('academy', 'certXpPlane', undefined, certXpPlaneRow, { signal }), 'cert-xp-plane');
+  const plane = useResource((signal) => api.call(ACADEMY_CERT_XP_PLANE, undefined, { signal }), 'cert-xp-plane');
   if (plane.resource.status === 'loading') return <Loading />;
   if (plane.resource.status === 'failed') return <AcademyRefusal failure={plane.resource.failure} retry={plane.reload} />;
   const xp = certificateXp(plane.resource.data, certId);

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { StaffAccessLink } from './StaffAccess';
 import { flushSync } from 'react-dom';
-import { z } from 'zod';
-import { useSession } from '../session/session';
+import { loggedOutEverywhereSchema, passkeyRegisteredSchema, totpConfirmedSchema } from '@intafaced/contracts/identity-account-room';
+import { useSession } from '../session';
 import { currentReturnLocation, navigate } from '../../app/location';
 import { safeReturnTo } from '../../app/navigation';
 import type { ApiClient, ApiResult } from '../../shared/api';
@@ -28,7 +29,6 @@ import { TrustedDevices } from './TrustedDevices';
 import { securityCopy as copy } from './security-copy';
 import { refusalCopy } from '../../data/refusals';
 import {
-  credentialId,
   familyBlocked,
   finishSecurity,
   isPreEffectRefusal,
@@ -39,7 +39,6 @@ import {
   securityFamily,
   securityKey,
   securitySessionLock,
-  setupResponse,
   stepUpKind,
   type Passkey,
   type SecurityJournal,
@@ -51,7 +50,10 @@ import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import './security.css';
 import { VerifyEmail } from './VerifyEmail';
-import { WithdrawStepUp } from '../money/WithdrawStepUp';
+import { WithdrawStepUp } from '../money';
+import { IDENTITY_WEBAUTHN_REMOVE } from '@intafaced/contracts/identity-webauthn-procedures';
+import { IDENTITY_TOTP_ENROL } from '@intafaced/contracts/identity-totp-procedures';
+import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 
 type Problem = 'changed' | 'keyChanged' | 'setupChanged' | 'storage' | 'another' | 'locks' | 'unsupported' | 'cancelled' | 'ceremonyFailed';
 type Original = {
@@ -67,7 +69,7 @@ type Original = {
 type Setup = {
   original: Original;
   record: SecurityRecord;
-  data: z.infer<typeof setupResponse>;
+  data: ProcedureOutput<typeof IDENTITY_TOTP_ENROL>;
   confirmed: boolean;
   /** The confirmation's answer was lost: the authenticator may be on, so its recovery codes show, labelled as such. */
   outcomeUnknown?: boolean;
@@ -351,7 +353,7 @@ export function Security() {
       'identity',
       'webauthn.registerVerify',
       payload,
-      z.object({ credentialId }).refine((value) => value.credentialId === payload!.rawId),
+      passkeyRegisteredSchema.refine((value) => value.credentialId === payload!.rawId),
       sending(intent, abort.signal),
     );
     if (!same(intent)) {
@@ -385,11 +387,9 @@ export function Security() {
     }
     const record = makeRecord(intent, 'remove', intent.credential.credentialId);
     if (!save(intent, record)) return;
-    const answer = await intent.client.mutate(
-      'identity',
-      'webauthn.remove',
+    const answer = await intent.client.call(
+      IDENTITY_WEBAUTHN_REMOVE,
       { credentialId: intent.credential.credentialId },
-      z.object({ removed: z.boolean() }),
       sending(intent, abort.signal),
     );
     if (!same(intent)) {
@@ -406,7 +406,7 @@ export function Security() {
     setSetup(null);
     setCode('');
     setShowKey(false);
-    const answer = await intent.client.mutate('identity', 'totp.enrol', {}, setupResponse, sending(intent));
+    const answer = await intent.client.call(IDENTITY_TOTP_ENROL, undefined, sending(intent));
     if (!same(intent)) {
       settleOriginalRefusal(record, answer);
       return;
@@ -450,7 +450,7 @@ export function Security() {
         'identity',
         'totp.confirm',
         { secret: prepared.data.secret, code: entered },
-        z.object({ ok: z.literal(true) }),
+        totpConfirmedSchema,
         // A wrong code is this form's answer, not the end of the sign-in.
         { ...sending(intent), keepSessionFor: ['auth.mfa_invalid'] },
       );
@@ -482,12 +482,7 @@ export function Security() {
     // The owner lock excludes a held child write. Remount also cancels any old child review before dispatch.
     flushSync(() => setSeatVersion((value) => value + 1));
     if (!same(intent)) return;
-    const answer = await intent.client.mutate(
-      'identity',
-      'auth.logoutAll',
-      {},
-      z.object({ revoked: z.number().int().safe().nonnegative() }),
-    );
+    const answer = await intent.client.mutate('identity', 'auth.logoutAll', {}, loggedOutEverywhereSchema);
     if (!same(intent)) {
       settleOriginalRefusal(record, answer);
       return;
@@ -637,6 +632,7 @@ export function Security() {
             <Copy k={journal.failed ? 'storage' : problem!} />
           </p>
         )}
+        <StaffAccessLink />
         <div className="security__layout">
           <section data-testid="security__passkeys" className="security__passkeys security__card" aria-label={t('passkeys')}>
             <div className="section-heading">

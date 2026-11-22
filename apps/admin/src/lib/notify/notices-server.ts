@@ -1,7 +1,6 @@
 import 'server-only';
 import { createHash } from 'node:crypto';
-import { founderCall, type FounderCallContext } from '@/lib/desk/founder-call';
-import { partFrom } from '@/lib/desk/part';
+import { type FounderCallContext, partFrom, founderRecordRead } from '@/lib/desk';
 import { NOTIFY, anyData, loadPublishApprovals, reply } from './incidents-server';
 import {
   readAnnouncements,
@@ -11,6 +10,8 @@ import {
   type NoticeCategory,
   type NoticesDeskView,
 } from './notices-model';
+import { NOTIFY_OPERATOR_NOTICES, NOTIFY_DRAFT_NOTICE, NOTIFY_NOTICE_AUDIENCES } from '@intafaced/contracts/notify-notify-procedures';
+import { NOTIFY_STATUS_PAGE_DEFINITION, NOTIFY_STATUS_PAGE_CONFIGURE } from '@intafaced/contracts/notify-status-page-procedures';
 
 /**
  * The announcement desk as the signed-in founder. svc-notify holds the announcements (`notify.operatorNotices`, drafts
@@ -23,9 +24,9 @@ const LIST_LIMIT = 50;
 
 export async function loadNoticesDesk(ctx: FounderCallContext): Promise<NoticesDeskView> {
   const [announcements, categories, audiences, approvals] = await Promise.all([
-    founderCall(ctx, 'notify', 'notify.operatorNotices', 'GET', { kind: 'announcement', limit: LIST_LIMIT }, readAnnouncements),
-    founderCall(ctx, 'notify', 'statusPage.definition', 'GET', undefined, readCategories),
-    founderCall(ctx, 'notify', 'notify.noticeAudiences', 'GET', undefined, readAudiences),
+    founderRecordRead(ctx, NOTIFY_OPERATOR_NOTICES, { kind: 'announcement', limit: LIST_LIMIT }, readAnnouncements),
+    founderRecordRead(ctx, NOTIFY_STATUS_PAGE_DEFINITION, undefined, readCategories),
+    founderRecordRead(ctx, NOTIFY_NOTICE_AUDIENCES, undefined, readAudiences),
     loadPublishApprovals(ctx),
   ]);
   return {
@@ -59,11 +60,9 @@ export function announcementDraftKey(founder: string, input: AnnouncementDraftIn
 
 export async function draftAnnouncement(ctx: FounderCallContext, input: AnnouncementDraftInput & { basis: string | null }) {
   return reply(
-    await founderCall(
+    await founderRecordRead(
       ctx,
-      'notify',
-      'notify.draftNotice',
-      'POST',
+      NOTIFY_DRAFT_NOTICE,
       {
         kind: 'announcement',
         title: input.title.trim(),
@@ -84,12 +83,14 @@ export async function setCategories(
   input: { list: readonly NoticeCategory[] | null; expectedRevision: number; reason: string },
 ) {
   return reply(
-    await founderCall(
+    await founderRecordRead(
       ctx,
-      'notify',
-      'statusPage.configure',
-      'POST',
-      { noticeCategories: input.list, expectedRevision: input.expectedRevision, reason: input.reason.trim() },
+      NOTIFY_STATUS_PAGE_CONFIGURE,
+      {
+        noticeCategories: input.list === null ? null : [...input.list],
+        expectedRevision: input.expectedRevision,
+        reason: input.reason.trim(),
+      },
       anyData,
     ),
     input.list === null ? 'categories cleared' : 'categories saved',

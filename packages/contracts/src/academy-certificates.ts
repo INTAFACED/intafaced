@@ -35,7 +35,8 @@ export const academyCertIssueRuleSchema = z.object({
   mode: z.enum(ACADEMY_CERT_ISSUE_MODES),
   delayMinutes: z.number().int().positive().nullable(),
   revision: z.number().int().positive(),
-  updatedAt: z.coerce.date(),
+  /** When this revision was set, as the ISO instant svc-academy sends. */
+  updatedAt: z.string().datetime({ offset: true }),
 });
 export type AcademyCertIssueRule = z.infer<typeof academyCertIssueRuleSchema>;
 
@@ -46,7 +47,7 @@ export type AcademyCertIssueRule = z.infer<typeof academyCertIssueRuleSchema>;
 export const academyCertIssueSchema = z.object({
   mode: z.enum(ACADEMY_CERT_ISSUE_MODES),
   delayMinutes: z.number().int().positive().nullable(),
-  issuesAt: z.coerce.date().nullable(),
+  issuesAt: z.iso.datetime({ offset: true }).nullable(),
 });
 export type AcademyCertIssue = z.infer<typeof academyCertIssueSchema>;
 
@@ -72,6 +73,35 @@ export const academyCertRevocationSchema = z.object({
   approvedBy: z.string(),
   revokedBy: z.string(),
   reason: z.string(),
-  revokedAt: z.coerce.date(),
+  revokedAt: z.iso.datetime({ offset: true }),
 });
 export type AcademyCertRevocation = z.infer<typeof academyCertRevocationSchema>;
+
+/**
+ * `admin.grantCertException`: staff issue one learner a certificate they have not completed every item of, with a
+ * reason, under two-person approval (action `academy.cert.exception`, payload `{userId, certId, reason}`). The grant is
+ * the learner's one grant of that certificate; the exception record keeps who proposed, approved and carried it out, and why.
+ */
+export const academyGrantCertExceptionInputSchema = z
+  .object({
+    userId: z.string().guid(),
+    certId: academyCertIdSchema,
+    reason: z.string().trim().min(1).max(500),
+    approvalId: z.string().max(128).nullish(),
+    operationId: z.string().max(128).nullish(),
+  })
+  .strict();
+export type AcademyGrantCertExceptionInput = z.infer<typeof academyGrantCertExceptionInputSchema>;
+
+/** One exception as Academy recorded it: the certificate issued, who proposed, approved and carried it out, why and when. */
+export const academyCertExceptionSchema = z.object({
+  publicId: z.string(),
+  userId: z.string(),
+  certId: z.string(),
+  proposedBy: z.string(),
+  approvedBy: z.string(),
+  grantedBy: z.string(),
+  reason: z.string(),
+  grantedAt: z.iso.datetime({ offset: true }),
+});
+export type AcademyCertException = z.infer<typeof academyCertExceptionSchema>;

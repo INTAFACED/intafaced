@@ -14,13 +14,13 @@ type Sent = { procedure: string; input: unknown; keepSessionFor?: readonly strin
 function fakeApi(answers: Record<string, (input: unknown) => unknown>) {
   const sent: Sent[] = [];
   const client = {
-    mutate: async (_module: string, procedure: string, input: unknown, _schema: unknown, opts: { keepSessionFor?: readonly string[] }) => {
+    call: async ({ path: procedure }: { path: string }, input: unknown, opts: { keepSessionFor?: readonly string[] }) => {
       sent.push({ procedure, input, keepSessionFor: opts.keepSessionFor });
       const answer = answers[procedure];
       if (!answer) throw new Error(`unexpected ${procedure}`);
       return answer(input);
     },
-  } as unknown as ApiClient;
+  } as ApiClient;
   return { api: createAddressBookApi(client), sent };
 }
 /** The wallet provider's `sign`: in the app it shows the plain-words sheet, then asks the wallet. */

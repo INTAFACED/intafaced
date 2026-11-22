@@ -21,7 +21,11 @@ vi.mock('../wallet/WalletProvider', () => ({ useWallet: () => wallet }));
 vi.mock('../wallet/RepresentationPanel', () => ({ RepresentationPanel: () => <div data-panel="representation" /> }));
 const mutate = vi.fn();
 const query = vi.fn();
-vi.mock('../../session/session', () => ({ useApi: () => ({ mutate, query }) }));
+/** A call by its record reaches the same answers as the module and path it names (`api.call`). */
+const call = vi.fn((record: { module: string; path: string; kind: string }, input: unknown) =>
+  record.kind === 'mutation' ? mutate(record.module, record.path, input) : query(record.module, record.path, input),
+);
+vi.mock('../../session/session', () => ({ useApi: () => ({ mutate, query, call }) }));
 vi.mock('../../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };

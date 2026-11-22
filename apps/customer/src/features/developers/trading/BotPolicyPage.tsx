@@ -1,5 +1,5 @@
 import { StateBlock } from '@intafaced/ui';
-import { useSession } from '../../session/session';
+import { useSession } from '../../session';
 import { botPolicyView, readBotPolicy } from '../developers-values';
 import { useRead } from '../use-read';
 import { tradingApiCopy } from './trading-api-copy';

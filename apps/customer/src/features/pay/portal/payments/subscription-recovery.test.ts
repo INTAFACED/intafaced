@@ -45,7 +45,25 @@ it('keeps locks on failed reads, missing original proof, mismatched ids, or a de
 it('admits create on the per-mandate lock and does not write a cutoff into the journal reference', async () => {
   const mutate = vi.fn().mockResolvedValue(uncertain);
   const query = vi.fn();
-  const pay = { authority: { userId: 'TEST-user', merchantId: row.merchantId }, query, mutate } as unknown as BusinessPayApi;
+  const pay = {
+    authority: { userId: 'TEST-user', merchantId: row.merchantId },
+    query,
+    mutate,
+    call(
+      this: { query: (...args: never[]) => unknown; mutate: (...args: never[]) => unknown },
+      record: { kind: string; module: string; path: string; output: unknown },
+      input?: unknown,
+      opts?: unknown,
+    ) {
+      return Reflect.apply(record.kind === 'query' ? this.query : this.mutate, this, [
+        record.module,
+        record.path,
+        input,
+        record.output,
+        opts,
+      ]);
+    },
+  } as unknown as BusinessPayApi;
   expect((await createSubscriptionWithRecovery(pay, mandateId, row.path)).ok).toBe(false);
   expect(query).not.toHaveBeenCalled();
   expect(mutate).toHaveBeenCalledTimes(1);
@@ -112,6 +130,7 @@ it.each(['success', 'pay.idempotency_conflict', 'pay.subscription_mandate_open']
                 kybStatus: 'approved',
                 kybRef: 'verified',
                 feeBps: null,
+                starterFee: null,
               },
             },
           }),
@@ -221,6 +240,21 @@ it.each(['legacy', 'new'])('clears the %s journal on a definite create conflict 
   const api = {
     query: vi.fn().mockResolvedValue({ ok: true, data: { id: merchantId, userId, status: 'active', kybStatus: 'approved' } }),
     mutate,
+    call(
+      this: { query: (...args: never[]) => unknown; mutate: (...args: never[]) => unknown },
+      record: { kind: string; module: string; path: string; output: unknown },
+      input?: unknown,
+      opts?: unknown,
+    ) {
+      // tooling/codemod/call-records: a call by its record reaches this double's own query or mutate, as the client sends it.
+      return Reflect.apply(record.kind === 'query' ? this.query : this.mutate, this, [
+        record.module,
+        record.path,
+        input,
+        record.output,
+        opts,
+      ]);
+    },
   } as unknown as import('../../../../shared/api').ApiClient;
   const pay = createBusinessPayApi(
     api,
@@ -268,7 +302,16 @@ describe('a lost create is checked before anything is sent again', () => {
   };
   const merchantReply = {
     result: {
-      data: { id: merchantId, userId, mode: 'gateway', status: 'active', kybStatus: 'approved', kybRef: 'verified', feeBps: null },
+      data: {
+        id: merchantId,
+        userId,
+        mode: 'gateway',
+        status: 'active',
+        kybStatus: 'approved',
+        kybRef: 'verified',
+        feeBps: null,
+        starterFee: null,
+      },
     },
   };
   type Body = { idempotencyKey?: string; mandateId?: string; path?: string };

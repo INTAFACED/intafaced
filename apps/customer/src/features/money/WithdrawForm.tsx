@@ -1,18 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
-import { myRewardsSchema } from '@intafaced/contracts/campaigns-catalogue';
 import { networkLabel as chainLabel } from '@intafaced/contracts/protocol-blockers';
 import type { ApiResult } from '../../shared/api';
 import { Button, Failure, Loading } from '../../shared/ui';
 import { useResource } from '../../shared/resource';
 import { displayAmount } from '../../shared/money';
 import { usePreferences } from '../../shared/preferences';
-import { useSession } from '../session/session';
-import { useWallet } from '../protocol/wallet/WalletProvider';
+import { useSession } from '../session';
+import { useWallet } from '../protocol';
 import { date, useBankRead } from './components';
 import type { Destination } from './contracts';
 import { DepthPanel, DisabledAction, Fact } from './DepthParts';
 import { useHoldings } from './holdings';
-import { INTERNAL_RAIL, useWithdrawDestination, type DestinationRead } from './withdraw-destination';
+import { useWithdrawDestination, type DestinationRead } from './withdraw-destination';
 import { SAVED_STATE_WORDS, checkAddress, checkAmount, coolingOf, shortenAddress, shownState } from './withdraw-model';
 import {
   above,
@@ -25,11 +24,12 @@ import {
   type WithdrawQuote,
   type WithdrawSend,
 } from './withdraw-send';
-import { withdrawalSchema, type WithdrawalRecord } from './withdrawal-reads';
+import type { WithdrawalRecord } from './withdrawal-reads';
 import { withdrawalCopy } from './withdrawal-copy';
 import { WithdrawStepUp } from './WithdrawStepUp';
 import { WALLET_NOT_CONNECTED, walletFill, walletGone, walletSavedNetwork, type WalletFill } from './withdraw-to-wallet';
 import './bank-depth.css';
+import { CAMPAIGNS_REWARDS_MINE } from '@intafaced/contracts/campaigns-rewards-procedures';
 
 const AMOUNT_ERROR = { invalid: 'fAmountInvalid', zero: 'fAmountZero', tooMuch: 'fAmountTooMuch', unknown: 'fBalanceUnknown' } as const;
 // A person's ask has no business id before svc-pay records it, so its client reference is minted once per ask here and kept
@@ -441,18 +441,9 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
   async function sendInside(token: string, send: OpenSend) {
     // Kept in the tab before the ask leaves, so a reload or a crash while it is in flight finishes it, never starts another.
     keepOpen(userId, { ...send, unanswered: true });
-    const answer = await api.mutate(
-      'pay',
-      'withdrawal.create',
-      {
-        assetId: send.assetId,
-        amount: send.amount,
-        railId: INTERNAL_RAIL,
-        destination: { kind: 'crypto', ref: send.ref },
-        clientRef: send.clientRef,
-      },
-      withdrawalSchema,
-      { bearer: token },
+    const answer = await createWithdrawSend(api).sendInside(
+      { assetId: send.assetId, amount: send.amount, ref: send.ref, clientRef: send.clientRef },
+      token,
     );
     if (answer.ok) {
       setSentInside(answer.data);
@@ -1062,7 +1053,7 @@ function WalletChip({
 function LockedRewards({ asset, hidden, shown }: { asset: string; hidden: boolean; shown: (value: string) => string }) {
   const { t } = withdrawalCopy.useCopy();
   const { api } = useSession();
-  const mine = useResource((signal) => api.query('campaigns', 'rewards.mine', {}, myRewardsSchema, { signal }), 'withdraw-locked-rewards');
+  const mine = useResource((signal) => api.call(CAMPAIGNS_REWARDS_MINE, {}, { signal }), 'withdraw-locked-rewards');
   const r = mine.resource;
   if (r.status === 'loading') return null;
   if (r.status === 'failed') {

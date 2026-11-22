@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 const owner = '11111111-1111-4111-8111-111111111111',
   other = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const a = '22222222-2222-4222-8222-222222222222',

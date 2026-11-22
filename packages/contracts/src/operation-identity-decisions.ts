@@ -109,12 +109,15 @@ export const identityOperationDecisionSchema = z
         status: z.literal('cancelled'),
         // trade.account_restricted: identity's own trading restriction (a founder control),
         // given only for svc-trade operations, so svc-trade refuses it by name.
+        // identity.account_frozen_self: the owner's own freeze (J-wallet-13), also svc-trade only: INTAFACED places no
+        // order for a person who froze their account, whoever asks (the person, a bot, a copy, an agent or a schedule).
         code: z.enum([
           'admission.cancelled',
           'auth.account_frozen',
           'auth.credential_denied',
           'auth.sub_account_denied',
           'trade.account_restricted',
+          'identity.account_frozen_self',
         ]),
       })
       .strict(),
@@ -124,7 +127,7 @@ export const identityOperationDecisionSchema = z
   .superRefine((decision, ctx) => {
     if (
       decision.status === 'cancelled' &&
-      decision.code === 'trade.account_restricted' &&
+      (decision.code === 'trade.account_restricted' || decision.code === 'identity.account_frozen_self') &&
       decision.intent.operation.service !== 'svc-trade'
     )
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['code'], message: 'A trading restriction cancels only svc-trade operations' });

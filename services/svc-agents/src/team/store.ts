@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
-import { AGENTS_TEAM_ROLES, type AgentsTeamBusinessRole, type AgentsTeamMember, type AgentsTeamRole } from '@intafaced/contracts';
+import type { AgentsTeamBusinessRole, AgentsTeamMember, AgentsTeamRole } from '@intafaced/contracts';
+import { AGENTS_TEAM_ROLES } from '@intafaced/contracts/agents-team';
 import { TeamError } from './errors.js';
 import type { TeamMembershipPort } from './membership.js';
 
@@ -112,7 +113,7 @@ export function stale(): TeamError {
   return new TeamError('The team changed since this was read; read it again', 'agents.team_change_stale');
 }
 
-export async function lockBusiness(tx: Sql, businessId: string): Promise<void> {
+export async function lockBusiness(tx: Queryable, businessId: string): Promise<void> {
   await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`agents.team:${businessId}`}, 0))`;
 }
 

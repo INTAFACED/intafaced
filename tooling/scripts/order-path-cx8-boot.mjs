@@ -42,6 +42,8 @@ export function cx8RoleEnv(role) {
 }
 
 const ROOT = process.cwd();
+/** svc-ledger's Rust binary (crates/svc-ledger), built by the workflow. */
+const LEDGER_BIN = process.env.SVC_LEDGER_BIN ?? 'target/release/svc-ledger';
 const SECRET = process.env.INTERNAL_SERVICE_SECRET ?? 'dev-only-cx8-internal-service-secret-xx';
 const EDGE = process.env.EDGE_PRINCIPAL_SECRET ?? 'dev-only-cx8-edge-principal-secret-xxxx';
 const JWT = process.env.JWT_ACCESS_SECRET ?? 'dev-only-cx8-jwt-access-secret-xxxxxxxx';
@@ -284,7 +286,8 @@ async function enrolFoundersAndRestartIdentity() {
 async function main() {
   log(`PG=${PG} NATS=${NATS}`);
 
-  await run('pnpm', ['--filter', '@intafaced/svc-ledger', 'db:migrate'], {
+  // svc-ledger is the Rust binary the workflow builds (`cargo build --release -p svc-ledger`); it applies its own migrations.
+  await run(LEDGER_BIN, ['migrate'], {
     DATABASE_URL: ledgerUrl,
     ...common,
   });
@@ -315,7 +318,7 @@ async function main() {
 
   writeFileSync(join(ROOT, '.data/matching/engine_journal.ndjson'), '');
 
-  start('ledger', 'node', ['services/svc-ledger/dist/index.js'], {
+  start('ledger', LEDGER_BIN, [], {
     ...common,
     ...cx8RoleEnv('ledger'),
     SERVICE_NAME: 'svc-ledger',
@@ -367,19 +370,19 @@ async function main() {
       IDENTITY_URL: 'http://127.0.0.1:4002',
       TRADE_URL: 'http://127.0.0.1:4004',
       DATABASE_POOL_MAX: '5',
-      // The custody switch as svc-bank reads it, on as this rig's ledger runs it (OWNER 226 keeps the custodial layer built).
+      // The custody switch as svc-bank reads it: on, as this rig's svc-ledger runs it, so the two services agree (OWNER 226
+      // keeps the custodial layer built). One key only: a second one would silently win over this one.
       LEDGER_CUSTODY_LAYER: 'on',
       // SMOKE RIG ONLY — owner integers and ids that boot refuses without; not production values
       ...profileEnvFor('bank', common.APP_ENV),
       INTAFACED_SCREENING_FAIL_CLOSED: 'off', // SMOKE RIG ONLY — local-test fixture value; refused outside dev/test
-      // The custody switch as this rig's svc-ledger runs it (on), so the two services agree (OWNER 226).
-      LEDGER_CUSTODY_LAYER: 'on',
     });
 
   // Tax, for the profit and loss journey: it reads the caller's fills from the ledger (no database of its own). The jurisdiction map,
   // history window and data lake stay unset; the lot book needs none of them.
   if (WITH_PAY)
-    start('tax', 'node', ['services/svc-tax/dist/index.js'], {
+    // svc-tax is the Rust binary the workflow builds (`cargo build --release -p svc-tax`).
+    start('tax', process.env.SVC_TAX_BIN ?? 'target/release/svc-tax', [], {
       ...common,
       SERVICE_NAME: 'svc-tax',
       HTTP_HOST: '127.0.0.1',

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { z } from 'zod';
 import { useResource, type Resource } from '../../../../shared/resource';
+import { parseAmount } from '../../../../shared/money';
 import { Button, DataTable } from '@intafaced/ui';
 import { Field } from '../../ui-kit';
 import { PaySection } from '../../components';
@@ -341,7 +342,7 @@ function DailySeries({ series, today, retry }: { series: Resource<CustomerSeries
     [t('period7d'), addDays(today, -6)],
     [t('period30d'), addDays(today, -29)],
   ];
-  const peak = items.reduce((m, i) => (parseFloat(i.volume) > m ? parseFloat(i.volume) : m), 0);
+  const peak = items.reduce((m, i) => (parseAmount(i.volume) > m ? parseAmount(i.volume) : m), 0n);
   return (
     <section aria-label={t('customerSeriesTitle')} className="stack">
       <h3 className="pp-sub">{t('customerSeriesTitle')}</h3>
@@ -382,7 +383,7 @@ function DailySeries({ series, today, retry }: { series: Resource<CustomerSeries
                     borderRadius: 4,
                     background: 'currentColor',
                     opacity: 0.35,
-                    width: `${peak ? Math.max(4, (parseFloat(i.volume) / peak) * 100) : 0}%`,
+                    width: `${peak > 0n ? Math.max(4, Number((parseAmount(i.volume) * 1000n) / peak) / 10) : 0}%`,
                   }}
                 />
               </td>

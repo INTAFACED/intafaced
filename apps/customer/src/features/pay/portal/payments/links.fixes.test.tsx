@@ -27,7 +27,18 @@ const row = {
   createdAt: '2026-01-16T00:00:00Z',
 };
 const merchantReply = {
-  result: { data: { id: merchantId, userId, mode: 'gateway', status: 'active', kybStatus: 'approved', kybRef: 'verified', feeBps: null } },
+  result: {
+    data: {
+      id: merchantId,
+      userId,
+      mode: 'gateway',
+      status: 'active',
+      kybStatus: 'approved',
+      kybRef: 'verified',
+      feeBps: null,
+      starterFee: null,
+    },
+  },
 };
 
 describe('payment link expiry is the merchant’s own clock', () => {

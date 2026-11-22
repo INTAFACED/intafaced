@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
 const calls: { procedure: string; input: unknown }[] = [];
-vi.mock('@/lib/desk/founder-call', () => ({
+vi.mock('@/lib/desk', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/desk')>()),
   founderCall: async (_ctx: unknown, _module: string, procedure: string, _method: string, input: unknown) => {
     calls.push({ procedure, input });
     return { kind: 'unavailable', uncertain: false, requestId: null };

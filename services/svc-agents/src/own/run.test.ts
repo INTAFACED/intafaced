@@ -17,6 +17,7 @@ import { createAgentsRouter } from '../router.js';
 import { AgentRuntime, estimateInputTokens } from '../runtime.js';
 import { UserSpendStore } from '../spend/store.js';
 import { OWN_RUN_TASK } from './routes.js';
+import { MemorySelfFreezeRead } from './self-freeze.js';
 
 /**
  * A person's own agent, run through the service's own routes on real Postgres (AG-spend-01): the caps they set for it
@@ -113,7 +114,15 @@ if (!available) {
       spend: new UserSpendStore(sql),
       funds: { available: async () => balance },
     });
-    return createAgentsRouter({ runtime, gateway, meter, feeAssetId: 'USDT', sql });
+    return createAgentsRouter({
+      // An open freeze read: nobody here is frozen (J-wallet-13 fails closed without one).
+      selfFreeze: new MemorySelfFreezeRead(),
+      runtime,
+      gateway,
+      meter,
+      feeAssetId: 'USDT',
+      sql,
+    });
   }
 
   const people = () => {
@@ -378,12 +387,13 @@ if (!available) {
       });
       expect(await person.own.limits.get({ id })).toMatchObject({ limits: null });
       await person.own.limits.set({ id, perCall: '0.012', perSession: '0.02', perPeriod: '5' });
-      await expect(key.own.session.open({ id })).rejects.toMatchObject({ code: 'FORBIDDEN', cause: { code: 'scope.interactive_only' } });
+      // A key is told the run is the person's own, before its scope is read (J-agents-12 #3).
+      await expect(key.own.session.open({ id })).rejects.toMatchObject({ code: 'FORBIDDEN', message: 'agents.execute_person_only' });
       expect(await ownSessions()).toBe(0);
       const { sessionId } = await person.own.session.open({ id });
       await expect(key.own.run({ id, sessionId, requestId: 'own-key', ask: ASK })).rejects.toMatchObject({
         code: 'FORBIDDEN',
-        cause: { code: 'scope.interactive_only' },
+        message: 'agents.execute_person_only',
       });
       expect(calls).toBe(0);
       expect(await holds()).toEqual([]);

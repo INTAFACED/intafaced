@@ -207,9 +207,7 @@ describe('a team member writes on pay:onboard; an owner still needs pay:write (J
   });
 
   it('refuses with the typed unavailable answer when the service has no database', async () => {
-    const offline = createMerchantOpsRouter({ founderAuthority } as unknown as MerchantOpsDeps).createCaller(
-      ctxOf(principalOf(id(), onboard())),
-    );
+    const offline = createMerchantOpsRouter({ founderAuthority } as MerchantOpsDeps).createCaller(ctxOf(principalOf(id(), onboard())));
     await expect(offline.merchantOps.notifications.markAllRead({})).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
   });
 });

@@ -54,7 +54,6 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   MemoryLedger,
   formatAmount,
-  houseFees,
   parseAmount as amt,
   positionCollateralAccount,
   recipes,

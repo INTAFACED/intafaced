@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 
 /**
  * `own.usageLimits.get` / `own.usageLimits.set`: a soft alert and a monthly hard limit for one of the person's own
@@ -20,7 +21,7 @@ export const ownAgentUsageLimitsSchema = z.object({
   alert: z.object({ key: z.string(), spent: z.string() }).nullable(),
   hardLimitReached: z.boolean(),
   hardLimitRoom: z.string().nullable(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
 });
 export type OwnAgentUsageLimits = z.infer<typeof ownAgentUsageLimitsSchema>;
 

@@ -1,5 +1,5 @@
 /**
- * Lit glass component sheet. Reads only --lit-* roles from lit.css. Spacing that scales with density reads the
+ * Volt kit component sheet. Reads only --lit-* roles from lit.css. Spacing that scales with density reads the
  * density roles; structural sizes (hairlines, icon boxes, hit targets, a control's inner padding) stay raw px
  * here because the kit is the system. Logical sides only, so right-to-left needs nothing. Rooms never restyle
  * these classes.
@@ -92,7 +92,6 @@
 }
 .lit-button:disabled {
   cursor: not-allowed;
-  opacity: 0.45;
 }
 .lit-button[data-tone='primary'] {
   background: var(--lit-primary-bg);
@@ -107,6 +106,16 @@
 .lit-button[data-tone='quiet'] {
   background: transparent;
   color: var(--lit-accent-text);
+}
+/* Disabled, any tone: the dark pill with the second text colour, not a faded copy of the tone, so its words keep
+   their contrast (the look gate's 4.5) while it still reads as off. After the tones, so it wins over them. */
+.lit-button[data-tone]:disabled {
+  background: var(--lit-secondary-bg);
+  color: var(--lit-text-2);
+  box-shadow: none;
+}
+.lit-button[data-tone='quiet']:disabled {
+  background: none;
 }
 .lit-button[data-size='lg'] {
   min-height: calc(var(--lit-control-h) + 6px);
@@ -182,6 +191,12 @@
   letter-spacing: var(--lit-type-micro-tracking);
   text-transform: uppercase;
   cursor: pointer;
+  /* Its own padding and centring, so an app stylesheet that resets buttons can't push the words onto the pill's edge. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding-inline: 12px;
+  text-align: center;
 }
 .lit-segmented button[aria-pressed='true'],
 .lit-segmented button[aria-selected='true'] {

@@ -37,7 +37,7 @@ const person = (userId: string, handle: string | null) => ({ userId, handle });
 const spaces = [
   { id: 'main-usdt', name: 'Main', assetId: 'USDT', kind: 'primary', balance: '20' },
   { id: MINE, name: 'Holiday TEST', assetId: 'USDT', kind: 'named', balance: '10' },
-] as unknown as Space[];
+] as Space[];
 
 beforeEach(() => {
   opened = [];

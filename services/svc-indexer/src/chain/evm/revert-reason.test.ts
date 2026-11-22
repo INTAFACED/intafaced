@@ -25,6 +25,15 @@ describe('revertReasonFromData', () => {
     expect(revertReasonFromData(encodeErrorResult({ abi, errorName: 'Panic', args: [0x11n] }))).toBe('Panic(0x11)');
   });
 
+  it('names a Panic or Error whose payload is missing or cut short, never as a custom error', () => {
+    const panic = encodeErrorResult({ abi, errorName: 'Panic', args: [0x11n] });
+    const error = encodeErrorResult({ abi, errorName: 'Error', args: ['too little'] });
+    expect(revertReasonFromData(panic.slice(0, 10))).toBe('Panic with no readable code');
+    expect(revertReasonFromData(panic.slice(0, 42))).toBe('Panic with no readable code');
+    expect(revertReasonFromData(error.slice(0, 10))).toBe('Error with an unreadable message');
+    expect(revertReasonFromData(error.slice(0, 74))).toBe('Error with an unreadable message');
+  });
+
   it('shows an unknown custom error by selector, never as no reason', () => {
     const data = encodeErrorResult({ abi, errorName: 'SomethingElse', args: [1n] });
     expect(revertReasonFromData(data)).toBe(`Custom error ${data.slice(0, 10)}`);

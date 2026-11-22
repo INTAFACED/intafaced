@@ -363,8 +363,10 @@ export const blueprintExportSchema = z.object({
   matchRuns: z.array(
     z.object({
       id: z.string().guid(),
-      candidates: z.unknown(),
-      scores: z.unknown(),
+      /** The crews considered: ids and sizes only, never the candidates' profiles (`blueprint.match_runs.candidates`). */
+      candidates: z.array(z.object({ crewId: z.string().guid(), size: z.number().int().min(0) })),
+      /** `{ [crewId]: score }` in basis points (`blueprint.match_runs.scores`). */
+      scores: z.record(z.string().guid(), z.number().int()),
       placedCrewId: z.string().guid().nullable(),
       ts: z.string().datetime({ offset: true }),
     }),

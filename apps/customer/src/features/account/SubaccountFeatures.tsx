@@ -1,10 +1,15 @@
 import { useState } from 'react';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Failure } from '../../shared/ui';
 import { subAccountFeaturesCopy as copy } from './sub-account-features-copy';
-import { FEATURE_REFUSAL_KEYS, assetsView, featureResult, featuresView, type Feature } from './sub-account-features';
+import { FEATURE_REFUSAL_KEYS, type Feature } from './sub-account-features';
+import {
+  IDENTITY_SUB_ACCOUNTS_GET_FEATURES,
+  IDENTITY_SUB_ACCOUNTS_ASSETS,
+  IDENTITY_SUB_ACCOUNTS_SET_FEATURES,
+} from '@intafaced/contracts/identity-sub-accounts-procedures';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -22,14 +27,14 @@ export function SubaccountFeatures({ subAccountId }: { subAccountId: string }) {
   const features = useResource(
     (signal) =>
       userId && shown
-        ? api.query('identity', 'subAccounts.getFeatures', { subAccountId }, featuresView, { signal })
+        ? api.call(IDENTITY_SUB_ACCOUNTS_GET_FEATURES, { subAccountId }, { signal })
         : Promise.resolve({ ok: true as const, data: null }),
     `subaccount-features:${userId}:${subAccountId}:${shown}`,
   );
   const assets = useResource(
     (signal) =>
       userId && shown
-        ? api.query('identity', 'subAccounts.assets', { subAccountId }, assetsView, { signal })
+        ? api.call(IDENTITY_SUB_ACCOUNTS_ASSETS, { subAccountId }, { signal })
         : Promise.resolve({ ok: true as const, data: null }),
     `subaccount-assets:${userId}:${subAccountId}:${shown}`,
   );
@@ -39,7 +44,7 @@ export function SubaccountFeatures({ subAccountId }: { subAccountId: string }) {
     setBusy(feature);
     setFailure(null);
     try {
-      const answer = await api.mutate('identity', 'subAccounts.setFeatures', { subAccountId, feature, enabled }, featureResult);
+      const answer = await api.call(IDENTITY_SUB_ACCOUNTS_SET_FEATURES, { subAccountId, feature, enabled });
       if (!answer.ok) setFailure(answer);
       features.reload();
     } finally {

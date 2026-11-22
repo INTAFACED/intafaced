@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   academyAssignmentViewSchema,
-  academySubmissionFileSchema,
   type AcademyAnswerMode,
   type AcademyAssignmentView,
   type AcademySubmissionState,
@@ -10,12 +9,13 @@ import type { ApiResult } from '../../shared/api';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
 import { Button, Loading, Panel } from '../../shared/ui';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { academyCodeOf, academyRefusalText } from './academy-flows';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { academyCourseHref } from './academy-lms';
 import { AcademyRefusal } from './AcademyLmsParts';
 import { AcademyPeerReview } from './AcademyPeerReview';
+import { ACADEMY_UPLOAD_ASSIGNMENT_FILE } from '@intafaced/contracts/academy-upload-assignment-file-procedures';
 
 type Failure = Extract<ApiResult<never>, { ok: false }>;
 type T = (typeof copy)['t'];
@@ -291,12 +291,12 @@ export function AcademyAssignment({ slug, itemId }: { slug: string; itemId: stri
       if (file && data.fileLimits.maxBytes !== null && file.size > data.fileLimits.maxBytes)
         return setOutcome({ kind: 'refused', failure: refusalOf('academy.upload_too_large') });
       if (file) {
-        const uploaded = await api.mutate(
-          'academy',
-          'uploadAssignmentFile',
-          { itemId, fileName: file.name, contentType: file.type || 'application/octet-stream', contentBase64: await base64Of(file) },
-          academySubmissionFileSchema,
-        );
+        const uploaded = await api.call(ACADEMY_UPLOAD_ASSIGNMENT_FILE, {
+          itemId,
+          fileName: file.name,
+          contentType: file.type || 'application/octet-stream',
+          contentBase64: await base64Of(file),
+        });
         // The same file again is the same stored row, so a lost upload reply is safe to send again from here.
         if (!uploaded.ok)
           return setOutcome(uploaded.reason === 'uncertain' ? { kind: 'uncertain' } : { kind: 'refused', failure: uploaded });

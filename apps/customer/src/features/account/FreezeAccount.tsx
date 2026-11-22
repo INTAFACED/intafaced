@@ -1,24 +1,23 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import { selfFreezeCopy as copy } from './self-freeze-copy';
-import { StepUpConfirm } from '../money/StepUpConfirm';
+import { StepUpConfirm } from '../money';
 import {
   FREEZE_REASONS,
   FREEZE_REFUSAL_KEYS,
   LIFT_REFUSAL_KEYS,
   REASON_KEYS,
-  freezeDone,
-  freezeStatus,
-  liftDone,
   liftRequestId,
   liftWaitWords,
   type FreezeReason,
 } from './self-freeze';
+import { IDENTITY_AUTH_SELF_FREEZE_STATUS, IDENTITY_AUTH_SELF_FREEZE } from '@intafaced/contracts/identity-auth-procedures';
+import { IDENTITY_SELF_FREEZE_MANAGE_LIFT } from '@intafaced/contracts/identity-self-freeze-manage-procedures';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -50,9 +49,7 @@ export function FreezeAccount() {
   }, []);
   const status = useResource(
     (signal) =>
-      userId
-        ? api.query('identity', 'auth.selfFreezeStatus', undefined, freezeStatus, { signal })
-        : Promise.resolve({ ok: true as const, data: null }),
+      userId ? api.call(IDENTITY_AUTH_SELF_FREEZE_STATUS, undefined, { signal }) : Promise.resolve({ ok: true as const, data: null }),
     `self-freeze:${userId}`,
   );
 
@@ -61,7 +58,7 @@ export function FreezeAccount() {
     setBusy(true);
     setFailure(null);
     try {
-      const answer = await api.mutate('identity', 'auth.selfFreeze', { reason, password }, freezeDone);
+      const answer = await api.call(IDENTITY_AUTH_SELF_FREEZE, { reason, password });
       if (!mounted.current) return;
       if (!answer.ok) return setFailure(answer);
       setNote(t('frozenNote'));
@@ -76,12 +73,7 @@ export function FreezeAccount() {
     setLifting(true);
     setLiftFailure(null);
     try {
-      const answer = await api.mutate(
-        'identity',
-        'selfFreezeManage.lift',
-        { clientRequestId: liftRequestId(userId, since), stepUpApprovalId },
-        liftDone,
-      );
+      const answer = await api.call(IDENTITY_SELF_FREEZE_MANAGE_LIFT, { clientRequestId: liftRequestId(userId, since), stepUpApprovalId });
       if (!mounted.current) return;
       if (!answer.ok) {
         // The step-up is asked for only once the wait has passed: the service refuses too soon before it spends one.

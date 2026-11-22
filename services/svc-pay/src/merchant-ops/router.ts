@@ -1,6 +1,9 @@
 import type { Sql } from 'postgres';
 import { z } from 'zod';
-import { merchantCustomerSeriesInputSchema, merchantCustomerSeriesSchema, router, TRPCError } from '@intafaced/contracts';
+import { merchantCustomerSeriesInputSchema, merchantCustomerSeriesSchema } from '@intafaced/contracts/merchant-portal';
+import { payPageSchema } from '@intafaced/contracts/pay-merchant-reads';
+import { PAY_EXPORT_KINDS, payExportJobSchema, payPayoutListItemSchema } from '@intafaced/contracts/pay-portal-reads';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import { merchantActivationSchema } from '@intafaced/contracts/merchant-activation';
 import { defaultDisputeCaseStore, type DisputeCaseStore } from '../fraud/dispute-case.js';
 import type { FounderAuthority } from '../founder-authority.js';
@@ -11,7 +14,7 @@ import { DisputeOpsService, EVIDENCE_KINDS } from './disputes.js';
 import { EVIDENCE_UPLOAD_OFF, type DisputeEvidenceGate } from './dispute-evidence-policy.js';
 import { MerchantOpsError, wrapOps } from './errors.js';
 import { INVOICE_STATUSES, InvoiceService, type InvoiceLinkPort } from './invoices.js';
-import { EXPORT_KINDS, ExportService, type ExportDeps } from './exports.js';
+import { ExportService, type ExportDeps } from './exports.js';
 import { MerchantActivationView } from './activation.js';
 import { MerchantKybView } from './kyb.js';
 import { NOTIFICATION_KINDS, NotificationService } from './notifications.js';
@@ -35,9 +38,11 @@ import { MerchantSecurity } from './security.js';
 import { permissionCatalogue, refuseBuiltInRoleEdit } from './merchant-plat-org-permission-catalogue.js';
 import { TeamService } from './team.js';
 import { type TeamEmailInviteLimit } from './team-email.js';
-import { WebhookOps, type WebhookRetryLimit } from './webhooks.js';
+import { DELIVERY_STATUSES, WebhookOps, type WebhookRetryLimit, type WebhookSettings } from './webhooks.js';
+import type { WebhookResolver } from '../webhook-url-guard.js';
+import { MERCHANT_WEBHOOK_EVENT_TYPES } from '../merchant-webhooks.js';
 import { ownMerchantRead } from '../own-merchant-read.js';
-import { invitationAccept, membershipExit, teamMemberWrite } from '../team-member-write.js';
+import { invitationAccept, membershipExit, ownPreferenceWrite, teamMemberWrite } from '../team-member-write.js';
 
 /**
  * `merchantOps.*`   - the merchant's own operations pages (W15). Scoped to the
@@ -67,6 +72,10 @@ export interface MerchantOpsDeps {
   readonly webhooksAllowLocalHttp?: boolean;
   /** Retry window. Unset: retry refuses. No production default. */
   readonly webhookRetry?: WebhookRetryLimit;
+  /** The owner's webhook values (cap, overlap maximum, resend window, retry policy, guide). Each absent is blank. */
+  readonly webhookSettings?: WebhookSettings;
+  /** DNS for the add-time address check. Absent: the delivery worker's default. */
+  readonly webhookResolver?: WebhookResolver | undefined;
   /** Chargeback transactions by key, for the read-only dispute funds card. Absent: that read refuses. */
   readonly disputeFundsLedger?: DisputeFundsLedger;
   /** Email-invite window. Unset: email invite refuses. Account-id invite is unchanged. */
@@ -110,7 +119,12 @@ function makeParts(deps: MerchantOpsDeps) {
         branding: new ReceiptBrandingService(sql, deps.receiptPlaces ?? null),
         activity: new ActivityFeed(sql),
         payouts: new PayoutList(sql),
-        webhooks: new WebhookOps(sql, { allowLocalHttp: deps.webhooksAllowLocalHttp === true, retry: deps.webhookRetry }),
+        webhooks: new WebhookOps(sql, {
+          allowLocalHttp: deps.webhooksAllowLocalHttp === true,
+          retry: deps.webhookRetry,
+          ...(deps.webhookSettings ? { settings: deps.webhookSettings } : {}),
+          ...(deps.webhookResolver ? { resolver: deps.webhookResolver } : {}),
+        }),
         notes: new OperatorNotes(sql),
       }
     : null;
@@ -128,6 +142,8 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
   const { need } = makeParts(deps);
   /** pay:write, or pay:onboard for an active member of a verified business: see team-member-write.ts. */
   const memberWrite = teamMemberWrite(() => need().sql);
+  /** A person's own notification preferences: no KYB gate, the role table decides (team-member-write.ts). */
+  const ownPreference = ownPreferenceWrite();
   const accept = invitationAccept();
   const exit = membershipExit();
   const kick =
@@ -428,7 +444,7 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
           .input(
             z.object({
               requestId: id,
-              kind: z.enum(EXPORT_KINDS),
+              kind: z.enum(PAY_EXPORT_KINDS),
               filters: z
                 .object({
                   from: iso.optional(),
@@ -455,6 +471,7 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
                 .optional(),
             }),
           )
+          .output(payExportJobSchema)
           .mutation(({ ctx, input }) =>
             wrapOps(async () => {
               const p = need();
@@ -473,7 +490,7 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
             z.object({
               limit: limitInput,
               cursor: cursorInput,
-              kind: z.enum(EXPORT_KINDS).optional(),
+              kind: z.enum(PAY_EXPORT_KINDS).optional(),
               status: z.enum(['queued', 'running', 'ready', 'failed', 'expired']).optional(),
               search: z.string().trim().min(1).max(200).optional(),
               from: iso.optional(),
@@ -522,6 +539,7 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
               search: z.string().trim().min(1).max(200).optional(),
             }),
           )
+          .output(payPageSchema(payPayoutListItemSchema))
           .query(({ ctx, input }) => wrapOps(async () => need().payouts.list(await callerOf(ctx), input))),
       }),
 
@@ -537,7 +555,15 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
           )
           .query(({ ctx, input }) => wrapOps(async () => need().webhooks.list(await callerOf(ctx), input))),
         create: memberWrite
-          .input(z.object({ url: z.string().trim().min(1).max(2048) }))
+          .input(
+            z.object({
+              url: z.string().trim().min(1).max(2048),
+              eventTypes: z
+                .array(z.string().trim().min(1).max(100))
+                .max(MERCHANT_WEBHOOK_EVENT_TYPES.length * 2)
+                .optional(),
+            }),
+          )
           .mutation(({ ctx, input }) => wrapOps(async () => need().webhooks.create(await callerOf(ctx), input))),
         update: memberWrite
           .input(z.object({ endpointId: id, url: z.string().trim().min(1).max(2048) }))
@@ -546,7 +572,7 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
           .input(z.object({ endpointId: id }))
           .mutation(({ ctx, input }) => wrapOps(async () => need().webhooks.disable(await callerOf(ctx), input.endpointId))),
         rotateSecret: memberWrite
-          .input(z.object({ endpointId: id, requestId: id }))
+          .input(z.object({ endpointId: id, requestId: id, overlapSeconds: z.number().int().min(0).max(31_536_000).optional() }))
           .mutation(({ ctx, input }) => wrapOps(async () => need().webhooks.rotateSecret(await callerOf(ctx), input))),
         deliveries: router({
           list: read
@@ -555,7 +581,7 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
                 limit: limitInput,
                 cursor: cursorInput,
                 endpointId: id.optional(),
-                status: z.enum(['pending', 'delivered', 'failed', 'dead']).optional(),
+                status: z.enum(DELIVERY_STATUSES).optional(),
                 from: iso.optional(),
                 to: iso.optional(),
               }),
@@ -564,7 +590,18 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
           retry: memberWrite
             .input(z.object({ requestId: id, deliveryId: id }))
             .mutation(({ ctx, input }) => wrapOps(async () => need().webhooks.retry(await callerOf(ctx), input))),
+          attempts: read
+            .input(z.object({ deliveryId: id }))
+            .query(({ ctx, input }) => wrapOps(async () => need().webhooks.attempts(await callerOf(ctx), input))),
+          recover: memberWrite
+            .input(z.object({ requestId: id, endpointId: id, since: iso }))
+            .mutation(({ ctx, input }) => wrapOps(async () => need().webhooks.recover(await callerOf(ctx), input))),
         }),
+        policy: read.input(z.object({}).strict()).query(({ ctx }) => wrapOps(async () => need().webhooks.policy(await callerOf(ctx)))),
+        catalogue: read
+          .input(z.object({}).strict())
+          .query(({ ctx }) => wrapOps(async () => need().webhooks.catalogue(await callerOf(ctx)))),
+        guide: read.input(z.object({}).strict()).query(({ ctx }) => wrapOps(async () => need().webhooks.guide(await callerOf(ctx)))),
         health: read.input(z.object({}).strict()).query(({ ctx }) => wrapOps(async () => need().webhooks.health(await callerOf(ctx)))),
       }),
 
@@ -595,7 +632,7 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
           history: read
             .input(z.object({ limit: limitInput, cursor: cursorInput }))
             .query(({ ctx, input }) => wrapOps(async () => need().notifications.preferenceHistory(await callerOf(ctx), input))),
-          set: memberWrite
+          set: ownPreference
             .input(
               z.object({
                 kind: z.enum(NOTIFICATION_KINDS),

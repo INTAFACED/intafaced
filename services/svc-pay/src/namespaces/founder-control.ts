@@ -1,8 +1,5 @@
 import { z } from 'zod';
 import {
-  router,
-  merchantControlGetInputSchema,
-  merchantControlProfileSchema,
   founderChangeSubmitInputSchema,
   founderChangeSubmitResultSchema,
   founderChangeConfirmInputSchema,
@@ -14,12 +11,18 @@ import {
   founderControlAuditListSchema,
   founderPendingChangeListInputSchema,
   founderPendingChangeListSchema,
+} from '@intafaced/contracts/founder-admin';
+import {
+  merchantControlGetInputSchema,
+  merchantControlProfileSchema,
   founderLimitRequestListInputSchema,
   founderLimitRequestListSchema,
   founderLimitRequestCloseInputSchema,
   founderLimitRequestCloseResultSchema,
   payoutApprovalSchema,
-} from '@intafaced/contracts';
+  payControlUsageSchema,
+} from '@intafaced/contracts/merchant-control';
+import { router } from '@intafaced/contracts/trpc';
 import type { ChangeOutcome } from '../control/changes.js';
 import { toContractApproval } from '../control/approvals.js';
 import { ControlError } from '../control/errors.js';
@@ -32,7 +35,6 @@ import {
   pricingRuleViewSchema,
   tierListInputSchema,
   tierViewSchema,
-  usageViewSchema,
 } from '../control/schemas.js';
 import { guarded } from './control-errors.js';
 import type { founderProcedure } from './founder-procedure.js';
@@ -134,7 +136,7 @@ export function createFounderControlRouter(founder: Founder, control: ControlSer
         .query(({ input }) => guarded(() => control.profile(input.merchantId))),
       usage: founder
         .input(merchantControlGetInputSchema)
-        .output(usageViewSchema)
+        .output(payControlUsageSchema)
         .query(({ input }) => guarded(() => control.usage(input.merchantId))),
     }),
     configure: router({

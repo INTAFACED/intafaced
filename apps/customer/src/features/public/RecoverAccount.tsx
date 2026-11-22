@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { supportRecoveryRedeemSchema } from '@intafaced/contracts/identity';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { Button, Failure } from '../../shared/ui';
 import { supportRecoveryCopy } from './support-recovery-copy';
-import './public-pages.css';
+import '../../shared/public-pages.css';
+import { IDENTITY_SUPPORT_RECOVERY_REDEEM } from '@intafaced/contracts/identity-support-recovery-procedures';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -34,7 +34,7 @@ export function RecoverAccount() {
     if (busy) return;
     setBusy(true);
     setRefusal(null);
-    const answer = await api.mutate('identity', 'supportRecovery.redeem', { token }, supportRecoveryRedeemSchema);
+    const answer = await api.call(IDENTITY_SUPPORT_RECOVERY_REDEEM, { token });
     if (!mounted.current) return;
     setBusy(false);
     if (answer.ok) setDone(true);

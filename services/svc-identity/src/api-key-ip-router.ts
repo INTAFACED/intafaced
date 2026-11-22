@@ -1,5 +1,6 @@
+import type { Queryable } from '@intafaced/db';
 import { z } from 'zod';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import type { Sql } from 'postgres';
 import { AuthError, assertDelegateCannotGrant } from './auth/auth-service.js';
 import { ApiKeyIpError, bindApiKeyIpAllowlist } from './auth/auth-service-ip.js';
@@ -13,7 +14,7 @@ import {
 import { normalizeIp } from './auth/api-key-ip.js';
 import { mintApiKeyWithIpAllowlist, type ApiKeyMinter } from './auth/mint-api-key-ip.js';
 
-async function currentList(sql: Sql, userId: string, keyId: string): Promise<string[]> {
+async function currentList(sql: Queryable, userId: string, keyId: string): Promise<string[]> {
   const rows = await sql<Array<{ ip_allowlist: string[] | null }>>`
     SELECT ip_allowlist FROM api_keys WHERE id = ${keyId} AND user_id = ${userId} AND revoked = false FOR UPDATE
   `;

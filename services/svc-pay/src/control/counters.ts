@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { ControlRefusal, type ControlRefusalCode } from './errors.js';
@@ -29,7 +30,7 @@ const EXCEEDED: Record<MoneyCapKind, ControlRefusalCode> = {
   daily_payout: 'pay.cap_daily_payout_exceeded',
 };
 
-async function lockCounter(tx: Sql, merchantId: string, kind: string, assetCode: string, periodKey: string): Promise<Amount> {
+async function lockCounter(tx: Queryable, merchantId: string, kind: string, assetCode: string, periodKey: string): Promise<Amount> {
   await tx`
     INSERT INTO pay.control_cap_usage (merchant_id, cap_kind, asset_code, period_key)
     VALUES (${merchantId}, ${kind}, ${assetCode}, ${periodKey})
@@ -44,7 +45,13 @@ async function lockCounter(tx: Sql, merchantId: string, kind: string, assetCode:
 }
 
 /** Take the cap counter FOR UPDATE, creating the row at 0 when this period has none yet. */
-export function lockMoneyUsage(tx: Sql, merchantId: string, kind: MoneyCapKind, assetCode: string, periodKey: string): Promise<Amount> {
+export function lockMoneyUsage(
+  tx: Queryable,
+  merchantId: string,
+  kind: MoneyCapKind,
+  assetCode: string,
+  periodKey: string,
+): Promise<Amount> {
   return lockCounter(tx, merchantId, kind, assetCode, periodKey);
 }
 
@@ -57,7 +64,7 @@ export interface ConsumeResult {
 
 /** Add `amount` to a money counter if it stays at or under `limit`; refuse otherwise. */
 export async function consumeMoney(
-  tx: Sql,
+  tx: Queryable,
   input: {
     merchantId: string;
     kind: MoneyCapKind;
@@ -118,7 +125,7 @@ export async function consumeBeneficiary(
 }
 
 /** Read-only usage for display; no lock, missing row = 0. */
-export async function readUsage(q: Sql, merchantId: string, kind: string, assetCode: string, periodKey: string): Promise<Amount> {
+export async function readUsage(q: Queryable, merchantId: string, kind: string, assetCode: string, periodKey: string): Promise<Amount> {
   const rows = await q<Array<{ used: string }>>`
     SELECT used FROM pay.control_cap_usage
      WHERE merchant_id = ${merchantId} AND cap_kind = ${kind} AND asset_code = ${assetCode} AND period_key = ${periodKey}
@@ -139,7 +146,7 @@ export async function markCounted(
 }
 
 /** Has this business key already been counted for this cap? Read inside the admission transaction. */
-export async function alreadyCounted(tx: Sql, eventKey: string, kind: string): Promise<boolean> {
+export async function alreadyCounted(tx: Queryable, eventKey: string, kind: string): Promise<boolean> {
   const rows = await tx`SELECT 1 FROM pay.control_cap_events WHERE event_key = ${eventKey} AND cap_kind = ${kind}`;
   return rows.length > 0;
 }

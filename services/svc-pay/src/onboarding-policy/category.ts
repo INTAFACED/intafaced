@@ -1,20 +1,19 @@
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
-import {
-  CATEGORY_CLASS_RAILS,
-  businessCategoryTermsSchema,
-  type BusinessCategory,
-  type BusinessCategoryClass,
-  type BusinessCategoryTerms,
-  type CategoryPolicyEvent,
-  type CategoryPolicyPreview,
-  type CategoryPolicyPreviewInput,
-  type CategoryPolicySetInput,
-  type CategoryPolicyView,
-  type MerchantCategoryChooseInput,
-  type MerchantCategoryView,
+import { transaction, type Queryable } from '@intafaced/db';
+import type {
+  BusinessCategory,
+  BusinessCategoryClass,
+  BusinessCategoryTerms,
+  CategoryPolicyEvent,
+  CategoryPolicyPreview,
+  CategoryPolicyPreviewInput,
+  CategoryPolicySetInput,
+  CategoryPolicyView,
+  MerchantCategoryChooseInput,
+  MerchantCategoryView,
 } from '@intafaced/contracts';
+import { CATEGORY_CLASS_RAILS, businessCategoryTermsSchema } from '@intafaced/contracts/business-category';
 import { consumePayApproval, payActionPayloadHash, type ActionApprovalConsumer } from '../action-approval-consume.js';
 import { PAY_BUSINESS_CATEGORY_CHANGE, businessCategoryChangeFields } from '../approval-bindings.js';
 import { requireDualControl } from '../dual-control.js';
@@ -115,7 +114,7 @@ function canonicalTerms(terms: BusinessCategoryTerms): string {
 
 const sameTerms = (a: BusinessCategoryTerms, b: BusinessCategoryTerms) => canonicalTerms(a) === canonicalTerms(b);
 
-async function tableVersion(sql: Sql): Promise<number> {
+async function tableVersion(sql: Queryable): Promise<number> {
   const [row] = await sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM pay.business_category_events`;
   return Number(row?.n ?? '0');
 }
@@ -315,7 +314,7 @@ export class CategoryPolicyService {
   }
 
   /** Reads only. The rules a change must meet before anything is approved or written. */
-  private async plan(sql: Sql, input: CategoryPolicyPreviewInput) {
+  private async plan(sql: Queryable, input: CategoryPolicyPreviewInput) {
     const after = termsFromInput(input);
     const [before] = await sql.unsafe<CategoryRow[]>(`SELECT ${COLUMNS} FROM pay.business_categories WHERE key = $1`, [input.key]);
     if (input.expectedVersion === null) {
@@ -343,7 +342,7 @@ export class CategoryPolicyService {
 
 /** The rule a business's chosen category puts on its payments; null when it has chosen none. */
 export async function merchantCategoryRule(
-  sql: Sql,
+  sql: Queryable,
   merchantId: string,
 ): Promise<{ key: string; class: BusinessCategoryClass; reserveSet: boolean } | null> {
   const [row] = await sql<Array<{ key: string; class: BusinessCategoryClass; reserve_set: boolean }>>`
@@ -360,7 +359,7 @@ export async function merchantCategoryRule(
  * this, a business that never chose would go live with no category rule at all, and verified it could no longer choose.
  * While the table is empty the go-live checklist names `category_policy_unset` and approval is not refused here.
  */
-export async function assertCategoryApprovable(sql: Sql, merchantId: string): Promise<void> {
+export async function assertCategoryApprovable(sql: Queryable, merchantId: string): Promise<void> {
   if ((await tableVersion(sql)) === 0) return;
   const rule = await merchantCategoryRule(sql, merchantId);
   if (!rule) throw new PayError('The business has not chosen its category, so it cannot be approved', 'pay.category_not_chosen');

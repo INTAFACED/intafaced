@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
 import { displayAmount } from '../../shared/money';
 import { Button, DataTable, EmptyState, Field, Loading, Panel } from '../../shared/ui';
@@ -244,8 +244,8 @@ function AgentDetail({
                       <td>{tool.name}</td>
                       <td>{tool.mode}</td>
                       <td>{tool.requiresApproval ? t('approvalRequired') : t('approvalNone')}</td>
-                      <td>{t('shapeUnpublished')}</td>
-                      <td>{t('shapeUnpublished')}</td>
+                      <td>{tool.shape ? <ShapeFields fields={tool.shape.input} /> : t('shapeUnpublished')}</td>
+                      <td>{tool.shape ? <ShapeFields fields={tool.shape.output} /> : t('shapeUnpublished')}</td>
                       <td>
                         <ul>
                           {tool.refusals.map((code) => (
@@ -269,6 +269,19 @@ function AgentDetail({
       ) : null}
       {agent.id === 'navigator' ? <NavigatorOnChain /> : null}
     </>
+  );
+}
+
+/** A tool's declared fields as the service stores them: each name with its type in words, in the stored order. */
+function ShapeFields({ fields }: { fields: Readonly<Record<string, string>> }) {
+  return (
+    <ul>
+      {Object.entries(fields).map(([field, type]) => (
+        <li key={field}>
+          {field}: {type}
+        </li>
+      ))}
+    </ul>
   );
 }
 

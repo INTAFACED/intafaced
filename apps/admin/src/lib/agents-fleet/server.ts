@@ -1,8 +1,8 @@
 import 'server-only';
-import { founderCall, type FounderCallContext } from '@/lib/desk/founder-call';
-import { refusalOf, resolveCustomer } from '@/lib/agents-log/server';
-import { customerReference } from '@/lib/agents-log/model';
+import { founderCall, type FounderCallContext, founderRecordRead } from '@/lib/desk';
+import { customerReference, refusalOf, resolveCustomer } from '@/lib/agents-log';
 import type { FleetAction } from './model';
+import { IDENTITY_ACCOUNT_DIRECTORY_HANDLES } from '@intafaced/contracts/identity-account-directory-procedures';
 
 /**
  * The agent fleet desk's hops (AG-registry-01, AG-control-02), always as the signed-in founder through svc-edge:
@@ -80,7 +80,7 @@ function registryIds(rows: readonly Json[]): unknown[] {
 }
 
 /** The handles of the accounts a page names. An id identity does not answer for stays an id on the page. */
-async function handlesFor(
+export async function handlesFor(
   ctx: FounderCallContext,
   named: readonly unknown[],
 ): Promise<{ handles: Record<string, string>; unread: boolean }> {
@@ -89,14 +89,7 @@ async function handlesFor(
   const all = [...ids];
   const handles: Record<string, string> = {};
   for (let at = 0; at < all.length; at += HANDLES_CAP) {
-    const result = await founderCall(
-      ctx,
-      'identity',
-      'accountDirectory.handles',
-      'GET',
-      { ids: all.slice(at, at + HANDLES_CAP) },
-      parseHandles,
-    );
+    const result = await founderRecordRead(ctx, IDENTITY_ACCOUNT_DIRECTORY_HANDLES, { ids: all.slice(at, at + HANDLES_CAP) }, parseHandles);
     // Identity not answering leaves the ids on the page, said so; it never hides the registry svc-agents returned.
     if (result.kind !== 'ok') return { handles, unread: true };
     for (const row of result.data) handles[row.id.toLowerCase()] = row.handle;
