@@ -231,15 +231,7 @@ export function Status({ value }: { value: string }) {
   );
 }
 /** `refreshed`: the page already shows the new state itself, so it does not tell the person to refresh. */
-export function MutationResult({
-  result,
-  title,
-  refreshed = false,
-}: {
-  result: ApiResult<unknown> | null;
-  title: string;
-  refreshed?: boolean;
-}) {
+function MutationResult({ result, title, refreshed = false }: { result: ApiResult<unknown> | null; title: string; refreshed?: boolean }) {
   if (!result) return null;
   return result.ok ? (
     <p className="pay-confirmed" role="status">

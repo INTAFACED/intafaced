@@ -78,7 +78,7 @@ export function statementColumns(t: Words, test: boolean, showRunning: boolean) 
       : []),
   ];
 }
-export const statementCard = (t: Words, test: boolean) => (l: StatementLine) => ({
+const statementCard = (t: Words, test: boolean) => (l: StatementLine) => ({
   title: kindWords(t, l.kind),
   time: <DateTime value={l.at} />,
   amount: <SignedAmount line={l} test={test} />,

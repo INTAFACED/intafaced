@@ -17,7 +17,7 @@ import type { MoneyKind } from '../portal/access/money-step';
 import { StepUpNote } from '../portal/access/step-up';
 import { useReviewedAction } from '../reviewed-action';
 
-export { PayTime, payTimeText } from '../pay-time';
+export { PayTime } from '../pay-time';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -55,7 +55,7 @@ export function PayFailure({ result, retry }: { result: Failed; retry?: () => vo
 }
 
 /** Nothing here yet, said honestly, with a caller-owned action (`EmptyState` in `../ui-kit`). */
-export function EmptyState({ title, children, action }: { title: ReactNode; children?: ReactNode; action?: ReactNode }) {
+function EmptyState({ title, children, action }: { title: ReactNode; children?: ReactNode; action?: ReactNode }) {
   return (
     <div data-slot="empty-state" className="lt-empty">
       <h3 className="lt-empty-title">{title}</h3>
@@ -66,7 +66,7 @@ export function EmptyState({ title, children, action }: { title: ReactNode; chil
 }
 
 /** The shape of what is coming, announced once to assistive tech. */
-export function PayLoading({ rows = 3 }: { rows?: number }) {
+function PayLoading({ rows = 3 }: { rows?: number }) {
   return (
     <div role="status" aria-busy="true" aria-label={uiCopy.t('loading')}>
       <Skeleton shape="rows" count={rows} />
@@ -129,41 +129,6 @@ export function PaySection({
       {action ? <div className="lt-actions">{action}</div> : null}
       {children}
     </section>
-  );
-}
-
-/** How many rows are shown, and the one way to ask for more. */
-export function PayPagination({
-  count,
-  limit,
-  max = 200,
-  setLimit,
-  fetched = count,
-}: {
-  count: number;
-  limit: number;
-  max?: number;
-  setLimit: (limit: number) => void;
-  fetched?: number;
-}) {
-  const full = fetched === limit;
-  return (
-    <div className="lt-actions">
-      <p className="lt-hint">
-        <PayCopy k="recordsWindow" params={{ count, limit }} />
-        {full ? payCopy.t('moreRecordsMayExist') : ''}
-      </p>
-      {full && limit < max && (
-        <Button tone="secondary" onClick={() => setLimit(max)}>
-          <PayCopy k="showRecords" params={{ max }} />
-        </Button>
-      )}
-      {full && limit === max && (
-        <p className="lt-hint">
-          <PayCopy k="thisServiceHasNoContinuationCursorThis" />
-        </p>
-      )}
-    </div>
   );
 }
 
