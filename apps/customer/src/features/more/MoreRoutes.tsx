@@ -25,6 +25,7 @@ import type { MiningTab } from './MiningAvailability';
 import { Market } from './Market';
 import { MarketListingPage } from './MarketListingPage';
 import { Prediction } from './Prediction';
+import { PredictRoom } from './predict-room/PredictRoom';
 import { quantRoute } from '../quant';
 import { quantModeRoute } from './quant-mode-route';
 import { Support, supportPageTitleKey } from './Support';
@@ -32,10 +33,13 @@ import { SupportChatRoom } from './SupportChat';
 import { chatCopy } from './support-chat-copy';
 import { supportRoute } from './support-desk';
 import { deskCopy } from './support-desk-copy';
-import { Token, type TokenTab } from './Token';
+import { Token, selectedFor, type TokenTab } from './Token';
+import { TokenRoom } from './token-room/TokenRoom';
 import { launchCopy } from './launch-copy';
 import { LaunchDetail } from './LaunchCatalogue';
+import { LaunchRoom } from './launch-room/LaunchRoom';
 import { miningCopy } from './mining-copy';
+import { MiningRoom } from './mining-room/MiningRoom';
 import { predictionCatalogueCopy } from './prediction-catalogue-copy';
 import { matchMoreRoute, type MoreRoomId } from './more-room-routes';
 import { moreRoomRoutesCopy } from './more-room-routes-copy';
@@ -131,11 +135,14 @@ function MoreRooms({ path }: { path: string }) {
     volt = <CampaignDetail key={p} campaignId={decodeURIComponent(p.slice('/campaigns/'.length))} />;
   } else if (p === '/campaigns/drops') {
     volt = <DropRoom />;
-  } else if (p === '/launch' || p === '/uc/innovation/myorders') {
+  } else if (p === '/launch') {
     room = 'launch';
-    title = p === '/launch' ? copyText('moreroutes.launch') : copyText('moreroutes.my.launch.orders');
+    volt = <LaunchRoom paper={paper} />;
+  } else if (p === '/uc/innovation/myorders') {
+    room = 'launch';
+    title = copyText('moreroutes.my.launch.orders');
     description = <launchCopy.Copy k="scope" />;
-    content = <Launch orders={p !== '/launch'} />;
+    content = <Launch orders />;
   } else if (p === '/market' || p === '/market/mine' || p === '/market/strategy') {
     room = 'market';
     title =
@@ -148,19 +155,17 @@ function MoreRooms({ path }: { path: string }) {
     content = <Market key={p} mine={p === '/market/mine'} strategy={p === '/market/strategy'} />;
   } else if (p === '/predict') {
     room = 'predict';
-    title = copyText('moreroutes.prediction');
-    description = <predictionCatalogueCopy.Copy k="scope" />;
-    content = <Prediction />;
+    volt = <PredictRoom />;
   } else if (p === '/mining') {
     room = 'mining';
-    title = copyText('moreroutes.mining');
-    description = <miningCopy.Copy k="scope" />;
-    content = <Mining />;
+    volt = <MiningRoom paper={paper} />;
   } else if (p === '/token') {
     room = 'token';
     title = copyText('moreroutes.token');
     description = copyText('moreroutes.exact.stake.records.access.and.governance');
-    content = <Token />;
+    // With a proposal saved for this account, /token opens on governance, which is not this room: the old room draws it.
+    if (selectedFor(userId ?? null)) content = <Token />;
+    else volt = <TokenRoom paper={paper} />;
   } else if (quant) {
     ({ title, description, content } = quant);
   } else if (p === '/support/chat') {
