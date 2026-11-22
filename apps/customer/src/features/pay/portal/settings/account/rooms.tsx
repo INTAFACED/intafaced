@@ -5,15 +5,16 @@ import { readyAccess, useMerchantAccess } from '../../access/MerchantAccess';
 import { Gate } from '../../components';
 import type { RoomTable } from '../../rooms-model';
 import { Activity } from '../activity/Activity';
-import { Compliance } from '../onboarding/Compliance';
+import { ComplianceRoom } from '../onboarding/Compliance';
 import { Onboarding } from '../onboarding/Onboarding';
-import { BusinessSettings } from '../profile/BusinessSettings';
+import { BusinessSettingsRoom } from '../profile/BusinessSettings';
 import { Security } from '../security/Security';
-import { InvitationsOnly, Team } from '../team/Team';
+import { InvitationsOnly, TeamRoom } from '../team/Team';
 import { NoBusiness } from '../../access/NoBusiness';
 import { Network } from '../network/Network';
 import { NetworkChild } from '../network/NetworkChild';
-import { Permissions } from '../network/Permissions';
+import { PermissionsRoom as PermissionsSettings } from '../network/Permissions';
+import { LinkButton } from '../../volt/parts';
 import { extensionCopy, portalCopy, settingsCopy } from '../copy';
 import type { PortalApi } from '../../api';
 import { accountCopy } from './copy';
@@ -43,8 +44,7 @@ function NetworkChildRoom({ portal, child }: { portal: PortalApi; child: string 
   return <WithAccount>{() => <NetworkChild portal={portal} childId={child} mode={mode} />}</WithAccount>;
 }
 function PermissionsRoom({ portal }: { portal: PortalApi }) {
-  const mode = useMode();
-  return <WithAccount>{({ merchantId }) => <Permissions portal={portal} merchantId={merchantId} mode={mode} />}</WithAccount>;
+  return <PermissionsSettings portal={portal} mode={useMode()} />;
 }
 
 /** The pages the account package owns: setup, business details, team, security, activity and the platform network. */
@@ -53,20 +53,22 @@ export const accountRooms: RoomTable = {
     header: () => ({
       title: extensionCopy.t('complianceTitle'),
       purpose: extensionCopy.t('compliancePurpose'),
-      action: link('/pay/onboarding/verification', extensionCopy.t('verificationAction'), 'primary'),
+      action: (
+        <LinkButton href="/pay/onboarding/verification" tone="primary">
+          {extensionCopy.t('verificationAction')}
+        </LinkButton>
+      ),
     }),
-    render: (_route, { portal }) => (
-      <WithAccount>{({ merchantId, role }) => <Compliance portal={portal} merchantId={merchantId} role={role} />}</WithAccount>
-    ),
+    ownTitle: true,
+    render: (_route, { portal }) => <ComplianceRoom portal={portal} />,
   },
   settings: {
     header: () => ({
       title: accountCopy.t('businessTitle'),
       purpose: accountCopy.t('businessPurpose'),
     }),
-    render: (_route, { portal }) => (
-      <WithAccount>{({ merchantId }) => <BusinessSettings portal={portal} merchantId={merchantId} />}</WithAccount>
-    ),
+    ownTitle: true,
+    render: (_route, { portal }) => <BusinessSettingsRoom portal={portal} />,
   },
   'settings-security': {
     header: () => ({ title: settingsCopy.t('securityTitle'), purpose: settingsCopy.t('securityPurpose') }),
@@ -102,13 +104,14 @@ export const accountRooms: RoomTable = {
       ),
   },
   team: {
-    header: () => ({ title: t('pageTeam'), purpose: t('purposeTeam'), action: link('#invite', t('actInvite')) }),
+    header: () => ({ title: t('pageTeam'), purpose: t('purposeTeam'), action: <LinkButton href="#invite">{t('actInvite')}</LinkButton> }),
     withoutBusiness: ({ portal }) => (
       <NoBusiness>
         <InvitationsOnly portal={portal} />
       </NoBusiness>
     ),
-    render: (_route, { portal }) => <WithAccount>{() => <Team portal={portal} />}</WithAccount>,
+    ownTitle: true,
+    render: (_route, { portal }) => <TeamRoom portal={portal} />,
   },
   activity: {
     header: () => ({ title: settingsCopy.t('activityTitle'), purpose: settingsCopy.t('activityPurpose') }),
@@ -125,6 +128,7 @@ export const accountRooms: RoomTable = {
   },
   permissions: {
     header: () => ({ title: settingsCopy.t('permissionsTitle'), purpose: settingsCopy.t('permissionsPurpose') }),
+    ownTitle: true,
     render: (_route, { portal }) => <PermissionsRoom portal={portal} />,
   },
 };

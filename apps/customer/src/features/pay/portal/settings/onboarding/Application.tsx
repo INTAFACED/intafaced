@@ -58,19 +58,8 @@ export function rolesWithoutPerson(roles: readonly string[], people: Person[]): 
 export const peopleComplete = (roles: readonly string[], people: Person[]) =>
   people.length > 0 && people.every(personDone) && rolesWithoutPerson(roles, people).length === 0;
 
-/** Checked before anything is sent: the owner's size limit and accepted kinds of file. Null means the file may go. */
-export function fileProblem(file: { size: number; type: string }, rules: NonNullable<Checklist['uploadRules']>, t: T): string | null {
-  if (file.size < 1) return t('emptyFile');
-  if (!rules.contentTypes.some((type) => type.toLowerCase() === file.type.toLowerCase()))
-    return t('wrongType', { types: kindsOf(rules.contentTypes) });
-  if (file.size > rules.maxBytes) {
-    const [size, limit] = [formatBytes(String(file.size)), formatBytes(String(rules.maxBytes))];
-    // Just over the limit both round to the same figure, so say it in bytes.
-    return size === limit ? t('tooLarge', { size: `${file.size} B`, limit: `${rules.maxBytes} B` }) : t('tooLarge', { size, limit });
-  }
-  return null;
-}
-export const kindsOf = (types: readonly string[]) => types.map((type) => (type.split('/')[1] ?? type).toUpperCase()).join(', ');
+export { base64Of, fileProblem, kindsOf } from './files';
+import { base64Of, fileProblem, kindsOf } from './files';
 
 /** What the summary lists as still needed: each unfinished part, and by name each document not sent or marked invalid. */
 export function stillNeeded(application: Application, checklist: Checklist | null, t: T): string[] {
@@ -699,13 +688,6 @@ function DocumentLine({ portal, application, row, rules, reloadDocuments }: Inne
       </td>
     </tr>
   );
-}
-
-export async function base64Of(file: Blob): Promise<string> {
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  let binary = '';
-  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return btoa(binary);
 }
 
 function Submit({ portal, application, onChanged, onSubmitted }: Inner) {

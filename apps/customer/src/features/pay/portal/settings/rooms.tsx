@@ -3,7 +3,8 @@ import { Button } from '@intafaced/ui';
 import { WithAccount } from '../access/WithAccount';
 import { extensionCopy, portalCopy } from './copy';
 import type { RoomTable } from '../rooms-model';
-import { Notifications } from './Notifications';
+import { NotificationPreferencesRoom, Notifications } from './Notifications';
+import { LinkButton } from '../volt/parts';
 import { accountRooms } from './account/rooms';
 import { analyticsRooms } from './analytics/rooms';
 import { developersRooms } from './developers/rooms';
@@ -21,19 +22,20 @@ const settingsHeader = (room: 'settings' | 'settings-notifications') =>
     ? {
         title: extensionCopy.t('notificationSettings'),
         purpose: t('purposeNotificationPrefs'),
-        action: link('/pay/settings', extensionCopy.t('settingsTitle')),
+        action: <LinkButton href="/pay/settings">{extensionCopy.t('settingsTitle')}</LinkButton>,
       }
     : {
         title: extensionCopy.t('settingsTitle'),
         purpose: extensionCopy.t('settingsPurpose'),
-        action: link('/pay/settings/notifications', extensionCopy.t('notificationSettings')),
+        action: <LinkButton href="/pay/settings/notifications">{extensionCopy.t('notificationSettings')}</LinkButton>,
       };
 export const settingsRooms: RoomTable = {
   ...accountRooms,
   'settings-notifications': {
     header: () => settingsHeader('settings-notifications'),
     here: '/pay/settings/notifications',
-    render: (_route, { portal }) => <WithAccount>{() => <Notifications portal={portal} preferencesOnly />}</WithAccount>,
+    ownTitle: true,
+    render: (_route, { portal }) => <NotificationPreferencesRoom portal={portal} />,
   },
   ...developersRooms,
   ...reportsRooms,

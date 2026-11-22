@@ -497,3 +497,47 @@ export function LinkButton({ href, tone = 'secondary', children }: { href: strin
     </a>
   );
 }
+
+/**
+ * Loading and refusal for one read. A read the service has not switched on yet becomes a card naming what it waits for
+ * (`waiting.reason`) instead of an error, so the page still says what is missing and why (`../settings/account/ui`).
+ */
+export function ReadGate<T>({
+  resource,
+  retry,
+  waiting,
+  rows,
+  children,
+}: {
+  resource: Resource<T>;
+  retry: () => void;
+  waiting: { reason: string; body: string; needs?: string };
+  rows?: number;
+  children: (data: T) => ReactNode;
+}) {
+  if (resource.status === 'failed' && isNotLive(resource.failure))
+    return (
+      <NotLive reason={waiting.reason} needs={waiting.needs}>
+        {waiting.body}
+      </NotLive>
+    );
+  return (
+    <Gate resource={resource} retry={retry} {...(rows ? { rows } : {})}>
+      {children}
+    </Gate>
+  );
+}
+
+/** Label and value rows (`PayDetails` in `../../components`): a label in its own language when it has one. */
+export function Details({ values }: { values: [string, ReactNode, string?][] }) {
+  return (
+    <dl className="lt-kv">
+      {values.map(([label, value, labelLanguage]) => (
+        <div key={label}>
+          <dt lang={labelLanguage}>{label}</dt>
+          <dd>{value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}

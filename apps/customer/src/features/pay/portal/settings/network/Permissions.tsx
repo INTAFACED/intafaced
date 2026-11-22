@@ -1,21 +1,19 @@
 import { useState } from 'react';
-import { EmptyState, Field } from '../../../ui-kit';
 import { useResource, type Resource } from '../../../../../shared/resource';
-import { PaySection } from '../../../components';
 import { useMerchantAccess } from '../../access/MerchantAccess';
-import { SelectField, Timeline } from '../../components';
 import { useUrlParam } from '../../hooks';
 import type { PortalApi } from '../../api';
 import { DateTime } from '../../ui/DateTime';
-import { EntityList } from '../../ui/EntityList';
-import { PortalReview } from '../../ui/PortalReview';
 import { reason as notLive } from '../../chrome/copy';
 import { accountCopy } from '../account/copy';
+import { SettingsRoom } from '../../volt/SettingsRoom';
 import { portalCopy } from '../copy';
 import { areaWords, isPlatformAccount, nodeName } from '../account/model';
 import type { Grant, PermissionEvent, SubMerchant } from '../account/schemas';
-import { ReadGate } from '../account/ui';
-import { NotPlatform } from './Network';
+import { NotPlatform } from './NotPlatform';
+import { Empty, EntityList, ReadGate, Section, SelectField, Timeline } from '../../volt/parts';
+import { Review } from '../../volt/Review';
+import { Field } from '@intafaced/ui/lit';
 
 /** `/pay/permissions`: which areas of a sub-merchant other businesses on the platform may act in. Every change is reviewed and recorded. */
 export function Permissions({ portal, merchantId, mode }: { portal: PortalApi; merchantId: string; mode: string | null }) {
@@ -71,7 +69,7 @@ export function PermissionsView(props: {
 }) {
   const { t } = accountCopy.useCopy();
   return (
-    <div className="stack">
+    <div>
       <ReadGate
         resource={props.subs}
         retry={props.reloadAll}
@@ -80,16 +78,16 @@ export function PermissionsView(props: {
       >
         {(subs) =>
           subs.length === 0 ? (
-            <EmptyState
+            <Empty
               title={t('netEmptyTitle')}
               action={
-                <a className="text-link" href="/pay/network">
+                <a className="lt-link" href="/pay/network">
                   {t('permAddFirst')}
                 </a>
               }
             >
               {t('permNoSubs')}
-            </EmptyState>
+            </Empty>
           ) : (
             <Body {...props} subs={subs} />
           )
@@ -126,7 +124,7 @@ function Body(props: Omit<Parameters<typeof PermissionsView>[0], 'subs'> & { sub
           : undefined;
   const input = { granteeMerchantId: target, subjectMerchantId: subject.id, area: chosenArea, reason: reason.trim() };
   const review = (
-    <dl data-testid="pp-facts" className="pp-facts">
+    <dl data-testid="pp-facts" className="lt-kv">
       <div>
         <dt>{t('permSubject')}</dt>
         <dd>{label(subject.id)}</dd>
@@ -147,7 +145,7 @@ function Body(props: Omit<Parameters<typeof PermissionsView>[0], 'subs'> & { sub
   );
   return (
     <>
-      <PaySection title={t('permSubjectTitle')} description={t('permSubjectBody')}>
+      <Section title={t('permSubjectTitle')} description={t('permSubjectBody')}>
         <SelectField
           label={t('permSubject')}
           value={subject.id}
@@ -161,9 +159,9 @@ function Body(props: Omit<Parameters<typeof PermissionsView>[0], 'subs'> & { sub
           maxLength={500}
           hint={t('permReasonHint')}
         />
-      </PaySection>
+      </Section>
 
-      <PaySection title={t('permGrantsTitle')} description={t('permGrantsBody')}>
+      <Section title={t('permGrantsTitle')} description={t('permGrantsBody')}>
         <ReadGate
           resource={props.grants}
           retry={props.reload}
@@ -171,7 +169,7 @@ function Body(props: Omit<Parameters<typeof PermissionsView>[0], 'subs'> & { sub
         >
           {(grants) =>
             grants.length === 0 ? (
-              <EmptyState title={t('permNoGrants')}>{t('permNoGrantsBody')}</EmptyState>
+              <Empty title={t('permNoGrants')}>{t('permNoGrantsBody')}</Empty>
             ) : (
               <EntityList
                 label={t('permGrantsTitle')}
@@ -185,12 +183,12 @@ function Body(props: Omit<Parameters<typeof PermissionsView>[0], 'subs'> & { sub
                   {
                     header: p('colActions'),
                     cell: (g) => (
-                      <PortalReview
+                      <Review
                         title={t('permRevoke')}
                         variant="sell"
                         description={t('permRevokeBody')}
                         review={
-                          <dl data-testid="pp-facts" className="pp-facts">
+                          <dl data-testid="pp-facts" className="lt-kv">
                             <div>
                               <dt>{t('permArea')}</dt>
                               <dd>{areaWords(g.area)}</dd>
@@ -220,15 +218,14 @@ function Body(props: Omit<Parameters<typeof PermissionsView>[0], 'subs'> & { sub
                     ),
                   },
                 ]}
-                card={(g) => ({ title: areaWords(g.area), time: label(g.granteeMerchantId), status: <DateTime value={g.grantedAt} /> })}
               />
             )
           }
         </ReadGate>
-      </PaySection>
+      </Section>
 
-      <PaySection title={t('permChangeTitle')} description={t('permChangeBody')}>
-        <div data-testid="form-stack" className="form-stack pp-form">
+      <Section title={t('permChangeTitle')} description={t('permChangeBody')}>
+        <div data-testid="form-stack">
           <SelectField
             label={t('permGrantee')}
             value={target}
@@ -242,7 +239,7 @@ function Body(props: Omit<Parameters<typeof PermissionsView>[0], 'subs'> & { sub
             onChange={setArea}
             options={areaList.map((a) => [a, areaWords(a)] as const)}
           />
-          <PortalReview
+          <Review
             title={t('permGrant')}
             variant="primary"
             description={t('permGrantBody')}
@@ -255,11 +252,11 @@ function Body(props: Omit<Parameters<typeof PermissionsView>[0], 'subs'> & { sub
             disabled={why !== undefined}
             disabledReason={why}
           />
-          {why && <p className="muted pp-note">{why}</p>}
+          {why && <p className="lt-hint">{why}</p>}
         </div>
-      </PaySection>
+      </Section>
 
-      <PaySection title={t('permHistoryTitle')} description={t('permHistoryBody')}>
+      <Section title={t('permHistoryTitle')} description={t('permHistoryBody')}>
         <ReadGate
           resource={props.history}
           retry={props.reload}
@@ -267,7 +264,7 @@ function Body(props: Omit<Parameters<typeof PermissionsView>[0], 'subs'> & { sub
         >
           {(events) =>
             events.length === 0 ? (
-              <EmptyState title={t('permNoHistory')}>{t('permNoHistoryBody')}</EmptyState>
+              <Empty title={t('permNoHistory')}>{t('permNoHistoryBody')}</Empty>
             ) : (
               <Timeline
                 label={t('permHistoryTitle')}
@@ -283,7 +280,17 @@ function Body(props: Omit<Parameters<typeof PermissionsView>[0], 'subs'> & { sub
             )
           }
         </ReadGate>
-      </PaySection>
+      </Section>
     </>
+  );
+}
+
+/** `/pay/permissions` on the settings template. `mode` is the account's own mode: the page belongs to platform accounts only. */
+export function PermissionsRoom({ portal, mode }: { portal: PortalApi; mode: string | null }) {
+  const { t } = accountCopy.useCopy();
+  return (
+    <SettingsRoom explain={<p>{t('permissionsExplain')}</p>}>
+      {({ merchantId }) => <Permissions portal={portal} merchantId={merchantId} mode={mode} />}
+    </SettingsRoom>
   );
 }
