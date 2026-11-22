@@ -348,6 +348,58 @@ test('the router reader follows a builder member, an imported builder and both b
   );
 });
 
+test('the router reader follows a re-exported factory and a factory parameter to the router its call passes, and still names a parameter no call binds', async () => {
+  const { procedures } = await import('./router.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-svc-'));
+  mkdirSync(join(dir, 'src/parts'), { recursive: true });
+  writeFileSync(
+    join(dir, 'src/parts/router.ts'),
+    [
+      'export function createPartRouter() { return router({ preview: p.query(h) }); }',
+      'export function createSubRouter() { return router({ mine: p.query(h) }); }',
+      '',
+    ].join('\n'),
+  );
+  writeFileSync(join(dir, 'src/parts/index.ts'), "export { createPartRouter } from './router.js';\nexport * from './router.js';\n");
+  writeFileSync(
+    join(dir, 'src/account.ts'),
+    [
+      'export function createAccountRouter(deps: unknown, sub: unknown) {',
+      '  return router({ sub, own: p.query(h) });',
+      '}',
+      'export function createLoneRouter(sub: unknown) { return router({ sub }); }',
+      '',
+    ].join('\n'),
+  );
+  writeFileSync(
+    join(dir, 'src/router.ts'),
+    [
+      "import { createPartRouter, createSubRouter } from './parts/index.js';",
+      "import { createAccountRouter, createLoneRouter } from './account.js';",
+      'export function createSvcRouter(deps: unknown, given: unknown) {',
+      '  return router({',
+      '    part: createPartRouter(),',
+      '    account: createAccountRouter(deps, createSubRouter()),',
+      '    lone: createLoneRouter(given),',
+      '  });',
+      '}',
+      '',
+    ].join('\n'),
+  );
+  const { procedures: found, unread } = procedures(dir);
+  assert.deepEqual([...found.keys()].sort(), ['account.own', 'account.sub.mine', 'part.preview']);
+  // `given` is the root's own parameter: nothing passes it, so the part stays, named.
+  assert.deepEqual(
+    unread.map((u) => `${u.path}: ${u.why}`),
+    ['lone.sub.*: name given not followed (param)'],
+  );
+  const { reasonOf } = await import('./report.mjs');
+  assert.equal(
+    reasonOf('pay founderAdmin.changes.submit: two procedures under one path (a switch router)'),
+    'two procedures under one path (a switch router)',
+  );
+});
+
 test('an ops-desk read beside readOf is a site the codemod moves to ...readOf(RECORD)', async () => {
   const { deskReadSite } = await import('./sites.mjs');
   const dir = mkdtempSync(join(tmpdir(), 'call-records-'));

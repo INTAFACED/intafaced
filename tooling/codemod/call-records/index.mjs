@@ -169,10 +169,14 @@ function plan(opts) {
     }
     const proc = procs.get(path);
     if (!proc) {
+      // A path the reader found but could not take as one procedure is named with its own reason.
+      const own = unread.find((u) => u.path === path);
       for (const s of list)
         hand.push({
           site: s,
-          why: `${opts.service} has no procedure ${path} the codemod can read${unread.length ? ` (${unread.length} router parts unread)` : ''}`,
+          why: own
+            ? `${opts.service} ${path}: ${own.why}`
+            : `${opts.service} has no procedure ${path} the codemod can read${unread.length ? ` (${unread.length} router parts unread)` : ''}`,
         });
       continue;
     }
