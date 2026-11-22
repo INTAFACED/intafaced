@@ -17,7 +17,7 @@ import { TokenPage } from './tokens/TokenPage';
 import { TokensRoom } from './tokens/TokensRoom';
 import { NewPool } from './liquidity/NewPool';
 import { AddLiquidity } from './liquidity/AddLiquidity';
-import { PositionPage, PositionsList } from './liquidity/Positions';
+import { PositionNotFound, PositionPage, PositionsList } from './liquidity/Positions';
 import { AddressPage } from './watch/AddressPage';
 import { WatchlistPage } from './watch/WatchlistPage';
 import { BlockPage, RecordNotFound, TxPage } from './explorer/pages';
@@ -27,6 +27,7 @@ import { OrdersRoom } from './orders/OrdersRoom';
 import { BlocksRoom } from './chain-blocks/BlocksRoom';
 import { ValidatorsRoom } from './chain-validators/ValidatorsRoom';
 import { ContractsRoom } from './protocol-contracts/ContractsRoom';
+import { PoolsRoom } from './dex-pools/PoolsRoom';
 import { OwnFreezeNotice } from '../account';
 
 /**
@@ -67,7 +68,8 @@ function routeBody(path: string, found: NonNullable<ReturnType<typeof matchWeb3R
   if (route.liquidity === 'add' || route.liquidity === 'position') {
     const value = route.param ? safeDecode(params[route.param.name]) : undefined;
     // A malformed id is answered not found without asking the service.
-    if (value === undefined || !route.param?.shape.test(value)) return <NotFoundRoute path={path} />;
+    if (value === undefined || !route.param?.shape.test(value))
+      return route.liquidity === 'add' ? <NotFoundRoute path={path} /> : <PositionNotFound />;
     return route.liquidity === 'add' ? <AddLiquidity pool={value.toLowerCase()} /> : <PositionPage id={value.toLowerCase()} />;
   }
   if (route.pool === 'detail') {
@@ -118,6 +120,7 @@ function routeBody(path: string, found: NonNullable<ReturnType<typeof matchWeb3R
   if (route.room === 'chain' && route.tab === 'blocks') return <BlocksRoom />;
   if (route.room === 'chain' && route.tab === 'validators') return <ValidatorsRoom />;
   if (route.room === 'protocol' && route.tab === 'contracts') return <ContractsRoom />;
+  if (route.room === 'dex' && route.tab === 'pools') return <PoolsRoom />;
   const slug = route.room;
   // The tab room reads the tab from the path; the first tab lives at the room root.
   const subPath = route.tab === SUBNAV[slug][0]!.id ? '' : route.tab;
