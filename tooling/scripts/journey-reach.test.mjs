@@ -393,3 +393,14 @@ test("the bus logs each delivery (#8657): a record says so only when the checkou
   off.request('A', 'http://127.0.0.1:14509/x', 'GET');
   assert.equal(off.take('A').bus, undefined, 'no bus claim from a checkout whose bus does not log');
 });
+
+test("servesCustomer: only the customer app's port on loopback; a blob, another port or host, or no URL is not", () => {
+  const rec = makeRecorder({ root: ROOT, distDir: DIST, routes: ROUTES, customerPort: '5173' });
+  assert.equal(rec.servesCustomer('http://127.0.0.1:5173/assets/index-1a2b.js'), true);
+  assert.equal(rec.servesCustomer('http://localhost:5173/'), true);
+  assert.equal(rec.servesCustomer('http://127.0.0.1:3000/merchants/1'), false);
+  assert.equal(rec.servesCustomer('http://example.com:5173/'), false);
+  assert.equal(rec.servesCustomer('blob:http://127.0.0.1:3000/0b6c2e1e-3f6a-4d2b-9b1a-2f1e5f7a9c10'), false);
+  assert.equal(rec.servesCustomer('about:blank'), false);
+  assert.equal(rec.servesCustomer(undefined), false);
+});
