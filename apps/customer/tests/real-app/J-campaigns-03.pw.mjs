@@ -12,7 +12,7 @@ import { installTestWallet, TEST_WALLET } from './test-wallet.mjs';
 import { CHAIN_ID, TOKEN_USD, fundOnTestChain, testChain } from './dex.mjs';
 import { GATE_URL } from '../../../../tooling/scripts/local-test-facts.mjs';
 import { TEST_VENUE_DEPOSIT_ADDRESS } from '../../../../tooling/scripts/local-test-venue.mjs';
-import { otherTraderKey, otherTraderRun, testDeposit, testVenue, venueForThisFile, venueRecord } from './venue.mjs';
+import { otherTraderKey, otherTraderRun, testDeposit, testVenue, venueBalance, venueForThisFile, venueRecord } from './venue.mjs';
 import { call, data, openHub, operatorPair, potFunding } from './campaign-desk.mjs';
 import { chainUsd, mineBlocks } from './chain-node.mjs';
 import { sumDecimal } from './reward-funds.mjs';
@@ -570,7 +570,7 @@ test(`${J} #5 tries to spend or withdraw a reward that is still owed: the screen
   page,
 }) => {
   test.setTimeout(240_000);
-  const { me } = state('me', 'fees');
+  const { me, wallet } = state('me', 'fees', 'wallet');
   // Its own owed reward, with a day's hold so it is never paid during the run (#2 and #3 wait for theirs to be paid).
   const still = await liveCampaign(`TEST owed, held a day ${tag}`, { holdSeconds: 86_400 });
   await completeAll(me, [still.id]);
@@ -579,6 +579,10 @@ test(`${J} #5 tries to spend or withdraw a reward that is still owed: the screen
   const owedId = still.id;
   const before = (await progressOf(me, owedId)).reward;
   expect(before.state).toBe('owed');
+  // What the outside records hold for the connected wallet before the click: the TEST venue's own record of its account,
+  // and the TEST chain's own record of the wallet's TEST USD. Nothing sent means neither moves.
+  const venueBefore = await venueBalance(wallet, ASSET);
+  const chainBefore = await chainUsd(wallet);
   await signIn(page, me);
   const hub = await openHub(page);
   const due = row(hub, owedId);
@@ -599,6 +603,9 @@ test(`${J} #5 tries to spend or withdraw a reward that is still owed: the screen
   const after = (await progressOf(me, owedId)).reward;
   expect(after).toMatchObject({ state: 'owed', ledgerTxId: null });
   expect(after.attempts).toEqual(before.attempts);
+  // Not yet in the wallet, and nothing sent to it: the venue's and the chain's own records are what they were.
+  expect(await venueBalance(wallet, ASSET)).toEqual(venueBefore);
+  expect(await chainUsd(wallet)).toBe(chainBefore);
 
   // Later (OWNER 226): the withdraw path refuses a bonus and the screen explains the restriction. A bonus is the
   // custodial layer's (TEST USDT from the trade-fee pot), so this part runs only while custody is on.
@@ -648,8 +655,11 @@ test(`${J} #5 tries to spend or withdraw a reward that is still owed: the screen
 
 test(`${J} #6 waits for a bonus to expire: a forfeit shows once and the restricted balance is zero`, async ({ page }) => {
   test.setTimeout(300_000);
-  const { me, bonusId } = state('me', 'bonusId');
+  const { me, bonusId, wallet } = state('me', 'bonusId', 'wallet');
   const reward = (await progressOf(me, bonusId)).reward;
+  // A bonus is INTAFACED's restricted balance, never the customer's outside money: its forfeit moves nothing on the TEST
+  // venue's own record of the connected wallet's account.
+  const venueBefore = await venueBalance(wallet, 'USDT');
   // The bonus expires: the TEST reward is made its expiry's length earlier (the TEST age door), not waited out.
   await agePast('campaigns', 'reward', reward.rewardKey, reward.lock.until);
   await expect.poll(async () => (await progressOf(me, bonusId)).reward.state, { timeout: 60_000 }).toBe('forfeited');
@@ -673,6 +683,7 @@ test(`${J} #6 waits for a bonus to expire: a forfeit shows once and the restrict
   const after = (await progressOf(me, bonusId)).reward;
   expect(after.attempts.filter((a) => a.outcome === 'forfeited')).toHaveLength(1);
   expect(after.ledgerTxId).toBeTruthy();
+  expect(await venueBalance(wallet, 'USDT')).toEqual(venueBefore);
 });
 
 test(`${J} #7 opens the hub while the campaigns service is down: the error state, no stale number shown as current`, async ({ page }) => {
