@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { moneyCopy } from './copy';
-import { Amount, Button, fmtAmount, refusalCopy } from './deps';
+import { Amount, Button } from './ui-deps';
+import { fmtAmount, refusalCopy } from './deps';
 import { lotsMissingCost, type LotBook, type LotBookLot, type MissingBasis } from './pnl-model';
 import type { BasisOutcome } from './pnl-source';
 import { dayIn, stamp } from './time';

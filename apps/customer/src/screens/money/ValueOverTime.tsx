@@ -1,17 +1,14 @@
 import { useMemo, type ReactNode } from 'react';
 import { moneyCopy } from './copy';
-import { Amount, Skeleton, StateBlock, fmtUsd, refusalCopy } from './deps';
+import { Amount, Skeleton, StateBlock } from './ui-deps';
+import { fmtUsd, refusalCopy } from './deps';
 import { useValueOverTime } from './pnl-source';
 import { offsetMinutes, rangeFromQuery, rangeKey, resolveRange } from './pnl-time-model';
 import { INTERVAL_COPY, LINE_H, RangePicker, TimeLine } from './time-line';
 import { stamp } from './time';
 import {
-  BANK_VALUE_HISTORY_TOO_LARGE,
-  BANK_VALUE_HISTORY_UNAVAILABLE,
-  BANK_VALUE_RANGE_INVALID,
-  BANK_VALUE_RANGE_TOO_LONG,
   BRIDGE_LEGS,
-  VALUE_PRICES_DOWN,
+  VALUE_REFUSAL,
   bridgeValue,
   signedLine,
   valueLine,
@@ -22,18 +19,6 @@ import {
 import { usePreferences } from '../../shared/preferences';
 
 type Copy = ReturnType<typeof moneyCopy.useCopy>;
-
-/** The bank's own refusals for this read, in plain words; any other code takes the shared refusal words. */
-export const VALUE_REFUSAL: Record<
-  string,
-  'Pnl range refused' | 'Pnl range too long' | 'Pnl prices unavailable' | 'Value history too large' | 'Value history unavailable'
-> = {
-  [BANK_VALUE_RANGE_INVALID]: 'Pnl range refused',
-  [BANK_VALUE_RANGE_TOO_LONG]: 'Pnl range too long',
-  [VALUE_PRICES_DOWN]: 'Pnl prices unavailable',
-  [BANK_VALUE_HISTORY_TOO_LARGE]: 'Value history too large',
-  [BANK_VALUE_HISTORY_UNAVAILABLE]: 'Value history unavailable',
-};
 
 const LEG_COPY: Record<
   BridgeLeg,

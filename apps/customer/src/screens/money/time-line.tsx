@@ -1,6 +1,7 @@
 import { useMemo, useState, type PointerEvent } from 'react';
 import { moneyCopy } from './copy';
-import { Amount, Button, fmtUsd, navigate } from './deps';
+import { Amount, Button } from './ui-deps';
+import { fmtUsd, navigate } from './deps';
 import { PNL_RANGES, dayOf, lineChart, rangeFromQuery, rangeSearch, type LinePoint, type PnlRange } from './pnl-time-model';
 import { stamp } from './time';
 import { usePreferences } from '../../shared/preferences';

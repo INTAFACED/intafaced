@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { moneyCopy } from './copy';
-import { Amount, Skeleton, StateBlock, fmtUsd, refusalCopy } from './deps';
+import { Amount, Skeleton, StateBlock } from './ui-deps';
+import { fmtUsd, refusalCopy } from './deps';
 import type { LotBook } from './pnl-model';
 import { usePnlOverTime } from './pnl-source';
 import {

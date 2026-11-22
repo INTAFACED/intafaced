@@ -14,7 +14,6 @@
   "/support/guest/verify",
   "/developers/sandbox/:sandboxId/keys/new",
   "/home",
-  "/money",
   "/money/activity",
   "/money/pnl",
   "/money/activity/:id",

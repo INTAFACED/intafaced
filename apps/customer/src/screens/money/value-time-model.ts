@@ -1,5 +1,11 @@
 import type { BankValueBridge, BankValueOverTime, BankValuePoint } from '@intafaced/contracts/bank-value-history';
 import { dec, str } from '../../data/decimal';
+import {
+  BANK_VALUE_HISTORY_TOO_LARGE,
+  BANK_VALUE_HISTORY_UNAVAILABLE,
+  BANK_VALUE_RANGE_INVALID,
+  BANK_VALUE_RANGE_TOO_LONG,
+} from '@intafaced/contracts/bank-value-history';
 import type { LinePoint } from './pnl-time-model';
 
 /**
@@ -7,13 +13,7 @@ import type { LinePoint } from './pnl-time-model';
  * and #7), from `bank.portfolio.valueOverTime`. Money stays a decimal string or a scaled bigint.
  */
 
-export {
-  BANK_VALUE_HISTORY_TOO_LARGE,
-  BANK_VALUE_HISTORY_UNAVAILABLE,
-  BANK_VALUE_RANGE_INVALID,
-  BANK_VALUE_RANGE_TOO_LONG,
-  bankValueOverTimeSchema,
-} from '@intafaced/contracts/bank-value-history';
+export { BANK_VALUE_HISTORY_UNAVAILABLE, bankValueOverTimeSchema } from '@intafaced/contracts/bank-value-history';
 /** The bank's code for prices it cannot read now, shared with the Money total. */
 export const VALUE_PRICES_DOWN = 'bank.prices_unavailable';
 export type { BankValueBridge, BankValueOverTime, BankValuePoint };
@@ -57,3 +57,15 @@ export function signedLine(value: string | null, sign: 1 | -1 | 0): string | nul
   if (parsed === null) return null;
   return str(sign === -1 ? -parsed : parsed);
 }
+
+/** The bank's own refusals for this read, in plain words; any other code takes the shared refusal words. */
+export const VALUE_REFUSAL: Record<
+  string,
+  'Pnl range refused' | 'Pnl range too long' | 'Pnl prices unavailable' | 'Value history too large' | 'Value history unavailable'
+> = {
+  [BANK_VALUE_RANGE_INVALID]: 'Pnl range refused',
+  [BANK_VALUE_RANGE_TOO_LONG]: 'Pnl range too long',
+  [VALUE_PRICES_DOWN]: 'Pnl prices unavailable',
+  [BANK_VALUE_HISTORY_TOO_LARGE]: 'Value history too large',
+  [BANK_VALUE_HISTORY_UNAVAILABLE]: 'Value history unavailable',
+};

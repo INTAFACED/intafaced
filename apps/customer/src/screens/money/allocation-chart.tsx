@@ -1,7 +1,9 @@
 import { useState } from 'react';
+import { Segmented } from '@intafaced/ui/lit';
+import { Shares } from '@intafaced/ui/lit/templates';
 import { groupSlices, useAllocation, type AllocationGrouping } from './allocation-source';
 import { moneyCopy } from './copy';
-import { dec, fmtPct, SCALE, times, toFixedString } from './deps';
+import { dec, fmtPct, toFixedString } from './deps';
 import type { MoneyRow } from './portfolio-source';
 
 /** The five biggest coins get their own colour; everything else is "Other". */
@@ -28,12 +30,6 @@ export function slicesOf(rows: readonly MoneyRow[], otherLabel: string): Slice[]
   return [...own, { key: '__other', label: otherLabel, share: toFixedString(sum, 18) }];
 }
 
-/** Bar-width weight: the share as a percent with two decimals, built from the decimal string. */
-function weight(share: string): string {
-  const parsed = dec(share) ?? 0n;
-  return toFixedString(times(parsed, 100n * SCALE), 2);
-}
-
 /** "32.85%", or "<0.01%" for a coin that is held but too small to round to anything. */
 function pctText(share: string): string {
   const parsed = dec(share) ?? 0n;
@@ -45,10 +41,10 @@ type Grouping = 'coin' | AllocationGrouping;
 const GROUPINGS: readonly Grouping[] = ['coin', 'class', 'type'];
 
 /**
- * Allocation bar (UI-SPEC 5.3): 8 px, one segment per group by share, a legend under it, and the same numbers as a table for
- * screen readers. By coin comes from the rows on screen; by class and by type come from the bank's own grouping
- * (`bank.portfolio.allocation`), so they add up to the same total. Widths come from the decimal share strings; nothing is
- * turned into a float. When the bank cannot give a grouping the switch stays and the screen says why.
+ * Allocation (UI-SPEC 5.3): the kit's share bar, one part per group by share, the same shares as a list under it, and as a
+ * table for screen readers. By coin comes from the rows on screen; by class and by type come from the bank's own grouping
+ * (`bank.portfolio.allocation`), so they add up to the same total. Shares stay decimal strings; the kit turns them into
+ * widths only to draw. When the bank cannot give a grouping the switch stays and the screen says why.
  */
 export function AllocationBar({ rows }: { rows: readonly MoneyRow[] }) {
   const { t } = moneyCopy.useCopy();
@@ -81,46 +77,29 @@ export function AllocationBar({ rows }: { rows: readonly MoneyRow[] }) {
         : t('Share of your total by place');
 
   return (
-    <section data-testid="money-alloc" className="money-alloc" aria-label={t('Where your money is')}>
-      <div className="money-alloc__switch" role="group" aria-label={t('Group by')}>
-        {GROUPINGS.map((option) => (
-          <button
-            key={option}
-            type="button"
-            className="money-alloc__opt"
-            aria-pressed={grouping === option}
-            onClick={() => setGrouping(option)}
-          >
-            {option === 'coin' ? t('Coin') : option === 'class' ? t('Kind') : t('Place')}
-          </button>
-        ))}
-      </div>
+    <section data-testid="money-alloc" className="lt-stack" aria-label={t('Where your money is')}>
+      <Segmented
+        label={t('Group by')}
+        value={grouping}
+        onChange={setGrouping}
+        options={GROUPINGS.map((option) => ({
+          value: option,
+          label: option === 'coin' ? t('Coin') : option === 'class' ? t('Kind') : t('Place'),
+        }))}
+      />
       {note !== null ? (
-        <p className="money-alloc__note" role="status">
+        <p className="lt-hint" role="status">
           {note}
         </p>
       ) : (
         <>
-          <div data-testid="money-alloc__bar" className="money-alloc__bar" aria-hidden="true">
-            {shown.map((slice, index) => (
-              <span
-                key={slice.key}
-                data-testid="money-alloc__seg"
-                className="money-alloc__seg"
-                style={{ flexGrow: weight(slice.share), background: `var(--if-alloc-${index + 1})` }}
-              />
-            ))}
+          <div data-testid="money-alloc__legend" aria-hidden="true">
+            <Shares
+              label={caption}
+              shares={shown.map((slice) => ({ key: slice.key, label: slice.label, share: slice.share, text: pctText(slice.share) }))}
+            />
           </div>
-          <ul data-testid="money-alloc__legend" className="money-alloc__legend" aria-hidden="true">
-            {shown.map((slice, index) => (
-              <li key={slice.key} data-group={slice.key}>
-                <span className="money-alloc__dot" style={{ background: `var(--if-alloc-${index + 1})` }} />
-                <span>{slice.label}</span>
-                <span className="money-alloc__pct">{pctText(slice.share)}</span>
-              </li>
-            ))}
-          </ul>
-          <table className="if-sr">
+          <table className="lt-sr">
             <caption>{caption}</caption>
             <thead>
               <tr>
@@ -140,12 +119,12 @@ export function AllocationBar({ rows }: { rows: readonly MoneyRow[] }) {
             </tbody>
           </table>
           {unclassified.length > 0 ? (
-            <p className="money-alloc__note">
+            <p className="lt-hint">
               {t(unclassified.length === 1 ? 'Unclassified note' : 'Unclassified note many', { assets: unclassified.join(', ') })}
             </p>
           ) : null}
           {grouping !== 'coin' && server.status === 'ready' && server.data.unpriced.length > 0 ? (
-            <p className="money-alloc__note">
+            <p className="lt-hint">
               {server.data.unpriced.length === 1 ? t('Asset not counted') : t('Assets not counted', { count: server.data.unpriced.length })}
             </p>
           ) : null}
