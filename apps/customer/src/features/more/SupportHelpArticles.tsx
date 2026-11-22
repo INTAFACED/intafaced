@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
+import { Button } from '@intafaced/ui/lit';
+import { TextField } from '@intafaced/ui/lit/templates';
 import { useResource } from '../../shared/resource';
-import { Button, EmptyState, Field } from '../../shared/ui';
 import { isHiddenPath } from '../../app/feature-registry';
 import { useApi, useSession } from '../session';
 import { helpHref, kbArticleText } from '../public';
 import { t as legacyText } from './copy';
-import { Details, Read, type useAction } from './common';
+import { KitDetails, type KitAction } from './volt-action';
+import { EmptyNote, KitRead } from './volt-parts';
 import { deskCopy } from './support-desk-copy';
 import { HIDDEN_FEATURE_ARTICLES, KB_CATEGORIES, inKbCategory, kbCategoryCounts, type KbCategory } from './support-desk';
 import type { KbArticle } from './support-schemas';
@@ -48,7 +50,7 @@ export function keepDeskSearch(userId: string | null, q: string) {
 }
 
 /** The published help library: server search, topic chips, the full text of each answer, and a link to its own page. */
-export function SupportHelpArticles({ action, onStartRequest }: { action: ReturnType<typeof useAction>; onStartRequest: () => void }) {
+export function SupportHelpArticles({ action, onStartRequest }: { action: KitAction; onStartRequest: () => void }) {
   const copy = deskCopy.useCopy();
   const api = useApi(),
     { userId } = useSession();
@@ -61,10 +63,10 @@ export function SupportHelpArticles({ action, onStartRequest }: { action: Return
   const kb = useResource((signal) => api.call(SUPPORT_SEARCH_KB, { q: search, limit: 50 }, { signal }), `kb:${search}`);
   useEffect(() => keepDeskSearch(userId, search), [userId, search]);
   return (
-    <section className="support-pane" aria-label={copy.t('tabHelp')}>
-      <p className="muted">{copy.t('helpIntro')}</p>
+    <section className="lt-stack" aria-label={copy.t('tabHelp')}>
+      <p className="lt-hint">{copy.t('helpIntro')}</p>
       <form
-        className="more-inline"
+        className="lt-toolbar"
         role="search"
         onSubmit={(event) => {
           event.preventDefault();
@@ -72,66 +74,65 @@ export function SupportHelpArticles({ action, onStartRequest }: { action: Return
           setCategory('all');
         }}
       >
-        <Field label={copy.t('searchHelp')} value={draft} onChange={(event) => setDraft(event.target.value)} maxLength={200} />
-        <Button type="submit" variant="secondary">
+        <TextField label={copy.t('searchHelp')} value={draft} onChange={setDraft} maxLength={200} />
+        <Button type="submit" tone="secondary">
           {copy.t('search')}
         </Button>
       </form>
-      <Read resource={kb.resource} retry={kb.reload}>
+      <KitRead resource={kb.resource} retry={kb.reload}>
         {(rows) => {
           const visible = rows.filter((row) => row.published !== false && !(depositsHidden && HIDDEN_FEATURE_ARTICLES.has(row.id)));
           if (visible.length === 0)
             return (
-              <EmptyState
+              <EmptyNote
                 title={copy.t(search ? 'noArticlesTitle' : 'noPublishedTitle')}
                 action={
-                  <Button variant="secondary" onClick={onStartRequest}>
+                  <Button tone="secondary" onClick={onStartRequest}>
                     {copy.t('startRequestFromHelp')}
                   </Button>
                 }
               >
                 {copy.t(search ? 'noArticlesBody' : 'noPublishedBody')}
-              </EmptyState>
+              </EmptyNote>
             );
           const counts = kbCategoryCounts(visible.map((row) => row.id));
           const chips = KB_CATEGORIES.filter((id) => counts[id]);
           const shown = visible.filter((row) => inKbCategory(row.id, category));
           return (
             <>
-              <div className="support-chips" role="group" aria-label={copy.t('categoriesLabel')}>
+              <div className="lt-actions" role="group" aria-label={copy.t('categoriesLabel')}>
                 {chips.map((id) => (
-                  <button
-                    type="button"
+                  <Button
                     key={id}
-                    className={`support-chip${category === id ? ' support-chip--on' : ''}`}
+                    tone={category === id ? 'primary' : 'secondary'}
                     aria-pressed={category === id}
                     onClick={() => setCategory(id)}
                   >
                     {copy.t(CATEGORY_KEY[id])} <span aria-hidden="true">{counts[id]}</span>
-                  </button>
+                  </Button>
                 ))}
               </div>
-              <p className="muted" role="status">
+              <p className="lt-hint" role="status">
                 {shown.length === 1 ? copy.t('articleCountOne') : copy.t('articleCount', { count: shown.length })}
               </p>
-              <div className="more-articles">
+              <div className="lt-stack" data-testid="support-articles">
                 {shown.map((row) => (
                   <Article key={row.id} row={row} action={action} hiddenIds={depositsHidden ? HIDDEN_FEATURE_ARTICLES : EMPTY} />
                 ))}
               </div>
-              <Button variant="ghost" onClick={onStartRequest}>
+              <Button tone="quiet" onClick={onStartRequest}>
                 {copy.t('startRequestFromHelp')}
               </Button>
             </>
           );
         }}
-      </Read>
+      </KitRead>
     </section>
   );
 }
 
 const EMPTY: ReadonlySet<string> = new Set();
-function Article({ row, action, hiddenIds }: { row: KbArticle; action: ReturnType<typeof useAction>; hiddenIds: ReadonlySet<string> }) {
+function Article({ row, action, hiddenIds }: { row: KbArticle; action: KitAction; hiddenIds: ReadonlySet<string> }) {
   const copy = deskCopy.useCopy();
   const [opened, setOpened] = useState(false);
   const missing = (key: string) => legacyText('support.published.article.text.is.unavailable.for', { value1: key });
@@ -141,10 +142,12 @@ function Article({ row, action, hiddenIds }: { row: KbArticle; action: ReturnTyp
   return (
     <details onToggle={(event) => event.currentTarget.open && setOpened(true)}>
       <summary lang={text.titleLanguage ?? 'und'}>{title}</summary>
-      {body ? <p lang={text.bodyLanguage ?? 'und'}>{body}</p> : <p className="muted">{missing(row.bodyKey)}</p>}
-      <a className="text-link" href={helpHref(row.id, row.version)}>
-        {copy.t('readArticle')} →
-      </a>
+      {body ? <p lang={text.bodyLanguage ?? 'und'}>{body}</p> : <p className="lt-hint">{missing(row.bodyKey)}</p>}
+      <p>
+        <a className="lt-link lt-link-alone" href={helpHref(row.id, row.version)}>
+          {copy.t('readArticle')} <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
+        </a>
+      </p>
       <ArticleFeedback row={row} title={title} action={action} />
       {opened && <RelatedArticles id={row.id} hiddenIds={hiddenIds} />}
     </details>
@@ -152,7 +155,7 @@ function Article({ row, action, hiddenIds }: { row: KbArticle; action: ReturnTyp
 }
 
 /** "Did this answer help?" One answer per account for each version, so a repeat is answered with the first one. */
-function ArticleFeedback({ row, title, action }: { row: KbArticle; title: string; action: ReturnType<typeof useAction> }) {
+function ArticleFeedback({ row, title, action }: { row: KbArticle; title: string; action: KitAction }) {
   const copy = deskCopy.useCopy();
   const api = useApi(),
     { userId } = useSession();
@@ -166,7 +169,7 @@ function ArticleFeedback({ row, title, action }: { row: KbArticle; title: string
       confirm: () => deskCopy.t('feedbackConfirm'),
       success: () => deskCopy.t(kept === false ? 'feedbackKept' : 'feedbackThanks'),
       content: () => (
-        <Details
+        <KitDetails
           items={[
             [deskCopy.t('feedbackRowArticle'), <span lang="und">{title}</span>],
             [deskCopy.t('feedbackRowAnswer'), deskCopy.t(helpful ? 'feedbackYes' : 'feedbackNo')],
@@ -182,15 +185,15 @@ function ArticleFeedback({ row, title, action }: { row: KbArticle; title: string
     });
   };
   return (
-    <div className="support-feedback" role="group" aria-label={copy.t('feedbackQuestion')}>
+    <div className="lt-actions" role="group" aria-label={copy.t('feedbackQuestion')}>
       <small>{copy.t('feedbackQuestion')}</small>
-      <Button variant="secondary" disabled={action.disabled} onClick={() => send(true)}>
+      <Button tone="secondary" disabled={action.disabled} onClick={() => send(true)}>
         {copy.t('feedbackYes')}
       </Button>
-      <Button variant="secondary" disabled={action.disabled} onClick={() => send(false)}>
+      <Button tone="secondary" disabled={action.disabled} onClick={() => send(false)}>
         {copy.t('feedbackNo')}
       </Button>
-      <small className="muted">{copy.t('feedbackOne')}</small>
+      <small className="lt-hint">{copy.t('feedbackOne')}</small>
     </div>
   );
 }
@@ -201,20 +204,20 @@ function RelatedArticles({ id, hiddenIds }: { id: string; hiddenIds: ReadonlySet
   const api = useApi();
   const related = useResource((signal) => readRelated(api, id, signal), `kb-related:${id}`);
   return (
-    <div className="support-related">
+    <div className="lt-stack">
       <h4>{copy.t('relatedHeading')}</h4>
-      <Read resource={related.resource} retry={related.reload}>
+      <KitRead resource={related.resource} retry={related.reload}>
         {(rows) => {
           const visible = rows.filter((row) => row.id !== id && row.published !== false && !hiddenIds.has(row.id));
           return visible.length === 0 ? (
-            <p className="muted">{copy.t('relatedNone')}</p>
+            <p className="lt-hint">{copy.t('relatedNone')}</p>
           ) : (
             <ul>
               {visible.map((row) => {
                 const text = kbArticleText(row);
                 return (
                   <li key={row.id}>
-                    <a className="text-link" lang={text.titleLanguage ?? 'und'} href={helpHref(row.id, row.version)}>
+                    <a className="lt-link lt-link-alone" lang={text.titleLanguage ?? 'und'} href={helpHref(row.id, row.version)}>
                       {text.title ?? legacyText('support.published.article.text.is.unavailable.for', { value1: row.titleKey })}
                     </a>
                   </li>
@@ -223,7 +226,7 @@ function RelatedArticles({ id, hiddenIds }: { id: string; hiddenIds: ReadonlySet
             </ul>
           );
         }}
-      </Read>
+      </KitRead>
     </div>
   );
 }
