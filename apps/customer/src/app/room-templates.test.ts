@@ -17,7 +17,14 @@ const EVERY_ROUTE_NEEDS_A_TEMPLATE = false;
 
 const routes = rooms.filter((r) => !r.alias).map((r) => r.path);
 /** A route's pattern as a person opens it: a `:pair` is a real market. */
-const opened = (route: string) => route.replace(':pair', 'BTC-USDT');
+// A parameter the router checks the shape of gets a well-formed TEST value (a campaign id starts `cmp_`; a More record id
+// starts with a letter or digit, more-room-routes.ts).
+const opened = (route: string) =>
+  route
+    .replace(':pair', 'BTC-USDT')
+    .replace(':campaignId', 'cmp_TEST')
+    .replace(':listingId', 'TEST-listing')
+    .replace(':projectId', 'TEST-launch');
 const isRoom = (v: RoomTemplate | string): v is RoomTemplate => typeof v === 'object';
 
 describe('room templates registry', () => {

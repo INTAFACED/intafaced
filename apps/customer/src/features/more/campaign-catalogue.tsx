@@ -3,16 +3,15 @@ import {
   CAMPAIGN_TYPES,
   CATALOGUE_CAMPAIGN_STATES,
   campaignCatalogueSchema,
+  campaignViewSchema,
   myCampaignsSchema,
   type CampaignType,
   type CampaignView,
 } from '@intafaced/contracts/campaigns-catalogue';
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
-import type { ApiResult } from '../../shared/api';
-import { Button, DataTable, EmptyState, Failure, Loading, Panel } from '../../shared/ui';
+import { DataTable, EmptyState, Failure, Loading, Panel } from '../../shared/ui';
 import { Select } from './common';
-import { StatRow } from './depth-kit';
 import { campaignCatalogueCopy } from './campaign-catalogue-copy';
 
 /**
@@ -20,8 +19,6 @@ import { campaignCatalogueCopy } from './campaign-catalogue-copy';
  * campaign at /campaigns/:campaignId, and the campaigns I joined at /campaigns/mine. Only published campaigns are listed;
  * an empty catalogue says so. Parked types show their blocker. Times show in the reader's own time zone.
  */
-
-type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
 /** A time in the reader's own zone, with the zone named. */
 export function useWhen() {
@@ -209,5 +206,14 @@ export function MyCampaigns() {
         <Copy k="backToCatalogue" />
       </a>
     </Panel>
+  );
+}
+
+/** One campaign as svc-campaigns publishes it, for its own page (`campaign-detail/CampaignDetailRoom.tsx`). */
+export function useCampaignView(campaignId: string) {
+  const api = useApi();
+  return useResource(
+    (signal) => api.query('campaigns', 'catalogue.get', { id: campaignId }, campaignViewSchema, { signal }),
+    `campaign-${campaignId}`,
   );
 }

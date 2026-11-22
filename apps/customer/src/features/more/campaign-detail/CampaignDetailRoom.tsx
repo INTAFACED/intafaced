@@ -1,12 +1,11 @@
 import { useState } from 'react';
-import { campaignViewSchema, type CampaignEligibility, type CampaignView } from '@intafaced/contracts/campaigns-catalogue';
+import type { CampaignEligibility, CampaignView } from '@intafaced/contracts/campaigns-catalogue';
 import type { ApiResult } from '../../../shared/api';
 import { CAMPAIGNS_PARTICIPATION_JOIN, CAMPAIGNS_PARTICIPATION_REQUEST_REVIEW } from '@intafaced/contracts/campaigns-procedures';
 import { Button } from '@intafaced/ui/lit';
 import { CatalogueTemplate, KeyValue } from '@intafaced/ui/lit/templates';
 import { useApi } from '../../session';
-import { useResource } from '../../../shared/resource';
-import { useWeekdays, useWhen, useWho } from '../campaign-catalogue';
+import { useCampaignView, useWeekdays, useWhen, useWho } from '../campaign-catalogue';
 import { campaignCatalogueCopy } from '../campaign-catalogue-copy';
 import { CampaignCompetition } from '../campaign-competition';
 import { CampaignDraw } from '../campaign-draw';
@@ -41,12 +40,8 @@ const ELIGIBILITY_CODE = {
 
 /** /campaigns/:campaignId. After any join answer, or none, the page reads the stored campaign again. */
 export function CampaignDetail({ campaignId }: { campaignId: string }) {
-  const api = useApi();
   const { Copy, t } = campaignCatalogueCopy.useCopy();
-  const campaign = useResource(
-    (signal) => api.query('campaigns', 'catalogue.get', { id: campaignId }, campaignViewSchema, { signal }),
-    `campaign-${campaignId}`,
-  );
+  const campaign = useCampaignView(campaignId);
   const [refusal, setRefusal] = useState<Failed | null>(null);
   return (
     <CatalogueTemplate

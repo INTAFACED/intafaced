@@ -8,7 +8,9 @@ import type { ApiResult } from '../../shared/api';
 import { usePreferences } from '../../shared/preferences';
 import { Button, Tag } from '@intafaced/ui/lit';
 import { CatalogueTemplate } from '@intafaced/ui/lit/templates';
-import { Details, Limit, Select } from './catalogue-parts';
+import { Details, Limit } from './catalogue-parts';
+// The kit has no Select yet: the filters keep the More rooms' own.
+import { Select } from './common';
 import { launchCatalogueCopy } from './launch-catalogue-copy';
 import { launchCopy } from './launch-copy';
 import { moreRoomRoutesCopy } from './more-room-routes-copy';

@@ -3,52 +3,9 @@ import { Button } from '@intafaced/ui/lit';
 import { Text } from './copy';
 
 /**
- * The More rooms' shared form and list parts (`./common`'s Select, TextArea, Limit and Details) for the catalogue rooms
- * on the kit (intafaced issue 9566): the same controls, words and order, drawn only from the kit's `lt-` classes.
+ * The More rooms' shared form and list parts (`./common`'s Limit and Details) for the catalogue rooms
+ * on the kit (intafaced issue 9566): the same words and order, drawn only from the kit's `lt-` classes.
  */
-export function Select({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  options: readonly (string | { value: string; label: string })[];
-}) {
-  return (
-    <label className="lt-field">
-      <span>{label}</span>
-      <select value={value} onChange={(e) => onChange(e.target.value)}>
-        {options.map((o) => (
-          <option key={typeof o === 'string' ? o : o.value} value={typeof o === 'string' ? o : o.value}>
-            {typeof o === 'string' ? o : o.label}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
-export function TextArea({
-  label,
-  value,
-  onChange,
-  maxLength = 10000,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  maxLength?: number;
-}) {
-  return (
-    <label className="lt-field">
-      <span>{label}</span>
-      <textarea value={value} onChange={(e) => onChange(e.target.value)} maxLength={maxLength} rows={5} />
-    </label>
-  );
-}
 
 /** How many rows one read returned, against the limit asked for, and a wider read while the service's cap allows one. */
 export function Limit({ count, limit, cap, onChange }: { count: number; limit: number; cap: number; onChange: (limit: number) => void }) {
