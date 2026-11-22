@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { defineProcedure } from './procedure.js';
 import { amountString } from './bank-earn-procedures.js';
+import { assetIdSchema } from './asset-id.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-bank `business.*`, one record per call, written from its router while its Rust port is in flight: every app caller calls it by its record, and the router keeps its own schemas until the port's switch. */
@@ -17,7 +18,7 @@ export const BUSINESS_ROLES = ['admin', 'maker', 'checker', 'signer', 'editor', 
 export const businessAccountOutput = z.object({
   id: z.string(),
   name: z.string(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   spendThreshold: amountString,
   status: z.enum(['active', 'closed']),
   createdAt: z.string(),
@@ -49,7 +50,7 @@ export const BANK_BUSINESS_PENDING = defineProcedure({
       receiverOwnerName: z.string().nullable(),
       fromSpaceId: z.string(),
       toSpaceId: z.string(),
-      assetId: z.string(),
+      assetId: assetIdSchema,
       amount: amountString,
       status: z.enum(['pending', 'approved', 'rejected', 'cancelled']),
       transferId: z.string().nullable(),
@@ -115,7 +116,7 @@ export const BANK_BUSINESS_RESOLVE_RECIPIENT_SPACE = defineProcedure({
   refusals: {},
   input: z.object({
     accountId: z.string().guid(),
-    assetId: z.string().min(1).max(16),
+    assetId: assetIdSchema.min(1).max(16),
     handle: z.string().max(64).optional(),
     email: z.string().max(320).optional(),
   }),
@@ -124,7 +125,7 @@ export const BANK_BUSINESS_RESOLVE_RECIPIENT_SPACE = defineProcedure({
     z.object({
       found: z.literal(true),
       handle: z.string(),
-      assetId: z.string(),
+      assetId: assetIdSchema,
       spaceId: z.string().guid().nullable(),
     }),
   ]),

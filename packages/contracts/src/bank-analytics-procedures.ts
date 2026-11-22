@@ -1,13 +1,14 @@
 import { z } from 'zod';
 import { defineProcedure } from './procedure.js';
 import { amountString } from './bank-earn-procedures.js';
+import { assetIdSchema } from './asset-id.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-bank `analytics.*`, one record per call, written from its router while its Rust port is in flight: every app caller calls it by its record, and the router keeps its own schemas until the port's switch. */
 
 const base = { service: 'svc-bank', module: 'bank', transport: 'trpc' } as const;
 
-export const assetInput = z.object({ assetId: z.string().min(1).max(16) });
+export const assetInput = z.object({ assetId: assetIdSchema.min(1).max(16) });
 
 /**
  * SPEND ANALYTICS (§8.1) — computed from the ledger, every time.
@@ -27,11 +28,11 @@ export const SPEND_CATEGORIES = ['transfers', 'trading', 'p2p', 'fees', 'withdra
 export type SpendCategory = (typeof SPEND_CATEGORIES)[number];
 
 /** Deposits are money in, never spending, so no budget can be set on them. */
-export const BUDGET_CATEGORIES = SPEND_CATEGORIES.filter((c) => c !== 'deposits') as Exclude<SpendCategory, 'deposits'>[];
+export const BUDGET_CATEGORIES = SPEND_CATEGORIES.filter((c): c is Exclude<SpendCategory, 'deposits'> => c !== 'deposits');
 
 export const budgetOutput = z.object({
-  assetId: z.string(),
-  category: z.enum(BUDGET_CATEGORIES as [string, ...string[]]),
+  assetId: assetIdSchema,
+  category: z.enum(BUDGET_CATEGORIES),
   period: z.string(),
   target: z.string(),
   spent: z.string(),
@@ -66,7 +67,7 @@ export const BANK_ANALYTICS_LEFT_TO_SPEND = defineProcedure({
   access: { caller: 'scope', scope: 'bank:read', module: 'bank' },
   refusals: {},
   input: assetInput,
-  output: z.object({ assetId: z.string(), period: z.string(), target: z.string(), spent: z.string(), left: z.string() }),
+  output: z.object({ assetId: assetIdSchema, period: z.string(), target: z.string(), spent: z.string(), left: z.string() }),
   samples: [
     { verdict: 'accept', input: { assetId: 'USDC' } },
     { verdict: 'refuse', input: 42 },
@@ -81,12 +82,12 @@ export const BANK_ANALYTICS_SPEND = defineProcedure({
   access: { caller: 'scope', scope: 'bank:read', module: 'bank' },
   refusals: {},
   input: z.object({
-    assetId: z.string().min(1).max(16),
+    assetId: assetIdSchema.min(1).max(16),
     from: z.string().datetime({ offset: true }),
     to: z.string().datetime({ offset: true }),
   }),
   output: z.object({
-    assetId: z.string(),
+    assetId: assetIdSchema,
     from: z.string(),
     to: z.string(),
     outflowByCategory: z.record(z.string(), z.string()),
@@ -109,7 +110,7 @@ export const BANK_ANALYTICS_BUDGET_ALERT_SHOWN = defineProcedure({
   path: 'analytics.budgetAlertShown',
   access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
   refusals: {},
-  input: assetInput.extend({ category: z.enum(BUDGET_CATEGORIES as [string, ...string[]]) }),
+  input: assetInput.extend({ category: z.enum(BUDGET_CATEGORIES) }),
   output: budgetOutput,
   samples: [
     { verdict: 'accept', input: { assetId: 'USDC', category: 'transfers' } },
@@ -126,7 +127,7 @@ export const BANK_ANALYTICS_SET_BUDGET = defineProcedure({
   access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
   refusals: {},
   input: assetInput.extend({
-    category: z.enum(BUDGET_CATEGORIES as [string, ...string[]]),
+    category: z.enum(BUDGET_CATEGORIES),
     target: amountString,
     alertBps: z.number().int().min(1).max(10_000),
   }),

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { defineProcedure, NO_INPUT } from './procedure.js';
 import { ASSET_ACTIONS, ASSET_STATES, REGISTRY_ASSET_KINDS } from './bank-call-schemas.js';
+import { assetIdSchema } from './asset-id.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-bank `assets.*`, one record per call, written from its router while its Rust port is in flight: every app caller calls it by its record, and the router keeps its own schemas until the port's switch. */
@@ -24,7 +25,7 @@ export const BANK_ASSETS_LIST = defineProcedure({
     assets: z.array(
       z
         .object({
-          assetId: z.string(),
+          assetId: assetIdSchema,
           kind: z.enum(REGISTRY_ASSET_KINDS),
           precision: z.number().int().nonnegative(),
           networks: z.array(

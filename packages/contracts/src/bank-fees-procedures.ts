@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { defineProcedure, NO_INPUT } from './procedure.js';
 import { amountString } from './bank-earn-procedures.js';
+import { assetIdSchema } from './asset-id.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-bank `fees.*`, one record per call, written from its router while its Rust port is in flight: every app caller calls it by its record, and the router keeps its own schemas until the port's switch. */
@@ -14,13 +15,13 @@ export const BANK_FEES_PARTNER = defineProcedure({
   path: 'fees.partner',
   access: { caller: 'scope', scope: 'bank:read', module: 'bank' },
   refusals: {},
-  input: z.object({ assetId: z.string().min(1).max(16) }),
+  input: z.object({ assetId: assetIdSchema.min(1).max(16) }),
   output: z.discriminatedUnion('held', [
     z.object({ held: z.literal(false) }),
     z.object({
       held: z.literal(true),
       label: z.string(),
-      assetId: z.string(),
+      assetId: assetIdSchema,
       dailyLimit: z.string().nullable(),
       usedToday: z.string().nullable(),
       remainingToday: z.string().nullable(),
@@ -46,7 +47,7 @@ export const BANK_FEES_SCHEDULE_GET = defineProcedure({
     published: z.boolean(),
     entries: z.array(
       z.object({
-        assetId: z.string(),
+        assetId: assetIdSchema,
         fee: amountString,
         free: z.boolean(),
         feeBlocker: z.literal('bank.personal_transfer_fee_unwired').nullable(),
@@ -67,7 +68,7 @@ export const BANK_FEES_ACCOUNT = defineProcedure({
   input: NO_INPUT,
   output: z.object({
     set: z.boolean(),
-    lines: z.array(z.object({ id: z.string(), label: z.string(), fee: z.string(), assetId: z.string() })),
+    lines: z.array(z.object({ id: z.string(), label: z.string(), fee: z.string(), assetId: assetIdSchema })),
   }),
   samples: [{ verdict: 'accept' }],
 });

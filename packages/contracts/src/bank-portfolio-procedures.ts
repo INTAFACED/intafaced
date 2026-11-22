@@ -3,6 +3,7 @@ import { defineProcedure, NO_INPUT } from './procedure.js';
 import { bankHoldingsChangeSchema, bankValueOverTimeInputSchema, bankValueOverTimeSchema } from './bank-value-history.js';
 import { allocationOutput, balanceBreakdownOutput, balanceEntriesOutput, portfolioSummaryOutput } from './bank-call-schemas.js';
 import { BALANCE_ENTRIES_DEFAULT_LIMIT, BALANCE_ENTRIES_MAX_LIMIT } from './bank-ops-procedures.js';
+import { assetIdSchema } from './asset-id.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-bank `portfolio.*`, one record per call, written from its router while its Rust port is in flight: every app caller calls it by its record, and the router keeps its own schemas until the port's switch. */
@@ -35,7 +36,7 @@ export const BANK_PORTFOLIO_BALANCE_ENTRIES = defineProcedure({
   refusals: {},
   input: z
     .object({
-      assetId: z.string().min(1).max(16),
+      assetId: assetIdSchema.min(1).max(16),
       /** `main` or the id of one named Space; absent = main and every Space. */
       accountId: z.union([z.literal('main'), z.string().guid()]).optional(),
       cursor: z.string().min(1).max(16).optional(),
@@ -95,7 +96,7 @@ export const BANK_PORTFOLIO_SUMMARY = defineProcedure({
   input: z
     // Not strict: a smuggled owner id is stripped here, as it always was (portfolio.router.test.ts).
     .object({
-      assetId: z.string().min(1).max(16).optional(),
+      assetId: assetIdSchema.min(1).max(16).optional(),
       valueIn: z.enum(['usd', 'btc']).optional(),
       /** The customer's display currency (PF-overview-03). USD and BTC only; any other code refuses `bank.fx_rate_unset`. */
       displayCurrency: z.string().min(2).max(8).optional(),
@@ -126,7 +127,7 @@ export const BANK_PORTFOLIO_BALANCE_BREAKDOWN = defineProcedure({
       scope: z.enum(['all', 'main']).optional(),
       /** `main` or the id of one named Space. Wins over `scope`. */
       accountId: z.union([z.literal('main'), z.string().guid()]).optional(),
-      assetId: z.string().min(1).max(16).optional(),
+      assetId: assetIdSchema.min(1).max(16).optional(),
     })
     .strict()
     .optional(),

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { defineProcedure } from './procedure.js';
 import { amountString } from './bank-earn-procedures.js';
 import { stepUpApprovalField } from './bank-cards-procedures.js';
+import { assetIdSchema } from './asset-id.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-bank `transfers.*`, one record per call, written from its router while its Rust port is in flight: every app caller calls it by its record, and the router keeps its own schemas until the port's switch. */
@@ -17,7 +18,7 @@ export const heldSendOutput = z.object({
   status: z.enum(['in_review', 'released', 'rejected']),
   reasonClass: z.enum(SEND_REVIEW_REASONS),
   amount: amountString,
-  assetId: z.string(),
+  assetId: assetIdSchema,
   note: z.string().nullable(),
   reference: z.string().nullable(),
   requestId: z.string().guid().nullable(),
@@ -49,7 +50,7 @@ export const BANK_TRANSFERS_EXECUTIONS = defineProcedure({
       amount: amountString,
       status: z.string(),
       ledgerTxId: z.string().nullable(),
-      /** The partner bank's reference when it made this occurrence's move (OWNER 226). Null on the ledger path. */
+      /** The partner bank's reference when it made this occurrence's move. Null on the ledger path. */
       partnerMoveId: z.string().nullable(),
       rejectionCode: z.string().nullable(),
     }),
@@ -81,7 +82,7 @@ export const BANK_TRANSFERS_LIST_SCHEDULES = defineProcedure({
   output: z.array(
     z.object({
       id: z.string(),
-      assetId: z.string(),
+      assetId: assetIdSchema,
       amount: amountString,
       cadence: z.string(),
       startsAt: z.string(),
@@ -113,9 +114,9 @@ export const BANK_TRANSFERS_QUOTE = defineProcedure({
   path: 'transfers.quote',
   access: { caller: 'scope', scope: 'bank:read', module: 'bank' },
   refusals: {},
-  input: z.object({ assetId: z.string().min(1).max(16), amount: amountString }),
+  input: z.object({ assetId: assetIdSchema.min(1).max(16), amount: amountString }),
   output: z.object({
-    assetId: z.string(),
+    assetId: assetIdSchema,
     amount: amountString,
     perTransferLimit: amountString,
     dailyLimit: amountString,
@@ -178,7 +179,7 @@ export const BANK_TRANSFERS_TO_USER = defineProcedure({
     stepUpApprovalId: stepUpApprovalField,
   }),
   output: z.object({
-    /** The ledger transaction on the custodial layer; null when the partner bank moved it (OWNER 226). */
+    /** The ledger transaction on the custodial layer; null when the partner bank moved it. */
     ledgerTxId: z.string().nullable(),
     partnerMove: z.object({ id: z.string(), label: z.string() }).nullable(),
     amount: amountString,

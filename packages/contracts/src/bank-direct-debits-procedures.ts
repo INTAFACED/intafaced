@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { defineProcedure, NO_INPUT } from './procedure.js';
+import { assetIdSchema } from './asset-id.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-bank `directDebits.*`, one record per call, written from its router while its Rust port is in flight: every app caller calls it by its record, and the router keeps its own schemas until the port's switch. */
@@ -25,13 +26,13 @@ export const collectionView = z.object({
   mandateId: z.string(),
   collectionId: z.string(),
   creditorName: z.string(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   amount: amountString,
   dueAt: z.string(),
   status: z.enum(DD_COLLECTION_STATUSES),
   failureCode: z.string().nullable(),
   ledgerTxId: z.string().nullable(),
-  /** The partner's reference for the move that collected it, when the partner bank holds the money (OWNER 226). */
+  /** The partner's reference for the move that collected it, when the partner bank holds the money. */
   partnerMoveId: z.string().nullable(),
   presentedAt: z.string(),
   settledAt: z.string().nullable(),
@@ -49,7 +50,7 @@ export const mandateView = z.object({
   creditorId: z.string(),
   creditorName: z.string(),
   reference: z.string(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   status: z.enum(['active', 'blocked']),
   blockedAt: z.string().nullable(),
   createdAt: z.string(),

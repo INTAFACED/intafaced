@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { defineProcedure, NO_INPUT } from './procedure.js';
 import { destinationViewOutput, rampProgrammeOutput } from './bank-call-schemas.js';
+import { assetIdSchema } from './asset-id.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-bank `ramps.*`, one record per call, written from its router while its Rust port is in flight: every app caller calls it by its record, and the router keeps its own schemas until the port's switch. */
@@ -71,7 +72,7 @@ export const BANK_RAMPS_DESTINATIONS_NETWORKS = defineProcedure({
   output: z.array(
     z
       .object({
-        assetId: z.string(),
+        assetId: assetIdSchema,
         precision: z.number().int(),
         networks: z.array(z.object({ networkId: z.string(), label: z.string() }).strict()),
         defaultNetworkId: z.string().nullable(),
@@ -241,7 +242,7 @@ export const BANK_RAMPS_DESTINATIONS_SAVE = defineProcedure({
   refusals: {},
   input: z
     .object({
-      assetId: z.string().min(1).max(16),
+      assetId: assetIdSchema.min(1).max(16),
       network: z.string().min(2).max(32),
       ref: z.string().min(1).max(256),
       tag: z.string().min(1).max(64).optional(),

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { defineProcedure, NO_INPUT } from './procedure.js';
 import { globalSendSchema } from './bank-global-procedures.js';
 import { amountString, limitField, operatorHoldView } from './bank-call-schemas.js';
+import { assetIdSchema } from './asset-id.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-bank `global.*`, one record per call, written from its router while its Rust port is in flight: every app caller calls it by its record, and the router keeps its own schemas until the port's switch. */
@@ -83,7 +84,7 @@ export const BANK_GLOBAL_OPS_SUMMARY = defineProcedure({
       returned: z.number(),
       refunded: z.number(),
     }),
-    volumes: z.array(z.object({ status: z.string(), assetId: z.string(), count: z.number(), amount: amountString })),
+    volumes: z.array(z.object({ status: z.string(), assetId: assetIdSchema, count: z.number(), amount: amountString })),
     rails: z.object({
       corridors: z.enum(['unset', 'live']),
       fx: z.enum(['unset', 'live']),

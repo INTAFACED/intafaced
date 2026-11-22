@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { defineProcedure, NO_INPUT } from './procedure.js';
+import { assetIdSchema } from './asset-id.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-bank `earn.*`, one record per call, written from its router while its Rust port is in flight: every app caller calls it by its record, and the router keeps its own schemas until the port's switch. */
@@ -35,7 +36,7 @@ export const BANK_EARN_POOLS = defineProcedure({
   access: { caller: 'scope', scope: 'bank:read', module: 'bank' },
   refusals: {},
   input: z.object({
-    assetId: z.string().min(1).max(16).optional(),
+    assetId: assetIdSchema.min(1).max(16).optional(),
     /**
      * Page size. Optional so omit reaches `bank.earn_pools_list_limit_unset`
      * instead of a Zod "Required". Blank is not 50; pass 50 explicitly.
@@ -45,7 +46,7 @@ export const BANK_EARN_POOLS = defineProcedure({
   output: z.array(
     z.object({
       id: z.string(),
-      assetId: z.string(),
+      assetId: assetIdSchema,
       kind: z.enum(['flexible', 'fixed']),
       name: z.string(),
       aprBps: z.number().int(),
@@ -71,7 +72,7 @@ export const BANK_EARN_POOL = defineProcedure({
   input: z.object({ poolId: z.string().guid() }),
   output: z.object({
     id: z.string(),
-    assetId: z.string(),
+    assetId: assetIdSchema,
     kind: z.enum(['flexible', 'fixed']),
     name: z.string(),
     aprBps: z.number().int(),
@@ -141,7 +142,7 @@ export const BANK_EARN_POSITIONS = defineProcedure({
     z.object({
       id: z.string(),
       poolId: z.string(),
-      assetId: z.string(),
+      assetId: assetIdSchema,
       principal: amountString,
       openedAt: z.string(),
       maturesAt: z.string().nullable(),

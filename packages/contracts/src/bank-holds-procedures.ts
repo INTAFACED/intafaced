@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { defineProcedure, NO_INPUT } from './procedure.js';
+import { assetIdSchema } from './asset-id.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-bank `holds.*`, one record per call, written from its router while its Rust port is in flight: every app caller calls it by its record, and the router keeps its own schemas until the port's switch. */
@@ -19,7 +20,7 @@ export const holdView = z.object({
   state: z.enum(['placing', 'held', 'releasing', 'released', 'returning', 'returned', 'lapsed']),
   reasonClass: z.literal('stranger'),
   amount: amountString,
-  assetId: z.string(),
+  assetId: assetIdSchema,
   fromHandle: z.string().nullable(),
   note: z.string().nullable(),
   createdAt: z.string(),

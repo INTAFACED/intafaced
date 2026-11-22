@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { defineProcedure } from './procedure.js';
 import { amountString } from './bank-earn-procedures.js';
+import { assetIdSchema } from './asset-id.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-bank `autoInvest.*`, one record per call, written from its router while its Rust port is in flight: every app caller calls it by its record, and the router keeps its own schemas until the port's switch. */
@@ -10,7 +11,7 @@ const base = { service: 'svc-bank', module: 'bank', transport: 'trpc' } as const
 export const autoInvestRuleOutput = z.object({
   id: z.string(),
   kind: z.enum(['threshold_sweep', 'dca', 'card_roundup']),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   threshold: amountString.nullable(),
   targetPoolId: z.string().nullable(),
   targetSpaceId: z.string().nullable(),

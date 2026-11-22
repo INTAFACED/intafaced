@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { defineProcedure, NO_INPUT } from './procedure.js';
+import { assetIdSchema } from './asset-id.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-bank `railSends.*`, one record per call, written from its router while its Rust port is in flight: every app caller calls it by its record, and the router keeps its own schemas until the port's switch. */
@@ -36,7 +37,7 @@ export const intent = z
   .object({
     requestId: z.string(),
     fromSpaceId: z.string(),
-    assetId: z.string(),
+    assetId: assetIdSchema,
     amount: z.string(),
     rail,
     recipient: z.string(),

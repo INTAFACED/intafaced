@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { defineProcedure, NO_INPUT } from './procedure.js';
 import { amountString, billView, limitField } from './bank-call-schemas.js';
+import { assetIdSchema } from './asset-id.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-bank `bills.*`, one record per call, written from its router while its Rust port is in flight: every app caller calls it by its record, and the router keeps its own schemas until the port's switch. */
@@ -18,7 +19,7 @@ export const BANK_BILLS_OPS_SUMMARY = defineProcedure({
   output: z.object({
     asOf: z.string(),
     counts: z.object({ submitted: z.number(), accepted: z.number(), paid: z.number(), failed: z.number(), returned: z.number() }),
-    volumes: z.array(z.object({ status: z.string(), assetId: z.string(), count: z.number(), amount: amountString })),
+    volumes: z.array(z.object({ status: z.string(), assetId: assetIdSchema, count: z.number(), amount: amountString })),
     rails: z.object({
       billerDirectory: z.enum(['unset', 'live']),
       lookup: z.enum(['unset', 'live']),

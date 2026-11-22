@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { defineProcedure } from './procedure.js';
+import { assetIdSchema } from './asset-id.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-bank `cashOut.*`, one record per call, written from its router while its Rust port is in flight: every app caller calls it by its record, and the router keeps its own schemas until the port's switch. */
@@ -11,7 +12,7 @@ export const CASH_OUT_STATUSES = ['refused', 'processing', 'completed', 'failed'
 export const request = z
   .object({
     requestId: z.string(),
-    assetId: z.string(),
+    assetId: assetIdSchema,
     amount: z.string(),
     linkedAccountId: z.string(),
     rail: z.literal('rail.bank'),
@@ -45,7 +46,7 @@ export const amount = z
   .trim()
   .regex(/^\d+(\.\d{1,18})?$/);
 
-export const ask = { assetId: z.string().trim().min(1).max(16), amount, linkedAccountId: z.string().guid() };
+export const ask = { assetId: assetIdSchema.trim().min(1).max(16), amount, linkedAccountId: z.string().guid() };
 
 export const LINKED_ACCOUNT_STATES = ['unverified', 'verified'] as const;
 
@@ -125,7 +126,7 @@ export const BANK_CASH_OUT_QUOTE = defineProcedure({
   input: z.object(ask).strict(),
   output: z
     .object({
-      assetId: z.string(),
+      assetId: assetIdSchema,
       amount: z.string(),
       available: z.string(),
       heldAt: z.string().nullable(),

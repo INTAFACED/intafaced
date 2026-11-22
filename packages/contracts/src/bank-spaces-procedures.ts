@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { defineProcedure, NO_INPUT } from './procedure.js';
 import { amountString } from './bank-earn-procedures.js';
+import { assetIdSchema } from './asset-id.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-bank `spaces.*`, one record per call, written from its router while its Rust port is in flight: every app caller calls it by its record, and the router keeps its own schemas until the port's switch. */
@@ -16,6 +17,6 @@ export const BANK_SPACES_UNNAMED = defineProcedure({
   access: { caller: 'scope', scope: 'bank:read', module: 'bank' },
   refusals: {},
   input: NO_INPUT,
-  output: z.array(z.object({ assetId: z.string(), balance: amountString })),
+  output: z.array(z.object({ assetId: assetIdSchema, balance: amountString })),
   samples: [{ verdict: 'accept' }],
 });
