@@ -80,7 +80,56 @@ export const TRPC = {
     );
     return { ...page, items: input.limit ? items.slice(0, input.limit) : items };
   },
+  // pay: TEST. The account owns one TEST merchant business, active and verified, so a merchant portal page draws its
+  // own room instead of stopping at the account check. Its other reads have no fixture and show their refusal.
+  'pay:merchant.myAccess': () => ({
+    memberships: [
+      {
+        merchantId: '00000000-0000-4000-8000-00000000c0de',
+        role: 'owner',
+        status: 'active',
+        kybStatus: 'approved',
+        verified: true,
+        sessionInteractive: true,
+        mode: 'gateway',
+        displayName: 'TEST Merchant',
+        legalName: 'TEST Merchant Ltd',
+        capabilities: Object.fromEntries(MERCHANT_OWNER.map((key) => [key, true])),
+        pricingVisibility: 'full',
+      },
+    ],
+  }),
 };
+
+/** What an owner may do, as svc-pay's role table grants it (apps/customer/src/features/pay/portal/access/capabilities.ts). */
+const MERCHANT_OWNER = [
+  'team.read',
+  'team.manage',
+  'disputes.read',
+  'disputes.respond',
+  'invoices.read',
+  'invoices.write',
+  'customers.read',
+  'kyb.read',
+  'profile.read',
+  'profile.manage',
+  'exports.create',
+  'exports.read',
+  'notifications.read',
+  'notifications.manage',
+  'payments.read',
+  'settlements.read',
+  'halts.read',
+  'payout.request',
+  'payout.approve',
+  'activity.read',
+  'payouts.read',
+  'webhooks.read',
+  'webhooks.manage',
+  'products.read',
+  'products.manage',
+  'payments.unmask',
+];
 
 export const REST = {
   markets: () => markets,
