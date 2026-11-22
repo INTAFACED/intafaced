@@ -1,5 +1,6 @@
-import { useContext, useEffect, useId, useState, type ReactNode } from 'react';
-import { Button, EmptyState, RefusalBox, Tag } from '@intafaced/ui/lit';
+import { useContext, useId, useState, type ReactNode } from 'react';
+import { useRelease } from '../../../../shared/outside';
+import { Button, EmptyState, RefusalBox, Select, Tag } from '@intafaced/ui/lit';
 import { Skeleton, Table, type Column } from '@intafaced/ui/lit/templates';
 import { formatDateTime, formatDay } from '../ui/format';
 import type { ApiResult } from '../../../../shared/api';
@@ -75,7 +76,7 @@ export function Failure({ result, retry, notLive }: { result: Failed; retry?: ()
   const once = useContext(RefusalOnce);
   const id = useId();
   const key = `${refusalTitle(result)}|${refusalText(result)}`;
-  useEffect(() => () => once?.release(key, id), [once, key, id]);
+  useRelease(`${key}|${id}`, () => once?.release(key, id));
   if (isNotLive(result)) return <NotLive reason={notLive ?? notLiveReason(result)} />;
   if (once && !once.claim(key, id)) return null;
   return (
@@ -219,7 +220,7 @@ export function List<T>({
   );
 }
 
-/** A choice from a short list, as a native select inside the kit's field. */
+/** A choice from a short list: the kit's select, answering with the chosen value. */
 export function SelectField({
   label,
   value,
@@ -236,16 +237,13 @@ export function SelectField({
   disabled?: boolean;
 }) {
   return (
-    <label className="lt-field">
-      <span>{label}</span>
-      <select value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled}>
-        {options.map(([v, text]) => (
-          <option key={v} value={v}>
-            {text}
-          </option>
-        ))}
-      </select>
-      {hint && <small>{hint}</small>}
-    </label>
+    <Select
+      label={label}
+      hint={hint}
+      value={value}
+      disabled={disabled}
+      options={options}
+      onChange={(event) => onChange(event.target.value)}
+    />
   );
 }

@@ -89,16 +89,17 @@ describe('room templates registry', () => {
       pricingVisibility: null,
       capabilities: ROLE_CAPABILITIES.owner,
     } as Access;
-    const value = {
+    const value: MerchantAccessValue = {
       access,
       merchant: { status: 'loading' },
       team: { status: 'loading' },
       reloadMerchant: () => undefined,
       reload: () => undefined,
-      can: (need: Parameters<typeof allows>[1]) => allows(access, need),
+      can: (need) => allows(access, need),
       canOwnerWrite: true,
       sessionScopes: null,
-    } as unknown as MerchantAccessValue;
+      moneyReason: () => null,
+    };
     const pending = new Promise<never>(() => undefined);
     const portal = new Proxy({}, { get: () => () => pending }) as PortalApi;
     for (const [room, entry] of Object.entries(PORTAL_TEMPLATES)) {

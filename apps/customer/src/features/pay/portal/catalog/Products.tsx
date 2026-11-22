@@ -1,20 +1,17 @@
-import { useEffect, useState, type ChangeEvent } from 'react';
+import { useState } from 'react';
 import { Button } from '@intafaced/ui';
-import { PRODUCT_TYPES, type MerchantProduct, type ProductImageRules } from '@intafaced/contracts/merchant-catalog';
-import { EmptyState, Field } from '../../ui-kit';
+import type { MerchantProduct } from '@intafaced/contracts/merchant-catalog';
+import { EmptyState } from '../../ui-kit';
 import { navigate } from '../../../../app/location';
 import { useResource } from '../../../../shared/resource';
-import { PaySection } from '../../components';
 import type { PortalApi } from '../api';
 import { Facts, Gate, MoreFooter, PortalFailure, PortalLoading, SelectField } from '../components';
-import { base64Of } from '../settings/onboarding/Application';
 import { DateTime } from '../ui/DateTime';
 import { DetailHeader } from '../ui/DetailHeader';
 import { EntityList } from '../ui/EntityList';
 import { Freshness } from '../ui/Freshness';
 import { useServerList } from '../ui/useServerList';
 import { useReadAt, useUrlParam } from '../hooks';
-import { useBodyRequestId } from '../payments/invoice-model';
 import { useMayAddProducts } from './access';
 import { ProductAvailabilitySection } from './Availability';
 import { CatalogCopyControl } from './CatalogCopy';
@@ -25,7 +22,6 @@ import { ProductCreate } from '../flow/ProductNewRoom';
 export { ProductCreate };
 import { ProductPrices } from './Prices';
 import { catalogCopy as c } from './copy';
-import { blankProduct, checkImage, draftProblem, imageRequestId, productBody, sizeText, type ProductDraft } from './model';
 
 const productHref = (id: string) => `/pay/products/${encodeURIComponent(id)}`;
 

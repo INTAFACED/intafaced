@@ -1,4 +1,5 @@
-import { useEffect, useState, type ChangeEvent } from 'react';
+import { useState, type ChangeEvent } from 'react';
+import { useRelease } from '../../../../shared/outside';
 import { Button, Field } from '@intafaced/ui/lit';
 import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import { PRODUCT_TYPES, type ProductImageRules } from '@intafaced/contracts/merchant-catalog';
@@ -174,7 +175,7 @@ function ImagePicker({
   const [busy, setBusyState] = useState(false);
   // The picked file shows from the browser's own copy; nothing is fetched back to preview it.
   const [preview, setPreview] = useState<string | null>(null);
-  useEffect(() => () => void (preview && URL.revokeObjectURL(preview)), [preview]);
+  useRelease(preview ?? '', () => void (preview && URL.revokeObjectURL(preview)));
   const setBusy = (value: boolean) => {
     setBusyState(value);
     onBusy(value);
