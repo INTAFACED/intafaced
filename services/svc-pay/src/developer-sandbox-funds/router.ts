@@ -8,8 +8,7 @@ import {
   PAY_SANDBOX_FUNDS_FUND,
   PAY_SANDBOX_FUNDS_RESET,
 } from '@intafaced/contracts/pay-sandbox-funds-procedures';
-import { mountRecord } from '@intafaced/contracts/procedure-mount';
-import { payRefusal } from '../record-refusal.js';
+import { mountRecord, type RefusalOf } from '@intafaced/contracts/procedure-mount';
 
 /**
  * `sandboxFunds.*` (DV-sandbox-02, J-developer-02 #4, #5, #8): a person's developer sandbox TEST balance, Fund and
@@ -23,6 +22,10 @@ const STATUS: Record<SandboxFundRefusal, TRPCError['code']> = {
   'pay.sandbox_reset_cap_reached': 'TOO_MANY_REQUESTS',
   'pay.sandbox_request_conflict': 'CONFLICT',
 };
+
+/** The sandbox's own refusal reader: svc-pay's (`record-refusal.ts`) reaches the payment service and so the ledger, which this store never imports. */
+const sandboxRefusal: RefusalOf = (err) =>
+  err instanceof TRPCError && err.cause instanceof SandboxFundError ? { code: err.cause.code, error: err } : undefined;
 
 async function guarded<T>(fn: () => Promise<T>): Promise<T> {
   try {
@@ -44,17 +47,17 @@ export function createSandboxFundsRouter(deps: { readonly sql: Sql; readonly set
       balance: mountRecord(
         PAY_SANDBOX_FUNDS_BALANCE,
         ({ ctx, input }) => guarded(() => store.balance({ userId: ctx.principal.userId, sandboxId: input.sandboxId })),
-        payRefusal,
+        sandboxRefusal,
       ),
       fund: mountRecord(
         PAY_SANDBOX_FUNDS_FUND,
         ({ ctx, input }) => guarded(() => store.fund({ userId: ctx.principal.userId, sandboxId: input.sandboxId }, input.requestId)),
-        payRefusal,
+        sandboxRefusal,
       ),
       reset: mountRecord(
         PAY_SANDBOX_FUNDS_RESET,
         ({ ctx, input }) => guarded(() => store.reset({ userId: ctx.principal.userId, sandboxId: input.sandboxId }, input.requestId)),
-        payRefusal,
+        sandboxRefusal,
       ),
     }),
   });
