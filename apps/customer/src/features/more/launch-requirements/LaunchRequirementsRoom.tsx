@@ -92,6 +92,14 @@ export function LaunchRequirements({ orders = false }: { orders?: boolean }) {
               </div>
             ))}
           </dl>
+          <details>
+            <summary>
+              <Copy k="details" />
+            </summary>
+            <p>
+              <Copy k="detailsBody" />
+            </p>
+          </details>
         </section>
       </section>
       <aside>
@@ -102,7 +110,7 @@ export function LaunchRequirements({ orders = false }: { orders?: boolean }) {
           <p>
             <Copy k={orders ? 'returnBody' : 'historyBody'} />
           </p>
-          <a className="lt-link" href={orders ? '/launch' : '/uc/innovation/myorders'}>
+          <a className="lt-link lt-link-alone" href={orders ? '/launch' : '/uc/innovation/myorders'}>
             <Copy k={orders ? 'returnLink' : 'historyLink'} />
           </a>
         </section>
@@ -113,18 +121,10 @@ export function LaunchRequirements({ orders = false }: { orders?: boolean }) {
           <p>
             <Copy k="marketBody" />
           </p>
-          <a className="lt-link" href="/market/mine">
+          <a className="lt-link lt-link-alone" href="/market/mine">
             <Copy k="marketLink" />
           </a>
         </section>
-        <details>
-          <summary>
-            <Copy k="details" />
-          </summary>
-          <p>
-            <Copy k="detailsBody" />
-          </p>
-        </details>
       </aside>
     </div>
   );
