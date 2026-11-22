@@ -1024,7 +1024,7 @@ pub fn abandon_pending(d: &Deps<'_>, loan_id: &str) -> Result<Abandoned, Refusal
         let wait: i64 = with(d.store, |c| {
             let rows = c
                 .query(
-                    "SELECT GREATEST(0, CEIL($2::numeric - EXTRACT(EPOCH FROM (now() - updated_at))))::int8
+                    "SELECT GREATEST(0, CEIL($2::text::numeric - EXTRACT(EPOCH FROM (now() - updated_at))))::int8
                        FROM bank.loans WHERE id = $1::text::uuid",
                     &[&loan_id, &IN_FLIGHT_BOUND_SECONDS.to_string()],
                 )
