@@ -5,8 +5,8 @@
 //! and its approve through `/test/payin-sim/pay/:id/approve`.
 //!
 //! Ported:
-//! - `ramps/add-money.db`: 43 of 45. Left: the two `partnerHolds` reads, a call of slice `limits`; the holds the partner
-//!   keeps are read from the TEST partner itself in the tests that need them. `paid with no hash` goes through the job
+//! - `ramps/add-money.db`: all 45. The two `partnerHolds` tests call it through the door (a call of slice `spaces`); the
+//!   tests that check a credit's hold read it from the TEST partner itself. `paid with no hash` goes through the job
 //!   door, whose body shape refuses `0x1234` (`bank.validation_failed`) before the work would.
 //! - `ops/onramp-quotes.db`: all 5 (its two page-size refusals in one test, over both calls).
 //! - `ramps/ramps.test`: the on-ramp and credit tests (no programme, fiat with mode none, a live rail, no or sandbox pay
@@ -3428,4 +3428,59 @@ fn refuses_the_same_fiat_rail_ref_again_when_the_live_rail_id_would_have_changed
         0
     );
     assert!(b.ledger.journal().is_empty());
+}
+
+#[test]
+fn holds_not_reported_read_not_reported_never_nothing_held_and_what_can_be_withdrawn_is_not_known()
+{
+    let Some(b) = bank() else { return };
+    let door = at_partner(&b);
+    fund(&door, "fund-ada-10", "10");
+    {
+        let p = door.partner().partner.as_ref().unwrap();
+        let mut st = p.lock();
+        let mut sw = st.board.get(ADA);
+        sw.purchase_holds = "not_reported".to_owned();
+        st.board.set(ADA, sw);
+    }
+    let holds = call(&door, ADA, CUSTOMER, "partnerHolds", &Json::Null).ok();
+    matches(
+        &holds,
+        &obj(&[
+            ("held", Json::Bool(true)),
+            ("reported", Json::Bool(false)),
+            ("asOf", Json::Null),
+            ("holds", Json::Array(vec![])),
+            ("released", Json::Array(vec![])),
+        ]),
+    );
+    let Some(Json::Array(balances)) = holds.get("balances") else {
+        panic!("no balances: {}", holds.compact())
+    };
+    assert_eq!(balances.len(), 1, "{}", holds.compact());
+    matches(
+        &balances[0],
+        &obj(&[
+            ("assetId", Json::str("USDT")),
+            ("balance", Json::str("10")),
+            ("heldBack", Json::Null),
+            ("withdrawable", Json::Null),
+        ]),
+    );
+}
+
+#[test]
+fn a_person_the_partner_holds_no_money_for_has_no_partner_holds() {
+    let Some(b) = bank() else { return };
+    let door = at_partner(&b);
+    assert_eq!(
+        call(&door, BOB, CUSTOMER, "partnerHolds", &Json::Null).ok(),
+        obj(&[("held", Json::Bool(false))])
+    );
+    assert_eq!(
+        call(&door, ADA, CUSTOMER, "partnerHolds", &Json::Null)
+            .ok()
+            .get("held"),
+        Some(&Json::Bool(true))
+    );
 }
