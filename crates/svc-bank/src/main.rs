@@ -511,8 +511,33 @@ fn cards_wiring(env: &BankEnv) -> Result<cards::Wiring, String> {
 }
 
 /// Slice `ramps`' address book: identity's mail and trusted devices, from the environment.
-fn ramps_book_wiring(_env: &BankEnv) -> Result<ramps::book::Wiring, String> {
-    Ok(ramps::book::Wiring::none())
+fn ramps_book_wiring(env: &BankEnv) -> Result<ramps::book::Wiring, String> {
+    let Some(url) = env.str("IDENTITY_URL") else {
+        return Ok(ramps::book::Wiring::none());
+    };
+    let s2s = s2s_from_env(
+        env.str("S2S_AUTH_MODE").unwrap_or("off"),
+        env.str("S2S_KEYRING"),
+        env.str("S2S_SIGNING_KID"),
+        env.str("S2S_SIGNING_KEY"),
+        "svc-bank",
+    )?;
+    let keyed = match (s2s.signer, s2s.mode) {
+        (Some(signer), Some(mode)) => Some((signer, mode)),
+        _ => None,
+    };
+    let secret = env.str("INTERNAL_SERVICE_SECRET").unwrap_or_default();
+    let identity = || {
+        ramps::book::ports::IdentityHttp::new(
+            url,
+            CallSigner::new("svc-bank", "svc-identity", secret, keyed.clone()),
+            Box::new(UreqFetch::new()),
+        )
+    };
+    Ok(ramps::book::Wiring {
+        mail: Box::new(identity()),
+        devices: Box::new(identity()),
+    })
 }
 
 /// Slice `ramps`' on-ramp: the programme, the rate source and the pay-in partner, from the environment.
