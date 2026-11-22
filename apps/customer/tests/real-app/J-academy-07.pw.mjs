@@ -396,6 +396,7 @@ test(`${J} #5 a second Buy or a lost reply is still one purchase and no second s
   test.setTimeout(240_000);
   const slug = run.second.slug;
   const payer = privateKeyToAccount(run.walletKey).address;
+  const before = await usdOf(payer);
   const { panel, wallet } = await openCourse(page, slug);
 
   // The answer to Buy is lost after Academy stored the purchase: the wallet is not asked, and a reload shows the stored one.
@@ -457,6 +458,8 @@ test(`${J} #5 a second Buy or a lost reply is still one purchase and no second s
   expect(rows).toEqual([{ purchase_key: key, state: 'posted', tx_hash: hash }]);
   expect(transferSends(wallet)).toHaveLength(1);
   expect(await transfersIn(hash)).toHaveLength(1);
+  // The wallet paid the price once on the chain, however often Buy was pressed or a reply was lost.
+  expect(before - (await usdOf(payer))).toBe(PRICE_UNITS);
   const tx = await ledgerTrace(key);
   expect(tx).toMatchObject({ found: true, businessKey: key });
   expectPrice(tx);
