@@ -11,7 +11,7 @@ import { studioCopy } from './studio-copy';
 import { useRuleWords } from './SignalBuilder';
 import { ruleRefusal, signalRulesFilled, trimSignalRules } from './signal-rules';
 import { fingerprint, saveKey, type StudioLink, type StudioRules } from './studio-save';
-import { KitLoading } from './kit-parts';
+import { KitFailure, KitLoading } from './kit-parts';
 
 /** Whether the form holds everything a save needs; the service still checks each rule and refuses by name. */
 export function savable(rules: StudioRules): boolean {
@@ -146,7 +146,7 @@ export function StudioSave({
           {refusalText(refusal)}
         </p>
       ) : (
-        failure && <QuotaAwareFailure result={failure} retry={() => void save()} />
+        failure && <QuotaAwareFailure result={failure} retry={() => void save()} Fallback={KitFailure} />
       )}
     </div>
   );

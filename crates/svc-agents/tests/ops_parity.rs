@@ -1,4 +1,4 @@
-//! The `ops` slice's fixed lists, held to the TypeScript they are copied from: a list changed on one side fails here.
+//! The `ops` slice's fixed lists, held to the contracts and the own catalogue: a list changed on one side fails here.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -8,6 +8,7 @@
 
 use svc_agents::ops::fleet::{OWN_WRITE_TOOLS, is_own_write_tool};
 use svc_agents::ops::{DATA_CLASSES, RULE_CHOICES};
+use svc_agents::own::catalog::own_tools;
 use svc_agents::runtime::guardrails::FLEET_HARD_MONEY_WRITE_TOOLS;
 
 fn source(path: &str) -> String {
@@ -41,33 +42,32 @@ fn the_data_classes_and_rule_choices_are_the_contracts() {
     );
 }
 
-/// `OWN_WRITE_TOOLS` is `OWN_TOOLS` filtered to a draft write, a live write or a tool that moves money: every tool the
-/// catalogue declares one of those, and the fleet's hard money writes it spreads into `MONEY_TOOLS`.
+/// `OWN_WRITE_TOOLS` is the own catalogue filtered to a draft write, a live write or a tool that moves money, besides the
+/// fleet's hard money writes the catalogue spreads into its money tools.
 #[test]
 fn the_own_write_tools_are_the_catalogues() {
-    let ts = source("services/svc-agents/src/own/catalog.ts");
-    let mut declared: Vec<String> = Vec::new();
-    let parts: Vec<&str> = ts.split("name: '").skip(1).collect();
-    for part in parts {
-        let name = part.split('\'').next().unwrap();
-        let body = part.split("name: '").next().unwrap();
-        let entry = body.split("\n  },").next().unwrap();
-        let writes = entry.contains("dataClass: 'live_write'")
-            || entry.contains("dataClass: 'draft_write'")
-            || entry.contains("movesMoney: true");
-        if writes && name.contains('.') {
-            declared.push(name.to_owned());
-        }
-    }
+    let tools = own_tools();
+    let mut declared: Vec<String> = tools
+        .iter()
+        .filter(|t| {
+            (t.data_class == Some("live_write")
+                || t.data_class == Some("draft_write")
+                || t.moves_money)
+                && !FLEET_HARD_MONEY_WRITE_TOOLS.contains(&t.name.as_str())
+        })
+        .map(|t| t.name.clone())
+        .collect();
     declared.sort();
     let mut ours = OWN_WRITE_TOOLS.map(str::to_owned).to_vec();
     ours.sort();
     assert_eq!(declared, ours);
-    assert!(
-        ts.contains("...FLEET_HARD_MONEY_WRITE_TOOLS.map((name) => ({")
-            && ts.contains("movesMoney: true,"),
-        "MONEY_TOOLS no longer spreads the fleet's hard money writes as money tools"
-    );
+    for hard in FLEET_HARD_MONEY_WRITE_TOOLS {
+        let t = tools
+            .iter()
+            .find(|t| t.name == hard)
+            .unwrap_or_else(|| panic!("{hard} is not in the own catalogue's money tools"));
+        assert!(t.moves_money, "{hard} moves money");
+    }
     assert!(
         FLEET_HARD_MONEY_WRITE_TOOLS
             .iter()

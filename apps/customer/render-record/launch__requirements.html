@@ -97,54 +97,50 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div class="more-feature">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div data-room="launch-requirements">
+<div class="lt-room" data-template="reading" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<p class="eyebrow">More</p>
-<h1>Launch requirements</h1>
-<p class="muted">
-<span lang="en" dir="ltr" data-i18n="more.launch.availability.scope">Asset launch tasks and participation records</span>
-</p>
+<h1 class="lt-title">Launch requirements</h1>
+<p class="lt-description">Asset launch tasks and participation records</p>
 </div>
 </header>
-<div class="more-grid">
-<div class="tabs" role="group" aria-label="Launch sections">
-<button type="button" class="" aria-pressed="false">Launches</button>
-<button type="button" class="" aria-pressed="false">Issuer journey</button>
-<button type="button" class="" aria-pressed="false">Pre-listing check</button>
-<button type="button" class="selected" aria-pressed="true">Requirements</button>
-<button type="button" class="" aria-pressed="false">My participation</button>
-</div>
-<div class="launch-room" lang="en" dir="ltr">
-<nav data-slot="sub-nav" aria-label="Launch sections" class="flex flex-wrap items-center gap-1 border-b border-line py-2 px-0">
-<a href="/launch" aria-current="page" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Launch overview</a>
-<a href="/uc/innovation/myorders" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">My participation</a>
+<div class="lt-body">
+<div class="lt-grid lt-grid-reading-toc">
+<div class="lt-reading-main">
+<section class="lt-region" data-region="meta" aria-label="Details">
+<nav class="lt-tabs" aria-label="Launch sections">
+<a href="/launch" class="lt-tab">Launches</a>
+<a href="/launch/new" class="lt-tab">Issuer journey</a>
+<a href="/launch/check" class="lt-tab">Pre-listing check</a>
+<a href="/launch/requirements" class="lt-tab" aria-current="page">Requirements</a>
+<a href="/launch/mine" class="lt-tab">My participation</a>
 </nav>
-<div class="launch-room-workspace">
-<section class="launch-room-primary">
-<div class="launch-room-status">
+</section>
+<section class="lt-region" data-region="body" aria-label="Article">
+<div lang="en" dir="ltr">
+<nav class="lt-tabs" aria-label="Launch sections">
+<a href="/launch" class="lt-tab">Launch overview</a>
+<a href="/uc/innovation/myorders" class="lt-tab">My participation</a>
+</nav>
+<section>
 <h2>
 <span lang="en" dir="ltr" data-i18n="more.launch.availability.launchUnavailable">Asset launches are unavailable</span>
 </h2>
-<p class="muted">
+<p>
 <span lang="en" dir="ltr" data-i18n="more.launch.availability.launchBody">Issuance, a trading-market listing and sale participation need their own connected capabilities. This room cannot launch an asset or accept a sale order.</span>
 </p>
-</div>
-<a class="button button--primary launch-room-support" href="/support">
+<a class="lt-button lt-button-primary" href="/support">
 <span lang="en" dir="ltr" data-i18n="more.launch.availability.support">Contact Support</span>
 </a>
 <section>
-<h3 class="launch-room-required">
+<h3>
 <span lang="en" dir="ltr" data-i18n="more.launch.availability.required">What this room needs</span>
 </h3>
-<dl class="launch-room-requirements">
+<dl class="lt-kv">
 <div>
 <dt>
-<span>
-<span lang="en" dir="ltr" data-i18n="more.launch.availability.issuance">Issuance</span>
-</span>
-<span class="launch-room-state">
+<span lang="en" dir="ltr" data-i18n="more.launch.availability.issuance">Issuance</span> <span class="lit-tag" data-tone="neutral">
 <span lang="en" dir="ltr" data-i18n="more.launch.availability.unavailable">Unavailable</span>
 </span>
 </dt>
@@ -154,10 +150,7 @@
 </div>
 <div>
 <dt>
-<span>
-<span lang="en" dir="ltr" data-i18n="more.launch.availability.listing">Trading-market listing</span>
-</span>
-<span class="launch-room-state">
+<span lang="en" dir="ltr" data-i18n="more.launch.availability.listing">Trading-market listing</span> <span class="lit-tag" data-tone="neutral">
 <span lang="en" dir="ltr" data-i18n="more.launch.availability.unavailable">Unavailable</span>
 </span>
 </dt>
@@ -167,10 +160,7 @@
 </div>
 <div>
 <dt>
-<span>
-<span lang="en" dir="ltr" data-i18n="more.launch.availability.sale">Sale participation</span>
-</span>
-<span class="launch-room-state">
+<span lang="en" dir="ltr" data-i18n="more.launch.availability.sale">Sale participation</span> <span class="lit-tag" data-tone="neutral">
 <span lang="en" dir="ltr" data-i18n="more.launch.availability.unavailable">Unavailable</span>
 </span>
 </dt>
@@ -179,44 +169,40 @@
 </dd>
 </div>
 </dl>
+<h4>
+<span lang="en" dir="ltr" data-i18n="more.launch.availability.details">Availability details</span>
+</h4>
+<p>
+<span lang="en" dir="ltr" data-i18n="more.launch.availability.detailsBody">The issuance template has not been audited, and a successful build is not an audit or permission to launch. Issuance is on hold. This room starts nothing on any chain.</span>
+</p>
 </section>
 </section>
-<aside class="launch-room-aside">
+<aside>
 <section>
-<div class="launch-room-side-copy">
 <h3>
 <span lang="en" dir="ltr" data-i18n="more.launch.availability.history">Your participation</span>
 </h3>
-<p class="muted">
+<p>
 <span lang="en" dir="ltr" data-i18n="more.launch.availability.historyBody">Your order history and allocation results are unavailable. No order count or position is guessed.</span>
 </p>
-</div>
-<a class="text-link launch-room-link" href="/uc/innovation/myorders">
+<a class="lt-link lt-link-alone" href="/uc/innovation/myorders">
 <span lang="en" dir="ltr" data-i18n="more.launch.availability.historyLink">View launch participation →</span>
 </a>
 </section>
-<section class="launch-room-market">
-<div class="launch-room-side-copy">
+<section>
 <h3>
 <span lang="en" dir="ltr" data-i18n="more.launch.availability.market">Sell a service or strategy access</span>
 </h3>
-<p class="muted">
+<p>
 <span lang="en" dir="ltr" data-i18n="more.launch.availability.marketBody">Market has its own seller catalogue. These listings do not issue an asset, create a trading market or open a sale round.</span>
 </p>
-</div>
-<a class="text-link launch-room-link" href="/market/mine">
+<a class="lt-link lt-link-alone" href="/market/mine">
 <span lang="en" dir="ltr" data-i18n="more.launch.availability.marketLink">Market service listings →</span>
 </a>
 </section>
-<details class="launch-room-details">
-<summary>
-<span lang="en" dir="ltr" data-i18n="more.launch.availability.details">Availability details</span>
-</summary>
-<p class="muted">
-<span lang="en" dir="ltr" data-i18n="more.launch.availability.detailsBody">The issuance template has not been audited, and a successful build is not an audit or permission to launch. Issuance is on hold. This room starts nothing on any chain.</span>
-</p>
-</details>
 </aside>
+</div>
+</section>
 </div>
 </div>
 </div>

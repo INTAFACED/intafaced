@@ -1,3 +1,4 @@
+import { DocPage } from '../DocPage';
 import { useSession } from '../../session';
 import { supportNewHref, useSupportContact } from '../../more';
 import { developerSupportCopy } from './support-copy';
@@ -17,32 +18,28 @@ export function DeveloperSupportPage({ title }: { title: string }) {
     { id: 'chat-hours', label: t('chatHours'), value: contact.chatHours },
   ] as const;
   return (
-    <div className="pub-page" data-testid="developers-support">
-      <header className="pub-heading">
-        <h1>{title}</h1>
-        <p className="muted">{t('lead')}</p>
-      </header>
-      <section className="pub-card" aria-labelledby="dev-support-catalogue" data-testid="developers-support-catalogue">
+    <DocPage id="support" title={title} lead={t('lead')} back={t('back')}>
+      <section aria-labelledby="dev-support-catalogue" data-testid="developers-support-catalogue">
         <h2 id="dev-support-catalogue">{t('catalogueTitle')}</h2>
         <ul>
           <li>
-            <a className="text-link" href="/developers/errors">
+            <a className="lt-link lt-link-alone" href="/developers/errors">
               {t('catalogueErrors')}
             </a>
           </li>
           <li>
-            <a className="text-link" href="/developers/errors/auth">
+            <a className="lt-link lt-link-alone" href="/developers/errors/auth">
               {t('catalogueAuth')}
             </a>
           </li>
           <li>
-            <a className="text-link" href="/developers/status">
+            <a className="lt-link lt-link-alone" href="/developers/status">
               {t('catalogueStatus')}
             </a>
           </li>
         </ul>
       </section>
-      <section className="pub-card" aria-labelledby="dev-support-send" data-testid="developers-support-send">
+      <section aria-labelledby="dev-support-send" data-testid="developers-support-send">
         <h2 id="dev-support-send">{t('sendTitle')}</h2>
         <ul>
           <li>{t('sendRequestId')}</li>
@@ -56,10 +53,10 @@ export function DeveloperSupportPage({ title }: { title: string }) {
           {t('neverKey')}
         </p>
       </section>
-      <section className="pub-card" aria-labelledby="dev-support-contacts" data-testid="developers-support-contacts">
+      <section aria-labelledby="dev-support-contacts" data-testid="developers-support-contacts">
         <h2 id="dev-support-contacts">{t('contactsTitle')}</h2>
         {contact.status === 'loading' ? (
-          <p className="muted" role="status">
+          <p className="lt-hint" role="status">
             {t('contactLoading')}
           </p>
         ) : (
@@ -76,22 +73,19 @@ export function DeveloperSupportPage({ title }: { title: string }) {
           </>
         )}
       </section>
-      <section className="pub-card" aria-labelledby="dev-support-ticket" data-testid="developers-support-ticket">
+      <section aria-labelledby="dev-support-ticket" data-testid="developers-support-ticket">
         <h2 id="dev-support-ticket">{t('ticketTitle')}</h2>
         <p>{t('ticketBody')}</p>
         {session ? (
-          <a className="button button--primary" href={supportNewHref(t('ticketSubject'))}>
+          <a className="lt-button lt-button-primary" href={supportNewHref(t('ticketSubject'))}>
             {t('ticketOpen')}
           </a>
         ) : (
-          <a className="button button--primary" href={`/login?next=${encodeURIComponent('/developers/support')}`}>
+          <a className="lt-button lt-button-primary" href={`/login?next=${encodeURIComponent('/developers/support')}`}>
             {t('ticketSignIn')}
           </a>
         )}
       </section>
-      <a className="text-link" href="/developers">
-        ← {t('back')}
-      </a>
-    </div>
+    </DocPage>
   );
 }

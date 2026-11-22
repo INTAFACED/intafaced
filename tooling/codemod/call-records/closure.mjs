@@ -266,6 +266,25 @@ function declText(q, b) {
   return `${doc}export ${text(q, b.declaration)}`;
 }
 
+/**
+ * True when `file` already declares `name` at its top level exactly as `text` (a moved declaration's `declText`)
+ * writes it, docs and spacing aside: the copy is already there, so it is imported, never declared a second time.
+ */
+export function declaresSame(file, name, text) {
+  if (!existsSync(file)) return false;
+  const q = load(file);
+  const b = topLevel(q, name);
+  return !!b && asWritten(declText(q, b)) === asWritten(text);
+}
+
+/** A moved declaration's text with its JSDoc dropped and its spacing folded: two copies that read the same are one. */
+export function asWritten(text) {
+  return text
+    .replace(/^\/\*\*(?:(?!\*\/)[\s\S])*\*\/\s*/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 /** True when `name` is read anywhere in a file outside the given ranges. */
 export function usedOutside(p, name, ranges) {
   let used = false;

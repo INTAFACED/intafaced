@@ -1,15 +1,8 @@
-//! The wire replay. `services/svc-agents/wire-replay.golden/` is what the TypeScript router answered (through the
-//! production Fastify adapter, with every optional dependency left out) to every call with five inputs (valid, absent,
-//! wrong type, empty, an extra key) from five callers (anonymous, `agents:read`, a person who may execute, an operator
-//! reader, and an API key). This sends the same requests, built the same way, to the Rust door.
-//!
-//! An answer the door decides must match byte for byte: every route and method refusal, every 401, every scope,
-//! region, service and person 403, every input 400, and the door's own call (`health`). Any other answer is the
-//! handler's: while the Rust door answers it "not ported" it is owed by the call's slice, counted and printed, and fails
-//! nothing. One difference that is not owed fails the test.
-//!
-//! For one slice: `WIRE_REPLAY_SLICE=<slice> cargo test -p svc-agents --test wire_replay -- --nocapture` prints that
-//! slice's owed answers, and `WIRE_REPLAY_STRICT=<slice>` also fails while it owes any.
+//! The wire replay. `tests/fixtures/wire-replay.golden/` is what the TypeScript router answered before it was deleted
+//! (through the production Fastify adapter, with every optional dependency left out) to every call with five inputs
+//! (valid, absent, wrong type, empty, an extra key) from five callers (anonymous, `agents:read`, a person who may
+//! execute, an operator reader, and an API key). This sends the same requests, built the same way, to the Rust door, and
+//! every answer must match byte for byte: status and body.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -227,8 +220,7 @@ struct Golden {
 }
 
 fn golden() -> Golden {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../services/svc-agents/wire-replay.golden");
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/wire-replay.golden");
     let mut g = Golden {
         callers: Vec::new(),
         inputs: BTreeMap::new(),
@@ -322,7 +314,7 @@ fn door_decides(call: &door::Call, status: u16, body: &str) -> bool {
 }
 
 #[test]
-fn every_recorded_request_gets_the_recorded_answer_or_is_owed_by_its_slice() {
+fn every_recorded_request_gets_the_recorded_answer() {
     let g = golden();
     let ours: Vec<(String, String, String)> = door::callers()
         .into_iter()
@@ -334,13 +326,10 @@ fn every_recorded_request_gets_the_recorded_answer_or_is_owed_by_its_slice() {
     );
 
     let door = serve();
-    let only = std::env::var("WIRE_REPLAY_SLICE").ok();
-    let strict = std::env::var("WIRE_REPLAY_STRICT").ok();
     let mut sent = 0usize;
     let mut same = 0usize;
     let mut held: BTreeMap<u16, usize> = BTreeMap::new();
-    let mut owed: BTreeMap<Slice, (usize, usize, std::collections::BTreeSet<&str>)> =
-        BTreeMap::new();
+    let mut per_slice: BTreeMap<Slice, (usize, usize)> = BTreeMap::new();
     let mut differ = Vec::new();
     for call in door::calls::CALLS.iter() {
         let valid = if call.has_input {
@@ -357,31 +346,20 @@ fn every_recorded_request_gets_the_recorded_answer_or_is_owed_by_its_slice() {
                     .unwrap_or_else(|| panic!("no recorded answer for {key}"));
                 sent += 1;
                 let got = hit(&door, call.path, call.kind, input.as_ref(), c);
-                let entry = owed.entry(call.slice).or_default();
+                let entry = per_slice.entry(call.slice).or_default();
                 entry.1 += 1;
                 if &got == want {
                     same += 1;
+                    entry.0 += 1;
                     if door_decides(call, want.0, &want.1) {
                         *held.entry(want.0).or_default() += 1;
                     }
                     continue;
                 }
-                let not_ported = got.0 == 500
-                    && got
-                        .1
-                        .contains(&format!("the {} slice is not ported", call.slice.name()));
-                if not_ported && !door_decides(call, want.0, &want.1) {
-                    entry.0 += 1;
-                    entry.2.insert(call.path);
-                    if only.as_deref() == Some(call.slice.name()) {
-                        println!("owed {key}: {} {}", want.0, want.1);
-                    }
-                } else {
-                    differ.push(format!(
-                        "{key}:\n  ts:   {} {}\n  rust: {} {}",
-                        want.0, want.1, got.0, got.1
-                    ));
-                }
+                differ.push(format!(
+                    "{key}:\n  ts:   {} {}\n  rust: {} {}",
+                    want.0, want.1, got.0, got.1
+                ));
             }
         }
     }
@@ -390,29 +368,16 @@ fn every_recorded_request_gets_the_recorded_answer_or_is_owed_by_its_slice() {
         sent, recorded,
         "every recorded request is sent, and nothing else"
     );
-    println!("wire replay: {sent} answers, {same} the same");
-    println!("  held byte for byte by the door: {held:?}");
-    for (slice, (n, of, calls)) in &owed {
-        println!(
-            "  owed by {:<12} {n:>4} of {of:>4} answers, over {} calls",
-            slice.name(),
-            calls.len()
-        );
+    println!(
+        "wire replay: {sent} answers, {same} the same, {} differ",
+        differ.len()
+    );
+    println!("  decided by the door: {held:?}");
+    for (slice, (n, of)) in &per_slice {
+        println!("  {:<12} {n:>4} of {of:>4} the same", slice.name());
     }
     for d in differ.iter().take(30) {
         println!("{d}");
     }
-    assert!(
-        differ.is_empty(),
-        "{} answers differ and are not owed by a slice",
-        differ.len()
-    );
-    if let Some(s) = strict {
-        let left: usize = owed
-            .iter()
-            .filter(|(k, _)| k.name() == s)
-            .map(|(_, v)| v.0)
-            .sum();
-        assert_eq!(left, 0, "the {s} slice still owes {left} answers");
-    }
+    assert!(differ.is_empty(), "{} answers differ", differ.len());
 }

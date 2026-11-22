@@ -18,7 +18,15 @@ import {
   type OwnAgentPolicyEffect,
   type OwnAgentPolicyScope,
 } from '@intafaced/contracts/agents-own';
-import { AGENTS_OWN_POLICY_GET, AGENTS_OWN_ACCESS_GET, AGENTS_OWN_ACCESS_GRANT } from '@intafaced/contracts/agents-own-procedures';
+import {
+  AGENTS_OWN_POLICY_GET,
+  AGENTS_OWN_ACCESS_GET,
+  AGENTS_OWN_ACCESS_GRANT,
+  AGENTS_OWN_POLICY_ADD,
+  AGENTS_OWN_POLICY_REMOVE,
+  AGENTS_OWN_POLICY_REQUIRE,
+} from '@intafaced/contracts/agents-own-procedures';
+import { callAs, type AppProcedure } from '../../shared/api';
 
 /**
  * An own agent's Access page (AG-spend-02, J-agents-08 #1 #2): the person's allow and deny rules by action and account,
@@ -204,11 +212,11 @@ function Policy({ agent, stored }: { agent: OwnAgent; stored: OwnAgentPolicy }) 
   const [busy, setBusy] = useState(false);
   // The tick shows the person's choice at once; the service's answer then sets it, or a refusal puts it back.
   const [required, setRequired] = useState(stored.rulesRequired);
-  async function send(procedure: string, input: Record<string, unknown>) {
+  async function send(procedure: AppProcedure, input: Record<string, unknown>) {
     setBusy(true);
     setRefused(null);
     try {
-      const res = await api.mutate('agents', procedure, { id: agent.id, ...input }, ownAgentPolicySchema);
+      const res = await callAs(api, procedure, { id: agent.id, ...input }, ownAgentPolicySchema);
       if (!res.ok) {
         setRequired(policy.rulesRequired);
         return setRefused(res);
@@ -229,7 +237,7 @@ function Policy({ agent, stored }: { agent: OwnAgent; stored: OwnAgentPolicy }) 
         aria-label={t('newRule')}
         onSubmit={(event) => {
           event.preventDefault();
-          void send('own.policy.add', { effect, action, scope });
+          void send(AGENTS_OWN_POLICY_ADD, { effect, action, scope });
         }}
       >
         <Select
@@ -263,7 +271,7 @@ function Policy({ agent, stored }: { agent: OwnAgent; stored: OwnAgentPolicy }) 
               <td>{t(`action_${rule.action}`)}</td>
               <td>{t(`scope_${rule.scope}`)}</td>
               <td>
-                <Button type="button" disabled={busy} onClick={() => void send('own.policy.remove', { ruleId: rule.id })}>
+                <Button type="button" disabled={busy} onClick={() => void send(AGENTS_OWN_POLICY_REMOVE, { ruleId: rule.id })}>
                   {t('remove')}
                 </Button>
               </td>
@@ -283,7 +291,7 @@ function Policy({ agent, stored }: { agent: OwnAgent; stored: OwnAgentPolicy }) 
           aria-describedby={`${requiredId}-hint`}
           onChange={(event) => {
             setRequired(event.target.checked);
-            void send('own.policy.require', { rulesRequired: event.target.checked });
+            void send(AGENTS_OWN_POLICY_REQUIRE, { rulesRequired: event.target.checked });
           }}
         />
         <span>{t('required')}</span>

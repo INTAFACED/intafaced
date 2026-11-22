@@ -19,40 +19,52 @@
 </a>
 </header>
 <main id="main">
-<div data-testid="official-channels" class="help stack" lang="en">
-<header>
-<h1>Official channels</h1>
-<p class="muted">The only web addresses, email senders and support channels that are ours. A message from anywhere else is not from us, whatever it looks like.</p>
-</header>
-<div data-testid="failure" class="lt-refusal failure" role="status">
-<h3 class="lt-refusal-title">
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p class="lt-refusal-body">No services run in the look gate.</p>
-<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
+<div data-testid="official-channels" lang="en">
+<div class="lt-room" data-template="reading" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
+<div>
+<h1 class="lt-title">Official channels</h1>
+<p class="lt-description">The only web addresses, email senders and support channels that are ours. A message from anywhere else is not from us, whatever it looks like.</p>
 </div>
-<section aria-labelledby="official-guides">
+</header>
+<div class="lt-body">
+<div class="lt-grid lt-grid-reading-toc">
+<div class="lt-reading-main">
+<section class="lt-region" data-region="body" aria-label="Article">
+<div class="lt-stack">
+<div data-testid="failure" class="lt-refusal" role="status">
+<h3 class="lt-refusal-title">Can’t connect right now</h3>
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
+</div>
+</div>
+</section>
+<section class="lt-region" data-region="related" aria-label="Related">
+<section aria-labelledby="official-guides" class="lt-stack">
 <h2 id="official-guides">Scam guides</h2>
 <ul data-testid="official-channels__guides">
 <li>
-<a class="text-link" href="/helpdetail?id=kb-security-scam-tactics">How scams work</a>
+<a class="lt-link" href="/helpdetail?id=kb-security-scam-tactics">How scams work</a>
 </li>
 <li>
-<a class="text-link" href="/helpdetail?id=kb-security-spoofed-sms">Spoofed text messages</a>
+<a class="lt-link" href="/helpdetail?id=kb-security-spoofed-sms">Spoofed text messages</a>
 </li>
 <li>
-<a class="text-link" href="/helpdetail?id=kb-security-dusting">Unknown tokens and dust in your wallet</a>
+<a class="lt-link" href="/helpdetail?id=kb-security-dusting">Unknown tokens and dust in your wallet</a>
 </li>
 <li>
-<a class="text-link" href="/helpdetail?id=kb-security-email-compromise">If your email may be compromised</a>
+<a class="lt-link" href="/helpdetail?id=kb-security-email-compromise">If your email may be compromised</a>
 </li>
 </ul>
 <p>
-<a class="text-link" href="/support/new?topic=phishing">Report a scam message</a>
+<a class="lt-link" href="/support/new?topic=phishing">Report a scam message</a>
 </p>
 </section>
+</section>
+</div>
+</div>
+</div>
+</div>
 </div>
 </main>
 <footer class="public-footer">
