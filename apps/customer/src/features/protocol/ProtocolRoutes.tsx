@@ -12,6 +12,7 @@ import { WalletGroupRoom } from './wallet/WalletGroupRoom';
 import { VenueWalletRoom } from './venue-wallet/VenueWalletRoom';
 import { EmbeddedWalletRoom } from './embedded-wallet/EmbeddedWalletRoom';
 import { ScanRoom } from './wallet-scan/ScanRoom';
+import { SendRoom } from './wallet-send/SendRoom';
 import { ClaimPage } from './wallet/ClaimPage';
 import { ConventionPage, HoldingPage } from './wallet/PortfolioPanel';
 import { TokenPage } from './tokens/TokenPage';
@@ -63,6 +64,8 @@ function routeBody(path: string, found: NonNullable<ReturnType<typeof matchWeb3R
   if (route.wallet === 'addressBook') return <AddressBookRoom />;
   if (route.wallet === 'approvals') return <ApprovalsRoom />;
   if (route.wallet === 'sessionKeys') return <SessionKeysRoom />;
+  // Send is its own room on the flow template too (D-portfolio-wallet-03), with the wallet's connection above it.
+  if (route.wallet === 'send') return <SendRoom />;
   if (route.wallet) return <WalletRoom section={route.wallet} />;
   if (route.tokens === 'list') return <TokensRoom />;
   if (route.tokens === 'detail') return <TokenPage address={safeDecode(params.address)} />;
