@@ -1373,7 +1373,12 @@ import {
   PAY_FOUNDER_ADMIN_CONTROL_MERCHANT_GET,
   PAY_FOUNDER_ADMIN_CONTROL_MERCHANT_USAGE,
   PAY_FOUNDER_ADMIN_CONTROL_PRICING_RULES,
+  PAY_FOUNDER_ADMIN_OPS_NOTES_ADD,
+  PAY_FOUNDER_ADMIN_OPS_NOTES_RETRACT,
+  PAY_FOUNDER_ADMIN_OPS_NOTES_LIST,
 } from './pay-founder-admin-procedures.js';
+
+import { PAY_FRAUD_LIST_OPEN_REVIEWS } from './pay-fraud-procedures.js';
 
 import { PAY_HALTS_OPERATOR_STATUS, PAY_HALTS_SET, PAY_HALTS_HISTORY, PAY_HALTS_PENDING_CLEARS } from './pay-halt-procedures.js';
 
@@ -3389,7 +3394,12 @@ const part_pay_founder_admin_procedures: readonly ProcedureRecord[] = [
   PAY_FOUNDER_ADMIN_CONTROL_MERCHANT_GET,
   PAY_FOUNDER_ADMIN_CONTROL_MERCHANT_USAGE,
   PAY_FOUNDER_ADMIN_CONTROL_PRICING_RULES,
+  PAY_FOUNDER_ADMIN_OPS_NOTES_ADD,
+  PAY_FOUNDER_ADMIN_OPS_NOTES_RETRACT,
+  PAY_FOUNDER_ADMIN_OPS_NOTES_LIST,
 ];
+
+const part_pay_fraud_procedures: readonly ProcedureRecord[] = [PAY_FRAUD_LIST_OPEN_REVIEWS];
 
 const part_pay_halt_procedures: readonly ProcedureRecord[] = [
   PAY_HALTS_OPERATOR_STATUS,
@@ -4194,6 +4204,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_pay_checkout_procedures,
   ...part_pay_deposit_procedures,
   ...part_pay_founder_admin_procedures,
+  ...part_pay_fraud_procedures,
   ...part_pay_halt_procedures,
   ...part_pay_kyb_procedures,
   ...part_pay_merchant_procedures,

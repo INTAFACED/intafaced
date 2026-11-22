@@ -327,3 +327,19 @@ export const permissionEventView = z.object({
   actorScope: z.string(),
   createdAt: z.string().datetime({ offset: true }),
 });
+
+/** One row of `fraud.listOpenReviews`: an open or claimed case, with the rules that sent it to review. */
+export const fraudReviewRowSchema = z
+  .object({
+    id: z.string().min(1),
+    merchantId: z.string().min(1),
+    paymentId: z.string().nullable(),
+    paymentRef: z.string().nullable(),
+    amount: z.string(),
+    assetId: z.string().min(1),
+    status: z.enum(['open', 'claimed', 'allowed', 'declined']),
+    reason: z.string(),
+    createdAt: z.string().min(1),
+    reasons: z.array(z.object({ ruleId: z.string(), detail: z.string() }).strict()),
+  })
+  .strict();

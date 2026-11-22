@@ -158,6 +158,7 @@ import { PAY_RESOLVE_LINK } from '@intafaced/contracts/pay-resolve-link-procedur
 import { PAY_CHECKOUT_STATUS, PAY_CHECKOUT_OPEN } from '@intafaced/contracts/pay-checkout-procedures';
 import { PAY_SETTLEMENT_LIST, PAY_SETTLEMENT_GET, PAY_SETTLEMENT_RELEASE } from '@intafaced/contracts/pay-settlement-procedures';
 import { PAY_RAIL_HEALTH } from '@intafaced/contracts/pay-rail-health-procedures';
+import { PAY_FRAUD_LIST_OPEN_REVIEWS } from '@intafaced/contracts/pay-fraud-procedures';
 
 /** A JSON object column read back from Postgres: the records type it as JSON, so it is checked as JSON at the edge. */
 const jsonRecordSchema = z.record(z.string(), jsonValueSchema);
@@ -171,22 +172,6 @@ type PaymentViewOut = z.infer<typeof paymentView>;
 type SettlementViewOut = z.infer<typeof paySettlementViewSchema>;
 type SettlementDetailOut = z.infer<typeof paySettlementDetailViewSchema>;
 type WithdrawalViewOut = z.infer<typeof withdrawalView>;
-
-/** One row of `fraud.listOpenReviews`: an open or claimed case, with the rules that sent it to review. */
-const fraudReviewRowSchema = z
-  .object({
-    id: z.string().min(1),
-    merchantId: z.string().min(1),
-    paymentId: z.string().nullable(),
-    paymentRef: z.string().nullable(),
-    amount: z.string(),
-    assetId: z.string().min(1),
-    status: z.enum(['open', 'claimed', 'allowed', 'declined']),
-    reason: z.string(),
-    createdAt: z.string().min(1),
-    reasons: z.array(z.object({ ruleId: z.string(), detail: z.string() }).strict()),
-  })
-  .strict();
 
 function reviewReasons(c: FraudReviewCase | DurableReviewCase): Array<{ ruleId: string; detail: string }> {
   if ('decision' in c) return c.decision.reasons.map((r) => ({ ruleId: r.ruleId, detail: r.detail }));
@@ -1627,21 +1612,9 @@ export function createPayRouter(
           }),
         ),
 
-      listOpenReviews: scopedProcedure('admin:treasury', { module: 'pay' })
-        .input(
-          z
-            .object({
-              merchantId: z.string().min(1).optional(),
-              /**
-               * Page size. Optional so omit reaches `pay.fraud_review_list_limit_unset`.
-               * Blank is not 50; pass 50 explicitly. Read stays single-operator.
-               */
-              limit: z.number().int().min(1).max(200).optional(),
-            })
-            .optional(),
-        )
-        .output(z.array(fraudReviewRowSchema))
-        .query(async ({ input }) => {
+      listOpenReviews: mountRecord(
+        PAY_FRAUD_LIST_OPEN_REVIEWS,
+        async ({ input }) => {
           try {
             const rows = fraudReviews
               ? await fraudReviews.listOpen(input?.merchantId, input?.limit)
@@ -1668,7 +1641,9 @@ export function createPayRouter(
             }
             throw e;
           }
-        }),
+        },
+        payRefusal,
+      ),
 
       claimReview: scopedProcedure('admin:treasury', { module: 'pay' })
         .input(z.object({ id: z.string().min(1) }))

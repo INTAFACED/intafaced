@@ -26,7 +26,7 @@ import {
   StatusEmailNotConnected,
   type ReceiptAssetPlaces,
 } from './receipt-branding.js';
-import { OperatorNotes, operatorNoteSchema } from './notes.js';
+import { OperatorNotes } from './notes.js';
 import { cursorInput, limitInput } from './pagination.js';
 import { PayoutList } from './payouts.js';
 import { reportOptions, zonedFilters } from './merchant-disp-bill-rep-report-options.js';
@@ -43,6 +43,14 @@ import type { WebhookResolver } from '../webhook-url-guard.js';
 import { MERCHANT_WEBHOOK_EVENT_TYPES } from '../merchant-webhooks.js';
 import { ownMerchantRead } from '../own-merchant-read.js';
 import { invitationAccept, membershipExit, ownPreferenceWrite, teamMemberWrite } from '../team-member-write.js';
+import {
+  id,
+  PAY_FOUNDER_ADMIN_OPS_NOTES_ADD,
+  PAY_FOUNDER_ADMIN_OPS_NOTES_RETRACT,
+  PAY_FOUNDER_ADMIN_OPS_NOTES_LIST,
+} from '@intafaced/contracts/pay-founder-admin-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { payRefusal } from '../record-refusal.js';
 
 /**
  * `merchantOps.*`   - the merchant's own operations pages (W15). Scoped to the
@@ -92,7 +100,6 @@ export interface MerchantOpsDeps {
   readonly receiptPlaces?: ReceiptAssetPlaces;
 }
 
-const id = z.string().guid();
 const iso = z.string().datetime({ offset: true });
 const assetIdIn = z.string().trim().min(1).max(32);
 const note = z.string().trim().min(1).max(2000);
@@ -696,33 +703,20 @@ export function createFounderOpsRouter(deps: MerchantOpsDeps) {
 
   return router({
     notes: router({
-      add: founder
-        .input(
-          z.object({
-            merchantId: id,
-            body: z.string().trim().min(1).max(4000),
-            tags: z.array(z.string().trim().min(1).max(40)).max(20).default([]),
-            flagged: z.boolean().default(false),
-          }),
-        )
-        .output(operatorNoteSchema)
-        .mutation(({ ctx, input }) => wrapOps(async () => need().notes.add(founderIdOf(ctx), input))),
-      list: founder
-        .input(
-          z.object({
-            merchantId: id,
-            limit: limitInput,
-            cursor: cursorInput,
-            flaggedOnly: z.boolean().optional(),
-            includeRetracted: z.boolean().optional(),
-          }),
-        )
-        .output(payPageSchema(operatorNoteSchema))
-        .query(({ input }) => wrapOps(async () => need().notes.list(input))),
-      retract: founder
-        .input(z.object({ noteId: id, reason: z.string().trim().min(3).max(500) }))
-        .output(operatorNoteSchema)
-        .mutation(({ ctx, input }) => wrapOps(async () => need().notes.retract(founderIdOf(ctx), input))),
+      add: mountRecord(
+        PAY_FOUNDER_ADMIN_OPS_NOTES_ADD,
+        ({ ctx, input }) => wrapOps(async () => need().notes.add(founderIdOf(ctx), input)),
+        { refusalOf: payRefusal, founder },
+      ),
+      list: mountRecord(PAY_FOUNDER_ADMIN_OPS_NOTES_LIST, ({ input }) => wrapOps(async () => need().notes.list(input)), {
+        refusalOf: payRefusal,
+        founder,
+      }),
+      retract: mountRecord(
+        PAY_FOUNDER_ADMIN_OPS_NOTES_RETRACT,
+        ({ ctx, input }) => wrapOps(async () => need().notes.retract(founderIdOf(ctx), input)),
+        { refusalOf: payRefusal, founder },
+      ),
     }),
     receiptTemplate: router({
       get: founder.input(z.object({}).strict()).query(() => wrapBranding(async () => need().branding.getOpsDefault())),
