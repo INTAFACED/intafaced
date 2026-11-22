@@ -651,7 +651,8 @@ test('a call named by a template over a closed set the code lists is one site pe
     'identity clock.now - moves',
     "trade ? - service or call named by a template: parameter `action`'s type is not a closed set of strings",
     'trade ? - service or call named by a template: parameter `action` is assigned again',
-    'bank ? - service or call named by a template: `spec.procedure` is not a name, a `? :` or a string',
+    // A spec's procedure is wrapper.mjs's: this one's type is written inline, not a type of its file.
+    'bank ? - call name passed through a wrapper: its spec is not typed by a type of its file',
     "trade algo.pause 0/2 its `action` sends one input value to 2 records: each one's input type can't be kept",
     "trade algo.resume 1/2 its `action` sends one input value to 2 records: each one's input type can't be kept",
   ]);
@@ -1472,4 +1473,112 @@ test('dead-hand-schemas deletes only the bank hand schemas no caller spells, eac
   for (const kept of ['earn.pools', 'earn.byTest', 'autoInvest.cancel']) assert.match(after, new RegExp(kept.replace('.', '\\.')));
   forget(join(repo, `${money}/contracts-earn.ts`));
   assert.deepEqual(deadHandSchemas(repo), [], 'a second run finds nothing: safe to rerun');
+});
+
+test('a wrapper that sends the call name it is handed, or a spec whose procedure it sends, is a site per caller string, moved whole; a near shape stays, named', async () => {
+  const { callText } = await import('./index.mjs');
+  const { wrapperIn } = await import('./wrapper.mjs');
+  const repo = mkdtempSync(join(tmpdir(), 'call-records-wrapper-'));
+  mkdirSync(join(repo, 'apps/customer/src/shared'), { recursive: true });
+  writeFileSync(join(repo, 'apps/customer/src/shared/api.ts'), 'export const callAs = () => undefined;\n');
+  const file = join(repo, 'apps/customer/src/contacts.ts');
+  writeFileSync(
+    file,
+    [
+      // A parameter wrapper, its callers in its file and, exported, in another.
+      'async function change(api: any, procedure: string, input: unknown) {',
+      "  return api.mutate('identity', procedure, input, s);",
+      '}',
+      "export const add = (api: any) => change(api, 'contacts.add', { to: 'x' });",
+      "export const remove = (api: any) => change(api, 'contacts.remove', {});",
+      "export const read = (api: any, procedure: string) => api.query('identity', procedure, undefined, s, { signal });",
+      // A spec whose field one function sends, each object of it naming its call.
+      "type Change = { procedure: 'keys.add' | 'keys.revoke'; body: object };",
+      "const send = (api: any, change: Change) => api.mutate('identity', change.procedure, change.body, s);",
+      "export const addKey = (api: any) => send(api, { procedure: 'keys.add', body: {} });",
+      "export const revokeKey = (api: any) => send(api, { procedure: 'keys.revoke', body: {} });",
+      '',
+    ].join('\n'),
+  );
+  writeFileSync(
+    join(repo, 'apps/customer/src/page.ts'),
+    "import { read } from './contacts';\nexport const view = (api: any) => read(api, 'contacts.list');\n",
+  );
+  // The near cases, each in its own file.
+  const near = {
+    // compares its name: the record would not equal the string
+    'compares.ts':
+      "const w = (api: any, procedure: string) => (procedure === 'a.b' ? null : api.mutate('pay', procedure, {}, s));\nexport const c = (api: any) => w(api, 'a.c');",
+    // handed on in what it returns: its callers are not all here
+    'handed.ts':
+      "export function tools(api: any) { const query = (procedure: string) => api.query('pay', procedure, undefined, s); return { query }; }",
+    // a caller names the call by a variable
+    'variable.ts':
+      "const w = (api: any, procedure: string) => api.mutate('pay', procedure, {}, s);\nexport const c = (api: any, p: string) => w(api, p);",
+    // another read of a spec's procedure
+    'spec-read.ts':
+      "type S = { procedure: string };\nconst go = (api: any, x: S) => api.mutate('pay', x.procedure, {}, s);\nexport const c = (api: any) => { const x = { procedure: 'a.b' }; log(x.procedure); return go(api, x); };",
+  };
+  for (const [f, body] of Object.entries(near)) writeFileSync(join(repo, 'apps/customer/src', f), `${body}\n`);
+  execFileSync('git', ['init', '-q'], { cwd: repo });
+  execFileSync('git', ['add', '.'], { cwd: repo });
+  const sites = findSites(repo);
+  const row = (s) =>
+    `${s.file.slice(repo.length + 1)} ${s.shape} ${s.module} ${s.path ?? '?'} ${s.wrapper ? `${s.wrapper.at}/${s.wrapper.size}` : '-'} ${s.problem ?? 'moves'}`;
+  assert.deepEqual(sites.map(row).sort(), [
+    'apps/customer/src/compares.ts mutate pay ? - call name passed through a wrapper: its wrapper w reads its call name for more than sending it (apps/customer/src/compares.ts:1)',
+    'apps/customer/src/contacts.ts wrapper identity contacts.add 0/2 moves',
+    'apps/customer/src/contacts.ts wrapper identity contacts.remove 1/2 moves',
+    'apps/customer/src/contacts.ts wrapper identity keys.add 0/2 moves',
+    'apps/customer/src/contacts.ts wrapper identity keys.revoke 1/2 moves',
+    'apps/customer/src/handed.ts query pay ? - call name passed through a wrapper: its wrapper query takes its call name by a parameter, and apps/customer/src/handed.ts:1 hands query on rather than calling it',
+    'apps/customer/src/page.ts wrapper identity contacts.list 0/1 moves',
+    "apps/customer/src/spec-read.ts mutate pay ? - call name passed through a wrapper: apps/customer/src/spec-read.ts:3 reads a spec's procedure for more than sending it",
+    'apps/customer/src/spec-read.ts procedure-prop undefined a.b - `procedure:` names its call by a string',
+    'apps/customer/src/variable.ts mutate pay ? - call name passed through a wrapper: its wrapper w takes its call name by a parameter, and apps/customer/src/variable.ts:2 names its call by p, not a string',
+  ]);
+
+  // Every caller has its record: each string is its record, the name typed AppProcedure, the senders through callAs.
+  const moving = sites.filter((s) => s.shape === 'wrapper');
+  const name = (s) => s.path.toUpperCase().replace('.', '_');
+  const changes = new Changes();
+  for (const s of moving) rewriteSite(changes, s, name(s), '@intafaced/contracts/x', false);
+  const planned = { hand: [], existing: [] };
+  wrapperIn(changes, planned, [], () => undefined);
+  assert.deepEqual(planned.hand, []);
+  const out = applyEdits(load(file).src, changes.of(file).edits);
+  assert.match(
+    out,
+    /^async function change\(api: any, procedure: AppProcedure, input: unknown\) \{\n  return callAs\(api, procedure, input, s\);/m,
+  );
+  assert.match(out, /change\(api, CONTACTS_ADD, \{ to: 'x' \}\);$/m);
+  assert.match(out, /change\(api, CONTACTS_REMOVE, \{\}\);$/m);
+  assert.match(out, /\(api: any, procedure: AppProcedure\) => callAs\(api, procedure, undefined, s, \{ signal \}\);$/m);
+  assert.match(out, /^type Change = \{ procedure: AppProcedure; body: object \};$/m);
+  assert.match(out, /=> callAs\(api, change\.procedure, change\.body, s\);$/m);
+  assert.match(out, /send\(api, \{ procedure: KEYS_ADD, body: \{\} \}\);$/m);
+  assert.deepEqual([...changes.of(file).imports.get('./shared/api')], ['callAs', 'type AppProcedure']);
+  const page = applyEdits(load(join(repo, 'apps/customer/src/page.ts')).src, changes.of(join(repo, 'apps/customer/src/page.ts')).edits);
+  assert.match(page, /read\(api, CONTACTS_LIST\);$/m);
+  assert.equal(typeof callText, 'function');
+
+  // One caller left: its wrapper moves none of them, each named; a record of the other kind is one left too.
+  for (const [left, kindOf, why] of [
+    [
+      moving.filter((s) => s.path !== 'contacts.remove'),
+      () => undefined,
+      'another caller of its wrapper change stays, and the wrapper sends them all',
+    ],
+    [moving, (n) => (n === 'CONTACTS_ADD' ? 'query' : undefined), 'CONTACTS_ADD is a query, but its wrapper change sends a mutation'],
+  ]) {
+    const some = new Changes();
+    for (const s of left) rewriteSite(some, s, name(s), '@intafaced/contracts/x', false);
+    const back = { hand: [], existing: [] };
+    wrapperIn(some, back, [], kindOf);
+    assert.deepEqual(
+      back.hand.filter((h) => h.site.wrapper.name === 'change').map((h) => `${h.site.path} ${h.why}`),
+      left.filter((s) => s.wrapper.name === 'change').map((s) => `${s.path} ${why}`),
+    );
+    assert.ok(!some.of(file).edits.some((e) => /CONTACTS_|callAs\(api, procedure, input/.test(e.text)));
+  }
 });
