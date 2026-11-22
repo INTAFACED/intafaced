@@ -1,3 +1,4 @@
+// volt-room: /trade/buy
 import { useState } from 'react';
 import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import { BuyCard, ORDERS_HREF } from './BuyCard';

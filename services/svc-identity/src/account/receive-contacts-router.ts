@@ -3,12 +3,15 @@
  * phone numbers the signed-in owner can be paid by. The owner's own only: the user is the session's, a body never names
  * one. An API key or a sub-account is refused.
  */
-import { z } from 'zod';
-import { protectedProcedure, router, TRPCError } from '@intafaced/contracts/trpc';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import { SecurityLockError } from '../auth/security-lock.js';
 import { ReceiveContactError, type ReceiveActor, type ReceiveContactService } from './receive-contacts.js';
-import { listOutput } from '@intafaced/contracts/identity-call-schemas';
-import { IDENTITY_RECEIVE_CONTACTS_LIST } from '@intafaced/contracts/identity-receive-contacts-procedures';
+import {
+  IDENTITY_RECEIVE_CONTACTS_LIST,
+  IDENTITY_RECEIVE_CONTACTS_ADD,
+  IDENTITY_RECEIVE_CONTACTS_VERIFY,
+  IDENTITY_RECEIVE_CONTACTS_REMOVE,
+} from '@intafaced/contracts/identity-receive-contacts-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { codedRefusal } from '../record-refusal.js';
 
@@ -64,22 +67,25 @@ export function createReceiveContactsRouter(service: ReceiveContactService) {
       ),
 
       /** Add an email or phone and send its code. The sender being off refuses before anything is stored. */
-      add: protectedProcedure
-        .input(z.object({ channel: z.enum(['email', 'phone']), target: z.string().max(320) }).strict())
-        .output(listOutput)
-        .mutation(({ ctx, input }) => guarded(() => service.add(actor(ctx.principal as Principal), input))),
+      add: mountRecord(
+        IDENTITY_RECEIVE_CONTACTS_ADD,
+        ({ ctx, input }) => guarded(() => service.add(actor(ctx.principal as Principal), input)),
+        codedRefusal,
+      ),
 
       /** Prove an address with the code sent to it. */
-      verify: protectedProcedure
-        .input(z.object({ id: z.string().guid(), code: z.string().max(16) }).strict())
-        .output(listOutput)
-        .mutation(({ ctx, input }) => guarded(() => service.verify(actor(ctx.principal as Principal), input))),
+      verify: mountRecord(
+        IDENTITY_RECEIVE_CONTACTS_VERIFY,
+        ({ ctx, input }) => guarded(() => service.verify(actor(ctx.principal as Principal), input)),
+        codedRefusal,
+      ),
 
       /** Stop receiving by an address. */
-      remove: protectedProcedure
-        .input(z.object({ id: z.string().guid() }).strict())
-        .output(listOutput)
-        .mutation(({ ctx, input }) => guarded(() => service.remove(actor(ctx.principal as Principal), input))),
+      remove: mountRecord(
+        IDENTITY_RECEIVE_CONTACTS_REMOVE,
+        ({ ctx, input }) => guarded(() => service.remove(actor(ctx.principal as Principal), input)),
+        codedRefusal,
+      ),
     }),
   });
 }

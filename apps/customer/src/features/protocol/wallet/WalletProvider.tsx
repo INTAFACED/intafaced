@@ -685,7 +685,7 @@ export function SignSheet({
     <Sheet open title={t('sheetTitle')} onClose={onCancel}>
       <div data-sheet="sign">
         <p>{t(request.kind === 'transaction' ? 'sheetSends' : request.kind === 'message' ? 'sheetSignsMessage' : 'sheetSignsData')}</p>
-        <dl>
+        <dl className="lt-kv">
           <div>
             <dt>{t('fact_account')}</dt>
             <dd className="lt-mono">{account}</dd>
@@ -748,7 +748,7 @@ export function SequenceSheet({
               })
             : t('seqSends', { count: String(sequence.steps.length) })}
         </p>
-        <dl>
+        <dl className="lt-kv">
           <div>
             <dt>{t('fact_account')}</dt>
             <dd className="lt-mono">{account}</dd>
