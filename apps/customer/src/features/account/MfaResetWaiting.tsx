@@ -93,7 +93,7 @@ export function MfaResetWaiting() {
       {note && <p role="status">{t(note)}</p>}
       {failure && <Failure result={failure} />}
       {delegated && (
-        <p className="error-text" role="alert">
+        <p className="lt-refusal" role="alert" data-testid="mfa-reset-delegated">
           {t('refusedDelegated')}
         </p>
       )}

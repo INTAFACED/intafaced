@@ -268,7 +268,6 @@
   "/blueprint/shared/:cardId",
   "/uc/innovation/myorders",
   "/oauth/authorize",
-  "/uc/safe",
   "/uc/safe/api-keys/new",
   "/uc/trading-permissions",
   "/verification",

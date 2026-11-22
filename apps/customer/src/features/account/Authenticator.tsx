@@ -317,10 +317,10 @@ export function Authenticator({ onChanged }: { onChanged?: (change?: { sessionsE
       )}
       {mode.kind === 'codes' && (
         // Shown once, after the swap. "I saved them" drops the codes from this page; nothing is written to storage.
-        <div data-testid="security__recovery" className="security__recovery" data-security-sensitive="true">
+        <div data-testid="security__recovery" data-security-sensitive="true">
           <h3>{t('newCodesTitle')}</h3>
           <p>{t('newCodesOnce')}</p>
-          <ul data-testid="recovery-codes" className="recovery-codes">
+          <ul data-testid="recovery-codes" className="lt-mono">
             {mode.codes.map((value) => (
               <li key={value} lang="zxx">
                 {value}

@@ -127,7 +127,7 @@ export function TrustedDevices({ onChanged }: { onChanged?: () => void }) {
   if (!state) return null;
   const worded = failure ? trustedDeviceCode(failure.code) : undefined;
   return (
-    <section data-testid="security__card" className="security__trusted-devices" aria-label={t('title')} lang={languageFor('title')}>
+    <section data-testid="security__card" data-card="trusted-devices" aria-label={t('title')} lang={languageFor('title')}>
       <h2>{t('title')}</h2>
       <p>{t('body')}</p>
       <p className="lt-hint" role="status">
