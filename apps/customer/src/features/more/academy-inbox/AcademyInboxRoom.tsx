@@ -1,23 +1,16 @@
 // volt-room: /academy/rooms/messages
 import type { ApiResult } from '../../../shared/api';
-import { RecordListTemplate, Tabs } from '@intafaced/ui/lit/templates';
+import { RecordListTemplate } from '@intafaced/ui/lit/templates';
 import { usePreferences } from '../../../shared/preferences';
 import { FailureBox, LoadingLine } from '../../../shared/record/record-parts';
 import { copy as moreCopy } from '../copy';
 import { academyRefusalText } from '../academy-flows';
 import { academyLmsCopy as copy } from '../academy-lms-copy';
-import { academyMessagesHref, academyTabHref, academyTabs, formatMoment, type AcademyTab } from '../academy-lms';
+import { academyMessagesHref, formatMoment } from '../academy-lms';
+import { AcademySections } from '../academy-sections';
 import { useCourseInbox } from '../AcademyCourseMessages';
 
 type Failure = Extract<ApiResult<never>, { ok: false }>;
-
-const TAB_KEYS = {
-  Learning: 'academy.learning',
-  Certificates: 'academy.certificates',
-  Rooms: 'academy.rooms',
-  Videos: 'academy.videos',
-  Programmes: 'academy.programmes',
-} as const satisfies Record<AcademyTab, string>;
 
 /**
  * `/academy/rooms/messages` on the record-list template, signed in: the reader's conversations with course teams, newest
@@ -33,13 +26,7 @@ export function AcademyInboxRoom() {
       title={more.t('moreroutes.academy')}
       description={more.t('moreroutes.learn.practise.and.join.hosted.sessions')}
       state={{ kind: 'ready' }}
-      filters={
-        <Tabs
-          items={academyTabs.map(([name]) => ({ label: more.t(TAB_KEYS[name]), href: academyTabHref(name) }))}
-          current={academyTabHref('Rooms')}
-          label={more.t('academy.academy.sections')}
-        />
-      }
+      filters={<AcademySections current="Rooms" />}
       list={
         <>
           <a className="lt-link" href="/academy/rooms">

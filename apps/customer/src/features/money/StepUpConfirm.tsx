@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Button, Field, Loading } from '../../shared/ui';
+import { Button, Field } from '@intafaced/ui/lit';
 import { useResource } from '../../shared/resource';
 import { useSession } from '../session';
 import { confirmWithStepUp, type StepUpBegin, type StepUpMethod } from '../account';
-import { stepUpRefusalKeys } from './WithdrawStepUp';
-import { withdrawStepUpCopy } from './withdraw-step-up-copy';
+import { LoadingLine } from '../../shared/record/record-parts';
+import { stepUpRefusalKeys, withdrawStepUpCopy } from './withdraw-step-up-copy';
 import { IDENTITY_FACTOR_STATUS } from '@intafaced/contracts/identity-factor-status-procedures';
 
 const refusalKeys = { ...stepUpRefusalKeys, 'stepUp.no_passkey': 'noPasskey' } as const;
@@ -66,23 +66,23 @@ export function StepUpConfirm({
     void confirm({ totpCode: code }, 'code');
   }
   const status = factors.resource;
-  if (status.status === 'loading') return <Loading label={t('checking')} />;
+  if (status.status === 'loading') return <LoadingLine label={t('checking')} />;
   // Unreadable factors still offer the confirmation: a refusal from it says what is missing.
   const none = status.status === 'ready' && !status.data.authenticator.on && status.data.passkeys.count === 0;
   return (
-    <section className="form-stack" aria-label={t('title')} data-testid="step-up-confirm">
-      <h3 className="bd-subhead">{t('title')}</h3>
+    <section className="lt-review" aria-label={t('title')} data-testid="step-up-confirm">
+      <h3 className="lt-sheet-title">{t('title')}</h3>
       {none ? (
         <>
-          <p className="muted">{words.noFactor}</p>
-          <Button disabled={disabled} onClick={() => onApproved(null)}>
+          <p className="lt-hint">{words.noFactor}</p>
+          <Button tone="primary" disabled={disabled} onClick={() => onApproved(null)}>
             {words.sendWithout}
           </Button>
         </>
       ) : (
         <>
-          <p className="muted">{words.why}</p>
-          <form className="form-stack" onSubmit={withCode} noValidate>
+          <p className="lt-hint">{words.why}</p>
+          <form className="lt-review" onSubmit={withCode} noValidate>
             <Field
               label={words.code}
               hint={words.codeHint}
@@ -94,17 +94,17 @@ export function StepUpConfirm({
               disabled={busy !== null || disabled}
               onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
             />
-            <Button type="submit" disabled={busy !== null || disabled || code.length < 6}>
+            <Button tone="primary" type="submit" disabled={busy !== null || disabled || code.length < 6}>
               {busy === 'code' ? t('checking') : t('confirm')}
             </Button>
           </form>
-          <Button variant="secondary" disabled={busy !== null || disabled} onClick={() => void confirm({ passkey: true }, 'passkey')}>
+          <Button tone="secondary" disabled={busy !== null || disabled} onClick={() => void confirm({ passkey: true }, 'passkey')}>
             {busy === 'passkey' ? t('passkeyWaiting') : t('passkey')}
           </Button>
         </>
       )}
       {problem && (
-        <p data-testid="failure" className="failure" role="alert">
+        <p data-testid="failure" className="lt-refusal" role="alert">
           {problem}
         </p>
       )}
