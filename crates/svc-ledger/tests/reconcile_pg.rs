@@ -1957,3 +1957,38 @@ fn the_door_answers_409_while_another_run_holds_the_lock_and_503_when_it_cannot_
     assert!(b.status().posting_enabled);
     let _ = slow.store();
 }
+
+#[test]
+fn a_reconcile_submitted_by_the_approver_names_the_proposer_as_the_confirming_operator() {
+    let Some(b) = book() else { return };
+    b.deposit().unwrap();
+    let door = LedgerDoor::new(door_config(
+        &b.db,
+        Arc::new(MemoryBus::default()),
+        Box::new(support::operator::Shared(stub(Some(OPERATOR), Some(true)))),
+    ))
+    .unwrap();
+    let (status, body) = call(&door, "POST", "/operator/reconcile", treasury(), APPROVED);
+    assert_eq!(status, 200, "{body:?}");
+    assert_eq!(
+        body.get("confirmOperatorId"),
+        Some(&Json::str("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"))
+    );
+}
+
+/// A drift between opposite-sign balances near the top of `numeric(38,18)` reports its true difference, never a clamped one.
+#[test]
+fn balance_drift_reports_exact_difference_across_opposite_sign_bounds() {
+    let Some(b) = book() else { return };
+    let ninety = service_kit::money::Amount::whole(90_000_000_000_000_000_000);
+    b.deposit_to(USER, ninety).unwrap();
+    b.sql(
+        "UPDATE ledger.accounts SET balance = 90000000000000000000 WHERE owner_type = 'treasury'",
+    );
+    let balances = reconcile::reconcile_balances(&mut b.session()).unwrap();
+    assert!(!balances.ok);
+    assert_eq!(balances.drift.len(), 1);
+    assert_eq!(balances.drift[0].cached, "90000000000000000000");
+    assert_eq!(balances.drift[0].replayed, "-90000000000000000000");
+    assert_eq!(balances.drift[0].difference, "180000000000000000000");
+}

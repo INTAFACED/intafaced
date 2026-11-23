@@ -1715,6 +1715,47 @@ test('portable: an answer refinement with a message is named in the record, once
   );
 });
 
+test("portable: a refinement under .nullable() is the wrapped schema's, named once however many findings sit there", async () => {
+  const { plan } = await import('./portable.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-portable-'));
+  writeFileSync(
+    join(dir, 'state.ts'),
+    [
+      "import { z } from 'zod';",
+      "export const stateSchema = z.object({ a: z.string().nullable(), b: z.string().nullable() }).strict().refine((s) => (s.a === null) === (s.b === null), 'a and b come together').refine((s) => s.a !== '', 'a is never empty');",
+      "export const amountSchema = z.string().refine((v) => v !== '0', 'a figure is above zero');",
+      'export const rowSchema = z.object({ current: stateSchema.nullable(), cap: amountSchema.nullable().optional() });',
+      '',
+    ].join('\n'),
+  );
+  const record = join(dir, 'state-procedures.ts');
+  writeFileSync(
+    record,
+    [
+      "import { stateSchema, rowSchema } from './state.js';",
+      "export const S = defineProcedure({ name: 'x.state', input: NO_INPUT, output: stateSchema.nullable(), samples: [] });",
+      "export const H = defineProcedure({ name: 'x.history', input: NO_INPUT, output: z.array(rowSchema), samples: [] });",
+      '',
+    ].join('\n'),
+  );
+  const refine = '(.refine/.superRefine (a TypeScript predicate the export drops))';
+  const { edits, left } = plan(
+    {
+      s: `x.state.output cannot be exported without losing meaning: x.state.output ${refine}; x.state.output ${refine}`,
+      h: `x.history.output cannot be exported without losing meaning: x.history.output[].current ${refine}; x.history.output[].cap ${refine}`,
+    },
+    [record],
+  );
+  assert.deepEqual(left, []);
+  assert.deepEqual(
+    [...edits.get(record).edits.values()].map((e) => e.text),
+    [
+      ', outputChecks: { state_holds: { at: "output", says: "a is never empty; a and b come together" } }',
+      ', outputChecks: { state_holds: { at: "output[].current", says: "a is never empty; a and b come together" }, amount_holds: { at: "output[].cap", says: "a figure is above zero" } }',
+    ],
+  );
+});
+
 test("portable: an input refinement with a message is named in the record's checks, with a placeholder sample per check; a .superRefine with no written message is left, named", async () => {
   const { plan } = await import('./portable.mjs');
   const dir = mkdtempSync(join(tmpdir(), 'call-records-portable-'));

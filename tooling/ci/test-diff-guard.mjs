@@ -99,6 +99,9 @@ const STRONG_MATCHER =
 // `threshold` is a common business word, so it counts only in browser tests and their configs.
 const TOLERANCE = /\b(maxDiffPixels|maxDiffPixelRatio)\s*:\s*([\d.]+)/g;
 const BROWSER_TOLERANCE = /\b(maxDiffPixels|maxDiffPixelRatio|threshold)\s*:\s*([\d.]+)/g;
+/** What an undeclared finding tells the builder: the CI step reads the live description, but only on a run. */
+export const UNDECLARED_HINT =
+  'If a change is intended, say why in the PR description on a line starting "Test-change:", then re-run the Doctrine gates job: an edit to the description starts no CI run.';
 export const DECLARED = /^\s*Test-change:\s*\S.{7,}$/m;
 const BASELINE_DECLARED = /^\s*Baseline-change:\s*(\S+)\s+[—–:-]+\s*(\S.{7,})$/gm;
 
@@ -414,7 +417,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
   console.error(`\n${head} — ${problems.length} finding(s)\n`);
   for (const p of problems) console.error(`  ${p.path}\n    → ${p.why}\n`);
   if (!declared) {
-    console.error('  If a change is intended, say why in the PR description on a line starting "Test-change:".');
+    console.error(`  ${UNDECLARED_HINT}`);
     failed = true;
   }
   process.exit(failed ? 1 : 0);

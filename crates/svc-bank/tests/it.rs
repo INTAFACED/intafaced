@@ -38,6 +38,8 @@ mod business_dual_control_db;
 mod business_guards_db;
 #[path = "business_holds_payroll_db.rs"]
 mod business_holds_payroll_db;
+#[path = "business_payouts_db.rs"]
+mod business_payouts_db;
 #[path = "business_procedures_db.rs"]
 mod business_procedures_db;
 #[path = "business_retry_db.rs"]

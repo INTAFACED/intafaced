@@ -884,6 +884,10 @@ import {
   IDENTITY_ACCOUNT_CONTROLS_CLOSURE_STATE,
   IDENTITY_ACCOUNT_CONTROLS_DETAILS_HISTORY,
   IDENTITY_ACCOUNT_CONTROLS_TIER_STATE,
+  IDENTITY_ACCOUNT_CONTROLS_ARCHIVE_HISTORY,
+  IDENTITY_ACCOUNT_CONTROLS_ARCHIVE_STATE,
+  IDENTITY_ACCOUNT_CONTROLS_LIMITS_HISTORY,
+  IDENTITY_ACCOUNT_CONTROLS_LIMITS,
 } from './identity-account-controls-procedures.js';
 
 import { IDENTITY_ACCOUNT_DIRECTORY_HANDLES } from './identity-account-directory-procedures.js';
@@ -1322,7 +1326,16 @@ import {
 
 import { OPS_CONSOLE_MODE_GET, OPS_CONSOLE_MODE_SET } from './ops-console-mode-procedures.js';
 
-import { OPS_INCIDENTS_LIST, OPS_INCIDENTS_METRICS, OPS_INCIDENTS_GET } from './ops-incidents-procedures.js';
+import {
+  OPS_INCIDENTS_LIST,
+  OPS_INCIDENTS_METRICS,
+  OPS_INCIDENTS_GET,
+  OPS_INCIDENTS_DECLARE,
+  OPS_INCIDENTS_NOTE,
+  OPS_INCIDENTS_INVITE,
+  OPS_INCIDENTS_TASK,
+  OPS_INCIDENTS_RESOLVE,
+} from './ops-incidents-procedures.js';
 
 import { OPS_OUTREACH_PRIVACY_RETENTION_STATUS, OPS_OUTREACH_OWNERS, OPS_OUTREACH_LIST_WORKFLOW_AUDIT } from './ops-outreach-procedures.js';
 
@@ -3117,6 +3130,10 @@ const part_identity_account_controls_procedures: readonly ProcedureRecord[] = [
   IDENTITY_ACCOUNT_CONTROLS_CLOSURE_STATE,
   IDENTITY_ACCOUNT_CONTROLS_DETAILS_HISTORY,
   IDENTITY_ACCOUNT_CONTROLS_TIER_STATE,
+  IDENTITY_ACCOUNT_CONTROLS_ARCHIVE_HISTORY,
+  IDENTITY_ACCOUNT_CONTROLS_ARCHIVE_STATE,
+  IDENTITY_ACCOUNT_CONTROLS_LIMITS_HISTORY,
+  IDENTITY_ACCOUNT_CONTROLS_LIMITS,
 ];
 
 const part_identity_account_directory_procedures: readonly ProcedureRecord[] = [IDENTITY_ACCOUNT_DIRECTORY_HANDLES];
@@ -3591,7 +3608,16 @@ const part_ops_compliance_procedures: readonly ProcedureRecord[] = [
 
 const part_ops_console_mode_procedures: readonly ProcedureRecord[] = [OPS_CONSOLE_MODE_GET, OPS_CONSOLE_MODE_SET];
 
-const part_ops_incidents_procedures: readonly ProcedureRecord[] = [OPS_INCIDENTS_LIST, OPS_INCIDENTS_METRICS, OPS_INCIDENTS_GET];
+const part_ops_incidents_procedures: readonly ProcedureRecord[] = [
+  OPS_INCIDENTS_LIST,
+  OPS_INCIDENTS_METRICS,
+  OPS_INCIDENTS_GET,
+  OPS_INCIDENTS_DECLARE,
+  OPS_INCIDENTS_NOTE,
+  OPS_INCIDENTS_INVITE,
+  OPS_INCIDENTS_TASK,
+  OPS_INCIDENTS_RESOLVE,
+];
 
 const part_ops_outreach_procedures: readonly ProcedureRecord[] = [
   OPS_OUTREACH_PRIVACY_RETENTION_STATUS,
