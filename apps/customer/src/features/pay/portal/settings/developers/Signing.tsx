@@ -1,29 +1,28 @@
+// volt-room: /pay/developer/signing
+// volt-room: portal:developer-signing
 import { useState } from 'react';
-import { Button } from '@intafaced/ui';
-import { EmptyState, Field } from '../../../ui-kit';
-import { PaySection } from '../../../components';
-import { Facts, Gate, SelectField } from '../../components';
-import { NotLiveCard } from '../../chrome/NotLiveCard';
 import { reason } from '../../chrome/copy';
 import { DateTime } from '../../ui/DateTime';
-import { PortalReview } from '../../ui/PortalReview';
-import { StatusChip } from '../../ui/StatusChip';
 import { useUrlParam } from '../../hooks';
 import { useResource } from '../../../../../shared/resource';
 import type { SettingsBApi } from '../b-client';
 import { developersCopy as c } from './copy';
+import { DeveloperRoom } from './DeveloperRoom';
 import { KeyRevoke, ModeChip } from './Keys';
 import { ipProblem, isPayKey, signingSnippets, splitIps, type SnippetLanguage } from './model';
 import { SecretReveal, type Revealed } from './SecretReveal';
 import type { ApiKey } from './schemas';
+import { Field, Segmented } from '@intafaced/ui/lit';
+import { Empty, Facts, Gate, NotLive, Section, SelectField, StatusChip } from '../../volt/parts';
+import { Review } from '../../volt/Review';
 
 /** One key at a time: its facts, whether signed requests are required, the secret, and where it may be used from. */
-export function Signing({ api }: { api: SettingsBApi }) {
+function Signing({ api }: { api: SettingsBApi }) {
   const { t } = c.useCopy();
   const keys = useResource((signal) => api.keysList(signal), 'dev:signing:keys');
   const [picked, setPicked] = useUrlParam('key');
   return (
-    <div className="stack">
+    <div>
       <Gate resource={keys.resource} retry={keys.reload}>
         {(all) => {
           const mine = all.filter((k) => isPayKey(k.scopes));
@@ -32,16 +31,16 @@ export function Signing({ api }: { api: SettingsBApi }) {
           return (
             <>
               {mine.length === 0 ? (
-                <EmptyState
+                <Empty
                   title={t('noKeysTitle')}
                   action={
-                    <a className="text-link" href="/pay/developer/keys#create">
+                    <a className="lt-link" href="/pay/developer/keys#create">
                       {t('createKeyAction')}
                     </a>
                   }
                 >
                   {t('signingNoKeys')}
-                </EmptyState>
+                </Empty>
               ) : (
                 <>
                   <SelectField
@@ -67,7 +66,7 @@ function KeyPanel({ api, apiKey, reload }: { api: SettingsBApi; apiKey: ApiKey; 
   const [revealed, setRevealed] = useState<Revealed>(null);
   return (
     <>
-      <PaySection title={apiKey.name} description={t('keyFactsBody')} action={<KeyRevoke api={api} apiKey={apiKey} onDone={reload} />}>
+      <Section title={apiKey.name} description={t('keyFactsBody')} action={<KeyRevoke api={api} apiKey={apiKey} onDone={reload} />}>
         <Facts
           items={[
             [t('colPrefix'), <code key="p">{apiKey.prefix}</code>],
@@ -77,11 +76,11 @@ function KeyPanel({ api, apiKey, reload }: { api: SettingsBApi; apiKey: ApiKey; 
             [t('colStatus'), <StatusChip key="s" entity="key" value={apiKey.revoked ? 'revoked' : 'active'} />],
           ]}
         />
-        <p className="muted">{t('whoMayChange')}</p>
-      </PaySection>
+        <p className="lt-hint">{t('whoMayChange')}</p>
+      </Section>
       {revealed && <SecretReveal {...revealed} onHide={() => setRevealed(null)} />}
       {apiKey.revoked ? (
-        <p className="pp-callout" role="status">
+        <p className="lt-hint" role="status">
           {t('keyIsRevoked')}
         </p>
       ) : (
@@ -123,17 +122,17 @@ function OnOff({
 }) {
   const { t } = c.useCopy();
   return (
-    <fieldset className="pp-choice" style={{ border: 0, padding: 0, margin: 0 }}>
+    <fieldset>
       <legend>
         <strong>{legend}</strong>
       </legend>
-      <small className="muted">{hint}</small>
-      <div className="pp-actions" role="radiogroup" aria-label={legend}>
-        <label className="pp-check">
+      <small className="lt-hint">{hint}</small>
+      <div className="lt-actions" role="radiogroup" aria-label={legend}>
+        <label className="lt-field">
           <input type="radio" name={name} checked={value === true} onChange={() => onChange(true)} />
           <span>{t('choiceOn')}</span>
         </label>
-        <label className="pp-check">
+        <label className="lt-field">
           <input type="radio" name={name} checked={value === false} onChange={() => onChange(false)} />
           <span>{t('choiceOff')}</span>
         </label>
@@ -162,21 +161,21 @@ export function SigningSettings({
   const signLine = sign ? t('effectSignedOn') : t('effectSignedOff');
   const ipLine = needIp ? t('effectIpOn') : t('effectIpOff');
   return (
-    <PaySection title={t('signedTitle')} description={t('signedBody')}>
-      <p className="pp-callout" role="status">
+    <Section title={t('signedTitle')} description={t('signedBody')}>
+      <p className="lt-hint" role="status">
         {t('postureSigning', { signed: requireSignature ? t('yes') : t('no'), ip: requireNonEmptyIpAllowlist ? t('yes') : t('no') })}
       </p>
-      <div data-testid="form-stack" className="form-stack pp-form">
+      <div data-testid="form-stack">
         <OnOff name={`sign-${keyId}`} legend={t('requireSigned')} hint={t('requireSignedHint')} value={sign} onChange={setSign} />
         <OnOff name={`ip-${keyId}`} legend={t('requireIp')} hint={t('requireIpHint')} value={needIp} onChange={setNeedIp} />
-        <div className="pp-effect" aria-live="polite">
+        <div aria-live="polite">
           <strong>{t('effectTitle')}</strong>
           <ul>
             <li>{signLine}</li>
             <li>{ipLine}</li>
           </ul>
         </div>
-        <PortalReview
+        <Review
           title={t('saveSigning')}
           variant="primary"
           description={t('saveSigningBody')}
@@ -200,13 +199,13 @@ export function SigningSettings({
           }}
         />
         {saved && (
-          <div className="pay-confirmed" role="status">
+          <div className="lt-hint" role="status">
             <p>{t('savedSigning', { signed: saved.sign ? t('yes') : t('no'), ip: saved.needIp ? t('yes') : t('no') })}</p>
             {saved.secretKept && <p>{t('secretExists')}</p>}
           </div>
         )}
       </div>
-    </PaySection>
+    </Section>
   );
 }
 
@@ -221,15 +220,15 @@ export function RotateSecret({
 }) {
   const { t } = c.useCopy();
   return (
-    <PaySection title={t('rotateTitle')} description={t('rotateBody')}>
-      <PortalReview
+    <Section title={t('rotateTitle')} description={t('rotateBody')}>
+      <Review
         title={t('rotateAction')}
         description={t('rotateReview')}
         review={<p>{t('rotateEffect')}</p>}
         perform={() => api.signingRotate(keyId)}
         onConfirmed={(result) => onSecret(result.signingSecret)}
       />
-    </PaySection>
+    </Section>
   );
 }
 
@@ -252,14 +251,14 @@ export function AllowedIps({
   const bad = list.find((ip) => ipProblem(ip));
   const oneBad = one.trim() ? ipProblem(one) : null;
   return (
-    <PaySection title={t('ipsTitle')} description={t('ipsBody')}>
-      <p className="pp-callout" role="status">
+    <Section title={t('ipsTitle')} description={t('ipsBody')}>
+      <p className="lt-hint" role="status">
         {ipAllowlist.length === 0 ? t('ipsCurrentEmpty') : ipAllowlist.join(', ')}
       </p>
-      <p className="muted">{requireSignature ? t('effectSignedOn') : t('effectSignedOff')}</p>
-      <p className="muted">{t('ipsSigningWarning')}</p>
-      <div data-testid="form-stack" className="form-stack pp-form">
-        <label className="field">
+      <p className="lt-hint">{requireSignature ? t('effectSignedOn') : t('effectSignedOff')}</p>
+      <p className="lt-hint">{t('ipsSigningWarning')}</p>
+      <div data-testid="form-stack">
+        <label className="lt-field">
           <span>{t('ipsLabel')}</span>
           <textarea
             rows={3}
@@ -268,16 +267,16 @@ export function AllowedIps({
             aria-invalid={Boolean(bad)}
             placeholder="203.0.113.10"
           />
-          <small className={bad ? 'error-text' : undefined}>{bad ? t('errIp', { ip: bad }) : t('ipsHint')}</small>
+          <small className="lt-hint">{bad ? t('errIp', { ip: bad }) : t('ipsHint')}</small>
         </label>
-        <PortalReview
+        <Review
           title={t('ipsSave')}
           description={t('ipsReview')}
           disabled={Boolean(bad) || list.length === 0}
           disabledReason={bad ? t('errIpFix') : t('ipsEmptyUseRemoveAll')}
           review={
             <>
-              <p className="pp-callout" role="note">
+              <p className="lt-hint" role="note">
                 {t('ipsSigningWarning')}
               </p>
               <p>{t('ipsEffect')}</p>
@@ -294,13 +293,13 @@ export function AllowedIps({
           onConfirmed={(result) => setSaved(result.ipAllowlist)}
         />
         {/* An empty list lets the key work from any address, so it is its own choice and never an empty Save. */}
-        <PortalReview
+        <Review
           title={t('ipsRemoveAll')}
           variant="sell"
           description={t('ipsRemoveAllReview')}
           review={
             <>
-              <p className="pp-callout" role="note">
+              <p className="lt-hint" role="note">
                 {t('ipsSigningWarning')}
               </p>
               <p>{t('ipsEffectEmpty')}</p>
@@ -318,14 +317,14 @@ export function AllowedIps({
           onChange={(e) => setOne(e.target.value)}
           error={oneBad ? t('errIp', { ip: one }) : undefined}
         />
-        <PortalReview
+        <Review
           title={t('ipsRemove')}
           description={t('ipsRemoveReview')}
           disabled={!one.trim() || Boolean(oneBad)}
           disabledReason={t('errIpFix')}
           review={
             <>
-              <p className="pp-callout" role="note">
+              <p className="lt-hint" role="note">
                 {t('ipsSigningWarning')}
               </p>
               <p>
@@ -340,7 +339,7 @@ export function AllowedIps({
           }}
         />
         {saved && (
-          <div className="pay-confirmed" role="status">
+          <div className="lt-hint" role="status">
             <strong>{t('ipsSavedTitle')}</strong>
             {saved.length === 0 ? (
               <p>{t('ipsSavedEmpty')}</p>
@@ -356,7 +355,7 @@ export function AllowedIps({
           </div>
         )}
       </div>
-    </PaySection>
+    </Section>
   );
 }
 
@@ -364,27 +363,27 @@ export function Recipe() {
   const { t } = c.useCopy();
   const [lang, setLang] = useState<SnippetLanguage>('typescript');
   return (
-    <PaySection title={t('recipeTitle')} description={t('recipeBody')}>
-      <ol className="pp-steps-list">
+    <Section title={t('recipeTitle')} description={t('recipeBody')}>
+      <ol>
         <li>{t('recipeStep1')}</li>
         <li>{t('recipeStep2')}</li>
         <li>{t('recipeStep3')}</li>
         <li>{t('recipeStep4')}</li>
         <li>{t('recipeStep5')}</li>
       </ol>
-      <pre className="pp-code" aria-label={t('recipeCanonical')}>
+      <pre className="lt-mono" aria-label={t('recipeCanonical')}>
         {'INTAFACED-REQ-V1\nMETHOD\n/path?query\ntimestamp\nnonce\nbody-sha256'}
       </pre>
-      <p className="muted">{t('recipeWindow')}</p>
+      <p className="lt-hint">{t('recipeWindow')}</p>
       <CodeTabs lang={lang} setLang={setLang} snippets={signingSnippets} />
-      <NotLiveCard reason={reason('reasonDeveloper')} title={t('testToolTitle')} needs="signature check endpoint">
+      <NotLive reason={reason('reasonDeveloper')} title={t('testToolTitle')} needs="signature check endpoint">
         {t('testToolBody')}
-      </NotLiveCard>
-    </PaySection>
+      </NotLive>
+    </Section>
   );
 }
 
-export function CodeTabs({
+function CodeTabs({
   lang,
   setLang,
   snippets,
@@ -395,17 +394,29 @@ export function CodeTabs({
 }) {
   const { t } = c.useCopy();
   return (
-    <div className="pp-code-tabs">
-      <div role="group" aria-label={t('language')} className="pp-actions">
-        {(['typescript', 'python'] as const).map((l) => (
-          <Button key={l} variant={lang === l ? 'secondary' : 'ghost'} aria-pressed={lang === l} onClick={() => setLang(l)}>
-            {l === 'typescript' ? 'TypeScript' : 'Python'}
-          </Button>
-        ))}
-      </div>
-      <pre className="pp-code" tabIndex={0} aria-label={t('codeSample', { language: lang === 'typescript' ? 'TypeScript' : 'Python' })}>
+    <div>
+      <Segmented
+        label={t('language')}
+        value={lang}
+        onChange={setLang}
+        options={[
+          { value: 'typescript', label: 'TypeScript' },
+          { value: 'python', label: 'Python' },
+        ]}
+      />
+      <pre className="lt-mono" tabIndex={0} aria-label={t('codeSample', { language: lang === 'typescript' ? 'TypeScript' : 'Python' })}>
         <code>{snippets[lang]}</code>
       </pre>
     </div>
+  );
+}
+
+/** `/pay/developer/signing` on the settings template. */
+export function SigningRoom() {
+  const { t } = c.useCopy();
+  return (
+    <DeveloperRoom room="developer-signing" explain={<p>{t('signingExplain')}</p>}>
+      {(api) => <Signing api={api} />}
+    </DeveloperRoom>
   );
 }

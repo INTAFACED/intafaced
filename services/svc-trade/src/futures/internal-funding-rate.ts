@@ -5,7 +5,9 @@
  * public surface only reflects what was published.
  */
 import type { FastifyInstance } from 'fastify';
-import { retainRawBody, verifyServiceRequest, type ServiceAuthMode, type ServiceVerifier } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceVerifier } from '@intafaced/contracts';
+import { retainRawBody } from '@intafaced/contracts/raw-body';
+import { verifyServiceRequest } from '@intafaced/contracts/service-auth-http';
 import { payloadHash, type ApprovalBook, type AuditWrite } from '../admin/common.js';
 import { periodIdFor, type FundingRateEntry } from './funding-rate-source.js';
 import { assertFundingRateWithinBound, FundingRateBoundError } from './funding-rate-bound.js';

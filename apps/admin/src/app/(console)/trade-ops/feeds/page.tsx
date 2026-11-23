@@ -4,16 +4,20 @@ import { DeskPage } from '@/components/trade-ops/desk-page';
 import { ReadProblem } from '@/components/trade-ops/blocker-panel';
 import { BoundaryNote, FeedsTable } from '@/components/trade-ops/feeds-table';
 import { readFeeds } from '@/lib/trade-ops/feeds-calls';
+import { readChartFeedControls } from '@/lib/trade-ops/chart-feed-calls';
+import { ChartFeedControls } from '@/components/trade-ops/chart-feed-controls';
 
 /**
  * Market feed desk (C-ops-01 (a), J-charts-desk-18 #1): each spot market's candle stream, its age and last tick, judged
  * against the owner's stale and delayed ages by svc-trade. A market opens its drill-down: candle gaps and the feed event journal.
+ * Below the streams, each market's chart feed source and state, changed by two operators (J-charts-desk-19 #2 #3): the
+ * control sits beside the stream health it acts on.
  */
 export const dynamic = 'force-dynamic';
 
 export default async function FeedsPage() {
   const { session, config } = await requireFounderPage();
-  const read = await readFeeds({ session, config });
+  const [read, controls] = await Promise.all([readFeeds({ session, config }), readChartFeedControls({ session, config })]);
   return (
     <DeskPage
       title="Market feeds"
@@ -36,6 +40,13 @@ export default async function FeedsPage() {
       ) : (
         <ReadProblem outcome={read} title="Market feeds not read" />
       )}
+      <PageSection title="Feed source and symbol control">
+        {controls.kind === 'ok' ? (
+          <ChartFeedControls initial={controls.data} />
+        ) : (
+          <ReadProblem outcome={controls} title="Chart feed controls not read" />
+        )}
+      </PageSection>
     </DeskPage>
   );
 }

@@ -28,6 +28,7 @@ export const verificationRecord = z.object({
   createdAt: verificationInstant,
 });
 export type VerificationRecord = z.infer<typeof verificationRecord>;
+export type VerificationStatus = z.output<ReturnType<typeof verificationStatus>>;
 export function verificationStatus(owner: string, limit: number) {
   return (
     z

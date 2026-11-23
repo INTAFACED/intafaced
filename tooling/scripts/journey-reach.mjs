@@ -23,11 +23,16 @@
  *   - table: the first time this worker sees a chunk, the repository source paths its map lists;
  *   - nomap: the first time this worker sees one, a built script that ran and has no position map (the boot script, the
  *     bundler's runtime, vendor code). Its sources are in no table, so the map reads them as unmapped: full;
- *   - afterAll: true on the record that carries a file's afterAll hooks' reach (attached by the next file's first test);
- *     afterAllDue: true on the other records of a file that declares afterAll hooks, so the map can tell when that
- *     record never came (a worker's last file has no next test): it reads such a file as incomplete;
+ *   - afterAll: true on the record that carries a file's afterAll hooks' reach (attached from the hook, on the file's
+ *     last test); afterAllDue: true on the other records of a file that declares afterAll hooks, so the map can tell
+ *     when that record never came (the hook was cut off): it reads such a file as incomplete;
  *   - incomplete: reason codes (INCOMPLETE) for what this record can't see whole. The map treats an incomplete journey
  *     as reaching every source;
+ *   - codeServices, code, codeGap: the stack services whose own code is recorded (tooling/scripts/service-reach.mjs, a
+ *     preload in each Node service), each repository source file of theirs (`services/svc-x/src/…ts`) with a function
+ *     that ran while the file ran, and the services whose code the record can't have seen whole (a process killed
+ *     before its last counts were written, or one that wrote nothing past the record's read). Paths only, from the
+ *     checkout's own files; absent when no service records;
  *   - bus: true when the event bus this checkout runs writes a line for each message it delivers (busLogs), so a
  *     service whose handler ran while the file ran is in `active`. The map narrows a subscribing service only when
  *     every record it is built from says so (intafaced #8657).
@@ -40,6 +45,7 @@
 import { closeSync, existsSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { STACK_PORTS } from './local-test-facts.mjs';
+import { TICK_MS } from './service-reach.mjs';
 
 export const REACH_ATTACHMENT = 'journey-reach';
 export const REACH_VERSION = 2;
@@ -47,7 +53,7 @@ export const POSITIONS_SUFFIX = '.positions.json';
 
 /** The only reasons a record may give for being incomplete. */
 export const INCOMPLETE = {
-  popup: 'the app opened a page by itself; its first scripts ran before coverage started',
+  popup: 'the app opened a page by itself that asked the customer app for something before its coverage started',
   closed: 'a page closed before its coverage was read',
   detached: 'a page lost its coverage session before it was read',
   noStart: 'coverage could not start on a page',
@@ -331,27 +337,60 @@ export function busLogs(root) {
  * service's shape is passed over.
  */
 export function makeLogReader(logsDir) {
+  const tail = makeTail(logsDir, '.log');
+  return {
+    read() {
+      const out = [];
+      for (const [service, line] of tail.read()) {
+        let o = null;
+        if (line.startsWith('{'))
+          try {
+            o = JSON.parse(line);
+          } catch {
+            o = null;
+          }
+        const req = o?.msg === 'incoming request' && o.req && typeof o.req === 'object' ? o.req : null;
+        out.push({
+          service,
+          time: Number.isFinite(o?.time) ? o.time : null,
+          served: !!req,
+          method: typeof req?.method === 'string' ? req.method : null,
+          path: typeof req?.url === 'string' ? req.url : null,
+        });
+      }
+      return out;
+    },
+  };
+}
+
+/**
+ * The new whole lines of each `<service><suffix>` file in a folder, as [service, line] pairs, from the files' ends at the
+ * start (or, with `startAt`, from the offset it gives for each file). A file that shrank is read again from its start; a
+ * partial last line waits for the next read; a file whose name is not a service's shape is passed over.
+ */
+function makeTail(dir, suffix, { startAt = (file) => statSync(file).size } = {}) {
   const at = new Map();
   const rest = new Map();
   const list = () => {
     try {
-      return readdirSync(logsDir).filter((f) => f.endsWith('.log') && SERVICE.test(f.slice(0, -4)));
+      return readdirSync(dir).filter((f) => f.endsWith(suffix) && SERVICE.test(f.slice(0, -suffix.length)));
     } catch {
       return [];
     }
   };
   for (const f of list()) {
     try {
-      at.set(f, statSync(path.join(logsDir, f)).size);
+      at.set(f, startAt(path.join(dir, f)));
     } catch {
       /* gone */
     }
   }
   return {
+    names: () => list().map((f) => f.slice(0, -suffix.length)),
     read() {
       const out = [];
       for (const f of list()) {
-        const file = path.join(logsDir, f);
+        const file = path.join(dir, f);
         let size;
         try {
           size = statSync(file).size;
@@ -382,29 +421,130 @@ export function makeLogReader(logsDir) {
         const end = data.lastIndexOf(10);
         rest.set(f, data.subarray(end + 1));
         const lines = end < 0 ? [] : data.subarray(0, end).toString('utf8').split('\n');
-        const service = f.slice(0, -4);
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          let o = null;
-          if (line.startsWith('{'))
-            try {
-              o = JSON.parse(line);
-            } catch {
-              o = null;
-            }
-          const req = o?.msg === 'incoming request' && o.req && typeof o.req === 'object' ? o.req : null;
-          out.push({
-            service,
-            time: Number.isFinite(o?.time) ? o.time : null,
-            served: !!req,
-            method: typeof req?.method === 'string' ? req.method : null,
-            path: typeof req?.url === 'string' ? req.url : null,
-          });
-        }
+        const service = f.slice(0, -suffix.length);
+        for (const line of lines) if (line.trim()) out.push([service, line]);
       }
       return out;
     },
   };
+}
+
+// ---- What each service's own code ran (service-reach.mjs) ----
+
+/** A service source path a code-reach line may name; anything else in a line is dropped. */
+const SERVICE_SOURCE = /^services\/svc-[a-z0-9-]+\/src\/[A-Za-z0-9._@/-]{1,300}\.ts$/;
+
+/**
+ * Where a code-reach file's last process began: the offset of its last `{"pid":<n>,"start":` line, else 0. Only that
+ * process's lines say what a reader needs (its pid, how far it wrote, whether it ended); the file keeps every process
+ * the stack ever started under the name and is never cleared, so a whole read grew with every run (422 MB of history
+ * cost 1 GiB in each Playwright process that imports the journey harness, runner and worker). Read backwards in 1 MiB
+ * steps, so a long history costs only the last process's lines.
+ */
+export function lastStart(file) {
+  const START = /\{"pid":\d+,"start":/g;
+  const step = 2 ** 20;
+  const size = statSync(file).size;
+  const fd = openSync(file, 'r');
+  try {
+    // Each step reads 64 bytes past its own end, so a line start split across two steps is still seen whole.
+    for (let end = size; end > 0; end -= step) {
+      const from = Math.max(0, end - step);
+      const buf = Buffer.alloc(Math.min(size, end + 64) - from);
+      const text = buf.subarray(0, readSync(fd, buf, 0, buf.length, from)).toString('latin1');
+      let last = -1;
+      for (const m of text.matchAll(START))
+        if (m.index === 0 ? from === 0 || isLineStart(fd, from) : text[m.index - 1] === '\n') last = m.index;
+      if (last >= 0) return from + last;
+    }
+    return 0;
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/** Whether the byte before `at` is a newline. */
+function isLineStart(fd, at) {
+  const b = Buffer.alloc(1);
+  return readSync(fd, b, 0, 1, at - 1) === 1 && b[0] === 10;
+}
+
+/**
+ * A reader of the stack services' code-reach files (`<state>/logs/code/<service>.jsonl`, written by service-reach.mjs).
+ * Each read returns, since the last one: { service, from, to, files } for each window a process recorded, and
+ * { service, gap: true, from, to } for a stretch it can't have seen whole: a process that started while the one before
+ * it under the same name never wrote its end (killed, so its last unread counts are lost). At the start it reads each file
+ * from its last process's `start` line (lastStart) only to learn that process, so the stack's own start is nobody's.
+ *   - lag(t): the names whose process is alive and has not yet written a window reaching t;
+ *   - lost(t): a gap from each such name's last window to t, after which the name counts as read up to t;
+ *   - services(): the names that record at all.
+ */
+export function makeCodeReader(dir) {
+  const tail = makeTail(dir, '.jsonl', { startAt: lastStart });
+  const state = new Map(); // name -> { pid, ended, upTo }
+  const num = (x) => (Number.isFinite(x) ? x : null);
+  const take = (lines, out) => {
+    for (const [service, line] of lines) {
+      let o;
+      try {
+        o = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      const pid = Number.isSafeInteger(o?.pid) ? o.pid : null;
+      const st = state.get(service);
+      if (num(o?.start) !== null) {
+        if (st && st.pid !== pid && !st.ended) out?.push({ service, gap: true, from: st.upTo, to: o.start });
+        state.set(service, { pid, ended: false, upTo: o.start });
+      } else if (num(o?.end) !== null) {
+        if (st && st.pid === pid) st.ended = true;
+      } else if (num(o?.from) !== null && num(o?.to) !== null) {
+        const files = (Array.isArray(o.files) ? o.files : []).filter((f) => typeof f === 'string' && SERVICE_SOURCE.test(f));
+        if (st && st.pid === pid) st.upTo = Math.max(st.upTo, o.to);
+        else if (!st) state.set(service, { pid, ended: false, upTo: o.to });
+        if (files.length) out?.push({ service, from: o.from, to: o.to, files });
+      }
+    }
+  };
+  take(tail.read(), null);
+  return {
+    read() {
+      const out = [];
+      take(tail.read(), out);
+      return out;
+    },
+    lag: (t) => [...state].filter(([, st]) => !st.ended && st.upTo < t).map(([name]) => name),
+    lost(t) {
+      const out = [];
+      for (const [service, st] of state)
+        if (!st.ended && st.upTo < t) {
+          out.push({ service, gap: true, from: st.upTo, to: t });
+          st.upTo = t;
+        }
+      return out;
+    },
+    services: () => [...new Set([...state.keys(), ...tail.names()])].sort(),
+  };
+}
+
+/**
+ * Reads what the services' code ran up to now into `recorder`, first waiting (up to `waitMs`) for each live service to
+ * write a window reaching now, since a process writes what ran only every TICK_MS (service-reach.mjs): without the wait,
+ * what a worker's last test ran in its last moments would never be read. A service still behind after the wait is a gap
+ * for the files that ran since its last window. Never throws.
+ */
+export async function settleCode(reader, recorder, { now = Date.now(), waitMs = 2 * TICK_MS + 200, stepMs = 50 } = {}) {
+  try {
+    const until = Date.now() + waitMs;
+    recorder.code(reader.read());
+    while (reader.lag(now).length && Date.now() < until) {
+      await new Promise((r) => setTimeout(r, stepMs));
+      recorder.code(reader.read());
+    }
+    recorder.code(reader.lost(now));
+  } catch {
+    /* recording never stops a test */
+  }
 }
 
 // ---- The recorder ----
@@ -421,6 +561,7 @@ export function makeRecorder({
   distDir,
   routes = routeTable(root),
   bus = busLogs(root),
+  codeServices = null,
 }) {
   const scripts = new Map();
   const tabled = new Set();
@@ -436,6 +577,8 @@ export function makeRecorder({
         served: new Set(),
         active: new Set(),
         chunks: new Set(),
+        code: new Set(),
+        codeGap: new Set(),
         ranges: new Map(),
         incomplete: new Set(),
         table: {},
@@ -445,16 +588,56 @@ export function makeRecorder({
     return pending.get(file);
   };
   const seen = (file) => {
-    if (!sent.has(file)) sent.set(file, { http: new Set(), served: new Set(), active: new Set(), chunks: new Set(), ranges: new Map() });
+    if (!sent.has(file))
+      sent.set(file, {
+        http: new Set(),
+        served: new Set(),
+        active: new Set(),
+        chunks: new Set(),
+        code: new Set(),
+        codeGap: new Set(),
+        ranges: new Map(),
+      });
     return sent.get(file);
   };
   const add = (file, kind, key) => {
     if (!seen(file)[kind].has(key)) slot(file)[kind].add(key);
   };
+  /** The index of the timeline entry running at `t` (the first one for a time before it), or -1. */
+  const entryAt = (t) => {
+    let lo = -1;
+    let hi = timeline.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (timeline[mid][0] <= t) lo = mid;
+      else hi = mid - 1;
+    }
+    return timeline.length ? Math.max(lo, 0) : -1;
+  };
+  const fileAt = (t) => timeline[entryAt(t)]?.[1] ?? null;
+  /** Every file that ran at some time in [from, to]. */
+  const filesIn = (from, to) => {
+    const out = new Set();
+    const first = entryAt(from);
+    if (first < 0) return out;
+    out.add(timeline[first][1]);
+    for (let i = first + 1; i < timeline.length && timeline[i][0] <= to; i++) out.add(timeline[i][1]);
+    return out;
+  };
   return {
     request(file, url, m) {
       const k = requestKey(routes, url, m);
       if (k) add(file, 'http', k);
+    },
+    /** Whether a URL is the customer app's (its port, on loopback): only its scripts are placed (coverage), so a page
+     *  that never asked it for anything ran none of its code. */
+    servesCustomer(url) {
+      try {
+        const u = new URL(String(url));
+        return u.port === String(customerPort) && LOOPBACK.has(u.hostname);
+      } catch {
+        return false;
+      }
     },
     /** One of INCOMPLETE's codes; anything else is recorded as `noRead`, never as given. */
     incomplete(file, code) {
@@ -467,16 +650,6 @@ export function makeRecorder({
     },
     /** Log lines (makeLogReader().read()), each to the file that ran at its time; a line with no time to `now`. */
     served(lines, now) {
-      const fileAt = (t) => {
-        let lo = -1;
-        let hi = timeline.length - 1;
-        while (lo < hi) {
-          const mid = (lo + hi + 1) >> 1;
-          if (timeline[mid][0] <= t) lo = mid;
-          else hi = mid - 1;
-        }
-        return timeline[Math.max(lo, 0)]?.[1] ?? null;
-      };
       for (const l of lines ?? []) {
         if (!SERVICE.test(String(l?.service))) continue;
         const file = l.time === null ? now : fileAt(l.time);
@@ -485,6 +658,21 @@ export function makeRecorder({
         if (l.served) {
           const r = l.path === null ? null : routeOf(routes, String(l.path).split('?')[0]);
           add(file, 'served', `${l.service} ${method(l.method)}${r ? ` ${r}` : ''}`);
+        }
+      }
+    },
+    /**
+     * What the services' own code ran (makeCodeReader().read() and .lost()): each window's files go to every journey
+     * file that ran at some time inside it, so a window across two files counts for both (more reach, never less), and a
+     * gap marks each such file's record as not seeing that service whole (`codeGap`), which the map reads as the
+     * journey reaching all of that service.
+     */
+    code(events) {
+      for (const e of events ?? []) {
+        if (!SERVICE.test(String(e?.service)) || !Number.isFinite(e.from) || !Number.isFinite(e.to)) continue;
+        for (const file of filesIn(e.from, e.to)) {
+          if (e.gap) add(file, 'codeGap', e.service);
+          else for (const f of e.files ?? []) if (SERVICE_SOURCE.test(String(f))) add(file, 'code', f);
         }
       }
     },
@@ -539,12 +727,12 @@ export function makeRecorder({
         }
       }
     },
-    /** The file's afterAll hooks have run: their reach is in this file's next record, attached by a later test. */
+    /** The file's afterAll hooks have run: their reach is in this file's next record, attached from the hook. */
     afterAll(file) {
       slot(file).after = true;
     },
     /** The file declares afterAll hooks: each of its records says so (`afterAllDue`), and the map reads a file whose
-     *  `afterAll: true` record never came (the worker's last file: no later test attaches it) as incomplete. */
+     *  `afterAll: true` record never came (the hook was cut off before it attached it) as incomplete. */
     declaresAfterAll(file) {
       withAfterAll.add(file);
     },
@@ -564,7 +752,12 @@ export function makeRecorder({
         s.ranges.set(src, sentHere);
         sources[src] = fresh;
       }
-      for (const kind of ['http', 'served', 'active', 'chunks']) for (const k of p[kind]) s[kind].add(k);
+      for (const kind of ['http', 'served', 'active', 'chunks', 'code', 'codeGap']) for (const k of p[kind]) s[kind].add(k);
+      const recording = codeServices
+        ? codeServices()
+            .filter((n) => SERVICE.test(String(n)))
+            .sort()
+        : [];
       const record = {
         v: REACH_VERSION,
         file: path.basename(String(file)).replace(/[^A-Za-z0-9._-]/g, '_'),
@@ -579,12 +772,17 @@ export function makeRecorder({
         ...(p.after ? { afterAll: true } : {}),
         ...(withAfterAll.has(file) && !p.after ? { afterAllDue: true } : {}),
         ...(bus ? { bus: true } : {}),
+        // The services whose own code is recorded (service-reach.mjs): for those, `code` names each source file with a
+        // function that ran while this file ran, and `codeGap` the ones not seen whole. Sent on every record.
+        ...(recording.length ? { codeServices: recording, code: [...p.code].sort(), codeGap: [...p.codeGap].sort() } : {}),
       };
       const empty =
         !record.http.length &&
         !record.served.length &&
         !record.active.length &&
         !record.chunks.length &&
+        !p.code.size &&
+        !p.codeGap.size &&
         !Object.keys(sources).length &&
         !Object.keys(p.table).length &&
         !record.nomap.length;

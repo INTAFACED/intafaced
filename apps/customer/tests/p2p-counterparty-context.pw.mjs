@@ -139,9 +139,9 @@ async function login(page, path = '/p2p') {
   await page.locator('input[name="identifier"]').fill('counterparty@example.invalid');
   await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
   await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
-  await expect(page.locator('.pay-room-tabs')).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'P2P rooms' })).toBeVisible();
 }
-const record = (page) => page.locator('.p2p-counterparty');
+const record = (page) => page.getByTestId('counterparty-page');
 const metric = (page, key) => record(page).locator(`[data-counterparty-metric="${key}"]`);
 const stable = (page) => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 async function scenario(browser, name, width, run) {
@@ -244,7 +244,7 @@ test('current order context returns with a fresh owner read and no revived priva
     await page.locator('.p2p-order-facts > summary').click();
     await page.locator('.p2p-order-facts a').click();
     await expect(metric(page, 'completion')).toHaveText('98%');
-    await expect(page.locator('.pay-room-tabs a[aria-current="page"]')).toHaveText('Your orders');
+    await expect(page.getByRole('navigation', { name: 'P2P rooms' }).locator('a[aria-current="page"]')).toHaveText('Your orders');
     await expect(record(page).getByRole('link', { name: 'Back to this order', exact: true })).toHaveAttribute('href', origin);
     await page.screenshot({ path: join(out, 'counterparty.png') });
     state.order = { ...state.order, status: 'disputed' };
@@ -411,7 +411,7 @@ test('long reported counts and badges fit; passive ES FR and fallback language k
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
       await page.screenshot({ path: join(out, language + '.png') });
     }
-    const links = page.locator('.pay-room-tabs a');
+    const links = page.getByRole('navigation', { name: 'P2P rooms' }).locator('a');
     await expect(links).toHaveCount(5);
     await links.first().focus();
     for (let i = 0; i < 5; i++) {
@@ -457,7 +457,7 @@ test('unsafe or private return parameters are removed; login/register preserve c
         },
         profile(subject, candidate),
       );
-      await expect(record(page).locator('.p2p-counterparty-return')).toHaveAttribute('href', expected);
+      await expect(record(page).getByTestId('counterparty-return')).toHaveAttribute('href', expected);
     }
     const count = state.reads.filter((r) => r.procedure === 'reputation.get').length;
     await page.evaluate((href) => {

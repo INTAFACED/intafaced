@@ -63,10 +63,19 @@ export const BANK_SPACES_LIST = defineProcedure({
   transport: 'trpc',
   kind: 'query',
   path: 'spaces.list',
+  access: { caller: 'scope', scope: 'bank:read', module: 'bank' },
+  /** svc-bank's `guard()` maps its errors and its route is not mounted from this record yet: its refusals are listed when it is. */
+  refusals: {},
   input: z.object({
     assetId: assetIdSchema.min(1).max(16).optional(),
     /** Page size. Optional so omit reaches `bank.spaces_list_limit_unset` instead of a Zod "Required". Blank is not 50. */
     limit: z.number().int().min(1).max(200).optional(),
   }),
   output: z.array(bankSpaceSchema),
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'accept', input: { assetId: 'EUR', limit: 50 } },
+    { verdict: 'refuse', input: { limit: 0 } },
+    { verdict: 'refuse', input: { assetId: '' } },
+  ],
 });

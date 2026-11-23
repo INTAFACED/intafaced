@@ -1,4 +1,5 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 vi.mock('../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../shared/preferences')>();
@@ -31,18 +32,14 @@ import {
   isRouteSource,
   tradeDeclarations as parseTradeDeclarations,
 } from '../../../../../services/svc-trade/src/route-declarations.test-harness';
+import { declaredRoutes } from '../../../../../tooling/ci/published-routes.mjs';
 
 const repo = (path: string) => readFileSync(new URL(`../../../../../${path}`, import.meta.url), 'utf8');
 
-const TRADE_SRC = new URL('../../../../../services/svc-trade/src/', import.meta.url);
+const REPO = fileURLToPath(new URL('../../../../../', import.meta.url));
 
-/** svc-trade's sources, walked here; the parser is svc-trade's own, which tooling/ci/published-routes.mjs also runs. */
-function tradeDeclarations() {
-  const files = (readdirSync(TRADE_SRC, { recursive: true }) as string[])
-    .filter((file) => file.endsWith('.ts') && isRouteSource(file))
-    .map((file) => ({ file, text: readFileSync(new URL(file, TRADE_SRC), 'utf8') }));
-  return parseTradeDeclarations(files);
-}
+/** svc-trade's registrations, read by svc-trade's own parser through the published-routes gate, which writes the list. */
+const tradeDeclarations = () => declaredRoutes(REPO, { isRouteSource, tradeDeclarations: parseTradeDeclarations });
 
 describe('the published route list matches what the services really mount', () => {
   const contract = repo('packages/exchange-contract/src/api.ts');

@@ -80,43 +80,43 @@ export function AlertDelivery({
         <ServiceOffNotice
           code={channel === 'email' ? 'vendor.email' : 'vendor.push'}
           sentence={copy.t(channel === 'email' ? 'deliveryEmailOff' : 'deliveryPushOff')}
-          className="nf-why"
+          className="lt-hint"
           role="note"
         />
       );
     }
     if (block === 'disabled')
       return (
-        <p className="nf-why" role="note">
+        <p className="lt-hint" role="note">
           {copy.t('deliveryChannelDisabled')}
         </p>
       );
     if (block === 'unknown')
       return (
-        <p className="nf-why" role="note">
+        <p className="lt-hint" role="note">
           {copy.t('deliveryChannelUnknown')}
         </p>
       );
-    return <p className="nf-muted">{copy.t('deliveryAddressNote')}</p>;
+    return <p className="lt-hint">{copy.t('deliveryAddressNote')}</p>;
   };
   return (
-    <fieldset className="nf-field nf-delivery-choice" data-testid="alerts-delivery" disabled={disabled}>
+    <fieldset className="lt-field" data-testid="alerts-delivery" disabled={disabled}>
       <legend>{copy.t('deliveryLegend')}</legend>
-      <label className="nf-check">
+      <label className="lt-field">
         <input type="checkbox" checked disabled readOnly />
         <span>{copy.t('deliveryInApp')}</span>
       </label>
-      <label className="nf-check" data-testid="alerts-delivery-email">
+      <label className="lt-field" data-testid="alerts-delivery-email">
         <input type="checkbox" checked={value.email} onChange={(event) => onChange({ ...value, email: event.target.checked })} />
         <span>{copy.t('deliveryEmail')}</span>
       </label>
       {value.email ? <div data-testid="alerts-delivery-email-note">{note('email')}</div> : null}
-      <label className="nf-check" data-testid="alerts-delivery-push">
+      <label className="lt-field" data-testid="alerts-delivery-push">
         <input type="checkbox" checked={value.push} onChange={(event) => onChange({ ...value, push: event.target.checked })} />
         <span>{copy.t('deliveryPush')}</span>
       </label>
       {value.push ? <div data-testid="alerts-delivery-push-note">{note('push')}</div> : null}
-      <label className="nf-field">
+      <label className="lt-field">
         <span>{copy.t('webhookLabel')}</span>
         <input
           type="url"
@@ -128,9 +128,9 @@ export function AlertDelivery({
           aria-invalid={problem !== null}
           onChange={(event) => onChange({ ...value, webhookUrl: event.target.value })}
         />
-        <small className={problem ? 'nf-error' : 'nf-muted'}>{problem ? copy.t('webhookInvalid') : copy.t('webhookHint')}</small>
+        <small data-part={problem ? 'error' : undefined}>{problem ? copy.t('webhookInvalid') : copy.t('webhookHint')}</small>
       </label>
-      <p className="nf-muted" data-testid="alerts-webhook-policy">
+      <p className="lt-hint" data-testid="alerts-webhook-policy">
         {policy.status === 'loading'
           ? copy.t('webhookPolicyLoading')
           : policy.status === 'failed'

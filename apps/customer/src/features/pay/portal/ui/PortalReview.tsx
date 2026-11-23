@@ -1,5 +1,6 @@
 import type { ComponentProps } from 'react';
-import { ReviewedAction } from '../../components';
+import type { ApiResult } from '../../../../shared/api';
+import { ReviewedAction, useReviewedAction } from '../../components';
 import { ExactMoneyScope } from './ExactMoneyScope';
 import { plainFailure } from '../refusal';
 
@@ -16,4 +17,17 @@ export function PortalReview<T>({ review, perform, ...rest }: ComponentProps<typ
       review={review === undefined ? undefined : <ExactMoneyScope>{review}</ExactMoneyScope>}
     />
   );
+}
+
+/**
+ * The same door for a page on its Volt template (`volt/Review.tsx` draws it with the kit): the review's steps exactly as
+ * `PortalReview` runs them, with every refusal in plain words.
+ */
+export function usePortalReview<T>({
+  perform,
+  ...rest
+}: Omit<Parameters<typeof useReviewedAction<T>>[0], 'perform'> & {
+  perform: (currentReview: () => boolean) => Promise<ApiResult<T>>;
+}) {
+  return useReviewedAction<T>({ ...rest, perform: async (current) => plainFailure(await perform(current)) });
 }

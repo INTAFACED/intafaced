@@ -511,6 +511,7 @@ describe('rail registry', () => {
     const readOnly = {
       id: 'read-only',
       capabilities: ['authorize'] as const,
+      mode: cardAdapter.mode,
       health: () => ({ healthy: true, latencyMs: 1, lastUpdate: new Date() }),
       authorize: cardAdapter.authorize.bind(cardAdapter),
       capture: cardAdapter.capture.bind(cardAdapter),

@@ -35,13 +35,14 @@
  *   node tooling/ci/gates.mjs          run every gate, report all failures
  *   node tooling/ci/gates.mjs --list   print the gate ids, one per line
  *   node tooling/ci/gates.mjs --changed
- *        a builder's local run: the tooling tests (about four minutes on the Mac) run only when the branch's diff
- *        against its merge-base with origin/main, plus uncommitted and untracked files, touches tooling/ or .github/
+ *        a builder's local run: the tooling tests (about three minutes on CI, more on a loaded Mac) run only when the
+ *        branch's diff against its merge-base with origin/main, plus uncommitted and untracked files, touches tooling/ or .github/
  *        (the tooling tests read the workflows too); every other gate runs as always. `--base <ref>` compares against
  *        another ref (a stacked branch). An unreadable diff runs everything. CI and main never pass the flag: they
  *        keep the full run (U4, project-state #1574).
- *   node tooling/ci/gates.mjs --before-push
- *        what .githooks/pre-push runs: every gate but LEFT_TO_CI_BEFORE_PUSH, all at once.
+ *   node tooling/ci/gates.mjs --fast
+ *        CI's Fast gates job: every gate but LEFT_TO_FULL_RUN, all at once, so a red gate is named in about two minutes
+ *        of the push, not after the tooling tests' three (the Doctrine gates job still runs the whole list and blocks).
  */
 import { readdirSync, existsSync, readFileSync } from 'node:fs';
 import { join, basename, resolve } from 'node:path';
@@ -69,7 +70,7 @@ export const GATES = [
       'including gate-files (which files need the CI review), gate-gh (a 403 or 429 stops) and ' +
       'local-test-stack. Until 2026-10-31 only two of 28 ran here, so a stack change could land with its own tests red. ' +
       'Lives in tooling/scripts/, so the manifest check below does not cover it: this entry is the only thing running ' +
-      'those tests, and deleting it has to be a visible act. About 40 seconds, no network.',
+      'those tests, and deleting it has to be a visible act. About three minutes on CI, four files at once.',
   },
   {
     id: 'truth-check',
@@ -134,6 +135,17 @@ export const GATES = [
       'unique key, two inserts at once make the loser raise 23505 (svc-academy #8378, svc-pay #8526). Reads every ' +
       "service's unique keys from its migrations and fails a new insert that leaves one unabsorbed; the inserts on main " +
       'when it landed are listed with their verdicts in tooling/ci/conflict-keys-baseline.json, which only shrinks. Under a second, no network.',
+  },
+  {
+    id: 'baseline-money',
+    script: 'tooling/ci/baseline-money.mjs',
+    doctrine: "the journeys baseline's money flags are the money rule's (project-state#3690)",
+    why:
+      'the money rule is computed from journeys.json, slices.json and the package manifests, the baseline stores its ' +
+      'result per step, and a change to the inputs merged green without touching it: #9539 gave apps/admin a dev ' +
+      'dependency on the ledger client, 33 entries went stale on main, and the merge seal stopped every PR whose run ' +
+      'reached one. A journeys run sees only the steps it runs; this reads every entry, with no run, in under a second. ' +
+      'It also fails a regression entry on a money step. `--write` sets each stale flag to the rule’s value.',
   },
   {
     id: 'published-routes',
@@ -313,12 +325,20 @@ export const NOT_GATES = {
     'not a gate on its own: check 4 of custody-scan.mjs (the custody switch, OWNER 226), imported and run by it, so the `custody` gate runs it. A separate module so its plants can run in a sandbox copy without touching the tree.',
   'api-budget.mjs':
     "not a gate: the words for GitHub's spent hourly API budget (403 or 429 with no calls left, or gh's \"API rate limit exceeded\"), which the seal's scripts put in their error and annotation title, so why-red.mjs reads such a red as JUDGE DOWN rather than a red of the change's own (project-state #2065 row d25). It changes no pass or fail. Its tests are api-budget.test.mjs.",
+  'api-count.mjs':
+    "not a gate: counts this process's GitHub API calls and prints one line at exit naming the script and its count (project-state#3718), so an hour of job logs says who spends the workflow token's shared hourly budget. It changes no pass or fail. Its tests are api-count.test.mjs, which also fail on a script that calls GitHub without counting.",
+  'run-jobs.mjs':
+    "not a gate: the one way a tooling/ci script reads a run's jobs list (project-state#3258): pages of 30, every page, so a re-run run's jobs page, which GitHub answers 502 at 100 a page, is read whole. It changes no pass or fail. Its tests are run-jobs.test.mjs, which also fail on a script that reads a run's jobs list by itself.",
+  'github-fetch.mjs':
+    "not a gate: the one way a tooling/ci script calls GitHub's API (project-state#3160): plain fetch where a token is set, as in every CI job, and the logged-in gh where none is, so a script run by hand needs no token on its command line. It changes no pass or fail. Its tests are github-fetch.test.mjs, which also fail on a script that adds its own fetch to the API.",
   'main-first.mjs':
     "not a gate: real-app-journeys.yml's `Main's journeys first` job, which defers a Real-app journeys run off main while a main run's jobs wait for runners, without holding a runner: the deferred run selects no journeys and ends, and the `release` job re-runs it when main's planner finishes (a hand-dispatched full run is also deferred while 2 others hold runners; INTAFACED/project-state#1574 item 3). It reads GitHub's Actions API, so a laptop verify has no input; its tests are main-first.test.mjs.",
   'model-check.mjs':
     "the plan of model-check.yml: which TLA+ models a change is checked against (every model, when a modelled service, a path a COVERS.md names or the check itself changes), failing on a model nothing runs. Not a doctrine gate: it needs the pull request's changed files, and the models need Java and minutes, so the Model check workflow runs it; its tests are model-check.test.mjs.",
   'journey-verdict.mjs':
     "the Real-app journeys run's verdict against docs/runbooks/journey-baseline.json, run by the Real-app journeys job of real-app-journeys.yml on a finished run's merged report. Not a doctrine gate: it needs a run's report, its baseline's named run and the pass history since, so a laptop verify has no input. Its tests are journey-verdict.test.mjs, run in the `changes` job of ci.yml.",
+  'look-paths.mjs':
+    "not a gate: the paths that draw a Customer room or kit part (reachesLook), read by ci-affected.mjs, review-marker.mjs and journey-touch.mjs. It changes no pass or fail by itself. Its tests are ci-affected.test.mjs's reachesLook cases.",
   'ci-affected.mjs':
     'path classifier for named CI test shards and the merge-seal aggregator. Invoked from ci.yml `changes` / `merge-seal` jobs. Not a doctrine gate: a laptop verify has no GitHub event payload, and reddening verify over missing GITHUB_OUTPUT is how a classifier gets deleted. Its tests are ci-affected.test.mjs.',
   'bisect-main.mjs':
@@ -328,11 +348,11 @@ export const NOT_GATES = {
   'main-trust.mjs':
     'runs from main-trust.yml after a CI run on main finishes: re-runs a red run once, opens red / flaky issues, publishes the last-green branch. Needs a GitHub token and a finished run, so a laptop verify has no input. main-trust.test.mjs checks the decision table and parser.',
   'journeys-revert.mjs':
-    'runs from main-trust.yml (trigger) and main-bisect.yml (find, open): when a journey step that passed on main fails outright (or a step new to main fails outright on its first run, in a journey file changed since the run before), it finds the one pull request that broke it (the commits whose files reach the failing journeys, proven by the probe) and opens its revert with squash auto-merge through the normal seal, never more than one per red and never a revert of a revert. Needs a token, a red run and the factory App key, so a laptop verify has no input. journeys-revert.test.mjs checks the break rule, the narrowing and the refusals.',
+    'runs from main-trust.yml (trigger) and main-bisect.yml (find, open): when a journey step that passed on main fails outright (or a step new to main fails outright on its first run, in a journey file changed since the run before), it finds the one pull request that broke it (the commits whose files reach the failing journeys, proven by the probe) and opens its revert with squash auto-merge through the normal seal, never more than one per red and never a revert of a revert; after each journeys run on main (spent) it closes an open revert whose failing steps passed outright with the culprit still in. Needs a token, a red run and the factory App key, so a laptop verify has no input. journeys-revert.test.mjs checks the break rule, the narrowing and the refusals.',
   'journeys-revert-probe.mjs':
     'runs from main-bisect.yml when commits can reach the failing journeys: with at most 16 candidates, each one is probed at once on its own runner and fresh local test stack (journeys-revert-probe.sh) and `decide` names the oldest commit of the failing run that ends at the red one; past 16, one runner runs the binary search. Needs the stack, so a laptop verify has no input. journeys-revert-probe.test.mjs checks the search and the report reading.',
   'journeys-revive.mjs':
-    "runs from main-trust.yml's `revive` job, hourly and after each CI run on main (`main`: the main pass only, since GitHub's cron here fires late or never): a Real-app journeys run on main that finished with no report.json (it died before its tests ran) has its failed jobs re-run with growing waits (30 min to 4 h), five attempts at most, then one issue names it; then (and from the post-merge job after each main journeys run) an open pull request's journeys run red only because its verdict couldn't read main's inputs is re-run once main is back (no main re-run going, the baseline's named run has its report, a run the rows name has finished, and the API budget has room after a rate limit), twice per head at most. It changes no verdict: a verdict still fails closed on a report it can't read, and skips a finished main run that kept none (journey-verdict.mjs readHistory). Needs a GitHub token and main's runs, so a laptop verify has no input; its tests are journeys-revive.test.mjs.",
+    "runs from main-trust.yml's `revive` job, hourly and after each CI run on main (`main`: the main pass only, since GitHub's cron here fires late or never): a Real-app journeys run on main that finished with no report.json (it died before its tests ran) has its failed jobs re-run with growing waits (30 min to 4 h), five attempts at most, then one issue names it; then (and from the post-merge job after each main journeys run) an open pull request's journeys run red only because its verdict couldn't read main's inputs is re-run once main is back (no main re-run going, the baseline's named run has its report, a run the rows name has finished, and the API budget has room after a rate limit), twice per head at most. It changes no verdict: a verdict still fails closed on a report it can't read, and skips a finished main run that kept none (journey-verdict.mjs readHistory). Needs main's runs (read with the job's token, or gh by hand), so a laptop verify has no input; its tests are journeys-revive.test.mjs.",
   'shard-download.mjs':
     "runs from real-app-journeys.yml's scoreboard job (\"Merge the shards\"): downloads the run's shard reports, waits for the reset of a spent API budget (at most twice, never past the job's time) instead of carrying on with none, fails the step by name on any refusal, and prints the token's core budget before and after. Needs the run's own artifacts and token, so a laptop verify has no input; its tests are shard-download.test.mjs.",
   'refusal.mjs':
@@ -357,6 +377,8 @@ export const NOT_GATES = {
     "runs only inside ci-review.yml, when the reviewer CLI exits non-zero in the Review or Proof read step: prints that call's exit code and its answer's own error fields (U4, project-state#1574), so an outage names itself, and classes it `down` (no answer, a refused or used-up key, a limit, an overload, a network error: the judge is down, the job ends without a verdict and without a red) or `error` (red, as before), with the one action a down judge needs (OWNER 289 point 11). It needs a failed call's answer file, so a laptop verify has no input; `tooling/ci/reviewer-error.test.mjs` tests it.",
   'judge-down.mjs':
     'runs only inside ci-review.yml, in steps that can\'t fail their job: when the judge is down (reviewer-error.mjs `down`), the pending `judge` commit status with its one action and one project-state issue "Judge down: CI review"; when a reviewer call succeeds, the status cleared, the issue closed and the CI review re-run on the oldest 10 open PR heads with no verdict (OWNER 289 point 11). Nothing that seals reads its status. Needs the event, GitHub tokens and the App\'s issues token, so a laptop verify has no input; `tooling/ci/judge-down.test.mjs` tests it.',
+  'look-pictures.mjs':
+    "a library, not a scan: runs only inside ci-review.yml's diff step (ci-review.mjs cmdDiff), for a change CI's look job runs for: waits for that job on the pull request's head, unpacks its `look-pr-<k>` artifacts and gives the CI review one screen-high band of each reached room's before and after picture (#9325). Needs a GitHub token and a head, so a laptop verify has no input; look-pictures.test.mjs tests its wait, its path checks, its bands and its picks.",
   'step-pictures.mjs':
     "not a gate: runs only inside ci-review.yml's proof read, before the reader's call, and blocks nothing: it waits for the head's Real-app journeys runs, unpacks their shard artifacts and adds each step's end picture to the read's prompts (project-state #2693). Needs a GitHub token and a pull request's head, so a laptop verify has no input; `fetch` gets one run's pictures for a read made off CI. step-read.test.mjs tests it.",
   'step-read.mjs':
@@ -366,17 +388,17 @@ export const NOT_GATES = {
   'review-marker.mjs':
     "merge-seal step: for a gate-file or look-baseline change, needs the `CI review` job (ci-review.yml, a pull_request_target run of the default branch's copy) to have passed its `Verdict` step on the PR's exact head, read from the Actions API; a FAIL on that head stands, and no comment or status counts. Needs a GitHub token and a head sha, so a laptop verify cannot run it; review-marker.test.mjs and ci-review.test.mjs check the verdict reader and which changes need the review.",
   'ci-jobs-seal.mjs':
-    'merge-seal step: CI’s jobs on the pull request’s exact head (ci.yml’s Affected tests, Doctrine gates, Format, Typecheck & build and every Tests shard), read through the Actions API, held to `sealNeeded` with the default branch classifying the changed files (`classify`). It runs in merge-seal.yml on pull_request_target, so the seal is the default branch’s whatever a pull request changes (R3 C3 piece 2). Needs a GitHub token and a head, so a laptop verify has no input; `ci-jobs-seal.test.mjs` holds its planted cases.',
+    'merge-seal step: CI’s jobs on the pull request’s exact head (ci.yml’s Affected tests, Doctrine gates, Format, Typecheck & build, every Tests shard, Rust and the Look gate when the change needs them, and any other job that ran red), read through the Actions API, held to `sealNeeded` with the default branch classifying the changed files (`classify`). It fails when main changed a lint rule, a ceiling or the gate list (`RULE_PATHS`) after CI’s run on the head took main’s rules, so a change green before a new rule merges only once CI has judged it by that rule (project-state#3326). It runs in merge-seal.yml on pull_request_target, so the seal is the default branch’s whatever a pull request changes (R3 C3 piece 2). Needs a GitHub token and a head, so a laptop verify has no input; `ci-jobs-seal.test.mjs` holds its planted cases.',
   'open-flaky.mjs':
     'the one command an agent opens a flaky item with (`gh issue create --label`, so it never exists bare: RULING 7, project-state #2065). It writes a GitHub issue, so a laptop verify has no input; `open-flaky.test.mjs` holds its cases.',
   'journey-seal.mjs':
-    "merge-seal step: a pull request whose title names journey steps (`J-bank-13 #1 #2`) needs each one passing in a finished Real-app journeys run on its exact head, read from the run's `real-app-journeys` report through the Actions API, or the step exempted on a strict body line `Left-or-replaced: J-bank-13 #1` at column 0 outside code; anything else that looks like an exemption fails closed (owner decision 2026-11-06). A pull request whose diff touches the journey stack's shared setup (SHARED_SETUP) also needs the newest finished full Real-app journeys run on its exact head with 0 steps outside the list or against its rules, the journeys verdict (journey-verdict.mjs judge) read with the default branch's baseline; a red step main's newest full run in the head's history has too stops only a pull request in its area (its journey, or a package changed since it last passed on main), and one that can't be bounded stops every pull request (owner decision 180). A pull request that changes a journey test file (`apps/customer/tests/real-app/J-*.pw.mjs`) names a step each changed file holds, in the title or on a `Left-or-replaced:` line, or the seal fails and prints the steps the files hold. `--recheck`, the last job of each seal input (START_JOB), starts or re-runs the seal once every input on the head has finished; `--clear-older` re-runs older red seals on a head after a green verdict. Needs a GitHub token and a pull request, so a laptop verify has no input; `tooling/ci/journey-seal.test.mjs` holds its planted cases and `--dry-run <pr>` reads any pull request without writing.",
+    "merge-seal step: a pull request whose title names journey steps (`J-bank-13 #1 #2`) needs each one passing in a finished Real-app journeys run on its exact head, read from the run's `real-app-journeys` report through the Actions API, or the step exempted on a strict body line `Left-or-replaced: J-bank-13 #1` at column 0 outside code; anything else that looks like an exemption fails closed (owner decision 2026-11-06). A pull request whose diff touches the journey stack's shared setup (SHARED_SETUP) also needs the newest finished full Real-app journeys run on its exact head with 0 steps outside the list or against its rules, the journeys verdict (journey-verdict.mjs judge) read with the default branch's baseline; a red step main's newest full run in the head's history has too stops only a pull request in its area (its journey, or a package changed since it last passed on main), and one that can't be bounded stops every pull request (owner decision 180). A pull request that changes a journey test file (`apps/customer/tests/real-app/J-*.pw.mjs`) is judged, for each changed file none of whose steps the title names or a `Left-or-replaced:` line leaves, on every step the file holds, as if the title named them (owner decision 2026-11-21); a changed file with no readable step fails closed. main-bisect's pure revert (journey-seal.mjs pureRevert: its one commit undoes one commit on main whose files main has not changed since, and changes nothing else) is judged on no journeys and not waited on; main's full run after the merge judges it. `--recheck`, the last job of each seal input (START_JOB), starts or re-runs the seal once every input on the head has finished; `--clear-older` re-runs older red seals on a head after a green verdict. Needs a GitHub token and a pull request, so a laptop verify has no input; `tooling/ci/journey-seal.test.mjs` holds its planted cases and `--dry-run <pr>` reads any pull request without writing.",
   'journey-touch.mjs':
     'the journeys a pull request touches, read by journey-seal.mjs from its changed paths: shared setup, tooling/scripts, the journeys workflow and its checks, docs, build files and product code need the full run; journey test files only need those files run; other workflows, CI checks the journeys run does not use, unit tests, the git hooks under .githooks and the tooling/scripts files FACTORY_SCRIPTS lists (shown unreached by the journeys run, the stack and the app build) need none. A merge-seal input, not a gate of its own; `--base <ref>` prints what a branch must run, and `tooling/ci/journey-touch.test.mjs` holds its planted cases.',
+  'tooling-reach.mjs':
+    "not a gate: it finds, at run time from the tree judged (the pull request's head), which tooling files a journeys run or a unit-test job can reach; journey-touch.mjs, journey-seal.mjs, ci-affected.mjs and ci-jobs-seal.mjs import it, so a change no journey reaches runs no journeys and only its readers' unit tests, and a scan that can't run keeps today's rules. Its tests are `tooling/ci/tooling-reach.test.mjs`, a tooling test the `tooling-tests` gate runs.",
   'journey-reach-map.mjs':
     "the touched-journeys map (R3 C4): `build` reads the `journey-reach` records of main's newest whole full Real-app journeys runs (gh run download) into tooling/ci/journey-reach-map.json, and refuses (a full map) with fewer than 3; journey-touch.mjs and the seal read it so product code runs only the journeys recorded reaching it, else the full suite (shared setup, scripts, admin-app paths, packages it can't map, event subscribers, a stale, missing or switched-off map; REACH_MAP_MODE = 'full' turns it off). A merge-seal input, not a gate of its own; `tooling/ci/journey-reach-map.test.mjs` holds its planted cases. Its `verify` (rebuild from main's runs up to the newest run the map names, compared byte for byte) runs in the Doctrine gates job of ci.yml when a pull request changes the map, with main's copy and the job's read-only token, NOT here: it needs NETWORK and a token. `.github/workflows/journey-reach-map.yml` builds the map in CI and keeps it as an artifact.",
-  'journey-retries.mjs':
-    "a step of the Real-app journeys workflow on a pull request: gives a full run's shards main's one retry only when a shard holds none of the journeys the pull request touches, so a retry never passes the change's own journey. Not a scan of its own; `tooling/ci/journey-retries.test.mjs` holds its cases.",
   'factory-switch.mjs':
     "merge-seal step and sweep: the factory switch, the one-line file FACTORY on the branch factory-switch, read through the contents API; only `run` passes, and anything else or an unreadable answer fails the seal closed (also read by journey-seal.mjs). `--sweep` runs from factory-sweep.yml on that branch and re-runs the open pull requests' seals on a flip. Needs a GitHub token, so a laptop verify cannot run it; `tooling/ci/factory-switch.test.mjs` checks the verdict, the read and the sweep.",
   'app-token.mjs':
@@ -405,7 +427,7 @@ export const NOT_GATES = {
   'judged-paths.mjs':
     'a library, not a scan: the one list of the paths the test judge rules on (`JUDGE_PATHS`, `judgedFile`), with no imports, that test-judge.mjs (which changes need its verdict) and test-diff-guard.mjs (which changes it leaves to the judge) both import, so the two cannot disagree; its `leftToJudge` is the one rule for which changes the guard leaves to the judge (the CI review’s test part).',
   'test-typecheck.mjs':
-    'runs under the turbo `typecheck` task, not here. Every package script is now `tsc -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs`, because type-checking a test file needs the workspace deps BUILT for their `.d.ts` — which `typecheck` already declares via `dependsOn: ["^build"]` and which a doctrine gate, by design, cannot: gates run first and take ~2s, before any build exists. Wiring it there would either make the fast pre-flight slow or make it wrong. So `pnpm typecheck`, `pnpm verify` and CI all run it, in parallel and turbo-cached (the script is a globalDependency, so editing the pinned list busts that cache). It is a ratchet in the same shape as the since-deleted fabricated-money-scan: 70 pre-existing test type errors frozen by exact text AND count, a new one is red, and a FIXED one is red too until its row is deleted — so the list can only shrink. Run it repo-wide by hand with `node tooling/ci/test-typecheck.mjs --all`.',
+    'runs under the turbo `typecheck` task, not here. Every package script is now `node ../../tooling/scripts/tsc.mjs -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs`, because type-checking a test file needs the workspace deps BUILT for their `.d.ts` — which `typecheck` already declares via `dependsOn: ["^build"]` and which a doctrine gate, by design, cannot: gates run first and take ~2s, before any build exists. Wiring it there would either make the fast pre-flight slow or make it wrong. So `pnpm typecheck`, `pnpm verify` and CI all run it, in parallel and turbo-cached (the script is a globalDependency, so editing the pinned list busts that cache). It is a ratchet in the same shape as the since-deleted fabricated-money-scan: 70 pre-existing test type errors frozen by exact text AND count, a new one is red, and a FIXED one is red too until its row is deleted — so the list can only shrink. Run it repo-wide by hand with `node tooling/ci/test-typecheck.mjs --all`.',
 };
 
 // ── Self-check: nothing in tooling/ci/ may be unaccounted for ───────────────
@@ -434,8 +456,8 @@ function manifestCheck() {
   }
 
   const ids = new Set(GATES.map((g) => g.id));
-  for (const id of Object.keys(LEFT_TO_CI_BEFORE_PUSH)) {
-    if (!ids.has(id)) problems.push(`LEFT_TO_CI_BEFORE_PUSH names "${id}", which is not a gate. Remove the entry.`);
+  for (const id of Object.keys(LEFT_TO_FULL_RUN)) {
+    if (!ids.has(id)) problems.push(`LEFT_TO_FULL_RUN names "${id}", which is not a gate. Remove the entry.`);
   }
 
   // The other half of the drift: CI must consume THIS list, not its own copy.
@@ -462,21 +484,18 @@ export function gatesToRun(gates, changed) {
   return reachesTooling ? gates : gates.filter((g) => g.id !== 'tooling-tests');
 }
 
-// ── --before-push: the gates .githooks/pre-push runs, all at once ───────────
-/** The gates a push leaves to CI, each with why. Every other gate reads the pushed tree in seconds and runs before it. */
-export const LEFT_TO_CI_BEFORE_PUSH = {
-  'tooling-tests': 'about four minutes on the Mac; the hook runs the ones that read journey files itself',
-  'truth-check': 'CI runs it on every pull request and on main',
-  'lint-ratchet': "the hook runs it itself, on the pushed files with main's rules",
-  'cross-package-reads': 'the hook runs it itself when a test or what it checks changed',
-  'secret-scan-mutation': 'proves secret-scan on planted files (19 s on the Mac): only a change to the scanner reaches it',
+// ── --fast: the gates CI's Fast gates job runs, all at once ─────────────────
+/** The gates the fast run leaves to the Doctrine gates job's full run, each with why. Every other gate runs at once. */
+export const LEFT_TO_FULL_RUN = {
+  'tooling-tests': 'about three minutes on CI, the bulk of the full run; the push runs the ones that read journey files itself',
+  'secret-scan-mutation': 'plants secret-shaped files in the tree, which the secret scan beside it would read at once',
   'money-property-mutation':
-    'rewrites packages/ledger-client/src/money.ts in place and runs vitest per mutant (15 s): only a change to the money primitives reaches it',
-  'empty-denominator': 'runs every gate against an empty tree (21 s on the Mac): only a change to a gate reaches it',
+    'rewrites packages/ledger-client/src/money.ts in place while it runs, which the scans beside it would read at once',
+  'empty-denominator': 'runs every gate again against an empty tree: only a change to a gate reaches it',
 };
 
-export function gatesBeforePush(gates) {
-  return gates.filter((g) => !Object.hasOwn(LEFT_TO_CI_BEFORE_PUSH, g.id));
+export function gatesFast(gates) {
+  return gates.filter((g) => !Object.hasOwn(LEFT_TO_FULL_RUN, g.id));
 }
 
 /**
@@ -546,13 +565,13 @@ export function runGate(gate) {
 }
 
 async function main() {
-  const beforePush = process.argv.includes('--before-push');
+  const fast = process.argv.includes('--fast');
   const changedOnly = process.argv.includes('--changed');
   // `--base <ref>` for a branch stacked on another (default origin/main).
   const baseAt = process.argv.indexOf('--base');
   const base = baseAt > 0 ? process.argv[baseAt + 1] : 'origin/main';
   const changed = changedOnly ? changedSinceMain(ROOT, base) : null;
-  const gates = beforePush ? gatesBeforePush(GATES) : gatesToRun(GATES, changed);
+  const gates = fast ? gatesFast(GATES) : gatesToRun(GATES, changed);
 
   if (process.argv.includes('--list')) {
     for (const gate of gates) console.log(gate.id);
@@ -568,7 +587,7 @@ async function main() {
 
   console.log(`\n══ DOCTRINE GATES (${gates.length}) ══\n`);
   if (changedOnly && changed === null) console.log(`  --changed: the diff against ${base} is unreadable, so every gate runs\n`);
-  else if (beforePush) console.log(`  --before-push: all at once; left to CI: ${Object.keys(LEFT_TO_CI_BEFORE_PUSH).join(', ')}\n`);
+  else if (fast) console.log(`  --fast: all at once; left to the full run: ${Object.keys(LEFT_TO_FULL_RUN).join(', ')}\n`);
   else if (gates.length < GATES.length)
     console.log('  --changed: nothing under tooling/ or .github/ changed, so the tooling tests are left to CI\n');
 
@@ -577,9 +596,9 @@ async function main() {
   let totalMs = 0;
   const runStarted = process.hrtime.bigint();
 
-  // CI runs one gate at a time; a push runs its gates at once and still reports them in the list's order.
+  // The full run takes one gate at a time; the fast run takes its gates at once and still reports them in the list's order.
   const results = [];
-  if (beforePush) results.push(...(await Promise.all(gates.map(runGate))));
+  if (fast) results.push(...(await Promise.all(gates.map(runGate))));
   else for (const gate of gates) results.push(await runGate(gate));
 
   for (const [i, gate] of gates.entries()) {
@@ -629,5 +648,5 @@ async function main() {
   }
 
   const wallMs = Number((process.hrtime.bigint() - runStarted) / 1000000n);
-  console.log(`\n✓ all ${gates.length} doctrine gates passed — ${totalMs}ms total${beforePush ? `, ${wallMs}ms at once` : ''}\n`);
+  console.log(`\n✓ all ${gates.length} doctrine gates passed — ${totalMs}ms total${fast ? `, ${wallMs}ms at once` : ''}\n`);
 }

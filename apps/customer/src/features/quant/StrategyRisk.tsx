@@ -1,18 +1,19 @@
 import {
   QUANT_EQUITY_STOP_POLICIES,
   QUANT_RISK_CAPS,
-  quantRiskScreenSchema,
   type QuantRiskCap,
   type QuantRiskScreen,
   type QuantStrategyDetail,
 } from '@intafaced/contracts/quant-algo';
+import { QUANT_RISK_GET, QUANT_RISK_SET, QUANT_RISK_TRADING } from '@intafaced/contracts/quant-strategy-settings-procedures';
 import { useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, Failure, Field, Loading } from '../../shared/ui';
-import { Read, Select } from '../more/common';
-import { useApi } from '../session/session';
+import { FailureNote, KitRead, Waiting } from '../more';
+import { useApi } from '../session';
 import { riskCopy } from './risk-copy';
+import { Button, Field } from '@intafaced/ui/lit';
+import { SelectField } from '@intafaced/ui/lit/templates';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 /** `quant.risk_cap_unset — trading stays off — still blank: A, B`: the caps a refusal names. */
@@ -30,17 +31,17 @@ export function StrategyRisk({ strategy }: { strategy: QuantStrategyDetail }) {
   const { t } = riskCopy.useCopy();
   const [revision, setRevision] = useState(0);
   const screen = useResource(
-    (signal) => api.query('quant', 'risk.get', { strategyId: strategy.id }, quantRiskScreenSchema, { signal }),
+    (signal) => api.call(QUANT_RISK_GET, { strategyId: strategy.id }, { signal }),
     `quant-risk:${strategy.id}:${revision}`,
   );
   return (
     <section aria-label={t('title')} data-testid="quant-risk-screen">
       <h3>{t('title')}</h3>
-      <p className="muted">{t('intro')}</p>
-      <p className="muted">{t('simulated')}</p>
-      <Read resource={screen.resource} retry={screen.reload}>
+      <p>{t('intro')}</p>
+      <p>{t('simulated')}</p>
+      <KitRead resource={screen.resource} retry={screen.reload}>
         {(saved) => <RiskForm key={`${saved.updatedAt}:${saved.trading.version}`} saved={saved} reload={() => setRevision((n) => n + 1)} />}
-      </Read>
+      </KitRead>
     </section>
   );
 }
@@ -67,12 +68,7 @@ function RiskForm({ saved, reload }: { saved: QuantRiskScreen; reload: () => voi
     if (busy) return;
     setBusy(true);
     clear();
-    const res = await api.mutate(
-      'quant',
-      'risk.set',
-      { strategyId: saved.strategyId, caps: draft, floorPolicy: policy },
-      quantRiskScreenSchema,
-    );
+    const res = await api.call(QUANT_RISK_SET, { strategyId: saved.strategyId, caps: draft, floorPolicy: policy });
     setBusy(false);
     if (res.ok) {
       setCurrent(res.data);
@@ -89,7 +85,7 @@ function RiskForm({ saved, reload }: { saved: QuantRiskScreen; reload: () => voi
     if (busy) return;
     setBusy(true);
     clear();
-    const res = await api.mutate('quant', 'risk.trading', { strategyId: saved.strategyId, on }, quantRiskScreenSchema);
+    const res = await api.call(QUANT_RISK_TRADING, { strategyId: saved.strategyId, on });
     setBusy(false);
     if (res.ok) {
       setCurrent(res.data);
@@ -103,7 +99,7 @@ function RiskForm({ saved, reload }: { saved: QuantRiskScreen; reload: () => voi
   const on = current.trading.on;
   return (
     <>
-      <div className="quant-risk-caps">
+      <div>
         {QUANT_RISK_CAPS.map((name) => (
           <div key={name} data-testid="quant-risk-cap">
             <Field
@@ -121,7 +117,7 @@ function RiskForm({ saved, reload }: { saved: QuantRiskScreen; reload: () => voi
             />
           </div>
         ))}
-        <Select
+        <SelectField
           label={t('floorPolicy')}
           value={policy}
           onChange={setPolicy}
@@ -131,7 +127,7 @@ function RiskForm({ saved, reload }: { saved: QuantRiskScreen; reload: () => voi
       <p data-testid="quant-risk-unset" data-unset={current.unset.join(',')}>
         {current.unset.length ? t('blankList', { caps: names(current.unset) }) : t('noneBlank')}
       </p>
-      <Button onClick={() => void save()} disabled={busy}>
+      <Button tone="primary" onClick={() => void save()} disabled={busy}>
         {t('save')}
       </Button>
       <Field
@@ -151,7 +147,7 @@ function RiskForm({ saved, reload }: { saved: QuantRiskScreen; reload: () => voi
           {t('offByNewVersion', { latest: current.latestVersion, version: current.trading.version })}
         </p>
       )}
-      {busy && <Loading label={t('saving')} />}
+      {busy && <Waiting label={t('saving')} />}
       {note && (
         <p role="status" data-testid="quant-risk-note">
           {note}
@@ -162,7 +158,7 @@ function RiskForm({ saved, reload }: { saved: QuantRiskScreen; reload: () => voi
           {refused}
         </p>
       )}
-      {failure && <Failure result={failure} retry={reload} />}
+      {failure && <FailureNote result={failure} retry={reload} />}
     </>
   );
 }

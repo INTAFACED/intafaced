@@ -1,5 +1,5 @@
 /**
- * GET /health and tRPC health must not sell configured INDEXER_CHAIN_ID as live.
+ * GET /health must not sell configured INDEXER_CHAIN_ID as live.
  * status.chain is the probe. Configured / unprobed is not chain ok.
  */
 import { readFileSync } from 'node:fs';
@@ -52,14 +52,11 @@ describe('indexer health honesty — unprobed is not a live chain', () => {
     expect(JSON.stringify(body)).not.toMatch(/31337/);
   });
 
-  it('index.ts, public-http.ts and router.ts serve health via indexerHealthHonesty, not INDEXER_CHAIN_ID', () => {
+  it('index.ts and public-http.ts serve health via indexerHealthHonesty, not INDEXER_CHAIN_ID', () => {
     const indexSrc = readFileSync(join(here, 'index.ts'), 'utf8');
     const publicSrc = readFileSync(join(here, 'public-http.ts'), 'utf8');
-    const routerSrc = readFileSync(join(here, 'router.ts'), 'utf8');
     expect(publicSrc).toContain('indexerHealthHonesty');
-    expect(routerSrc).toContain('indexerHealthHonesty');
     expect(publicSrc).not.toMatch(/app\.get\('\/health'[\s\S]{0,400}chainId:\s*deps\.chainId/);
-    expect(routerSrc).not.toMatch(/health:[\s\S]{0,500}chainId:\s*deps\.chainId/);
     expect(indexSrc).not.toMatch(/app\.get\('\/health'[\s\S]{0,400}chainId:\s*env\.INDEXER_CHAIN_ID/);
   });
 

@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useId, useMemo, useRef, useState } from 'react';
 import { formatAsOf } from '@intafaced/ui';
 import {
   PRICE_SETTINGS_UNSET,
@@ -11,8 +11,9 @@ import {
 import { navigate } from '../../../app/location';
 import { Button, Dialog, Failure, Field, Panel } from '../../../shared/ui';
 import { usePreferences } from '../../../shared/preferences';
-import { useResource } from '../../../shared/resource';
-import { useApi } from '../../session/session';
+import { useInterval, useMounted, useTimeout } from '../../../shared/outside';
+import { useResource, type Resource } from '../../../shared/resource';
+import { useApi } from '../../session';
 import { createProtocolApi, type RepresentationStatus } from '../api';
 import { networkLabel } from '../blockers';
 import { isRegionBlocked, useRegionBlocked } from '../region';
@@ -82,6 +83,12 @@ type Track = {
   /** Exact output: `amountIn` is the most that may be paid. */
   paidAtMost?: boolean;
 };
+/** What one ranking read showed: the ranking, why there is no quote, or the quote (D-swap-01). */
+type RouteOutcome = { routes: ProtocolRouteOptions | null; problem: string | null; quote: Quote | null };
+/** What one router v2 path read showed: why there is no path, or the path with when it was read. */
+type PathOutcome = { problem: string | null; pathQuote: { path: ProtocolPathOutput; readAt: number } | null };
+/** A read the form's inputs do not call for yet: nothing is asked of the service. */
+const NOTHING_TO_READ = { ok: true, data: null } as const;
 interface Receipt {
   status?: string;
   blockNumber?: string;
@@ -158,7 +165,6 @@ export function SwapForm() {
   const [maxHopsText, setMaxHopsText] = useState('');
   const [pathQuote, setPathQuote] = useState<{ path: ProtocolPathOutput; readAt: number } | null>(null);
   const [pathProblem, setPathProblem] = useState<string | null>(null);
-  const [approvalRoute, setApprovalRoute] = useState<ProtocolApprovalRouteOutput | null>(null);
 
   const nativeIn = tokenInAddress === NATIVE_VALUE;
   const nativeToken: ProtocolSwapToken | null = v2 ? { address: v2.wrappedNative.address, name: 'ETH', symbol: 'ETH', decimals: 18 } : null;
@@ -181,97 +187,133 @@ export function SwapForm() {
   const exclude = mode === 'manual' ? excluded : [];
   const excludeKey = exclude.join(',');
   const inputKey = `${tokenIn?.address ?? ''}:${tokenOut?.address ?? ''}:${amountIn?.toString() ?? ''}`.toLowerCase();
-  useEffect(() => {
+  const quoteable = !useV2Quote && tokenIn !== null && tokenOut !== null && amountIn !== null && candidates.length > 0;
+  const quoteKey = `${inputKey}|${candidateKey}|${excludeKey}|${refresh}|${useV2Quote}`;
+  const [quoteKeySeen, setQuoteKeySeen] = useState(quoteKey);
+  if (quoteKeySeen !== quoteKey) {
+    setQuoteKeySeen(quoteKey);
     setQuote(null);
     setQuoteProblem(null);
     setNeedsQuote(false);
-    setRoutes((shown) => (shown && `${shown.tokenIn}:${shown.tokenOut}:${shown.amountIn}`.toLowerCase() === inputKey ? shown : null));
-    if (useV2Quote || !tokenIn || !tokenOut || amountIn === null || candidates.length === 0) return setRoutes(null);
-    const controller = new AbortController();
-    void api
-      .routes({ tokenIn: tokenIn.address, tokenOut: tokenOut.address, amountIn: amountIn.toString(), exclude }, controller.signal)
-      .then((ranked) => {
-        if (controller.signal.aborted) return;
-        if (!ranked.ok) {
-          setRoutes(null);
-          return setQuoteProblem(t('quoteRefused'));
-        }
-        setRoutes(ranked.data);
+    setRoutes((shown) =>
+      quoteable && shown && `${shown.tokenIn}:${shown.tokenOut}:${shown.amountIn}`.toLowerCase() === inputKey ? shown : null,
+    );
+  }
+  const routeRead = useResource<RouteOutcome | null>((signal) => {
+    if (useV2Quote || !tokenIn || !tokenOut || amountIn === null || candidates.length === 0) return Promise.resolve(NOTHING_TO_READ);
+    return api
+      .routes({ tokenIn: tokenIn.address, tokenOut: tokenOut.address, amountIn: amountIn.toString(), exclude }, signal)
+      .then((ranked): { ok: true; data: RouteOutcome } => {
+        if (!ranked.ok) return { ok: true, data: { routes: null, problem: t('quoteRefused'), quote: null } };
         const best = ranked.data.legs.find((leg) => leg.status === 'best');
         const pool = best ? candidates.find((candidate) => candidate.pool.toLowerCase() === best.pool.toLowerCase()) : undefined;
-        if (!best || !best.quote) return setQuoteProblem(exclude.length > 0 ? t('routeNone') : t('noUsablePool'));
-        if (!pool) return setQuoteProblem(t('quoteRefused'));
-        setNow(Date.now());
-        setQuote({ pool, quote: best.quote, amountIn, readAt: Date.now() });
+        if (!best || !best.quote)
+          return { ok: true, data: { routes: ranked.data, problem: exclude.length > 0 ? t('routeNone') : t('noUsablePool'), quote: null } };
+        if (!pool) return { ok: true, data: { routes: ranked.data, problem: t('quoteRefused'), quote: null } };
+        return { ok: true, data: { routes: ranked.data, problem: null, quote: { pool, quote: best.quote, amountIn, readAt: Date.now() } } };
       });
-    return () => controller.abort();
-    // The inputs are named by their values; the objects are rebuilt each render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api, inputKey, candidateKey, excludeKey, refresh, useV2Quote]);
+  }, `swap:routes:${quoteKey}`);
+  // A ranking that has just arrived is shown once; Get a new quote may then replace its quote before the next read.
+  const [routeReadSeen, setRouteReadSeen] = useState<Resource<RouteOutcome | null> | null>(null);
+  if (routeRead.resource.status === 'ready' && routeRead.resource !== routeReadSeen) {
+    setRouteReadSeen(routeRead.resource);
+    const outcome = routeRead.resource.data;
+    if (outcome) {
+      setRoutes(outcome.routes);
+      if (outcome.problem) setQuoteProblem(outcome.problem);
+      if (outcome.quote) {
+        setNow(outcome.quote.readAt);
+        setQuote(outcome.quote);
+      }
+    }
+  }
 
   // The v2 quote: the best path with the chosen hops, read by router v2 at one block (exact input or exact output).
   const pathKey = `${tokenIn?.address ?? ''}:${tokenOut?.address ?? ''}:${kind}:${pathAmount?.toString() ?? ''}:${hops ?? ''}:${maxHops ?? ''}`;
-  useEffect(() => {
+  const pathReadKey = `${v2?.router ?? ''}|${useV2Quote}|${pathKey}|${refresh}`;
+  const [pathReadKeySeen, setPathReadKeySeen] = useState(pathReadKey);
+  if (pathReadKeySeen !== pathReadKey) {
+    setPathReadKeySeen(pathReadKey);
     setPathQuote(null);
     setPathProblem(null);
-    if (!useV2Quote || !v2 || !tokenIn || !tokenOut || pathAmount === null || hops === null) return;
-    if (tokenIn.address.toLowerCase() === tokenOut.address.toLowerCase()) return;
-    const controller = new AbortController();
-    void v2Api
-      .paths(
-        { tokenIn: tokenIn.address, tokenOut: tokenOut.address, kind, amount: pathAmount.toString(), hops, maxHops },
-        controller.signal,
-      )
-      .then((read) => {
-        if (controller.signal.aborted) return;
+  }
+  const pathRead = useResource<PathOutcome | null>((signal) => {
+    if (!useV2Quote || !v2 || !tokenIn || !tokenOut || pathAmount === null || hops === null) return Promise.resolve(NOTHING_TO_READ);
+    if (tokenIn.address.toLowerCase() === tokenOut.address.toLowerCase()) return Promise.resolve(NOTHING_TO_READ);
+    return v2Api
+      .paths({ tokenIn: tokenIn.address, tokenOut: tokenOut.address, kind, amount: pathAmount.toString(), hops, maxHops }, signal)
+      .then((read): { ok: true; data: PathOutcome } => {
         if (!read.ok)
-          return setPathProblem(
-            read.code === ROUTE_MAX_HOPS_UNSET
-              ? t('hopLimitUnset', { hops: String(hops) })
-              : read.code === ROUTE_OVER_MAX_HOPS
-                ? t('hopLimitOver', { hops: String(hops) })
-                : read.code === ROUTE_NO_PATH
-                  ? t('noPath', { hops: String(hops) })
-                  : t('quoteRefused'),
-          );
-        setNow(Date.now());
-        setPathQuote({ path: read.data, readAt: Date.now() });
+          return {
+            ok: true,
+            data: {
+              problem:
+                read.code === ROUTE_MAX_HOPS_UNSET
+                  ? t('hopLimitUnset', { hops: String(hops) })
+                  : read.code === ROUTE_OVER_MAX_HOPS
+                    ? t('hopLimitOver', { hops: String(hops) })
+                    : read.code === ROUTE_NO_PATH
+                      ? t('noPath', { hops: String(hops) })
+                      : t('quoteRefused'),
+              pathQuote: null,
+            },
+          };
+        return { ok: true, data: { problem: null, pathQuote: { path: read.data, readAt: Date.now() } } };
       });
-    return () => controller.abort();
-    // The inputs are named by their values in pathKey.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [v2Api, v2?.router, useV2Quote, pathKey, refresh]);
+  }, `swap:path:${pathReadKey}`);
+  // A path that has just arrived is shown once; a swap's own fresh read may then replace it before the next read.
+  const [pathReadSeen, setPathReadSeen] = useState<Resource<PathOutcome | null> | null>(null);
+  if (pathRead.resource.status === 'ready' && pathRead.resource !== pathReadSeen) {
+    setPathReadSeen(pathRead.resource);
+    const outcome = pathRead.resource.data;
+    if (outcome?.problem) setPathProblem(outcome.problem);
+    else if (outcome?.pathQuote) {
+      setNow(outcome.pathQuote.readAt);
+      setPathQuote(outcome.pathQuote);
+    }
+  }
 
   // How the chosen input token may be approved (its own permit, the permit contract, or an approve transaction), read
   // again after each swap so a standing allowance's amount and expiry stay current.
   const routeOwner = wallet.address;
-  useEffect(() => {
-    setApprovalRoute(null);
-    if (!v2 || !routeOwner || !tokenIn || nativeIn) return;
-    const controller = new AbortController();
-    void v2Api.approvalRoute({ owner: routeOwner, token: tokenIn.address }, controller.signal).then((read) => {
-      if (!controller.signal.aborted && read.ok) setApprovalRoute(read.data);
-    });
-    return () => controller.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [v2Api, v2?.router, routeOwner, tokenIn?.address, nativeIn, track?.state]);
+  const approvalRead = useResource<ProtocolApprovalRouteOutput | null>(
+    (signal) =>
+      !v2 || !routeOwner || !tokenIn || nativeIn
+        ? Promise.resolve(NOTHING_TO_READ)
+        : v2Api.approvalRoute({ owner: routeOwner, token: tokenIn.address }, signal),
+    `swap:approval-route:${v2?.router ?? ''}|${routeOwner ?? ''}|${tokenIn?.address ?? ''}|${nativeIn}|${track?.state ?? ''}`,
+  );
+  const approvalRoute = approvalRead.resource.status === 'ready' ? approvalRead.resource.data : null;
   // A token with no permit cannot take one signature: the choice falls back to Approve on chain.
   const noPermit = approvalRoute !== null && approvalRoute.route !== 'native_permit';
-  useEffect(() => {
-    if (noPermit && allowance === 'permit') setAllowance('onchain');
-  }, [noPermit, allowance]);
-  useEffect(() => setRenewStanding(false), [tokenIn?.address, allowance]);
+  if (noPermit && allowance === 'permit') setAllowance('onchain');
+  const renewKey = `${tokenIn?.address ?? ''}|${allowance}`;
+  const [renewKeySeen, setRenewKeySeen] = useState(renewKey);
+  if (renewKeySeen !== renewKey) {
+    setRenewKeySeen(renewKey);
+    setRenewStanding(false);
+  }
   // An exclusion belongs to the pair it was made on: choosing other tokens starts with every pool in.
-  useEffect(() => setExcluded([]), [tokenIn?.address, tokenOut?.address]);
+  const pairKey = `${tokenIn?.address ?? ''}|${tokenOut?.address ?? ''}`;
+  const [pairKeySeen, setPairKeySeen] = useState(pairKey);
+  if (pairKeySeen !== pairKey) {
+    setPairKeySeen(pairKey);
+    setExcluded([]);
+  }
 
   const activeReadAt = useV2Quote ? (pathQuote?.readAt ?? null) : (quote?.readAt ?? null);
   const expiresAt = activeReadAt !== null && setting ? activeReadAt + setting.quoteTtlSeconds * 1000 : null;
   const expired = expiresAt !== null && now >= expiresAt;
-  useEffect(() => {
-    if (expiresAt === null || expired) return;
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [expiresAt, expired]);
+  // The clock ticks every second from the quote's read until it expires; a new quote starts the count again.
+  const [tick, setTick] = useState(0);
+  useTimeout(
+    () => {
+      setNow(Date.now());
+      setTick((count) => count + 1);
+    },
+    expiresAt === null || expired ? null : 1000,
+    `${expiresAt}:${tick}`,
+  );
 
   const slippageBps = mode === 'manual' && slippage.trim() !== '' ? percentToBps(slippage) : (setting?.slippageCeilingBps ?? null);
   const overCeiling = setting !== null && slippageBps !== null && slippageBps > setting.slippageCeilingBps;
@@ -309,20 +351,34 @@ export function SwapForm() {
   };
   // The fee in the chosen token, priced by the relay at the most per gas of the chosen level; read again with the levels.
   const maxFeeKey = fee?.ok ? fee.maxFeePerGas.toString() : '';
-  useEffect(() => {
-    if (!payToken || !maxFeeKey) return setTokenFee({ status: 'idle' });
+  const tokenFeeKey = `${payToken?.address ?? ''}|${maxFeeKey}`;
+  const [tokenFeeKeySeen, setTokenFeeKeySeen] = useState(tokenFeeKey);
+  if (tokenFeeKeySeen !== tokenFeeKey) {
+    setTokenFeeKeySeen(tokenFeeKey);
+    if (!payToken || !maxFeeKey) setTokenFee({ status: 'idle' });
+    else {
+      const token = payToken;
+      setTokenFee((shown) => (shown.status === 'ready' && shown.token.address === token.address ? shown : { status: 'reading', token }));
+    }
+  }
+  const tokenFeeRead = useResource<{ token: ProtocolSwapToken; read: Awaited<ReturnType<typeof api.feeQuote>> } | null>((signal) => {
+    if (!payToken || !maxFeeKey) return Promise.resolve(NOTHING_TO_READ);
     const token = payToken;
-    setTokenFee((shown) => (shown.status === 'ready' && shown.token.address === token.address ? shown : { status: 'reading', token }));
-    const controller = new AbortController();
-    void api.feeQuote({ feeToken: token.address, maxFeePerGasWei: maxFeeKey }, controller.signal).then((read) => {
-      if (controller.signal.aborted) return;
+    return api
+      .feeQuote({ feeToken: token.address, maxFeePerGasWei: maxFeeKey }, signal)
+      .then((read) => ({ ok: true as const, data: { token, read } }));
+  }, `swap:fee-quote:${tokenFeeKey}`);
+  // A relay price that has just arrived is shown once; a refusal puts the fee back on native currency.
+  const [tokenFeeReadSeen, setTokenFeeReadSeen] = useState<typeof tokenFeeRead.resource | null>(null);
+  if (tokenFeeRead.resource.status === 'ready' && tokenFeeRead.resource !== tokenFeeReadSeen) {
+    setTokenFeeReadSeen(tokenFeeRead.resource);
+    const arrived = tokenFeeRead.resource.data;
+    if (arrived) {
+      const { token, read } = arrived;
       if (read.ok) setTokenFee({ status: 'ready', token, quote: read.data });
       else refusePayIn(token, read.code);
-    });
-    return () => controller.abort();
-    // Read again when the token or the per-gas fee changes; the token object is rebuilt each render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api, payToken?.address, maxFeeKey]);
+    }
+  }
 
   const choose = (next: SwapMode) => {
     setMode(next);
@@ -782,16 +838,24 @@ export function SwapForm() {
   // The status card follows the swap: submitted until mined, confirming until the owner's confirmations, then filled.
   const trackRef = useRef(track);
   trackRef.current = track;
-  useEffect(() => {
-    if (!track?.hash || !following || !setting || !wallet.address) return;
-    let stopped = false;
-    const owner = wallet.address;
-    const timer = setInterval(() => {
+  // One swap is followed by its hash and the wallet that sent it; a read still in flight when that changes, or when the
+  // form has gone, is dropped.
+  const followKey = track?.hash && following && setting && wallet.address ? `${track.hash}:${wallet.address}` : null;
+  const followKeyRef = useRef(followKey);
+  followKeyRef.current = followKey;
+  const mounted = useMounted();
+  useInterval(
+    () => {
+      const run = followKeyRef.current;
+      const owner = wallet.address;
+      const confirmations = setting?.confirmations;
+      if (run === null || !owner || confirmations === undefined) return;
+      const stopped = () => !mounted.current || followKeyRef.current !== run;
       void (async () => {
         const current = trackRef.current;
-        if (stopped || !current?.hash) return;
+        if (stopped() || !current?.hash) return;
         const receipt = (await wallet.read('eth_getTransactionReceipt', [current.hash])) as Receipt | null;
-        if (stopped || !receipt?.blockNumber) return;
+        if (stopped() || !receipt?.blockNumber) return;
         const feeWei =
           receipt.gasUsed && receipt.effectiveGasPrice ? BigInt(receipt.gasUsed) * BigInt(receipt.effectiveGasPrice) : undefined;
         if (receipt.status === '0x0') {
@@ -799,14 +863,14 @@ export function SwapForm() {
           const reason = current.v2
             ? await whyFailedV2(current.v2)
             : await whyFailed(current.pool, current.tokenIn.address, current.amountIn, current.minOut);
-          if (stopped) return;
+          if (stopped()) return;
           setNeedsQuote(true);
           setTrack({ ...current, state: 'failed', reason, feeWei });
           return;
         }
         const head = (await wallet.read('eth_blockNumber', [])) as string | null;
-        const deep = head ? BigInt(head) - BigInt(receipt.blockNumber) >= BigInt(setting.confirmations) : false;
-        if (stopped) return;
+        const deep = head ? BigInt(head) - BigInt(receipt.blockNumber) >= BigInt(confirmations) : false;
+        if (stopped()) return;
         const charged = current.feeIn ? chargedIn(receipt.logs ?? [], current.feeIn.relay, owner) : null;
         setTrack({
           ...current,
@@ -816,14 +880,9 @@ export function SwapForm() {
           ...(current.feeIn && charged !== null ? { feeIn: { ...current.feeIn, charged } } : {}),
         });
       })();
-    }, 500);
-    return () => {
-      stopped = true;
-      clearInterval(timer);
-    };
-    // Follows one swap by its hash while it is in flight; the rest is read through the ref.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [track?.hash, following, setting, wallet.address]);
+    },
+    followKey === null ? null : 500,
+  );
 
   // A token's USD price as the pools read it, with the block's time; a token the filter leaves out says why.
   const priceLine = (address: string): string => {
@@ -845,7 +904,7 @@ export function SwapForm() {
   };
 
   const tokenSelect = (id: string, label: string, value: string, set: (value: string) => void) => (
-    <label className="field">
+    <label className="lt-field">
       <span id={id}>{label}</span>
       {/* The chosen token's contract, so a copied name cannot pass for the token it copies. */}
       <select
@@ -863,9 +922,9 @@ export function SwapForm() {
         ))}
       </select>
       {value === NATIVE_VALUE && <small>{t('nativeLine')}</small>}
-      {value && value !== NATIVE_VALUE && <small className="numeric">{t('contract', { address: shortContract(value) })}</small>}
+      {value && value !== NATIVE_VALUE && <small className="lt-num">{t('contract', { address: shortContract(value) })}</small>}
       {value && value !== NATIVE_VALUE && (
-        <small className="numeric" data-testid={id === ids.pay ? 'price-pay' : 'price-receive'}>
+        <small className="lt-num" data-testid={id === ids.pay ? 'price-pay' : 'price-receive'}>
           {priceLine(value)}
         </small>
       )}
@@ -890,7 +949,7 @@ export function SwapForm() {
         />
       )}
       <Panel title={t('formTitle')}>
-        <p className="muted">{t('formNote', { network })}</p>
+        <p className="lt-muted">{t('formNote', { network })}</p>
         {pairs.resource.status === 'failed' && <Failure result={pairs.resource.failure} retry={pairs.reload} />}
         {settings.resource.status === 'failed' && <Failure result={settings.resource.failure} retry={settings.reload} />}
         <form
@@ -905,7 +964,7 @@ export function SwapForm() {
             {(['simple', 'manual'] as const).map((entry) => (
               <label key={entry} className="field field--check">
                 <input type="radio" name="swap-mode" value={entry} checked={mode === entry} onChange={() => choose(entry)} />
-                <span>{t(entry)}</span> <small className="muted">{t(entry === 'simple' ? 'simpleHint' : 'manualHint')}</small>
+                <span>{t(entry)}</span> <small className="lt-muted">{t(entry === 'simple' ? 'simpleHint' : 'manualHint')}</small>
               </label>
             ))}
           </div>
@@ -914,14 +973,14 @@ export function SwapForm() {
               <label key={entry} className="field field--check">
                 <input type="radio" name="swap-kind" value={entry} checked={kind === entry} onChange={() => setKind(entry)} />
                 <span>{t(entry === 'exact_in' ? 'exactIn' : 'exactOut')}</span>{' '}
-                <small className="muted">{t(entry === 'exact_in' ? 'exactInHint' : 'exactOutHint')}</small>
+                <small className="lt-muted">{t(entry === 'exact_in' ? 'exactInHint' : 'exactOutHint')}</small>
               </label>
             ))}
           </div>
           {tokenSelect(ids.pay, t('youPay'), tokenInAddress, setTokenIn)}
           {tokenSelect(ids.receive, t('youReceive'), tokenOutAddress, setTokenOut)}
           {pairs.resource.status === 'ready' && tokens.length === 0 && (
-            <p className="muted" id={ids.note}>
+            <p className="lt-muted" id={ids.note}>
               {t('noTokens', { network })}
             </p>
           )}
@@ -948,14 +1007,14 @@ export function SwapForm() {
             <dl className="protocol-facts">
               <div>
                 <dt>{t('youGet')}</dt>
-                <dd className="numeric" data-testid="amount-out">
+                <dd className="lt-num" data-testid="amount-out">
                   {formatUnits(BigInt(pathQuote.path.amountOut), tokenOut.decimals)} {tokenOut.name}
                 </dd>
               </div>
               {!expired && seconds !== null && (
                 <div>
                   <dt>{t('quoteLife')}</dt>
-                  <dd className="numeric" data-testid="quote-countdown">
+                  <dd className="lt-num" data-testid="quote-countdown">
                     {t('refreshesIn', { seconds: String(seconds) })}
                   </dd>
                 </div>
@@ -963,12 +1022,12 @@ export function SwapForm() {
             </dl>
           )}
           {useV2Quote && pathLimits?.maxIn != null && tokenIn && (
-            <p className="numeric" data-testid="maximum-paid">
+            <p className="lt-num" data-testid="maximum-paid">
               {t('maximumPaid', { amount: formatUnits(pathLimits.maxIn, tokenIn.decimals), token: tokenIn.name })}
             </p>
           )}
           {useV2Quote && pathQuote && pathLimits && pathQuote.path.kind === 'exact_in' && tokenOut && (
-            <p className="numeric" data-testid="minimum-received">
+            <p className="lt-num" data-testid="minimum-received">
               {t('minimumReceived', {
                 amount: formatUnits(pathLimits.minOutPerHop[pathLimits.minOutPerHop.length - 1]!, tokenOut.decimals),
                 token: tokenOut.name,
@@ -976,7 +1035,7 @@ export function SwapForm() {
             </p>
           )}
           {useV2Quote && pathQuote && pathLimits && pathQuote.path.kind === 'exact_in' && pathQuote.path.pools.length > 1 && (
-            <ol aria-label={t('hopMinimums')} className="numeric">
+            <ol aria-label={t('hopMinimums')} className="lt-num">
               {pathQuote.path.hops.map((hop, index) => {
                 const from = tokens.find((entry) => entry.address.toLowerCase() === hop.tokenIn.toLowerCase());
                 const to = tokens.find((entry) => entry.address.toLowerCase() === hop.tokenOut.toLowerCase());
@@ -997,14 +1056,14 @@ export function SwapForm() {
             <dl className="protocol-facts">
               <div>
                 <dt>{t('youGet')}</dt>
-                <dd className="numeric" data-testid="amount-out">
+                <dd className="lt-num" data-testid="amount-out">
                   {formatUnits(BigInt(quote.quote.amountOut), tokenOut.decimals)} {tokenOut.name}
                 </dd>
               </div>
               {!expired && seconds !== null && (
                 <div>
                   <dt>{t('quoteLife')}</dt>
-                  <dd className="numeric" data-testid="quote-countdown">
+                  <dd className="lt-num" data-testid="quote-countdown">
                     {t('refreshesIn', { seconds: String(seconds) })}
                   </dd>
                 </div>
@@ -1020,7 +1079,7 @@ export function SwapForm() {
             </>
           )}
           {minOut !== null && tokenOut && !useV2Quote && (
-            <p className="numeric" data-testid="minimum-received">
+            <p className="lt-num" data-testid="minimum-received">
               {t('minimumReceived', { amount: formatUnits(minOut, tokenOut.decimals), token: tokenOut.name })}
             </p>
           )}
@@ -1094,13 +1153,13 @@ export function SwapForm() {
                       disabled={entry !== 'onchain' && (!v2 || (entry === 'permit' && noPermit))}
                       onChange={() => setAllowance(entry)}
                     />
-                    <span>{t(`allowance_${entry}`)}</span> <small className="muted">{t(`allowanceHint_${entry}`)}</small>
+                    <span>{t(`allowance_${entry}`)}</span> <small className="lt-muted">{t(`allowanceHint_${entry}`)}</small>
                   </label>
                 ))}
               </div>
               {allowance === 'standing' && (
                 <>
-                  <label className="field">
+                  <label className="lt-field">
                     <span id={`${ids.note}-expires`}>{t('allowanceExpires')}</span>
                     <select
                       aria-labelledby={`${ids.note}-expires`}
@@ -1116,11 +1175,11 @@ export function SwapForm() {
                       ))}
                     </select>
                   </label>
-                  <p className="numeric" data-testid="allowance-expiry">
+                  <p className="lt-num" data-testid="allowance-expiry">
                     {t('allowanceExpiry', { time: dateTime(Math.floor(now / 1000) + standingSeconds) })}
                   </p>
                   {approvalRoute?.standing && (
-                    <p className="numeric">
+                    <p className="lt-num">
                       {t('standingInPlace', {
                         amount: formatUnits(BigInt(approvalRoute.standing.amount), tokenIn.decimals),
                         token: tokenIn.name,
@@ -1150,7 +1209,7 @@ export function SwapForm() {
                 }}
               />
               {deadlineSeconds !== null && !deadlineProblem && (
-                <p className="numeric" data-testid="deadline">
+                <p className="lt-num" data-testid="deadline">
                   {t('deadlineLine', { time: dateTime(deadlineSeconds) })}
                 </p>
               )}
@@ -1233,7 +1292,7 @@ function SwapStatus({ track, onNewQuote }: { track: Track; onNewQuote: () => voi
         <dl className="protocol-facts">
           <div>
             <dt>{t('paid')}</dt>
-            <dd className="numeric">
+            <dd className="lt-num">
               {track.state === 'failed'
                 ? t('nothingPaid')
                 : track.paidAtMost
@@ -1246,7 +1305,7 @@ function SwapStatus({ track, onNewQuote }: { track: Track; onNewQuote: () => voi
           </div>
           <div>
             <dt>{t('received')}</dt>
-            <dd className="numeric">
+            <dd className="lt-num">
               {track.received !== undefined
                 ? `${formatUnits(track.received, track.tokenOut.decimals)} ${track.tokenOut.name}`
                 : track.state === 'failed'
@@ -1256,12 +1315,12 @@ function SwapStatus({ track, onNewQuote }: { track: Track; onNewQuote: () => voi
           </div>
           <div>
             <dt>{t('networkFee')}</dt>
-            <dd className="numeric">{feeShown(track, t)}</dd>
+            <dd className="lt-num">{feeShown(track, t)}</dd>
           </div>
         </dl>
         {track.hash && (
           <a
-            className="text-link"
+            className="lt-link"
             href={`/chain/tx/${track.hash}`}
             onClick={(event) => {
               event.preventDefault();

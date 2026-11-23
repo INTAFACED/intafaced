@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import { API_VERSION_HEADER } from '@intafaced/contracts/api-versions';
 import { AuthError, type Principal } from '@intafaced/auth';
 import { assertNoLocalTestFixtures, assertScreeningConfigured } from '@intafaced/config';
 import { createAdminApi, httpLedgerOperator } from './admin-api.js';
@@ -23,7 +24,7 @@ import {
   type RateLimitConfig,
 } from './hardening.js';
 import { KillSwitchState, resolvedPathname } from './kill-switch.js';
-import { adapterRead, FIX_STATUS_UPSTREAM_PATH, registerAdapterStatusRoute, SBE_STATUS_UPSTREAM_PATH } from './adapter-status-door.js';
+import { adapterRead, registerAdapterStatusRoute } from './adapter-status-door.js';
 import { httpMatchingApprovalRead, httpMatchingControl, httpMatchingHealthRead, registerMatchingOperatorRoutes } from './matching-proxy.js';
 import { readMatchingUrl, registerMatchingVenueHaltGuard } from './matching-venue-halt.js';
 import { markAuthOutcome, registerMetrics } from './metrics.js';
@@ -35,13 +36,14 @@ import { agentHeldAction, holdAgentKeyAttempt } from './agent-key-hold.js';
 import { EXPLORER_LIVE_WRITE_REFUSED, explorerLiveWrite } from './explorer-guard.js';
 import { markProxied, registerReplyEnvelope, REQUEST_ID_HEADER, REQUEST_ID_OPTIONS } from './reply-envelope.js';
 import { exchangePrincipal } from './principal-exchange.js';
-import { keyCallReport, presentedKeyHash, reportKeyCall } from './key-call-log.js';
+import { keyCallReport, presentedKeyHash, replyErrorCode, reportKeyCall } from './key-call-log.js';
 import { normalizeIp } from './request-client-ip.js';
 import { upstreamBody } from './proxy-body.js';
 import { forwardUpstreamResponseHeaders, prepareUpstreamRequestHeaders, refuseCookieCsrf } from './refresh-cookie-proxy.js';
 import { hostedCheckoutHeaders, hostedCheckoutLocation, isHostedCheckoutPath, upstreamRedirectMode } from './hosted-checkout-proxy.js';
 import { statusBadgeHeaders } from './status-badge-proxy.js';
 import { idempotencyHeaders } from './idempotency-headers.js';
+import { advisoriesFor, advisoryReplyHeaders, negotiateApiVersion, versionReplyHeaders } from './api-version.js';
 import { readyUpstreamHonesty } from './ready-honesty.js';
 import { edgeS2sFromEnv } from './s2s.js';
 import { isS2sPath, resolve, resolveUpstreamBase, UPSTREAMS } from './routes.js';
@@ -359,7 +361,6 @@ registerAdapterStatusRoute(app, {
     env.FIX_STATUS_URL,
     env.FIX_STATUS_READ_SECRET,
     {
-      path: FIX_STATUS_UPSTREAM_PATH,
       service: 'svc-fix',
       code: 'fix_status_unconfigured',
       urlKey: 'FIX_STATUS_URL',
@@ -372,7 +373,6 @@ registerAdapterStatusRoute(app, {
     env.WS_STATUS_URL,
     env.WS_STATUS_READ_SECRET,
     {
-      path: SBE_STATUS_UPSTREAM_PATH,
       service: 'svc-ws',
       code: 'ws_status_unconfigured',
       urlKey: 'WS_STATUS_URL',
@@ -404,7 +404,8 @@ await app.register(async (api) => {
   });
 
   // A key's call log (J-developer-08): every reply to an API key's call is reported to identity once its status is
-  // final. A failed report is logged; the reply goes out as it would have (`key-call-log.ts`).
+  // final, with the typed error code an error reply names. A failed report is logged; the reply goes out as it would
+  // have (`key-call-log.ts`).
   api.addHook('onSend', async (req, reply, payload) => {
     const keyHash = presentedKeyHash(req.headers.authorization);
     if (!keyHash || !env.IDENTITY_OWNERSHIP_SECRET) return payload;
@@ -418,6 +419,7 @@ await app.register(async (api) => {
         method: req.method,
         url: req.url,
         status: reply.statusCode,
+        errorCode: replyErrorCode(reply.statusCode, payload),
         clientIp: normalizeIp(req.ip),
         at: new Date(),
       }),
@@ -622,6 +624,26 @@ await app.register(async (api) => {
     });
     if (csrf) {
       return reply.code(403).send({ error: userCopy(csrf.code), code: csrf.code });
+    }
+
+    // The dated API version on /api/v1 (`api-version.ts`): an unknown value, or a key call with neither a header nor an
+    // account default, is refused here and forwarded nowhere.
+    const version = negotiateApiVersion({
+      pathname: url.pathname,
+      header: req.headers[API_VERSION_HEADER],
+      apiKey: Boolean(exchanged.principal?.kid),
+      accountDefault: exchanged.apiVersionDefault ?? null,
+    });
+    if (version.kind === 'refuse') {
+      return reply.code(version.status).send({ error: version.message, message: version.message, code: version.code });
+    }
+    // The service is told the version that applies (the account default too), so it can answer that version's behaviour.
+    if (version.kind === 'apply') exchanged.headers[API_VERSION_HEADER] = version.version;
+    for (const [name, value] of Object.entries({
+      ...versionReplyHeaders(version),
+      ...advisoryReplyHeaders(advisoriesFor({ method: req.method, pathname: url.pathname, body: rawBody })),
+    })) {
+      reply.header(name, value);
     }
 
     const body = upstreamBody(req.method, req.body);

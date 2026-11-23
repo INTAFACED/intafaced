@@ -1,13 +1,17 @@
+// volt-room: /help
+// volt-room: /helpdetail
 import { useEffect, useRef, useState } from 'react';
-import type { ApiClient, ApiResult } from '../../shared/api';
-import { Button, Field, Failure, Loading } from '../../shared/ui';
+import { parsesAs, type ApiClient, type ApiResult } from '../../shared/api';
+import { SUPPORT_GET_KB, SUPPORT_SEARCH_KB } from '@intafaced/contracts/support-customer-procedures';
+import { Button } from '@intafaced/ui/lit';
+import { ReadingTemplate, SelectField, TextField, type RoomState } from '@intafaced/ui/lit/templates';
 import { useLocation } from '../../app/location';
 import { safeReturnTo } from '../../app/navigation';
 import { useResource } from '../../shared/resource';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { helpCopy as copy } from './help-copy';
 import { exactHelpArticle, helpHref, helpSelection, helpVersion, helpWindow, missingHelpVersion, type HelpArticle } from './help-guards';
-import { ContactSupport } from './ContactSupport';
+import { ContactSupport } from './help/ContactSupport';
 import { HelpFeedback } from './HelpFeedback';
 import { HostDispatch } from './HostDispatch';
 import { ActionRequired, RequestEntry } from './HelpFrontDoor';
@@ -16,8 +20,7 @@ import { HelpLibraryNav } from './HelpLibrary';
 import { kbArticleText } from './kb-text';
 import { canonicalUiLocale, uiLocaleDescriptor } from '../../shared/locale';
 import { supportKbParagraphs } from '@intafaced/contracts/support-kb-library';
-import './help.css';
-import '../more/support-desk.css';
+import { FailureNote, Waiting } from '../more';
 
 type Actor = { client: ApiClient; owner: string | null; token: string | null };
 type Context = { actor: Actor; url: string };
@@ -97,12 +100,10 @@ export function PublicHelp() {
     async function load() {
       if (!same(captured) || selection.kind === 'invalid') return;
       if (selection.kind === 'article') {
-        const answer = await captured.actor.client.query(
-          'support',
-          'getKb',
+        const answer = await captured.actor.client.call(
+          SUPPORT_GET_KB,
           { id: selection.id, ...(selection.version === undefined ? {} : { version: selection.version }) },
-          exactHelpArticle(selection),
-          { signal: controller.signal },
+          { signal: controller.signal, accept: parsesAs(exactHelpArticle(selection)) },
         );
         if (!same(captured)) return;
         setRead(
@@ -111,9 +112,11 @@ export function PublicHelp() {
             : { context: captured, status: 'failed', failure: answer },
         );
       } else {
-        const answer = await captured.actor.client.query('support', 'searchKb', { q: '', limit }, helpWindow(limit), {
-          signal: controller.signal,
-        });
+        const answer = await captured.actor.client.call(
+          SUPPORT_SEARCH_KB,
+          { q: '', limit },
+          { signal: controller.signal, accept: parsesAs(helpWindow(limit)) },
+        );
         if (!same(captured)) return;
         setRead(
           answer.ok
@@ -155,7 +158,7 @@ export function PublicHelp() {
   const ranked = useResource(
     (signal): Promise<ApiResult<HelpArticle[]>> =>
       typed && loaded && !switchedOff
-        ? actor.client.query('support', 'searchKb', { q: typed, limit }, helpWindow(limit), { signal })
+        ? actor.client.call(SUPPORT_SEARCH_KB, { q: typed, limit }, { signal, accept: parsesAs(helpWindow(limit)) })
         : Promise.resolve({ ok: true, data: [] }),
     `help-search:${actor.owner ?? 'public'}:${limit}:${typed}:${Boolean(loaded && !switchedOff)}`,
   );
@@ -199,12 +202,12 @@ export function PublicHelp() {
   const titleLanguage =
     article && !switchedOff ? (rendered(article).titleLanguage ?? languageFor('textUnavailable')) : languageFor('title');
   const original = selection.kind === 'article' && (
-    <div className="help__original">
-      <p className="muted">{t('requestedArticle')}</p>
-      <p lang="und" className="help__private">
+    <div className="lt-stack" data-testid="help-original">
+      <p className="lt-hint">{t('requestedArticle')}</p>
+      <p lang="und" className="lt-mono lt-wrap" data-testid="help-private">
         {selection.id}
       </p>
-      <p className="muted">
+      <p className="lt-hint">
         {selection.version === undefined ? (
           t('latestRequested')
         ) : (
@@ -216,30 +219,38 @@ export function PublicHelp() {
     </div>
   );
   const support = (articleRecovery = false) => (
-    <div className="help__side">
+    <div className="lt-stack">
       <ContactSupport />
       <HostDispatch />
       {articleRecovery && (
-        <a href="/findPwd" className="help__link text-link">
+        <a href="/findPwd" className="lt-link lt-link-alone" data-testid="help-link">
           {t('recovery')}
         </a>
       )}
     </div>
   );
-  return (
-    <div className="help" lang={languageFor('title')}>
-      {selection.kind !== 'browse' && !switchedOff && (
-        <a href="/help" className="help__link text-link">
-          {t('back')}
+  const retryButton = (
+    <Button tone="primary" onClick={() => setRetry((value) => value + 1)}>
+      {t('retry')}
+    </Button>
+  );
+  // The room's state: the switch is read first (nothing drawn until it answers), and a switched-off help centre is the
+  // template's refusal, with the way to a person still under it.
+  const state: RoomState = settingsLoading
+    ? { kind: 'loading' }
+    : switchedOff
+      ? { kind: 'refused', refusal: { variant: 'refused', title: t('switchedOffTitle'), body: t('switchedOffBody') } }
+      : { kind: 'ready' };
+  const meta = !settingsLoading && !switchedOff && (selection.kind !== 'browse' || article) && (
+    <div className="lt-stack">
+      {selection.kind !== 'browse' && (
+        <a href="/help" className="lt-link lt-link-alone" data-testid="help-link">
+          <span className="lt-arrow lt-arrow-back" aria-hidden="true" /> {t('back')}
         </a>
       )}
-      <header className="help__heading">
-        <h1 ref={heading} tabIndex={-1} lang={titleLanguage}>
-          {title}
-        </h1>
-        {selection.kind === 'browse' && !switchedOff && <p className="muted">{t('description')}</p>}
-        {article && !switchedOff && (
-          <p className="help__caption muted">
+      {article && (
+        <div className="lt-stack" data-testid="help-heading">
+          <p className="lt-hint">
             {helpVersion(article) === undefined ? (
               t('publishedAnswer')
             ) : (
@@ -248,251 +259,258 @@ export function PublicHelp() {
               </>
             )}{' '}
             ·{' '}
-            <span lang="und" className="help__private">
+            <span lang="und" className="lt-mono lt-wrap" data-testid="help-private">
               {article.id}
             </span>
           </p>
-        )}
-        {article && !switchedOff && offered && reading && (
-          <div className="help__language">
-            <label>
-              <span>{t('articleLanguage')}</span>{' '}
-              <select name="help-language" value={reading} onChange={(event) => setPicked({ id: article.id, code: event.target.value })}>
-                {offered.map((row) => (
-                  <option key={row.tag} value={row.code} lang={row.code}>
-                    {languageName(row.code, row.code)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {instead && (
-              <p className="help__caption" role="status" data-testid="help-language-fallback">
-                {t('languageFallback', {
-                  wanted: languageName(reading, requestedLocale),
-                  shown: languageName(instead, requestedLocale),
-                })}
-              </p>
-            )}
-          </div>
-        )}
-        {article && !switchedOff && !offered && fallback(article) && <p className="help__caption muted">{t('englishFallback')}</p>}
-      </header>
-      {settingsLoading ? (
-        <Loading label={t('loadingCatalogue')} />
-      ) : switchedOff ? (
-        <>
-          <section className="help__card help__measure" role="status" data-testid="help-centre-off">
-            <h2 lang={languageFor('switchedOffTitle')}>{t('switchedOffTitle')}</h2>
-            <p className="muted" lang={languageFor('switchedOffBody')}>
-              {t('switchedOffBody')}
-            </p>
-          </section>
-          <div className="help__request">
-            <RequestEntry />
-          </div>
-          {support()}
-        </>
-      ) : invalid ? (
-        <>
-          <section className="help__card help__measure">
-            <p>{t('invalidBody')}</p>
-            <a href="/help" className="help__link text-link">
-              {t('browse')}
-            </a>
-          </section>
-          {support()}
-        </>
-      ) : selection.kind === 'browse' ? (
-        <>
-          <ActionRequired />
-          <form
-            className="help__search"
-            onSubmit={(event) => {
-              event.preventDefault();
-              setSubmitted({ actor, text: queryText });
-            }}
-          >
-            <Field
-              label={t('searchLabel')}
-              name="help-search"
-              placeholder={t('searchPlaceholder')}
-              maxLength={200}
-              value={queryText}
-              onChange={(event) => setQuery({ actor, text: event.target.value })}
-            />
-            <Button type="submit">{t('search')}</Button>
-          </form>
-          <div className="help__request">
-            <RequestEntry query={typed} found={!typed || !loaded || ranking || articles.length > 0} />
-          </div>
-          <HelpLibraryNav />
-          <p className="help__caption muted" role="status">
-            {loaded ? (
-              <>
-                <span lang="zxx">{loaded.articles.length}</span> {t('loaded')} · {t('window')} <span lang="zxx">{loaded.limit}</span>
-              </>
-            ) : (
-              t('loadingCatalogue')
-            )}
-          </p>
-          <div className="help__browse">
-            <div>
-              {(!visible || visible.status === 'loading') && <Loading label={t('loadingCatalogue')} />}
-              {visible?.status === 'failed' && (
-                <section className="help__card">
-                  <div lang="und">
-                    <Failure result={visible.failure} />
-                  </div>
-                  <p className="muted">{t('retryCatalogue')}</p>
-                  <Button onClick={() => setRetry((value) => value + 1)}>{t('retry')}</Button>
-                </section>
-              )}
-              {loaded && (
-                <>
-                  <div className="help__list">
-                    {articles.map((row) => {
-                      const text = rendered(row);
-                      return (
-                        <article data-testid="help__row" className="help__row" key={row.id}>
-                          <div className="help__row-heading">
-                            <h2 lang={text.titleLanguage ?? languageFor('textUnavailable')}>{text.title ?? t('textUnavailable')}</h2>
-                            <a
-                              href={helpHref(row.id, helpVersion(row))}
-                              className="help__link text-link"
-                              aria-label={`${t('readAnswer')}: ${text.title ?? t('textUnavailable')}`}
-                            >
-                              {t('readAnswer')} →
-                            </a>
-                          </div>
-                          <p className="muted" lang={text.bodyLanguage ?? languageFor('bodyUnavailable')}>
-                            {paragraphs(row)[0] ?? t('bodyUnavailable')}
-                          </p>
-                          <p className="help__caption muted">
-                            {helpVersion(row) === undefined ? (
-                              t('publishedAnswer')
-                            ) : (
-                              <>
-                                {t('publishedVersion')} <span lang="zxx">{helpVersion(row)}</span>
-                              </>
-                            )}
-                          </p>
-                          {fallback(row) && <p className="help__caption muted">{t('englishFallback')}</p>}
-                        </article>
-                      );
-                    })}
-                  </div>
-                  {!articles.length && !ranking && (
-                    <div className="help__empty" role="status">
-                      <h2>{t(loaded.articles.length ? 'noMatches' : 'empty')}</h2>
-                      <p className="muted">{t(loaded.articles.length ? 'noMatchesBody' : 'emptyBody')}</p>
-                      {typed && <RequestEntry query={typed} found={false} contact />}
-                    </div>
-                  )}
-                  {ranking && <Loading label={t('searching')} />}
-                  {typed && ranked.resource.status === 'failed' && (
-                    <p className="help__caption muted" role="status" data-testid="help-search-unranked">
-                      {t('searchUnranked')}
-                    </p>
-                  )}
-                  {typed && !ranking && (
-                    <p className="help__caption muted" role="status">
-                      <span lang="zxx">{articles.length}</span> {t('matches')}
-                    </p>
-                  )}
-                  {loaded.articles.length === loaded.limit && loaded.limit < 500 && (
-                    <Button variant="secondary" onClick={() => setWindow({ actor, limit: loaded.limit + 100 })}>
-                      {t('loadMore')}
-                    </Button>
-                  )}
-                  {loaded.articles.length === 500 && <p className="help__caption muted">{t('maximumWindow')}</p>}
-                </>
+          {offered && reading && (
+            <div className="lt-stack">
+              <SelectField
+                label={t('articleLanguage')}
+                name="help-language"
+                value={reading}
+                onChange={(code) => setPicked({ id: article.id, code })}
+                options={offered.map((row) => ({ value: row.code, label: languageName(row.code, row.code), lang: row.code }))}
+              />
+              {instead && (
+                <p className="lt-hint" role="status" data-testid="help-language-fallback">
+                  {t('languageFallback', {
+                    wanted: languageName(reading, requestedLocale),
+                    shown: languageName(instead, requestedLocale),
+                  })}
+                </p>
               )}
             </div>
-            {support()}
-          </div>
-        </>
-      ) : (
-        <>
-          {!article && original}
-          {(!visible || visible.status === 'loading') && <Loading label={t('loadingArticle')} />}
-          {article && (
-            <>
-              <article
-                data-testid="help__body"
-                className="help__body help__measure"
-                lang={rendered(article).bodyLanguage ?? languageFor('bodyUnavailable')}
+          )}
+          {!offered && fallback(article) && <p className="lt-hint">{t('englishFallback')}</p>}
+        </div>
+      )}
+    </div>
+  );
+  const browse = loaded && (
+    <>
+      <div className="lt-stack" data-testid="help-list">
+        {articles.map((row) => {
+          const text = rendered(row);
+          return (
+            <article data-testid="help__row" className="lt-stack" key={row.id}>
+              <h2 lang={text.titleLanguage ?? languageFor('textUnavailable')}>{text.title ?? t('textUnavailable')}</h2>
+              <a
+                href={helpHref(row.id, helpVersion(row))}
+                className="lt-link lt-link-alone"
+                data-testid="help-row-open"
+                aria-label={`${t('readAnswer')}: ${text.title ?? t('textUnavailable')}`}
               >
-                {rendered(article).body ? (
-                  paragraphs(article).map((paragraph, index) => <p key={index}>{paragraph}</p>)
+                {t('readAnswer')} <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
+              </a>
+              <p lang={text.bodyLanguage ?? languageFor('bodyUnavailable')}>{paragraphs(row)[0] ?? t('bodyUnavailable')}</p>
+              <p className="lt-hint">
+                {helpVersion(row) === undefined ? (
+                  t('publishedAnswer')
                 ) : (
-                  <p>{t('bodyUnavailable')}</p>
+                  <>
+                    {t('publishedVersion')} <span lang="zxx">{helpVersion(row)}</span>
+                  </>
                 )}
-              </article>
-              {selection.version !== undefined && (
-                <div className="help__measure help__latest">
-                  <a href={helpHref(selection.id)} className="help__link text-link">
-                    {t('readLatest')}
-                  </a>
-                  <p className="help__caption muted">{t('latestBoundary')}</p>
-                </div>
-              )}
-              {selection.version === undefined && helpVersion(article) !== undefined && (
-                <HelpFeedback key={`${article.id}:${helpVersion(article)}`} articleId={article.id} version={helpVersion(article)!} />
-              )}
-              {support(true)}
-            </>
+              </p>
+              {fallback(row) && <p className="lt-hint">{t('englishFallback')}</p>}
+            </article>
+          );
+        })}
+      </div>
+      {!articles.length && !ranking && (
+        <div className="lt-empty" role="status" data-testid="help-empty">
+          <h2 className="lt-empty-title">{t(loaded.articles.length ? 'noMatches' : 'empty')}</h2>
+          <p className="lt-empty-body">{t(loaded.articles.length ? 'noMatchesBody' : 'emptyBody')}</p>
+          {typed && <RequestEntry query={typed} found={false} contact />}
+        </div>
+      )}
+      {ranking && <Waiting label={t('searching')} />}
+      {typed && ranked.resource.status === 'failed' && (
+        <p className="lt-hint" role="status" data-testid="help-search-unranked">
+          {t('searchUnranked')}
+        </p>
+      )}
+      {typed && !ranking && (
+        <p className="lt-hint" role="status">
+          <span lang="zxx">{articles.length}</span> {t('matches')}
+        </p>
+      )}
+      {loaded.articles.length === loaded.limit && loaded.limit < 500 && (
+        <div className="lt-actions">
+          <Button tone="secondary" onClick={() => setWindow({ actor, limit: loaded.limit + 100 })}>
+            {t('loadMore')}
+          </Button>
+        </div>
+      )}
+      {loaded.articles.length === 500 && <p className="lt-hint">{t('maximumWindow')}</p>}
+    </>
+  );
+  const body = settingsLoading ? null : switchedOff ? null : invalid ? (
+    <div className="lt-stack">
+      <p>{t('invalidBody')}</p>
+      <a href="/help" className="lt-link lt-link-alone" data-testid="help-link">
+        {t('browse')}
+      </a>
+    </div>
+  ) : selection.kind === 'browse' ? (
+    <div className="lt-stack">
+      <ActionRequired />
+      <form
+        className="lt-stack"
+        data-testid="help-search"
+        onSubmit={(event) => {
+          event.preventDefault();
+          setSubmitted({ actor, text: queryText });
+        }}
+      >
+        <TextField
+          label={t('searchLabel')}
+          name="help-search"
+          placeholder={t('searchPlaceholder')}
+          maxLength={200}
+          value={queryText}
+          onChange={(text) => setQuery({ actor, text })}
+        />
+        <div className="lt-actions">
+          <Button type="submit" tone="primary">
+            {t('search')}
+          </Button>
+        </div>
+      </form>
+      <div className="lt-stack" data-testid="help-request">
+        <RequestEntry query={typed} found={!typed || !loaded || ranking || articles.length > 0} />
+      </div>
+      <HelpLibraryNav />
+      <p className="lt-hint" role="status">
+        {loaded ? (
+          <>
+            <span lang="zxx">{loaded.articles.length}</span> {t('loaded')} · {t('window')} <span lang="zxx">{loaded.limit}</span>
+          </>
+        ) : (
+          t('loadingCatalogue')
+        )}
+      </p>
+      {(!visible || visible.status === 'loading') && <Waiting label={t('loadingCatalogue')} />}
+      {visible?.status === 'failed' && (
+        <div className="lt-stack">
+          <div lang="und">
+            <FailureNote result={visible.failure} />
+          </div>
+          <p className="lt-hint">{t('retryCatalogue')}</p>
+          <div className="lt-actions">{retryButton}</div>
+        </div>
+      )}
+      {browse}
+    </div>
+  ) : (
+    <div className="lt-stack">
+      {!article && original}
+      {(!visible || visible.status === 'loading') && <Waiting label={t('loadingArticle')} />}
+      {article && (
+        <>
+          <article data-testid="help__body" className="lt-stack" lang={rendered(article).bodyLanguage ?? languageFor('bodyUnavailable')}>
+            {rendered(article).body ? (
+              paragraphs(article).map((paragraph, index) => <p key={index}>{paragraph}</p>)
+            ) : (
+              <p>{t('bodyUnavailable')}</p>
+            )}
+          </article>
+          {selection.version !== undefined && (
+            <div className="lt-stack">
+              <a href={helpHref(selection.id)} className="lt-link lt-link-alone" data-testid="help-link">
+                {t('readLatest')}
+              </a>
+              <p className="lt-hint">{t('latestBoundary')}</p>
+            </div>
           )}
-          {missing && (
-            <>
-              <p className="muted help__measure">{t('versionMissingBody')}</p>
-              <section className="help__card help__measure">
-                <h2>{t('latestTitle')}</h2>
-                <p className="muted">{t('latestBody')}</p>
-                <a href={helpHref(selection.id)} className="button button--primary">
-                  {t('readLatestShort')}
-                </a>
-              </section>
-              <ContactSupport />
-              <p className="help__caption muted">{t('resultBoundary')}</p>
-            </>
-          )}
-          {visible?.status === 'failed' && !missing && (
-            <>
-              <section className="help__card help__measure">
-                <div lang="und">
-                  <Failure result={visible.failure} />
-                </div>
-                <p className="muted">{t('retryArticle')}</p>
-                <Button onClick={() => setRetry((value) => value + 1)}>{t('retry')}</Button>
-              </section>
-              {support()}
-            </>
-          )}
-          {readyNull && (
-            <>
-              <p className="muted help__measure">{t('notReturnedBody')}</p>
-              {!session && (
-                <section className="help__card help__measure" role="status" data-testid="help-sign-in">
-                  <h2>{t('signInTitle')}</h2>
-                  <p className="muted">{t('signInBody')}</p>
-                  <a
-                    className="button button--primary"
-                    href={`/login?redirect=${encodeURIComponent(safeReturnTo(location.pathname + location.search))}`}
-                  >
-                    {t('signInAction')}
-                  </a>
-                </section>
-              )}
-              {selection.version !== undefined && (
-                <a href={helpHref(selection.id)} className="help__link text-link">
-                  {t('readLatest')}
-                </a>
-              )}
-              {support()}
-            </>
+          {selection.version === undefined && helpVersion(article) !== undefined && (
+            <HelpFeedback key={`${article.id}:${helpVersion(article)}`} articleId={article.id} version={helpVersion(article)!} />
           )}
         </>
       )}
+      {missing && (
+        <>
+          <p className="lt-hint">{t('versionMissingBody')}</p>
+          <section className="lt-stack">
+            <h2>{t('latestTitle')}</h2>
+            <p className="lt-hint">{t('latestBody')}</p>
+            <div className="lt-actions">
+              <a href={helpHref(selection.id)} className="lt-button lt-button-primary">
+                {t('readLatestShort')}
+              </a>
+            </div>
+          </section>
+          <p className="lt-hint">{t('resultBoundary')}</p>
+        </>
+      )}
+      {visible?.status === 'failed' && !missing && (
+        <div className="lt-stack">
+          <div lang="und">
+            <FailureNote result={visible.failure} />
+          </div>
+          <p className="lt-hint">{t('retryArticle')}</p>
+          <div className="lt-actions">{retryButton}</div>
+        </div>
+      )}
+      {readyNull && (
+        <>
+          <p className="lt-hint">{t('notReturnedBody')}</p>
+          {!session && (
+            <section className="lt-stack" role="status" data-testid="help-sign-in">
+              <h2>{t('signInTitle')}</h2>
+              <p className="lt-hint">{t('signInBody')}</p>
+              <div className="lt-actions">
+                <a
+                  className="lt-button lt-button-primary"
+                  href={`/login?redirect=${encodeURIComponent(safeReturnTo(location.pathname + location.search))}`}
+                >
+                  {t('signInAction')}
+                </a>
+              </div>
+            </section>
+          )}
+          {selection.version !== undefined && (
+            <a href={helpHref(selection.id)} className="lt-link lt-link-alone" data-testid="help-link">
+              {t('readLatest')}
+            </a>
+          )}
+        </>
+      )}
+    </div>
+  );
+  // Where a person is reached from: under every answer and refusal, the contact card and the hosts' check; under a
+  // switched-off help centre the request entry first; none while the switch or the answer is still on its way.
+  const contact = settingsLoading ? undefined : switchedOff ? (
+    <div className="lt-stack">
+      <div className="lt-stack" data-testid="help-request">
+        <RequestEntry />
+      </div>
+      {support()}
+    </div>
+  ) : invalid || selection.kind === 'browse' ? (
+    support()
+  ) : article ? (
+    support(true)
+  ) : missing ? (
+    <ContactSupport />
+  ) : visible?.status === 'failed' || readyNull ? (
+    support()
+  ) : undefined;
+  return (
+    <div data-room="help" data-testid="help" lang={languageFor('title')}>
+      <div data-testid={switchedOff ? 'help-centre-off' : undefined}>
+        <ReadingTemplate
+          title={title}
+          titleLang={titleLanguage}
+          titleRef={heading}
+          description={selection.kind === 'browse' && !switchedOff && !settingsLoading ? t('description') : undefined}
+          state={state}
+          meta={meta || undefined}
+          body={body}
+          contact={contact}
+        />
+      </div>
     </div>
   );
 }

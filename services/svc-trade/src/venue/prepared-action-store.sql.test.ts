@@ -79,6 +79,28 @@ describe('SqlPreparedActionStore on Postgres (trade.user_venue_actions)', () => 
     expect(await store.find('22222222-2222-4222-8222-2222222222b2', key)).toBeNull();
   });
 
+  it('never replaces a definite accept, not even with a definite refusal', async () => {
+    const store = new SqlPreparedActionStore(db!.sql);
+    const key = `order:${USER}:sql:9184`;
+    await store.insertOnce(USER, key, prepared('9184', '60000'), new Date());
+    await store.signOnce(USER, key, { digest: '0xdigest9184', signature: '0xsig', signedBy: OWNER }, new Date());
+    const refused = {
+      definite: true as const,
+      accepted: false as const,
+      refusal: { venueId: 'venue-test', code: 'nonce_rejected' as const, detail: 'Invalid nonce: nonce too low' },
+      asOf: new Date(1),
+    };
+    // A definite refusal may still be replaced by the venue's later accept; an accept by nothing.
+    expect(await store.recordOutcome(USER, key, refused, new Date())).toMatchObject({ definite: true, accepted: false });
+    const accepted = { definite: true as const, accepted: true as const, venueRef: '1', order: null, asOf: new Date(0) };
+    expect(await store.recordOutcome(USER, key, accepted, new Date())).toMatchObject({ definite: true, accepted: true });
+    expect(await store.recordOutcome(USER, key, refused, new Date())).toMatchObject({ definite: true, accepted: true });
+    expect(await store.recordOutcome(USER, key, { definite: false, reason: 'timeout' }, new Date())).toMatchObject({
+      definite: true,
+      accepted: true,
+    });
+  });
+
   it('the table refuses a changed action, a changed signature and a delete', async () => {
     const store = new SqlPreparedActionStore(db!.sql);
     const key = `order:${USER}:sql:2`;

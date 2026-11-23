@@ -1,8 +1,9 @@
 import { useMemo } from 'react';
-import { bankHoldingsChangeSchema, type BankHoldingsChange } from '@intafaced/contracts/bank-value-history';
+import { type BankHoldingsChange } from '@intafaced/contracts/bank-value-history';
 import { useDataEnv, useSource, type Loadable } from '../../data';
 import { constantSource } from '../../data/source';
 import { VALUE_DOWN } from './pnl-source';
+import { BANK_PORTFOLIO_HOLDINGS_CHANGE } from '@intafaced/contracts/bank-portfolio-procedures';
 
 /**
  * `bank.portfolio.holdingsChange` (J-portfolio-06 #3): what rose and fell in amount over a range, per coin, from the same
@@ -30,7 +31,7 @@ export function useHoldingsChange(hours: number): Loadable<BankHoldingsChange> {
         `bank-holdings-change:${env.userId}:${hours}h`,
         async (signal) => {
           const from = new Date(Date.now() - hours * 3_600_000).toISOString();
-          const result = await env.api.query('bank', 'portfolio.holdingsChange', { from }, bankHoldingsChangeSchema, { signal });
+          const result = await env.api.call(BANK_PORTFOLIO_HOLDINGS_CHANGE, { from }, { signal });
           if (result.ok) return result;
           const down = VALUE_DOWN.find((code) => result.code === code || result.message.includes(code));
           return down ? { ok: false, reason: result.reason, code: down, status: 409 } : result;

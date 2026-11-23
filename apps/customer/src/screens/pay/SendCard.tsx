@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { useMemo, useReducer, useRef, useState } from 'react';
+import { useEventListener, useMounted } from '../../shared/outside';
+import { useResource, type Resource } from '../../shared/resource';
 import { Check, ClipboardPaste } from 'lucide-react';
 import {
   AlertDialog,
@@ -150,17 +152,20 @@ export function SendCard({
     owner: null,
     state: 'loading',
   });
-  useEffect(() => {
-    const controller = new AbortController();
-    void pay.spaces(controller.signal).then((result) => {
-      if (controller.signal.aborted) return;
-      setSources((previous) => {
-        if (result.ok) return { owner: userId, state: { list: sourcesFrom(result.data, Date.now()) } };
-        return previous.owner === userId && typeof previous.state === 'object' ? previous : { owner: userId, state: 'error' };
-      });
+  const spacesRead = useResource<Source[] | null>(
+    (signal) => pay.spaces(signal).then((result) => ({ ok: true as const, data: result.ok ? sourcesFrom(result.data, Date.now()) : null })),
+    `pay:send:spaces:${userId}:${revision}`,
+  );
+  // A list that has just arrived is taken once; a failed read keeps the list already on screen for this account.
+  const [spacesSeen, setSpacesSeen] = useState<Resource<Source[] | null> | null>(null);
+  if (spacesRead.resource.status === 'ready' && spacesRead.resource !== spacesSeen) {
+    setSpacesSeen(spacesRead.resource);
+    const list = spacesRead.resource.data;
+    setSources((previous) => {
+      if (list) return { owner: userId, state: { list } };
+      return previous.owner === userId && typeof previous.state === 'object' ? previous : { owner: userId, state: 'error' };
     });
-    return () => controller.abort();
-  }, [pay, userId, revision]);
+  }
   const loaded = sources.owner === userId ? sources.state : 'loading';
   const retrySources = () => {
     setSources({ owner: null, state: 'loading' });
@@ -235,16 +240,12 @@ function SendForm({
   const toast = useToast();
   // The people this customer saved to pay again: a looked-up handle is checked against them (J-pay-01 #2).
   // Kept with the account it was read for, so another account's list is never used after a switch.
-  const [savedRead, setSaved] = useState<{ owner: string; outcome: SavedRecipientsOutcome } | null>(null);
-  useEffect(() => {
-    const controller = new AbortController();
-    setSaved(null);
-    void fetchSavedRecipients(api, controller.signal).then((outcome) => {
-      if (!controller.signal.aborted) setSaved({ owner: userId, outcome });
-    });
-    return () => controller.abort();
-  }, [api, userId]);
-  const saved: SavedRecipientsOutcome | { kind: 'loading' } = savedRead?.owner === userId ? savedRead.outcome : { kind: 'loading' };
+  const savedRead = useResource<SavedRecipientsOutcome>(
+    (signal) => fetchSavedRecipients(api, signal).then((outcome) => ({ ok: true as const, data: outcome })),
+    `pay:send:saved:${userId}`,
+  );
+  const saved: SavedRecipientsOutcome | { kind: 'loading' } =
+    savedRead.resource.status === 'ready' ? savedRead.resource.data : { kind: 'loading' };
 
   function editTo(value: string) {
     // A new keystroke retires the answer for the old one, and any lookup still on its way.
@@ -383,30 +384,35 @@ function SendForm({
   const source = sourceId === '' ? (sources[0] ?? null) : (sources.find((row) => row.id === sourceId) ?? null);
   const [amount, setAmount] = useState('');
   const sourceGone = sourceId !== '' && source === null;
-  useEffect(() => {
+  const [sourceGoneSeen, setSourceGoneSeen] = useState(sourceGone);
+  if (sourceGoneSeen !== sourceGone) {
+    setSourceGoneSeen(sourceGone);
     if (sourceGone) setAmount('');
-  }, [sourceGone]);
+  }
   // Pin the default choice, so that if it drops out later it is "gone", not quietly replaced by the next asset.
   const firstId = sources[0]?.id ?? '';
-  useEffect(() => {
-    if (sourceId === '' && firstId !== '') setSourceId(firstId);
-  }, [sourceId, firstId]);
-  // A payment link fills the form once per link. Everything it sets can be changed, and nothing is sent without Review.
-  const appliedLink = useRef('');
-  useEffect(() => {
-    if (!prefill || prefillKey === '' || appliedLink.current === prefillKey) return;
-    appliedLink.current = prefillKey;
+  if (sourceId === '' && firstId !== '') setSourceId(firstId);
+  // A payment link fills the form once per link, as the form is drawn. Everything it sets can be changed, and nothing is
+  // sent without Review. The link is kept with the lookup it asks for (a pay code to read, or a handle to find), which
+  // starts once the filled form is on screen, below.
+  const [appliedLink, setAppliedLink] = useState<{ key: string; lookup: { kind: 'scan' | 'check'; value: string } | null }>({
+    key: '',
+    lookup: null,
+  });
+  if (prefill && prefillKey !== '' && appliedLink.key !== prefillKey) {
     // The warning is always shown first. The link's own words are quoted after it and never replace it.
     const notices: string[] = [personal.t('requestBannerPlain')];
     if (prefill.note) notices.push(personal.t('requestBanner', { note: prefill.note }));
+    // An answer still on its way for what was typed before is retired, so it cannot overwrite what the link names.
     lookup.current.id += 1;
     lookup.current.controller?.abort();
     lookup.current.controller = null;
+    let linkLookup: { kind: 'scan' | 'check'; value: string } | null = null;
     if (prefill.qr) {
-      void scan(prefill.qr);
+      linkLookup = { kind: 'scan', value: prefill.qr };
     } else if (prefill.kind === 'handle' && byHandle) {
       setTo(prefill.to);
-      void check(prefill.to);
+      linkLookup = { kind: 'check', value: prefill.to };
     } else if (prefill.kind === 'accountId') {
       if (prefill.to === userId.toLowerCase()) {
         setTo('');
@@ -420,6 +426,7 @@ function SendForm({
       setRecipient({ kind: 'idle' });
       setNote(payCopy.t('Handles not on'));
     }
+    setAppliedLink({ key: prefillKey, lookup: linkLookup });
     const applied = applyPrefill(prefill, sources);
     if (applied.sourceId) setSourceId(applied.sourceId);
     setAmount(applied.amount);
@@ -427,7 +434,14 @@ function SendForm({
     if (applied.problem === 'assetNotHeld') notices.push(personal.t('requestAssetMissing', { asset: prefill.asset ?? '' }));
     if (applied.problem === 'amountTooLarge') notices.push(personal.t('requestAmountTooLarge'));
     setLinkNotice(notices.join(' '));
-  }, [prefill, prefillKey]);
+  }
+  // The recipient lookup a link asks for is read once per applied link. It keeps its own order and abort with every
+  // other lookup (scan and check), so a keystroke or a contact picked meanwhile still wins.
+  useResource(() => {
+    const ask = appliedLink.lookup;
+    const read = ask === null ? Promise.resolve() : ask.kind === 'scan' ? scan(ask.value) : check(ask.value);
+    return read.then(() => ({ ok: true as const, data: null }));
+  }, `pay:send:link:${appliedLink.key}`);
   const amountCheck = checkAmount(amount, source);
   // The limits and fee are read for an amount the customer could send; the service applies the same ones again.
   const typedAmount = amountCheck.kind === 'ok' ? dec(amount) : null;
@@ -448,33 +462,24 @@ function SendForm({
   // ── The safety layer, as PersonalPay uses it ─────────────────────────────────────────────────────────────────
   const key = `${userId}:send`;
   const [, refreshGuard] = useReducer((n: number) => n + 1, 0);
-  const mounted = useRef(true);
+  const mounted = useMounted();
   const recovering = useRef<object | null>(null);
   const [recoveryBusy, setRecoveryBusy] = useState(false);
-  // The device note is only ever read from storage again here; nothing is re-sent from it.
-  useEffect(() => {
-    mounted.current = true;
-    const restore = async () => {
-      await pay.guard.restore(key);
-      if (mounted.current) refreshGuard();
-    };
-    const returned = () => {
-      if (document.visibilityState === 'visible') void restore();
-    };
-    const changed = (event: StorageEvent) => {
-      if (event.key === `pay.unresolved:${key}` || event.key === bankPendingKey(userId) || event.key === null) void restore();
-    };
-    void restore();
-    window.addEventListener('storage', changed);
-    window.addEventListener('focus', returned);
-    document.addEventListener('visibilitychange', returned);
-    return () => {
-      mounted.current = false;
-      window.removeEventListener('storage', changed);
-      window.removeEventListener('focus', returned);
-      document.removeEventListener('visibilitychange', returned);
-    };
-  }, [pay, key, userId]);
+  // The device note is only ever read from storage again here; nothing is re-sent from it. It is read once for this
+  // account (the read's arrival draws the form again), then again when the page is back in view or another tab changes it.
+  useResource(() => pay.guard.restore(key).then(() => ({ ok: true as const, data: null })), `pay:send:guard:${key}`);
+  const restore = async () => {
+    await pay.guard.restore(key);
+    if (mounted.current) refreshGuard();
+  };
+  const returned = () => {
+    if (document.visibilityState === 'visible') void restore();
+  };
+  useEventListener<StorageEvent>(window, 'storage', (event) => {
+    if (event.key === `pay.unresolved:${key}` || event.key === bankPendingKey(userId) || event.key === null) void restore();
+  });
+  useEventListener(window, 'focus', returned);
+  useEventListener(document, 'visibilitychange', returned);
   const unresolved = pay.guard.status(key);
   const recoveryProblem = pay.guard.problem(key);
   const knownCleanup = pay.guard.knownCleanup(key);
@@ -999,7 +1004,7 @@ function SendForm({
           placeholder={personal.t('notePlaceholder')}
           onChange={(event) => setMemo(event.target.value)}
         />
-        <span className="pay-hint">{personal.t('noteHint')}</span>
+        <span className="lt-hint">{personal.t('noteHint')}</span>
       </div>
 
       {source && amountCheck.kind === 'ok' && typedAmount !== null ? (
@@ -1116,7 +1121,7 @@ function SendForm({
                   <h3 id="pay-step-up-title" className="pay-step-up__title">
                     {payCopy.t('Confirm it’s you')}
                   </h3>
-                  <p className="pay-hint">{payCopy.t('Step-up why')}</p>
+                  <p className="lt-hint">{payCopy.t('Step-up why')}</p>
                   <div className="pay-field">
                     <label className="pay-field__label" htmlFor="pay-step-up-code">
                       {payCopy.t('Authenticator code')}
@@ -1135,7 +1140,7 @@ function SendForm({
                         setStepUp((now) => (now ? { ...now, code } : now));
                       }}
                     />
-                    <p className="pay-hint">{payCopy.t('Code hint')}</p>
+                    <p className="lt-hint">{payCopy.t('Code hint')}</p>
                   </div>
                   {stepUp.problem ? (
                     <p className="pay-dialog__error" role="alert" data-testid="pay-step-up-problem">
@@ -1217,7 +1222,7 @@ function TermsLine({ verdict, asset, onRetry }: { verdict: TermsVerdict; asset: 
   if (verdict.kind === 'none') return null;
   if (verdict.kind === 'unavailable')
     return (
-      <p className="pay-hint" role="alert" data-testid="pay-terms" data-terms="unavailable">
+      <p className="lt-hint" role="alert" data-testid="pay-terms" data-terms="unavailable">
         {personal.t('termsUnavailable')}{' '}
         <button type="button" className="pay-chip" onClick={onRetry}>
           {personal.t('termsRetry')}
@@ -1238,7 +1243,7 @@ function TermsLine({ verdict, asset, onRetry }: { verdict: TermsVerdict; asset: 
               : `${parseAmount(verdict.fee) === 0n ? personal.t('termsNoFee') : personal.t('termsFee', { fee: amountOf(verdict.fee), asset })}.${verdict.networkFeeUnknown ? ` ${personal.t('termsNetworkFeeUnknown')}` : ''} ${personal.t('termsAllowance', { perTransfer: amountOf(verdict.perTransfer), left: amountOf(verdict.left), asset })}`;
   const blocked = verdict.kind !== 'ok' && verdict.kind !== 'checking';
   return (
-    <p className="pay-hint" role={blocked ? 'alert' : 'status'} data-testid="pay-terms" data-terms={verdict.kind}>
+    <p className="lt-hint" role={blocked ? 'alert' : 'status'} data-testid="pay-terms" data-terms={verdict.kind}>
       {text}
     </p>
   );

@@ -1,21 +1,23 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import {
-  academyQuizAttemptSchema,
-  academyQuizReviewSchema,
-  type AcademyQuiz,
-  type AcademyQuizAttempt,
-  type AcademyQuizReview,
-} from '@intafaced/contracts/academy-catalogue';
+  ACADEMY_ASSESSMENT_ANSWER,
+  ACADEMY_ASSESSMENT_CURRENT,
+  ACADEMY_ASSESSMENT_FINISH,
+  ACADEMY_ASSESSMENT_REVIEW,
+  ACADEMY_ASSESSMENT_START,
+} from '@intafaced/contracts/academy-learner-procedures';
+import { type AcademyQuiz, type AcademyQuizAttempt, type AcademyQuizReview } from '@intafaced/contracts/academy-catalogue';
 import type { ApiResult } from '../../shared/api';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
-import { Button, Loading } from '../../shared/ui';
-import { useApi, useSession } from '../session/session';
+import { Button, Radio } from '@intafaced/ui/lit';
+import { StatusChip } from '@intafaced/ui/lit/templates';
+import { useApi, useSession } from '../session';
 import { academyCodeOf, academyRefusalKey, readAttempts, readQuiz, type Attempt } from './academy-flows';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { formatMoment } from './academy-lms';
-import { AcademyRefusal } from './AcademyLmsParts';
-import './academy-lms.css';
+import { AcademyRefusal } from './academy-refusal';
+import { Waiting } from './volt-parts';
 
 type Failure = Extract<ApiResult<never>, { ok: false }>;
 export type History = { status: 'loading' } | { status: 'ready'; data: Attempt[] } | { status: 'failed'; failure: Failure };
@@ -52,10 +54,10 @@ export function StudyQuestions({ prompts }: { prompts: readonly string[] }) {
   const { t } = copy.useCopy();
   if (prompts.length === 0) return null;
   return (
-    <div className="academy-lms-stack">
+    <div className="lt-stack">
       <h4>{t('studyTitle')}</h4>
-      <p className="muted">{t('studyNote')}</p>
-      <ol className="academy-lms-stack" lang="und">
+      <p className="lt-hint">{t('studyNote')}</p>
+      <ol className="lt-stack" lang="und">
         {prompts.map((prompt) => (
           <li key={prompt}>{prompt}</li>
         ))}
@@ -69,25 +71,25 @@ export function AttemptHistory({ history, onRetry }: { history: History; onRetry
   const { t } = copy.useCopy();
   const { language } = usePreferences();
   return (
-    <section className="academy-lms-stack" aria-label={t('attemptsTitle')}>
+    <section className="lt-stack" aria-label={t('attemptsTitle')}>
       <h4>{t('attemptsTitle')}</h4>
-      {history.status === 'loading' && <Loading />}
+      {history.status === 'loading' && <Waiting />}
       {history.status === 'failed' && <AcademyRefusal failure={history.failure} retry={onRetry} />}
       {history.status === 'ready' &&
         (history.data.length === 0 ? (
           <p>{t('attemptsEmpty')}</p>
         ) : (
           <>
-            <p className="muted" role="status">
+            <p className="lt-hint" role="status">
               {history.data.length === 1 ? t('attemptsCountOne') : t('attemptsCount', { count: history.data.length })}
             </p>
-            <ul className="academy-lms-rows">
+            <ul className="lt-stack">
               {history.data.map((attempt, index) => (
-                <li key={`${attempt.submittedAt}-${index}`}>
+                <li key={`${attempt.submittedAt}-${index}`} className="lt-actions">
                   <span>{history.data.length - index}</span>
                   <div>
                     <strong>{t('attemptRow', { number: history.data.length - index })}</strong>
-                    <div data-testid="academy-lms-meta" className="academy-lms-meta">
+                    <div data-testid="academy-lms-meta" className="lt-actions lt-hint">
                       <span>
                         {attempt.hiddenUntil === null
                           ? t('attemptScore', { score: attempt.score, maxScore: attempt.maxScore })
@@ -97,9 +99,7 @@ export function AttemptHistory({ history, onRetry }: { history: History; onRetry
                     </div>
                   </div>
                   {attempt.hiddenUntil === null && (
-                    <span className="academy-lms-chip" data-status={attempt.pass ? 'passed' : 'failed'}>
-                      {attempt.pass ? t('resultPassed') : t('resultNotPassed')}
-                    </span>
+                    <PassChip pass={attempt.pass} label={attempt.pass ? t('resultPassed') : t('resultNotPassed')} />
                   )}
                 </li>
               ))}
@@ -108,6 +108,11 @@ export function AttemptHistory({ history, onRetry }: { history: History; onRetry
         ))}
     </section>
   );
+}
+
+/** Passed or not, in words with the kit's mark: done for a pass, failed for a miss. */
+function PassChip({ pass, label }: { pass: boolean; label: string }) {
+  return <StatusChip status={pass ? 'done' : 'failed'} label={label} />;
 }
 
 /** Seconds as m:ss, the way a quiz clock reads. */
@@ -155,25 +160,25 @@ export function TimedQuizView(props: TimedQuizViewProps) {
   const choiceText = (questionId: string, choiceId: string | null) =>
     review?.questions?.find((q) => q.id === questionId)?.choices.find((c) => c.id === choiceId)?.text ?? choiceId ?? '';
   return (
-    <div className="academy-lms-stack" data-quiz={quiz.slug} data-quiz-state={open ? 'open' : attempt?.result ? 'finished' : 'ready'}>
-      <div data-testid="academy-lms-meta" className="academy-lms-meta">
+    <div className="lt-stack" data-quiz={quiz.slug} data-quiz-state={open ? 'open' : attempt?.result ? 'finished' : 'ready'}>
+      <div data-testid="academy-lms-meta" className="lt-actions lt-hint">
         <span>{t('assessmentPassMark', { passMark: quiz.passMark, maxScore })}</span>
         <span>
           {quiz.timeLimitSeconds === null ? t('quizNoTimeLimit') : t('quizTimeLimit', { minutes: Math.ceil(quiz.timeLimitSeconds / 60) })}
         </span>
         <span>{quiz.attemptLimit === null ? t('quizNoAttemptLimit') : t('quizAttemptLimit', { limit: quiz.attemptLimit })}</span>
       </div>
-      <p className="muted">{quiz.reviewMode === 'answers' ? t('quizReviewAnswers') : t('quizReviewScoreOnly')}</p>
+      <p className="lt-hint">{quiz.reviewMode === 'answers' ? t('quizReviewAnswers') : t('quizReviewScoreOnly')}</p>
       {open && question ? (
         <form
-          className="academy-lms-form"
+          className="lt-stack"
           aria-busy={props.sending}
           onSubmit={(event) => {
             event.preventDefault();
             props.onFinish();
           }}
         >
-          <div data-testid="academy-lms-meta" className="academy-lms-meta">
+          <div data-testid="academy-lms-meta" className="lt-actions lt-hint">
             <strong>{t('quizAttemptNumber', { number: attempt.number })}</strong>
             {props.secondsLeft !== null && (
               <span role="timer" data-seconds-left={props.secondsLeft}>
@@ -182,46 +187,38 @@ export function TimedQuizView(props: TimedQuizViewProps) {
             )}
             <span>{t('answeredCount', { answered, total })}</span>
           </div>
-          {props.resumed && <p className="muted">{t('quizResumed')}</p>}
-          <fieldset key={question.id} disabled={props.sending} data-quiz-question={question.id}>
-            <legend>
-              <small className="muted">
+          {props.resumed && <p className="lt-hint">{t('quizResumed')}</p>}
+          <fieldset key={question.id} className="lt-stack" disabled={props.sending} data-quiz-question={question.id}>
+            <legend className="lt-stack">
+              <small className="lt-hint">
                 {t('questionLegend', { position: props.position + 1, total })} ·{' '}
                 {question.points === 1 ? t('questionPointsOne') : t('questionPoints', { points: question.points })}
               </small>
-              <span lang="und" style={{ display: 'block' }}>
-                {question.prompt}
-              </span>
+              <span lang="und">{question.prompt}</span>
             </legend>
             {question.choices.map((choice) => (
-              <label key={choice.id} className="academy-lms-choice">
-                <input
-                  type="radio"
-                  name={`${id}-${question.id}`}
-                  value={choice.id}
-                  checked={attempt.answers[question.id] === choice.id}
-                  onChange={() => props.onAnswer(question.id, choice.id)}
-                />
+              <Radio
+                key={choice.id}
+                name={`${id}-${question.id}`}
+                value={choice.id}
+                checked={attempt.answers[question.id] === choice.id}
+                onSelect={() => props.onAnswer(question.id, choice.id)}
+              >
                 <span lang="und">{choice.text}</span>
-              </label>
+              </Radio>
             ))}
           </fieldset>
-          <p className="muted" role="status">
+          <p className="lt-hint" role="status">
             {props.saving === 'saving' ? t('quizSaving') : props.saving === 'saved' ? t('quizSaved') : ''}
           </p>
-          <div className="academy-outline-nav">
-            <Button type="button" variant="secondary" disabled={props.position === 0} onClick={() => props.onMove(props.position - 1)}>
+          <div className="lt-actions">
+            <Button type="button" tone="secondary" disabled={props.position === 0} onClick={() => props.onMove(props.position - 1)}>
               {t('quizPrevious')}
             </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={props.position >= total - 1}
-              onClick={() => props.onMove(props.position + 1)}
-            >
+            <Button type="button" tone="secondary" disabled={props.position >= total - 1} onClick={() => props.onMove(props.position + 1)}>
               {t('quizNext')}
             </Button>
-            <Button type="submit" disabled={props.sending}>
+            <Button type="submit" tone="primary" disabled={props.sending}>
               {props.sending ? t('quizFinishing') : t('quizFinish')}
             </Button>
           </div>
@@ -229,7 +226,7 @@ export function TimedQuizView(props: TimedQuizViewProps) {
       ) : (
         <>
           {attempt?.result && (
-            <div className="academy-lms-result" role="status" data-quiz-result={attempt.attemptId}>
+            <div className="lt-stack" role="status" data-quiz-result={attempt.attemptId}>
               <h4>{t('resultTitle')}</h4>
               {props.timeUp && <p>{t('quizTimeUp')}</p>}
               {attempt.result.hidden ? (
@@ -239,33 +236,29 @@ export function TimedQuizView(props: TimedQuizViewProps) {
               ) : (
                 <>
                   <p>{t('resultScore', { score: attempt.result.score, maxScore: attempt.result.maxScore })}</p>
-                  <span className="academy-lms-chip" data-status={attempt.result.pass ? 'passed' : 'failed'}>
-                    {attempt.result.pass ? t('resultPassed') : t('resultNotPassed')}
-                  </span>
+                  <PassChip pass={attempt.result.pass} label={attempt.result.pass ? t('resultPassed') : t('resultNotPassed')} />
                 </>
               )}
               {review &&
                 (review.questions === null ? (
-                  <p className="muted" data-quiz-review="score_only">
+                  <p className="lt-hint" data-quiz-review="score_only">
                     {t('quizScoreOnly')}
                   </p>
                 ) : (
-                  <section className="academy-lms-stack" data-quiz-review="answers" aria-label={t('quizReviewTitle')}>
+                  <section className="lt-stack" data-quiz-review="answers" aria-label={t('quizReviewTitle')}>
                     <h4>{t('quizReviewTitle')}</h4>
-                    <ol className="academy-lms-stack">
+                    <ol className="lt-stack">
                       {review.questions.map((q) => (
-                        <li key={q.id} data-review-question={q.id} data-review-correct={q.correct}>
+                        <li key={q.id} className="lt-stack" data-review-question={q.id} data-review-correct={q.correct}>
                           <span lang="und">{q.prompt}</span>
-                          <div data-testid="academy-lms-meta" className="academy-lms-meta">
+                          <div data-testid="academy-lms-meta" className="lt-actions lt-hint">
                             <span>
                               {q.chosenChoiceId === null
                                 ? t('quizNoAnswer')
                                 : t('quizYourAnswer', { choice: choiceText(q.id, q.chosenChoiceId) })}
                             </span>
                             <span>{t('quizCorrectAnswer', { choice: choiceText(q.id, q.correctChoiceId) })}</span>
-                            <span className="academy-lms-chip" data-status={q.correct ? 'passed' : 'failed'}>
-                              {q.correct ? t('quizCorrect') : t('quizIncorrect')}
-                            </span>
+                            <PassChip pass={q.correct} label={q.correct ? t('quizCorrect') : t('quizIncorrect')} />
                           </div>
                         </li>
                       ))}
@@ -275,7 +268,7 @@ export function TimedQuizView(props: TimedQuizViewProps) {
             </div>
           )}
           <div>
-            <Button disabled={props.sending} onClick={props.onStart}>
+            <Button tone="primary" disabled={props.sending} onClick={props.onStart}>
               {attempt?.result ? t('quizStartAnother') : t('quizStart')}
             </Button>
           </div>
@@ -325,7 +318,7 @@ function TimedQuiz({ quiz, onFinished }: { quiz: AcademyQuiz; onFinished?: () =>
       setSecondsLeft(next && next.result === null ? next.secondsLeft : null);
       // A hidden result has no review to read until its date.
       if (next?.result && !next.result.hidden) {
-        void api.query('academy', 'assessment.review', { attemptId: next.attemptId }, academyQuizReviewSchema).then((r) => {
+        void api.call(ACADEMY_ASSESSMENT_REVIEW, { attemptId: next.attemptId }).then((r) => {
           if (live.current && r.ok) setReview(r.data);
         });
         void refresh();
@@ -342,7 +335,7 @@ function TimedQuiz({ quiz, onFinished }: { quiz: AcademyQuiz; onFinished?: () =>
 
   // A refresh or another device: the open attempt comes back with the same deadline and the answers saved so far.
   useEffect(() => {
-    void api.query('academy', 'assessment.current', { slug: quiz.slug }, academyQuizAttemptSchema.nullable()).then((r) => {
+    void api.call(ACADEMY_ASSESSMENT_CURRENT, { slug: quiz.slug }).then((r) => {
       if (!live.current) return;
       if (!r.ok) return setProblem(r);
       if (r.data) {
@@ -369,10 +362,9 @@ function TimedQuiz({ quiz, onFinished }: { quiz: AcademyQuiz; onFinished?: () =>
   const finish = (attemptId: string, byClock = false) =>
     run(async () => {
       await saves.current;
-      let done = await api.mutate('academy', 'assessment.finish', { attemptId }, academyQuizAttemptSchema);
+      let done = await api.call(ACADEMY_ASSESSMENT_FINISH, { attemptId });
       // Finishing twice scores once, so a lost reply is settled by asking again.
-      if (!done.ok && done.reason === 'uncertain')
-        done = await api.mutate('academy', 'assessment.finish', { attemptId }, academyQuizAttemptSchema);
+      if (!done.ok && done.reason === 'uncertain') done = await api.call(ACADEMY_ASSESSMENT_FINISH, { attemptId });
       if (!live.current) return;
       if (!done.ok) return setProblem(done);
       setTimeUp(byClock);
@@ -395,10 +387,10 @@ function TimedQuiz({ quiz, onFinished }: { quiz: AcademyQuiz; onFinished?: () =>
 
   const start = () =>
     run(async () => {
-      let started = await api.mutate('academy', 'assessment.start', { slug: quiz.slug }, academyQuizAttemptSchema);
+      let started = await api.call(ACADEMY_ASSESSMENT_START, { slug: quiz.slug });
       if (!started.ok && started.reason === 'uncertain') {
         // The reply was lost: Academy may have opened the attempt. Reading it back returns that same attempt.
-        const open = await api.query('academy', 'assessment.current', { slug: quiz.slug }, academyQuizAttemptSchema.nullable());
+        const open = await api.call(ACADEMY_ASSESSMENT_CURRENT, { slug: quiz.slug });
         if (open.ok && open.data) started = { ok: true, data: open.data };
       }
       if (!live.current) return;
@@ -417,7 +409,7 @@ function TimedQuiz({ quiz, onFinished }: { quiz: AcademyQuiz; onFinished?: () =>
     setProblem(null);
     const mine = ++latestSave.current;
     saves.current = saves.current.then(async () => {
-      const saved = await api.mutate('academy', 'assessment.answer', { attemptId, questionId, choiceId }, academyQuizAttemptSchema);
+      const saved = await api.call(ACADEMY_ASSESSMENT_ANSWER, { attemptId, questionId, choiceId });
       if (!live.current) return;
       if (saved.ok) {
         // Only the newest save's reply speaks for the screen; an earlier one would show answers from before it.
@@ -468,14 +460,14 @@ export function Assessment({ slug, prompts, onFinished }: { slug: string; prompt
   const quiz = useResource((signal) => readQuiz(api, slug, signal), `assessment:${userId}:${slug}`);
   const { resource } = quiz;
   return (
-    <section className="academy-lms-assessment" aria-label={t('assessmentTitle')}>
+    <section className="lt-stack" aria-label={t('assessmentTitle')}>
       <h3>{t('assessmentTitle')}</h3>
-      {resource.status === 'loading' && <Loading />}
+      {resource.status === 'loading' && <Waiting />}
       {resource.status === 'failed' && (
         <>
           {academyRefusalKey(resource.failure) === 'refAssessmentUnpublished' ? (
             // A lesson with no assessment is an ordinary state, not an error: a quiet note, not a failure box.
-            <p className="muted">{t('refAssessmentUnpublished')}</p>
+            <p className="lt-hint">{t('refAssessmentUnpublished')}</p>
           ) : (
             <AcademyRefusal failure={resource.failure} retry={quiz.reload} />
           )}

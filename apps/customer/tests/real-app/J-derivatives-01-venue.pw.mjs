@@ -78,7 +78,8 @@ test(`${J} #1 opens /trade/futures: the full desk with the contracts the venue l
   // gold perpetual XAU-PERP (J-derivatives-21), the TEST stock perpetuals XSTK-PERP and XSTD-PERP (J-derivatives-27) and
   // the TEST perpetual XRSK-PERP its margin tiers are published on (J-derivatives-02), the TEST perpetual XLIQ-PERP it
   // liquidates on (J-derivatives-07), the TEST perpetual XFND-PERP whose funding it settles (J-derivatives-08) and the TEST
-  // perpetual XBIL-PERP whose bills and fees J-derivatives-12 reads; the desk
+  // perpetual XBIL-PERP whose bills and fees J-derivatives-12 reads, the TEST perpetual XCRS-PERP on cross margin
+  // (J-derivatives-26) and the TEST perpetual XDEV-PERP a developer trades through our API (J-derivatives-14); the desk
   // lists every one, each with its venue named.
   expect(markets.map((m) => m.symbol)).toEqual([
     SYMBOL,
@@ -90,6 +91,8 @@ test(`${J} #1 opens /trade/futures: the full desk with the contracts the venue l
     'XLIQ-PERP',
     'XFND-PERP',
     'XBIL-PERP',
+    'XCRS-PERP',
+    'XDEV-PERP',
   ]);
   const list = page.getByTestId('venue-contract-list');
   await expect(list.getByRole('button')).toHaveCount(markets.length);

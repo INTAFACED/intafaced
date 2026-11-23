@@ -33,6 +33,8 @@ const LIVE_ROOMS = [
   '/uc/recharge?asset=:id&network=:id',
   // Copy trading's My follows, where a skipped or stopped follow is (J-copy-bots-otc-03 #6).
   '/trade/copy?tab=follows',
+  // The person's recurring buys, where a suspended one says why (J-copy-bots-otc-16 #6).
+  '/trade/bots/dca',
   // A person's own agent, whose Limits page holds the monthly alert (J-agents-02 #6).
   '/agents/:id',
   // The Approvals inbox, where a person decides a held call of their own agent (J-agents-05 #4).

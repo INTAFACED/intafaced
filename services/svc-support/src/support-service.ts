@@ -1,45 +1,44 @@
 import { randomUUID } from 'node:crypto';
 import { MemoryResponseTargetBook, ResponseTargetError, type ResponseTargetBook, type ResponseTargetPolicy } from './response-targets.js';
 import { AuthError, requireScope, type Principal } from '@intafaced/auth';
+import type {
+  SupportCustomerProperty,
+  SupportMyTicketProperties,
+  SupportCategories,
+  SupportAttachmentDownload,
+  SupportAttachmentKey,
+  SupportAttachmentLimits,
+  SupportBulkChange,
+  SupportBulkPolicy,
+  SupportBulkResult,
+  SupportMergePreview,
+  SupportMergeResult,
+  SupportAttachmentStatus,
+  SupportAwaitingMine,
+  SupportTicketLifecycle,
+  SupportTicketProperties,
+  SupportTicketPropertyChange,
+} from '@intafaced/contracts';
 import {
   SUPPORT_CATEGORY_ROUTES,
   SUPPORT_CUSTOMER_PROPERTIES_UNSET,
-  type SupportCustomerProperty,
-  type SupportMyTicketProperties,
   SUPPORT_FRAUD_REPORT_KEY_REQUIRED,
   SUPPORT_FRAUD_ROUTE_MISSING,
   SUPPORT_FRAUD_ROUTE_UNSET,
   supportTicketCategorySchema,
-  type SupportCategories,
-  supportKbBodyProblem,
-  supportKbTitleProblem,
-  SUPPORT_ATTACHMENT_DOWNLOAD_TYPE,
-  SUPPORT_ATTACHMENT_KEYS,
   SUPPORT_KB_AUDIENCES,
   SUPPORT_LABELS_MAX,
   kbAudienceVisibleTo,
-  SUPPORT_BULK_CAP_KEY,
   SUPPORT_VIEW_PERSONAL_CAP_KEY,
   SUPPORT_VIEW_SHARED_CAP_KEY,
-  supportBulkKey,
   supportLabelSchema,
   supportTicketPrioritySchema,
   supportTicketTypeSchema,
-  type SupportAttachmentDownload,
-  type SupportAttachmentKey,
-  type SupportAttachmentLimits,
-  type SupportBulkChange,
-  type SupportBulkPolicy,
-  type SupportBulkResult,
-  type SupportMergePreview,
-  type SupportMergeResult,
-  type SupportAttachmentStatus,
-  type SupportAwaitingMine,
-  type SupportTicketLifecycle,
-  type SupportTicketProperties,
-  type SupportTicketPropertyChange,
-  supportMacroUnfilled,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/support';
+import { SUPPORT_ATTACHMENT_DOWNLOAD_TYPE, SUPPORT_ATTACHMENT_KEYS } from '@intafaced/contracts/support-attachments';
+import { SUPPORT_BULK_CAP_KEY, supportBulkKey } from '@intafaced/contracts/support-bulk';
+import { supportKbBodyProblem, supportKbTitleProblem } from '@intafaced/contracts/support-kb-library';
+import { supportMacroUnfilled } from '@intafaced/contracts/support-macros';
 import type {
   CreateTicketInput,
   EscalateTicketInput,
@@ -148,6 +147,9 @@ import { MemoryRatingRequestBook, RatingRequestOutbox } from './rating-request.j
 import { MemoryPropertiesBook, normaliseLabels, type PropertiesBook } from './desk-properties.js';
 import { MemoryGroupBook, deskCanSee, type DeskGroup, type DeskViewer, type GroupBook, type GroupLogEntry } from './desk-groups.js';
 import { withSupportSpan } from './tracing.js';
+import { UNWIRED_CHARTS_SOURCES, type ChartsAlertsSource, type DeskLayoutsSource } from './charts-lookup.js';
+import type { SupportChartsLookup } from '@intafaced/contracts';
+import { chartsLookupNote } from '@intafaced/contracts/support-charts-lookup';
 import { findCommentSecret, SUPPORT_COMMENT_SECRET_REFUSED } from './comment-secrets.js';
 
 const INVALID = Symbol('invalid');
@@ -1007,6 +1009,60 @@ export class SupportService implements SupportContract {
       });
 
       return grounding;
+    });
+  }
+
+  /** Where a charts lookup reads alerts (svc-notify) and layouts (svc-identity). Unwired until the process wires them. */
+  private charts: { readonly alerts: ChartsAlertsSource; readonly layouts: DeskLayoutsSource } = UNWIRED_CHARTS_SOURCES;
+  useChartsSources(sources: { readonly alerts: ChartsAlertsSource; readonly layouts: DeskLayoutsSource }): void {
+    this.charts = sources;
+  }
+
+  /**
+   * A CUSTOMER'S ALERTS AND LAYOUTS, FOR THIS TICKET (C-ops-03 (a), J-charts-desk-19 #1). Read-only.
+   *
+   * The customer comes off the ticket. ONE `charts_lookup` trail row (the agent, the customer, the time) is written
+   * BEFORE anything is read: when it does not land the lookup is refused `support.charts_lookup_unaudited` and nothing
+   * is read, so there is no read without its row. A source that cannot answer reads `unread` with its reason.
+   */
+  async readChartsLookup(input: { operatorId: string; ticketId: string }): Promise<SupportChartsLookup> {
+    return withSupportSpan('support.readChartsLookup', { op: 'readChartsLookup' }, async (span) => {
+      await this.assertDeskVisible(input.operatorId, input.ticketId);
+      const ticket = await this.store.findById(input.ticketId);
+      if (!ticket) throw ticketNotFound();
+      span.setAttribute('intafaced.support.ticket_id', ticket.id);
+
+      let row: SupportTicketEvent;
+      try {
+        row = await this.store.appendEvent({
+          ticketId: ticket.id,
+          kind: 'charts_lookup',
+          actorId: input.operatorId,
+          actorRole: 'operator',
+          note: chartsLookupNote(ticket.userId),
+        });
+      } catch {
+        throw new SupportError('the lookup was not recorded, so nothing was read', 'support.charts_lookup_unaudited');
+      }
+
+      const [alerts, layouts] = await Promise.all([
+        this.charts.alerts.alertsOf(ticket.userId),
+        this.charts.layouts.layoutsOf(ticket.userId),
+      ]);
+      span.setAttribute('intafaced.support.charts_alerts', alerts.status);
+      span.setAttribute('intafaced.support.charts_layouts', layouts.status);
+      return {
+        ticketId: ticket.id,
+        audit: { sequence: row.sequence, agentId: row.actorId, customerId: ticket.userId, at: row.occurredAt },
+        alerts:
+          alerts.status === 'read'
+            ? { status: 'read', items: alerts.data.alerts, more: alerts.data.more, history: alerts.data.history }
+            : { status: 'unread', reason: alerts.reason },
+        layouts:
+          layouts.status === 'read'
+            ? { status: 'read', items: layouts.data.layouts, active: layouts.data.active }
+            : { status: 'unread', reason: layouts.reason },
+      };
     });
   }
 

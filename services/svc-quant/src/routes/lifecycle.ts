@@ -1,31 +1,28 @@
 import { GATE_CRITERION_NAMES } from '../lifecycle/gate.js';
 import { QUANT_GATE_CRITERIA_UNSET, QUANT_STAGE_TRANSITION_INVALID, QuantError } from '../errors.js';
-import {
-  type QuantStage,
-  publicJurisdictionProcedure,
-  quantLifecycleSchema,
-  quantPromoteInputSchema,
-  quantPromoteOutputSchema,
-  router,
-} from '@intafaced/contracts';
+import type { QuantStage } from '@intafaced/contracts';
+import { router } from '@intafaced/contracts/trpc';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { QUANT_LIFECYCLE_GET, QUANT_LIFECYCLE_PROMOTE } from '@intafaced/contracts/quant-strategy-settings-procedures';
 import { withQuantSpan } from '../tracing.js';
-import { z } from 'zod';
-import { toTrpc, accountField, type QuantCore } from './core.js';
+import { quantRefusal, toTrpc, type QuantCore } from './core.js';
 
+/** `quant.lifecycle.*`, mounted from its records (`@intafaced/contracts/quant-strategy-settings-procedures`). */
 export function lifecycleRoutes(core: QuantCore) {
   const { now, lifecycle, lifecycleOf, accountOf } = core;
   return router({
     /** One version's stage, its stored stage rows and gate decisions, and every gate check as it reads now. Writes nothing. */
-    get: publicJurisdictionProcedure('quant', 'fiat')
-      .input(z.object({ strategyId: z.string().min(1).max(128), strategyVersion: z.number().int().positive(), ...accountField }))
-      .output(quantLifecycleSchema)
-      .query(async ({ input, ctx }) => {
+    get: mountRecord(
+      QUANT_LIFECYCLE_GET,
+      async ({ input, ctx }) => {
         try {
           return await lifecycleOf(accountOf(ctx, input.accountId), input.strategyId, input.strategyVersion);
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
 
     /**
      * Promote: asks the gate to move one version from `paper` to `candidate` (ENGINE LC-2, LC-3). A blank criterion
@@ -33,10 +30,9 @@ export function lifecycleRoutes(core: QuantCore) {
      * approved, one stage row, in one transaction under `quant.stage:<id>:v<n>:paper:candidate:<seq>`: the same press
      * again reads its first answer back, and a version already past `paper` refuses `quant.stage_transition_invalid`.
      */
-    promote: publicJurisdictionProcedure('quant', 'fiat')
-      .input(quantPromoteInputSchema.extend(accountField))
-      .output(quantPromoteOutputSchema)
-      .mutation(async ({ input, ctx }) =>
+    promote: mountRecord(
+      QUANT_LIFECYCLE_PROMOTE,
+      async ({ input, ctx }) =>
         withQuantSpan('quant.lifecycle.promote', { language: 'none' }, async () => {
           try {
             const accountId = accountOf(ctx, input.accountId);
@@ -81,6 +77,7 @@ export function lifecycleRoutes(core: QuantCore) {
             toTrpc(err);
           }
         }),
-      ),
+      quantRefusal,
+    ),
   });
 }

@@ -2,6 +2,7 @@ import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 
 const listDir = (dir) => {
   try {
@@ -182,7 +183,14 @@ export function assertStackOwnership({ stateDir, marker, records, postgres, proc
       name === 'customer'
         ? [path.join(marker.repo, 'tooling', 'scripts', 'local-test-stack.mjs'), '__serve-customer']
         : [path.join(marker.repo, 'services', `svc-${name}`, 'dist', 'index.js')];
-    if (!record?.argv || record.argv.length !== entry.length + 1 || !entry.every((value, i) => record.argv[i + 1] === value))
+    // A Node service may start with this checkout's code-reach preload first (service-reach.mjs), and nothing else.
+    const preload = ['--import', pathToFileURL(path.join(marker.repo, 'tooling', 'scripts', 'service-reach.mjs')).href];
+    const rest = record?.argv?.slice(1) ?? [];
+    const args = name !== 'customer' && preload.every((value, i) => rest[i] === value) ? rest.slice(preload.length) : rest;
+    // A Rust service (local-stack-services/<name>.mjs says `rust: true`) runs this checkout's own release binary, alone.
+    const rustBinary = path.join(marker.repo, 'crates', `svc-${name}`, 'dist', `svc-${name}`);
+    const ownBinary = record?.argv?.length === 1 && record.argv[0] === rustBinary;
+    if (!ownBinary && (!record?.argv || args.length !== entry.length || !entry.every((value, i) => args[i] === value)))
       refuse(`${name} checkout differs`);
     checks.push({
       name,

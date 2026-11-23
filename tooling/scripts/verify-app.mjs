@@ -6,9 +6,9 @@
  *   pnpm local:stack verify launch [<J-id> ...] [--only a,b]   start or reuse this checkout's stack, rebuild what changed,
  *                                                  ready it once, and say when it is usable
  *   pnpm local:stack verify doctor                 read-only: is this instance worth driving?
- *   pnpm local:stack verify drive <J-id> [#n ...]  drive those steps of a journey; evidence kept in .verify/runs/;
- *                                                  with no #n, every step, recorded in .jr/run.json as `journey`
- *                                                  records it, for the first push (recordedDrive)
+ *   pnpm local:stack verify drive <J-id> [#n ...]  drive those steps of a journey (no #n: every step) to look at them;
+ *                                                  evidence kept in .verify/runs/. It records nothing in .jr/run.json:
+ *                                                  the run before a first push is `pnpm local:stack journey <J-id>`
  *   pnpm local:stack verify look <path> [--sign-up] [--selector <css>]   one page as a person sees it: screenshot and
  *                                                  ARIA snapshot (and one element's box and text), kept in .verify/runs/
  *   pnpm local:stack verify map [<J-id> ...]       write the feature map from docs/roadmap/journeys.json and the journey
@@ -34,7 +34,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CHECKOUT, slotClaims, slotPorts } from './local-test-facts.mjs';
-import { JOURNEY_DIR, onlyReady, readyStack, realIo, recordRun, refusal } from './journey-local.mjs';
+import { JOURNEY_DIR, onlyReady, readyStack, realIo, refusal } from './journey-local.mjs';
 import { READS_PAST, withoutComments } from './journey-market-past.mjs';
 import { WORLD, declaredWorld, marketLive, stackFresh } from '../../apps/customer/tests/real-app/world-line.mjs';
 
@@ -165,6 +165,8 @@ export function journeyIndex(files, read) {
       live: marketLive(src),
       past: READS_PAST.test(plain),
       paths: pagePaths(src),
+      states: namedStates(plain, titles),
+      actors: actorsUsed(plain),
       others: 0,
     };
     for (const t of titles) {
@@ -183,6 +185,125 @@ export function journeyIndex(files, read) {
   return index;
 }
 
+/**
+ * The UI states a feature can be in (poteto's verification map: default, hover, focus-visible, disabled, loading, empty,
+ * error, selected, open), each with how a journey test names it: in a test's title, or by the Playwright call that puts
+ * the page in it or checks it. Default is every step's start, so it is not listed.
+ */
+export const UI_STATES = [
+  ['hover', /\bhover/i, /\.hover\(/],
+  ['focus', /\bfocus/i, /\.focus\(|toBeFocused\(|keyboard\.press\(\s*['"`](?:Shift\+)?Tab['"`]/],
+  ['disabled', /\bdisabled\b|\bno enabled\b/i, /toBeDisabled\(|aria-disabled/],
+  ['loading', /\bloading\b|\bloads\b/i, /aria-busy/],
+  ['empty', /\bempty\b/i, null],
+  ['error or refusal', /\brefus|\berror\b|\bis told\b/i, /getByRole\(\s*['"`]alert['"`]/],
+  ['selected', /\bselected\b|\bmarked\b|\bpressed\b/i, /toBeChecked\(|aria-selected|aria-current|aria-pressed/],
+  ['open or expanded', /\bexpand|\b(?:dialog|drawer|menu)\b/i, /aria-expanded|getByRole\(\s*['"`]dialog['"`]/],
+];
+
+/** Per state, the first line that names it: a test title (`titles`, from testTitles) or a call (`plain`, no comments). */
+export function namedStates(plain, titles) {
+  const lines = plain.split('\n');
+  const out = {};
+  for (const [name, words, call] of UI_STATES) {
+    const t = titles.find((x) => words.test(x.title));
+    const c = call ? lines.findIndex((l) => call.test(l)) + 1 : 0;
+    const at = [t?.line, c || undefined].filter(Boolean);
+    if (at.length) out[name] = Math.min(...at);
+  }
+  return out;
+}
+
+/** Who a journey source acts as, from the helpers it calls. */
+export function actorsUsed(plain) {
+  return [
+    /\btestPerson\(|\bsignUpInBrowser\(/.test(plain) ? 'a TEST person it signs up itself' : null,
+    /\botherTrader\(/.test(plain) ? 'a second TEST trader (otherTrader)' : null,
+    /\bstaff(?:SignIn|Freeze|Restore)\(/.test(plain) ? 'staff (staffSignIn, staffFreeze)' : null,
+    /\bfounder(?:SignIn|Code)\(/.test(plain) ? 'a founder in the admin console (founderSignIn)' : null,
+  ].filter(Boolean);
+}
+
+/**
+ * The app's rooms as `rooms/<area>.ts` declares them: each path with the redesigned screen that renders it, or the path
+ * an alias sends it to. Read from the source, so the map needs no TypeScript build.
+ */
+export function roomRows(src) {
+  const rows = [];
+  for (const m of src.matchAll(/\{\s*path:\s*'([^']+)'([^{}]*)\}/g)) {
+    const screen = /\bscreen:\s*'([^']+)'/.exec(m[2])?.[1] ?? null;
+    const alias = /\balias:\s*'([^']+)'/.exec(m[2])?.[1] ?? null;
+    rows.push({ path: m[1], screen, alias });
+  }
+  return rows;
+}
+
+/** The room a test's path opens (a templated part `…` matches any segment; the query is left out), or null. */
+export function roomFor(rooms, testPath) {
+  const segs = testPath.split(/[?#]/)[0].replace(/\/$/, '').split('/');
+  const fits = (pattern) => {
+    const want = pattern.replace(/\/$/, '').split('/');
+    if (!want.at(-1)?.endsWith('*') && want.length !== segs.length) return false;
+    return want.every((w, i) => w === '*' || (w.startsWith(':') ? Boolean(segs[i]) : w === segs[i] || segs[i] === '…'));
+  };
+  const exact = segs.join('/') || '/';
+  let room = rooms.find((r) => r.path === exact) ?? rooms.find((r) => fits(r.path));
+  for (let hops = 0; room?.alias && hops < 3; hops++) room = rooms.find((r) => r.path === room.alias.split('?')[0]);
+  return room ?? null;
+}
+
+/**
+ * The files a source reaches by static relative imports, itself first (a lazy import is another room's code, so it is
+ * not followed). `read(file)` returns a file's text or null; files are absolute.
+ */
+export function importClosure(entry, read) {
+  const seen = new Set();
+  const todo = [entry];
+  while (todo.length) {
+    const file = todo.shift();
+    if (seen.has(file)) continue;
+    const src = read(file);
+    if (src === null) continue;
+    seen.add(file);
+    for (const m of src.matchAll(/^\s*(?:import|export)\b[^;]*?\bfrom\s*'(\.[^']+)'/gm)) {
+      const base = path.resolve(path.dirname(file), m[1]);
+      const hit = [base, `${base}.tsx`, `${base}.ts`, path.join(base, 'index.tsx'), path.join(base, 'index.ts')].find(
+        (f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f) && read(f) !== null,
+      );
+      if (hit) todo.push(hit);
+    }
+  }
+  return [...seen];
+}
+
+/** The keys a source binds by name (`event.key === 'Escape'`), each with its line. */
+export function boundKeys(src) {
+  const out = [];
+  const lines = src.split('\n');
+  lines.forEach((l, i) => {
+    for (const m of l.matchAll(/\b(?:event|e|ev|evt)\.key\s*===?\s*(['"])((?:\\.|(?!\1).)+)\1/g))
+      out.push({ key: m[2] === ' ' ? 'Space' : m[2], line: i + 1 });
+  });
+  return out;
+}
+
+/**
+ * The TEST stand-ins on the local stack: the "Every Customer door is reachable" table of docs/LOCAL-TEST-STACK.md, each
+ * door with its names (lowercased, for a path's first segment) and what is not connected.
+ */
+export function standIns(doc) {
+  const at = doc.indexOf('## Every Customer door is reachable');
+  if (at < 0) return [];
+  const out = [];
+  for (const line of doc.slice(at).split('\n').slice(1)) {
+    if (line.startsWith('## ')) break;
+    const cells = line.split('|').map((c) => c.trim());
+    if (cells.length < 4 || !cells[1] || /^-+$/.test(cells[1]) || cells[1] === 'Door') continue;
+    out.push({ door: cells[1], names: cells[1].toLowerCase().split(/\s*\/\s*/), notConnected: cells[2] });
+  }
+  return out;
+}
+
 /** A step's marks in journeys.json, as words. */
 function marks(step) {
   return [
@@ -194,8 +315,40 @@ function marks(step) {
 
 const relJourney = (file) => `apps/customer/tests/real-app/${file}`;
 
-/** One journey's feature file, in the map's four-section shape (features/README.md, "Feature entry contract"). */
-export function featureMarkdown(j, found) {
+/** Keys as words, each once with every place that binds it. */
+function keyList(keys) {
+  const by = new Map();
+  for (const k of keys) by.set(k.key, [...(by.get(k.key) ?? []), `\`${k.at}\``]);
+  return [...by].map(([key, at]) => `${key} (${at.join(', ')})`).join(', ');
+}
+
+/** What the room a path opens binds, in words: its keys, none, or why they were not read. */
+function roomKeys(app, p) {
+  const room = roomFor(app.rooms, p);
+  if (!room) return 'No room row in `apps/customer/src/app/rooms/` names it by a fixed path (a computed row), so its keys were not read.';
+  if (!room.screen) return `Its room (\`${room.path}\`) has no screen under \`apps/customer/src/screens/\`, so its keys are not mapped.`;
+  const keys = app.screenKeys(room.screen);
+  return keys.length ? `Keys its screen binds: ${keyList(keys)}.` : 'Its screen binds no key by name.';
+}
+
+/** A step's own extra preconditions, from the files of the tests that prove it: '' when it has none. */
+function stepNeeds(j, tests, found) {
+  const needs = new Set();
+  for (const t of tests) {
+    const i = found.files.get(t.file);
+    if (i.chain) needs.add('the TEST chain (an anvil binary)');
+    if (i.past) needs.add(`past trades (\`${RUN} launch ${j.id}\`)`);
+    if (i.fresh) needs.add('a fresh stack');
+    if (i.live) needs.add("the TEST market's own trades");
+  }
+  return needs.size ? ` It needs ${[...needs].join(', ')}.` : '';
+}
+
+/**
+ * One journey's feature file, in the map's four-section shape (features/README.md, "Feature entry contract"). `app`
+ * (`appFacts`) adds what the app's own source says: the keys each opened room binds and the TEST stand-ins.
+ */
+export function featureMarkdown(j, found, app = null) {
   const files = found ? [...found.files.keys()] : [];
   const infos = found ? [...found.files.values()] : [];
   const out = [];
@@ -220,22 +373,31 @@ export function featureMarkdown(j, found) {
   for (const [n, tests] of found?.steps ?? [])
     if (!j.steps.some((st) => st.n === n))
       out.push(`- \`#${n}\` ${tests.map((t) => t.words).join(' / ')} (a test names this step; journeys.json does not list it)`);
+  const named = new Map();
+  for (const [f, i] of found?.files ?? [])
+    for (const [state, line] of Object.entries(i.states ?? {})) if (!named.has(state)) named.set(state, `${f}:${line}`);
+  const unnamed = UI_STATES.map(([s]) => s).filter((s) => !named.has(s));
+  out.push(
+    `- States its tests name: ${named.size ? [...named].map(([s, at]) => `${s} (\`${at}\`)`).join(', ') : 'none'}. Not named, so no drive shows them: ${unnamed.length ? unnamed.join(', ') : 'none'}.`,
+  );
   out.push('', '## How to get to it (user POV)', '');
   const paths = [...new Set(infos.flatMap((i) => i.paths))];
-  if (paths.length) for (const p of paths) out.push(`- Open \`${p}\` in the app (the journey's tests open it).`);
+  if (paths.length)
+    for (const p of paths) out.push(`- Open \`${p}\` in the app (the journey's tests open it).${app ? ` ${roomKeys(app, p)}` : ''}`);
   else out.push('- The tests open no page by a fixed path: read the step tests for how a person gets there.');
+  if (app?.shellKeys.length) out.push(`- On every page with the app's top bar: ${keyList(app.shellKeys)}.`);
   out.push('', '## Driving it with verify', '', 'Preconditions:', '');
   out.push(`- \`${RUN} doctor\` ends \`worth driving\`.`);
   for (const [f, i] of found?.files ?? [])
     out.push(
-      `- \`${f}\` changes in the shared stack: ${i.world === null ? 'unknown (no `// World:` line)' : i.world === 'unread' ? 'what its own `// World:` line says' : i.world.length ? i.world.map((w) => `${w} (${WORLD[w]})`).join('; ') : 'nothing'}.`,
+      `- \`${f}\` changes in the shared stack: ${i.world === null ? 'unknown (no `// World:` line)' : i.world === 'unread' ? 'what its own `// World:` line says' : i.world.length ? i.world.map((w) => `${w} (${WORLD[w]})`).join('; ') : 'nothing'}. It acts as ${i.actors?.length ? i.actors.join(', ') : 'no one the shared helpers sign up or sign in'}.`,
     );
   out.push('');
   const proven = j.steps.filter((st) => found?.steps.has(st.n));
   for (const st of proven) {
     const tests = found.steps.get(st.n);
     out.push(
-      `- **Step #${st.n}.** Run \`${RUN} drive ${j.id} '#${st.n}'\`. It passes when ${tests.map((t) => `\`${relJourney(t.file)}:${t.line}\``).join(' and ')} pass${tests.length === 1 ? 'es' : ''}; the screenshot of each page at its end, the report and summary.md are in the run folder it prints.`,
+      `- **Step #${st.n}.** Run \`${RUN} drive ${j.id} '#${st.n}'\`. It passes when ${tests.map((t) => `\`${relJourney(t.file)}:${t.line}\``).join(' and ')} pass${tests.length === 1 ? 'es' : ''}; the screenshot of each page at its end, the report and summary.md are in the run folder it prints.${stepNeeds(j, tests, found)}`,
     );
   }
   if (proven.length > 1) out.push(`- **Every step.** Run \`${RUN} drive ${j.id}\`.`);
@@ -270,6 +432,11 @@ export function featureMarkdown(j, found) {
   const marked = j.steps.filter((st) => marks(st).length).map((st) => `#${st.n} ${marks(st).join(', ')}`);
   if (marked.length)
     gotchas.push(`Marked in journeys.json: ${marked.join('; ')}. Such a step is not built for launch; never weaken it to pass.`);
+  for (const d of app?.doors ?? [])
+    if (paths.some((p) => d.names.includes(p.split('/')[1]?.toLowerCase())))
+      gotchas.push(
+        `TEST stand-in: on this stack the ${d.door} door's outside part (${d.notConnected}) is not connected, so a step meets the stand-in or a refusal by name, never the real provider (docs/LOCAL-TEST-STACK.md, "Every Customer door is reachable").`,
+      );
   gotchas.push(
     'A seed that lacks what a step needs makes the step fail: report the failure and its reason; never weaken the test to pass.',
   );
@@ -475,7 +642,9 @@ export function doctorChecks({ claim, status, plan, launch, stack }) {
   const ports = slotPorts(claim.slot).stack;
   add(true, 'stack', `slot ${claim.slot}, this checkout's, Customer at http://127.0.0.1:${ports.customer}`);
   const rows = parseHealth(status.text);
-  const bad = rows.filter((r) => !/^(ok|absent)\b/.test(r.health) && r.name !== 'market-maker');
+  // The stack's own verdict (local-test-stack.mjs): "absent" (left out on purpose) and "off" (a TEST adapter the start
+  // left off, such as a venue LOCAL_STACK_USER_VENUE doesn't ask for) don't fail; a wanted one that is DOWN does.
+  const bad = rows.filter((r) => !/^(ok|absent|off)\b/.test(r.health) && r.name !== 'market-maker');
   // The table's own exit also fails on a stale market maker, which the next check names apart.
   add(
     rows.length > 0 && bad.length === 0,
@@ -603,7 +772,59 @@ function newRunDir(label) {
     .replace(/\.\d+Z$/, 'Z');
   const dir = path.join(RUNS_DIR, `${stamp}-${label.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-|-$/g, '')}`);
   fs.mkdirSync(dir, { recursive: true });
+  // The process that writes this run, so the prune at `stop` never removes a run still being written.
+  fs.writeFileSync(path.join(dir, RUN_PID), `${process.pid}\n`);
   return dir;
+}
+
+/** The file in a run folder naming the process that writes it. */
+const RUN_PID = 'pid';
+/** How long a run folder is kept: CI keeps a journeys run's report as long (real-app-journeys.yml, retention-days). */
+export const KEEP_DAYS = 14;
+
+/**
+ * The run folders a prune removes: each `<UTC time>-<label>` folder that started more than `days` ago, was last
+ * written more than `days` ago, and names no process still running. Anything else under the runs folder is left.
+ * `io`: list(dir) -> names, stat(path) -> { mtimeMs, isDirectory }, pidOf(dir) -> number or null, alive(pid) -> bool.
+ */
+export function oldRuns(dir, { now, days = KEEP_DAYS, list, stat, pidOf, alive }) {
+  const cutoff = now - days * 24 * 3600 * 1000;
+  return list(dir).filter((name) => {
+    const m = /^(\d{4})(\d\d)(\d\d)T(\d\d)(\d\d)(\d\d)Z-/.exec(name);
+    if (!m) return false;
+    const started = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+    const st = stat(path.join(dir, name));
+    if (!st?.isDirectory || started >= cutoff || st.mtimeMs >= cutoff) return false;
+    const pid = pidOf(path.join(dir, name));
+    return !(pid && alive(pid));
+  });
+}
+
+/** Removes the run folders `oldRuns` names; returns how many. */
+export function pruneRuns(dir = RUNS_DIR, now = Date.now()) {
+  if (!fs.existsSync(dir)) return 0;
+  const gone = oldRuns(dir, {
+    now,
+    list: (d) => fs.readdirSync(d),
+    stat: (p) => {
+      const st = fs.lstatSync(p);
+      return { mtimeMs: st.mtimeMs, isDirectory: st.isDirectory() };
+    },
+    pidOf: (d) => {
+      const n = Number.parseInt(fs.existsSync(path.join(d, RUN_PID)) ? fs.readFileSync(path.join(d, RUN_PID), 'utf8') : '', 10);
+      return Number.isInteger(n) && n > 0 ? n : null;
+    },
+    alive: (pid) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch (e) {
+        return e.code === 'EPERM';
+      }
+    },
+  });
+  for (const name of gone) fs.rmSync(path.join(dir, name), { recursive: true });
+  return gone.length;
 }
 
 /**
@@ -772,19 +993,6 @@ async function launch(opts, io) {
   return 0;
 }
 
-/**
- * A drive of the whole journey (no step named) records its run in `.jr/run.json` exactly as `pnpm local:stack journey`
- * does, through the same writer (journey-local.mjs `recordRun`), so one green run of either counts for the first push
- * (intafaced #8757). A drive of single steps records nothing, so it never stands for the journey.
- */
-export async function recordedDrive(steps, files, io, run) {
-  if (steps.length) return run();
-  const end = recordRun(io, files);
-  const code = await run();
-  end(code);
-  return code;
-}
-
 async function drive(opts, io) {
   const index = loadIndex();
   const plan = planDrive(opts.id, opts.steps, index.get(opts.id));
@@ -820,19 +1028,17 @@ async function drive(opts, io) {
   const command = againCommand(CHECKOUT, { JOURNEY_FILES: plan.files.join(' '), JOURNEY_REPORT: report }, argv, dir);
   const startedAt = new Date().toISOString();
   io.say(`${PREFIX} drive: ${opts.id} ${plan.steps.map((n) => `#${n}`).join(' ')} in ${plan.files.join(', ')}`);
-  return recordedDrive(opts.steps, plan.files, io, async () => {
-    const pw = await io.run(argv, { capture: true, env: { JOURNEY_FILES: plan.files.join(' '), JOURNEY_REPORT: report } });
-    return finishRun(io, {
-      dir,
-      output: pw.text,
-      label,
-      what: `journey ${opts.id}, steps ${plan.steps.map((n) => `#${n}`).join(' ')}${plan.chained.length ? `, with the tests before them in ${plan.chained.map((c) => c.file).join(', ')}` : ''}`,
-      command,
-      startedAt,
-      exit: pw.code,
-      report,
-      claim: d.claim,
-    });
+  const pw = await io.run(argv, { capture: true, env: { JOURNEY_FILES: plan.files.join(' '), JOURNEY_REPORT: report } });
+  return finishRun(io, {
+    dir,
+    output: pw.text,
+    label,
+    what: `journey ${opts.id}, steps ${plan.steps.map((n) => `#${n}`).join(' ')}${plan.chained.length ? `, with the tests before them in ${plan.chained.map((c) => c.file).join(', ')}` : ''}`,
+    command,
+    startedAt,
+    exit: pw.code,
+    report,
+    claim: d.claim,
   });
 }
 
@@ -906,7 +1112,7 @@ function finishRun(io, { dir, output, label, what, command, startedAt, exit, rep
     notes: harnessNotes(output),
   };
   run.files = listFiles(dir)
-    .filter((f) => f !== 'summary.md' && f !== 'summary.json')
+    .filter((f) => f !== 'summary.md' && f !== 'summary.json' && f !== RUN_PID)
     .sort();
   writeJson(path.join(dir, 'summary.json'), run);
   fs.writeFileSync(path.join(dir, 'summary.md'), summaryMarkdown(run));
@@ -942,8 +1148,11 @@ async function stop(io) {
   const rec = readJson(LAUNCH);
   const decision = stopDecision({ claim, launch: rec, stack: currentStackId(claim) });
   const kept = () => {
+    const removed = pruneRuns();
     const n = fs.existsSync(RUNS_DIR) ? fs.readdirSync(RUNS_DIR).length : 0;
-    io.say(`${PREFIX} stop: evidence kept: ${n} run(s) in ${path.relative(CHECKOUT, RUNS_DIR)} (${RUN} evidence lists them)`);
+    io.say(
+      `${PREFIX} stop: evidence kept: ${n} run(s) in ${path.relative(CHECKOUT, RUNS_DIR)} (${RUN} evidence lists them); ${removed} run(s) older than ${KEEP_DAYS} days removed`,
+    );
   };
   if (decision === 'none') {
     io.say(`${PREFIX} stop: this checkout has no running stack`);
@@ -981,9 +1190,48 @@ async function stop(io) {
   return r.code === 0 && market.code === 0 && !left.length ? 0 : 1;
 }
 
+const CUSTOMER_SRC = path.join(CHECKOUT, 'apps', 'customer', 'src');
+
+/**
+ * What the map reads from the app's own source: its rooms, the keys each redesigned screen's code binds (its static
+ * import closure), the keys the shell binds on every page, and the stack's TEST stand-ins.
+ */
+export function appFacts(src = CUSTOMER_SRC, doc = path.join(CHECKOUT, 'docs', 'LOCAL-TEST-STACK.md')) {
+  const cache = new Map();
+  const read = (f) => {
+    if (!cache.has(f)) cache.set(f, fs.existsSync(f) && fs.statSync(f).isFile() ? fs.readFileSync(f, 'utf8') : null);
+    return cache.get(f);
+  };
+  const keysFrom = (entry) =>
+    importClosure(entry, read).flatMap((f) => boundKeys(read(f)).map((k) => ({ key: k.key, at: `${path.relative(src, f)}:${k.line}` })));
+  const roomsDir = path.join(src, 'app', 'rooms');
+  const rooms = fs
+    .readdirSync(roomsDir)
+    .filter((f) => /^[a-z]+\.ts$/.test(f) && f !== 'room.ts')
+    .flatMap((f) => roomRows(read(path.join(roomsDir, f))));
+  const shellKeys = keysFrom(path.join(src, 'app', 'Shell.tsx'));
+  const shellAt = new Set(shellKeys.map((k) => k.at));
+  const screens = new Map();
+  return {
+    rooms,
+    shellKeys,
+    // A screen's keys, less the shell's own (listed once for every page).
+    screenKeys: (id) => {
+      if (!screens.has(id))
+        screens.set(
+          id,
+          keysFrom(path.join(src, 'screens', id, 'index.tsx')).filter((k) => !shellAt.has(k.at)),
+        );
+      return screens.get(id);
+    },
+    doors: fs.existsSync(doc) ? standIns(fs.readFileSync(doc, 'utf8')) : [],
+  };
+}
+
 function map(opts, io) {
   const journeys = JSON.parse(fs.readFileSync(JOURNEYS_JSON, 'utf8'));
   const index = loadIndex();
+  const app = appFacts();
   const unknown = opts.ids.filter((id) => !journeys.some((j) => j.id === id));
   if (unknown.length) {
     io.say(`${PREFIX} map: not in docs/roadmap/journeys.json: ${unknown.join(', ')}`);
@@ -992,7 +1240,7 @@ function map(opts, io) {
   fs.mkdirSync(FEATURES_DIR, { recursive: true });
   // Generated files only: README.md is the map's own contract and is never written here.
   for (const f of fs.readdirSync(FEATURES_DIR)) if (f !== 'README.md' && f.endsWith('.md')) fs.rmSync(path.join(FEATURES_DIR, f));
-  for (const j of journeys) fs.writeFileSync(path.join(FEATURES_DIR, `${j.id}.md`), featureMarkdown(j, index.get(j.id)));
+  for (const j of journeys) fs.writeFileSync(path.join(FEATURES_DIR, `${j.id}.md`), featureMarkdown(j, index.get(j.id), app));
   fs.writeFileSync(path.join(FEATURES_DIR, 'index.md'), indexMarkdown(journeys, index));
   const rel = path.relative(CHECKOUT, FEATURES_DIR);
   io.say(`${PREFIX} map: ${journeys.length} feature files and index.md written in ${rel}`);

@@ -5,7 +5,7 @@
  * A window is published like any notice: the author asks identity for an approval bound to the exact draft (reminder
  * offsets included), a different founder approves it, and the founder who asked publishes it.
  */
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 import type { PublishApproval } from './incidents-model';
 import { isRecord } from '@intafaced/contracts/guards';
 

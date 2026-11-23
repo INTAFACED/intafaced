@@ -9,6 +9,9 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import type { Principal } from '@intafaced/auth';
+import { TOKEN_DISTRIBUTE_REVENUE } from '@intafaced/contracts/token-distribute-revenue-procedures';
+import { TOKEN_MINT_EPOCH } from '@intafaced/contracts/token-mint-epoch-procedures';
+import { JOB_FORBIDDEN } from './job-hmac.js';
 import { createEdgeContext, encodePrincipal, serviceAuthHeadersForBody, signPrincipalHeader } from '@intafaced/contracts';
 import { parseAmount as amt } from '@intafaced/ledger-client';
 import { createTokenRouter, type TokenRouter } from './router.js';
@@ -58,7 +61,7 @@ function signedHeaders(scopes: string[]): Record<string, string> {
   };
 }
 
-function hmacHeaders(caller: 'svc-token' | 'svc-trade', body: Record<string, unknown>): Record<string, string> {
+function hmacHeaders(caller: 'svc-token' | 'svc-trade' | 'svc-cron', body: Record<string, unknown>): Record<string, string> {
   const payload = JSON.stringify(body);
   return {
     'content-type': 'application/json',
@@ -142,10 +145,14 @@ describe('token job tRPC HMAC as svc-token (HTTP)', () => {
   it('job doors are HMAC as svc-token, not admin:treasury; index verifies service headers', () => {
     const src = readFileSync(join(DIR, 'router.ts'), 'utf8');
     expect(src).toMatch(/jobProcedure/);
-    expect(src).toMatch(/requireTokenJobService/);
-    expect(src).toMatch(/mintEpoch: jobProcedure/);
+    expect(src).toMatch(/const jobProcedure = serviceProcedureFor\(\[JOB_CALLER\], \{ forbidden: JOB_FORBIDDEN \}\);/);
+    // mintEpoch mounts its record, whose access the mount turns into the same service guard.
+    expect(src).toMatch(/mintEpoch: mountRecord\(\s*TOKEN_MINT_EPOCH,/);
+    expect(TOKEN_MINT_EPOCH.access).toEqual({ caller: 'service', callers: ['svc-token'], forbidden: JOB_FORBIDDEN });
     expect(src).toMatch(/runWindow: jobProcedure/);
-    expect(src).toMatch(/distributeRevenue: scopedProcedure\('admin:treasury'/);
+    // distributeRevenue mounts its record, whose access the mount turns into scopedProcedure('admin:treasury').
+    expect(src).toMatch(/distributeRevenue: mountRecord\(\s*TOKEN_DISTRIBUTE_REVENUE,/);
+    expect(TOKEN_DISTRIBUTE_REVENUE.access).toEqual({ caller: 'scope', scope: 'admin:treasury' });
     expect(src).toMatch(/recordBuyback: scopedProcedure\('admin:treasury'/);
     expect(src).toMatch(/requireDualControl/);
     const index = readFileSync(join(DIR, 'index.ts'), 'utf8');
@@ -167,11 +174,15 @@ describe('token job tRPC HMAC as svc-token (HTTP)', () => {
     expect(body.error?.data?.code).not.toBe('FORBIDDEN');
   });
 
-  it.each(JOBS)('$name svc-trade HMAC → 403', async ({ path, payload }) => {
-    const { statusCode, body } = await post(path, payload, hmacHeaders('svc-trade', payload));
-    expect(statusCode).toBe(403);
-    expect(body.error?.data?.code).toBe('FORBIDDEN');
-  });
+  it.each(JOBS.flatMap((job) => (['svc-trade', 'svc-cron'] as const).map((caller) => ({ ...job, caller }))))(
+    "$name $caller HMAC → 403 with the job door's own words",
+    async ({ path, payload, caller }) => {
+      const { statusCode, body } = await post(path, payload, hmacHeaders(caller, payload));
+      expect(statusCode).toBe(403);
+      expect(body.error?.data?.code).toBe('FORBIDDEN');
+      expect(body.error?.message).toBe(JOB_FORBIDDEN);
+    },
+  );
 
   it.each(JOBS)('$name HMAC as svc-token reaches the job', async ({ path, payload }) => {
     const { statusCode, body } = await post(path, payload, hmacHeaders('svc-token', payload));

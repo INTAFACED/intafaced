@@ -10,7 +10,10 @@ vi.mock('../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
-vi.mock('../session/session', () => ({ useSession: () => ({ userId: 'u1', api: {} }) }));
+vi.mock('../session', async (original) => ({
+  ...(await original<typeof import('../session')>()),
+  useSession: () => ({ userId: 'u1', api: {} }),
+}));
 vi.mock('./holdings', () => ({ useHoldings: () => ({ resource: { status: 'ready', data: { assets: [] } } }) }));
 vi.mock('../../data/hooks', () => ({ useMarkets: () => ({ status: 'ready', data: [] }) }));
 vi.mock('../../data/activity', () => ({ useActivity: () => ({ status: 'ready', data: { items: [], hasMore: false } }) }));
@@ -53,7 +56,7 @@ async function open(search = '') {
   await act(async () => mounted.render(<Deposit />));
 }
 const field = (label: string) =>
-  [...host.querySelectorAll('label.field')].find((node) => node.querySelector('span')?.textContent === label)!;
+  [...host.querySelectorAll('label.lt-field')].find((node) => node.querySelector('span')?.textContent === label)!;
 const select = (label: string) => field(label).querySelector('select')!;
 const type = (label: string, value: string) =>
   act(async () => {

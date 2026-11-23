@@ -1,3 +1,4 @@
+import { INDEXER_SYMBOL_MAX_CHARS } from '@intafaced/contracts/indexer-procedures';
 import { decodeAbiParameters, hexToString, type Hex, type PublicClient } from 'viem';
 import { classifyChainError } from './availability.js';
 import { storableReason } from './revert-reason.js';
@@ -16,7 +17,6 @@ import type { ChainToken } from '../source.js';
 const SELECTOR = { symbol: '0x95d89b41', name: '0x06fdde03', decimals: '0x313ce567' } as const;
 
 /** Longest symbol and name kept, in characters (code points). The contract chooses them, so they are cleaned and capped. */
-export const SYMBOL_MAX_CHARS = 32;
 const NAME_MAX_CHARS = 64;
 
 /** Cached answers kept per process before the cache starts again; a contract is only re-read, never lost. */
@@ -111,7 +111,7 @@ export class TokenMetaReader {
     ]);
     const token = {
       address,
-      symbol: symbol === null ? null : decodeTokenText(symbol, SYMBOL_MAX_CHARS),
+      symbol: symbol === null ? null : decodeTokenText(symbol, INDEXER_SYMBOL_MAX_CHARS),
       name: name === null ? null : decodeTokenText(name, NAME_MAX_CHARS),
       decimals: decimals === null ? null : decodeTokenDecimals(decimals),
     };

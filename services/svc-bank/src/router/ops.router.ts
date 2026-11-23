@@ -1,15 +1,8 @@
 import { z } from 'zod';
-import { router, scopedProcedure } from '@intafaced/contracts';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
-import {
-  FRAUD_BLOCK_STANCES,
-  FRAUD_PREVIEW_ACTIONS,
-  FRAUD_RISK_BANDS,
-  FRAUD_SIGNALS,
-  fraudPreview,
-  refuseFraudPreviewAction,
-} from '../cards/fraud-preview.js';
+import { FRAUD_PREVIEW_ACTIONS, fraudPreviewDoor, refuseFraudPreviewAction } from '../cards/fraud-preview.js';
 import { poolTotalsProcedure } from '../ops/pool-totals.js';
 import { loanBookProcedure } from '../ops/loan-book.js';
 import { assetPausesProcedure, setAssetPauseProcedure } from '../ops/asset-pause.js';
@@ -72,30 +65,9 @@ export function createOpsRouter(c: BankRouterContext) {
     /**
      * BK-cops-09 fraud preview (/bank-ops/cards/fraud). TEST rows only, labelled
      * and blurred; no authorisation carries a score until an engine exists.
+     * `admin:treasury`, from its record (BANK_OPS_FRAUD_PREVIEW).
      */
-    fraudPreview: scopedProcedure('admin:treasury')
-      .output(
-        z.object({
-          label: z.literal('Preview · sample data'),
-          engine: z.string(),
-          preview: z.literal(true),
-          blurred: z.literal(true),
-          stances: z.array(z.enum(FRAUD_BLOCK_STANCES)),
-          automaticBlocking: z.literal('unavailable'),
-          rows: z.array(
-            z.object({
-              testAuthorisationRef: z.string().startsWith('TEST-'),
-              test: z.literal(true),
-              band: z.enum(FRAUD_RISK_BANDS),
-              signals: z.array(z.enum(FRAUD_SIGNALS)),
-            }),
-          ),
-        }),
-      )
-      .query(() => {
-        const view = fraudPreview();
-        return { ...view, stances: [...view.stances], rows: view.rows.map((r) => ({ ...r, signals: [...r.signals] })) };
-      }),
+    fraudPreview: fraudPreviewDoor(),
     /**
      * Personal sends the owner's review rule holds (PP-send-request-10), oldest first. Each is the customer's own
      * instruction; nothing was taken while it waits.

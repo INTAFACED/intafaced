@@ -25,6 +25,8 @@ export interface GridStore {
   ): Promise<{ created: boolean; bot: GridBot }>;
   /** Writes only while the bot's status is one of `from`, so a tick never undoes a stop. True when it wrote. */
   setStatus(botId: string, status: GridStatus, reason: string | null, at: Date, from: readonly GridStatus[]): Promise<boolean>;
+  /** Set both price exits (null clears one), only while the bot's status is one of `from`. True when it wrote. */
+  setExits(write: GridExitsWrite): Promise<boolean>;
   getReserve(botId: string): Promise<GridReserve | null>;
   releaseReserve(botId: string, at: Date): Promise<void>;
   /** Unreleased grid reserves of one owner and asset, less what each bot's open buys already hold. */
@@ -64,6 +66,19 @@ export interface GridStore {
       gridUnused: Amount;
     }) => Promise<{ topUp: GridTopUp; levels: readonly GridLevelPlan[] }>,
   ): Promise<{ created: boolean; topUp: GridTopUp }>;
+}
+
+export interface GridExits {
+  readonly exitBelow: Amount | null;
+  readonly exitAbove: Amount | null;
+}
+
+export interface GridExitsWrite {
+  readonly botId: string;
+  readonly exits: GridExits;
+  readonly at: Date;
+  /** The statuses the write holds in. */
+  readonly from: readonly GridStatus[];
 }
 
 type ClosedStatus = Exclude<GridOrder['status'], 'open'>;
@@ -119,6 +134,12 @@ export class MemoryGridStore implements GridStore {
     const bot = this.bots.get(botId);
     if (!bot || !from.includes(bot.status)) return false;
     this.bots.set(botId, { ...bot, status, statusReason: reason, updatedAt: at });
+    return true;
+  }
+  async setExits({ botId, exits, at, from }: GridExitsWrite) {
+    const bot = this.bots.get(botId);
+    if (!bot || !from.includes(bot.status)) return false;
+    this.bots.set(botId, { ...bot, ...exits, updatedAt: at });
     return true;
   }
   async getReserve(botId: string) {
@@ -219,6 +240,8 @@ interface BotRow {
   investment: string;
   levels: unknown;
   reinit_count: number;
+  exit_below: string | null;
+  exit_above: string | null;
   status: GridStatus;
   status_reason: string | null;
   place_grant: unknown;
@@ -358,6 +381,8 @@ function botFromRow(row: BotRow): GridBot {
     investment: parseAmount(row.investment),
     levels: levelsFromJson(row.bot_id, row.levels),
     reinitCount: row.reinit_count,
+    exitBelow: row.exit_below === null ? null : parseAmount(row.exit_below),
+    exitAbove: row.exit_above === null ? null : parseAmount(row.exit_above),
     status: row.status,
     statusReason: row.status_reason,
     placeGrant: grant,
@@ -394,7 +419,7 @@ const orderFromRow = (row: OrderRow): GridOrder => ({
 
 const BOT_COLUMNS = `bot_id, user_id, client_request_id, request_hash, market_id, symbol, base_asset, quote_asset,
   lower_price::text AS lower_price, upper_price::text AS upper_price, grid_count, investment::text AS investment,
-  levels, reinit_count, status, status_reason, place_grant, created_at, updated_at`;
+  levels, reinit_count, exit_below::text AS exit_below, exit_above::text AS exit_above, status, status_reason, place_grant, created_at, updated_at`;
 
 const ORDER_COLUMNS = `client_order_id, bot_id, level_index, side, cycle, order_id, price::text AS price, qty::text AS qty,
   order_hold::text AS order_hold, status, pair_profit::text AS pair_profit, placed_at, closed_at`;
@@ -473,6 +498,17 @@ export class SqlGridStore implements GridStore {
     return rows.length > 0;
   }
 
+  async setExits({ botId, exits, at, from }: GridExitsWrite) {
+    const statuses: string[] = [...from];
+    const below = exits.exitBelow === null ? null : formatAmount(exits.exitBelow);
+    const above = exits.exitAbove === null ? null : formatAmount(exits.exitAbove);
+    const rows = await this.sql`
+      UPDATE grid_bots SET exit_below = ${below}, exit_above = ${above}, updated_at = ${at}
+       WHERE bot_id = ${botId} AND status = ANY(${statuses}::text[])
+      RETURNING bot_id`;
+    return rows.length > 0;
+  }
+
   async getReserve(botId: string) {
     const rows = await this.sql<ReserveRow[]>`
       SELECT reserve_key, bot_id, user_id, asset, amount::text AS amount, held_at, released_at
@@ -501,7 +537,9 @@ export class SqlGridStore implements GridStore {
       VALUES (${order.clientOrderId}, ${order.botId}, ${order.levelIndex}, ${order.side}, ${order.cycle}, ${order.orderId},
               ${formatAmount(order.price)}, ${formatAmount(order.qty)}, ${formatAmount(order.holdAmount)}, ${order.status},
               ${order.pairProfit === null ? null : formatAmount(order.pairProfit)}, ${order.placedAt}, ${order.closedAt})
-      ON CONFLICT (client_order_id) DO NOTHING`;
+      ON CONFLICT DO NOTHING`;
+    // No conflict target: client_order_id is gridClientOrderId(bot, level, side, cycle), the columns of
+    // grid_bot_orders_pair_uq, so a clash on either key means this order is already stored.
     const rows = await this.sql.unsafe<OrderRow[]>(`SELECT ${ORDER_COLUMNS} FROM grid_bot_orders WHERE client_order_id = $1`, [
       order.clientOrderId,
     ]);

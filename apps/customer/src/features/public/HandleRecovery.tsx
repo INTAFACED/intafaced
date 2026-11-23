@@ -2,10 +2,11 @@ import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { Button, Field } from '../../shared/ui';
 import { singleFlight } from '../../shared/password';
 import { passwordCopy } from '../../shared/password-copy';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { recoveryCopy } from './password-recovery-copy';
-import { requestProblem, requestedSchema, validEmail, type RecoveryProblem } from './password-recovery';
+import { requestProblem, validEmail, type RecoveryProblem } from './password-recovery';
 import { handleRecoveryCopy } from './handle-recovery-copy';
+import { IDENTITY_AUTH_REQUEST_HANDLE_RECOVERY } from '@intafaced/contracts/identity-auth-procedures';
 
 /**
  * "I forgot my handle" on /findPwd (I-signin-sessions-03). The service mails the handle to the address when an account
@@ -53,7 +54,7 @@ export function HandleRecovery() {
       setBusy(true);
       const controller = new AbortController();
       abort.current = controller;
-      const result = await api.mutate('identity', 'auth.requestHandleRecovery', { email }, requestedSchema, { signal: controller.signal });
+      const result = await api.call(IDENTITY_AUTH_REQUEST_HANDLE_RECOVERY, { email }, { signal: controller.signal });
       if (!mounted.current) return;
       setBusy(false);
       const refused = requestProblem(result);
@@ -81,7 +82,7 @@ export function HandleRecovery() {
   return (
     <section className="pub-step" aria-labelledby={`${problemId}-title`}>
       <h2 id={`${problemId}-title`}>{t('title')}</h2>
-      <p className="muted">{t('body')}</p>
+      <p className="lt-muted">{t('body')}</p>
       <form ref={field} method="post" className="pub-form" onSubmit={ask} noValidate>
         <Field
           label={t('emailField')}
@@ -98,7 +99,7 @@ export function HandleRecovery() {
         </Button>
       </form>
       {sent && (
-        <p role="status" className="muted">
+        <p role="status" className="lt-muted">
           {t('sent')}
         </p>
       )}

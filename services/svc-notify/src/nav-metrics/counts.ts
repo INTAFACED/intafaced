@@ -9,9 +9,6 @@ import type { Sql } from 'postgres';
 export const NAV_METRIC_KINDS = ['search_miss'] as const;
 export type NavMetricKind = (typeof NAV_METRIC_KINDS)[number];
 
-/** The longest window a founder may read at once, in days. */
-export const NAV_METRIC_DAYS_MAX = 90;
-
 export interface NavMetricDay {
   /** UTC day, `YYYY-MM-DD`. */
   day: string;

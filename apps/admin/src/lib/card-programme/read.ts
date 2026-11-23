@@ -1,15 +1,12 @@
 import 'server-only';
-import {
-  bankCardAuthorizationDetailSchema,
-  bankCardholderDetailSchema,
-  bankCardholdersSchema,
-  bankCardProgrammeDeskSchema,
-  bankCardProgrammeFiguresSchema,
-  type BankCardProgrammeFigures,
-} from '@intafaced/contracts';
-import { founderCall, parseWith, type FounderCallContext } from '@/lib/desk/founder-call';
-import { partFrom, type Part } from '@/lib/desk/part';
+import { bankCardProgrammeDeskSchema, bankCardProgrammeFiguresSchema, type BankCardProgrammeFigures } from '@intafaced/contracts';
+import { founderCall, parseWith, type FounderCallContext, partFrom, type Part, founderRecordCall } from '@/lib/desk';
 import { refusalWords, type Authorization, type Cardholder, type CardholderDetail, type Desk } from './model';
+import {
+  BANK_OPS_CARD_PROGRAMME_CARDHOLDERS,
+  BANK_OPS_CARD_PROGRAMME_AUTHORIZATION,
+  BANK_OPS_CARD_PROGRAMME_CARDHOLDER,
+} from '@intafaced/contracts/bank-ops-procedures';
 
 const labels = {
   service: 'svc-bank',
@@ -23,19 +20,12 @@ export async function readDesk(ctx: FounderCallContext): Promise<{ asOf: string;
 }
 
 export async function searchCardholders(ctx: FounderCallContext, query: string): Promise<Part<Cardholder[]>> {
-  const result = await founderCall(ctx, 'bank', 'ops.cardProgrammeCardholders', 'GET', { query }, parseWith(bankCardholdersSchema));
+  const result = await founderRecordCall(ctx, BANK_OPS_CARD_PROGRAMME_CARDHOLDERS, { query });
   return partFrom(result, (d) => d, labels);
 }
 
 export async function readAuthorization(ctx: FounderCallContext, id: string): Promise<{ asOf: string; part: Part<Authorization> }> {
-  const result = await founderCall(
-    ctx,
-    'bank',
-    'ops.cardProgrammeAuthorization',
-    'GET',
-    { id },
-    parseWith(bankCardAuthorizationDetailSchema),
-  );
+  const result = await founderRecordCall(ctx, BANK_OPS_CARD_PROGRAMME_AUTHORIZATION, { id });
   return { asOf: new Date().toISOString(), part: partFrom(result, (d) => d, labels) };
 }
 
@@ -43,14 +33,7 @@ export async function readCardholder(
   ctx: FounderCallContext,
   cardholderId: string,
 ): Promise<{ asOf: string; part: Part<CardholderDetail> }> {
-  const result = await founderCall(
-    ctx,
-    'bank',
-    'ops.cardProgrammeCardholder',
-    'GET',
-    { cardholderId },
-    parseWith(bankCardholderDetailSchema),
-  );
+  const result = await founderRecordCall(ctx, BANK_OPS_CARD_PROGRAMME_CARDHOLDER, { cardholderId });
   return { asOf: new Date().toISOString(), part: partFrom(result, (d) => d, labels) };
 }
 

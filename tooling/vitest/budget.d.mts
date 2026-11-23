@@ -1,1 +1,1 @@
-export declare const TEST_BUDGET: Readonly<{ testTimeout: number; hookTimeout: number }>;
+export declare const TEST_BUDGET: Readonly<{ testTimeout: number; hookTimeout: number; maxWorkers?: number }>;

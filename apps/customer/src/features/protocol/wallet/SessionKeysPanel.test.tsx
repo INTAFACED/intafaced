@@ -2,7 +2,8 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SessionKeysPanel, toWei, utcTime } from './SessionKeysPanel';
+import { SessionKeysPanel } from './SessionKeysPanel';
+import { toWei, utcTime } from './wallet-text';
 
 const ME = '0x1111111111111111111111111111111111111111';
 const SMART = '0x2222222222222222222222222222222222222222';

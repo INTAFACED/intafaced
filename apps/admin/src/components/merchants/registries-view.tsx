@@ -1,6 +1,6 @@
 import type { PayCallResult } from '@/lib/merchants/pay-call';
 import { enabledChip, healthChip, routableChip, venueModeChip } from '@/lib/merchants/chips';
-import { formatAmount } from '@/lib/merchants/money';
+import { formatAmount } from '@/lib/money';
 import { formatUtc } from '@/lib/merchants/time';
 import {
   REGISTRY_INFO,

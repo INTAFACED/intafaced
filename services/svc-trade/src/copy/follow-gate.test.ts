@@ -456,6 +456,89 @@ describe('the reserve row on Postgres', () => {
     expect(await ctx.store.sumUnusedReserves(follower, 'USDT')).toBe(parseAmount('500'));
   });
 
+  it('two Start copying on the venue presses with one key at once both answer the one follow, never a 23505 or Already following (#8875)', async () => {
+    // A leader with no listing row: the directory's FOR UPDATE locks nothing, so only the store keeps the two apart.
+    const follower = '00000000-0000-4000-8000-0000000000f5';
+    const p = principal({ sub: follower, userId: follower });
+    const binds: string[] = [];
+    const port: VenueFollowsPort = {
+      bind: async (_follower, followId, accountId) => {
+        binds.push(`${followId}:${accountId}`);
+      },
+      copiedOrders: async () => null,
+    };
+    const ctx = await setup({ store: new SqlCopyFollowStore(db!.sql), sqlDirectory: db!.sql, venueFollows: port });
+    const venue = {
+      ...input({ permittedMarkets: ['BTC-USDC'], clientRequestId: 'venue-race-0001' }),
+      agentAccountId: '00000000-0000-4000-8000-0000000000a5',
+    };
+    for (let round = 0; round < 20; round += 1) {
+      const press = { ...venue, clientRequestId: `venue-race-${String(round).padStart(4, '0')}` };
+      const results = await Promise.allSettled(Array.from({ length: 4 }, () => ctx.copy.startVenueFollow(p, press)));
+      const followId = copyFollowIdFor(follower, LEADER, press.clientRequestId);
+      expect(results.filter((r) => r.status === 'rejected')).toEqual([]);
+      expect(new Set(results.map((r) => (r as PromiseFulfilledResult<{ followId: string }>).value.followId))).toEqual(new Set([followId]));
+      const rows = await db!.sql<Array<{ n: number }>>`
+        SELECT count(*)::int AS n FROM copy_follows WHERE follower_id = ${follower} AND relationship_state IN ('ACTIVE', 'PAUSED')
+      `;
+      expect(rows).toEqual([{ n: 1 }]);
+      // Another key for the same leader is another follow: still refused while this one is live.
+      await expect(ctx.copy.startVenueFollow(p, { ...press, clientRequestId: `venue-other-${round}` })).rejects.toMatchObject({
+        code: 'trade.copy_already_following',
+      });
+      // Free the leader for the next round's new key.
+      await ctx.copy.unfollow(p, { followId });
+    }
+  });
+
+  it('a second new follow of the same leader waits for the first to commit before it writes, so the two inserts never deadlock', async () => {
+    const follower = '00000000-0000-4000-8000-0000000000f6';
+    const p = principal({ sub: follower, userId: follower });
+    let releaseFirst!: () => void;
+    const firstHolds = new Promise<void>((resolve) => (releaseFirst = resolve));
+    let firstBound!: () => void;
+    const firstInside = new Promise<void>((resolve) => (firstBound = resolve));
+    let binds = 0;
+    const port: VenueFollowsPort = {
+      // Runs inside the follow's transaction, just before its insert. The first press holds there.
+      bind: async () => {
+        binds += 1;
+        if (binds === 1) {
+          firstBound();
+          await firstHolds;
+        }
+      },
+      copiedOrders: async () => null,
+    };
+    const ctx = await setup({ store: new SqlCopyFollowStore(db!.sql), sqlDirectory: db!.sql, venueFollows: port });
+    const press = {
+      ...input({ permittedMarkets: ['BTC-USDC'], clientRequestId: 'venue-wait-0001' }),
+      agentAccountId: '00000000-0000-4000-8000-0000000000a6',
+    };
+    const first = ctx.copy.startVenueFollow(p, press);
+    await firstInside;
+    const second = ctx.copy.startVenueFollow(p, press);
+    // Either the second press reaches its own bind (both inside at once: the deadlock's precondition) or it waits on
+    // the follower-and-leader lock. Wait for whichever happens; no timer decides.
+    for (;;) {
+      if (binds > 1) break;
+      const waiting = await db!.sql<Array<{ n: number }>>`
+        SELECT count(*)::int AS n FROM pg_locks WHERE locktype = 'advisory' AND NOT granted
+      `;
+      if (waiting[0]!.n > 0) break;
+    }
+    expect(binds).toBe(1);
+    releaseFirst();
+    const [a, b] = await Promise.all([first, second]);
+    const followId = copyFollowIdFor(follower, LEADER, press.clientRequestId);
+    expect([a.followId, b.followId]).toEqual([followId, followId]);
+    const rows = await db!.sql<Array<{ n: number }>>`
+      SELECT count(*)::int AS n FROM copy_follows WHERE follower_id = ${follower} AND relationship_state IN ('ACTIVE', 'PAUSED')
+    `;
+    expect(rows).toEqual([{ n: 1 }]);
+    await ctx.copy.unfollow(p, { followId });
+  });
+
   it('refuses a fixed size above the per-order cap in the table itself', async () => {
     await expect(db!.sql`
       INSERT INTO copy_follows (follow_id, follower_id, leader_id, region, permitted_markets, max_notional_per_order,

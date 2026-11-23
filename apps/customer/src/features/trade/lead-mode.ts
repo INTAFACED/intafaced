@@ -1,6 +1,6 @@
-import { myLeadSchema } from '../../screens/trade/copybots/api';
 import { useResource } from '../../shared/resource';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
+import { TRADE_COPY_MY_LEAD } from '@intafaced/contracts/trade-copy-records';
 
 /**
  * Whether the signed-in person is a listed lead, and so whether an order ticket shows the Lead trade switch
@@ -9,8 +9,7 @@ import { useSession } from '../session/session';
 export function useLeadMode(): { readonly isLead: boolean; readonly instruments: readonly string[] } {
   const { api, userId } = useSession();
   const { resource } = useResource(
-    (signal) =>
-      userId ? api.query('trade', 'copy.myLead', undefined, myLeadSchema, { signal }) : Promise.resolve({ ok: true as const, data: null }),
+    (signal) => (userId ? api.call(TRADE_COPY_MY_LEAD, undefined, { signal }) : Promise.resolve({ ok: true as const, data: null })),
     `lead-mode:${userId ?? 'out'}`,
   );
   const lead = resource.status === 'ready' ? resource.data : null;

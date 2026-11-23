@@ -277,9 +277,26 @@ describe.each([
     const store = make();
     expect(await store.claim('payout:stranded:1')).toEqual({ kind: 'mine' });
     expect(await store.close('payout:stranded:1')).toEqual({ closedKey: 'payout:stranded:1' });
-    await expect(store.putSigned('payout:stranded:1', '0xraw-late')).rejects.toThrow(/closed/);
+    await expect(store.putSigned('payout:stranded:1', '0xraw-late')).rejects.toBeInstanceOf(BroadcastClosedError);
     expect(await store.hasSigned('payout:stranded:1')).toBe(false);
     expect(await store.claim('payout:stranded:1')).toEqual({ kind: 'closed' });
+  });
+
+  it('a query that closes the key while the send is signing refuses that send as closed, and nothing is broadcast', async () => {
+    const store = make();
+    const broadcast = vi.fn(async () => '0xhash');
+    const sending = runDurableBroadcast({
+      store,
+      idempotencyKey: 'payout:close-while-signing:1',
+      sign: async () => {
+        expect(await store.close('payout:close-while-signing:1')).toEqual({ closedKey: 'payout:close-while-signing:1' });
+        return '0xraw';
+      },
+      broadcast,
+    });
+    await expect(sending).rejects.toBeInstanceOf(BroadcastClosedError);
+    expect(broadcast).not.toHaveBeenCalled();
+    expect(await store.hasSigned('payout:close-while-signing:1')).toBe(false);
   });
 
   it('a send whose signer throws leaves a key the next query closes, and its retry sends nothing', async () => {

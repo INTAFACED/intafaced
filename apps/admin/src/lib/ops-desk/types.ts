@@ -1,6 +1,6 @@
-import type { DeskModule } from '@/lib/desk/founder-call';
+import type { ProcedureRecord, TrpcTransport } from '@intafaced/contracts/procedure';
+import type { DeskModule, Part } from '@/lib/desk';
 import type { CommonDeskId } from './common-sections';
-import type { Part } from '@/lib/desk/part';
 import type { ModuleId as AdminModuleId } from '@/lib/modules';
 
 /**
@@ -25,6 +25,11 @@ export type CellKind =
   | 'seconds'
   /** A decimal string a service formatted (money). Shown exactly as given, never parsed. */
   | 'amount'
+  /**
+   * A typed code that someone outside reads back to us (the error code an API reply carried, `edge.api_key_denied`). Shown
+   * exactly as given, never in words, so support quotes the very code the developer's client received.
+   */
+  | 'code'
   /** An array of strings. */
   | 'list'
   /** An array of `{ assetId, amount }`, one money total per asset. Shown as "12.5 USDT, 0.1 BTC", amounts exactly as given. */
@@ -61,6 +66,9 @@ export interface Column {
   readonly words?: Readonly<Record<string, string>>;
 }
 
+/** A desk read's call by its written record: a query an app reaches under a desk module. */
+export type DeskReadRecord = ProcedureRecord & TrpcTransport & { readonly kind: 'query'; readonly module: DeskModule };
+
 export interface ReadSpec {
   readonly id: string;
   readonly title: string;
@@ -70,6 +78,12 @@ export interface ReadSpec {
   /** The service, as an operator reads it ("chain status"). When set, a failed read says "Could not load <plainName>" with its time. */
   readonly plainName?: string;
   readonly procedure: string;
+  /**
+   * The name of the call's record, when it has one (`readOf` in the catalog sets it with `module` and `procedure`, all from the
+   * record). The spec reaches the browser, so it holds the name, not the schema; the server looks the record up and parses the
+   * answer by it, with every caller's checks, before the columns read it. An answer off the record is unreadable.
+   */
+  readonly recordName?: string;
   readonly input?: Readonly<Record<string, unknown>>;
   /**
    * The service needs a time window (`from` and `to`) and has no default. The desk asks for the last N×24 hours ending at the
@@ -95,6 +109,14 @@ export interface ReadSpec {
    * more may exist.
    */
   readonly rowsWhere?: { readonly key: string; readonly equals: string };
+  /**
+   * List only: the service can narrow this list to one thing (`course`, `certificate`), named in the page's address
+   * (`?course=<slug>`). Each key's label and what an empty answer means for it. The desk sends the first one the address
+   * names on to the service (`narrowDesk`), which judges it; it never filters rows itself.
+   */
+  readonly filters?: Readonly<Record<string, { readonly label: string; readonly emptyText: string }>>;
+  /** The narrowing `narrowDesk` applied from the page's address; never set in the catalog. */
+  readonly narrowed?: { readonly key: string; readonly value: string; readonly label: string };
   /** List only, instead of `idKey`: the service gives these rows no id (a total per vendor and asset). They are shown by position and carry no row action. */
   readonly anonymousRows?: true;
   readonly columns: readonly Column[];
@@ -208,6 +230,8 @@ export interface DeskSpec {
   readonly commonSet?: CommonDeskId;
   /** Section pages of this desk: when set, the section navigation links to each page instead of to anchors on this one. */
   readonly pages?: readonly DeskPage[];
+  /** The address's narrowing this desk was read with (`narrowDesk`), sent again on every refresh. */
+  readonly filter?: Readonly<Record<string, string>>;
 }
 
 export interface DeskPage {

@@ -1,4 +1,4 @@
-import { fmtAmount, fmtUsd } from './deps';
+import { fmtAmount, fmtUsd } from '../../../data';
 import type { CostRows } from './cost';
 
 /**

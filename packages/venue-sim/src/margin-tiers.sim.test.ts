@@ -81,6 +81,19 @@ describe('TEST venue simulator: published margin tiers and collateral (J-derivat
     expect(btc.collateral).toEqual({ known: false });
   });
 
+  it('publishes one maintenance rate only on a perpetual with no tiers, and carries it over the wire exactly (J-algo-dev-02 #5)', async () => {
+    const w = world();
+    const btc = await marketOf(w, 'BTC-PERP');
+    expect(btc.maintenanceMarginRate).toEqual({ known: true, value: a('0.005') });
+    expect(btc.maxLeverageBps).toBe(200_000);
+    // With tiers a position's rate is its tier's, so the tiered market publishes no single rate.
+    expect((await marketOf(w)).maintenanceMarginRate).toEqual({ known: false });
+    expect((await marketOf(w, 'BTC-USDC')).maintenanceMarginRate).toEqual({ known: false });
+    const wire = JSON.parse(JSON.stringify(encodeVenueWire(btc))) as Record<string, unknown>;
+    expect(wire.maintenanceMarginRate).toEqual({ known: true, value: '0.005' });
+    expect(decodeVenueWire<UserVenueMarket>(wire).maintenanceMarginRate).toEqual(btc.maintenanceMarginRate);
+  });
+
   it('carries tiers and collateral over the wire as decimal strings and back exactly', async () => {
     const m = await marketOf(world());
     const wire = JSON.parse(JSON.stringify(encodeVenueWire(m))) as Record<string, any>;

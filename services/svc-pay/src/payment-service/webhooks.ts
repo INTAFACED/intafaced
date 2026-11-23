@@ -19,7 +19,7 @@ import {
 } from '../fraud/dispute-case.js';
 import { recordDisputeOutcomeConflict } from '../fraud/dispute-outcome-conflict.js';
 import type { PayService, PayServiceInternal, PaymentRow, PaymentStatus, PaymentView, WebhookOutcome } from '../payment-service.js';
-import { PayError, appendEvent, assertTransition, lockPayment } from './internal.js';
+import { PayError, appendEvent, lockPayment, movePayment, totalsFor } from './internal.js';
 import { payerNameHoldOf } from '../payer-name/holds.js';
 import { fundsHeldOf, fundsStateOf, recordFundsAvailable, recordFundsPending } from './funds.js';
 
@@ -444,7 +444,6 @@ export async function markDisputed(
       // A redelivery already marked this payment. Status stays disputed so
       // the chargeback post can still run; a second event would not move money.
       if (row.status === 'disputed') return svc.view(tx, row);
-      assertTransition(row, 'disputed');
       await appendEvent(tx, row.id, 'disputed', {
         disputeId: meta.disputeId,
         reasonCode: meta.reasonCode ?? null,
@@ -452,8 +451,7 @@ export async function markDisputed(
         ledgerTxId: meta.ledgerTxId ?? null,
         ledgerSocket: ledgerWire === 'posted' ? null : 'socket.pay-chargeback-ledger-wire',
       });
-      await tx`UPDATE pay.payments SET status = 'disputed', updated_at = now() WHERE id = ${row.id}`;
-      return svc.view(tx, { ...row, status: 'disputed' });
+      return svc.view(tx, await movePayment(tx, row, 'disputed'));
     },
     { isolation: 'read committed', maxAttempts: 5 },
   );
@@ -501,9 +499,12 @@ export async function restoreAfterWonDispute(svc: PayServiceInternal, paymentId:
         SELECT 1 AS ok FROM pay.payment_events WHERE payment_id = ${paymentId} AND event = 'settled' LIMIT 1
       `;
       const next: PaymentStatus = settled.length > 0 ? 'settled' : 'captured';
-      assertTransition(row, next);
       await appendEvent(tx, row.id, 'dispute.restored', { disputeId, status: next });
-      await tx`UPDATE pay.payments SET status = ${next}, updated_at = now() WHERE id = ${row.id}`;
+      const restoredRow = await movePayment(tx, row, next);
+      // A full refund that completed while the payment was disputed left it disputed (refunds.ts, phase 3). Its
+      // money is already back with the buyer, so the payment finishes where that refund would have put it.
+      const totals = await totalsFor(tx, row.id);
+      if (totals.captured > 0n && totals.refunded >= totals.captured) await movePayment(tx, restoredRow, 'refunded');
       return true;
     },
     { isolation: 'read committed', maxAttempts: 5 },

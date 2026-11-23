@@ -6,7 +6,7 @@ vi.mock('../../shared/preferences', async (original) => {
 });
 import { findRoom } from '../../app/navigation';
 import type { ApiClient } from '../../shared/api';
-import { SessionProvider } from '../session/session';
+import { SessionProvider } from '../session';
 import { DevelopersRoutes } from './DevelopersRoutes';
 import { readServerClock } from '../../shared/server-clock';
 import { developersCopy } from './developers-copy';
@@ -174,7 +174,7 @@ describe('developer docs copy', () => {
 describe('the WebSocket streams page', () => {
   it('draws its heading, the protocol guide with each owning module and the unknown-message rule, and waits for its live reads', () => {
     const page = html('/developers/websocket');
-    expect(page).toMatch(/<h1>WebSocket streams<\/h1>/);
+    expect(page).toMatch(/<h1 class="lt-title">WebSocket streams<\/h1>/);
     expect(text(page)).toContain('Unknown message types are ignored.');
     for (const module of ['svc-trade', 'svc-ws', 'svc-fix']) expect(page).toContain(`data-module="${module}">Owned by ${module}</td>`);
     // The hosts, the ping interval and the policy are read live: nothing is drawn as a value before the reads answer.

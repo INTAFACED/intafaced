@@ -3,13 +3,11 @@ import { flushSync } from 'react-dom';
 import { currentReturnLocation } from '../../app/location';
 import { safeReturnTo } from '../../app/navigation';
 import { authoredRefusal, type ApiClient, type ApiResult } from '../../shared/api';
-import { Button, Loading } from '../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { Loading } from './kit-parts';
 import { uiCopy, uiMessage } from '../../shared/ui-copy';
-import { useSession } from '../session/session';
-import {
-  currentSharedCardRoute as currentReadRoute,
-  subscribeSharedCardRoute as subscribeReadRoute,
-} from '../more/blueprint-shared-card-contract';
+import { useSession } from '../session';
+import { currentRoute as currentReadRoute, subscribeRoute as subscribeReadRoute } from '../../shared/route-watch';
 import { readApiKeyRecords, type ApiKeyReadWindow, type ApiKeyRecord } from './api-key-records-api';
 import { copy } from './copy';
 import { ApiKeyRevocation, useApiKeyRevocation } from './ApiKeyRevocation';
@@ -133,20 +131,20 @@ export function ApiKeyRecords() {
   return (
     <section
       data-testid="security__card"
-      className="api-key-records security__card"
+
       aria-labelledby={heading}
       lang={languageFor('api.records.title')}
     >
-      <header className="api-key-records__introduction">
+      <header>
         <h2 id={heading}>
           <Copy k="api.records.title" />
         </h2>
-        <p className="muted">
+        <p className="lt-hint">
           <Copy k="api.records.intro" />
         </p>
       </header>
       {failure && (
-        <div className="api-key-records__failure" role="status">
+        <div data-testid="api-key-records__failure" role="status">
           <h3>
             <Copy
               k={
@@ -160,7 +158,7 @@ export function ApiKeyRecords() {
               }
             />
           </h3>
-          <p className="muted">
+          <p className="lt-hint">
             <Copy k="api.records.failed.body" />
           </p>
           <p lang={failure.messageCopy ? uiCopy.forLocale(requestedLocale).languageFor(failure.messageCopy.key) : 'und'}>
@@ -168,7 +166,7 @@ export function ApiKeyRecords() {
           </p>
           {failure.reason === 'unauthorized' && (
             <a
-              className="text-link api-key-records__signin"
+              className="lt-link"
               href={`/login?redirect=${encodeURIComponent(safeReturnTo(currentReturnLocation()))}`}
               onClick={(event) => {
                 if (!actionCurrent()) {
@@ -183,9 +181,9 @@ export function ApiKeyRecords() {
           )}
         </div>
       )}
-      <div className="api-key-records__controls">
+      <div data-testid="api-key-records__controls">
         {failure?.reason !== 'unauthorized' && (
-          <Button variant="secondary" disabled={rendered.status === 'loading'} onClick={() => void read()}>
+          <Button tone="secondary" disabled={rendered.status === 'loading'} onClick={() => void read()}>
             <Copy
               k={
                 rendered.status === 'idle' ? 'api.records.read' : rendered.status === 'failed' ? 'api.records.retry' : 'api.records.refresh'
@@ -202,16 +200,16 @@ export function ApiKeyRecords() {
             <Copy k="api.records.empty" />
           </p>
         ) : (
-          <ul className="api-key-records__rows">
+          <ul>
             {rendered.rows.map((record) => (
-              <li key={record.id} className="api-key-records__row">
-                <div className="api-key-records__name">
+              <li key={record.id} data-testid="api-key-records__row">
+                <div>
                   <h3>{record.name ? <bdi lang="und">{record.name}</bdi> : <Copy k="api.records.unnamed" />}</h3>
-                  <p className="muted">
+                  <p className="lt-hint">
                     <Copy k={record.revoked ? 'api.records.revoked' : 'api.records.not.revoked'} />
                   </p>
                 </div>
-                <dl className="api-key-records__references">
+                <dl>
                   <div>
                     <dt>
                       <Copy k="api.records.id" />
@@ -229,7 +227,7 @@ export function ApiKeyRecords() {
                     </dd>
                   </div>
                 </dl>
-                <dl className="api-key-records__metadata">
+                <dl>
                   <div>
                     <dt>
                       <Copy k="api.records.mode" />
@@ -253,7 +251,7 @@ export function ApiKeyRecords() {
                   </div>
                   <div>
                     {record.lastUsedAt === null ? (
-                      <dd className="muted">
+                      <dd className="lt-hint">
                         <Copy k="api.records.no.last.use" />
                       </dd>
                     ) : (
@@ -272,8 +270,8 @@ export function ApiKeyRecords() {
                 </dl>
                 {canReviewApiKeyRevoke(record) && (
                   <Button
-                    variant="secondary"
-                    className="api-key-revoke__row-action"
+                    tone="secondary"
+                    data-testid="api-key-revoke__row-action"
                     disabled={revocation.blocked}
                     onClick={(event) => revocation.review(record, event?.currentTarget)}
                   >
@@ -285,7 +283,7 @@ export function ApiKeyRecords() {
           </ul>
         ))}
       {rendered.status === 'ready' && rendered.rows.length >= limit && (
-        <p className="muted">
+        <p className="lt-hint">
           <Copy k="api.records.window.scope" params={{ count: limit }} />
         </p>
       )}

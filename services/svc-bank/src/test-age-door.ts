@@ -1,4 +1,5 @@
 import type { Sql } from 'postgres';
+import { z } from 'zod';
 import type { TestAgeSubject } from '@intafaced/service-kit';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -57,5 +58,30 @@ export function agePayYourselfRule(sql: Sql): TestAgeSubject {
     `;
     const row = rows[0];
     return row ? { nextRunAt: iso(row.next_run_at) } : null;
+  };
+}
+
+const ScheduledTransferAged = z.object({ starts_at: z.date(), next_run_at: z.date() });
+
+/**
+ * A person's active scheduled transfer (J-bank-06 #1), made `ms` earlier: its start, its end and its next run move back
+ * together, so its date has come as if the time had gone by and its occurrences keep their count from the start. A
+ * paused, cancelled or completed schedule is not aged.
+ */
+export function ageScheduledTransfer(sql: Sql): TestAgeSubject {
+  return async (id, ms) => {
+    if (!UUID.test(id)) return null;
+    const rows = ScheduledTransferAged.array().parse(
+      await sql`
+      UPDATE bank.scheduled_transfers
+      SET starts_at = starts_at - make_interval(secs => ${ms / 1000}),
+          ends_at = ends_at - make_interval(secs => ${ms / 1000}),
+          next_run_at = next_run_at - make_interval(secs => ${ms / 1000})
+      WHERE id = ${id}::uuid AND status = 'active'
+      RETURNING starts_at, next_run_at
+    `,
+    );
+    const row = rows[0];
+    return row ? { startsAt: iso(row.starts_at), nextRunAt: iso(row.next_run_at) } : null;
   };
 }

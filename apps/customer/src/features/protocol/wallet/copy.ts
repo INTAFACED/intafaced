@@ -208,6 +208,9 @@ const en = {
   reviewSend: 'Send',
   sendSent: 'Sent to the network. Transaction {hash}.',
   sendRejected: 'You cancelled in your wallet. Nothing was sent.',
+  sendFeeWaiting: 'Network fee: waiting for the network to include it.',
+  sendFeeKnown: 'Network fee: {fee} {symbol}, read from the network once it was included.',
+  sendFeeUnknown: 'Network fee: not known. The network did not report it to your wallet.',
   // Receive
   receiveTitle: 'Receive',
   receiveNote: 'Share this address or let the other person scan the code.',

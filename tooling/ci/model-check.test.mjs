@@ -1,6 +1,7 @@
 /**
  * model-check.mjs on the repo's own tree and on planted trees: every model is found, the two that were never wired
- * (ReceivedHold, RewardPay) included; a change to a modelled service, to a path a COVERS.md names, or to the check
+ * (ReceivedHold, RewardPay) included; a change to a modelled service, to a services/ or packages/ path a COVERS file
+ * names, or to the check
  * itself runs every model; any other change runs none; a model no check.sh would run fails the plan by name. The last
  * test reads the workflow: every pull request gets the plan, and each model's run must show a broken version failing.
  * Run by tooling/scripts/tooling-tests.mjs.
@@ -59,8 +60,41 @@ test('a change to a modelled service runs every model', () => {
 });
 
 test("a path outside the service that a model's COVERS.md names runs the models; its neighbours do not", () => {
-  assert.equal(plan(ROOT, ['services/svc-matching/src/engine/book.ts']).run, true);
-  assert.equal(plan(ROOT, ['services/svc-matching/README.md']).run, false);
+  assert.equal(plan(ROOT, ['crates/svc-matching/src/book/order_book.rs']).run, true);
+  assert.equal(plan(ROOT, ['crates/svc-matching/README.md']).run, false);
+});
+
+test('project-state#3019: a shared package file a COVERS file names runs the models; its neighbours do not', () => {
+  // OneHold's PaysOnce and its capped release rest on keys the ledger recipes build, ReceivedHold's HoldOnce and
+  // RewardPay's BookedOnce likewise: a change there must re-check the models, though no service file changed.
+  for (const path of [
+    'packages/ledger-client/src/recipes/index.ts',
+    'packages/ledger-client/src/recipes/pay-received-hold.ts',
+    'packages/ledger-client/src/recipes/reward-owed.ts',
+  ]) {
+    const p = plan(ROOT, [path]);
+    assert.equal(p.run, true, path);
+    assert.match(p.reasons.join('\n'), /COVERS\.md names it/, path);
+  }
+  assert.equal(plan(ROOT, ['packages/ledger-client/README.md']).run, false);
+  // A <name>-COVERS.md counts as much as COVERS.md.
+  const dir = scratch({
+    'services/svc-a/model/A.tla': '',
+    'services/svc-a/model/check.sh': '',
+    'services/svc-a/model/A-COVERS.md': 'Covers `packages/p/src/k.ts`.',
+    'packages/p/src/k.ts': '',
+  });
+  try {
+    assert.equal(plan(dir, ['packages/p/src/k.ts']).run, true);
+    const gone = plan(dir, ['docs/x.md'], {
+      files: ['services/svc-a/model/A.tla', 'services/svc-a/model/check.sh', 'services/svc-a/model/A-COVERS.md'],
+    });
+    assert.deepEqual(gone.errors, [
+      'services/svc-a/model/A-COVERS.md names packages/p/src/k.ts, which is gone: the model no longer covers it; fix A-COVERS.md or the model',
+    ]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('the check itself runs the models', () => {
@@ -154,7 +188,7 @@ test('the workflow plans every pull request and needs a broken version failing i
   const yml = readFileSync(join(ROOT, '.github/workflows/model-check.yml'), 'utf8');
   const on = yml.slice(yml.indexOf('\non:\n'), yml.indexOf('\npermissions:'));
   assert.match(on, /\n {2}pull_request:\n {2}push:/, 'pull_request has no path filter: the plan decides');
-  for (const p of ['services/**', ...SELF]) assert.ok(on.includes(`- ${p}\n`), `push to main watches ${p}`);
+  for (const p of ['services/**', 'packages/**', ...SELF]) assert.ok(on.includes(`- ${p}\n`), `push to main watches ${p}`);
   assert.match(yml, /node tooling\/ci\/model-check\.mjs plan/);
   assert.match(yml, /matrix:\n\s+model: \$\{\{ fromJSON\(needs\.plan\.outputs\.models\) \}\}/);
   assert.match(yml, /violated as it should be/);

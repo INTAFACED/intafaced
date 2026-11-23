@@ -1,5 +1,5 @@
 /**
- * Where a person stands on the launch model (OWNER 226; J-home-ia-01 #1 #3, J-wallet-01): the one rule Home and Assets
+ * Where a person stands on the launch model (J-home-ia-01 #1 #3, J-wallet-01): the one rule Home and Assets
  * both value holdings by, so the two rooms show the same figures to the digit.
  *
  * What a person holds sits in up to three places, each read from its own source with that source's as-of time: their
@@ -18,12 +18,20 @@
 import { div, formatAmount, mul, parseAmount, sum, type Amount } from '@intafaced/money-math';
 import type { ValuationPrices } from '@intafaced/contracts/valuation-prices';
 
+/**
+ * A part's figure is stale once its source's own time is more than 30 s old: ten of the rooms' 3 s reads
+ * (`standing-data.ts`), the limit the trade rooms hold prices to.
+ */
+export const STANDING_STALE_AFTER_MS = 30_000;
+
 export type PartId = 'wallet' | 'venue' | 'partner';
 
 /** One holding as its source reports it. */
 export interface SourceRow {
   asset: string;
   amount: string;
+  /** A row a source holds apart from its plain balance of `asset` (a venue vault position, `vault:<address>`). */
+  key?: string;
 }
 
 /** What one source answered: still reading, could not be read, or its rows as of its own time. */

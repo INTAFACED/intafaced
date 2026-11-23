@@ -17,7 +17,10 @@ import {
   serviceAuthHeadersForBody,
   type Keyring,
 } from '@intafaced/contracts';
-import { SBE_STATUS_PATH, SbeConsumers, registerSbeStatusDoor } from './sbe-consumers.js';
+import { WS_SBE_CONSUMERS } from '@intafaced/contracts/ws-procedures';
+import { SbeConsumers, registerSbeStatusDoor } from './sbe-consumers.js';
+
+const SBE_STATUS_PATH = WS_SBE_CONSUMERS.path;
 import { TradeHub } from './trade/hub.js';
 import { createWebSocketGateway, type WebSocketGateway } from './ws/gateway.js';
 

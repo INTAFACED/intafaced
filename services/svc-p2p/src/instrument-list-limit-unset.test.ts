@@ -61,16 +61,4 @@ describe('instruments.list limit unset refuse', () => {
     expect(fn).not.toMatch(/limit = 50/);
     expect(fn).not.toMatch(/\?\? 50/);
   });
-
-  it('router does not invent 50 when instruments.list omits limit', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-p2p/src/router.ts'), 'utf8');
-    const call = src.indexOf('instruments.listInstruments(');
-    expect(call).toBeGreaterThan(-1);
-    const fn = src.slice(Math.max(0, call - 900), call + 200);
-    expect(fn).toContain('listInstruments(ctx.principal.userId, input?.includeRemoved === true, input?.limit)');
-    expect(fn).toContain('p2p.instrument_list_limit_unset');
-    expect(fn).not.toMatch(/input\?\.limit \?\? 50/);
-    expect(fn).not.toMatch(/\?\? 50/);
-    expect(fn).not.toMatch(/\?\? 200/);
-  });
 });

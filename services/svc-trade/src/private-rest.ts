@@ -13,7 +13,8 @@ import { attachAlgoRestRoutes, type AlgoRestPort } from './algo/algo-rest.js';
 import { attachRfqExportRoute } from './otc/rfq-history-rest.js';
 import { attachIcebergDisplay, readRawDisplayQty, TRADE_ICEBERG_DISPLAY_INVALID, type IcebergDisplayStore } from './spot/iceberg-door.js';
 import { checkAccess } from '@intafaced/config';
-import { createEdgeContext, type Context, type EdgeRequest } from '@intafaced/contracts';
+import type { Context, EdgeRequest } from '@intafaced/contracts';
+import { createEdgeContext } from '@intafaced/contracts/edge';
 import { createOrderRequestSchema, type CreateOrderRequest } from '@intafaced/exchange-contract';
 import {
   ZERO,
@@ -117,6 +118,7 @@ import type { AgentAccounts } from './venue/agent-account.js';
 import type { AgentOrders } from './venue/agent-orders.js';
 import type { UserVenueRouter } from './venue/venue-router.js';
 import type { VenueSellQuotes } from './venue/venue-sell-quotes.js';
+import type { VenueConverts } from './venue/venue-convert.js';
 import type { GridService } from './grid/grid-service.js';
 
 /**
@@ -251,6 +253,8 @@ export interface PrivateRestDeps {
   liveRuns?: LiveRuns | null;
   /** Convert's sell quotes priced by the venue (J-cex-spot-17 #8); absent with the door. */
   venueSellQuotes?: VenueSellQuotes | null;
+  /** Convert on the customer's own venue account (J-cex-spot-11); absent, its routes refuse `trade.venue_convert_unwired`. */
+  venueConverts?: VenueConverts | null;
   /** The statement export on the venue's own records (J-cex-spot-07 #5). Absent: its routes answer 503. */
   venueStatements?: VenueStatements | null;
   /** Each person's acknowledged version of a venue's auto-deleveraging rules (J-derivatives-07 #5). */
@@ -305,7 +309,7 @@ export interface PrivateRestDeps {
   orderFills?(principal: Principal, orderId: string, limit: number): Promise<FillRecord[]>;
   /**
    * Every fill of several of the caller's orders, keyed by order id, so an order's `cost`, `average` and `fee` are what
-   * its fills paid (#4677). Unset: the order wire keeps its price × filled estimate.
+   * its fills paid. Unset: the order wire keeps its price × filled estimate.
    */
   ordersFills?(principal: Principal, orderIds: readonly string[]): Promise<ReadonlyMap<string, readonly FillRecord[]>>;
   /** Every amend and replace of one order, oldest first. Unset mounts a typed 503, never an empty list. */
@@ -482,10 +486,10 @@ export interface PrivateRestDeps {
  * FIELDS A CALLER MAY NOT SET, BECAUSE THEY MOVE MONEY.
  *
  * `docs/adr/2026-08-05-futures-risk-and-mark-law.md`: a price that moves money
- * is never supplied by the party it pays. These used to be read straight off the
+ * is never supplied by the party it pays. Were these read straight off the
  * request — `entryPrice` from the POST body, `exitPrice` from the DELETE query —
- * and `exitPrice` alone decided the realised PnL that `futuresRealizeProfit`
- * then paid out of a house pot.
+ * `exitPrice` alone would decide the realised PnL that `futuresRealizeProfit`
+ * then pays out of a house pot.
  *
  * Presence is REFUSED, not ignored. Silently substituting the real mark would
  * give a caller different behaviour from the one they asked for and no way to
@@ -642,7 +646,7 @@ export function presentCcxtOrderCost(order: OrderRecord, fills?: readonly Pick<F
 }
 
 /**
- * What an order's fills paid (#4677): `cost` Σ quote, `average` cost ÷ filled, `fee` Σ fee when every fill paid it in
+ * What an order's fills paid: `cost` Σ quote, `average` cost ÷ filled, `fee` Σ fee when every fill paid it in
  * one asset (else null, with each asset's sum in `fees`). Fills that do not add up to the order's filled quantity (a
  * fill not yet landed) state nothing: all null, never a partial sum. `null` fills (a failed read) state nothing too.
  */
@@ -671,7 +675,7 @@ export function presentCcxtOrderPaid(
 }
 
 /**
- * The caller's fills of these orders, read once, so the wire states what each order paid (#4677). No reader: undefined
+ * The caller's fills of these orders, read once, so the wire states what each order paid. No reader: undefined
  * (the wire keeps its estimate). A failed read states nothing rather than failing the orders read: each filled order's
  * cost, average and fee read null.
  */
@@ -1478,7 +1482,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
   const agentKeyConfined = agentOrders ? (p: Principal) => agentOrders.confined(p) : undefined;
   attachUserVenueRoutes(app, deps.userVenue ?? null, {
     requirePrincipal,
-    // The venue holds the person's own funds, not ours: the trading checks' clear (`trd`) opens it, as OWNER 258 (4)
+    // The venue holds the person's own funds, not ours: the trading checks' clear (`trd`) opens it, as the owner
     // decided. Every custodial route above keeps reading the approved level alone.
     requireTradeJurisdiction: (req, reply, principal) => requireTradeJurisdiction(req, reply, principal, tradeTier(principal)),
     // J-derivatives-01 #2: the same region and level check, read as a reason on the gated list instead of a refusal.
@@ -1489,6 +1493,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     slippageCapBps: deps.userVenueSlippageCapBps ?? null,
     spreadLimitBps: deps.userVenueSpreadLimitBps ?? null,
     sellQuotes: deps.venueSellQuotes ?? null,
+    converts: deps.venueConverts ?? null,
     venueStatements: deps.venueStatements ?? null,
     venueAdlAcks: deps.venueAdlAcks ?? null,
     builderFeesOf: deps.venueBuilderFees ?? null,
@@ -2283,8 +2288,8 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
   /**
    * Close a position at the CURRENT MARK.
    *
-   * `?exitPrice=` used to be required here and was the whole realised PnL — the
-   * trader named the number the platform paid them. It is now refused.
+   * `?exitPrice=` is refused: were it read, it would be the whole realised PnL —
+   * the trader would name the number the platform paid them.
    */
   app.delete<{ Params: { id: string }; Querystring: Record<string, string | undefined> }>(
     '/api/v1/positions/:id',
@@ -3012,7 +3017,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         if (wire.executionOutcome !== null) {
           results.push({ ...base, status: 'unknown', order: wire, evidence: wire.executionOutcome });
         } else if (order.status === 'open' || order.status === 'pending' || order.status === 'recovery_required') {
-          // The order stays with its hold until a fill the engine matched lands (#6874): not a success to re-place on.
+          // The order stays with its hold until a fill the engine matched lands: not a success to re-place on.
           results.push({
             ...base,
             status: 'unknown',

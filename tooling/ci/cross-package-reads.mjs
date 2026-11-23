@@ -146,6 +146,23 @@ export function detectedEdges(root = ROOT) {
   return out;
 }
 
+/**
+ * Reads of paths outside the workspace packages, as the edge-list shape: `{ "<reader dir>": ["<path>", ...] }`, a test
+ * reading `<path>` when its code (comments stripped) names it: a folder (`tooling/lint/`) by its path, a file by its
+ * name. The affected-test selection runs these readers when such a path changes (ci-affected.mjs isGateOnlyTooling).
+ */
+export function pathReadEdges(paths, root = ROOT) {
+  const needles = paths.map((p) => [p, p.endsWith('/') ? p.slice(0, -1) : p.split('/').pop()]);
+  const out = {};
+  for (const pkg of loadPackages(root).values()) {
+    for (const file of walk(join(root, pkg.dir))) {
+      const text = stripComments(readFileSync(file, 'utf8'));
+      for (const [path, needle] of needles) if (text.includes(needle) && !(out[pkg.dir] ??= []).includes(path)) out[pkg.dir].push(path);
+    }
+  }
+  return out;
+}
+
 /** Every read: the declared edges plus what the scan finds. The affected-test selection (ci-affected.mjs) uses this too. */
 export function allEdges(root = ROOT) {
   const out = {};
@@ -358,9 +375,17 @@ export function turboReadInputs(root = ROOT) {
       const extra = new Set();
       for (const d of reads) for (const x of [d, ...closure(d)]) if (!own.has(x)) extra.add(x);
       if (!extra.size && !outside.inputs[task].size) continue;
-      const { inputs = ['$TURBO_DEFAULT$'], ...generic } = turbo.tasks[task];
+      const { inputs = ['$TURBO_DEFAULT$'], dependsOn = [], ...generic } = turbo.tasks[task];
+      // A package read outside the reader's own tree resolves to its built dist (its `exports` types): `^build` does
+      // not build it first, so the reader waits for its build by name (admin's tsc reached @intafaced/ledger-client
+      // through a service source its tests import, and ran before that dist existed). A package dependency would do
+      // it too, but makes the reader money code when the package is ledger-client.
+      const built = [...extra]
+        .filter((d) => d.startsWith('packages/') && pkgs.get(d)?.scripts.build)
+        .map((d) => `${pkgs.get(d).name}#build`);
       entries[`${pkg.name}#${task}`] = {
         ...generic,
+        dependsOn: [...dependsOn, ...built.sort()],
         inputs: [
           ...inputs,
           ...[...extra].sort().map((d) => `$TURBO_ROOT$/${d}/**`),

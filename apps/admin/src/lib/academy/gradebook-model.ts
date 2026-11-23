@@ -1,6 +1,6 @@
 import type { AcademyCourseGradebook } from '@intafaced/contracts/academy-course-gradebook';
 import type { AcademyGradeReport, AcademyGradeReports } from '@intafaced/contracts/academy-grade-reports';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 
 /**
  * A course's grading policy and gradebook on the founder console (AC-assignments-04). Pure, so the

@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { useApi } from '../../session/session';
+import { useApi } from '../../session';
 import { createProtocolApi } from '../api';
 import { isRegionBlocked } from '../region';
 import { RepresentationPanel } from '../wallet/RepresentationPanel';

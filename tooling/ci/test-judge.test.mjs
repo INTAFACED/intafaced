@@ -888,7 +888,7 @@ test('planted (U4): a journey step file whose step no longer checks its words fa
   assert.equal(prompt.match(/^BEGIN UNTRUSTED DIFF$/gm).length, 1);
   assert.equal(prompt.match(/^END UNTRUSTED DIFF$/gm).length, 1);
   assert.deepEqual(JSON.parse(readFileSync(join(dir, 'schema.json'), 'utf8')), COMBINED_SCHEMA);
-  assert.deepEqual(COMBINED_SCHEMA.required, ['verdict', 'findings', 'tests']);
+  assert.deepEqual(COMBINED_SCHEMA.required, ['verdict', 'findings', 'cleared', 'tests']);
   assert.deepEqual(COMBINED_SCHEMA.properties.tests, JUDGE_SCHEMA);
 
   const answer = (tests, review = { verdict: 'PASS', findings: [] }) => {
@@ -943,7 +943,7 @@ test('U4 (#1819): the combined call with look-baseline images streams the same p
     ...realBriefs(),
     images,
   });
-  assert.match(said, /one call for the review and the test part .*; 1 look-baseline image\(s\) attached$/);
+  assert.match(said, /one call for the review and the test part .*; 1 image\(s\) attached$/);
   assert.ok(existsSync(join(dir, 'combined')));
   assert.deepEqual(JSON.parse(readFileSync(join(dir, 'schema.json'), 'utf8')), COMBINED_SCHEMA);
   const prompt = readFileSync(join(dir, 'prompt.txt'), 'utf8');

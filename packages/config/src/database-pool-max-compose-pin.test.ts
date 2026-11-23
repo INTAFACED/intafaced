@@ -18,9 +18,9 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { EnvError, loadEnv, postgresEnvSchema } from './env.js';
 
 const COMPOSE = resolve(import.meta.dirname, '../../../docker-compose.apps.yml');
-const ENV_SRC = resolve(import.meta.dirname, './env.ts');
 const NAME = 'DATABASE_POOL_MAX';
 const EMPTY_PASS = `${NAME}: \${${NAME}:-}`;
 
@@ -37,14 +37,20 @@ function countAssignments(source: string, name: string): number {
 
 describe('compose DATABASE_POOL_MAX via *service-env', () => {
   const compose = readFileSync(COMPOSE, 'utf8');
-  const envSrc = readFileSync(ENV_SRC, 'utf8');
   const anchor = serviceEnvAnchor(compose);
 
-  it('env.ts refuses blank pool size — no 10 default', () => {
-    expect(envSrc).not.toMatch(/DATABASE_POOL_MAX:[\s\S]{0,400}\.default\(10\)/);
-    expect(envSrc).toMatch(
-      /DATABASE_POOL_MAX:\s*z\.preprocess\(\s*\(v\) => \(v === undefined \|\| \(typeof v === 'string' && v\.trim\(\) === ''\) \? undefined : v\),\s*z\.coerce\.number\(\)\.int\(\)\.min\(1\)\.max\(200\),\s*\)/,
-    );
+  it('postgresEnvSchema refuses a blank pool size and invents no 10', () => {
+    const url = 'postgres://u:p@localhost:5432/db';
+    for (const blank of [undefined, '', '   ']) {
+      const source = blank === undefined ? { DATABASE_URL: url } : { DATABASE_URL: url, [NAME]: blank };
+      expect(() => loadEnv(postgresEnvSchema, source), `${NAME}=${String(blank)}`).toThrow(EnvError);
+    }
+    for (const bad of ['0', '201', '2.5', 'ten']) {
+      expect(() => loadEnv(postgresEnvSchema, { DATABASE_URL: url, [NAME]: bad }), `${NAME}=${bad}`).toThrow(EnvError);
+    }
+    expect(loadEnv(postgresEnvSchema, { DATABASE_URL: url, [NAME]: '1' })[NAME]).toBe(1);
+    expect(loadEnv(postgresEnvSchema, { DATABASE_URL: url, [NAME]: '200' })[NAME]).toBe(200);
+    expect(loadEnv(postgresEnvSchema, { DATABASE_URL: url, [NAME]: ' 7 ' })[NAME]).toBe(7);
   });
 
   it('x-service-env compose line is empty pass-through — no invented 10', () => {

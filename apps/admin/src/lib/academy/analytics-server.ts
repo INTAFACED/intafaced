@@ -1,18 +1,23 @@
 import 'server-only';
+import type { AcademyReportCentreFile } from '@intafaced/contracts/academy-analytics';
 import {
-  academyLearnerSummariesSchema,
-  academyOpsMetricsSchema,
-  academyReportDeletedSchema,
-  academyReportCentreFileSchema,
-  academyReportTaskInputSchema,
-  academyReportCentreTaskSchema,
-  academyReportCentreTasksSchema,
-  academyRequestReportInputSchema,
-  type AcademyReportCentreFile,
-} from '@intafaced/contracts/academy-analytics';
-import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
-import { partFrom, type PartLabels } from '@/lib/desk/part';
-import { explainRefusal, type RefusalView } from '@/lib/desk/refusal-copy';
+  ACADEMY_ADMIN_ABORT_REPORT,
+  ACADEMY_ADMIN_DELETE_REPORT,
+  ACADEMY_ADMIN_LEARNER_SUMMARIES,
+  ACADEMY_ADMIN_OPS_METRICS,
+  ACADEMY_ADMIN_REPORT_CENTRE_FILE,
+  ACADEMY_ADMIN_REPORT_CENTRE_TASKS,
+  ACADEMY_ADMIN_REQUEST_REPORT,
+} from '@intafaced/contracts/academy-admin-procedures';
+import {
+  founderRecordCall,
+  type FounderCallContext,
+  type FounderCallResult,
+  partFrom,
+  type PartLabels,
+  explainRefusal,
+  type RefusalView,
+} from '@/lib/desk';
 import { activityWindow, type AnalyticsView, type ReportsDeskReply, type ReportsView } from './analytics-model';
 
 /**
@@ -87,33 +92,22 @@ const ACADEMY: PartLabels = {
   refusedMessage: (code) => (code ? analyticsRefusal(code, 409).body : null),
 };
 
-const readMetrics = parseWith(academyOpsMetricsSchema);
-const readSummaries = parseWith(academyLearnerSummariesSchema);
-const readTasks = parseWith(academyReportCentreTasksSchema);
-const readTask = parseWith(academyReportCentreTaskSchema);
-const readDeleted = parseWith(academyReportDeletedSchema);
-const readFile = parseWith(academyReportCentreFileSchema);
-
 export async function loadAnalytics(
   ctx: FounderCallContext,
   input: { tag: string | null; after: string | null; now: Date },
 ): Promise<AnalyticsView> {
   const [activity, summaries] = await Promise.all([
-    founderCall(ctx, 'academy', 'admin.opsMetrics', 'GET', activityWindow(input.now), readMetrics),
-    founderCall(
-      ctx,
-      'academy',
-      'admin.learnerSummaries',
-      'GET',
-      { ...(input.tag ? { tag: input.tag } : {}), ...(input.after ? { after: input.after } : {}) },
-      readSummaries,
-    ),
+    founderRecordCall(ctx, ACADEMY_ADMIN_OPS_METRICS, activityWindow(input.now)),
+    founderRecordCall(ctx, ACADEMY_ADMIN_LEARNER_SUMMARIES, {
+      ...(input.tag ? { tag: input.tag } : {}),
+      ...(input.after ? { after: input.after } : {}),
+    }),
   ]);
   return { activity: partFrom(activity, (d) => d, ACADEMY), summaries: partFrom(summaries, (d) => d, ACADEMY), tag: input.tag };
 }
 
 export async function loadReports(ctx: FounderCallContext): Promise<ReportsView> {
-  const tasks = await founderCall(ctx, 'academy', 'admin.reportCentreTasks', 'GET', undefined, readTasks);
+  const tasks = await founderRecordCall(ctx, ACADEMY_ADMIN_REPORT_CENTRE_TASKS, undefined);
   return { tasks: partFrom(tasks, (d) => d, ACADEMY), asOf: new Date().toISOString() };
 }
 
@@ -144,8 +138,8 @@ export async function loadReportFile(
   ctx: FounderCallContext,
   taskId: string,
 ): Promise<{ file: AcademyReportCentreFile } | { status: number; reply: ReportsDeskReply }> {
-  const result = await founderCall(ctx, 'academy', 'admin.reportCentreFile', 'GET', { taskId }, readFile);
-  return result.kind === 'ok' && result.data ? { file: result.data } : refusal(result);
+  const result = await founderRecordCall(ctx, ACADEMY_ADMIN_REPORT_CENTRE_FILE, { taskId });
+  return result.kind === 'ok' ? { file: result.data } : refusal(result);
 }
 
 export type ReportsOp = 'request' | 'abort' | 'delete';
@@ -157,21 +151,21 @@ export async function changeReports(
 ): Promise<{ status: number; reply: ReportsDeskReply } | { why: string }> {
   const { op, ...input } = body;
   if (op === 'request') {
-    const asked = academyRequestReportInputSchema.safeParse(input);
+    const asked = ACADEMY_ADMIN_REQUEST_REPORT.input.safeParse(input);
     if (!asked.success) return { why: 'Which report, which tag (or every learner), and which request number?' };
-    const made = await founderCall(ctx, 'academy', 'admin.requestReport', 'POST', asked.data, readTask);
-    if (made.kind !== 'ok' || !made.data) return refusal(made);
+    const made = await founderRecordCall(ctx, ACADEMY_ADMIN_REQUEST_REPORT, asked.data);
+    if (made.kind !== 'ok') return refusal(made);
     // A retried request for a number already taken answers that task: its time says when it was requested.
     return { status: 200, reply: { ok: true, what: `report request ${made.data.n} taken at ${made.data.requestedAt}`, task: made.data } };
   }
-  const named = academyReportTaskInputSchema.safeParse(input);
+  const named = ACADEMY_ADMIN_ABORT_REPORT.input.safeParse(input);
   if (!named.success) return { why: 'Which report task?' };
   if (op === 'abort') {
-    const done = await founderCall(ctx, 'academy', 'admin.abortReport', 'POST', named.data, readTask);
-    if (done.kind !== 'ok' || !done.data) return refusal(done);
+    const done = await founderRecordCall(ctx, ACADEMY_ADMIN_ABORT_REPORT, named.data);
+    if (done.kind !== 'ok') return refusal(done);
     return { status: 200, reply: { ok: true, what: `report ${done.data.n} aborted; it will have no file`, task: done.data } };
   }
-  const gone = await founderCall(ctx, 'academy', 'admin.deleteReport', 'POST', named.data, readDeleted);
-  if (gone.kind !== 'ok' || !gone.data) return refusal(gone);
+  const gone = await founderRecordCall(ctx, ACADEMY_ADMIN_DELETE_REPORT, named.data);
+  if (gone.kind !== 'ok') return refusal(gone);
   return { status: 200, reply: { ok: true, what: 'report deleted with its file' } };
 }

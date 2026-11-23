@@ -1,4 +1,5 @@
-import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import { z } from 'zod';
 import type { CompetitionFillSource } from './competitions.js';
 
@@ -22,6 +23,7 @@ const fillsSchema = z.object({
         quoteAsset: z.string(),
         notional: decimal,
         builderFee: decimal,
+        feeAsset: z.string().min(1).optional(),
         filledAt: z.string(),
       })
       .passthrough(),

@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import { Button } from '../../shared/ui';
 import { cleanHandle, resolveHandle } from '../../data/identity';
 import { useActivity } from '../../data/activity';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { filterPayees, forgetPayee, identityChanged, readPayees, recentHandles, rememberPayee, type Payee } from './payees';
 import { recipientCopy } from './recipient-copy';
 import './bank-depth.css';
@@ -110,7 +110,7 @@ export function RecipientPicker({ value, onChange }: { value: Payee | null; onCh
         <p>
           <Copy k="changedBody" params={{ handle: moved.handle }} />
         </p>
-        <div className="actions">
+        <div className="lt-actions">
           <Button
             onClick={() => {
               if (userId)
@@ -136,7 +136,7 @@ export function RecipientPicker({ value, onChange }: { value: Payee | null; onCh
           void lookup(text);
         }}
       >
-        <label className="field">
+        <label className="lt-field">
           <span>
             <Copy k="label" />
           </span>
@@ -183,7 +183,7 @@ export function RecipientPicker({ value, onChange }: { value: Payee | null; onCh
               </li>
             ))}
           </ul>
-          <small className="money-caption">
+          <small className="lt-muted">
             <Copy k="savedNote" />
           </small>
         </section>
@@ -203,7 +203,7 @@ export function RecipientPicker({ value, onChange }: { value: Payee | null; onCh
             ))}
           </ul>
         ) : (
-          <small className="money-caption">
+          <small className="lt-muted">
             <Copy k="recentNone" />
           </small>
         )}

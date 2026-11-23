@@ -8,6 +8,7 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { tsImport } from 'tsx/esm/api';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const OXLINT = join(ROOT, 'node_modules', '.bin', 'oxlint');
@@ -116,7 +117,7 @@ import {
   CLAIM_WORDS,
   cataloguePromises,
   claimScope,
-  handSchemaProblem,
+  handSchemaScope,
   portalWords,
   promiseScope,
   screenLiterals,
@@ -193,10 +194,39 @@ test('no-unsealed-claim: the words and cases the deleted marketing-language gate
   assert.equal(claimScope('/home/runner/work/intafaced/packages/i18n/src/locale-files.generated.ts'), true);
   assert.equal(claimScope('packages/i18n/src/i18n.test.ts'), false);
   assert.equal(claimScope('packages/i18n/scripts/build-locale-index.mjs'), false);
-  // The law module (packages/config/src/marketing-language.ts) names the same words and seal.
-  const law = readFileSync(join(ROOT, 'packages', 'config', 'src', 'marketing-language.ts'), 'utf8');
-  assert.match(law, new RegExp(`MARKETING_BAN_WORDS = \\[${CLAIM_WORDS.map((w) => `'${w}'`).join(', ')}\\]`));
-  assert.ok(law.includes("OWNER_SEAL_MARKER = 'OWNER-SEAL(§8.9)'"));
+});
+
+test('no-unsealed-claim: the words and the seal are the law module’s, and both judge every line alike', async () => {
+  // The law module, imported (tsx runs its source, so no build is needed).
+  const law = await tsImport('../../../packages/config/src/marketing-language.ts', import.meta.url);
+  assert.deepEqual(CLAIM_WORDS, [...law.MARKETING_BAN_WORDS]);
+  // The rule's message names this seal: it is the law's marker, and the marker silences both.
+  assert.equal(law.OWNER_SEAL_MARKER, 'OWNER-SEAL(§8.9)');
+  assert.deepEqual(unsealedClaims(`Guaranteed yield ${law.OWNER_SEAL_MARKER}`), []);
+  assert.deepEqual(unsealedClaims('Guaranteed yield', `// ${law.OWNER_SEAL_MARKER}`), []);
+  const lines = [
+    ['Fully audited and insured deposits'],
+    ['guaranteed yield', '// OWNER-SEAL(§8.9)'],
+    ['Guaranteed yield OWNER-SEAL( § 8.9 )'],
+    ['Guaranteed yield owner-seal(8.9)'],
+    ['guaranteed yield OWNER-SEAL(§8.8)'],
+    ['unaudited code'],
+    ['non-insured'],
+    ['never been externally audited'],
+    ['not a guaranteed yield'],
+    ['audited: false'],
+    ["  audited: 'Audit status',"],
+    ['audited: true'],
+    ['Insured, audited, guaranteed.'],
+    ['an auditor reviewed it'],
+    ['nothing to see'],
+  ];
+  for (const [line, previous = ''] of lines)
+    assert.deepEqual(
+      unsealedClaims(line, previous),
+      law.findUnsealedMarketingClaims(line, previous).map((hit) => hit.word),
+      line,
+    );
 });
 
 test('no-promise-copy: every promise the deleted copy-promises test planted is caught', () => {
@@ -252,31 +282,58 @@ test('pay-portal-copy: engineer words in a portal catalogue fire, placeholders d
     assert.deepEqual(portalWords(ok), [], ok);
 });
 
-test('no-hand-schema: the deleted test’s cases', skip, () => {
+test('no-hand-schema: which customer files it reads', () => {
   const screen = `import { z } from 'zod';\nconst s = z.object({ a: z.string() });\nexport const read = (api) => api.query('x', 'y', undefined, s);\n`;
   const f = 'apps/customer/src/features/x/api.ts';
-  assert.notEqual(handSchemaProblem(f, screen), null);
-  assert.notEqual(
-    handSchemaProblem('apps/customer/src/features/x/schemas.ts', `import { z } from 'zod';\nexport const a = z.object({});\n`),
-    null,
-  );
-  assert.equal(handSchemaProblem(f, `import { rankStateSchema } from '@intafaced/contracts/identity';\n${screen}`), null);
-  assert.equal(handSchemaProblem(f, `// hand-declared-ok: svc-x has no schema in packages/contracts\n${screen}`), null);
-  assert.notEqual(handSchemaProblem(f, `// hand-declared-ok:\n${screen}`), null);
+  assert.equal(handSchemaScope(f, screen), true);
+  assert.equal(handSchemaScope('apps/customer/src/features/x/schemas.ts', `export const a = 1;\n`), true);
   assert.equal(
-    handSchemaProblem(
-      'apps/customer/src/features/x/draft.ts',
-      `import { z } from 'zod';\nexport const draft = z.object({ note: z.string() });\n`,
-    ),
-    null,
+    handSchemaScope('apps/customer/src/features/x/draft.ts', `import { z } from 'zod';\nexport const d = z.object({});\n`),
+    false,
   );
-  assert.equal(handSchemaProblem('apps/customer/src/features/x/api.test.ts', screen), null);
-  assert.equal(handSchemaProblem('apps/admin/src/api.ts', screen), null);
-  assert.equal(handSchemaProblem(f, `// z.object({}) in a comment only\nexport const a = 1;\n`), null);
-  const out = lint({ [f]: screen });
-  assert.ok(
-    out.some((l) => l.startsWith(`${f}:2:`) && l.includes('garden(no-hand-schema)') && l.includes('@intafaced/contracts')),
-    out.join('\n'),
+  assert.equal(
+    handSchemaScope('apps/customer/src/features/x/draft.ts', `// api.query('x', 'y') in a comment only\nexport const a = 1;\n`),
+    false,
+  );
+  assert.equal(handSchemaScope('apps/customer/src/features/x/api.test.ts', screen), false);
+  assert.equal(handSchemaScope('apps/customer/src/features/x/api.d.ts', screen), false);
+  assert.equal(handSchemaScope('apps/admin/src/api.ts', screen), false);
+});
+
+test('no-hand-schema: each hand declaration fails on its own, beside a contracts import or an old exemption comment', skip, () => {
+  const f = 'apps/customer/src/features/x/api.ts';
+  const reads = `export const read = (api) => api.query('x', 'y', undefined, s);\n`;
+  const lines = (text) => lint({ [f]: text }).filter((l) => l.includes('garden(no-hand-schema)'));
+  // The deleted test's case: one hand schema in a file that calls the API, reported on its line, naming the fix.
+  const one = lines(`import { z } from 'zod';\nconst s = z.object({ a: z.string() });\n${reads}`);
+  assert.equal(one.length, 1, one.join('\n'));
+  assert.ok(one[0].startsWith(`${f}:2:`) && one[0].includes('@intafaced/contracts'), one[0]);
+  // The first escape: an unrelated contracts import used to excuse the whole file.
+  const beside = lines(
+    `import { z } from 'zod';\nimport { rankStateSchema } from '@intafaced/contracts/identity';\n` +
+      `export const rank = rankStateSchema.pick({ rank: true });\nconst s = z.object({ a: z.string() });\n${reads}`,
+  );
+  assert.equal(beside.length, 1, `a hand schema beside a contracts import still fails: ${beside.join('\n')}`);
+  assert.ok(beside[0].startsWith(`${f}:4:`), beside[0]);
+  // The second escape: a `hand-declared-ok:` comment used to excuse the whole file.
+  const excused = lines(
+    `// hand-declared-ok: svc-x has no schema in packages/contracts\nimport { z } from 'zod';\nconst s = z.object({});\n${reads}`,
+  );
+  assert.equal(excused.length, 1, `the old exemption comment excuses nothing: ${excused.join('\n')}`);
+  // Each outermost declaration counts once; one nested inside another is part of it.
+  const many = lines(
+    `import { z } from 'zod';\nconst s = z.object({ a: z.object({ b: z.string() }) });\n` +
+      `const t = z.array(z.object({ c: z.string() }));\nconst u = z.discriminatedUnion('k', [z.object({ k: z.literal('a') })]);\n${reads}`,
+  );
+  assert.deepEqual(
+    many.map((l) => l.split(':')[1]),
+    ['2', '3', '4'],
+    many.join('\n'),
+  );
+  // Narrowing a contracts schema declares nothing.
+  assert.deepEqual(
+    lines(`import { rankStateSchema } from '@intafaced/contracts/identity';\nconst s = rankStateSchema.extend({});\n${reads}`),
+    [],
   );
 });
 
