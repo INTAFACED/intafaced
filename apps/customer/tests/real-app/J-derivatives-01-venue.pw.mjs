@@ -156,6 +156,8 @@ const GOLD = 'XAU-PERP';
 test(`${J} #2 opens the gated list: each contract marked open or blocked for this account with each reason it has, as the venue (its halt), our listing and builder fee, and the account's region and trading level give it`, async ({
   page,
   browser,
+  founders,
+  stepPicture,
 }) => {
   test.setTimeout(900_000);
   const { account } = state();
@@ -230,8 +232,8 @@ test(`${J} #2 opens the gated list: each contract marked open or blocked for thi
     // The step's picture: one contract blocked with each of its reasons beside the open ones.
     await stepPicture();
   } finally {
-    await setVenueRouting(founders.ops(), GOLD, 'show', `LOCAL TEST ${J} #2: route ${GOLD} again`);
     await testVenue('/test/market-status', { symbol: GOLD, status: 'trading' });
+    await setVenueRouting(founders.ops(), GOLD, 'show', `LOCAL TEST ${J} #2: route ${GOLD} again`);
   }
   await expect(gold).toHaveAttribute('data-open', 'true', { timeout: 20_000 });
 
