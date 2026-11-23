@@ -643,235 +643,234 @@ export function Security() {
                 <Copy k={journal.failed ? 'storage' : problem!} />
               </p>
             )}
-            <div>
-              <section data-testid="security__passkeys" id="security-passkeys" aria-label={t('passkeys')}>
-                <div className="lt-toolbar">
-                  <h2>
-                    <Copy k="passkeys" />
-                  </h2>
-                  <Button tone="secondary" disabled={blocked('options')} onClick={() => open('options')}>
-                    <Copy k="add" />
-                  </Button>
-                </div>
-                {resource.status === 'ready' && resource.data.length >= limit && (
-                  <p className="lt-hint">
-                    <Copy k="window" params={{ limit }} />
-                  </p>
-                )}
-                {resource.status === 'loading' ? (
-                  <Loading />
-                ) : resource.status === 'failed' ? (
-                  <div lang="und">
-                    <Failure result={resource.failure} retry={reload} />
-                  </div>
-                ) : resource.data.length === 0 ? (
-                  <div>
-                    <h3>
-                      <Copy k="empty" />
-                    </h3>
-                    <p className="lt-hint">
-                      <Copy k="emptyBody" />
-                    </p>
-                  </div>
-                ) : (
-                  <ul data-testid="security__rows">
-                    {resource.data.map((key) => (
-                      <li key={key.credentialId} data-testid="security__row">
-                        <div>
-                          <time dateTime={key.createdAt} lang={requestedLocale}>
-                            {t('added', { time: stamp(key.createdAt, timeZone) })}
-                          </time>
-                          <span data-testid="security__ref" className="lt-ref" lang="zxx">
-                            {key.credentialId}
-                          </span>
-                          {key.transports && (
-                            <span data-testid="security__ref" className="lt-ref" lang="zxx">
-                              {key.transports.join(', ')}
-                            </span>
-                          )}
-                        </div>
-                        <Button
-                          tone="secondary"
-                          disabled={blocked('remove')}
-                          aria-label={t('reviewCredential', { id: key.credentialId })}
-                          onClick={() => open('remove', key)}
-                        >
-                          <Copy k="reviewRemoval" />
-                        </Button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                <div className="lt-actions">
-                  <Button tone="secondary" onClick={reload}>
-                    <Copy k="refresh" />
-                  </Button>
-                  {resource.status === 'ready' && resource.data.length >= limit ? (
-                    limit < 200 ? (
-                      <Button tone="quiet" onClick={() => setLimit((value) => Math.min(200, value + 50))}>
-                        <Copy k="expand" />
-                      </Button>
-                    ) : (
-                      <p className="lt-hint">
-                        <Copy k="maximum" />
-                      </p>
-                    )
-                  ) : null}
-                </div>
-              </section>
-              <section data-testid="security__authenticator" id="security-authenticator" aria-label={t('authenticator')}>
-                <h2 ref={authenticatorHeading} tabIndex={-1}>
-                  <Copy k="authenticator" />
+            {/* No wrapper: each part is its own card in the settings template (issue 10307). */}
+            <section data-testid="security__passkeys" id="security-passkeys" aria-label={t('passkeys')}>
+              <div className="lt-toolbar">
+                <h2>
+                  <Copy k="passkeys" />
                 </h2>
-                <p>
-                  <Copy k="authenticatorBody" />
+                <Button tone="secondary" disabled={blocked('options')} onClick={() => open('options')}>
+                  <Copy k="add" />
+                </Button>
+              </div>
+              {resource.status === 'ready' && resource.data.length >= limit && (
+                <p className="lt-hint">
+                  <Copy k="window" params={{ limit }} />
                 </p>
-                <p className="lt-sr" data-testid="security__announcement" role="status" aria-live="polite" aria-atomic="true">
-                  {visibleSetup && !codesShown ? <Copy k="setupReady" /> : null}
-                </p>
-                {visibleSetup ? (
+              )}
+              {resource.status === 'loading' ? (
+                <Loading />
+              ) : resource.status === 'failed' ? (
+                <div lang="und">
+                  <Failure result={resource.failure} retry={reload} />
+                </div>
+              ) : resource.data.length === 0 ? (
+                <div>
+                  <h3>
+                    <Copy k="empty" />
+                  </h3>
+                  <p className="lt-hint">
+                    <Copy k="emptyBody" />
+                  </p>
+                </div>
+              ) : (
+                <ul data-testid="security__rows">
+                  {resource.data.map((key) => (
+                    <li key={key.credentialId} data-testid="security__row">
+                      <div>
+                        <time dateTime={key.createdAt} lang={requestedLocale}>
+                          {t('added', { time: stamp(key.createdAt, timeZone) })}
+                        </time>
+                        <span data-testid="security__ref" className="lt-ref" lang="zxx">
+                          {key.credentialId}
+                        </span>
+                        {key.transports && (
+                          <span data-testid="security__ref" className="lt-ref" lang="zxx">
+                            {key.transports.join(', ')}
+                          </span>
+                        )}
+                      </div>
+                      <Button
+                        tone="secondary"
+                        disabled={blocked('remove')}
+                        aria-label={t('reviewCredential', { id: key.credentialId })}
+                        onClick={() => open('remove', key)}
+                      >
+                        <Copy k="reviewRemoval" />
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="lt-actions">
+                <Button tone="secondary" onClick={reload}>
+                  <Copy k="refresh" />
+                </Button>
+                {resource.status === 'ready' && resource.data.length >= limit ? (
+                  limit < 200 ? (
+                    <Button tone="quiet" onClick={() => setLimit((value) => Math.min(200, value + 50))}>
+                      <Copy k="expand" />
+                    </Button>
+                  ) : (
+                    <p className="lt-hint">
+                      <Copy k="maximum" />
+                    </p>
+                  )
+                ) : null}
+              </div>
+            </section>
+            <section data-testid="security__authenticator" id="security-authenticator" aria-label={t('authenticator')}>
+              <h2 ref={authenticatorHeading} tabIndex={-1}>
+                <Copy k="authenticator" />
+              </h2>
+              <p>
+                <Copy k="authenticatorBody" />
+              </p>
+              <p className="lt-sr" data-testid="security__announcement" role="status" aria-live="polite" aria-atomic="true">
+                {visibleSetup && !codesShown ? <Copy k="setupReady" /> : null}
+              </p>
+              {visibleSetup ? (
+                <div>
                   <div>
-                    <div>
-                      <h3 ref={setupHeading} tabIndex={-1}>
-                        <Copy k="continue" />
+                    <h3 ref={setupHeading} tabIndex={-1}>
+                      <Copy k="continue" />
+                    </h3>
+                    {!codesShown && (
+                      <p className="lt-hint" aria-hidden="true">
+                        <Copy k="setupReady" />
+                      </p>
+                    )}
+                  </div>
+                  {!codesShown && (
+                    <>
+                      <p>
+                        <Copy k="setupBody" />
+                      </p>
+                      <Button tone="secondary" onClick={() => setShowKey((value) => !value)}>
+                        <Copy k={showKey ? 'hideKey' : 'showKey'} />
+                      </Button>
+                      {showKey && (
+                        <div data-security-sensitive="true">
+                          <Field label={t('setupKey')} lang="zxx" readOnly autoComplete="off" value={visibleSetup.data.secret} />
+                          <details>
+                            <summary>
+                              <Copy k="uri" />
+                            </summary>
+                            <code data-testid="security__ref" className="lt-ref" lang="zxx">
+                              {visibleSetup.data.uri}
+                            </code>
+                          </details>
+                        </div>
+                      )}
+                      <form onSubmit={(event) => void confirmSetup(event)}>
+                        <Field
+                          label={t('code')}
+                          name="security-totp-confirm"
+                          inputMode="numeric"
+                          pattern="[0-9]{6}"
+                          required
+                          autoComplete="one-time-code"
+                          value={code}
+                          onChange={(event) => setCode(event.target.value)}
+                          data-security-sensitive="true"
+                        />
+                        <Button tone="primary" type="submit" disabled={blocked('confirm')}>
+                          <Copy k="confirm" />
+                        </Button>
+                      </form>
+                    </>
+                  )}
+                  {visibleSetup.confirmed && (
+                    <p data-testid="notice" className="lt-hint" role="status">
+                      <Copy k="confirmationAccepted" />
+                    </p>
+                  )}
+                  {codesShown && (
+                    // Shown once, after the authenticator works. "I saved them" drops the codes and the setup key from
+                    // this page; nothing here is ever written to storage.
+                    <div data-testid="security__recovery" data-security-sensitive="true">
+                      <h3>
+                        <Copy k="recoveryTitle" />
                       </h3>
-                      {!codesShown && (
-                        <p className="lt-hint" aria-hidden="true">
-                          <Copy k="setupReady" />
+                      {!visibleSetup.confirmed && (
+                        <p data-testid="notice" className="lt-hint" role="status">
+                          <Copy k="recoveryUnknown" />
                         </p>
                       )}
-                    </div>
-                    {!codesShown && (
-                      <>
-                        <p>
-                          <Copy k="setupBody" />
-                        </p>
-                        <Button tone="secondary" onClick={() => setShowKey((value) => !value)}>
-                          <Copy k={showKey ? 'hideKey' : 'showKey'} />
-                        </Button>
-                        {showKey && (
-                          <div data-security-sensitive="true">
-                            <Field label={t('setupKey')} lang="zxx" readOnly autoComplete="off" value={visibleSetup.data.secret} />
-                            <details>
-                              <summary>
-                                <Copy k="uri" />
-                              </summary>
-                              <code data-testid="security__ref" className="lt-ref" lang="zxx">
-                                {visibleSetup.data.uri}
-                              </code>
-                            </details>
-                          </div>
-                        )}
-                        <form onSubmit={(event) => void confirmSetup(event)}>
-                          <Field
-                            label={t('code')}
-                            name="security-totp-confirm"
-                            inputMode="numeric"
-                            pattern="[0-9]{6}"
-                            required
-                            autoComplete="one-time-code"
-                            value={code}
-                            onChange={(event) => setCode(event.target.value)}
-                            data-security-sensitive="true"
-                          />
-                          <Button tone="primary" type="submit" disabled={blocked('confirm')}>
-                            <Copy k="confirm" />
-                          </Button>
-                        </form>
-                      </>
-                    )}
-                    {visibleSetup.confirmed && (
-                      <p data-testid="notice" className="lt-hint" role="status">
-                        <Copy k="confirmationAccepted" />
+                      <p>
+                        <Copy k="recoveryOnce" />
                       </p>
-                    )}
-                    {codesShown && (
-                      // Shown once, after the authenticator works. "I saved them" drops the codes and the setup key from
-                      // this page; nothing here is ever written to storage.
-                      <div data-testid="security__recovery" data-security-sensitive="true">
-                        <h3>
-                          <Copy k="recoveryTitle" />
-                        </h3>
-                        {!visibleSetup.confirmed && (
-                          <p data-testid="notice" className="lt-hint" role="status">
-                            <Copy k="recoveryUnknown" />
-                          </p>
-                        )}
-                        <p>
-                          <Copy k="recoveryOnce" />
-                        </p>
-                        <ul data-testid="recovery-codes" className="lt-mono">
-                          {visibleSetup.data.recoveryCodes.map((value) => (
-                            <li key={value} lang="zxx">
-                              {value}
-                            </li>
-                          ))}
-                        </ul>
-                        <Checkbox checked={codesKept} onCheckedChange={setCodesKept}>
-                          <Copy k="recoveryCheck" />
-                        </Checkbox>
-                        <Button tone="primary" disabled={!codesKept} onClick={codesSaved}>
-                          <Copy k="recoverySaved" />
-                        </Button>
-                      </div>
-                    )}
-                    <Button tone="secondary" disabled={blocked('setup')} onClick={() => open('setup')}>
-                      <Copy k="newSetup" />
-                    </Button>
-                  </div>
-                ) : (
-                  <Button tone="primary" disabled={blocked('setup')} onClick={() => open('setup')}>
-                    <Copy k="start" />
-                  </Button>
-                )}
-                <p className="lt-hint">
-                  <Copy k="memory" />
-                </p>
-              </section>
-              <Devices onChanged={() => setSeatVersion((value) => value + 1)} />
-              <CompromiseDeviceReview />
-              <SessionLimits />
-              <TrustedDevices onChanged={() => setSeatVersion((value) => value + 1)} />
-              <PasskeyNames revision={passkeyRevision} />
-              <SigninMethods revision={passkeyRevision} onChanged={methodsChanged} />
-              <AntiPhishing />
-              <Authenticator
-                onChanged={(change) => {
-                  methodsChanged();
-                  // A replace ended the other sessions: the sessions list below reads them again.
-                  if (change?.sessionsEnded) setSeatVersion((value) => value + 1);
-                }}
-              />
-              <ChangePassword onChanged={() => setSeatVersion((value) => value + 1)} />
-              <RecoveryKeys />
-              <SecurityLock />
-              <CompromisedEntry />
-              <FreezeAccount />
-              <CloseAccount />
-              <section data-testid="security__card" id="security-sessions">
-                {sessionBlocked && (
-                  <p className="lt-hint">
-                    <Copy k="blockedSessions" />
-                  </p>
-                )}
-                <fieldset data-testid="security__session-inspection" disabled={sessionBlocked}>
-                  <IdentitySessions key={`${userId}:${seatVersion}:${sessionBlocked ? 'readonly' : 'writable'}`} />
-                </fieldset>
-                {sessionBlocked && (
-                  <Button tone="secondary" onClick={() => setSeatVersion((value) => value + 1)}>
-                    <Copy k="inspectSessions" />
-                  </Button>
-                )}
-                <div>
-                  <p className="lt-hint">
-                    <Copy k="globalBody" />
-                  </p>
-                  <Button tone="secondary" disabled={blocked('logout')} onClick={() => open('logout')}>
-                    <Copy k="globalReview" />
+                      <ul data-testid="recovery-codes" className="lt-mono">
+                        {visibleSetup.data.recoveryCodes.map((value) => (
+                          <li key={value} lang="zxx">
+                            {value}
+                          </li>
+                        ))}
+                      </ul>
+                      <Checkbox checked={codesKept} onCheckedChange={setCodesKept}>
+                        <Copy k="recoveryCheck" />
+                      </Checkbox>
+                      <Button tone="primary" disabled={!codesKept} onClick={codesSaved}>
+                        <Copy k="recoverySaved" />
+                      </Button>
+                    </div>
+                  )}
+                  <Button tone="secondary" disabled={blocked('setup')} onClick={() => open('setup')}>
+                    <Copy k="newSetup" />
                   </Button>
                 </div>
-              </section>
-            </div>
+              ) : (
+                <Button tone="primary" disabled={blocked('setup')} onClick={() => open('setup')}>
+                  <Copy k="start" />
+                </Button>
+              )}
+              <p className="lt-hint">
+                <Copy k="memory" />
+              </p>
+            </section>
+            <Devices onChanged={() => setSeatVersion((value) => value + 1)} />
+            <CompromiseDeviceReview />
+            <SessionLimits />
+            <TrustedDevices onChanged={() => setSeatVersion((value) => value + 1)} />
+            <PasskeyNames revision={passkeyRevision} />
+            <SigninMethods revision={passkeyRevision} onChanged={methodsChanged} />
+            <AntiPhishing />
+            <Authenticator
+              onChanged={(change) => {
+                methodsChanged();
+                // A replace ended the other sessions: the sessions list below reads them again.
+                if (change?.sessionsEnded) setSeatVersion((value) => value + 1);
+              }}
+            />
+            <ChangePassword onChanged={() => setSeatVersion((value) => value + 1)} />
+            <RecoveryKeys />
+            <SecurityLock />
+            <CompromisedEntry />
+            <FreezeAccount />
+            <CloseAccount />
+            <section data-testid="security__card" id="security-sessions">
+              {sessionBlocked && (
+                <p className="lt-hint">
+                  <Copy k="blockedSessions" />
+                </p>
+              )}
+              <fieldset data-testid="security__session-inspection" disabled={sessionBlocked}>
+                <IdentitySessions key={`${userId}:${seatVersion}:${sessionBlocked ? 'readonly' : 'writable'}`} />
+              </fieldset>
+              {sessionBlocked && (
+                <Button tone="secondary" onClick={() => setSeatVersion((value) => value + 1)}>
+                  <Copy k="inspectSessions" />
+                </Button>
+              )}
+              <div>
+                <p className="lt-hint">
+                  <Copy k="globalBody" />
+                </p>
+                <Button tone="secondary" disabled={blocked('logout')} onClick={() => open('logout')}>
+                  <Copy k="globalReview" />
+                </Button>
+              </div>
+            </section>
             {currentResponse &&
               (currentResponse.answer.ok ? (
                 currentResponse.receipt && (
