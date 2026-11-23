@@ -547,3 +547,12 @@
     accent-color: var(--if-lime);
   }
 }
+
+/* A Pay section in Volt: its blocks sit one gap apart, and a sub-section or heading opens a new group, never touching
+   the part before it (#10318). Inline parts inside a block keep their own flow. */
+.pay-volt-section > * + * {
+  margin-block-start: var(--lit-gap-item);
+}
+.pay-volt-section > * + :is(section, h3, details) {
+  margin-block-start: var(--lit-gap-section);
+}

@@ -123,7 +123,7 @@ export function PaySection({
   children: ReactNode;
 }) {
   return (
-    <section data-testid="pay-section">
+    <section data-testid="pay-section" className="pay-volt-section">
       <h2 lang={titleLanguage}>{title}</h2>
       {description && <p className="lt-hint">{description}</p>}
       {action ? <div className="lt-actions">{action}</div> : null}
