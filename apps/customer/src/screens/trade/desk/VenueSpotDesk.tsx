@@ -59,6 +59,7 @@ import { FeeCurrencyRow } from './VenueReviewRows';
 import { DepositDialog, VenueAccountPanel, WithdrawalTracker, WithdrawDialog, flattenable } from './VenueAccountPanel';
 import { VenueSideForm, type TicketHandle } from './VenueSideForm';
 import { PendingCheck } from './VenuePending';
+import { DateInput } from '@intafaced/ui/lit';
 
 export function VenueSpotDesk({
   status,
@@ -367,7 +368,7 @@ export function VenueSpotDesk({
               {type === 'limit' && tif === 'GTD' ? (
                 <label className="dk-tif dk-expiry">
                   <span className="dk-tif-label">{t('Expires')}</span>
-                  <input
+                  <DateInput
                     type="datetime-local"
                     className="dk-expiry-input"
                     value={expiry}
