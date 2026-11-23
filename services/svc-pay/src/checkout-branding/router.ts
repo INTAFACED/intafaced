@@ -1,9 +1,9 @@
 import type { Sql } from 'postgres';
 import { checkoutBrandingSaveInputSchema, checkoutBrandingSavedSchema } from '@intafaced/contracts/merchant-checkout-branding';
-import { router } from '@intafaced/contracts/trpc';
+import { anyScopeProcedure, router } from '@intafaced/contracts/trpc';
 import { MerchantOpsError, wrapOps } from '../merchant-ops/errors.js';
 import { resolveMerchantCaller } from '../merchant-ops/roles.js';
-import { teamMemberWrite } from '../team-member-write.js';
+import { PAY_OR_ONBOARD, teamMemberCheck } from '../team-member-write.js';
 import { CheckoutBrandings } from './branding.js';
 import type { CheckoutLogoRule } from './logo-rules.js';
 import { PAY_MERCHANT_CHECKOUT_BRANDING_GET } from '@intafaced/contracts/pay-merchant-checkout-procedures';
@@ -27,7 +27,8 @@ export function createCheckoutBrandingRouter(deps: CheckoutBrandingMountDeps | u
     if (!brandings || !deps) throw new MerchantOpsError('pay.merchant_ops_unavailable', 'unavailable');
     return { brandings, sql: deps.sql };
   };
-  const write = teamMemberWrite(() => need().sql);
+  const teamMember = teamMemberCheck(() => need().sql);
+  const write = anyScopeProcedure(PAY_OR_ONBOARD, { module: 'pay', check: teamMember });
   const callerOf = (ctx: { principal: { userId: string; kid?: string | undefined; mfa?: boolean; sub_account?: string | undefined } }) =>
     resolveMerchantCaller(need().sql, ctx.principal);
   return router({

@@ -4,6 +4,8 @@ import {
   outsideFundsSchema,
   receivingWalletGetInputSchema,
   receivingWalletSchema,
+  receivingWalletSaveInputSchema,
+  receivingWalletSavedSchema,
 } from './merchant-receiving-wallet.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
@@ -38,6 +40,24 @@ export const PAY_MERCHANT_RECEIVING_WALLET_OUTSIDE_FUNDS = defineProcedure({
   output: outsideFundsSchema,
   samples: [
     { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_MERCHANT_RECEIVING_WALLET_SAVE = defineProcedure({
+  ...base,
+  name: 'pay.merchantReceivingWallet.save',
+  kind: 'mutation',
+  path: 'merchantReceivingWallet.save',
+  access: { caller: 'anyScope', scopes: ['pay:write', 'pay:onboard'], module: 'pay', check: 'teamMember' },
+  refusals: {},
+  input: receivingWalletSaveInputSchema,
+  output: receivingWalletSavedSchema,
+  samples: [
+    {
+      verdict: 'accept',
+      input: { requestId: '11111111-1111-4111-8111-111111111111', expectedVersion: 0, family: 'evm', extendedPublicKey: 'USDC' },
+    },
     { verdict: 'refuse', input: 42 },
   ],
 });

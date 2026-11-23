@@ -94,13 +94,15 @@ const BETA_CADENCE_SECONDS = 300;
 /**
  * The environment every stack command of the beta runs with: its slot and its state folder, and the settings of a
  * stack no journey runs on (project-state #3857: idle, the beta used about 1.6 cores): its services record no code
- * reach, and its TEST market re-quotes and its lake captures every BETA_CADENCE_SECONDS.
+ * reach, and its TEST market re-quotes and its lake captures every BETA_CADENCE_SECONDS. Its database keeps crash
+ * durability, so a box restart keeps the testers' accounts (#10352).
  */
 export const stackEnv = (paths, env = process.env) => ({
   ...env,
   LOCAL_STACK_SLOT: String(BETA_SLOT),
   LOCAL_STACK_STATE: paths.state,
   LOCAL_STACK_CODE_REACH: 'off',
+  LOCAL_STACK_PG_DURABLE: '1',
   LOCAL_STACK_MARKET_INTERVAL: String(BETA_CADENCE_SECONDS),
   LOCAL_STACK_QUANT_LAKE_CAPTURE_SECONDS: String(BETA_CADENCE_SECONDS),
 });

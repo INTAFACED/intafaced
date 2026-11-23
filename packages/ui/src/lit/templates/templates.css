@@ -71,6 +71,11 @@
   gap: var(--lit-gap-item);
 }
 
+/* A room's action keeps its words on one line; the title column gives way, never the button's label. */
+.lt-room-action .lt-button {
+  white-space: nowrap;
+}
+
 .lt-title {
   margin: 0;
   font-size: var(--lit-type-title-size);
@@ -1331,6 +1336,11 @@ button.lt-tab {
   .lt-table td::before {
     content: attr(data-label);
     color: var(--lit-text-2);
+  }
+  /* An empty table's one message is not a labelled value: it reads as one block across the phone, never split in two. */
+  .lt-table tr[data-empty] td {
+    display: block;
+    text-align: center;
   }
 }
 

@@ -1,4 +1,3 @@
-import { z } from 'zod';
 import type { ProcedureInput } from '@intafaced/contracts/procedure';
 import * as p from '../schemas';
 import { type PortalTools } from '../api-tools';
@@ -14,6 +13,8 @@ import {
 } from '@intafaced/contracts/pay-merchant-procedures';
 import {
   PAY_MERCHANT_OPS_ACTIVATION_GET,
+  PAY_MERCHANT_OPS_EXPORTS_CREATE,
+  PAY_MERCHANT_OPS_TEAM_DECLINE_INVITE,
   PAY_MERCHANT_OPS_KYB_CURRENT,
   PAY_MERCHANT_OPS_TEAM_MY_INVITATIONS,
   PAY_MERCHANT_OPS_TEAM_ACCEPT_INVITE,
@@ -76,7 +77,7 @@ const baseSettingsApi = ({ query, mutate, confirmDestinationStepUp, queryRecord,
   removeMember: (memberId: string) => mutate('merchantOps.team.remove', { memberId }, p.memberSchema),
   acceptInvite: (memberId: string) => mutateRecord(PAY_MERCHANT_OPS_TEAM_ACCEPT_INVITE, { memberId }),
   permissionCatalogue: (signal?: AbortSignal) => query('merchantOps.permissions.catalogue', {}, p.permissionCatalogueSchema, signal),
-  declineInvite: (memberId: string) => mutate('merchantOps.team.declineInvite', { memberId }, z.object({ declined: z.literal(true) })),
+  declineInvite: (memberId: string) => mutateRecord(PAY_MERCHANT_OPS_TEAM_DECLINE_INVITE, { memberId }),
   exportsList: (cursor: string | undefined, kind: string, status: string, signal?: AbortSignal) =>
     listRecord(
       PAY_MERCHANT_OPS_EXPORTS_LIST,
@@ -91,7 +92,7 @@ const baseSettingsApi = ({ query, mutate, confirmDestinationStepUp, queryRecord,
     requestId: string;
     kind: p.ExportKind;
     filters: { from?: string; to?: string; status?: string; assetId?: string };
-  }) => mutate('merchantOps.exports.create', input, p.exportJobSchema),
+  }) => mutateRecord(PAY_MERCHANT_OPS_EXPORTS_CREATE, input),
   exportDownload: (jobId: string) => queryRecord(PAY_MERCHANT_OPS_EXPORTS_DOWNLOAD, { jobId }),
   notifications: (cursor: string | undefined, unreadOnly: boolean, kind: string, signal?: AbortSignal) =>
     listRecord(
