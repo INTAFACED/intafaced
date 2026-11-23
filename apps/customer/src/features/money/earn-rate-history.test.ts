@@ -16,8 +16,14 @@ describe('stepChart', () => {
       [100, 175],
       [200, 125],
     ]);
-    // 150 of 175 is 85.71% up from the bottom; 175 is the top; 125 is 71.43% up.
-    expect(chart.points).toBe('0,14.29 100,14.29 100,0 200,0 200,28.57 300,28.57');
+    // The scale tops out at 175 × 1.25 = 218.75: 150 is 68.57% up from the bottom, 175 is 80% up, 125 is 57.14% up.
+    expect(chart.points).toBe('0,31.43 100,31.43 100,20 200,20 200,42.86 300,42.86');
+  });
+
+  it('draws one rate on record inside the box, not on its top edge', () => {
+    const chart = stepChart([{ rateBps: 100, effectiveAt: '2026-11-22T00:00:00.000Z' }], Date.parse('2026-11-23T09:00:00.000Z'), 600, 160)!;
+    expect(chart.marks[0]!.y).toBe(32);
+    expect(chart.points).toBe('0,32 600,32');
   });
 
   it('draws nothing when the bank recorded nothing', () => {

@@ -6,7 +6,7 @@ import { fromUnits, journeyState, toUnits } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import { doorCalls, ledgerUntouched, ledgerView, openVenueRoom, signedOnVenue, venueAt, venueNow, walletOwner } from './venue-door.mjs';
-import { continueInWallet, venueForThisFile } from './venue.mjs';
+import { continueInWallet, venueForThisFile, venueRecord } from './venue.mjs';
 
 // J-derivatives-06's venue steps, "I watch and top up the margin on an isolated position", on the person's own venue
 // account (the launch money model: the venue holds the position and its margin, the ledger posts nothing), in the running
@@ -32,8 +32,12 @@ venueForThisFile(test);
 // ── the TEST venue, read and signed on directly ──
 
 const accountOf = (venue, owner) => ({ venueId: venue.id, owner, subAccount: null });
-/** The venue's own record for the account (`/positions`, `/balances`, `/account-summary`, `/isolated-margin`, ...). */
-const record = async (venue, owner, path, extra = {}) => (await venueAt(path, { account: accountOf(venue, owner), ...extra })).value;
+/**
+ * The venue's own record for the account (`/positions`, `/balances`, `/account-summary`, `/isolated-margin`, ...), read
+ * through the venue fixture (`venueRecord`): straight from the TEST venue on loopback, never through our door. The
+ * fixture reads the same TEST venue `venueNow` names, and checks it is labelled TEST.
+ */
+const record = async (venue, owner, path, extra = {}) => (await venueRecord(owner, path, extra)).value;
 const positionOn = async (venue, owner) => (await record(venue, owner, '/positions')).find((p) => p.symbol === BTC);
 const usdcOn = async (venue, owner) =>
   (await record(venue, owner, '/balances')).find((b) => b.asset === 'USDC') ?? { free: '0', locked: '0', total: '0' };
