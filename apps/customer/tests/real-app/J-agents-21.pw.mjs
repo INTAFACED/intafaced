@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { signIn, signUp, verify } from './desk.mjs';
+import { pictureFromTop, signIn, signUp, verify } from './desk.mjs';
 import { openFounderDesk } from './agents.mjs';
 import { api, EDGE, fromUnits, journeyState, ORIGIN, stackUrl, tool, toUnits } from './stack.mjs';
 import { VERSION_PIN, signedHeaders } from './developer.mjs';
@@ -1063,7 +1063,8 @@ test(`${J} #11 Opens the connection's Activity: one row per call so far, refused
       .trimEnd()
       .split('\r\n'),
   ).toEqual(lines);
-  await stepPicture();
+  // A whole-page picture of the page scrolled to the Activity draws the sticky bar over its heading: taken from the top.
+  await pictureFromTop(page, stepPicture);
 });
 
 test(`${J} #12 Revokes the assistant while it has a resting TEST order: the next call with the key refuses auth.api_key_revoked; the resting order is cancelled once on the venue; our copy of the venue agent key is dropped and the wallet is asked to sign the venue's revoke; the perp position stays in the agent account`, async ({
