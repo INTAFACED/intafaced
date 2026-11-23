@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { bankWriteForReview } from './contracts';
+import { BANK_AUTO_INVEST_CREATE_ROUND_UP } from '@intafaced/contracts/bank-auto-invest-2-procedures';
 
 // A card round-up into a space (BK-pots-02, J-bank-07 #3) is confirmed only when the bank's rule names that space and
 // no pool, and a pool round-up only when it names that pool and no space.
@@ -21,14 +22,22 @@ const rule = (target: { targetPoolId: string | null; targetSpaceId?: string | nu
 
 describe('card round-up review', () => {
   it('confirms a round-up into the space it was asked for', () => {
-    const review = bankWriteForReview('autoInvest.createRoundUp', { assetId: 'USDT', granularity: '1', targetSpaceId: SPACE });
+    const review = bankWriteForReview(
+      'autoInvest.createRoundUp',
+      { assetId: 'USDT', granularity: '1', targetSpaceId: SPACE },
+      BANK_AUTO_INVEST_CREATE_ROUND_UP.output,
+    );
     expect(review.safeParse(rule({ targetPoolId: null, targetSpaceId: SPACE })).success).toBe(true);
     expect(review.safeParse(rule({ targetPoolId: null, targetSpaceId: POOL })).success).toBe(false);
     expect(review.safeParse(rule({ targetPoolId: POOL, targetSpaceId: null })).success).toBe(false);
   });
 
   it('confirms a pool round-up only with no space named', () => {
-    const review = bankWriteForReview('autoInvest.createRoundUp', { assetId: 'USDT', granularity: '1', targetPoolId: POOL });
+    const review = bankWriteForReview(
+      'autoInvest.createRoundUp',
+      { assetId: 'USDT', granularity: '1', targetPoolId: POOL },
+      BANK_AUTO_INVEST_CREATE_ROUND_UP.output,
+    );
     expect(review.safeParse(rule({ targetPoolId: POOL, targetSpaceId: null })).success).toBe(true);
     expect(review.safeParse(rule({ targetPoolId: POOL })).success).toBe(true);
     expect(review.safeParse(rule({ targetPoolId: POOL, targetSpaceId: SPACE })).success).toBe(false);
