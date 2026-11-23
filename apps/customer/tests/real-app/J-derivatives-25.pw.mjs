@@ -1,5 +1,6 @@
 // World: book, restart
 import { randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { fromUnits, journeyState, toUnits } from './stack.mjs';
@@ -16,8 +17,7 @@ import { STACK_PORTS } from '../../../../tooling/scripts/local-test-facts.mjs';
 // model: the venue holds the trading money, the stack's TEST partner bank holds the spending money
 // (`testPartner.set({ custody: 'off' })`), the app shows each as its source reports it, and the ledger posts nothing.
 //
-// TEST setup in the journey's start (the "starts:" test; #1's own test comes with the card that draws on the partner
-// account): one verified TEST person with a TEST browser wallet holding TEST ETH for gas on
+// TEST setup in the journey's start (the "starts:" test): one verified TEST person with a TEST browser wallet holding TEST ETH for gas on
 // the stack's TEST chain and an empty account on the TEST venue, TEST 1000 USDC in their TEST partner account and a TEST
 // card in USDC. Every figure is read from its own source and compared: the venue's record (`/balances`, `/fills`), the
 // partner's own book on loopback (`/test-partner`), the card partner's figure and the TEST chain. #4 rests the TEST
@@ -129,6 +129,101 @@ test(`${J} starts: a verified TEST person with a TEST wallet holding TEST ETH fo
   const held = await bankGet('cards.partnerHeld', { cardId: card.id, limit: 1 });
   expect(held.heldBy).toBe('partner');
   run.write({ cardId: card.id, panTail: card.panTail, ledger: await ledgerOf(), userId: (await door()).userId });
+});
+
+/**
+ * The trading group's rows as the room shows them, each `[asset, free, locked, total]` in exact units: none while the room
+ * reads "This venue account is empty.", and null while it has not read the venue yet.
+ */
+async function shownTrading(page) {
+  if (await trading(page).getByTestId('trading-empty').isVisible()) return [];
+  const rows = await trading(page)
+    .locator('tr[data-asset]')
+    .evaluateAll((trs) =>
+      trs.map((tr) => [
+        tr.getAttribute('data-asset'),
+        ...['free', 'locked', 'total'].map((cell) => tr.querySelector(`[data-cell="${cell}"]`)?.textContent ?? ''),
+      ]),
+    );
+  if (rows.length === 0) return null;
+  return rows.map(([asset, ...cells]) => [asset, ...cells.map((c) => String(toUnits(c.replace(/,/g, '').trim())))]);
+}
+/** The venue's own record of the account in the same shape. */
+const venueRows = (record) => record.map((b) => [b.asset, ...['free', 'locked', 'total'].map((cell) => String(toUnits(b[cell])))]);
+
+test(`${J} #1 opens /trade/account: two named groups, each with an as-of time: trading (the venue account, free and locked, from the venue; empty) and spending (the partner account and card, from the partner; 1000.00 USDC), and the line that liquidation only ever uses the trading account`, async ({
+  page,
+  stepPicture,
+}) => {
+  test.setTimeout(300_000);
+  const { owner, userId, cardId, panTail, ledger } = state();
+  if (!cardId) throw new Error(`${J} starts issued no TEST card, so this step has no card to read`);
+  const venue = await venueInfo();
+  // The venue's own clock before the room reads it, and the test's own before the partner is read.
+  const venueBefore = Date.parse((await venueRecord(owner, '/balances')).asOf);
+  const openedAt = Date.now();
+  await openAccount(page);
+
+  // Trading: one named group holding the person's one venue account, named by the venue, with the venue's as-of time.
+  await expect(trading(page).getByRole('heading', { level: 2 })).toHaveText(/^Trading\b/);
+  const account = trading(page).getByTestId('trading-venue');
+  await expect(account).toHaveCount(1);
+  await expect(account).toHaveAttribute('data-venue', venue.displayName);
+  const tradingSource = trading(page).getByTestId('trading-source');
+  await expect(tradingSource).toContainText(`From ${venue.displayName}`);
+  await expect(tradingSource.locator('[data-as-of]')).toHaveAttribute('data-as-of', /^\d{4}-\d\d-\d\dT/, { timeout: 30_000 });
+  // Free and locked from the venue: what the room shows is the venue's own record of the account, row for row.
+  let record;
+  await expect
+    .poll(
+      async () => {
+        record = (await venueRecord(owner, '/balances')).value;
+        return isDeepStrictEqual(await shownTrading(page), venueRows(record));
+      },
+      { message: 'the trading group shows the venue’s own record of the account', timeout: 30_000 },
+    )
+    .toBe(true);
+  // Empty, as the venue itself reports it: no coin with anything free or locked.
+  expect(
+    record.every((b) => toUnits(b.free) === 0n && toUnits(b.locked) === 0n && toUnits(b.total) === 0n),
+    JSON.stringify(record),
+  ).toBe(true);
+  expect(sameDecimal((await venueBalance(owner, 'USDC')).total, '0')).toBe(true);
+  // Its as-of time is the venue's: no earlier than the venue's clock before the room opened, no later than its clock now.
+  const tradingAsOf = Date.parse(await tradingSource.locator('[data-as-of]').getAttribute('data-as-of'));
+  await expect(tradingSource.locator('[data-as-of]')).toHaveText(/^As of \S/);
+  const venueAfter = Date.parse((await venueRecord(owner, '/balances')).asOf);
+  expect(venueBefore <= tradingAsOf && tradingAsOf <= venueAfter, `${venueBefore} <= ${tradingAsOf} <= ${venueAfter}`).toBe(true);
+
+  // Spending: the other named group, from the partner, with the time the partner reported it.
+  await expect(spending(page).getByRole('heading', { level: 2 })).toHaveText('Spending');
+  const spendingSource = spending(page).getByTestId('spending-source');
+  await expect(spendingSource).toContainText(`From ${PARTNER_BANK}`, { timeout: 30_000 });
+  await expect(spendingSource.locator('[data-as-of]')).toHaveText(/^As of \S/);
+  const spendingAsOf = Date.parse(await spendingSource.locator('[data-as-of]').getAttribute('data-as-of'));
+  expect(openedAt - 2_000 <= spendingAsOf && spendingAsOf <= Date.now() + 2_000, `${openedAt} <= ${spendingAsOf}`).toBe(true);
+  // The partner account: 1000.00 USDC, as the partner's own book has it.
+  const partnerHas = await partnerMain(userId);
+  expect(sameDecimal(partnerHas, PARTNER_USDC)).toBe(true);
+  await expect(mainRow(page).locator('td').first()).toHaveText('USDC account');
+  await expect(mainRow(page).locator('[data-cell="balance"]')).toHaveText('1,000.00 USDC');
+  expect(sameDecimal(await cellAmount(mainRow(page).locator('[data-cell="balance"]')), partnerHas)).toBe(true);
+  // The card: the partner's own available figure for it, 1000.00 USDC, named as the partner's.
+  const card = await bankGet('cards.partnerHeld', { cardId, limit: 1 });
+  expect(card.heldBy).toBe('partner');
+  expect(sameDecimal(card.figures.available, partnerHas)).toBe(true);
+  const cardLine = spending(page).locator(`[data-testid="spending-card"][data-card="${cardId}"]`);
+  await expect(cardLine).toHaveText(`Card ending ${panTail}: 1,000.00 USDC available, from ${PARTNER_BANK}`, { timeout: 30_000 });
+  await expect(spending(page).getByTestId('spending-card')).toHaveCount(1);
+
+  // The line, word for word.
+  await expect(page.getByTestId('liquidation-line')).toHaveText(
+    'Liquidation only ever uses your trading account. Your spending balances are never used.',
+  );
+  await stepPicture();
+  // Opening the room moved nothing: the partner's book and our ledger are as the start left them.
+  expect(sameDecimal(await partnerMain(userId), PARTNER_USDC)).toBe(true);
+  expect(await ledgerOf()).toEqual(ledger);
 });
 
 test(`${J} #2 moves TEST 600 USDC from spending into trading, with step-up: the partner's transfer to the wallet, then the wallet's deposit, each with its fee or "not known"; the same move again sends nothing; the ledger posts nothing`, async ({
