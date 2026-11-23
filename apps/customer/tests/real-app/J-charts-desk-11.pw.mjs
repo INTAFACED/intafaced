@@ -297,8 +297,21 @@ test(`${J} #5 opens a symbol's details: statistics and market rules, with a stat
   await row(page, 'BTC/USDT').getByRole('button', { name: 'Details for BTC/USDT' }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog.getByRole('heading', { name: 'BTC/USDT details' })).toBeVisible();
-  const ticker = await publicTicker('BTC/USDT');
-  await expect(dialog.getByRole('definition').first()).toHaveText(ticker.last ? ticker.last : 'not served');
+  // Market: live, and the panel reads the tickers every 5 s: one Edge read taken after the dialog opened can be newer than the
+  // page's last read (runs 45162752345: Edge 65250.45, page 65113.5). So read both together until they agree; the page must
+  // still show Edge's own last price, never a value of its own.
+  const last = dialog.getByRole('definition').first();
+  await expect
+    .poll(
+      async () => {
+        const ticker = await publicTicker('BTC/USDT');
+        const want = ticker.last ? ticker.last : 'not served';
+        const shown = ((await last.textContent()) ?? '').trim();
+        return shown === want ? 'agrees' : `page ${shown}, Edge ${want}`;
+      },
+      { message: "the dialog's last price is the one Edge serves", timeout: 20_000, intervals: [1_000] },
+    )
+    .toBe('agrees');
   await expect(dialog.locator('dl[aria-label="Statistics"]')).toContainText('not served (spot market)');
   // The market rules are the service's own: the price step, amount step and minimum amount Edge publishes for BTC/USDT,
   // and trading open while the market is active.
