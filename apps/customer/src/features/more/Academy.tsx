@@ -29,7 +29,7 @@ export function AcademyRoom({ pathname, search, route }: { pathname: string; sea
 
 /**
  * The Academy's pages not yet on their Volt template: an assignment, a course discussion and a conversation with a
- * course team. The five tabs are their own rooms (academy-catalogue/, AcademyCertificatesRoom.tsx).
+ * course team. The five tabs are their own rooms (academy-catalogue/).
  */
 function Academy({ route }: { route: AcademyRoute }) {
   const action = useAcademyAction();
