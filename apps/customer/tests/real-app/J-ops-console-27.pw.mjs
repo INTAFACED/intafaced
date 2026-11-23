@@ -42,7 +42,7 @@ const DEPOSIT = '100';
 const VENUE_FUNDING = '100';
 const BUY = '0.001';
 const SELL = '0.0005';
-/** TEST: what #8's planted break sells, put on the venue account by the TEST venue's deposit control (#7 left it empty). */
+/** TEST: what #8's planted break sells, put on the venue account by the TEST venue's deposit control (#7 left less than one lot of it, which no order can sell). */
 const BREAK_SELL = '0.0002';
 /** What #5 pays the recipient, and what #6 moves from the venue to spending: TEST figures. */
 const PAY = '25';
@@ -870,7 +870,7 @@ test(`${J} #6 moves profit to spending: a signed venue withdrawal to the wallet,
   await ledgerHoldsNothing('after moving profit to spending');
 });
 
-test(`${J} #7 sells what is left of the coin on the desk, then withdraws what is left on the venue to the TEST wallet: one signature and one venue order for the sale; its fill and fee as the venue reports them; our builder fee for the sale's fill on the ledger once, equal to the venue's; then the wallet signs one venue withdrawal of all the USDC; its amount and the venue's fee read back from the venue and the chain; the venue account reads empty in every asset but USDC under one unit of the token it pays out in; the ledger records nothing for the customer`, async ({
+test(`${J} #7 sells what is left of the coin on the desk, then withdraws what is left on the venue to the TEST wallet: one signature and one venue order for the sale; its fill and fee as the venue reports them; our builder fee for the sale's fill on the ledger once, equal to the venue's; then the wallet signs one venue withdrawal of all the USDC; its amount and the venue's fee read back from the venue and the chain; the venue account reads empty in every asset but the coin under one lot and the USDC under one unit of the token it pays out in; the ledger records nothing for the customer`, async ({
   page,
   stepPicture,
 }) => {
@@ -878,7 +878,6 @@ test(`${J} #7 sells what is left of the coin on the desk, then withdraws what is
   const { owner, sellFills: earlierSales } = state();
   if (!earlierSales?.length) throw new Error(`${J} #4 kept no sale, so there is no coin left of it to sell`);
   const { id: venueId } = await venueInfo();
-  const account = { venueId, owner, subAccount: null };
   const ledgerBefore = await ledgerHoldsNothing('before the last sale');
 
   // What is left of the coin, as the venue reports it: #4's buy less the venue's fee on it (taken in the coin) and less
@@ -940,31 +939,14 @@ test(`${J} #7 sells what is left of the coin on the desk, then withdraws what is
     await takeBack(buyer, `order:${buyer}:${owner}`).catch(() => undefined);
   }
 
-  // Less than one lot of the coin is left, which no order can sell. The venue itself turns such dust into USDC (its own
-  // conversion, as the venue it stands for runs once a day; here the TEST venue's control runs the next one), so the
-  // USDC to withdraw is all there is. The venue's record before and after shows exactly that conversion and no more.
+  // Less than one lot of the coin is left, which no order can sell and no withdrawal moves: it stays on the venue, and
+  // is read back exactly at the end.
   const dust = await venueBalance(owner, 'BTC');
-  expect(toUnits(dust.total), 'what is left of the coin after the sale').toBe(toUnits(coin.total) - saleUnits);
-  expect(toUnits(dust.total) < lot, `${dust.total} BTC is under one lot of ${market.lotSize}`).toBe(true);
-  const usdcBeforeDust = await venueBalance(owner, 'USDC');
-  const dusted = await testVenue('/test/dust', { account });
-  expect(dusted.status, JSON.stringify(dusted.body).slice(0, 300)).toBe(200);
-  const conversions = dusted.body.converted;
-  expect(
-    conversions.map((c) => [c.asset, c.amount, c.quoteAsset]),
-    'the venue converted the coin left under one lot, and nothing else',
-  ).toEqual(toUnits(dust.total) > 0n ? [['BTC', dust.total, 'USDC']] : []);
-  // Each credit is the coin at the venue's price, rounded down to whole units of the USDC token the venue pays out in.
+  const dustUnits = toUnits(coin.total) - saleUnits;
+  expect(toUnits(dust.total), 'what is left of the coin after the sale').toBe(dustUnits);
+  expect(dustUnits < lot, `${dust.total} BTC is under one lot of ${market.lotSize}`).toBe(true);
   const usdcUnit = 10n ** (18n - BigInt(TOKEN_USD.decimals));
-  for (const c of conversions) {
-    expect(toUnits(c.credited), `${c.amount} BTC at ${c.price}, in whole USDC units`).toBe(
-      ((toUnits(c.amount) * toUnits(c.price)) / 10n ** 18n / usdcUnit) * usdcUnit,
-    );
-  }
-  const dustCredit = conversions.reduce((sum, c) => sum + toUnits(c.credited), 0n);
   const before = await venueBalance(owner, 'USDC');
-  expect(toUnits(before.free), 'the venue credited the conversion in USDC').toBe(toUnits(usdcBeforeDust.free) + dustCredit);
-  expect(toUnits((await venueBalance(owner, 'BTC')).total), 'the venue holds none of the coin').toBe(0n);
   expect(toUnits(before.locked), 'nothing is locked behind an order').toBe(0n);
 
   // All the USDC: the venue's free USDC less the withdrawal fee the venue publishes for it, in whole units of the USDC
@@ -1032,9 +1014,9 @@ test(`${J} #7 sells what is left of the coin on the desk, then withdraws what is
   expect(arrived, 'the wallet rose by exactly the payout').toBe(paidOut);
   if (w.networkFee?.known) expect(paidOut).toBe(leftUnits / 10n ** 12n - toUnits(w.networkFee.value) / 10n ** 12n);
   else expect(paidOut <= leftUnits / 10n ** 12n, 'the payout is never more than the withdrawal').toBe(true);
-  // The venue account reads empty in every asset, but USDC under one unit of the token it pays out in: the venue's own
-  // record lists nothing locked, no coin, and exactly the USDC the withdrawal's unit left, and the desk shows the venue's
-  // own USDC figures.
+  // The venue account reads empty in every asset but what no order or withdrawal can move: the venue's own record lists
+  // nothing locked, exactly the coin under one lot that the sale left, and exactly the USDC under one unit of the token it
+  // pays out in that the withdrawal left; the desk shows the venue's own USDC figures.
   expect(underUnit >= 0n && underUnit < usdcUnit, `${fromUnits(underUnit)} USDC is under one unit of the payout token`).toBe(true);
   const every = (await venueRecord(owner, '/balances')).value;
   expect(
@@ -1042,14 +1024,14 @@ test(`${J} #7 sells what is left of the coin on the desk, then withdraws what is
     'the venue lists the two assets the loop used',
   ).toEqual(expect.arrayContaining(['BTC', 'USDC']));
   for (const b of every) {
-    const kept = b.asset === 'USDC' ? underUnit : 0n;
+    const kept = b.asset === 'USDC' ? underUnit : b.asset === 'BTC' ? dustUnits : 0n;
     expect(toUnits(b.free), `the venue account's free ${b.asset}`).toBe(kept);
     expect(toUnits(b.locked), `the venue account holds no locked ${b.asset}`).toBe(0n);
     expect(toUnits(b.total), `the venue account's ${b.asset}`).toBe(kept);
   }
   await panelEqualsVenue(page, 7);
-  // And Home reads the whole venue account, every asset of it, as holding nothing, in the venue's own name and time;
-  // what the venue lets the customer withdraw is the venue's own zero.
+  // And Home reads the venue account in the venue's own name and time; what the venue lets the customer withdraw is the
+  // venue's own figure, the USDC under one payout unit.
   await toHome(page);
   const venuePart = page.getByTestId('home-standing').locator('[data-testid="standing-part"][data-part="venue"]');
   await expect(venuePart).toHaveAttribute('data-state', 'read', { timeout: 30_000 });
@@ -1068,7 +1050,7 @@ test(`${J} #7 sells what is left of the coin on the desk, then withdraws what is
     await amountOf(withdrawable.locator('[data-part-amount]')),
     venueEnd.free,
   );
-  // The picture: Home, where the venue account reads empty but for USDC under one payout unit, in the venue’s own name and time.
+  // The picture: Home, where the venue account reads what is left under one lot and one payout unit, in the venue’s own name and time.
   await venuePart.scrollIntoViewIfNeeded();
   await stepPicture(page);
   await ledgerHoldsNothing('after the last withdrawal');
@@ -1147,7 +1129,7 @@ test(`${J} #8 the founder runs the reconciliation: the ledger's own records for 
 
   // A difference is a break row, never an entry posted to make them agree: with the poster stopped, a sale by the customer,
   // sent through our door and signed by their wallet key, carries our builder fee the ledger does not have yet. #7 left
-  // the venue account empty, so the TEST BTC it sells is put there by the TEST venue's deposit control: a planted fault,
+  // less than one lot of BTC, which no order can sell, so the TEST BTC it sells is put there by the TEST venue's deposit control: a planted fault,
   // apart from the loop. The recon names that fill as a break; the ledger books nothing for it then, and books the fee
   // itself, once, when the poster runs again.
   const counter = `${J}-break-bid-${process.env.JOURNEY_RUN_ID ?? 'local'}-${randomBytes(3).toString('hex')}`;

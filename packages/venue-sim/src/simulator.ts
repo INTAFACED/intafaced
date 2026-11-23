@@ -1,18 +1,5 @@
 import { createHash } from 'node:crypto';
-import {
-  add,
-  compare,
-  DECIMALS,
-  div,
-  formatAmount,
-  max,
-  min,
-  mul,
-  parseAmount,
-  sub,
-  ZERO,
-  type Amount,
-} from '@intafaced/ledger-client/money';
+import { add, compare, div, formatAmount, max, min, mul, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-client/money';
 import {
   type AgentPermissionReach,
   VenueRefusalError,
@@ -506,16 +493,6 @@ export interface SimOptions {
    * declared, so it offers no scheduled cancel.
    */
   readonly scheduledCancelMinLeadMs?: number;
-}
-
-/** One TEST dust conversion (`convertDust`): the coin taken, the price it was valued at, and the quote coin credited. */
-export interface SimDustConversion {
-  readonly symbol: string;
-  readonly asset: string;
-  readonly amount: Amount;
-  readonly quoteAsset: string;
-  readonly price: Amount;
-  readonly credited: Amount;
 }
 
 interface AccountState {
@@ -2147,36 +2124,6 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     state.stakes.set(asset, add(state.stakes.get(asset) ?? ZERO, amount));
     state.stakeRefs.add(stakeRef);
     return true;
-  }
-
-  /**
-   * TEST control: the venue's next dust conversion of one account, as Hyperliquid converts spot dust once a day. A cash
-   * spot market's coin the account holds less than one lot of, which no order can sell, with none of it locked, is
-   * converted into the market's quote coin at the price of the market's newest public print, rounded down to the quote
-   * coin's smallest unit on its withdrawal route (`unitDecimals`: the route token's decimals, or null for none), so the
-   * credit can be withdrawn whole; the venue keeps what is under one unit. A market that has not traded converts
-   * nothing. Returns each conversion. Every figure is TEST.
-   */
-  convertDust(account: UserVenueAccount, unitDecimals: (asset: string) => number | null = () => null): readonly SimDustConversion[] {
-    this.up();
-    const state = this.account(account);
-    const converted: SimDustConversion[] = [];
-    for (const market of this.marketsBySymbol.values()) {
-      if (market.kind !== 'spot') continue;
-      const held = state.balances.get(market.baseAsset);
-      const price = this.prints.get(market.symbol)?.at(-1)?.price;
-      if (!held || price === undefined || held.locked !== ZERO) continue;
-      if (compare(held.free, ZERO) <= 0 || compare(held.free, market.lotSize) >= 0) continue;
-      const amount = held.free;
-      const decimals = unitDecimals(market.quoteAsset);
-      const unit = decimals === null ? 1n : 10n ** BigInt(DECIMALS - decimals);
-      const credited: Amount = (mul(amount, price, 'floor') / unit) * unit;
-      held.free = ZERO;
-      const quote = this.balance(state, market.quoteAsset);
-      quote.free = add(quote.free, credited);
-      converted.push({ symbol: market.symbol, asset: market.baseAsset, amount, quoteAsset: market.quoteAsset, price, credited });
-    }
-    return converted;
   }
 
   async openOrders(account: UserVenueAccount): Promise<AsOf<readonly UserVenueOrder[]>> {
