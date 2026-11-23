@@ -238,3 +238,26 @@ export const memberId = z.string().trim().min(1).max(128);
 export const revision = z.number().int().positive().max(1_000_000);
 
 export const amount = z.string().max(64).nullable().optional();
+
+export type CoachRefusalCode =
+  | 'agents.advice_forbidden'
+  | 'agents.positions_not_decided'
+  | 'agents.coach_curriculum_empty'
+  | 'agents.coach_engine_unavailable'
+  | 'agents.price_unset'
+  | 'agents.spend_limit'
+  | 'agents.funds_insufficient'
+  | 'agents.request_id_replay'
+  | 'agents.run_in_progress';
+
+export const COACH_REFUSAL_CODES: readonly CoachRefusalCode[] = [
+  'agents.advice_forbidden',
+  'agents.positions_not_decided',
+  'agents.coach_curriculum_empty',
+  'agents.coach_engine_unavailable',
+  'agents.price_unset',
+  'agents.spend_limit',
+  'agents.funds_insufficient',
+  'agents.request_id_replay',
+  'agents.run_in_progress',
+];

@@ -273,7 +273,7 @@ import { AGENTS_AGENT_GET, AGENTS_AGENT_CATALOGUE } from './agents-agent-procedu
 
 import { AGENTS_ANALYTICS_SUMMARY } from './agents-analytics-procedures.js';
 
-import { AGENTS_COACH_SESSION } from './agents-coach-procedures.js';
+import { AGENTS_COACH_SESSION, AGENTS_COACH_RUN_SESSION } from './agents-coach-procedures.js';
 
 import {
   AGENTS_FLEET_REGISTRY,
@@ -299,6 +299,7 @@ import {
   AGENTS_NAVIGATOR_ONCHAIN_REVOKE,
   AGENTS_NAVIGATOR_TRADING,
   AGENTS_NAVIGATOR_ORDERS,
+  AGENTS_NAVIGATOR_ONCHAIN_BIND,
 } from './agents-navigator-procedures.js';
 
 import {
@@ -2524,7 +2525,7 @@ const part_agents_agent_procedures: readonly ProcedureRecord[] = [AGENTS_AGENT_G
 
 const part_agents_analytics_procedures: readonly ProcedureRecord[] = [AGENTS_ANALYTICS_SUMMARY];
 
-const part_agents_coach_procedures: readonly ProcedureRecord[] = [AGENTS_COACH_SESSION];
+const part_agents_coach_procedures: readonly ProcedureRecord[] = [AGENTS_COACH_SESSION, AGENTS_COACH_RUN_SESSION];
 
 const part_agents_fleet_procedures: readonly ProcedureRecord[] = [
   AGENTS_FLEET_REGISTRY,
@@ -2550,6 +2551,7 @@ const part_agents_navigator_procedures: readonly ProcedureRecord[] = [
   AGENTS_NAVIGATOR_ONCHAIN_REVOKE,
   AGENTS_NAVIGATOR_TRADING,
   AGENTS_NAVIGATOR_ORDERS,
+  AGENTS_NAVIGATOR_ONCHAIN_BIND,
 ];
 
 const part_agents_ops_alerts_procedures: readonly ProcedureRecord[] = [
