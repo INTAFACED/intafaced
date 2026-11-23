@@ -19,6 +19,7 @@ import { DepositAddressActions } from '@/components/deposit-address-actions';
 import { DepositTravelRuleActions } from '@/components/deposit-travel-rule-actions';
 import { KycDocumentOpen } from '@/components/kyc-document-open';
 import { KycSelfieDecide } from '@/components/kyc-selfie-decide';
+import { KycApprove } from '@/components/kyc-approve';
 import { TransferLookup, TransferRecord } from '@/components/pay-transfer';
 import { ProtocolBlockers } from '@/components/protocol-blockers';
 import { ProtocolTrust } from '@/components/protocol-trust';
@@ -116,6 +117,7 @@ function DetailPanel({ spec, row, ctx }: { spec: ReadSpec; row: Row; ctx: RowAct
       {spec.rowAction === 'identity.kyc_selfie.decide' && (
         <KycSelfieDecide key={row.id} row={row} userId={ctx.userId} onChanged={ctx.onChanged} />
       )}
+      {spec.rowAction === 'identity.kyc.approve' && <KycApprove key={row.id} row={row} userId={ctx.userId} onChanged={ctx.onChanged} />}
       {spec.rowAction === 'pay.deposit_address' && <DepositAddressActions row={row} userId={ctx.userId} onChanged={ctx.onChanged} />}
       {spec.rowAction === 'pay.deposit_travel_rule' && <DepositTravelRuleActions row={row} onChanged={ctx.onChanged} />}
     </div>
