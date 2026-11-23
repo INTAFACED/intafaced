@@ -577,8 +577,8 @@ jobs:
       matrix:
         shard: ${{ fromJSON(needs.changes.outputs.shards) }}
     runs-on: ubuntu-24.04
-    # healthy run: 11-20 min; a pull request's red one may wait up to 20 more for a run of main on or near its base
-    # (tooling/ci/base-failures.mjs WAIT_MIN)
+    # healthy run: 11-20 min; a pull request's red one may wait up to 10 more, only while main has no record near its
+    # base (tooling/ci/base-failures.mjs WAIT_MIN)
     timeout-minutes: 60
     permissions:
       contents: read
