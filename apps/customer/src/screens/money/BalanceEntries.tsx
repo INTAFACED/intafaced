@@ -49,7 +49,7 @@ function Row({
         />
       </td>
       <td>
-        <code className="money-code">{row.txId}</code>
+        <code className="lt-mono">{row.txId}</code>
       </td>
       <td data-testid="entry-state">{row.state === 'completed' ? copy.t('Completed') : '—'}</td>
       <td data-testid="entry-fee">

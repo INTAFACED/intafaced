@@ -59,7 +59,7 @@ export function RiskSummary({ asset, positions, balances, calls, now }: Props) {
           [t('Margin calls open'), open === null ? UNKNOWN : String(open)],
         ].map(([label, value]) => (
           <div key={label} className="flex min-w-0 flex-col gap-0.5">
-            <dt className="text-xs text-fg-2">{label}</dt>
+            <dt className="lt-hint">{label}</dt>
             <dd className="if-num truncate text-base text-fg">{value}</dd>
           </div>
         ))}

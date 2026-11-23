@@ -1,4 +1,5 @@
 import type { Sql } from 'postgres';
+import { z } from 'zod';
 import type { Amount } from '@intafaced/ledger-client/money';
 import {
   venueClientOrderId,
@@ -89,6 +90,12 @@ export interface PreparedActionStore {
   ownerSignedAccounts(userId: string, venueId: string): Promise<OwnerSignedAccount[]>;
 
   /**
+   * Every person's accounts on this venue that their own wallet signed for, as `ownerSignedAccounts` reads one person's:
+   * the accounts the venue balance watch reads (J-cex-spot-15 #9). Sorted by person, then owner, then sub-account.
+   */
+  ownerSignedAccountsAll(venueId: string): Promise<(OwnerSignedAccount & { readonly userId: string })[]>;
+
+  /**
    * The signed action of this person that placed the order under `venueClientOrderId` (a `place_order`, an order of a
    * `place_orders`, or a `replace_order`'s replacement), or null when none of theirs did: the operator's read of a
    * customer's routed order finds the customer's own venue account through it (J-cex-spot-18 #1). Another person's order
@@ -103,6 +110,15 @@ export interface OwnerSignedAccount {
 }
 
 /** One account per owner and sub-account, sorted, from the stored actions that name it. */
+/** `signedAccountsOf` for every person the rows name, sorted by person. */
+function everyonesSignedAccounts(
+  rows: readonly StoredVenueAction[],
+  venueId: string,
+): (OwnerSignedAccount & { readonly userId: string })[] {
+  const users = [...new Set(rows.map((r) => r.userId))].sort();
+  return users.flatMap((userId) => signedAccountsOf(rows, userId, venueId).map((a) => ({ userId, ...a })));
+}
+
 function signedAccountsOf(rows: Iterable<StoredVenueAction>, userId: string, venueId: string): OwnerSignedAccount[] {
   const seen = new Map<string, OwnerSignedAccount>();
   for (const row of rows) {
@@ -325,6 +341,10 @@ export class InMemoryPreparedActionStore implements PreparedActionStore {
     return signedAccountsOf(this.rows.values(), userId, venueId);
   }
 
+  async ownerSignedAccountsAll(venueId: string) {
+    return everyonesSignedAccounts([...this.rows.values()], venueId);
+  }
+
   async placedOrder(userId: string, venueClientOrderId: string) {
     const id = venueClientOrderId.toLowerCase();
     const rows = [...this.rows.values()]
@@ -491,6 +511,25 @@ export class SqlPreparedActionStore implements PreparedActionStore {
       SELECT user_id, business_key, created_at, prepared, signature, last_outcome FROM trade.user_venue_actions
       WHERE user_id = ${userId} AND venue_id = ${venueId} AND signature IS NOT NULL`;
     return signedAccountsOf(rows.map(fromRow), userId, venueId);
+  }
+
+  async ownerSignedAccountsAll(venueId: string) {
+    // Each person with a row a wallet signed as the account's owner on this venue, then their accounts as
+    // ownerSignedAccounts reads them (the owner checks are signedAccountsOf's).
+    const users = z
+      .object({ user_id: z.string() })
+      .array()
+      .parse(
+        await this.sql`
+          SELECT DISTINCT user_id FROM trade.user_venue_actions
+          WHERE venue_id = ${venueId} AND signature IS NOT NULL AND prepared->'signer'->>'role' = 'owner'
+          ORDER BY user_id`,
+      );
+    const out: (OwnerSignedAccount & { readonly userId: string })[] = [];
+    for (const { user_id: userId } of users) {
+      for (const account of await this.ownerSignedAccounts(userId, venueId)) out.push({ userId, ...account });
+    }
+    return out;
   }
 
   async placedOrder(userId: string, venueClientOrderId: string) {

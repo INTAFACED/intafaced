@@ -23,6 +23,7 @@ export type ApprovalEndpoint =
   | '/api/ledger-reconciliation/lifecycle'
   | '/api/ledger-reconciliation/alerts/accept'
   | '/api/ledger-metadata/delete'
+  | '/api/ledger-reversals/approve'
   | '/api/academy-ops'
   | '/api/more-ops'
   | '/api/protocol-ops'

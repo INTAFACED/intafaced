@@ -62,7 +62,7 @@ export function BlotterTab({ parents }: { parents: readonly ParentRead[] }) {
 
   return (
     <div className="lt-stack">
-      <div className="flex flex-wrap items-end gap-3">
+      <div className="lt-field-row">
         <div className="w-44">
           <Pick
             label={t('Market')}

@@ -539,7 +539,7 @@ export function Ticket(props: TicketProps) {
       />
 
       <div className="flex items-center justify-between gap-2">
-        <span className="text-sm text-fg-2">{t('Margin mode')}</span>
+        <span className="lt-hint">{t('Margin mode')}</span>
         <span className="flex items-center gap-2">
           <SegmentedControl
             aria-label={t('Margin mode')}
@@ -570,7 +570,7 @@ export function Ticket(props: TicketProps) {
       ) : null}
 
       <div className="flex items-center justify-between gap-2">
-        <span className="text-sm text-fg-2">{t('Margin from')}</span>
+        <span className="lt-hint">{t('Margin from')}</span>
         {/* Cash is the margin. Another choice is sent to the review as chosen, so the service names its own refusal. */}
         <SegmentedControl
           aria-label={t('Margin from')}
@@ -585,7 +585,7 @@ export function Ticket(props: TicketProps) {
       </div>
 
       <div className="flex items-center justify-between gap-2">
-        <span className="text-sm text-fg-2">{t('Order type')}</span>
+        <span className="lt-hint">{t('Order type')}</span>
         <span className="flex items-center gap-2">
           <SegmentedControl
             aria-label={t('Order type')}
@@ -642,7 +642,7 @@ export function Ticket(props: TicketProps) {
       {orderType === 'limit' ? (
         <div className="lt-stack">
           <div className="flex items-center justify-between gap-2">
-            <span id="ticket-correct" className="text-sm text-fg-2">
+            <span id="ticket-correct" className="lt-hint">
               {t('Price correction')}
             </span>
             <Switch
@@ -662,7 +662,7 @@ export function Ticket(props: TicketProps) {
       ) : null}
 
       <div className="flex items-center justify-between gap-2" aria-live="polite">
-        <span className="text-sm text-fg-2">{t('Mark')}</span>
+        <span className="lt-hint">{t('Mark')}</span>
         <span className="flex items-center gap-2">
           <span className="if-num">{markNow === null ? '—' : price(markNow)}</span>
           <StatusChip
@@ -765,7 +765,7 @@ export function Ticket(props: TicketProps) {
 
       <div className="lt-stack">
         <div className="flex items-center justify-between gap-2">
-          <span id="ticket-reduce" className="text-sm text-fg-2">
+          <span id="ticket-reduce" className="lt-hint">
             {t('Reduce only')}
           </span>
           <Switch

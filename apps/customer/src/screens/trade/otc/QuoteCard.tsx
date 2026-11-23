@@ -194,7 +194,7 @@ export function QuoteCard({ api, writer, quote, readAt, now, providers, onCheck,
       data-quote-id={quote.quoteId}
       className="flex flex-col gap-3 rounded-md border border-line bg-panel p-3"
     >
-      <header className="flex flex-wrap items-center gap-3">
+      <header className="lt-toolbar">
         <h3 className="m-0 text-md font-medium text-fg">{t('Quote title', { pair })}</h3>
         <LifecycleChip lifecycle={chip} />
         <Freshness asOf={readAt} now={now} />
@@ -219,7 +219,7 @@ export function QuoteCard({ api, writer, quote, readAt, now, providers, onCheck,
         </p>
       ) : null}
       <KeyValue density="dense" items={items} now={now} />
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="lt-toolbar">
         <Button
           variant="primary"
           size={32}
