@@ -1,29 +1,10 @@
 import { createContext, useContext, useId, useMemo, useState, type ReactNode } from 'react';
-import { Ellipsis, Star } from 'lucide-react';
+import { ArrowLeftRight, Star } from 'lucide-react';
+import { AssetIcon, Button, GridTable, Tag, type GridColumn } from '@intafaced/ui/lit';
+import { sortRows, Sparkline, type SortState } from '@intafaced/ui/lit/templates';
 import { assetName, marketsCopy } from './copy';
-import {
-  Badge,
-  Button,
-  CoinIcon,
-  direction,
-  fmtPct,
-  isHiddenPath,
-  Menu,
-  MenuContent,
-  MenuLinkItem,
-  MenuTrigger,
-  navigate,
-  Pct,
-  Price,
-  sortRows,
-  Sparkline,
-  Table,
-  useSparklines,
-  type Decimal,
-  type MarketData,
-  type SortState,
-  type TableColumn,
-} from './deps';
+import { direction, isHiddenPath, navigate, useSparklines, type Decimal, type MarketData } from './deps';
+import { Pct } from './parts';
 import { isAnnounced, isPaused, marketTarget, priceText, spreadRatio, spreadText, volumeText, type Entry, type Mode } from './select';
 import { isSessionShut, opensLabel, rowStatus, type ListingStatusMap } from './listing-status';
 import { maintenanceWhen, type MaintenanceWindowSoon } from '../../../shared/market-maintenance';
@@ -35,47 +16,21 @@ import type { FavoriteControl } from './MarketRow';
 /** Rows drawn at first, and added by each "Show more"; sparklines are read for the rows drawn only. */
 const PAGE_SIZE = 50;
 
-/**
- * Explicit column widths (px). A price like "$64,772.05" and the headers "24h change" / "24h volume" must never be cut,
- * so the table keeps the sum of these as its minimum and scrolls sideways (the name column stays pinned) instead of
- * squeezing. The chart is the first column to give: it is the narrowest and its line only needs ~96 px.
- */
-const LAST_WIDTH = 120;
-const PRICE_WIDTH = 112;
-const WIDE_WIDTH = 132;
-const SPREAD_WIDTH = 96;
-const CHART_WIDTH = 104;
-const STATUS_WIDTH = 150;
-/** The action button plus its "more" menu button. */
-const ACTION_WIDTH = 150;
-const PRO_MIN_WIDTH =
-  220 + LAST_WIDTH + WIDE_WIDTH + 4 * PRICE_WIDTH + SPREAD_WIDTH + WIDE_WIDTH + CHART_WIDTH + STATUS_WIDTH + ACTION_WIDTH;
-const SIMPLE_MIN_WIDTH = 280 + LAST_WIDTH + WIDE_WIDTH + CHART_WIDTH + WIDE_WIDTH + ACTION_WIDTH;
-
 /** Convert opens with the pair filled in (it reads `from` and `to`): pay in the quote, get the coin. */
 const convertHref = (market: MarketData) => `/trade/convert?from=${encodeURIComponent(market.quote)}&to=${encodeURIComponent(market.base)}`;
 
-/** A click on the star must not open the row; the kit table already ignores clicks that start on a button or link. */
+/** A click on the star must not open the row; the grid ignores clicks that start on a button or link. */
 function FavoriteStar({ asset, favorite }: { asset: string; favorite: FavoriteControl }) {
   const { t } = marketsCopy.useCopy();
   if ('signInHref' in favorite)
     return (
-      <Button
-        variant="ghost"
-        size={28}
-        className="w-7 shrink-0 px-0"
-        nativeButton={false}
-        render={<a href={favorite.signInHref} />}
-        aria-label={t('Log in to star {asset}', { asset })}
-      >
+      <a className="lt-link" href={favorite.signInHref} aria-label={t('Log in to star {asset}', { asset })}>
         <Star size={16} aria-hidden="true" />
-      </Button>
+      </a>
     );
   return (
     <Button
-      variant="ghost"
-      size={28}
-      className={`w-7 shrink-0 px-0 ${favorite.on ? 'text-accent-text' : ''}`}
+      tone="quiet"
       aria-pressed={favorite.on}
       aria-label={favorite.on ? t('Remove {asset} from favorites', { asset }) : t('Add {asset} to favorites', { asset })}
       onClick={favorite.onToggle}
@@ -88,6 +43,13 @@ function FavoriteStar({ asset, favorite }: { asset: string; favorite: FavoriteCo
 /** Hourly closes by symbol, read once for the rows drawn and handed to the chart cells. */
 const EMPTY: Record<string, Decimal[]> = {};
 const SparkContext = createContext<Record<string, Decimal[]>>(EMPTY);
+
+type Tone = 'up' | 'down' | 'neutral';
+
+/** A row's state word (Open, Paused, Closed, Upcoming, Delisting) as the kit's tag. */
+function StateTag({ tone, children }: { tone: Tone; children: ReactNode }) {
+  return <Tag tone={tone}>{children}</Tag>;
+}
 
 /** The upcoming-maintenance flag on a market's row (J-cex-spot-14 #5). */
 function MaintenanceFlag({ window }: { window: MaintenanceWindowSoon }) {
@@ -102,7 +64,7 @@ function MaintenanceFlag({ window }: { window: MaintenanceWindowSoon }) {
           : t('Maintenance in hours', { n: when.n })
         : t('Maintenance in minutes', { n: when.n });
   return (
-    <span data-testid="mkt-maintenance" className="mkt-since">
+    <span data-testid="mkt-maintenance" className="lt-hint">
       {text}
     </span>
   );
@@ -116,33 +78,29 @@ function delistingDate(iso: string, zone: Parameters<typeof ianaZone>[0]): strin
 }
 
 /** An upcoming or delisting listing's state on its row, with the delisting's date (J-cex-spot-14 #1). */
-function ListingState({ market, dense }: { market: MarketData; dense: boolean }) {
+function ListingState({ market }: { market: MarketData }) {
   const { t } = marketsCopy.useCopy();
   const { timeZone } = usePreferences();
   if (market.listing === 'upcoming')
     return (
-      <span data-testid="mkt-listing" data-listing="upcoming" className="mkt-stack" data-start="">
-        <Badge tone="neutral" density={dense ? 'dense' : 'comfortable'}>
-          {t('Upcoming')}
-        </Badge>
+      <span data-testid="mkt-listing" data-listing="upcoming" className="lt-lines">
+        <StateTag tone="neutral">{t('Upcoming')}</StateTag>
       </span>
     );
   if (market.listing === 'delisting')
     return (
-      <span data-testid="mkt-listing" data-listing="delisting" className="mkt-stack" data-start="">
-        <Badge tone="warn" density={dense ? 'dense' : 'comfortable'}>
-          {t('Delisting')}
-        </Badge>
+      <span data-testid="mkt-listing" data-listing="delisting" className="lt-lines">
+        <StateTag tone="down">{t('Delisting')}</StateTag>
         {market.delistsAt ? (
-          <span className="mkt-since">{t('Leaves the board on {date}', { date: delistingDate(market.delistsAt, timeZone) })}</span>
+          <span className="lt-hint">{t('Leaves the board on {date}', { date: delistingDate(market.delistsAt, timeZone) })}</span>
         ) : null}
       </span>
     );
   return null;
 }
 
-function SparkCell({ symbol, height, trend }: { symbol: string; height: number; trend: 'up' | 'down' | 'flat' }) {
-  return <Sparkline values={useContext(SparkContext)[symbol] ?? []} width={96} height={height} direction={trend} />;
+function SparkCell({ symbol, label, trend }: { symbol: string; label: string; trend: Tone }) {
+  return <Sparkline label={label} values={useContext(SparkContext)[symbol] ?? []} tone={trend} size="row" />;
 }
 
 export interface MarketsListProps {
@@ -167,6 +125,13 @@ export interface MarketsListProps {
 /** Click order: largest first for figures and A-Z for Name, then the other way, then the service's order. */
 const firstDirection = (columnId: string) => (columnId === 'name' ? 'asc' : 'desc');
 
+/** A sortable column's reading, for `sortRows`: figures compare as decimals, the name as text. */
+interface SortSpec {
+  id: string;
+  sortType: 'text' | 'decimal';
+  value: (entry: Entry) => string | null;
+}
+
 export function MarketsList({
   entries,
   mode,
@@ -188,79 +153,108 @@ export function MarketsList({
   const pro = mode === 'pro';
   const dense = density === 'compact';
 
-  const columns = useMemo<TableColumn<Entry>[]>(() => {
+  const { columns, sorting } = useMemo(() => {
+    const sorting: SortSpec[] = [];
     const figure = (
-      id: string,
+      key: string,
       header: string,
       read: (entry: Entry) => string | null,
       cell: (entry: Entry) => ReactNode,
-      width: number,
-    ): TableColumn<Entry> => ({
-      id,
-      header,
-      numeric: true,
-      sortable: true,
-      sortType: 'decimal',
-      width,
-      value: read,
+    ): GridColumn<Entry> => {
+      sorting.push({ id: key, sortType: 'decimal', value: read });
+      return {
+        key,
+        label: header,
+        align: 'end',
+        sortType: 'decimal',
+        sortLabel: t('Sort by {column}', { column: header }),
+        headMarks: { 'data-col': key },
+        cellMarks: () => ({ 'data-col': key, 'data-cell': key }),
+        cell,
+      };
+    };
+    const unsortedColumn = (key: string, header: string, cell: (entry: Entry) => ReactNode): GridColumn<Entry> => ({
+      key,
+      label: header,
+      headMarks: { 'data-col': key },
+      cellMarks: () => ({ 'data-col': key, 'data-cell': key }),
       cell,
     });
-    const price = (id: string, header: string, key: 'last' | 'bid' | 'ask' | 'high24h' | 'low24h') =>
+    const price = (key: string, header: string, field: 'last' | 'bid' | 'ask' | 'high24h' | 'low24h') =>
       figure(
-        id,
+        key,
         header,
-        ({ ticker }) => ticker?.[key] ?? null,
-        ({ market, ticker }) => priceText(market, ticker?.[key]),
-        PRICE_WIDTH,
+        ({ ticker }) => ticker?.[field] ?? null,
+        ({ market, ticker }) => (
+          <span className="lt-num" dir="ltr">
+            {priceText(market, ticker?.[field])}
+          </span>
+        ),
       );
     // A market younger than a day: its "24h" figures start later. Said on its own row, so the headers stay true for the rest.
     const sinceOf = (entry: Entry) => {
       const start = partialWindowStart(entry.ticker, Date.now());
       return start === null ? null : t('since {time}', { time: sinceLabel(start, timeZone) });
     };
+    const since = (entry: Entry) =>
+      sinceOf(entry) ? (
+        <span data-testid="mkt-since" className="lt-hint">
+          {sinceOf(entry)}
+        </span>
+      ) : null;
 
-    const name: TableColumn<Entry> = {
-      id: 'name',
-      header: t('Name'),
-      pin: 'start',
-      sortable: true,
+    sorting.push({ id: 'name', sortType: 'text', value: ({ market }) => `${market.base}/${market.quote}` });
+    const name: GridColumn<Entry> = {
+      key: 'name',
+      label: t('Name'),
       sortType: 'text',
-      width: pro ? 220 : 280,
-      value: ({ market }) => `${market.base}/${market.quote}`,
+      sortLabel: t('Sort by {column}', { column: t('Name') }),
+      headMarks: { 'data-col': 'name' },
+      cellMarks: () => ({ 'data-col': 'name', 'data-cell': 'name' }),
       cell: (entry) => {
         const { market } = entry;
         const full = assetName(market.base, copy);
-        return (
-          <span className="mkt-namecell">
-            <FavoriteStar asset={market.base} favorite={favorite(market)} />
-            <CoinIcon asset={market.base} size={dense ? 24 : 32} />
-            <span className="mkt-name">
-              <span data-testid="mkt-name__ticker" className="mkt-name__ticker">
-                {market.base}
-                <span data-testid="mkt-name__quote" className="mkt-muted mkt-name__quote">
-                  /{market.quote}
-                </span>
+        const pair = (
+          <>
+            <span data-testid="mkt-name__ticker">
+              {market.base}
+              <span data-testid="mkt-name__quote" className="lt-muted">
+                /{market.quote}
               </span>
-              {full && !dense ? (
-                <span data-testid="mkt-name__full" className="mkt-name__full">
-                  {full}
-                </span>
-              ) : null}
             </span>
-            <ListingState market={market} dense={dense} />
-            {/* The simple list has no status column, so a shut session is named by the name, with when it opens (J-cex-spot-14 #6). */}
-            {!pro && isSessionShut(statuses, market.symbol) ? (
-              <span data-testid="mkt-session" className="mkt-stack" data-start="">
-                <Badge tone="warn" density={dense ? 'dense' : 'comfortable'}>
-                  {t('Closed')}
-                </Badge>
-                {statuses?.[market.symbol]?.opensAt != null ? (
-                  <span className="mkt-since">{t('Opens {time}', { time: opensLabel(statuses[market.symbol]!.opensAt!, timeZone) })}</span>
-                ) : null}
+            {full && !dense ? (
+              <span data-testid="mkt-name__full" className="lt-hint">
+                {full}
               </span>
             ) : null}
-            {/* The simple list has no status column, so a maintenance window is flagged by the name (J-cex-spot-14 #5). */}
-            {!pro && statuses?.[market.symbol]?.maintenance ? <MaintenanceFlag window={statuses[market.symbol]!.maintenance!} /> : null}
+          </>
+        );
+        return (
+          <span className="lt-cell-name">
+            <FavoriteStar asset={market.base} favorite={favorite(market)} />
+            <AssetIcon asset={market.base} size={dense ? 'sm' : 'md'} />
+            <span className="lt-lines">
+              {/* An announced listing never trades, so its name opens nothing; every other row's name is its link. */}
+              {isAnnounced(market) ? (
+                <span className="lt-lines">{pair}</span>
+              ) : (
+                <a className="lt-row-link" data-row-link="" href={marketTarget(market, mode, isHiddenPath, signedIn)}>
+                  <span className="lt-lines">{pair}</span>
+                </a>
+              )}
+              <ListingState market={market} />
+              {/* The simple list has no status column, so a shut session is named by the name, with when it opens (J-cex-spot-14 #6). */}
+              {!pro && isSessionShut(statuses, market.symbol) ? (
+                <span data-testid="mkt-session" className="lt-lines">
+                  <StateTag tone="down">{t('Closed')}</StateTag>
+                  {statuses?.[market.symbol]?.opensAt != null ? (
+                    <span className="lt-hint">{t('Opens {time}', { time: opensLabel(statuses[market.symbol]!.opensAt!, timeZone) })}</span>
+                  ) : null}
+                </span>
+              ) : null}
+              {/* The simple list has no status column, so a maintenance window is flagged by the name (J-cex-spot-14 #5). */}
+              {!pro && statuses?.[market.symbol]?.maintenance ? <MaintenanceFlag window={statuses[market.symbol]!.maintenance!} /> : null}
+            </span>
           </span>
         );
       },
@@ -269,189 +263,134 @@ export function MarketsList({
       'last',
       t('Last'),
       ({ ticker }) => ticker?.last ?? null,
-      ({ market, ticker }) => <Price className="mkt-price" value={priceText(market, ticker?.last)} />,
-      LAST_WIDTH,
+      ({ market, ticker }) => (
+        <span data-slot="price" className="lt-num" dir="ltr">
+          {priceText(market, ticker?.last)}
+        </span>
+      ),
     );
     const change = figure(
       'change',
       t('24h change'),
       ({ ticker }) => ticker?.changePct24h ?? null,
       (entry) => (
-        <span className="mkt-stack">
-          <Pct value={fmtPct(entry.ticker?.changePct24h)} arrow />
-          {sinceOf(entry) ? (
-            <span data-testid="mkt-since" className="mkt-since">
-              {sinceOf(entry)}
-            </span>
-          ) : null}
+        <span className="lt-lines">
+          <Pct value={entry.ticker?.changePct24h} />
+          {since(entry)}
         </span>
       ),
-      WIDE_WIDTH,
     );
     const spread = figure(
       'spread',
       t('Spread'),
       ({ ticker }) => spreadRatio(ticker),
-      ({ ticker }) => spreadText(ticker),
-      SPREAD_WIDTH,
+      ({ ticker }) => (
+        <span className="lt-num" dir="ltr">
+          {spreadText(ticker)}
+        </span>
+      ),
     );
     const volume = figure(
       'volume',
       t('24h volume'),
       ({ ticker }) => ticker?.quoteVolume24h ?? null,
       (entry) => (
-        <span className="mkt-stack">
-          <span className="lt-num" data-slot="volume">
+        <span className="lt-lines">
+          <span className="lt-num" data-slot="volume" dir="ltr">
             {volumeText(entry.market, entry.ticker)}
           </span>
-          {sinceOf(entry) ? (
-            <span data-testid="mkt-since" className="mkt-since">
-              {sinceOf(entry)}
-            </span>
-          ) : null}
+          {since(entry)}
         </span>
       ),
-      WIDE_WIDTH,
     );
-    const chart: TableColumn<Entry> = {
-      id: 'chart',
-      header: t('Last 24h'),
-      width: CHART_WIDTH,
-      cell: ({ market, ticker }) => (
-        <SparkCell symbol={market.symbol} height={dense ? 24 : 32} trend={direction(ticker?.changePct24h) ?? 'flat'} />
-      ),
-    };
-    const status: TableColumn<Entry> = {
-      id: 'status',
-      header: t('Status'),
-      width: STATUS_WIDTH,
-      cell: (entry) => {
-        const state = rowStatus(!isPaused(entry), statuses?.[entry.market.symbol]);
-        const maintenance = statuses?.[entry.market.symbol]?.maintenance ?? null;
-        const flag = maintenance ? <MaintenanceFlag window={maintenance} /> : null;
-        if (state.kind === 'closed')
-          return (
-            <span className="mkt-stack" data-start="">
-              <Badge tone="warn" density={dense ? 'dense' : 'comfortable'}>
-                {t('Closed')}
-              </Badge>
-              {state.opensAt !== null ? (
-                <span data-testid="mkt-since" className="mkt-since">
-                  {t('Opens {time}', { time: opensLabel(state.opensAt, timeZone) })}
-                </span>
-              ) : null}
-              {flag}
-            </span>
-          );
-        const badge =
-          state.kind === 'paused' ? (
-            <Badge tone="warn" density={dense ? 'dense' : 'comfortable'}>
-              {t('Paused')}
-            </Badge>
-          ) : (
-            <Badge tone="lime" density={dense ? 'dense' : 'comfortable'}>
-              {t('Open')}
-            </Badge>
-          );
-        return flag ? (
-          <span className="mkt-stack" data-start="">
-            {badge}
+    const chart = unsortedColumn('chart', t('Last 24h'), ({ market, ticker }) => (
+      <SparkCell
+        symbol={market.symbol}
+        label={`${market.base}/${market.quote} ${t('Last 24h')}`}
+        trend={(direction(ticker?.changePct24h) ?? 'flat') === 'flat' ? 'neutral' : (direction(ticker?.changePct24h) as Tone)}
+      />
+    ));
+    const status = unsortedColumn('status', t('Status'), (entry) => {
+      const state = rowStatus(!isPaused(entry), statuses?.[entry.market.symbol]);
+      const maintenance = statuses?.[entry.market.symbol]?.maintenance ?? null;
+      const flag = maintenance ? <MaintenanceFlag window={maintenance} /> : null;
+      if (state.kind === 'closed')
+        return (
+          <span className="lt-lines">
+            <StateTag tone="down">{t('Closed')}</StateTag>
+            {state.opensAt !== null ? (
+              <span data-testid="mkt-since" className="lt-hint">
+                {t('Opens {time}', { time: opensLabel(state.opensAt, timeZone) })}
+              </span>
+            ) : null}
             {flag}
           </span>
-        ) : (
-          badge
         );
-      },
-    };
-    const action: TableColumn<Entry> = {
-      id: 'action',
-      header: '',
-      headerLabel: t('Action'),
+      const tag = state.kind === 'paused' ? <StateTag tone="down">{t('Paused')}</StateTag> : <StateTag tone="up">{t('Open')}</StateTag>;
+      return flag ? (
+        <span className="lt-lines">
+          {tag}
+          {flag}
+        </span>
+      ) : (
+        tag
+      );
+    });
+    const action: GridColumn<Entry> = {
+      key: 'action',
+      label: t('Action'),
+      quietLabel: true,
       align: 'end',
-      width: ACTION_WIDTH,
+      headMarks: { 'data-col': 'action' },
+      cellMarks: () => ({ 'data-col': 'action', 'data-cell': 'action' }),
       cell: (entry) => {
         const { market } = entry;
         const text = pro ? t('Trade') : t('Buy');
         const aria = pro ? t('Trade {pair}', { pair: `${market.base}/${market.quote}` }) : t('Buy {asset}', { asset: market.base });
-        const size = dense ? 28 : 32;
         const pair = `${market.base}/${market.quote}`;
-        const more = (
-          <Menu>
-            <MenuTrigger
-              render={
-                <Button variant="ghost" size={size} className="w-7 shrink-0 px-0" aria-label={t('More actions for {pair}', { pair })} />
-              }
-            >
-              <Ellipsis size={16} aria-hidden="true" />
-            </MenuTrigger>
-            <MenuContent align="end">
-              <MenuLinkItem href={convertHref(market)}>{t('Convert')}</MenuLinkItem>
-            </MenuContent>
-          </Menu>
-        );
         const wrap = (button: ReactNode) => (
-          <span className="mkt-actions">
+          <span className="lt-actions">
             {button}
-            {more}
+            {/* The kit's row link centres the word on the button's line; the word itself is a link's. */}
+            <a className="lt-row-link" href={convertHref(market)} aria-label={t('Convert {pair}', { pair })}>
+              {/* Pro's twelve columns leave the word no room: its mark stands in, with the same name and a tooltip. */}
+              {pro ? (
+                <span className="lt-link" title={t('Convert')}>
+                  <ArrowLeftRight size={16} aria-hidden="true" />
+                </span>
+              ) : (
+                <span className="lt-link">{t('Convert')}</span>
+              )}
+            </a>
           </span>
         );
-        if (isAnnounced(market))
-          // An upcoming or delisting listing is never a tradeable row: the button says why, and nothing links to a desk.
-          return wrap(
-            <Button
-              variant="secondary"
-              size={size}
-              disabled
-              focusableWhenDisabled
-              aria-label={aria}
-              title={market.listing === 'upcoming' ? t('This market has not opened for trading') : t('This market is being delisted')}
-            >
+        // Not a tradeable row: the button says why (its title for the pointer), stays reachable by keyboard, and links nowhere.
+        const refused = (title: string, describedBy?: string) =>
+          wrap(
+            <Button aria-disabled="true" aria-label={aria} aria-describedby={describedBy} title={title}>
               {text}
             </Button>,
           );
+        if (isAnnounced(market))
+          // An upcoming or delisting listing is never a tradeable row, and nothing links to a desk.
+          return refused(market.listing === 'upcoming' ? t('This market has not opened for trading') : t('This market is being delisted'));
         if (isSessionShut(statuses, market.symbol))
           // A shut session is never a tradeable row: an order now is refused and not queued (J-cex-spot-14 #6).
-          return wrap(
-            <Button
-              variant="secondary"
-              size={size}
-              disabled
-              focusableWhenDisabled
-              aria-label={aria}
-              title={t('This market is closed. Orders are not queued while it is closed')}
-            >
-              {text}
-            </Button>,
-          );
-        if (isPaused(entry))
-          // Disabled but still reachable by keyboard, so the reason can be read (title for the pointer, aria-describedby for readers).
-          return wrap(
-            <Button
-              variant="secondary"
-              size={size}
-              disabled
-              focusableWhenDisabled
-              aria-label={aria}
-              aria-describedby={pausedNote}
-              title={t('Orders are paused on this market')}
-            >
-              {text}
-            </Button>,
-          );
+          return refused(t('This market is closed. Orders are not queued while it is closed'));
+        if (isPaused(entry)) return refused(t('Orders are paused on this market'), pausedNote);
         return wrap(
-          <Button
-            variant="secondary"
-            size={size}
-            nativeButton={false}
-            render={<a href={marketTarget(market, mode, isHiddenPath, signedIn)} />}
+          <a
+            className="lt-button lt-button-secondary"
+            role="button"
+            href={marketTarget(market, mode, isHiddenPath, signedIn)}
             aria-label={aria}
           >
             {text}
-          </Button>,
+          </a>,
         );
       },
     };
-    return pro
+    const columns = pro
       ? [
           name,
           last,
@@ -467,44 +406,43 @@ export function MarketsList({
           action,
         ]
       : [name, last, change, chart, volume, action];
+    return { columns, sorting };
     // `copy` changes only with the language.
   }, [pro, dense, mode, signedIn, favorite, timeZone, pausedNote, statuses, copy.renderedLocale]);
 
-  const sorted = useMemo(() => sortRows(entries, columns, sort), [entries, columns, sort]);
+  const sorted = useMemo(() => sortRows(entries, sorting, sort), [entries, sorting, sort]);
   const shown = useMemo(() => sorted.slice(0, limit), [sorted, limit]);
   const sparklines = useSparklines(useMemo(() => shown.map((entry) => entry.market.symbol), [shown]));
   const more = Math.min(PAGE_SIZE, sorted.length - shown.length);
 
   return (
     <SparkContext.Provider value={sparklines.status === 'ready' ? sparklines.data : EMPTY}>
-      <Table
-        label={label}
+      <GridTable
+        caption={label}
         columns={columns}
         rows={shown}
-        getRowId={(entry) => entry.market.symbol}
-        density={dense ? 'dense' : 'comfortable'}
-        status={loading ? 'loading' : 'ready'}
-        loadingRows={8}
-        emptyState={empty}
+        rowKey={(entry) => entry.market.symbol}
+        mode={mode}
+        loadingRows={loading ? 8 : undefined}
+        pinFirst
+        empty={<div data-testid="mkt-empty">{empty}</div>}
         sort={sort}
-        onSortChange={(next) =>
+        onSort={(next) =>
           onSortChange(sort && sort.columnId === next.columnId && sort.direction !== firstDirection(next.columnId) ? null : next)
         }
         onRowActivate={(entry) => {
           if (!isAnnounced(entry.market)) navigate(marketTarget(entry.market, mode, isHiddenPath, signedIn));
         }}
-        minWidth={pro ? PRO_MIN_WIDTH : SIMPLE_MIN_WIDTH}
-        labels={{ loading: t('Loading') }}
+        rowMarks={(entry) => ({ 'data-testid': 'mkt-row', 'data-symbol': entry.market.symbol })}
+        headMarks={{ 'data-testid': 'mkt-header' }}
       />
       <span id={pausedNote} className="lt-sr">
         {t('Orders are paused on this market')}
       </span>
       {more > 0 ? (
-        <div className="mkt-more">
-          <span className="lt-muted">{t('Showing {shown} of {total} markets', { shown: shown.length, total: sorted.length })}</span>
-          <Button variant="secondary" size={32} onClick={() => setLimit(limit + PAGE_SIZE)}>
-            {t('Show {count} more markets', { count: more })}
-          </Button>
+        <div className="lt-toolbar">
+          <span className="lt-hint">{t('Showing {shown} of {total} markets', { shown: shown.length, total: sorted.length })}</span>
+          <Button onClick={() => setLimit(limit + PAGE_SIZE)}>{t('Show {count} more markets', { count: more })}</Button>
         </div>
       ) : null}
     </SparkContext.Provider>
