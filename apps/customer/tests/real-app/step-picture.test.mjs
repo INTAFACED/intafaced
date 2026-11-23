@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { decodePng } from '../../../../tooling/ci/look-gate/png.mjs';
 import { fromTop } from './step-picture.mjs';
 
 // The step picture's readying (journey.mjs stepPicture) on planted pages in a real Chromium: a page left scrolled down
@@ -34,11 +33,28 @@ async function pageOf(extra = '') {
   return { page, close: () => context.close() };
 }
 
-/** The colour at (x, y) of a whole-page picture. */
+/** The colour at (x, y) of a whole-page picture, read by drawing the picture on a canvas in a page of its own. */
 async function pixel(page, x, y) {
-  const { width, data } = decodePng(await page.screenshot({ fullPage: true }));
-  const at = (y * width + x) * 4;
-  return [data[at], data[at + 1], data[at + 2]];
+  const png = (await page.screenshot({ fullPage: true })).toString('base64');
+  const reader = await page.context().newPage();
+  try {
+    return await reader.evaluate(
+      async ([src, px, py]) => {
+        const img = new Image();
+        img.src = `data:image/png;base64,${src}`;
+        await img.decode();
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const g = canvas.getContext('2d');
+        g.drawImage(img, 0, 0);
+        return Array.from(g.getImageData(px, py, 1, 1).data.subarray(0, 3));
+      },
+      [png, x, y],
+    );
+  } finally {
+    await reader.close();
+  }
 }
 
 describe('step picture from the top', () => {
