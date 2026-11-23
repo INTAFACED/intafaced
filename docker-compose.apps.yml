@@ -66,6 +66,11 @@ x-service-env: &service-env
   # The beta posture's switch (packages/config/src/beta-posture.ts): empty is off. The staging deploy sets it
   # to test-networks for a beta; every service then refuses to boot with a mainnet, real bank or card route.
   INTAFACED_BETA_POSTURE: ${INTAFACED_BETA_POSTURE:-}
+  # The owner's screening list (packages/config/src/jurisdiction.ts checkAccess). Every service that screens reads it
+  # from its own environment (identity, bank, trade, pay, p2p, protocol, indexer), so it is passed to all, not only the
+  # edge: blank, each refuses with its screening code, as it should.
+  INTAFACED_SANCTIONS_REGIONS: ${INTAFACED_SANCTIONS_REGIONS:-}
+  INTAFACED_SANCTIONS_LIST_SOURCE: ${INTAFACED_SANCTIONS_LIST_SOURCE:-}
   LOG_LEVEL: ${LOG_LEVEL:-info}
   LAUNCH_DROP: ${LAUNCH_DROP:-0}
   # Service names inside the compose network, and the CONTAINER ports — not the

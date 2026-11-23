@@ -60,3 +60,12 @@ test('every variable compose requires has a value, and a stand-in only where the
 test('no service connects with a password compose cannot rotate', () => {
   assert.deepEqual(compose.match(/postgres:\/\/(svc_[a-z0-9_]+):\1@/g) ?? [], []);
 });
+
+test('the screening list reaches every service, not only the edge', () => {
+  const block = compose.slice(
+    compose.indexOf('x-service-env: &service-env'),
+    compose.indexOf('\nx-', compose.indexOf('x-service-env: &service-env') + 1),
+  );
+  for (const name of ['INTAFACED_SANCTIONS_REGIONS', 'INTAFACED_SANCTIONS_LIST_SOURCE'])
+    assert.match(block, new RegExp(`\\n  ${name}: \\$\\{${name}:-\\}`));
+});
