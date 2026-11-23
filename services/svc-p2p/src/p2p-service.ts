@@ -1950,7 +1950,7 @@ export class P2pService {
       cap: cancels.limit,
       windowHours: cancels.windowHours,
       nextDropAt: recent[recent.length - 1]?.until ?? null,
-      restrictedUntil: recent.length >= cancels.limit ? recent[cancels.limit - 1]!.until : null,
+      restrictedUntil: recent.length >= cancels.limit ? (recent[cancels.limit - 1]?.until ?? null) : null,
     };
   }
 
