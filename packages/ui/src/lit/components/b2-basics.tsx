@@ -183,6 +183,22 @@ const onRoute = (listener: () => void) => {
 const routePath = () => (typeof location === 'undefined' ? '' : location.pathname);
 
 /**
+ * Scrolls a tab row (only the row, never the page) as far as brings its lit tab (`aria-current`, `aria-pressed` or
+ * `aria-selected`) wholly into view, once per lit tab, so a row that scrolls never opens with its lit tab off-screen.
+ */
+const shown = new WeakMap<HTMLElement, string>();
+function showLit(row: HTMLElement | null, lit: string) {
+  if (!row || shown.get(row) === lit) return;
+  shown.set(row, lit);
+  const tab = row.querySelector<HTMLElement>('[aria-current="page"], [aria-pressed="true"], [aria-selected="true"]');
+  if (!tab || row.scrollWidth <= row.clientWidth) return;
+  const box = row.getBoundingClientRect();
+  const at = tab.getBoundingClientRect();
+  if (at.right > box.right) row.scrollLeft += at.right - box.right + 24;
+  else if (at.left < box.left) row.scrollLeft -= box.left - at.left + 24;
+}
+
+/**
  * A section's tab bar (Money's Bank, Trade, Algo dev, P2P): links, the open room marked for assistive tech as well as by
  * look. The lit tab is the route's (`currentTab`) unless `current` names one. One line at every width: a row longer than
  * the screen scrolls sideways, fading at the end that has more, with the lit tab scrolled into view; a tab never wraps
@@ -191,19 +207,8 @@ const routePath = () => (typeof location === 'undefined' ? '' : location.pathnam
 export function Tabs({ items, current, label }: { items: readonly TabLink[]; current?: string; label: string }) {
   const path = React.useSyncExternalStore(onRoute, routePath, routePath);
   const lit = current ?? currentTab(items, path);
-  const row = React.useRef<HTMLElement>(null);
-  React.useLayoutEffect(() => {
-    const nav = row.current;
-    const tab = nav?.querySelector<HTMLElement>('[aria-current="page"]');
-    if (!nav || !tab || nav.scrollWidth <= nav.clientWidth) return;
-    // Scroll the row only, never the page, and only as far as brings the whole lit tab into view (either direction).
-    const box = nav.getBoundingClientRect();
-    const at = tab.getBoundingClientRect();
-    if (at.right > box.right) nav.scrollLeft += at.right - box.right + 24;
-    else if (at.left < box.left) nav.scrollLeft -= box.left - at.left + 24;
-  }, [lit]);
   return (
-    <nav ref={row} className="lt-tabs" aria-label={label} data-region="section-tabs">
+    <nav ref={(node) => showLit(node, lit)} className="lt-tabs" aria-label={label} data-region="section-tabs">
       {items.map((t) => (
         <a key={t.href} href={t.href} className="lt-tab" aria-current={t.href === lit ? 'page' : undefined}>
           {t.label}
@@ -230,7 +235,7 @@ export function SectionTabs<T extends string>({
   label: string;
 }) {
   return (
-    <div className="lt-tabs" role="group" aria-label={label} onKeyDown={moveFocusByArrow}>
+    <div ref={(node) => showLit(node, value)} className="lt-tabs" role="group" aria-label={label} onKeyDown={moveFocusByArrow}>
       {items.map((t) => (
         <button key={t.value} type="button" className="lt-tab" aria-pressed={t.value === value} onClick={() => onChange(t.value)}>
           {t.label}
@@ -276,7 +281,7 @@ export function TabList<T extends string>({
     event.preventDefault();
   };
   return (
-    <div className="lt-tabs" role="tablist" aria-label={label}>
+    <div ref={(node) => showLit(node, value)} className="lt-tabs" role="tablist" aria-label={label}>
       {items.map((t, i) => (
         <button
           key={t.value}
