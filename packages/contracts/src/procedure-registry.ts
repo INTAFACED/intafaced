@@ -1096,6 +1096,8 @@ import { IDENTITY_SELF_FREEZE_MANAGE_LIFT } from './identity-self-freeze-manage-
 
 import { IDENTITY_SESSION_SETTINGS } from './identity-session-settings-procedures.js';
 
+import { IDENTITY_SET_API_KEY_REQUEST_SIGNING } from './identity-set-api-key-request-signing-procedures.js';
+
 import { IDENTITY_SET_IDLE_SIGNOUT } from './identity-set-idle-signout-procedures.js';
 
 import { IDENTITY_SIGNIN_METHODS } from './identity-signin-methods-procedures.js';
@@ -3324,6 +3326,8 @@ const part_identity_self_freeze_manage_procedures: readonly ProcedureRecord[] = 
 
 const part_identity_session_settings_procedures: readonly ProcedureRecord[] = [IDENTITY_SESSION_SETTINGS];
 
+const part_identity_set_api_key_request_signing_procedures: readonly ProcedureRecord[] = [IDENTITY_SET_API_KEY_REQUEST_SIGNING];
+
 const part_identity_set_idle_signout_procedures: readonly ProcedureRecord[] = [IDENTITY_SET_IDLE_SIGNOUT];
 
 const part_identity_signin_methods_procedures: readonly ProcedureRecord[] = [IDENTITY_SIGNIN_METHODS];
@@ -4638,6 +4642,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_identity_security_lock_procedures,
   ...part_identity_self_freeze_manage_procedures,
   ...part_identity_session_settings_procedures,
+  ...part_identity_set_api_key_request_signing_procedures,
   ...part_identity_set_idle_signout_procedures,
   ...part_identity_signin_methods_procedures,
   ...part_identity_staff_procedures,

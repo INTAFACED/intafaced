@@ -17,14 +17,6 @@ const keySchema = z.object({
   ipAllowlist: z.array(z.string()),
 });
 export type ApiKey = z.infer<typeof keySchema>;
-export const signingSchema = z.object({
-  id: z.string(),
-  requireSignature: z.boolean(),
-  requireNonEmptyIpAllowlist: z.boolean(),
-  signingSecret: z.string().nullable(),
-});
-export type SigningResult = z.infer<typeof signingSchema>;
-
 export const endpointSchema = z.object({
   id: z.string(),
   url: z.string(),

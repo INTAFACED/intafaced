@@ -10,6 +10,7 @@ import {
   IDENTITY_API_KEYS_REVOKE,
 } from '@intafaced/contracts/identity-api-keys-procedures';
 import { IDENTITY_ROTATE_SIGNING_SECRET } from '@intafaced/contracts/identity-rotate-signing-secret-procedures';
+import { IDENTITY_SET_API_KEY_REQUEST_SIGNING } from '@intafaced/contracts/identity-set-api-key-request-signing-procedures';
 import { IDENTITY_BIND_API_KEY_IP_ALLOWLIST } from '@intafaced/contracts/identity-bind-api-key-ip-allowlist-procedures';
 import { IDENTITY_UNBIND_API_KEY_IP_ALLOWLIST } from '@intafaced/contracts/identity-unbind-api-key-ip-allowlist-procedures';
 
@@ -17,7 +18,7 @@ import { IDENTITY_UNBIND_API_KEY_IP_ALLOWLIST } from '@intafaced/contracts/ident
 const refusedWhen = <T>(result: ApiResult<T>, notDone: (data: T) => boolean, words: () => string): ApiResult<T> =>
   result.ok && notDone(result.data) ? { ok: false, reason: 'error', code: 'portal.local', message: words() } : result;
 
-export const developersApi = ({ query, mutate, identityMutate, identityQueryRecord, identityMutateRecord }: SettingsBTools) => ({
+export const developersApi = ({ query, mutate, identityQueryRecord, identityMutateRecord }: SettingsBTools) => ({
   // ---- API keys and request signing (identity service) ----
   keysList: (signal?: AbortSignal) => identityQueryRecord(IDENTITY_API_KEYS_LIST, { limit: 200 }, signal),
   keyCreate: (input: { name: string; scopes: string[] }) => identityMutateRecord(IDENTITY_API_KEYS_CREATE, { ...input, mode: 'sandbox' }),
@@ -28,7 +29,7 @@ export const developersApi = ({ query, mutate, identityMutate, identityQueryReco
       () => developersCopy.t('revokeRefused'),
     ),
   signingSet: (keyId: string, requireSignature: boolean, requireNonEmptyIpAllowlist: boolean) =>
-    identityMutate('setApiKeyRequestSigning', { keyId, requireSignature, requireNonEmptyIpAllowlist }, s.signingSchema),
+    identityMutateRecord(IDENTITY_SET_API_KEY_REQUEST_SIGNING, { keyId, requireSignature, requireNonEmptyIpAllowlist }),
   signingRotate: (keyId: string) => identityMutateRecord(IDENTITY_ROTATE_SIGNING_SECRET, { keyId }),
   ipsBind: (keyId: string, ips: string[]) => identityMutateRecord(IDENTITY_BIND_API_KEY_IP_ALLOWLIST, { keyId, ips }),
   ipsUnbind: (keyId: string, ip: string) => identityMutateRecord(IDENTITY_UNBIND_API_KEY_IP_ALLOWLIST, { keyId, ip }),
