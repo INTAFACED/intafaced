@@ -5,7 +5,7 @@ import { test, expect } from './journey.mjs';
 import { api, journeyState } from './stack.mjs';
 import { keyHolder, makeKey, withKey } from './developer.mjs';
 import { testWalletKey } from './test-wallet.mjs';
-import { testDeposit, venueForThisFile, venueRecord } from './venue.mjs';
+import { openVenuePage, sameDecimal, testDeposit, venueForThisFile, venueRecord } from './venue.mjs';
 
 // J-cex-spot-15, the steps a developer's bot takes through our API on the venue (docs/roadmap/journeys.json): one test
 // per step, titled "J-cex-spot-15 #<n>". The journey's start is made once, as TEST setup: a verified TEST account with
@@ -13,7 +13,8 @@ import { testDeposit, venueForThisFile, venueRecord } from './venue.mjs';
 // agent key (an `approve_agent` on the person's venue account, through the person's signed-in session: an API key can
 // never approve an agent). From then on the bot is a program holding only the API key and the agent key: every call
 // goes straight to Edge with the key, and every order it sends is signed by the agent key. The venue is the record of
-// every order; the ledger posts nothing. Every figure is TEST.
+// every order; the ledger posts nothing. Every figure is TEST. #5 ends in the browser, on the person's own venue order
+// history, where the bot's order reads as the venue's record of it does.
 const J = 'J-cex-spot-15';
 const RUN = process.env.JOURNEY_RUN_ID ?? 'local';
 const run = journeyState(`${J}-api-${RUN}`);
@@ -112,8 +113,11 @@ test.beforeAll(async ({ browser }) => {
   }
 });
 
-test(`${J} #5 places an order with a client id through our API, looks it up by client id, cancels by client id: the venue order, then its state, then its cancel; a repeat returns the first outcome; the API signs with the user's agent permission only`, async () => {
-  test.setTimeout(180_000);
+test(`${J} #5 places an order with a client id through our API, looks it up by client id, cancels by client id: the venue order, then its state, then its cancel; a repeat returns the first outcome; the API signs with the user's agent permission only`, async ({
+  page,
+  stepPicture,
+}) => {
+  test.setTimeout(240_000);
   const s = state();
   // The agent permission is on the venue's own record of the account: the bot's key, named, approved by the wallet.
   const agents = (await venueRecord(s.owner, '/agents')).value;
@@ -187,4 +191,25 @@ test(`${J} #5 places an order with a client id through our API, looks it up by c
   expect(withdraw.prepared.body.intafacedCode).toBe('scope.interactive_only');
   expect(withdraw.sent).toBeNull();
   expect((await venueRecord(s.owner, '/balances')).value.find((b) => b.asset === 'USDC')).toEqual(usdcBefore);
+
+  // ── What the person sees of it: their own venue order history lists the bot's one order, cancelled, with the
+  // figures the venue's own record of that order holds ───────────────────────────────────────────────────────────
+  const record = (await venueRecord(s.owner, '/order-by-client-id', { venueClientOrderId: cloid })).value;
+  expect(record).toMatchObject({ venueOrderId, venueClientOrderId: cloid, status: 'canceled', symbol: SYMBOL, side: 'buy' });
+  await openVenuePage(page, s.who, '/trade/orders?product=venue', s.walletKey);
+  await expect(page.getByRole('heading', { name: 'Order history', exact: true, level: 1 })).toBeVisible();
+  const row = page.getByTestId('venue-history').locator(`tbody tr[data-client-order-id="${cloid}"]`);
+  await expect(row).toHaveCount(1, { timeout: 30_000 });
+  const cells = row.locator('td');
+  await expect(cells.nth(1)).toHaveText(record.symbol);
+  await expect(cells.nth(2)).toHaveText('Buy');
+  // Price, amount and filled, as the table shows them, equal the venue record's own figures.
+  for (const [cell, figure] of [
+    [4, record.price],
+    [5, record.amount],
+    [6, record.filled],
+  ])
+    await expect.poll(async () => sameDecimal(await cells.nth(cell).innerText(), figure), `column ${cell} shows ${figure}`).toBe(true);
+  await expect(row.locator('[data-cell="status"]')).toHaveText('Cancelled');
+  await stepPicture();
 });
