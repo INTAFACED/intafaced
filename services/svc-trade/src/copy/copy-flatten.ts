@@ -10,8 +10,8 @@ import type { Principal } from '@intafaced/auth';
 import { CopyError } from './errors.js';
 import type { CopyFollow } from './follows.js';
 import { applyCopyDetach } from './copy-lifecycle.js';
+import { COPY_FLATTEN_DISPOSITION } from '@intafaced/contracts/trade-call-schemas';
 
-export const COPY_FLATTEN_DISPOSITION = 'DETACH_FLATTEN' as const;
 export type CopyFlattenDisposition = typeof COPY_FLATTEN_DISPOSITION;
 
 export const COPY_FLATTEN_REFUSED_RESIDUAL =
@@ -115,3 +115,4 @@ export async function flattenFollowerCopyPosition(
   }
   return { orderIds: closed.orderIds };
 }
+export { COPY_FLATTEN_DISPOSITION };

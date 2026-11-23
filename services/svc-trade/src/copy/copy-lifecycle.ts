@@ -12,11 +12,10 @@
 
 import { CopyError } from './errors.js';
 import type { CopyFollow } from './follows.js';
+import { COPY_RELATIONSHIP_STATES, COPY_CONTROL_DISPOSITIONS } from '@intafaced/contracts/trade-call-schemas';
 
-export const COPY_RELATIONSHIP_STATES = ['ACTIVE', 'PAUSED', 'STOPPING', 'CLOSE_ONLY', 'DETACHED'] as const;
 export type CopyRelationshipState = (typeof COPY_RELATIONSHIP_STATES)[number];
 
-export const COPY_CONTROL_DISPOSITIONS = ['PAUSE_NEW', 'STOP_NEW', 'STOP_CLOSE_ONLY', 'DETACH_KEEP', 'RESUME'] as const;
 export type CopyControlDisposition = (typeof COPY_CONTROL_DISPOSITIONS)[number];
 
 export type CopyControlAck = {
@@ -145,3 +144,4 @@ export function applyCopyLeave(follow: CopyFollow): CopyFollow {
   refuseIfDetached(followRelationshipState(follow), 'leave');
   return applyCopyDetach(follow);
 }
+export { COPY_RELATIONSHIP_STATES, COPY_CONTROL_DISPOSITIONS };

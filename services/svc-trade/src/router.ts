@@ -47,14 +47,7 @@ import { otcMakerRoutingStatus, OTC_MAKER_ROUTING_RESIDUAL } from './otc/maker-r
 import { listOtcMakers, selectOtcMakers, UNPUBLISHED_OTC_MAKER_DIRECTORY } from './otc/maker-directory.js';
 import { otcMidFeedStatus, OTC_MID_FEED_RESIDUAL } from './otc/mid-feed.js';
 import type { OtcDeskService } from './otc/otc-service.js';
-import { copyDetachOutput, copyFlattenOutput, copyPauseOutput, copyResumeOutput, copyStopOutput } from './copy/copy-control-wire.js';
-import {
-  copyDeskStatusOutput,
-  copyOpsStatusOutput,
-  presentCopyOpsStatus,
-  presentCustomerCopyDesk,
-  unmountedCopyDeskFacts,
-} from './copy/desk-status.js';
+import { copyOpsStatusOutput, presentCopyOpsStatus, presentCustomerCopyDesk, unmountedCopyDeskFacts } from './copy/desk-status.js';
 import { COPY_FEE_SHARE_RESIDUAL, COPY_JURISDICTION_RESIDUAL, CopyError } from './copy/errors.js';
 import type { LeadDesk } from './copy/lead-applications.js';
 import { refusedAlwaysAnswer } from './copy/lead-answers.js';
@@ -65,13 +58,6 @@ import { TradeOpsError } from './admin/common.js';
 import { logRefusalSpec } from './refusal-spec-log.js';
 import { describeCopyPolicy } from './copy/copy-policy.js';
 import { ListMyFollowsLimitUnsetError, publishedListMyFollowsLimit, type CopyService } from './copy/copy-service.js';
-import {
-  copyCopiedPositionsAnswer,
-  copyFollowPositionsAnswer,
-  copyLeaderProfileAnswer,
-  copyListLeadersAnswer,
-  copyListMyFollowsAnswer,
-} from './copy/follow-answers.js';
 import { publishedCopyPageLimit, refuseLeaderDirectoryRanking } from './copy/leader-listing.js';
 import { refusePnlLinkedCopyFee } from './copy/fee-share.js';
 import { describeFuturesPolicy } from './futures/futures-policy.js';
@@ -84,8 +70,6 @@ import { convertHistoryTrpcError } from './convert/convert-history.js';
 import { deskTrpcError } from './desk/errors.js';
 import { copyCloseTrpcError } from './copy/copy-close-errors.js';
 import { VenueCopyRefusal } from './copy/venue-copy.js';
-import { optionsPolicyAnswer } from './desk/answers.js';
-import { otcDeskStatusAnswer, rfqQuoteAnswer } from './otc/answers.js';
 import { algoDeskProcedures, optionsDeskProcedures, rfqHistoryProcedures, scaleProcedures } from './desk/procedures.js';
 import { presentAlgo, presentAlgoDesk, presentScheduleHonesty } from './algo/present.js';
 import { tradingControlsRouter } from './controls/router.js';
@@ -116,6 +100,17 @@ import {
   TRADE_COPY_LEAD_TRADES,
   TRADE_COPY_LEAD_COPIERS,
   TRADE_COPY_PLATFORM_PAUSES,
+  TRADE_COPY_DESK_STATUS,
+  TRADE_COPY_LIST_MY_FOLLOWS,
+  TRADE_COPY_PAUSE,
+  TRADE_COPY_STOP,
+  TRADE_COPY_DETACH,
+  TRADE_COPY_RESUME,
+  TRADE_COPY_LIST_LEADERS,
+  TRADE_COPY_LEADER_PROFILE,
+  TRADE_COPY_FOLLOW_POSITIONS,
+  TRADE_COPY_COPIED_POSITIONS,
+  TRADE_COPY_FLATTEN,
 } from '@intafaced/contracts/trade-copy-records';
 import {
   TRADE_CONVERT_PAIRS,
@@ -143,8 +138,10 @@ import {
   TRADE_OTC_SETTLE,
   TRADE_OTC_CONVERT_BOUNDS,
   TRADE_OTC_CONVERT_QUOTE,
+  TRADE_OTC_DESK_STATUS,
 } from '@intafaced/contracts/trade-otc-procedures';
-import { TRADE_RFQ_GET, TRADE_RFQ_ACCEPT, TRADE_RFQ_EXPIRE } from '@intafaced/contracts/trade-rfq-procedures';
+import { TRADE_RFQ_GET, TRADE_RFQ_ACCEPT, TRADE_RFQ_EXPIRE, TRADE_RFQ_QUOTE } from '@intafaced/contracts/trade-rfq-procedures';
+import { TRADE_OPTIONS_POLICY } from '@intafaced/contracts/trade-options-procedures';
 
 /**
  * svc-trade's API (§5.2).
@@ -1159,9 +1156,9 @@ export function createTradeRouter(
     otc: router({
       policy: publicProcedure.query(() => describeOtcPolicy()),
 
-      deskStatus: scopedProcedure('trade:read', { module: 'trade' })
-        .output(otcDeskStatusAnswer)
-        .query(() => {
+      deskStatus: mountRecord(
+        TRADE_OTC_DESK_STATUS,
+        () => {
           if (!otc) {
             const deskLaw = OTC_DESK_LAW_RESIDUAL;
             return {
@@ -1182,7 +1179,9 @@ export function createTradeRouter(
             };
           }
           return otc.deskStatus();
-        }),
+        },
+        tradeRefusal,
+      ),
 
       /** Liquidity-provider directory and multi-select check (CB-otc-01). */
       makers: router({
@@ -1292,22 +1291,9 @@ export function createTradeRouter(
      */
     rfq: router({
       ...rfqHistoryProcedures(trade),
-      quote: scopedProcedure('trade:read', { module: 'trade' })
-        .input(
-          z
-            .object({
-              side: orderSideSchema,
-              baseAsset: z.string().min(1).max(32),
-              quoteAsset: z.string().min(1).max(32),
-              qty: z.string(),
-              makerId: z.string().min(1).max(120).optional(),
-              /** CB-otc-01: the providers this request asks, from `otc.makers.list`; the owner's cap is checked in the desk. */
-              makerIds: z.array(z.string().max(120)).max(50).optional(),
-            })
-            .strict(),
-        )
-        .output(rfqQuoteAnswer)
-        .mutation(({ ctx, input }) =>
+      quote: mountRecord(
+        TRADE_RFQ_QUOTE,
+        ({ ctx, input }) =>
           guard(async () => {
             if (!otc) throw new OtcError('OTC desk not mounted', 'trade.otc_desk_law_blank');
             return otc.rfqQuote(ctx.principal, {
@@ -1319,7 +1305,8 @@ export function createTradeRouter(
               makerIds: input.makerIds,
             });
           }),
-        ),
+        tradeRefusal,
+      ),
 
       accept: mountRecord(
         TRADE_RFQ_ACCEPT,
@@ -1531,7 +1518,7 @@ export function createTradeRouter(
      * Settlement asset law stamp required before listing — no invented live set.
      */
     options: router({
-      policy: publicProcedure.output(optionsPolicyAnswer).query(() => describeOptionsPolicy()),
+      policy: mountRecord(TRADE_OPTIONS_POLICY, () => describeOptionsPolicy(), tradeRefusal),
       ...optionsDeskProcedures(trade),
     }),
 
@@ -1545,9 +1532,11 @@ export function createTradeRouter(
     copy: router({
       policy: publicProcedure.query(() => describeCopyPolicy()),
 
-      deskStatus: scopedProcedure('trade:read', { module: 'trade' })
-        .output(copyDeskStatusOutput)
-        .query(() => (copy ? copy.deskStatus() : presentCustomerCopyDesk(unmountedCopyDeskFacts()))),
+      deskStatus: mountRecord(
+        TRADE_COPY_DESK_STATUS,
+        () => (copy ? copy.deskStatus() : presentCustomerCopyDesk(unmountedCopyDeskFacts())),
+        tradeRefusal,
+      ),
 
       opsStatus: scopedProcedure('admin:read')
         .output(copyOpsStatusOutput)
@@ -1643,99 +1632,73 @@ export function createTradeRouter(
         tradeRefusal,
       ),
 
-      pause: scopedProcedure('trade:write', { module: 'trade' })
-        .input(z.object({ followId: z.string().min(1).max(64) }))
-        .output(copyPauseOutput)
-        .mutation(({ ctx, input }) =>
+      pause: mountRecord(
+        TRADE_COPY_PAUSE,
+        ({ ctx, input }) =>
           guard(async () => {
             if (!copy) {
               throw new CopyError('Follow not found', 'trade.copy_not_following');
             }
             return copy.pause(ctx.principal, input);
           }),
-        ),
+        tradeRefusal,
+      ),
 
-      stop: scopedProcedure('trade:write', { module: 'trade' })
-        .input(z.object({ followId: z.string().min(1).max(64), closeOnly: z.boolean().optional() }))
-        .output(copyStopOutput)
-        .mutation(({ ctx, input }) =>
+      stop: mountRecord(
+        TRADE_COPY_STOP,
+        ({ ctx, input }) =>
           guard(async () => {
             if (!copy) {
               throw new CopyError('Follow not found', 'trade.copy_not_following');
             }
             return copy.stop(ctx.principal, input);
           }),
-        ),
+        tradeRefusal,
+      ),
 
-      detach: scopedProcedure('trade:write', { module: 'trade' })
-        .input(z.object({ followId: z.string().min(1).max(64) }))
-        .output(copyDetachOutput)
-        .mutation(({ ctx, input }) =>
+      detach: mountRecord(
+        TRADE_COPY_DETACH,
+        ({ ctx, input }) =>
           guard(async () => {
             if (!copy) {
               throw new CopyError('Follow not found', 'trade.copy_not_following');
             }
             return copy.detach(ctx.principal, input);
           }),
-        ),
+        tradeRefusal,
+      ),
 
-      flatten: scopedProcedure('trade:write', { module: 'trade' })
-        .input(
-          z.object({
-            followId: z.string().min(1).max(64),
-            requestId: z.string().max(64).nullable().optional(),
-            stepUpApprovalId: z.string().max(128).nullable().optional(),
-          }),
-        )
-        .output(copyFlattenOutput)
-        .mutation(({ ctx, input }) =>
+      flatten: mountRecord(
+        TRADE_COPY_FLATTEN,
+        ({ ctx, input }) =>
           guard(async () => {
             if (!copy) {
               throw new CopyError('Follow not found', 'trade.copy_not_following');
             }
             return copy.flatten(ctx.principal, input);
           }),
-        ),
+        tradeRefusal,
+      ),
 
-      resume: scopedProcedure('trade:write', { module: 'trade' })
-        .input(z.object({ followId: z.string().min(1).max(64) }))
-        .output(copyResumeOutput)
-        .mutation(({ ctx, input }) =>
+      resume: mountRecord(
+        TRADE_COPY_RESUME,
+        ({ ctx, input }) =>
           guard(async () => {
             if (!copy) {
               throw new CopyError('Follow not found', 'trade.copy_not_following');
             }
             return copy.resume(ctx.principal, input);
           }),
-        ),
+        tradeRefusal,
+      ),
 
       /**
        * Published leader directory. Listed rows only, stable by listed time.
        * Limit is required. Any sort or order parameter is a ranking refuse.
        */
-      listLeaders: scopedProcedure('trade:read', { module: 'trade' })
-        .input(
-          z
-            .object({
-              limit: z.number().optional(),
-              cursor: z.string().max(500).optional(),
-              sort: z.string().max(64).optional(),
-              order: z.string().max(64).optional(),
-              orderBy: z.string().max(64).optional(),
-              return: z.string().max(64).optional(),
-              profit: z.string().max(64).optional(),
-              copiers: z.string().max(64).optional(),
-              rank: z.string().max(64).optional(),
-              // A ranked category or the trending row: accepted only so it can be refused by name (CB-copy-23).
-              category: z.string().max(64).optional(),
-              trending: z.boolean().optional(),
-              marketMode: z.string().max(16).optional(),
-              q: z.string().max(200).optional(),
-            })
-            .optional(),
-        )
-        .output(copyListLeadersAnswer)
-        .query(({ ctx, input }) =>
+      listLeaders: mountRecord(
+        TRADE_COPY_LIST_LEADERS,
+        ({ ctx, input }) =>
           guard(async () => {
             const query = input ?? {};
             refuseLeaderDirectoryRanking(query);
@@ -1743,18 +1706,19 @@ export function createTradeRouter(
             if (!copy) return { leaders: [], nextCursor: null };
             return copy.listLeaders(ctx.principal, query);
           }),
-        ),
+        tradeRefusal,
+      ),
 
       /** One listed leader's page: listing facts and the metrics the owner defined. Not listed → NOT_FOUND. */
-      leaderProfile: scopedProcedure('trade:read', { module: 'trade' })
-        .input(z.object({ leaderRef: z.string().min(1).max(80) }))
-        .output(copyLeaderProfileAnswer)
-        .query(({ ctx, input }) =>
+      leaderProfile: mountRecord(
+        TRADE_COPY_LEADER_PROFILE,
+        ({ ctx, input }) =>
           guard(async () => {
             if (!copy) throw new CopyError('Leader not found', 'trade.copy_leader_not_found');
             return copy.leaderProfile(ctx.principal, input);
           }),
-        ),
+        tradeRefusal,
+      ),
 
       /** One listed leader's own spot trades, newest first. Limit is required. */
       leaderTrades: mountRecord(
@@ -1768,26 +1732,26 @@ export function createTradeRouter(
       ),
 
       /** The caller's copied orders on one of their follows, newest first. */
-      followPositions: scopedProcedure('trade:read', { module: 'trade' })
-        .input(z.object({ followId: z.string().min(1).max(64) }))
-        .output(copyFollowPositionsAnswer)
-        .query(({ ctx, input }) =>
+      followPositions: mountRecord(
+        TRADE_COPY_FOLLOW_POSITIONS,
+        ({ ctx, input }) =>
           guard(async () => {
             if (!copy) throw new CopyError('Follow not found', 'trade.copy_not_following');
             return copy.followPositions(ctx.principal, input);
           }),
-        ),
+        tradeRefusal,
+      ),
 
       /** The caller's copied positions on one of their follows, newest first, with what is still open (CB-copy-09/10). */
-      copiedPositions: scopedProcedure('trade:read', { module: 'trade' })
-        .input(z.object({ followId: z.string().min(1).max(64) }))
-        .output(copyCopiedPositionsAnswer)
-        .query(({ ctx, input }) =>
+      copiedPositions: mountRecord(
+        TRADE_COPY_COPIED_POSITIONS,
+        ({ ctx, input }) =>
           guard(async () => {
             if (!copy) throw new CopyError('Follow not found', 'trade.copy_not_following');
             return copy.copiedPositions(ctx.principal, input);
           }),
-        ),
+        tradeRefusal,
+      ),
 
       /** The caller's own lead earnings: settled fee-share rows and their sum per asset; never a profit figure (J-copy-bots-otc-06 #3). */
       leadEarnings: mountRecord(
@@ -2043,16 +2007,16 @@ export function createTradeRouter(
       }),
 
       /** Caller's follows only — product desk list. Omit limit → named refuse, never invent 50. */
-      listMyFollows: scopedProcedure('trade:read', { module: 'trade' })
-        .input(z.object({ limit: z.number().optional() }).optional())
-        .output(copyListMyFollowsAnswer)
-        .query(({ ctx, input }) =>
+      listMyFollows: mountRecord(
+        TRADE_COPY_LIST_MY_FOLLOWS,
+        ({ ctx, input }) =>
           guard(async () => {
             const limit = publishedListMyFollowsLimit(input?.limit);
             if (!copy) return [];
             return copy.listMyFollows(ctx.principal, limit);
           }),
-        ),
+        tradeRefusal,
+      ),
 
       /**
        * Detach follows in every closed region. Unpublished law = all regions.

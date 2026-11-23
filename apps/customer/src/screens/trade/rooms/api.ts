@@ -15,7 +15,7 @@ import {
   icebergAnswerSchema,
 } from '@intafaced/contracts/trade-rooms';
 import type { ApiClient } from '../../../shared/api';
-import { otcFillSchema, otcQuoteSchema } from '../../../features/trade/tool-api';
+import { otcFillSchema } from '../../../features/trade/tool-api';
 import { listingSchema } from '../../../features/trade/trade-api';
 import {
   TRADE_ALGO_PROGRESS,
@@ -34,11 +34,19 @@ import {
   TRADE_OTC_SETTLE,
   TRADE_OTC_CONVERT_BOUNDS,
   TRADE_OTC_CONVERT_QUOTE,
+  TRADE_OTC_DESK_STATUS,
 } from '@intafaced/contracts/trade-otc-procedures';
-import { TRADE_RFQ_GET, TRADE_RFQ_ACCEPT, TRADE_RFQ_EXPIRE } from '@intafaced/contracts/trade-rfq-procedures';
+import {
+  TRADE_RFQ_GET,
+  TRADE_RFQ_ACCEPT,
+  TRADE_RFQ_EXPIRE,
+  TRADE_RFQ_QUOTE,
+  TRADE_RFQ_BOARD,
+} from '@intafaced/contracts/trade-rfq-procedures';
 import { type ProcedureOutput } from '@intafaced/contracts/procedure';
+import { TRADE_OPTIONS_POLICY } from '@intafaced/contracts/trade-options-procedures';
 
-export { otcFillSchema, otcQuoteSchema };
+export { otcFillSchema };
 export {
   algoListSchema,
   algoPolicySchema,
@@ -74,7 +82,7 @@ export type AlgoPolicy = ProcedureOutput<typeof TRADE_ALGO_POLICY>;
 export type AlgoProgress = ProcedureOutput<typeof TRADE_ALGO_PROGRESS>;
 
 export type OtcConvertQuote = ProcedureOutput<typeof TRADE_OTC_CONVERT_QUOTE>;
-export type RfqQuote = z.infer<typeof otcQuoteSchema>;
+export type RfqQuote = ProcedureOutput<typeof TRADE_RFQ_QUOTE>;
 export type RfqFill = z.infer<typeof otcFillSchema> & { fillId: string; takerOrderId: string; makerOrderId: string };
 
 /** A `/markets` row, with the option terms the contract carries for kind=option. */
@@ -161,21 +169,20 @@ export function createRoomApi(api: ApiClient) {
         : action === 'resume'
           ? api.call(TRADE_ALGO_RESUME, { algoId })
           : api.call(TRADE_ALGO_CANCEL, { algoId }),
-    deskStatus: (signal?: AbortSignal) => api.query('trade', 'otc.deskStatus', undefined, deskStatusSchema, { signal }),
+    deskStatus: (signal?: AbortSignal) => api.call(TRADE_OTC_DESK_STATUS, undefined, { signal }),
     otcMakers: (signal?: AbortSignal) => api.call(TRADE_OTC_MAKERS_LIST, undefined, { signal }),
     otcConvertBounds: (signal?: AbortSignal) => api.call(TRADE_OTC_CONVERT_BOUNDS, undefined, { signal }),
     otcConvertQuote: (input: { flow: 'convert'; side: 'buy' | 'sell'; baseAsset: string; quoteAsset: string; qty: string }) =>
       api.call(TRADE_OTC_CONVERT_QUOTE, input),
     rfqQuote: (input: { side: 'buy' | 'sell'; baseAsset: string; quoteAsset: string; qty: string; makerIds: string[]; makerId?: string }) =>
-      api.mutate('trade', 'rfq.quote', input, otcQuoteSchema),
+      api.call(TRADE_RFQ_QUOTE, input),
     rfqGet: (quoteId: string, signal?: AbortSignal) => api.call(TRADE_RFQ_GET, { quoteId }, { signal }),
-    rfqBoard: (window: { from: string; to: string; limit: number }, signal?: AbortSignal) =>
-      api.query('trade', 'rfq.board', window, rfqBoardSchema, { signal }),
+    rfqBoard: (window: { from: string; to: string; limit: number }, signal?: AbortSignal) => api.call(TRADE_RFQ_BOARD, window, { signal }),
     /** `assertedPrice` can only cause a refusal (last look is forbidden); it never sets the fill price. */
     rfqAccept: (quoteId: string, assertedPrice: string) => api.call(TRADE_RFQ_ACCEPT, { quoteId, assertedPrice }),
     rfqExpire: (quoteId: string) => api.call(TRADE_RFQ_EXPIRE, { quoteId }),
     otcSettle: (quoteId: string) => api.call(TRADE_OTC_SETTLE, { quoteId }),
-    optionsPolicy: (signal?: AbortSignal) => api.query('trade', 'options.policy', undefined, optionsPolicySchema, { signal }),
+    optionsPolicy: (signal?: AbortSignal) => api.call(TRADE_OPTIONS_POLICY, undefined, { signal }),
     markets: (signal?: AbortSignal) => api.rest('/markets', z.array(listedMarketSchema), { query: { limit: 500 }, signal }),
     greeks: (input: GreeksInput, signal?: AbortSignal) =>
       api.rest('/greeks/what-if', greeksSchema, { method: 'POST', body: input, signal }),

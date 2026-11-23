@@ -8,8 +8,8 @@ import { JurisdictionError, router, scopedProcedure, TRPCError } from '@intaface
 import { TradeError } from '../spot/types.js';
 import { answerKeys } from '../answer-keys.js';
 import { SignalError, type SignalDesk, type SignalWebhookView } from './signal-desk.js';
-import { signalWebhookFields, signalWebhookCreatedAnswer } from '@intafaced/contracts/trade-call-schemas';
-import { TRADE_SIGNALS_WEBHOOKS_CREATE } from '@intafaced/contracts/trade-signals-procedures';
+import { signalWebhookCreatedAnswer, signalWebhooksAnswer } from '@intafaced/contracts/trade-call-schemas';
+import { TRADE_SIGNALS_WEBHOOKS_CREATE, TRADE_SIGNALS_WEBHOOKS_LIST } from '@intafaced/contracts/trade-signals-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { tradeRefusal } from '../record-refusal.js';
 
@@ -33,7 +33,6 @@ function signalTrpcError(error: unknown): unknown {
   return error;
 }
 
-const signalWebhooksAnswer = z.array(z.object(signalWebhookFields));
 answerKeys<SignalWebhookView[]>()(signalWebhooksAnswer);
 
 answerKeys<Awaited<ReturnType<SignalDesk['create']>>>()(signalWebhookCreatedAnswer);
@@ -54,9 +53,7 @@ export function signalsRouter(desk?: SignalDesk) {
         ({ ctx, input }) => call((d) => d.create(ctx.principal, input, ctx.region)),
         tradeRefusal,
       ),
-      list: scopedProcedure('trade:read', { module: 'trade' })
-        .output(signalWebhooksAnswer)
-        .query(({ ctx }) => call((d) => d.list(ctx.principal))),
+      list: mountRecord(TRADE_SIGNALS_WEBHOOKS_LIST, ({ ctx }) => call((d) => d.list(ctx.principal)), tradeRefusal),
     }),
     intents: scopedProcedure('trade:read', { module: 'trade' })
       .input(z.object({ webhookId: z.string().min(1).max(64) }).strict())
