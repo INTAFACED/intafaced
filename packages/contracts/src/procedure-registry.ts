@@ -391,6 +391,10 @@ import {
   AGENTS_OWN_APPROVAL_APPROVE,
   AGENTS_OWN_APPROVAL_REJECT,
   AGENTS_OWN_APPROVALS,
+  AGENTS_OWN_APPROVAL_EDIT,
+  AGENTS_OWN_TOOL_TRY,
+  AGENTS_OWN_REVIEW_CHECK,
+  AGENTS_OWN_DRY_RUN,
 } from './agents-own-procedures.js';
 
 import {
@@ -2638,6 +2642,10 @@ const part_agents_own_procedures: readonly ProcedureRecord[] = [
   AGENTS_OWN_APPROVAL_APPROVE,
   AGENTS_OWN_APPROVAL_REJECT,
   AGENTS_OWN_APPROVALS,
+  AGENTS_OWN_APPROVAL_EDIT,
+  AGENTS_OWN_TOOL_TRY,
+  AGENTS_OWN_REVIEW_CHECK,
+  AGENTS_OWN_DRY_RUN,
 ];
 
 const part_agents_routes_procedures: readonly ProcedureRecord[] = [
