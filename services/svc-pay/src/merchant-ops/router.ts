@@ -168,7 +168,6 @@ function makeParts(deps: MerchantOpsDeps) {
 
 export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
   const read = ownMerchantRead();
-  const onboardOrRead = ownMerchantRead();
   const { need } = makeParts(deps);
   /** pay:write, or pay:onboard for an active member of a verified business: see team-member-write.ts. */
   const memberWrite = teamMemberWrite(() => need().sql);
