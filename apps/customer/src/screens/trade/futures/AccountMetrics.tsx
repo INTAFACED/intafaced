@@ -70,7 +70,7 @@ export function AccountMetrics({ asset }: { asset: string }) {
               <dl className="grid grid-cols-1 gap-x-6 gap-y-3 md:grid-cols-2 xl:grid-cols-5">
                 {rows.map(([id, label, hint, value]) => (
                   <div key={id} className="flex min-w-0 flex-col gap-0.5">
-                    <dt className="text-xs text-fg-2" title={hint}>
+                    <dt className="lt-hint" title={hint}>
                       {label}
                     </dt>
                     <dd data-testid={`metric-${id}`} className="if-num break-all text-sm text-fg">

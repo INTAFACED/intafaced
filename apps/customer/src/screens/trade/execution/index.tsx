@@ -36,7 +36,7 @@ export default function Screen(_props: ScreenProps) {
   );
 
   return (
-    <RoomFrame mode="Execution" title={t('Execution')} description={t('Execution description')} meta={meta}>
+    <RoomFrame title={t('Execution')} description={t('Execution description')} meta={meta}>
       {!userId ? (
         <EmptyState
           variant="refused"

@@ -225,7 +225,7 @@ pub struct ToWallet<'a> {
 /// `toWallet`: move from spending into trading, the partner's send to the person's own wallet under the move's own key.
 pub fn to_wallet(d: &Deps<'_>, user_id: &str, input: &ToWallet<'_>) -> Result<Json, Refusal> {
     let amount = parse_amount(input.amount).map_err(Refusal::Other)?;
-    if amount <= 0 {
+    if amount <= Amount::ZERO {
         return Err(refuse(
             "bank.validation_failed",
             "The amount to move must be above zero. Nothing was sent.",

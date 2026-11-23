@@ -215,7 +215,7 @@ fn usable(raw: Option<&Json>) -> Option<Amount> {
     }
     parse_amount(service_kit::schema::js_trim(s))
         .ok()
-        .filter(|a| *a > 0)
+        .filter(|a| *a > Amount::ZERO)
 }
 
 /// `tradeTickerPrices`: svc-trade's public ticker, the mid of a two-sided quote, otherwise the last trade. A missing,
@@ -267,7 +267,7 @@ impl Prices for TradeTickerPrices {
         let body = json::parse(&res.body).ok()?;
         if let (Some(bid), Some(ask)) = (usable(body.get("bid")), usable(body.get("ask"))) {
             let mid = (bid + ask) / 2;
-            if mid > 0 {
+            if mid > Amount::ZERO {
                 return Some(format_amount(mid));
             }
         }
@@ -325,7 +325,7 @@ pub fn read_own_holdings(
 ) -> Result<Result<Vec<Holding>, String>, String> {
     let mut amounts: BTreeMap<String, Amount> = BTreeMap::new();
     for b in ledger.balances(user_id)? {
-        if b.kind != "available" || b.amount <= 0 {
+        if b.kind != "available" || b.amount <= Amount::ZERO {
             continue;
         }
         *amounts.entry(b.asset_id).or_default() += b.amount;
@@ -340,14 +340,18 @@ pub fn read_own_holdings(
             .map(|p| service_kit::schema::js_trim(&p).to_owned())
             .filter(|p| !p.is_empty())
             .and_then(|p| parse_amount(&p).ok())
-            .filter(|p| *p > 0);
+            .filter(|p| *p > Amount::ZERO);
         let Some(price) = price else {
             return Ok(Err(asset));
         };
         // value = amount * price, both scaled by 10^18, the product scaled back once.
-        let value = mul_div(amount.unsigned_abs(), price.unsigned_abs(), MONEY_UNIT)
-            .map(|(q, _)| q)
-            .ok_or_else(|| "a holding's value is past the arithmetic".to_owned())?;
+        let value = mul_div(
+            amount.scaled().unsigned_abs(),
+            price.scaled().unsigned_abs(),
+            MONEY_UNIT,
+        )
+        .map(|(q, _)| q)
+        .ok_or_else(|| "a holding's value is past the arithmetic".to_owned())?;
         if value == 0 {
             return Ok(Err(asset));
         }

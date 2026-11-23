@@ -214,7 +214,7 @@ fn money(j: &Json, k: &str) -> Result<Amount, PostFailure> {
 
 fn positive(j: &Json, k: &str) -> Result<Amount, PostFailure> {
     let a = money(j, k)?;
-    if a <= 0 {
+    if a <= Amount::ZERO {
         return Err(invalid(&format!("{k} must be positive")));
     }
     Ok(a)
@@ -222,7 +222,7 @@ fn positive(j: &Json, k: &str) -> Result<Amount, PostFailure> {
 
 fn non_negative(j: &Json, k: &str) -> Result<Amount, PostFailure> {
     let a = money(j, k)?;
-    if a < 0 {
+    if a < Amount::ZERO {
         return Err(invalid(&format!("{k} cannot be negative")));
     }
     Ok(a)
@@ -306,14 +306,14 @@ fn entries(recipe: &str, i: &Json) -> Result<(Vec<Entry>, String), PostFailure> 
             let p = non_negative(i, "principal")?;
             let interest = non_negative(i, "interest")?;
             let seq = int(i, "sequence")?;
-            if p + interest <= 0 {
+            if p + interest <= Amount::ZERO {
                 return Err(invalid("total repayment must be positive"));
             }
             let mut e = vec![credit(&available(&user, &asset), p + interest)];
-            if p > 0 {
+            if p > Amount::ZERO {
                 e.push(debit(&reserve_account(&asset), p));
             }
-            if interest > 0 {
+            if interest > Amount::ZERO {
                 e.push(debit(&house_fees(&asset), interest));
             }
             (e, format!("bank.loan.repay:{loan}:{seq}"))
@@ -353,13 +353,13 @@ fn entries(recipe: &str, i: &Json) -> Result<(Vec<Entry>, String), PostFailure> 
                 (to, true, sold),
                 (from, false, proceeds),
             ];
-            if principal > 0 {
+            if principal > Amount::ZERO {
                 e.push(debit(&reserve_account(&debt), principal));
             }
-            if interest + penalty > 0 {
+            if interest + penalty > Amount::ZERO {
                 e.push(debit(&house_fees(&debt), interest + penalty));
             }
-            if surplus > 0 {
+            if surplus > Amount::ZERO {
                 e.push(debit(&available(&user, &debt), surplus));
             }
             (e, format!("bank.loan.liquidate:{loan}:{tranche}"))
@@ -399,7 +399,7 @@ fn entries(recipe: &str, i: &Json) -> Result<(Vec<Entry>, String), PostFailure> 
 
 /// `balanceAllowed`: no account below zero except a `treasury` boundary.
 fn allowed(a: &Acct, next: Amount) -> bool {
-    a.0 == "treasury" || next >= 0
+    a.0 == "treasury" || next >= Amount::ZERO
 }
 
 impl Book {
@@ -425,8 +425,8 @@ impl Book {
         }
         let mut staged = st.balances.clone();
         for (a, is_debit, x) in entries {
-            let held = staged.get(a).copied().unwrap_or(0);
-            let next = if *is_debit { held + x } else { held - x };
+            let held = staged.get(a).copied().unwrap_or(Amount::ZERO);
+            let next = if *is_debit { held + *x } else { held - *x };
             if !allowed(a, next) {
                 // MemoryLedger's InsufficientFundsError: definite by its code.
                 return Err(PostFailure::Coded {
@@ -435,7 +435,7 @@ impl Book {
                         "Insufficient {}: need {}, have {}",
                         a.2,
                         format_amount(*x),
-                        format_amount(held.max(0))
+                        format_amount(held.max(Amount::ZERO))
                     ),
                     attempts: 2,
                 });
@@ -544,7 +544,7 @@ impl Book {
             .balances
             .get(&acct(a))
             .copied()
-            .unwrap_or(0)
+            .unwrap_or(Amount::ZERO)
     }
 
     /// `formatAmount((await ledger.balance(a)).amount)`.
@@ -614,10 +614,10 @@ impl Book {
         let st = self.0.lock().unwrap();
         let mut by_asset: BTreeMap<&str, Amount> = BTreeMap::new();
         for (a, v) in &st.balances {
-            *by_asset.entry(a.2.as_str()).or_default() += v;
+            *by_asset.entry(a.2.as_str()).or_default() += *v;
         }
         for (asset, total) in by_asset {
-            assert_eq!(total, 0, "{asset} does not close");
+            assert_eq!(total, Amount::ZERO, "{asset} does not close");
         }
     }
 }
@@ -1181,7 +1181,7 @@ pub fn new_product() -> NewProduct {
         quote_asset_id: "USDT".to_owned(),
         apr_bps: 1_000,
         max_ltv_bps: 5_000,
-        min_principal: Some(0),
+        min_principal: Some(Amount::ZERO),
         policy: DEFAULT_LIQUIDATION_POLICY,
     }
 }

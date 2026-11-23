@@ -7,7 +7,15 @@
 
 use postgres::{Client, IsolationLevel, Transaction};
 
+use service_kit::outbox::Outbox;
 use service_kit::pg::{DbError, Pool, db_message};
+
+/// svc-agents' events (`agents.event_outbox`): each one is written in the transaction of the change it announces, then
+/// relayed to the bus (`service_kit::outbox`). Nothing here publishes any other way.
+pub const OUTBOX: Outbox = Outbox::new("agents");
+
+/// How many owed events one timer pass relays.
+pub const RELAY_BATCH: usize = 100;
 
 /// A database failure: the driver's message and, when the server sent one, its SQLSTATE.
 #[derive(Debug, Clone, PartialEq, Eq)]

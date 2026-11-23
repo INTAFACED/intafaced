@@ -5,7 +5,7 @@ use postgres::GenericClient;
 
 use crate::db::Store;
 use service_kit::json::Json;
-use service_kit::money::parse_amount;
+use service_kit::money::{Amount, parse_amount};
 
 use super::assignments::learner_row;
 use super::storage::{ObjectBytes, StorageConfig, configured, presign};
@@ -17,7 +17,7 @@ use crate::errors::Refusal;
 
 /// `hundredths(level)`: "1.5" is 150.
 pub fn hundredths(level: &str) -> i128 {
-    parse_amount(level).unwrap_or(0) / 10_i128.pow(16)
+    parse_amount(level).unwrap_or(Amount::ZERO).scaled() / 10_i128.pow(16)
 }
 
 /// `rubricTotal(marks)`.

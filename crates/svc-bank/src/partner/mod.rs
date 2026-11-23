@@ -291,7 +291,7 @@ fn sub(a: Amount, b: Amount) -> Result<Amount, Refusal> {
 
 /// The `TEST_PARTNER_*` values as amounts.
 fn fixed(text: &str) -> Amount {
-    parse_amount(text).unwrap_or(0)
+    parse_amount(text).unwrap_or(Amount::ZERO)
 }
 
 /// The TEST partner's book (`test-partner-book.ts`): the one owner of what it holds. Every account, every move and
@@ -323,7 +323,7 @@ impl Book {
         self.at
             .get(&account.key())
             .and_then(|i| self.held.get(*i))
-            .map_or(0, |(_, a)| *a)
+            .map_or(Amount::ZERO, |(_, a)| *a)
     }
 
     /// Adds `delta` (negative to take) to an account, in one step.
@@ -407,7 +407,10 @@ impl Book {
             label: LABEL,
             payees: None,
         };
-        self.add(from, amount.checked_neg().unwrap_or(0))?;
+        self.add(
+            from,
+            Amount::ZERO.checked_sub(amount).unwrap_or(Amount::ZERO),
+        )?;
         self.add(to, amount)?;
         self.remember(m.clone());
         Ok(m)
@@ -480,7 +483,10 @@ fn payees_key(p: Option<&Vec<Payee>>) -> String {
             .map(|p| {
                 format!(
                     "{}\u{0}{}\u{0}{}\u{0}{:?}",
-                    p.name, p.iban, p.amount, p.reference
+                    p.name,
+                    p.iban,
+                    p.amount.scaled(),
+                    p.reference
                 )
             })
             .collect::<Vec<_>>()
@@ -598,15 +604,18 @@ impl State {
         if self.book.moves_held() >= MAX_MOVES {
             return Err(partner_down());
         }
-        if req.amount <= 0 {
+        if req.amount <= Amount::ZERO {
             return Err(amount_invalid("A partner move needs an amount above zero."));
         }
         if let Some(payees) = &req.payees {
-            let mut sum: Amount = 0;
+            let mut sum: Amount = Amount::ZERO;
             for p in payees {
                 sum = add(sum, p.amount)?;
             }
-            if payees.is_empty() || payees.iter().any(|p| p.amount <= 0) || sum != req.amount {
+            if payees.is_empty()
+                || payees.iter().any(|p| p.amount <= Amount::ZERO)
+                || sum != req.amount
+            {
                 return Err(amount_invalid(
                     "A payout’s recipients must add up to its amount exactly. Nothing was moved.",
                 ));
@@ -640,7 +649,7 @@ impl State {
         // What the partner still holds back of a purchase stays where it is until its release time.
         let back = self.held_back(&req.from, now);
         let free = sub(has, back)?;
-        if back > 0 && free < req.amount {
+        if back > Amount::ZERO && free < req.amount {
             self.debits.refused_for_funds(req, now);
             return Err(refuse(
                 "bank.partner_insufficient_funds",
@@ -725,7 +734,7 @@ impl State {
             return Err(partner_down());
         }
         let mut closing = self.book.amount(account);
-        let mut net: Amount = 0;
+        let mut net: Amount = Amount::ZERO;
         let mut lines: u64 = 0;
         for m in self.book.person(&account.user_id) {
             let into = m.to == *account;
@@ -734,8 +743,8 @@ impl State {
                 continue;
             }
             let signed = sub(
-                if into { m.amount } else { 0 },
-                if out_of { m.amount } else { 0 },
+                if into { m.amount } else { Amount::ZERO },
+                if out_of { m.amount } else { Amount::ZERO },
             )?;
             if m.moved_at.0 >= to.0 {
                 closing = sub(closing, signed)?;
@@ -778,7 +787,7 @@ impl State {
         now: Instant,
     ) -> Result<SendLimits, Refusal> {
         let day_start = now.0.div_euclid(86_400_000).saturating_mul(86_400_000);
-        let mut used: Amount = 0;
+        let mut used: Amount = Amount::ZERO;
         for m in self.book.person(user_id) {
             if m.from.user_id == user_id
                 && m.to.user_id != user_id
@@ -813,7 +822,7 @@ impl State {
         if self.down(&from.user_id) {
             return Err(partner_down());
         }
-        if amount <= 0 {
+        if amount <= Amount::ZERO {
             return Err(amount_invalid("A partner move needs an amount above zero."));
         }
         if from.asset_id != to.asset_id {
@@ -832,7 +841,7 @@ impl State {
         let fee = self
             .board
             .read(&from.user_id, |s| s.fee == "known")
-            .then_some(0);
+            .then_some(Amount::ZERO);
         Ok(MoveQuote {
             quote_id,
             from: from.clone(),
@@ -964,7 +973,7 @@ impl State {
         if self.book.moves_held() >= MAX_MOVES {
             return Err(partner_down());
         }
-        if amount <= 0 {
+        if amount <= Amount::ZERO {
             return Err(amount_invalid("A payment in needs an amount above zero."));
         }
         let m = Move {
@@ -1001,7 +1010,7 @@ impl State {
                 "This bank account is closing or closed, so the partner bank takes no payment into it.",
             ));
         }
-        if f.amount <= 0 {
+        if f.amount <= Amount::ZERO {
             return Err(amount_invalid("TEST funding needs an amount above zero."));
         }
         self.book

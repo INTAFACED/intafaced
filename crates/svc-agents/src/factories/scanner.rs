@@ -350,9 +350,10 @@ pub fn invoke_data_tool(c: &ToolCall<'_>) -> Result<Json, RunError> {
     reason = "a unitless rank key, never money: the TypeScript computes it in doubles"
 )]
 fn ln_positive(n: Amount) -> Option<f64> {
-    if n <= 0 {
+    if n <= Amount::ZERO {
         return None;
     }
+    let n = n.scaled();
     let bits = 128 - n.leading_zeros();
     let shift = bits.saturating_sub(53);
     let mantissa = (n >> shift) as f64;
@@ -368,8 +369,8 @@ fn ln_positive(n: Amount) -> Option<f64> {
     reason = "a unitless rank key, never money: the TypeScript computes it in doubles"
 )]
 fn volume_weight(vol: Amount) -> Option<f64> {
-    const SCALE: Amount = 1_000_000_000_000_000_000;
-    if vol < 0 {
+    const SCALE: Amount = Amount::whole(1);
+    if vol < Amount::ZERO {
         return None;
     }
     let numer = ln_positive(SCALE.checked_add(vol)?)?;
@@ -489,7 +490,7 @@ pub fn rank_fixtures(fixtures: &[Ticker], o: &RankOptions<'_>) -> Ranked {
             incomplete += 1;
             continue;
         };
-        if last < 0 {
+        if last < Amount::ZERO {
             incomplete += 1;
             continue;
         }
@@ -503,7 +504,7 @@ pub fn rank_fixtures(fixtures: &[Ticker], o: &RankOptions<'_>) -> Ranked {
         } else {
             "change_flat"
         }];
-        if vol > 0 {
+        if vol > Amount::ZERO {
             reasons.push("has_volume");
         }
         candidates.push(Candidate {

@@ -29,6 +29,8 @@ import {
   OPS_PROTOCOL_LISTING_MARKETS_DELIST,
   OPS_PROTOCOL_LISTING_MARKETS_RESTORE,
 } from '@intafaced/contracts/ops-protocol-listing-procedures';
+import { ACADEMY_FREEZE_AMBASSADOR } from '@intafaced/contracts/academy-freeze-ambassador-procedures';
+import { ACADEMY_UNFREEZE_AMBASSADOR } from '@intafaced/contracts/academy-unfreeze-ambassador-procedures';
 
 /**
  * Run an approved Market or Academy request against the owning service, as the signed-in founder.
@@ -225,14 +227,14 @@ export function opsExecute(ctx: FounderCallContext): ExecuteFn {
     }
     if (request.kind === 'academy.ambassador.freeze' || request.kind === 'academy.ambassador.unfreeze') {
       const freeze = request.kind === 'academy.ambassador.freeze';
-      const result = await founderCall(
-        ctx,
-        'academy',
-        freeze ? 'freezeAmbassador' : 'unfreezeAmbassador',
-        'POST',
-        freeze ? { userId: request.userId, reason: request.reason, ...ids } : { userId: request.userId, ...ids },
-        readAmbassadorAnswer,
-      );
+      const result = await (freeze
+        ? founderRecordRead(
+            ctx,
+            ACADEMY_FREEZE_AMBASSADOR,
+            { userId: request.userId, reason: request.reason, ...ids },
+            readAmbassadorAnswer,
+          )
+        : founderRecordRead(ctx, ACADEMY_UNFREEZE_AMBASSADOR, { userId: request.userId, ...ids }, readAmbassadorAnswer));
       if (result.kind !== 'ok') return failureRefusal('svc-academy', 'academy', result);
       const a = result.data;
       if (a.userId !== request.userId || a.status !== (freeze ? 'frozen' : 'active')) return WRONG_STATE;

@@ -35,7 +35,7 @@ export function OrderResult({ trade, seller }: { trade: Trade; seller: boolean }
   const fiat = `${displayAmount(trade.fiatAmount)} ${trade.fiatCurrency}`;
   const quantity = { amount: displayAmount(trade.amount), asset: trade.asset };
   return (
-    <section className="p2p-order-result" aria-label={t('resultTitle')} data-testid="order-result">
+    <section aria-label={t('resultTitle')} data-testid="order-result">
       <h3>{t('resultTitle')}</h3>
       {trade.settledAt === null ? (
         <p className="lt-muted" data-testid="order-result-unsettled">
@@ -304,7 +304,7 @@ export function P2POrder({
                       [
                         t('terms'),
                         trade.terms?.trim() ? (
-                          <span className="p2p-order-terms" data-testid="order-terms" lang="und">
+                          <span className="lt-pre-wrap" data-testid="order-terms" lang="und">
                             {trade.terms}
                           </span>
                         ) : typeof trade.terms === 'string' ? (

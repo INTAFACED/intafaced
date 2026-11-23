@@ -60,6 +60,8 @@ fn main() -> ExitCode {
             args.iter().any(|a| a == "--down"),
             &mut std::io::stdout(),
         )
+    } else if args.first().map(String::as_str) == Some("test-seed") {
+        test_seed(args.get(1).map_or("", String::as_str))
     } else {
         run()
     };
@@ -68,6 +70,30 @@ fn main() -> ExitCode {
         Err(e) => {
             eprintln!("{e}");
             ExitCode::FAILURE
+        }
+    }
+}
+
+/// `svc-bank test-seed <op>`: one seed operation on a TEST stack's bank schema (`test_seed`), its input on stdin and
+/// its answer on stdout.
+fn test_seed(op: &str) -> Result<(), String> {
+    let raw: BTreeMap<String, String> = std::env::vars().collect();
+    svc_bank::test_seed::allowed(&raw)?;
+    let mut input = String::new();
+    std::io::Read::read_to_string(&mut std::io::stdin(), &mut input).map_err(|e| e.to_string())?;
+    let url = raw
+        .get("DATABASE_URL")
+        .cloned()
+        .unwrap_or_else(|| migrate::DEFAULT_URL.to_owned());
+    let store = db::open(&url, "svc-bank-test-seed", 1, false)?;
+    match svc_bank::test_seed::run(store, raw, op, &input) {
+        Ok(answer) => {
+            println!("{}", answer.compact());
+            Ok(())
+        }
+        Err(refused) => {
+            println!("{}", refused.compact());
+            Err(format!("svc-bank test-seed {op} refused"))
         }
     }
 }
@@ -234,6 +260,8 @@ fn transfers_wiring(env: &BankEnv, bus: &Arc<JetStream>) -> Result<transfers::Wi
         scheduled_transfers: env.flag("SCHEDULED_TRANSFERS_ENABLED").unwrap_or(false),
         batch_size: env.int("TRANSFER_BATCH_SIZE"),
         producer: env.str("SERVICE_NAME").unwrap_or("svc-bank").to_owned(),
+        business_invite_minutes: owned("BANK_BUSINESS_INVITE_MINUTES"),
+        bill_reader: env.str("BANK_BILL_READER").map(str::to_owned),
     };
     let bus: Box<dyn transfers::ports::Bus> = Box::new(JetStreamBus(bus.clone()));
     Ok(match env.str("IDENTITY_URL") {
@@ -337,6 +365,13 @@ fn recovery_jobs<'a>(
                 door.bank_api_deps(door.now(), |d| {
                     bank_api::drain(d, i64::from(batch)).map_err(|e| format!("{e:?}"))
                 })
+            }),
+        ),
+        // Slice `partner-account`: cash-outs left before their hold or the partner's acceptance, driven on.
+        (
+            "bank.recovery.redrive_cash_outs",
+            Box::new(move |batch| {
+                svc_bank::partner_account::cash_out::recovery(&door.partner_account(), batch)
             }),
         ),
     ]
@@ -579,6 +614,23 @@ fn bills_wiring(env: &BankEnv) -> Result<bills::Wiring, String> {
     Ok(w)
 }
 
+/// Slice `card-programme`'s wiring (`index.ts`'s `cardProgramme` options, `receiptSecret` and the cards' `rates`): the
+/// owner's cardholder sanctions list, the simulator on a dev or test stack alone, the export secret and svc-trade's ticker.
+fn card_programme_wiring(env: &BankEnv) -> svc_bank::card_programme::Wiring {
+    let raw = |k: &str| env.raw.get(k).map(String::as_str);
+    svc_bank::card_programme::Wiring {
+        sanctions: raw("BANK_CARDHOLDER_SANCTIONS").map(str::to_owned),
+        simulator_allowed: cards::terms::dev_or_test(env.str("APP_ENV"), raw("NODE_ENV")),
+        export_secret: env.str("INTERNAL_SERVICE_SECRET").map(str::to_owned),
+        rates: Box::new(loans::prices::TickerPriceSource::new(
+            env.str("TRADE_URL").unwrap_or("http://localhost:4004"),
+            Box::new(UreqFetch::new()),
+            None,
+            Box::new(system_now),
+        )),
+    }
+}
+
 /// Slice `global`'s wiring (`index.ts`'s `global` and its owner values): unset ports unless the TEST stand-in was
 /// chosen, which refuses to start outside dev or test (the raw `APP_ENV` and `NODE_ENV`).
 fn global_wiring(env: &BankEnv) -> Result<svc_bank::global::Wiring, String> {
@@ -791,6 +843,7 @@ fn door(env: &BankEnv, store: Store, bus: &Arc<JetStream>) -> Result<BankDoor, S
     .with_ramps(ramps_wiring(env)?)
     .with_activity(activity_wiring(env)?)
     .with_global(global_wiring(env)?)
+    .with_card_programme(card_programme_wiring(env))
     .with_bank_api(bank_api::Wiring::new(
         matches!(raw("APP_ENV"), Some("dev" | "test")) && raw("NODE_ENV") != Some("production"),
     ))

@@ -192,6 +192,7 @@ export class UserVenueRouter {
       test: boolean;
       health: VenueHealth;
       positionModes?: readonly VenuePositionMode[];
+      positionMoves?: boolean;
     }[]
   > {
     const out = [];
@@ -205,8 +206,9 @@ export class UserVenueRouter {
           displayName: v.venue.displayName,
           test: isTestVenue(v.venue),
           health: this.health.get(id)!,
-          // J-derivatives-05 #3: the position modes the venue offers.
+          // J-derivatives-05 #3 #7: the position modes the venue offers, and whether it moves an open position between accounts.
           positionModes: positionModesOf(v.venue),
+          positionMoves: v.venue.positionMoves === true,
         });
       } catch (err) {
         const reason = err instanceof VenueRefusalError ? err.refusal.detail : (err as Error).message;

@@ -48,7 +48,7 @@ pub trait ConvertPort: Send + Sync {
     fn convert(&self, ask: &ConvertAsk<'_>) -> Result<Converted, ConvertError>;
 }
 
-const SCALE: Amount = 1_000_000_000_000_000_000;
+const SCALE: Amount = Amount::whole(1);
 /// `CONVERT_MARKETS_LIMIT_MAX`.
 pub const MARKETS_LIMIT_MAX: i64 = 500;
 
@@ -293,7 +293,7 @@ impl TradeConvert {
             .and_then(|l| l.get("amount"))
             .and_then(|a| a.get("min"));
         let min_qty = wire_amount(min, "limits.amount.min")?;
-        if min_qty <= 0 {
+        if min_qty <= Amount::ZERO {
             return Err(rate_unset("limits.amount.min is not positive"));
         }
         Ok(Market {
@@ -338,7 +338,7 @@ impl TradeConvert {
         }
         // `parseAmount` throws a plain error on an unreadable price: no refusal, so the run is left for a person.
         let avg = parse_amount(&avg_price).map_err(ConvertError::Unknown)?;
-        if avg <= 0 {
+        if avg <= Amount::ZERO {
             return Err(rate_unset("convert quote avgPrice is not a positive rate"));
         }
         Ok(Quote {
@@ -395,7 +395,7 @@ impl TradeConvert {
                 "settled spend above the authorized amount, reconcile",
             ));
         }
-        if received <= 0 {
+        if received <= Amount::ZERO {
             return Err(unknown("settled with nothing received, reconcile"));
         }
         Ok(Converted {
@@ -429,14 +429,14 @@ impl ConvertPort for TradeConvert {
         let avg = parse_amount(&probe.avg_price).map_err(ConvertError::Unknown)?;
         let raw = mul_div(ask.from_amount, SCALE, avg, Rounding::Floor);
         let sized = raw - raw % market.min_qty;
-        if sized <= 0 {
+        if sized <= Amount::ZERO {
             return Err(rate_unset(
                 "spend amount below convert min qty at trade rate",
             ));
         }
         let live = self.quote(ask, &market.symbol, "buy", sized)?;
         let notional = wire_amount(live.user_notional.as_ref(), "buy convert userNotional")?;
-        if notional <= 0 {
+        if notional <= Amount::ZERO {
             return Err(rate_unset("buy convert notional is not positive"));
         }
         if notional > ask.from_amount {

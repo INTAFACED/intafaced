@@ -379,7 +379,7 @@ test(`${J} #4 scrolls back to the oldest bar, more history loads with a stated d
   await expect(page.getByTestId('chart-depth').first()).toContainText(/bars loaded, from .+\. This interval keeps the last 720 bars/);
   const after = Number(await canvas(page).getAttribute('data-bars'));
   expect(after).toBeGreaterThan(before);
-  expect(Number(await canvas(page).getAttribute('data-first'))).toBeLessThan(firstBefore);
+  await expect.poll(async () => Number(await canvas(page).getAttribute('data-first'))).toBeLessThan(firstBefore);
   // The stated depth is the count the chart holds.
   await expect(page.getByTestId('chart-depth').first()).toContainText(`${after} bars loaded, from `);
   // Mouse: dragging the plot to the right brings older bars into view.

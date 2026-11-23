@@ -1,4 +1,5 @@
-import { expect } from './journey.mjs';
+import { TAPE_WAIT } from '../../../../tooling/scripts/journey-shards.mjs';
+import { expect, test } from './journey.mjs';
 import { EDGE } from './stack.mjs';
 import { MINUTE, utcMinuteOf } from './clock.mjs';
 
@@ -26,6 +27,7 @@ export async function closedBarsSince(minute) {
  */
 export async function tapeWindow(minutes, { least = 8, count = (bars) => bars.length, what = 'closed TEST bars of BTC/USDT' } = {}) {
   let window;
+  const started = Date.now();
   await expect
     .poll(
       async () => {
@@ -39,5 +41,8 @@ export async function tapeWindow(minutes, { least = 8, count = (bars) => bars.le
       },
     )
     .toBeGreaterThanOrEqual(least);
+  // The wait is the shard's clock, not the step's work: the shard planner leaves it out of the step's time and plans the
+  // wait itself (journey-shards.mjs TAPE_READY_MINUTES).
+  test.info().annotations.push({ type: TAPE_WAIT, description: String(Date.now() - started) });
   return window;
 }

@@ -327,7 +327,7 @@ function StepBusiness({ portal, merchant, starterFee, onCreated, progress }: Onb
           values={[
             [
               t('factMerchantId'),
-              <span data-testid="pp-mono" className="pp-mono">
+              <span data-testid="pp-mono" className="lt-mono">
                 {merchant.id}
               </span>,
             ],
@@ -353,7 +353,7 @@ function StepBusiness({ portal, merchant, starterFee, onCreated, progress }: Onb
     <PaySection title={t('step1Title')} description={t('step1Body')}>
       <form
         data-testid="form-stack"
-        className="form-stack pp-form"
+        className="lt-stack"
         noValidate
         onSubmit={(e) => {
           e.preventDefault();
@@ -506,7 +506,7 @@ function StepVerification({ portal, merchant, kyb, history, loadMoreHistory, onK
                         : t('kybNoneNote')}
                 </p>
                 {canSubmit && (
-                  <div data-testid="form-stack" className="form-stack pp-form">
+                  <div data-testid="form-stack" className="lt-stack">
                     <Field
                       label={`${t('fKybRef')} *`}
                       value={ref}
@@ -614,7 +614,7 @@ function StepGoLive(props: OnboardingViewProps) {
             const kind = railKind(chosen.id);
             const shapeOk = ref.trim() === '' || destinationShapeOk(kind, ref);
             return (
-              <div data-testid="form-stack" className="form-stack pp-form">
+              <div data-testid="form-stack" className="lt-stack">
                 <SelectField
                   label={`${t('fRail')} *`}
                   value={chosen.id}
@@ -646,7 +646,7 @@ function StepGoLive(props: OnboardingViewProps) {
                           [t('fKind'), t(kind === 'crypto' ? 'kindCrypto' : 'kindBank')],
                           [
                             t('factDestination'),
-                            <span data-testid="pp-mono" className="pp-mono">
+                            <span data-testid="pp-mono" className="lt-mono">
                               {normaliseReference(ref)}
                             </span>,
                           ],

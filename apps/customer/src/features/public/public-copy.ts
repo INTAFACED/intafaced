@@ -2,6 +2,7 @@ import { defineCopy } from '../../shared/i18n';
 
 const messages = {
   'Public navigation': 'Public navigation',
+  Menu: 'Menu',
   Trade: 'Trade',
   Help: 'Help',
   About: 'About',
@@ -138,6 +139,7 @@ const messages = {
 export const publicCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCopy('customer.public', messages, {
   es: {
     'Public navigation': 'Navegación pública',
+    Menu: 'Menú',
     Trade: 'Operar',
     Help: 'Ayuda',
     About: 'Acerca de',
@@ -269,6 +271,7 @@ export const publicCopy: ReturnType<typeof defineCopy<typeof messages>> = define
   },
   fr: {
     'Public navigation': 'Navigation publique',
+    Menu: 'Menu',
     Trade: 'Négocier',
     Help: 'Aide',
     About: 'À propos',

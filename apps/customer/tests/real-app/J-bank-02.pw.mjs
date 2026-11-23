@@ -283,7 +283,9 @@ test(`${J} #1 presses Add money: every way to pay with its fee and delivery esti
     // No rate source on the stack: the fee, the arrival and the pay amount are blank, never a made-up zero.
     await expect(row.getByText('not set')).toHaveCount(3);
     await expect(row).toContainText(`Needs a partner for ${rail}. It is switched off in this build.`);
-    await expect(row).toContainText('bank.fiat_ramp_socket');
+    // A Bank refusal no step names ends in plain words; its code stays on data-code.
+    await expect(row.locator('[data-code="bank.fiat_ramp_socket"]')).toHaveCount(1);
+    await expect(row).not.toContainText('bank.fiat_ramp_socket');
   }
   await expect(page.getByTestId('add-money-ways')).not.toContainText(/fee[- ]free|0 EUR/i);
 
@@ -325,7 +327,8 @@ test(`${J} #2 picks bank transfer: the partner's reference code and the account 
   const refused = page.getByTestId('add-money-refused');
   await expect(refused).toContainText('This way to pay is switched off');
   await expect(refused).toContainText('rail.bank');
-  await expect(refused).toContainText('bank.fiat_ramp_socket');
+  await expect(refused).toHaveAttribute('data-code', 'bank.fiat_ramp_socket');
+  await expect(refused).not.toContainText('bank.fiat_ramp_socket');
   // No account number is made up when no partner gave one.
   await expect(page.locator('main')).not.toContainText(/IBAN|Payment reference/);
 
@@ -463,7 +466,9 @@ test(`${J} #4 accepts a price after it ran out: refused as expired, nothing kept
   await expect(row).toContainText('Price holds until');
   const holds = (await row.innerText()).match(/Price holds until: (.+)/)?.[1];
   // Every way it does not list stays refused by name: wallet pay, which it does not price from NL.
-  await expect(page.getByTestId('method-wallet_pay')).toContainText('bank.fiat_ramp_socket');
+  const walletPay = page.getByTestId('method-wallet_pay');
+  await expect(walletPay).toContainText('Needs a partner for rail.card. It is switched off in this build.');
+  await expect(walletPay.locator('[data-code="bank.fiat_ramp_socket"]')).toHaveCount(1);
   const confirm = await ask(page, 'bank_transfer');
   // The person stays on the review past the 20 seconds the TEST price holds, then asks.
   await page.waitForTimeout(21_000);
@@ -606,7 +611,8 @@ test(`${J} #6 links an external bank account: listed unverified with rail.bank, 
   await expect(row).toContainText('GB82 •••• 5432');
   await expect(row).toContainText('Unverified');
   await expect(row).toContainText('No. Only a banking partner can verify it, and rail.bank is switched off in this build.');
-  await expect(row).toContainText('bank.linked_account_unverified');
+  await expect(row.locator('[data-code="bank.linked_account_unverified"]')).toHaveCount(1);
+  await expect(row).not.toContainText('bank.linked_account_unverified');
   await expect(page.getByTestId('linked-accounts')).not.toContainText('WEST1234');
 
   // The bank says the same, and a session without the fresh confirmation cannot link one.
@@ -634,7 +640,10 @@ test(`${J} #6 links an external bank account: listed unverified with rail.bank, 
   await page.getByLabel('Amount').fill('20');
   await page.getByLabel('Bank account to pay into').selectOption({ label: 'TEST salary account (GB82 •••• 5432)' });
   await page.getByRole('button', { name: 'See what you get' }).click();
-  await expect(page.getByTestId('cash-out-blocker')).toContainText('bank.linked_account_unverified');
+  const blocker = page.getByTestId('cash-out-blocker');
+  await expect(blocker).toContainText('This account is unverified.');
+  await expect(blocker.locator('[data-code="bank.linked_account_unverified"]')).toHaveCount(1);
+  await expect(blocker).not.toContainText('bank.linked_account_unverified');
   await page.getByRole('button', { name: 'Cash out', exact: true }).click();
   const confirmUse = page.getByRole('dialog', { name: 'Confirm it’s you' });
   await expect(confirmUse).toBeVisible();
@@ -645,7 +654,8 @@ test(`${J} #6 links an external bank account: listed unverified with rail.bank, 
   const kept = page.getByTestId('cash-out-kept');
   await expect(kept).toContainText('This cash-out was not sent');
   await expect(kept).toContainText('Nothing left your balance.');
-  await expect(kept).toContainText('bank.linked_account_unverified');
+  await expect(kept.locator('[data-code="bank.linked_account_unverified"]').first()).toBeAttached();
+  await expect(kept).not.toContainText('bank.linked_account_unverified');
   const used = await (await bank(who)).query('cashOut.requests', { limit: 10 });
   expect(used.ok && used.data).toEqual([
     expect.objectContaining({ amount: '20', assetId: 'USDT', status: 'refused', refusalCode: 'bank.linked_account_unverified' }),
@@ -675,7 +685,7 @@ test(`${J} #7 reads incoming payments: when each arrived, that it is available, 
   await expect(rules).toContainText('Refused: a refused request to add money adds nothing.');
   // The refusal itself stays listed with its reason (and #2's bank transfer, opened, beside it), and the balance is still 50.
   await expect(page.getByTestId('add-money-request')).toHaveCount(2);
-  const refusedRow = page.getByTestId('add-money-request').filter({ hasText: 'bank.fiat_ramp_socket' });
+  const refusedRow = page.getByTestId('add-money-request').filter({ has: page.locator('[data-code="bank.fiat_ramp_socket"]') });
   await expect(refusedRow).toHaveCount(1);
   await expect(refusedRow).toHaveAttribute('data-status', 'refused');
 

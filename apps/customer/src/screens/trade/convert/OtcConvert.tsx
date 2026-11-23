@@ -198,7 +198,7 @@ export function OtcConvert() {
       className="flex flex-col gap-3 rounded-md border border-line bg-panel p-3"
     >
       <h2 className="m-0 text-md font-medium text-fg">{t('OTC title')}</h2>
-      <p className="m-0 text-sm text-fg-2">{t('OTC lead')}</p>
+      <p className="lt-hint">{t('OTC lead')}</p>
       <div data-testid="convert-otc-range" className="flex flex-wrap items-center gap-2 text-sm text-fg-2">
         {t('OTC range')}
         {bounds.status === 'loading' ? <Skeleton className="h-5 w-24" /> : null}
@@ -226,10 +226,10 @@ export function OtcConvert() {
       {pairs.status === 'loading' ? <Skeleton className="h-10 w-full" /> : null}
       {pairs.status === 'refused' ? <Refusal words={roomWords({ code: pairs.code })} size="inline" /> : null}
       {pairs.status !== 'loading' && pairs.status !== 'refused' && options.length === 0 ? (
-        <p className="m-0 text-sm text-fg-2">{t('OTC no pairs')}</p>
+        <p className="lt-hint">{t('OTC no pairs')}</p>
       ) : null}
       {options.length > 0 ? (
-        <div className="flex flex-col gap-3">
+        <div className="lt-stack">
           <Field label={t('OTC pair')}>
             <Select items={items} value={pair} onValueChange={(v) => setPair(String(v))}>
               <SelectTrigger className="w-full" size={40} aria-label={t('OTC pair')}>

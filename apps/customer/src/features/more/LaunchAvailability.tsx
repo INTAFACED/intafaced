@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { Tabs } from '../../shared/ui';
+import { SectionTabs } from '@intafaced/ui/lit/templates';
 import { SessionRetryPanel, SignInPanel } from '../../app/SignInPanel';
 import { useSession } from '../session';
 import { launchDepthCopy } from './launch-depth-copy';
@@ -24,19 +24,21 @@ export function Launch({ orders = false, tab: first }: { orders?: boolean; tab?:
   const priv = (section: ReactNode, returnTo: string) =>
     userId ? section : restoreFailed ? <SessionRetryPanel retry={retryRestore} /> : <SignInPanel returnTo={returnTo} />;
   return (
-    <div className="more-grid">
-      <Tabs
-        items={TABS}
+    <div className="lt-stack">
+      <SectionTabs<LaunchTab>
+        items={TABS.map((value) => ({
+          value,
+          label: {
+            Catalogue: catalogue.t('tabCatalogue'),
+            Journey: t('tabJourney'),
+            Check: t('tabCheck'),
+            Requirements: t('tabRequirements'),
+            Participation: t('tabParticipation'),
+          }[value],
+        }))}
         value={tab}
-        onChange={(value) => setTab(value as LaunchTab)}
+        onChange={setTab}
         label={t('sections')}
-        labels={{
-          Catalogue: catalogue.t('tabCatalogue'),
-          Journey: t('tabJourney'),
-          Check: t('tabCheck'),
-          Requirements: t('tabRequirements'),
-          Participation: t('tabParticipation'),
-        }}
       />
       {tab === 'Catalogue' ? (
         <>
