@@ -369,6 +369,7 @@ export const HELPER = /^apps\/customer\/tests\/real-app\/([A-Za-z0-9._-]+\.mjs)$
  * look-fixtures.mjs; each ran all 32 shards, 14 Nov 2026.)
  */
 export const STACK_HELPERS = [
+  'admin.mjs',
   'agents.mjs',
   'copy.mjs',
   'desk.mjs',

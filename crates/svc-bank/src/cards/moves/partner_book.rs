@@ -224,9 +224,9 @@ impl Book<'_> {
                 self.holds.now.0 + TEST_CARD_HOLD_DAYS * 86_400_000,
             ),
             conversion,
-            captured: 0,
-            released: 0,
-            refunded: 0,
+            captured: Amount::ZERO,
+            released: Amount::ZERO,
+            refunded: Amount::ZERO,
             expired: false,
         };
         let report = h.report();
@@ -351,8 +351,8 @@ impl Book<'_> {
                     let available = book
                         .books
                         .get(&book_id(user_id, asset_id))
-                        .map_or(0, |b| b.available);
-                    if want <= 0 || want > available + credited {
+                        .map_or(Amount::ZERO, |b| b.available);
+                    if want <= Amount::ZERO || want > available + credited {
                         continue;
                     }
                     let conversion = HoldConversion {
@@ -395,7 +395,7 @@ impl Book<'_> {
 
     fn credited_for(&self, hold_key: &str) -> Amount {
         self.owner_of(hold_key)
-            .map_or(0, |(u, a)| self.holds.credited(&u, &a))
+            .map_or(Amount::ZERO, |(u, a)| self.holds.credited(&u, &a))
     }
 
     /// `capture`: capture `amount` of the hold, once under `key`. Above what is held, the partner refuses.
@@ -412,10 +412,10 @@ impl Book<'_> {
             body(&[("op", "capture"), ("holdKey", hold_key), ("amount", amount)]),
             |book| {
                 let h = self.hold_for(book, hold_key)?;
-                if h.captured > 0 || h.released > 0 {
+                if h.captured > Amount::ZERO || h.released > Amount::ZERO {
                     let state = if h.expired {
                         "expired"
-                    } else if h.captured > 0 {
+                    } else if h.captured > Amount::ZERO {
                         "captured"
                     } else {
                         "released"
@@ -426,7 +426,7 @@ impl Book<'_> {
                     ));
                 }
                 let take = amount_of(amount)?;
-                if take <= 0 || take > h.open() {
+                if take <= Amount::ZERO || take > h.open() {
                     return Err(partner_no(
                         "bank.card_partner_capture_exceeds_hold",
                         format!(
@@ -440,7 +440,7 @@ impl Book<'_> {
                 let report = h.report();
                 if let Some(b) = book.books.get_mut(&book_id(&user, &asset)) {
                     b.held -= take;
-                    if left == 0 {
+                    if left == Amount::ZERO {
                         b.open.remove(hold_key);
                     }
                 }
@@ -484,7 +484,7 @@ impl Book<'_> {
                     }));
                 }
                 let back = h.open();
-                if back == 0 {
+                if back == Amount::ZERO {
                     return Err(partner_no(
                         "bank.card_partner_hold_closed",
                         format!(
@@ -527,7 +527,7 @@ impl Book<'_> {
             |book| {
                 let h = self.hold_for(book, hold_key)?;
                 let back = amount_of(amount)?;
-                if back <= 0 || back > h.captured - h.refunded {
+                if back <= Amount::ZERO || back > h.captured - h.refunded {
                     return Err(partner_no(
                         "bank.card_partner_refund_exceeds_capture",
                         format!(

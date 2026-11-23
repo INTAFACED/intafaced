@@ -4,9 +4,29 @@ import { test, expect } from './journey.mjs';
 import { signIn } from './desk.mjs';
 import { TOKEN_USD } from './dex.mjs';
 import { api, journeyState, stepState } from './stack.mjs';
-import { otherTraderKey, otherTraderRun, testDeposit, testVenue, venueForThisFile, venueRecord } from './venue.mjs';
+import {
+  otherTraderKey,
+  otherTraderRun,
+  sameDecimal,
+  testDeposit,
+  testVenue,
+  venueBalance,
+  venueForThisFile,
+  venueRecord,
+} from './venue.mjs';
 import { chainReceipt, rewardFunds, sumDecimal } from './reward-funds.mjs';
-import { campaignLauncher, data, join, operatorPair, signsThroughUs, traderDoor as door, traderOf, usdUnits } from './campaign-desk.mjs';
+import {
+  campaignLauncher,
+  data,
+  fillNotional,
+  join,
+  operatorPair,
+  ourVenueFills,
+  signsThroughUs,
+  traderDoor as door,
+  traderOf,
+  usdUnits,
+} from './campaign-desk.mjs';
 
 // J-campaigns-13, in the running app (docs/roadmap/journeys.json): receive an airdrop, a dividend, or my share of a
 // reward pool. One test per step, titled "J-campaigns-13 #<n>", run in order. The airdrop and the pool are this run's
@@ -79,6 +99,11 @@ async function venueFunds(p, asset, amount) {
 async function venueUsdc(p) {
   const body = await venueRecord(p.wallet, '/balances');
   return sumDecimal(body.value.filter((b) => b.asset === ASSET).map((b) => b.total));
+}
+
+/** The person's pool activity as the TEST venue itself reports it: the notional of their fills through INTAFACED since `since`. */
+async function venueActivity(p, since) {
+  return sumDecimal((await ourVenueFills(p, since)).map(fillNotional));
 }
 
 let orders = 0;
@@ -182,6 +207,8 @@ test(`${J} starts: signed in; a snapshot distribution has run, and a pool campai
 
 test(`${J} #1 opens /uc/paydividends with no distribution: the honest empty history`, async ({ browser }) => {
   const { ann } = state('ann');
+  // ANN holds venue equity on the TEST venue's own record, yet no distribution has run, so nothing is listed as owed.
+  expect(sameDecimal((await venueBalance(ann.wallet, ASSET)).total, ANN_EQUITY)).toBe(true);
   expect(await mine(ann.who)).toEqual([]);
   const page = await (await browser.newContext()).newPage();
   await signIn(page, ann.who);
@@ -196,6 +223,7 @@ test(`${J} #1 opens /uc/paydividends with no distribution: the honest empty hist
 
 test(`${J} #2 opens it after an airdrop ran: my record with the snapshot, my amount, and its chain reference once paid`, async ({
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(600_000);
   const { ann, ben } = state('ann', 'ben');
@@ -222,6 +250,9 @@ test(`${J} #2 opens it after an airdrop ran: my record with the snapshot, my amo
   await expect.poll(async () => (await mine(ann.who))[0]?.standing, { timeout: 180_000, intervals: [3_000] }).toBe('counted');
   const [annRecord] = await mine(ann.who);
   const [benRecord] = await mine(ben.who);
+  // The equity each record counted is the TEST venue's own balance of the account at the snapshot (unchanged since).
+  expect(sameDecimal(annRecord.equity, (await venueBalance(ann.wallet, ASSET)).total)).toBe(true);
+  expect(sameDecimal(benRecord.equity, (await venueBalance(ben.wallet, ASSET)).total)).toBe(true);
   expect(annRecord).toMatchObject({
     campaignId: airdrop.id,
     snapshotAt,
@@ -263,6 +294,7 @@ test(`${J} #2 opens it after an airdrop ran: my record with the snapshot, my amo
   await expect(row.getByTestId('dividend-source')).toContainText(`by your venue equity of ${ANN_EQUITY} ${ASSET} at the snapshot`);
   await expect(row.getByTestId('dividend-chain-tx')).toHaveAttribute('data-tx', annTx);
   await expect(row.getByTestId('dividend-payment')).toContainText(`Paid to ${ann.wallet} on the chain`);
+  await stepPicture(page);
   run.write({ ...run.read(), airdropId: airdrop.id });
 });
 
@@ -270,6 +302,7 @@ test(`${J} #3 opens a dividend record while the owner decision is open: the refu
   browser,
 }) => {
   const { ann } = state('ann', 'airdropId');
+  const equityBefore = (await venueBalance(ann.wallet, ASSET)).total;
   // A dividend cannot go live: its submission is refused naming the decision.
   const { ctx, pair } = await operators();
   const a = await pair.a.campaignsOpsToken();
@@ -309,20 +342,24 @@ test(`${J} #3 opens a dividend record while the owner decision is open: the refu
   await expect(page.getByTestId('dividends-empty')).toHaveAttribute('data-kind', 'dividend');
   await expect(page.getByTestId('dividends-empty')).toHaveText('No dividend records');
   await expect(page.getByTestId('dividend-record')).toHaveCount(0);
+  // Nothing moved on the venue: the TEST venue's own record of ANN's equity is as it was.
+  expect(sameDecimal((await venueBalance(ann.wallet, ASSET)).total, equityBefore)).toBe(true);
 });
 
 test(`${J} #4 opens a pool campaign at /campaigns/<id>: my share for each settled day, the per-user cap, and "nothing today" below the minimum balance, read from the venue with its as-of time`, async ({
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(600_000);
   const { ann, ben } = state('ann', 'ben');
   // ANN holds TEST BTC to sell; BEN holds 100 USDC on the venue, below the pool's minimum of 150.
   await venueFunds(ann, 'BTC', '1');
+  const since = new Date(Date.now() - 1_000).toISOString();
   const pool = await liveCampaign({
     ...common(`TEST pool ${tag}`),
     type: 'pool',
     rules: `TEST rules: each TEST day of two minutes, ${SLICE} ${ASSET} is shared by venue activity through INTAFACED, at most ${CAP} each, for anyone holding ${MIN_BALANCE} ${ASSET} on the venue.`,
-    startsAt: new Date(Date.now() - 1_000).toISOString(),
+    startsAt: since,
     endsAt: new Date(Date.now() + 7 * DAY).toISOString(),
     budget: { asset: ASSET, limit: POOL_BUDGET },
     pool: { activityAsset: ASSET, dailySlice: SLICE, perUserCap: CAP, minBalance: MIN_BALANCE, daySeconds: DAY_SECONDS },
@@ -341,6 +378,8 @@ test(`${J} #4 opens a pool campaign at /campaigns/<id>: my share for each settle
   const today = room.getByTestId('pool-today');
   await expect(today).toHaveAttribute('data-below-minimum', 'true');
   await expect(today).toHaveAttribute('data-balance', BEN_EQUITY);
+  const benOnVenue = (await venueBalance(ben.wallet, ASSET)).total;
+  await expect.poll(async () => sameDecimal(await today.getAttribute('data-balance'), benOnVenue)).toBe(true);
   await expect(today).toContainText(`Nothing today: your venue balance of ${BEN_EQUITY} ${ASSET}, read from the venue at`);
   await expect(today).toContainText(`is below the minimum of ${MIN_BALANCE} ${ASSET}.`);
   const asOf = await today.getAttribute('data-as-of');
@@ -359,6 +398,12 @@ test(`${J} #4 opens a pool campaign at /campaigns/<id>: my share for each settle
   expect(day1.mine).toMatchObject({ eligible: true, share: CAP, capped: true, activity: ACTIVITY });
   const benDay1 = (await poolBoard(ben.who, pool.id)).days.find((d) => d.day === 1);
   expect(benDay1.mine).toMatchObject({ eligible: false, share: '0', rewardKey: null, balance: BEN_EQUITY });
+  // ANN's activity is the TEST venue's own record: one fill through INTAFACED, its notional the day's activity; BEN made none.
+  const annFills = await ourVenueFills(ann, since);
+  expect(annFills).toHaveLength(1);
+  expect(sameDecimal(await venueActivity(ann, since), day1.mine.activity)).toBe(true);
+  expect(await ourVenueFills(ben, since)).toEqual([]);
+  expect(sameDecimal(benDay1.mine.balance, (await venueBalance(ben.wallet, ASSET)).total)).toBe(true);
   // On screen, ANN's day 1: the share held to the cap and what stays in the pool.
   const annPage = await (await browser.newContext()).newPage();
   await signIn(annPage, ann.who);
@@ -376,12 +421,13 @@ test(`${J} #4 opens a pool campaign at /campaigns/<id>: my share for each settle
   await expect(benRow.getByTestId('pool-day-share')).toContainText(
     `Nothing that day: your venue balance of ${BEN_EQUITY} ${ASSET}, read at`,
   );
-  run.write({ ...run.read(), poolId: pool.id, annPoolKey: day1.mine.rewardKey });
+  await stepPicture(benPage);
+  run.write({ ...run.read(), poolId: pool.id, poolSince: since, annPoolKey: day1.mine.rewardKey });
 });
 
-test(`${J} #5 a day settles twice: each share paid once to the connected wallet`, async ({ browser }) => {
+test(`${J} #5 a day settles twice: each share paid once to the connected wallet`, async ({ browser, stepPicture }) => {
   test.setTimeout(600_000);
-  const { ann, ben, poolId, annPoolKey } = state('ann', 'ben', 'poolId', 'annPoolKey');
+  const { ann, ben, poolId, poolSince, annPoolKey } = state('ann', 'ben', 'poolId', 'poolSince', 'annPoolKey');
   const { ctx, pair } = await operators();
   const a = await pair.a.campaignsOpsToken();
   const before = (await poolBoard(ann.who, poolId)).days.find((d) => d.day === 1);
@@ -400,10 +446,15 @@ test(`${J} #5 a day settles twice: each share paid once to the connected wallet`
   const after = (await poolBoard(ann.who, poolId)).days.find((d) => d.day === 1);
   expect(after).toMatchObject({ settledAt: before.settledAt, sharesTotal: before.sharesTotal, remainder: before.remainder });
   expect(after.mine).toMatchObject({ state: 'paid', chainTx: tx });
+  // The share paid stands on the TEST venue's own record: ANN's activity there is the day's whole activity (BEN made none),
+  // so her share is the slice held to the cap, paid once however often the day settled.
+  expect(sameDecimal(await venueActivity(ann, poolSince), after.mine.activity)).toBe(true);
+  expect(await ourVenueFills(ben, poolSince)).toEqual([]);
   const page = await (await browser.newContext()).newPage();
   await signIn(page, ann.who);
   const room = await openPool(page, poolId);
   const row = room.locator('[data-testid="pool-day"][data-day="1"]');
   await expect(row).toHaveAttribute('data-state', 'paid', { timeout: 30_000 });
   await expect(row.getByTestId('pool-day-chain-tx')).toHaveAttribute('data-tx', tx);
+  await stepPicture(page);
 });

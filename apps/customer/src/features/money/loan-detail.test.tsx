@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { loanRefusal, loanStatementMonth } from './LoanDetail';
-import { bankReads, loanStatementSchema } from './contracts';
+import { loanStatementSchema } from './contracts';
 import { loanDetailCopy } from './loan-detail-copy';
+import { BANK_LOANS_PROJECTION, BANK_LOANS_PAYOFF_QUOTE } from '@intafaced/contracts/bank-loans-2-procedures';
 
 /** BK-loan-06 screen half (J-bank-11 #1): the bank's loan reads as their schemas, and what each refusal says. */
 
@@ -20,14 +21,14 @@ describe('loan details', () => {
       extraApplied: null,
       rows: [{ date: '2026-10-25', basis: '100', interest: '0.027397260273972602', principal: '100', debt: '100.027397260273972602' }],
     };
-    expect(bankReads['loans.projection'].parse(view).rows[0]?.interest).toBe('0.027397260273972602');
-    expect(() => bankReads['loans.projection'].parse({ ...view, obligation: true })).toThrow();
-    expect(() => bankReads['loans.projection'].parse({ ...view, kind: 'schedule' })).toThrow();
+    expect(BANK_LOANS_PROJECTION.output.parse(view).rows[0]?.interest).toBe('0.027397260273972602');
+    expect(() => BANK_LOANS_PROJECTION.output.parse({ ...view, obligation: true })).toThrow();
+    expect(() => BANK_LOANS_PROJECTION.output.parse({ ...view, kind: 'schedule' })).toThrow();
   });
 
   it('reads the payoff quote and the statement as the bank sends them', () => {
     expect(
-      bankReads['loans.payoffQuote'].parse({
+      BANK_LOANS_PAYOFF_QUOTE.output.parse({
         loanId: 'l1',
         principal: '100',
         interest: '0.4',
@@ -38,7 +39,7 @@ describe('loan details', () => {
         validUntil: '2026-10-24T11:25:58.422Z',
       }).total,
     ).toBe('100.4');
-    expect(() => bankReads['loans.payoffQuote'].parse({ loanId: 'l1', total: 100.4 })).toThrow();
+    expect(() => BANK_LOANS_PAYOFF_QUOTE.output.parse({ loanId: 'l1', total: 100.4 })).toThrow();
     expect(() => loanStatementSchema.parse({ format: 'pdf' })).toThrow();
   });
 

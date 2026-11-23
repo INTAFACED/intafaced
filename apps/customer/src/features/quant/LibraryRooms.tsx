@@ -25,7 +25,7 @@ export function LibraryRoom({ paper }: { paper: boolean }) {
       title={t('libraryTitle')}
       description={t('libraryIntro')}
       state={{ kind: 'ready' }}
-      filters={<QuantRooms active="strategies" paper={paper} />}
+      section={<QuantRooms paper={paper} />}
       list={
         <section>
           <h2>{t('libraryTitle')}</h2>

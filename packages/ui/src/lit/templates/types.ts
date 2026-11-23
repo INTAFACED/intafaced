@@ -139,11 +139,18 @@ export interface RoomProps {
   titleLang?: string;
   /** The title heading, for a room that moves focus to it when what it shows changes (an answer opened, a read failed). */
   titleRef?: React.Ref<HTMLHeadingElement>;
-  description?: string;
+  description?: React.ReactNode;
   /** At most one room action in the title row. */
   roomAction?: React.ReactNode;
+  /** The title row's own marks (`data-testid`), where a room's tests find its heading and the line under it. */
+  headingMarks?: Readonly<Record<`data-${string}`, string | undefined>>;
   /** The room's own bar, a `RoomBar`: drawn first, above the title, and staying under the app's top bar as the page scrolls. */
   bar?: React.ReactNode;
+  /**
+   * The section's tab bar, a `Tabs` of the section's rooms (Bank, Trade, Algo dev, P2P): every template draws it in the
+   * same place, under the title row, so it never moves between a section's rooms.
+   */
+  section?: React.ReactNode;
   state: RoomState;
   mode?: Mode;
   /** Legal moments this room carries (the rules that apply to its moments). */

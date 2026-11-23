@@ -759,7 +759,7 @@ export function CreateSubscriptionView({
         <Gate resource={mandates} retry={reload}>
           {() =>
             choices.length ? (
-              <div data-testid="form-stack" className="form-stack pp-form">
+              <div data-testid="form-stack" className="lt-stack">
                 <SelectField
                   label={c.t('chooseMandate')}
                   value={mandateId}

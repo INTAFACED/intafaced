@@ -15,14 +15,13 @@ import {
   scheduleCadenceField,
   scheduleWindowIssue,
   startsField,
-  useBankRead,
   type ActionSpec,
   useBankRecord,
 } from '../components';
 import { NoRows, BankSection as Section } from '../bank-frame/BankFrame';
 import { ReadView as ResourceView } from '../../../shared/read-state';
 import { spaceInflowCopy } from '../space-inflow-copy';
-import { BANK_AUTO_INVEST_LIST } from '@intafaced/contracts/bank-auto-invest-procedures';
+import { BANK_AUTO_INVEST_LIST, BANK_AUTO_INVEST_POLICY } from '@intafaced/contracts/bank-auto-invest-procedures';
 import { BANK_TRANSFERS_LIST_SCHEDULES } from '@intafaced/contracts/bank-transfers-procedures';
 import { BANK_STATEMENTS_EXPORT } from '@intafaced/contracts/bank-statements-procedures';
 import { BANK_TRANSFERS_SCHEDULE } from '@intafaced/contracts/bank-transfers-2-procedures';
@@ -44,7 +43,7 @@ export function SpaceInflows({ space, spaces, open }: { space: Space; spaces: Sp
   // Read for this space only, so an order or a round-up is never lost behind other ones on a page.
   const orders = useBankRecord(BANK_TRANSFERS_LIST_SCHEDULES, { limit: LIST_LIMIT, toSpaceId: space.id });
   const rules = useBankRecord(BANK_AUTO_INVEST_LIST, { limit: LIST_LIMIT, targetSpaceId: space.id });
-  const policy = useBankRead('autoInvest.policy', undefined);
+  const policy = useBankRecord(BANK_AUTO_INVEST_POLICY, undefined);
   const main = spaces.find((row) => row.kind === 'primary' && row.assetId === space.assetId);
   const automatic = policy.resource.status === 'ready' && policy.resource.data.enabled;
   const reload = () => {

@@ -25,7 +25,7 @@ fn parse_optional(value: Option<&str>) -> Result<Option<Amount>, OwnRefusal> {
         return Ok(None);
     }
     match parse_amount(text) {
-        Ok(a) if a > 0 => Ok(Some(a)),
+        Ok(a) if a > Amount::ZERO => Ok(Some(a)),
         _ => Err(OwnRefusal::new("agents.usage.limit_invalid")),
     }
 }
@@ -106,7 +106,7 @@ fn view(
         ),
         (
             "hardLimitRoom",
-            money(hard_limit.map(|h| if h > used { h - used } else { 0 })),
+            money(hard_limit.map(|h| if h > used { h - used } else { Amount::ZERO })),
         ),
         ("assetId", Json::str(asset_id)),
     ]))

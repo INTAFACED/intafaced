@@ -106,11 +106,11 @@
 <p class="lt-muted">Published catalogue terms and your seller workspace.</p>
 </div>
 </header>
-<div class="more-grid">
-<nav data-slot="sub-nav" aria-label="Catalogue" class="flex flex-wrap items-center gap-1 border-b border-line py-2 px-0">
-<a href="/market" aria-current="page" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Catalogue</a>
-<a href="/market/mine" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">My listings</a>
-<a href="/market/strategy" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Publish a strategy subscription</a>
+<div class="lt-stack">
+<nav class="lt-tabs" aria-label="Catalogue" data-region="section-tabs">
+<a href="/market" class="lt-tab" aria-current="page">Catalogue</a>
+<a href="/market/mine" class="lt-tab">My listings</a>
+<a href="/market/strategy" class="lt-tab">Publish a strategy subscription</a>
 </nav>
 <div lang="und" style="display: contents;">
 <div data-testid="failure" class="lt-refusal" role="status">
@@ -125,22 +125,30 @@
 </div>
 <nav aria-label="More in the Market">
 <p class="lt-hint">Copy leaders, bots and signals are run by the copy room; each door opens its own section there.</p>
-<ul class="lt-stack">
-<li class="lt-stack">
+<ul class="lt-doors">
+<li>
+<div class="lit-surface lt-stack" data-layer="content" data-material="raised" style="--lit-light-angle: 0deg; --lit-corner-x: 0%; --lit-corner-y: 0%;">
 <a class="lt-link" href="/trade/copy?tab=spot">Spot copy trading</a>
 <small class="lt-hint">Follow a spot leader.</small>
+</div>
 </li>
-<li class="lt-stack">
+<li>
+<div class="lit-surface lt-stack" data-layer="content" data-material="raised" style="--lit-light-angle: 0deg; --lit-corner-x: 0%; --lit-corner-y: 0%;">
 <a class="lt-link" href="/trade/copy?tab=futures">Futures copy trading</a>
 <small class="lt-hint">Follow a futures leader.</small>
+</div>
 </li>
-<li class="lt-stack">
+<li>
+<div class="lit-surface lt-stack" data-layer="content" data-material="raised" style="--lit-light-angle: 0deg; --lit-corner-x: 0%; --lit-corner-y: 0%;">
 <a class="lt-link" href="/trade/copy?tab=bots">Bot marketplace</a>
 <small class="lt-hint">Copy a listed trading bot.</small>
+</div>
 </li>
-<li class="lt-stack">
+<li>
+<div class="lit-surface lt-stack" data-layer="content" data-material="raised" style="--lit-light-angle: 0deg; --lit-corner-x: 0%; --lit-corner-y: 0%;">
 <a class="lt-link" href="/trade/copy?tab=signal">Signal marketplace</a>
 <small class="lt-hint">Follow a listed signal.</small>
+</div>
 </li>
 </ul>
 </nav>

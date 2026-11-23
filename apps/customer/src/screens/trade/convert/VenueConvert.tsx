@@ -427,7 +427,7 @@ function VenueCard({
       </Tabs>
       <div className="cvt-fields">
         <div className="cvt-field" data-testid="from-field">
-          <span className="cvt-field__label">{ct('From')}</span>
+          <span className="lt-hint">{ct('From')}</span>
           <div className="cvt-field__main">
             <button type="button" className="cvt-asset" aria-label={ct('Change From asset')} onClick={() => setPicker('from')}>
               <CoinIcon asset={from} size={28} />
@@ -451,7 +451,7 @@ function VenueCard({
           </p>
         </div>
         <div className="cvt-field" data-testid="to-field">
-          <span className="cvt-field__label">{ct('To')}</span>
+          <span className="lt-hint">{ct('To')}</span>
           <div className="cvt-field__main">
             <button type="button" className="cvt-asset" aria-label={ct('Change To asset')} onClick={() => setPicker('to')}>
               <CoinIcon asset={to} size={28} />
@@ -540,8 +540,8 @@ function VenueCard({
           )}
         </>
       ) : (
-        <div className="cvt-limit" data-testid="cvt-limit">
-          <label className="cvt-field__label" htmlFor="cvt-target">
+        <div className="lt-stack" data-testid="cvt-limit">
+          <label className="lt-hint" htmlFor="cvt-target">
             {t('Target rate')}
           </label>
           <AmountInput
@@ -833,14 +833,14 @@ function VenueRouteCard({ from, to }: { from: string; to: string }) {
     <section data-testid="cvt-card" className="cvt-card" data-mode="venue" aria-label={ct('Convert')}>
       <div className="cvt-fields">
         <div className="cvt-field" data-testid="from-field">
-          <span className="cvt-field__label">{ct('From')}</span>
+          <span className="lt-hint">{ct('From')}</span>
           <span className="cvt-asset">
             <CoinIcon asset={from} size={28} />
             <span>{from}</span>
           </span>
         </div>
         <div className="cvt-field" data-testid="to-field">
-          <span className="cvt-field__label">{ct('To')}</span>
+          <span className="lt-hint">{ct('To')}</span>
           <span className="cvt-asset">
             <CoinIcon asset={to} size={28} />
             <span>{to}</span>
