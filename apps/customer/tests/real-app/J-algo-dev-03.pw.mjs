@@ -9,6 +9,17 @@ import { answerAfterNavigation } from './navigation.mjs';
 import { createRequire } from 'node:module';
 import nodePath from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { limitText } from '../../src/features/quant/limit-words.ts';
+
+// The words the usage view reads a whole-number value in (apps/customer/src/features/quant/limits-copy.ts).
+const LIMIT_WORDS = {
+  seconds: (n) => `${n} seconds`,
+  oneSecond: '1 second',
+  bytes: (n) => `${n} bytes`,
+  kb: (n) => `${n} KB`,
+  mb: (n) => `${n} MB`,
+  characters: (n) => `${n} characters`,
+};
 
 // J-algo-dev-03, in the running app (docs/roadmap/journeys.json): keep strategies organised and stay inside the plan
 // limits. One test per step, titled "J-algo-dev-03 #<n>", run in order on one TEST developer who starts signed in,
@@ -602,7 +613,7 @@ test(`${J} #7 opens the usage view: counts for strategies, runs, storage and col
   const plan = usage.getByTestId('quant-usage-plan');
   await expect(plan).toHaveAttribute('data-profile', profile);
   await expect(plan).toHaveAttribute('data-source', assigned ? 'assigned' : 'default');
-  await expect(plan).toContainText(`Plan: ${profile} (${assigned ? 'set for this account' : 'the default plan'})`);
+  await expect(plan).toHaveText(`Plan: ${profile}`);
   const stored = Object.fromEntries((await (await quotaDoor(founders)).profile(profile)).limits.map((row) => [row.resource, row.limit]));
 
   const row = (resource) => usage.locator(`[data-resource="${resource}"]`);
@@ -610,7 +621,7 @@ test(`${J} #7 opens the usage view: counts for strategies, runs, storage and col
   for (const [resource, label] of [
     ['strategies', 'Saved strategies'],
     ['runs', 'Stored runs'],
-    ['storage', 'Source and result storage (bytes)'],
+    ['storage', 'Code and result storage'],
     ['collaborators', 'Collaborators per strategy'],
   ]) {
     await expect(row(resource)).toHaveCount(1);
@@ -619,7 +630,9 @@ test(`${J} #7 opens the usage view: counts for strategies, runs, storage and col
     // Against the plan: the limit shown is the one the plan stores, or "not set" when it is blank.
     const limit = stored[resource] ?? null;
     await expect(row(resource)).toHaveAttribute('data-limit', limit ?? '');
-    await expect(row(resource).locator('td').nth(1)).toHaveText(limit ?? 'not set');
+    // In words: storage's bytes in KB or MB, a count with its thousands grouped.
+    const unit = resource === 'storage' ? 'bytes' : 'count';
+    await expect(row(resource).locator('td').nth(1)).toHaveText(limit === null ? 'not set' : limitText(limit, unit, LIMIT_WORDS));
   }
   // Storage is the bytes of the source of every version this account keeps (the recycle bin's too) and of every stored
   // run's result, each row read from svc-quant's own tables and measured here in UTF-8 bytes.
@@ -634,7 +647,7 @@ test(`${J} #7 opens the usage view: counts for strategies, runs, storage and col
   });
   expect(bytes).toBeGreaterThan(0);
   await expect(row('storage')).toHaveAttribute('data-used', String(bytes));
-  await expect(row('storage').locator('td').first()).toHaveText(String(bytes));
+  await expect(row('storage').locator('td').first()).toHaveText(limitText(String(bytes), 'bytes', LIMIT_WORDS));
 });
 
 const REPO = fileURLToPath(new URL('../../../../', import.meta.url));

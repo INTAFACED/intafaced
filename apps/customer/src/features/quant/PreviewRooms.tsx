@@ -289,15 +289,18 @@ export function TesterRoom({ paper }: { paper: boolean }) {
             onChange={(event) => setSpeed(Number(event.currentTarget.value))}
           />
         </label>
-        <Button variant="secondary" onClick={() => setPlaying((p) => !p)}>
-          {playing ? t('pause') : t('play')}
-        </Button>
-        <Button disabled={engine.waiting} onClick={() => void act('start')}>
-          {t('start')}
-        </Button>
-        <a className="lt-link" href={preservePaperHref('/quant/backtest', paper)}>
-          {t('backtest')}
-        </a>
+        {/* The local replay's control and the engine's Start are one row of equal buttons; the real backtest's link sits apart. */}
+        <div className="lt-actions preview-controls">
+          <Button variant="secondary" onClick={() => setPlaying((p) => !p)}>
+            {playing ? t('pause') : t('play')}
+          </Button>
+          <Button variant="secondary" disabled={engine.waiting} onClick={() => void act('start')}>
+            {t('start')}
+          </Button>
+          <a className="lt-link" href={preservePaperHref('/quant/backtest', paper)}>
+            {t('backtest')}
+          </a>
+        </div>
       </Region>
       <PreviewRefusalAlert refusal={engine.refusal} />
     </PreviewShell>
@@ -362,7 +365,7 @@ export function OptimiseRoom({ paper }: { paper: boolean }) {
         </label>
         <p role="note">{t('sortNote')}</p>
         <EnginePanel name={t('passes')}>
-          <table aria-label={t('passes')}>
+          <table aria-label={t('passes')} className="preview-passes">
             <thead>
               <tr>
                 <th scope="col" aria-sort={sort ?? 'none'}>
