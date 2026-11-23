@@ -45,7 +45,6 @@
   "/trade/bots/:kind",
   "/trade/bots/signals/publish",
   "/trade/orders",
-  "/trade/orders/:id",
   "/trade/convert",
   "/trade/terminal",
   "/execution",
