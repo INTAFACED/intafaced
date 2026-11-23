@@ -97,7 +97,7 @@ export function PublicRoutes({
   const library = helpLibraryPath(path);
   const Body = framed ? 'div' : 'main';
   return (
-    <div className="public-shell" data-frame={framed ? 'app' : 'public'}>
+    <div className="public-shell">
       {!framed && <PublicHeader path={path} />}
       <Body id={framed ? undefined : 'main'}>
         {path === '/' ? (
