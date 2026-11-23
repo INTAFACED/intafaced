@@ -6,10 +6,11 @@ import { useResource } from '../../shared/resource';
 import { ReadView, RecordTable } from '../../shared/record/record-parts';
 import { preservePaperHref } from '../more';
 import { useApi } from '../session';
+import { CopyButton } from '../../screens/account/CopyButton';
 import { QuantRooms } from './QuantRooms';
 import { teamCopy } from './team-copy';
 
-/** Strategies other people shared with the caller (AL-team-01), and the caller's own account id to be added by. */
+/** Strategies other people shared with the caller (AL-team-01), and the caller's own sharing ID (their account id) to be added by, with a Copy button. */
 export function SharedRoom({ paper }: { paper: boolean }) {
   const api = useApi();
   const { t } = teamCopy.useCopy();
@@ -21,17 +22,19 @@ export function SharedRoom({ paper }: { paper: boolean }) {
       state={{ kind: 'ready' }}
       section={<QuantRooms paper={paper} />}
       list={
-        <section>
-          <h2>{t('sharedTitle')}</h2>
+        <section aria-label={t('sharedTitle')}>
           <div data-testid="quant-shared">
-            <p className="lt-hint">{t('sharedIntro')}</p>
             <ReadView resource={list.resource} retry={list.reload}>
               {(data) => (
                 <>
-                  <p data-testid="quant-my-account-id" data-id={data.accountId}>
-                    {t('yourId', { id: data.accountId })}
-                  </p>
-                  <p className="lt-hint">{t('yourIdHint')}</p>
+                  <div className="lt-stack" data-testid="quant-my-account-id" data-id={data.accountId}>
+                    <strong>{t('yourId')}</strong>
+                    <div className="lt-actions">
+                      <code lang="zxx">{data.accountId}</code>
+                      <CopyButton value={data.accountId} label={t('copyId')} />
+                    </div>
+                    <p className="lt-hint">{t('yourIdHint')}</p>
+                  </div>
                   {data.strategies.length === 0 ? (
                     <EmptyState title={t('noShared')} />
                   ) : (
