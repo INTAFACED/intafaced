@@ -1555,8 +1555,10 @@ export class UserVenueDoor {
     else if (intent.kind === 'cancel_order') key = actionKey ?? `cancel:${intent.clientOrderKey}`;
     else if (intent.kind === 'sub_account_transfer' || intent.kind === 'market_margin_transfer') key = intent.moveKey;
     else if (intent.kind === 'create_sub_account') key = intent.subAccountKey;
-    else if (intent.kind === 'update_isolated_margin' || intent.kind === 'set_account_mode') key = intent.changeKey;
+    else if (intent.kind === 'update_isolated_margin' || intent.kind === 'set_account_mode' || intent.kind === 'set_position_mode')
+      key = intent.changeKey;
     else if (
+      intent.kind === 'move_position' ||
       intent.kind === 'spot_perps_transfer' ||
       intent.kind === 'vault_transfer' ||
       intent.kind === 'staking_transfer' ||
@@ -1722,6 +1724,9 @@ export class UserVenueDoor {
     if (finalIntent.kind === 'sub_account_transfer' && key.startsWith(OWN_MOVE_PREFIX)) {
       await this.assertOwnSubAccount(principal, venue, account, finalIntent.subAccount);
     }
+    // A position moves only to or from a sub-account the person opened as their own (J-derivatives-05 #7), never an agent
+    // account's, whose funding is held to the person's cap.
+    if (finalIntent.kind === 'move_position') await this.assertOwnSubAccount(principal, venue, account, finalIntent.subAccount);
     if (finalIntent.kind === 'amend_order' || finalIntent.kind === 'replace_order') await this.assertNoRaise(venue, account, finalIntent);
     await this.assertOneWholeClose(venue, account, finalIntent);
     finalIntent = await eachOrder(finalIntent, (order) => this.admitPlace(venue.venue.id, order));

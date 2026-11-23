@@ -88,6 +88,14 @@ export const positionsCopy = defineCopy('trade.positions', {
   modeHedgeNotOffered:
     'Not offered by {venue}: it holds one net position per contract, so a long and a short on the same contract can’t be held side by side.',
   modeOneWayNotOffered: 'Not offered by {venue}.',
+  modeSwitchTitle: 'Choose the mode on {venue}',
+  modeSwitchMarket: 'Perpetual',
+  modeNow: '{symbol} on {venue} is in',
+  modeReading: 'Reading the venue…',
+  modeNotKnown: '{venue} didn’t report the mode: {detail}',
+  modeChoose: 'Switch {symbol} to {mode}',
+  modeHedgeNote:
+    'One signed change on {venue}. It refuses a switch while a position or an order is open on the perpetual, and in hedge mode it takes only orders that name their position side: this desk’s orders are one-way, so it refuses them until the perpetual is back in one-way mode.',
   subsTitle: 'Sub-accounts on {venue}',
   subsLead:
     'Each sub-account’s positions, read as its owner: your main wallet. Margin moves between accounts as one signed venue transfer.',
@@ -110,9 +118,13 @@ export const positionsCopy = defineCopy('trade.positions', {
   enterAmount: 'Enter an amount of USDC above zero.',
   positionMoveTitle: 'Move a position',
   positionMovePick: 'Position',
-  positionMoveButton: 'Move position to the sub-account',
+  positionMoveDirection: 'Move the position',
+  positionMoveButton: 'Move position',
+  positionMoveLead: '{venue} moves a whole position, with the margin it holds, between your accounts as one signed venue action.',
+  positionMoveNone: '{venue} doesn’t move an open position between accounts. Its margin moves above.',
+  positionMoveEmpty: 'No open position on that account to move.',
   positionMoveRefused:
-    '{venue} doesn’t move an open position between accounts: no venue connected here offers that. Close it here and open it on the sub-account, or move its margin above.',
+    'Refused: {venue} doesn’t move an open position between accounts. Close it on one account and open it on the other, or move its margin above.',
   metricsTitle: 'Account metrics',
   metricsVenue: 'On {venue}',
   metricsLead: 'Exact figures as {venue} reports them for your account, in {asset}.',
