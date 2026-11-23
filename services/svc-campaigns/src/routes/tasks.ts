@@ -1,78 +1,54 @@
 import { z } from 'zod';
-import { forwardedPrincipalHeaders, router, scopedProcedure } from '@intafaced/contracts';
+import { forwardedPrincipalHeaders } from '@intafaced/contracts/edge';
+import { router } from '@intafaced/contracts/trpc';
 import {
-  myRewardsInputSchema,
-  myRewardsSchema,
   payoutRecordListSchema,
   potFundingApproveInputSchema,
   potFundingRequestInputSchema,
   potFundingSchema,
-  taskClaimInputSchema,
-  taskClaimResultSchema,
-  taskProgressInputSchema,
-  taskProgressSchema,
-  welcomeChecklistSchema,
-  welcomeClaimInputSchema,
-  welcomeClaimResultSchema,
-  welcomeListInputSchema,
 } from '@intafaced/contracts/campaigns-catalogue';
-import { payoutBoardInputSchema, payoutBoardSchema } from '@intafaced/contracts/campaigns-payout-board';
-import { guard, mapError, opsProcedure } from './kit.js';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { CAMPAIGNS_OPS_PAYOUTS_BOARD, CAMPAIGNS_TASKS_CLAIM, CAMPAIGNS_TASKS_PROGRESS } from '@intafaced/contracts/campaigns-procedures';
+import { mapError, opsProcedure, refusalOf, requireOpsMfa } from './kit.js';
 import type { CampaignServices } from '../router.js';
+import { CAMPAIGNS_REWARDS_MINE } from '@intafaced/contracts/campaigns-rewards-procedures';
+import { CAMPAIGNS_TASKS_WELCOME_LIST, CAMPAIGNS_TASKS_WELCOME_CLAIM } from '@intafaced/contracts/campaigns-tasks-procedures';
 
 /** Task campaigns, the welcome checklist and My Rewards for the customer; the payout board and the reward pot for operators. */
 export function taskRoutes({ tasks }: CampaignServices) {
   return {
     customer: {
       tasks: router({
-        /** The caller's own progress on one task campaign, its claim window and its reward record with the redemption log. */
-        progress: scopedProcedure('campaigns:read', guard)
-          .input(taskProgressInputSchema)
-          .output(taskProgressSchema)
-          .query(async ({ ctx, input }) => {
-            try {
-              // Forwarded so a deposit step reads the person's own wallets for them (J-campaigns-02 #1).
-              return await tasks.progress({
-                campaignId: input.campaignId,
-                accountId: ctx.principal!.userId,
-                forwarded: forwardedPrincipalHeaders(ctx),
-              });
-            } catch (err) {
-              mapError(err);
-            }
-          }),
-        /** Claims for the caller's own account only. A second call returns the first claim's reward. */
-        claim: scopedProcedure('campaigns:write', guard)
-          .input(taskClaimInputSchema)
-          .output(taskClaimResultSchema)
-          .mutation(async ({ ctx, input }) => {
-            try {
-              return await tasks.claim({
-                campaignId: input.campaignId,
-                accountId: ctx.principal!.userId,
-                forwarded: forwardedPrincipalHeaders(ctx),
-              });
-            } catch (err) {
-              mapError(err);
-            }
-          }),
+        progress: mountRecord(
+          CAMPAIGNS_TASKS_PROGRESS,
+          // Forwarded so a deposit step reads the person's own wallets for them (J-campaigns-02 #1).
+          async ({ ctx, input }) =>
+            tasks.progress({ campaignId: input.campaignId, accountId: ctx.principal.userId, forwarded: forwardedPrincipalHeaders(ctx) }),
+          refusalOf,
+        ),
+        claim: mountRecord(
+          CAMPAIGNS_TASKS_CLAIM,
+          async ({ ctx, input }) =>
+            tasks.claim({ campaignId: input.campaignId, accountId: ctx.principal.userId, forwarded: forwardedPrincipalHeaders(ctx) }),
+          refusalOf,
+        ),
         welcome: router({
           /** The caller's own welcome checklist (CM-rewards-hub-03): its window and each task's state and reward. */
-          list: scopedProcedure('campaigns:read', guard)
-            .input(welcomeListInputSchema)
-            .output(welcomeChecklistSchema)
-            .query(async ({ ctx }) => {
+          list: mountRecord(
+            CAMPAIGNS_TASKS_WELCOME_LIST,
+            async ({ ctx }) => {
               try {
                 return await tasks.welcomeChecklist({ accountId: ctx.principal!.userId, forwarded: forwardedPrincipalHeaders(ctx) });
               } catch (err) {
                 mapError(err);
               }
-            }),
+            },
+            refusalOf,
+          ),
           /** Claims one welcome task for the caller's own account. A second call returns the first claim's reward. */
-          claim: scopedProcedure('campaigns:write', guard)
-            .input(welcomeClaimInputSchema)
-            .output(welcomeClaimResultSchema)
-            .mutation(async ({ ctx, input }) => {
+          claim: mountRecord(
+            CAMPAIGNS_TASKS_WELCOME_CLAIM,
+            async ({ ctx, input }) => {
               try {
                 return await tasks.welcomeClaim({
                   accountId: ctx.principal!.userId,
@@ -82,40 +58,37 @@ export function taskRoutes({ tasks }: CampaignServices) {
               } catch (err) {
                 mapError(err);
               }
-            }),
+            },
+            refusalOf,
+          ),
         }),
       }),
 
       rewards: router({
         /** My Rewards hub: the caller's own rewards in plain status words, with totals summed from those rows. */
-        mine: scopedProcedure('campaigns:read', guard)
-          .input(myRewardsInputSchema)
-          .output(myRewardsSchema)
-          .query(async ({ ctx }) => {
+        mine: mountRecord(
+          CAMPAIGNS_REWARDS_MINE,
+          async ({ ctx }) => {
             try {
               return await tasks.myRewards({ accountId: ctx.principal!.userId, forwarded: forwardedPrincipalHeaders(ctx) });
             } catch (err) {
               mapError(err);
             }
-          }),
+          },
+          refusalOf,
+        ),
       }),
     },
     ops: {
       payouts: router({
-        /**
-         * The payout board (J-campaigns-19 #1 #2): every intent by where it stands (owed, pending funding, sending, paid,
-         * failed, other), with its keys, its ledger transactions and its one payment's chain transaction. Read only.
-         */
-        board: opsProcedure
-          .input(payoutBoardInputSchema)
-          .output(payoutBoardSchema)
-          .query(async ({ input }) => {
-            try {
-              return await tasks.payoutBoard(input);
-            } catch (err) {
-              mapError(err);
-            }
-          }),
+        board: mountRecord(
+          CAMPAIGNS_OPS_PAYOUTS_BOARD,
+          async ({ ctx, input }) => {
+            requireOpsMfa(ctx);
+            return tasks.payoutBoard(input);
+          },
+          refusalOf,
+        ),
         /** Every reward record with its account, state, ledger transaction and attempts. */
         list: opsProcedure
           .input(z.object({ campaignId: z.string().min(1).max(128).optional() }).strict())

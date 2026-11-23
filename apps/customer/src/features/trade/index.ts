@@ -1,4 +1,4 @@
-export { useVenueMode } from './use-venue-mode';
+export { useVenueMode, type VenueMode } from './use-venue-mode';
 export {
   preparedAnswerSchema,
   venueApi,
@@ -13,5 +13,8 @@ export {
   type VenuePublicFees,
 } from './venue-api';
 export { bpsToPercent, rateShown } from './venue/fee-rates';
-export { AsOfLine, TestMark, useOwner, useVenueApi, VenueFrame, WalletBar } from './venue/VenueKit';
+export { useAsOfText, useOwner, useVenueApi, VenueFrame } from './venue/VenueKit';
+export { WalletBar } from './venue/WalletBar';
+export { venueCopy } from './venue/venue-copy';
+export { TradingPermissions } from './permissions/TradingPermissions';
 export { ActionLimitWarning, SpotShortOffer, useAccountMode } from './account/AccountMode';

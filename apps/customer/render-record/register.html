@@ -23,7 +23,7 @@
 <header class="pub-heading">
 <p class="eyebrow">GET STARTED</p>
 <h1>Create your account</h1>
-<p class="muted">Tell us who you are, then confirm your email with the code we send. Your account opens when the code is entered.</p>
+<p class="lt-muted">Tell us who you are, then confirm your email with the code we send. Your account opens when the code is entered.</p>
 </header>
 <ol class="pub-steps" aria-label="Sign-up steps">
 <li class="pub-step pub-step--current" aria-current="step">
@@ -33,10 +33,10 @@
 <fieldset class="pub-choice">
 <legend>Account type</legend>
 <label>
-<input type="radio" value="individual" checked="" name="accountType"> Personal <small class="muted">For you, in your own name.</small>
+<input type="radio" value="individual" checked="" name="accountType"> Personal <small class="lt-muted">For you, in your own name.</small>
 </label>
 <label>
-<input type="radio" value="business" name="accountType"> Business <small class="muted">For a company. After the code, you go on to business verification.</small>
+<input type="radio" value="business" name="accountType"> Business <small class="lt-muted">For a company. After the code, you go on to business verification.</small>
 </label>
 </fieldset>
 <fieldset class="pub-choice">
@@ -46,21 +46,21 @@
 <label>
 <input type="radio" value="phone" name="channel"> Phone</label>
 </fieldset>
-<label class="field" for="email-_r_1_">
+<label class="lt-field" for="email-_r_1_">
 <span id="email-_r_1_-label">Email address</span>
 <input autocomplete="email" maxlength="320" required="" id="email-_r_1_" aria-labelledby="email-_r_1_-label" aria-invalid="false" type="email" name="email">
 </label>
-<label class="field" for="handle-_r_2_">
+<label class="lt-field" for="handle-_r_2_">
 <span id="handle-_r_2_-label">Handle</span>
 <input autocomplete="username" minlength="3" maxlength="32" pattern="[a-zA-Z0-9_]+" required="" id="handle-_r_2_" aria-labelledby="handle-_r_2_-label" aria-invalid="false" aria-describedby="handle-_r_2_-help" name="handle">
 <small id="handle-_r_2_-help" class="">3 to 32 letters, numbers or underscores. Other people can see it.</small>
 </label>
-<label class="field" for="password-_r_3_">
+<label class="lt-field" for="password-_r_3_">
 <span id="password-_r_3_-label">Password</span>
 <input autocomplete="new-password" maxlength="200" required="" id="password-_r_3_" aria-labelledby="password-_r_3_-label" aria-invalid="false" aria-describedby="password-_r_3_-help" type="password" name="password">
 <small id="password-_r_3_-help" class="">At least 12 characters and at most 72 bytes, not one character repeated, and not your handle or email. A long phrase you use nowhere else is best.</small>
 </label>
-<label class="field">
+<label class="lt-field">
 <span>Country you live in</span>
 <select name="country" required="">
 <option value="" disabled="">Choose a country</option>
@@ -341,13 +341,13 @@
 </label>
 <fieldset class="pub-choice">
 <legend>Are you a US person?</legend>
-<small class="muted">A US citizen, a green-card holder or a US resident, wherever you live now.</small>
+<small class="lt-muted">A US citizen, a green-card holder or a US resident, wherever you live now.</small>
 <label>
 <input type="radio" value="yes" name="usPerson"> Yes, I am a US person</label>
 <label>
 <input type="radio" value="no" name="usPerson"> No, I am not a US person</label>
 </fieldset>
-<label class="field">
+<label class="lt-field">
 <span>Nationality (optional)</span>
 <select name="nationality">
 <option value="">Same as above, or choose</option>
@@ -626,14 +626,14 @@
 <option value="ZW">Zimbabwe</option>
 </select>
 </label>
-<label class="field" for="dateOfBirth-_r_4_">
+<label class="lt-field" for="dateOfBirth-_r_4_">
 <span id="dateOfBirth-_r_4_-label">Date of birth</span>
 <input max="2026-10-21" required="" id="dateOfBirth-_r_4_" aria-labelledby="dateOfBirth-_r_4_-label" aria-invalid="false" type="date" name="dateOfBirth">
 </label>
 <button type="submit" class="button button--primary ">Create account</button>
 </form>
 <div class="public-auth-social">
-<p class="muted">Or</p>
+<p class="lt-muted">Or</p>
 <button type="button" class="button button--secondary ">Continue with a social account</button>
 <button type="button" class="button button--secondary ">Continue with a wallet</button>
 </div>
@@ -643,7 +643,7 @@
 <h2>Confirm your email</h2>
 </li>
 </ol>
-<p class="muted">Already have an account? <a class="text-link" href="/login">Sign in</a>
+<p class="lt-muted">Already have an account? <a class="lt-link" href="/login">Sign in</a>
 </p>
 </div>
 </main>

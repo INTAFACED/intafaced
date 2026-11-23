@@ -1,27 +1,20 @@
 import { z } from 'zod';
-import {
-  type PAY_WITHDRAWAL_SHOWN,
-  payCanceledWithdrawalSchema,
-  type payWithdrawalHistoryItemSchema,
-  payWithdrawalHistoryPageSchema,
-  payWithdrawalSchema,
-} from '@intafaced/contracts/pay-money-room';
+import type { ProcedureOutput } from '@intafaced/contracts/procedure';
+import { PAY_WITHDRAWAL_SHOWN } from '@intafaced/contracts/pay-money-room';
+import { PAY_WITHDRAWAL_CANCEL, PAY_WITHDRAWAL_GET, PAY_WITHDRAWAL_HISTORY } from '@intafaced/contracts/pay-withdrawal-procedures';
 import { authoredRefusal, type ApiClient, type ApiResult } from '../../shared/api';
 import { withdrawalCopy } from './withdrawal-copy';
 
-// svc-pay's published withdrawalView and history page, from `@intafaced/contracts/pay-money-room`. A record is a projection,
-// not a balance book, a delivery receipt or settlement evidence for another original action.
-export {
-  PAY_WITHDRAWAL_SHOWN as WITHDRAWAL_SHOWN,
-  payWithdrawalHistoryItemSchema as withdrawalHistoryItemSchema,
-  payWithdrawalSchema as withdrawalSchema,
-} from '@intafaced/contracts/pay-money-room';
-export type WithdrawalRecord = z.infer<typeof payWithdrawalSchema>;
+// svc-pay's `withdrawal.get`, `withdrawal.history` and `withdrawal.cancel`, each by its record
+// (`@intafaced/contracts/pay-withdrawal-procedures`). A record is a projection, not a balance book, a delivery receipt or
+// settlement evidence for another original action.
+export { PAY_WITHDRAWAL_SHOWN as WITHDRAWAL_SHOWN };
+export type WithdrawalRecord = ProcedureOutput<typeof PAY_WITHDRAWAL_GET>;
 export type WithdrawalShown = (typeof PAY_WITHDRAWAL_SHOWN)[number];
-export type CanceledWithdrawal = z.infer<typeof payCanceledWithdrawalSchema>;
-export type WithdrawalHistoryItem = z.infer<typeof payWithdrawalHistoryItemSchema>;
+export type CanceledWithdrawal = ProcedureOutput<typeof PAY_WITHDRAWAL_CANCEL>;
+export type WithdrawalHistoryPage = ProcedureOutput<typeof PAY_WITHDRAWAL_HISTORY>;
+export type WithdrawalHistoryItem = WithdrawalHistoryPage['items'][number];
 export type ReturnedFunds = NonNullable<WithdrawalHistoryItem['returnedFunds']>;
-export type WithdrawalHistoryPage = z.infer<typeof payWithdrawalHistoryPageSchema>;
 /** What the person filters History by. `null` is every coin, or every status. */
 export type WithdrawalHistoryFilter = { assetId: string | null; status: WithdrawalShown | null };
 /** Rows asked for per page. svc-pay has no default page size, so the page says it; older rows come by the cursor. */
@@ -72,7 +65,7 @@ export function createWithdrawalReads(api: ApiClient, userId: string | null, cur
         ...(filter.status ? { status: filter.status } : {}),
         ...(after ? { after } : {}),
       };
-      const result = await api.query('pay', 'withdrawal.history', input, payWithdrawalHistoryPageSchema, { signal });
+      const result = await api.call(PAY_WITHDRAWAL_HISTORY, input, { signal });
       const departed = admission(signal);
       if (departed) return departed;
       if (!result.ok) return result;
@@ -96,9 +89,7 @@ export function createWithdrawalReads(api: ApiClient, userId: string | null, cur
       if (denied) return denied;
       const parsed = withdrawalIdSchema.safeParse(withdrawalId);
       if (!parsed.success) return refuse('error', 'withdrawal.input_invalid', 'invalidId');
-      const result = await api.query('pay', 'withdrawal.history', { id: parsed.data, limit: 1 }, payWithdrawalHistoryPageSchema, {
-        signal,
-      });
+      const result = await api.call(PAY_WITHDRAWAL_HISTORY, { id: parsed.data, limit: 1 }, { signal });
       const departed = admission(signal);
       if (departed) return departed;
       if (!result.ok) return result;
@@ -112,7 +103,7 @@ export function createWithdrawalReads(api: ApiClient, userId: string | null, cur
       if (denied) return denied;
       const parsed = withdrawalIdSchema.safeParse(withdrawalId);
       if (!parsed.success) return refuse('error', 'withdrawal.input_invalid', 'invalidId');
-      const result = await api.query('pay', 'withdrawal.get', { withdrawalId: parsed.data }, payWithdrawalSchema, { signal });
+      const result = await api.call(PAY_WITHDRAWAL_GET, { withdrawalId: parsed.data }, { signal });
       const departed = admission(signal);
       if (departed) return departed;
       // A named missing original is different from an absent route. Preserve
@@ -129,7 +120,7 @@ export function createWithdrawalReads(api: ApiClient, userId: string | null, cur
       if (denied) return denied;
       const parsed = withdrawalIdSchema.safeParse(withdrawalId);
       if (!parsed.success) return refuse('error', 'withdrawal.input_invalid', 'invalidId');
-      const result = await api.mutate('pay', 'withdrawal.cancel', { withdrawalId: parsed.data }, payCanceledWithdrawalSchema);
+      const result = await api.call(PAY_WITHDRAWAL_CANCEL, { withdrawalId: parsed.data });
       const departed = admission();
       if (departed) return departed;
       if (result.ok && (result.data.userId !== userId || result.data.id.toLowerCase() !== parsed.data))

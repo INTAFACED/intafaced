@@ -1,14 +1,13 @@
 import { useEffect, useState } from 'react';
-import type { z } from 'zod';
-import { payWithdrawDestinationSchema } from '@intafaced/contracts/pay-money-room';
+import type { ProcedureOutput } from '@intafaced/contracts/procedure';
+import { PAY_WITHDRAWAL_DESTINATION } from '@intafaced/contracts/pay-withdrawal-procedures';
 import { useSession } from '../session';
 
 /** The rail svc-pay records for a send to another account's platform address (W-withdraw-14). */
 export const INTERNAL_RAIL = 'internal';
 
-/** svc-pay `withdrawal.destination`: where an address leads. It never names the other account. */
-export { payWithdrawDestinationSchema as withdrawDestinationSchema } from '@intafaced/contracts/pay-money-room';
-export type WithdrawDestination = z.infer<typeof payWithdrawDestinationSchema>;
+/** svc-pay `withdrawal.destination`, by its record: where an address leads. It never names the other account. */
+export type WithdrawDestination = ProcedureOutput<typeof PAY_WITHDRAWAL_DESTINATION>;
 
 export type DestinationRead = { state: 'idle' } | { state: 'checking' } | { state: 'failed' } | ({ state: 'known' } & WithdrawDestination);
 
@@ -30,14 +29,10 @@ export function useWithdrawDestination(address: string): DestinationRead {
     const controller = new AbortController();
     // A short pause, so a pasted address is asked about once and typing does not ask on every key.
     const timer = setTimeout(() => {
-      void api
-        .query('pay', 'withdrawal.destination', { destination: { kind: 'crypto', ref } }, payWithdrawDestinationSchema, {
-          signal: controller.signal,
-        })
-        .then((result) => {
-          if (controller.signal.aborted) return;
-          setRead({ ref, read: result.ok ? { state: 'known', ...result.data } : { state: 'failed' } });
-        });
+      void api.call(PAY_WITHDRAWAL_DESTINATION, { destination: { kind: 'crypto', ref } }, { signal: controller.signal }).then((result) => {
+        if (controller.signal.aborted) return;
+        setRead({ ref, read: result.ok ? { state: 'known', ...result.data } : { state: 'failed' } });
+      });
     }, 250);
     return () => {
       clearTimeout(timer);

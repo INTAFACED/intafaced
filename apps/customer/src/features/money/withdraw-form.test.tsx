@@ -10,13 +10,12 @@ let book: Resource<Destination[]> = { status: 'loading' };
 let networks: Resource<WithdrawAsset[]> = { status: 'loading' };
 vi.mock('./components', async (original) => {
   const real = await original<typeof import('./components')>();
-  return {
-    ...real,
-    useBankRead: (procedure: string) => ({
-      resource: procedure === 'ramps.destinations.networks' ? networks : book,
-      reload: () => undefined,
-    }),
-  };
+  // The room reads by its records now: each record's read is served from the same answers, by its path.
+  const useBankRead = (procedure: string) => ({
+    resource: procedure === 'ramps.destinations.networks' ? networks : book,
+    reload: () => undefined,
+  });
+  return { ...real, useBankRead, useBankRecord: (record: { path: string }) => useBankRead(record.path) };
 });
 vi.mock('../session', async (original) => ({
   ...(await original<typeof import('../session')>()),
@@ -266,7 +265,7 @@ describe('Withdrawal addresses: the bank address book, and saving to it with a c
       failure: { ok: false, reason: 'error', status: 403, code: 'auth.forbidden', message: 'auth.forbidden' } as never,
     };
     const html = renderToStaticMarkup(<WithdrawalAddresses />);
-    expect(html).toContain('class="failure"');
+    expect(html).toContain('class="lt-refusal"');
     expect(html).not.toContain('auth.forbidden</');
     expect(html).not.toContain('You have no saved withdrawal addresses.');
     expect(html).toContain('Add an address');
@@ -281,7 +280,7 @@ describe('Withdrawal addresses: the bank address book, and saving to it with a c
         reload={() => undefined}
       />,
     );
-    expect(html).toContain('class="failure"');
+    expect(html).toContain('class="lt-refusal"');
     expect(html).not.toContain('You have no saved withdrawal addresses.');
   });
 });

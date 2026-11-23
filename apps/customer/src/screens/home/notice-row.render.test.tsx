@@ -21,6 +21,11 @@ const notice = (over: Partial<HomeNotice>): HomeNotice => ({
   endsAt: null,
   version: 1,
   changelog: null,
+  asset: null,
+  network: null,
+  phase: null,
+  category: null,
+  audience: 'everyone',
   ...over,
 });
 

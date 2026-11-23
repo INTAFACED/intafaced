@@ -370,22 +370,22 @@ export type AcademySetQuizInput = z.infer<typeof academySetQuizInputSchema>;
  * are decimal strings with one decimal place.
  */
 const percent = z.string().regex(/^\d{1,3}\.\d$/);
-export const academyCourseProgressSchema = z
-  .object({
-    slug: z.enum(ACADEMY_CURRICULUM_PATHS),
-    visible: z.number().int().positive(),
-    completed: z.number().int().nonnegative(),
-    percent,
-    items: z.array(
-      z.object({
-        slug: z.string().min(1),
-        title: z.string().min(1),
-        kind: z.enum(ACADEMY_CURRICULUM_KINDS),
-        completedAt: isoInstant.nullable(),
-      }),
-    ),
-  })
-  .refine((row) => row.completed <= row.visible && row.items.length === row.visible, { message: 'progress does not add up' });
+export const academyCourseProgressSchema = z.object({
+  slug: z.enum(ACADEMY_CURRICULUM_PATHS),
+  visible: z.number().int().positive(),
+  completed: z.number().int().nonnegative(),
+  percent,
+  items: z.array(
+    z.object({
+      slug: z.string().min(1),
+      title: z.string().min(1),
+      kind: z.enum(ACADEMY_CURRICULUM_KINDS),
+      completedAt: isoInstant.nullable(),
+    }),
+  ),
+});
+/** One course row adds up: no more completed than visible, and one item per visible item. `myProgress` checks it on every reply. */
+export const academyCourseProgressAddsUp = (row: AcademyCourseProgress) => row.completed <= row.visible && row.items.length === row.visible;
 export type AcademyCourseProgress = z.infer<typeof academyCourseProgressSchema>;
 
 /**

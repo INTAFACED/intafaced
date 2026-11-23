@@ -49,12 +49,15 @@ on:
   # on its branch does, never GitHub's merge commit, so the seal reads it on that head. It shares its branch's group with
   # a manual full run there, so either replaces the other. A pull request run keeps the ordinary limits (no fail-fast),
   # so the steps a builder builds run as in a targeted run.
+  # A pull request into a Volt layer branch (`volt/<template>`, one batch of rooms) runs no journeys: it passes CI's fast
+  # checks alone, and the layer's own pull request into main runs the journeys its rooms reach, sealed as any other.
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+    branches-ignore: ['volt/**']
   workflow_dispatch:
     inputs:
       journeys:
-        description: 'Journey files to run, separated by spaces or commas (e.g. J-wallet-05.pw.mjs). Ignored on main.'
+        description: 'Journey files to run, separated by spaces or commas (e.g. J-wallet-05.pw.mjs). Ignored on main. With the branch name, at most about 350 characters (GitHub starts no run whose concurrency group passes 400): split a longer list over several runs, as the seal prints them.'
         required: false
         default: ''
         type: string
@@ -108,6 +111,9 @@ on:
 # selection on the same branch is in another group and finishes. A `:` splits the branch from the selection, since a
 # git ref never holds one, so branch `x` with `J-a` and branch `x-J` with `a` never share a group. On 7 Nov at 11:01 UTC, 8 waiting branch runs were for
 # a head already superseded by a newer run on the same branch. tooling/ci/workflow-concurrency.test.mjs holds both rules.
+# GitHub starts no run whose group passes 400 characters (it ends "failure" with no jobs, as 63 files did on 20 Nov 2026,
+# run 44766798876), and an expression can neither measure nor hash the input, so the seal and journey-touch.mjs split a
+# long list into runs that each fit (journey-touch.mjs dispatchBatches, whose dispatchGroup the test holds to this one).
 concurrency:
   group: ${{ github.ref == 'refs/heads/main' && 'real-app-journeys-main' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && format('real-app-journeys-runs-nothing-{0}', github.run_id) || (github.event_name == 'pull_request' && github.event.action == 'ready_for_review') && format('real-app-journeys-ready-{0}', github.run_id) || format('real-app-journeys-{0}:{1}', github.event_name == 'pull_request' && format('refs/heads/{0}', github.head_ref) || github.ref, inputs.journeys) }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
@@ -600,6 +606,8 @@ jobs:
       # 'true' when this job kept a seeded stack in the Actions cache (real-app-journeys-seed-<sha>), empty when it kept
       # none: each shard then seeds its own.
       seeded: ${{ steps.seed-save.outcome == 'success' && 'true' || '' }}
+      # The seeded stack snapshot this job kept for later runs (its full cache key), empty when it kept none.
+      snapshot: ${{ steps.snap-save.outcome == 'success' && steps.snap-key.outputs.save || '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -624,6 +632,23 @@ jobs:
             ${{ runner.temp }}/stack-state/java-tools/jdk.tgz
             ${{ runner.temp }}/stack-state/java-tools/maven.tgz
           key: java-tools-${{ runner.os }}-${{ hashFiles('services/svc-fix/scripts/ensure-toolchain.mjs') }}
+      # The Rust services' release binaries and svc-fix's jar, kept between runs (project-state#3597): building them took
+      # 1m47s of this job on run 44913280955. `build` checks each against the hash of its own inputs kept beside it
+      # (stack-bin-inputs.sha256, stack-jar-inputs.sha256) and builds again any that does not match, so a copy from
+      # another commit is used only when it was built from the same source.
+      - name: The Rust and FIX builds' key
+        id: bins-key
+        run: |
+          id=$(git ls-files -s -- Cargo.lock Cargo.toml rust-toolchain.toml crates services/svc-fix/pom.xml services/svc-fix/PIN.quickfixj services/svc-fix/src/main | sha256sum | cut -c1-24)
+          { echo "key=stack-bins-$RUNNER_OS-$id"; echo "prefix=stack-bins-$RUNNER_OS-"; } >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            crates/*/dist
+            services/svc-fix/target/svc-fix-0.0.0.jar
+            services/svc-fix/target/stack-jar-inputs.sha256
+          key: ${{ steps.bins-key.outputs.key }}
+          restore-keys: ${{ steps.bins-key.outputs.prefix }}
       - name: Build what the stack starts
         run: LOCAL_STACK_STATE="$RUNNER_TEMP/stack-state" node tooling/scripts/local-test-stack.mjs build --no-admin
       # Everything the build wrote: git's ignored paths outside node_modules and turbo's cache (the dist folders), and the
@@ -663,76 +688,104 @@ jobs:
       # The copy holds the stack's TEST passwords and keys and the console's build keys, so it goes in the Actions cache,
       # which only this repository's workflows read, never in an artifact, which anyone can download here; the
       # `Drop the seeded stack` job deletes it when the shards are done. A run with fewer than 4 shards seeds in its
-      # shards, where seeding once would add to its time and save nothing.
+      # shards, where seeding once would add to its time and save nothing, unless it takes a snapshot (below), which
+      # costs no seeding at all.
       - name: Seed once for the shards?
         id: seed-want
         env:
           COUNT: ${{ needs.touch.outputs.count }}
         run: |
           if [ "${COUNT:-8}" -ge 4 ]; then echo "want=true" >> "$GITHUB_OUTPUT"; else echo "$COUNT shards: each seeds its own stack"; fi
-      - name: Get a nats-server binary
-        if: steps.seed-want.outputs.want == 'true'
+      # The seeded stack snapshot (project-state#3597): a run off main starts from a stack another run seeded, when
+      # nothing the seed is made from has changed (the key: tooling/scripts/local-test-snapshot.mjs, which names the
+      # inputs) and it was seeded under MAX_AGE_HOURS ago. Seeding was 6.5 of this job's 10.7 minutes on run
+      # 44913280955, and every shard waits for this job. Main's runs (push, schedule, by hand) never take one: they
+      # always seed afresh, on main's own service code. Main's snapshot is kept by journeys-snapshot.yml, minutes after
+      # each push that needs one. A run that seeds afresh off main keeps one too, in its own ref's cache scope, which only
+      # its own later runs read. Best effort: a
+      # miss, a stale copy or one that does not unpack seeds as before, and the snapshot taken goes to the shards the
+      # same way a fresh seed does (`Pack the seeded stack`), under this run's own key.
+      - name: The seeded stack snapshot's key
+        id: snap-key
         continue-on-error: true
-        uses: ./.github/actions/nats-server
+        run: |
+          name="real-app-journeys-snapshot-$(node tooling/scripts/local-test-snapshot.mjs key)"
+          # The newest under the prefix is what a run finds (no entry ends in `none`); a run keeps its own under its id.
+          { echo "key=$name"; echo "find=$name-none"; echo "prefix=$name-"; echo "save=$name-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"; } >> "$GITHUB_OUTPUT"
+      - name: Find a seeded stack snapshot
+        id: snap-find
+        if: steps.snap-key.outcome == 'success' && github.ref != 'refs/heads/main'
+        continue-on-error: true
+        timeout-minutes: 5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ${{ runner.temp }}/nats-server
-      # The same TEST chain launcher as the shards' (see there).
-      - name: Get an anvil launcher
-        if: steps.seed-want.outputs.want == 'true'
+          path: ${{ runner.temp }}/stack-snapshot
+          key: ${{ steps.snap-key.outputs.find }}
+          restore-keys: ${{ steps.snap-key.outputs.prefix }}
+      # Its data under this run's own build: the copy's state folder (database, NATS store, TEST chain, TEST secrets and
+      # founders) with this run's stamp and JDK archives laid over it, then the founder console built for this commit.
+      # Any failure puts this run's own build back, so `Seed the stack` below starts from it as before.
+      - name: Take the seeded stack snapshot
+        id: snap-take
+        if: steps.snap-find.outputs.cache-matched-key != ''
         continue-on-error: true
-        run: |
-          docker pull ghcr.io/foundry-rs/foundry:v1.5.1
-          cat > "$RUNNER_TEMP/anvil" <<'EOF'
-          #!/bin/sh
-          exec docker run --rm --init --network host ghcr.io/foundry-rs/foundry:v1.5.1 "anvil $*"
-          EOF
-          chmod +x "$RUNNER_TEMP/anvil"
-      # The same steps as a shard's `Start the local test stack` and `Open the TEST markets` on a shard that writes the
-      # history (`--markets journeys`), and the market maker stopped at the end, so the copy holds no resting order.
-      - name: Seed the stack (TEST funds only)
-        id: seed
-        if: steps.seed-want.outputs.want == 'true'
-        continue-on-error: true
-        timeout-minutes: 15
+        timeout-minutes: 10
         env:
-          INTAFACED_SANCTIONS_REGIONS: ${{ secrets.INTAFACED_SANCTIONS_REGIONS }}
-          INTAFACED_SANCTIONS_LIST_SOURCE: ${{ secrets.INTAFACED_SANCTIONS_LIST_SOURCE }}
+          MATCHED: ${{ steps.snap-find.outputs.cache-matched-key }}
         run: |
-          export LOCAL_STACK_STATE="$RUNNER_TEMP/stack-state" LOCAL_STACK_NATS_BIN="$RUNNER_TEMP/nats-server" LOCAL_STACK_ANVIL_BIN="$RUNNER_TEMP/anvil"
-          if [ -z "$INTAFACED_SANCTIONS_REGIONS" ] || [ -z "$INTAFACED_SANCTIONS_LIST_SOURCE" ]; then
-            echo "::warning::no screening placeholder, so no seeded stack: each shard says why"
+          set -euo pipefail
+          snap="$RUNNER_TEMP/stack-snapshot" state="$RUNNER_TEMP/stack-state" next="$RUNNER_TEMP/stack-state-snapshot"
+          echo "snapshot $MATCHED"
+          node tooling/scripts/local-test-snapshot.mjs fresh "$snap/seeded-at"
+          rm -rf "$next" && mkdir -p "$next"
+          tar -C "$next" -xf "$snap/state.tar"
+          [ -d "$next/data/postgres" ]
+          tar -C "$state" --exclude=./cargo-target --exclude=./logs -cf - . | tar -C "$next" -xf -
+          mv "$state" "$RUNNER_TEMP/stack-state-built"
+          mv "$next" "$state"
+          chmod 700 "$state"
+          if ! LOCAL_STACK_STATE="$state" node tooling/scripts/local-test-stack.mjs build; then
+            rm -rf "$state" && mv "$RUNNER_TEMP/stack-state-built" "$state"
+            echo "::warning::the founder console did not build on the snapshot, so this run seeds its own stack"
             exit 1
           fi
-          node tooling/scripts/local-test-stack.mjs start
-          node tooling/scripts/local-test-stack.mjs restart matching
-          node tooling/scripts/local-test-gates.mjs apply
-          if [ "$(node tooling/scripts/local-test-stack.mjs custody)" = off ]; then
-            node tooling/scripts/local-test-market.mjs
-            node tooling/scripts/local-test-gates.mjs verify
-          else
-            node tooling/scripts/local-test-market.mjs
-            for _ in $(seq 1 30); do
-              grep -Eq 'taker (created|existing) \(test_taker\)' "$LOCAL_STACK_STATE/logs/market.log" 2>/dev/null && break
-              sleep 2
-            done
-            node tooling/scripts/local-test-market.mjs stop
-            node tooling/scripts/local-test-gates.mjs verify
-            node tooling/scripts/local-test-market.mjs history --markets journeys
-          fi
-          node tooling/scripts/local-test-market.mjs stop || true
-          node tooling/scripts/local-test-stack.mjs stop
+          rm -rf "$snap" "$RUNNER_TEMP/stack-state-built"
+      # The seed itself lives in .github/actions/stack-seed, which journeys-snapshot.yml seeds main's snapshot with too.
+      - name: Seed the stack (TEST funds only)
+        id: seed
+        if: steps.seed-want.outputs.want == 'true' && steps.snap-take.outcome != 'success'
+        continue-on-error: true
+        timeout-minutes: 15
+        uses: ./.github/actions/stack-seed
+        with:
+          sanctions-regions: ${{ secrets.INTAFACED_SANCTIONS_REGIONS }}
+          sanctions-list-source: ${{ secrets.INTAFACED_SANCTIONS_LIST_SOURCE }}
       # The stopped stack's state folder (its database, NATS store, TEST secrets, founders and stamp) and the console's
-      # build. Not the logs, the process records (another runner's PIDs) or the JDK archives (the shards' own cache).
+      # build. Not the logs, the process records (another runner's PIDs), the JDK archives (the shards' own cache) or
+      # cargo's target folder (the Rust binaries the shards start travel in the build artifact, beside their crates).
+      # The snapshot for later runs is packed by the seed itself (.github/actions/stack-seed), with these exclusions.
       - name: Pack the seeded stack
         id: seed-pack
-        if: steps.seed.outcome == 'success'
+        if: steps.seed.outcome == 'success' || steps.snap-take.outcome == 'success'
         continue-on-error: true
         run: |
+          set -euo pipefail
           mkdir -p "$RUNNER_TEMP/stack-seed"
-          tar -C "$RUNNER_TEMP/stack-state" -cf "$RUNNER_TEMP/stack-seed/state.tar" \
-            --exclude=./logs --exclude=./tmp --exclude=./java-tools --exclude=./run/processes.json --exclude=./csp-violations.jsonl .
+          skip=(--exclude=./logs --exclude=./tmp --exclude=./java-tools --exclude=./cargo-target --exclude=./run/processes.json --exclude=./csp-violations.jsonl)
+          tar -C "$RUNNER_TEMP/stack-state" -cf "$RUNNER_TEMP/stack-seed/state.tar" "${skip[@]}" .
           tar -cf "$RUNNER_TEMP/stack-seed/admin.tar" --exclude=apps/admin/.next/cache apps/admin/.next
           du -sh "$RUNNER_TEMP/stack-seed"
+      # Under this run's id, so a run again on the same commit never collides; `Drop the seeded stack` deletes the older
+      # snapshots of this run's ref once this one is kept. Off main only: main's snapshot is journeys-snapshot.yml's, kept
+      # minutes after each push, where this run would keep it only once main's previous full run ended (project-state#3703).
+      - name: Keep the seeded stack snapshot for later runs
+        id: snap-save
+        if: steps.seed.outcome == 'success' && steps.seed-pack.outcome == 'success' && steps.snap-key.outcome == 'success' && github.ref != 'refs/heads/main'
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/stack-snapshot
+          key: ${{ steps.snap-key.outputs.save }}
       # Keyed on the run's commit, in the run's own ref's cache scope. A copy already there under the key (a run again
       # on the same commit before `Drop the seeded stack` ran) fails this step, and the shards seed their own.
       - name: Keep the seeded stack for the shards
@@ -743,14 +796,6 @@ jobs:
         with:
           path: ${{ runner.temp }}/stack-seed
           key: real-app-journeys-seed-${{ github.sha }}
-      - name: Stack logs when seeding failed
-        if: steps.seed.outcome == 'failure'
-        run: |
-          for f in "$RUNNER_TEMP"/stack-state/logs/*.log; do
-            [ -f "$f" ] || continue
-            echo "::group::$f"; tail -100 "$f" || true; echo "::endgroup::"
-          done
-          LOCAL_STACK_STATE="$RUNNER_TEMP/stack-state" node tooling/scripts/local-test-stack.mjs stop || true
 
   journeys:
     name: Journeys (shard ${{ matrix.shard }} of ${{ strategy.job-total }})
@@ -1275,18 +1320,41 @@ jobs:
   drop:
     name: Drop the seeded stack
     needs: [build, journeys]
-    if: ${{ always() && needs.build.outputs.seeded == 'true' }}
+    if: ${{ always() && (needs.build.outputs.seeded == 'true' || needs.build.outputs.snapshot != '') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5 # healthy run: seconds
     permissions:
-      actions: write # delete this run's own cache entry
+      actions: write # delete this run's own cache entry, and its ref's older snapshots
+      contents: read # the snapshot rules (local-test-snapshot.mjs drop)
     steps:
       - name: Delete the cache entry
+        if: needs.build.outputs.seeded == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           name="real-app-journeys-seed-$GITHUB_SHA"
           gh cache delete "$name" --repo "$GITHUB_REPOSITORY" || echo "::warning::could not delete cache $name; it expires on its own"
+      # The Actions cache is capped at 10 GB, and every run that seeds keeps a snapshot: once this run kept its own, the
+      # ref's older ones of the same key go, and every one too old for a run to take (local-test-snapshot.mjs drop).
+      # Another ref's are never touched.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: needs.build.outputs.snapshot != ''
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          sparse-checkout: tooling/scripts
+          persist-credentials: false
+      - name: Delete this ref's older snapshots
+        if: needs.build.outputs.snapshot != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KEPT: ${{ needs.build.outputs.snapshot }}
+        run: |
+          gh api --paginate "repos/$GITHUB_REPOSITORY/actions/caches?ref=$GITHUB_REF&key=real-app-journeys-snapshot-&per_page=100" \
+            --jq '.actions_caches[]' > "$RUNNER_TEMP/snapshots.jsonl" || { echo "::warning::could not list this ref's snapshots; they expire on their own"; exit 0; }
+          node tooling/scripts/local-test-snapshot.mjs drop "$KEPT" "$RUNNER_TEMP/snapshots.jsonl" > "$RUNNER_TEMP/drop.txt"
+          while read -r id; do
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/caches/$id" >/dev/null && echo "deleted cache $id" || echo "::warning::could not delete cache $id; it expires on its own"
+          done < "$RUNNER_TEMP/drop.txt"
 
   # A journeys run on a branch ends here, dispatched or on a pull request in this repository (never main's or a schedule's).
   # It starts merge-seal.yml's seal, or re-runs its verdict, once every input on the head has finished: CI, the CI

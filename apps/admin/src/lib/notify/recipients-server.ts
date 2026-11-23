@@ -1,5 +1,5 @@
 import 'server-only';
-import { founderCall, type FounderCallContext, partFrom, type PartLabels, explainRefusal } from '@/lib/desk';
+import { type FounderCallContext, partFrom, type PartLabels, explainRefusal, founderRecordRead } from '@/lib/desk';
 import {
   RECIPIENTS_PAGE,
   readRecipients,
@@ -10,6 +10,7 @@ import {
   type RecipientsView,
   type ReleaseReply,
 } from './recipients-model';
+import { NOTIFY_OPERATOR_RECIPIENTS, NOTIFY_OPERATOR_RELEASE_RECIPIENT } from '@intafaced/contracts/notify-notify-procedures';
 
 /**
  * svc-notify's recipient health read (`notify.operatorRecipients`, admin:read) and the release of a quarantined address
@@ -24,7 +25,7 @@ const LABELS: PartLabels = {
 };
 
 export async function loadRecipients(ctx: FounderCallContext, state: RecipientState): Promise<RecipientsView> {
-  const result = await founderCall(ctx, 'notify', 'notify.operatorRecipients', 'GET', { state, limit: RECIPIENTS_PAGE }, (raw) =>
+  const result = await founderRecordRead(ctx, NOTIFY_OPERATOR_RECIPIENTS, { state, limit: RECIPIENTS_PAGE }, (raw) =>
     readRecipients(raw, state, RECIPIENTS_PAGE),
   );
   return partFrom(result, (d) => d, LABELS);
@@ -38,11 +39,9 @@ export interface ReleaseInput {
 }
 
 export async function releaseRecipient(ctx: FounderCallContext, input: ReleaseInput): Promise<{ status: number; reply: ReleaseReply }> {
-  const result = await founderCall(
+  const result = await founderRecordRead(
     ctx,
-    'notify',
-    'notify.operatorReleaseRecipient',
-    'POST',
+    NOTIFY_OPERATOR_RELEASE_RECIPIENT,
     {
       userId: input.userId,
       channel: input.channel,

@@ -1,5 +1,22 @@
 import { createHash } from 'node:crypto';
 import { add, compare, formatAmount, mul, parseAmount, sub, type Amount } from '@intafaced/ledger-client';
+import type {
+  BankPartnerReserves,
+  LedgerOwnFunds,
+  LedgerOwnFundsPlace,
+  OpsCapitalBuffer,
+  OpsCapitalPlaceOutside,
+  OpsCapitalPlaces,
+  OpsCapitalOwnFunds,
+  OpsCapitalScenario,
+  OpsCapitalScenarioInput,
+  OpsCapitalSnapshot,
+  OpsCapitalThreshold,
+  OpsCapitalThresholdSetInput,
+  OpsCapitalThresholdSetOutput,
+  OpsCapitalVenues,
+} from '@intafaced/contracts';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 import {
   OPS_CAPITAL_ASSET,
   OPS_CAPITAL_CONTACT_MAX,
@@ -17,22 +34,7 @@ import {
   opsCapitalBreachKey,
   opsCapitalThresholdFields,
   opsCapitalThresholdTargetId,
-  type BankPartnerReserves,
-  type LedgerOwnFunds,
-  type LedgerOwnFundsPlace,
-  type OpsCapitalBuffer,
-  type OpsCapitalPlaceOutside,
-  type OpsCapitalPlaces,
-  type OpsCapitalOwnFunds,
-  type OpsCapitalScenario,
-  type OpsCapitalScenarioInput,
-  type OpsCapitalSnapshot,
-  type OpsCapitalThreshold,
-  type OpsCapitalThresholdSetInput,
-  type OpsCapitalThresholdSetOutput,
-  type OpsCapitalVenues,
-  asAssetId,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/ops-capital';
 import { OpsError } from '../codes.js';
 import { assertIdempotencyKey, consumeFounderApproval, type ApprovalConsumer } from '../operator-desks.js';
 import type { CapitalSources, SourceRead } from './sources.js';

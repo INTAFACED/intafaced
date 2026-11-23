@@ -1,5 +1,5 @@
 import { claimFromRun } from '../marketplace/claim.js';
-import { publicJurisdictionProcedure, router } from '@intafaced/contracts';
+import { publicJurisdictionProcedure, router } from '@intafaced/contracts/trpc';
 import { requireIdempotencyKey } from '../studio/keys.js';
 import { requireSimulatedStamp } from '../honesty.js';
 import { withQuantSpan } from '../tracing.js';

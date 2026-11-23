@@ -7,7 +7,7 @@
  * requires it), a reason, and an identity approval bound to this card and
  * this status, consumed in the same transaction. A replay returns the first result.
  */
-import { scopedProcedure } from '@intafaced/contracts';
+import { scopedProcedure } from '@intafaced/contracts/trpc';
 import { formatAmount, type Amount } from '@intafaced/ledger-client';
 import { z } from 'zod';
 import type { BankServices } from '../bank-service.js';
@@ -250,7 +250,7 @@ export function cardPayFromReconciliationProcedure(bank: BankServices, guard: Gu
           z.object({
             authorizationRef: z.string(),
             assetId: z.string(),
-            reason: z.enum(['not_reported', 'differs']),
+            reason: z.enum(['not_reported', 'unreadable', 'differs']),
             app: figures,
             partner: figures.nullable(),
           }),

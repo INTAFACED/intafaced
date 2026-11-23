@@ -2,7 +2,8 @@ import type { MouseEvent } from 'react';
 import { Award, Bell, CircleCheck, CircleX, ShieldCheck, type LucideIcon } from 'lucide-react';
 import { usePreferences } from '../../shared/preferences';
 import { isTestBuild } from '../../shared/test-build';
-import { navigate, refusalCopy, StateBlock, StatusTag } from './deps';
+import { Button } from '@intafaced/ui/lit';
+import { navigate, refusalCopy } from './data';
 import { notifyCopy } from './copy';
 import type { Notification } from './notify-api';
 import { carriesFigure, describe, fullTime, linkFor, whenLabel, type NotifyIcon, type NotifyMarket } from './notify-view';
@@ -11,7 +12,8 @@ import type { InboxState } from './use-notifications';
 const ICONS: Record<NotifyIcon, LucideIcon> = { fill: CircleCheck, ended: CircleX, verified: ShieldCheck, rank: Award, bell: Bell };
 
 /**
- * One notification, 72 px: type icon, title, one line of body, relative time and, while unread, a lime dot.
+ * One notification, drawn from the Volt kit wherever it shows (the inbox, the bell, Home): type icon, title, one line of
+ * body, relative time and, while unread, a dot.
  * It is a link when the notification opens a live screen; otherwise a button that only marks it read.
  * `onOpen` is called for every click on an unread row (the caller marks it read).
  */
@@ -38,29 +40,27 @@ export function NotificationRow({
   const label = whenLabel(item.createdAt, now, timeZone, copy);
   const inner = (
     <>
-      <span className="nf-icon" aria-hidden="true">
+      <span aria-hidden="true">
         <Icon size={18} strokeWidth={2} />
       </span>
-      <span className="nf-text">
-        <span data-testid="nf-title" className="nf-title">
-          {title}
-        </span>
+      <span className="lt-lines">
+        <span data-testid="nf-title">{title}</span>
         {body ? (
-          <span data-testid="nf-body" className="nf-body">
+          <span data-testid="nf-body" className="lt-hint">
             {body}
           </span>
         ) : null}
       </span>
-      <span className="nf-meta">
+      <span className="lt-actions">
         <TestFigureTag item={item} />
-        <time dateTime={item.createdAt} title={fullTime(item.createdAt, timeZone, now)}>
+        <time className="lt-hint" dateTime={item.createdAt} title={fullTime(item.createdAt, timeZone, now)}>
           {label}
         </time>
         {unread ? (
-          <span data-testid="nf-dot" className="nf-dot" role="img" aria-label={copy.t('Unread')} />
-        ) : (
-          <span className="nf-dot-gap" aria-hidden="true" />
-        )}
+          <span data-testid="nf-dot" className="lt-chip" data-status="done" role="img" aria-label={copy.t('Unread')}>
+            <span className="lt-chip-mark" aria-hidden="true" />
+          </span>
+        ) : null}
       </span>
     </>
   );
@@ -75,21 +75,23 @@ export function NotificationRow({
     }
   };
   return href ? (
-    <a data-testid="nf-row" className="nf-row" data-unread={unread || undefined} href={href} onClick={handle}>
+    <a data-testid="nf-row" className="lt-row-link" data-unread={unread || undefined} href={href} onClick={handle}>
       {inner}
     </a>
   ) : (
-    <button type="button" data-testid="nf-row" className="nf-row" data-unread={unread || undefined} onClick={handle}>
+    <Button tone="quiet" data-testid="nf-row" data-unread={unread || undefined} onClick={handle}>
       {inner}
-    </button>
+    </Button>
   );
 }
 
 /** On a test build every amount is TEST money, so a notification that names one says so (inbox and delivery log). */
-export function TestFigureTag({ item }: { item: Pick<Notification, 'params'> }) {
+function TestFigureTag({ item }: { item: Pick<Notification, 'params'> }) {
   const copy = notifyCopy.useCopy();
   return isTestBuild() && carriesFigure(item) ? (
-    <StatusTag data-testid="nf-test" data-status="test" status="pending" label={copy.t('TEST')} />
+    <span data-testid="nf-test" className="lt-test" data-slot="status-tag" data-status="test">
+      {copy.t('TEST')}
+    </span>
   ) : null;
 }
 
@@ -99,7 +101,25 @@ export function InboxFailure({ state, onRetry }: { state: Extract<InboxState, { 
   const { failure } = state;
   if (failure.code && (failure.reason === 'forbidden' || failure.reason === 'error')) {
     const words = refusalCopy(failure.code);
-    return <StateBlock kind="refused" title={words.title} body={words.body} code={words.reference} action={words.action} />;
+    return (
+      <div data-slot="state-block" data-kind="refused" className="lt-refusal" data-refusal="refused">
+        <p className="lt-refusal-title">{words.title}</p>
+        <p className="lt-refusal-body">{words.body}</p>
+        {words.action ? (
+          <a className="lt-button lt-button-secondary" href={words.action.href}>
+            {words.action.label}
+          </a>
+        ) : null}
+        {words.reference ? <p className="lt-ref">{words.reference}</p> : null}
+      </div>
+    );
   }
-  return <StateBlock kind="error" title={copy.t('Couldn’t load your notifications.')} onRetry={onRetry} retryLabel={copy.t('Try again')} />;
+  return (
+    <div data-slot="state-block" data-kind="error" role="alert" className="lt-refusal" data-refusal="unreachable">
+      <p className="lt-refusal-title">{copy.t('Couldn’t load your notifications.')}</p>
+      <Button tone="secondary" onClick={onRetry}>
+        {copy.t('Try again')}
+      </Button>
+    </div>
+  );
 }

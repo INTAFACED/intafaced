@@ -1,4 +1,5 @@
-import { FEE_MARKET_UNREAD, SWAP_FEE_CAP_UNSET, type ProtocolSwapFeeLevel, type ProtocolSwapFees } from '@intafaced/contracts';
+import type { ProtocolSwapFeeLevel, ProtocolSwapFees } from '@intafaced/contracts';
+import { FEE_MARKET_UNREAD, SWAP_FEE_CAP_UNSET } from '@intafaced/contracts/protocol-swap';
 import type { GasPriceQuote } from '../chain/gas-price.js';
 import { MAX_UINT256 } from './build.js';
 

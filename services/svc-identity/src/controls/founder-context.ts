@@ -1,12 +1,8 @@
-import {
-  createEdgeContext,
-  inboundRawBodyOf,
-  verifyServiceHeaders,
-  SERVICE_HEADER,
-  S2S_KID_HEADER,
-  type EdgeContextOptions,
-  type EdgeRequest,
-} from '@intafaced/contracts';
+import type { EdgeContextOptions, EdgeRequest } from '@intafaced/contracts';
+import { createEdgeContext } from '@intafaced/contracts/edge';
+import { inboundRawBodyOf } from '@intafaced/contracts/raw-body';
+import { verifyServiceHeaders, SERVICE_HEADER } from '@intafaced/contracts/service-auth';
+import { S2S_KID_HEADER } from '@intafaced/contracts/service-keys';
 
 type IdentityContextOptions = EdgeContextOptions & {
   operationAdmissionSecrets?: Partial<Record<'svc-trade' | 'svc-pay', string>>;

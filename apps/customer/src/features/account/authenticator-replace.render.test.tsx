@@ -21,6 +21,21 @@ const api = {
     };
     return Promise.resolve(answers[procedure]);
   },
+  call(
+    this: { query: (...args: never[]) => unknown; mutate: (...args: never[]) => unknown },
+    record: { kind: string; module: string; path: string; output: unknown },
+    input?: unknown,
+    opts?: unknown,
+  ) {
+    // tooling/codemod/call-records: a call by its record reaches this double's own query or mutate, as the client sends it.
+    return Reflect.apply(record.kind === 'query' ? this.query : this.mutate, this, [
+      record.module,
+      record.path,
+      input,
+      record.output,
+      opts,
+    ]);
+  },
 };
 vi.mock('../session/session', () => ({ useSession: () => ({ userId: USER, api }) }));
 
@@ -71,18 +86,20 @@ describe('replacing the authenticator app', () => {
   it('shows the new recovery codes once and says the other devices were signed out', async () => {
     await replaceWith({ ok: true, data: { replaced: true, recoveryCodeSpent: false, recoveryCodes: CODES, sessionsEnded: 2 } });
     expect(world.sent).toContain('totpManage.replaceConfirm');
-    const codes = [...host.querySelectorAll('.security__recovery .recovery-codes li')].map((li) => li.textContent);
+    const codes = [...host.querySelectorAll('[data-testid="security__recovery"] [data-testid="recovery-codes"] li')].map(
+      (li) => li.textContent,
+    );
     expect(codes).toEqual(CODES);
-    expect(host.querySelector('.security__recovery')!.textContent).toContain('Your old recovery codes no longer work');
+    expect(host.querySelector('[data-testid="security__recovery"]')!.textContent).toContain('Your old recovery codes no longer work');
     expect(host.querySelector('[role=status]')!.textContent).toBe(
       'Authenticator app replaced. Your name is kept. Every other device was signed out (2).',
     );
     // "I saved them" waits for the tick, then drops the codes from the page.
     expect(button('I saved them')!.disabled).toBe(true);
-    const tick = host.querySelector<HTMLInputElement>('.security__recovery input[type=checkbox]')!;
+    const tick = host.querySelector<HTMLInputElement>('[data-testid="security__recovery"] input[type=checkbox]')!;
     await act(async () => tick.click());
     await act(async () => button('I saved them')!.click());
-    expect(host.querySelector('.security__recovery')).toBeNull();
+    expect(host.querySelector('[data-testid="security__recovery"]')).toBeNull();
     expect(host.textContent).not.toContain(CODES[0]);
   });
 
@@ -99,7 +116,7 @@ describe('replacing the authenticator app', () => {
       'OLDCO-DE111',
     );
     expect(world.completed).toEqual([{ challengeId: '0b6f2c1e-3d4a-4f5b-8c6d-7e8f9a0b1c2d', recoveryCode: 'OLDCO-DE111' }]);
-    expect(host.querySelectorAll('.security__recovery .recovery-codes li')).toHaveLength(3);
+    expect(host.querySelectorAll('[data-testid="security__recovery"] [data-testid="recovery-codes"] li')).toHaveLength(3);
   });
 
   it('with one recovery code left, a recovery code is refused before anything is spent and the reset is named', async () => {
@@ -114,14 +131,14 @@ describe('replacing the authenticator app', () => {
 
   it('a lost answer says the swap may have happened instead of asking to confirm again', async () => {
     await replaceWith({ ok: false, reason: 'uncertain', message: 'No answer' });
-    expect(host.querySelector('.security__recovery')).toBeNull();
+    expect(host.querySelector('[data-testid="security__recovery"]')).toBeNull();
     expect(host.textContent).not.toContain('Confirm it is you');
     expect(host.querySelector('[role=status]')!.textContent).toContain('We could not tell whether the app was replaced');
   });
 
   it('a refused replace shows no codes and asks to confirm again', async () => {
     await replaceWith({ ok: false, reason: 'unauthorized', code: 'auth.mfa_invalid', message: 'Invalid two-factor code' });
-    expect(host.querySelector('.security__recovery')).toBeNull();
+    expect(host.querySelector('[data-testid="security__recovery"]')).toBeNull();
     expect(host.textContent).toContain('Confirm it is you');
   });
 });

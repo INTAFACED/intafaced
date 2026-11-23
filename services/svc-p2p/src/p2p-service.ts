@@ -1,3 +1,5 @@
+import type { JsonValue } from '@intafaced/contracts/procedure-strict-schema';
+import { MISMATCH_CLASSIFICATIONS, MISMATCH_KINDS, ORDER_TABS, REMARK_MAX } from '@intafaced/contracts/p2p-procedures';
 import { createHash, randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import type { Sql } from 'postgres';
@@ -70,7 +72,6 @@ import {
 } from './take-limits.js';
 import { completionRates, toAppeal, type AppealRecord, type CompletionRates } from './completion-rate.js';
 import {
-  ORDER_TABS,
   OrderListError,
   TAB_STATUSES,
   decodeTradeCursor,
@@ -181,14 +182,7 @@ import { recordSwallowed, withMoneySpan, withSpan } from './tracing.js';
 import { affiliateLegAfterP2pRelease, fireAffiliateAccrue, NoopAffiliateAccrue, type AffiliateAccruePort } from './affiliate-accrue.js';
 import { fireAffiliatePayout, NoopAffiliatePayout, type AffiliatePayoutPort } from './affiliate-payout.js';
 import { nextReminderAt, type ReminderPolicy, type ReminderState } from './seller-reminders.js';
-import {
-  assertMismatchAmount,
-  classifyMismatch,
-  MISMATCH_CLASSIFICATIONS,
-  MISMATCH_KINDS,
-  type MismatchKind,
-  type MismatchReport,
-} from './amount-mismatch.js';
+import { assertMismatchAmount, classifyMismatch, type MismatchKind, type MismatchReport } from './amount-mismatch.js';
 import { railMismatch, type PaymentRail, type RailMismatch } from './rail-validate.js';
 import { CounterpartyStateUnavailableError, type CounterpartyStatePort } from './counterparty-state.js';
 import {
@@ -198,6 +192,7 @@ import {
   type AdvertiserTermsAcceptance,
   type AdvertiserTermsState,
 } from './advertiser-terms.js';
+import { MAX_EVIDENCE_PER_CALL } from '@intafaced/contracts/p2p-call-schemas';
 
 /**
  * svc-p2p — PEER-TO-PEER TRADING WITH ESCROW (§6.2).
@@ -946,7 +941,6 @@ export interface EvidenceEntry {
 
 /** Caps, enforced here AND by the column's CHECK constraints. */
 export const MAX_EVIDENCE_ENTRIES = 200;
-export const MAX_EVIDENCE_PER_CALL = 10;
 export const MAX_EVIDENCE_ITEM_BYTES = 8_192;
 
 export interface OfferRecord {
@@ -961,7 +955,7 @@ export interface OfferRecord {
   maxAmt: Amount;
   totalAmt: Amount;
   remainingAmt: Amount;
-  methods: unknown[];
+  methods: JsonValue[];
   terms: string;
   /** Maker verification tier at create. Null when it was never stored. */
   makerTier: string | null;
@@ -1070,9 +1064,6 @@ export interface RemarkCaseSweepFailure {
   readonly code: string | null;
   readonly error: string;
 }
-
-/** The longest remark a report quotes; the database checks the same. */
-export const REMARK_MAX = 280;
 
 /** P-trade-orders-15: an ad's own release window is at least this long, the published release clock's own floor. */
 export const RELEASE_WINDOW_MIN_SECONDS = 60;
@@ -1917,10 +1908,11 @@ export class P2pService {
 
   /**
    * P-trade-orders-05: the buyer's cancels counted over the last `windowHours` (their own cancels and payment windows
-   * they let run out), on the database clock, newest first, at most `limit` of them, each with when it stops counting.
+   * they let run out), on the database clock, newest first, at most `limit` of them (all of them when `limit` is null),
+   * each with when it stops counting.
    * A seller's cancel, an unfinished lock and a moderator's refund are not the buyer's doing.
    */
-  private async recentBuyerCancels(sql: Queryable, buyerId: string, limit: number, windowHours: number): Promise<{ until: Date }[]> {
+  private async recentBuyerCancels(sql: Queryable, buyerId: string, limit: number | null, windowHours: number): Promise<{ until: Date }[]> {
     return z
       .object({ until: z.date() })
       .array()
@@ -1950,14 +1942,15 @@ export class P2pService {
     if (!cancels || cancels.limit === null || cancels.windowHours === null) {
       throw new P2pError('How many cancelled orders pause buying is not set', 'p2p.config_unset');
     }
-    const recent = await this.recentBuyerCancels(this.sql, buyerId, cancels.limit, cancels.windowHours);
-    const oldest = recent[recent.length - 1]?.until ?? null;
+    // Every cancel in the window counts, even past the threshold; buying returns when the newest `limit` of them
+    // have left the window, so the pause ends with the `limit`-th newest.
+    const recent = await this.recentBuyerCancels(this.sql, buyerId, null, cancels.windowHours);
     return {
       used: recent.length,
       cap: cancels.limit,
       windowHours: cancels.windowHours,
-      nextDropAt: oldest,
-      restrictedUntil: recent.length >= cancels.limit ? oldest : null,
+      nextDropAt: recent[recent.length - 1]?.until ?? null,
+      restrictedUntil: recent.length >= cancels.limit ? (recent[cancels.limit - 1]?.until ?? null) : null,
     };
   }
 

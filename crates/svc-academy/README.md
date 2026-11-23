@@ -29,8 +29,8 @@ Every call the TypeScript router serves is one row of `src/door/calls.rs`: path,
 2. Run the replay for the slice, which prints each answer it still owes:
 
 ```sh
-WIRE_REPLAY_SLICE=<slice> cargo test -p svc-academy --test wire_replay -- --nocapture
-WIRE_REPLAY_STRICT=<slice> cargo test -p svc-academy --test wire_replay   # fails while <slice> owes any answer
+WIRE_REPLAY_SLICE=<slice> cargo test -p svc-academy --test it -- wire_replay:: --nocapture
+WIRE_REPLAY_STRICT=<slice> cargo test -p svc-academy --test it -- wire_replay:: # fails while <slice> owes any answer
 ```
 
 The replay fails on any difference the door decides (401, scope 403, input 400, approval 412, the door's own calls, every refusal code's answer). The handler's answers are owed by their slice until they match.

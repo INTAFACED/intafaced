@@ -7,7 +7,8 @@ import { maskDestination, safeDestinationLabel } from '../control/mask-destinati
 import type { PayService } from '../payment-service.js';
 import { SubMerchantError } from '../submerchants.js';
 import { categoryBlockers } from '../onboarding-policy/category.js';
-import { ONBOARDING_BLOCKERS, type MerchantBusinessProfile, type MerchantTermsState } from '@intafaced/contracts';
+import type { MerchantBusinessProfile, MerchantTermsState } from '@intafaced/contracts';
+import { ONBOARDING_BLOCKERS } from '@intafaced/contracts/merchant-portal';
 
 type Blocker = (typeof ONBOARDING_BLOCKERS)[number];
 

@@ -1,4 +1,3 @@
-import type { z } from 'zod';
 import {
   PAY_CUSTODY_DEPOSIT_REASONS,
   PAY_CUSTODY_DEPOSIT_STATUSES,
@@ -8,50 +7,44 @@ import {
   type PayDepositTravelRuleView,
 } from '@intafaced/contracts/pay-custody-deposit';
 import {
-  bankDepositAddressItemSchema as depositAddressItemSchema,
-  bankDepositAddressListSchema as depositAddressListSchema,
-  bankDepositAddressSchema as depositAddressSchema,
-  bankDepositCatalogueSchema as depositCatalogueSchema,
-  bankDepositHaltedSchema as depositHaltedSchema,
-  bankDepositNetworkSchema as depositNetworkSchema,
-  bankDepositPendingSchema as depositPendingSchema,
-  bankDepositRecordSchema as depositRecordSchema,
-  bankDepositRecordsSchema as depositRecordsSchema,
-} from '@intafaced/contracts/bank-money-room';
+  BANK_DEPOSITS_ADDRESS,
+  BANK_DEPOSITS_ADDRESSES_CREATE,
+  BANK_DEPOSITS_ADDRESSES_LABEL,
+  BANK_DEPOSITS_ADDRESSES_LIST,
+  BANK_DEPOSITS_ASSETS,
+  BANK_DEPOSITS_LIST,
+  BANK_DEPOSITS_PENDING,
+  type BankDepositAddress,
+  type BankDepositAddressItem,
+  type BankDepositAddressList,
+  type BankDepositCatalogue,
+  type BankDepositHalted,
+  type BankDepositNetwork,
+  type BankDepositPending,
+  type BankDepositRecords,
+} from '@intafaced/contracts/bank-deposit-procedures';
 import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { contractProcedure, readContract } from '../../shared/contract-call';
 
-/** What svc-bank answers the deposit pages, read with the schemas in `@intafaced/contracts/bank-money-room`. */
-export {
-  depositAddressItemSchema,
-  depositAddressListSchema,
-  depositAddressSchema,
-  depositCatalogueSchema,
-  depositHaltedSchema,
-  depositNetworkSchema,
-  depositPendingSchema,
-  depositRecordSchema,
-  depositRecordsSchema,
-};
-export type DepositNetworkView = z.infer<typeof depositNetworkSchema>;
-export type DepositHaltedView = z.infer<typeof depositHaltedSchema>;
-export type DepositCatalogue = z.infer<typeof depositCatalogueSchema>;
-export type DepositAddressView = z.infer<typeof depositAddressSchema>;
-export type DepositAddressItem = z.infer<typeof depositAddressItemSchema>;
-export type DepositAddressList = z.infer<typeof depositAddressListSchema>;
-export type DepositPending = z.infer<typeof depositPendingSchema>;
-export type DepositRecordView = z.infer<typeof depositRecordSchema>;
-export type DepositRecordsPage = z.infer<typeof depositRecordsSchema>;
+/** What svc-bank answers the deposit pages: each call's record in `@intafaced/contracts/bank-deposit-procedures`. */
+export type DepositNetworkView = BankDepositNetwork;
+export type DepositHaltedView = BankDepositHalted;
+export type DepositCatalogue = BankDepositCatalogue;
+export type DepositAddressView = BankDepositAddress;
+export type DepositAddressItem = BankDepositAddressItem;
+export type DepositAddressList = BankDepositAddressList;
+export type DepositPending = BankDepositPending;
+export type DepositRecordsPage = BankDepositRecords;
+export type DepositRecordView = DepositRecordsPage['items'][number];
 
 export function createDepositReads(api: ApiClient) {
   return {
-    assets: (signal?: AbortSignal): Promise<ApiResult<DepositCatalogue>> =>
-      api.query('bank', 'deposits.assets', undefined, depositCatalogueSchema, { signal }),
+    assets: (signal?: AbortSignal): Promise<ApiResult<DepositCatalogue>> => api.call(BANK_DEPOSITS_ASSETS, undefined, { signal }),
     /** The person's own address for one asset on one network. The same call returns the same address. */
     async address(assetId: string, networkId: string): Promise<ApiResult<DepositAddressView>> {
-      const result = await api.mutate('bank', 'deposits.address', { assetId, networkId }, depositAddressSchema);
+      const result = await api.call(BANK_DEPOSITS_ADDRESS, { assetId, networkId });
       // An answer for a different pair is never shown as the one that was asked for.
       return result.ok && (result.data.assetId !== assetId || result.data.networkId !== networkId)
         ? {
@@ -63,16 +56,15 @@ export function createDepositReads(api: ApiClient) {
         : result;
     },
     addresses: (assetId: string, networkId: string, signal?: AbortSignal): Promise<ApiResult<DepositAddressList>> =>
-      api.query('bank', 'deposits.addresses.list', { assetId, networkId }, depositAddressListSchema, { signal }),
+      api.call(BANK_DEPOSITS_ADDRESSES_LIST, { assetId, networkId }, { signal }),
     createAddress: (assetId: string, networkId: string, label: string | null): Promise<ApiResult<DepositAddressItem>> =>
-      api.mutate('bank', 'deposits.addresses.create', { assetId, networkId, label }, depositAddressItemSchema),
+      api.call(BANK_DEPOSITS_ADDRESSES_CREATE, { assetId, networkId, label }),
     labelAddress: (
       assetId: string,
       networkId: string,
       addressIndex: number,
       label: string | null,
-    ): Promise<ApiResult<DepositAddressItem>> =>
-      api.mutate('bank', 'deposits.addresses.label', { assetId, networkId, addressIndex, label }, depositAddressItemSchema),
+    ): Promise<ApiResult<DepositAddressItem>> => api.call(BANK_DEPOSITS_ADDRESSES_LABEL, { assetId, networkId, addressIndex, label }),
   };
 }
 
@@ -109,7 +101,7 @@ export type DepositRecordFilters = { assetId?: string; status?: DepositStatus; t
 export const DEPOSIT_RECORDS_PAGE = 20;
 
 export function depositPendingRead(api: ApiClient, signal?: AbortSignal): Promise<ApiResult<DepositPending>> {
-  return api.query('bank', 'deposits.pending', undefined, depositPendingSchema, { signal });
+  return api.call(BANK_DEPOSITS_PENDING, undefined, { signal });
 }
 
 /** The person's own deposit records, newest first. `limit` grows to load more; the service says the true total. */
@@ -119,7 +111,7 @@ export function depositRecordsRead(
   limit: number,
   signal?: AbortSignal,
 ): Promise<ApiResult<DepositRecordsPage>> {
-  return api.query('bank', 'deposits.list', { ...filters, offset: 0, limit }, depositRecordsSchema, { signal });
+  return api.call(BANK_DEPOSITS_LIST, { ...filters, offset: 0, limit }, { signal });
 }
 
 export function useDepositPending() {

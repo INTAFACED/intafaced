@@ -1,5 +1,5 @@
 import { CONTROL_COPY } from './control-copy';
-import { compareDecimal, isDecimalString } from './money';
+import { compareDecimal, isDecimalString } from '@/lib/money';
 
 /**
  * Venue, network and wallet-route registries (svc-pay `founderAdmin.registries.*`).

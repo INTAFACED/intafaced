@@ -15,6 +15,7 @@ import { useWallet } from '../../features/protocol/wallet/WalletProvider';
 import { usePolled } from '../../features/protocol/wallet/use-polled';
 import { useResource } from '../../shared/resource';
 import { useVenueApi } from '../../features/trade/venue/VenueKit';
+import type { VenueStakingAccount, VenueVaultHoldings } from '../../features/trade/venue-api';
 import { formatAmount, parseAmount } from '../../shared/money';
 import { readWallet, venueRows, type NodeRead, type VenueRow, type WalletRead, type WalletToken } from './where-it-sits';
 import { standing, type PartRead } from './standing';
@@ -45,15 +46,53 @@ export function useWalletRead(owner: string, chainId: number) {
   );
 }
 
-/** The venue account: the venue's balances with the open orders that lock them, and the venue's as-of time. */
+/**
+ * The venue's vault read (J-derivatives-31 #3): its positions and its account value as the venue counts it, with its own
+ * time, or why it was not read (a venue that reads no vaults, or one that did not answer): then the venue part is its
+ * balances alone, and the room says vault positions were not read.
+ */
+export type VenueVaults = { read: true; asOf: string; holdings: VenueVaultHoldings } | { read: false; detail: string };
+
+/**
+ * The venue's staking read (J-cex-spot-21 #8): its rewards and its queue, with its own time, or why it was not read (a
+ * venue that reports no staking, or one that did not answer). The staked, delegated and unstaking coins themselves are in
+ * the balances' own lock split.
+ */
+export type VenueStakingRead = { read: true; asOf: string; account: VenueStakingAccount } | { read: false; detail: string };
+
+export interface VenueRead {
+  asOf: string;
+  rows: VenueRow[];
+  vaults: VenueVaults;
+  staking: VenueStakingRead;
+}
+
+/** The venue account: the venue's balances with the open orders that lock them, its vault positions, and its times. */
 export function useVenueRead(owner: string) {
   const venue = useVenueApi();
-  return usePolled(
+  return usePolled<VenueRead>(
     async (signal) => {
-      const [balances, orders] = await Promise.all([venue.balances(owner, signal), venue.openOrders(owner, signal)]);
+      const [balances, orders, vaults, staking] = await Promise.all([
+        venue.balances(owner, signal),
+        venue.openOrders(owner, signal),
+        venue.vaultHoldings(owner, signal),
+        venue.stakingAccount(owner, signal),
+      ]);
       if (!balances.ok) return balances;
       if (!orders.ok) return orders;
-      return { ok: true as const, data: { asOf: balances.data.asOf, rows: venueRows(balances.data.value, orders.data.value) } };
+      return {
+        ok: true as const,
+        data: {
+          asOf: balances.data.asOf,
+          rows: venueRows(balances.data.value, orders.data.value),
+          vaults: vaults.ok
+            ? { read: true, asOf: vaults.data.asOf, holdings: vaults.data.value }
+            : { read: false, detail: vaults.message ?? '' },
+          staking: staking.ok
+            ? { read: true, asOf: staking.data.asOf, account: staking.data.value }
+            : { read: false, detail: staking.message ?? '' },
+        },
+      };
     },
     `assets:venue:${owner}`,
     READ_EVERY_MS,
@@ -94,10 +133,34 @@ export function useValuationPrices(): { prices: ValuationPrices | null; failed: 
   return { prices: read.data, failed: !read.data && Boolean(read.failure) };
 }
 
-/** A venue read as a standing part: reading, unread, or its rows (each asset's total, free and locked together). */
-export function venuePart(read: { data: { asOf: string; rows: VenueRow[] } | null; failure: unknown }): PartRead {
+/**
+ * A venue read as a standing part: reading, unread, or its rows: each asset's total, free and locked together, and each
+ * vault position the venue reports (J-derivatives-31 #3), counted as the venue counts it in the account's value.
+ */
+export function venuePart(read: { data: VenueRead | null; failure: unknown }): PartRead {
   if (!read.data) return read.failure ? { state: 'unread' } : { state: 'reading' };
-  return { state: 'read', asOf: read.data.asOf, rows: read.data.rows.map((row) => ({ asset: row.asset, amount: row.total })) };
+  const vaults = read.data.vaults.read ? read.data.vaults.holdings.positions : [];
+  return {
+    state: 'read',
+    asOf: read.data.asOf,
+    rows: [
+      ...read.data.rows.map((row) => ({ asset: row.asset, amount: row.total })),
+      ...vaults.map((p) => ({ asset: p.asset, amount: p.equity, key: `vault:${p.vault}` })),
+    ],
+  };
+}
+
+/**
+ * The venue's account value beside what its parts add to (J-derivatives-31 #3): the balances and vault positions held in
+ * the account value's asset, summed exactly. `null` where the venue publishes no account value or vaults were not read.
+ */
+export function venueTotals(data: VenueRead): { asset: string; venue: string; parts: string } | null {
+  if (!data.vaults.read || !data.vaults.holdings.accountValue) return null;
+  const { asset, amount } = data.vaults.holdings.accountValue;
+  let parts = 0n;
+  for (const row of data.rows) if (row.asset === asset) parts += parseAmount(row.total);
+  for (const p of data.vaults.holdings.positions) if (p.asset === asset) parts += parseAmount(p.equity);
+  return { asset, venue: amount, parts: formatAmount(parts) };
 }
 
 /** A wallet read as a standing part. A token the chain did not answer for is in `unread` and is not a part's row. */

@@ -1,21 +1,21 @@
+// volt-room: /uc/safe/compromised
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import {
-  COMPROMISE_NOTE_MAX,
-  compromiseMineOutputSchema,
-  compromiseReportOutputSchema,
-  compromiseReviewOutputSchema,
-  compromiseStartOutputSchema,
-  type CompromiseCase,
-  type CompromiseChecklistItem,
-} from '@intafaced/contracts/identity-compromise';
+import { COMPROMISE_NOTE_MAX, type CompromiseCase, type CompromiseChecklistItem } from '@intafaced/contracts/identity-compromise';
 import type { ApiResult } from '../../shared/api';
 import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { usePreferences } from '../../shared/preferences';
-import { Button, Failure, Field, Loading } from '../../shared/ui';
+import { Button, Field } from '@intafaced/ui/lit';
+import { SettingsTemplate } from '@intafaced/ui/lit/templates';
+import { Failure, Loading } from './kit-parts';
 import { stamp } from '../../screens/money/time';
 import { compromiseCopy as copy } from './compromise-copy';
-import './security.css';
+import {
+  IDENTITY_ACCOUNT_COMPROMISED_MARK_REVIEWED,
+  IDENTITY_ACCOUNT_COMPROMISED_MINE,
+  IDENTITY_ACCOUNT_COMPROMISED_START,
+  IDENTITY_ACCOUNT_COMPROMISED_REPORT_STOLEN_FUNDS,
+} from '@intafaced/contracts/identity-account-procedures';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -39,9 +39,7 @@ export function useCompromiseCase() {
   const { api, userId } = useSession();
   return useResource(
     (signal) =>
-      userId
-        ? api.query('identity', 'account.compromised.mine', undefined, compromiseMineOutputSchema, { signal })
-        : Promise.resolve({ ok: true as const, data: null }),
+      userId ? api.call(IDENTITY_ACCOUNT_COMPROMISED_MINE, undefined, { signal }) : Promise.resolve({ ok: true as const, data: null }),
     `compromise-case:${userId}`,
   );
 }
@@ -60,24 +58,52 @@ export function Compromised() {
   const last = useRef<{ case: CompromiseCase | null } | null>(null);
   if (resource.status === 'ready') last.current = { case: resource.data?.case ?? null };
   const shown = resource.status === 'ready' || resource.status === 'loading' ? last.current : null;
+  const sections: readonly (readonly [
+    'compromised-what' | 'compromised-case' | 'compromised-stolen',
+    'whatTitle' | 'caseTitle' | 'stolenTitle',
+  ])[] = shown?.case
+    ? [
+        ['compromised-case', 'caseTitle'],
+        ['compromised-stolen', 'stolenTitle'],
+      ]
+    : [['compromised-what', 'whatTitle']];
   return (
-    <div data-testid="compromised" className="security stack" lang={languageFor('title')}>
-      <header>
-        <h1>{t('title')}</h1>
-        <p className="muted">{t('intro')}</p>
-      </header>
-      {resource.status === 'loading' && !shown && <Loading />}
-      {resource.status === 'failed' && <Failure result={resource.failure} retry={reload} />}
-      {shown && (shown.case ? <OpenCase open={shown.case} reload={reload} /> : <Start />)}
-      <p className="muted">
-        <a className="text-link" href="/help/official-channels">
-          {t('scamLinks')}
-        </a>{' '}
-        ·{' '}
-        <a className="text-link" href="/support/new?topic=phishing">
-          {t('reportScam')}
-        </a>
-      </p>
+    <div data-testid="compromised" lang={languageFor('title')}>
+      <SettingsTemplate
+        title={t('title')}
+        description={t('intro')}
+        state={{ kind: 'ready' }}
+        index={
+          <nav aria-label={t('sectionsLabel')}>
+            <ul>
+              {sections.map(([id, key]) => (
+                <li key={id}>
+                  <a className="lt-link" href={`#${id}`}>
+                    {t(key)}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        }
+        sections={
+          <>
+            {resource.status === 'loading' && !shown && <Loading />}
+            {resource.status === 'failed' && <Failure result={resource.failure} retry={reload} />}
+            {shown && (shown.case ? <OpenCase open={shown.case} reload={reload} /> : <Start />)}
+            <p className="lt-hint">
+              <a className="lt-link" href="/help/official-channels">
+                {t('scamLinks')}
+              </a>{' '}
+              ·{' '}
+              <a className="lt-link" href="/support/new?topic=phishing">
+                {t('reportScam')}
+              </a>
+            </p>
+          </>
+        }
+        explain={<p>{t('explain')}</p>}
+      />
     </div>
   );
 }
@@ -101,7 +127,7 @@ function Start() {
     setBusy(true);
     setFailure(null);
     try {
-      const answer = await api.mutate('identity', 'account.compromised.start', { password }, compromiseStartOutputSchema);
+      const answer = await api.call(IDENTITY_ACCOUNT_COMPROMISED_START, { password });
       if (!answer.ok) return setFailure(answer);
       // This sign-in ended too, so the page says so and reads nothing more: the next sign-in shows the case.
       setSecured(true);
@@ -112,7 +138,7 @@ function Start() {
 
   if (secured) {
     return (
-      <section data-testid="security__card" className="security__card" role="status">
+      <section data-testid="security__card" role="status">
         <h2>{t('securedTitle')}</h2>
         <p>{t('securedBody')}</p>
       </section>
@@ -120,7 +146,7 @@ function Start() {
   }
   const refusal = failure?.code ? START_REFUSALS[failure.code] : undefined;
   return (
-    <section data-testid="security__card" className="security__card" aria-labelledby="compromised-what">
+    <section data-testid="security__card" aria-labelledby="compromised-what">
       <h2 id="compromised-what">{t('whatTitle')}</h2>
       <ul data-testid="compromised__what">
         <li>{t('whatSessions')}</li>
@@ -130,13 +156,13 @@ function Start() {
       </ul>
       {failure &&
         (refusal ? (
-          <p className="notice" role="alert">
+          <p className="lt-refusal" role="alert">
             {t(refusal)}
           </p>
         ) : (
           <Failure result={failure} />
         ))}
-      <form ref={form} method="post" className="stack" onSubmit={submit} noValidate>
+      <form ref={form} method="post" onSubmit={submit} noValidate>
         <Field
           label={t('passwordField')}
           name="compromise-password"
@@ -147,8 +173,8 @@ function Start() {
           error={problem ? t('passwordNeeded') : undefined}
           data-security-sensitive="true"
         />
-        <div className="actions">
-          <Button type="submit" variant="danger" disabled={busy}>
+        <div className="lt-actions">
+          <Button type="submit" tone="primary" disabled={busy}>
             {busy ? t('working') : t('start')}
           </Button>
         </div>
@@ -169,7 +195,7 @@ function OpenCase({ open, reload }: { open: CompromiseCase; reload: () => void }
     setBusy(true);
     setFailure(null);
     try {
-      const answer = await api.mutate('identity', 'account.compromised.markReviewed', { item }, compromiseReviewOutputSchema);
+      const answer = await api.call(IDENTITY_ACCOUNT_COMPROMISED_MARK_REVIEWED, { item });
       if (!answer.ok) return setFailure(answer);
       reload();
     } finally {
@@ -179,26 +205,26 @@ function OpenCase({ open, reload }: { open: CompromiseCase; reload: () => void }
 
   return (
     <>
-      <section data-testid="compromised__case" data-case-id={open.id} className="security__card" aria-labelledby="compromised-case">
+      <section data-testid="compromised__case" data-case-id={open.id} aria-labelledby="compromised-case">
         <h2 id="compromised-case">{t('caseTitle')}</h2>
         <p>{t('caseOpened', { date: stamp(open.openedAt, timeZone), sessions: open.sessionsEnded, keys: open.keysEnded })}</p>
         <h3>{t('checklistTitle')}</h3>
-        <p className="muted">{t('checklistBody')}</p>
+        <p className="lt-hint">{t('checklistBody')}</p>
         {failure && <Failure result={failure} />}
-        <ol data-testid="compromised__checklist" className="security__rows">
+        <ol data-testid="compromised__checklist">
           {open.checklist.map(({ item, doneAt }) => (
-            <li key={item} data-item={item} data-done={doneAt !== null} className="security__row">
+            <li key={item} data-item={item} data-done={doneAt !== null}>
               <div>
-                <strong>{t(item)}</strong> <span className="badge">{doneAt ? t('done') : t('pending')}</span>
-                {doneAt && <span className="muted"> · {t('doneOn', { date: stamp(doneAt, timeZone) })}</span>}
-                {!doneAt && <p className="muted">{t(`${item}Why`)}</p>}
+                <strong>{t(item)}</strong> <span className="lt-chip">{doneAt ? t('done') : t('pending')}</span>
+                {doneAt && <span className="lt-hint"> · {t('doneOn', { date: stamp(doneAt, timeZone) })}</span>}
+                {!doneAt && <p className="lt-hint">{t(`${item}Why`)}</p>}
                 <p>
-                  <a className="text-link" href={ITEM_LINKS[item]}>
+                  <a className="lt-link" href={ITEM_LINKS[item]}>
                     {t(`${item}Link`)}
                   </a>
                 </p>
                 {item === 'addresses' && !doneAt && (
-                  <Button variant="secondary" disabled={busy} onClick={() => void reviewed('addresses')}>
+                  <Button tone="secondary" disabled={busy} onClick={() => void reviewed('addresses')}>
                     {t('addressesReviewed')}
                   </Button>
                 )}
@@ -240,12 +266,10 @@ function StolenFunds({ open, onFiled }: { open: CompromiseCase; onFiled: () => v
     if (request.current?.text !== text) request.current = { text, id: crypto.randomUUID() };
     const requestId = request.current.id;
     try {
-      const answer = await api.mutate(
-        'identity',
-        'account.compromised.reportStolenFunds',
-        { body: text, clientRequestId: `stolen-funds:${requestId}` },
-        compromiseReportOutputSchema,
-      );
+      const answer = await api.call(IDENTITY_ACCOUNT_COMPROMISED_REPORT_STOLEN_FUNDS, {
+        body: text,
+        clientRequestId: `stolen-funds:${requestId}`,
+      });
       if (!answer.ok) return setFailure(answer);
       request.current = null;
       setBody('');
@@ -257,28 +281,28 @@ function StolenFunds({ open, onFiled }: { open: CompromiseCase; onFiled: () => v
   }
 
   return (
-    <section data-testid="compromised__stolen-funds" className="security__card" aria-labelledby="compromised-stolen">
+    <section data-testid="compromised__stolen-funds" aria-labelledby="compromised-stolen">
       <h2 id="compromised-stolen">{t('stolenTitle')}</h2>
       <p>{t('stolenBody')}</p>
       {filed && <p role="status">{t('stolenFiled')}</p>}
       {failure && <Failure result={failure} />}
-      <form className="stack" onSubmit={submit} noValidate>
-        <label className="field">
+      <form onSubmit={submit} noValidate>
+        <label className="lt-field">
           <span>{t('stolenField')}</span>
           <textarea lang="und" value={body} onChange={(event) => setBody(event.target.value)} rows={5} disabled={busy} />
-          <small className={problem ? 'error-text' : ''}>
+          <small className="lt-hint">
             {problem ? t(problem, { max: COMPROMISE_NOTE_MAX }) : t('stolenHint', { max: COMPROMISE_NOTE_MAX })}
           </small>
         </label>
-        <div className="actions">
-          <Button type="submit" disabled={busy}>
+        <div className="lt-actions">
+          <Button type="submit" tone="primary" disabled={busy}>
             {t('stolenSend')}
           </Button>
         </div>
       </form>
       <h3>{t('notesTitle')}</h3>
       {open.notes.length === 0 ? (
-        <p className="muted">{t('notesNone')}</p>
+        <p className="lt-hint">{t('notesNone')}</p>
       ) : (
         <ul data-testid="compromised__notes">
           {open.notes.map((note) => (

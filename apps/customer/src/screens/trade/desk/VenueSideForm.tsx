@@ -1,6 +1,14 @@
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type FormEvent, type Ref } from 'react';
 import { displayAmount, parseAmount } from '../../../shared/money';
-import { keys, type AsOf, type OrderIntent, type VenueMarket, type VenuePreview, type VenueUp } from '../../../features/trade/venue-api';
+import {
+  draftId,
+  keys,
+  type AsOf,
+  type OrderIntent,
+  type VenueMarket,
+  type VenuePreview,
+  type VenueUp,
+} from '../../../features/trade/venue-api';
 import {
   OutcomeLine,
   outcomeText,
@@ -137,6 +145,8 @@ export function VenueSideForm({
   const sign = useSignPrepared(owner ?? '');
   // Good till date: the order rests on the venue good till cancelled, and our engine cancels it at the expiry.
   const gtd = type === 'limit' && tif === 'GTD';
+  // The draft this form's builder approval is asked under (keys.builderApproval).
+  const [approvalDraft] = useState(() => draftId());
   const [price, setPrice] = useState('');
   const [amount, setAmount] = useState('');
   // The unit flag: the person types the size in the base asset (Amount) or in the quote asset (Total, or Spend on a
@@ -161,7 +171,7 @@ export function VenueSideForm({
     sending.current = true;
     const answer = await run(
       { kind: 'approve_builder_fee', builder: status.builder.address, maxFeeBps: status.builder.feeBps },
-      { actionKey: keys.builderApproval(owner ?? '', status.builder.address, status.builder.feeBps) },
+      { actionKey: keys.builderApproval(owner ?? '', status.builder.address, status.builder.feeBps, undefined, approvalDraft) },
     );
     sending.current = false;
     setApproving(answer);
@@ -518,9 +528,9 @@ export function VenueSideForm({
         {access === 'verify' ? (
           <VerifyNote />
         ) : access === 'loading' ? (
-          <p className="dk-note">{t('Checking verification')}</p>
+          <p className="lt-hint">{t('Checking verification')}</p>
         ) : access === 'unread' ? (
-          <p className="dk-note">{t('Verification unread')}</p>
+          <p className="lt-hint">{t('Verification unread')}</p>
         ) : issue === 'rule_unpublished' ? (
           <p className="dk-note dk-note--bad" role="alert" data-code="trade.venue_rule_unpublished">
             {t('Rule unpublished', {
@@ -532,9 +542,9 @@ export function VenueSideForm({
             })}
           </p>
         ) : !owner ? (
-          <p className="dk-note">{t('Connect to trade')}</p>
+          <p className="lt-hint">{t('Connect to trade')}</p>
         ) : issue === 'no_cap' && type === 'market' ? (
-          <p className="dk-note" data-code={protectionBps !== null ? 'trade.spread_limit_unset' : 'trade.slippage_cap_unset'}>
+          <p className="lt-hint" data-code={protectionBps !== null ? 'trade.spread_limit_unset' : 'trade.slippage_cap_unset'}>
             {t('No price protection')}
           </p>
         ) : tagBad ? (
@@ -542,13 +552,13 @@ export function VenueSideForm({
             {t('Tag bad')}
           </p>
         ) : issue === 'no_book' ? (
-          <p className="dk-note">{t('No book side')}</p>
+          <p className="lt-hint">{t('No book side')}</p>
         ) : issue === 'amount_step' && amount ? (
-          <p className="dk-note">{t('Not a step', { field: d('Amount'), step: market.lotSize })}</p>
+          <p className="lt-hint">{t('Not a step', { field: d('Amount'), step: market.lotSize })}</p>
         ) : issue === 'price_step' && price ? (
-          <p className="dk-note">{t('Not a step', { field: d('Price'), step: market.tickSize })}</p>
+          <p className="lt-hint">{t('Not a step', { field: d('Price'), step: market.tickSize })}</p>
         ) : live?.state === 'checking' ? (
-          <p className="dk-note">{t('Checking venue')}</p>
+          <p className="lt-hint">{t('Checking venue')}</p>
         ) : live?.state === 'refused' ? (
           <p className="dk-note dk-note--bad" role="alert" data-testid="venue-ticket-refused" data-code={live.code ?? ''}>
             {live.code === BUILDER_FEE_BLANK ? v('Builder fee owner blank') : t('Not placeable', { detail: live.message })}
@@ -567,14 +577,14 @@ export function VenueSideForm({
             onLanded={accountMode.reload}
           />
         ) : null}
-        {busy ? <p className="dk-note">{t('Waiting wallet')}</p> : null}
+        {busy ? <p className="lt-hint">{t('Waiting wallet')}</p> : null}
         {problem ? (
           <p className="dk-note dk-note--bad" role="alert">
             {problem}
           </p>
         ) : null}
         {result?.kind === 'unknown' ? (
-          <p className="dk-note" role="status">
+          <p className="lt-hint" role="status">
             {outcomeText(v, result)}
           </p>
         ) : result ? (
@@ -616,7 +626,7 @@ export function VenueSideForm({
             />
             {gtd && owner ? (
               <>
-                <p className="dk-note">{t('Gtd permission')}</p>
+                <p className="lt-hint">{t('Gtd permission')}</p>
                 <AgentPermission owner={owner} />
               </>
             ) : null}
@@ -667,14 +677,14 @@ function TicketOutcome({
   const o = result.outcome;
   if (o.accepted && expireAt && sent.clientOrderKey.startsWith('spot-cond:')) {
     return (
-      <p className="dk-note" data-testid="venue-ticket-outcome" data-outcome="gtd-resting" data-expire-at={expireAt}>
+      <p className="lt-hint" data-testid="venue-ticket-outcome" data-outcome="gtd-resting" data-expire-at={expireAt}>
         {t('Gtd placed', { at: new Date(expireAt).toLocaleString() })}
       </p>
     );
   }
   if (!o.accepted) {
     return sent.timeInForce === 'ALO' ? (
-      <p className="dk-note" data-testid="venue-ticket-outcome" data-outcome="post-only-refused">
+      <p className="lt-hint" data-testid="venue-ticket-outcome" data-outcome="post-only-refused">
         {t('Post only refused')}
       </p>
     ) : null;
@@ -687,7 +697,7 @@ function TicketOutcome({
     return null;
   }
   return (
-    <p className="dk-note" data-testid="venue-ticket-outcome" data-outcome={filled === 0n ? 'nothing-traded' : 'partly-traded'}>
+    <p className="lt-hint" data-testid="venue-ticket-outcome" data-outcome={filled === 0n ? 'nothing-traded' : 'partly-traded'}>
       {filled === 0n ? t('Nothing traded') : t('Partly traded', { filled: displayAmount(o.order.filled), asset: base })}
     </p>
   );

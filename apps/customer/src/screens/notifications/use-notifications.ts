@@ -9,8 +9,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
 import { useSession } from '../../features/session/session';
 import type { ApiResult } from '../../shared/api';
-import type { Loadable } from './deps';
-import { useDataEnv, useSource } from './deps';
+import type { Loadable } from './data';
+import { useDataEnv, useSource } from './data';
 import {
   announceChange,
   inboxPolicy,

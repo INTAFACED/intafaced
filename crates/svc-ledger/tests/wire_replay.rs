@@ -1,4 +1,4 @@
-//! The wire replay. `services/svc-ledger/src/wire-replay.golden/` is what the TypeScript service's served doors
+//! The wire replay. `tests/fixtures/wire-replay.golden/` is what the TypeScript service's served doors
 //! answered (`wire-replay.test.ts`): every route `index.ts` registers, six bodies, every caller kind, under three
 //! settings (`blank`: the shared secret alone; `set-dual` and `set-keypair`: per-service keys in each mode), with the
 //! database and the bus refusing every call. This sends the same requests, built the same way (signed with fresh
@@ -9,7 +9,7 @@
 //! input check. Any other answer is a slice's: the door names the slice that owes it, and it is counted, printed and
 //! fails nothing. One difference the door decided fails the test.
 //!
-//! `WIRE_REPLAY_SLICE=<slice> cargo test -p svc-ledger --test wire_replay -- --nocapture` prints that slice's owed
+//! `WIRE_REPLAY_SLICE=<slice> cargo test -p svc-ledger --test it -- wire_replay:: --nocapture` prints that slice's owed
 //! answers, and `WIRE_REPLAY_STRICT=<slice>` also fails while it owes any. The recording is read from the TypeScript
 //! service while it exists; the switch copies it here before that service is deleted.
 #![allow(
@@ -32,7 +32,11 @@ use service_kit::s2s_verify::{BodyBind, ServiceVerifier};
 use service_kit::server::Request;
 use service_kit::tokens::TokenConfig;
 use sha2::{Digest, Sha256};
+use std::sync::Arc;
+use svc_ledger::db::Store;
 use svc_ledger::door::{DoorConfig, Keys, LedgerDoor, Outcome, ROUTES, Slice};
+use svc_ledger::posting::Posting;
+use svc_ledger::posting::engine::{Conflict, EngineOptions};
 
 const SHARED: &str = "placeholder-ledger-wire-replay-internal-secret";
 const ID: &str = "22222222-2222-4222-8222-222222222222";
@@ -40,8 +44,7 @@ const OPERATOR: &str = "11111111-1111-4111-8111-111111111111";
 const TOKEN_SECRET: &str = "placeholder-ledger-wire-replay-operator-secret";
 
 fn golden_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../services/svc-ledger/src/wire-replay.golden")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/wire-replay.golden")
 }
 
 /// One recorded answer.
@@ -180,6 +183,31 @@ fn door(mode: Option<Mode>, keyring: &[KeyringEntry]) -> LedgerDoor {
             verify_only: Vec::new(),
         },
         clock: system_seconds,
+        // The TypeScript replay's `sql` stub throws this on every query.
+        store: Store::Down("replay stub: sql".to_owned()),
+        service_name: "svc-ledger".to_owned(),
+        bus: std::sync::Arc::new(svc_ledger::freeze::MemoryBus::default()),
+        approvals: Box::new(svc_ledger::approval::Unwired),
+        clock_skew_bound_ms: None,
+        now_ms: svc_ledger::clock::system_ms,
+        log: service_kit::telemetry::Logger::new("info", Box::new(std::io::sink())),
+        custody: svc_ledger::reconcile::CustodyLayer::On,
+        reconcile_statement_timeout_ms: svc_ledger::reconcile::DEFAULT_STATEMENT_TIMEOUT_MS,
+        indexer_url: None,
+        fetch: std::sync::Arc::new(service_kit::http::UreqFetch::new()),
+        posting: Posting::new(
+            Arc::new(svc_ledger::freeze::MemoryBus::default()),
+            "svc-ledger".to_owned(),
+            false,
+            EngineOptions {
+                conflict: Conflict::Refuse,
+                clock_skew_bound_ms: None,
+                clock_ms: || 0,
+            },
+            mode.is_some(),
+            None,
+        ),
+        reconciliation_sources: Arc::new(svc_ledger::controls::sources::Unset),
     })
     .unwrap()
 }

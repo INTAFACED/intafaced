@@ -565,7 +565,7 @@ export class WatchService {
       const [raced] = await tx<BatchRow[]>`
         ${SELECT_BATCH(tx)} WHERE b.campaign_id = ${input.campaignId} AND b.reference = ${input.reference}`;
       if (raced) return this.again(raced, source, count);
-      const { row, face, feeSaver } = await this.campaigns.voucherTerms(tx, input.campaignId);
+      const { row, face, kindColumns } = await this.campaigns.voucherTerms(tx, input.campaignId);
       const batchId = `cbt_${randomUUID()}`;
       await tx`
         INSERT INTO campaigns.code_batches (id, campaign_id, reference, source, count, created_by, created_at)
@@ -581,8 +581,7 @@ export class WatchService {
           revision: row.revision,
           face_asset: face.asset,
           face_amount: face.amount,
-          kind: feeSaver ? 'fee_saver' : 'cash',
-          fee_discount_bps: feeSaver?.discountBps ?? null,
+          ...kindColumns,
           state: 'generated',
           issued_by: input.actor,
           claim_by: row.vouchers?.claimBy ?? null,

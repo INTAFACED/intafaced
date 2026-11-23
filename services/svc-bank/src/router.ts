@@ -1,15 +1,16 @@
 import { z } from 'zod';
+import { ASSET_ACTIONS, ASSET_STATES, REGISTRY_ASSET_KINDS } from '@intafaced/contracts/asset-registry';
+import { router, publicProcedure, scopedProcedure } from '@intafaced/contracts/trpc';
 import {
-  ASSET_ACTIONS,
-  ASSET_STATES,
-  REGISTRY_ASSET_KINDS,
-  router,
-  publicProcedure,
-  scopedProcedure,
-  PAY_CUSTODY_DEPOSIT_RECORDS_MAX_LIMIT,
-  PAY_CUSTODY_DEPOSIT_STATUSES,
-  payCustodyDepositRecordSchema,
-} from '@intafaced/contracts';
+  BANK_DEPOSITS_ADDRESS,
+  BANK_DEPOSITS_ADDRESSES_CREATE,
+  BANK_DEPOSITS_ADDRESSES_LABEL,
+  BANK_DEPOSITS_ADDRESSES_LIST,
+  BANK_DEPOSITS_ASSETS,
+  BANK_DEPOSITS_LIST,
+  BANK_DEPOSITS_PENDING,
+} from '@intafaced/contracts/bank-deposit-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { requireBankJobService } from './ops-job-hmac.js';
 import type { BankServices } from './bank-service.js';
 import { createLimitsRouter } from './transfers/limit-requests.js';
@@ -28,13 +29,14 @@ import { createSafetyRouter } from './safety/safety.router.js';
 import { createBankAccountRouter } from './onboarding/bank-account.router.js';
 import { createWorkItemsRouter } from './home/work-items.js';
 import { createCreditCardPreviewRouter } from './loans/credit-card-preview.router.js';
+import { createCreditPreviewsRouter } from './loans/credit-previews.js';
 import { createBillsRouter, createGlobalRouter } from './personal-pay/router.js';
 import { createPersonalRequestRouter } from './transfers/personal-request.router.js';
 import { createDirectDebitsRouter } from './direct-debits/direct-debits.router.js';
 import { createCalendarRouter } from './calendar/calendar.router.js';
 import { createRulesRouter } from './rules/rules.router.js';
 import { amountString, type BankRouterOptions } from './router/shared.js';
-import { guard } from './router/errors.js';
+import { bankRefusal, guard } from './router/errors.js';
 import { createRouterContext } from './router/context.js';
 import { createSpacesRouter } from './router/spaces.router.js';
 import { createTransfersRouter } from './router/transfers.router.js';
@@ -59,6 +61,9 @@ import { createBusinessPayoutsRouter } from './router/business-payouts.router.js
 import { createBusinessCardsRouter } from './router/business-cards.router.js';
 import { createBusinessBooksRouter } from './router/business-books.router.js';
 import { createBankApiRouter } from './router/bank-api.router.js';
+import { BANK_CASH_LEG_CARRY, BANK_CASH_LEG_OFFERS, BANK_CASH_LEG_READ } from '@intafaced/contracts/bank-cash-leg-procedures';
+import { presentCashLeg, presentCashLegOffers } from './partner/cash-leg.js';
+import { parseAmount as parseCashAmount } from '@intafaced/ledger-client';
 
 /**
  * svc-bank's API.
@@ -77,20 +82,6 @@ import { createBankApiRouter } from './router/bank-api.router.js';
  */
 
 export type { BankRouterOptions } from './router/shared.js';
-
-/** One deposit address as the address list shows it (W-deposit-02). */
-const depositAddressItem = z.object({
-  assetId: z.string(),
-  networkId: z.string(),
-  addressIndex: z.number().int().nonnegative(),
-  address: z.string(),
-  memo: z.string().nullable(),
-  qrPayload: z.string().nullable(),
-  label: z.string().nullable(),
-  createdAt: z.string(),
-  expiresAt: z.string().nullable(),
-  state: z.enum(['active', 'expired']),
-});
 
 /** HTTP job twin: HMAC as svc-bank. Session admin:treasury is 401 unsigned. */
 const jobProcedure = publicProcedure.use(({ ctx, next }) => {
@@ -206,167 +197,71 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
         )
         .query(() => guard(async () => ({ assets: await bank.supportedAssets.list() }))),
     }),
+    // The partner's cash leg of a cash-through-a-coin convert (J-cex-spot-11 #11), asked by svc-trade as the person.
+    convertCash: router({
+      offers: mountRecord(
+        BANK_CASH_LEG_OFFERS,
+        ({ ctx }) => guard(async () => presentCashLegOffers(await bank.cashLegs.offers(ctx.principal.userId))),
+        bankRefusal,
+      ),
+      carry: mountRecord(
+        BANK_CASH_LEG_CARRY,
+        ({ ctx, input }) =>
+          guard(async () =>
+            presentCashLeg(
+              await bank.cashLegs.carry(ctx.principal.userId, {
+                key: input.legKey,
+                cash: input.cash,
+                coin: input.coin,
+                spend: parseCashAmount(input.spend),
+                least: parseCashAmount(input.least),
+                venue: { venueId: input.venue.venueId, owner: input.venue.owner.toLowerCase() },
+              }),
+            ),
+          ),
+        bankRefusal,
+      ),
+      leg: mountRecord(
+        BANK_CASH_LEG_READ,
+        ({ ctx, input }) =>
+          guard(async () => {
+            const leg = await bank.cashLegs.leg(ctx.principal.userId, input.legKey);
+            return { leg: leg ? presentCashLeg(leg) : null };
+          }),
+        bankRefusal,
+      ),
+    }),
     deposits: router({
-      /**
-       * Assets custody says can be paid in, and the pairs the owner switched off. A blank port refuses
-       * `bank.deposit_custody_unset`. Minimums are the port's decimals.
-       */
-      assets: scopedProcedure('bank:read', { module: 'bank' })
-        .output(
-          z.object({
-            assets: z.array(
-              z.object({
-                assetId: z.string(),
-                /** The asset's decimal places in the supported asset list (`assets.list`), the same for Deposit and Withdraw. */
-                precision: z.number().int().nonnegative(),
-                networks: z.array(
-                  z.object({
-                    id: z.string(),
-                    label: z.string(),
-                    minimumDeposit: amountString,
-                    confirmationsRequired: z.number().int().nonnegative(),
-                    estimatedArrivalMinutes: z.number().int().nonnegative(),
-                    /** The owner's cases custody will not credit on this network; absent when none was published. */
-                    unsupported: z.array(z.string().min(1)).optional(),
-                  }),
-                ),
-              }),
-            ),
-            /**
-             * Pairs switched off, with the owner's note (null: the standard line only). They take no address. `blockedBy:
-             * 'registry'` marks a pair the supported asset list does not allow, with the asset's state there (null: the
-             * list does not publish the asset), so the coin stays visible with its reason.
-             */
-            halted: z.array(
-              z.object({
-                assetId: z.string(),
-                networkId: z.string(),
-                label: z.string(),
-                haltNote: z.string().nullable(),
-                blockedBy: z.literal('registry').optional(),
-                assetState: z.enum(ASSET_STATES).nullable().optional(),
-              }),
-            ),
-          }),
-        )
-        .query(() => guard(async () => bank.deposits.assets())),
-
-      /**
-       * Idempotent on (asset, network). The address is the one custody issued.
-       * A blank port refuses before any row.
-       */
-      address: scopedProcedure('bank:write', { module: 'bank' })
-        .input(z.object({ assetId: z.string().min(1).max(16), networkId: z.string().min(1).max(32) }))
-        .output(
-          z.object({
-            assetId: z.string(),
-            networkId: z.string(),
-            address: z.string(),
-            memo: z.string().nullable(),
-            qrPayload: z.string().nullable(),
-          }),
-        )
-        .mutation(async ({ ctx, input }) =>
+      assets: mountRecord(BANK_DEPOSITS_ASSETS, () => guard(async () => bank.deposits.assets()), bankRefusal),
+      address: mountRecord(
+        BANK_DEPOSITS_ADDRESS,
+        ({ ctx, input }) =>
           guard(async () => bank.deposits.address({ userId: ctx.principal.userId, assetId: input.assetId, networkId: input.networkId })),
-        ),
-
-      /**
-       * The person's deposit addresses (W-deposit-02): the first and every extra one, each with its label and expiry. An
-       * expired one stays listed, since a deposit to it is held for release. `cap` and `expiryDays` are the owner's values,
-       * null while unpublished (making another address then refuses).
-       */
+        bankRefusal,
+      ),
       addresses: router({
-        list: scopedProcedure('bank:read', { module: 'bank' })
-          .input(
-            z
-              .object({ assetId: z.string().min(1).max(16).optional(), networkId: z.string().min(1).max(32).optional() })
-              .strict()
-              .prefault({}),
-          )
-          .output(
-            z.object({
-              items: z.array(depositAddressItem),
-              cap: z.number().int().positive().nullable(),
-              expiryDays: z.number().int().positive().nullable(),
-            }),
-          )
-          .query(async ({ ctx, input }) => guard(async () => bank.deposits.addresses(ctx.principal.userId, input))),
-
-        /**
-         * One more address for this asset and network, with an optional label. Blank cap or expiry window refuses
-         * (`bank.deposit_address_cap_unset`, `bank.deposit_address_expiry_unset`); holding the cap of open addresses refuses
-         * `bank.deposit_address_cap_reached`, whose message names the cap.
-         */
-        create: scopedProcedure('bank:write', { module: 'bank' })
-          .input(
-            z
-              .object({
-                assetId: z.string().min(1).max(16),
-                networkId: z.string().min(1).max(32),
-                label: z.string().max(80).nullable().optional(),
-              })
-              .strict(),
-          )
-          .output(depositAddressItem)
-          .mutation(async ({ ctx, input }) => guard(async () => bank.deposits.createAddress({ userId: ctx.principal.userId, ...input }))),
-
-        /** Set or clear (empty or null) one address's label. The same label twice is one change. */
-        label: scopedProcedure('bank:write', { module: 'bank' })
-          .input(
-            z
-              .object({
-                assetId: z.string().min(1).max(16),
-                networkId: z.string().min(1).max(32),
-                addressIndex: z.number().int().min(0).max(9999),
-                label: z.string().max(80).nullable(),
-              })
-              .strict(),
-          )
-          .output(depositAddressItem)
-          .mutation(async ({ ctx, input }) => guard(async () => bank.deposits.labelAddress({ userId: ctx.principal.userId, ...input }))),
+        list: mountRecord(
+          BANK_DEPOSITS_ADDRESSES_LIST,
+          ({ ctx, input }) => guard(async () => bank.deposits.addresses(ctx.principal.userId, input)),
+          bankRefusal,
+        ),
+        create: mountRecord(
+          BANK_DEPOSITS_ADDRESSES_CREATE,
+          ({ ctx, input }) => guard(async () => bank.deposits.createAddress({ userId: ctx.principal.userId, ...input })),
+          bankRefusal,
+        ),
+        label: mountRecord(
+          BANK_DEPOSITS_ADDRESSES_LABEL,
+          ({ ctx, input }) => guard(async () => bank.deposits.labelAddress({ userId: ctx.principal.userId, ...input })),
+          bankRefusal,
+        ),
       }),
-
-      /**
-       * Incoming deposits custody is still confirming. A blank port refuses.
-       * An empty list means custody is connected and nothing is incoming.
-       */
-      pending: scopedProcedure('bank:read', { module: 'bank' })
-        .output(
-          z.object({
-            items: z.array(
-              z.object({
-                id: z.string(),
-                assetId: z.string(),
-                networkId: z.string(),
-                amount: amountString,
-                confirmations: z.number().int().nonnegative(),
-                confirmationsRequired: z.number().int().nonnegative().nullable(),
-              }),
-            ),
-          }),
-        )
-        .query(async ({ ctx }) => guard(async () => bank.deposits.pending(ctx.principal.userId))),
-
-      /**
-       * The customer's own deposit history with its state and reason (W-deposit-05). Filters: coin, network, status, tx id,
-       * address. A page with the true total. A blank port refuses `bank.deposit_custody_unset`.
-       */
-      list: scopedProcedure('bank:read', { module: 'bank' })
-        .input(
-          z
-            .object({
-              assetId: z.string().min(1).max(16).optional(),
-              networkId: z.string().min(1).max(32).optional(),
-              status: z.enum(PAY_CUSTODY_DEPOSIT_STATUSES).optional(),
-              txId: z.string().min(1).max(128).optional(),
-              address: z.string().min(1).max(256).optional(),
-              offset: z.number().int().min(0).max(1_000_000).default(0),
-              limit: z.number().int().min(1).max(PAY_CUSTODY_DEPOSIT_RECORDS_MAX_LIMIT).default(50),
-            })
-            .prefault({}),
-        )
-        .output(z.object({ items: z.array(payCustodyDepositRecordSchema), total: z.number().int().nonnegative() }))
-        .query(async ({ ctx, input }) => guard(async () => bank.deposits.list(ctx.principal.userId, input))),
+      pending: mountRecord(BANK_DEPOSITS_PENDING, ({ ctx }) => guard(async () => bank.deposits.pending(ctx.principal.userId)), bankRefusal),
+      list: mountRecord(
+        BANK_DEPOSITS_LIST,
+        ({ ctx, input }) => guard(async () => bank.deposits.list(ctx.principal.userId, input)),
+        bankRefusal,
+      ),
     }),
     autoInvest,
     business,
@@ -408,6 +303,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     }),
     /** BK-loan-10 credit card preview: TEST rows and typed Preview refusals only. */
     creditCard: createCreditCardPreviewRouter(),
+    /** J-bank-12 overdraft, personal and business term loan, bureau, loan schedule and revolving credit previews: TEST rows and typed Preview refusals only. */
+    creditPreviews: createCreditPreviewsRouter(),
     bills: createBillsRouter(bank, stepUp),
     global: createGlobalRouter(bank, stepUp),
     personalRequest: createPersonalRequestRouter(bank, guard),

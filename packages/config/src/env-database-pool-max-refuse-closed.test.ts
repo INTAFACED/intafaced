@@ -7,33 +7,27 @@
  *    published as a pool size nobody chose. Empty string must not coerce to 0
  *    (0 is not a legal pool).
  * 3. Done bar: production postgresEnvSchema via loadEnv (not a forked slice)
- *    refuses unset, blank, whitespace, and 0; explicit 10 parses; source has
- *    no `.default(10)`.
+ *    refuses unset, blank, whitespace, 0 and out-of-range sizes; explicit 10
+ *    parses.
  * 4. Class N
  * 5. Paths: env.ts postgresEnvSchema via loadEnv (same schema services merge)
  * 6. RED: git-default 10 returns, or unset/blank parses as 10 or 0
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { EnvError, loadEnv, postgresEnvSchema, serviceEnvSchema } from './env.js';
-
-const HERE = dirname(fileURLToPath(import.meta.url));
 
 const BASE_PG = {
   DATABASE_URL: 'postgres://u:p@localhost:5432/db',
   DATABASE_POOL_MAX: '10',
 };
 
-const POOL_SHAPE =
-  /DATABASE_POOL_MAX:\s*z\.preprocess\(\s*\(v\) => \(v === undefined \|\| \(typeof v === 'string' && v\.trim\(\) === ''\) \? undefined : v\),\s*z\.coerce\.number\(\)\.int\(\)\.min\(1\)\.max\(200\),\s*\)/;
-
 describe('config DATABASE_POOL_MAX refuse-closed', () => {
-  it('env.ts keeps the refuse-closed shape production loadEnv parses', () => {
-    const envTs = readFileSync(join(HERE, 'env.ts'), 'utf8');
-    expect(envTs).toMatch(POOL_SHAPE);
-    expect(envTs).not.toMatch(/DATABASE_POOL_MAX:[\s\S]{0,400}\.default\(10\)/);
+  it('a pool size outside 1..200, or not a whole number, refuses; the bounds parse', () => {
+    for (const bad of ['201', '-1', '2.5', 'ten']) {
+      expect(() => loadEnv(postgresEnvSchema, { ...BASE_PG, DATABASE_POOL_MAX: bad }), bad).toThrow(EnvError);
+    }
+    expect(loadEnv(postgresEnvSchema, { ...BASE_PG, DATABASE_POOL_MAX: '1' }).DATABASE_POOL_MAX).toBe(1);
+    expect(loadEnv(postgresEnvSchema, { ...BASE_PG, DATABASE_POOL_MAX: '200' }).DATABASE_POOL_MAX).toBe(200);
   });
 
   it('unset DATABASE_POOL_MAX refuses (no invent 10)', () => {

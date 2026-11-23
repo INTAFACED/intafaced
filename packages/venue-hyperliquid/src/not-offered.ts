@@ -28,6 +28,11 @@ export const NOT_OFFERED: Readonly<Record<Exclude<VenueIntent['kind'], BuiltInte
   // Hyperliquid has both (`usdClassTransfer`, and the account abstraction setting); this adapter builds neither yet.
   spot_perps_transfer: 'a move between spot and perps is not offered by this adapter yet',
   set_account_mode: 'changing the account mode is not offered by this adapter yet',
+  // Hyperliquid has one (`vaultTransfer`), and lists its vaults; this adapter builds neither the move nor the reads yet.
+  vault_transfer: 'a move into or out of a vault is not offered by this adapter yet',
+  // Hyperliquid has these (`cDeposit`, `cWithdraw`, `tokenDelegate`) and lists its validators; this adapter builds none yet.
+  staking_transfer: 'a move into or out of staking is not offered by this adapter yet',
+  staking_delegate: 'delegating to a validator is not offered by this adapter yet',
 };
 
 export function isBuiltIntent(intent: VenueIntent): intent is BuiltIntent {

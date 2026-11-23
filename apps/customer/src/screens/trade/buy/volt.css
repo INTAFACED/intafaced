@@ -1,41 +1,52 @@
 /*
- * The Volt direction on the simple buy: only under data-direction="volt"; nothing here applies by
- * default. The card is a heavy stone slab, the amount is set in the wide grotesk, and the one primary action (the buy
+ * Volt on the simple buy. The card is a heavy stone slab, the amount is set in the wide grotesk, and the one primary action (the buy
  * itself) carries the screen's one spark (app/volt.css). Role tokens only; unlayered so it overrides buy.css.
  */
-[data-direction='volt'] .buy-card {
+:root .buy-card {
   border-color: transparent;
   border-radius: var(--lit-radius-panel);
   background: var(--lit-sheen), var(--lit-solid-bg);
   box-shadow: var(--lit-solid-lip), var(--lit-solid-shadow);
 }
-[data-direction='volt'] .buy-form__amount input {
+:root .buy-form__amount input {
   font-family: var(--lit-font-figure);
   font-stretch: 125%;
   font-weight: 600;
   letter-spacing: -0.04em;
 }
-[data-direction='volt'] .buy-row {
+:root .buy-row {
   border-radius: var(--lit-radius-tile);
   background: var(--lit-solid-bg-sunken);
 }
-[data-direction='volt'] .buy-card [data-slot='button'] {
+/* The rows read as one sunken well with a tile's corners (today's medium radius is Volt's pill, which rounded the two
+   rows into one capsule); the rows are square inside it, a hairline between them. */
+:root .buy-form__rows {
+  border-radius: var(--lit-radius-tile);
+  background: var(--lit-solid-bg-sunken);
+}
+:root .buy-form__rows .buy-row {
+  border-radius: 0;
+}
+:root .buy-row + .buy-row {
+  border-block-start: 1px solid var(--lit-line);
+}
+:root .buy-card [data-slot='button'] {
   border-radius: var(--lit-radius-key);
 }
 
 /* Buy or sell: an ink thumb, not the up and down colours, so the only colour on the card is the action's spark. */
-[data-direction='volt'] .buy-card [data-slot='segmented-control'] {
+:root .buy-card [data-slot='segmented-control'] {
   background: var(--lit-solid-bg-sunken);
 }
-[data-direction='volt'] .buy-card [data-slot='segmented-control'] > span[aria-hidden='true'] {
+:root .buy-card [data-slot='segmented-control'] > span[aria-hidden='true'] {
   background: var(--lit-text-1);
 }
-[data-direction='volt'] .buy-card [data-slot='segmented-control'] [data-pressed] {
+:root .buy-card [data-slot='segmented-control'] [data-pressed] {
   color: var(--lit-page);
 }
 
-/* The buy itself is the spark: the citron pill (in light, ink with a citron word). */
-[data-direction='volt'] .buy-card [data-slot='button']:is([data-variant='buy'], [data-variant='sell']):not(:disabled, [data-disabled]) {
+/* The buy itself is the spark: the chartreuse pill (in light, ink with a chartreuse word). */
+:root .buy-card [data-slot='button']:is([data-variant='buy'], [data-variant='sell']):not(:disabled, [data-disabled]) {
   background: var(--lit-primary-bg);
   color: var(--lit-primary-fg);
   box-shadow: var(--lit-primary-shadow);
@@ -45,15 +56,15 @@
 /* Phone: the heading steps back so the card leads, and the buy stays in reach of the thumb, held just above the
    floating tab bar while the card is on screen. */
 @media (max-width: 767px) {
-  [data-direction='volt'] .buy-hero h1 {
+  :root .buy-hero h1 {
     font-size: var(--lit-type-title-size);
     line-height: var(--lit-type-title-line);
     letter-spacing: var(--lit-type-title-tracking);
   }
-  [data-direction='volt'] .buy-hero p {
+  :root .buy-hero p {
     display: none;
   }
-  [data-direction='volt'] .buy-card [data-slot='button']:is([data-variant='buy'], [data-variant='sell']) {
+  :root .buy-card [data-slot='button']:is([data-variant='buy'], [data-variant='sell']) {
     position: sticky;
     inset-block-end: 6.25rem;
     z-index: 2;

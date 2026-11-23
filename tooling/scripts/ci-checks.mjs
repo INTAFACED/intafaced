@@ -46,8 +46,10 @@ const ROOT = process.cwd();
 const ACTION = '.github/actions/test-infra/action.yml';
 const BOOTSTRAP = 'tooling/infra/postgres-init/02-intafaced-test-db.sh';
 
-/** A test that walks a directory and reads the source files it finds: no file imports it, so `related` never picks it. */
-export const WALKS = /\breaddirSync\b|\bopendirSync\b|\bglobSync\b|\bls-files\b/;
+/** A test that walks a directory and reads the source files it finds: no file imports it, so `related` never picks it.
+ * `declaredRoutes` is the published-routes gate's walk of svc-trade's files (tooling/ci/published-routes.mjs), which a
+ * test may call instead of walking them itself. */
+export const WALKS = /\breaddirSync\b|\bopendirSync\b|\bglobSync\b|\bls-files\b|\bdeclaredRoutes\b/;
 export const READS_SOURCE = /\\?\.tsx?(?:\?|\$|['"`)\]|])|\bts\|tsx\b/;
 export const IS_VITEST_FILE = /\.test\.tsx?$/;
 export const ruleTest = (path, text) => IS_VITEST_FILE.test(path) && WALKS.test(text) && READS_SOURCE.test(text);
@@ -220,15 +222,21 @@ export function packageTestCommand(script, targets, exclude = []) {
 }
 
 /**
- * The verdict on CI's gates run here. Red is red, except one case: the only red gate is the tooling tests and they were
- * stopped by their own 300 s limit (tooling-tests.mjs TIMEOUT_MS, spawnSync ETIMEDOUT) with no failing test before the
- * stop. That is a loaded Mac's limit, not the code's (#8219's false red in the replay): it is "not checked here, CI will",
- * and the push goes. CI's own gates job keeps the limit as it is.
+ * The verdict on CI's gates run here. Red is red, except one case: the only red gate is the tooling tests and every
+ * file they name was stopped by its limit (tooling-tests.mjs FILE_TIMEOUT_MS, or TIMEOUT_MS for the whole run) with no
+ * failing test before the stop. That is a loaded Mac's limit, not the code's (#8219's false red in the replay): it is
+ * "not checked here, CI will", and the push goes. CI's own gates job keeps the limits as they are.
  */
 export function gatesVerdict(status, output) {
   if (status === 0) return { ok: true };
   const red = [...output.matchAll(/^ {2}✖ (\S+) +\d+ms/gm)].map((m) => m[1]);
-  const timedOut = /TOOLING TESTS FAILED — exit \S+ \(spawnSync \S+ ETIMEDOUT\)/.test(output);
+  const block = /TOOLING TESTS FAILED — \d+ of \d+ files: 0 failed, 0 cancelled, [^\n]*\n((?: {2}✖ [^\n]*\n?)+)/.exec(output);
+  const timedOut =
+    !!block &&
+    block[1]
+      .trim()
+      .split('\n')
+      .every((l) => /^✖ \S+: (stopped after \d+ s, its limit|not run: the whole run reached its limit)/.test(l.trim()));
   if (red.length === 1 && red[0] === 'tooling-tests' && timedOut && !/^\s*not ok \d+/m.test(output))
     return { ok: true, notChecked: 'the tooling tests ran past their 300 s limit on this machine: not checked here, CI will' };
   return { ok: false };

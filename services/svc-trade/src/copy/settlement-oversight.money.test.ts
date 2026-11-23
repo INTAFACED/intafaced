@@ -260,7 +260,7 @@ describe('a share of a copy filled on the venue (venue-fee-share.ts)', () => {
   it('is held, with the owe key, while it waits for the claim; and held when the owed amount differs', () => {
     const waiting = onVenue({ settled: false, venue: { venueId: VENUE, venueAccount: ACCOUNT, venueFillId: 'sim-fill-1', claimId: null } });
     const row = judgeSettlement(waiting, { sweep: null, payout: null }, [venueFee(waiting.protocolFee)]);
-    expect(row).toMatchObject({ status: 'held', reasons: ['settle_unfinished'], sweepKey: '' });
+    expect(row).toMatchObject({ status: 'held', reasons: ['ledger_post_missing'], sweepKey: '' });
     expect(row.key).toMatch(/^fee-share:builder-fee:test-venue-sim:\S+:sim-fill-1:lead-trader:/);
     const s = onVenue();
     expect(judgeSettlement(s, { sweep: fund(s), payout: owe(s, 1n) }, [venueFee(s.protocolFee)]).reasons).toEqual([

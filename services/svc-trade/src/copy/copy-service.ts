@@ -18,7 +18,8 @@ import { NO_PAUSES, mirrorPausedReason, type PauseSnapshot } from './platform-pa
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount, type LedgerClient } from '@intafaced/ledger-client';
 import { requireScope, type Principal } from '@intafaced/auth';
-import { StepUpCheckError, type StepUpCheck } from '@intafaced/contracts';
+import type { StepUpCheck } from '@intafaced/contracts';
+import { StepUpCheckError } from '@intafaced/contracts/step-up-check';
 import type { AlgoQuotedMark } from '../algo/types.js';
 import {
   copyLimitPriceFromPlan,
@@ -70,6 +71,7 @@ import {
   type CopyCursor,
   type CopyEnvelope,
   type CopyFollow,
+  type PresentCopyFollow,
 } from './follows.js';
 import { TradeError } from '../spot/types.js';
 import { randomUUID } from 'node:crypto';
@@ -205,6 +207,14 @@ export type LeaderFill = {
 /** Production wires `trade.fills`. Absent or missing fill row → refuse-closed. */
 /** One leader fill by its id; `leaderId` is the follow's leader, whose own accounts the fill must be on. */
 export type LookupLeaderFillPort = (fillId: string, leaderId?: string) => Promise<LeaderFill | null>;
+
+/**
+ * A venue follow's check: the follow the same clientRequestId already made, or, when none, what the wallet is asked to
+ * approve (the quote asset and the most in total) with nothing written.
+ */
+export type CheckVenueFollowAnswer =
+  | { readonly followId: string; readonly follow: PresentCopyFollow }
+  | { readonly followId: string; readonly follow: null; readonly quoteAsset: string; readonly maxAggregateExposure: string };
 
 /** One copied order on a follow, as its follower sees it. */
 export type CopyPosition = {
@@ -912,7 +922,10 @@ export class CopyService {
    * holds, before the follower's wallet is asked to open an agent account for the follow. Writes nothing. The same
    * clientRequestId that already made a follow answers that follow.
    */
-  async checkVenueFollow(principal: Principal, input: Parameters<CopyService['follow']>[1] & { readonly clientRequestId: string }) {
+  async checkVenueFollow(
+    principal: Principal,
+    input: Parameters<CopyService['follow']>[1] & { readonly clientRequestId: string },
+  ): Promise<CheckVenueFollowAnswer> {
     if (!this.venueFollows) throw new CopyError('Copy trading on the venue is not connected here', 'trade.copy_unavailable');
     try {
       assertCopyRegionAllowed(this.jurisdictionLaw, input.region);

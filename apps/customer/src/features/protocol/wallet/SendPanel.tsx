@@ -172,7 +172,7 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
   if (regionBlocked)
     return (
       <Panel title={t('sendTitle')}>
-        <p className="muted" data-permit-refused="region">
+        <p className="lt-muted" data-permit-refused="region">
           {t('permitRefused_region')}
         </p>
       </Panel>
@@ -200,8 +200,8 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
         />
       )}
       <Panel title={t('sendTitle')}>
-        <p className="muted">{t('sendNote', { network })}</p>
-        {!ready && <p className="muted">{t('needsWallet')}</p>}
+        <p className="lt-muted">{t('sendNote', { network })}</p>
+        {!ready && <p className="lt-muted">{t('needsWallet')}</p>}
         <form
           aria-label={t('sendTitle')}
           onSubmit={(event) => {
@@ -209,7 +209,7 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
             void review();
           }}
         >
-          <label className="field">
+          <label className="lt-field">
             <span id="wallet-send-token-label">{t('sendToken')}</span>
             <select
               value={token}
@@ -240,7 +240,7 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
           {destination.kind === 'name' && (
             <>
               <p role="alert">{t('sendNameUnresolved')}</p>
-              <p className="muted">{t('sendNameWhy')}</p>
+              <p className="lt-muted">{t('sendNameWhy')}</p>
             </>
           )}
           {destination.kind === 'invalid' && <p role="alert">{t('sendInvalidTo')}</p>}
@@ -272,22 +272,22 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
           <dl className="protocol-facts">
             <div>
               <dt>{t('reviewFrom')}</dt>
-              <dd className="numeric">{wallet.address}</dd>
+              <dd className="lt-num">{wallet.address}</dd>
             </div>
             <div>
               <dt>{t('reviewTo')}</dt>
-              <dd className="numeric">{destination.address}</dd>
+              <dd className="lt-num">{destination.address}</dd>
             </div>
             <div>
               <dt>{t('reviewAmount')}</dt>
-              <dd className="numeric">
+              <dd className="lt-num">
                 {amount.trim()} {chosen.label}
               </dd>
             </div>
             {chosen.address && (
               <div>
                 <dt>{t('reviewTokenContract')}</dt>
-                <dd className="numeric">{chosen.address}</dd>
+                <dd className="lt-num">{chosen.address}</dd>
               </div>
             )}
             <div>

@@ -19,6 +19,15 @@ vi.mock('../session', () => {
   const api = {
     query: (module: string, procedure: string, input?: unknown) => world.query(module, procedure, input),
     mutate: async () => ({ ok: false }),
+    // A call by its record reaches this double's query or mutate under the record's module and path.
+    call(record: { kind: string; module: string; path: string }, input?: unknown): Promise<unknown> {
+      const send = (record.kind === 'query' ? api.query : api.mutate) as (
+        module: string,
+        path: string,
+        input?: unknown,
+      ) => Promise<unknown>;
+      return send(record.module, record.path, input);
+    },
   };
   return {
     useApi: () => api,
@@ -119,14 +128,14 @@ describe('the help centre front door', () => {
   it('under a search with no answer, "Contact support" signs a visitor in and comes back to the form with the words as its subject (J-support-public-02 #1, #2)', async () => {
     await mount();
     await searchFor('lost phone');
-    const empty = host.querySelector('.help__empty')!;
+    const empty = host.querySelector('[data-testid="help-empty"]')!;
     const contact = [...empty.querySelectorAll('button')].find((b) => b.textContent === 'Contact support')!;
     await act(async () => contact.click());
     const prompt = host.querySelector('[data-testid="request-sign-in"]')!;
     expect(prompt.querySelector('a')!.getAttribute('href')).toBe('/login?redirect=%2Fsupport%2Fnew%3Fsubject%3Dlost%2Bphone');
     expect(host.querySelector<HTMLInputElement>('input[name="help-search"]')!.value).toBe('lost phone');
     // The request button at the top goes to the same form once the search found nothing.
-    const top = [...host.querySelectorAll('.help__request button')].find((b) => b.textContent === 'Send a request')!;
+    const top = [...host.querySelectorAll('[data-testid="help-request"] button')].find((b) => b.textContent === 'Send a request')!;
     expect(top).toBeDefined();
   });
 
@@ -134,9 +143,13 @@ describe('the help centre front door', () => {
     world.signedIn = true;
     await mount();
     await searchFor('lost phone');
-    const link = [...host.querySelectorAll<HTMLAnchorElement>('.help__empty a')].find((a) => a.textContent === 'Contact support')!;
+    const link = [...host.querySelectorAll<HTMLAnchorElement>('[data-testid="help-empty"] a')].find(
+      (a) => a.textContent === 'Contact support',
+    )!;
     expect(link.getAttribute('href')).toBe('/support/new?subject=lost+phone');
-    const desk = [...host.querySelectorAll<HTMLAnchorElement>('.help__request a')].find((a) => a.textContent === 'Contact support')!;
+    const desk = [...host.querySelectorAll<HTMLAnchorElement>('[data-testid="help-request"] a')].find(
+      (a) => a.textContent === 'Contact support',
+    )!;
     expect(desk.getAttribute('href')).toBe('/support/new?subject=lost+phone');
   });
 
@@ -211,10 +224,10 @@ describe('the help centre front door', () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(search, 'passkey');
       search.dispatchEvent(new Event('input', { bubbles: true }));
     });
-    await act(async () => host.querySelector<HTMLFormElement>('form.help__search')!.requestSubmit());
+    await act(async () => host.querySelector<HTMLFormElement>('form[data-testid="help-search"]')!.requestSubmit());
     await act(async () => undefined);
     expect(asked).toContainEqual({ q: 'passkey', limit: 100 });
-    expect([...host.querySelectorAll('.help__row h2')].map((h) => h.textContent)).toEqual([
+    expect([...host.querySelectorAll('[data-testid="help__row"] h2')].map((h) => h.textContent)).toEqual([
       'Use a security key',
       'Signing in on a new phone',
       'Passkey basics',
@@ -270,13 +283,13 @@ describe('an answer in the languages the owner offers', () => {
     const label = host.querySelector('[data-testid="help-language-fallback"]')!;
     expect(label.textContent).toContain('Spanish');
     expect(label.textContent).toContain('English');
-    expect(host.querySelector('.help__body')!.textContent).toContain('<script>alert(1)</script>');
-    expect(host.querySelector('.help__body script')).toBeNull();
+    expect(host.querySelector('[data-testid="help__body"]')!.textContent).toContain('<script>alert(1)</script>');
+    expect(host.querySelector('[data-testid="help__body"] script')).toBeNull();
   });
 
   it('draws no picker while the owner offers no language', async () => {
     await open(null);
     expect(host.querySelector('select[name="help-language"]')).toBeNull();
-    expect(host.querySelector('.help__body')!.textContent).toContain('Paste');
+    expect(host.querySelector('[data-testid="help__body"]')!.textContent).toContain('Paste');
   });
 });

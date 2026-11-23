@@ -3,7 +3,7 @@ import { DRILLDOWN } from '@/lib/founder-ops/screens';
 import type { MerchantMetricsSeries, MerchantMetricsSnapshot } from '@intafaced/contracts';
 import { daysEndingAt } from '@/lib/merchants/dates';
 import type { ControlsData, MerchantApprovalsData, MerchantDetailData, MerchantHaltsData, MetricPreset } from '@/lib/merchants/loaders';
-import { amountFor, compareDecimal, formatAmount, sumByAsset } from '@/lib/merchants/money';
+import { amountFor, compareDecimal, formatAmount, sumByAsset } from '@/lib/money';
 import { BarChart, type BarPoint } from './bar-chart';
 import { ApprovalsTable } from './approvals-queue';
 import { ControlsTab } from './controls-tab';

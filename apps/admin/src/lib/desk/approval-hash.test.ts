@@ -2,12 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { edgeActionPayloadHash } from '../../../../../services/svc-edge/src/action-approval-consume';
 import { marketActionPayloadHash } from '../../../../../services/svc-market/src/action-approval-consume';
 import { bankActionPayloadHash } from '../../../../../services/svc-bank/src/action-approval-consume';
-import { ledgerActionPayloadHash } from '../../../../../services/svc-ledger/src/ledger/action-approval-consume';
-import {
-  ACCOUNT_METADATA_DELETE_ACTION,
-  ACCOUNT_METADATA_DELETE_TARGET,
-  accountMetadataDeleteFields,
-} from '../../../../../services/svc-ledger/src/ledger/operator-account-metadata';
 import { identityActionPayloadHash } from '../../../../../services/svc-identity/src/auth/privileged-dual-control';
 import { AUTH_KEY_REMOVE_OLD_TARGET, AUTH_KEY_ROTATE_TARGET } from '../../../../../services/svc-identity/src/auth/auth-key-ring';
 import {
@@ -26,7 +20,7 @@ import {
   LAUNCH_ISSUER_SET_ACTION,
   launchEventPayload,
 } from '../../../../../services/svc-token/src/launch/payload';
-import { createInputFor, draftPayload, readLaunchEventPayload } from '@/lib/launch-issuers/model';
+import { createInputFor, draftPayload, readLaunchEventPayload } from '@/lib/launch-issuers';
 import { readDeskRequest } from './approval-packet';
 import { payloadHashFor, proposeInputFor } from './approval-hash';
 
@@ -71,6 +65,54 @@ function academyActionPayloadHash(actionType: string, fields: Record<string, str
   if (!hash) throw new Error(`no pinned svc-academy hash for ${key}: add it here and in crates/svc-academy/tests/approval_hash.rs`);
   return hash;
 }
+
+/**
+ * svc-ledger is Rust (crates/svc-ledger), so its hash function cannot be imported here. These are the hashes its
+ * `approval::payload_hash` gives for exactly these inputs, and crates/svc-ledger/tests/approval_hash.rs pins the same
+ * table to that function: a change on either side fails one of the two tests.
+ */
+const LEDGER_HASHES = new Map<string, string>([
+  ['ledger.freeze {"reason":"reconciliation mismatch on USD"}', 'sha256:2508cfa0885caf3c32a493d0475e9bd1dc8fcbefb7d1856bde4f633d2f719cb8'],
+  ['ledger.unfreeze {}', 'sha256:465e5da4d26d18b0df079034b1ed4c1004cce88f549c4c9df87b1fa269250b3f'],
+  [
+    'ledger.reconciliation_control.run {"controlId":"0b4f6c2e-1111-4222-8333-444455556666","asOf":"now","margin":"unset","reason":"LOCAL TEST run the USDT floor control"}',
+    'sha256:002aaed7508469211cec2969fbd0f82bbd2d36f0bd9e0b5932622943619bbfe2',
+  ],
+  [
+    'ledger.reconciliation_control.run {"controlId":"0b4f6c2e-1111-4222-8333-444455556666","asOf":"2026-10-23T06:30:00.000Z","margin":"0","reason":"LOCAL TEST run the USDT floor control"}',
+    'sha256:f6395d16c634aacb4dec1b374417181e5f0b389da25158df8dd18084b95d002c',
+  ],
+  [
+    'ledger.reconciliation_control.lifecycle {"controlId":"0b4f6c2e-1111-4222-8333-444455556666","lifecycle":"pause","reason":"LOCAL TEST pause while the rail is down"}',
+    'sha256:8e7b2b388e2b5ef43900987d8404d1ae0dfe3baf900f787f0d2b246a1751b68e',
+  ],
+  [
+    'ledger.reconciliation_control.lifecycle {"controlId":"0b4f6c2e-1111-4222-8333-444455556666","lifecycle":"resume","reason":"LOCAL TEST pause while the rail is down"}',
+    'sha256:2ed9b841e1538ef3b2f355e2153f20aef097adc8649ec694884647be68019497',
+  ],
+  [
+    'ledger.reconciliation_control.lifecycle {"controlId":"0b4f6c2e-1111-4222-8333-444455556666","lifecycle":"retire","reason":"LOCAL TEST pause while the rail is down"}',
+    'sha256:341311d26cbc5549b7c1778ad0d1f758f64760a5930d98447121a1d051409fbe',
+  ],
+  [
+    'ledger.account_metadata.delete {"accountId":"0b4f6c2e-1111-4222-8333-444455556666","key":"desk.label","reason":"LOCAL TEST remove the desk label"}',
+    'sha256:0674c45c26211a2014bae89ae98f9ad81d7dedacecf027f8fb11d29fd7bf32bf',
+  ],
+]);
+function ledgerActionPayloadHash(actionType: string, fields: Record<string, string>): string {
+  const key = `${actionType} ${JSON.stringify(fields)}`;
+  const hash = LEDGER_HASHES.get(key);
+  if (!hash) throw new Error(`no pinned svc-ledger hash for ${key}: add it here and in crates/svc-ledger/tests/approval_hash.rs`);
+  return hash;
+}
+/** svc-ledger's account metadata delete: its action, target and fields (crates/svc-ledger/src/desk.rs), pinned there too. */
+const ACCOUNT_METADATA_DELETE_ACTION = 'ledger.account_metadata.delete';
+const ACCOUNT_METADATA_DELETE_TARGET = 'posting_account_metadata.delete';
+const accountMetadataDeleteFields = (input: { accountId: string; key: string; reason: string }) => ({
+  accountId: input.accountId,
+  key: input.key,
+  reason: input.reason,
+});
 
 /**
  * The hash is the whole binding between what the approver read and what the service will do. If it drifts from the

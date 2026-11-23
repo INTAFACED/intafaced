@@ -1,6 +1,6 @@
 import { z } from 'zod';
+import type { IdentityAccountControlInput, Context } from '@intafaced/contracts';
 import {
-  scopedProcedure,
   accountControlInputSchema,
   identityAccountControlInputSchema,
   accountControlLookupInputSchema,
@@ -9,21 +9,15 @@ import {
   accountControlResultSchema,
   accountOperatorEntitlementSchema,
   accountClosureInputSchema,
-  accountClosureLookupInputSchema,
   accountClosureHistoryInputSchema,
-  accountClosureStateSchema,
   accountClosureResultSchema,
   accountArchiveInputSchema,
   accountArchiveLookupInputSchema,
   accountArchiveHistoryInputSchema,
   accountArchiveStateSchema,
   accountArchiveResultSchema,
-  accountArchiveProposalsSchema,
-  accountTierListSchema,
   accountTierMoveInputSchema,
-  accountTierLookupInputSchema,
   accountTierHistoryInputSchema,
-  accountTierStateSchema,
   accountTierResultSchema,
   accountLimitOverrideClearInputSchema,
   accountLimitOverrideSetInputSchema,
@@ -31,24 +25,17 @@ import {
   accountLimitsHistoryInputSchema,
   accountLimitsLookupInputSchema,
   accountLimitsStateSchema,
-  customerDetailDecisionInputSchema,
   customerDetailReviewSchema,
   customerDetailReviewsInputSchema,
   customerDetailsEditInputSchema,
-  customerDetailsHistoryInputSchema,
   customerDetailsLookupInputSchema,
   customerDetailsResultSchema,
   customerDetailsStateSchema,
   serviceOperatorEntitlementInputSchema,
   currentAuthorityInputSchema,
   currentAuthorityResultSchema,
-  router,
-  protectedProcedure,
-  serviceProcedure,
-  TRPCError,
-  type IdentityAccountControlInput,
-  type Context,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/account-controls';
+import { scopedProcedure, router, protectedProcedure, serviceProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { FounderControlError, founderEntitlementChangeSchema, type FounderControls } from './founder-controls.js';
 import type { AccountLimitsDesk } from './account-limits.js';
 import type { CustomerDetailsDesk } from './customer-details.js';
@@ -58,6 +45,16 @@ import {
   RestrictedListLimitUnsetError,
   type RestrictedAccountPage,
 } from './restricted-accounts.js';
+import {
+  IDENTITY_ACCOUNT_CONTROLS_ARCHIVE_PROPOSALS,
+  IDENTITY_ACCOUNT_CONTROLS_DETAILS_DECIDE,
+  IDENTITY_ACCOUNT_CONTROLS_TIERS,
+  IDENTITY_ACCOUNT_CONTROLS_CLOSURE_STATE,
+  IDENTITY_ACCOUNT_CONTROLS_DETAILS_HISTORY,
+  IDENTITY_ACCOUNT_CONTROLS_TIER_STATE,
+} from '@intafaced/contracts/identity-account-controls-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from '../record-refusal.js';
 
 export type FounderControlsPort = Pick<
   FounderControls,
@@ -84,7 +81,7 @@ export type FounderControlsPort = Pick<
 >;
 export type CustomerDetailsPort = Pick<CustomerDetailsDesk, 'state' | 'edit' | 'decide' | 'reviews' | 'history'>;
 export type AccountLimitsPort = Pick<AccountLimitsDesk, 'state' | 'set' | 'clear' | 'history'>;
-export const identityRestrictionInputSchema = accountControlInputSchema.refine(
+const identityRestrictionInputSchema = accountControlInputSchema.refine(
   (input) => input.target.area === 'identity',
   'Identity target required',
 );
@@ -179,10 +176,11 @@ export function createFounderControlsRouter(controls: FounderControlsPort, detai
         .input(accountClosureInputSchema)
         .output(accountClosureResultSchema)
         .mutation(({ ctx, input }) => controlCall(() => controls.closure(ctx, input))),
-      closureState: protectedProcedure
-        .input(accountClosureLookupInputSchema)
-        .output(accountClosureStateSchema.nullable())
-        .query(({ ctx, input }) => controlCall(() => controls.closureState(ctx, input))),
+      closureState: mountRecord(
+        IDENTITY_ACCOUNT_CONTROLS_CLOSURE_STATE,
+        ({ ctx, input }) => controlCall(() => controls.closureState(ctx, input)),
+        codedRefusal,
+      ),
       closureHistory: protectedProcedure
         .input(accountClosureHistoryInputSchema)
         .output(z.array(accountClosureResultSchema))
@@ -200,23 +198,22 @@ export function createFounderControlsRouter(controls: FounderControlsPort, detai
         .input(accountArchiveHistoryInputSchema)
         .output(z.array(accountArchiveResultSchema))
         .query(({ ctx, input }) => controlCall(() => controls.archiveHistory(ctx, input))),
-      archiveProposals: protectedProcedure
-        .input(z.object({}).strict())
-        .output(accountArchiveProposalsSchema)
-        .query(({ ctx }) => controlCall(() => controls.archiveProposals(ctx))),
+      archiveProposals: mountRecord(
+        IDENTITY_ACCOUNT_CONTROLS_ARCHIVE_PROPOSALS,
+        ({ ctx }) => controlCall(() => controls.archiveProposals(ctx)),
+        codedRefusal,
+      ),
       // Account product tiers (J-ops-console-04 #11): the owner's tier list, and a move a second live founder approved.
-      tiers: protectedProcedure
-        .input(z.object({}).strict())
-        .output(accountTierListSchema)
-        .query(({ ctx }) => controlCall(() => controls.tiers(ctx))),
+      tiers: mountRecord(IDENTITY_ACCOUNT_CONTROLS_TIERS, ({ ctx }) => controlCall(() => controls.tiers(ctx)), codedRefusal),
       tierMove: protectedProcedure
         .input(accountTierMoveInputSchema)
         .output(accountTierResultSchema)
         .mutation(({ ctx, input }) => controlCall(() => controls.tierMove(ctx, input))),
-      tierState: protectedProcedure
-        .input(accountTierLookupInputSchema)
-        .output(accountTierStateSchema.nullable())
-        .query(({ ctx, input }) => controlCall(() => controls.tierState(ctx, input))),
+      tierState: mountRecord(
+        IDENTITY_ACCOUNT_CONTROLS_TIER_STATE,
+        ({ ctx, input }) => controlCall(() => controls.tierState(ctx, input)),
+        codedRefusal,
+      ),
       tierHistory: protectedProcedure
         .input(accountTierHistoryInputSchema)
         .output(z.array(accountTierResultSchema))
@@ -231,18 +228,20 @@ export function createFounderControlsRouter(controls: FounderControlsPort, detai
         .input(customerDetailsEditInputSchema)
         .output(customerDetailsResultSchema)
         .mutation(({ ctx, input }) => controlCall(() => detailsDesk(details).edit(ctx, input))),
-      detailsDecide: protectedProcedure
-        .input(customerDetailDecisionInputSchema)
-        .output(customerDetailsResultSchema)
-        .mutation(({ ctx, input }) => controlCall(() => detailsDesk(details).decide(ctx, input))),
+      detailsDecide: mountRecord(
+        IDENTITY_ACCOUNT_CONTROLS_DETAILS_DECIDE,
+        ({ ctx, input }) => controlCall(() => detailsDesk(details).decide(ctx, input)),
+        codedRefusal,
+      ),
       detailsReviews: protectedProcedure
         .input(customerDetailReviewsInputSchema)
         .output(z.array(customerDetailReviewSchema))
         .query(({ ctx, input }) => controlCall(() => detailsDesk(details).reviews(ctx, input))),
-      detailsHistory: protectedProcedure
-        .input(customerDetailsHistoryInputSchema)
-        .output(z.array(customerDetailsResultSchema))
-        .query(({ ctx, input }) => controlCall(() => detailsDesk(details).history(ctx, input))),
+      detailsHistory: mountRecord(
+        IDENTITY_ACCOUNT_CONTROLS_DETAILS_HISTORY,
+        ({ ctx, input }) => controlCall(() => detailsDesk(details).history(ctx, input)),
+        codedRefusal,
+      ),
       // Limit overrides (J-ops-console-04 #12): a temporary override of one rail's figures for one asset, ending at a stored
       // time; above the owner ceiling it spends the other founder's approval.
       limits: protectedProcedure

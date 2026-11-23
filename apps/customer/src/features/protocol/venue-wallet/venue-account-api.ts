@@ -7,6 +7,7 @@
  */
 import {
   venueBalancesSchema,
+  venueDepositRoutesSchema,
   venueDepositsSchema,
   venuePreparedSchema,
   venueStatusSchema,
@@ -42,6 +43,9 @@ export function createVenueAccountApi(api: ApiClient) {
     deposits: (owner: string, signal?: AbortSignal) => api.rest('/venue/deposits', venueDepositsSchema, { query: { owner }, signal }),
     withdrawal: (owner: string, nonce: string, signal?: AbortSignal) =>
       api.rest(`/venue/withdrawals/${encodeURIComponent(nonce)}`, venueWithdrawalReadSchema, { query: { owner }, signal }),
+    /** How the venue takes each asset it lists as a deposit, as it publishes it (J-wallet-24 #5 #6). */
+    depositRoutes: (owner: string, signal?: AbortSignal) =>
+      api.rest('/venue/deposit-routes', venueDepositRoutesSchema, { query: { owner }, signal }),
     withdrawalTerms: (owner: string, asset: string, signal?: AbortSignal) =>
       api.rest('/venue/withdrawal-terms', venueWithdrawalTermsSchema, { query: { owner, asset }, signal }),
     prepareWithdrawal: (input: {

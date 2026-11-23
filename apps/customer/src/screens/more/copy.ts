@@ -62,4 +62,9 @@ export const moreCopy = defineCopy('more', {
   'Blocker not_audited': 'not audited',
   'P2P tile': 'Person-to-person',
   'P2P line': 'Offers, orders and counterparties',
+  'Room checking': 'Checking the service',
+  'Room open': 'Open: its service answers',
+  'Room not_answering': 'Not answering right now',
+  'Room parked owner.decision': 'Parked: how a result settles waits on an owner decision',
+  'Room parked after.launch': 'Parked until after launch',
 });

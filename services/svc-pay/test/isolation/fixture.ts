@@ -118,7 +118,7 @@ export interface Entity {
   readonly approvalId: string;
   /** Portal refund list: the `refund.posted` event id. No ledger movement. */
   readonly refundEventId: string;
-  /** Draft standalone invoice for `paymentId`'s amount and asset. */
+  /** Draft standalone invoice for what `paymentId` still holds (its amount less the refund in flight) and its asset. */
   readonly invoiceId: string;
   /** Evidence bytes stored for `disputeId`. */
   readonly evidenceId: string;
@@ -433,9 +433,10 @@ export async function createWorld(): Promise<World> {
     await sql`
       INSERT INTO pay.merchant_dispute_evidence_content (evidence_id, merchant_id, content)
       VALUES (${evidenceId}, ${merchantId}, ${evidenceBytes})`;
+    // 99, not 100: the refund in flight below holds 1 of the payment's 100, and only what it still holds covers an invoice.
     const invoiceRows = await sql<Array<{ id: string }>>`
       INSERT INTO pay.merchant_invoices (merchant_id, status, asset_id, amount, customer_ref, description, created_by)
-      VALUES (${merchantId}, 'draft', 'USDT', 100, ${customerRef}, 'isolation invoice', ${userId})
+      VALUES (${merchantId}, 'draft', 'USDT', 99, ${customerRef}, 'isolation invoice', ${userId})
       RETURNING id`;
     const exportRows = await sql<Array<{ id: string }>>`
       INSERT INTO pay.merchant_export_jobs (merchant_id, request_id, requested_by, kind, status, file_name, content_type, content, size_bytes, row_count, as_of)

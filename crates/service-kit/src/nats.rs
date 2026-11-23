@@ -11,11 +11,18 @@
 //! first publish after a quiet spell. Sending a publish again is safe: the server deduplicates it by its
 //! `Nats-Msg-Id`. nats.js, which the TypeScript services use, reconnects the same way.
 //!
-//! Not served: TLS (`tls://`), several servers with fail-over (the first URL is used), and subscribing.
+//! It also consumes, as `subscribe` does: a durable pull consumer on the event's own stream, filtered to its subject
+//! (`ensure_consumer`: explicit acks, every message from the start, `max_deliver` and `ack_wait` reconciled on each
+//! boot), pulled one message at a time (`$JS.API.CONSUMER.MSG.NEXT`). `consume` hands each message to its work, acks
+//! it only once the work has returned, and naks a failure with the TypeScript's backoff so JetStream delivers it again;
+//! the work must be idempotent, since a lost ack delivers a message twice.
+//!
+//! Not served: TLS (`tls://`) and several servers with fail-over (the first URL is used).
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use crate::json::{self, Json};
@@ -123,10 +130,12 @@ struct Conn {
     broken: Option<String>,
 }
 
-/// One message delivered to the inbox: its status (from `NATS/1.0 <status>`, when it came with headers) and payload.
+/// One message delivered to the inbox: its status (from `NATS/1.0 <status>`, when it came with headers), the subject
+/// to answer it on (a JetStream message's ack subject) and payload.
 struct Delivered {
     subject: String,
     status: Option<u16>,
+    reply_to: Option<String>,
     payload: Vec<u8>,
 }
 
@@ -191,10 +200,13 @@ impl Conn {
                 Some("MSG") => {
                     let size = number(parts.last())?;
                     let subject = parts.get(1).copied().unwrap_or("").to_owned();
+                    let reply_to =
+                        (parts.len() == 5).then(|| parts.get(3).copied().unwrap_or("").to_owned());
                     let payload = self.bytes(size)?;
                     return Ok(Delivered {
                         subject,
                         status: None,
+                        reply_to,
                         payload,
                     });
                 }
@@ -202,6 +214,8 @@ impl Conn {
                     let total = number(parts.last())?;
                     let header_len = number(parts.len().checked_sub(2).and_then(|i| parts.get(i)))?;
                     let subject = parts.get(1).copied().unwrap_or("").to_owned();
+                    let reply_to =
+                        (parts.len() == 6).then(|| parts.get(3).copied().unwrap_or("").to_owned());
                     let mut all = self.bytes(total)?;
                     let payload = all.split_off(header_len.min(all.len()));
                     let head = String::from_utf8_lossy(&all);
@@ -214,6 +228,7 @@ impl Conn {
                     return Ok(Delivered {
                         subject,
                         status,
+                        reply_to,
                         payload,
                     });
                 }
@@ -457,6 +472,350 @@ impl JetStream {
     }
 }
 
+/// `DEFAULT_MAX_DELIVER` (`jetstream-bus.ts`): a durable consumer's redelivery budget.
+pub const DEFAULT_MAX_DELIVER: i64 = 5;
+
+/// `ACK_WAIT_NS` (`jetstream-bus.ts`): 30 seconds, in nanoseconds.
+pub const ACK_WAIT_NS: i64 = 30_000_000_000;
+
+/// `nakBackoffMs`: the wait before a nak'd message comes back, doubling from one second, capped at eight.
+/// `delivered` is 1 on the first delivery.
+pub fn nak_backoff_ms(delivered: u64) -> u64 {
+    let attempt = delivered.clamp(1, 4);
+    (1_000u64 << (attempt - 1)).min(8_000)
+}
+
+/// One durable consumer, as `subscribe(name, handler, { durable })` makes it: on the stream of the event's service,
+/// filtered to the event's catalog subject, refusing an envelope of another subject or version.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConsumerSpec {
+    pub stream: String,
+    pub durable: String,
+    pub filter_subject: String,
+    /// The catalog entry's `version`.
+    pub version: i64,
+    pub max_deliver: i64,
+    pub ack_wait_ns: i64,
+}
+
+impl ConsumerSpec {
+    /// The consumer of `subject` (a catalog subject of `service`'s events) under `durable`, with the bus's defaults.
+    pub fn new(service: &str, prefix: &str, subject: &str, version: i64, durable: &str) -> Self {
+        ConsumerSpec {
+            stream: stream_name(service, prefix),
+            durable: durable.to_owned(),
+            filter_subject: subject.to_owned(),
+            version,
+            max_deliver: DEFAULT_MAX_DELIVER,
+            ack_wait_ns: ACK_WAIT_NS,
+        }
+    }
+
+    /// `ensureConsumer`'s config.
+    pub fn config(&self) -> Json {
+        Json::obj([
+            ("durable_name", Json::str(self.durable.clone())),
+            ("ack_policy", Json::str("explicit")),
+            ("deliver_policy", Json::str("all")),
+            ("filter_subject", Json::str(self.filter_subject.clone())),
+            ("max_deliver", Json::int(self.max_deliver)),
+            ("ack_wait", Json::int(self.ack_wait_ns)),
+        ])
+    }
+}
+
+/// One message a pull delivered, before it is acked or nak'd.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Delivery {
+    /// The subject it was published on.
+    pub subject: String,
+    pub data: Vec<u8>,
+    /// How many times it has been delivered, this time included (1 the first time).
+    pub delivered: u64,
+    /// The subject its ack or nak goes to (`$JS.ACK.<stream>.<consumer>.<delivered>.…`).
+    pub ack_subject: String,
+}
+
+/// The delivery count of a `$JS.ACK` subject: `$JS.ACK.<stream>.<consumer>.<delivered>.<sseq>.<cseq>.<ts>.<pending>`, or
+/// the form with a domain and an account hash, which puts two tokens before the stream (and may add one at the end).
+fn delivered_of(ack_subject: &str) -> u64 {
+    let tokens: Vec<&str> = ack_subject.split('.').collect();
+    let at = if tokens.len() == 9 { 4 } else { 6 };
+    tokens.get(at).and_then(|t| t.parse().ok()).unwrap_or(1)
+}
+
+/// A delivered envelope (`decodeEnvelope`), accepted as `acceptEnvelope` does: its subject and version are the
+/// consumer's.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Envelope {
+    pub id: String,
+    pub subject: String,
+    pub version: i64,
+    pub producer: String,
+    pub idempotency_key: String,
+    pub payload: Json,
+}
+
+/// `decodeEnvelope` then `acceptEnvelope`'s subject and version checks: an envelope of another subject or version is
+/// refused, never read under the wrong catalog entry. The payload's fields are the work's to check.
+pub fn accept_envelope(data: &[u8], subject: &str, version: i64) -> Result<Envelope, String> {
+    let text = std::str::from_utf8(data).map_err(|_| "envelope: not UTF-8".to_owned())?;
+    let v = json::parse(text).map_err(|e| format!("envelope: {}", e.message))?;
+    let s = |k: &str| match v.get(k) {
+        Some(Json::String(s)) => Ok(s.clone()),
+        _ => Err(format!("envelope: no {k}")),
+    };
+    let env = Envelope {
+        id: s("id")?,
+        subject: s("subject")?,
+        version: match v.get("version") {
+            Some(Json::Number(n)) => format!("{n}").parse().unwrap_or(-1),
+            _ => return Err("envelope: no version".to_owned()),
+        },
+        producer: s("producer")?,
+        idempotency_key: s("idempotencyKey")?,
+        payload: v.get("payload").cloned().unwrap_or(Json::Null),
+    };
+    if env.subject != subject {
+        return Err(format!(
+            "Subject mismatch on delivery from producer \"{}\": subscription expects \"{subject}\", envelope carries \"{}\"",
+            env.producer, env.subject
+        ));
+    }
+    if env.version != version {
+        return Err(format!(
+            "Version mismatch on {subject} from producer \"{}\": envelope v{}, catalog v{version}",
+            env.producer, env.version
+        ));
+    }
+    Ok(env)
+}
+
+/// What `consume` reports, for the service's log.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Consumed<'a> {
+    /// `announceDelivered`: a message was handed to the work (`bus.delivered`).
+    Delivered { attempt: u64 },
+    /// The work failed and the message was nak'd; `abandoned` when it was the last attempt `max_deliver` allows
+    /// (`announceAbandoned`: JetStream will not deliver it again).
+    Failed {
+        attempt: u64,
+        reason: &'a str,
+        abandoned: bool,
+    },
+    /// The bus itself failed (a pull, an ack or a nak); the loop goes on after a pause.
+    Bus(&'a str),
+}
+
+impl JetStream {
+    /// `ensureConsumer`: creates the durable consumer, or, when it already exists, reconciles its `max_deliver` and
+    /// `ack_wait` (the filter subject is the durable's own and never changes).
+    pub fn ensure_consumer(&self, spec: &ConsumerSpec) -> Result<(), NatsError> {
+        let create = format!("$JS.API.CONSUMER.CREATE.{}.{}", spec.stream, spec.durable);
+        let body = Json::obj([
+            ("stream_name", Json::str(spec.stream.clone())),
+            ("config", spec.config()),
+        ]);
+        let live = match self.api(&create, &body) {
+            Ok(answer) => answer,
+            Err(e) if e.0.contains("already exists") || e.0.contains("already in use") => {
+                self.consumer_info(&spec.stream, &spec.durable)?
+            }
+            Err(e) => return Err(e),
+        };
+        let Some(Json::Object(mut config)) = live.get("config").cloned() else {
+            return Err(err("nats: the consumer's answer holds no config"));
+        };
+        let number = |k: &str| {
+            config
+                .iter()
+                .find(|(name, _)| name == k)
+                .and_then(|(_, v)| match v {
+                    Json::Number(n) => format!("{n}").parse::<i64>().ok(),
+                    _ => None,
+                })
+        };
+        if number("max_deliver") == Some(spec.max_deliver)
+            && number("ack_wait") == Some(spec.ack_wait_ns)
+        {
+            return Ok(());
+        }
+        for (k, v) in [
+            ("max_deliver", spec.max_deliver),
+            ("ack_wait", spec.ack_wait_ns),
+        ] {
+            match config.iter_mut().find(|(name, _)| name == k) {
+                Some(slot) => slot.1 = Json::int(v),
+                None => config.push((k.to_owned(), Json::int(v))),
+            }
+        }
+        let update = Json::obj([
+            ("stream_name", Json::str(spec.stream.clone())),
+            ("config", Json::Object(config)),
+            ("action", Json::str("update")),
+        ]);
+        self.api(&create, &update).map(|_| ())
+    }
+
+    /// The consumer's info (`$JS.API.CONSUMER.INFO`): its config and counts.
+    pub fn consumer_info(&self, stream: &str, durable: &str) -> Result<Json, NatsError> {
+        self.api(
+            &format!("$JS.API.CONSUMER.INFO.{stream}.{durable}"),
+            &Json::obj([]),
+        )
+    }
+
+    /// Pulls one message, waiting up to `wait` (held under half the connection's timeout, so the server's end of
+    /// the pull comes before the read gives up): the message, or none when the wait ran out.
+    pub fn next(&self, spec: &ConsumerSpec, wait: Duration) -> Result<Option<Delivery>, NatsError> {
+        let wait = wait.min(self.timeout / 2).max(Duration::from_millis(10));
+        let mut conn = self.live_conn()?;
+        let conn = &mut *conn;
+        conn.next += 1;
+        let reply = format!("{}.{}", conn.inbox, conn.next);
+        let body = Json::obj([
+            ("batch", Json::int(1)),
+            (
+                "expires",
+                Json::int(i64::try_from(wait.as_nanos()).unwrap_or(i64::MAX)),
+            ),
+        ])
+        .compact();
+        let frame = format!(
+            "PUB $JS.API.CONSUMER.MSG.NEXT.{}.{} {reply} {}\r\n{body}\r\n",
+            spec.stream,
+            spec.durable,
+            body.len()
+        );
+        let out = conn.send(frame.as_bytes()).and_then(|()| {
+            loop {
+                let m = conn.next_message()?;
+                if let Some(ack) = m.reply_to.as_deref().filter(|r| r.starts_with("$JS.ACK.")) {
+                    break Ok(Some(Delivery {
+                        delivered: delivered_of(ack),
+                        ack_subject: ack.to_owned(),
+                        subject: m.subject,
+                        data: m.payload,
+                    }));
+                }
+                if m.subject != reply {
+                    // A late answer to an earlier request.
+                    continue;
+                }
+                match m.status {
+                    // No message waiting, or the wait ran out.
+                    Some(404 | 408) => break Ok(None),
+                    Some(status) => {
+                        break Err(err(format!(
+                            "nats: the pull ended with status {status}: {}",
+                            String::from_utf8_lossy(&m.payload)
+                        )));
+                    }
+                    None => continue,
+                }
+            }
+        });
+        if let Err(e) = &out {
+            conn.broken = Some(e.0.clone());
+        }
+        out
+    }
+
+    /// `msg.ack()`, confirmed by a `PING` the server answers after it.
+    pub fn ack(&self, d: &Delivery) -> Result<(), NatsError> {
+        self.answer(d, "+ACK")
+    }
+
+    /// `msg.nak(delay)`: JetStream delivers the message again after `delay`.
+    pub fn nak(&self, d: &Delivery, delay: Duration) -> Result<(), NatsError> {
+        let ns = i64::try_from(delay.as_nanos()).unwrap_or(i64::MAX);
+        self.answer(d, &format!("-NAK {{\"delay\":{ns}}}"))
+    }
+
+    fn answer(&self, d: &Delivery, body: &str) -> Result<(), NatsError> {
+        if d.ack_subject.contains([' ', '\r', '\n']) {
+            return Err(err("nats: a bad ack subject"));
+        }
+        let mut conn = self.live_conn()?;
+        let frame = format!("PUB {} {}\r\n{body}\r\nPING\r\n", d.ack_subject, body.len());
+        let out = conn.send(frame.as_bytes()).and_then(|()| conn.until_pong());
+        if let Err(e) = &out {
+            conn.broken = Some(e.0.clone());
+        }
+        out
+    }
+
+    /// The connection, dialled again first when it broke.
+    fn live_conn(&self) -> Result<std::sync::MutexGuard<'_, Conn>, NatsError> {
+        let mut conn = self
+            .conn
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(why) = conn.broken.clone() {
+            let _ = conn.writer.shutdown(std::net::Shutdown::Both);
+            *conn = dial(&self.server, &self.name, self.timeout).map_err(|e| {
+                err(format!(
+                    "nats: the connection broke ({why}) and redialling failed: {e}"
+                ))
+            })?;
+        }
+        Ok(conn)
+    }
+}
+
+/// `subscribe`'s pump, on its own connection, until `stop`: each message pulled is accepted (`accept_envelope`)
+/// and handed to `work`; it is acked only once `work` returned `Ok`, and nak'd with `nak_backoff_ms` when the
+/// envelope is refused or `work` fails, so JetStream delivers it again until `max_deliver`. A bus failure is reported
+/// and the loop goes on after a second; the connection is dialled again on the next pull. `ensure_consumer` comes
+/// first, at start-up.
+pub fn consume(
+    js: &JetStream,
+    spec: &ConsumerSpec,
+    wait: Duration,
+    stop: &AtomicBool,
+    work: &dyn Fn(&Envelope) -> Result<(), String>,
+    report: &dyn Fn(Consumed<'_>),
+) {
+    let pause = || {
+        for _ in 0..10 {
+            if stop.load(Ordering::Relaxed) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    };
+    while !stop.load(Ordering::Relaxed) {
+        let d = match js.next(spec, wait) {
+            Ok(Some(d)) => d,
+            Ok(None) => continue,
+            Err(e) => {
+                report(Consumed::Bus(&e.0));
+                pause();
+                continue;
+            }
+        };
+        report(Consumed::Delivered {
+            attempt: d.delivered,
+        });
+        let done =
+            accept_envelope(&d.data, &spec.filter_subject, spec.version).and_then(|env| work(&env));
+        let answered = match done {
+            Ok(()) => js.ack(&d),
+            Err(reason) => {
+                report(Consumed::Failed {
+                    attempt: d.delivered,
+                    reason: &reason,
+                    abandoned: i64::try_from(d.delivered).unwrap_or(i64::MAX) >= spec.max_deliver,
+                });
+                js.nak(&d, Duration::from_millis(nak_backoff_ms(d.delivered)))
+            }
+        };
+        if let Err(e) = answered {
+            report(Consumed::Bus(&e.0));
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -474,6 +833,21 @@ mod tests {
         assert_eq!((t.token.as_deref(), t.port), (Some("tok"), 4222));
         assert!(parse_server("tls://x").is_err());
         assert!(parse_server(" ").is_err());
+    }
+
+    #[test]
+    fn a_nak_waits_as_the_typescripts_backoff_and_an_ack_subject_names_its_delivery() {
+        let waits: Vec<u64> = [0, 1, 2, 3, 4, 9].map(nak_backoff_ms).to_vec();
+        assert_eq!(waits, vec![1_000, 1_000, 2_000, 4_000, 8_000, 8_000]);
+        assert_eq!(delivered_of("$JS.ACK.S.D.3.10.7.1700000000.0"), 3);
+        assert_eq!(
+            delivered_of("$JS.ACK.dom.hash.S.D.4.10.7.1700000000.0.tok"),
+            4
+        );
+        let env = br#"{"id":"e","subject":"a.b","version":2,"producer":"p","idempotencyKey":"k","payload":{}}"#;
+        assert!(accept_envelope(env, "a.b", 1).is_err_and(|e| e.contains("Version mismatch")));
+        assert!(accept_envelope(env, "a.b", 2).is_ok());
+        assert!(accept_envelope(b"nope", "a.b", 2).is_err());
     }
 
     #[test]

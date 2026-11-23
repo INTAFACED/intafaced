@@ -6,17 +6,16 @@ import './app/redesign.css';
 import './app/shell.css';
 import './app/lit-look-styles';
 import { App } from './app/App';
-import { applyLook } from './app/look';
 import { LitLookRoot, applyLookSurfaces } from './app/LitLookRoot';
 
-const look = applyLook();
-// Before the first paint, so a person who chose Solid surfaces never sees a frame of glass.
-if (look === 'lit') applyLookSurfaces();
+// Volt is the only look: index.html's root carries data-look="lit" from the first byte. Before the first paint, so a
+// person who chose Solid surfaces never sees a frame of glass.
+applyLookSurfaces();
 const element = document.getElementById('root');
 if (!element) throw new Error('Customer root element is missing');
 createRoot(element).render(
   <StrictMode>
-    {look === 'lit' ? <LitLookRoot /> : null}
+    <LitLookRoot />
     <SessionProvider>
       <App />
     </SessionProvider>

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { TRPCError, router, scopedProcedure } from '@intafaced/contracts';
+import { TRPCError, router, scopedProcedure } from '@intafaced/contracts/trpc';
 import type { Sql } from 'postgres';
 import { MerchantOpsError, wrapOps } from '../merchant-ops/errors.js';
 import { resolveMerchantCaller } from '../merchant-ops/roles.js';

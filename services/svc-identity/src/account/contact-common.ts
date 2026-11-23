@@ -8,7 +8,7 @@
  */
 import { timingSafeEqual } from 'node:crypto';
 import type { ActionApprovalConsumeInput } from '@intafaced/contracts';
-import { customerStepUpPayloadHash } from '@intafaced/contracts';
+import { customerStepUpPayloadHash } from '@intafaced/contracts/customer-step-up';
 import { transaction, type Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { ActionApprovalError } from '../auth/action-approval-service.js';

@@ -1,17 +1,13 @@
-import {
-  quantQuotaSchema,
-  quantTierListSchema,
-  QUANT_QUOTA_RESOURCES,
-  type QuantQuotaResource,
-  type QuantTier,
-} from '@intafaced/contracts/quant-algo';
+import { QUANT_QUOTA_RESOURCES, type QuantQuotaResource, type QuantTier } from '@intafaced/contracts/quant-algo';
 import { useState } from 'react';
-import { Button, DataTable, Panel } from '../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
 import { useResource } from '../../shared/resource';
-import { Read } from '../more';
+import { ReadView, RecordTable } from '../../shared/record/record-parts';
 import { useApi } from '../session';
 import { tierCopy } from './tier-copy';
 import { usageCopy } from './usage-copy';
+import { QUANT_TIER_LIST } from '@intafaced/contracts/quant-tier-procedures';
+import { QUANT_QUOTA_GET } from '@intafaced/contracts/quant-quota-procedures';
 
 /** What a plan holds, tier or not: its freshness, priority class and one limit per resource; null is "not set". */
 interface PlanValues {
@@ -41,8 +37,8 @@ export function PlanTiers({ revision }: { revision: number }) {
   const [chosen, setChosen] = useState<string | null>(null);
   const tiers = useResource(async (signal) => {
     const [list, usage] = await Promise.all([
-      api.query('quant', 'tier.list', undefined, quantTierListSchema, { signal }),
-      api.query('quant', 'quota.get', undefined, quantQuotaSchema, { signal }),
+      api.call(QUANT_TIER_LIST, undefined, { signal }),
+      api.call(QUANT_QUOTA_GET, undefined, { signal }),
     ]);
     if (!list.ok) return list;
     if (!usage.ok) return usage;
@@ -55,10 +51,11 @@ export function PlanTiers({ revision }: { revision: number }) {
   const limit = (value: string | null) => value ?? t('notSet');
 
   return (
-    <Panel title={t('title')}>
+    <section>
+      <h2>{t('title')}</h2>
       <section data-testid="quant-plan-tiers" aria-label={t('title')}>
-        <p className="muted">{t('intro')}</p>
-        <Read resource={tiers.resource} retry={tiers.reload}>
+        <p className="lt-hint">{t('intro')}</p>
+        <ReadView resource={tiers.resource} retry={tiers.reload}>
           {(data) => {
             if (data.tiers.length === 0) {
               return (
@@ -95,7 +92,7 @@ export function PlanTiers({ revision }: { revision: number }) {
             const changed = picked && yours ? rows.filter((row) => row.show(yours) !== row.show(valuesOf(picked))) : [];
             return (
               <>
-                <DataTable
+                <RecordTable
                   label={t('title')}
                   headers={[
                     t('changes'),
@@ -112,10 +109,10 @@ export function PlanTiers({ revision }: { revision: number }) {
                       ))}
                     </tr>
                   ))}
-                </DataTable>
-                <div className="actions">
+                </RecordTable>
+                <div className="lt-actions">
                   {data.tiers.map((tier) => (
-                    <Button key={tier.profile} variant="secondary" onClick={() => setChosen(tier.profile)}>
+                    <Button key={tier.profile} tone="secondary" onClick={() => setChosen(tier.profile)}>
                       {t('choose', { profile: tier.profile })}
                     </Button>
                   ))}
@@ -142,15 +139,15 @@ export function PlanTiers({ revision }: { revision: number }) {
                         ))}
                       </ul>
                     )}
-                    <p className="muted">{t('move')}</p>
+                    <p className="lt-hint">{t('move')}</p>
                   </div>
                 )}
-                {!picked && <p className="muted">{t('move')}</p>}
+                {!picked && <p className="lt-hint">{t('move')}</p>}
               </>
             );
           }}
-        </Read>
+        </ReadView>
       </section>
-    </Panel>
+    </section>
   );
 }

@@ -9,25 +9,44 @@
 //! 4. the door's first input check, where the handler parses its body, path or query with one schema before it
 //!    reaches the ledger (`schemas.json`).
 //!
-//! Past those the call is its slice's: [`Outcome::Owed`] names which. Nothing here reads or writes the book.
+//! Past those the call is its slice's: [`Outcome::Owed`] names which, until the slice is ported. Ported so far:
+//! `/health` and `/ready` (the `store` slice, `crate::status`), the freeze doors (the `freeze` slice, `freeze.rs`), the
+//! asset registry's doors (the `assets` slice, `assets.rs`), the history doors (the `history` slice, `history.rs`),
+//! `/operator/reconcile` (the `reconcile` slice, `reconcile.rs`), the account and transaction reads (the `balances`
+//! slice, `crate::balances`), the five report doors (the `reports` slice, `crate::reports`), the ledger desk's reads
+//! and account metadata writes (the `desk` slice, `desk.rs` over `crate::desk`), svc-ops' five reads (the
+//! `ops-reads` slice, `crate::ops_reads`), `post` (the `posting` slice, `crate::posting`), `postRecipe` (the
+//! `post-recipe` slice, `crate::posting::recipe_door`) and the reconciliation control doors (the `controls` slice,
+//! `controls.rs` over `crate::controls`).
 
+mod assets;
 mod callers;
+mod controls;
+mod desk;
+mod freeze;
+mod history;
+mod reconcile;
 
 pub use callers::DOOR_CALLERS;
 
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 
 use service_kit::json::{self, Json};
+use service_kit::metrics::{GaugeSample, Metrics};
 use service_kit::s2s::Mode;
 use service_kit::s2s_verify::{self, BodyBind, Incoming, ServiceVerifier};
 use service_kit::schema::{self, Outcome as Parsed, Schema, Value};
-use service_kit::server::{Request, Response};
+use service_kit::server::{Door, Request, RequestIds, Response};
+use service_kit::telemetry::Logger;
 use service_kit::tokens::{self, TokenConfig};
+
+use crate::approval::Approvals;
+use crate::freeze::Bus;
 
 use crate::errors::{self, Failure};
 use crate::refines::LedgerRefines;
 
-/// The slices the port is cut into (`PORT.md`, `## Slices`): which one owes a call past the door.
+/// The slices the port is cut into (`README.md`, `## Slices`): which one owes a call past the door.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Slice {
     Store,
@@ -60,7 +79,7 @@ impl Slice {
         Slice::Desk,
     ];
 
-    /// The slice's name in `PORT.md`.
+    /// The slice's name in `README.md`.
     pub fn name(self) -> &'static str {
         match self {
             Slice::Store => "store",
@@ -99,6 +118,11 @@ pub enum Input {
     Body(&'static str),
     /// An operator write: `schema.parse(body ?? {})`; a refusal is `guarded`'s 400 with the error's message.
     BodyOrEmpty(&'static str),
+    /// A reconciliation control door: `schema.safeParse(body ?? {})`; a refusal is `invalidControl`'s 400, each issue's
+    /// message joined by `; `.
+    ControlBody(&'static str),
+    /// An operator write: `schema.parse(body)`, an absent body included; a refusal as [`Input::BodyOrEmpty`]'s.
+    OperatorBody(&'static str),
     /// An operator lookup: `schema.safeParse(<from the path or query>)`; a refusal is 400 with the door's sentence.
     Lookup(&'static str, LookupFrom, &'static str),
 }
@@ -223,17 +247,27 @@ pub const ROUTES: [Route; 44] = [
     ),
     s2s("txByKey", "/trpc/txByKey", Input::Body("txByKey"), Balances),
     s2s("txById", "/trpc/txById", Input::Body("txById"), Balances),
-    s2s("history", "/trpc/history", Input::None, History),
-    s2s("historyPage", "/trpc/historyPage", Input::None, History),
+    s2s("history", "/trpc/history", Input::Body("history"), History),
+    s2s(
+        "historyPage",
+        "/trpc/historyPage",
+        Input::Body("historyPage"),
+        History,
+    ),
     s2s(
         "holdingsHistory",
         "/trpc/holdingsHistory",
-        Input::None,
+        Input::Body("holdingsHistory"),
         History,
     ),
     s2s("assetsList", "/trpc/assetsList", Input::None, Assets),
     s2s("assetsGet", "/trpc/assetsGet", Input::None, Assets),
-    s2s("feeRevenue", "/trpc/feeRevenue", Input::None, OpsReads),
+    s2s(
+        "feeRevenue",
+        "/trpc/feeRevenue",
+        Input::Body("feeRevenue"),
+        OpsReads,
+    ),
     s2s("ownFunds", "/trpc/ownFunds", Input::None, OpsReads),
     s2s(
         "restoreWatermark",
@@ -244,13 +278,13 @@ pub const ROUTES: [Route; 44] = [
     s2s(
         "reconciliationEvaluations",
         "/trpc/reconciliationEvaluations",
-        Input::None,
+        Input::Body("reconciliationEvaluations"),
         OpsReads,
     ),
     s2s(
         "transactionsExist",
         "/trpc/transactionsExist",
-        Input::None,
+        Input::Body("transactionsExist"),
         OpsReads,
     ),
     s2s(
@@ -259,11 +293,31 @@ pub const ROUTES: [Route; 44] = [
         Input::Body("portfolio"),
         Balances,
     ),
-    s2s("statementPnl", "/trpc/statementPnl", Input::None, Reports),
-    s2s("reportExport", "/trpc/reportExport", Input::None, Reports),
-    s2s("custody", "/trpc/custody", Input::None, Reports),
-    s2s("financeClose", "/trpc/financeClose", Input::None, Reports),
-    s2s("resilience", "/trpc/resilience", Input::None, Reports),
+    s2s(
+        "statementPnl",
+        "/trpc/statementPnl",
+        Input::Body("statementPnl"),
+        Reports,
+    ),
+    s2s(
+        "reportExport",
+        "/trpc/reportExport",
+        Input::Body("reportExport"),
+        Reports,
+    ),
+    s2s("custody", "/trpc/custody", Input::Body("custody"), Reports),
+    s2s(
+        "financeClose",
+        "/trpc/financeClose",
+        Input::Body("financeClose"),
+        Reports,
+    ),
+    s2s(
+        "resilience",
+        "/trpc/resilience",
+        Input::Body("resilience"),
+        Reports,
+    ),
     op("GET", "/operator/freeze", Treasury, Input::None, Freeze),
     op(
         "GET",
@@ -272,8 +326,13 @@ pub const ROUTES: [Route; 44] = [
         Input::None,
         Freeze,
     ),
-    // `freezeSchema` trims, then pipes into its length checks: the freeze slice parses it.
-    op("POST", "/operator/freeze", Treasury, Input::None, Freeze),
+    op(
+        "POST",
+        "/operator/freeze",
+        Treasury,
+        Input::OperatorBody("freeze"),
+        Freeze,
+    ),
     op(
         "POST",
         "/operator/unfreeze",
@@ -322,7 +381,7 @@ pub const ROUTES: [Route; 44] = [
         Input::None,
         Assets,
     ),
-    // The control doors check their source, then their input: both the reconcile slice's.
+    // The control doors (`operator-http.ts`): each parses its body, or `{}` when it is absent.
     op(
         "GET",
         "/operator/reconciliation/controls",
@@ -334,28 +393,28 @@ pub const ROUTES: [Route; 44] = [
         "POST",
         "/operator/reconciliation/controls/runs",
         ControlList,
-        Input::None,
+        Input::ControlBody("controlRuns"),
         Controls,
     ),
     op(
         "POST",
         "/operator/reconciliation/controls",
         Treasury,
-        Input::None,
+        Input::ControlBody("controlDefine"),
         Controls,
     ),
     op(
         "POST",
         "/operator/reconciliation/controls/update",
         Treasury,
-        Input::None,
+        Input::ControlBody("controlUpdate"),
         Controls,
     ),
     op(
         "POST",
         "/operator/reconciliation/controls/run",
         Treasury,
-        Input::None,
+        Input::ControlBody("controlRunInput"),
         Controls,
     ),
 ];
@@ -384,11 +443,40 @@ pub struct DoorConfig {
     pub tokens: TokenConfig,
     /// Seconds since the epoch.
     pub clock: fn() -> i64,
+    /// The book: one pool for every slice.
+    pub store: crate::db::Store,
+    /// `SERVICE_NAME`, as `/health` names it and as events name their producer.
+    pub service_name: String,
+    /// The event bus the outbox relays publish on.
+    pub bus: Arc<dyn Bus>,
+    /// The identity approvals the operator writes spend (`IDENTITY_URL`, or none).
+    pub approvals: Box<dyn Approvals>,
+    /// `LEDGER_CLOCK_SKEW_BOUND_MS`: none when the owner has not set it.
+    pub clock_skew_bound_ms: Option<i64>,
+    /// The wall clock in milliseconds.
+    pub now_ms: fn() -> i64,
+    /// `app.log`.
+    pub log: Logger,
+    /// `LEDGER_CUSTODY_LAYER`: the switch posts enforce and reconciliation checks customer balances against.
+    pub custody: crate::reconcile::CustodyLayer,
+    /// `LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS`.
+    pub reconcile_statement_timeout_ms: i64,
+    /// `process.env.INDEXER_URL`: where `portfolio` reads a 0x account's chain positions.
+    pub indexer_url: Option<String>,
+    /// The wire every outgoing call goes through.
+    pub fetch: Arc<dyn service_kit::http::Fetch>,
+    /// The `posting` slice: its bus, custody switch and engine settings.
+    pub posting: crate::posting::Posting,
+    /// The `controls` slice: the outside side of a control (`reconciliationSourcesFrom` over the rail URLs).
+    pub reconciliation_sources: Arc<dyn crate::controls::sources::Sources>,
 }
 
 /// The door.
 pub struct LedgerDoor {
     cfg: DoorConfig,
+    ids: RequestIds,
+    /// The process's request metrics, served at `GET /metrics` (`registerMetrics` in `index.ts`).
+    metrics: Metrics,
 }
 
 /// The recorded input schemas and which part each door starts at.
@@ -443,6 +531,14 @@ fn answer((status, body): (u16, Json)) -> Outcome {
 enum Body {
     Absent,
     Parsed(Json),
+}
+
+/// The body as the handler reads it: `undefined` when absent.
+fn body_value(body: &Body) -> Value {
+    match body {
+        Body::Absent => Value::Undefined,
+        Body::Parsed(j) => Value::from_json(j),
+    }
 }
 
 /// `assertNoPrototypePoison`: an own `__proto__` key anywhere, or a `constructor` object with its own `prototype`.
@@ -570,11 +666,47 @@ impl LedgerDoor {
     /// The door; fails when the recorded schemas do not read.
     pub fn new(cfg: DoorConfig) -> Result<LedgerDoor, String> {
         INPUTS.as_ref().map_err(Clone::clone)?;
-        Ok(LedgerDoor { cfg })
+        Ok(LedgerDoor {
+            cfg,
+            ids: RequestIds::new(),
+            metrics: Metrics::default(),
+        })
+    }
+
+    /// The book every slice reads and writes.
+    pub fn store(&self) -> &crate::db::Store {
+        &self.cfg.store
+    }
+
+    /// The `posting` slice's parts, for the outbox relay the binary drives.
+    pub fn posting(&self) -> &crate::posting::Posting {
+        &self.cfg.posting
+    }
+
+    /// `sql.end()`.
+    pub fn end(&self) {
+        self.cfg.store.end();
+    }
+
+    /// A route the door opens to anyone: the store slice's status doors.
+    fn open(&self, route: &Route) -> Outcome {
+        match route.path {
+            "/health" => Outcome::Answer(crate::status::health(
+                &self.cfg.store,
+                &self.cfg.service_name,
+            )),
+            "/ready" => Outcome::Answer(crate::status::ready(&self.cfg.store)),
+            _ => Outcome::Owed(route.slice),
+        }
     }
 
     /// Decides one request, or names the slice that owes its answer.
     pub fn decide(&self, req: &Request<'_>) -> Outcome {
+        self.decide_as(req, &self.ids.next())
+    }
+
+    /// [`LedgerDoor::decide`] for the request with this id (Fastify's `req.id`, which an access row names).
+    pub fn decide_as(&self, req: &Request<'_>, request_id: &str) -> Outcome {
         let path = req.url.split_once('?').map_or(req.url, |(p, _)| p);
         let Some((route, params)) = find(req.method, path) else {
             let body = Json::Object(vec![
@@ -595,9 +727,44 @@ impl LedgerDoor {
             Err(refused) => return Outcome::Answer(refused),
         };
         match route.guard {
-            Guard::Open => Outcome::Owed(route.slice),
+            Guard::Open => self.open(route),
             Guard::Service(door) => self.service(req, route, door, &body, raw.as_deref()),
-            Guard::Operator(authority) => self.operator(req, route, authority, &body, &params),
+            Guard::Operator(authority) => {
+                self.operator(req, route, authority, &body, &params, request_id)
+            }
+        }
+    }
+
+    /// A service door's call once its input parses: the ported slices answer it, the rest are owed.
+    fn past_the_door(&self, route: &Route, door: &str, input: &Value, body: &Body) -> Outcome {
+        match route.slice {
+            Slice::OpsReads => {
+                let body = match body {
+                    Body::Absent => None,
+                    Body::Parsed(j) => Some(j),
+                };
+                let reply = crate::ops_reads::answer(
+                    door,
+                    &self.cfg.store,
+                    input,
+                    body,
+                    self.cfg.clock_skew_bound_ms,
+                    self.cfg.now_ms,
+                );
+                answer(reply.map_or_else(|e| errors::http_error(&e), |j| (200, j)))
+            }
+            Slice::History => Outcome::Answer(self.history_door(door, input)),
+            Slice::Reports => self.reports_door(door, input),
+            Slice::Balances => answer(crate::balances::respond(
+                &crate::balances::Reads {
+                    store: &self.cfg.store,
+                    indexer_url: self.cfg.indexer_url.as_deref(),
+                    fetch: self.cfg.fetch.as_ref(),
+                },
+                door,
+                input,
+            )),
+            slice => Outcome::Owed(slice),
         }
     }
 
@@ -640,20 +807,78 @@ impl LedgerDoor {
                 format!("Caller {service} may not call {door}."),
             )));
         }
+        if route.slice == Slice::Assets {
+            return Outcome::Answer(self.assets_service(door, body_value(body)));
+        }
+        // Posting judges the caller the door proved, so both posting doors are answered here rather than past the door.
+        let caller = if auth.scheme == Some("keypair") {
+            crate::posting::gate::Caller::Bound(service)
+        } else {
+            crate::posting::gate::Caller::Legacy(Some(service))
+        };
+        let mode = match keys.map(|k| k.mode) {
+            Some(Mode::Keypair) => "keypair",
+            _ => "dual",
+        };
+        if route.slice == Slice::PostRecipe {
+            let sent = match body {
+                Body::Absent => None,
+                Body::Parsed(j) => Some(j),
+            };
+            return match crate::posting::recipe_door::answer(
+                &self.cfg.store,
+                &self.cfg.posting,
+                Some(&caller),
+                mode,
+                sent,
+            ) {
+                Ok(receipt) => answer((200, receipt)),
+                Err(failure) => answer(errors::http_error(&failure)),
+            };
+        }
         let Input::Body(name) = route.input else {
-            return Outcome::Owed(route.slice);
+            return self.past_the_door(route, door, &Value::Undefined, body);
         };
-        let value = match body {
-            Body::Absent => Value::Undefined,
-            Body::Parsed(j) => Value::from_json(j),
-        };
-        match parse(name, value) {
-            Ok(Parsed::Ok(_)) => Outcome::Owed(route.slice),
+        // `refuseHistoryCursor`: on the raw body, before the schema would strip the field.
+        if door == "history"
+            && let Body::Parsed(Json::Object(fields)) = body
+            && let Some(f) =
+                crate::history::page_socket_field(fields.iter().map(|(k, _)| k.as_str()))
+        {
+            return answer(errors::http_error(&crate::history::page_socket(f).into()));
+        }
+        match parse(name, body_value(body)) {
+            Ok(Parsed::Ok(input)) if route.slice == Slice::Posting => {
+                let parsed = input.to_json().unwrap_or(Json::Null);
+                match crate::posting::post(
+                    &self.cfg.store,
+                    &self.cfg.posting,
+                    Some(&caller),
+                    mode,
+                    &parsed,
+                ) {
+                    Ok(ack) => answer((200, ack)),
+                    Err(failure) => answer(errors::http_error(&failure)),
+                }
+            }
+            Ok(Parsed::Ok(input)) => self.past_the_door(route, door, &input, body),
             Ok(Parsed::Issues(issues)) => {
                 answer(errors::http_error(&Failure::Zod(schema::message(&issues))))
             }
             // A refine that throws escapes `parse` as a plain error.
             Err(_) => answer(errors::http_error(&Failure::Fault)),
+        }
+    }
+
+    /// A report door past its input check: the handler's answer, or `httpError` on what it threw (`crate::reports`).
+    fn reports_door(&self, door: &str, input: &Value) -> Outcome {
+        let store = &self.cfg.store;
+        let read = |owner_type: &str, owner_id: &str| {
+            crate::reports::read_balances(store, owner_type, owner_id)
+        };
+        match crate::reports::answer(door, input, (self.cfg.now_ms)(), &read) {
+            Ok(body) => answer((200, body)),
+            Err(failure) => answer(errors::http_error(&failure)),
         }
     }
 
@@ -665,6 +890,7 @@ impl LedgerDoor {
         authority: Authority,
         body: &Body,
         params: &[(&str, String)],
+        request_id: &str,
     ) -> Outcome {
         let header = service_kit::trpc::header(req, "authorization");
         let Some(token) = tokens::bearer_token(header.as_deref()) else {
@@ -681,17 +907,41 @@ impl LedgerDoor {
         if let Err((message, code)) = authorize(&principal, authority) {
             return answer(errors::auth_error(&message, &code));
         }
+        let past = |input: Value| match route.slice {
+            Slice::Freeze => {
+                Outcome::Answer(self.freeze_door(route.method, route.path, &principal, &input))
+            }
+            // The registry's handlers parse the body themselves, as sent.
+            Slice::Assets => {
+                Outcome::Answer(self.assets_operator(route.path, &principal, &body_value(body)))
+            }
+            Slice::Desk => {
+                Outcome::Answer(self.desk_door(route, &principal, &input, body, params, request_id))
+            }
+            Slice::Reconcile => Outcome::Answer(self.reconcile_door(&principal, &input)),
+            Slice::Controls => {
+                Outcome::Answer(self.controls_door(route, &principal, &input, request_id))
+            }
+            slice => Outcome::Owed(slice),
+        };
         match route.input {
-            Input::None | Input::Body(_) => Outcome::Owed(route.slice),
-            Input::BodyOrEmpty(name) => {
+            Input::None | Input::Body(_) => past(Value::Undefined),
+            Input::BodyOrEmpty(name) | Input::OperatorBody(name) | Input::ControlBody(name) => {
                 let value = match body {
-                    Body::Absent | Body::Parsed(Json::Null) => {
+                    Body::Absent | Body::Parsed(Json::Null)
+                        if !matches!(route.input, Input::OperatorBody(_)) =>
+                    {
                         Value::from_json(&Json::Object(Vec::new()))
                     }
+                    Body::Absent => Value::Undefined,
                     Body::Parsed(j) => Value::from_json(j),
                 };
                 match parse(name, value) {
-                    Ok(Parsed::Ok(_)) => Outcome::Owed(route.slice),
+                    Ok(Parsed::Ok(input)) => past(input),
+                    Ok(Parsed::Issues(issues)) if matches!(route.input, Input::ControlBody(_)) => {
+                        let joined: Vec<&str> = issues.iter().map(schema::Issue::message).collect();
+                        answer(errors::operator_failed(&joined.join("; ")))
+                    }
                     Ok(Parsed::Issues(issues)) => {
                         answer(errors::operator_failed(&schema::message(&issues)))
                     }
@@ -721,7 +971,7 @@ impl LedgerDoor {
                     LookupFrom::Nothing => Vec::new(),
                 };
                 match parse(name, Value::from_json(&Json::Object(fields))) {
-                    Ok(Parsed::Ok(_)) => Outcome::Owed(route.slice),
+                    Ok(Parsed::Ok(input)) => past(input),
                     _ => answer(errors::lookup_invalid(invalid)),
                 }
             }
@@ -799,5 +1049,33 @@ pub fn not_ported(slice: Slice) -> Response {
     Response {
         status: 503,
         body: body.compact(),
+    }
+}
+
+impl Door for LedgerDoor {
+    fn next_request_id(&self) -> String {
+        self.ids.next()
+    }
+
+    /// The door's answer; a call its slice has not ported yet is [`not_ported`].
+    fn handle_as(&self, req: &Request<'_>, request_id: &str) -> Response {
+        match self.decide_as(req, request_id) {
+            Outcome::Answer(r) => r,
+            Outcome::Owed(slice) => not_ported(slice),
+        }
+    }
+
+    /// `/health` and `/ready` read the freeze from the book, so the door answers them, not the kit's fixed bodies.
+    fn status(&self, req: &Request<'_>) -> Option<Response> {
+        Some(self.handle_as(req, &self.ids.next()))
+    }
+
+    fn metrics(&self) -> Option<&Metrics> {
+        Some(&self.metrics)
+    }
+
+    /// `reconcileGauges(await ledger.lastVerified())`, read from the book on each scrape.
+    fn gauges(&self) -> Result<Vec<GaugeSample>, String> {
+        crate::metrics::gauges(&self.cfg.store)
     }
 }

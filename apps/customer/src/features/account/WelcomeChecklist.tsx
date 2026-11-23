@@ -1,16 +1,14 @@
 import { useMemo, useState } from 'react';
-import {
-  welcomeChecklistSchema,
-  welcomeClaimResultSchema,
-  type TaskEvent,
-  type WelcomeChecklist as Checklist,
-} from '@intafaced/contracts/campaigns-catalogue';
+import { type TaskEvent, type WelcomeChecklist as Checklist } from '@intafaced/contracts/campaigns-catalogue';
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
-import { Button, DataTable, EmptyState, Failure, Loading, Panel } from '../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { Empty, Failure, Loading } from './kit-parts';
+import { RecordTable } from '../../shared/record/record-parts';
 import { welcomeChecklistCopy } from './welcome-checklist-copy';
 import { timeLeft } from './time-left';
+import { CAMPAIGNS_TASKS_WELCOME_LIST, CAMPAIGNS_TASKS_WELCOME_CLAIM } from '@intafaced/contracts/campaigns-tasks-procedures';
 
 /**
  * The welcome checklist on /uc/promotion (CM-rewards-hub-03, J-campaigns-04): the account's
@@ -63,24 +61,22 @@ function useFormat() {
 export function WelcomeChecklist() {
   const api = useApi();
   const { t } = welcomeChecklistCopy.useCopy();
-  const list = useResource(
-    (signal) => api.query('campaigns', 'tasks.welcome.list', {}, welcomeChecklistSchema, { signal }),
-    'welcome-checklist',
-  );
+  const list = useResource((signal) => api.call(CAMPAIGNS_TASKS_WELCOME_LIST, {}, { signal }), 'welcome-checklist');
   const [refusal, setRefusal] = useState<{ event: TaskEvent; result: Failed } | null>(null);
   const [busy, setBusy] = useState<TaskEvent | null>(null);
   const claim = async (event: TaskEvent) => {
     setBusy(event);
-    const result = await api.mutate('campaigns', 'tasks.welcome.claim', { event }, welcomeClaimResultSchema);
+    const result = await api.call(CAMPAIGNS_TASKS_WELCOME_CLAIM, { event });
     setBusy(null);
     setRefusal(result.ok ? null : { event, result });
     list.reload();
   };
   const r = list.resource;
   return (
-    <section className="rewards-hub" aria-label={t('title')} data-testid="welcome-checklist" data-state={r.status}>
-      <Panel title={t('title')}>
-        <p className="muted">{t('intro')}</p>
+    <section className="lt-stack" aria-label={t('title')} data-testid="welcome-checklist" data-state={r.status}>
+      <div className="lt-stack">
+        <h2>{t('title')}</h2>
+        <p className="lt-hint">{t('intro')}</p>
         {r.status === 'loading' ? (
           <Loading label={t('loading')} />
         ) : r.status === 'failed' ? (
@@ -89,21 +85,21 @@ export function WelcomeChecklist() {
           </div>
         ) : !r.data.campaign ? (
           <div data-testid="welcome-empty">
-            <EmptyState
+            <Empty
               title={t('emptyTitle')}
               action={
-                <a className="text-link" href="/campaigns">
+                <a className="lt-link" href="/campaigns">
                   {t('campaigns')}
                 </a>
               }
             >
               {t('emptyBody')}
-            </EmptyState>
+            </Empty>
           </div>
         ) : (
           <Tasks data={r.data} busy={busy} refusal={refusal} onClaim={(event) => void claim(event)} />
         )}
-      </Panel>
+      </div>
     </section>
   );
 }
@@ -144,7 +140,7 @@ function Tasks({
           {t('campaignNotRunning')}
         </p>
       )}
-      <DataTable label={t('listLabel')} headers={[t('colTask'), t('colReward'), t('colState'), t('colDetail')]}>
+      <RecordTable label={t('listLabel')} headers={[t('colTask'), t('colReward'), t('colState'), t('colDetail')]}>
         {data.tasks.map((task) => {
           const failed = refusal?.event === task.event ? refusal.result : null;
           const code = failed ? refusalOf(failed.code) : undefined;
@@ -188,7 +184,7 @@ function Tasks({
                   <>
                     {' '}
                     <a
-                      className="text-link"
+                      className="lt-link"
                       data-testid="welcome-chain-tx"
                       data-tx={task.record.payout.chainTx}
                       href={`/chain/tx/${encodeURIComponent(task.record.payout.chainTx)}`}
@@ -203,7 +199,7 @@ function Tasks({
                   <>
                     {' '}
                     <a
-                      className="text-link"
+                      className="lt-link"
                       data-testid="welcome-tx"
                       data-tx={task.record.ledgerTxId}
                       href={`/money/activity/${encodeURIComponent(task.record.ledgerTxId)}`}
@@ -215,14 +211,19 @@ function Tasks({
                 {claimable && (task.state === 'done' || task.record?.state === 'withheld') ? (
                   <>
                     {' '}
-                    <Button onClick={() => onClaim(task.event)} disabled={busy !== null} aria-label={t('claimTask', { task: task.title })}>
+                    <Button
+                      tone="primary"
+                      onClick={() => onClaim(task.event)}
+                      disabled={busy !== null}
+                      aria-label={t('claimTask', { task: task.title })}
+                    >
                       {busy === task.event ? t('claiming') : t('claim')}
                     </Button>
                   </>
                 ) : null}
                 {failed ? (
                   code ? (
-                    <p role="status" className="muted" data-testid="welcome-refusal" data-code={code}>
+                    <p role="status" className="lt-hint" data-testid="welcome-refusal" data-code={code}>
                       {t(`refusal_${key(code)}` as 'refusal_campaigns_reward_unset')}
                     </p>
                   ) : (
@@ -233,7 +234,7 @@ function Tasks({
             </tr>
           );
         })}
-      </DataTable>
+      </RecordTable>
     </>
   );
 }

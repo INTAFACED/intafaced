@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { PROTOCOL_OPS_REASON_CODE_PATTERN } from '@intafaced/contracts';
+import { PROTOCOL_OPS_REASON_CODE_PATTERN } from '@intafaced/contracts/protocol-ops';
 import {
   baseEnvSchema,
   edgeEnvSchema,

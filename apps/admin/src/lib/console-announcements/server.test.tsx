@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { AnnouncementBanner } from '@/components/announcement-banner';
-import { effectiveOf, loadPreferences, setPreferences } from '@/lib/console-preferences/server';
+import { effectiveOf, loadPreferences, setPreferences } from '@/lib/console-preferences';
 import { announcementKey, changeAnnouncement, loadActiveAnnouncement, saveAnnouncement } from './server';
 
 const ctx = {

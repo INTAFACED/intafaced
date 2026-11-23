@@ -5,7 +5,8 @@
  * throws so the step-up mint can refuse and issue nothing.
  */
 
-import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 
 export type PayStepUpGrantRead = {
   readonly role: string | null;

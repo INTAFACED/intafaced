@@ -171,7 +171,7 @@ export function LimitConvert({
       {short ? (
         <div className="cvt-note" role="alert">
           <p>{refusalCopy('ledger.insufficient_funds', { asset: from, available: available ?? '' }).title}.</p>
-          <a className="text-link" href={`/uc/recharge?asset=${encodeURIComponent(from)}`}>
+          <a className="lt-link" href={`/uc/recharge?asset=${encodeURIComponent(from)}`}>
             {t('Deposit {asset}', { asset: from })}
           </a>
         </div>

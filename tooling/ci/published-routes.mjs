@@ -11,7 +11,7 @@
  * It also names a served route ROUTE_WORDS gives no words, and words for a route no longer served: a route's name,
  * product and summary are prose the change writes, so the push is told before the customer tests are.
  *
- * The check runs from .githooks/pre-push (gates.mjs --before-push) and in CI. Before it, the same list was kept by
+ * The check runs in CI (gates.mjs: the Fast gates job, about two minutes after the push, and the Doctrine gates job). Before it, the same list was kept by
  * hand three times: in the registrations, in svc-trade's published-routes.txt and in REST_REFERENCE's rows, and a
  * correct route change lost its push until the second and third were edited (#8079, #8102, #8142, #8146, #8480,
  * #8518, #8571).
@@ -23,8 +23,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const ROOT = process.cwd();
-const SRC = join(ROOT, 'services/svc-trade/src');
-const HARNESS = join(SRC, 'route-declarations.test-harness.ts');
+const HARNESS = join(ROOT, 'services/svc-trade/src/route-declarations.test-harness.ts');
 export const GENERATED_PATH = 'apps/customer/src/features/developers/served-routes.generated.ts';
 const GENERATED = join(ROOT, GENERATED_PATH);
 const REFERENCE_PATH = 'apps/customer/src/features/developers/developers-reference.ts';
@@ -53,13 +52,21 @@ export function generatedLines(text) {
 }
 
 /** The served route lines, sorted, from svc-trade's sources; refuses a parse that lost routes or a route declared two ways. */
+/** svc-trade's route registrations under `root`, read by svc-trade's own parser (`isRouteSource`, `tradeDeclarations`
+ *  from route-declarations.test-harness.ts): the walk this gate and the portal's test share. */
+export function declaredRoutes(root, { isRouteSource, tradeDeclarations }) {
+  const src = join(root, 'services/svc-trade/src');
+  const files = readdirSync(src, { recursive: true })
+    .filter((file) => file.endsWith('.ts') && isRouteSource(file))
+    .map((file) => ({ file, text: readFileSync(join(src, file), 'utf8') }));
+  return tradeDeclarations(files);
+}
+
 export async function servedRoutes() {
   if (!existsSync(HARNESS)) throw new Error(`${HARNESS.slice(ROOT.length + 1)} is missing`);
-  const { declarationKey, isRouteSource, tradeDeclarations } = await import(pathToFileURL(HARNESS).href);
-  const files = readdirSync(SRC, { recursive: true })
-    .filter((file) => file.endsWith('.ts') && isRouteSource(file))
-    .map((file) => ({ file, text: readFileSync(join(SRC, file), 'utf8') }));
-  const declared = tradeDeclarations(files);
+  const parser = await import(pathToFileURL(HARNESS).href);
+  const declared = declaredRoutes(ROOT, parser);
+  const { declarationKey } = parser;
   if (declared.length < 100) throw new Error(`read ${declared.length} svc-trade routes, fewer than 100: the parser lost them`);
   const lines = [...new Set(declared.map(declarationKey))].sort();
   const seen = new Map();

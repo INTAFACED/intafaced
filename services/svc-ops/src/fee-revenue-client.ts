@@ -1,10 +1,6 @@
-import {
-  ledgerFeeRevenueSchema,
-  serviceCallSigner,
-  type LedgerFeeRevenue,
-  type ServiceAuthMode,
-  type ServiceSigner,
-} from '@intafaced/contracts';
+import type { LedgerFeeRevenue, ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { ledgerFeeRevenueSchema } from '@intafaced/contracts/ledger-fee-revenue';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import { OPS_FEE_REVENUE_UNAVAILABLE, OPS_FEE_REVENUE_UNCONFIGURED } from './codes.js';
 
 /** The ledger's fee revenue for a window, or the typed code it could not be had under. Never a zero. */

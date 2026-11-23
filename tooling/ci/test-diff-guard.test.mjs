@@ -6,7 +6,6 @@ import test from 'node:test';
 import {
   DECLARED,
   assertionDeltas,
-  autoRevert,
   declaredRooms,
   earlierFailures,
   failedInLog,
@@ -15,6 +14,7 @@ import {
   judgeBaselines,
   sourceFor,
 } from './test-diff-guard.mjs';
+import { autoRevert } from './exact-revert.mjs';
 
 const eq = (got, want, m) => {
   if (got !== want) throw new Error(`${m}: got ${got}, want ${want}`);
@@ -311,7 +311,7 @@ test('checks 2 and 3 hold for every test: money, sign-in, permissions, harnesses
   eq(blocking(fewer('packages/i18n/src/keys.test.ts')), 1, 'a case removed: fails as before');
   eq(blocking(fewer('services/svc-academy/src/paper/real-money-ban.money.test.ts')), 1, 'a *.money.test.ts case removed: fails as today');
   eq(blocking(del('services/svc-academy/src/paper/real-money-ban.money.test.ts')), 1, 'a *.money.test.ts file deleted: fails as today');
-  eq(blocking(fewer('services/svc-ledger/src/posting.test.ts')), 1, 'a money root (MONEY_PATH_ROOTS): fails as today');
+  eq(blocking(fewer('services/svc-bank/src/posting.test.ts')), 1, 'a money root (MONEY_PATH_ROOTS): fails as today');
   eq(blocking(fewer('services/svc-tax/src/a.db.test.ts')), 1, 'a *.db.test.ts: fails as today');
   eq(blocking(fewer('services/svc-tax/src/a.pg.test.ts')), 1, 'a *.pg.test.ts: fails as today');
   eq(blocking(fewer('services/svc-identity/src/x.test.ts')), 1, 'svc-identity: fails as today');
@@ -417,7 +417,7 @@ test('check 7: earlierFailures reads only failed Tests jobs on earlier heads of 
           { id: 3, head_sha: 'b'.repeat(40), head_repository: { full_name: 'fork/r' } },
         ],
       };
-    if (path.endsWith('/runs/2/jobs?per_page=100'))
+    if (path.endsWith('/runs/2/jobs?per_page=30&page=1'))
       return {
         jobs: [
           { id: 20, name: 'Tests (changed)', conclusion: 'failure' },

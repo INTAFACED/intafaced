@@ -2,8 +2,8 @@ import { useMemo } from 'react';
 import type { ApiClient } from '../../shared/api';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
-import { businessListSchema } from './business-schema';
 import { businessProfiles, resolveProfile, type BusinessProfile, type ProfileNotice } from './profiles';
+import { BANK_BUSINESS_LIST } from '@intafaced/contracts/bank-business-procedures';
 
 /** Rows asked of the bank for the person's business accounts. */
 const BUSINESS_PAGE = 50;
@@ -27,9 +27,7 @@ export function useProfiles(api: ApiClient, userId: string | null): Profiles {
   const { activeProfile } = usePreferences();
   const { resource, reload } = useResource(
     (signal) =>
-      userId
-        ? api.query('bank', 'business.list', { limit: BUSINESS_PAGE }, businessListSchema, { signal })
-        : Promise.resolve({ ok: true as const, data: [] }),
+      userId ? api.call(BANK_BUSINESS_LIST, { limit: BUSINESS_PAGE }, { signal }) : Promise.resolve({ ok: true as const, data: [] }),
     `profiles:${userId ?? 'anon'}`,
   );
   return useMemo(() => {

@@ -109,6 +109,12 @@
     color: var(--if-fg);
     font-size: var(--if-text-base);
   }
+  /* The share words keep their lines and wrap inside the sheet, never past its edge. */
+  .cb-share-text {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    margin: 0;
+  }
   .cb-metric-def {
     color: var(--if-fg-muted);
     font-size: var(--if-text-xs);

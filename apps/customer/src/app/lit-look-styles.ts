@@ -1,17 +1,12 @@
 /**
- * The Lit glass look's sheets, in the kit's order: role tokens, self-hosted faces, components, access rules (after
- * lit.css), templates. Loaded once by the app entry (main.tsx) and by harness entries that render kit-styled rooms.
- * The look's own values apply only under data-look="lit"; with it off the roles resolve to today's skin, and the
- * component and template rules match only the kit's own classes (.lit-*, .lt-*), which today's rooms don't render.
- * The look directions' shell sheets (look-ember.css) come last; they match only under their data-direction.
- * Every visitor downloads these sheets (about 9 KB gzipped); a room built on a template needs them with the look off too.
+ * Volt's sheets, in the kit's order: role tokens, self-hosted faces, components, access rules (after lit.css),
+ * templates, then Volt's shell (volt.css). Loaded once by the app entry (main.tsx) and by harness entries that render
+ * kit-styled rooms. The roles apply under data-look="lit", which index.html puts on the root; the component and
+ * template rules match only the kit's own classes (.lit-*, .lt-*).
  */
 import '@intafaced/ui/lit/lit.css';
 import '@intafaced/ui/lit/fonts.css';
 import '@intafaced/ui/lit/components.css';
 import '@intafaced/ui/a11y/a11y.css';
 import '@intafaced/ui/lit/templates.css';
-// the look directions the owner chooses from (look.ts), each scoped to its own data-direction
-import '@intafaced/ui/lit/directions/lit-glass.css';
-import './look-ember.css';
 import './volt.css';

@@ -5,7 +5,7 @@ import { keccak256, toHex, type TypedDataDefinition } from 'viem';
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
 import { add, compare, div, formatAmount, mul, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-client/money';
 import { AuthError, type Principal } from '@intafaced/auth';
-import { JurisdictionError } from '@intafaced/contracts';
+import { JurisdictionError } from '@intafaced/contracts/trpc';
 import {
   encodeVenueWire,
   isTestVenue,
@@ -386,6 +386,9 @@ export class VenueGrid {
         });
       if (LIVE.includes(now.status)) {
         await this.deps.store.setStatus({ botId: bot.botId, status: 'stopped', reason: 'user_stop', at: this.deps.now(), from: LIVE });
+        await this.cancelOpen(now, principal.tier);
+      } else if (now.status === 'stopped' && (await this.deps.store.orders(bot.botId)).some((o) => o.status === 'open')) {
+        // A stopped bot whose earlier cancel did not get a definite answer still has orders on the venue: Stop finishes them.
         await this.cancelOpen(now, principal.tier);
       }
       return this.view(principal, await this.stored(bot.botId));

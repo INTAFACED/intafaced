@@ -1,4 +1,5 @@
-import { REASON_MAX, REASON_MIN, confirmPhrase, packetExpired, type ApprovalPacket, type DeskRequest } from './approval-packet';
+import { confirmPhrase, packetExpired, type ApprovalPacket, type DeskRequest } from './approval-packet';
+import { REASON_MAX, REASON_MIN } from '@/lib/approval-fields';
 import type { StepName } from '../approval-types';
 
 /**

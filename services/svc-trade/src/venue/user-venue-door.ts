@@ -7,7 +7,7 @@ import {
 } from './venue-eligibility.js';
 import { createHash } from 'node:crypto';
 import { hashTypedData, recoverTypedDataAddress, type Hex, type TypedDataDefinition } from 'viem';
-import { div, formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client/money';
+import { compare, div, formatAmount, parseAmount, ZERO, type Amount } from '@intafaced/ledger-client/money';
 import { AuthError, isApiKeyPrincipal, requireTradeTier, TIER_ORDER, tradeTier, type Principal } from '@intafaced/auth';
 import type { StepUpCheck } from '@intafaced/contracts';
 import {
@@ -141,6 +141,8 @@ export interface DoorCaller {
   readonly agentAccount?: boolean;
   /** Set only by a live strategy run (src/quant/live-run/live-runs.ts): its actions are stored under `algo:` keys. */
   readonly liveRun?: boolean;
+  /** Set only by Convert (src/venue/venue-convert.ts): its orders are stored under `convert:` keys. */
+  readonly convert?: boolean;
 }
 
 /** A live strategy run's keys (`algo:order:`, `algo:liquidate:`, `algo:stop:`, `algo:deploy:`): only the run stores or sends one. */
@@ -149,6 +151,22 @@ export const LIVE_RUN_KEY_PREFIX = 'algo:';
 function assertLiveRunKey(key: string, caller: DoorCaller | undefined): void {
   if (key.startsWith(LIVE_RUN_KEY_PREFIX) && !caller?.liveRun) {
     throw new UserVenueDoorError(`the key ${key} belongs to a live strategy run`, 'trade.venue_live_run_only', 403);
+  }
+}
+
+/**
+ * A conversion's keys (`convert:<owner>:<quoteId>`, `convert:<owner>:limit:<key>`): only Convert stores or sends one, so a
+ * price past its window is never signed through the plain prepare and submit routes (J-cex-spot-11 #4).
+ */
+export const CONVERT_KEY_PREFIX = 'convert:';
+
+function assertConvertKey(key: string, caller: DoorCaller | undefined): void {
+  if (key.startsWith(CONVERT_KEY_PREFIX) && !caller?.convert) {
+    throw new UserVenueDoorError(
+      `the key ${key} belongs to Convert (/api/v1/venue/convert/...), which checks the price window`,
+      'trade.venue_convert_only',
+      403,
+    );
   }
 }
 
@@ -248,6 +266,23 @@ export type UserVenueDoorCode =
   | 'trade.venue_sell_quote_market_unknown'
   | 'trade.venue_sell_quote_not_spot'
   | 'trade.venue_sell_quote_key_reused'
+  // Convert on the person's own venue account (venue-convert.ts, J-cex-spot-11).
+  | 'trade.venue_convert_only'
+  | 'trade.venue_convert_unwired'
+  | 'trade.convert_disabled'
+  | 'trade.convert_window_unset'
+  | 'trade.convert_quote_unknown'
+  | 'trade.convert_quote_expired'
+  | 'trade.convert_quote_key_reused'
+  | 'trade.convert_pair_unlisted'
+  | 'trade.convert_cash_not_offered'
+  | 'trade.convert_cash_not_enough'
+  | 'trade.convert_cash_leg_refused'
+  | 'trade.convert_cash_leg_unknown'
+  | 'trade.convert_no_price'
+  | 'trade.convert_amount_too_small'
+  | 'trade.convert_amount_not_on_lot'
+  | 'trade.convert_price_not_on_tick'
   | VenueRouteRefusalCode
   // J-derivatives-07 #5: the auto-deleveraging acknowledgement routes are off here, or name a version the venue replaced.
   | 'trade.venue_adl_acks_unmounted'
@@ -397,6 +432,17 @@ export function parseBuilderFee(address: string | undefined, feeBps: string | un
   return { address: a, feeBps: fee };
 }
 
+/**
+ * Our builder address alone (TRADE_USER_VENUE_BUILDER_ADDRESS), published even while the fee is blank, so a person can
+ * still read and revoke the approval they gave it (J-derivatives-30 #1). Blank is null.
+ */
+export function parseBuilderAddress(address: string | undefined): string | null {
+  const a = (address ?? '').trim().toLowerCase();
+  if (a === '') return null;
+  if (!ADDRESS_RE.test(a)) throw new Error(`TRADE_USER_VENUE_BUILDER_ADDRESS must be a 0x address, got ${JSON.stringify(address)}`);
+  return a;
+}
+
 /** A venue the door reaches, with the chain its actions name and its deposit route when it has one. */
 export type ConnectedUserVenue = UserVenue & { readonly chainId?: number; readonly depositRoute?: UserVenueDepositRoute | null };
 
@@ -408,6 +454,11 @@ export interface UserVenueDoorDeps {
   readonly store: PreparedActionStore;
   readonly stepUp: StepUpCheck;
   readonly builder: BuilderFeeValue | null;
+  /**
+   * Our builder address, published on its own even while the fee is blank (`parseBuilderAddress`): where a person's
+   * approval is read and revoked (J-derivatives-30). Absent: the address of `builder`, if any.
+   */
+  readonly builderAddress?: string | null;
   /**
    * The owner's market price protection in basis points (TRADE_MARKET_SLIPPAGE_CAP_BPS), or null when blank. Every spot
    * market order is checked against it here, on preview and on prepare: blank refuses `trade.slippage_cap_unset`, and a
@@ -746,6 +797,8 @@ export class UserVenueDoor {
       // Where the customer's own wallet sends a token to fund this venue account: the customer's transfer, never ours.
       deposit: venue.depositRoute ?? null,
       builder: this.deps.builder ? { address: this.deps.builder.address, feeBps: formatAmount(this.deps.builder.feeBps) } : null,
+      // J-derivatives-30 #1: our builder address alone, so an approval stays readable and revocable while the fee is blank.
+      builderAddress: this.publishedBuilderAddress(),
     };
   }
 
@@ -939,6 +992,11 @@ export class UserVenueDoor {
   /** Our builder address on the venue: the owner value, or null when it is blank. */
   private builderAddress(): string | null {
     return this.deps.builder?.address ?? null;
+  }
+
+  /** Our builder address as published on its own (J-derivatives-30): set even while the fee is blank. */
+  publishedBuilderAddress(): string | null {
+    return this.deps.builderAddress ?? this.deps.builder?.address ?? null;
   }
 
   /**
@@ -1217,6 +1275,33 @@ export class UserVenueDoor {
   }
 
   /**
+   * The margin rules the venue publishes for the listed perpetual on `base` (J-algo-dev-02 #5: a margin backtest reads
+   * them, never sets them): its maximum leverage and its one maintenance rate, each `null` where the venue publishes none
+   * (a tiered market publishes no single rate). Refuses `not_offered` when we list no perpetual on that asset.
+   */
+  async marginRules(base: string) {
+    const venue = await this.venue();
+    const wanted = base.toUpperCase();
+    const read = await this.markets();
+    const perp = read.value.find((m) => m.kind === 'perpetual' && m.baseAsset.toUpperCase() === wanted);
+    if (!perp)
+      throw new VenueRefusalError({
+        venueId: venue.venue.id,
+        code: 'not_offered',
+        detail: `no perpetual on ${wanted} is listed on this venue`,
+      });
+    const rate = perp.maintenanceMarginRate;
+    return {
+      venueId: read.venueId,
+      asOf: read.asOf,
+      symbol: perp.symbol,
+      maxLeverageBps: perp.maxLeverageBps,
+      maintenanceRate: rate?.known ? rate.value : null,
+      test: isTestVenue(venue.venue),
+    };
+  }
+
+  /**
    * A perpetual's risk-limit tiers as the venue publishes them, lowest notional first (J-derivatives-14 #4). While the
    * venue publishes no ladder the tiers are `null` with the reason `ladder_unset`, never a ladder of ours.
    */
@@ -1252,6 +1337,27 @@ export class UserVenueDoor {
     if (!venue.trades)
       throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: 'this venue publishes no trade prints' });
     return { ...(await venue.trades(symbol, limit)), test: isTestVenue(venue.venue) };
+  }
+
+  /**
+   * The candles of the venue's own prints on the spot market we list on `base` (J-algo-dev-04 #2: a paper run prices its
+   * fills, position and equity from them, never from a book of ours), with the market's symbol. Refuses `not_offered` when
+   * we list no spot market on that asset or the venue publishes no candles.
+   */
+  async spotCandles(base: string, interval: VenueCandleInterval, limit: number) {
+    const venue = await this.venue();
+    const wanted = base.toUpperCase();
+    const spot = (await this.markets()).value.find((m) => m.kind === 'spot' && m.baseAsset.toUpperCase() === wanted);
+    if (!spot)
+      throw new VenueRefusalError({
+        venueId: venue.venue.id,
+        code: 'not_offered',
+        detail: `no spot market on ${wanted} is listed on this venue`,
+      });
+    if (!venue.candles)
+      throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: 'this venue publishes no candles' });
+    const read = await venue.candles(spot.symbol, interval, limit);
+    return { ...read, symbol: spot.symbol, test: isTestVenue(venue.venue) };
   }
 
   async marketCandles(symbol: string, interval: VenueCandleInterval, limit: number) {
@@ -1375,7 +1481,8 @@ export class UserVenueDoor {
    * together; a part one doesn't count. A new resting order that would close the whole position is refused when a
    * whole-position order of its own role already rests, and a resting whole close that is neither (a reduce-only limit)
    * is refused when both rest. An immediate close (IOC, a market close) is never refused here: it rests nothing. A
-   * replacement is judged without the order it replaces. Nothing is prepared or stored when refused.
+   * replacement is judged without the order it replaces. In a batch, each order is judged as if the batch's earlier
+   * orders already rest beside what the venue holds. Nothing is prepared or stored when refused.
    */
   private async assertOneWholeClose(venue: UserVenue, account: UserVenueAccount, intent: VenueIntent): Promise<void> {
     const orders =
@@ -1390,6 +1497,14 @@ export class UserVenueDoor {
     if (closes.length === 0) return;
     const positions = (await venue.positions(account)).value;
     let resting: readonly UserVenueOrder[] | null = null;
+    // The batch's earlier whole closes, judged as resting beside the venue's own (a batch is one placement).
+    const siblings: {
+      symbol: string;
+      side: string;
+      role: 'take_profit' | 'stop_loss' | null;
+      remaining: bigint;
+      venueClientOrderId: string;
+    }[] = [];
     for (const order of closes) {
       const position = positions.find((p) => p.symbol === order.symbol && p.size !== 0n);
       // Closing only: the order is on the other side of the position, and covers all of it.
@@ -1405,12 +1520,22 @@ export class UserVenueDoor {
           (o.status === 'open' || o.status === 'partially_filled') &&
           o.remaining >= position.size,
       );
+      const batched = siblings.filter((o) => o.symbol === order.symbol && o.side === order.side && o.remaining >= position.size);
       const roleOf = (o: { trigger?: { role: 'take_profit' | 'stop_loss' } | null }) => o.trigger?.role ?? null;
-      const tp = whole.find((o) => roleOf(o) === 'take_profit');
-      const sl = whole.find((o) => roleOf(o) === 'stop_loss');
+      const tp = whole.find((o) => roleOf(o) === 'take_profit') ?? batched.find((o) => o.role === 'take_profit');
+      const sl = whole.find((o) => roleOf(o) === 'stop_loss') ?? batched.find((o) => o.role === 'stop_loss');
       const role = roleOf(order);
       const taken = role === 'take_profit' ? tp : role === 'stop_loss' ? sl : tp && sl ? tp : undefined;
-      if (!taken) continue;
+      if (!taken) {
+        siblings.push({
+          symbol: order.symbol,
+          side: order.side,
+          role,
+          remaining: order.amount,
+          venueClientOrderId: `${order.clientOrderKey}, earlier in this batch`,
+        });
+        continue;
+      }
       throw new UserVenueDoorError(
         `one take profit and one stop loss for the whole position may rest together on ${order.symbol}, and ${
           role === null ? 'both' : `a ${role === 'take_profit' ? 'take profit' : 'stop loss'} for the whole ${formatAmount(position.size)}`
@@ -1431,7 +1556,13 @@ export class UserVenueDoor {
     else if (intent.kind === 'sub_account_transfer' || intent.kind === 'market_margin_transfer') key = intent.moveKey;
     else if (intent.kind === 'create_sub_account') key = intent.subAccountKey;
     else if (intent.kind === 'update_isolated_margin' || intent.kind === 'set_account_mode') key = intent.changeKey;
-    else if (intent.kind === 'spot_perps_transfer') key = intent.moveKey;
+    else if (
+      intent.kind === 'spot_perps_transfer' ||
+      intent.kind === 'vault_transfer' ||
+      intent.kind === 'staking_transfer' ||
+      intent.kind === 'staking_delegate'
+    )
+      key = intent.moveKey;
     else key = actionKey;
     const k = (key ?? '').trim();
     if (k.length < 3 || k.length > 200 || UUID_RE.test(k) || !BUSINESS_KEY_RE.test(k)) {
@@ -1474,6 +1605,7 @@ export class UserVenueDoor {
     const key = this.businessKey(intent, req.actionKey);
     assertDoorMay(intent.kind, caller, key);
     assertLiveRunKey(key, caller);
+    assertConvertKey(key, caller);
     // The person's own sub-account keys are for its two intents only, never another action's.
     if (key.startsWith('own:') && !isOwnSubAccountKey(intent.kind, key)) {
       throw new UserVenueDoorError(
@@ -1564,7 +1696,8 @@ export class UserVenueDoor {
     finalIntent = await eachOrder(finalIntent, (order) => this.withBuilderFee(venue, order));
     await this.assertEligible(principal, venue, finalIntent);
     if (intent.kind === 'approve_builder_fee') {
-      const builder = this.builderAddress();
+      // An approval needs our fee published; a revoke (zero) needs only our address, so a person can always withdraw it.
+      const builder = compare(intent.maxFeeBps, ZERO) === 0 ? this.publishedBuilderAddress() : this.builderAddress();
       if (!builder) {
         throw new VenueRefusalError({
           venueId: venue.venue.id,
@@ -1703,6 +1836,7 @@ export class UserVenueDoor {
       throw new UserVenueDoorError(`no prepared action under ${JSON.stringify(key)}: prepare it first`, 'trade.venue_action_unknown', 404);
     assertDoorMay(row.prepared.intent.kind, caller, key);
     assertLiveRunKey(key, caller);
+    assertConvertKey(key, caller);
     assertInteractive(principal, row.prepared.intent.kind);
     // An action is only ever sent to the venue it was prepared for: with several venues behind the router, a key stored
     // for another venue is that venue's door's to send (venue-router.ts), never this one's.

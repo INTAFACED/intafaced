@@ -47,7 +47,7 @@ export function EndpointPage({ api, endpointId, canManage }: { api: SettingsBApi
           <EmptyState
             title={t('endpointMissing')}
             action={
-              <a className="text-link" href="/pay/developer/webhooks">
+              <a className="lt-link" href="/pay/developer/webhooks">
                 {t('backToEndpoints')}
               </a>
             }
@@ -83,7 +83,7 @@ export function EndpointView({
   const setRevealed = setHeldRevealed ?? setOwnRevealed;
   const mine = health?.endpoints.find((e) => e.endpointId === endpoint.id);
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <DetailHeader
         back={{ href: '/pay/developer/webhooks', label: t('backToEndpoints') }}
         title={<span className="pp-wrap">{shownEndpointUrl(endpoint.url)}</span>}
@@ -124,8 +124,8 @@ export function EndpointView({
               : []),
           ]}
         />
-        {endpoint.previousSecretUntil && <p className="muted">{t('overlapNote')}</p>}
-        <p className="muted">{t('queryHidden')}</p>
+        {endpoint.previousSecretUntil && <p className="lt-muted">{t('overlapNote')}</p>}
+        <p className="lt-muted">{t('queryHidden')}</p>
         <AuditPanel who={null} at={endpoint.updatedAt} />
       </PaySection>
       <PaySection title={t('manageTitle')} description={t('manageBody')}>
@@ -155,7 +155,7 @@ export function EndpointView({
               onConfirmed={reload}
             />
           ) : (
-            <p className="muted">{t('cannotReEnable')}</p>
+            <p className="lt-muted">{t('cannotReEnable')}</p>
           )}
         </div>
       </PaySection>

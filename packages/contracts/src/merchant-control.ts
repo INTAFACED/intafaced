@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { jsonValueSchema } from './procedure-strict-schema.js';
 
 /**
  * MERCHANT CONTROL ROOM — wire contract (workstream W0, built by W1).
@@ -383,7 +384,7 @@ export type MerchantPricingHistory = z.infer<typeof merchantPricingHistorySchema
  */
 export const merchantLimitCapsSchema = z.union([
   z.array(payCapSchema).min(1).max(32),
-  z.object({ raw: z.unknown(), capsReadable: z.literal(false) }).strict(),
+  z.object({ raw: jsonValueSchema, capsReadable: z.literal(false) }).strict(),
 ]);
 export type MerchantLimitCaps = z.infer<typeof merchantLimitCapsSchema>;
 

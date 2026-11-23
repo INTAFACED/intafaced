@@ -1,16 +1,12 @@
-import {
-  NAVIGATOR_TRADE_REFUSALS,
-  navigatorOrdersSchema,
-  navigatorTradingSchema,
-  type NavigatorOrder,
-  type NavigatorTrading,
-} from '@intafaced/contracts/agents-onchain';
+import { NAVIGATOR_TRADE_REFUSALS, type NavigatorOrder, type NavigatorTrading } from '@intafaced/contracts/agents-onchain';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Failure } from '../../shared/ui';
+import { Tag } from '@intafaced/ui/lit';
 import { useApi } from '../session';
 import { formatUnits, utcTime } from '../protocol';
 import { navigatorOnchainCopy } from './navigator-onchain-copy';
+import { FailureNote } from './volt-parts';
+import { AGENTS_NAVIGATOR_TRADING, AGENTS_NAVIGATOR_ORDERS } from '@intafaced/contracts/agents-navigator-procedures';
 
 type T = ReturnType<typeof navigatorOnchainCopy.forLocale>['t'];
 /** The copy keys these maps pick from: every one is a sentence with no placeholder. */
@@ -41,17 +37,14 @@ const eth = (wei: string) => formatUnits(BigInt(wei), 18, 18);
  */
 export function useNavigatorTrading(revision: number) {
   const api = useApi();
-  return useResource(
-    (signal) => api.query('agents', 'navigator.trading', undefined, navigatorTradingSchema, { signal }),
-    `navigator-trading:${revision}`,
-  );
+  return useResource((signal) => api.call(AGENTS_NAVIGATOR_TRADING, undefined, { signal }), `navigator-trading:${revision}`);
 }
 
 /** The cap the person signed, as the chain holds it, and what the Navigator's orders hold of it. */
 export function NavigatorCapLine({ trading }: { trading: NavigatorTrading | null }) {
   const { t } = navigatorOnchainCopy.useCopy();
   if (!trading) return null;
-  if (!trading.key) return <p className="muted">{t('capNoKey')}</p>;
+  if (!trading.key) return <p className="lt-muted">{t('capNoKey')}</p>;
   return (
     <p role="note" data-testid="navigator-cap">
       {t('capLine', { cap: eth(trading.key.capWei), spent: eth(trading.key.spentWei), left: eth(trading.key.leftWei) })}
@@ -73,7 +66,7 @@ function OrderFacts({ order, t }: { order: NavigatorOrder; t: T }) {
       <dt>{t('orderAsk')}</dt>
       <dd lang="und">{order.text}</dd>
       <dt>{t('orderTrade')}</dt>
-      <dd className="numeric">
+      <dd className="lt-num">
         {t('orderTradeValue', {
           amount: eth(order.amountInWei),
           from: order.tokenInSymbol,
@@ -84,9 +77,9 @@ function OrderFacts({ order, t }: { order: NavigatorOrder; t: T }) {
       <dt>{t('orderStatus')}</dt>
       <dd data-order-status={order.status}>{t(STATUS_WORDS[order.status])}</dd>
       <dt>{t('orderTx')}</dt>
-      <dd className="numeric">{order.txHash ? <code lang="zxx">{order.txHash}</code> : t('orderNoTx')}</dd>
+      <dd className="lt-num">{order.txHash ? <code lang="zxx">{order.txHash}</code> : t('orderNoTx')}</dd>
       <dt>{t('orderPlaced')}</dt>
-      <dd className="numeric">{utcTime(order.createdAt)}</dd>
+      <dd className="lt-num">{utcTime(order.createdAt)}</dd>
     </dl>
   );
 }
@@ -95,15 +88,15 @@ function OrderFacts({ order, t }: { order: NavigatorOrder; t: T }) {
 export function NavigatorOrderView({ order }: { order: NavigatorOrder }) {
   const { t } = navigatorOnchainCopy.useCopy();
   return (
-    <section aria-label={t('orderTitle')} className="navigator-order">
+    <section aria-label={t('orderTitle')} className="lt-stack">
       <h4>{t('orderTitle')}</h4>
       <p>
-        <span className="pill" data-placed-by={order.placedBy}>
+        <Tag tone="neutral" data-placed-by={order.placedBy}>
           {t('byAssistant')}
-        </span>
+        </Tag>
       </p>
       <OrderFacts order={order} t={t} />
-      <p className="muted">{t('orderInsideCap')}</p>
+      <p className="lt-muted">{t('orderInsideCap')}</p>
     </section>
   );
 }
@@ -135,11 +128,11 @@ export function NavigatorTradeRefusalView({
   trading: NavigatorTrading | null;
 }) {
   const { t } = navigatorOnchainCopy.useCopy();
-  if (!isNavigatorTradeRefusal(failure)) return <Failure result={failure} />;
+  if (!isNavigatorTradeRefusal(failure)) return <FailureNote result={failure} />;
   const code = TRADE_CODES.has(failure.message) ? failure.message : failure.code!;
   const key = trading?.key ?? null;
   return (
-    <section aria-label={t('refusalTitle')} className="navigator-refusal">
+    <section aria-label={t('refusalTitle')} className="lt-stack">
       <h4>{t('refusalTitle')}</h4>
       <p role="alert" data-refusal-code={code}>
         {code === 'agents.navigator_trade_over_cap' && key
@@ -147,7 +140,7 @@ export function NavigatorTradeRefusalView({
           : t(REFUSAL_WORDS[code] ?? 'refused_other')}{' '}
         <code lang="zxx">({code})</code>
       </p>
-      <p className="muted">{t('refusalNothingSigned')}</p>
+      <p className="lt-muted">{t('refusalNothingSigned')}</p>
     </section>
   );
 }
@@ -157,25 +150,25 @@ export function NavigatorOrders({ sessionId, revision = 0 }: { sessionId: string
   const { t } = navigatorOnchainCopy.useCopy();
   const api = useApi();
   const { resource, reload } = useResource(
-    (signal) => api.query('agents', 'navigator.orders', { sessionId }, navigatorOrdersSchema, { signal }),
+    (signal) => api.call(AGENTS_NAVIGATOR_ORDERS, { sessionId }, { signal }),
     `navigator-orders:${sessionId}:${revision}`,
   );
   return (
-    <div className="navigator-orders" data-testid="navigator-orders">
+    <div className="lt-stack" data-testid="navigator-orders">
       <h4>{t('ordersTitle')}</h4>
       {resource.status === 'loading' ? (
         <p role="status">{t('reading')}</p>
       ) : resource.status === 'failed' ? (
-        <Failure result={resource.failure} retry={reload} />
+        <FailureNote result={resource.failure} retry={reload} />
       ) : resource.data.orders.length === 0 ? (
-        <p className="muted">{t('ordersEmpty')}</p>
+        <p className="lt-muted">{t('ordersEmpty')}</p>
       ) : (
         <ul>
           {resource.data.orders.map((order) => (
             <li key={order.id} data-order-key={order.orderKey}>
-              <span className="pill" data-placed-by={order.placedBy}>
+              <Tag tone="neutral" data-placed-by={order.placedBy}>
                 {t('byAssistant')}
-              </span>
+              </Tag>
               <OrderFacts order={order} t={t} />
             </li>
           ))}

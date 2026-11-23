@@ -1,4 +1,5 @@
-import { quantMonteCarloSchema, type QuantMonteCarlo } from '@intafaced/contracts/quant-research';
+import { QUANT_BACKTEST_MONTE_CARLO } from '@intafaced/contracts/quant-backtest-procedures';
+import type { QuantMonteCarlo } from '@intafaced/contracts/quant-research';
 import { useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { Button, DataTable, Failure, Field } from '../../shared/ui';
@@ -28,7 +29,7 @@ export function MonteCarloPanel({ runId }: { runId: string }) {
     setBusy(true);
     setRefused(null);
     setFailure(null);
-    const res = await api.query('quant', 'backtest.monteCarlo', { runId, seed: Number(seed) }, quantMonteCarloSchema);
+    const res = await api.call(QUANT_BACKTEST_MONTE_CARLO, { runId, seed: Number(seed) });
     setBusy(false);
     if (res.ok) {
       setResult(res.data);
@@ -45,7 +46,7 @@ export function MonteCarloPanel({ runId }: { runId: string }) {
   return (
     <section aria-label={t('mcTitle')} data-testid="quant-montecarlo">
       <h4>{t('mcTitle')}</h4>
-      <p className="muted">{t('mcIntro')}</p>
+      <p className="lt-muted">{t('mcIntro')}</p>
       <form
         onSubmit={(e) => {
           e.preventDefault();

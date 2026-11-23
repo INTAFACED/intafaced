@@ -1,12 +1,8 @@
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction, type Queryable } from '@intafaced/db';
-import {
-  payMerchantIdSchema,
-  type PayHaltErrorCode,
-  type PayHaltPendingClear,
-  type PayHaltPendingClearListInput,
-} from '@intafaced/contracts';
+import type { PayHaltErrorCode, PayHaltPendingClear, PayHaltPendingClearListInput } from '@intafaced/contracts';
+import { payMerchantIdSchema } from '@intafaced/contracts/merchant-control';
 import type {
   PayHaltEvent,
   PayHaltMerchantState,

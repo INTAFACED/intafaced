@@ -1,5 +1,5 @@
 /**
- * Lit glass component sheet. Reads only --lit-* roles from lit.css. Spacing that scales with density reads the
+ * Volt kit component sheet. Reads only --lit-* roles from lit.css. Spacing that scales with density reads the
  * density roles; structural sizes (hairlines, icon boxes, hit targets, a control's inner padding) stay raw px
  * here because the kit is the system. Logical sides only, so right-to-left needs nothing. Rooms never restyle
  * these classes.
@@ -92,7 +92,6 @@
 }
 .lit-button:disabled {
   cursor: not-allowed;
-  opacity: 0.45;
 }
 .lit-button[data-tone='primary'] {
   background: var(--lit-primary-bg);
@@ -107,6 +106,16 @@
 .lit-button[data-tone='quiet'] {
   background: transparent;
   color: var(--lit-accent-text);
+}
+/* Disabled, any tone: the dark pill with the second text colour, not a faded copy of the tone, so its words keep
+   their contrast (the look gate's 4.5) while it still reads as off. After the tones, so it wins over them. */
+.lit-button[data-tone]:disabled {
+  background: var(--lit-secondary-bg);
+  color: var(--lit-text-2);
+  box-shadow: none;
+}
+.lit-button[data-tone='quiet']:disabled {
+  background: none;
 }
 .lit-button[data-size='lg'] {
   min-height: calc(var(--lit-control-h) + 6px);
@@ -182,12 +191,51 @@
   letter-spacing: var(--lit-type-micro-tracking);
   text-transform: uppercase;
   cursor: pointer;
+  /* Its own padding and centring, so an app stylesheet that resets buttons can't push the words onto the pill's edge. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding-inline: 12px;
+  text-align: center;
 }
 .lit-segmented button[aria-pressed='true'],
 .lit-segmented button[aria-selected='true'] {
   color: var(--lit-on-accent);
   background: linear-gradient(180deg, var(--lit-accent-fill), var(--lit-accent-fill-2));
   box-shadow: var(--lit-fill-shadow);
+}
+
+/* Toggle chips: a list's filters, one on at a time; they wrap rather than scroll. */
+.lit-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.lit-chips button {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 2rem;
+  padding-inline: 0.75rem;
+  border: 0;
+  border-radius: var(--lit-radius-control);
+  background: var(--lit-solid-bg-sunken);
+  box-shadow: inset 0 0 0 1px var(--lit-control-rim);
+  color: var(--lit-text-2);
+  font: 500 var(--lit-type-label-size) / 1 var(--lit-font-ui);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.lit-chips button:hover {
+  color: var(--lit-text-1);
+}
+.lit-chips button[aria-pressed='true'] {
+  color: var(--lit-text-1);
+  background: var(--lit-solid-bg-raised);
+  box-shadow: inset 0 0 0 1px var(--lit-control-rim-active);
+}
+.lit-chips button:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
 }
 
 /* Field */
@@ -611,5 +659,581 @@
   font-weight: var(--lit-type-heading-weight);
 }
 .lit-gate__card [data-part='body'] {
+  color: var(--lit-text-2);
+}
+
+/* AssetIcon: the kit's artwork on a raised disc, or the ticker's first letter on one. */
+.lit-asset {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  inline-size: 2rem;
+  block-size: 2rem;
+  overflow: hidden;
+  border-radius: 50%;
+  background: var(--lit-solid-bg-raised);
+  color: var(--lit-text-1);
+  font-family: var(--lit-font-ui);
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1;
+  user-select: none;
+}
+.lit-asset[data-size='sm'] {
+  inline-size: 1.25rem;
+  block-size: 1.25rem;
+  font-size: 0.5625rem;
+}
+.lit-asset[data-size='lg'] {
+  inline-size: 2.5rem;
+  block-size: 2.5rem;
+  font-size: 1.0625rem;
+}
+.lit-asset[data-fallback='lettered'] {
+  box-shadow: inset 0 0 0 1px var(--lit-line-strong);
+}
+.lit-asset__art,
+.lit-asset__art > svg {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+}
+
+/* InfoTip: a quiet (i) key; its bubble is an opaque raised panel next to it. */
+.lit-tip {
+  position: relative;
+  display: inline-flex;
+  vertical-align: middle;
+}
+.lit-tip__button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 1.5rem;
+  block-size: 1.5rem;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--lit-text-2);
+  cursor: pointer;
+}
+.lit-tip__button:hover,
+.lit-tip[data-open] .lit-tip__button {
+  color: var(--lit-text-1);
+}
+.lit-tip__button:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+.lit-tip__bubble {
+  position: absolute;
+  z-index: 30;
+  inline-size: max-content;
+  max-inline-size: 18rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--lit-radius-tile);
+  background: var(--lit-solid-bg-raised);
+  box-shadow: var(--lit-solid-lip), var(--lit-solid-shadow);
+  color: var(--lit-text-1);
+  font-family: var(--lit-font-ui);
+  font-size: var(--lit-type-label-size);
+  line-height: var(--lit-type-label-line);
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+  white-space: normal;
+}
+.lit-tip[data-side='below'] .lit-tip__bubble {
+  inset-block-start: calc(100% + 0.375rem);
+  inset-inline-start: 50%;
+  translate: -50% 0;
+}
+.lit-tip[data-side='below']:dir(rtl) .lit-tip__bubble {
+  translate: 50% 0;
+}
+.lit-tip[data-side='end'] .lit-tip__bubble {
+  inset-block-start: 0;
+  inset-inline-start: calc(100% + 0.375rem);
+}
+
+/* HeroFigure: the hero type on Figure; the mask and the dash keep the figure's height so nothing below moves. */
+.lit-hero {
+  display: inline-flex;
+  align-items: baseline;
+}
+.lit-hero[data-hidden],
+.lit-hero[data-unknown] {
+  font-family: var(--lit-font-figure);
+  font-size: var(--lit-type-hero-size);
+  line-height: var(--lit-type-hero-line);
+  font-weight: var(--lit-type-hero-weight);
+  color: var(--lit-text-1);
+}
+.lit-hero[data-hidden] {
+  letter-spacing: 0.08em;
+}
+.lit-hero[data-unknown] {
+  color: var(--lit-text-3);
+}
+
+/* Fold: a summary row with its count and a chevron; the body follows when open. */
+.lit-fold > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--lit-gap-item);
+  min-block-size: var(--lit-row-h);
+  cursor: pointer;
+  list-style: none;
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+  font-weight: 600;
+}
+.lit-fold > summary::-webkit-details-marker {
+  display: none;
+}
+.lit-fold > summary:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+  border-radius: var(--lit-radius-tile);
+}
+.lit-fold [data-part='count'] {
+  padding-inline: 0.5rem;
+  border-radius: 999px;
+  background: var(--lit-solid-bg-sunken);
+  color: var(--lit-text-2);
+  font-variant-numeric: tabular-nums;
+}
+.lit-fold [data-part='mark'] {
+  inline-size: 0.5rem;
+  block-size: 0.5rem;
+  margin-inline-start: auto;
+  border-inline-end: 2px solid currentColor;
+  border-block-end: 2px solid currentColor;
+  rotate: 45deg;
+  transition: rotate var(--lit-t-quick) var(--lit-ease);
+}
+.lit-fold[open] [data-part='mark'] {
+  rotate: 225deg;
+}
+@media (prefers-reduced-motion: reduce) {
+  .lit-fold [data-part='mark'] {
+    transition: none;
+  }
+}
+
+/* CardStack: the money object face in front, the lit card peeking from behind. */
+.lit-stack {
+  position: relative;
+  display: grid;
+  max-inline-size: 30rem;
+  padding-block-start: 2.25rem;
+}
+.lit-stack__card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  border-radius: var(--lit-radius-panel);
+  text-decoration: none;
+}
+.lit-stack__card[data-card='back'] {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline: 1.5rem;
+  block-size: 6rem;
+  flex-direction: row;
+  align-items: flex-start;
+  padding: 0.625rem 1.25rem;
+  background: var(--lit-object-spark-bg);
+  color: var(--lit-object-spark-fg);
+  box-shadow: var(--lit-fill-shadow);
+  font-weight: 600;
+}
+.lit-stack__card[data-card='back'] [data-part='peek'] {
+  margin-inline-start: auto;
+  font-family: var(--lit-font-figure);
+  font-stretch: 125%;
+}
+.lit-stack__card[data-card='front'] {
+  position: relative;
+  min-block-size: 12.5rem;
+  padding: 1.25rem 1.375rem 1.375rem;
+  background: var(--lit-object-bg);
+  color: var(--lit-object-fg);
+  box-shadow: var(--lit-object-shadow);
+}
+.lit-stack__card[data-card='front'] [data-part='top'] {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+.lit-stack__card[data-card='front'] [data-part='mark'] {
+  display: inline-flex;
+  opacity: 0.9;
+}
+.lit-stack__card[data-card='front'] [data-part='label'] {
+  font-size: var(--lit-type-label-size);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.72;
+}
+.lit-stack__card[data-card='front'] [data-part='figure'] {
+  font-family: var(--lit-font-figure);
+  font-stretch: 125%;
+  font-weight: 600;
+  font-size: 2rem;
+  line-height: 1;
+  letter-spacing: -0.035em;
+}
+.lit-stack__card[data-card='front'] [data-part='skeleton'] {
+  inline-size: 7.5rem;
+  block-size: 1.75rem;
+  border-radius: var(--lit-radius-tile);
+  background: color-mix(in srgb, var(--lit-object-fg) 16%, transparent);
+}
+.lit-stack__card:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 0.1875rem;
+}
+@media (min-width: 768px) {
+  .lit-stack {
+    max-inline-size: 36rem;
+  }
+  .lit-stack__card[data-card='front'] {
+    min-block-size: 14rem;
+  }
+  .lit-stack__card[data-card='front'] [data-part='figure'] {
+    font-size: 2.5rem;
+  }
+}
+
+/* AmountField: the money box. A sunken control with the figure and its unit; the hero size is the flow's one large
+   amount, centred, with no box of its own. What is available and the Max key sit under it. */
+.lit-amount {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  min-inline-size: 0;
+}
+.lit-amount > label {
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+}
+.lit-amount [data-part='box'] {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-block-size: var(--lit-control-h);
+  padding-inline: 0.875rem;
+  border-radius: var(--lit-radius-control);
+  background: var(--lit-control-bg);
+  box-shadow: inset 0 0 0 1px var(--lit-control-rim);
+}
+.lit-amount [data-part='box']:focus-within {
+  box-shadow: inset 0 0 0 1px var(--lit-control-rim-active);
+}
+.lit-amount [data-part='box']:has(input:focus-visible) {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+.lit-amount[data-invalid] [data-part='box'] {
+  box-shadow: inset 0 0 0 1px var(--lit-error-text);
+}
+.lit-amount[data-disabled] [data-part='box'] {
+  opacity: 0.5;
+}
+.lit-amount input {
+  flex: 1;
+  min-inline-size: 0;
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--lit-text-1);
+  font-family: var(--lit-font-figure);
+  font-size: var(--lit-type-figure-size);
+  line-height: var(--lit-type-figure-line);
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+  outline: none;
+}
+.lit-amount input::placeholder {
+  color: var(--lit-text-3);
+}
+.lit-amount [data-part='unit'] {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  flex: none;
+  color: var(--lit-text-2);
+  font-weight: 600;
+}
+.lit-amount[data-size='hero'] [data-part='box'] {
+  justify-content: center;
+  min-block-size: 4rem;
+  background: none;
+  box-shadow: none;
+}
+.lit-amount[data-size='hero'][data-invalid] [data-part='box'] {
+  box-shadow: inset 0 -1px 0 0 var(--lit-error-text);
+}
+.lit-amount[data-size='hero'] input {
+  flex: 0 1 auto;
+  field-sizing: content;
+  min-inline-size: 1ch;
+  max-inline-size: 100%;
+  font-size: var(--lit-type-hero-size);
+  line-height: var(--lit-type-hero-line);
+  font-weight: var(--lit-type-hero-weight);
+  text-align: center;
+}
+.lit-amount[data-size='hero'] > label {
+  text-align: center;
+}
+.lit-amount [data-part='foot'] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+  font-variant-numeric: tabular-nums;
+}
+.lit-amount [data-part='max'] {
+  min-block-size: 2.75rem;
+  padding-inline: 0.875rem;
+  border: 0;
+  border-radius: var(--lit-radius-control);
+  background: var(--lit-solid-bg-raised);
+  color: var(--lit-text-1);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.lit-amount [data-part='max']:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+.lit-amount [data-part='max']:disabled {
+  color: var(--lit-text-disabled);
+  cursor: default;
+}
+.lit-amount [data-part='hint'] {
+  color: var(--lit-text-3);
+  font-size: var(--lit-type-label-size);
+}
+.lit-amount [data-part='error'] {
+  color: var(--lit-error-text);
+  font-size: var(--lit-type-label-size);
+}
+
+/* Toast: a short confirmation at the top of the screen, under the top bar; an opaque raised panel, never glass. The
+   region lets taps through where no toast is. */
+.lit-toasts {
+  position: fixed;
+  z-index: 60;
+  inset-block-start: calc(var(--lit-topbar-h) + 0.75rem);
+  inset-inline: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding-inline: 1rem;
+  pointer-events: none;
+}
+.lit-toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  inline-size: 100%;
+  max-inline-size: 24rem;
+  padding-block: 0.75rem;
+  padding-inline: 1rem 0.5rem;
+  border-radius: var(--lit-radius-tile);
+  background: var(--lit-solid-bg-raised);
+  box-shadow: var(--lit-solid-lip), var(--lit-solid-shadow);
+  color: var(--lit-text-1);
+  pointer-events: auto;
+  animation: lit-toast-in var(--lit-t-base) var(--lit-ease);
+}
+.lit-toast [data-part='text'] {
+  flex: 1;
+  min-inline-size: 0;
+}
+.lit-toast p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.lit-toast [data-part='title'] {
+  font-weight: 600;
+}
+.lit-toast [data-part='body'] {
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+}
+.lit-toast [data-part='close'] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  inline-size: 2.75rem;
+  block-size: 2.75rem;
+  margin-block: -0.5rem;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--lit-text-2);
+  cursor: pointer;
+}
+.lit-toast [data-part='close']:hover {
+  color: var(--lit-text-1);
+}
+.lit-toast [data-part='close']:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+@keyframes lit-toast-in {
+  from {
+    opacity: 0;
+    translate: 0 -0.5rem;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lit-toast {
+    animation: none;
+  }
+}
+
+/* Payee: the person being paid, on one row: face, name over handle, a confirmed badge, the tick. */
+.lit-payee {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-inline-size: 0;
+  padding-block: 0.5rem;
+  padding-inline: 0.75rem;
+  border-radius: var(--lit-radius-tile);
+  background: var(--lit-solid-bg-raised);
+  color: var(--lit-text-1);
+}
+.lit-payee [data-part='face'] {
+  display: grid;
+  place-items: center;
+  flex: none;
+  inline-size: 2.5rem;
+  block-size: 2.5rem;
+  border-radius: 50%;
+  background: var(--lit-solid-bg-sunken);
+  box-shadow: var(--lit-solid-lip);
+  font-weight: 600;
+}
+.lit-payee [data-part='who'] {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-inline-size: 0;
+}
+.lit-payee [data-part='name'] {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.lit-payee [data-part='handle'] {
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+  overflow-wrap: anywhere;
+  unicode-bidi: plaintext;
+}
+.lit-payee [data-part='badge'] {
+  flex: none;
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+}
+.lit-payee [data-part='tick'] {
+  flex: none;
+  color: var(--lit-status-done);
+}
+
+/* StatusNote: where something stands, in the flow. A raised tile with an edge at its start; warn and error say so in
+   words and in the edge, never in a fill. */
+.lit-note {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  padding-block: 0.75rem;
+  padding-inline: 1rem;
+  border-inline-start: 3px solid var(--lit-line-strong);
+  border-radius: var(--lit-radius-tile);
+  background: var(--lit-solid-bg-raised);
+  color: var(--lit-text-1);
+}
+.lit-note[data-tone='warn'] {
+  border-inline-start-color: var(--lit-warn-text);
+}
+.lit-note[data-tone='error'] {
+  border-inline-start-color: var(--lit-error-text);
+}
+.lit-note p {
+  margin: 0;
+}
+.lit-note [data-part='title'] {
+  font-weight: 600;
+}
+.lit-note[data-tone='warn'] [data-part='title'] {
+  color: var(--lit-warn-text);
+}
+.lit-note[data-tone='error'] [data-part='title'] {
+  color: var(--lit-error-text);
+}
+.lit-note [data-part='body'] {
+  color: var(--lit-text-2);
+  overflow-wrap: anywhere;
+}
+.lit-note [data-part='body'] a {
+  color: var(--lit-text-1);
+}
+.lit-note [data-part='actions'] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-block-start: 0.25rem;
+}
+
+/* Field with a mark before its text or a control after it: the box takes the input's look and the input goes bare. */
+.lit-field-control [data-part='box'] {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-block-size: var(--lit-control-h);
+  padding-inline: 0.875rem 0.375rem;
+  border-radius: var(--lit-radius-control);
+  background: var(--lit-control-bg);
+  box-shadow: inset 0 0 0 1px var(--lit-control-rim);
+}
+.lit-field-control [data-part='box']:focus-within {
+  box-shadow: inset 0 0 0 1px var(--lit-control-rim-active);
+}
+.lit-field-control [data-part='box']:has(input[aria-invalid='true']) {
+  box-shadow: inset 0 0 0 1px var(--lit-error-text);
+}
+.lit-field-control [data-part='box'] input {
+  flex: 1;
+  min-inline-size: 0;
+  min-block-size: 0;
+  padding: 0;
+  background: none;
+  box-shadow: none;
+}
+.lit-field-control [data-part='box'] input:focus {
+  box-shadow: none;
+  outline: none;
+}
+.lit-field-control [data-part='box']:has(input:focus-visible) {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+.lit-field-control [data-part='before'] {
+  flex: none;
   color: var(--lit-text-2);
 }

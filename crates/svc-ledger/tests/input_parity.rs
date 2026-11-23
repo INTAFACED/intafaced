@@ -1,5 +1,6 @@
-//! Each door's first input check against zod's own verdicts: `fixtures/input-parity.golden.json` holds what the
-//! TypeScript schema answered (its output, or its issues) to inputs `scripts/record-door.mjs` made for each door.
+//! Each door's first input check, and each reply a door checks before it answers, against zod's own verdicts:
+//! `fixtures/input-parity.golden.json` holds what the TypeScript schema answered (its output, or its issues) to inputs
+//! `scripts/record-door.mjs` made for each door.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -67,9 +68,17 @@ fn every_door_input_answers_as_zod() {
         }
     }
     println!(
-        "{} inputs over {} doors; {} differ",
+        "{} inputs over {} schemas; {} differ",
         cases.len(),
-        14,
+        cases
+            .iter()
+            .filter_map(|c| match c {
+                Json::Array(c) => c.first().cloned(),
+                _ => None,
+            })
+            .map(|n| n.compact())
+            .collect::<std::collections::BTreeSet<_>>()
+            .len(),
         differ.len()
     );
     assert!(

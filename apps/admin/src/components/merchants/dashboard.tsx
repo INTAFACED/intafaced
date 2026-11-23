@@ -1,6 +1,6 @@
 import type { FounderGlobalMetrics } from '@intafaced/contracts';
 import type { DashboardData } from '@/lib/merchants/loaders';
-import { amountFor, sumByAsset, compareDecimal, type AssetAmount } from '@/lib/merchants/money';
+import { amountFor, sumByAsset, compareDecimal, type AssetAmount } from '@/lib/money';
 import { railChip } from '@/lib/merchants/chips';
 import { railDetail, railName } from '@/lib/merchants/rails';
 import { stalestFreshness, type Freshness } from '@/lib/merchants/time';

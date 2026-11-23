@@ -28,6 +28,11 @@ const messages = {
   'Available loading': 'Available —',
   Max: 'Max',
   'Estimated price': 'Estimated price',
+  // The price's freshness, in the words the old kit's chip used.
+  'Price live': 'Live',
+  'Price stale': 'Stale',
+  'Price refused word': 'Refused',
+  'Price unknown': 'Unknown',
   Fee: 'Fee',
   'Estimated cost': 'Estimated cost',
   'Estimated value': 'Estimated value',

@@ -1,10 +1,8 @@
 import { useEffect, useState } from 'react';
-import { supportContactChannelsSchema, supportContactProblem } from '@intafaced/contracts/support-contact';
-import { contractProcedure, readContract } from '../../shared/contract-call';
+import { supportContactProblem } from '@intafaced/contracts/support-contact';
+import { SUPPORT_CONTACT_CHANNELS } from '@intafaced/contracts/support-desk-settings-procedures';
 import { useApi } from '../session';
 import { supportEmail } from './support-desk';
-
-const contactChannels = contractProcedure('support', 'contactChannels', { output: supportContactChannelsSchema });
 
 /**
  * The address owned by the build, or `null` while none is published. `VITE_SUPPORT_EMAIL` is read at call time so a screen
@@ -42,7 +40,8 @@ export function useSupportContact(): SupportContact {
   const [state, setState] = useState<SupportContact>({ status: 'loading', email: supportContactEmail(), phone: null, chatHours: null });
   useEffect(() => {
     const controller = new AbortController();
-    void readContract(api, contactChannels, undefined, { signal: controller.signal })
+    void api
+      .call(SUPPORT_CONTACT_CHANNELS, undefined, { signal: controller.signal })
       .then((answer) => {
         if (controller.signal.aborted) return;
         setState(mergeSupportContact(answer.ok ? { ok: true, ...answer.data } : { ok: false }, supportContactEmail()));

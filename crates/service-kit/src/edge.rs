@@ -25,6 +25,12 @@ pub struct Principal {
     pub mfa: bool,
     pub kid: Option<String>,
     pub sub_account: Option<String>,
+    /// `sid`: the session the principal was minted for (a step-up approval is bound to it).
+    pub sid: String,
+    /// `fam`: the sign-in (session family) the access token names, the same across refreshes; none when it names none.
+    pub fam: Option<String>,
+    /// `dev`: the trusted device the access token names; none when it names none.
+    pub dev: Option<String>,
 }
 
 /// `signPrincipalHeader`: HMAC-SHA256 over `<raw>\nregion=<region>`, lower-case hex.
@@ -207,6 +213,18 @@ fn parse_principal(v: &Json) -> Option<(Principal, Instant, Option<i64>)> {
                 Some(Json::String(k)) => Some(k.clone()),
                 _ => None,
             },
+            sid: match v.get("sid") {
+                Some(Json::String(k)) => k.clone(),
+                _ => String::new(),
+            },
+            fam: match v.get("fam") {
+                Some(Json::String(k)) => Some(k.clone()),
+                _ => None,
+            },
+            dev: match v.get("dev") {
+                Some(Json::String(k)) => Some(k.clone()),
+                _ => None,
+            },
         },
         expires_at,
         iat,
@@ -313,40 +331,80 @@ pub fn verify_with(
     now: Instant,
     region: &str,
 ) -> Option<Principal> {
-    let raw = raw.filter(|r| !r.is_empty())?;
     let signature = signature.filter(|s| !s.is_empty())?;
+    verify_reason(raw, Some(signature), Some(secret), edge_key, now, region).ok()
+}
+
+/// Why `verifyForwardedPrincipal` believed no principal: its `rejected`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Rejected {
+    /// No principal was sent (`rejected: null`).
+    Absent,
+    BadSignature,
+    Malformed,
+    Expired,
+}
+
+impl Rejected {
+    /// The TypeScript's word for it; none for a principal never sent.
+    pub fn word(self) -> Option<&'static str> {
+        match self {
+            Rejected::Absent => None,
+            Rejected::BadSignature => Some("bad-signature"),
+            Rejected::Malformed => Some("malformed"),
+            Rejected::Expired => Some("expired"),
+        }
+    }
+}
+
+/// `verifyForwardedPrincipal(raw, signature, { hmacSecret, publicKey, limits }, now, region)`: the principal, or why
+/// it was refused. With no shared secret the HMAC form is refused; with no public key the `ed25519:` form is.
+pub fn verify_reason(
+    raw: Option<&str>,
+    signature: Option<&str>,
+    secret: Option<&str>,
+    edge_key: Option<&EdgeKey>,
+    now: Instant,
+    region: &str,
+) -> Result<Principal, Rejected> {
+    let raw = raw.filter(|r| !r.is_empty()).ok_or(Rejected::Absent)?;
+    let signature = signature
+        .filter(|s| !s.is_empty())
+        .ok_or(Rejected::BadSignature)?;
     let asymmetric = signature.starts_with("ed25519:");
     if asymmetric {
-        let key = edge_key?;
+        let key = edge_key.ok_or(Rejected::BadSignature)?;
         if !ed25519_matches(raw, signature, &key.public_key, region) {
-            return None;
+            return Err(Rejected::BadSignature);
         }
-    } else if !signature_matches(raw, signature, secret, region) {
-        return None;
+    } else if !secret.is_some_and(|s| signature_matches(raw, signature, s, region)) {
+        return Err(Rejected::BadSignature);
     }
-    let parsed = json::parse(raw).ok()?;
-    let (principal, expires_at, iat) = parse_principal(&parsed)?;
+    let parsed = json::parse(raw).map_err(|_| Rejected::Malformed)?;
+    let (principal, expires_at, iat) = parse_principal(&parsed).ok_or(Rejected::Malformed)?;
     if expires_at <= now {
-        return None;
+        return Err(Rejected::Expired);
     }
     if let (true, Some(key)) = (asymmetric, edge_key) {
         // Short-lived by construction: iat is required, not in the future past the skew, and the expiry at most the
         // configured lifetime after it.
-        let iat_ms = iat?.checked_mul(1000)?;
+        let iat_ms = iat
+            .and_then(|i| i.checked_mul(1000))
+            .ok_or(Rejected::Malformed)?;
         if iat_ms
             > now
                 .0
                 .saturating_add(key.limits.clock_skew_seconds.saturating_mul(1000))
         {
-            return None;
+            return Err(Rejected::Malformed);
         }
         if expires_at.0.saturating_sub(iat_ms)
             > key.limits.max_lifetime_seconds.saturating_mul(1000)
         {
-            return None;
+            return Err(Rejected::Expired);
         }
     }
-    Some(principal)
+    Ok(principal)
 }
 
 #[cfg(test)]
