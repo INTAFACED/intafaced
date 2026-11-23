@@ -307,7 +307,7 @@ const MAX_MOVES: usize = 10_000;
 
 /// `partnerMovesBetween`: the partner's lines for the person in one asset in `[from, to)`, newest first, pay-ins
 /// included, read a window at a time; more than 10,000 refuses `bank.statement_too_large`.
-fn partner_moves_between(
+pub(crate) fn partner_moves_between(
     p: &Held<'_>,
     user_id: &str,
     asset: &str,

@@ -46,6 +46,8 @@ mod business_retry_db;
 mod business_roles_db;
 #[path = "business_spend_bills_db.rs"]
 mod business_spend_bills_db;
+#[path = "business_spend_books_db.rs"]
+mod business_spend_books_db;
 #[path = "business_spend_cards_db.rs"]
 mod business_spend_cards_db;
 #[path = "business_team_db.rs"]
