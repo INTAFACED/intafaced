@@ -133,64 +133,88 @@ export function memoryMarginCallStore(): MarginCallStore {
   };
 }
 
+function isSequenceClash(err: unknown): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    'code' in err &&
+    err.code === '23505' &&
+    'constraint_name' in err &&
+    err.constraint_name === 'position_margin_calls_seq_uidx'
+  );
+}
+
 /**
  * Production store — identity + delivery only. No grace column (D3).
  */
 export function sqlMarginCallStore(sql: Sql): MarginCallStore {
+  async function upsertDelivered(input: Parameters<MarginCallStore['recordDelivered']>[0]): Promise<MarginCallRecord> {
+    const rows = await sql<
+      {
+        position_id: string;
+        user_id: string;
+        market_id: string;
+        sequence: number;
+        health_bps: number;
+        called_at: Date;
+        delivered_at: Date;
+        cleared_at: Date | null;
+      }[]
+    >`
+      WITH next_seq AS (
+        SELECT COALESCE(MAX(sequence), 0) + 1 AS sequence
+          FROM trade.position_margin_calls
+         WHERE position_id = ${input.positionId}
+      ),
+      upsert AS (
+        INSERT INTO trade.position_margin_calls (
+          position_id, user_id, market_id, sequence, health_bps, called_at, delivered_at
+        )
+        SELECT
+          ${input.positionId}::uuid,
+          ${input.userId}::uuid,
+          ${input.marketId},
+          next_seq.sequence,
+          ${input.healthBps},
+          ${input.at.toISOString()}::timestamptz,
+          ${input.at.toISOString()}::timestamptz
+        FROM next_seq
+        ON CONFLICT (position_id) WHERE cleared_at IS NULL
+        DO UPDATE SET
+          health_bps = EXCLUDED.health_bps,
+          delivered_at = EXCLUDED.delivered_at
+        RETURNING
+          position_id, user_id, market_id, sequence, health_bps,
+          called_at, delivered_at, cleared_at
+      )
+      SELECT * FROM upsert
+    `;
+    const row = rows[0];
+    if (!row) throw new Error('trade.margin_call_persist_failed');
+    return {
+      positionId: row.position_id,
+      userId: row.user_id,
+      marketId: row.market_id,
+      sequence: row.sequence,
+      healthBps: row.health_bps,
+      calledAt: row.called_at instanceof Date ? row.called_at : new Date(row.called_at),
+      deliveredAt: row.delivered_at instanceof Date ? row.delivered_at : new Date(row.delivered_at),
+      clearedAt: row.cleared_at == null ? null : row.cleared_at instanceof Date ? row.cleared_at : new Date(row.cleared_at),
+    };
+  }
+
   return {
     async recordDelivered(input) {
-      const rows = await sql<
-        {
-          position_id: string;
-          user_id: string;
-          market_id: string;
-          sequence: number;
-          health_bps: number;
-          called_at: Date;
-          delivered_at: Date;
-          cleared_at: Date | null;
-        }[]
-      >`
-        WITH next_seq AS (
-          SELECT COALESCE(MAX(sequence), 0) + 1 AS sequence
-            FROM trade.position_margin_calls
-           WHERE position_id = ${input.positionId}
-        ),
-        upsert AS (
-          INSERT INTO trade.position_margin_calls (
-            position_id, user_id, market_id, sequence, health_bps, called_at, delivered_at
-          )
-          SELECT
-            ${input.positionId}::uuid,
-            ${input.userId}::uuid,
-            ${input.marketId},
-            next_seq.sequence,
-            ${input.healthBps},
-            ${input.at.toISOString()}::timestamptz,
-            ${input.at.toISOString()}::timestamptz
-          FROM next_seq
-          ON CONFLICT (position_id) WHERE cleared_at IS NULL
-          DO UPDATE SET
-            health_bps = EXCLUDED.health_bps,
-            delivered_at = EXCLUDED.delivered_at
-          RETURNING
-            position_id, user_id, market_id, sequence, health_bps,
-            called_at, delivered_at, cleared_at
-        )
-        SELECT * FROM upsert
-      `;
-      const row = rows[0];
-      if (!row) throw new Error('trade.margin_call_persist_failed');
-      return {
-        positionId: row.position_id,
-        userId: row.user_id,
-        marketId: row.market_id,
-        sequence: row.sequence,
-        healthBps: row.health_bps,
-        calledAt: row.called_at instanceof Date ? row.called_at : new Date(row.called_at),
-        deliveredAt: row.delivered_at instanceof Date ? row.delivered_at : new Date(row.delivered_at),
-        clearedAt: row.cleared_at == null ? null : row.cleared_at instanceof Date ? row.cleared_at : new Date(row.cleared_at),
-      };
+      // Two raises on one position at once read the same MAX(sequence); the loser clashes on
+      // position_margin_calls_seq_uidx, which upsertDelivered's ON CONFLICT does not name, only after the winner's row is
+      // committed. Running the write again then meets that open call and refreshes it.
+      for (let attempt = 1; ; attempt += 1) {
+        try {
+          return await upsertDelivered(input);
+        } catch (err) {
+          if (attempt >= 3 || !isSequenceClash(err)) throw err;
+        }
+      }
     },
 
     async getOpenForPosition(positionId) {

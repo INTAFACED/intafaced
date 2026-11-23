@@ -1,0 +1,26 @@
+{
+  "headers": [
+    [
+      ["content-type", "application/json; charset=utf-8"],
+      ["referrer-policy", "no-referrer"],
+      ["x-content-type-options", "nosniff"],
+      ["x-frame-options", "DENY"],
+      ["x-ratelimit-limit", "1000000"]
+    ]
+  ],
+  "bodies": [
+    "{\"error\":\"An operator token is required\",\"code\":\"token.invalid\"}",
+    "{\"error\":\"Access token could not be verified\",\"code\":\"token.invalid\"}",
+    "{\"error\":\"Scope \\\"admin:write\\\" is required\",\"code\":\"scope.denied\"}",
+    "{\"path\":\"/connect/data-lake/persist-consumer\",\"fabricBridge\":\"@intafaced/venue-adapter/fabric/capture-lake-bridge.drainFabricCaptureLakeToPersistence\",\"persistenceEnvComplete\":false,\"captureLogOnly\":true,\"inventsRetentionDays\":false}"
+  ],
+  "answers": {
+    "GET /connect/data-lake/persist-consumer": {
+      "absent anon": [401, 0, 0],
+      "absent bad-token": [401, 0, 1],
+      "absent api-key": [401, 0, 1],
+      "absent no-scope": [403, 0, 2],
+      "absent all": [200, 0, 3]
+    }
+  }
+}

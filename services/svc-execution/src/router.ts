@@ -2,7 +2,9 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { AuthError, requireMfa } from '@intafaced/auth';
 import type { ActionApproval, ActionApprovalConsumeInput } from '@intafaced/contracts';
-import { publicProcedure, router, scopedProcedure } from '@intafaced/contracts';
+import { publicProcedure, router, scopedProcedure } from '@intafaced/contracts/trpc';
+import { EXECUTION_SPINE } from '@intafaced/contracts/execution-procedures';
+import { mountRecord, type RefusalOf } from '@intafaced/contracts/procedure-mount';
 import { OMS_WRITE_CALLER, requireOmsWriteService } from './oms-write-hmac.js';
 import { SealedHouseTenantRegistry, type TenantDescribe, type TenantRefusal } from '@intafaced/execution-house-tenant';
 import type { CaptureLake } from '@intafaced/venue-adapter';
@@ -78,6 +80,9 @@ import { ArbOpportunityError, readArbOpportunities, type ArbOpportunityFeed } fr
 import { planOmsArbAtomicLegs } from './oms-arb-plan-legs.js';
 import { executeOmsArbAtomicLegs } from './oms-arb-execute-legs.js';
 import { describeExecutionSpine } from './oms-spine.js';
+
+/** The spine's handler throws nothing of its own; its guard's refusals pass through unchanged. */
+const noRefusal: RefusalOf = () => undefined;
 import { planOmsExternalMmHedge, quoteOmsExternalMm } from './oms-market-making.js';
 import { planOmsRoute } from './oms-plan.js';
 import { runTcaRun, TCA_BENCHMARK_CLASSES } from './oms-tca.js';
@@ -1687,7 +1692,7 @@ export function createExecutionRouter(
 
       policy: publicProcedure.query(() => describeExecutionSpine()),
 
-      spine: scopedProcedure('admin:read', { module: 'execution' }).query(() => describeExecutionSpine()),
+      spine: mountRecord(EXECUTION_SPINE, () => describeExecutionSpine(), noRefusal),
 
       arb: router({
         /**

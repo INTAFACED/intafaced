@@ -1,6 +1,6 @@
 /**
- * J-bank-29 #1 and #2 (BK-ccrypto-01): Pay from over real rows. The partner's balance and the rate for each asset the
- * partner can spend from, "not known" where a source is silent (never 0), and the saved pay-from order with its refusals.
+ * J-bank-29 #1 and #2 (BK-ccrypto-01): Pay from over real rows. The partner's balance and the partner's own quoted rate
+ * for each asset it can spend from, "not known" where a source is silent (never 0), and the saved pay-from order with its refusals.
  * Nothing here moves value: the partner holds the money (OWNER 226), and the ledger journal shows no
  * posting happens: the journal holds only the funding deposit before and after.
  *
@@ -10,14 +10,17 @@ import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryLedger, parseAmount as amt, recipes } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { CardService } from './card-service.js';
 import { cardSim } from './issuer.js';
 import { cardSimPartnerFor, type CardPartnerTerms } from './partner-terms.js';
+import { testPartnerCardHolds, type PartnerCardHolds } from './partner-card-holds.js';
+import { testPartner } from '../partner/test-partner.js';
 import type { PriceSource, QuotedMark } from '../loans/prices.js';
+import { DEFAULT_CARD_CONVERSION_POLICY } from './conversion.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -29,7 +32,7 @@ const migrations = readdirSync(drizzle)
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
   const envUrl = process.env.TEST_DATABASE_URL?.trim();
   if (envUrl) return { url: envUrl, stop: async () => undefined };
-  const container = await new PostgreSqlContainer('postgres:16-alpine').start();
+  const container = await testPostgres('postgres:16-alpine').start();
   return { url: container.getConnectionUri(), stop: async () => void (await container.stop()) };
 }
 
@@ -96,14 +99,25 @@ describe('Pay from (J-bank-29 #1 #2, PG-hard)', () => {
 
   const entries = async () => ledger.journal().length;
 
-  it('each offered asset carries the partner balance and the rate in the settlement asset with its time; a silent source is "not known", never 0', async () => {
+  /** The TEST partner card, quoting its own TEST rates (J-bank-29 #2): 1 BTC is 65000.5 USDC; it quotes nothing for USD. */
+  const QUOTING: CardPartnerTerms = { ...PARTNER, rates: { in: 'USDC', perUnit: { BTC: '65000.5' } } };
+  const quoted = (partner: CardPartnerTerms = QUOTING, holds?: PartnerCardHolds) =>
+    new CardService(sql, ledger, {
+      issuer: cardSim({ partner }),
+      spendAssets: ['USDC', 'BTC', 'USD'],
+      rates,
+      clock: () => AT,
+      partnerHolds: holds ?? testPartnerCardHolds({ terms: () => partner, switches: () => testPartner().switches(user), clock: () => AT }),
+    });
+
+  it('each offered asset carries the partner balance and the partner’s quoted rate with its time; a silent partner is "not known", never 0', async () => {
     const before = await entries();
-    const view = await service().payFrom(user);
+    const view = await quoted().payFrom(user);
     expect(view.settlementAssetId).toBe('USDC');
     expect(view.assets).toEqual([
       { assetId: 'USDC', state: 'offered', partnerBalance: '30', rate: '1', rateAsOf: AT.toISOString() },
       { assetId: 'BTC', state: 'offered', partnerBalance: '0.01', rate: '65000.5', rateAsOf: AT.toISOString() },
-      // No USD market on the rate source: the rate is null ("not known"), not 0 and not 1.
+      // The partner quotes nothing for USD: the rate is null ("not known"), not 0 and not 1.
       { assetId: 'USD', state: 'offered', partnerBalance: '50', rate: null, rateAsOf: null },
       // The person's USDT card: the partner cannot spend from it, so no balance or rate is shown for it.
       { assetId: 'USDT', state: 'not_offered', partnerBalance: null, rate: null, rateAsOf: null },
@@ -113,34 +127,47 @@ describe('Pay from (J-bank-29 #1 #2, PG-hard)', () => {
     expect(await entries()).toEqual(before);
   });
 
-  it('a partner that reports no balances reads each "not known"; a rate source that throws reads each sourced rate "not known"', async () => {
-    const silent = service({ ...PARTNER, balances: null }, undefined, {
-      marks: async () => {
-        throw new Error('ticker down');
-      },
-    });
-    const view = await silent.payFrom(user);
-    for (const row of view.assets) {
-      // The settlement asset in itself is 1 by definition; every rate the source would have given is "not known".
-      expect(row).toMatchObject(
-        row.assetId === 'USDC' ? { partnerBalance: null, rate: '1' } : { partnerBalance: null, rate: null, rateAsOf: null },
-      );
-    }
+  it('a partner that reports no balances and quotes no rates reads each "not known"', async () => {
+    const view = await quoted({ ...PARTNER, balances: null, rates: null }).payFrom(user);
+    for (const row of view.assets) expect(row).toMatchObject({ partnerBalance: null, rate: null, rateAsOf: null });
   });
 
-  it('a stale or non-positive rate is not shown: it reads "not known", as a conversion would refuse it', async () => {
-    const old: PriceSource = {
-      marks: async () =>
-        new Map([['BTC', { assetId: 'BTC', price: amt('65000'), asOf: new Date(AT.getTime() - 120_000), quality: 'mid' }]]),
+  it('the market’s price never stands in for the partner’s quote, and a quote that is not a positive decimal reads "not known"', async () => {
+    // A market that prices BTC, and no partner that quotes: every rate is "not known".
+    for (const row of (await service().payFrom(user)).assets) expect(row.rate).toBeNull();
+    const base = testPartnerCardHolds({ terms: () => QUOTING, switches: () => testPartner().switches(user), clock: () => AT });
+    const odd: PartnerCardHolds = {
+      ...base,
+      quote: async ({ assetId }) => (assetId === 'BTC' ? { rate: '0', asOf: AT.toISOString() } : { rate: '1e3', asOf: AT.toISOString() }),
     };
-    expect((await service(PARTNER, undefined, old).payFrom(user)).assets.find((a) => a.assetId === 'BTC')).toMatchObject({
-      rate: null,
-      rateAsOf: null,
+    for (const row of (await quoted(QUOTING, odd).payFrom(user)).assets) expect(row.rate).toBeNull();
+  });
+
+  it('a partner quote older than the conversion policy’s window, or dated in the future, reads "not known"; a fresh one shows', async () => {
+    const maxAge = DEFAULT_CARD_CONVERSION_POLICY.maxAgeSeconds;
+    const at = (seconds: number) => new Date(AT.getTime() + seconds * 1_000).toISOString();
+    const base = testPartnerCardHolds({ terms: () => QUOTING, switches: () => testPartner().switches(user), clock: () => AT });
+    const agedBy = (seconds: number): PartnerCardHolds => ({
+      ...base,
+      quote: async ({ assetId }) => (assetId === 'BTC' ? { rate: '65000.5', asOf: at(-seconds) } : null),
     });
-    const zero: PriceSource = { marks: async () => new Map([['BTC', { assetId: 'BTC', price: 0n, asOf: AT, quality: 'mid' }]]) };
-    expect((await service(PARTNER, undefined, zero).payFrom(user)).assets.find((a) => a.assetId === 'BTC')).toMatchObject({ rate: null });
-    // The settlement asset in itself is 1 by definition, whatever the source says.
-    expect((await service(PARTNER, undefined, zero).payFrom(user)).assets.find((a) => a.assetId === 'USDC')).toMatchObject({ rate: '1' });
+    const btc = async (holds: PartnerCardHolds) => (await quoted(QUOTING, holds).payFrom(user)).assets.find((a) => a.assetId === 'BTC');
+    expect(await btc(agedBy(maxAge + 1))).toMatchObject({ state: 'offered', partnerBalance: '0.01', rate: null, rateAsOf: null });
+    expect(await btc(agedBy(-120))).toMatchObject({ rate: null, rateAsOf: null });
+    expect(await btc(agedBy(maxAge))).toMatchObject({ rate: '65000.5', rateAsOf: at(-maxAge) });
+  });
+
+  it('a partner whose quote throws reads each rate "not known" and Pay from still opens with its balances', async () => {
+    const base = testPartnerCardHolds({ terms: () => QUOTING, switches: () => testPartner().switches(user), clock: () => AT });
+    const down: PartnerCardHolds = {
+      ...base,
+      quote: async () => {
+        throw new Error('partner quote down');
+      },
+    };
+    const view = await quoted(QUOTING, down).payFrom(user);
+    for (const row of view.assets) expect(row).toMatchObject({ rate: null, rateAsOf: null });
+    expect(view.assets.find((a) => a.assetId === 'BTC')).toMatchObject({ state: 'offered', partnerBalance: '0.01' });
   });
 
   it('a partner balance read that fails, or a figure that is not a plain decimal, reads "not known" without breaking Pay from', async () => {

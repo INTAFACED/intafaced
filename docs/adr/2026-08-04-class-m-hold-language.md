@@ -45,8 +45,8 @@ The carve-outs above are the exception and are permanently binding, because they
 ## What is NOT a hold
 
 - **A tracker row with no `status`.** That means unstarted, not held. `bank.earn` sat statusless with four procedures and thirty tests on main; reading that as a hold is how shipped work stays unclaimed.
-- **A `⛔` in a generated view.** `docs/TRACKER.md` is generated from `features.mjs`. The row is the authority; the render is not.
-- **A stale claim on a session board.** `LIVE-LANES.md` is _session_ who-codes-what. A lane row referencing a PR that has merged is expired, not binding.
+- **A `⛔` in a generated view.** The status board was generated from `features.mjs` (both board files were removed in November 2026). The row is the authority; the render is not.
+- **A stale claim on a session board.** The session claims board (since removed) was _session_ who-codes-what. A lane row referencing a PR that has merged is expired, not binding.
 - **Another agent's open PR** — that is a **dual-edit** rule, which is different and stricter: do not edit the same files, regardless of holds.
 - **A law document naming a branch or a gate.** Two such instructions in `DIRECTION` have been found stale today — §2's resume of `feat/multi-asset-instruments` and §4's direction to extend `custody-scan` to Java. Both were correct when written. **An instruction that has been overtaken by the code does not bind**; report it and proceed.
 

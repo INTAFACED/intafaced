@@ -13,7 +13,9 @@
  * Fails closed: identity unwired or unreachable (`p2p.step_up_unverifiable`), a spent, foreign, expired or mismatched
  * approval, or no confirmation at all each refuse before anything is stored.
  */
-import { ACTION_APPROVAL_CONSUME_FAILED, customerStepUpPayloadHash, type ActionApproval } from '@intafaced/contracts';
+import type { ActionApproval } from '@intafaced/contracts';
+import { ACTION_APPROVAL_CONSUME_FAILED } from '@intafaced/contracts/action-approval-client';
+import { customerStepUpPayloadHash } from '@intafaced/contracts/customer-step-up';
 import { p2pInstrumentDetailsDigest } from '@intafaced/contracts/p2p-rule-class';
 import type { Sql } from 'postgres';
 import { ActionApprovalConsumeError, type ActionApprovalConsumer } from './action-approval-consume.js';

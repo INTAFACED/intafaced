@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DESKS, allReads } from '@/lib/ops-desk/catalog';
-import { readData } from '@/lib/ops-desk/model';
-import type { DeskView, ReadOutcome } from '@/lib/ops-desk/types';
+import { DESKS, allReads, readData, type DeskView, type ReadOutcome } from '@/lib/ops-desk';
 import { ACTION_LABELS, PROTOCOL_ACTIONS, blockersFor, factsFrom, networkLabel } from './blockers';
 
 const AT = '2026-10-17T03:00:00.000Z';

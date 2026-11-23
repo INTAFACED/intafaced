@@ -129,6 +129,23 @@ describe('customer step-up binding', () => {
     }
   });
 
+  it('binds an agent key connection to the key and the agent account, with no amount (J-agents-21 #6)', () => {
+    const fields = { keyId: '5a5a5a5a-0000-4000-8000-000000000061', accountId: '5a5a5a5a-0000-4000-8000-000000000021' };
+    const scope = 'trade.step_up.venue.agentConnect';
+    const bound = bindCustomerStepUp(ACTOR, { scope, purpose: 'venue.agentConnect', target: fields.keyId, fields });
+    expect(bound).toMatchObject({ ok: true, scope, target: fields.keyId });
+    expect(bound.ok && bound.payloadHash).toBe(customerStepUpPayloadHash(scope, { ...fields, actor: ACTOR }));
+    for (const over of [{ keyId: 'not-a-uuid' }, { accountId: '' }]) {
+      const sent = { ...fields, ...over };
+      expect(
+        bindCustomerStepUp(ACTOR, { scope, purpose: 'venue.agentConnect', target: sent.keyId, fields: sent }).ok,
+        JSON.stringify(over),
+      ).toBe(false);
+    }
+    // The account door's own fields never bind here.
+    expect(bindCustomerStepUp(ACTOR, { scope, purpose: 'venue.agentAccount', target: fields.keyId, fields }).ok).toBe(false);
+  });
+
   it('binds a P2P take to its ad, coin amount and method, with a held quote when the take names one', () => {
     const fields = {
       offerId: '5f0e8a1b-2c4a-4d7d-8c55-9d1e2f6f0b6f',

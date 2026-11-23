@@ -5,6 +5,11 @@ global:
     platform: intafaced
     env: dev
 
+# The alert rules (#10211): a service down, a failed boot, a disk almost full, a failed or missing backup. Mounted
+# beside this file by docker-compose.yml; promtool checks them in tooling/infra/backup/pg-backup.test.mjs.
+rule_files:
+  - prometheus-alerts.yaml
+
 scrape_configs:
   - job_name: prometheus
     static_configs:
@@ -71,11 +76,11 @@ scrape_configs:
   #
   # Why this address resolves: `svc-matching` is started by
   # `docker-compose.apps.yml`, which `include:`s the compose file this config
-  # belongs to. `HTTP_PORT: '4005'` is the CONTAINER port — not the env.ts
+  # belongs to. `HTTP_PORT: '4005'` is the CONTAINER port — not the env.rs
   # default of 4004, and never a published host port. `/metrics` is
-  # `METRICS_PATH` in `services/svc-matching/src/metrics.ts`.
+  # `METRICS_PATH` in `crates/service-kit/src/metrics.rs`.
   #
-  # All three are asserted by `services/svc-matching/src/observability-wiring.test.ts`
+  # All three are asserted by `crates/svc-matching/tests/boot.rs`
   # against THIS FILE and the real compose block. A scrape config pointing at
   # the code default (4004) would miss the container entirely.
   #
@@ -104,9 +109,9 @@ scrape_configs:
   # `docker-compose.apps.yml`, which `include:`s the compose file this config
   # belongs to. `HTTP_PORT: '4001'` is the CONTAINER port — not a published
   # host port. `/metrics` is `METRICS_PATH` in
-  # `services/svc-ledger/src/metrics.ts`.
+  # `crates/svc-ledger/src/metrics.rs`.
   #
-  # All three are asserted by `services/svc-ledger/src/observability-wiring.test.ts`
+  # All three are asserted by `crates/svc-ledger/tests/metrics.rs`
   # against THIS FILE and the real compose block. A scrape config pointing at
   # localhost would miss the container entirely.
   #
@@ -121,3 +126,12 @@ scrape_configs:
     scrape_interval: 10s
     static_configs:
       - targets: ['svc-ledger:4001']
+
+  # ── THE HOST (#10211) ──────────────────────────────────────────────────────
+  #
+  # node-exporter runs only in compose profile `beta` (the hosted beta): the host's disks for `DiskAlmostFull`, and
+  # the nightly backup's result file (textfile collector) for the backup alerts. On a dev machine without that
+  # profile this target is down and `ServiceDown` names it on the Alerts page; nothing is sent anywhere.
+  - job_name: node-exporter
+    static_configs:
+      - targets: ['node-exporter:9100']

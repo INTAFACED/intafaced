@@ -360,9 +360,18 @@
   grid-column: 4;
   grid-row: 1 / span 2;
 }
+/* A run the partner bank made: its move in the last column's first row, the ledger reference under it. */
+.money-execution-partner {
+  grid-column: 4;
+  grid-row: 1;
+}
+.money-execution-partner + .money-execution-ledger {
+  grid-row: 2;
+}
 .money-execution-quantity dd {
   font-weight: 500;
 }
+.money-execution-partner dd,
 .money-execution-ledger dd {
   font-size: var(--if-text-sm);
   line-height: var(--if-leading-base);
@@ -436,6 +445,13 @@
   .money-execution-ledger {
     grid-column: 1 / -1;
     grid-row: 4;
+  }
+  .money-execution-partner {
+    grid-column: 1 / -1;
+    grid-row: 4;
+  }
+  .money-execution-partner + .money-execution-ledger {
+    grid-row: 5;
   }
   .money-execution-quantity dd {
     font-size: var(--if-text-md);

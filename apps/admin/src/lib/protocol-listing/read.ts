@@ -1,11 +1,10 @@
 import 'server-only';
+import { type FounderCallContext, partFrom, type Part, founderRecordCall } from '@/lib/desk';
 import {
-  protocolOpsMarketsListOutputSchema,
-  protocolOpsPoolsListOutputSchema,
-  protocolOpsReasonCodesOutputSchema,
-} from '@intafaced/contracts/protocol-ops';
-import { founderCall, parseWith, type FounderCallContext } from '@/lib/desk/founder-call';
-import { partFrom, type Part } from '@/lib/desk/part';
+  OPS_PROTOCOL_LISTING_POOLS_LIST,
+  OPS_PROTOCOL_LISTING_MARKETS_LIST,
+  OPS_PROTOCOL_LISTING_REASON_CODES_LIST,
+} from '@intafaced/contracts/ops-protocol-listing-procedures';
 
 type Hidden = { reasonCode: string; reason: string; approvalId: string; policyVersion: string; at: string };
 type State = 'visible' | 'hidden' | 'applying';
@@ -47,9 +46,9 @@ const options = (what: string) => ({
 /** The pools and markets INTAFACED has decided about, from svc-ops as the signed-in founder. A failed read says why and shows no rows. */
 export async function readProtocolListing(ctx: FounderCallContext): Promise<ProtocolListingRead> {
   const [pools, markets, reasonCodes] = await Promise.all([
-    founderCall(ctx, 'ops', 'protocolListing.pools.list', 'GET', {}, parseWith(protocolOpsPoolsListOutputSchema)),
-    founderCall(ctx, 'ops', 'protocolListing.markets.list', 'GET', {}, parseWith(protocolOpsMarketsListOutputSchema)),
-    founderCall(ctx, 'ops', 'protocolListing.reasonCodes.list', 'GET', {}, parseWith(protocolOpsReasonCodesOutputSchema)),
+    founderRecordCall(ctx, OPS_PROTOCOL_LISTING_POOLS_LIST, undefined),
+    founderRecordCall(ctx, OPS_PROTOCOL_LISTING_MARKETS_LIST, undefined),
+    founderRecordCall(ctx, OPS_PROTOCOL_LISTING_REASON_CODES_LIST, undefined),
   ]);
   return {
     asOf: new Date().toISOString(),

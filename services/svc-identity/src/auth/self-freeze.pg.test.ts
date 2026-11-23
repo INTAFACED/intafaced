@@ -13,6 +13,7 @@ import type { FactorActor } from './factor-gate.js';
 import { RankService } from '../rank/rank-service.js';
 import { FREEZE_LINK_INVALID, mintFreezeLink, withFreezeLink } from './freeze-link.js';
 import { localMailLine } from './local-mail.js';
+import { relaySelfFreezeEvents } from './self-freeze-events.js';
 import type { PasswordResetMail } from './password-reset.js';
 
 function testDatabaseUrl(): string {
@@ -144,6 +145,59 @@ if (!available) {
       await expect(new SelfFreezeLift(db.sql, 0).lift(u.userId)).resolves.toMatchObject({ frozen: false, changed: true });
       expect(selfFreezeStateSchema.parse(await auth.selfFreezeState(u.userId))).toEqual({ userId: u.userId, frozen: false, since: null });
       expect(await auth.selfFreezeState('00000000-0000-4000-8000-000000000000')).toBeNull();
+    });
+
+    it("ends every OAuth app token the person granted, and no one else's (J-wallet-13 #1)", async () => {
+      const u = await person();
+      const other = await person();
+      const dev = await person();
+      const [app] = await db.sql<Array<{ id: string }>>`
+        INSERT INTO oauth_apps (client_id, developer_user_id, name, name_key, redirect_urls, scopes, confidential, request_id, fingerprint)
+        VALUES (${`client-${unique()}`}, ${dev.userId}, 'TEST app', ${`test-app-${unique()}`}, ${['https://example.com/cb']},
+          ${['identity:read']}, false, ${unique()}, ${'a'.repeat(64)})
+        RETURNING id`;
+      const token = async (userId: string) => {
+        const code = (unique() + 'c'.repeat(64)).slice(0, 64);
+        await db.sql`INSERT INTO oauth_codes (code_hash, app_id, user_id, redirect_url, scopes, expires_at, used_at)
+          VALUES (${code}, ${app!.id}, ${userId}, 'https://example.com/cb', ${['identity:read']}, now() + interval '1 hour', now())`;
+        await db.sql`INSERT INTO oauth_tokens (token_hash, app_id, user_id, code_hash, scopes, expires_at)
+          VALUES (${(unique() + 't'.repeat(64)).slice(0, 64)}, ${app!.id}, ${userId}, ${code}, ${['identity:read']}, now() + interval '1 hour')`;
+      };
+      await token(u.userId);
+      await token(other.userId);
+      const live = async (userId: string) =>
+        Number(
+          (
+            await db.sql<
+              Array<{ n: string }>
+            >`SELECT count(*)::text AS n FROM oauth_tokens WHERE user_id = ${userId} AND revoked_at IS NULL`
+          )[0]!.n,
+        );
+      await auth.selfFreeze({ userId: u.userId, actor: me, reason: 'compromise', password: PASSWORD });
+      expect(await live(u.userId)).toBe(0);
+      expect(await live(other.userId)).toBe(1);
+    });
+
+    it('is announced once on the bus with its business key; a failed publish is sent again by the next run (J-wallet-13 #1)', async () => {
+      await db.sql`UPDATE account_self_freezes SET published_at = now() WHERE published_at IS NULL`;
+      const u = await person();
+      const done = await auth.selfFreeze({ userId: u.userId, actor: me, reason: 'compromise', password: PASSWORD });
+      const [row] = await db.sql<
+        Array<{ id: string }>
+      >`SELECT id FROM account_self_freezes WHERE user_id = ${u.userId} AND state = 'frozen'`;
+      const failing: Parameters<typeof relaySelfFreezeEvents>[0]['bus'] = {
+        publish: async () => Promise.reject(new Error('bus down')),
+      };
+      await expect(relaySelfFreezeEvents({ sql: db.sql, bus: failing, now: () => new Date() })).rejects.toThrow('bus down');
+      bus.reset();
+      expect(await relaySelfFreezeEvents({ sql: db.sql, bus, now: () => new Date() })).toBe(1);
+      const sent = bus.emitted('selfFreezeApplied');
+      expect(sent.map((e) => e.payload)).toEqual([{ userId: u.userId, freezeId: row!.id, since: done.since.toISOString() }]);
+      expect(sent[0]!.idempotencyKey).toBe(`identity.self_freeze.frozen:${row!.id}`);
+      expect(await relaySelfFreezeEvents({ sql: db.sql, bus, now: () => new Date() })).toBe(0);
+      // A repeat freeze while it is open is the same freeze: nothing new to announce.
+      await auth.selfFreeze({ userId: u.userId, actor: me, reason: 'personal', password: PASSWORD });
+      expect(await relaySelfFreezeEvents({ sql: db.sql, bus, now: () => new Date() })).toBe(0);
     });
 
     it('leaves other people untouched', async () => {

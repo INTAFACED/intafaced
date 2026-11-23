@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Page } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { date } from './components';
-import { destinationSchema, type Destination } from './contracts';
+import { type Destination } from './contracts';
 import { moneyRefusalWords } from './money-refusal-copy';
 import { WithdrawStepUp } from './WithdrawStepUp';
 import { shortenAddress } from './withdraw-model';
 import { withdrawalCopy } from './withdrawal-copy';
 import './bank-depth.css';
+import { BANK_RAMPS_DESTINATIONS_APPROVAL_CONFIRM_LINK } from '@intafaced/contracts/bank-ramps-procedures';
 
 /** Refusals that mean this link can never work, so the page says so instead of offering Approve again. */
 const DEAD = {
@@ -70,7 +71,7 @@ export function ApproveAddress({ search }: { search: string }) {
         <WithdrawStepUp
           why={t('aApproveWhy')}
           run={async (bearer) => {
-            const answer = await api.mutate('bank', 'ramps.destinations.approval.confirmLink', { token }, destinationSchema, { bearer });
+            const answer = await api.call(BANK_RAMPS_DESTINATIONS_APPROVAL_CONFIRM_LINK, { token }, { bearer });
             if (answer.ok) {
               answered.current = answer.data;
               return answer;

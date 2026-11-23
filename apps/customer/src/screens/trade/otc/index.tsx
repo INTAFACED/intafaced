@@ -89,7 +89,7 @@ function Room({ linkedId }: { linkedId: string | null }) {
       description={t('Quote desk description')}
       meta={<Freshness asOf={asOfOf(desk)} refused={desk.status === 'refused'} now={now} />}
     >
-      <div className="flex flex-col gap-4">
+      <div className="lt-stack">
         <DeskStatusStrip desk={desk} />
         <WriteNotice writer={writer} onCheck={(id) => void check(id)} />
         {checkNote ? (

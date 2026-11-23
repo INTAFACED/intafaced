@@ -55,7 +55,7 @@ describe('waiting-on panel (SP-tickets-04)', () => {
     const failed = {
       asOf: 'x',
       lifecycle: { kind: 'failed', message: 'No', code: 'support.not_staff', forbidden: false },
-    } as unknown as SupportLifecycleView;
+    } as SupportLifecycleView;
     expect(html(failed)).toContain('Waiting on unavailable');
   });
 });

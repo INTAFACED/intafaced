@@ -3,7 +3,7 @@
  * so an unreadable money service refuses and never reads as "nothing open".
  */
 import type { ActionApprovalConsumeInput } from '@intafaced/contracts';
-import { customerStepUpPayloadHash } from '@intafaced/contracts';
+import { customerStepUpPayloadHash } from '@intafaced/contracts/customer-step-up';
 import type { Sql } from 'postgres';
 import { ActionApprovalError } from '../auth/action-approval-service.js';
 import { userCopy } from '../user-copy.js';

@@ -86,10 +86,10 @@ export function RequestCard({ identity }: { identity: IdentityState }) {
     );
   const payeeId = identity.status === 'handles' ? identity.handle : (userId ?? '');
   return (
-    <div className="pay-body" data-testid="request-card">
+    <div className="lt-stack" data-testid="request-card">
       {loaded.length === 0 ? null : <AskAPerson assets={loaded} onSent={() => setRevision((n) => n + 1)} />}
       <RequestLists revision={revision} />
-      <p className="pay-hint">{t('reqIntro')}</p>
+      <p className="lt-hint">{t('reqIntro')}</p>
       {loaded.length === 0 ? (
         <StateBlock kind="empty" title={t('reqNoAssetsTitle')} body={t('reqNoAssetsBody')} />
       ) : (
@@ -148,7 +148,7 @@ function CreateRequest({ userId, payeeId, assets }: { userId: string; payeeId: s
       {made ? (
         <div className="pay-block" data-testid="request-made">
           <h3 className="pay-section-title">{t('reqReady')}</h3>
-          <p className="pay-hint">{t('reqReadyHint')}</p>
+          <p className="lt-hint">{t('reqReadyHint')}</p>
           <QrCode value={absoluteLink(made.path)} />
           <p className="pay-link" data-testid="request-link">
             {absoluteLink(made.path)}
@@ -158,7 +158,7 @@ function CreateRequest({ userId, payeeId, assets }: { userId: string; payeeId: s
               {t('copyLinkFailed')}
             </p>
           ) : null}
-          <div className="pay-row-actions">
+          <div className="lt-actions">
             <Button variant="primary" size={40} onClick={() => void copy(made)}>
               <Link2 size={16} aria-hidden="true" />
               {t('copyLink')}
@@ -184,7 +184,7 @@ function CreateRequest({ userId, payeeId, assets }: { userId: string; payeeId: s
         </div>
       ) : (
         <form
-          className="pay-body"
+          className="lt-stack"
           noValidate
           onSubmit={(event) => {
             event.preventDefault();
@@ -192,7 +192,7 @@ function CreateRequest({ userId, payeeId, assets }: { userId: string; payeeId: s
           }}
         >
           <div className="pay-field" data-testid="request-amount-field">
-            <span className="pay-field__label">{t('reqAmount')}</span>
+            <span className="lt-hint">{t('reqAmount')}</span>
             <div className="pay-field__main">
               <Select items={items} value={chosen} onValueChange={(value) => typeof value === 'string' && setAsset(value)}>
                 <SelectTrigger className="pay-asset" aria-label={t('reqAsset')}>
@@ -219,7 +219,7 @@ function CreateRequest({ userId, payeeId, assets }: { userId: string; payeeId: s
             </div>
           </div>
           <div className="pay-field">
-            <label className="pay-field__label" htmlFor="request-note">
+            <label className="lt-hint" htmlFor="request-note">
               {t('reqNote')}
             </label>
             <input
@@ -232,7 +232,7 @@ function CreateRequest({ userId, payeeId, assets }: { userId: string; payeeId: s
               placeholder={t('notePlaceholder')}
               onChange={(event) => setNote(event.target.value)}
             />
-            <span className="pay-hint">{t('reqNoteHint')}</span>
+            <span className="lt-hint">{t('reqNoteHint')}</span>
           </div>
           <Button type="submit" variant="primary" size={56} fullWidth disabled={reason !== null} data-testid="request-create">
             {reason ?? t('reqCreate')}
@@ -259,7 +259,7 @@ function CreateRequest({ userId, payeeId, assets }: { userId: string; payeeId: s
                 </div>
                 {entry.note ? <div className="pay-list__sub">{entry.note}</div> : null}
                 {shownCode === entry.id ? <QrCode value={absoluteLink(entry.path)} /> : null}
-                <div className="pay-row-actions">
+                <div className="lt-actions">
                   <Button variant="secondary" size={32} nativeButton={false} render={<a href={requestRoomHref(entry.id)} />}>
                     {t('reqDetails')}
                   </Button>
@@ -288,7 +288,7 @@ function CreateRequest({ userId, payeeId, assets }: { userId: string; payeeId: s
         <Button variant="secondary" size={40} disabled aria-describedby="request-cancel-reason">
           {t('reqCancel')}
         </Button>
-        <p className="pay-hint" id="request-cancel-reason">
+        <p className="lt-hint" id="request-cancel-reason">
           {t('reqCancelReason')}
         </p>
       </div>
@@ -311,9 +311,9 @@ function PayARequest() {
   return (
     <div className="pay-block" data-testid="request-pay">
       <h3 className="pay-section-title">{t('reqPayTitle')}</h3>
-      <p className="pay-hint">{t('reqPayIntro')}</p>
+      <p className="lt-hint">{t('reqPayIntro')}</p>
       <div className="pay-field">
-        <label className="pay-field__label" htmlFor="request-pay-link">
+        <label className="lt-hint" htmlFor="request-pay-link">
           {t('reqPayLabel')}
         </label>
         <input

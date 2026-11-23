@@ -1,6 +1,6 @@
 import { moduleDisabledResponse } from '@/lib/modules';
 import { adminBffSession } from '@/lib/admin-bff-gate';
-import { explainRefusal } from '@/lib/desk/refusal-copy';
+import { explainRefusal } from '@/lib/refusal-copy';
 import { handleStep } from '@/lib/desk/step-route';
 import { acceptExecute, alertWritesParked } from '@/lib/recon-alerts/treasury';
 

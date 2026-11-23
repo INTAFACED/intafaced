@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { formatAsOf, formatWhen } from '@/lib/as-of';
-import type { RefusalView } from '@/lib/desk/refusal-copy';
+import type { RefusalView } from '@/lib/refusal-copy';
 import { SCAN_LABEL, SCAN_NOTE, addedByLabel, canOpen, sizeLabel } from '@/lib/support/files';
 import { downloadFile, fetchTicketFiles, uploadFile } from '@/lib/support/files-browser';
 import type { TicketFilesView } from '@/lib/support/files-server';

@@ -30,7 +30,7 @@ function deps(partner: ReturnType<typeof testPartner>, stored: Record<string, un
     }
     if (/FROM bank\.ramp_onramp_quotes/.test(text)) return stored ? [stored] : [];
     return [];
-  }) as unknown as CustomerRampDeps['sql'];
+  }) as CustomerRampDeps['sql'];
   return {
     writes,
     deps: {

@@ -8,7 +8,7 @@ import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db'
 import { MemoryEventBus } from '@intafaced/events';
 import { createTestDb } from '../fixture-truncate.testkit.js';
 import { AuthService } from './auth-service.js';
-import { MAIL_RETRY_CAP, MAIL_RETRY_FIRST_WAIT_MS, flowSubjectHash } from './password-reset.js';
+import { MAIL_RETRY_CAP, MAIL_RETRY_FIRST_WAIT_MS } from './password-reset.js';
 import { killPasswordResetProofs } from '../account/contact-common.js';
 import { stubActionApprovals } from './privileged-dual-control.js';
 import { createIdentityRouter } from '../router.js';

@@ -72,6 +72,21 @@ describe('openIdentityMail', () => {
   });
 });
 
+describe('localMailLine support chat', () => {
+  it('names the chat a customer continued by email, and links the app’s support chat', () => {
+    const line = localMailLine({
+      email: 'c@example.com',
+      code: '33333333-3333-4333-8333-333333333333',
+      expiresAt: new Date('2026-10-31T00:00:00.000Z'),
+      purpose: 'support-chat-email',
+      detail: 'reply 4',
+    });
+    expect(line).toBe(
+      'LOCAL-TEST purpose=support-chat-email email=c@example.com expires=2026-10-31T00:00:00.000Z chat=33333333-3333-4333-8333-333333333333 part=reply_4 link=support/chat\n',
+    );
+  });
+});
+
 describe('localMailLine anti-phishing code', () => {
   const expiresAt = new Date('2026-10-23T12:00:00.000Z');
 

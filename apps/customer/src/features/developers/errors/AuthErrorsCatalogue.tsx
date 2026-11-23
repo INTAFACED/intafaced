@@ -12,57 +12,55 @@ export function AuthErrorsCatalogue() {
   const cls = errorClassCopy.useCopy();
   return (
     <>
-      <p className="muted">{t('lead')}</p>
-      <section className="pub-card" aria-labelledby="dev-auth-errors">
+      <p>{t('lead')}</p>
+      <section aria-labelledby="dev-auth-errors">
         <h2 id="dev-auth-errors">{t('tableTitle')}</h2>
-        <div className="table-scroll">
-          <table className="pub-table dev-text-table" data-testid="auth-errors-catalogue">
-            <thead>
-              <tr>
-                <th scope="col">{t('colCode')}</th>
-                <th scope="col">{t('colStatus')}</th>
-                <th scope="col">{t('colDetail')}</th>
-                <th scope="col">{cls.t('colSeverity')}</th>
-                <th scope="col">{cls.t('colCategory')}</th>
-                <th scope="col">{t('colCause')}</th>
-                <th scope="col">{t('colFix')}</th>
+        <table className="lt-table" data-testid="auth-errors-catalogue">
+          <thead>
+            <tr>
+              <th scope="col">{t('colCode')}</th>
+              <th scope="col">{t('colStatus')}</th>
+              <th scope="col">{t('colDetail')}</th>
+              <th scope="col">{cls.t('colSeverity')}</th>
+              <th scope="col">{cls.t('colCategory')}</th>
+              <th scope="col">{t('colCause')}</th>
+              <th scope="col">{t('colFix')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {AUTH_ERROR_CATALOGUE.map((entry) => (
+              <tr
+                key={entry.anchor}
+                id={entry.anchor}
+                data-cause={entry.cause}
+                data-code={entry.code}
+                data-severity={entry.severity}
+                data-category={entry.category}
+              >
+                <th scope="row">
+                  <code>{entry.code}</code>
+                </th>
+                <td>{entry.status}</td>
+                <td>{entry.intafacedCode ? <code>{entry.intafacedCode}</code> : t('noDetail')}</td>
+                <td>{cls.t(severityKey(entry.severity))}</td>
+                <td>{cls.t(categoryKey(entry.category))}</td>
+                <td>
+                  {t(causeKey(entry.cause))}
+                  {entry.answeredBy === 'trade' ? <small> {t('answeredByTrade')}</small> : null}
+                </td>
+                <td>
+                  {entry.cause === 'scope' ? (
+                    <a className="lt-link" href="/developers/permissions">
+                      {t(fixKey(entry.cause))}
+                    </a>
+                  ) : (
+                    t(fixKey(entry.cause))
+                  )}
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {AUTH_ERROR_CATALOGUE.map((entry) => (
-                <tr
-                  key={entry.anchor}
-                  id={entry.anchor}
-                  data-cause={entry.cause}
-                  data-code={entry.code}
-                  data-severity={entry.severity}
-                  data-category={entry.category}
-                >
-                  <th scope="row">
-                    <code>{entry.code}</code>
-                  </th>
-                  <td>{entry.status}</td>
-                  <td>{entry.intafacedCode ? <code>{entry.intafacedCode}</code> : t('noDetail')}</td>
-                  <td>{cls.t(severityKey(entry.severity))}</td>
-                  <td>{cls.t(categoryKey(entry.category))}</td>
-                  <td>
-                    {t(causeKey(entry.cause))}
-                    {entry.answeredBy === 'trade' ? <span className="muted"> {t('answeredByTrade')}</span> : null}
-                  </td>
-                  <td>
-                    {entry.cause === 'scope' ? (
-                      <a className="text-link" href="/developers/permissions">
-                        {t(fixKey(entry.cause))}
-                      </a>
-                    ) : (
-                      t(fixKey(entry.cause))
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+            ))}
+          </tbody>
+        </table>
       </section>
     </>
   );

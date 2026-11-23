@@ -1,38 +1,23 @@
 import type { Principal } from '@intafaced/auth';
 import { AuthError, hasScope, requireMfa, requireScope } from '@intafaced/auth';
 import type { Sql } from 'postgres';
-import { z } from 'zod';
 import {
   merchantAnalyticsDeclinesInputSchema,
   merchantAnalyticsDeclinesSchema,
-  merchantAnalyticsFeesSchema,
-  merchantAnalyticsInputSchema,
-  merchantAnalyticsVolumeSchema,
-  merchantRoomAccessSchema,
   merchantBusinessProfileConfirmInputSchema,
   merchantBusinessProfileDecideResultSchema,
   merchantBusinessProfileReviewInputSchema,
   merchantBusinessProfileReviewResultSchema,
-  merchantBusinessProfileSchema,
   merchantBusinessProfileSubmitInputSchema,
   merchantBusinessProfileSubmitResultSchema,
-  merchantMyAccessSchema,
-  merchantOnboardingProgressSchema,
   merchantPortalMerchantInputSchema,
   merchantProfileHistoryInputSchema,
   merchantProfileHistorySchema,
   merchantProfileSecondApprovalInputSchema,
   merchantProfileSecondApprovalResultSchema,
-  merchantTermsAcceptInputSchema,
-  merchantTermsAcceptResultSchema,
-  merchantCategoryChooseInputSchema,
-  merchantCategoryGetInputSchema,
-  merchantCategoryViewSchema,
-  anyScopeProcedure,
-  router,
-  scopedProcedure,
-  TRPCError,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/merchant-portal';
+import { merchantRoomAccessSchema } from '@intafaced/contracts/merchant-room-access';
+import { anyScopeProcedure, router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { consumePayApproval, unwiredApprovalConsumer, type ActionApprovalConsumer } from '../action-approval-consume.js';
 import { merchantProfileReviewFields } from '../approval-bindings.js';
 import { createMerchantCustomerEmails } from '../customer-emails/router.js';
@@ -52,6 +37,17 @@ import { assertMerchantAreaAccess, assertMerchantOwnership } from '../merchant-o
 import { allowMerchantRead } from '../merchant-read-access.js';
 import { CategoryPolicyService } from '../onboarding-policy/category.js';
 import { categoryToTrpcError } from '../onboarding-policy/category-router.js';
+import {
+  PAY_MERCHANT_MY_ACCESS,
+  PAY_MERCHANT_BUSINESS_PROFILE_GET,
+  PAY_MERCHANT_TERMS_ACCEPT,
+  PAY_MERCHANT_ONBOARDING_PROGRESS,
+  PAY_MERCHANT_CATEGORY_GET,
+  PAY_MERCHANT_CATEGORY_CHOOSE,
+} from '@intafaced/contracts/pay-merchant-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { payRefusal } from '../record-refusal.js';
+import { PAY_MERCHANT_ANALYTICS_FEES, PAY_MERCHANT_ANALYTICS_VOLUME } from '@intafaced/contracts/pay-merchant-analytics-procedures';
 
 /**
  * Merchant portal procedures.
@@ -116,7 +112,6 @@ export function merchantPortalExtensions(deps: {
     scope: ctx.profileScope,
   });
   const compliance = scopedProcedure('admin:compliance', { module: 'pay' });
-  const termsWrite = anyScopeProcedure(['pay:write', 'pay:onboard'], { module: 'pay' });
 
   const userIdOf = (principal: { userId?: string } | null | undefined): string => {
     if (!principal?.userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
@@ -128,20 +123,21 @@ export function merchantPortalExtensions(deps: {
   };
 
   const merchant = {
-    myAccess: read
-      .input(z.object({}).strict())
-      .output(merchantMyAccessSchema)
-      .query(({ ctx }) =>
+    myAccess: mountRecord(
+      PAY_MERCHANT_MY_ACCESS,
+      ({ ctx }) =>
         wrapPortal(async () => {
           const userId = userIdOf(ctx.principal);
           return listMyAccess(deps.sql, userId, ctx.principal ? isInteractivePrincipal(ctx.principal) : false);
         }),
-      ),
+      payRefusal,
+    ),
     businessProfile: router({
-      get: read
-        .input(merchantPortalMerchantInputSchema)
-        .output(merchantBusinessProfileSchema)
-        .query(({ ctx, input }) => wrapPortal(async () => profile.get(ctx.principal?.userId, input.merchantId))),
+      get: mountRecord(
+        PAY_MERCHANT_BUSINESS_PROFILE_GET,
+        ({ ctx, input }) => wrapPortal(async () => profile.get(ctx.principal?.userId, input.merchantId)),
+        payRefusal,
+      ),
       history: read
         .input(merchantProfileHistoryInputSchema)
         .output(merchantProfileHistorySchema)
@@ -190,27 +186,26 @@ export function merchantPortalExtensions(deps: {
         ),
     }),
     onboarding: router({
-      progress: read
-        .input(merchantPortalMerchantInputSchema)
-        .output(merchantOnboardingProgressSchema)
-        .query(({ ctx, input }) =>
+      progress: mountRecord(
+        PAY_MERCHANT_ONBOARDING_PROGRESS,
+        ({ ctx, input }) =>
           wrapPortal(async () => {
             const loaded = await profile.get(ctx.principal?.userId, input.merchantId);
             return readOnboardingProgress(deps.sql, deps.pay, deps.trees, deps.team, ctx.principal?.userId, loaded, () =>
               readTermsState(deps.sql, deps.terms ?? null, input.merchantId),
             );
           }),
-        ),
+        payRefusal,
+      ),
     }),
     category: router({
       /**
        * RC-merchant-08: the business category table as the business reads it, and its own choice. The owner, and a
        * team member who can read the profile.
        */
-      get: read
-        .input(merchantCategoryGetInputSchema)
-        .output(merchantCategoryViewSchema)
-        .query(({ ctx, input }) =>
+      get: mountRecord(
+        PAY_MERCHANT_CATEGORY_GET,
+        ({ ctx, input }) =>
           wrapPortal(async () => {
             await allowMerchantRead({
               ownerCheck: () => assertMerchantAreaAccess(deps.pay, ctx.principal?.userId, input.merchantId, 'merchant.profile', deps.trees),
@@ -221,25 +216,25 @@ export function merchantPortalExtensions(deps: {
             });
             return inCategory(() => categories.merchantView(deps.pay, input.merchantId));
           }),
-        ),
+        payRefusal,
+      ),
       /** The owner picks the category, from an interactive session, before the business is verified. */
-      choose: termsWrite
-        .input(merchantCategoryChooseInputSchema)
-        .output(merchantCategoryViewSchema)
-        .mutation(({ ctx, input }) =>
+      choose: mountRecord(
+        PAY_MERCHANT_CATEGORY_CHOOSE,
+        ({ ctx, input }) =>
           wrapPortal(async () => {
             const userId = interactive(ctx.principal);
             await assertMerchantOwnership(deps.pay, userId, input.merchantId);
             return inCategory(() => categories.choose(deps.pay, userId, input));
           }),
-        ),
+        payRefusal,
+      ),
     }),
     terms: router({
       /** The owner accepts the published terms, on `pay:write` or before verification on `pay:onboard`. Interactive only. */
-      accept: termsWrite
-        .input(merchantTermsAcceptInputSchema)
-        .output(merchantTermsAcceptResultSchema)
-        .mutation(({ ctx, input }) =>
+      accept: mountRecord(
+        PAY_MERCHANT_TERMS_ACCEPT,
+        ({ ctx, input }) =>
           wrapPortal(async () =>
             acceptTerms(
               { sql: deps.sql, pay: deps.pay, team: deps.team, config: deps.terms ?? null },
@@ -247,7 +242,8 @@ export function merchantPortalExtensions(deps: {
               input,
             ),
           ),
-        ),
+        payRefusal,
+      ),
     }),
     rooms: router({
       access: read
@@ -271,14 +267,16 @@ export function merchantPortalExtensions(deps: {
   return {
     merchant,
     merchantAnalytics: router({
-      volume: read
-        .input(merchantAnalyticsInputSchema)
-        .output(merchantAnalyticsVolumeSchema)
-        .query(({ ctx, input }) => wrapPortal(async () => analytics.volume(ctx.principal?.userId, input))),
-      fees: read
-        .input(merchantAnalyticsInputSchema)
-        .output(merchantAnalyticsFeesSchema)
-        .query(({ ctx, input }) => wrapPortal(async () => analytics.fees(ctx.principal?.userId, input))),
+      volume: mountRecord(
+        PAY_MERCHANT_ANALYTICS_VOLUME,
+        ({ ctx, input }) => wrapPortal(async () => analytics.volume(ctx.principal?.userId, input)),
+        payRefusal,
+      ),
+      fees: mountRecord(
+        PAY_MERCHANT_ANALYTICS_FEES,
+        ({ ctx, input }) => wrapPortal(async () => analytics.fees(ctx.principal?.userId, input)),
+        payRefusal,
+      ),
       declines: read
         .input(merchantAnalyticsDeclinesInputSchema)
         .output(merchantAnalyticsDeclinesSchema)

@@ -13,7 +13,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { formatAmount, InsufficientFundsError, parseAmount as amt, type AccountRef, type PostRequest } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -35,7 +35,7 @@ async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> 
   const envUrl = process.env.TEST_DATABASE_URL?.trim();
   if (envUrl) return { url: envUrl, stop: async () => undefined };
   try {
-    const container = await new PostgreSqlContainer(H8A_IMAGE)
+    const container = await testPostgres(H8A_IMAGE)
       .withDatabase('intafaced_h8a_test')
       .withUsername('intafaced')
       .withPassword('intafaced')
@@ -458,9 +458,9 @@ describe('liquidation rungs (Postgres)', () => {
 
   describe('probe L: a short margin release is amended, never left open', () => {
     const potOf = (user: string, id: string) =>
-      ({ ownerType: 'user', ownerId: user, assetId: 'USDT', kind: 'collateral', purpose: `position:${id}` }) as unknown as AccountRef;
-    const avail = (user: string) => ({ ownerType: 'user', ownerId: user, assetId: 'USDT', kind: 'available' }) as unknown as AccountRef;
-    const fees = { ownerType: 'house', ownerId: 'fees:trade', assetId: 'USDT', kind: 'available' } as unknown as AccountRef;
+      ({ ownerType: 'user', ownerId: user, assetId: 'USDT', kind: 'collateral', purpose: `position:${id}` }) as AccountRef;
+    const avail = (user: string) => ({ ownerType: 'user', ownerId: user, assetId: 'USDT', kind: 'available' }) as AccountRef;
+    const fees = { ownerType: 'house', ownerId: 'fees:trade', assetId: 'USDT', kind: 'available' } as AccountRef;
 
     async function storedClosingRung(id: string) {
       const user_id = (await sql<{ user_id: string }[]>`SELECT user_id FROM trade.positions WHERE id = ${id}`)[0]!.user_id;
@@ -572,7 +572,7 @@ describe('liquidation rungs (Postgres)', () => {
         entries: [
           { account: potOf(user_id, id), direction: 'credit', amount: amt('100') },
           {
-            account: { ownerType: 'house', ownerId: 'insurance-fund', assetId: 'USDT', kind: 'available' } as unknown as AccountRef,
+            account: { ownerType: 'house', ownerId: 'insurance-fund', assetId: 'USDT', kind: 'available' } as AccountRef,
             direction: 'credit',
             amount: amt('60'),
           },

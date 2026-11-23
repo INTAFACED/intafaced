@@ -82,7 +82,7 @@ function walk(dir, out = []) {
     if (SKIP_DIRS.has(e.name)) continue;
     const p = join(dir, e.name);
     if (e.isDirectory()) walk(p, out);
-    else if (/\.(ts|tsx|mjs)$/.test(e.name) && !/\.(test|spec|journey|pw)\./.test(e.name) && !/\.d\.ts$/.test(e.name)) out.push(p);
+    else if (/\.(ts|tsx|mjs)$/.test(e.name) && !/\.(test|spec|journey|pw)\./.test(e.name) && !e.name.endsWith('.d.ts')) out.push(p);
   }
   return out;
 }
@@ -95,7 +95,7 @@ function firstSentence(text) {
     .filter((l) => l !== '');
   const body = [];
   for (const l of lines) {
-    if (/^NO DEFAULT/.test(l)) break;
+    if (l.startsWith('NO DEFAULT')) break;
     body.push(l);
     if (/[.:]$/.test(l)) break;
   }

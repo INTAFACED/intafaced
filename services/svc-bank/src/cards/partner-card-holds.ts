@@ -1,7 +1,10 @@
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { BankError, type BankErrorCode } from '../errors.js';
 import { assertPostingEnabled, type NoteRefusal, type PostingFreeze } from '../partner/partner-bank.js';
-import { TEST_PARTNER_UNLISTED_DECLINE, type TestPartnerSwitches } from '../partner/test-partner.js';
+import { TEST_PARTNER_UNLISTED_DECLINE } from '../partner/test-partner.js';
+import { type TestPartnerSwitches } from '../partner/test-partner-switches.js';
+import type { TestPartnerCardFunds } from '../partner/test-partner.js';
+import { fundingFor } from './conversion.js';
 import type { CardCustodyMode, CardPartnerTerms } from './partner-terms.js';
 
 /**
@@ -63,7 +66,40 @@ export interface PartnerHoldReport {
   readonly open: string;
   /** When the partner's hold time runs out, as it reports it; null is "not known". */
   readonly expiresAt: string | null;
+  /** The asset the partner holds it in, when it says (a hold taken by a pay-from order always does). */
+  readonly assetId?: string;
+  /**
+   * On a hold the partner took by a pay-from order (J-bank-29 #3, #4): the merchant's amount, the rate the partner held at
+   * (one unit of `assetId` in `settlementAssetId`) and the rate's time, all as the partner reports them.
+   */
+  readonly conversion?: PartnerHoldConversion;
 }
+
+export interface PartnerHoldConversion {
+  readonly settlementAssetId: string;
+  readonly settlementAmount: string;
+  readonly rate: string;
+  readonly rateAsOf: string;
+}
+
+/** The partner's quote for one unit of an asset in a settlement asset, with the quote's own time. */
+export interface PartnerRateQuote {
+  readonly rate: string;
+  readonly asOf: string;
+}
+
+/**
+ * The partner's answer to a hold by a pay-from order. Approved: it held from the first asset in the order that covers the
+ * payment at its own rate, and `hold` names the asset, the amount and the rate. Declined: no one asset covered it, and
+ * nothing is held; `reason` is the partner's code (`bank.card_insufficient_funds` when no asset covers it).
+ */
+export type PartnerOrderHoldAnswer =
+  | {
+      readonly approved: true;
+      readonly hold: PartnerHoldReport & { readonly assetId: string; readonly conversion: PartnerHoldConversion };
+      readonly figures: PartnerCardFigures;
+    }
+  | { readonly approved: false; readonly reason: string; readonly order: readonly string[] };
 
 export type PartnerHoldAnswer =
   | { readonly approved: true; readonly hold: PartnerHoldReport; readonly figures: PartnerCardFigures }
@@ -98,6 +134,28 @@ export interface PartnerCardHolds {
   refund(input: { key: string; holdKey: string; amount: string }): Promise<PartnerMoveAnswer>;
   /** The hold as the partner reports it now, or null when the partner has no record of it. */
   holdState(input: { holdKey: string }): Promise<PartnerHoldReport | null>;
+  /**
+   * What the partner has captured for this cardholder in this asset, as it reports it (J-bank-26 #5), or null when it
+   * reports no such figure. A partner without this read leaves it out, and the figure reads "not known".
+   */
+  captured?(input: { userId: string; assetId: string }): Promise<string | null>;
+  /**
+   * The partner's quote for one unit of `assetId` in `settlementAssetId` (J-bank-29 #2), or null when it quotes none. A
+   * partner without quotes leaves it out, and every rate reads "not known".
+   */
+  quote?(input: { assetId: string; settlementAssetId: string }): Promise<PartnerRateQuote | null>;
+  /**
+   * Hold `amount` of `settlementAssetId` from the first asset in `order` that covers it, at the partner's own rate, once
+   * under `key` (J-bank-29 #3 to #5). One asset per authorisation: the partner never splits a payment across two. A partner
+   * without this instruction leaves it out, and a card with a saved order holds in its own asset as before.
+   */
+  holdInOrder?(input: {
+    key: string;
+    userId: string;
+    order: readonly string[];
+    settlementAssetId: string;
+    amount: string;
+  }): Promise<PartnerOrderHoldAnswer>;
 }
 
 /** The partner said no to an instruction. Nothing moved at the partner. */
@@ -121,6 +179,16 @@ export function freezeGuardedCardHolds(holds: PartnerCardHolds, freeze: PostingF
     test: holds.test,
     figures: (input: { userId: string; assetId: string }) => holds.figures(input),
     holdState: (input: { holdKey: string }) => holds.holdState(input),
+    ...(holds.captured ? { captured: holds.captured.bind(holds) } : {}),
+    ...(holds.quote ? { quote: holds.quote.bind(holds) } : {}),
+    ...(holds.holdInOrder
+      ? {
+          holdInOrder: async (input: Parameters<NonNullable<PartnerCardHolds['holdInOrder']>>[0]) => {
+            await assertPostingEnabled(freeze, 'card_hold', note);
+            return holds.holdInOrder!(input);
+          },
+        }
+      : {}),
     hold: async (input: Parameters<PartnerCardHolds['hold']>[0]) => {
       await assertPostingEnabled(freeze, 'card_hold', note);
       return holds.hold(input);
@@ -147,6 +215,11 @@ export const TEST_CARD_HOLD_DAYS = 7;
 const MAX_KEPT = 50_000;
 
 interface Book {
+  readonly userId: string;
+  readonly assetId: string;
+  /** True when the book draws on the person's own account at the TEST partner (`funds`), not on a TEST figure. */
+  readonly drawn: boolean;
+  /** The TEST figure's book only: what is left of it. A drawn book reads the partner account instead. */
   available: Amount;
   held: Amount;
   /** This book's holds that still hold something: the only ones a hold time can run out. */
@@ -162,6 +235,8 @@ interface Hold {
   readonly mode: CardCustodyMode;
   readonly amount: Amount;
   readonly expiresAt: Date;
+  /** Set when the hold was taken by a pay-from order: the partner's rate and the merchant's amount. */
+  readonly conversion: PartnerHoldConversion | null;
   captured: Amount;
   released: Amount;
   refunded: Amount;
@@ -173,9 +248,12 @@ interface Hold {
  * it holds no money and stands in for no real partner, and a restart forgets every hold (a hold it no longer knows reads
  * `bank.card_partner_hold_not_found`, never a guess).
  *
- * Each cardholder's TEST partner balance starts at the figure the TEST partner card reports for the asset
+ * The TEST card draws on the person's own main account at the TEST partner in the card's asset when the partner holds
+ * one for them (`funds`): a hold leaves that account, a release, a hold time running out or a refund comes back to
+ * it, each one partner move under the instruction's key, so the partner balance the person reads is what the card spends.
+ * With no such account, the cardholder's TEST balance starts at the figure the TEST partner card reports for the asset
  * (`BANK_CARD_SIM_PARTNER_JSON` `balances`); an asset it reports no figure for is "not known", and no hold can be asked
- * in it. In `wallet_pull` mode the same TEST figure stands for the person's own wallet as the partner reads it: the
+ * in it. Which one a book draws on is chosen while it holds nothing, so an open hold always goes back where it came from. In `wallet_pull` mode the same TEST figure stands for the person's own wallet as the partner reads it: the
  * card pulls from the wallet, the partner's answer says so, and INTAFACED holds nothing either way.
  *
  * Past its bound the TEST partner lets go of its oldest records; a hold keeps its own book, so an open hold is never
@@ -189,6 +267,13 @@ export function testPartnerCardHolds(options: {
   readonly terms: () => CardPartnerTerms;
   /** The person's TEST partner switches (`cardHold: 'expired'` runs every open hold of theirs out). */
   readonly switches: (userId: string) => TestPartnerSwitches;
+  /**
+   * What else the TEST partner has credited this cardholder in this asset outside its card holds (its provisional dispute
+   * credits, J-bank-15 #4, J-bank-27 #3), so its one spendable figure counts both. Absent is none.
+   */
+  readonly credited?: (userId: string, assetId: string, drawn: boolean) => Amount;
+  /** The TEST partner's card funds: the person's own account a card draws on, when the partner holds one. */
+  readonly funds?: TestPartnerCardFunds;
   readonly clock?: () => Date;
 }): PartnerCardHolds {
   const clock = options.clock ?? (() => new Date());
@@ -202,15 +287,36 @@ export function testPartnerCardHolds(options: {
     if (map.size > MAX_KEPT) map.delete(map.keys().next().value!);
   };
 
+  const hasAccount = (userId: string, assetId: string) => (options.funds?.available(userId, assetId) ?? null) !== null;
+
   const bookOf = (userId: string, assetId: string): Book | null => {
     const id = `${userId}|${assetId}`;
     const kept = books.get(id);
+    // A book that holds nothing follows the partner account: drawn once the partner holds one, the TEST figure without.
+    if (kept && (kept.held > 0n || kept.open.size > 0 || kept.drawn === hasAccount(userId, assetId))) return kept;
+    if (hasAccount(userId, assetId)) {
+      const drawn: Book = { userId, assetId, drawn: true, available: 0n, held: 0n, open: new Set() };
+      keep(books, id, drawn);
+      return drawn;
+    }
     if (kept) return kept;
     const reported = options.terms().balances?.[assetId];
     if (reported === undefined) return null;
-    const book: Book = { available: parseAmount(reported), held: 0n, open: new Set() };
+    const book: Book = { userId, assetId, drawn: false, available: parseAmount(reported), held: 0n, open: new Set() };
     keep(books, id, book);
     return book;
+  };
+
+  /** What the book has free to hold from: the partner account's figure when drawn, else what is left of the TEST figure. */
+  const freeIn = (book: Book): Amount => (book.drawn ? (options.funds?.available(book.userId, book.assetId) ?? 0n) : book.available);
+  /** Money leaves the free figure into a hold, or comes back to it, under `key`. */
+  const holdFrom = (book: Book, amount: Amount, key: string): void => {
+    if (book.drawn) options.funds?.move({ key, step: 'hold', userId: book.userId, assetId: book.assetId, amount });
+    else book.available -= amount;
+  };
+  const giveBack = (book: Book, move: { readonly amount: Amount; readonly key: string; readonly step: 'release' | 'refund' }): void => {
+    if (book.drawn) options.funds?.move({ ...move, userId: book.userId, assetId: book.assetId });
+    else book.available += move.amount;
   };
 
   const open = (h: Hold): Amount => h.amount - h.captured - h.released;
@@ -225,7 +331,7 @@ export function testPartnerCardHolds(options: {
     if (clock() < h.expiresAt && options.switches(h.userId).cardHold !== 'expired') return;
     const back = open(h);
     h.book.held -= back;
-    h.book.available += back;
+    giveBack(h.book, { amount: back, key: `${h.ref}:expired`, step: 'release' });
     h.released += back;
     h.expired = true;
     settle(h);
@@ -244,8 +350,23 @@ export function testPartnerCardHolds(options: {
       refunded: formatAmount(h.refunded),
       open: formatAmount(open(h)),
       expiresAt: h.expiresAt.toISOString(),
+      assetId: h.assetId,
+      ...(h.conversion ? { conversion: h.conversion } : {}),
     };
   };
+
+  /** The TEST partner's quote: its own TEST rate, stamped with its clock now. With any rates reported, the asset they are in is 1. */
+  const quoteOf = (assetId: string, settlementAssetId: string): { rate: Amount; asOf: Date } | null => {
+    const rates = options.terms().rates;
+    if (!rates || rates.in !== settlementAssetId) return null;
+    if (assetId === settlementAssetId) return { rate: parseAmount('1'), asOf: clock() };
+    const raw = rates.perUnit[assetId];
+    return raw === undefined ? null : { rate: parseAmount(raw), asOf: clock() };
+  };
+
+  /** What can be spent from a book now: its own figure and anything else the partner credited the cardholder. */
+  const spendable = (userId: string, assetId: string, book: Book): Amount =>
+    freeIn(book) + (options.credited?.(userId, assetId, book.drawn) ?? 0n);
 
   const figuresOf = (userId: string, assetId: string): PartnerCardFigures => {
     const book = bookOf(userId, assetId);
@@ -253,7 +374,7 @@ export function testPartnerCardHolds(options: {
       test: true,
       mode: options.terms().custodyMode,
       assetId,
-      available: book ? formatAmount(book.available) : null,
+      available: book ? formatAmount(spendable(userId, assetId, book)) : null,
       held: book ? formatAmount(book.held) : null,
     };
   };
@@ -299,6 +420,13 @@ export function testPartnerCardHolds(options: {
       return figuresOf(userId, assetId);
     },
 
+    captured: async ({ userId, assetId }) => {
+      if (bookOf(userId, assetId) === null) return null;
+      let sum = 0n;
+      for (const h of holds.values()) if (h.userId === userId && h.assetId === assetId) sum += h.captured;
+      return formatAmount(sum);
+    },
+
     hold: async ({ key, userId, assetId, amount }) =>
       once(key, { op: 'hold', userId, assetId, amount }, (): PartnerHoldAnswer => {
         const mode = options.terms().custodyMode;
@@ -319,10 +447,10 @@ export function testPartnerCardHolds(options: {
         if (options.switches(userId).cardDecline === 'unlisted') {
           return { approved: false, reason: TEST_PARTNER_UNLISTED_DECLINE, figures: figuresOf(userId, assetId) };
         }
-        if (want > book.available) {
+        if (want > spendable(userId, assetId, book)) {
           return { approved: false, reason: 'bank.card_partner_insufficient_funds', figures: figuresOf(userId, assetId) };
         }
-        book.available -= want;
+        holdFrom(book, want, key);
         book.held += want;
         const h: Hold = {
           ref: ref(key),
@@ -332,6 +460,7 @@ export function testPartnerCardHolds(options: {
           mode,
           amount: want,
           expiresAt: new Date(clock().getTime() + TEST_CARD_HOLD_DAYS * 86_400_000),
+          conversion: null,
           captured: 0n,
           released: 0n,
           refunded: 0n,
@@ -358,6 +487,7 @@ export function testPartnerCardHolds(options: {
             'bank.card_partner_capture_exceeds_hold',
           );
         }
+        if (h.book.drawn) options.funds?.move({ key, step: 'capture', userId: h.userId, assetId: h.assetId, amount: take });
         h.book.held -= take;
         h.captured = take;
         settle(h);
@@ -384,7 +514,7 @@ export function testPartnerCardHolds(options: {
           );
         }
         h.book.held -= back;
-        h.book.available += back;
+        giveBack(h.book, { amount: back, key, step: 'release' });
         h.released += back;
         settle(h);
         return {
@@ -406,9 +536,66 @@ export function testPartnerCardHolds(options: {
             'bank.card_partner_refund_exceeds_capture',
           );
         }
-        h.book.available += back;
+        giveBack(h.book, { amount: back, key, step: 'refund' });
         h.refunded += back;
         return { partnerRef: ref(key), amount, by: 'instruction', hold: report(h), figures: figuresOf(h.userId, h.assetId) };
+      }),
+
+    quote: async ({ assetId, settlementAssetId }) => {
+      const q = quoteOf(assetId, settlementAssetId);
+      return q ? { rate: formatAmount(q.rate), asOf: q.asOf.toISOString() } : null;
+    },
+
+    holdInOrder: async ({ key, userId, order, settlementAssetId, amount }) =>
+      once(key, { op: 'holdInOrder', userId, order: order.join(','), settlementAssetId, amount }, (): PartnerOrderHoldAnswer => {
+        const mode = options.terms().custodyMode;
+        if (mode === null) {
+          throw new PartnerCardRefusal(
+            'The TEST card partner has not said whether it holds the crypto or pulls from the wallet. Nothing was held.',
+            'bank.card_partner_mode_not_known',
+          );
+        }
+        const spendFrom = options.terms().spendFrom ?? [];
+        const merchant = parseAmount(amount);
+        if (options.switches(userId).cardDecline === 'unlisted') {
+          return { approved: false, reason: TEST_PARTNER_UNLISTED_DECLINE, order: [...order] };
+        }
+        // The first asset in the person's order that covers the whole payment at the partner's rate. One asset only.
+        for (const assetId of order) {
+          if (!spendFrom.includes(assetId)) continue;
+          const book = bookOf(userId, assetId);
+          const q = quoteOf(assetId, settlementAssetId);
+          if (!book || !q) continue;
+          for (const h of [...book.open]) runOut(h);
+          const want = fundingFor(merchant, q.rate);
+          if (want <= 0n || want > spendable(userId, assetId, book)) continue;
+          holdFrom(book, want, key);
+          book.held += want;
+          const conversion: PartnerHoldConversion = {
+            settlementAssetId,
+            settlementAmount: formatAmount(merchant),
+            rate: formatAmount(q.rate),
+            rateAsOf: q.asOf.toISOString(),
+          };
+          const h: Hold = {
+            ref: ref(key),
+            userId,
+            assetId,
+            book,
+            mode,
+            amount: want,
+            expiresAt: new Date(clock().getTime() + TEST_CARD_HOLD_DAYS * 86_400_000),
+            conversion,
+            captured: 0n,
+            released: 0n,
+            refunded: 0n,
+            expired: false,
+          };
+          keep(holds, key, h);
+          book.open.add(h);
+          return { approved: true, hold: { ...report(h), assetId, conversion }, figures: figuresOf(userId, assetId) };
+        }
+        return { approved: false, reason: 'bank.card_insufficient_funds', order: [...order] };
       }),
 
     holdState: async ({ holdKey }) => {

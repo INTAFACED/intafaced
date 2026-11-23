@@ -24,6 +24,8 @@ export function EndpointPage({ api, endpointId, canManage }: { api: SettingsBApi
   const { t } = c.useCopy();
   const found = useResource((signal) => api.endpointsList(undefined, '', endpointId, signal), `dev:endpoint:${endpointId}`);
   const health = useResource((signal) => api.webhookHealth(signal), 'dev:endpoint:health');
+  // Held here, above the reload: a new secret is shown once, and reloading the endpoint after a roll must not lose it.
+  const [revealed, setRevealed] = useState<Revealed>(null);
   return (
     <Gate resource={found.resource} retry={found.reload}>
       {(page) => {
@@ -34,6 +36,8 @@ export function EndpointPage({ api, endpointId, canManage }: { api: SettingsBApi
             endpoint={row}
             health={health.resource.status === 'ready' ? health.resource.data : null}
             canManage={canManage}
+            revealed={revealed}
+            setRevealed={setRevealed}
             reload={() => {
               found.reload();
               health.reload();
@@ -43,7 +47,7 @@ export function EndpointPage({ api, endpointId, canManage }: { api: SettingsBApi
           <EmptyState
             title={t('endpointMissing')}
             action={
-              <a className="text-link" href="/pay/developer/webhooks">
+              <a className="lt-link" href="/pay/developer/webhooks">
                 {t('backToEndpoints')}
               </a>
             }
@@ -62,21 +66,27 @@ export function EndpointView({
   health,
   canManage,
   reload,
+  revealed: heldRevealed,
+  setRevealed: setHeldRevealed,
 }: {
   api: SettingsBApi;
   endpoint: EndpointRow;
   health: Health | null;
   canManage: boolean;
   reload: () => void;
+  revealed?: Revealed;
+  setRevealed?: (next: Revealed) => void;
 }) {
   const { t } = c.useCopy();
-  const [revealed, setRevealed] = useState<Revealed>(null);
+  const [ownRevealed, setOwnRevealed] = useState<Revealed>(null);
+  const revealed = setHeldRevealed ? (heldRevealed ?? null) : ownRevealed;
+  const setRevealed = setHeldRevealed ?? setOwnRevealed;
   const mine = health?.endpoints.find((e) => e.endpointId === endpoint.id);
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <DetailHeader
         back={{ href: '/pay/developer/webhooks', label: t('backToEndpoints') }}
-        title={<span className="pp-wrap">{shownEndpointUrl(endpoint.url)}</span>}
+        title={<span className="lt-wrap">{shownEndpointUrl(endpoint.url)}</span>}
         status={<StatusChip entity="endpoint" value={endpoint.status} />}
         subtitle={endpoint.status === 'disabled' ? t('disabledSubtitle') : t('activeSubtitle')}
       />
@@ -90,7 +100,11 @@ export function EndpointView({
         <Facts
           items={[
             [t('colReference'), <CopyReference key="id" value={endpoint.id} what={t('colReference')} />],
+            [t('colEvents'), endpoint.eventTypes ? endpoint.eventTypes.join(', ') : t('allEventTypes')],
             [t('colFailuresInRow'), String(endpoint.consecutiveFailures)],
+            ...(endpoint.previousSecretUntil
+              ? ([[t('colOverlapUntil'), <DateTime key="o" value={endpoint.previousSecretUntil} />]] as const)
+              : []),
             [t('colLastDelivered'), mine?.lastDeliveredAt ? <DateTime key="l" value={mine.lastDeliveredAt} /> : t('noneYet')],
             ...(endpoint.status === 'disabled'
               ? ([
@@ -110,17 +124,21 @@ export function EndpointView({
               : []),
           ]}
         />
-        <p className="muted">{t('queryHidden')}</p>
+        {endpoint.previousSecretUntil && <p className="lt-muted">{t('overlapNote')}</p>}
+        <p className="lt-muted">{t('queryHidden')}</p>
         <AuditPanel who={null} at={endpoint.updatedAt} />
       </PaySection>
       <PaySection title={t('manageTitle')} description={t('manageBody')}>
-        <div data-testid="form-stack" className="form-stack pp-form">
+        <div data-testid="form-stack" className="lt-stack">
           <ChangeAddress api={api} endpoint={endpoint} canManage={canManage} onDone={reload} />
           <RotateEndpointSecret
             api={api}
             endpointId={endpoint.id}
             canManage={canManage}
-            onSecret={(secret) => setRevealed({ title: t('endpointSecretNewTitle'), secret, what: t('endpointSecretWhat') })}
+            onSecret={(secret) => {
+              setRevealed({ title: t('endpointSecretNewTitle'), secret, what: t('endpointSecretWhat') });
+              reload();
+            }}
           />
           {endpoint.status === 'active' ? (
             <PortalReview
@@ -130,14 +148,14 @@ export function EndpointView({
               disabledReason={t('readOnlyRole')}
               review={
                 <p>
-                  <strong className="pp-wrap">{shownEndpointUrl(endpoint.url)}</strong> {t('disableEffect')}
+                  <strong className="lt-wrap">{shownEndpointUrl(endpoint.url)}</strong> {t('disableEffect')}
                 </p>
               }
               perform={() => api.endpointDisable(endpoint.id)}
               onConfirmed={reload}
             />
           ) : (
-            <p className="muted">{t('cannotReEnable')}</p>
+            <p className="lt-muted">{t('cannotReEnable')}</p>
           )}
         </div>
       </PaySection>
@@ -195,11 +213,11 @@ function ChangeAddress({
           <dl className="pay-details">
             <div>
               <dt>{t('from')}</dt>
-              <dd className="pp-wrap">{shownEndpointUrl(endpoint.url)}</dd>
+              <dd className="lt-wrap">{shownEndpointUrl(endpoint.url)}</dd>
             </div>
             <div>
               <dt>{t('to')}</dt>
-              <dd className="pp-wrap">{shownEndpointUrl(url.trim())}</dd>
+              <dd className="lt-wrap">{shownEndpointUrl(url.trim())}</dd>
             </div>
           </dl>
         }
@@ -216,7 +234,7 @@ function RotateEndpointSecret({
   canManage,
   onSecret,
 }: {
-  api: Pick<SettingsBApi, 'endpointRotate'>;
+  api: Pick<SettingsBApi, 'endpointRotate' | 'webhookPolicy'>;
   endpointId: string;
   canManage: boolean;
   onSecret: (secret: string) => void;
@@ -225,15 +243,31 @@ function RotateEndpointSecret({
   // One id per review: if the reply is lost and the request is sent again, the secret is not rotated twice.
   const [requestId, setRequestId] = useState(newRequestId);
   const [note, setNote] = useState<string | null>(null);
+  const [overlap, setOverlap] = useState('0');
+  const policy = useResource((signal) => api.webhookPolicy(signal), 'dev:policy');
+  const max = policy.resource.status === 'ready' ? policy.resource.data.overlapMaxSeconds : undefined;
+  const seconds = /^\d+$/.test(overlap.trim()) ? Number(overlap.trim()) : null;
+  // The service is the judge (a blank maximum refuses any overlap); this only keeps an obvious typo off the wire.
+  const overlapError =
+    seconds === null ? t('overlapInvalid') : typeof max === 'number' && seconds > max ? t('overlapTooLong', { max }) : undefined;
   return (
     <>
+      <Field
+        label={t('overlapLabel')}
+        hint={typeof max === 'number' ? t('overlapHint', { max }) : max === null ? t('overlapHintUnset') : undefined}
+        inputMode="numeric"
+        value={overlap}
+        disabled={!canManage}
+        error={overlapError}
+        onChange={(e) => setOverlap(e.target.value)}
+      />
       <PortalReview
         title={t('rotateEndpointAction')}
         description={t('rotateEndpointReview')}
-        disabled={!canManage}
-        disabledReason={t('readOnlyRole')}
-        review={<p>{t('rotateEndpointEffect')}</p>}
-        perform={() => api.endpointRotate(endpointId, requestId)}
+        disabled={!canManage || Boolean(overlapError)}
+        disabledReason={canManage ? (overlapError ?? '') : t('readOnlyRole')}
+        review={<p>{seconds ? t('overlapEffect', { n: seconds }) : t('rotateEndpointEffect')}</p>}
+        perform={() => api.endpointRotate(endpointId, requestId, seconds ?? 0)}
         onConfirmed={(result) => {
           setRequestId(newRequestId());
           if (result.secret) {

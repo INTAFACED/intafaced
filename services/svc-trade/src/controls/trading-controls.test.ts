@@ -4,7 +4,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import type { Context, IdentityOperationDecision, IdentityOperationIntent, IdentityOperationDecisionPort } from '@intafaced/contracts';
 import { principalFor } from '../spot/testing.js';
-import { canonicalPayload, TradingControls, type LiveTradingOperatorPort } from './trading-controls.js';
+import { toCcxtError } from '../ccxt-errors.js';
+import { canonicalPayload, TradingControlError, TradingControls, type LiveTradingOperatorPort } from './trading-controls.js';
 
 const user = 'a1111111-1111-4111-8111-111111111111';
 const founder = 'b1111111-1111-4111-8111-111111111111';
@@ -218,6 +219,29 @@ describe('Owned trading restrictions and identity decision handshake (real Postg
       code: 'trade.account_restricted',
     });
     expect(identity.rows.size).toBe(0);
+  });
+  it("refuses by its own code, with the freeze reason, when identity cancels under the owner's own freeze (J-wallet-13 #2)", async () => {
+    const selfFrozen: IdentityOperationDecisionPort = {
+      decide: async ({ intent }) => ({
+        status: 'cancelled',
+        intent,
+        code: 'identity.account_frozen_self',
+        decidedAt: new Date().toISOString(),
+      }),
+    };
+    const first = new TradingControls(db.sql, operators, selfFrozen);
+    const refused = await first.admit(principalFor(user), 'order.place', 'self-frozen', { qty: '1' }).catch((e: unknown) => e);
+    expect(refused).toBeInstanceOf(TradingControlError);
+    expect(refused).toMatchObject({ code: 'identity.account_frozen_self' });
+    expect((refused as Error).message).toMatch(/you froze this account/);
+    const mapped = toCcxtError(refused);
+    expect(mapped).toMatchObject({ status: 403, body: { code: 'PermissionDenied', intafacedCode: 'identity.account_frozen_self' } });
+    expect(mapped?.body.message).toMatch(/you froze this account/);
+    // A retry after restart re-reads the stored cancellation and refuses the same way.
+    const restarted = new TradingControls(db.sql, operators, identity);
+    await expect(restarted.admit(principalFor(user), 'order.place', 'self-frozen', { qty: '1' })).rejects.toMatchObject({
+      code: 'identity.account_frozen_self',
+    });
   });
   it('cancels every uncertain marked intent before restriction; identity outage refuses without pretending restriction committed', async () => {
     identity.fail = true;

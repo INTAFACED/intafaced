@@ -7,6 +7,7 @@
  * The reject reasons are the owner's list (`IDENTITY_KYC_REJECT_REASONS`, NO DEFAULT): a code, the reason the customer
  * reads and what to do about it. Unset, a reject is refused (`kyc.reason_codes_unset`), never sent without a reason.
  */
+import type { Queryable } from '@intafaced/db';
 import type { EventBus } from '@intafaced/events';
 import { kycReasonCodeSchema, type KycCase, type KycCaseState } from '@intafaced/contracts/identity-kyc-cases';
 import type { Sql } from 'postgres';
@@ -121,7 +122,7 @@ interface CaseRow {
  * Open the case for a record just inserted as pending. A resubmission follows the person's newest rejected case at the
  * same level that no other case follows yet. Writes history version 1, to be published as `kycSubmitted`.
  */
-export async function openKycCase(tx: Sql, record: { id: string; userId: string; tier: string; createdAt: Date }): Promise<string> {
+export async function openKycCase(tx: Queryable, record: { id: string; userId: string; tier: string; createdAt: Date }): Promise<string> {
   const [previous] = await tx<Array<{ id: string }>>`
     SELECT c.id FROM kyc_cases c JOIN kyc_records r ON r.id = c.record_id
     WHERE c.user_id = ${record.userId} AND c.state = 'rejected' AND r.tier = ${record.tier}
@@ -148,7 +149,7 @@ export interface KycCaseRecord {
  * The record's case, locked. A record that has none (made before cases, or by a test fixture) gets one here in the
  * record's own state, its history marked published so it is never announced late.
  */
-async function lockCase(tx: Sql, record: KycCaseRecord): Promise<CaseRow> {
+async function lockCase(tx: Queryable, record: KycCaseRecord): Promise<CaseRow> {
   const state: KycCaseState = record.status === 'pending' ? 'submitted' : record.status;
   const decided = state === 'submitted' ? null : (record.reviewedAt ?? record.createdAt);
   const inserted = await tx<Array<{ id: string }>>`
@@ -173,7 +174,7 @@ async function lockCase(tx: Sql, record: KycCaseRecord): Promise<CaseRow> {
  * Move the record's case to approved, with its history row, and return the case id. Approval announces itself through
  * `kycApproved`.
  */
-export async function approveKycCase(tx: Sql, record: KycCaseRecord, decision: { by: string; at: Date }): Promise<string> {
+export async function approveKycCase(tx: Queryable, record: KycCaseRecord, decision: { by: string; at: Date }): Promise<string> {
   const row = await lockCase(tx, record);
   if (row.state === 'approved') return row.id;
   const version = row.version + 1;
@@ -191,7 +192,7 @@ export async function approveKycCase(tx: Sql, record: KycCaseRecord, decision: {
  * rewrites what the customer read, nor reports a note as sent that never was. Returns the case id.
  */
 export async function rejectKycCase(
-  tx: Sql,
+  tx: Queryable,
   record: KycCaseRecord,
   decision: { by: string; at: Date } & KycRejectDecision,
 ): Promise<string> {

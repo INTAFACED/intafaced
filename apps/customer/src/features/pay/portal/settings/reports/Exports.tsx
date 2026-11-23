@@ -13,7 +13,7 @@ import { useUrlParam } from '../../hooks';
 import { newRequestId } from '../../model';
 import { refusalText } from '../../refusal';
 import { useResource } from '../../../../../shared/resource';
-import { useSession } from '../../../../session/session';
+import { useSession } from '../../../../session';
 import type { SettingsBApi } from '../b-client';
 import { reportsCopy as c } from './copy';
 import {
@@ -78,7 +78,7 @@ export function Exports({ api, role, now = Date.now() }: { api: SettingsBApi; ro
   const filtered = Boolean(kind || status || date || q);
   const shown = list.state.status === 'ready' ? list.state.items.length : 0;
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <div id="request">
         <RequestForm api={api} role={role} onRequested={() => reload()} />
       </div>
@@ -117,14 +117,14 @@ export function Exports({ api, role, now = Date.now() }: { api: SettingsBApi; ro
               <Field label={t('to')} type="date" value={to} onChange={(e) => setTo(e.target.value)} />
             </div>
           )}
-          <p className="muted pp-count" role="status">
+          <p className="lt-muted" role="status">
             {list.state.status === 'ready' ? (list.state.hasMore ? t('newestMore', { n: shown }) : t('newestAll', { n: shown })) : ''}
             {filtered && (
               <>
                 {' '}
                 <button
                   type="button"
-                  className="text-link"
+                  className="lt-link"
                   onClick={() => {
                     setKind('');
                     setStatus('');
@@ -162,7 +162,7 @@ export function Exports({ api, role, now = Date.now() }: { api: SettingsBApi; ro
                     cell: (j) => (
                       <>
                         <JobChip status={j.status} />
-                        {j.status === 'failed' && <small className="pay-cell-note">{t('failedHelp')}</small>}
+                        {j.status === 'failed' && <small className="lt-hint">{t('failedHelp')}</small>}
                       </>
                     ),
                   },
@@ -186,7 +186,7 @@ export function Exports({ api, role, now = Date.now() }: { api: SettingsBApi; ro
                         <>
                           <DateTime value={j.generatedAt} />
                           {j.asOf && (
-                            <small className="pay-cell-note">
+                            <small className="lt-hint">
                               {t('asOf')} <DateTime value={j.asOf} />
                             </small>
                           )}
@@ -209,7 +209,7 @@ export function Exports({ api, role, now = Date.now() }: { api: SettingsBApi; ro
                       ),
                   },
                   {
-                    header: <span className="pp-sr">{t('colActions')}</span>,
+                    header: <span className="lt-sr">{t('colActions')}</span>,
                     cell: (j) => <JobActions api={api} job={j} onDone={() => reload()} />,
                   },
                 ]}
@@ -266,7 +266,7 @@ export function JobActions({
     setState('idle');
   }
   return (
-    <div className="pp-actions">
+    <div className="lt-actions">
       {job.status === 'ready' && (
         <Button
           variant="secondary"
@@ -277,7 +277,7 @@ export function JobActions({
           {state === 'busy' ? t('downloading') : t('download')}
         </Button>
       )}
-      {isBuilding(job) && <small className="muted">{t('buildingNow')}</small>}
+      {isBuilding(job) && <small className="lt-muted">{t('buildingNow')}</small>}
       {canDelete(job) && (
         <PortalReview
           title={t('deleteAction')}
@@ -344,7 +344,7 @@ export function RequestForm({
   const allColumns = columns.length === available.length;
   return (
     <PaySection title={t('requestTitle')} description={t('requestBody')}>
-      <div data-testid="form-stack" className="form-stack pp-form">
+      <div data-testid="form-stack" className="lt-stack">
         <div className="form-row">
           <SelectField
             label={t('colReport')}
@@ -395,7 +395,7 @@ export function RequestForm({
             />
           </div>
         ) : (
-          <p className="muted">{t('noRangeForKind')}</p>
+          <p className="lt-muted">{t('noRangeForKind')}</p>
         )}
         <Field
           label={t('assetLabel')}
@@ -424,7 +424,7 @@ export function RequestForm({
               </label>
             ))}
           </div>
-          {kind === 'fees' && (role === 'viewer' || role === 'developer') && <small className="muted">{t('feeLevelHidden')}</small>}
+          {kind === 'fees' && (role === 'viewer' || role === 'developer') && <small className="lt-muted">{t('feeLevelHidden')}</small>}
         </fieldset>
         <PortalReview
           title={t('requestAction')}

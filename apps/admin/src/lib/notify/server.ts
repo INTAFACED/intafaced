@@ -1,7 +1,8 @@
 import 'server-only';
-import { founderCall, type FounderCallContext } from '@/lib/desk/founder-call';
-import { partFrom, type PartLabels } from '@/lib/desk/part';
+import { type FounderCallContext, partFrom, type PartLabels, founderRecordRead } from '@/lib/desk';
 import { DELIVERIES_PAGE, readDeliveries, readHealth, type NotifyView } from './model';
+import { NOTIFY_OPERATOR_DELIVERIES } from '@intafaced/contracts/notify-notify-procedures';
+import { NOTIFY_HEALTH } from '@intafaced/contracts/notify-health-procedures';
 
 /**
  * svc-notify's operator read (`notify.operatorDeliveries`, scope `admin:read`) and its public health, read as the
@@ -17,10 +18,8 @@ const LABELS: PartLabels = {
 
 export async function loadNotify(ctx: FounderCallContext, now: Date = new Date()): Promise<NotifyView> {
   const [deliveries, health] = await Promise.all([
-    founderCall(ctx, 'notify', 'notify.operatorDeliveries', 'GET', { limit: DELIVERIES_PAGE }, (raw) =>
-      readDeliveries(raw, DELIVERIES_PAGE),
-    ),
-    founderCall(ctx, 'notify', 'health', 'GET', {}, readHealth),
+    founderRecordRead(ctx, NOTIFY_OPERATOR_DELIVERIES, { limit: DELIVERIES_PAGE }, (raw) => readDeliveries(raw, DELIVERIES_PAGE)),
+    founderRecordRead(ctx, NOTIFY_HEALTH, undefined, readHealth),
   ]);
   return { asOf: now.toISOString(), deliveries: partFrom(deliveries, (d) => d, LABELS), health: partFrom(health, (d) => d, LABELS) };
 }

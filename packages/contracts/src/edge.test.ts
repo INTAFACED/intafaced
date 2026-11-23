@@ -40,6 +40,16 @@ function forward(p: Principal, secret = SECRET, region = 'XX'): { raw: string; s
   return { raw, sig: signPrincipalHeader(raw, secret, region) };
 }
 
+describe('edge principal — the trading clear', () => {
+  it("forwards the trading checks' clear (`trd`) only when it is set", () => {
+    const cleared = forward(principal({ tier: 'none', trd: true }));
+    expect(verifyForwardedPrincipal(cleared.raw, cleared.sig, SECRET).principal?.trd).toBe(true);
+    const plain = forward(principal({ tier: 'none' }));
+    expect(JSON.parse(plain.raw)).not.toHaveProperty('trd');
+    expect(verifyForwardedPrincipal(plain.raw, plain.sig, SECRET).principal?.trd).toBeUndefined();
+  });
+});
+
 describe('edge principal — the happy path', () => {
   it('accepts a correctly signed principal and preserves every claim', () => {
     const p = principal({ scopes: ['trade:read', 'trade:write'], tier: 'full', mfa: true });

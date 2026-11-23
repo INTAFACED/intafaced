@@ -5,7 +5,7 @@ export const helpCopy = defineCopy(
   {
     title: 'How can we help?',
     description: 'Published answers, with a clear path to support when you need your account checked.',
-    back: '← Published answers',
+    back: 'Published answers',
     browse: 'Browse published answers',
     searchLabel: 'Search answers',
     searchPlaceholder: 'Account access, orders…',
@@ -95,7 +95,7 @@ export const helpCopy = defineCopy(
     es: {
       title: '¿Cómo podemos ayudarte?',
       description: 'Respuestas publicadas y una vía clara al soporte cuando necesitas revisar tu cuenta.',
-      back: '← Respuestas publicadas',
+      back: 'Respuestas publicadas',
       browse: 'Ver respuestas publicadas',
       searchLabel: 'Buscar respuestas',
       searchPlaceholder: 'Acceso a la cuenta, órdenes…',
@@ -188,7 +188,7 @@ export const helpCopy = defineCopy(
     fr: {
       title: 'Comment pouvons-nous vous aider ?',
       description: 'Des réponses publiées et un accès clair à l’assistance lorsque votre compte doit être vérifié.',
-      back: '← Réponses publiées',
+      back: 'Réponses publiées',
       browse: 'Parcourir les réponses publiées',
       searchLabel: 'Rechercher des réponses',
       searchPlaceholder: 'Accès au compte, ordres…',

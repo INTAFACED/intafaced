@@ -20,7 +20,7 @@ const writer = {
   resolve: () => undefined,
   dismiss: () => undefined,
   signedIn: true,
-} as unknown as RoomWriter;
+} as RoomWriter;
 
 async function show(quote: RfqQuote) {
   await act(async () =>

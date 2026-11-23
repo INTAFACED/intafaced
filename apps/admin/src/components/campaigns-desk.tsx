@@ -197,6 +197,7 @@ export function CampaignsDeskScreen({
           New campaign
         </button>
         <Link href="/more-ops/campaigns/waves">Waitlist waves</Link>
+        <a href="/more-ops/campaigns/watch">Watch running campaigns</a>
         <button type="button" className="adm-btn" onClick={onRefresh} disabled={loading}>
           {loading ? 'Reading…' : 'Refresh'}
         </button>

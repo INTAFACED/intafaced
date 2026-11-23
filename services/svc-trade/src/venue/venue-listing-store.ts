@@ -303,8 +303,7 @@ export class SqlVenueListingStore implements VenueListingStore {
 
   async appendListing(row: VenueListingVersion, notice?: Omit<VenueDelistingNotice, 'publishedAt'>): Promise<AppendOutcome> {
     return (await this.sql
-      .begin(async (txn) => {
-        const tx = txn as unknown as Sql;
+      .begin(async (tx) => {
         // Only on top of the version before it: a concurrent write of the same version loses on the primary key.
         const inserted = await tx<Array<{ version: number }>>`
         INSERT INTO trade.venue_listings (venue_id, symbol, version, change, opens_at, delists_at, routing, approval_id,

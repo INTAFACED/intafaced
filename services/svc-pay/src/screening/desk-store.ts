@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import type { CaseView } from './desk-schemas.js';
 import type { ScreeningCaseStatus, ScreeningFactor } from './decision.js';
@@ -46,7 +47,7 @@ export const caseView = (r: CaseRow): CaseView => ({
   releaseSpentAt: iso(r.release_consumed_at),
 });
 
-export async function getCase(sql: Sql, kind: ScreeningSubjectKind, key: string, forUpdate = false): Promise<CaseRow | null> {
+export async function getCase(sql: Queryable, kind: ScreeningSubjectKind, key: string, forUpdate = false): Promise<CaseRow | null> {
   const rows = forUpdate
     ? await sql<CaseRow[]>`SELECT * FROM pay.screening_cases WHERE subject_kind = ${kind} AND subject_key = ${key} FOR UPDATE`
     : await sql<CaseRow[]>`SELECT * FROM pay.screening_cases WHERE subject_kind = ${kind} AND subject_key = ${key}`;
@@ -86,7 +87,7 @@ export async function listEvents(sql: Sql, kind: ScreeningSubjectKind, key: stri
 }
 
 export async function appendEvent(
-  sql: Sql,
+  sql: Queryable,
   e: {
     kind: ScreeningSubjectKind;
     key: string;
@@ -105,7 +106,7 @@ export async function appendEvent(
 }
 
 export async function writeDecision(
-  sql: Sql,
+  sql: Queryable,
   d: {
     kind: ScreeningSubjectKind;
     key: string;
@@ -124,7 +125,7 @@ export async function writeDecision(
 }
 
 export async function writeRescreen(
-  sql: Sql,
+  sql: Queryable,
   d: { kind: ScreeningSubjectKind; key: string; status: ScreeningCaseStatus; factors: readonly ScreeningFactor[]; provider: string },
 ): Promise<void> {
   await sql`

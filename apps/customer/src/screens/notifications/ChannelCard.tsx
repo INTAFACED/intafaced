@@ -1,6 +1,7 @@
 import { useId, useState } from 'react';
 import { useSession } from '../../features/session/session';
-import { Button, Switch } from './deps';
+import { Button, Switch } from '@intafaced/ui/lit';
+import { StateTag } from './parts';
 import { centreCopy } from './centre-copy';
 import { registerTarget, removeTarget, verifyTarget, type OutOfAppChannel } from './notify-api';
 import { PushDevice } from './PushDevice';
@@ -86,25 +87,23 @@ export function ChannelCard({
   };
 
   return (
-    <li data-testid="nf-channelcard" className="nf-channelcard" data-channel={channel}>
-      <div className="nf-channelcard__head">
-        <span className="nf-text">
-          <span data-testid="nf-title" className="nf-title">
-            {channelWord}
-          </span>
-          <span data-testid="nf-body" className="nf-body nf-body--wrap" id={`${id}-state`}>
+    <li data-testid="nf-channelcard" data-channel={channel}>
+      <div className="lt-actions">
+        <span className="lt-lines">
+          <span data-testid="nf-title">{channelWord}</span>
+          <span data-testid="nf-body" id={`${id}-state`}>
             {stateText}
           </span>
         </span>
-        <span data-testid="nf-channel__state" className="nf-channel__state" aria-live="polite">
+        <span data-testid="nf-channel__state" aria-live="polite">
           {saved ? copy.t('saved') : ''}
         </span>
         <Switch
-          aria-label={copy.t('switchLabel', { channel: channelWord })}
+          label={copy.t('switchLabel', { channel: channelWord })}
           aria-describedby={!toggleable ? `${id}-why` : undefined}
           checked={view.facts.muted === null ? false : !view.facts.muted}
           disabled={!toggleable || busy}
-          onCheckedChange={(on) => {
+          onChange={(on) => {
             setSaved(false);
             void guard(async () => {
               const ok = await onMute(channel, !on);
@@ -115,19 +114,19 @@ export function ChannelCard({
         />
       </div>
       {!toggleable && (
-        <p className="nf-why" id={`${id}-why`}>
+        <p className="lt-hint" id={`${id}-why`}>
           {copy.t(platformOff ? 'switchOffPlatform' : 'switchOffNoPref')}
         </p>
       )}
 
       {channel === 'push' ? (
-        <div className="nf-address">
-          <p className="nf-why">
+        <div>
+          <p className="lt-hint">
             {hasTarget ? copy.t('pushDevice') : copy.t('pushWhy')}
             {hasTarget && (
               <>
                 {' '}
-                <Button variant="ghost" size={28} disabled={busy} onClick={() => setMode('remove')}>
+                <Button tone="quiet" disabled={busy} onClick={() => setMode('remove')}>
                   {copy.t('removeAddress')}
                 </Button>
               </>
@@ -142,19 +141,16 @@ export function ChannelCard({
           />
         </div>
       ) : (
-        <div className="nf-address">
+        <div>
           {hasTarget && (
-            <p className="nf-address__line">
-              <span className="nf-muted">{copy.t('addressOnFile')}</span> <span lang="zxx">{view.address}</span>{' '}
-              <span className={`nf-pill${view.verifiedAt ? ' nf-pill--ok' : ''}`}>
-                {copy.t(view.verifiedAt ? 'confirmed' : 'notConfirmed')}
-              </span>
+            <p>
+              <span className="lt-hint">{copy.t('addressOnFile')}</span> <span lang="zxx">{view.address}</span>{' '}
+              <StateTag ok={Boolean(view.verifiedAt)}>{copy.t(view.verifiedAt ? 'confirmed' : 'notConfirmed')}</StateTag>
             </p>
           )}
-          <div className="nf-address__actions">
+          <div className="lt-actions">
             <Button
-              variant="secondary"
-              size={32}
+              tone="secondary"
               disabled={platformOff || busy}
               aria-describedby={platformOff ? `${id}-offadd` : undefined}
               onClick={startEdit}
@@ -163,8 +159,7 @@ export function ChannelCard({
             </Button>
             {action === 'verify' && (
               <Button
-                variant="secondary"
-                size={32}
+                tone="secondary"
                 disabled={busy}
                 onClick={() => {
                   setProblem(null);
@@ -175,13 +170,13 @@ export function ChannelCard({
               </Button>
             )}
             {hasTarget && (
-              <Button variant="ghost" size={32} disabled={busy} onClick={() => setMode('remove')}>
+              <Button tone="quiet" disabled={busy} onClick={() => setMode('remove')}>
                 {copy.t('removeAddress')}
               </Button>
             )}
           </div>
           {platformOff && (
-            <p className="nf-why" id={`${id}-offadd`}>
+            <p className="lt-hint" id={`${id}-offadd`}>
               {copy.t('addOffPlatform')}
             </p>
           )}
@@ -190,7 +185,6 @@ export function ChannelCard({
 
       {mode === 'edit' && channel !== 'push' && (
         <form
-          className="nf-form"
           noValidate
           onSubmit={(event) => {
             event.preventDefault();
@@ -206,7 +200,7 @@ export function ChannelCard({
             });
           }}
         >
-          <label className="nf-field">
+          <label className="lt-field">
             <span>{copy.t(channel === 'email' ? 'addressEmailLabel' : 'addressSmsLabel')}</span>
             <input
               type={channel === 'email' ? 'email' : 'tel'}
@@ -221,16 +215,16 @@ export function ChannelCard({
                 setProblem(null);
               }}
             />
-            <small id={`${id}-addr-help`} className={addressError ? 'nf-error' : 'nf-muted'}>
+            <small id={`${id}-addr-help`} data-part={addressError ? 'error' : undefined}>
               {addressError ? copy.t(addressError) : channel === 'sms' ? copy.t('addressSmsHint') : copy.t('replaceWarning')}
             </small>
           </label>
-          {channel === 'sms' && <p className="nf-muted">{copy.t('replaceWarning')}</p>}
-          <div className="nf-address__actions">
-            <Button type="submit" size={32} disabled={busy || platformOff}>
+          {channel === 'sms' && <p className="lt-hint">{copy.t('replaceWarning')}</p>}
+          <div className="lt-actions">
+            <Button tone="primary" type="submit" disabled={busy || platformOff}>
               {copy.t('sendCode')}
             </Button>
-            <Button variant="ghost" size={32} disabled={busy} onClick={() => setMode('idle')}>
+            <Button tone="quiet" disabled={busy} onClick={() => setMode('idle')}>
               {copy.t('cancel')}
             </Button>
           </div>
@@ -239,7 +233,6 @@ export function ChannelCard({
 
       {mode === 'verify' && hasTarget && !view.verifiedAt && (
         <form
-          className="nf-form"
           noValidate
           onSubmit={(event) => {
             event.preventDefault();
@@ -254,7 +247,7 @@ export function ChannelCard({
             });
           }}
         >
-          <label className="nf-field">
+          <label className="lt-field">
             <span>{copy.t('codeLabel')}</span>
             <input
               inputMode="numeric"
@@ -269,15 +262,15 @@ export function ChannelCard({
                 setProblem(null);
               }}
             />
-            <small id={`${id}-code-help`} className={problem === 'invalidCode' ? 'nf-error' : 'nf-muted'}>
+            <small id={`${id}-code-help`} data-part={problem === 'invalidCode' ? 'error' : undefined}>
               {problem === 'invalidCode' ? copy.t('invalidCode') : copy.t('codeHint')}
             </small>
           </label>
-          <div className="nf-address__actions">
-            <Button type="submit" size={32} disabled={busy}>
+          <div className="lt-actions">
+            <Button tone="primary" type="submit" disabled={busy}>
               {copy.t('confirmCode')}
             </Button>
-            <Button variant="ghost" size={32} disabled={busy} onClick={() => setMode('idle')}>
+            <Button tone="quiet" disabled={busy} onClick={() => setMode('idle')}>
               {copy.t('cancel')}
             </Button>
           </div>
@@ -285,12 +278,11 @@ export function ChannelCard({
       )}
 
       {mode === 'remove' && hasTarget && (
-        <div className="nf-form" role="group" aria-label={copy.t('removeSure')}>
+        <div role="group" aria-label={copy.t('removeSure')}>
           <p>{copy.t('removeSure')}</p>
-          <div className="nf-address__actions">
+          <div className="lt-actions">
             <Button
-              variant="secondary"
-              size={32}
+              tone="secondary"
               disabled={busy}
               onClick={() =>
                 void guard(async () => {
@@ -304,7 +296,7 @@ export function ChannelCard({
             >
               {copy.t('removeYes')}
             </Button>
-            <Button variant="ghost" size={32} disabled={busy} onClick={() => setMode('idle')}>
+            <Button tone="quiet" disabled={busy} onClick={() => setMode('idle')}>
               {copy.t('cancel')}
             </Button>
           </div>
@@ -312,7 +304,7 @@ export function ChannelCard({
       )}
 
       {note && (
-        <p className="nf-note" role="status">
+        <p className="lt-hint" role="status">
           {copy.t(note)}
         </p>
       )}

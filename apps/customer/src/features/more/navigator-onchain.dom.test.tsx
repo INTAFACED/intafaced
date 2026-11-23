@@ -45,10 +45,25 @@ const agents = {
     sent.push({ procedure, input });
     return typeof answers[procedure] === 'function' ? (answers[procedure] as (i: unknown) => unknown)(input) : answers[procedure];
   },
+  call(
+    this: { query: (...args: never[]) => unknown; mutate: (...args: never[]) => unknown },
+    record: { kind: string; module: string; path: string; output: unknown },
+    input?: unknown,
+    opts?: unknown,
+  ) {
+    // tooling/codemod/call-records: a call by its record reaches this double's own query or mutate, as the client sends it.
+    return Reflect.apply(record.kind === 'query' ? this.query : this.mutate, this, [
+      record.module,
+      record.path,
+      input,
+      record.output,
+      opts,
+    ]);
+  },
 };
 
-vi.mock('../protocol/wallet/WalletProvider', async (actual) => ({
-  ...(await actual<typeof import('../protocol/wallet/WalletProvider')>()),
+vi.mock('../protocol', async (actual) => ({
+  ...(await actual<typeof import('../protocol')>()),
   useWallet: () => wallet,
   WalletProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
@@ -126,7 +141,7 @@ const mount = async () => {
 /** Types into a field the way React hears it. */
 function type(label: RegExp, value: string) {
   const field = [...form().querySelectorAll('label')].find((node) => label.test(node.textContent ?? ''))!;
-  const control = field.querySelector('input, select') as HTMLInputElement | HTMLSelectElement;
+  const control = (field.querySelector('input, select') ?? field.control) as HTMLInputElement | HTMLSelectElement;
   const proto = control instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
   Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(control, value);
   control.dispatchEvent(new Event(control instanceof HTMLSelectElement ? 'change' : 'input', { bubbles: true }));

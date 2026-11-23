@@ -1,17 +1,19 @@
+// volt-room: /trade/orders
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Button } from '@intafaced/ui';
+import { Button, EmptyState } from '@intafaced/ui/lit';
 import { navigate } from '../../../app/location';
 import { useDataEnv } from '../../../data/hooks';
 import type { ApiResult } from '../../../shared/api';
-import { EmptyState, Failure, Loading, Page } from '../../../shared/ui';
+import { FailureNote } from '../../../shared/failure-note';
 import { useDeskMarkets } from '../../../screens/trade/desk/data';
 import { OrdersTable, precisionOf } from '../../../screens/trade/desk/OrderTables';
-import { useSession } from '../../session/session';
+import { useSession } from '../../session';
 import { createTradeApi, type Order } from '../trade-api';
 import { appendPage, NO_PARAMS, PAGE_SIZES, readParams, toQuery, writeParams, type HistoryParams } from './history-query';
-import { ordersCopy, type OrdersT } from './orders-copy';
+import { ordersCopy } from './orders-copy';
 import { ProductSwitch } from './FuturesOrdersRoom';
-import './orders.css';
+import { AssistantOrders } from './AssistantOrders';
+import { OrdersRoomFrame, Pick, SignedOut, WaitingRows } from './orders-parts';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 type State =
@@ -31,39 +33,6 @@ const FILTER_CODES: Record<string, 'filter' | 'from' | 'to' | 'range' | 'cursor'
   'trade.invalid_until': 'to',
   'trade.invalid_cursor': 'cursor',
 };
-
-function Pick({
-  label,
-  value,
-  choices,
-  words,
-  onPick,
-  t,
-}: {
-  label: string;
-  value: string;
-  choices: readonly string[];
-  words: Record<string, string>;
-  onPick: (value: string) => void;
-  t: OrdersT;
-}) {
-  // A value the address holds that is not a choice stays visible as it is, so the refusal below names something real.
-  const unknown = value !== '' && !choices.includes(value);
-  return (
-    <label className="orders-field">
-      <span>{label}</span>
-      <select value={value} onChange={(event) => onPick(event.target.value)}>
-        <option value="">{t('filterAll')}</option>
-        {choices.map((choice) => (
-          <option key={choice} value={choice}>
-            {words[choice]}
-          </option>
-        ))}
-        {unknown ? <option value={value}>{t('filterUnknown', { value })}</option> : null}
-      </select>
-    </label>
-  );
-}
 
 /**
  * Order history (`/trade/orders`): the orders that have ended, filtered by side, state, type and dates by the service
@@ -134,18 +103,11 @@ export function OrderHistoryRoom({ path }: { path: string }) {
 
   if (!userId)
     return (
-      <Page eyebrow={t('eyebrow')} title={t('historyTitle')} description={t('historyLead')}>
-        <EmptyState
-          title={t('signedOutTitle')}
-          action={
-            <a className="button button--primary" href={`/login?redirect=${encodeURIComponent(`/trade/orders${search}`)}`}>
-              {t('signIn')}
-            </a>
-          }
-        >
-          {t('signedOutBody')}
-        </EmptyState>
-      </Page>
+      <OrdersRoomFrame
+        title={t('historyTitle')}
+        description={t('historyLead')}
+        list={<SignedOut title={t('signedOutTitle')} body={t('signedOutBody')} signIn={t('signIn')} back={`/trade/orders${search}`} />}
+      />
     );
 
   const filtering = writeParams({ ...params, size: NO_PARAMS.size }) !== '';
@@ -156,113 +118,109 @@ export function OrderHistoryRoom({ path }: { path: string }) {
     range: t('refusedRange'),
     cursor: t('refusedCursor'),
   } as const;
+  const pickWords = { all: t('filterAll'), unknown: (value: string) => t('filterUnknown', { value }) };
   return (
-    <Page
-      eyebrow={t('eyebrow')}
+    <OrdersRoomFrame
       title={t('historyTitle')}
       description={t('historyLead')}
-      actions={
-        <Button variant="secondary" size={40} onClick={() => setRevision((n) => n + 1)}>
-          {t('refresh')}
-        </Button>
+      action={<Button onClick={() => setRevision((n) => n + 1)}>{t('refresh')}</Button>}
+      filters={
+        <div className="lt-stack">
+          <ProductSwitch product="spot" />
+          <form className="lt-toolbar" role="search" aria-label={t('historyTitle')} onSubmit={(event) => event.preventDefault()}>
+            <Pick
+              label={t('filterSide')}
+              value={params.side}
+              choices={SIDES}
+              words={{ buy: t('sideBuy'), sell: t('sideSell') }}
+              onPick={(side) => setParams({ ...params, side })}
+              {...pickWords}
+            />
+            <Pick
+              label={t('filterState')}
+              value={params.status}
+              choices={STATES}
+              words={{ closed: t('stateFilled'), canceled: t('stateCancelled'), rejected: t('stateRejected'), expired: t('stateExpired') }}
+              onPick={(status) => setParams({ ...params, status })}
+              {...pickWords}
+            />
+            <Pick
+              label={t('filterType')}
+              value={params.type}
+              choices={TYPES}
+              words={{ market: t('typeMarket'), limit: t('typeLimit'), stop_limit: t('typeStopLimit'), stop: t('typeStopMarket') }}
+              onPick={(type) => setParams({ ...params, type })}
+              {...pickWords}
+            />
+            <label className="lt-field">
+              <span>{t('filterFrom')}</span>
+              <input type="date" value={params.from} onChange={(event) => setParams({ ...params, from: event.target.value })} />
+            </label>
+            <label className="lt-field">
+              <span>{t('filterTo')}</span>
+              <input type="date" value={params.to} onChange={(event) => setParams({ ...params, to: event.target.value })} />
+            </label>
+            <label className="lt-field">
+              <span>{t('filterSize')}</span>
+              <select value={String(params.size)} onChange={(event) => setParams({ ...params, size: Number(event.target.value) })}>
+                {PAGE_SIZES.map((size) => (
+                  <option key={size} value={String(size)}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {filtering ? <Button onClick={() => setParams({ ...NO_PARAMS, size: params.size })}>{t('filterClear')}</Button> : null}
+          </form>
+          <p className="lt-hint">
+            {t('openOrders')}{' '}
+            <a className="lt-link" href="/exchange">
+              {t('tradingDesk')}
+            </a>
+          </p>
+        </div>
       }
-    >
-      <div className="orders-room">
-        <ProductSwitch product="spot" />
-        <form className="orders-filters" role="search" aria-label={t('historyTitle')} onSubmit={(event) => event.preventDefault()}>
-          <Pick
-            label={t('filterSide')}
-            value={params.side}
-            choices={SIDES}
-            words={{ buy: t('sideBuy'), sell: t('sideSell') }}
-            onPick={(side) => setParams({ ...params, side })}
-            t={t}
-          />
-          <Pick
-            label={t('filterState')}
-            value={params.status}
-            choices={STATES}
-            words={{ closed: t('stateFilled'), canceled: t('stateCancelled'), rejected: t('stateRejected'), expired: t('stateExpired') }}
-            onPick={(status) => setParams({ ...params, status })}
-            t={t}
-          />
-          <Pick
-            label={t('filterType')}
-            value={params.type}
-            choices={TYPES}
-            words={{ market: t('typeMarket'), limit: t('typeLimit'), stop_limit: t('typeStopLimit'), stop: t('typeStopMarket') }}
-            onPick={(type) => setParams({ ...params, type })}
-            t={t}
-          />
-          <label className="orders-field">
-            <span>{t('filterFrom')}</span>
-            <input type="date" value={params.from} onChange={(event) => setParams({ ...params, from: event.target.value })} />
-          </label>
-          <label className="orders-field">
-            <span>{t('filterTo')}</span>
-            <input type="date" value={params.to} onChange={(event) => setParams({ ...params, to: event.target.value })} />
-          </label>
-          <label className="orders-field">
-            <span>{t('filterSize')}</span>
-            <select value={String(params.size)} onChange={(event) => setParams({ ...params, size: Number(event.target.value) })}>
-              {PAGE_SIZES.map((size) => (
-                <option key={size} value={String(size)}>
-                  {size}
-                </option>
-              ))}
-            </select>
-          </label>
-          {filtering ? (
-            <Button variant="secondary" size={40} onClick={() => setParams({ ...NO_PARAMS, size: params.size })}>
-              {t('filterClear')}
-            </Button>
+      list={
+        <>
+          {state.status === 'loading' ? <WaitingRows label={t('loading')} /> : null}
+          {state.status === 'failed' ? <FailureNote result={state.failure} retry={() => setRevision((n) => n + 1)} /> : null}
+          {state.status === 'refused' ? (
+            <div data-testid="failure" className="lt-refusal" role="alert">
+              <p className="lt-refusal-title">{t('refusedTitle')}</p>
+              <p className="lt-refusal-body">{refusedWords[state.problem]}</p>
+              <Button onClick={() => setParams({ ...NO_PARAMS, size: params.size })}>{t('filterClear')}</Button>
+            </div>
           ) : null}
-        </form>
-        <p className="muted orders-note">
-          {t('openOrders')}{' '}
-          <a className="text-link" href="/exchange">
-            {t('tradingDesk')}
-          </a>
-        </p>
-        {state.status === 'loading' ? <Loading label={t('loading')} /> : null}
-        {state.status === 'failed' ? <Failure result={state.failure} retry={() => setRevision((n) => n + 1)} /> : null}
-        {state.status === 'refused' ? (
-          <div data-testid="failure" className="failure" role="alert">
-            <h3>{t('refusedTitle')}</h3>
-            <p>{refusedWords[state.problem]}</p>
-            <Button variant="secondary" size={40} onClick={() => setParams({ ...NO_PARAMS, size: params.size })}>
-              {t('filterClear')}
-            </Button>
-          </div>
-        ) : null}
-        {state.status === 'ready' ? (
-          state.rows.length === 0 ? (
-            <EmptyState title={filtering ? t('none') : t('noneAtAll')} />
-          ) : (
-            <>
-              <p className="muted orders-note" role="status">
-                {t('shownCount', { count: String(state.rows.length) })}
-              </p>
-              <div data-testid="orders-table" className="orders-table">
-                <OrdersTable rows={state.rows} withAction={false} desk precision={precision} onChanged={() => undefined} />
-              </div>
-              {state.repeated > 0 ? <p className="orders-note">{t('repeated')}</p> : null}
-              {olderFailed ? (
-                <p className="orders-note" role="alert">
-                  {t('olderFailed')}
+          {state.status === 'ready' ? (
+            state.rows.length === 0 ? (
+              <EmptyState title={filtering ? t('none') : t('noneAtAll')} />
+            ) : (
+              <>
+                <p className="lt-hint" role="status">
+                  {t('shownCount', { count: String(state.rows.length) })}
                 </p>
-              ) : null}
-              {state.more ? (
-                <Button variant="secondary" size={40} loading={olderBusy} onClick={() => void older()}>
-                  {olderBusy ? t('olderLoading') : t('older')}
-                </Button>
-              ) : (
-                <p className="muted orders-note">{t('end')}</p>
-              )}
-            </>
-          )
-        ) : null}
-      </div>
-    </Page>
+                <div data-testid="orders-table" className="lt-table-scroll">
+                  <OrdersTable rows={state.rows} withAction={false} desk precision={precision} onChanged={() => undefined} />
+                </div>
+                {state.repeated > 0 ? <p className="lt-hint">{t('repeated')}</p> : null}
+                {olderFailed ? (
+                  <p className="lt-hint" data-part="error" role="alert">
+                    {t('olderFailed')}
+                  </p>
+                ) : null}
+                {state.more ? (
+                  <Button disabled={olderBusy} aria-busy={olderBusy || undefined} onClick={() => void older()}>
+                    {olderBusy ? t('olderLoading') : t('older')}
+                  </Button>
+                ) : (
+                  <p className="lt-hint">{t('end')}</p>
+                )}
+              </>
+            )
+          ) : null}
+          <AssistantOrders t={t} revision={revision} />
+        </>
+      }
+    />
   );
 }

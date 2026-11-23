@@ -59,7 +59,7 @@
     "SUPPORT_COMPLAINT_RESPONSE_DAYS": {
       "service": "support",
       "value": "14",
-      "note": "A complaint's final-response limit in calendar days, so J-bank-18 #5 can show a deadline. Not an owner decision; blank, every deadline reads not set."
+      "note": "A complaint's final-response limit in calendar days, so J-bank-18 #5 can show a deadline. LOCAL_STACK_SUPPORT_COMPLAINT_RESPONSE_DAYS=off on a restart leaves it blank, and every new deadline reads not set. Not an owner decision."
     },
     "SUPPORT_MULE_POLICY": {
       "service": "support",
@@ -115,6 +115,11 @@
       "service": "support",
       "value": "300",
       "note": "How long a signed identity claim for a page embedding the chat works, so J-support-public-05 #3 can use one. Not an owner decision."
+    },
+    "SUPPORT_CHAT_EMAIL": {
+      "service": "support",
+      "value": "identity",
+      "note": "A signed-in customer's chat continued by email goes to identity's LOCAL TEST outbox, so J-support-public-05 #7 sees it mailed; LOCAL_STACK_SUPPORT_GUEST_MAIL=off leaves it blank (vendor.email). Not an owner decision."
     },
     "SUPPORT_CHAT_PRECHAT_FIELDS": {
       "service": "support",

@@ -9,12 +9,10 @@ import { HOLD_MAX_MS } from '../../../../tooling/scripts/local-test-market.mjs';
 // on one TEST account. The contract is the TEST perpetual `local-test-gates.mjs futures` lists; no agreement, knowledge
 // check or notice gates it (owner decision 2026-10-27). Every number is a TEST number on the local stack, read back
 // through the customer's own API.
-//
-// At launch steps #1, #5, #6 and #8 to #11 run on the person's own venue account, and J-derivatives-01-venue.pw.mjs
-// proves them against the TEST venue's own record (CUSTODY-DELTA: Adapted). The tests here for those steps check our
-// own engine and ledger in USDT, the custodial branch the step words keep as Later (OWNER 226), so they are titled as
-// that branch, not as the step: they still run in this order and assert all they did, and #2, #3, #4 and #7 stay
-// steps of this file on the account the first test makes.
+// Steps #1, #5, #6, #8, #9, #10 and #11 run on the TEST venue (J-derivatives-01-venue.pw.mjs carries their step titles).
+// Here they are titled "J-derivatives-01, part of #<n>, checked on our own ledger": the margin lock, the closes and the
+// ledger's figures stay checked, and the journeys verdict on main turns red when one fails after it passed on main
+// (tooling/ci/journey-verdict.mjs judge, project-state #2232).
 const J = 'J-derivatives-01';
 const DESK = '/trade/futures';
 const SYMBOL = 'BTC/USDT:USDT';
@@ -74,9 +72,7 @@ function writes(page) {
   return sent;
 }
 
-test(`${J} custodial branch (Later, OWNER 226), on our engine where #1 is the venue's: opens /trade/futures and sees the whole desk`, async ({
-  page,
-}) => {
+test(`${J}, part of #1, checked on our own ledger: opens /trade/futures and sees the whole desk`, async ({ page }) => {
   const who = await fundedTrader(page, 'jd', '1000');
   run.reset({ account: who });
   await desk(page);
@@ -168,7 +164,7 @@ test(`${J} #4 picks the contract and reads its strip: family, settle asset, cont
   expect([listed.family, listed.settleAsset, listed.contractSize]).toEqual(['linear', 'USDT', '0.001']);
 });
 
-test(`${J} custodial branch (Later, OWNER 226), on our engine where #5 is the venue's: chooses the margin mode: isolated is live, cross and portfolio refuse and nothing changes`, async ({
+test(`${J}, part of #5, checked on our own ledger: chooses the margin mode: isolated is live, cross and portfolio refuse and nothing changes`, async ({
   page,
 }) => {
   await desk(page);
@@ -199,7 +195,7 @@ async function fillTicket(page) {
   return ticket;
 }
 
-test(`${J} custodial branch (Later, OWNER 226), on our engine where #6 is the venue's: types a TEST size and leverage and reviews: margin, fee, liquidation price and total from the preview`, async ({
+test(`${J}, part of #6, checked on our own ledger: types a TEST size and leverage and reviews: margin, fee, liquidation price and total from the preview`, async ({
   page,
 }) => {
   await desk(page);
@@ -216,7 +212,10 @@ test(`${J} custodial branch (Later, OWNER 226), on our engine where #6 is the ve
   expect(toUnits(preview.body.liquidationPrice)).toBeLessThan(toUnits(preview.body.markPrice));
 });
 
-test(`${J} #7 looks at the order types: market and limit offered, the rest listed with the reason and nothing sent`, async ({ page }) => {
+test(`${J} #7 looks at the order types: market and limit offered, the rest listed with the reason and nothing sent`, async ({
+  page,
+  stepPicture,
+}) => {
   await desk(page);
   const sent = writes(page);
   const types = page.getByRole('group', { name: 'Order type' });
@@ -228,14 +227,32 @@ test(`${J} #7 looks at the order types: market and limit offered, the rest liste
   await page.getByRole('button', { name: 'Order types not offered' }).click();
   const menu = page.getByRole('menu');
   await expect(menu).toBeVisible();
-  expect(await menu.getByRole('menuitem').count()).toBeGreaterThan(0);
+  // The resting types the service refuses for this contract, each listed, not selectable, with the service's refusal in words.
+  const catalogue = await page.request.get('/api/v1/futures/order-types?limit=50');
+  expect(catalogue.status()).toBe(200);
+  const entries = (await catalogue.json()).markets.find((m) => m.market === SYMBOL)?.orderTypes ?? [];
+  expect(
+    entries
+      .filter((e) => e.state === 'available')
+      .map((e) => e.id)
+      .sort(),
+  ).toEqual(['limit', 'market']);
+  const refusedTypes = entries.filter((e) => e.state === 'refused');
+  expect(refusedTypes.length, 'the service refuses resting types for this contract').toBeGreaterThan(0);
+  const items = menu.getByRole('menuitem');
+  await expect(items).toHaveCount(refusedTypes.length);
+  for (let i = 0; i < refusedTypes.length; i += 1) {
+    await expect(items.nth(i)).toBeDisabled();
+    await expect(items.nth(i)).toContainText(
+      'The futures book takes market and limit orders. Stop, take-profit and the other types are not offered.',
+    );
+  }
+  await stepPicture();
   await page.keyboard.press('Escape');
   expect(sent).toEqual([]);
 });
 
-test(`${J} custodial branch (Later, OWNER 226), on our engine where #8 is the venue's: confirms "Open long": one position opens and its margin is locked`, async ({
-  page,
-}) => {
+test(`${J}, part of #8, checked on our own ledger: confirms "Open long": one position opens and its margin is locked`, async ({ page }) => {
   const who = account();
   const before = (await (await api(who)).balances()).USDT;
   // Held from the review to the fill, as J-derivatives-02 #6 is: the margin tier is rated on the perp book's depth, and
@@ -295,7 +312,7 @@ test(`${J} custodial branch (Later, OWNER 226), on our engine where #8 is the ve
   expect(orders.filter((o) => !o.reduceOnly && o.status !== 'refused')).toHaveLength(1);
 });
 
-test(`${J} custodial branch (Later, OWNER 226), on our engine where #9 is the venue's: opens the positions room: entry, mark, unrealised result, margin, leverage and liquidation price`, async ({
+test(`${J}, part of #9, checked on our own ledger: opens the positions room: entry, mark, unrealised result, margin, leverage and liquidation price`, async ({
   page,
 }) => {
   const who = account();
@@ -326,9 +343,7 @@ test(`${J} custodial branch (Later, OWNER 226), on our engine where #9 is the ve
   await expect(row).toContainText(`${grouped}${shownFraction ? `.${shownFraction}` : ''}`);
 });
 
-test(`${J} custodial branch (Later, OWNER 226), on our engine where #10 is the venue's: closes 40 percent, then the rest`, async ({
-  page,
-}) => {
+test(`${J}, part of #10, checked on our own ledger: closes 40 percent, then the rest`, async ({ page }) => {
   const who = account();
   await desk(page);
   const [position] = await positionsOf(who);
@@ -366,7 +381,7 @@ test(`${J} custodial branch (Later, OWNER 226), on our engine where #10 is the v
   expect(toUnits(usdt.used ?? '0')).toBe(0n);
 });
 
-test(`${J} custodial branch (Later, OWNER 226), on our engine where #11 is the venue's: opens History and sees the closed position with its realised result`, async ({
+test(`${J}, part of #11, checked on our own ledger: opens History and sees the closed position with its realised result`, async ({
   page,
 }) => {
   const who = account();

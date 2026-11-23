@@ -1,17 +1,10 @@
+import type { MarketListing } from '@intafaced/contracts/market-procedures';
 import { parseAmount } from '../../shared/money';
 
-export type ListingRow = {
-  id: string;
-  vendorId: string;
-  title: string;
-  description: string;
-  offerType: 'one_time' | 'subscription';
-  assetId: string;
-  price: string;
-  periodSeconds: number | null;
-  status: 'active' | 'archived' | 'taken_down';
-  createdAt: string;
-};
+export type ListingRow = Pick<
+  MarketListing,
+  'id' | 'vendorId' | 'title' | 'description' | 'offerType' | 'assetId' | 'price' | 'periodSeconds' | 'status' | 'createdAt'
+>;
 export type ListingFilter = {
   query: string;
   offer: 'all' | 'one_time' | 'subscription';

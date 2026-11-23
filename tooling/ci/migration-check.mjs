@@ -2,7 +2,8 @@
 /**
  * MIGRATION CHECK — §14 DoD: "All schema migrations reversible and applied in CI."
  *
- * For every service with a drizzle output directory:
+ * For every service with a drizzle output directory (`services/<svc>/drizzle`), and every Rust service's
+ * `crates/<svc>/migrations` (svc-tax applies those itself, `svc-tax migrate`):
  *   1. Every `NNNN_name.sql` has a matching `NNNN_name.down.sql`.
  *   2. The journal is consistent with the files on disk.
  *   3. No migration silently drops a column or table without a marker comment —
@@ -11,15 +12,34 @@
  *   4. A migration this change ADDS is named for the UTC time it was written,
  *      `YYYYMMDDHHMMSS_name.sql`, so two PRs never claim the same name and
  *      neither has to renumber when the other merges first.
- *
- *   node tooling/ci/migration-check.mjs --self-test   checks rule 4 on fixed cases
  */
 import { execFileSync } from 'node:child_process';
-import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, existsSync, statSync, realpathSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const ROOT = process.cwd();
 const SERVICES = join(ROOT, 'services');
+const CRATES = join(ROOT, 'crates');
+
+/**
+ * Each migration folder: a Node service's drizzle folder, or a Rust crate's migrations folder. `onMain` lists where main
+ * may hold the same files: a crate's migrations moved there from its TypeScript service's drizzle folder keep their names,
+ * so they are not new.
+ */
+function migrationDirs() {
+  const dirs = [];
+  const list = (root) => (existsSync(root) ? readdirSync(root) : []);
+  for (const service of list(SERVICES))
+    dirs.push({ service, dir: join(SERVICES, service, 'drizzle'), onMain: [`services/${service}/drizzle/`] });
+  for (const crate of list(CRATES))
+    dirs.push({
+      service: crate,
+      dir: join(CRATES, crate, 'migrations'),
+      onMain: [`crates/${crate}/migrations/`, `services/${crate}/drizzle/`],
+    });
+  return dirs.filter((d) => existsSync(d.dir) && statSync(d.dir).isDirectory());
+}
 
 /**
  * `DELETE FROM` was not on this list, and neither was constraint removal.
@@ -97,10 +117,10 @@ function stripSqlComments(sql) {
 }
 const ACKNOWLEDGEMENT = /--\s*intafaced:destructive\b/i;
 
-/** Migration file names under a service's drizzle dir on origin/main, or null when main is not fetched. */
-function mainMigrations(service) {
+/** Migration file names under a service's migration folders on origin/main, or null when main is not fetched. */
+function mainMigrations(paths) {
   try {
-    const out = execFileSync('git', ['ls-tree', '-r', '--name-only', 'origin/main', '--', `services/${service}/drizzle/`], {
+    const out = execFileSync('git', ['ls-tree', '-r', '--name-only', 'origin/main', '--', ...paths], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
     });
@@ -150,7 +170,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const RULE_BEGAN = Date.UTC(2026, 9, 23);
 
 /** Problems with the names of `ups` that are not on main. `onMain` is main's file names (null when main is not fetched). */
-function namingProblems(ups, onMain, now = Date.now()) {
+export function namingProblems(ups, onMain, now = Date.now()) {
   if (!onMain) return [];
   const legacyOnMain = [...onMain].filter((f) => LEGACY.test(f)).map(migrationNumber);
   const legacyHighest = legacyOnMain.length ? Math.max(...legacyOnMain) : -1;
@@ -182,134 +202,103 @@ function namingProblems(ups, onMain, now = Date.now()) {
   return out;
 }
 
-function selfTest() {
-  const now = Date.UTC(2026, 9, 23, 22, 0, 0);
-  const main = new Set(['0060_a.sql', '0061_b.sql']);
-  const check = (ups, onMain = main) => namingProblems(ups, onMain, now).map((p) => p.file);
-  const cases = [
-    ['a stamped migration passes', check(['0060_a.sql', '0061_b.sql', '20261023213000_c.sql']), []],
-    ['two PRs stamped out of merge order both pass', check(['20261023100000_x.sql'], new Set([...main, '20261023110000_y.sql'])), []],
-    ['a four-digit name above main passes while main has no stamped one', check(['0062_c.sql']), []],
-    ["a four-digit name at main's highest fails", check(['0061_c.sql']), ['0061_c.sql']],
-    [
-      'a four-digit name fails once main has a stamped one',
-      check(['0099_c.sql'], new Set([...main, '20261023110000_y.sql'])),
-      ['0099_c.sql'],
-    ],
-    ['a date that does not exist fails', check(['20261332000000_c.sql']), ['20261332000000_c.sql']],
-    ['a stamp more than a day ahead fails', check(['20261025000000_c.sql']), ['20261025000000_c.sql']],
-    ['a stamp before the rule began fails', check(['01261023213000_c.sql']), ['01261023213000_c.sql']],
-    ['an upper-case name fails', check(['20261023213000_Bad.sql']), ['20261023213000_Bad.sql']],
-    ['files already on main are never judged', check(['0060_a.sql']), []],
-    ['main not fetched judges nothing', check(['0001_c.sql'], null), []],
-  ];
-  let failed = 0;
-  for (const [name, got, want] of cases) {
-    const ok = JSON.stringify(got) === JSON.stringify(want);
-    if (!ok) failed++;
-    console.log(`${ok ? '✓' : '✖'} ${name}${ok ? '' : ` — got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`}`);
+function main() {
+  const problems = [];
+  let migrationsChecked = 0;
+  let servicesChecked = 0;
+  /** Reversal files actually OPENED — the number the old success line implied and never had. */
+  let downsRead = 0;
+
+  const dirs = migrationDirs();
+  // Nothing to read is not clean: a services/ or crates/ that stopped resolving would look the same (empty-denominator law).
+  if (dirs.length === 0) {
+    console.error('MIGRATION CHECK FAILED: found no migration folder under services/<svc>/drizzle or crates/<svc>/migrations');
+    process.exit(1);
   }
-  if (failed) process.exit(1);
-  console.log(`✓ migration-check --self-test OK (${cases.length} cases)`);
-  process.exit(0);
-}
+  for (const { service, dir: drizzleDir, onMain } of dirs) {
+    servicesChecked++;
 
-if (process.argv.includes('--self-test')) selfTest();
+    const files = readdirSync(drizzleDir).filter((f) => f.endsWith('.sql'));
+    const ups = files.filter((f) => !f.endsWith('.down.sql'));
+    const downs = new Set(files.filter((f) => f.endsWith('.down.sql')));
 
-const problems = [];
-let migrationsChecked = 0;
-let servicesChecked = 0;
-/** Reversal files actually OPENED — the number the old success line implied and never had. */
-let downsRead = 0;
+    for (const up of ups) {
+      migrationsChecked++;
+      const expectedDown = up.replace(/\.sql$/, '.down.sql');
 
-if (!existsSync(SERVICES)) {
-  console.log('✓ migration-check — no services yet');
-  process.exit(0);
-}
-
-for (const service of readdirSync(SERVICES)) {
-  const drizzleDir = join(SERVICES, service, 'drizzle');
-  if (!existsSync(drizzleDir) || !statSync(drizzleDir).isDirectory()) continue;
-  servicesChecked++;
-
-  const files = readdirSync(drizzleDir).filter((f) => f.endsWith('.sql'));
-  const ups = files.filter((f) => !f.endsWith('.down.sql'));
-  const downs = new Set(files.filter((f) => f.endsWith('.down.sql')));
-
-  for (const up of ups) {
-    migrationsChecked++;
-    const expectedDown = up.replace(/\.sql$/, '.down.sql');
-
-    if (!downs.has(expectedDown)) {
-      problems.push({
-        service,
-        file: relative(ROOT, join(drizzleDir, up)),
-        problem: `missing reversal — write ${expectedDown}`,
-      });
-    } else {
-      // OPEN IT. The filename proved a file exists, never that it reverses
-      // anything — see SQL_STATEMENT above.
-      const downSql = stripSqlComments(readFileSync(join(drizzleDir, expectedDown), 'utf8'));
-      downsRead++;
-      if (!SQL_STATEMENT.test(downSql)) {
+      if (!downs.has(expectedDown)) {
         problems.push({
           service,
-          file: relative(ROOT, join(drizzleDir, expectedDown)),
-          problem: 'reversal file contains no SQL — an empty .down.sql is not a reversal, it is a filename',
+          file: relative(ROOT, join(drizzleDir, up)),
+          problem: `missing reversal — write ${expectedDown}`,
+        });
+      } else {
+        // OPEN IT. The filename proved a file exists, never that it reverses
+        // anything — see SQL_STATEMENT above.
+        const downSql = stripSqlComments(readFileSync(join(drizzleDir, expectedDown), 'utf8'));
+        downsRead++;
+        if (!SQL_STATEMENT.test(downSql)) {
+          problems.push({
+            service,
+            file: relative(ROOT, join(drizzleDir, expectedDown)),
+            problem: 'reversal file contains no SQL — an empty .down.sql is not a reversal, it is a filename',
+          });
+        }
+      }
+
+      const sql = readFileSync(join(drizzleDir, up), 'utf8');
+      const orphaned = unrestoredDrops(sql);
+      const destructive =
+        DESTRUCTIVE.find((p) => p.test(sql)) || (orphaned.length > 0 ? `dropped and not restored: ${orphaned.join(', ')}` : null);
+      if (destructive && !ACKNOWLEDGEMENT.test(sql)) {
+        problems.push({
+          service,
+          file: relative(ROOT, join(drizzleDir, up)),
+          problem:
+            'destructive statement without acknowledgement — add "-- intafaced:destructive <reason>" ' + 'at the top if this is intended',
         });
       }
     }
 
-    const sql = readFileSync(join(drizzleDir, up), 'utf8');
-    const orphaned = unrestoredDrops(sql);
-    const destructive =
-      DESTRUCTIVE.find((p) => p.test(sql)) || (orphaned.length > 0 ? `dropped and not restored: ${orphaned.join(', ')}` : null);
-    if (destructive && !ACKNOWLEDGEMENT.test(sql)) {
-      problems.push({
-        service,
-        file: relative(ROOT, join(drizzleDir, up)),
-        problem:
-          'destructive statement without acknowledgement — add "-- intafaced:destructive <reason>" ' + 'at the top if this is intended',
-      });
+    // Naming: a migration absent from origin/main is stamped with the UTC time it was written.
+    for (const { file, problem } of namingProblems(ups, mainMigrations(onMain))) {
+      problems.push({ service, file: relative(ROOT, join(drizzleDir, file)), problem });
     }
-  }
 
-  // Naming: a migration absent from origin/main is stamped with the UTC time it was written.
-  for (const { file, problem } of namingProblems(ups, mainMigrations(service))) {
-    problems.push({ service, file: relative(ROOT, join(drizzleDir, file)), problem });
-  }
-
-  // Journal consistency.
-  const journalPath = join(drizzleDir, 'meta', '_journal.json');
-  if (existsSync(journalPath)) {
-    const journal = JSON.parse(readFileSync(journalPath, 'utf8'));
-    const entries = journal.entries ?? [];
-    for (const entry of entries) {
-      const tag = `${entry.tag}.sql`;
-      if (!ups.includes(tag)) {
-        problems.push({ service, file: relative(ROOT, journalPath), problem: `journal references missing migration ${tag}` });
+    // Journal consistency.
+    const journalPath = join(drizzleDir, 'meta', '_journal.json');
+    if (existsSync(journalPath)) {
+      const journal = JSON.parse(readFileSync(journalPath, 'utf8'));
+      const entries = journal.entries ?? [];
+      for (const entry of entries) {
+        const tag = `${entry.tag}.sql`;
+        if (!ups.includes(tag)) {
+          problems.push({ service, file: relative(ROOT, journalPath), problem: `journal references missing migration ${tag}` });
+        }
+      }
+      if (entries.length !== ups.length) {
+        problems.push({
+          service,
+          file: relative(ROOT, journalPath),
+          problem: `journal has ${entries.length} entries but ${ups.length} migration files exist`,
+        });
       }
     }
-    if (entries.length !== ups.length) {
-      problems.push({
-        service,
-        file: relative(ROOT, journalPath),
-        problem: `journal has ${entries.length} entries but ${ups.length} migration files exist`,
-      });
+  }
+
+  if (problems.length > 0) {
+    console.error(`\n✖ MIGRATION CHECK FAILED — ${problems.length} problem(s) (§14 DoD)\n`);
+    for (const p of problems) {
+      console.error(`  [${p.service}] ${p.file}`);
+      console.error(`    → ${p.problem}\n`);
     }
+    process.exit(1);
   }
+
+  console.log(
+    `\u2713 migration-check clean \u2014 ${migrationsChecked} migration(s) across ${servicesChecked} service(s), ` +
+      `${downsRead} reversal file(s) opened and non-empty`,
+  );
 }
 
-if (problems.length > 0) {
-  console.error(`\n✖ MIGRATION CHECK FAILED — ${problems.length} problem(s) (§14 DoD)\n`);
-  for (const p of problems) {
-    console.error(`  [${p.service}] ${p.file}`);
-    console.error(`    → ${p.problem}\n`);
-  }
-  process.exit(1);
-}
-
-console.log(
-  `\u2713 migration-check clean \u2014 ${migrationsChecked} migration(s) across ${servicesChecked} service(s), ` +
-    `${downsRead} reversal file(s) opened and non-empty`,
-);
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) main();

@@ -34,11 +34,19 @@
  *
  *   node tooling/ci/look-gate/look-gate.mjs [--shard 1/4] [--out <dir>] [--only gallery|customer|admin] [--routes /a,/b]
  *        [--update-baselines] [--changed-from origin/main]
+ *   node tooling/ci/look-gate/look-gate.mjs --pr --before <base's apps/customer/dist> [--after <dist>] [--shard 1/3]
+ *        [--out <dir>] [--routes /a,/b]
  *   node tooling/ci/look-gate/look-gate.mjs --self-test
+ *
+ * `--pr` is a pull request's run (#9325): every Customer room is shot at the phone and the computer from the base's
+ * build and from the head's, one after the other on the same port. The rooms whose pictures differ are the rooms the
+ * change reaches; only those get every check above, at the base and at the head, and the run fails when the head adds a
+ * finding on a new-look page (policy.mjs newFindings, prVerdict). It keeps each reached room's before, after and diff
+ * pictures in `<out>/pictures/<room>/` with `pictures-<k>-of-<n>.json` naming them, for the CI review.
  */
 import { execFileSync } from 'node:child_process';
 import { createDecipheriv } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, appendFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync, appendFileSync, statSync } from 'node:fs';
 import http from 'node:http';
 import { dirname, extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -80,7 +88,7 @@ const MIME = {
 };
 
 function args(argv) {
-  const out = { shard: [1, 1], out: join(ROOT, 'look-gate-out'), only: null, routes: null, update: false, changedFrom: null };
+  const out = { shard: [1, 1], out: join(ROOT, 'look-gate-out'), only: null, routes: null, update: false, changedFrom: null, pr: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--shard') {
@@ -95,13 +103,19 @@ function args(argv) {
     else if (a === '--update-baselines') out.update = true;
     else if (a === '--changed-from') out.changedFrom = argv[++i];
     else if (a === '--self-test') out.selfTest = true;
+    else if (a === '--pr') out.pr = true;
+    else if (a === '--before') out.before = resolve(argv[++i]);
+    else if (a === '--after') out.after = resolve(argv[++i]);
     else throw new Error(`unknown argument ${a}`);
   }
+  if (out.pr && !out.before) throw new Error('--pr needs --before <the base build of apps/customer/dist>');
   return out;
 }
 
 /** Every route the Customer app's navigation and menus name: the room report's own list. */
 export const customerRoutes = sweepRoutes;
+/** The kit page (apps/customer/src/app/App.tsx), shot on a pull request beside the rooms. */
+export const KIT_ROUTE = '/kit';
 
 /** The baseline room name of a route (policy.mjs, where a row's room decides what blocks). */
 export const roomName = policy.roomName;
@@ -164,10 +178,10 @@ const INIT = `(() => {
 
 // Scrollbars hidden too: an overlay scrollbar fades on its own clock, so a shot could catch it half drawn.
 const FREEZE_CSS = `*, *::before, *::after { animation-duration: 0s !important; animation-delay: 0s !important; transition: none !important; caret-color: transparent !important; } * { scrollbar-width: none !important; }`;
-const HIDE_TEXT_CSS = `* { color: transparent !important; -webkit-text-fill-color: transparent !important; text-shadow: none !important; text-decoration-color: transparent !important; } ::placeholder { color: transparent !important; }`;
+export const HIDE_TEXT_CSS = `* { color: transparent !important; -webkit-text-fill-color: transparent !important; text-shadow: none !important; text-decoration-color: transparent !important; } ::placeholder { color: transparent !important; }`;
 
 /** Text boxes, money figures, controls and font probes, measured in the page. Runs in the browser. */
-function measure({ maxText }) {
+export function measure({ maxText }) {
   // Any computed colour (rgb, color(srgb ...), oklch, a color-mix result) as sRGB 0-255 and alpha 0-1, read back from
   // a canvas so the browser does the conversion.
   const ctx = Object.assign(document.createElement('canvas'), { width: 1, height: 1 }).getContext('2d', { willReadFrequently: true });
@@ -184,7 +198,13 @@ function measure({ maxText }) {
     seenColours.set(s, out);
     return out;
   };
+  // Drawn: the browser's own answer (checkVisibility) of whether it paints the element. It is false with no box (display:
+  // none on it or an ancestor, the hidden attribute), under visibility: hidden, at opacity 0 on it or an ancestor, and in
+  // skipped content: a closed <details> or hidden="until-found", whose boxes getBoundingClientRect still lays out where
+  // they would be if open (#9596's false red). Text off-screen, under a bar or scrolled away is still drawn and judged,
+  // and so is content-visibility: auto, which only defers painting what is off-screen.
   const visible = (el) => {
+    if (!el.checkVisibility({ visibilityProperty: true, opacityProperty: true })) return false;
     const r = el.getBoundingClientRect();
     if (r.width < 1 || r.height < 1) return false;
     const c = getComputedStyle(el);
@@ -199,11 +219,19 @@ function measure({ maxText }) {
     return `${el.tagName.toLowerCase()}${id ? `#${id}` : cls ? `.${cls}` : ''}`;
   };
 
+  // A closed <details> draws only its summary: the rest has boxes but no paint, so nobody can read it there.
+  const undrawn = (el) => {
+    for (let d = el.closest('details:not([open])'); d; d = d.parentElement?.closest('details:not([open])')) {
+      const summary = d.querySelector(':scope > summary');
+      if (!summary?.contains(el)) return true;
+    }
+    return false;
+  };
   const texts = [];
   let probe = 0;
   for (const el of document.querySelectorAll('body *')) {
     if (texts.length >= maxText) break;
-    if (el.closest('script,style,noscript,svg,[aria-hidden="true"]') || !visible(el)) continue;
+    if (el.closest('script,style,noscript,svg,[aria-hidden="true"]') || !visible(el) || undrawn(el)) continue;
     const nodes = [...el.childNodes].filter((n) => n.nodeType === 3 && n.textContent.trim());
     if (!nodes.length) continue;
     const c = getComputedStyle(el);
@@ -304,24 +332,49 @@ async function settle(page) {
     const now = await page.evaluate(
       () => `${document.documentElement.scrollHeight}:${document.body.innerText.length}:${document.querySelectorAll('*').length}`,
     );
-    if (now !== last) ((last = now), (stableSince = Date.now()));
-    else if (Date.now() - stableSince >= 1_000) return true;
+    if (now !== last) {
+      last = now;
+      stableSince = Date.now();
+    } else if (Date.now() - stableSince >= 1_000) return true;
     await page.waitForTimeout(150);
   }
   return false;
 }
 
 /**
+ * The whole page in one viewport (at most 12,000 px), so the boxes measured are where the shot draws them, and settled
+ * there. The height is read again after each resize until it holds: content sized by the viewport's height (a vh
+ * clamp, a desk grid) grows with it, and a page left taller than its viewport sets the fixed bars down over content its
+ * bottom padding keeps clear at a real screen's height, so the bar's own grey is measured as the text's background
+ * (/trade/spot's "Market" at 1.05:1, /charts' note at 1.07:1, 22 Nov). `fits` is false when it still grows after
+ * `tries` resizes, `settled` when the layout never stopped moving.
+ */
+export async function fitToPage(page, { tries = 6 } = {}) {
+  const { width, height: floor } = page.viewportSize();
+  const want = async () => Math.min(Math.max(floor, await page.evaluate(() => Math.ceil(document.documentElement.scrollHeight))), 12_000);
+  let settled = false;
+  for (let i = 0; i < tries; i++) {
+    const full = await want();
+    if (i > 0 && full === page.viewportSize().height) return { settled, fits: true };
+    if (full !== page.viewportSize().height) await page.setViewportSize({ width, height: full });
+    settled = await settle(page);
+    // A layout that never stops moving gives no height to hold to.
+    if (!settled) break;
+  }
+  return { settled, fits: (await want()) === page.viewportSize().height };
+}
+
+/**
  * A generated id (React's useId on the client `_r_…_` or server `_R_…_`, base-ui, Radix) changes between pages and
  * renders, so a control named by it would be listed once per id. Passed into the page as a source string.
  */
-const GENERATED_ID = String.raw`[:«»]|^(?:base-ui|radix)-|^_r_\w*_$`;
+export const GENERATED_ID = String.raw`[:«»]|^(?:base-ui|radix)-|^_r_\w*_$`;
 
 /**
  * Tab through the first stops; a focused box a `data-obscures` bar paints over fails (inside the bar's band and under
  * it in the stacking order). Runs in the browser after each Tab.
  */
-function focusState(generatedId) {
+export function focusState(generatedId) {
   const el = document.activeElement;
   if (!el || el === document.body) return null;
   const r = el.getBoundingClientRect();
@@ -387,6 +440,21 @@ function fontProbes(texts) {
   return picked.slice(0, 40);
 }
 
+/** Text drawn in a fallback instead of its first web font, over a few probes of measure()'s `m.texts`. */
+export async function fontFindings(page, m) {
+  const probes = fontProbes(m.texts);
+  const fonts = await renderedFonts(page, probes);
+  const fontFails = [];
+  for (const i of probes) {
+    const t = m.texts[i];
+    // Nothing drawn is not drawn in the wrong font.
+    if (!(fonts.get(String(i)) ?? []).length) continue;
+    const why = policy.judgeFont({ fontFamily: t.fontFamily, declared: m.declared, platform: fonts.get(String(i)) ?? [] });
+    if (why) fontFails.push(`${t.name} "${t.text}": ${why}`);
+  }
+  return [...new Set(fontFails)].slice(0, 15);
+}
+
 /** The TEST account's answer at the gate's frozen time (fixture-answer.mjs). */
 const fixtureAnswer = (href, method, body, { signedIn }) => answerAt(href, method, body, { signedIn, now: FROZEN.getTime() });
 
@@ -402,7 +470,7 @@ async function prepare(page, target = {}) {
     await page.addInitScript(
       ([key, view]) => {
         try {
-          localStorage.getItem(key) ?? localStorage.setItem(key, JSON.stringify(view));
+          if (localStorage.getItem(key) === null) localStorage.setItem(key, JSON.stringify(view));
         } catch {
           // A frame with no storage (about:blank, sandboxed) keeps the app's own default.
         }
@@ -419,6 +487,34 @@ async function prepare(page, target = {}) {
       return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify(REFUSAL) });
     });
   await page.routeWebSocket(/\/ws(\/|$)/, (ws) => ws.close({ code: 1011, reason: REFUSAL.code }));
+}
+
+/**
+ * The contrast findings for `texts` (measure()'s), each judged on its worst background pixel in `blank`, the shot taken
+ * with all text hidden (HIDE_TEXT_CSS); `offset` is where a scoped shot starts on the page.
+ */
+export function contrastFindings(texts, blank, offset = { x: 0, y: 0 }) {
+  const contrast = [];
+  const worstOf = (t) => {
+    let worst = { ratio: Infinity };
+    for (const r of t.rects) {
+      const px = crop(blank, { ...r, x: r.x - offset.x, y: r.y - offset.y });
+      if (!px.length) continue;
+      const w = policy.worstContrast(t.colour, px);
+      if (w.ratio < worst.ratio) worst = w;
+    }
+    return worst;
+  };
+  for (const t of texts) {
+    const w = worstOf(t);
+    const min = policy.minimumFor(t);
+    const [r0] = t.rects;
+    if (w.ratio < min)
+      contrast.push(
+        `${t.name} "${t.text}" ${(Math.floor(w.ratio * 100) / 100).toFixed(2)} < ${min} (worst pixel under it rgb(${w.at.join(',')}), box at ${Math.round(r0.x)},${Math.round(r0.y)})`,
+      );
+  }
+  return contrast;
 }
 
 async function check(context, origin, target, vpName, opts) {
@@ -446,14 +542,13 @@ async function check(context, origin, target, vpName, opts) {
       .waitForFunction(() => !document.querySelector('.loading, [aria-busy="true"]'), null, { timeout: 8_000 })
       .catch(() => row.notes.push('still loading after 8 s'));
     await page.evaluate(() => document.fonts.ready);
-    // The whole page in one viewport, so the boxes measured are where the shot draws them (a full-page shot resizes the
-    // viewport, which moves fixed bars and anything sized in vh).
+    // The whole page in one viewport (fitToPage), not a full-page shot, which resizes the viewport and so moves fixed
+    // bars and anything sized in vh after the boxes are measured.
     const viewport = page.viewportSize();
-    const fullHeight = await page.evaluate(() => Math.ceil(document.documentElement.scrollHeight));
-    if (!target.scope && fullHeight > viewport.height)
-      await page.setViewportSize({ width: viewport.width, height: Math.min(fullHeight, 12_000) });
     if (target.scope) await page.addStyleTag({ content: 'header.sticky{display:none !important}' });
-    if (!(await settle(page))) row.notes.push('layout still moving after 6 s');
+    const fit = target.scope ? { settled: await settle(page), fits: true } : await fitToPage(page);
+    if (!fit.settled) row.notes.push('layout still moving after 6 s');
+    if (!fit.fits) row.notes.push('page still taller than its viewport after 6 resizes (content sized in vh)');
 
     // The shots and the measurement back to back, so the boxes are where the pictures draw them.
     const shotOpts = { animations: 'disabled', caret: 'hide', timeout: 30_000 };
@@ -483,26 +578,7 @@ async function check(context, origin, target, vpName, opts) {
       const s = await page.evaluate(() => ({ x: scrollX, y: scrollY }));
       offset = { x: b.x + s.x, y: b.y + s.y };
     }
-    const contrast = [];
-    const worstOf = (t) => {
-      let worst = { ratio: Infinity };
-      for (const r of t.rects) {
-        const px = crop(blank, { ...r, x: r.x - offset.x, y: r.y - offset.y });
-        if (!px.length) continue;
-        const w = policy.worstContrast(t.colour, px);
-        if (w.ratio < worst.ratio) worst = w;
-      }
-      return worst;
-    };
-    for (const t of m.texts) {
-      const w = worstOf(t);
-      const min = policy.minimumFor(t);
-      const [r0] = t.rects;
-      if (w.ratio < min)
-        contrast.push(
-          `${t.name} "${t.text}" ${(Math.floor(w.ratio * 100) / 100).toFixed(2)} < ${min} (worst pixel under it rgb(${w.at.join(',')}), box at ${Math.round(r0.x)},${Math.round(r0.y)})`,
-        );
-    }
+    const contrast = contrastFindings(m.texts, blank, offset);
     add('contrast', contrast.slice(0, 30).concat(contrast.length > 30 ? [`… ${contrast.length - 30} more`] : []));
     add(
       'money',
@@ -511,18 +587,7 @@ async function check(context, origin, target, vpName, opts) {
     add('gpu', gpu.judgeGpu(await page.evaluate(gpu.measureGpu), viewport.height));
     add('targets', m.small.slice(0, 20));
 
-    // rendered font
-    const probes = fontProbes(m.texts);
-    const fonts = await renderedFonts(page, probes);
-    const fontFails = [];
-    for (const i of probes) {
-      const t = m.texts[i];
-      // Nothing drawn (text inside a closed <details>, say) is not drawn in the wrong font.
-      if (!(fonts.get(String(i)) ?? []).length) continue;
-      const why = policy.judgeFont({ fontFamily: t.fontFamily, declared: m.declared, platform: fonts.get(String(i)) ?? [] });
-      if (why) fontFails.push(`${t.name} "${t.text}": ${why}`);
-    }
-    add('font', [...new Set(fontFails)].slice(0, 15));
+    add('font', await fontFindings(page, m));
 
     // focus not obscured
     const focus = [];
@@ -643,7 +708,7 @@ async function pseudoCopy(page) {
  * ellipsis or a line clamp), it spills sideways out of its box over its neighbours, or a box around it that cannot
  * scroll there (a tab list, a clipped row) hides part of it.
  */
-const CLIPPED_COPY = (generatedId) => {
+export const CLIPPED_COPY = (generatedId) => {
   // A generated id (GENERATED_ID): name the box by its tag and class instead.
   const stable = (id) => id && !new RegExp(generatedId, 'i').test(id);
   const name = (el) => {
@@ -662,8 +727,10 @@ const CLIPPED_COPY = (generatedId) => {
     while (el.parentElement && ['inline', 'contents'].includes(getComputedStyle(el).display)) el = el.parentElement;
     const c = getComputedStyle(el);
     const r = el.getBoundingClientRect();
-    // Hidden, or visually hidden for screen readers (a 1 px clipped box): nobody sees it cut.
-    if (c.visibility === 'hidden' || r.width <= 1 || r.height <= 1 || c.clipPath.startsWith('inset(50%')) continue;
+    // Hidden, never drawn (a closed <details>, display: none; as measure()'s visible), or visually hidden for screen
+    // readers (a 1 px clipped box): nobody sees it cut.
+    const drawn = el.checkVisibility({ visibilityProperty: true, opacityProperty: true });
+    if (!drawn || c.visibility === 'hidden' || r.width <= 1 || r.height <= 1 || c.clipPath.startsWith('inset(50%')) continue;
     const clamp = c.webkitLineClamp && c.webkitLineClamp !== 'none';
     const wide = (cuts(c.overflowX) || c.textOverflow === 'ellipsis') && el.scrollWidth > el.clientWidth + 1;
     const tall = (cuts(c.overflowY) || clamp) && el.scrollHeight > el.clientHeight + 1;
@@ -800,10 +867,8 @@ async function variants(browser, origin, target, opts) {
         const dir = join(opts.out, 'shots', target.room);
         mkdirSync(dir, { recursive: true });
         // The whole page in one viewport, as the main shots are, so fixed bars stay where a person sees them.
-        const height = await page.evaluate(() => Math.ceil(document.documentElement.scrollHeight));
-        if (!target.scope && height > VIEWPORTS.phone.height)
-          await page.setViewportSize({ width: VIEWPORTS.phone.width, height: Math.min(height, 12_000) });
-        await settle(page);
+        if (target.scope) await settle(page);
+        else await fitToPage(page);
         const path = join(dir, 'phone-copy-130.png');
         const shotOpts = { path, animations: 'disabled', caret: 'hide', timeout: 30_000 };
         await (target.scope ? page.locator(target.scope).screenshot(shotOpts) : page.screenshot(shotOpts));
@@ -991,7 +1056,7 @@ async function main(opts) {
   const [k, n] = opts.shard;
   const mine = targets.filter((_, i) => i % n === k - 1);
   // Pages in parallel (each in its own browser context), rows kept in target order.
-  const perTarget = new Array(mine.length);
+  const perTarget = Array.from({ length: mine.length });
   let next = 0;
   const worker = async () => {
     while (next < mine.length) {
@@ -1040,6 +1105,228 @@ async function main(opts) {
   if (v.mode === 'block') process.exit(1);
 }
 
+/**
+ * One room's picture as check() takes it (the same freeze, wait, settle and full-page viewport), with no checks: the
+ * cheap first pass of a pull request's run, which finds the rooms the change reaches.
+ */
+async function picture(browser, origin, target, vpName) {
+  const context = await browser.newContext({
+    viewport: VIEWPORTS[vpName],
+    deviceScaleFactor: 1,
+    reducedMotion: 'reduce',
+    timezoneId: 'UTC',
+    locale: 'en-GB',
+  });
+  const page = await context.newPage();
+  try {
+    await prepare(page, target);
+    await page.goto(origin + target.path, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    await page.waitForLoadState('networkidle', { timeout: 6_000 }).catch(() => {});
+    await page.addStyleTag({ content: FREEZE_CSS });
+    await page.waitForFunction(() => !document.querySelector('.loading, [aria-busy="true"]'), null, { timeout: 8_000 }).catch(() => {});
+    await page.evaluate(() => document.fonts.ready);
+    // Settled, and the height read again after each resize until it holds (fitToPage): a room still filling in when its
+    // height is read is shot cut short, and two shots of one build then differ (seen on /portfolio).
+    await fitToPage(page);
+    return await page.screenshot({ animations: 'disabled', caret: 'hide', timeout: 30_000 });
+  } catch (error) {
+    // A page that can't be shot is reached: the full checks say why.
+    return `error: ${String(error?.message ?? error)
+      .split('\n')[0]
+      .slice(0, 200)}`;
+  } finally {
+    await context.close();
+  }
+}
+
+/** `items` through `fn` on LOOK_GATE_WORKERS workers, results in item order. */
+async function pool(items, fn) {
+  const out = Array.from({ length: items.length });
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i]);
+      process.stdout.write('.');
+    }
+  };
+  await Promise.all(Array.from({ length: Number(process.env.LOOK_GATE_WORKERS ?? 3) }, worker));
+  process.stdout.write('\n');
+  return out;
+}
+
+/** Whether two pictures differ (any pixel past the baseline tolerance, a size change, or a shot that failed). */
+function picturesDiffer(a, b) {
+  if (typeof a === 'string' || typeof b === 'string') return { differ: true, diff: null };
+  const pa = decodePng(a);
+  const pb = decodePng(b);
+  if (pa.width !== pb.width || pa.height !== pb.height)
+    return { differ: true, diff: null, size: `${pa.width}x${pa.height} → ${pb.width}x${pb.height}` };
+  const mark = new Uint8Array(pb.data);
+  const d = policy.pixelDiff(pa.data, pb.data, pa, 2, mark);
+  return {
+    differ: d.differing > 0,
+    differing: d.differing,
+    diff: d.differing > 0 ? encodePng({ width: pb.width, height: pb.height, data: mark }) : null,
+  };
+}
+
+/** A pull request's run (`--pr`; the header names what it does). */
+async function prMain(opts) {
+  const { chromium } = await import('@playwright/test');
+  const sides = { before: opts.before, after: opts.after ?? join(ROOT, 'apps/customer/dist') };
+  for (const [side, dir] of Object.entries(sides))
+    if (!existsSync(join(dir, 'index.html'))) throw new Error(`no Customer build for the ${side} side in ${dir}`);
+  if (!existsSync(join(ROOT, I18N_FIXTURES)))
+    throw new Error(`no @intafaced/i18n build for the 130% copy pass (${I18N_FIXTURES}): pnpm --filter @intafaced/i18n build`);
+  const [k, n] = opts.shard;
+  // The rooms, and the kit page (/kit), which draws every kit part: a kit change seen only there reaches it too.
+  const targets = (opts.routes ?? [...customerRoutes(), KIT_ROUTE])
+    .filter((_, i) => i % n === k - 1)
+    .map((route) => ({ name: route, path: route, room: roomName(route), baselines: 'apps/customer/look-baselines', customer: true }));
+  const browser = await chromium.launch(process.env.LOOK_GATE_CHROMIUM ? { executablePath: process.env.LOOK_GATE_CHROMIUM } : {});
+  const started = Date.now();
+  // Each side on the gate's one fixed port in turn, so a room that prints its own address draws the same one.
+  const onSide = async (side, fn) => {
+    const { server, origin } = await serve(sides[side], [], PORT_BASE);
+    try {
+      return await fn(origin);
+    } finally {
+      server.close();
+    }
+  };
+
+  // 1. Pictures of every room on both sides.
+  const shots = {};
+  for (const side of ['before', 'after'])
+    shots[side] = await onSide(side, (origin) =>
+      pool(targets, async (t) =>
+        Object.fromEntries(await Promise.all(Object.keys(VIEWPORTS).map(async (vp) => [vp, await picture(browser, origin, t, vp)]))),
+      ),
+    );
+  // A room whose pictures differ is shot again on both sides: it counts as reached only when they differ again. A real
+  // change differs every time; antialiasing noise (a few pixels a few levels apart, 3 of 388 pictures in a run of one
+  // build against itself) does not repeat.
+  const candidates = targets.flatMap((t, i) => {
+    const vps = Object.keys(VIEWPORTS).filter((vp) => picturesDiffer(shots.before[i][vp], shots.after[i][vp]).differ);
+    return vps.length ? [{ t, i, vps }] : [];
+  });
+  const again = {};
+  for (const side of ['before', 'after'])
+    again[side] = await onSide(side, (origin) =>
+      pool(candidates, async ({ t, vps }) =>
+        Object.fromEntries(await Promise.all(vps.map(async (vp) => [vp, await picture(browser, origin, t, vp)]))),
+      ),
+    );
+  const confirmed = new Set();
+  candidates.forEach(({ i, vps }, c) => {
+    for (const vp of vps) if (picturesDiffer(again.before[c][vp], again.after[c][vp]).differ) confirmed.add(`${i}|${vp}`);
+  });
+  const pictured = Date.now();
+
+  // 2. The rooms whose pictures differ, with their before, after and diff pictures kept.
+  const reached = [];
+  const manifest = [];
+  targets.forEach((t, i) => {
+    const views = [];
+    for (const vp of Object.keys(VIEWPORTS)) {
+      const a = shots.before[i][vp];
+      const b = shots.after[i][vp];
+      if (!confirmed.has(`${i}|${vp}`)) continue;
+      const d = picturesDiffer(a, b);
+      const dir = join(opts.out, 'pictures', t.room);
+      mkdirSync(dir, { recursive: true });
+      const files = {};
+      for (const [name, png] of [
+        ['before', a],
+        ['after', b],
+        ['diff', d.diff],
+      ])
+        if (png && typeof png !== 'string') {
+          writeFileSync(join(dir, `${vp}.${name}.png`), png);
+          files[name] = `pictures/${t.room}/${vp}.${name}.png`;
+        }
+      views.push({
+        viewport: vp,
+        ...files,
+        differing: d.differing ?? null,
+        size: d.size ?? null,
+        error: [a, b].find((x) => typeof x === 'string') ?? null,
+      });
+    }
+    if (views.length) {
+      reached.push(t);
+      manifest.push({ route: t.name, room: t.room, views });
+    }
+  });
+
+  // 3. Every check on the reached rooms, at the base and at the head.
+  const rows = {};
+  for (const side of ['before', 'after'])
+    rows[side] = (
+      await onSide(side, (origin) =>
+        pool(reached, async (t) => {
+          const out = [];
+          for (const [vpName, viewport] of Object.entries(VIEWPORTS)) {
+            const context = await browser.newContext({
+              viewport,
+              deviceScaleFactor: 1,
+              reducedMotion: 'reduce',
+              timezoneId: 'UTC',
+              locale: 'en-GB',
+            });
+            out.push(await check(context, origin, t, vpName, { ...opts, out: join(opts.out, side), update: false }));
+            await context.close();
+          }
+          out.push(...(await variants(browser, origin, t, { ...opts, out: join(opts.out, side) })));
+          return out;
+        }),
+      )
+    ).flat();
+  await browser.close();
+
+  // 4. The verdict: what the head adds on the rooms it reaches.
+  const litTargets = new Set(rows.after.filter((r) => r.lit).map((r) => r.target));
+  const fresh = policy.newFindings(rows.before, rows.after);
+  const v = policy.prVerdict({ fresh, litTargets, today: new Date().toISOString().slice(0, 10) });
+  const minutes = (ms) => (ms / 60_000).toFixed(1);
+  const tag = opts.shard.join('-of-');
+  const lines = [
+    `# Look gate on the rooms this pull request changes (shard ${opts.shard.join('/')})`,
+    '',
+    `${targets.length} rooms shot at the base and the head (${minutes(pictured - started)} min); ${reached.length} differ: ${
+      reached.map((t) => t.name).join(', ') || 'none'
+    }. Checked at both (${minutes(Date.now() - pictured)} min).`,
+    '',
+    `Verdict: **${v.mode}**${v.why ? ` (${v.why})` : ''}. New findings on new-look pages: ${v.blocking.length}; on old-look pages (reported only): ${fresh.length - v.blocking.length}.`,
+    '',
+    ...(fresh.length
+      ? [
+          '| Page | Viewport | New finding | Blocks |',
+          '| --- | --- | --- | --- |',
+          ...fresh.map(
+            (f) =>
+              `| ${f.target} | ${f.viewport} | **${f.kind}**: ${f.items.slice(0, 3).join('; ').replace(/\|/g, '/')} | ${litTargets.has(f.target) ? 'yes' : 'no'} |`,
+          ),
+          '',
+        ]
+      : []),
+    "Findings the base already has on these rooms are main's, in the daily run's report; they block nobody here.",
+    '',
+  ];
+  const md = lines.join('\n');
+  mkdirSync(opts.out, { recursive: true });
+  writeFileSync(
+    join(opts.out, `pictures-${tag}.json`),
+    JSON.stringify({ shard: opts.shard, rooms: targets.length, reached: manifest }, null, 2) + '\n',
+  );
+  writeFileSync(join(opts.out, `report-pr-${tag}.md`), md + '\n');
+  writeFileSync(join(opts.out, `report-pr-${tag}.json`), JSON.stringify({ verdict: v, fresh, rows }, null, 2) + '\n');
+  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, md.slice(0, 900_000) + '\n');
+  console.log(md);
+  if (v.mode === 'block') process.exit(1);
+}
+
 /** The copy finder on small fixed pages, in a real browser: what only layout can show. */
 async function selfTestBrowser(eq) {
   const { chromium } = await import('@playwright/test');
@@ -1079,6 +1366,18 @@ async function selfTestBrowser(eq) {
     eq((await page.evaluate(measure, { maxText: 50 })).small, [], 'inside the gallery picture of a page they are no targets');
     await page.setContent(`<body style="margin:40px"><div inert>${pair}</div></body>`);
     eq((await page.evaluate(measure, { maxText: 50 })).small.length, 2, 'inert buttons outside the picture marker are still measured');
+
+    // Contrast: text inside a closed <details> (anything but its summary) is not drawn, so it is not measured, as it is
+    // not for font; an open one, and the summary, still are.
+    const details = (open) =>
+      page.setContent(
+        `<body style="margin:0;background:#fff"><details${open ? ' open' : ''}><summary class="sum">Availability details</summary><span class="body" style="color:#fff">Not audited</span><details open><summary class="inner">Inner</summary><span class="deep">Deeper</span></details></details></body>`,
+      );
+    const textNames = async () => (await page.evaluate(measure, { maxText: 50 })).texts.map((t) => t.name);
+    await details(false);
+    eq(await textNames(), ['summary.sum'], 'a closed details: only its summary is measured');
+    await details(true);
+    eq(await textNames(), ['summary.sum', 'span.body', 'summary.inner', 'span.deep'], 'an open details: its body is measured too');
 
     // Forced colours: the browser paints authored grey as CanvasText, so it is no finding; a box that keeps its own
     // colours (forced-color-adjust: none) is measured as painted, and low contrast there is.
@@ -1411,12 +1710,72 @@ async function selfTest() {
     'diff counted once',
   );
   eq([...fakeMark], [0, 0, 0, 0, 255, 0, 80, 255], 'and the differing pixel is marked');
+  // A pull request's run (#9325): only what the head adds on a room it reaches blocks.
+  const base = [
+    {
+      target: '/pay',
+      viewport: 'phone',
+      findings: { contrast: ['p "Send" 3.10 < 4.5 (worst pixel under it rgb(1,2,3), box at 10,20)'], baseline: ['9 pixels differ'] },
+    },
+    { target: '/old', viewport: 'phone', findings: {} },
+  ];
+  const head = [
+    {
+      target: '/pay',
+      viewport: 'phone',
+      findings: {
+        contrast: [
+          'p "Send" 3.02 < 4.5 (worst pixel under it rgb(1,2,4), box at 10,64)',
+          'span.label "Fee" 2.00 < 4.5 (worst pixel under it rgb(9,9,9), box at 4,4)',
+          '… 3 more',
+        ],
+        baseline: ['900 pixels differ'],
+      },
+    },
+    { target: '/old', viewport: 'phone', findings: { axe: ['color-contrast ×2: p'] } },
+    { target: '/new', viewport: 'computer', findings: { error: ['net::ERR_ABORTED'] } },
+  ];
+  const fresh = policy.newFindings(base, head);
+  eq(
+    fresh,
+    [
+      {
+        target: '/pay',
+        viewport: 'phone',
+        kind: 'contrast',
+        items: ['span.label "Fee" 2.00 < 4.5 (worst pixel under it rgb(9,9,9), box at 4,4)'],
+      },
+      { target: '/old', viewport: 'phone', kind: 'axe', items: ['color-contrast ×2: p'] },
+      { target: '/new', viewport: 'computer', kind: 'error', items: ['net::ERR_ABORTED'] },
+    ],
+    'pr: a moved box or shifted ratio is the same finding; a new text, a new rule and a page the base never drew are new; baseline moves never block',
+  );
+  eq(policy.newFindings(base, base), [], 'pr: a head that draws what the base drew adds nothing');
+  eq(
+    policy.prVerdict({ fresh, litTargets: new Set(['/pay']), today: '2026-11-22' }).mode,
+    'block',
+    'pr: a new finding on a new-look page blocks',
+  );
+  eq(
+    policy.prVerdict({ fresh: fresh.slice(1), litTargets: new Set(['/pay']), today: '2026-11-22' }).mode,
+    'pass',
+    'pr: a new finding on an old-look page is reported, never blocks',
+  );
+  eq(
+    policy.prVerdict({ fresh, litTargets: new Set(['/pay']), today: '2026-11-01' }).mode,
+    'report',
+    'pr: report-only before BLOCKING_FROM',
+  );
   const h = securityHeaders({ reportUri: REPORT_PATH })['Content-Security-Policy'];
   ok(/script-src 'self';/.test(h) && /font-src 'self';/.test(h), 'the gate serves the production policy');
   await selfTestBrowser(eq);
   console.log(`✓ look-gate --self-test OK (${n} checks)`);
 }
 
-const opts = args(process.argv.slice(2));
-if (opts.selfTest) await selfTest();
-else await main(opts);
+// Run as a script only: look-gate.test.mjs imports its in-page checks.
+if (process.argv[1] && pathToFileURL(realpathSync(process.argv[1])).href === import.meta.url) {
+  const opts = args(process.argv.slice(2));
+  if (opts.selfTest) await selfTest();
+  else if (opts.pr) await prMain(opts);
+  else await main(opts);
+}

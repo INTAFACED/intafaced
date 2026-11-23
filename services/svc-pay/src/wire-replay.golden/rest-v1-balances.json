@@ -1,0 +1,20 @@
+{
+  "inputs": {},
+  "bodies": [
+    "{\"error\":{\"code\":\"pay.validation\",\"message\":\"querystring must have required property 'merchantId'\",\"requestId\":\"replay-request\"}}"
+  ],
+  "answers": {
+    "GET /v1/balances": {
+      "absent anon": [400, 0],
+      "absent no-scope": [400, 0],
+      "absent all": [400, 0],
+      "absent all-US": [400, 0],
+      "absent svc-identity": [400, 0],
+      "absent svc-ledger": [400, 0],
+      "absent svc-ops": [400, 0],
+      "absent svc-bank": [400, 0],
+      "absent svc-support": [400, 0],
+      "absent svc-agents": [400, 0]
+    }
+  }
+}

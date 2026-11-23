@@ -107,9 +107,10 @@ const messages = {
   'Money is your everyday starting point. Trade gives you the market and the order details. Pay keeps your payments in context. More brings together learning, research and the rest of the product.':
     'Money is your everyday starting point. Trade gives you the market and the order details. Pay keeps your payments in context. More brings together learning, research and the rest of the product.',
   'Clear information comes first.': 'Clear information comes first.',
+  // oxlint-disable-next-line garden/own-gap-wording -- on main before this rule (HM-shell-03); its owner rewords it, and then this line goes
   'Available funds stay distinct from funds on hold. Missing prices stay missing. Where a service or rail is not connected, the product explains the limitation before you act.':
     'Available funds stay distinct from funds on hold. Missing prices stay missing. Where a service or rail is not connected, the product explains the limitation before you act.',
-  'Create an account ↗': 'Create an account ↗',
+  'Create an account': 'Create an account',
   'Contact support': 'Contact support',
   'Account notifications belong to your private inbox. They are not public announcements.':
     'Account notifications belong to your private inbox. They are not public announcements.',
@@ -118,9 +119,11 @@ const messages = {
   'No verified App Store or Google Play release has been provided. You can use the responsive web app on your phone.':
     'No verified App Store or Google Play release has been provided. You can use the responsive web app on your phone.',
   'Open the web app': 'Open the web app',
+  // oxlint-disable-next-line garden/own-gap-wording -- on main before this rule (HM-shell-03); its owner rewords it, and then this line goes
   'Partner intake is not connected': 'Partner intake is not connected',
   'A published partner contact or intake form is not available. This screen does not submit an application.':
     'A published partner contact or intake form is not available. This screen does not submit an application.',
+  // oxlint-disable-next-line garden/own-gap-wording -- on main before this rule (HM-shell-03); its owner rewords it, and then this line goes
   'Campaign catalogue is not connected': 'Campaign catalogue is not connected',
   'No public campaign contract or published campaign list is available. There are no invented promotions here.':
     'No promotions are published yet, and none are made up here.',
@@ -242,7 +245,7 @@ export const publicCopy: ReturnType<typeof defineCopy<typeof messages>> = define
     'Clear information comes first.': 'La información clara es lo primero.',
     'Available funds stay distinct from funds on hold. Missing prices stay missing. Where a service or rail is not connected, the product explains the limitation before you act.':
       'Los fondos disponibles se distinguen de los retenidos. Los precios ausentes siguen ausentes. Si un servicio o canal no está conectado, el producto explica la limitación antes de que actúes.',
-    'Create an account ↗': 'Crear una cuenta ↗',
+    'Create an account': 'Crear una cuenta',
     'Contact support': 'Contactar con soporte',
     'Account notifications belong to your private inbox. They are not public announcements.':
       'Las notificaciones de cuenta pertenecen a tu bandeja de entrada privada. No son anuncios públicos.',
@@ -373,7 +376,7 @@ export const publicCopy: ReturnType<typeof defineCopy<typeof messages>> = define
     'Clear information comes first.': 'La clarté de l’information passe avant tout.',
     'Available funds stay distinct from funds on hold. Missing prices stay missing. Where a service or rail is not connected, the product explains the limitation before you act.':
       'Les fonds disponibles restent distincts des fonds réservés. Les prix absents restent absents. Si un service ou un circuit n’est pas connecté, le produit explique la limite avant toute action.',
-    'Create an account ↗': 'Créer un compte ↗',
+    'Create an account': 'Créer un compte',
     'Contact support': 'Contacter l’assistance',
     'Account notifications belong to your private inbox. They are not public announcements.':
       'Les notifications du compte appartiennent à votre boîte de réception privée. Ce ne sont pas des annonces publiques.',

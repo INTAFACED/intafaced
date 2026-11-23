@@ -1,6 +1,6 @@
 import { useResource } from '../../../../shared/resource';
 import { formatAmount, parseAmount } from '../../../../shared/money';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import { PaySection } from '../../components';
 import { isUuid } from '../model';
 import { Gate, HaltBanner, PortalFailure, PortalLoading } from '../components';
@@ -29,7 +29,7 @@ import { railWords } from './destination';
 import { LifecycleTrail } from './Trail';
 import type { Settlement, SettlementStatus } from '../schemas';
 import { settlementStatuses } from '../schemas';
-import type { SettlementLine } from './schemas';
+import type { PaySettlementLine as SettlementLine } from '@intafaced/contracts/pay-merchant-reads';
 
 type FullSnapshot = Extract<NonNullable<Settlement['pricingSnapshot']>, { ruleId: string }>;
 export const settlementHref = (id: string) => `/pay/settlements/${encodeURIComponent(id)}`;
@@ -74,7 +74,7 @@ export function Settlements({ portal, merchantId }: { portal: PortalApi; merchan
     );
   const snap = snapshot.resource.status === 'ready' ? snapshot.resource.data : null;
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <HaltBanner resource={halts.resource} scopes={['settlement']} />
       <TestBanner />
       <Freshness asOf={snap?.freshness.asOf ?? readAt} lagSeconds={snap?.freshness.lagSeconds ?? 0} />
@@ -148,7 +148,7 @@ export function Settlements({ portal, merchantId }: { portal: PortalApi; merchan
         query={query}
         fallback={
           <Button
-            variant="secondary"
+            tone="secondary"
             disabled={items.length === 0}
             onClick={() =>
               downloadText(
@@ -192,7 +192,7 @@ export function Settlements({ portal, merchantId }: { portal: PortalApi; merchan
           title: t('settleEmptyTitle'),
           body: t('settleEmptyBody'),
           action: (
-            <a className="text-link" href="/pay/payments">
+            <a className="lt-link" href="/pay/payments">
               {t('settleEmptyAction')}
             </a>
           ),
@@ -267,7 +267,7 @@ export function SettlementDetailPage({
     lines.reload();
   };
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <HaltBanner resource={halts.resource} scopes={['settlement', 'payout']} />
       <Gate resource={settlement.resource} retry={retry} rows={5}>
         {(s) => {
@@ -302,7 +302,7 @@ export function SettlementDetailPage({
                 subtitle={settlementName(t, locale, s)}
                 action={
                   <Button
-                    variant="primary"
+                    tone="primary"
                     onClick={() =>
                       downloadText(
                         `settlement-${s.id.slice(0, 8)}.csv`,
@@ -340,7 +340,7 @@ export function SettlementDetailPage({
                   )}
                   <div>
                     <dt>{t('stlMethod')}</dt>
-                    <dd>{s.payoutMethod ? railWords(t, s.payoutMethod) : <span className="muted">{t('notPaidYet')}</span>}</dd>
+                    <dd>{s.payoutMethod ? railWords(t, s.payoutMethod) : <span className="lt-muted">{t('notPaidYet')}</span>}</dd>
                   </div>
                   <div>
                     <dt>{t('stlReference')}</dt>
@@ -348,7 +348,7 @@ export function SettlementDetailPage({
                       {s.payoutRef ? (
                         <CopyReference value={s.payoutRef} what={t('stlReference')} />
                       ) : (
-                        <span className="muted">{t('notPaidYet')}</span>
+                        <span className="lt-muted">{t('notPaidYet')}</span>
                       )}
                     </dd>
                   </div>
@@ -387,7 +387,7 @@ export function SettlementDetailPage({
                 </p>
                 <h3 className="pp-sub">{t('feeHowTitle')}</h3>
                 {snap === null ? (
-                  <p className="muted">{t('feeNotRecorded')}</p>
+                  <p className="lt-muted">{t('feeNotRecorded')}</p>
                 ) : (
                   <dl data-testid="pp-facts" className="pp-facts">
                     <div>
@@ -476,7 +476,7 @@ export function SettlementDetailPage({
                         l.amount !== null ? (
                           <MoneyText value={l.amount} asset={l.assetId} test={test} />
                         ) : (
-                          <span className="muted">{t('lineNotRecorded')}</span>
+                          <span className="lt-muted">{t('lineNotRecorded')}</span>
                         ),
                     },
                     { header: t('mnColAdded'), cell: (l) => <DateTime value={l.createdAt} /> },
@@ -488,7 +488,7 @@ export function SettlementDetailPage({
                       l.amount !== null ? (
                         <MoneyText value={l.amount} asset={l.assetId} test={test} />
                       ) : (
-                        <span className="muted">{t('lineNotRecorded')}</span>
+                        <span className="lt-muted">{t('lineNotRecorded')}</span>
                       ),
                   })}
                 />

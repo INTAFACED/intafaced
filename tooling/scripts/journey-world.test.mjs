@@ -1,3 +1,4 @@
+// Before a push: runs from .githooks/pre-push when the push changes a journey file (it takes under a second).
 // Proves the shared-world scan on the real journey files and on planted faults. Run: node --test tooling/scripts/journey-world.test.mjs
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -72,6 +73,8 @@ test('each shared part is found directly, through a computed subcommand, and thr
   assert.deepEqual([...directWorld("tool('local-test-stack.mjs', 'restart', 'trade')")], ['restart']);
   assert.deepEqual([...directWorld("tool('local-test-stack.mjs', what, 'trade')")].sort(), ['restart', 'stack']);
   assert.deepEqual([...directWorld("tool('local-test-stack.mjs', 'age-addresses')")], ['stack']);
+  // The awaited form is the same call (#7449): a restart, never a stack script run by hand.
+  assert.deepEqual([...directWorld("await toolAwaited('local-test-stack.mjs', 'start', '--only', 'ops')")], ['restart']);
   assert.deepEqual([...directWorld("tool('local-test-gates.mjs', 'risk', 'BTC/USDT')")], ['gates']);
   assert.deepEqual([...directWorld("tool('local-test-gates.mjs', 'posting-freeze', 'on')")], ['freeze']);
   assert.deepEqual([...directWorld("tool('local-test-chain.mjs', 'gate', 'closed')")], ['gates']);

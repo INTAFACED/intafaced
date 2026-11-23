@@ -31,7 +31,8 @@ import {
 } from './model';
 import { settlementName } from './Settlements';
 import { PartnerInstantPayoutLine } from './PartnerTerms';
-import { isDefaultDestination, type DestinationItem } from './schemas';
+import { isDefaultDestination } from './destination';
+import type { PayPayoutDestinationItem as DestinationItem } from '@intafaced/contracts/pay-portal-reads';
 import type { Settlement } from '../schemas';
 import type { ApiResult } from '../../../../shared/api';
 
@@ -197,7 +198,7 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
   };
   if (done)
     return (
-      <div className="stack">
+      <div className="lt-stack">
         <p className="pp-callout" role="status">
           {done.route === 'approval'
             ? t('pnDoneApproval')
@@ -207,7 +208,7 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
                 ? t('pnDoneSent')
                 : t('pnDoneCheck')}
         </p>
-        <div className="pp-actions">
+        <div className="lt-actions">
           <LinkButton variant="primary" href={`/pay/payouts/${encodeURIComponent(picked || done.id)}`}>
             {t('pnOpenPayout')}
           </LinkButton>
@@ -216,7 +217,7 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
       </div>
     );
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <HaltBanner resource={halts.resource} scopes={['payout']} />
       <TestBanner />
       <PaySection title={t('partnerInstantTitle')} description={t('partnerInstantBody')}>
@@ -266,7 +267,7 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
               {offered.length === 0 ? (
                 <NoPayable waitingN={waitingN} />
               ) : (
-                <form data-testid="form-stack" className="form-stack pp-form" onSubmit={(e) => e.preventDefault()} noValidate>
+                <form data-testid="form-stack" className="lt-stack" onSubmit={(e) => e.preventDefault()} noValidate>
                   <PaySection title={t('pnStep1')} description={t('pnStep1Body')}>
                     <SelectField
                       label={t('pnSettlement')}
@@ -337,7 +338,7 @@ export function PayoutNew({ portal, merchantId }: { portal: PortalApi; merchantI
                         ]}
                       />
                     ) : (
-                      <p className="muted">{t('pnBlock_nothing')}</p>
+                      <p className="lt-muted">{t('pnBlock_nothing')}</p>
                     )}
                     {approved && !sending && dest && (
                       <p className="pp-callout" role="note">

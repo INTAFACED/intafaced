@@ -1,5 +1,5 @@
 import { formatAsOf } from '@/lib/as-of';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 import type { ProtocolOpsMarketsListOutput, ProtocolOpsPoolsListOutput } from '@/lib/protocol-listing/read';
 import '../desk.css';
 

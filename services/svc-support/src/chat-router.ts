@@ -1,8 +1,6 @@
 import { z } from 'zod';
 import { requireScope, type Principal } from '@intafaced/auth';
 import {
-  publicProcedure,
-  scopedProcedure,
   supportChatAcceptInputSchema,
   supportChatAvailabilitySchema,
   supportChatDeskPollInputSchema,
@@ -24,7 +22,8 @@ import {
   supportChatSessionSchema,
   supportRequestSourceInputSchema,
   supportRequestSourceSchema,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/support-chat';
+import { publicProcedure, scopedProcedure } from '@intafaced/contracts/trpc';
 import type { SupportChat } from './chat.js';
 import { requireSupportOps, SupportError } from './support-service.js';
 

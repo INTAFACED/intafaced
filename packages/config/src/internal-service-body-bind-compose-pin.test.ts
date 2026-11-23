@@ -16,9 +16,9 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { EnvError, internalServiceEnvSchema, loadEnv } from './env.js';
 
 const COMPOSE = resolve(import.meta.dirname, '../../../docker-compose.apps.yml');
-const ENV_SRC = resolve(import.meta.dirname, './env.ts');
 
 function internalSecretAnchor(source: string): string {
   const match = source.match(/^x-internal-secret: &internal-secret\n(?: .*\n)*/m);
@@ -35,11 +35,15 @@ const LINE = /^\s+INTERNAL_SERVICE_BODY_BIND:\s*\$\{INTERNAL_SERVICE_BODY_BIND:-
 
 describe('compose INTERNAL_SERVICE_BODY_BIND via *internal-secret', () => {
   const compose = readFileSync(COMPOSE, 'utf8');
-  const envSrc = readFileSync(ENV_SRC, 'utf8');
   const anchor = internalSecretAnchor(compose);
 
   it('internalServiceEnvSchema still defaults INTERNAL_SERVICE_BODY_BIND to accept-both', () => {
-    expect(envSrc).toMatch(/INTERNAL_SERVICE_BODY_BIND:\s*z\.enum\(\['accept-both', 'require'\]\)\.default\('accept-both'\)/);
+    const source = { APP_ENV: 'dev', INTERNAL_SERVICE_SECRET: 'x'.repeat(32) };
+    expect(loadEnv(internalServiceEnvSchema, source).INTERNAL_SERVICE_BODY_BIND).toBe('accept-both');
+    expect(loadEnv(internalServiceEnvSchema, { ...source, INTERNAL_SERVICE_BODY_BIND: 'require' }).INTERNAL_SERVICE_BODY_BIND).toBe(
+      'require',
+    );
+    expect(() => loadEnv(internalServiceEnvSchema, { ...source, INTERNAL_SERVICE_BODY_BIND: 'off' })).toThrow(EnvError);
   });
 
   it('wires the anchor from the host, unique once, default accept-both', () => {

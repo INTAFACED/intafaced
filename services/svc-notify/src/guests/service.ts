@@ -1,8 +1,9 @@
 import { performance } from 'node:perf_hooks';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { createTranslator, isMessageKey } from '@intafaced/i18n';
+import type { GuestNotificationSendInput, GuestNotificationReceipt } from '@intafaced/contracts';
 import {
   guestNotificationSendInputSchema,
   guestNotificationGetInputSchema,
@@ -10,9 +11,7 @@ import {
   guestNotificationEraseInputSchema,
   guestNotificationEraseReceiptSchema,
   guestNotificationCodeSchema,
-  type GuestNotificationSendInput,
-  type GuestNotificationReceipt,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/guest-notifications';
 import type { z } from 'zod';
 import { ChannelDeliveryError, ChannelRefusal, type NotificationChannel, type OutboundMessage } from '../channels/channel.js';
 
@@ -88,7 +87,7 @@ export class GuestNotificationService {
       addressWindowMs?: number;
     } = {},
   ) {}
-  private async expire(tx: Sql, businessKey: string): Promise<void> {
+  private async expire(tx: Queryable, businessKey: string): Promise<void> {
     await tx`UPDATE notify.guest_notifications SET status = 'unresolved', code = 'guest.acceptance_unknown',
       lease_until = NULL, updated_at = now() WHERE business_key = ${businessKey} AND status = 'attempting' AND lease_until <= clock_timestamp()`;
   }

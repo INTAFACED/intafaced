@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { postgresAvailable, type TestDatabase } from '@intafaced/db';
+import { storedText } from '@intafaced/db/testing';
 import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import type { Context, CustomerDetailsEditInput } from '@intafaced/contracts';
 import { createTestDatabase } from '../fixture-truncate.testkit.js';
@@ -94,7 +95,7 @@ if (!available) {
       expect(history).toHaveLength(1);
       expect(JSON.stringify(history)).not.toContain('Leeds');
       const events = await db.sql<Array<{ result: unknown }>>`SELECT result FROM customer_detail_events`;
-      expect(JSON.stringify(events)).not.toContain('7946');
+      expect(storedText(events)).not.toContain('7946');
       // Clearing a detail is a change; the same values again are none.
       expect(await desk.edit(first, edit({ city: null }, '1'))).toMatchObject({ outcome: 'applied', version: '2' });
       expect(await desk.edit(first, edit({ phone: '+44 20 7946 0000' }, '2'))).toMatchObject({ code: 'identity.details_unchanged' });

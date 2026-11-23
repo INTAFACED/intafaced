@@ -180,12 +180,14 @@ export class ScheduledNoticeService {
       throw new BankError('A reminder rule write names the revision it read', 'bank.reminder_lead_invalid');
     }
     const key = `reminder:${input.userId}`;
+    // No conflict target: the key is `reminder:<user_id>` (reminder_rules_key_ck), so both unique keys name the same row,
+    // and a racing first write is absorbed on whichever key it hits, then read back below.
     const written =
       input.expectedRevision === 0
         ? await this.sql<RuleRow[]>`
             INSERT INTO bank.reminder_rules (user_id, rule_key, lead_hours, revision, client_request_id)
             VALUES (${input.userId}, ${key}, ${input.leadHours}, 1, ${input.clientRequestId})
-            ON CONFLICT (user_id) DO NOTHING
+            ON CONFLICT DO NOTHING
             RETURNING user_id, rule_key, lead_hours, revision, client_request_id, updated_at
           `
         : await this.sql<RuleRow[]>`

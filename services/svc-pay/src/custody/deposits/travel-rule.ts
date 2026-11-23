@@ -1,25 +1,30 @@
+import type { Queryable } from '@intafaced/db';
 import { z } from 'zod';
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
+import type {
+  PayDepositTravelRuleDeclareInput,
+  PayDepositTravelRuleState,
+  PayDepositTravelRuleView,
+  PayTravelRuleField,
+} from '@intafaced/contracts';
 import {
-  PAY_DEPOSIT_TRAVEL_RULE_STATES,
   PAY_DEPOSIT_WALLET_TYPES,
   PAY_TRAVEL_RULE_FIELDS,
   payDepositTravelRuleDeclareInputSchema,
   payDepositTravelRuleGetInputSchema,
   payDepositTravelRuleViewSchema,
-  router,
-  scopedProcedure,
-  TRPCError,
-  type PayDepositTravelRuleDeclareInput,
-  type PayDepositTravelRuleState,
-  type PayDepositTravelRuleView,
-  type PayTravelRuleField,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/pay-custody-deposit';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { founderProcedure, type FounderContext } from '../../namespaces/founder-procedure.js';
 import type { FounderAuthority } from '../../founder-authority.js';
 import { reasonSchema } from '../../registries/schemas.js';
 import type { MessageCipher } from '../../travel-rule/cipher.js';
+import { fieldSchema, heldDepositViewSchema } from '@intafaced/contracts/pay-call-schemas';
+import { asAssetId } from '@intafaced/contracts/asset-id';
+import { PAY_FOUNDER_ADMIN_DEPOSIT_TRAVEL_RULE_LIST } from '@intafaced/contracts/pay-founder-admin-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { payRefusal } from '../../record-refusal.js';
 
 /**
  * The inbound travel rule on customer crypto deposits (W-deposit-07, W-compliance-notices-05; J-wallet-03 #1-#3).
@@ -64,11 +69,9 @@ export class DepositTravelRuleError extends Error {
 }
 
 const assetIdSchema = z.string().regex(/^[A-Za-z0-9]{1,16}$/);
-const userIdSchema = z.string().min(1).max(128);
 const thresholdSchema = z.string().regex(/^(0|[1-9]\d{0,19})(\.\d{1,18})?$/, 'a threshold is an unsigned decimal string');
-const fieldSchema = z.enum(PAY_TRAVEL_RULE_FIELDS);
 
-export const inboundRuleSetInputSchema = z
+const inboundRuleSetInputSchema = z
   .object({
     assetId: assetIdSchema,
     applies: z.boolean(),
@@ -85,7 +88,7 @@ export const inboundRuleSetInputSchema = z
   .refine((v) => new Set(v.fields).size === v.fields.length, { path: ['fields'], message: 'each field once' });
 export type InboundRuleSetInput = z.infer<typeof inboundRuleSetInputSchema>;
 
-export const inboundRuleViewSchema = z
+const inboundRuleViewSchema = z
   .object({
     version: z.number().int(),
     assetId: z.string(),
@@ -99,30 +102,10 @@ export const inboundRuleViewSchema = z
   .strict();
 export type InboundRuleView = z.infer<typeof inboundRuleViewSchema>;
 
-export const heldDepositViewSchema = z
-  .object({
-    depositId: z.string(),
-    userId: z.string(),
-    assetId: z.string(),
-    networkId: z.string(),
-    txHash: z.string(),
-    amount: z.string(),
-    threshold: z.string(),
-    ruleVersion: z.number().int(),
-    requiredFields: z.array(fieldSchema),
-    state: z.enum(PAY_DEPOSIT_TRAVEL_RULE_STATES),
-    walletType: z.enum(PAY_DEPOSIT_WALLET_TYPES).nullable(),
-    declaredAt: z.string().nullable(),
-    waitDeadline: z.string().nullable(),
-    openedAt: z.string(),
-    lastActor: z.string(),
-    lastReason: z.string().nullable(),
-  })
-  .strict();
 export type HeldDepositView = z.infer<typeof heldDepositViewSchema>;
 
 const depositActionInputSchema = z.object({ depositId: z.string().uuid(), reason: reasonSchema }).strict();
-export const releaseResultSchema = z.object({ deposit: heldDepositViewSchema, credited: z.boolean() }).strict();
+const releaseResultSchema = z.object({ deposit: heldDepositViewSchema, credited: z.boolean() }).strict();
 
 interface RecordRow {
   deposit_id: string;
@@ -160,7 +143,7 @@ function heldView(r: RecordRow): HeldDepositView {
   return {
     depositId: r.deposit_id,
     userId: r.user_id,
-    assetId: r.asset_id,
+    assetId: asAssetId(r.asset_id),
     networkId: r.network_id,
     txHash: r.tx_hash,
     amount: decimal(r.amount),
@@ -197,8 +180,8 @@ const sealAad = (depositId: string) => `pay.deposit-travel-rule:${depositId.toLo
 
 /** What the deposit book does when a held deposit is released or its record moves (`CustodyDepositBook`). */
 export interface DepositTravelRuleBook {
-  releaseTravelRule<T>(depositId: string, record: (tx: Sql) => Promise<T>): Promise<{ recorded: T; credited: boolean }>;
-  markTravelRuleReason(tx: Sql, depositId: string, state: string): Promise<void>;
+  releaseTravelRule<T>(depositId: string, record: (tx: Queryable) => Promise<T>): Promise<{ recorded: T; credited: boolean }>;
+  markTravelRuleReason(tx: Queryable, depositId: string, state: string): Promise<void>;
 }
 
 export interface DepositTravelRuleDeps {
@@ -243,7 +226,7 @@ export class DepositTravelRuleService {
 
   // ── records ─────────────────────────────────────────────────────────────────
 
-  private async load(q: Sql, depositId: string, lock = false): Promise<RecordRow | undefined> {
+  private async load(q: Queryable, depositId: string, lock = false): Promise<RecordRow | undefined> {
     // Lock in its own statement, then read the latest event afresh (as the outbound record does). The deposit row is locked
     // too, so a reorg or review cannot move it between the check on its status and the step that follows.
     if (lock) {
@@ -278,8 +261,7 @@ export class DepositTravelRuleService {
    */
   async declare(userId: string, input: PayDepositTravelRuleDeclareInput): Promise<PayDepositTravelRuleView> {
     const cipher = this.deps.cipher;
-    const done = await this.deps.sql.begin(async (tx) => {
-      const q = tx as unknown as Sql;
+    const done = await this.deps.sql.begin(async (q) => {
       const row = await this.load(q, input.depositId, true);
       if (!row || row.user_id !== userId)
         throw new DepositTravelRuleError('travel_rule.deposit_not_found', 'no such held deposit for this account');
@@ -318,8 +300,7 @@ export class DepositTravelRuleService {
     const [limit] = await this.deps.sql<Array<{ pending_seconds: number }>>`
       SELECT pending_seconds FROM pay.travel_rule_wait_limit_events ORDER BY seq DESC LIMIT 1`;
     if (!limit) throw new DepositTravelRuleError('travel_rule.wait_limit_unset', 'the owner has not set the travel-rule wait limits');
-    const row = await this.deps.sql.begin(async (tx) => {
-      const q = tx as unknown as Sql;
+    const row = await this.deps.sql.begin(async (q) => {
       const current = await this.movable(q, depositId, 'counterparty_pending');
       await q`
         INSERT INTO pay.custody_deposit_travel_rule_events (deposit_id, state, source, actor, reason, wait_deadline)
@@ -349,7 +330,7 @@ export class DepositTravelRuleService {
   }
 
   /** The locked record, when it may move to `to`. */
-  private async movable(q: Sql, depositId: string, to: PayDepositTravelRuleState): Promise<RecordRow> {
+  private async movable(q: Queryable, depositId: string, to: PayDepositTravelRuleState): Promise<RecordRow> {
     const row = await this.load(q, depositId, true);
     if (!row) throw new DepositTravelRuleError('travel_rule.deposit_not_found', 'no travel-rule record for this deposit');
     if (!MAY_MOVE[row.state].includes(to)) {
@@ -427,10 +408,11 @@ export function createDepositTravelRuleRouter(deps: DepositTravelRuleDeps & { fo
         .output(inboundRuleViewSchema)
         .mutation(({ ctx, input }) => wrap(() => service.setRule(actorOf(ctx), input))),
     }),
-    list: founder
-      .input(z.object({ userId: userIdSchema, limit: z.number().int().min(1).max(200).default(50) }).strict())
-      .output(z.array(heldDepositViewSchema))
-      .query(({ input }) => wrap(() => service.listForUser(input.userId, input.limit))),
+    list: mountRecord(
+      PAY_FOUNDER_ADMIN_DEPOSIT_TRAVEL_RULE_LIST,
+      ({ input }) => wrap(() => service.listForUser(input.userId, input.limit)),
+      { refusalOf: payRefusal, founder },
+    ),
     markCounterpartyPending: founder
       .input(depositActionInputSchema)
       .output(heldDepositViewSchema)

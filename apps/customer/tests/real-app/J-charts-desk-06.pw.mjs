@@ -2,6 +2,7 @@
 import { test, expect } from './journey.mjs';
 import { figureLines, openWorkbench, pick, plot as barPlot, pointText, pricesOf, rowNamed, rows, timesOf } from './charts-desk.mjs';
 import { openOrders, signUp } from './desk.mjs';
+import { indexSweep } from './bar-sweep.mjs';
 
 /** The chart's panes as the drawings read them: each pane's index, top and height in pixels from the chart's top. */
 const paneBoxes = (page) =>
@@ -133,28 +134,8 @@ async function loadedBars(page, box) {
     bar.max = x;
     seen.set(time, bar);
   }
-  const { from, to, loaded, firstAt, lastAt } = await view();
-  const shown = JSON.stringify({ from, to, loaded });
-  if (JSON.stringify({ from: before.from, to: before.to, loaded: before.loaded }) !== shown)
-    throw new Error(`the chart moved during the sweep: ${JSON.stringify(before)} then ${shown}`);
-  const bars = [...seen.values()].sort((a, b) => a.time - b.time);
-  // The edge bars may show only in part: the chart points pixel x at bar ceil(to - (width - 1 - x) / spacing), so a
-  // fractional left edge still shows bar ceil(from) - 1 in its first pixel. Index from the loaded bar the sweep reached
-  // by its own time (the first, else the last), never from the rounded edge (#7978: from 0.3 found one bar more).
-  let first;
-  if (bars[0]?.time * 1000 === firstAt) first = 0;
-  else if (bars.at(-1)?.time * 1000 === lastAt) first = loaded - bars.length;
-  else throw new Error(`the sweep reached neither the first nor the last loaded bar (view ${shown})`);
-  const last = first + bars.length - 1;
-  // A bar narrower than a pixel can't be pointed at, and a skipped bar would shift every index after it: the swept bars
-  // must run without a gap from the one in the first pixel to the one in the last.
-  // Bars ceil(from)..floor(to) show whole and must be found; one more at either edge may show in part.
-  const [mayFirst, mayLast] = [Math.max(0, Math.ceil(from) - 1), Math.min(loaded - 1, Math.ceil(to))];
-  const [mustFirst, mustLast] = [Math.max(0, Math.ceil(from)), Math.min(loaded - 1, Math.floor(to))];
-  const gapless = first >= mayFirst && first <= mustFirst && last >= mustLast && last <= mayLast;
-  const ends = (bars[0].time * 1000 !== firstAt || first === 0) && (bars.at(-1).time * 1000 !== lastAt || last === loaded - 1);
-  if (!gapless || !ends) throw new Error(`the sweep found bars ${first}..${last} of the ${mustFirst}..${mustLast} in view (${shown})`);
-  const byIndex = new Map(bars.map((bar, i) => [first + i, bar]));
+  // A bar the live feed appends mid-sweep moves none the sweep found; any other change is refused (bar-sweep.mjs).
+  const byIndex = indexSweep(before, await view(), seen.values());
   indexed.set(page, byIndex);
   return byIndex;
 }
@@ -287,7 +268,7 @@ test(`${J} #3 adds a Gann fan and a Fibonacci extension, each from its stated ru
   const extension = rowNamed(page, /^Fib extension \d+$/);
   const [a, b, c] = pricesOf(await pointText(extension).textContent());
   const expected = EXTENSION.map((level) => `${level} at ${levelCents(c, b, a, level)}`);
-  expect(await figureLines(extension).allTextContents()).toEqual(expected);
+  await expect.poll(async () => await figureLines(extension).allTextContents()).toEqual(expected);
 });
 
 test(`${J} #4 draws a pattern and a shape, and uses the brush: each is stored and editable like any drawing`, async () => {
@@ -303,7 +284,7 @@ test(`${J} #4 draws a pattern and a shape, and uses the brush: each is stored an
   }
   const pattern = rowNamed(page, /^Pattern \d+$/);
   await expect(pattern).toHaveAttribute('data-kind', 'pattern');
-  expect(pricesOf(await pointText(pattern).textContent())).toHaveLength(5);
+  await expect.poll(async () => pricesOf(await pointText(pattern).textContent())).toHaveLength(5);
   // Editable like any drawing: dragging its first point moves that point only.
   await select(pattern, /^Pattern \d+$/);
   const patternBefore = pricesOf(await pointText(pattern).textContent());

@@ -3,7 +3,7 @@ import { lifecycleOfColumns } from '../merchant-payout-destination.js';
 import type { Sql } from 'postgres';
 import type { Principal } from '@intafaced/auth';
 import type { FounderApprovalDestination, FounderApprovalQueueItem, PayoutApproval } from '@intafaced/contracts';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { requireDualControl, DualControlError } from '../dual-control.js';
 import { payoutPayloadHash, voidStaleApprovals, type PayoutPayload } from './approval-gate.js';
@@ -144,7 +144,7 @@ export class ApprovalService {
     if (principal.kid || !principal.mfa) throw new ControlError('pay.approval_mfa_required');
   }
 
-  private async currentPayload(tx: Sql, row: ApprovalRow): Promise<PayoutPayload | null> {
+  private async currentPayload(tx: Queryable, row: ApprovalRow): Promise<PayoutPayload | null> {
     const settlement = await tx<Array<{ net: string; asset_id: string }>>`
       SELECT net, asset_id FROM pay.settlements WHERE id = ${row.settlement_id} AND merchant_id = ${row.merchant_id}
     `;
@@ -163,7 +163,7 @@ export class ApprovalService {
   }
 
   /** Void and persist when the payload moved or the request expired. Returns the settled row, or null if still live and current. */
-  private async settleIfStale(tx: Sql, row: ApprovalRow): Promise<ApprovalRow | null> {
+  private async settleIfStale(tx: Queryable, row: ApprovalRow): Promise<ApprovalRow | null> {
     if (row.status !== 'pending' && row.status !== 'approved') return row;
     const at = this.now();
     if (row.expires_at.getTime() <= at.getTime()) {

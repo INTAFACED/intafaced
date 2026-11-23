@@ -95,14 +95,19 @@ describe('News', () => {
 
   it('filters the stored items and says so when none match', async () => {
     await show(<NewsRoom items={items} />);
-    expect(host.querySelectorAll('.news-list li')).toHaveLength(2);
+    expect(host.querySelectorAll('[data-news-list] li')).toHaveLength(2);
     const [category, language] = [...host.querySelectorAll('select')];
+    expect(host.querySelector('[data-testid="news-applied"]')?.textContent).toBe('No filter applied. 2 stored items.');
     await pick(category!, 'crypto');
-    expect([...host.querySelectorAll('.news-list li')].map((li) => li.textContent)).toEqual([expect.stringContaining('TEST two')]);
+    expect(host.querySelector('[data-testid="news-applied"]')?.textContent).toBe('Filtered by Category Crypto. 1 of 2 stored items match.');
+    expect([...host.querySelectorAll('[data-news-list] li')].map((li) => li.textContent)).toEqual([expect.stringContaining('TEST two')]);
     await pick(language!, 'en');
     expect(host.textContent).toContain('Nothing matches these filters');
+    expect(host.querySelector('[data-testid="news-applied"]')?.textContent).toBe(
+      'Filtered by Category Crypto · Language English. 0 of 2 stored items match.',
+    );
     await act(async () => host.querySelector<HTMLButtonElement>('button[type="button"]')!.click());
-    expect(host.querySelectorAll('.news-list li')).toHaveLength(2);
+    expect(host.querySelectorAll('[data-news-list] li')).toHaveLength(2);
   });
 });
 

@@ -1,25 +1,30 @@
 import { useRef, useState, type ReactNode } from 'react';
-import { z } from 'zod';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
-import { Button, DataTable, Failure, Field, Panel, Stat } from '../../shared/ui';
-import { TabList } from '../protocol/tokens/TabList';
-import { Read, Select, TextArea } from './common';
+import { Button, Select } from '@intafaced/ui/lit';
+import { KeyValue } from '@intafaced/ui/lit/templates';
+import { DataTable, Failure, Field, Panel, Read, TextArea } from './agent-room/parts';
+import { TabList } from '../protocol';
 import { GuardOutcome, replyShown } from './AgentTestGuards';
 import { toolWords } from './AgentGuardrails';
 import { agentGuardrailsCopy } from './agent-guardrails-copy';
 import { agentTestRunsCopy, hasTestRunsWords } from './agent-test-runs-copy';
-import './agents-session.css';
 import {
-  ownAgentAnalyticsSchema,
-  ownAgentCatalogueSchema,
   ownAgentTestRunSchema,
   type OwnAgent,
   type OwnAgentDryRunCheck,
   type OwnAgentDryRunEffect,
   type OwnAgentTestRun,
 } from '@intafaced/contracts/agents-own';
+import {
+  AGENTS_OWN_CATALOGUE,
+  AGENTS_OWN_BACKGROUND_RUN,
+  AGENTS_OWN_TEST_RUN,
+  AGENTS_OWN_TOOL_TEST,
+  AGENTS_OWN_TEST_RUNS,
+  AGENTS_OWN_ANALYTICS,
+} from '@intafaced/contracts/agents-own-procedures';
 
 /**
  * An own agent's dry run (on its Test page), its live and test run lists (Runs) and its Analytics page (AG-spend-04,
@@ -111,7 +116,7 @@ function usePressKeys(prefix: string, agentId: string) {
 type Catalogue = ReturnType<typeof useCatalogue>;
 function useCatalogue() {
   const api = useApi();
-  return useResource((signal) => api.query('agents', 'own.catalogue', undefined, ownAgentCatalogueSchema, { signal }), 'own-catalogue');
+  return useResource((signal) => api.call(AGENTS_OWN_CATALOGUE, undefined, { signal }), 'own-catalogue');
 }
 
 /**
@@ -124,7 +129,7 @@ export function TestPanel({ agent }: { agent: OwnAgent }) {
   const catalogue = useCatalogue();
   return (
     <Panel title={t('testTitle')} role="region" aria-label={t('testTitle')}>
-      <p className="muted">{t('testIntro')}</p>
+      <p className="lt-muted">{t('testIntro')}</p>
       <EngineRun agent={agent} />
       <MoveTest agent={agent} catalogue={catalogue} />
       <DryRun agent={agent} catalogue={catalogue} />
@@ -152,12 +157,7 @@ function EngineRun({ agent }: { agent: OwnAgent }) {
     setRefused(null);
     setStarted(false);
     if (background) {
-      const res = await api.mutate(
-        'agents',
-        'own.backgroundRun',
-        { id: agent.id, requestId: keys.next(`background:${ask}`), ask },
-        z.object({ id: z.string() }).passthrough(),
-      );
+      const res = await api.call(AGENTS_OWN_BACKGROUND_RUN, { id: agent.id, requestId: keys.next(`background:${ask}`), ask });
       setBusy(false);
       if (res.ok || refusalCode(res)) keys.settled();
       if (!res.ok) return setRefused(res);
@@ -167,7 +167,7 @@ function EngineRun({ agent }: { agent: OwnAgent }) {
     // The question, the outside content and the schema are one request: any of them changed is a new one.
     const requestId = keys.next(JSON.stringify([ask, content, outputSchema]));
     const extras = { ...(content.trim() ? { content } : {}), ...(outputSchema.trim() ? { outputSchema } : {}) };
-    const res = await api.mutate('agents', 'own.testRun', { id: agent.id, requestId, ask, ...extras }, ownAgentTestRunSchema);
+    const res = await api.call(AGENTS_OWN_TEST_RUN, { id: agent.id, requestId, ask, ...extras });
     setBusy(false);
     if (res.ok || refusalCode(res)) keys.settled();
     if (!res.ok) return setRefused(res);
@@ -177,18 +177,18 @@ function EngineRun({ agent }: { agent: OwnAgent }) {
   return (
     <>
       <h3>{t('runTitle')}</h3>
-      <p className="muted">{t('runIntro')}</p>
+      <p className="lt-muted">{t('runIntro')}</p>
       <Field label={t('ask')} value={ask} maxLength={4000} onChange={(event) => setAsk(event.target.value)} />
       <TextArea label={t('contentField')} value={content} maxLength={8000} onChange={setContent} />
       <TextArea label={t('schemaField')} value={outputSchema} maxLength={4000} onChange={setOutputSchema} />
       {/* The page's reset gives a checkbox no size; the builder's choice class gives it one a person can tick. */}
-      <label className="agent-surface-choice">
+      <label className="lt-field">
         <input type="checkbox" checked={background} onChange={(event) => setBackground(event.target.checked)} /> {t('runInBackground')}
       </label>
-      <Button disabled={busy} onClick={() => void runTest()}>
+      <Button tone="primary" disabled={busy} onClick={() => void runTest()}>
         {t('runTest')}
       </Button>
-      {started ? <p className="muted">{t('backgroundStarted')}</p> : null}
+      {started ? <p className="lt-muted">{t('backgroundStarted')}</p> : null}
       {refused ? <Answer failed={refused} /> : null}
       {ran ? (
         <section role="region" aria-label={t('engineRun')}>
@@ -208,6 +208,7 @@ function EngineRun({ agent }: { agent: OwnAgent }) {
             </dd>
           </dl>
           <GuardOutcome agentId={agent.id} run={ran} onDecided={setRan} />
+          {ran.memory ? <MemoryOutcome memory={ran.memory} /> : null}
           {replyShown(ran) ? (
             <section role="region" aria-label={t('replyTitle')}>
               <h4>{t('replyTitle')}</h4>
@@ -245,7 +246,7 @@ function MoveTest({ agent, catalogue }: { agent: OwnAgent; catalogue: Catalogue 
     setBusy(true);
     setTested(null);
     setRefused(null);
-    const res = await api.mutate('agents', 'own.toolTest', { id: agent.id, requestId: keys.next(tool), tool }, ownAgentTestRunSchema);
+    const res = await api.call(AGENTS_OWN_TOOL_TEST, { id: agent.id, requestId: keys.next(tool), tool });
     setBusy(false);
     if (res.ok || refusalCode(res)) keys.settled();
     if (!res.ok) return setRefused(res);
@@ -255,7 +256,7 @@ function MoveTest({ agent, catalogue }: { agent: OwnAgent; catalogue: Catalogue 
   return (
     <>
       <h3>{t('moveTitle')}</h3>
-      <p className="muted">{t('moveIntro')}</p>
+      <p className="lt-muted">{t('moveIntro')}</p>
       <Read resource={catalogue.resource} retry={catalogue.reload}>
         {(offered) => {
           const money = offered.tools.filter((entry) => entry.movesMoney).map((entry) => entry.name);
@@ -268,7 +269,7 @@ function MoveTest({ agent, catalogue }: { agent: OwnAgent; catalogue: Catalogue 
                 onChange={setPicked}
                 options={money.map((name) => ({ value: name, label: moneyToolWords(t, 'money', name) }))}
               />
-              <Button disabled={busy || !tool} onClick={() => void testTool(tool)}>
+              <Button tone="primary" disabled={busy || !tool} onClick={() => void testTool(tool)}>
                 {t('moveTest')}
               </Button>
             </>
@@ -339,7 +340,7 @@ function DryRun({ agent, catalogue }: { agent: OwnAgent; catalogue: Catalogue })
   return (
     <>
       <h3>{t('dryTitle')}</h3>
-      <p className="muted">{t('dryIntro')}</p>
+      <p className="lt-muted">{t('dryIntro')}</p>
       <Read resource={catalogue.resource} retry={catalogue.reload}>
         {(offered) => {
           const declared = offered.tools.find((entry) => entry.name === tool);
@@ -366,12 +367,12 @@ function DryRun({ agent, catalogue }: { agent: OwnAgent; catalogue: Catalogue })
                   }}
                 />
               ))}
-              <Button disabled={busy || !tool} onClick={() => void dryRun()}>
+              <Button tone="primary" disabled={busy || !tool} onClick={() => void dryRun()}>
                 {t('dryRun')}
               </Button>
             </>
           ) : (
-            <p className="muted">{t('noTools')}</p>
+            <p className="lt-muted">{t('noTools')}</p>
           );
         }}
       </Read>
@@ -421,9 +422,10 @@ function DryRun({ agent, catalogue }: { agent: OwnAgent; catalogue: Catalogue })
 const LISTS = ['live', 'test'] as const;
 
 /** The Runs page: live runs and test runs, each its own tab, never mixed. `live` is the live runs list. */
-export function RunsPage({ agent, live }: { agent: OwnAgent; live: ReactNode }) {
+export function RunsPage({ agent, live, focusRun = null }: { agent: OwnAgent; live: ReactNode; focusRun?: string | null }) {
   const { t } = agentTestRunsCopy.useCopy();
-  const [list, setList] = useState<(typeof LISTS)[number]>('live');
+  // Opened from a remembered item's source run: the test runs, with that run marked.
+  const [list, setList] = useState<(typeof LISTS)[number]>(focusRun ? 'test' : 'live');
   return (
     <TabList
       label={t('runsTabs')}
@@ -439,18 +441,18 @@ export function RunsPage({ agent, live }: { agent: OwnAgent; live: ReactNode }) 
           {live}
         </div>
       ) : (
-        <TestRuns agent={agent} />
+        <TestRuns agent={agent} focusRun={focusRun} />
       )}
     </TabList>
   );
 }
 
-function TestRuns({ agent }: { agent: OwnAgent }) {
+function TestRuns({ agent, focusRun }: { agent: OwnAgent; focusRun: string | null }) {
   const api = useApi();
   const { t } = agentTestRunsCopy.useCopy();
   const tools = agentGuardrailsCopy.useCopy().t;
   const runs = useResource(
-    (signal) => api.query('agents', 'own.testRuns', { id: agent.id, limit: 50 }, z.array(ownAgentTestRunSchema), { signal }),
+    (signal) => api.call(AGENTS_OWN_TEST_RUNS, { id: agent.id, limit: 50 }, { signal }),
     `own-test-runs:${agent.id}`,
   );
   return (
@@ -460,10 +462,10 @@ function TestRuns({ agent }: { agent: OwnAgent }) {
           <>
             <DataTable
               label={t('testRunsTitle')}
-              headers={[t('colWhen'), t('colKind'), t('colTested'), t('colEffect'), t('colCost'), t('colLabel')]}
+              headers={[t('colWhen'), t('colKind'), t('colTested'), t('colEffect'), t('colLog'), t('colCost'), t('colLabel')]}
             >
               {rows.map((row) => (
-                <tr key={row.id} data-run-id={row.id}>
+                <tr key={row.id} id={`test-run-${row.id}`} data-run-id={row.id} aria-current={row.id === focusRun ? 'true' : undefined}>
                   <td>{new Date(row.createdAt).toLocaleString()}</td>
                   <td>{t(`kind_${row.kind}`)}</td>
                   <td>
@@ -474,6 +476,15 @@ function TestRuns({ agent }: { agent: OwnAgent }) {
                         : toolWords(tools, row.tool)}
                   </td>
                   <td>{t(row.kind === 'engine_run' ? `guard_${row.guard.outcome}` : `outcome_${row.effect.kind}`)}</td>
+                  <td data-testid="test-run-log">
+                    {row.kind === 'engine_run'
+                      ? row.log
+                          .map((entry) =>
+                            entry.step === 'remembered' ? `${t('step_remembered')}: ${entry.text}` : t(`step_${entry.step}`),
+                          )
+                          .join(' · ')
+                      : '—'}
+                  </td>
                   <td data-testid="test-run-cost">
                     {row.cost} {row.assetId}
                   </td>
@@ -481,7 +492,7 @@ function TestRuns({ agent }: { agent: OwnAgent }) {
                 </tr>
               ))}
             </DataTable>
-            {rows.length === 0 ? <p className="muted">{t('testRunsEmpty')}</p> : null}
+            {rows.length === 0 ? <p className="lt-muted">{t('testRunsEmpty')}</p> : null}
           </>
         )}
       </Read>
@@ -495,37 +506,57 @@ export function AnalyticsPage({ agent }: { agent: OwnAgent }) {
   const { t } = agentTestRunsCopy.useCopy();
   const [includeTest, setIncludeTest] = useState(false);
   const figures = useResource(
-    (signal) => api.query('agents', 'own.analytics', { id: agent.id, includeTest }, ownAgentAnalyticsSchema, { signal }),
+    (signal) => api.call(AGENTS_OWN_ANALYTICS, { id: agent.id, includeTest }, { signal }),
     `own-analytics:${agent.id}:${includeTest}`,
   );
   return (
     <Panel title={t('analyticsTitle')} role="region" aria-label={t('analyticsTitle')}>
-      <p className="muted">{t('analyticsIntro')}</p>
+      <p className="lt-muted">{t('analyticsIntro')}</p>
       <Field label={t('includeTest')} type="checkbox" checked={includeTest} onChange={(event) => setIncludeTest(event.target.checked)} />
       <Read resource={figures.resource} retry={figures.reload}>
         {(view) => (
-          <div className="more-grid" data-include-test={String(view.includeTest)}>
-            <Stat label={t('statRuns')} value={<span data-testid="analytics-runs">{view.runs}</span>} />
-            <Stat label={t('statExecuted')} value={<span data-testid="analytics-executed">{view.executed}</span>} />
-            <Stat label={t('statRefused')} value={<span data-testid="analytics-refused">{view.refused}</span>} />
-            <Stat label={t('statFailed')} value={<span data-testid="analytics-failed">{view.failed}</span>} />
-            <Stat
-              label={t('statTestRuns')}
-              value={<span data-testid="analytics-test-runs">{view.testRuns === null ? '—' : view.testRuns}</span>}
-              note={view.testRuns === null ? t('testLeftOut') : undefined}
-            />
-            <Stat
-              label={t('statCost')}
-              value={
-                <span data-testid="analytics-cost">
-                  {view.cost} {view.assetId}
-                </span>
-              }
+          <div data-include-test={String(view.includeTest)}>
+            <KeyValue
+              rows={[
+                { label: t('statRuns'), value: <span data-testid="analytics-runs">{view.runs}</span> },
+                { label: t('statExecuted'), value: <span data-testid="analytics-executed">{view.executed}</span> },
+                { label: t('statRefused'), value: <span data-testid="analytics-refused">{view.refused}</span> },
+                { label: t('statFailed'), value: <span data-testid="analytics-failed">{view.failed}</span> },
+                {
+                  label: t('statTestRuns'),
+                  value: <span data-testid="analytics-test-runs">{view.testRuns === null ? '—' : view.testRuns}</span>,
+                  note: view.testRuns === null ? t('testLeftOut') : undefined,
+                },
+                {
+                  label: t('statCost'),
+                  value: (
+                    <span data-testid="analytics-cost">
+                      {view.cost} {view.assetId}
+                    </span>
+                  ),
+                },
+              ]}
             />
           </div>
         )}
       </Read>
       <p role="note">{t('analyticsParked')}</p>
     </Panel>
+  );
+}
+
+/** What an engine run did with a request to remember (AG-builder-02): kept, memory off, or refused with its code. */
+function MemoryOutcome({ memory }: { memory: NonNullable<Extract<OwnAgentTestRun, { kind: 'engine_run' }>['memory']> }) {
+  const { t } = agentTestRunsCopy.useCopy();
+  if (memory.outcome === 'refused')
+    return (
+      <p role="alert" data-testid="memory-outcome">
+        {t('memoryRefused')} <code lang="zxx">{memory.code}</code>
+      </p>
+    );
+  return (
+    <p role="status" data-testid="memory-outcome">
+      {memory.outcome === 'off' ? t('memoryOff') : t('memoryRemembered', { text: memory.text ?? '' })}
+    </p>
   );
 }

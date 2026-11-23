@@ -15,7 +15,7 @@ import {
   staffHoldReleaseFields,
   staffHoldTargetId,
 } from '@intafaced/contracts/ops-staff-holds';
-import { normaliseCostAmount } from '@/lib/venue-economics/model';
+import { normaliseCostAmount } from '@/lib/venue-economics';
 import { APPROVAL_POLICY_SET_ACTION_TYPE, approvalPolicySetPayloadFields } from '@intafaced/contracts/action-approval-policy';
 import { staffChangeApprovalSubject, staffChangePayloadText } from '@intafaced/contracts/identity-staff';
 import type { DeskRequest } from './approval-packet';
@@ -45,6 +45,8 @@ export const LAUNCH_EVENT_MOVE = 'token.launch.event.move';
 export const KYC_DOCUMENT_GET = 'kyc.doc.get';
 /** The verb svc-identity binds a selfie decision to (`kyc.selfie.decide`). */
 export const KYC_SELFIE_DECIDE = 'kyc.selfie.decide';
+/** The verb svc-identity binds a verification approval to (`kyc.approve`). */
+const KYC_APPROVE = 'kyc.approve';
 
 /**
  * How a console request becomes an identity approval, and how the target service recomputes the same hash.
@@ -186,6 +188,10 @@ export function payloadHashFor(request: DeskRequest): string {
       return sha('academy.ambassador.appoint', { userId: request.userId });
     case 'academy.residency.decide':
       return sha('academy.residency.decide', { id: request.id, decision: request.decision });
+    case 'academy.cert.revoke':
+      return sha('academy.cert.revoke', { publicId: request.publicId, reason: request.reason });
+    case 'academy.cert.exception':
+      return sha('academy.cert.exception', { userId: request.userId, certId: request.certId, reason: request.reason });
     case 'bank.card.status':
       return shaBank('bank.ops.setCardStatus', { cardId: request.cardId, status: request.status });
     case 'bank.card.funding':
@@ -214,6 +220,9 @@ export function payloadHashFor(request: DeskRequest): string {
     // svc-identity `consumePrivileged(…, 'kyc.selfie.decide', { selfieId, decision })`, in this order.
     case 'identity.kyc_selfie.decide':
       return shaIdentity(KYC_SELFIE_DECIDE, { selfieId: request.selfieId, decision: request.decision });
+    // svc-identity `consumePrivileged(…, 'kyc.approve', { recordId })`.
+    case 'identity.kyc.approve':
+      return shaIdentity(KYC_APPROVE, { recordId: request.recordId });
     // svc-identity `waitlist.waves.release`: { targetId: 'waitlist.wave.release', wave, size }, in this order.
     case 'campaigns.waitlist.wave_release':
       return shaIdentity(WAVE_RELEASE_TARGET, { wave: request.wave, size: request.size });
@@ -353,6 +362,8 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
     case 'academy.ambassador.unfreeze':
     case 'academy.ambassador.appoint':
     case 'academy.residency.decide':
+    case 'academy.cert.revoke':
+    case 'academy.cert.exception':
       return {
         actionType: request.kind,
         targetService: 'svc-academy',
@@ -481,6 +492,16 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
         actionType: KYC_SELFIE_DECIDE,
         targetService: 'svc-identity',
         targetId: KYC_SELFIE_DECIDE,
+        expectedVersion: '1',
+        payloadHash,
+        policyVersion: 'v1',
+      };
+    // svc-identity consumes a verification approval against its own verb as the target id, at version 1.
+    case 'identity.kyc.approve':
+      return {
+        actionType: KYC_APPROVE,
+        targetService: 'svc-identity',
+        targetId: KYC_APPROVE,
         expectedVersion: '1',
         payloadHash,
         policyVersion: 'v1',

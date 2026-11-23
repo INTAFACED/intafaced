@@ -256,7 +256,21 @@ describe('certificates', () => {
       reference: grant.idempotencyKey,
       code: null,
       requirements: 2,
+      design: null,
     });
+    // AC-certificates-03: a certificate issued under a design prints that revision, as the grant carries it.
+    const design = {
+      revision: 3,
+      title: 'TEST Foundations',
+      body: 'TEST body',
+      signatories: [{ name: 'TEST Signer', role: 'TEST Director' }],
+      disclaimer: 'TEST disclaimer',
+      language: 'en',
+      size: 'a4' as const,
+      effortHours: null,
+    };
+    const designed = certificateCards(buildTracking([definition], [progress([])], [{ ...grant, design }]))[0]!;
+    expect(certificateDocument(designed, owner)?.design).toEqual(design);
     const coded = certificateCards(buildTracking([definition], [progress([])], [{ ...grant, publicId: 'a'.repeat(32) }]))[0]!;
     expect(certificateDocument(coded, owner)?.code).toBe('a'.repeat(32));
     const ready = certificateCards(buildTracking([definition], [progress([])], []))[0]!;
@@ -356,7 +370,7 @@ describe('certificate issue and verify links (AC-certificates-01/02)', () => {
     grantIdempotencyKey: null,
   };
   it('a complete certificate waiting out its delay is issuing; with no wait it is ready to request', () => {
-    const issuesAt = new Date('2026-10-24T14:00:00.000Z');
+    const issuesAt = '2026-10-24T14:00:00.000Z';
     expect(certificateState({ ...row, issue: { mode: 'delayed', delayMinutes: 60, issuesAt } }, undefined)).toBe('issuing');
     expect(certificateState({ ...row, issue: { mode: 'manual', delayMinutes: null, issuesAt: null } }, undefined)).toBe('ready');
     expect(certificateState(row, undefined)).toBe('ready');

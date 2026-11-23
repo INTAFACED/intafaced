@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import type { EventBus } from '@intafaced/events';
 import type { RankPerks } from '@intafaced/contracts';
 import { RANK_TIERS, perksFor, rankForXp, tierFor, xpToNextRank, type RankTier } from './thresholds.js';
@@ -184,7 +184,7 @@ export class RankService {
     return result.count;
   }
 
-  private async lockRankState(tx: Sql, userId: string): Promise<{ rank: number; xp: bigint; seasonXp: bigint; updatedAt: Date }> {
+  private async lockRankState(tx: Queryable, userId: string): Promise<{ rank: number; xp: bigint; seasonXp: bigint; updatedAt: Date }> {
     // A first award has no row to lock, so concurrent first awards would each
     // read xp 0 and overwrite one another. Create the zero row (a no-op when it
     // exists), then lock it: awards for one user serialise from the first one.

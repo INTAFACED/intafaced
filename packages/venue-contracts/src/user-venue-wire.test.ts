@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseAmount } from '@intafaced/ledger-client/money';
 import { VenueWireError, decodeVenueWire, encodeVenueWire } from './user-venue-wire.js';
-import type { PreparedVenueAction, UserVenueMarket } from './user-venue.js';
+import type { PreparedVenueAction, UserVenueBalance, UserVenueMarket } from './user-venue.js';
 
 describe('user-venue wire', () => {
   const prepared: PreparedVenueAction = {
@@ -30,6 +30,20 @@ describe('user-venue wire', () => {
     const best = { symbol: 'BTC-PERP', bid: parseAmount('64999'), ask: null };
     expect(decodeVenueWire(JSON.parse(JSON.stringify(encodeVenueWire(best))))).toEqual(best);
     expect(() => decodeVenueWire({ bid: 64999 })).toThrow(/decimal string/);
+  });
+
+  it("carries a balance's lock split (J-portfolio-01 #4) as decimal strings both ways", () => {
+    const balance: UserVenueBalance = {
+      asset: 'USDC',
+      free: parseAmount('280'),
+      locked: parseAmount('720'),
+      total: parseAmount('1000'),
+      lockedBy: { inOrders: parseAmount('20'), margin: parseAmount('600'), staked: parseAmount('100') },
+    };
+    const wire = JSON.parse(JSON.stringify(encodeVenueWire(balance)));
+    expect(wire.lockedBy).toEqual({ inOrders: '20', margin: '600', staked: '100' });
+    expect(decodeVenueWire<UserVenueBalance>(wire)).toEqual(balance);
+    expect(() => decodeVenueWire({ ...wire, lockedBy: { ...wire.lockedBy, staked: 100 } })).toThrow(VenueWireError);
   });
 
   it('refuses a JSON number in a money field', () => {
@@ -76,6 +90,9 @@ describe('user-venue wire', () => {
       status: 'trading',
       maxOrderQty: null,
       maxOrderNotional: null,
+      minOrderNotional: parseAmount('10'),
+      priceBandBps: null,
+      maxOpenOrders: 1000,
       builderFeeCapBps: { known: false },
       listedBy: { known: true, value: { kind: 'hip3', name: 'TEST deployer' } },
       // Text that reads like a number stays text: a rule is never money.
@@ -124,6 +141,8 @@ describe('user-venue wire', () => {
     const json = JSON.parse(JSON.stringify(encodeVenueWire(market)));
     // The strip's figures travel as decimal strings and an ISO time (J-derivatives-01 #4); a negative rate keeps its sign.
     expect(json.mark).toEqual({ known: true, value: '2650.1' });
+    // The published rules (J-cex-spot-04): a decimal string, a null for a rule not published, a whole-number cap.
+    expect([json.minOrderNotional, json.priceBandBps, json.maxOpenOrders]).toEqual(['10', null, 1000]);
     expect(json.funding.value).toEqual({ rate: '-0.0000125', intervalSeconds: 3600, nextFundingAt: '2026-11-09T11:00:00.000Z' });
     expect(json.feed.value.lastOracleUpdateAt).toBe('2026-11-09T10:00:00.000Z');
     expect(json.oracleRule).toEqual({ known: true, value: '3' });

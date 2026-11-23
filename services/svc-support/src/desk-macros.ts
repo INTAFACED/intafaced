@@ -8,16 +8,8 @@
  */
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
-import {
-  fillSupportMacro,
-  supportMacroUnfilled,
-  supportMacroUnknownPlaceholders,
-  type SupportMacro,
-  type SupportMacroApplied,
-  type SupportMacroSaveInput,
-  type SupportSignature,
-  type SupportTicket,
-} from '@intafaced/contracts';
+import type { SupportMacro, SupportMacroApplied, SupportMacroSaveInput, SupportSignature, SupportTicket } from '@intafaced/contracts';
+import { fillSupportMacro, supportMacroUnfilled, supportMacroUnknownPlaceholders } from '@intafaced/contracts/support-macros';
 import type { StaffMember } from './desk-staff.js';
 
 export const MACRO_PLACEHOLDER_UNKNOWN = 'support.macro_placeholder_unknown' as const;

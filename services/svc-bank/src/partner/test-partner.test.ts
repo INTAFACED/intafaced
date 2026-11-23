@@ -7,7 +7,6 @@ import { AccountDetailsService } from '../account-details/account-details.js';
 import type { BankServices } from '../bank-service.js';
 import { createBankRouter } from '../router.js';
 import {
-  SWITCHES_OFF,
   TestPartnerRefusedError,
   assertPartnerOffers,
   assertRampFeeKnown,
@@ -18,6 +17,7 @@ import {
   testPartnerAccountDetails,
   testPartnerFor,
 } from './test-partner.js';
+import { SWITCHES_OFF } from './test-partner-switches.js';
 
 const ADA = '11111111-1111-4111-8111-111111111111';
 const BOB = '22222222-2222-4222-8222-222222222222';
@@ -72,11 +72,11 @@ describe('the switches are per person and start off', () => {
 describe('bank: a feature not offered by the partner, and the partner down', () => {
   it('each feature refuses bank.not_offered_by_partner only while switched, and only for that feature', () => {
     const partner = testPartner();
-    for (const feature of ['currencies', 'spaces', 'pots', 'joint'] as const) {
+    for (const feature of ['currencies', 'spaces', 'pots', 'joint', 'phone_wallet'] as const) {
       expect(codeOf(() => assertPartnerOffers(partner, ADA, feature))).toBeNull();
       partner.set(ADA, { notOffered: [feature] });
       expect(codeOf(() => assertPartnerOffers(partner, ADA, feature))).toBe('bank.not_offered_by_partner');
-      for (const other of ['currencies', 'spaces', 'pots', 'joint'] as const) {
+      for (const other of ['currencies', 'spaces', 'pots', 'joint', 'phone_wallet'] as const) {
         if (other !== feature) expect(codeOf(() => assertPartnerOffers(partner, ADA, other))).toBeNull();
       }
       expect(codeOf(() => assertPartnerOffers(partner, BOB, feature))).toBeNull();
@@ -86,7 +86,7 @@ describe('bank: a feature not offered by the partner, and the partner down', () 
   it('the partner down refuses bank.partner_unavailable on every partner-held door, before "not offered"', () => {
     const partner = testPartner();
     partner.set(ADA, { down: true, notOffered: ['spaces'] });
-    for (const feature of ['currencies', 'spaces', 'pots', 'joint'] as const) {
+    for (const feature of ['currencies', 'spaces', 'pots', 'joint', 'phone_wallet'] as const) {
       expect(codeOf(() => assertPartnerOffers(partner, ADA, feature))).toBe('bank.partner_unavailable');
     }
   });

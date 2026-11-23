@@ -1,4 +1,5 @@
-import { isMarketListingCategory, MARKET_LISTING_CATEGORIES, type MarketListingCategory } from '@intafaced/contracts';
+import type { MarketListingCategory } from '@intafaced/contracts';
+import { isMarketListingCategory, MARKET_LISTING_CATEGORIES } from '@intafaced/contracts/market-listing-categories';
 import { MarketError } from '../vendor-service.js';
 
 /** Slug is not in the product enum. The service does not add it. */

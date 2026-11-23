@@ -1,4 +1,10 @@
-import type { QUANT_BACKTEST_ASSUMPTIONS, QUANT_BACKTEST_REJECT_REASONS, QuantSignalRules } from '@intafaced/contracts';
+import type {
+  QUANT_BACKTEST_ASSUMPTIONS,
+  QUANT_BACKTEST_REJECT_REASONS,
+  QuantEquityStopPolicy,
+  QuantRiskEvent,
+  QuantSignalRules,
+} from '@intafaced/contracts';
 import { add, div, formatAmount, mul, parseAmount, sub, type Amount } from '@intafaced/ledger-client/money';
 import { exponentialAverage, simpleAverage } from './averages.js';
 import type { Bar } from './bars.js';
@@ -21,18 +27,29 @@ export interface SimulationInput {
   readonly delayBars: number;
   /** A margin account (ENGINE RK-5); absent, a cash account that never spends more than it holds. */
   readonly account?: MarginAccount | null;
+  /** The risk screen's equity-stop floor and its policy (AL-risk-01); absent, no floor. */
+  readonly equityStop?: EquityStop | null;
 }
 
-/** Leverage, and the margin-call and stop-out levels as a percent of the margin used, all checked before the run. */
+/** An equity floor in the run's cash unit, and what happens below it. */
+export interface EquityStop {
+  readonly floor: Amount;
+  readonly policy: QuantEquityStopPolicy;
+}
+
+/**
+ * Leverage; our margin-call warning as a margin level (equity over the margin used, in percent); and the venue's
+ * maintenance rate, a fraction of the position's value at which the venue closes it. All checked before the run.
+ */
 export interface MarginAccount {
   readonly leverage: Amount;
   readonly marginCallPercent: Amount;
-  readonly stopOutPercent: Amount;
+  readonly maintenanceRate: Amount;
 }
 
 export interface MarginEvent {
   readonly ts: string;
-  readonly kind: 'margin_call' | 'stop_out';
+  readonly kind: 'margin_call' | 'venue_close';
   readonly price: string;
   readonly marginLevelPercent: string;
 }
@@ -40,7 +57,7 @@ export interface MarginEvent {
 export interface SimulatedTrade {
   readonly ts: string;
   readonly side: 'buy' | 'sell';
-  readonly reason: 'signal' | 'stop_loss' | 'take_profit' | 'stop_out';
+  readonly reason: 'signal' | 'stop_loss' | 'take_profit' | 'venue_close' | 'close_out';
   readonly qty: string;
   readonly barPrice: string;
   readonly price: string;
@@ -54,6 +71,7 @@ export interface SimulationResult {
   readonly assumptions: readonly Assumption[];
   readonly equity: readonly { readonly ts: string; readonly equity: string; readonly marginLevelPercent?: string | null }[];
   readonly marginEvents: readonly MarginEvent[];
+  readonly riskEvents: readonly QuantRiskEvent[];
   readonly totals: {
     readonly startCash: string;
     readonly gross: string;
@@ -123,6 +141,11 @@ export function simulateSignalRules(input: SimulationInput): SimulationResult {
   let used = 0n;
   let called = false;
   if (account) applied.add('margin_level_at_bar_low');
+  const equityStop = input.equityStop ?? null;
+  const riskEvents: QuantRiskEvent[] = [];
+  if (equityStop) applied.add('equity_stop_at_bar_low');
+  // Once equity falls below the floor the strategy is reduce-only for the rest of the run: no entry fills again.
+  let reduceOnly = false;
 
   /** Equity over the margin used, in percent, four places cut toward zero; null with no position. */
   function levelAt(price: Amount): Amount | null {
@@ -134,6 +157,15 @@ export function simulateSignalRules(input: SimulationInput): SimulationResult {
   /** The price at which the margin level falls to `percent`: equity there is that share of the margin used. */
   function priceAtLevel(percent: Amount): Amount {
     return div(sub(mul(used, div(percent, HUNDRED, 'floor'), 'ceil'), cash), qty, 'ceil');
+  }
+
+  /**
+   * The price at which the venue closes the position: equity there (cash plus the position's value) is its maintenance
+   * share of the position's value, `cash + qty·p = rate·qty·p`. With no borrowing (cash not below zero) it never closes.
+   */
+  function priceAtMaintenance(rate: Amount): Amount {
+    if (cash >= 0n) return 0n;
+    return div(-cash, mul(qty, sub(parseAmount('1'), rate), 'floor'), 'floor');
   }
 
   /** What an order's notional takes from the account: all of it on cash, one leverage-th of it on margin. */
@@ -211,12 +243,13 @@ export function simulateSignalRules(input: SimulationInput): SimulationResult {
       fill(i, atOpen.side, 'signal', bar.open, true);
       pending = null;
     }
-    // Margin, against the bar's low (the worst it reached): the margin call is recorded once per position, and a
-    // stop-out closes the whole position at the price that reached its level, or at the open when the bar gapped past it.
+    // Margin, against the bar's low (the worst it reached): our margin call is recorded once per position, and the
+    // venue's close takes the whole position at the price where equity fell to its maintenance level, or at the open when
+    // the bar gapped past it. Our warning sits above the venue's close, so in one bar it is recorded first.
     let stoppedOut = false;
     if (account && qty > 0n) {
       const callAt = priceAtLevel(account.marginCallPercent);
-      const stopAt = priceAtLevel(account.stopOutPercent);
+      const stopAt = priceAtMaintenance(account.maintenanceRate);
       const ts = new Date(bar.openTimeMs).toISOString();
       const event = (kind: MarginEvent['kind'], at: Amount) => {
         const price = bar.open <= at ? bar.open : at;
@@ -228,14 +261,14 @@ export function simulateSignalRules(input: SimulationInput): SimulationResult {
         called = true;
       }
       if (bar.low <= stopAt) {
-        if (stopLoss !== null || takeProfit !== null) applied.add('stop_out_before_exits');
+        if (stopLoss !== null || takeProfit !== null) applied.add('venue_close_before_exits');
         // The event carries the bar price that reached the level; the sell fills there less slippage, like any order.
-        fill(i, 'sell', 'stop_out', event('stop_out', stopAt), true);
+        fill(i, 'sell', 'venue_close', event('venue_close', stopAt), true);
         stoppedOut = true;
         // The position is closed, so a sell the strategy queued for it has nothing left to sell: it is dropped and the
         // strategy may enter again on this bar's close.
         if ((pending as Pending | null)?.side === 'sell') pending = null;
-        // A bar that gaps through the stop-out can close below the margin posted; the run says so.
+        // A bar that gaps through the venue's close can close below the margin posted; the run says so.
         if (cash < 0n) applied.add('loss_beyond_margin');
       }
     }
@@ -253,6 +286,28 @@ export function simulateSignalRules(input: SimulationInput): SimulationResult {
         fill(i, 'sell', 'take_profit', bar.open >= target ? bar.open : target, false);
       }
     }
+    // The equity stop, against the bar's low (the worst equity reached): recorded once. A queued entry is dropped; under
+    // close-out one sell closes the position at the price where equity reached the floor, or at the open when it opened
+    // below it.
+    if (equityStop && !reduceOnly) {
+      const atLow = add(cash, mul(qty, bar.low, 'half-up'));
+      if (atLow < equityStop.floor) {
+        reduceOnly = true;
+        riskEvents.push({
+          ts: new Date(bar.openTimeMs).toISOString(),
+          kind: 'equity_stop',
+          mode: equityStop.policy,
+          floor: formatAmount(equityStop.floor),
+          equity: formatAmount(atLow),
+        });
+        if ((pending as Pending | null)?.side === 'buy') pending = null;
+        if (equityStop.policy === 'close_out' && qty > 0n) {
+          const at = div(sub(equityStop.floor, cash), qty, 'ceil');
+          fill(i, 'sell', 'close_out', bar.open <= at ? bar.open : at, true);
+          if ((pending as Pending | null)?.side === 'sell') pending = null;
+        }
+      }
+    }
     // The strategy, on this close: a cross of the fast average over the slow one.
     const f: Amount | null = fast[i] ?? null;
     const s: Amount | null = slow[i] ?? null;
@@ -262,7 +317,9 @@ export function simulateSignalRules(input: SimulationInput): SimulationResult {
       const crossedUp: boolean = pf <= ps && f > s;
       const crossedDown: boolean = pf >= ps && f < s;
       const side: 'buy' | 'sell' | null = crossedUp && qty === 0n ? 'buy' : crossedDown && qty > 0n ? 'sell' : null;
-      if (side) pending = { side, dueMs: bar.openTimeMs + (1 + input.delayBars) * input.spanMs };
+      if (side === 'buy' && reduceOnly) {
+        rejected.push({ ts: new Date(bar.openTimeMs).toISOString(), side, reason: 'reduce_only' });
+      } else if (side) pending = { side, dueMs: bar.openTimeMs + (1 + input.delayBars) * input.spanMs };
     }
     const point = { ts: new Date(bar.openTimeMs).toISOString(), equity: formatAmount(add(cash, mul(qty, bar.close, 'half-up'))) };
     if (account) {
@@ -282,6 +339,7 @@ export function simulateSignalRules(input: SimulationInput): SimulationResult {
     rejected,
     equity,
     marginEvents,
+    riskEvents,
     assumptions: [...applied],
     totals: {
       startCash: formatAmount(input.cash),

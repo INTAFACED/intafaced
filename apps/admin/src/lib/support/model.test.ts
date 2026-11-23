@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { recordReads } from './record-reply';
+import { SUPPORT_DESK_RATING } from '@intafaced/contracts/support-desk-procedures';
 import { SUPPORT_NOTE_MAX } from '@intafaced/contracts';
 import {
   allowedNextStatuses,
@@ -9,7 +11,6 @@ import {
   queueMetrics,
   readActionRequest,
   readQueueResult,
-  readRatingResult,
   internalNoteGate,
   INTERNAL_NOTE_MAX,
   DESK_COMMENTS_READ,
@@ -43,6 +44,14 @@ describe('queue reader', () => {
     );
     expect(read?.entries).toHaveLength(2);
     expect(read?.limit).toBe(100);
+  });
+  it('reads the due time of a row from an active response target, and refuses a malformed one', () => {
+    const due = { dueAt: '2026-10-17T02:30:00.000Z', targetMinutes: 30 };
+    expect(readQueueResult({ status: 'ok', entries: [entry({ responseDue: due })] }, 100)?.entries[0]?.responseDue).toEqual(due);
+    expect(readQueueResult({ status: 'ok', entries: [entry({ responseDue: null })] }, 100)?.entries[0]?.responseDue).toBeNull();
+    expect(readQueueResult({ status: 'ok', entries: [entry()] }, 100)?.entries[0]?.responseDue).toBeNull();
+    for (const bad of [{ dueAt: 'soon', targetMinutes: 30 }, { dueAt: due.dueAt, targetMinutes: 0 }, 'tomorrow'])
+      expect(readQueueResult({ status: 'ok', entries: [entry({ responseDue: bad })] }, 100)).toBeNull();
   });
   it('an empty queue is only empty when the service says so', () => {
     expect(readQueueResult({ status: 'empty' }, 100)).toEqual({ entries: [], limit: 100 });
@@ -260,13 +269,14 @@ describe('the strict action reader', () => {
 describe('the rating reader', () => {
   const ok = { ticketId: T1, userId: U, score: 5, note: null, createdAt: '2026-10-17T02:00:00.000Z' };
   it('null is "not rated"; a good row is a rating; anything else is unreadable', () => {
-    expect(readRatingResult(null)).toEqual({ value: null });
-    expect(readRatingResult(ok)).toEqual({ value: ok });
-    expect(readRatingResult({ ...ok, score: 0 })).toBeNull();
-    expect(readRatingResult({ ...ok, score: 2.5 })).toBeNull();
-    expect(readRatingResult({ ...ok, note: 3 })).toBeNull();
-    expect(readRatingResult({ ...ok, userId: 'x' })).toBeNull();
-    expect(readRatingResult('5')).toBeNull();
+    // null is the record's own answer for "not rated", read as data (`founderRecordCall` boxes it), never as unreadable.
+    expect(SUPPORT_DESK_RATING.output.safeParse(null)).toMatchObject({ success: true, data: null });
+    expect(recordReads(SUPPORT_DESK_RATING, ok)).toEqual(ok);
+    expect(recordReads(SUPPORT_DESK_RATING, { ...ok, score: 0 })).toBeNull();
+    expect(recordReads(SUPPORT_DESK_RATING, { ...ok, score: 2.5 })).toBeNull();
+    expect(recordReads(SUPPORT_DESK_RATING, { ...ok, note: 3 })).toBeNull();
+    expect(recordReads(SUPPORT_DESK_RATING, { ...ok, userId: 'x' })).toBeNull();
+    expect(recordReads(SUPPORT_DESK_RATING, '5')).toBeNull();
   });
 });
 

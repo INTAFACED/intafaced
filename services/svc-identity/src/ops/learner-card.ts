@@ -10,13 +10,13 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
-import { router, scopedProcedure, TRPCError, type Context } from '@intafaced/contracts';
-import {
-  identityLearnerCardInputSchema,
-  identityLearnerCardResultSchema,
-  type IdentityLearnerCard,
-} from '@intafaced/contracts/identity-learner-card';
+import type { Context } from '@intafaced/contracts';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
+import { identityLearnerCardInputSchema, type IdentityLearnerCard } from '@intafaced/contracts/identity-learner-card';
 import { maskEmail } from './account-directory.js';
+import { IDENTITY_LEARNER_CARD_LOOKUP } from '@intafaced/contracts/identity-learner-card-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from '../record-refusal.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -91,10 +91,7 @@ export async function lookupLearnerCard(sql: Sql, context: Context, input: z.inf
 export function createLearnerCardRouter(sql: Sql) {
   return router({
     learnerCard: router({
-      lookup: scopedProcedure('admin:read')
-        .input(identityLearnerCardInputSchema)
-        .output(identityLearnerCardResultSchema)
-        .query(({ ctx, input }) => lookupLearnerCard(sql, ctx, input)),
+      lookup: mountRecord(IDENTITY_LEARNER_CARD_LOOKUP, ({ ctx, input }) => lookupLearnerCard(sql, ctx, input), codedRefusal),
     }),
   });
 }

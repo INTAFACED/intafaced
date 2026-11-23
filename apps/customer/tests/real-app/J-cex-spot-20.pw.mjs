@@ -2,7 +2,7 @@
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { fundedTrader, openOrders } from './desk.mjs';
-import { api, fund, journeyState, otherTrader, toUnits, tool } from './stack.mjs';
+import { api, fund, journeyState, otherTrader, stackUrl, tool, toUnits } from './stack.mjs';
 
 // J-cex-spot-20 "I see the venue's health: matching, FIX, seeded liquidity and the published rulebook", in the founder
 // console (apps/admin) against the running stack. One test per step, titled "J-cex-spot-20 #<n>". The founder is founder A;
@@ -11,7 +11,7 @@ import { api, fund, journeyState, otherTrader, toUnits, tool } from './stack.mjs
 // and the ledger's fee postings as the customer's own fills report them.
 const J = 'J-cex-spot-20';
 const SYMBOL = 'BTC/USDT';
-const MATCHING = 'http://127.0.0.1:14505';
+const MATCHING = stackUrl('matching');
 /** The TEST market the market maker never quotes (seed-spot-test-listing.mjs `UNQUOTED_TEST_SPOT`): only a journey trades it. */
 const FEE_MARKET = 'IFC/USDC';
 const FEE_ASSET = 'IFC';
@@ -171,7 +171,7 @@ test(`${J} #1 opens matching and trade health: venue health from the engine; a m
       .locator(`[data-metric=latency-submit-market][data-market-id="${marketId}"]`);
     await expect(read).toHaveAttribute('data-state', 'read');
     await expect(read).not.toContainText('matching_metrics_unread');
-    expect(Number(await read.getAttribute('data-count'))).toBe(after.metrics.submitByMarket[marketId].count);
+    await expect.poll(async () => Number(await read.getAttribute('data-count'))).toBe(after.metrics.submitByMarket[marketId].count);
     await expect(read).toContainText(`p99 ≤ ${after.metrics.submitByMarket[marketId].p99Ms} ms`);
   } finally {
     const res = await (await api(customer)).delete(`/api/v1/orders/${order.id}`);

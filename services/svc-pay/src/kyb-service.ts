@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { kybBindingMatches, loadKybDecisionBinding, type KybDecisionBinding } from './kyb-decision-binding.js';
 import { assertCategoryApprovable } from './onboarding-policy/category.js';
 import { PayError } from './payment-service/internal.js';
@@ -139,7 +139,7 @@ export class KybService {
     actorScope: string;
     reason?: string;
     /** Runs inside the transaction once the merchant row is locked and KYB may move, before the status write. */
-    beforeWrite?: (tx: Sql) => Promise<void>;
+    beforeWrite?: (tx: Queryable) => Promise<void>;
   }): Promise<{ changed: boolean; kybStatus: KybStatus; kybRef: string; event: KybEventRecord | null }> {
     const ref = input.kybRef.trim();
     if (!ref || ref.length > 128) {

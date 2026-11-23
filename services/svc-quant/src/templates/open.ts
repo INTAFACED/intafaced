@@ -7,7 +7,7 @@ function refuse(code: typeof QUANT_DATABASE_URL_UNSET | typeof QUANT_DATABASE_PO
   const fail = (): never => {
     throw new QuantError(code, detail);
   };
-  return { publish: async () => fail(), list: async () => fail(), get: async () => fail() };
+  return { publish: async () => fail(), list: async () => fail(), get: async () => fail(), setListed: async () => fail() };
 }
 
 /** Template store. No URL means reads and writes refuse by name; the pool size is never invented. */
