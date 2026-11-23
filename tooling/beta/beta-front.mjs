@@ -20,10 +20,17 @@
  *     decision project-state#3903). No Access token, no mailbox. The tunnel already refused any request whose Access
  *     token its app did not sign (cloudflared's `originRequest.access`), so the token's email is read, not re-checked.
  * Only the public name and this front's own loopback names are served (DNS rebinding stays closed).
+ *
+ * While the beta updates (beta-host.mjs writes `updating` to its status file from before the checkout moves until the new
+ * stack is readied) or is down, a page load gets a short "updating" page instead of the app, and an open app tab, which
+ * reads /__beta/state every 15 s through a script this front adds to the app's page, reloads onto it (#10299).
  */
+import fs from 'node:fs';
 import http from 'node:http';
 import { createHash } from 'node:crypto';
 import net from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export const PUBLIC_ORIGIN = 'https://beta.intafaced.com';
@@ -121,24 +128,127 @@ function refuse(res, status, body) {
   res.end(body);
 }
 
-function frontApp() {
+// ── While the beta updates ──────────────────────────────────────────────────
+
+/** The status file beta-host.mjs writes after each step of a round. */
+export const STATUS_FILE = path.join(os.homedir(), '.intafaced', 'beta', 'status.json');
+const STATE_PATH = '/__beta/state';
+const WATCH_PATH = '/__beta/watch.js';
+
+/**
+ * What a tester is shown instead of the app, from the status file: 'updating' while a round moves the stack to main or
+ * starts it, 'closed' when it is down, refused or blocked, null (the app) when it is up or there is no status yet.
+ */
+export function holdOf(status) {
+  const state = status?.state;
+  if (state === 'updating') return 'updating';
+  if (state === 'down' || state === 'refused' || state === 'blocked') return 'closed';
+  return null;
+}
+
+const HOLD_COPY = {
+  updating: {
+    title: 'Updating the beta',
+    body: 'We are moving the beta to the newest build. It is back in a few minutes, and this page opens it by itself.',
+  },
+  closed: {
+    title: 'The beta is resting',
+    body: 'The beta is not answering right now. We are on it; this page opens it by itself as soon as it is back.',
+  },
+};
+
+/** The page shown while held: Volt's dark look (packages/ui tokens.css), no script, reloading itself every 20 seconds. */
+export function holdPage(kind) {
+  const { title, body } = HOLD_COPY[kind] ?? HOLD_COPY.closed;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="refresh" content="20"><meta name="color-scheme" content="dark"><title>${title} · INTAFACED</title>
+<style>html{background:#000;color:#f7f7f8;color-scheme:dark}body{margin:0;min-height:100vh;display:grid;place-items:center;font:16px/1.5 Inter,system-ui,-apple-system,sans-serif}
+main{max-width:28rem;margin:1.5rem;padding:2rem;background:#0c0c0e;border:1px solid rgba(255,255,255,.09);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.4)}
+.mark{font:700 .85rem/1 Orbitron,Rajdhani,system-ui,sans-serif;letter-spacing:.2em;color:#ff6b00}h1{font:600 1.4rem/1.3 Orbitron,Rajdhani,system-ui,sans-serif;margin:1rem 0 .5rem}
+p{color:#a2a2ac;margin:0}.dot{display:inline-block;width:.5rem;height:.5rem;border-radius:50%;background:#ff6b00;box-shadow:0 0 12px rgba(255,107,0,.24);margin-inline-end:.5rem;animation:p 1.6s ease-in-out infinite}
+@keyframes p{50%{opacity:.3}}@media (prefers-reduced-motion:reduce){.dot{animation:none}}.test{margin-top:1.5rem;font-size:.8rem;color:rgba(247,247,248,.4)}</style></head>
+<body><main><div class="mark">INTAFACED</div><h1><span class="dot" aria-hidden="true"></span>${title}</h1><p>${body}</p><p class="test">Beta on TEST funds: nothing here is real money.</p></main></body></html>`;
+}
+
+/** The script added to the app's page: an open tab reloads onto the updating page when the beta starts updating. */
+export const WATCH_SCRIPT = `(()=>{const t=setInterval(async()=>{try{const r=await fetch('${STATE_PATH}',{cache:'no-store'});if((await r.json()).hold){clearInterval(t);location.reload()}}catch{}},15000)})();\n`;
+
+/** The app's HTML with the watch script added in its head; anything else unchanged (null). */
+export function withWatch(html) {
+  const at = html.indexOf('</head>');
+  return at < 0 ? null : `${html.slice(0, at)}<script src="${WATCH_PATH}" defer></script>${html.slice(at)}`;
+}
+
+const wantsPage = (req) => (req.method === 'GET' || req.method === 'HEAD') && /\btext\/html\b/i.test(String(req.headers.accept ?? ''));
+
+function send(res, status, type, body, extra = {}) {
+  res.writeHead(status, { 'content-type': type, 'content-length': Buffer.byteLength(body), 'cache-control': 'no-store', ...extra });
+  res.end(body);
+}
+
+const sendHold = (req, res, kind) =>
+  send(res, 503, 'text/html; charset=utf-8', req.method === 'HEAD' ? '' : holdPage(kind), {
+    'retry-after': '30',
+    'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'",
+    'x-frame-options': 'DENY',
+  });
+
+function statusReader(file, cacheMs) {
+  let at = 0;
+  let last = null;
+  return () => {
+    if (Date.now() - at < cacheMs) return last;
+    at = Date.now();
+    try {
+      last = JSON.parse(fs.readFileSync(file, 'utf8'));
+    } catch {
+      last = null;
+    }
+    return last;
+  };
+}
+
+export function frontApp({ upstream = APP.upstream, statusFile = STATUS_FILE, cacheMs = 1000 } = {}) {
+  const status = statusReader(statusFile, cacheMs);
   const server = http.createServer((req, res) => {
     if (!APP_HOSTS.has(req.headers.host ?? '')) return refuse(res, 403, 'forbidden host');
-    const up = http.request(
-      { host: '127.0.0.1', port: APP.upstream, method: req.method, path: req.url, headers: appRequestHeaders(req.headers) },
-      (ur) => {
-        res.writeHead(ur.statusCode ?? 502, responseHeaders(ur));
-        ur.pipe(res);
-      },
-    );
-    up.on('error', () => (res.headersSent ? res.destroy() : refuse(res, 502, 'beta app unreachable')));
+    const pathname = String(req.url ?? '').split('?')[0];
+    if (pathname === STATE_PATH) return send(res, 200, 'application/json; charset=utf-8', JSON.stringify({ hold: holdOf(status()) }));
+    if (pathname === WATCH_PATH) return send(res, 200, 'text/javascript; charset=utf-8', WATCH_SCRIPT);
+    const page = wantsPage(req);
+    const hold = holdOf(status());
+    if (page && hold) return sendHold(req, res, hold);
+    const headers = appRequestHeaders(req.headers);
+    if (page) delete headers['accept-encoding']; // the page comes back plain, so the watch script can be added
+    const up = http.request({ host: '127.0.0.1', port: upstream, method: req.method, path: req.url, headers }, (ur) => {
+      const out = responseHeaders(ur);
+      const html =
+        page && ur.statusCode === 200 && /^text\/html\b/i.test(String(ur.headers['content-type'] ?? '')) && !ur.headers['content-encoding'];
+      if (!html) {
+        res.writeHead(ur.statusCode ?? 502, out);
+        return void ur.pipe(res);
+      }
+      const chunks = [];
+      ur.on('data', (c) => chunks.push(c));
+      ur.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8');
+        const body = Buffer.from(withWatch(text) ?? text, 'utf8');
+        if (req.method !== 'HEAD') out['content-length'] = String(body.length);
+        res.writeHead(200, out);
+        res.end(req.method === 'HEAD' ? undefined : body);
+      });
+    });
+    up.on('error', () => {
+      if (res.headersSent) return res.destroy();
+      return page ? sendHold(req, res, 'closed') : refuse(res, 502, 'beta app unreachable');
+    });
     req.pipe(up);
   });
   server.on('upgrade', (req, socket, head) => {
     socket.on('error', () => socket.destroy());
     if (!APP_HOSTS.has(req.headers.host ?? ''))
       return socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
-    const upSocket = net.connect(APP.upstream, '127.0.0.1', () => {
+    const upSocket = net.connect(upstream, '127.0.0.1', () => {
       const headers = appRequestHeaders(req.headers, { upgrade: true });
       const lines = [`${req.method} ${req.url} HTTP/1.1`];
       for (const [k, v] of Object.entries(headers)) for (const one of [].concat(v)) lines.push(`${k}: ${one}`);

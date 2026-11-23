@@ -6,7 +6,7 @@ The Customer app on the latest `main`, always on, on TEST funds only, for the ow
 - **TEST mailbox** (the codes the app sends): `https://beta-mail.intafaced.com/`, behind the same login
 - **On the box itself:** `http://localhost:6210/` and `http://localhost:6290/`
 - **State now:** `node tooling/beta/beta-host.mjs status` on the box (`~/.intafaced/beta/status.json`): `up` with the
-  main commit it shows, `blocked` or `down` with the reason.
+  main commit it shows, `updating` while a round moves it to main, `blocked` or `down` with the reason.
 
 ## How it works
 
@@ -17,23 +17,32 @@ minutes fetches main and runs `verify launch`, which readies the stack the way a
 what is down. At most once every 2 hours it first moves the checkout to main and installs, so the launch rebuilds what
 changed: a merge to main is on the link within about two and a half hours. The mailbox page names the commit served.
 
+**While it updates:** the update rebuilds and restarts the stack in its one checkout, which takes about five minutes on
+the box. From before the checkout moves until the new stack passes the TEST funds check and Markets lists priced markets,
+`status.json` reads `updating`, and the front answers every page load with a short "Updating the beta" page that reloads
+itself; an open app tab reloads onto it within 15 seconds. A launch on a stack that is up and readied changes nothing a
+tester sees. When the app refuses, or the status is `down`, `refused` or `blocked`, a page load gets "The beta is
+resting" instead of a browser error. A second stack readied beside the first would avoid the wait, at twice the build and
+memory on a box that is already loaded.
+
 **Who can open it (the allow list):** the stack listens only on the box's own loopback, and nothing on the home
 network can reach it. The only way in from outside is a Cloudflare Tunnel, which the box dials out. Cloudflare Access sits
 in front of both names: a one-time PIN mailed to an email on the invite list, and nobody else gets past the login. The
 tunnel itself also refuses any request that does not carry an Access token for its app (cloudflared's
 `originRequest.access`), so a request can't skip the login even if the Access app were removed.
 
-| Piece                                          | On the box                                                                                               | What it does                                                                                             |
-| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `intafaced-beta-tunnel.service` (systemd user) | `~/.local/bin/cloudflared`, config `~/.cloudflared/intafaced-beta.yml`, credentials beside it (mode 600) | `beta.intafaced.com` → `127.0.0.1:6211`, `beta-mail.intafaced.com` → `127.0.0.1:6291`, anything else 404 |
-| `intafaced-beta-front.service` (systemd user)  | `tooling/beta/beta-front.mjs`                                                                            | maps the public origin onto the stack's loopback names (below)                                           |
-| `intafaced-beta.service`                       | `tooling/beta/beta-host.mjs serve`                                                                       | the stack itself, unchanged                                                                              |
+| Piece                                          | On the box                                                                                                              | What it does                                                                                             |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `intafaced-beta-tunnel.service` (systemd user) | `~/.local/bin/cloudflared`, config `~/.cloudflared/intafaced-beta.yml`, credentials beside it (mode 600)                | `beta.intafaced.com` → `127.0.0.1:6211`, `beta-mail.intafaced.com` → `127.0.0.1:6291`, anything else 404 |
+| `intafaced-beta-front.service` (systemd user)  | `~/.intafaced/beta/checkout/tooling/beta/beta-front.mjs`; `serve` writes its unit and restarts it when the file changes | maps the public origin onto the stack's loopback names (below); shows the updating page                  |
+| `intafaced-beta.service`                       | `tooling/beta/beta-host.mjs serve`                                                                                      | the stack itself, unchanged                                                                              |
 
 **Why the front:** the stack knows only its loopback origin. Its Customer server refuses any other `Host`, and Edge and
 svc-ws accept only `http://localhost:6210` as an `Origin`. The front rewrites the `Host`, and rewrites the `Origin` only
 when it is exactly `https://beta.intafaced.com`, so a cross-site call is still refused. It points loopback redirects and the
 mailbox's links at the public name, and strips Access's token before the stack sees it. Nothing in the stack's environment
-changes, so the TEST funds check below stays as strict as before. Test: `node --test tooling/beta/beta-front.test.mjs`.
+changes, so the TEST funds check below stays as strict as before. Test: `node --test tooling/beta/beta-front.test.mjs
+tooling/beta/beta-round.test.mjs`.
 
 **The Cloudflare side** (the `intafaced.com` zone, the tunnel `intafaced-beta`, the two Access apps and their invite
 list) is set by the owner's agents with his Cloudflare key, which lives outside this repository.
