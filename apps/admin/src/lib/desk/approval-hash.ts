@@ -46,7 +46,7 @@ export const KYC_DOCUMENT_GET = 'kyc.doc.get';
 /** The verb svc-identity binds a selfie decision to (`kyc.selfie.decide`). */
 export const KYC_SELFIE_DECIDE = 'kyc.selfie.decide';
 /** The verb svc-identity binds a verification approval to (`kyc.approve`). */
-export const KYC_APPROVE = 'kyc.approve';
+const KYC_APPROVE = 'kyc.approve';
 
 /**
  * How a console request becomes an identity approval, and how the target service recomputes the same hash.
