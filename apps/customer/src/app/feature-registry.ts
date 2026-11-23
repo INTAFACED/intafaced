@@ -1,3 +1,4 @@
+import { betaHides } from './beta-volt';
 import { hasPattern, matchPath } from './path-match';
 
 /**
@@ -773,8 +774,9 @@ export function hiddenFeatureFor(path: string, search = ''): Feature | undefined
         })),
   );
 }
+/** Hidden by a feature row, or, in the beta's build only, a room not yet in Volt (beta-volt.ts). */
 export function isHiddenPath(path: string): boolean {
-  return hiddenFeatureFor(path) !== undefined;
+  return hiddenFeatureFor(path) !== undefined || betaHides(path);
 }
 
 const tabHomes: Record<FeatureTab, string> = {

@@ -11,6 +11,8 @@ import { appCopy } from './app-copy';
 import { useKeepKeyboardFocusVisible } from '../shared/keyboard-focus';
 import { useCustomerRoomArrival } from './room-arrival';
 import { hiddenFeatureFor, isDevBuild, type Feature } from './feature-registry';
+import { betaHides } from './beta-volt';
+import { BetaNotInVolt } from './BetaNotInVolt';
 import { LegacyRoom, preloadAccountRoutes, type LegacyArea } from './LegacyRoom';
 import { matchPath } from './path-match';
 import { preloadScreen, screens } from './screens';
@@ -207,6 +209,7 @@ export function App() {
         </Page>
       </div>
     );
+  else if (betaHides(path)) body = <BetaNotInVolt />;
   else if (room?.screen) {
     const Screen = screens[room.screen];
     body = (
@@ -248,7 +251,7 @@ export function App() {
       <Web3Shell path={path}>
         <RoomBoundary key={path}>
           {ribbon}
-          <ProtocolRoutes path={path} />
+          {betaHides(path) ? <BetaNotInVolt /> : <ProtocolRoutes path={path} />}
         </RoomBoundary>
       </Web3Shell>
     </Suspense>

@@ -196,3 +196,7 @@ test('reserved names never reach a service, so they pass; a real host that only 
   ]);
   assert.deepEqual(found, []);
 });
+
+test("the beta's Customer build shows only rooms finished in Volt; the switch is the beta's alone", () => {
+  assert.equal(stackEnv(betaPaths('/home/x'), {}).INTAFACED_BETA_VOLT_ONLY, '1');
+});

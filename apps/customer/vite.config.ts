@@ -103,11 +103,31 @@ export function developerDocs(): Plugin {
   };
 }
 
+const VOLT_COUNT = fileURLToPath(new URL('./src/app/volt-count.ts', import.meta.url));
+const BETA_VOLT = fileURLToPath(new URL('./src/app/beta-volt.ts', import.meta.url));
+
+/**
+ * The beta's switch (`INTAFACED_BETA_VOLT_ONLY=1`, set only by tooling/beta/beta-host.mjs): the build reads the Volt count
+ * as it stands and gives the app `__BETA_VOLT_ROOMS__`, so the menus and links hide each room not yet in Volt
+ * (src/app/beta-volt.ts). Off, nothing is defined and every room shows, as on the test stack and in CI.
+ */
+export function betaVolt(env: Record<string, string | undefined> = process.env): Plugin {
+  return { name: 'intafaced-beta-volt', config: async () => ({ define: await betaVoltDefine(env) }) };
+}
+export async function betaVoltDefine(env: Record<string, string | undefined> = process.env): Promise<Record<string, string>> {
+  if (env.INTAFACED_BETA_VOLT_ONLY !== '1') return {};
+  const load = <T>(file: string) =>
+    runnerImport<T>(file, { configFile: false, root: fileURLToPath(new URL('.', import.meta.url)), logLevel: 'error' });
+  const { module: count } = await load<typeof import('./src/app/volt-count')>(VOLT_COUNT);
+  const { module: beta } = await load<typeof import('./src/app/beta-volt')>(BETA_VOLT);
+  return { __BETA_VOLT_ROOMS__: JSON.stringify(beta.betaRoomList(count.voltCount().rooms)) };
+}
+
 export default defineConfig(({ mode }) => {
   assertLocalTestBuildAllowed(mode, { ...loadEnv(mode, process.cwd(), ['VITE_', 'INTAFACED_']), ...process.env });
   return {
     esbuild: { jsx: 'automatic' },
-    plugins: [tailwindcss(), homeBoot(), hostDispatchReceipt(), developerDocs()],
+    plugins: [tailwindcss(), homeBoot(), hostDispatchReceipt(), developerDocs(), betaVolt()],
     server: {
       proxy: {
         '/api': { target: process.env.CUSTOMER_EDGE_URL ?? 'http://127.0.0.1:4000', changeOrigin: false },
