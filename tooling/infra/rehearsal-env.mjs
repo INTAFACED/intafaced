@@ -25,6 +25,8 @@ export const POSTURE = {
   INTERNAL_SERVICE_BODY_BIND: 'require',
   // A runner has no registrable domain, and identity refuses localhost as a relying party; passkeys are off here.
   WEBAUTHN_ENABLED: 'off',
+  // Merchant controls: a staging pay refuses to boot on anything else.
+  PAY_MERCHANT_CONTROLS: 'required',
 };
 
 /**
