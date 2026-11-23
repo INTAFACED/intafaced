@@ -4,17 +4,11 @@ import type { Sql } from 'postgres';
 import {
   merchantAnalyticsDeclinesInputSchema,
   merchantAnalyticsDeclinesSchema,
-  merchantBusinessProfileConfirmInputSchema,
-  merchantBusinessProfileDecideResultSchema,
   merchantBusinessProfileReviewInputSchema,
   merchantBusinessProfileReviewResultSchema,
   merchantBusinessProfileSubmitInputSchema,
   merchantBusinessProfileSubmitResultSchema,
   merchantPortalMerchantInputSchema,
-  merchantProfileHistoryInputSchema,
-  merchantProfileHistorySchema,
-  merchantProfileSecondApprovalInputSchema,
-  merchantProfileSecondApprovalResultSchema,
 } from '@intafaced/contracts/merchant-portal';
 import { merchantRoomAccessSchema } from '@intafaced/contracts/merchant-room-access';
 import { anyScopeProcedure, router, scopedProcedure, TRPCError, type OwnerPayGrantRecheck } from '@intafaced/contracts/trpc';
@@ -44,6 +38,9 @@ import {
   PAY_MERCHANT_ONBOARDING_PROGRESS,
   PAY_MERCHANT_CATEGORY_GET,
   PAY_MERCHANT_CATEGORY_CHOOSE,
+  PAY_MERCHANT_BUSINESS_PROFILE_HISTORY,
+  PAY_MERCHANT_BUSINESS_PROFILE_CONFIRM,
+  PAY_MERCHANT_BUSINESS_PROFILE_SET_SECOND_APPROVAL,
 } from '@intafaced/contracts/pay-merchant-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { payRefusal } from '../record-refusal.js';
@@ -139,22 +136,25 @@ export function merchantPortalExtensions(deps: {
         ({ ctx, input }) => wrapPortal(async () => profile.get(ctx.principal?.userId, input.merchantId)),
         payRefusal,
       ),
-      history: read
-        .input(merchantProfileHistoryInputSchema)
-        .output(merchantProfileHistorySchema)
-        .query(({ ctx, input }) => wrapPortal(async () => profile.history(ctx.principal?.userId, input))),
+      history: mountRecord(
+        PAY_MERCHANT_BUSINESS_PROFILE_HISTORY,
+        ({ ctx, input }) => wrapPortal(async () => profile.history(ctx.principal?.userId, input)),
+        payRefusal,
+      ),
       submit: profileWrite
         .input(merchantBusinessProfileSubmitInputSchema)
         .output(merchantBusinessProfileSubmitResultSchema)
         .mutation(({ ctx, input }) => wrapPortal(async () => profile.submit(await writer(ctx), input))),
-      confirm: profileWrite
-        .input(merchantBusinessProfileConfirmInputSchema)
-        .output(merchantBusinessProfileDecideResultSchema)
-        .mutation(({ ctx, input }) => wrapPortal(async () => profile.decide(await writer(ctx), input))),
-      setSecondApproval: profileWrite
-        .input(merchantProfileSecondApprovalInputSchema)
-        .output(merchantProfileSecondApprovalResultSchema)
-        .mutation(({ ctx, input }) => wrapPortal(async () => profile.setSecondApproval(await writer(ctx), input))),
+      confirm: mountRecord(
+        PAY_MERCHANT_BUSINESS_PROFILE_CONFIRM,
+        ({ ctx, input }) => wrapPortal(async () => profile.decide(await writer(ctx), input)),
+        payRefusal,
+      ),
+      setSecondApproval: mountRecord(
+        PAY_MERCHANT_BUSINESS_PROFILE_SET_SECOND_APPROVAL,
+        ({ ctx, input }) => wrapPortal(async () => profile.setSecondApproval(await writer(ctx), input)),
+        payRefusal,
+      ),
       /**
        * Compliance decide. `admin:compliance`, MFA, and an identity approval,
        * matching `merchant.decideKyb`. A merchant session cannot apply a
