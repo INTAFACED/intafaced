@@ -39,7 +39,7 @@ export function visibleText(html: string): string {
 /** The raw text a drawn part shows that no customer should read; `room` is the part's route or state name. */
 export function rawCustomerText(room: string, html: string): string[] {
   if (DEVELOPER_ROOMS.test(room)) return [];
-  const path = room.split(/[?#]/)[0];
+  const path = room.split(/[?#]/)[0] ?? room;
   return rawTextIn(visibleText(html)).filter(
     (value) => !(value in NAMED_BY_STEPS) && !(value === OWN_UID.value && OWN_UID.rooms.has(path)),
   );
