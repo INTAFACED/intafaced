@@ -1,0 +1,484 @@
+[
+  {
+    "revert": 10027,
+    "culprit": "53acf65ae1",
+    "culpritPr": 9960,
+    "revertRun": 45083316139,
+    "culpritRun": 45066095803,
+    "blockedAs": ["block", "block", "block"],
+    "litTargets": ["/coin/BTC", "/trade/buy", "/trade/spot/BTC-USDT", "/uc/entrust/current", "/uc/entrust/history"],
+    "fresh": [
+      {
+        "target": "/coin/BTC",
+        "viewport": "phone",
+        "kind": "contrast",
+        "items": ["button.inline-flex \"Enter an amount\" 2.82 < 4.5 (worst pixel under it rgb(36,100,72), box at 136,1259)"]
+      },
+      {
+        "target": "/coin/BTC",
+        "viewport": "computer",
+        "kind": "contrast",
+        "items": ["button.inline-flex \"Enter an amount\" 2.82 < 4.5 (worst pixel under it rgb(36,100,72), box at 1129,551)"]
+      },
+      {
+        "target": "/coin/BTC",
+        "viewport": "phone rtl",
+        "kind": "axe",
+        "items": ["color-contrast ×2"]
+      },
+      {
+        "target": "/uc/entrust/current",
+        "viewport": "phone copy-130",
+        "kind": "copy",
+        "items": ["td is cut by section#money-card at 130%"]
+      },
+      {
+        "target": "/uc/entrust/history",
+        "viewport": "phone copy-130",
+        "kind": "copy",
+        "items": ["td is cut by section#money-card at 130%"]
+      },
+      {
+        "target": "/trade/buy",
+        "viewport": "phone",
+        "kind": "contrast",
+        "items": ["button.inline-flex \"Enter an amount\" 2.82 < 4.5 (worst pixel under it rgb(36,100,72), box at 136,543)"]
+      },
+      {
+        "target": "/trade/buy",
+        "viewport": "computer",
+        "kind": "contrast",
+        "items": ["button.inline-flex \"Enter an amount\" 2.82 < 4.5 (worst pixel under it rgb(36,100,72), box at 1048,517)"]
+      },
+      {
+        "target": "/trade/buy",
+        "viewport": "phone rtl",
+        "kind": "axe",
+        "items": ["color-contrast ×2"]
+      },
+      {
+        "target": "/trade/spot/BTC-USDT",
+        "viewport": "phone",
+        "kind": "contrast",
+        "items": [
+          "button.dk-cancel-all \"Auto-cancel: couldn’t check\" 1.03 < 4.5 (worst pixel under it rgb(167,166,161), box at 153,2054)"
+        ]
+      }
+    ],
+    "parentRows": [
+      {
+        "target": "/coin/BTC",
+        "viewport": "phone",
+        "findings": {
+          "axe": ["nested-interactive ×1: .coin-chart", "scrollable-region-focusable ×1: .coin-recent__card"],
+          "contrast": ["button.inline-flex \"Enter an amount\" 2.82 < 4.5 (worst pixel under it rgb(36,100,72), box at 136,1259)"],
+          "baseline": ["size 390x2844 → 390x2851"]
+        }
+      },
+      {
+        "target": "/coin/BTC",
+        "viewport": "computer",
+        "findings": {
+          "axe": ["nested-interactive ×1: .coin-chart"],
+          "contrast": ["button.inline-flex \"Enter an amount\" 2.82 < 4.5 (worst pixel under it rgb(36,100,72), box at 1129,551)"]
+        }
+      },
+      {
+        "target": "/coin/BTC",
+        "viewport": "phone rtl",
+        "findings": {
+          "axe": ["color-contrast ×2", "nested-interactive ×1", "scrollable-region-focusable ×1"]
+        }
+      },
+      {
+        "target": "/uc/entrust/current",
+        "viewport": "phone copy-130",
+        "findings": {
+          "copy": ["th is cut by section#money-card at 130%", "td is cut by section#money-card at 130%"]
+        }
+      },
+      {
+        "target": "/uc/entrust/history",
+        "viewport": "phone copy-130",
+        "findings": {
+          "copy": ["th is cut by section#money-card at 130%", "td is cut by section#money-card at 130%"]
+        }
+      },
+      {
+        "target": "/trade/buy",
+        "viewport": "phone",
+        "findings": {
+          "contrast": ["button.inline-flex \"Enter an amount\" 2.82 < 4.5 (worst pixel under it rgb(36,100,72), box at 136,543)"],
+          "baseline": ["size 390x1033 → 390x1040"]
+        }
+      },
+      {
+        "target": "/trade/buy",
+        "viewport": "computer",
+        "findings": {
+          "contrast": ["button.inline-flex \"Enter an amount\" 2.82 < 4.5 (worst pixel under it rgb(36,100,72), box at 1048,517)"]
+        }
+      },
+      {
+        "target": "/trade/buy",
+        "viewport": "phone rtl",
+        "findings": {
+          "axe": ["color-contrast ×2"]
+        }
+      },
+      {
+        "target": "/trade/spot/BTC-USDT",
+        "viewport": "phone",
+        "findings": {
+          "axe": ["aria-required-children ×1: .dk-bk-grid", "nested-interactive ×1: .pc-root"],
+          "contrast": [
+            "button.inline-flex \"Buy BTC\" 2.57 < 4.5 (worst pixel under it rgb(30,94,66), box at 167,1056)",
+            "button.inline-flex \"Sell BTC\" 1.89 < 4.5 (worst pixel under it rgb(108,43,40), box at 168,1420)",
+            "button.dk-cancel-all \"Auto-cancel: couldn’t check\" 1.03 < 4.5 (worst pixel under it rgb(167,166,161), box at 153,2054)"
+          ],
+          "baseline": ["size 390x2086 → 390x2093"]
+        }
+      }
+    ]
+  },
+  {
+    "revert": 9903,
+    "culprit": "36d4e14474",
+    "culpritPr": 9828,
+    "revertRun": 45046299346,
+    "culpritRun": 45037265942,
+    "blockedAs": ["block", "block", "block"],
+    "litTargets": ["/bank/ramps", "/uc", "/uc/account", "/uc/safe", "/uc/withdraw/allowlist"],
+    "fresh": [
+      {
+        "target": "/bank/ramps",
+        "viewport": "phone",
+        "kind": "axe",
+        "items": ["color-contrast ×1: li[data-off=\"true\"]"]
+      },
+      {
+        "target": "/bank/ramps",
+        "viewport": "computer",
+        "kind": "axe",
+        "items": ["color-contrast ×1: li[data-off=\"true\"]"]
+      },
+      {
+        "target": "/bank/ramps",
+        "viewport": "phone rtl",
+        "kind": "axe",
+        "items": ["color-contrast ×1"]
+      },
+      {
+        "target": "/bank/ramps",
+        "viewport": "phone text-200",
+        "kind": "axe",
+        "items": ["color-contrast ×1"]
+      },
+      {
+        "target": "/bank/ramps",
+        "viewport": "phone copy-130",
+        "kind": "axe",
+        "items": ["color-contrast ×1"]
+      },
+      {
+        "target": "/uc",
+        "viewport": "phone copy-130",
+        "kind": "copy",
+        "items": ["h2#subaccount-list-heading spills out of its box at 130%"]
+      },
+      {
+        "target": "/uc/account",
+        "viewport": "phone copy-130",
+        "kind": "copy",
+        "items": ["h2#subaccount-list-heading spills out of its box at 130%"]
+      },
+      {
+        "target": "/uc/safe",
+        "viewport": "phone",
+        "kind": "axe",
+        "items": ["target-size ×2: a[href$=\"compromised\"]"]
+      },
+      {
+        "target": "/uc/safe",
+        "viewport": "computer",
+        "kind": "axe",
+        "items": ["target-size ×2: a[href$=\"compromised\"]"]
+      },
+      {
+        "target": "/uc/safe",
+        "viewport": "phone rtl",
+        "kind": "axe",
+        "items": ["target-size ×2"]
+      },
+      {
+        "target": "/uc/safe",
+        "viewport": "phone text-200",
+        "kind": "axe",
+        "items": ["target-size ×2"]
+      },
+      {
+        "target": "/uc/safe",
+        "viewport": "phone forced-colors",
+        "kind": "axe",
+        "items": ["target-size ×2"]
+      },
+      {
+        "target": "/uc/withdraw/allowlist",
+        "viewport": "phone",
+        "kind": "font",
+        "items": ["a.text-link \"Back to Withdraw ↗\": rendered in WenQuanYi Zen Hei (1 glyphs) instead of Archivo Variable"]
+      }
+    ],
+    "parentRows": [
+      {
+        "target": "/bank/ramps",
+        "viewport": "phone",
+        "findings": {
+          "axe": ["color-contrast ×1: li[data-off=\"true\"]"],
+          "baseline": ["size 390x2001 → 390x2008"]
+        }
+      },
+      {
+        "target": "/bank/ramps",
+        "viewport": "computer",
+        "findings": {
+          "axe": ["color-contrast ×1: li[data-off=\"true\"]"]
+        }
+      },
+      {
+        "target": "/bank/ramps",
+        "viewport": "phone rtl",
+        "findings": {
+          "axe": ["color-contrast ×1"]
+        }
+      },
+      {
+        "target": "/bank/ramps",
+        "viewport": "phone text-200",
+        "findings": {
+          "axe": ["color-contrast ×1"]
+        }
+      },
+      {
+        "target": "/bank/ramps",
+        "viewport": "phone copy-130",
+        "findings": {
+          "axe": ["color-contrast ×1"]
+        }
+      },
+      {
+        "target": "/uc",
+        "viewport": "phone copy-130",
+        "findings": {
+          "copy": ["h2#subaccount-list-heading spills out of its box at 130%"]
+        }
+      },
+      {
+        "target": "/uc/account",
+        "viewport": "phone copy-130",
+        "findings": {
+          "copy": ["h2#subaccount-list-heading spills out of its box at 130%"]
+        }
+      },
+      {
+        "target": "/uc/safe",
+        "viewport": "phone",
+        "findings": {
+          "axe": ["target-size ×2: a[href$=\"compromised\"]"],
+          "baseline": ["size 390x5300 → 390x5307"]
+        }
+      },
+      {
+        "target": "/uc/safe",
+        "viewport": "computer",
+        "findings": {
+          "axe": ["target-size ×2: a[href$=\"compromised\"]"]
+        }
+      },
+      {
+        "target": "/uc/safe",
+        "viewport": "phone rtl",
+        "findings": {
+          "axe": ["target-size ×2"]
+        }
+      },
+      {
+        "target": "/uc/safe",
+        "viewport": "phone text-200",
+        "findings": {
+          "axe": ["target-size ×2"]
+        }
+      },
+      {
+        "target": "/uc/safe",
+        "viewport": "phone forced-colors",
+        "findings": {
+          "axe": ["target-size ×2"]
+        }
+      },
+      {
+        "target": "/uc/withdraw/allowlist",
+        "viewport": "phone",
+        "findings": {
+          "font": ["a.text-link \"Back to Withdraw ↗\": rendered in WenQuanYi Zen Hei (1 glyphs) instead of Archivo Variable"],
+          "baseline": ["size 390x1593 → 390x1600"]
+        }
+      }
+    ]
+  },
+  {
+    "revert": 9804,
+    "culprit": "97d877bbea",
+    "culpritPr": 9717,
+    "revertRun": 45020358014,
+    "culpritRun": 45011642580,
+    "blockedAs": ["block", "block", "block"],
+    "litTargets": ["/academy/rooms/messages", "/trade/screener", "/uc/paydividends", "/uc/withdraw/approvals"],
+    "fresh": [
+      {
+        "target": "/academy/rooms/messages",
+        "viewport": "phone copy-130",
+        "kind": "copy",
+        "items": ["button spills out of its box at 130%", "button.selected spills out of its box at 130%"]
+      },
+      {
+        "target": "/trade/screener",
+        "viewport": "phone",
+        "kind": "contrast",
+        "items": [
+          "label#base-ui-_r_k_-label \"Last\" 1.00 < 4.5 (worst pixel under it rgb(243,242,236), box at 59,839)",
+          "label#base-ui-_r_n_-label \"Change 24h\" 1.00 < 4.5 (worst pixel under it rgb(243,242,236), box at 107,839)"
+        ]
+      },
+      {
+        "target": "/trade/screener",
+        "viewport": "computer",
+        "kind": "contrast",
+        "items": [
+          "label#base-ui-_r_k_-label \"Last\" 1.00 < 4.5 (worst pixel under it rgb(243,242,236), box at 167,729)",
+          "label#base-ui-_r_n_-label \"Change 24h\" 1.00 < 4.5 (worst pixel under it rgb(243,242,236), box at 215,729)"
+        ]
+      },
+      {
+        "target": "/trade/screener",
+        "viewport": "phone rtl",
+        "kind": "overflow",
+        "items": ["28px wider than the screen"]
+      },
+      {
+        "target": "/trade/screener",
+        "viewport": "phone text-200",
+        "kind": "overflow",
+        "items": ["28px wider than the screen"]
+      },
+      {
+        "target": "/trade/screener",
+        "viewport": "phone forced-colors",
+        "kind": "overflow",
+        "items": ["28px wider than the screen"]
+      },
+      {
+        "target": "/trade/screener",
+        "viewport": "phone copy-130",
+        "kind": "overflow",
+        "items": ["96px wider than the screen"]
+      },
+      {
+        "target": "/uc/paydividends",
+        "viewport": "phone",
+        "kind": "targets",
+        "items": ["a.text-link 93x20", "a.text-link 85x20", "a.text-link 144x20"]
+      },
+      {
+        "target": "/uc/paydividends",
+        "viewport": "computer",
+        "kind": "targets",
+        "items": ["a.text-link 93x20", "a.text-link 85x20", "a.text-link 144x20"]
+      },
+      {
+        "target": "/uc/withdraw/approvals",
+        "viewport": "phone",
+        "kind": "font",
+        "items": ["a.text-link \"Back to Withdraw ↗\": rendered in WenQuanYi Zen Hei (1 glyphs) instead of Archivo Variable"]
+      }
+    ],
+    "parentRows": [
+      {
+        "target": "/academy/rooms/messages",
+        "viewport": "phone copy-130",
+        "findings": {
+          "copy": ["button spills out of its box at 130%", "button.selected spills out of its box at 130%"]
+        }
+      },
+      {
+        "target": "/trade/screener",
+        "viewport": "phone",
+        "findings": {
+          "contrast": [
+            "label#base-ui-_r_k_-label \"Last\" 1.00 < 4.5 (worst pixel under it rgb(243,242,236), box at 59,839)",
+            "label#base-ui-_r_n_-label \"Change 24h\" 1.00 < 4.5 (worst pixel under it rgb(243,242,236), box at 107,839)"
+          ]
+        }
+      },
+      {
+        "target": "/trade/screener",
+        "viewport": "computer",
+        "findings": {
+          "contrast": [
+            "label#base-ui-_r_k_-label \"Last\" 1.00 < 4.5 (worst pixel under it rgb(243,242,236), box at 167,729)",
+            "label#base-ui-_r_n_-label \"Change 24h\" 1.00 < 4.5 (worst pixel under it rgb(243,242,236), box at 215,729)"
+          ]
+        }
+      },
+      {
+        "target": "/trade/screener",
+        "viewport": "phone rtl",
+        "findings": {
+          "overflow": ["28px wider than the screen"]
+        }
+      },
+      {
+        "target": "/trade/screener",
+        "viewport": "phone text-200",
+        "findings": {
+          "overflow": ["28px wider than the screen"]
+        }
+      },
+      {
+        "target": "/trade/screener",
+        "viewport": "phone forced-colors",
+        "findings": {
+          "overflow": ["28px wider than the screen"]
+        }
+      },
+      {
+        "target": "/trade/screener",
+        "viewport": "phone copy-130",
+        "findings": {
+          "overflow": ["96px wider than the screen"]
+        }
+      },
+      {
+        "target": "/uc/paydividends",
+        "viewport": "phone",
+        "findings": {
+          "targets": ["a.text-link 93x20", "a.text-link 85x20", "a.text-link 144x20"]
+        }
+      },
+      {
+        "target": "/uc/paydividends",
+        "viewport": "computer",
+        "findings": {
+          "targets": ["a.text-link 93x20", "a.text-link 85x20", "a.text-link 144x20"]
+        }
+      },
+      {
+        "target": "/uc/withdraw/approvals",
+        "viewport": "phone",
+        "findings": {
+          "font": ["a.text-link \"Back to Withdraw ↗\": rendered in WenQuanYi Zen Hei (1 glyphs) instead of Archivo Variable"]
+        }
+      }
+    ]
+  }
+]

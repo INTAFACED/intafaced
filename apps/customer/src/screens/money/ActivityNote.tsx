@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
-import { Button, refusalCopy, type ActivityItem } from './deps';
+import { Button } from './ui-deps';
+import { refusalCopy, type ActivityItem } from './deps';
 import { moneyCopy } from './copy';
 import { NOTE_MAX, noteProblem, type NoteProblem } from './note-model';
 import { useSession } from '../../features/session/session';
@@ -107,7 +108,7 @@ function WordsField({ item, field, initial }: { item: ActivityItem; field: keyof
       <label className="money-note-form__label" htmlFor={inputId}>
         {t(names.label)}
       </label>
-      <p className="money-detail__note">{t(names.hint)}</p>
+      <p className="lt-hint">{t(names.hint)}</p>
       <div className="money-note-form__row">
         <input
           id={inputId}
@@ -127,7 +128,7 @@ function WordsField({ item, field, initial }: { item: ActivityItem; field: keyof
           {saved === undefined ? t(names.add) : t(names.save)}
         </Button>
       </div>
-      <p id={`${field}-state-${item.id}`} className="money-detail__note" role="status">
+      <p id={`${field}-state-${item.id}`} className="lt-hint" role="status">
         {shown ?? message?.words ?? ''}
       </p>
     </form>

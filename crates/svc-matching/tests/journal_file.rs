@@ -200,7 +200,10 @@ fn child_command(child: &str, limit: Option<u64>) -> Command {
         None => Command::new(&exe),
     };
     cmd.args([
-        "journal_child",
+        // Its full name in the test binary, `journal_file::journal_child` (tests/it.rs), for `--exact`.
+        concat!(module_path!(), "::journal_child")
+            .split_once("::")
+            .map_or("journal_child", |(_, name)| name),
         "--exact",
         "--nocapture",
         "--test-threads=1",

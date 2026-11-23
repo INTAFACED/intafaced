@@ -1,4 +1,5 @@
-import { assetAllows, type RegistryAsset } from '@intafaced/contracts';
+import type { RegistryAsset } from '@intafaced/contracts';
+import { assetAllows } from '@intafaced/contracts/asset-registry';
 import { BankError } from '../errors.js';
 import type { WithdrawNetworkSource } from '../ramps/withdraw-networks.js';
 

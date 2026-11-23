@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { DEATH_NOTICE_REPORTERS, deathNoticeViewSchema } from '@intafaced/contracts/identity-recovery';
 import {
   DeathNoticeError,

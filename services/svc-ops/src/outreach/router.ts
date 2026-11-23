@@ -1,11 +1,58 @@
-import * as workflow from '@intafaced/contracts';
+import type { OutreachPublicErrorCode } from '@intafaced/contracts';
+import {
+  crmQueueMessageInputSchema,
+  crmQueueMessageReceiptSchema,
+  crmMessageListInputSchema,
+  crmMessagePageSchema,
+} from '@intafaced/contracts/crm-notifications';
+import {
+  crmErasurePreviewInputSchema,
+  crmErasurePreviewSchema,
+  crmErasureBeginInputSchema,
+  crmErasureStatusSchema,
+  crmErasureAdvanceInputSchema,
+  crmErasureStatusInputSchema,
+  crmRetentionReviewStatusInputSchema,
+  crmRetentionReviewSchema,
+  crmRetentionReviewInputSchema,
+} from '@intafaced/contracts/crm-privacy';
+import {
+  crmCampaignListInputSchema,
+  crmCampaignPageSchema,
+  crmCampaignWriteInputSchema,
+  crmCampaignSchema,
+  crmSourceMappingListInputSchema,
+  crmSourceMappingPageSchema,
+  crmSourceMappingWriteInputSchema,
+  crmSourceMappingSchema,
+  crmMetricsInputSchema,
+  crmMetricsSchema,
+  crmDuplicateListInputSchema,
+  crmDuplicatePageSchema,
+  crmMergeInputSchema,
+  crmMergeReceiptSchema,
+  crmContactProvenanceInputSchema,
+  crmContactProvenanceSchema,
+  crmExportInputSchema,
+  crmExportPageSchema,
+  crmTaskListInputSchema,
+  crmTaskPageSchema,
+  crmTaskCreateInputSchema,
+  crmTaskMutationReceiptSchema,
+  crmTaskTransitionInputSchema,
+  crmInteractionInputSchema,
+  crmInteractionReceiptSchema,
+  crmDocumentProviderStatusSchema,
+  crmDocumentProviderReadInputSchema,
+  crmDocumentProviderReadResultSchema,
+} from '@intafaced/contracts/crm-workflows';
+import { outreachAddInterestsInputSchema } from '@intafaced/contracts/outreach-interests';
+import { outreachPublicSettingsSetInputSchema, outreachPublicSettingsSchema } from '@intafaced/contracts/outreach-public';
 import { papermarkFreeAdapter } from './document-provider.js';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
+import type { Context } from '@intafaced/contracts';
 import {
-  router,
-  publicProcedure,
-  scopedProcedure,
   outreachCaptureInputSchema,
   outreachCaptureReceiptSchema,
   outreachContinuationInputSchema,
@@ -13,20 +60,26 @@ import {
   outreachQuestionnaireInputSchema,
   crmListInputSchema,
   crmOpportunitySchema,
+  crmOpportunityDetailSchema,
   crmOpportunityPageSchema,
   crmAssignmentInputSchema,
   crmStageChangeInputSchema,
   crmNextActionInputSchema,
   crmNoteInputSchema,
   crmActivitySchema,
-  type Context,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/outreach-crm';
+import { router, publicProcedure, scopedProcedure } from '@intafaced/contracts/trpc';
 import { OPS_OUTREACH_PUBLIC_SETTINGS } from '@intafaced/contracts/ops-public-procedures';
 import { mountRecord, type RefusalOf } from '@intafaced/contracts/procedure-mount';
 import type { OutreachCrm } from './crm.js';
 import { OutreachError } from './config.js';
 import type { FounderAuthority } from './authority.js';
 import { PublicSettingsStaleError, publicChangesOf, type PublicSettingsBook } from './public-settings.js';
+import {
+  OPS_OUTREACH_PRIVACY_RETENTION_STATUS,
+  OPS_OUTREACH_OWNERS,
+  OPS_OUTREACH_LIST_WORKFLOW_AUDIT,
+} from '@intafaced/contracts/ops-outreach-procedures';
 
 function abuseKey(ctx: Context): string {
   const key = (ctx as Context & { outreachAbuseKey?: string }).outreachAbuseKey;
@@ -78,31 +131,41 @@ export function createOutreachRouter(crm: OutreachCrm, authority: FounderAuthori
   );
   return router({
     privacyPreview: staffRead
-      .input(workflow.crmErasurePreviewInputSchema)
-      .output(workflow.crmErasurePreviewSchema)
+      .input(crmErasurePreviewInputSchema)
+      .output(crmErasurePreviewSchema)
       .query(({ input, ctx }) => mapped(() => crm.privacy.preview(input, ctx.principal!.userId))),
     privacyBegin: staffWrite
-      .input(workflow.crmErasureBeginInputSchema)
-      .output(workflow.crmErasureStatusSchema)
+      .input(crmErasureBeginInputSchema)
+      .output(crmErasureStatusSchema)
       .mutation(({ input, ctx }) => mapped(() => crm.privacy.begin(input, ctx.principal!.userId))),
     privacyAdvance: staffWrite
-      .input(workflow.crmErasureAdvanceInputSchema)
-      .output(workflow.crmErasureStatusSchema)
+      .input(crmErasureAdvanceInputSchema)
+      .output(crmErasureStatusSchema)
       .mutation(({ input, ctx }) => mapped(() => crm.privacy.advance(input, ctx.principal!.userId))),
     privacyStatus: staffRead
-      .input(workflow.crmErasureStatusInputSchema)
-      .output(workflow.crmErasureStatusSchema)
+      .input(crmErasureStatusInputSchema)
+      .output(crmErasureStatusSchema)
       .query(({ input, ctx }) => mapped(() => crm.privacy.status(input, ctx.principal!.userId))),
-    privacyRetentionStatus: staffRead
-      .output(workflow.crmRetentionStatusSchema)
-      .query(({ ctx }) => mapped(() => crm.privacy.retentionStatus(ctx.principal!.userId))),
+    privacyRetentionStatus: mountRecord(
+      OPS_OUTREACH_PRIVACY_RETENTION_STATUS,
+      ({ ctx }) => mapped(() => crm.privacy.retentionStatus(ctx.principal!.userId)),
+      {
+        refusalOf: storageRefusal,
+        checks: {
+          authority: (ctx) =>
+            mapped(async () => {
+              await authority(ctx);
+            }),
+        },
+      },
+    ),
     privacyRetentionReviewStatus: staffRead
-      .input(workflow.crmRetentionReviewStatusInputSchema)
-      .output(workflow.crmRetentionReviewSchema.nullable())
+      .input(crmRetentionReviewStatusInputSchema)
+      .output(crmRetentionReviewSchema.nullable())
       .query(({ input, ctx }) => mapped(() => crm.privacy.retentionReviewStatus(input, ctx.principal!.userId))),
     privacyRetentionReview: staffWrite
-      .input(workflow.crmRetentionReviewInputSchema)
-      .output(workflow.crmRetentionReviewSchema)
+      .input(crmRetentionReviewInputSchema)
+      .output(crmRetentionReviewSchema)
       .mutation(({ input, ctx }) => mapped(() => crm.privacy.retentionReview(input, ctx.principal!.userId))),
     capture: publicProcedure
       .input(outreachCaptureInputSchema)
@@ -117,7 +180,7 @@ export function createOutreachRouter(crm: OutreachCrm, authority: FounderAuthori
       .output(outreachDraftSchema)
       .mutation(({ input, ctx }) => mapped(() => crm.answer(input, abuseKey(ctx)))),
     addInterests: publicProcedure
-      .input(workflow.outreachAddInterestsInputSchema)
+      .input(outreachAddInterestsInputSchema)
       .output(outreachDraftSchema)
       .mutation(({ input, ctx }) => mapped(() => crm.addInterests(input, abuseKey(ctx)))),
     listOpportunities: staffRead
@@ -126,6 +189,7 @@ export function createOutreachRouter(crm: OutreachCrm, authority: FounderAuthori
       .query(({ input }) => mapped(() => crm.listOpportunities(input))),
     getOpportunity: staffRead
       .input(z.object({ opportunityId: z.string().guid() }).strict())
+      .output(crmOpportunityDetailSchema)
       .query(({ input }) => mapped(() => crm.getOpportunity(input))),
     assign: staffWrite
       .input(crmAssignmentInputSchema)
@@ -143,88 +207,88 @@ export function createOutreachRouter(crm: OutreachCrm, authority: FounderAuthori
       .input(crmNoteInputSchema)
       .output(crmActivitySchema)
       .mutation(({ input, ctx }) => mapped(() => crm.addNote(input, ctx.principal!.userId))),
-    owners: staffRead
-      .output(
-        z
-          .object({
-            ownerUserIds: z.array(z.string().guid()).length(2),
-            initialOwnerUserId: z.string().guid(),
-            owners: z.tuple([
-              z.object({ userId: z.string().guid(), displayName: z.literal('Nitro') }).strict(),
-              z.object({ userId: z.string().guid(), displayName: z.literal('Phantom') }).strict(),
-            ]),
-          })
-          .strict(),
-      )
-      .query(() => mapped(async () => crm.owners())),
+    owners: mountRecord(OPS_OUTREACH_OWNERS, () => mapped(async () => crm.owners()), {
+      refusalOf: storageRefusal,
+      checks: {
+        authority: (ctx) =>
+          mapped(async () => {
+            await authority(ctx);
+          }),
+      },
+    }),
     listCampaigns: staffRead
-      .input(workflow.crmCampaignListInputSchema)
-      .output(workflow.crmCampaignPageSchema)
+      .input(crmCampaignListInputSchema)
+      .output(crmCampaignPageSchema)
       .query(({ input, ctx }) => mapped(() => crm.listCampaigns(input))),
     upsertCampaign: staffWrite
-      .input(workflow.crmCampaignWriteInputSchema)
-      .output(workflow.crmCampaignSchema)
+      .input(crmCampaignWriteInputSchema)
+      .output(crmCampaignSchema)
       .mutation(({ input, ctx }) => mapped(() => crm.upsertCampaign(input, ctx.principal!.userId))),
     listSourceMappings: staffRead
-      .input(workflow.crmSourceMappingListInputSchema)
-      .output(workflow.crmSourceMappingPageSchema)
+      .input(crmSourceMappingListInputSchema)
+      .output(crmSourceMappingPageSchema)
       .query(({ input, ctx }) => mapped(() => crm.listSourceMappings(input))),
     upsertSourceMapping: staffWrite
-      .input(workflow.crmSourceMappingWriteInputSchema)
-      .output(workflow.crmSourceMappingSchema)
+      .input(crmSourceMappingWriteInputSchema)
+      .output(crmSourceMappingSchema)
       .mutation(({ input, ctx }) => mapped(() => crm.upsertSourceMapping(input, ctx.principal!.userId))),
     metrics: staffRead
-      .input(workflow.crmMetricsInputSchema)
-      .output(workflow.crmMetricsSchema)
+      .input(crmMetricsInputSchema)
+      .output(crmMetricsSchema)
       .query(({ input, ctx }) => mapped(() => crm.metrics(input))),
     listDuplicates: staffRead
-      .input(workflow.crmDuplicateListInputSchema)
-      .output(workflow.crmDuplicatePageSchema)
+      .input(crmDuplicateListInputSchema)
+      .output(crmDuplicatePageSchema)
       .query(({ input, ctx }) => mapped(() => crm.listDuplicates(input))),
     mergeContacts: staffWrite
-      .input(workflow.crmMergeInputSchema)
-      .output(workflow.crmMergeReceiptSchema)
+      .input(crmMergeInputSchema)
+      .output(crmMergeReceiptSchema)
       .mutation(({ input, ctx }) => mapped(() => crm.mergeContacts(input, ctx.principal!.userId))),
     getContactProvenance: staffRead
-      .input(workflow.crmContactProvenanceInputSchema)
-      .output(workflow.crmContactProvenanceSchema.nullable())
+      .input(crmContactProvenanceInputSchema)
+      .output(crmContactProvenanceSchema.nullable())
       .query(({ input, ctx }) => mapped(() => crm.getContactProvenance(input))),
     exportSubmissions: staffRead
-      .input(workflow.crmExportInputSchema)
-      .output(workflow.crmExportPageSchema)
+      .input(crmExportInputSchema)
+      .output(crmExportPageSchema)
       .mutation(({ input, ctx }) => mapped(() => crm.exportSubmissions(input, ctx.principal!.userId))),
     listTasks: staffRead
-      .input(workflow.crmTaskListInputSchema)
-      .output(workflow.crmTaskPageSchema)
+      .input(crmTaskListInputSchema)
+      .output(crmTaskPageSchema)
       .query(({ input, ctx }) => mapped(() => crm.listTasks(input))),
     createTask: staffWrite
-      .input(workflow.crmTaskCreateInputSchema)
-      .output(workflow.crmTaskMutationReceiptSchema)
+      .input(crmTaskCreateInputSchema)
+      .output(crmTaskMutationReceiptSchema)
       .mutation(({ input, ctx }) => mapped(() => crm.createTask(input, ctx.principal!.userId))),
     transitionTask: staffWrite
-      .input(workflow.crmTaskTransitionInputSchema)
-      .output(workflow.crmTaskMutationReceiptSchema)
+      .input(crmTaskTransitionInputSchema)
+      .output(crmTaskMutationReceiptSchema)
       .mutation(({ input, ctx }) => mapped(() => crm.transitionTask(input, ctx.principal!.userId))),
     recordInteraction: staffWrite
-      .input(workflow.crmInteractionInputSchema)
-      .output(workflow.crmInteractionReceiptSchema)
+      .input(crmInteractionInputSchema)
+      .output(crmInteractionReceiptSchema)
       .mutation(({ input, ctx }) => mapped(() => crm.recordInteraction(input, ctx.principal!.userId))),
     queueMessage: staffWrite
-      .input(workflow.crmQueueMessageInputSchema)
-      .output(workflow.crmQueueMessageReceiptSchema)
+      .input(crmQueueMessageInputSchema)
+      .output(crmQueueMessageReceiptSchema)
       .mutation(({ input, ctx }) => mapped(() => crm.queueMessage(input, ctx.principal!.userId))),
     listMessages: staffRead
-      .input(workflow.crmMessageListInputSchema)
-      .output(workflow.crmMessagePageSchema)
+      .input(crmMessageListInputSchema)
+      .output(crmMessagePageSchema)
       .query(({ input }) => mapped(() => crm.listMessages(input))),
-    listWorkflowAudit: staffRead
-      .input(workflow.crmWorkflowAuditListInputSchema)
-      .output(workflow.crmWorkflowAuditPageSchema)
-      .query(({ input, ctx }) => mapped(() => crm.listWorkflowAudit(input))),
-    documentProviderStatus: staffRead.output(workflow.crmDocumentProviderStatusSchema).query(() => papermarkFreeAdapter.status()),
+    listWorkflowAudit: mountRecord(OPS_OUTREACH_LIST_WORKFLOW_AUDIT, ({ input, ctx }) => mapped(() => crm.listWorkflowAudit(input)), {
+      refusalOf: storageRefusal,
+      checks: {
+        authority: (ctx) =>
+          mapped(async () => {
+            await authority(ctx);
+          }),
+      },
+    }),
+    documentProviderStatus: staffRead.output(crmDocumentProviderStatusSchema).query(() => papermarkFreeAdapter.status()),
     documentViews: staffRead
-      .input(workflow.crmDocumentProviderReadInputSchema)
-      .output(workflow.crmDocumentProviderReadResultSchema)
+      .input(crmDocumentProviderReadInputSchema)
+      .output(crmDocumentProviderReadResultSchema)
       .query(({ input }) => papermarkFreeAdapter.readViews(input)),
     engagement: staffRead
       .output(z.object({ status: z.literal('disabled'), reason: z.literal('api_access_unavailable') }))
@@ -233,8 +297,8 @@ export function createOutreachRouter(crm: OutreachCrm, authority: FounderAuthori
     // value is null, never an error; a founder sets them with a reason, from the revision they read.
     publicSettings: mountRecord(OPS_OUTREACH_PUBLIC_SETTINGS, () => mapped(() => settingsBook(publicSettings).get()), storageRefusal),
     setPublicSettings: staffWrite
-      .input(workflow.outreachPublicSettingsSetInputSchema)
-      .output(workflow.outreachPublicSettingsSchema)
+      .input(outreachPublicSettingsSetInputSchema)
+      .output(outreachPublicSettingsSchema)
       .mutation(async ({ input, ctx }) => {
         try {
           return await mapped(() =>
@@ -250,7 +314,7 @@ export function createOutreachRouter(crm: OutreachCrm, authority: FounderAuthori
           if (err instanceof PublicSettingsStaleError) {
             throw new TRPCError({
               code: 'CONFLICT',
-              message: 'ops.public_settings_revision_stale' satisfies workflow.OutreachPublicErrorCode,
+              message: 'ops.public_settings_revision_stale' satisfies OutreachPublicErrorCode,
               cause: err,
             });
           }

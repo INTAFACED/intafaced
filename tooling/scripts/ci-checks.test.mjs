@@ -4,10 +4,10 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, utimesSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { NEEDS_CHAIN, bootstrapScript, collationWarning, packageTestCommand, withLock } from './ci-checks.mjs';
 import {
@@ -25,15 +25,127 @@ import {
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const ACTION = readFileSync(ROOT + '.github/actions/test-infra/action.yml', 'utf8');
+const SCRIPT = fileURLToPath(new URL('./ci-checks.mjs', import.meta.url));
+const PROBE = fileURLToPath(new URL('../ci/assert-test-db-env.mjs', import.meta.url));
+const noCi = () => Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== 'CI' && !k.startsWith('GIT_')));
+
+/** A bin folder of stand-ins for pnpm, psql and curl: each logs its call (args and the GIT_* names it was handed). */
+function fakeBin(box) {
+  const bin = join(box, 'bin');
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(
+    join(bin, 'fake.mjs'),
+    `import { appendFileSync } from 'node:fs';
+const [cmd, ...args] = process.argv.slice(2);
+appendFileSync(process.env.FAKE_LOG, JSON.stringify({ cmd, args, git: Object.keys(process.env).filter((k) => k.startsWith('GIT_')) }) + '\\n');
+if (cmd === 'curl') process.exit(7);
+if (cmd === 'pnpm' && args.some((a) => a.startsWith('--dry'))) process.stdout.write('{"tasks":[]}');
+if (cmd === 'psql') {
+  const sql = args.join(' ');
+  if (/datcollate/.test(sql)) process.stdout.write('C\\n');
+  if (/count\\(\\*\\)/.test(sql)) process.stdout.write(process.env.FAKE_SCHEMAS + '\\n');
+}
+`,
+  );
+  for (const cmd of ['pnpm', 'psql', 'curl']) {
+    writeFileSync(join(bin, cmd), `#!/bin/sh\nexec "${process.execPath}" "${join(bin, 'fake.mjs')}" ${cmd} "$@"\n`);
+    chmodSync(join(bin, cmd), 0o755);
+  }
+  return bin;
+}
+
+/**
+ * One whole run of ci-checks.mjs, as a builder runs it, in a planted checkout: a branch one commit past origin/main that
+ * changes a package file, pnpm, psql and curl replaced by stand-ins that log their calls, CI's gates and assert-test-db-env
+ * planted as loggers, main's look-drift.mjs planted to log only when it runs as itself, the tmpdir a symlink (as the
+ * Mac's is), and a hook's GIT_* variable in the environment. Run once; the tests below read its log.
+ */
+let sandboxRun = null;
+function runInSandbox() {
+  if (sandboxRun) return sandboxRun;
+  const box = mkdtempSync(join(tmpdir(), 'ci-checks-run-'));
+  const repo = join(box, 'repo');
+  const log = join(box, 'calls.ndjson');
+  const bin = fakeBin(box);
+  const put = (rel, text, mode) => {
+    mkdirSync(dirname(join(repo, rel)), { recursive: true });
+    writeFileSync(join(repo, rel), text);
+    if (mode) chmodSync(join(repo, rel), mode);
+  };
+  const logger = (name, extra = '') =>
+    `import { appendFileSync } from 'node:fs';\n${extra}appendFileSync(process.env.FAKE_LOG, JSON.stringify({ cmd: '${name}', args: process.argv.slice(1), git: Object.keys(process.env).filter((k) => k.startsWith('GIT_')) }) + '\\n');\n`;
+  const id = { GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
+  const git = (...a) => execFileSync('git', a, { cwd: repo, encoding: 'utf8', env: { ...noCi(), ...id } }).trim();
+  mkdirSync(repo);
+  git('init', '-q', '-b', 'main');
+  put('.node-version', `${process.versions.node.split('.')[0]}\n`);
+  put('.github/actions/test-infra/action.yml', ACTION);
+  put('package.json', JSON.stringify({ name: 'box', scripts: { 'format:check': "prettier --check '**/*.{ts,mjs}'" } }));
+  put('node_modules/.bin/turbo', '', 0o755);
+  put('tooling/infra/postgres-init/02-intafaced-test-db.sh', `psql -c "SELECT 'CREATE DATABASE intafaced_test OWNER intafaced'"\n`);
+  put('tooling/ci/gates.mjs', logger('gates'));
+  put('tooling/ci/assert-test-db-env.mjs', logger('assert-test-db-env'));
+  put('tooling/ci/look-drift.mjs', logger('look-drift', 'if (import.meta.url !== `file://${process.argv[1]}`) process.exit(0);\n'));
+  put('packages/foo/package.json', JSON.stringify({ name: '@box/foo', scripts: { test: 'vitest run' } }));
+  put('packages/foo/src/a.ts', 'export const a = 1;\n');
+  git('add', '-A');
+  git('commit', '-qm', 'base');
+  const mergeBase = git('rev-parse', 'HEAD');
+  git('update-ref', 'refs/remotes/origin/main', mergeBase);
+  git('checkout', '-qb', 'work');
+  put('packages/foo/src/a.ts', 'export const a = 2;\n');
+  git('commit', '-qam', 'change');
+  const realTmp = join(box, 'tmp-real');
+  mkdirSync(realTmp);
+  symlinkSync(realTmp, join(box, 'tmp-link'));
+  const r = spawnSync(process.execPath, [SCRIPT], {
+    cwd: repo,
+    encoding: 'utf8',
+    env: {
+      ...noCi(),
+      PATH: `${bin}:${process.env.PATH}`,
+      TMPDIR: join(box, 'tmp-link'),
+      FAKE_LOG: log,
+      FAKE_SCHEMAS: String(ciSchemaProof(ACTION).expected),
+      GIT_FROM_A_HOOK: '1',
+    },
+  });
+  const calls = existsSync(log)
+    ? readFileSync(log, 'utf8')
+        .trim()
+        .split('\n')
+        .map((l) => JSON.parse(l))
+    : [];
+  sandboxRun = { status: r.status, output: `${r.stdout}${r.stderr}`, calls, mergeBase, realTmp };
+  return sandboxRun;
+}
 
 test("CI's database environment is read from the test-infra action, every per-service URL included", () => {
   const { env, skipped } = ciTestEnv(ACTION);
   assert.equal(env.REQUIRE_POSTGRES, '1', 'a database suite fails instead of skipping');
   assert.match(env.TEST_DATABASE_URL, /^postgres:\/\/.+\/intafaced_test$/);
-  // Every key assert-test-db-env.mjs requires (CI's own probe) is set.
-  const required = [...readFileSync(ROOT + 'tooling/ci/assert-test-db-env.mjs', 'utf8').matchAll(/key: '([A-Z0-9_]+)'/g)].map((m) => m[1]);
-  assert.ok(required.length >= 10, 'the probe lists its URLs');
+  // Every key assert-test-db-env.mjs requires (CI's own probe) is set: run with none, the probe names each one it wants;
+  // run with the action's, it wants none and passes (psql a stand-in that answers, so only the URLs are judged).
+  const bin = fakeBin(mkdtempSync(join(tmpdir(), 'db-env-probe-')));
+  const probe = (vars) =>
+    spawnSync(process.execPath, [PROBE], {
+      encoding: 'utf8',
+      env: {
+        ...Object.fromEntries(Object.entries(noCi()).filter(([k]) => !LOCAL_KEYS.test(k))),
+        ...vars,
+        PATH: `${bin}:${process.env.PATH}`,
+        FAKE_LOG: join(bin, 'log'),
+        CI: 'true',
+      },
+    });
+  const none = probe({});
+  assert.equal(none.status, 1, 'with no URLs the probe refuses');
+  const required = [...none.stderr.matchAll(/· ([A-Z0-9_]+) unset/g)].map((m) => m[1]);
+  assert.ok(required.length >= 10, 'the probe names its URLs');
   for (const key of required) assert.ok(env[key], `${key} comes from CI's action`);
+  const all = probe(env);
+  assert.equal(all.status, 0, all.stdout + all.stderr);
+  assert.doesNotMatch(all.stderr, /unset/);
   assert.equal(env.TEST_DATABASE_URL_P2P, 'postgres://svc_p2p:svc_p2p@127.0.0.1:5432/intafaced_test');
   // What a laptop lacks is left to CI by name, never faked.
   for (const key of ['CI', 'NATS_URL', 'REDIS_URL', 'REQUIRE_EVM_CHAIN']) assert.ok(skipped.includes(key), key);
@@ -58,9 +170,11 @@ test("the schema proof is CI's: its count and its list", () => {
 });
 
 test("the package selection is CI's own functions, called with the merge-base", () => {
-  const text = readFileSync(new URL('./ci-checks.mjs', import.meta.url), 'utf8');
-  assert.match(text, /affectedFilters\(files, edges, mergeBase\)/);
-  assert.match(text, /buildFilters\(files, edges, mergeBase\)/);
+  const { calls, mergeBase, output } = runInSandbox();
+  const turbo = (task) => calls.find((c) => c.cmd === 'pnpm' && c.args[0] === 'turbo' && c.args[2] === task)?.args ?? [];
+  // The test selection (affectedFilters) and the build's (buildFilters) are turbo's `...[<merge-base>]`, never a branch name.
+  for (const task of ['test', 'build', 'typecheck'])
+    assert.ok(turbo(task).includes(`--filter=...[${mergeBase}]`), `${task}: ${turbo(task).join(' ')}\n${output}`);
   // ...and CI's jobs read the same functions.
   const ci = readFileSync(ROOT + '.github/workflows/ci.yml', 'utf8');
   assert.match(ci, /node tooling\/ci\/ci-affected\.mjs --filters/);
@@ -140,8 +254,15 @@ test('every rule test the census saw CI fail on is picked from the real tree', (
 });
 
 test("the checks never inherit a hook's GIT_* variables (a tooling test's temp repo wrote into the real one)", () => {
-  const text = readFileSync(new URL('./ci-checks.mjs', import.meta.url), 'utf8');
-  assert.match(text, /filter\(\(\[k\]\) => !k\.startsWith\('GIT_'\)\)/);
+  const { calls, output } = runInSandbox();
+  // Every check it starts (gates, look drift, format, turbo, psql, the database probe); curl's chain probe is no check.
+  const checks = calls.filter((c) => c.cmd !== 'curl');
+  for (const name of ['gates', 'look-drift', 'pnpm', 'psql', 'assert-test-db-env'])
+    assert.ok(
+      checks.some((c) => c.cmd === name),
+      `${name} ran\n${output}`,
+    );
+  for (const c of checks) assert.deepEqual(c.git, [], `${c.cmd} ${c.args.join(' ')} was handed ${c.git.join(', ')}`);
   // The pre-push hook no longer runs these checks (they run on GitHub), so its own unset of GIT_* has nothing to guard.
 });
 
@@ -165,9 +286,13 @@ test("CI's bootstrap script names the database it makes, so a run can make its o
   assert.match(script, /--dbname intafaced_test/);
 });
 
-// Planted gates runs, in gates.mjs's and tooling-tests.mjs's own output shapes (the timeout line is #8219's from the replay).
-const TIMEOUT_LINE =
-  'TOOLING TESTS FAILED — exit 1 (spawnSync /opt/homebrew/Cellar/node@22/22.23.5/bin/node ETIMEDOUT), no TAP summary across 74 files.';
+// Planted gates runs, in gates.mjs's and tooling-tests.mjs's own output shapes (the timeout lines are what #8219's
+// false red, a loaded Mac's limit, prints since the tooling tests run several files at once and each has its own limit).
+const TIMEOUT_LINE = [
+  'TOOLING TESTS FAILED — 2 of 168 files: 0 failed, 0 cancelled, 1201 passed, in 300 s.',
+  '  ✖ tooling/scripts/local-test-market.test.mjs: stopped after 180 s, its limit (a test that never ends, or a server left running)',
+  '  ✖ tooling/scripts/local-test-stack.test.mjs: not run: the whole run reached its limit first',
+].join('\n');
 const gatesRun = (lines) => {
   const f = join(mkdtempSync(join(tmpdir(), 'gates-')), 'gates.mjs');
   writeFileSync(f, `process.stdout.write(${JSON.stringify(lines.join('\n') + '\n')}); process.exit(1);\n`);
@@ -181,20 +306,22 @@ test("a planted timeout of the tooling tests here is 'not checked here, CI will'
   const { v, shown } = gatesRun([RED('tooling-tests'), '', '✖ 1 of 33 DOCTRINE GATE(S) FAILED', 'ok 1 - a', 'ok 2 - b', TIMEOUT_LINE]);
   assert.equal(v.ok, true);
   assert.match(v.notChecked, /not checked here, CI will/);
-  assert.match(shown, /ETIMEDOUT/, 'what the gates printed is still shown');
+  assert.match(shown, /stopped after 180 s/, 'what the gates printed is still shown');
 });
 
 test('a planted failing tooling test refuses, timeout or not; so does any other red gate', () => {
   const failed = gatesRun([
     RED('tooling-tests'),
     'not ok 3 - planted',
-    'TOOLING TESTS FAILED — exit 1, 1 failed, 0 cancelled, 2 passed across 1 files.',
+    'TOOLING TESTS FAILED — 1 of 1 files: 1 failed, 0 cancelled, 2 passed, in 3 s.',
   ]);
   assert.equal(failed.v.ok, false);
   const failedThenTimedOut = gatesRun([RED('tooling-tests'), 'ok 1 - a', 'not ok 2 - planted', TIMEOUT_LINE]);
   assert.equal(failedThenTimedOut.v.ok, false, 'a test that failed before the stop is a real red');
   const another = gatesRun([RED('tooling-tests'), RED('boundary-fetch'), TIMEOUT_LINE]);
   assert.equal(another.v.ok, false, 'another red gate beside the timeout is red');
+  const crashed = gatesRun([RED('tooling-tests'), `${TIMEOUT_LINE}\n  ✖ tooling/ci/x.test.mjs: exit 1`]);
+  assert.equal(crashed.v.ok, false, 'a file that crashed beside the stopped ones is a real red');
   const manifest = gatesRun(['✖ GATE MANIFEST BROKEN', TIMEOUT_LINE]);
   assert.equal(manifest.v.ok, false);
 });
@@ -210,6 +337,11 @@ test("each package's own test script runs as CI's pnpm test runs it, its vitest 
   assert.match(
     packageTestCommand('node scripts/run-mvn.mjs test && vitest run --passWithNoTests && node scripts/linked-roundtrip.mjs', t),
     /^node scripts\/run-mvn\.mjs test && vitest related --run .*'\/r\/a\.ts' --passWithNoTests && node scripts\/linked-roundtrip\.mjs$/,
+  );
+  // customer: tooling/vitest/run-all.mjs, one related run per config it names, every other argument kept on each.
+  assert.match(
+    packageTestCommand('node ../../tooling/vitest/run-all.mjs vite.config.ts vitest.render.config.ts', t),
+    /^vitest related --run .*'\/r\/a\.ts' --config vite\.config\.ts && vitest related --run .*'\/r\/a\.ts' --config vitest\.render\.config\.ts$/,
   );
   // mobile: no vitest, the whole script.
   assert.equal(packageTestCommand('node ./scripts/build-wrap.mjs --check', t), 'node ./scripts/build-wrap.mjs --check');
@@ -248,8 +380,11 @@ test("look drift runs main's script from a real path (the Mac's tmpdir is a syml
   const dir = mkdtempSync(join(tmpdir(), 'drift-'));
   writeFileSync(join(dir, 'g.mjs'), 'if (import.meta.url === `file://${process.argv[1]}`) process.exit(3);\n');
   assert.equal(spawnSync(process.execPath, [join(realpathSync(dir), 'g.mjs')]).status, 3, 'through the real path it runs');
-  const text = readFileSync(new URL('./ci-checks.mjs', import.meta.url), 'utf8');
-  assert.match(text, /realpathSync\(mkdtempSync\(join\(tmpdir\(\), 'look-drift-'\)\)\)/);
+  // A whole run with a symlinked tmpdir: main's look-drift.mjs (which runs only as itself) ran, from the real folder.
+  const { calls, output, realTmp } = runInSandbox();
+  const drift = calls.filter((c) => c.cmd === 'look-drift');
+  assert.equal(drift.length, 1, `main's look drift ran once\n${output}`);
+  assert.ok(drift[0].args[0].startsWith(realpathSync(realTmp)), drift[0].args[0]);
 });
 
 test("this run's database collates as CI's (C); a template1 that doesn't is a warning, never a refusal", () => {

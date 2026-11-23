@@ -19,17 +19,34 @@
 </a>
 </header>
 <main id="main">
-<div class="pub-page" data-testid="status-subscription-manage">
-<header class="pub-heading">
-<p class="eyebrow">Status updates</p>
-<h1>This link doesn’t work</h1>
-</header>
-<div class="pub-notice" role="alert" data-testid="status-subscription-dead">
-<p>It is wrong, expired, or was replaced by a newer one. Subscribe again from the status page.</p>
+<div class="lt-room" data-template="settings" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
+<div>
+<h1 class="lt-title">This link doesn’t work</h1>
+<p class="lt-description">Status updates</p>
 </div>
-<p>
-<a class="text-link" href="/status">Back to platform status</a>
-</p>
+</header>
+<div class="lt-body">
+<div class="lt-grid lt-grid-settings">
+<section class="lt-region" data-region="index" aria-label="Sections">
+<nav aria-label="Status update sections">
+<ul>
+<li>
+<a class="lt-link" href="/status">Back to platform status</a>
+</li>
+</ul>
+</nav>
+</section>
+<section class="lt-region" data-region="sections" aria-label="Settings">
+<div class="lt-refusal" role="alert" data-testid="status-subscription-dead">
+<p class="lt-refusal-body">It is wrong, expired, or was replaced by a newer one. Subscribe again from the status page.</p>
+</div>
+</section>
+<section class="lt-region" data-region="explain" aria-label="What this means">
+<p>You get an email for each published incident or maintenance notice about what you chose. A webhook, when set, gets the same update; Unsubscribe stops them all.</p>
+</section>
+</div>
+</div>
 </div>
 </main>
 <footer class="public-footer">

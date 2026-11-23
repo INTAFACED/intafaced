@@ -8,7 +8,7 @@ import { decodeCursor, encodeCursor, requireLimit, toPage } from '../merchant-op
 import { assertPermission, type MerchantCaller } from '../merchant-ops/roles.js';
 import { storeNotFound } from '../stores/stores.js';
 import { assertWriter, isUnique, productNotFound, UUID } from './products.js';
-import { asAssetId } from '@intafaced/contracts';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 
 /**
  * Prices on catalogue products (M-catalogue-02, J-merchant-03 step 3; replacing them, M-adv-payments-core-20, step 4).

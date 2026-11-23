@@ -44,12 +44,13 @@
  *   DRY_RUN=1: reads for real, prints each write instead of sending it
  *   (trigger) GH_TOKEN GITHUB_REPOSITORY WORKFLOW_ID RUN_ID HEAD_SHA
  *   (find)    GH_TOKEN GITHUB_REPOSITORY GOOD BAD STEPS RED_RUN BASE   (writes GITHUB_OUTPUT)
- *   (open)    FACTORY_APP_KEY GITHUB_REPOSITORY CULPRIT BASE RED_RUN STEPS
+ *   (open)    FACTORY_APP_KEY GITHUB_REPOSITORY CULPRIT BASE RED_RUN STEPS [GH_TOKEN: reads main's newest journeys run]
  *   (early)   GH_TOKEN GITHUB_REPOSITORY WORKFLOW_ID RUN_ID HEAD_SHA
  *   (confirm) GH_TOKEN GITHUB_REPOSITORY HEAD_SHA SUBJECT
  *   (back)    GH_TOKEN GITHUB_REPOSITORY STEPS BAD BACK RUN_URL;  (confirm-files) STEPS BAD   (writes GITHUB_OUTPUT)
  *   (spent)   GH_TOKEN GITHUB_REPOSITORY RUN_ID
  */
+import { runJobs } from './run-jobs.mjs';
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -62,6 +63,7 @@ import { gateFilesTouched } from '../scripts/gate-files.mjs';
 import { parseJobs, parseTests } from './bisect-main.mjs';
 import { AUTO_REVERT_AUTHOR, AUTO_REVERT_BRANCH } from './exact-revert.mjs';
 import { moneyGuardAt } from './journey-verdict.mjs';
+import { countCall } from './api-count.mjs';
 
 const SHA = /^[0-9a-f]{40}$/;
 const STEP = /^J-[a-z0-9-]+-\d+#\d+$/;
@@ -225,9 +227,9 @@ export function revertBody({ repo, sha, subject, prNumber, redRun, steps, base, 
       ? [`- Control: \`${control.slice(0, 10)}\`, the last commit where these steps passed, passes again on the same kind of runner`]
       : []),
     '',
-    `The commit was found between the last run where these steps passed and the run where they failed. This pull request is \`git revert ${sha.slice(0, 10)}\` and nothing else; it goes through the CI merge seal like any other. To keep the change instead, fix it forward and close this.`,
+    `The commit was found between the last run where these steps passed and the run where they failed. This pull request is \`git revert ${sha.slice(0, 10)}\` and nothing else; it goes through the CI merge seal like any other and merges by itself. Don't close it to keep the change: main is green again only once it merges, and the change comes back in a new pull request with its fix.`,
     '',
-    `Revert: close this pull request; the culprit stays on \`${base}\`.`,
+    `Revert: once merged, the change returns in a new pull request with its fix (or \`git revert\` of this one).`,
   ].join('\n');
 }
 
@@ -250,6 +252,7 @@ function client(token) {
       },
       body: body ? JSON.stringify(body) : undefined,
     });
+    countCall(res);
     const text = await res.text();
     // AGENTS.md: a 403 or 429 from GitHub is a stop. No retry, no loop.
     if (res.status === 403 || res.status === 429)
@@ -417,6 +420,31 @@ async function earlierRuns(gh, repo, workflowId, run) {
         ['success', 'failure', 'timed_out'].includes(r.conclusion),
     )
     .sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+}
+
+/**
+ * Whether main's newest finished journeys run has the failing steps back with the culprit in (stepsBack), read before a
+ * revert opens. `{ close, why }`; anything unread leaves the revert needed, as `spent` leaves one open.
+ */
+async function backOnMain(gh, repo, { steps, culprit, redRun, token }) {
+  const { json } = await gh('GET', `/repos/${repo}/actions/workflows/real-app-journeys.yml/runs?branch=main&status=completed&per_page=20`);
+  const run = (json?.workflow_runs ?? [])
+    .filter(
+      (r) => ['push', 'workflow_dispatch', 'schedule'].includes(r.event) && ['success', 'failure', 'timed_out'].includes(r.conclusion),
+    )
+    .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))[0];
+  if (!run || !SHA.test(String(run.head_sha ?? ''))) return { close: false, why: 'none could be read' };
+  const report = await runReport(gh, repo, run.id, token);
+  if (!report) return { close: false, why: `run ${run.id} kept no journey report` };
+  const holds = async (base) =>
+    ['ahead', 'identical'].includes((await gh('GET', `/repos/${repo}/compare/${base}...${run.head_sha}`)).json?.status);
+  const redHead = (await gh('GET', `/repos/${repo}/actions/runs/${redRun}`)).json?.head_sha;
+  const d = stepsBack(steps, {
+    states: outrightStates(report),
+    holdsCulprit: await holds(culprit),
+    pastRed: SHA.test(String(redHead ?? '')) ? await holds(redHead) : false,
+  });
+  return { close: d.close, why: `${run.run_number ?? run.id} on \`${run.head_sha.slice(0, 10)}\`: ${d.why}` };
 }
 
 // ── trigger ────────────────────────────────────────────────────────────────
@@ -771,6 +799,18 @@ async function openRevert(env, revoke) {
     const exists = await gh('GET', `/repos/${repo}/branches/${encodeURIComponent(branch)}`);
     if (exists.status === 200)
       return summary([`Journeys revert: \`${branch}\` already exists, so its revert was opened before; nothing new.`]);
+    // The probe and the control take a while: a fix forward may have landed and passed the steps on main since the red
+    // run (intafaced #9482, armed after #9483 fixed J-identity-10 #1). Then nothing opens (project-state#3637).
+    if (kind === 'journeys' && env.GH_TOKEN) {
+      const back = await backOnMain(client(env.GH_TOKEN), repo, { steps, culprit: sha, redRun: env.RED_RUN, token: env.GH_TOKEN });
+      if (back.close) {
+        await comment(
+          `The ${what} [run ${env.RED_RUN}](${runUrl}) on \`${env.BASE}\` failed ${stepText}, and the revert on main found this pull request's commit \`${sha.slice(0, 10)}\` as the cause, but main's newest journeys run ${back.why}. No revert was opened.\n\n_Posted by tooling/ci/journeys-revert.mjs._`,
+        );
+        return summary([`Journeys revert: no revert of \`${sha.slice(0, 10)}\`: main's newest journeys run ${back.why}.`]);
+      }
+      summary([`Journeys revert: main's newest finished journeys run leaves the revert needed (${back.why}).`]);
+    }
 
     git('checkout', '--quiet', '-B', branch, `origin/${env.BASE}`);
     try {
@@ -841,7 +881,7 @@ async function openRevert(env, revoke) {
       armed = q.json?.errors?.length ? `not armed: ${String(q.json.errors[0].message).slice(0, 200)}` : 'armed (squash)';
     }
     await comment(
-      `The ${what} [run ${env.RED_RUN}](${runUrl}) on \`${env.BASE}\` failed ${stepText}, and the revert on main found this pull request's commit \`${sha.slice(0, 10)}\` as the cause. Its revert is #${number ?? '(dry run)'}, with auto-merge ${armed.startsWith('armed') ? 'on' : 'off'}. To keep this change, fix it forward and close the revert.\n\n_Posted by tooling/ci/journeys-revert.mjs._`,
+      `The ${what} [run ${env.RED_RUN}](${runUrl}) on \`${env.BASE}\` failed ${stepText}, and the revert on main found this pull request's commit \`${sha.slice(0, 10)}\` as the cause. Its revert is #${number ?? '(dry run)'}, with auto-merge ${armed.startsWith('armed') ? 'on' : 'off'}. Let it merge; to keep this change, open it again in a new pull request with its fix.\n\n_Posted by tooling/ci/journeys-revert.mjs._`,
     );
     summary([
       `### Journeys revert`,
@@ -996,7 +1036,12 @@ export const redRunOf = (body) =>
  */
 export function spentWhy(pr, { repo, states, holdsCulprit, pastRed }) {
   if (!isAutoRevert(pr, repo)) return { close: false, why: "not main-bisect's revert" };
-  const steps = failingSteps(pr.body);
+  return stepsBack(failingSteps(pr.body), { states, holdsCulprit, pastRed });
+}
+
+/** Whether these failing steps are back on main with the culprit still in (spentWhy's rule, also read before a revert
+ *  opens): `{ close, why }`. Pure. */
+export function stepsBack(steps, { states, holdsCulprit, pastRed }) {
   if (!steps.length) return { close: false, why: 'its body names no failing step' };
   const open = steps.filter((s) => states.get(s) !== 'passed');
   if (open.length) return { close: false, why: `${open.join(', ')} did not pass outright in this run` };
@@ -1104,8 +1149,8 @@ async function early(env, { sleep = (ms) => new Promise((r) => setTimeout(r, ms)
   const lines = ['### Journeys revert, as each shard ends', ''];
   const start = now();
   for (;;) {
-    const { json } = await gh('GET', `/repos/${repo}/actions/runs/${env.RUN_ID}/jobs?filter=latest&per_page=100`);
-    const jobs = json?.jobs ?? [];
+    const jobs =
+      (await runJobs(`/repos/${repo}/actions/runs/${env.RUN_ID}/jobs?filter=latest`, async (p) => (await gh('GET', p)).json)) ?? [];
     for (const { shard } of endedShards(jobs, seen)) {
       seen.add(shard);
       const report = await runReport(gh, repo, env.RUN_ID, env.GH_TOKEN, { shards: [shard] });

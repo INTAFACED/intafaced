@@ -1,15 +1,16 @@
-import { StatusTag } from '@intafaced/ui';
-import { kycCapabilitiesOutputSchema, type KycCapabilityState } from '@intafaced/contracts/identity-kyc-capabilities';
+import { StatusChip } from '@intafaced/ui/lit/templates';
+import { type KycCapabilityState } from '@intafaced/contracts/identity-kyc-capabilities';
 import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
-import { Failure, Loading } from '../../shared/ui';
+import { Failure, Loading } from './kit-parts';
 import { verificationCapabilitiesCopy as copy } from './verification-capabilities-copy';
+import { IDENTITY_KYC_CAPABILITIES_GET } from '@intafaced/contracts/identity-kyc-procedures';
 
 // Not requested is no status at all, so it is plain text, never a tag that reads as something under way.
-const tagOf: Record<Exclude<KycCapabilityState, 'unrequested'>, 'pending' | 'filled' | 'cancelled'> = {
+const tagOf: Record<Exclude<KycCapabilityState, 'unrequested'>, 'pending' | 'done' | 'failed'> = {
   pending: 'pending',
-  active: 'filled',
-  inactive: 'cancelled',
+  active: 'done',
+  inactive: 'failed',
 };
 
 /**
@@ -23,7 +24,7 @@ export function VerificationCapabilities({ recordsKey }: { recordsKey: string })
   const { api, userId } = useSession();
   const { t, Copy } = copy.useCopy();
   const { resource, reload } = useResource(
-    (signal) => api.query('identity', 'kyc.capabilities.get', undefined, kycCapabilitiesOutputSchema, { signal }),
+    (signal) => api.call(IDENTITY_KYC_CAPABILITIES_GET, undefined, { signal }),
     `verification-capabilities:${userId}:${recordsKey}`,
   );
   const body = () => {
@@ -40,31 +41,33 @@ export function VerificationCapabilities({ recordsKey }: { recordsKey: string })
     const { mapped, capabilities } = resource.data;
     return (
       <>
-        <p className="muted">
+        <p className="lt-muted">
           <Copy k={mapped ? 'intro' : 'unmapped'} />
         </p>
-        <ul className="verification__capabilities-list" data-testid="verification__capabilities" data-mapped={mapped}>
+        <ul className="lt-sections" data-testid="verification__capabilities" data-mapped={mapped}>
           {capabilities.map((c) => (
             <li
               key={c.capability}
-              className="verification__capability"
+              className="lt-stack"
               data-testid="verification__capability"
               data-capability={c.capability}
               data-state={c.state}
             >
-              <div className="verification__case-head">
+              <div className="lt-title-row">
                 <span>
                   <Copy k={c.capability} />
                 </span>
                 {c.state === 'unrequested' ? (
-                  <span className="muted">
+                  <span className="lt-muted">
                     <Copy k="unrequested" />
                   </span>
                 ) : (
-                  <StatusTag status={tagOf[c.state]} label={t(c.state)} />
+                  <StatusChip status={tagOf[c.state]} label={t(c.state)} />
                 )}
               </div>
-              <p className="muted">{c.grantedAt ? <Copy k="grantedAt" params={{ level: t(c.grantedAt) }} /> : <Copy k="notGranted" />}</p>
+              <p className="lt-muted">
+                {c.grantedAt ? <Copy k="grantedAt" params={{ level: t(c.grantedAt) }} /> : <Copy k="notGranted" />}
+              </p>
               {c.state === 'inactive' && (
                 <div data-testid="verification__capability-reason" data-reason={c.reasonCode ?? ''}>
                   {c.reasonText && (
@@ -72,7 +75,7 @@ export function VerificationCapabilities({ recordsKey }: { recordsKey: string })
                       <Copy k="reason" params={{ text: c.reasonText }} />
                     </p>
                   )}
-                  <p className="muted">
+                  <p className="lt-muted">
                     <Copy k="inactiveHelp" />
                   </p>
                 </div>
@@ -84,7 +87,7 @@ export function VerificationCapabilities({ recordsKey }: { recordsKey: string })
     );
   };
   return (
-    <section className="verification__cases" aria-labelledby="verification-capabilities-title">
+    <section className="lt-stack" aria-labelledby="verification-capabilities-title">
       <h2 id="verification-capabilities-title">
         <Copy k="title" />
       </h2>

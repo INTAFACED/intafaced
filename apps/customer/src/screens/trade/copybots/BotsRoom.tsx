@@ -120,7 +120,7 @@ function ParkedBotRoom({ title, reason }: { title: string; reason: string }) {
   const { t } = roomCopy.useCopy();
   return (
     <Page width="full" className="cb-page" landmark={false}>
-      <ModeNav active="bots" />
+      <ModeNav />
       <PageHeader title={t(title as 'Spot grid')} description={t('This bot can’t be set up here.')} />
       <EmptyState
         variant="refused"
@@ -272,7 +272,7 @@ function BotsHub({ path }: { path: string }) {
         return { tone: 'warn', word: 'Unknown', reason: 'The bot service did not answer. Try again in a moment.', ready: false };
       if (policy.data && !policy.data.capability.createEnabled)
         return { tone: 'warn', word: 'Switched off', reason: 'New bots can’t be created right now', ready: false };
-      if (policy.data?.immatureKinds.includes(row.id))
+      if (policy.data?.immatureKinds.some((k) => k === row.id))
         return {
           tone: 'warn',
           word: 'Needs trading history',
@@ -371,13 +371,13 @@ function BotsHub({ path }: { path: string }) {
       value: nameOf,
       cell: (r) => <a href={`/trade/bots?${tab === 'catalogue' ? '' : `tab=${tab}&`}bot=${encodeURIComponent(r.id)}`}>{nameOf(r)}</a>,
       pin: 'start',
-      width: 200,
     },
-    { id: 'side', header: t('Side'), value: (r) => (r.side === 'buy' ? t('Buy') : t('Sell')) },
+    { id: 'side', header: t('Side'), value: (r) => (r.side === 'buy' ? t('Buy') : t('Sell')), width: 88 },
     {
       id: 'status',
       header: t('State'),
       cell: (r) => <Badge tone={BOT_TONE[r.status] ?? 'neutral'}>{t((BOT_WORD[r.status] ?? 'Unknown state') as 'Running')}</Badge>,
+      width: 140,
     },
     {
       id: 'progress',
@@ -385,13 +385,15 @@ function BotsHub({ path }: { path: string }) {
       value: (r) => percentFilled(r.filledQty, r.totalQty)?.replace('%', '') ?? null,
       numeric: true,
       cell: (r) => percentFilled(r.filledQty, r.totalQty) ?? '—',
+      width: 112,
     },
-    { id: 'total', header: t('Total'), value: (r) => r.totalQty, numeric: true, cell: (r) => displayAmount(r.totalQty) },
+    { id: 'total', header: t('Total'), value: (r) => r.totalQty, numeric: true, cell: (r) => displayAmount(r.totalQty), width: 140 },
     { id: 'created', header: t('Started'), value: (r) => new Date(r.created).toLocaleString(), width: 200 },
     {
       id: 'open',
       header: t('Manage'),
       headerLabel: t('Manage'),
+      width: 120,
       cell: (r) => (
         <Button variant="secondary" size={28} onClick={() => setOpenId(r.id)}>
           {t('Manage')}
@@ -463,7 +465,7 @@ function BotsHub({ path }: { path: string }) {
   const schedulerOff = policy.data !== null && !policy.data.capability.jobsEnabled;
   return (
     <Page width="full" className="cb-page" landmark={false}>
-      <ModeNav active="bots" />
+      <ModeNav />
       <PageHeader
         title={t('Bots')}
         description={t('Pick a bot, set its size and limits, see what it will cost before it starts, and stop it any time.')}
@@ -568,7 +570,7 @@ function BotsHub({ path }: { path: string }) {
             ) : null}
             <InfoNote>{t('My bots lists the bots you started in the last 3 months. Open an older one by its ID.')}</InfoNote>
             {moreMine ? (
-              <div className="cb-action-row">
+              <div className="lt-actions">
                 {mineLimit < BOT_LIST_MAX ? (
                   <Button variant="secondary" onClick={showMoreMine}>
                     {t('Show more bots')}
@@ -593,7 +595,7 @@ function BotsHub({ path }: { path: string }) {
               </Button>
             </form>
             {open && openRefused && open.failure ? (
-              <div className="cb-action-row">
+              <div className="lt-actions">
                 <RefusalNote failure={open.failure} retry={opened.reload} />
                 <Button variant="ghost" size={28} onClick={() => setOpenId(null)}>
                   {t('Close')}
@@ -646,7 +648,7 @@ function BotsHub({ path }: { path: string }) {
                 { label: t('Where to write one'), value: t('Quant Studio') },
               ]}
             />
-            <div className="cb-action-row">
+            <div className="lt-actions">
               <Button variant="secondary" render={<a href="/quant/studio" />} nativeButton={false}>
                 {t('Open Quant Studio')}
               </Button>

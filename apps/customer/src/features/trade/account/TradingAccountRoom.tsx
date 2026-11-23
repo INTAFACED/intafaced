@@ -1,8 +1,11 @@
+// volt-room: /trade/account
 // hand-declared-ok: svc-bank's ownMoves, cards.list and cards.partnerHeld answers have no browser-safe schema in packages/contracts; this narrows them
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { BANK_SPACES_LIST } from '@intafaced/contracts/bank-spaces-list';
-import { Button, DataTable, EmptyState, Field, Loading, Page } from '../../../shared/ui';
+import { Button, Field } from '@intafaced/ui/lit';
+import { MonitorTemplate, type RoomState } from '@intafaced/ui/lit/templates';
+import { ScrollTable, Waiting } from '../../more';
 import { displayAmount } from '../../../shared/money';
 import type { ApiResult } from '../../../shared/api';
 import { useSession } from '../../session';
@@ -19,17 +22,17 @@ import {
   type VenueDepositRoute,
 } from '../../protocol';
 import { sleep as pause } from '@intafaced/contracts/sleep';
-import {
-  ownMoveMessageSchema,
-  ownMoveViewSchema,
-  tradingCardHeldSchema,
-  tradingCardRowSchema,
-} from '@intafaced/contracts/bank-trading-account-reads';
+import { ownMoveViewSchema } from '@intafaced/contracts/bank-trading-account-reads';
 import { useVenueMode } from '../use-venue-mode';
 import type { VenueUp } from '../venue-api';
-import { TestMark, VENUE_POLL_MS, VenueFrame, WalletBar, useOwner, useVenueApi } from '../venue/VenueKit';
+import { VENUE_POLL_MS } from '../venue/poll';
+import { useOwner, useVenueApi } from '../venue/VenueKit';
+import { TestMark, VenueFrame, WalletBar } from '../venue/volt/VoltVenue';
 import { tradingAccountCopy } from './trading-account-copy';
 import { AccountModePanel } from './AccountMode';
+import { depositRoute, routeOf } from './move-route';
+import { BANK_CARDS_LIST, BANK_CARDS_PARTNER_HELD } from '@intafaced/contracts/bank-cards-procedures';
+import { BANK_OWN_MOVES_LIST, BANK_OWN_MOVES_MESSAGE } from '@intafaced/contracts/bank-own-moves-procedures';
 
 /**
  * The trading account (`/trade/account`, J-derivatives-25): two named groups, each with its own source and time. Trading
@@ -56,51 +59,45 @@ type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
 const ownMoveSchema = ownMoveViewSchema;
 type OwnMove = z.infer<typeof ownMoveSchema>;
-const cardRowsSchema = z.array(tradingCardRowSchema);
-const cardHeldSchema = tradingCardHeldSchema;
 
 export function TradingAccountRoom() {
   const { t } = tradingAccountCopy.useCopy();
   const mode = useVenueMode();
   const { userId } = useSession();
+  const off = (state: RoomState) => <MonitorTemplate title={t('title')} state={state} mode="pro" figures={[]} />;
   if (!userId)
-    return (
-      <Page eyebrow={t('eyebrow')} title={t('title')}>
-        <EmptyState
-          title={t('signedOutTitle')}
-          action={
-            <a className="button button--primary" href={`/login?redirect=${encodeURIComponent(location.pathname + location.search)}`}>
-              {t('signIn')}
-            </a>
-          }
-        >
-          {t('signedOutBody')}
-        </EmptyState>
-      </Page>
-    );
-  if (mode.mode === 'checking')
-    return (
-      <Page eyebrow={t('eyebrow')} title={t('title')}>
-        <Loading label={t('title')} />
-      </Page>
-    );
+    return off({
+      kind: 'empty',
+      title: t('signedOutTitle'),
+      body: t('signedOutBody'),
+      action: { label: t('signIn'), href: `/login?redirect=${encodeURIComponent(location.pathname + location.search)}` },
+    });
+  if (mode.mode === 'checking') return off({ kind: 'loading' });
   if (mode.mode === 'off' || !mode.status.available)
-    return (
-      <Page eyebrow={t('eyebrow')} title={t('title')}>
-        <EmptyState title={t('title')}>{t('venueOff')}</EmptyState>
-      </Page>
-    );
+    return off({ kind: 'refused', refusal: { variant: 'parked', title: t('title'), body: t('venueOff') } });
   const status = mode.status;
   return (
     <VenueFrame mode={mode}>
-      <Page eyebrow={t('eyebrow')} title={t('title')}>
-        <TestMark test={status.test} />
-        <p className="muted">{t('lead')}</p>
-        <p data-testid="liquidation-line">{t('liquidationLine')}</p>
-        <WalletBar />
-        <Owned>{(owner) => <Room owner={owner} status={status} />}</Owned>
-        <p className="muted">{t('ledgerNote')}</p>
-      </Page>
+      <MonitorTemplate
+        title={t('title')}
+        description={t('lead')}
+        state={{ kind: 'ready' }}
+        mode="pro"
+        figures={[]}
+        actions={
+          <div className="lt-stack">
+            <TestMark test={status.test} />
+            <p data-testid="liquidation-line">{t('liquidationLine')}</p>
+            <WalletBar />
+          </div>
+        }
+        panels={
+          <div className="lt-stack">
+            <Owned>{(owner) => <Room owner={owner} status={status} />}</Owned>
+          </div>
+        }
+        explain={<p className="lt-hint">{t('ledgerNote')}</p>}
+      />
     </VenueFrame>
   );
 }
@@ -108,7 +105,7 @@ export function TradingAccountRoom() {
 function Owned({ children }: { children: (owner: string) => ReactNode }) {
   const { t } = tradingAccountCopy.useCopy();
   const owner = useOwner();
-  if (!owner) return <p className="muted">{t('connectFirst')}</p>;
+  if (!owner) return <p className="lt-hint">{t('connectFirst')}</p>;
   return <>{children(owner)}</>;
 }
 
@@ -143,8 +140,8 @@ function Room({ owner, status }: { owner: string; status: VenueUp }) {
   };
   return (
     <>
-      <div className="grid-2" data-revision={revision}>
-        <section className="dk-panel" aria-label="Trading" data-testid="group-trading">
+      <div className="lt-grid" data-revision={revision}>
+        <section className="lt-stack" aria-label="Trading" data-testid="group-trading">
           {venues.map((venue) => (
             <VenueAccount
               key={venue.id ?? 'venue'}
@@ -186,37 +183,37 @@ function VenueAccount({
   const rows = balances.data?.value ?? null;
   return (
     <div data-testid="trading-venue" data-venue={venue.name}>
-      <h2 className="dk-tab-title">
+      <h2>
         {t('tradingTitle')} <TestMark test={test} />
       </h2>
-      <p className="muted" data-testid="trading-source">
+      <p className="lt-hint" data-testid="trading-source">
         {t('tradingSource', { venue: venue.name })} · <AsOf iso={balances.data?.asOf} t={t} />
       </p>
       {balances.failure && !balances.data ? (
-        <p className="failure" role="alert">
+        <p className="lt-refusal" role="alert">
           {t('readFailed', { detail: balances.failure.message })}
         </p>
       ) : rows === null ? (
-        <Loading label={t('tradingTitle')} />
+        <Waiting label={t('tradingTitle')} />
       ) : rows.length === 0 ? (
         <p data-testid="trading-empty">{t('tradingEmpty')}</p>
       ) : (
-        <DataTable label={t('tradingTitle')} headers={[t('hAsset'), t('hFree'), t('hLocked'), t('hTotal')]}>
+        <ScrollTable label={t('tradingTitle')} headers={[t('hAsset'), t('hFree'), t('hLocked'), t('hTotal')]}>
           {rows.map((b) => (
             <tr key={b.asset} data-asset={b.asset}>
               <td>{b.asset}</td>
-              <td className="numeric" data-cell="free">
+              <td className="lt-mono" data-cell="free">
                 {displayAmount(b.free, 2)}
               </td>
-              <td className="numeric" data-cell="locked">
+              <td className="lt-mono" data-cell="locked">
                 {displayAmount(b.locked, 2)}
               </td>
-              <td className="numeric" data-cell="total">
+              <td className="lt-mono" data-cell="total">
                 {displayAmount(b.total, 2)}
               </td>
             </tr>
           ))}
-        </DataTable>
+        </ScrollTable>
       )}
       <AccountModePanel owner={owner} venue={venue} balances={rows} onChanged={balances.reload} />
       <CrossMargin owner={owner} venue={venue} revision={revision} onMoveIn={onMoveIn} />
@@ -243,18 +240,18 @@ function CrossMargin({ owner, venue, revision, onMoveIn }: { owner: string; venu
   const cross = s?.cross ?? null;
   if (!s || !cross) return null;
   return (
-    <div className="form-stack" data-testid="cross-margin" data-state={cross.state}>
+    <div className="lt-stack" data-testid="cross-margin" data-state={cross.state}>
       {cross.state === 'margin_call' ? (
-        <div role="alert" className="failure" data-testid="margin-call">
+        <div role="alert" className="lt-refusal" data-testid="margin-call">
           <p>{t('marginCall', { venue: venue.name })}</p>
           <Button onClick={onMoveIn}>{t('marginCallAction')}</Button>
         </div>
       ) : null}
-      <h3 className="dk-tab-title">{t('crossTitle')}</h3>
-      <p className="muted">
+      <h3>{t('crossTitle')}</h3>
+      <p className="lt-hint">
         {t('tradingSource', { venue: venue.name })} · <AsOf iso={summary.data?.asOf} t={t} />
       </p>
-      <dl className="protocol-facts">
+      <dl className="lt-kv">
         <CrossLine name="equity" label={t('crossEquity')} value={`${cross.equity} ${s.asset}`} />
         <CrossLine name="maintenance" label={t('crossMaintenance')} value={`${cross.maintenanceMargin} ${s.asset}`} />
         <CrossLine
@@ -265,7 +262,7 @@ function CrossMargin({ owner, venue, revision, onMoveIn }: { owner: string; venu
         />
         <CrossLine name="liquidation" label={t('crossLiquidation')} value={`${cross.liquidationEquity} ${s.asset}`} />
       </dl>
-      <p className="muted" data-line="cross-rule">
+      <p className="lt-hint" data-line="cross-rule">
         {cross.rule}
       </p>
     </div>
@@ -276,7 +273,7 @@ function CrossLine({ name, label, value, raw }: { name: string; label: string; v
   return (
     <div data-line={name} data-value={raw ?? value.split(' ')[0]}>
       <dt>{label}</dt>
-      <dd className="numeric">{value}</dd>
+      <dd className="lt-mono">{value}</dd>
     </div>
   );
 }
@@ -294,29 +291,29 @@ function Liquidations({ owner, venue, revision }: { owner: string; venue: Venue;
   if (parts.length === 0) return null;
   return (
     <div data-testid="trading-liquidations">
-      <h3 className="dk-tab-title">{t('liquidationsTitle')}</h3>
-      <p className="muted">
+      <h3>{t('liquidationsTitle')}</h3>
+      <p className="lt-hint">
         {t('liquidationsSource', { venue: venue.name })} · <AsOf iso={read.data?.asOf} t={t} />
       </p>
-      <DataTable label={t('liquidationsTitle')} headers={[t('hMarket'), t('hSize'), t('hPrice'), t('hFee'), t('hVenueId')]}>
+      <ScrollTable label={t('liquidationsTitle')} headers={[t('hMarket'), t('hSize'), t('hPrice'), t('hFee'), t('hVenueId')]}>
         {parts.map(({ l, part }) => (
           <tr key={part.partId} data-part={part.partId} data-liquidation={l.liquidationId}>
             <td>
               {l.symbol} · {t(l.side === 'long' ? 'sideLong' : 'sideShort')}
             </td>
-            <td className="numeric" data-cell="size">
+            <td className="lt-mono" data-cell="size">
               {part.size}
             </td>
-            <td className="numeric" data-cell="price">
+            <td className="lt-mono" data-cell="price">
               {part.price}
             </td>
-            <td className="numeric" data-cell="fee">
+            <td className="lt-mono" data-cell="fee">
               {part.fee} {part.feeAsset}
             </td>
             <td data-cell="id">{part.partId}</td>
           </tr>
         ))}
-      </DataTable>
+      </ScrollTable>
     </div>
   );
 }
@@ -332,12 +329,12 @@ function SpendingGroup({ revision, spaces }: { revision: number; spaces: ReturnT
   const { api, userId } = useSession();
   const cards = usePolled(
     async (signal) => {
-      const listed = await api.query('bank', 'cards.list', { limit: 50 }, cardRowsSchema, { signal });
+      const listed = await api.call(BANK_CARDS_LIST, { limit: 50 }, { signal });
       if (!listed.ok) return listed;
       const open = listed.data.filter((c) => c.status !== 'closed');
       const held = await Promise.all(
         open.map(async (card) => {
-          const read = await api.query('bank', 'cards.partnerHeld', { cardId: card.id, limit: 1 }, cardHeldSchema, { signal });
+          const read = await api.call(BANK_CARDS_PARTNER_HELD, { cardId: card.id, limit: 1 }, { signal });
           return { card, held: read.ok ? read.data : null };
         }),
       );
@@ -349,32 +346,32 @@ function SpendingGroup({ revision, spaces }: { revision: number; spaces: ReturnT
   const held = (spaces.data ?? []).filter((s) => s.heldAt);
   const partner = held[0]?.heldAt?.label ?? null;
   return (
-    <section className="dk-panel" aria-label="Spending" data-testid="group-spending">
-      <h2 className="dk-tab-title">{t('spendingTitle')}</h2>
+    <section className="lt-stack" aria-label="Spending" data-testid="group-spending">
+      <h2>{t('spendingTitle')}</h2>
       {spaces.failure && !spaces.data ? (
-        <p className="failure" role="alert">
+        <p className="lt-refusal" role="alert">
           {t('spendingUnread')}
         </p>
       ) : !spaces.data ? (
-        <Loading label={t('spendingTitle')} />
+        <Waiting label={t('spendingTitle')} />
       ) : held.length === 0 ? (
-        <p className="muted">{t('spendingNone')}</p>
+        <p className="lt-hint">{t('spendingNone')}</p>
       ) : (
         <>
-          <p className="muted" data-testid="spending-source">
+          <p className="lt-hint" data-testid="spending-source">
             {t('spendingSource', { partner: partner ?? '' })} · <AsOf iso={held[0]?.heldAt?.asOf} t={t} />
           </p>
-          <DataTable label={t('spendingTitle')} headers={[t('hAccount'), t('hBalance')]}>
+          <ScrollTable label={t('spendingTitle')} headers={[t('hAccount'), t('hBalance')]}>
             {held.map((space) => (
               <tr key={space.id} data-space={space.kind === 'primary' ? `main:${space.assetId}` : space.id}>
                 <td>{space.kind === 'primary' ? t('mainAccount', { asset: space.assetId }) : space.name}</td>
-                <td className="numeric" data-cell="balance">
+                <td className="lt-mono" data-cell="balance">
                   {displayAmount(space.balance, 2)} {space.assetId}
                 </td>
               </tr>
             ))}
-          </DataTable>
-          <ul className="plain-list">
+          </ScrollTable>
+          <ul className="lt-stack">
             {(cards.data ?? []).map(({ card, held: figures }) => (
               <li key={card.id} data-card={card.id} data-testid="spending-card">
                 {figures?.figures?.available
@@ -409,13 +406,8 @@ function MoveIn({ owner, venue, partner, onMoved }: { owner: string; venue: Venu
   const venueApi = useVenueApi();
   const account = useMemo(() => createVenueAccountApi(api), [api]);
   const door = usePolled((signal) => account.status(signal), `move:door:${userId}`, 30_000);
-  const route: VenueDepositRoute | null =
-    door.data && door.data.enabled && door.data.available ? ((door.data as { deposit?: VenueDepositRoute | null }).deposit ?? null) : null;
-  const moves = usePolled(
-    (signal) => api.query('bank', 'ownMoves.list', { limit: 20 }, z.array(ownMoveSchema), { signal }),
-    `moves:${userId}`,
-    READ_EVERY_MS,
-  );
+  const route: VenueDepositRoute | null = routeOf(door.data);
+  const moves = usePolled((signal) => api.call(BANK_OWN_MOVES_LIST, { limit: 20 }, { signal }), `moves:${userId}`, READ_EVERY_MS);
   const [amount, setAmount] = useState('');
   const [stage, setStage] = useState<Stage>({ at: 'idle' });
   const [refusal, setRefusal] = useState<{ body: string; code?: string } | null>(null);
@@ -451,8 +443,9 @@ function MoveIn({ owner, venue, partner, onMoved }: { owner: string; venue: Venu
 
   /** Leg two: the wallet's own deposit to the venue, once per move; then the venue's credit is followed. */
   const deposit = async (move: OwnMove) => {
-    if (!route) return setRefusal({ body: t('moveNoRoute', { venue: venue.name, asset: ASSET }) });
     if (move.depositTx) return setStage({ at: 'done', move, again: false });
+    const route = await depositRoute(routeOf(door.data), () => account.status());
+    if (!route) return setRefusal({ body: t('moveNoRoute', { venue: venue.name, asset: ASSET }) });
     const units = toTokenUnits(move.amount, route.tokenDecimals);
     if (units === null || route.chainId !== APP_CHAIN_ID)
       return setRefusal({ body: t('moveNoRoute', { venue: venue.name, asset: ASSET }) });
@@ -492,12 +485,7 @@ function MoveIn({ owner, venue, partner, onMoved }: { owner: string; venue: Venu
     const { moveId, amount: sent } = stage;
     setRefusal(null);
     setStage({ at: 'signing', moveId, amount: sent });
-    const message = await api.query(
-      'bank',
-      'ownMoves.message',
-      { moveId, assetId: ASSET, amount: sent, wallet: owner },
-      ownMoveMessageSchema,
-    );
+    const message = await api.call(BANK_OWN_MOVES_MESSAGE, { moveId, assetId: ASSET, amount: sent, wallet: owner });
     if (!message.ok) {
       setStage({ at: 'idle' });
       return refuseWith(message);
@@ -562,11 +550,11 @@ function MoveIn({ owner, venue, partner, onMoved }: { owner: string; venue: Venu
   const partnerName = partner ?? (moves.data ?? [])[0]?.partner ?? null;
   const unfinished = (moves.data ?? []).filter((m) => m.status === 'sent' && !m.depositTx);
   return (
-    <section className="dk-panel form-stack" aria-label={t('moveTitle')} data-testid="move-in">
-      <h2 className="dk-tab-title">{t('moveTitle')}</h2>
-      <p className="muted">{t('moveLead')}</p>
+    <section className="lt-stack" aria-label={t('moveTitle')} data-testid="move-in">
+      <h2>{t('moveTitle')}</h2>
+      <p className="lt-hint">{t('moveLead')}</p>
       {stage.at === 'idle' || stage.at === 'done' ? (
-        <div className="form-row">
+        <div className="lt-actions">
           <Field
             id={MOVE_AMOUNT_ID}
             label={t('moveAmount', { asset: ASSET })}
@@ -580,7 +568,7 @@ function MoveIn({ owner, venue, partner, onMoved }: { owner: string; venue: Venu
         </div>
       ) : null}
       {stage.at === 'review' ? (
-        <div data-testid="move-review" className="form-stack">
+        <div data-testid="move-review" className="lt-stack">
           <ol>
             <li data-leg="partner">
               {t('moveLegPartner', {
@@ -613,19 +601,19 @@ function MoveIn({ owner, venue, partner, onMoved }: { owner: string; venue: Venu
       {stage.at === 'depositing' ? <p role="status">{t('moveDepositing')}</p> : null}
       {stage.at === 'crediting' ? <p role="status">{t('moveCrediting', { venue: venue.name })}</p> : null}
       {stage.at === 'done' ? (
-        <div data-testid="move-result" data-move={stage.move.id} className="form-stack">
+        <div data-testid="move-result" data-move={stage.move.id} className="lt-stack">
           <p role="status">
             {t('moveDone', { venue: venue.name, amount: displayAmount(stage.move.amount, 2), asset: stage.move.assetId })}
           </p>
           {stage.again ? <p data-testid="move-again-note">{t('moveAgainSame')}</p> : null}
           <MoveLegs move={stage.move} venue={venue} t={t} />
-          <Button variant="secondary" onClick={() => void again()}>
+          <Button tone="secondary" onClick={() => void again()}>
             {t('moveSendAgain')}
           </Button>
         </div>
       ) : null}
       {refusal ? (
-        <div role="alert" className="failure" data-testid="move-refusal">
+        <div role="alert" className="lt-refusal" data-testid="move-refusal">
           <strong>{t('moveRefusedTitle')}</strong> <span data-refusal-body>{refusal.body}</span>{' '}
           {refusal.code ? <code>{refusal.code}</code> : null}
         </div>
@@ -639,12 +627,12 @@ function MoveIn({ owner, venue, partner, onMoved }: { owner: string; venue: Venu
         : null}
       <h3>{t('movesTitle')}</h3>
       {(moves.data ?? []).length === 0 ? (
-        <p className="muted">{t('movesNone')}</p>
+        <p className="lt-hint">{t('movesNone')}</p>
       ) : (
-        <DataTable label={t('movesTitle')} headers={[t('hMove'), t('hPartnerLeg'), t('hDepositLeg')]}>
+        <ScrollTable label={t('movesTitle')} headers={[t('hMove'), t('hPartnerLeg'), t('hDepositLeg')]}>
           {(moves.data ?? []).map((m) => (
             <tr key={m.id} data-move={m.id}>
-              <td className="numeric">
+              <td className="lt-mono">
                 {displayAmount(m.amount, 2)} {m.assetId}
               </td>
               <td data-cell="partner-leg">{m.deliveryTx ? <Tx hash={m.deliveryTx} sent={t('legSent')} /> : t('legNotYet')}</td>
@@ -653,7 +641,7 @@ function MoveIn({ owner, venue, partner, onMoved }: { owner: string; venue: Venu
               </td>
             </tr>
           ))}
-        </DataTable>
+        </ScrollTable>
       )}
     </section>
   );

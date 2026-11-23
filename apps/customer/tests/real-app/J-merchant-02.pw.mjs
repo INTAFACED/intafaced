@@ -52,7 +52,8 @@ test(`${J} part of #1 the owner reads the second-approval rule and turns it on a
   await signInWithCode(page, owner, '/pay/settings');
   const refused = refusedPayCalls(page);
 
-  const rule = page.locator('section').filter({ has: page.getByRole('heading', { name: /Second approval/i, level: 2 }) });
+  // The section the heading titles, its nearest one: the settings template wraps every section in a region section of its own.
+  const rule = page.getByRole('heading', { name: /Second approval/i, level: 2 }).locator('xpath=ancestor::section[1]');
   await expect(rule.getByRole('status')).toHaveText('Second approval is off.');
   await expect(rule).not.toContainText('We can’t read this setting.');
   await rule.getByRole('button', { name: 'Turn on second approval', exact: true }).click();
@@ -86,7 +87,7 @@ test(`${J} part of #1 a new owner adds the business address before verification,
   const review = page.getByRole('dialog');
   await expect(review).toContainText('1 Test Street, Testville, T3ST 1NG, GB');
   await review.getByRole('button', { name: 'Save changes', exact: true }).click();
-  const history = page.locator('section').filter({ has: page.getByRole('heading', { name: /Change history/i, level: 2 }) });
+  const history = page.getByRole('heading', { name: /Change history/i, level: 2 }).locator('xpath=ancestor::section[1]');
   await expect(history.getByRole('listitem')).toHaveCount(1);
   await expect(history).toContainText('Add our address');
 
@@ -666,7 +667,7 @@ test(`${J} #6 reads the verification history and the activation state: append-on
   // Once there is a verification record, it says outright that it is not a screening result, and its Screening row says
   // the results are not shown.
   const screeningDisclaimed = async () => {
-    const record = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Current record', exact: true }) });
+    const record = page.getByRole('heading', { name: 'Current record', exact: true }).locator('xpath=ancestor::section[1]');
     await expect(record.locator('dt', { hasText: /^Screening$/ }).locator('xpath=following-sibling::dd[1]')).toHaveText(
       'Handled by INTAFACED. Results are not shown here.',
     );
@@ -756,7 +757,7 @@ test(`${J} #6 reads the verification history and the activation state: append-on
     at: decided[0].at,
   });
   expect(decidedRows[1]).toEqual(sentRows[0]);
-  const record = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Current record', exact: true }) });
+  const record = page.getByRole('heading', { name: 'Current record', exact: true }).locator('xpath=ancestor::section[1]');
   await expect(record.getByTestId('pp-facts')).toContainText('Approved');
   await expect(activation).toContainText('Unconfirmed');
   await expect(activation).not.toContainText('Confirmed');

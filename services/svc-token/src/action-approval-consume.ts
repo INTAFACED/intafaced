@@ -4,15 +4,9 @@
  * HMAC jobs (mintEpoch / yield.runWindow / buyback.runWindow) do not call here.
  */
 import { createHash } from 'node:crypto';
-import {
-  actionApprovalConsumeInputSchema,
-  actionApprovalSchema,
-  createIdentityApprovalClient as createSharedIdentityApprovalClient,
-  founderAttestationVerdict,
-  type ActionApproval,
-  type ActionApprovalConsumeInput,
-  type FounderApprovalSubject,
-} from '@intafaced/contracts';
+import type { ActionApproval, ActionApprovalConsumeInput, FounderApprovalSubject } from '@intafaced/contracts';
+import { actionApprovalConsumeInputSchema, actionApprovalSchema, founderAttestationVerdict } from '@intafaced/contracts/action-approval';
+import { createIdentityApprovalClient as createSharedIdentityApprovalClient } from '@intafaced/contracts/action-approval-client';
 
 export const ACTION_APPROVAL_UNWIRED = 'action_approval.identity_unwired' as const;
 export const ACTION_APPROVAL_MISSING = 'action_approval.missing' as const;

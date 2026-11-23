@@ -8,20 +8,21 @@ import {
   QUANT_SANDBOX_LIMITS,
   quantCriteriaSchema,
   quantCriteriaSetInputSchema,
-  quantDisclosureCountsOutputSchema,
-  quantDisclosurePublishInputSchema,
-  quantDisclosurePublishOutputSchema,
-  quantLakeCaptureInputSchema,
-  quantSupportSourceSchema,
   quantTemplateListingInputSchema,
   quantTemplateListingSchema,
   quantTemplatePublishInputSchema,
   quantTemplateVersionSchema,
   quantTierSetInputSchema,
   quantTierSetOutputSchema,
-  router,
-  scopedProcedure,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/quant-algo';
+import {
+  quantDisclosureCountsOutputSchema,
+  quantDisclosurePublishInputSchema,
+  quantDisclosurePublishOutputSchema,
+} from '@intafaced/contracts/quant-disclosure';
+import { quantLakeCaptureInputSchema } from '@intafaced/contracts/quant-research';
+import { quantSupportSourceSchema } from '@intafaced/contracts/quant-team';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { assertOpsRunsLimit, optionalWindowBound, requireWindowBound } from '../runs/limit.js';
 import { blankTemplateRules } from '../templates/rules.js';
 import { parseLimit, parseWhole } from '../quota/quota.js';

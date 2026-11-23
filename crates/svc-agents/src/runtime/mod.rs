@@ -5,8 +5,8 @@
 //! \`think\`'s order is the TypeScript's: the route; a metered replay; Copy-Intel's returns board; the published rate;
 //! the guardrail; unpaid windows; a sealed window; the funds (only without a spend gate); the claim; the spend hold
 //! (caps, team limits and funds under the person's lock); the engine; then the meter, the audit row, the transcript
-//! and the hold's commit in one transaction. \`act\` (a guarded tool call) is the tool-running slices' to port: no call
-//! of this slice runs a tool.
+//! and the hold's commit in one transaction. `act` is a guarded tool call: the guardrail decides before the tool runs,
+//! and a place tool runs once per idempotency key (the navigator slice ported it with its first tool).
 //!
 //! - [\`guardrails\`]: the guardrail, parsed and evaluated.
 //! - [\`funds\`]: the funds a run is checked against.
@@ -15,6 +15,8 @@
 //! - [\`reads\`]: the session, run and log reads.
 //! - [\`slice\`]: the eighteen calls.
 
+pub mod act;
+pub mod chain_balance;
 pub mod copy_intel;
 pub mod eligibility;
 pub mod funds;
@@ -24,7 +26,7 @@ pub mod reads;
 pub mod runs;
 pub mod slice;
 
-use postgres::IsolationLevel;
+use postgres::{GenericClient, IsolationLevel};
 
 use service_kit::json::{self, Json};
 use service_kit::money::{Amount, format_amount};
@@ -90,6 +92,8 @@ pub struct Runtime {
     pub overage_grace: Option<Amount>,
     /// \`AGENTS_TIER_LAWS\`.
     pub tier_laws: TierLaws,
+    /// The navigator slice's outside reads and settings.
+    pub navigator: crate::navigator::Navigator,
     /// `selfFreeze`: identity's read of the owner's own freeze (J-wallet-13), wired while `IDENTITY_URL` is set. None
     /// refuses every gate that asks it, as an unread freeze counts as frozen.
     pub self_freeze: Option<Box<dyn crate::self_freeze::SelfFreezeRead>>,
@@ -104,6 +108,7 @@ impl Runtime {
             transcript_retention_days: 0,
             overage_grace: None,
             tier_laws: TierLaws::default(),
+            navigator: crate::navigator::Navigator::unwired(),
             self_freeze: None,
         }
     }
@@ -331,15 +336,9 @@ pub fn agent_definition(
 /// \`CATALOGUE_ONLY_AGENTS\` (\`fleet/catalogue-only.ts\`): listed, and never opened.
 pub const CATALOGUE_ONLY_AGENTS: [&str; 4] = ["launch", "growth", "portfolio", "risk-compliance"];
 
-/// \`productKindOff\` (\`fleet/control.ts\`).
+/// `productKindOff`, the ops slice's (`ops::fleet`).
 fn product_kind_off(pool: &Pool) -> Result<bool, RunError> {
-    Ok(db::with_client(pool, |c| {
-        Ok(c.query_one(
-            "SELECT EXISTS (SELECT 1 FROM agents.agent_kind_switches WHERE kind = 'product')",
-            &[],
-        )?
-        .try_get(0)?)
-    })?)
+    Ok(crate::ops::fleet::product_kind_off(pool)?)
 }
 
 fn agent_not_found(message: String, key: &str, params: Vec<(String, Json)>) -> RunError {
@@ -375,6 +374,22 @@ pub fn open_session(x: &Rt<'_>, user_id: &str, agent_id: &str) -> Result<Session
         ));
     }
     insert_session(x, user_id, &guardrail, true)
+}
+
+/// `openOwnSession`: a session of a person's own agent, bound to the guardrail its builder made (`own.<agent id>`).
+pub fn open_own_session(
+    x: &Rt<'_>,
+    user_id: &str,
+    guardrail: &Guardrail,
+) -> Result<SessionRecord, RunError> {
+    if !guardrail.agent_id.starts_with("own.") {
+        return Err(agent_not_found(
+            format!("\"{}\" is not an own agent", guardrail.agent_id),
+            "agents.error.route_not_found",
+            vec![audit::param("task", guardrail.agent_id.clone())],
+        ));
+    }
+    insert_session(x, user_id, guardrail, true)
 }
 
 fn insert_session(
@@ -575,9 +590,30 @@ pub const ACTION_COMPLETED: &str = "intafaced.agents.action.completed";
 pub const ACTION_REJECTED: &str = "intafaced.agents.action.rejected";
 pub const USAGE_ALERT_CROSSED: &str = "intafaced.agents.usage_alert.crossed";
 
-fn publish(x: &Rt<'_>, subject: &str, key: &str, payload: Json) -> Result<(), RunError> {
+/// The event, in the outbox inside the caller's transaction: it commits with the change it announces.
+fn owe(
+    x: &Rt<'_>,
+    tx: &mut impl GenericClient,
+    subject: &str,
+    key: &str,
+    payload: Json,
+) -> Result<(), RunError> {
     let env = envelope(x.m, subject, key, payload, x.now).map_err(RunError::Other)?;
-    x.m.bus.publish(subject, key, &env).map_err(RunError::Other)
+    db::OUTBOX.write(tx, &env)?;
+    Ok(())
+}
+
+/// After the commit: the event under `key` leaves now. A bus fault never fails the call: the event stays owed and the
+/// timer's relay sends it.
+fn send(x: &Rt<'_>, key: &str) {
+    let _ = sent(x, key);
+}
+
+/// [`send`], answering whether the bus has the event now.
+fn sent(x: &Rt<'_>, key: &str) -> bool {
+    db::OUTBOX
+        .send(x.pool, x.m.bus.as_ref(), key)
+        .unwrap_or(false)
 }
 
 fn opt(v: Option<&str>) -> Json {
@@ -628,22 +664,25 @@ fn append_refusal_inner(
         ..audit::Entry::default()
     };
     let action = db::transaction_retrying(x.pool, IsolationLevel::ReadCommitted, 5, |tx| {
-        audit::append(tx, &entry, x.now)
+        let action = audit::append(tx, &entry, x.now)?;
+        owe(
+            x,
+            tx,
+            ACTION_REJECTED,
+            &action_key(&action),
+            Json::obj([
+                ("sessionId", Json::str(s.id.clone())),
+                ("userId", Json::str(s.user_id.clone())),
+                ("agentId", Json::str(s.agent_id.clone())),
+                ("sequence", Json::int(action.sequence)),
+                ("refusalCode", Json::str(refusal.code.clone())),
+                ("tool", opt(action.tool.as_deref())),
+                ("task", opt(action.task.as_deref())),
+            ]),
+        )?;
+        Ok::<_, RunError>(action)
     })?;
-    publish(
-        x,
-        ACTION_REJECTED,
-        &format!("agents.action:{}:{}", s.id, action.sequence),
-        Json::obj([
-            ("sessionId", Json::str(s.id.clone())),
-            ("userId", Json::str(s.user_id.clone())),
-            ("agentId", Json::str(s.agent_id.clone())),
-            ("sequence", Json::int(action.sequence)),
-            ("refusalCode", Json::str(refusal.code.clone())),
-            ("tool", opt(action.tool.as_deref())),
-            ("task", opt(action.task.as_deref())),
-        ]),
-    )?;
+    send(x, &action_key(&action));
     Ok(action)
 }
 
@@ -679,12 +718,23 @@ pub fn append_failure(
     }
 }
 
-/// \`publishCompleted\`.
-fn publish_completed(x: &Rt<'_>, a: &Action, usage: TokenUsage) -> Result<(), RunError> {
-    publish(
+/// An action's event key: `agents.action:<session>:<sequence>`.
+fn action_key(a: &Action) -> String {
+    format!("agents.action:{}:{}", a.session_id, a.sequence)
+}
+
+/// \`publishCompleted\`: owed in the transaction that appends the action, sent after its commit.
+fn owe_completed(
+    x: &Rt<'_>,
+    tx: &mut impl GenericClient,
+    a: &Action,
+    usage: TokenUsage,
+) -> Result<(), RunError> {
+    owe(
         x,
+        tx,
         ACTION_COMPLETED,
-        &format!("agents.action:{}:{}", a.session_id, a.sequence),
+        &action_key(a),
         Json::obj([
             ("sessionId", Json::str(a.session_id.clone())),
             ("userId", Json::str(a.user_id.clone())),
@@ -699,8 +749,245 @@ fn publish_completed(x: &Rt<'_>, a: &Action, usage: TokenUsage) -> Result<(), Ru
     )
 }
 
-/// \`publishPendingUsageAlerts\`: recorded alerts not yet published, one person's or everyone's; a row the bus refuses
-/// stays unpublished for the next sweep and never holds back the ones after it.
+/// `ActInput`, less its `execute`, which [`act`] takes on its own.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ActInput<'a> {
+    pub session_id: &'a str,
+    pub tool: &'a str,
+    pub approved: Option<bool>,
+    pub idempotency_key: Option<&'a str>,
+}
+
+/// `ActResult`: what the tool returned, its row, and whether it was a stored place answered again.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActResult {
+    pub result: Json,
+    pub action: Action,
+    pub replayed: bool,
+}
+
+/// `act`: a guarded tool call. The guardrail decides before `execute` runs, and every outcome writes its row: a
+/// refusal, a failure, or the executed call with the digest of what it returned. A place tool runs once per
+/// idempotency key in the session: a repeat with a stored result answers it again, and another tool or an unfinished
+/// claim on the key is a conflict.
+pub fn act(
+    x: &Rt<'_>,
+    input: &ActInput<'_>,
+    execute: impl FnOnce() -> Result<Json, RunError>,
+) -> Result<ActResult, RunError> {
+    let session = require_session(x.pool, input.session_id)?;
+    let key = input
+        .idempotency_key
+        .map(str::trim)
+        .filter(|k| !k.is_empty());
+    let place_key = key.filter(|_| guardrails::is_place_tool(input.tool));
+    let cx = Context {
+        kind: "tool_call",
+        tool: Some(input.tool),
+        task: None,
+    };
+    if let Some(pk) = place_key
+        && let Some((result, action)) = stored_place_intent(x.pool, &session.id, pk, input.tool)?
+    {
+        return Ok(ActResult {
+            result,
+            action,
+            replayed: true,
+        });
+    }
+    let state = state_of(x.pool, &session)?;
+    if let Err(refusal) =
+        guardrails::evaluate_tool_call(&session.guardrail, &state, input.tool, input.approved, key)
+    {
+        return Err(append_refusal(x, &session, refusal, cx));
+    }
+    let mut claimed = false;
+    if let Some(pk) = place_key {
+        match claim_place_intent(x.pool, &session.id, pk, input.tool)? {
+            Claim::Replay(result, action) => {
+                return Ok(ActResult {
+                    result,
+                    action: *action,
+                    replayed: true,
+                });
+            }
+            Claim::Conflict => {
+                let refusal = refuse(
+                    "agents.place_key_conflict",
+                    "agents.refused.place_key_conflict",
+                    vec![audit::param("tool", input.tool)],
+                );
+                return Err(append_refusal(x, &session, refusal, cx));
+            }
+            Claim::Claimed => claimed = true,
+        }
+    }
+    let result = match execute() {
+        Ok(r) => r,
+        Err(e) => {
+            if claimed && let Some(pk) = place_key {
+                release_place_claim(x.pool, &session.id, pk, input.tool)?;
+            }
+            return Err(append_failure(x, &session, cx, None, e));
+        }
+    };
+    let text = result.compact();
+    let digest = digest_of_text(&text);
+    let written = db::transaction_retrying(x.pool, IsolationLevel::ReadCommitted, 5, |tx| {
+        let row = audit::append(
+            tx,
+            &audit::Entry {
+                session_id: &session.id,
+                user_id: &session.user_id,
+                agent_id: &session.agent_id,
+                kind: "tool_call",
+                status: "executed",
+                tool: Some(input.tool),
+                user_message_key: "agents.action.executed",
+                user_message_params: vec![audit::param("tool", input.tool)],
+                output_digest: Some(&digest),
+                ..audit::Entry::default()
+            },
+            x.now,
+        )?;
+        if claimed && let Some(pk) = place_key {
+            let updated = tx.execute(
+                "UPDATE agents.agent_place_intents
+                    SET action_id = $1::text::uuid, result_json = $2::text
+                  WHERE session_id = $3::text::uuid AND idempotency_key = $4::text AND tool = $5::text
+                    AND result_json IS NULL",
+                &[&row.id, &text, &session.id, &pk, &input.tool],
+            )?;
+            if updated == 0 {
+                return Err(RunError::Other(format!(
+                    "place intent for session {} was not stored",
+                    session.id
+                )));
+            }
+        }
+        owe_completed(
+            x,
+            tx,
+            &row,
+            TokenUsage {
+                input_tokens: 0,
+                output_tokens: 0,
+            },
+        )?;
+        Ok(row)
+    });
+    let action = match written {
+        Ok(a) => a,
+        Err(e) if claimed => return Err(append_failure(x, &session, cx, None, e)),
+        Err(e) => return Err(e),
+    };
+    send(x, &action_key(&action));
+    Ok(ActResult {
+        result,
+        action,
+        replayed: false,
+    })
+}
+
+enum Claim {
+    Claimed,
+    Conflict,
+    Replay(Json, Box<Action>),
+}
+
+fn parse_result(text: &str) -> Result<Json, RunError> {
+    json::parse(text).map_err(|e| RunError::Other(e.message))
+}
+
+/// `storedPlaceIntent`: the same tool and key, with a stored result. Another tool is not a replay.
+fn stored_place_intent(
+    pool: &Pool,
+    session_id: &str,
+    key: &str,
+    tool: &str,
+) -> Result<Option<(Json, Action)>, RunError> {
+    db::with_client(pool, |c| {
+        let rows = c.query(
+            "SELECT action_id::text, result_json FROM agents.agent_place_intents
+              WHERE session_id = $1::text::uuid AND idempotency_key = $2::text AND tool = $3::text
+                AND action_id IS NOT NULL AND result_json IS NOT NULL",
+            &[&session_id, &key, &tool],
+        )?;
+        let Some(r) = rows.first() else {
+            return Ok(None);
+        };
+        let action_id: String = r.try_get(0)?;
+        let text: String = r.try_get(1)?;
+        Ok(audit::by_id(c, &action_id)?.map(|a| (text, a)))
+    })?
+    .map(|(text, a)| Ok((parse_result(&text)?, a)))
+    .transpose()
+}
+
+/// `claimPlaceIntent`: the claim is inserted before `execute`; a row already there with this tool's stored result is a
+/// replay, anything else a conflict.
+fn claim_place_intent(
+    pool: &Pool,
+    session_id: &str,
+    key: &str,
+    tool: &str,
+) -> Result<Claim, RunError> {
+    let found = db::with_client(pool, |c| {
+        let inserted = c.execute(
+            "INSERT INTO agents.agent_place_intents (session_id, idempotency_key, tool, action_id, result_json)
+             VALUES ($1::text::uuid, $2::text, $3::text, NULL, NULL)
+             ON CONFLICT (session_id, idempotency_key) DO NOTHING",
+            &[&session_id, &key, &tool],
+        )?;
+        if inserted > 0 {
+            return Ok(None);
+        }
+        let rows = c.query(
+            "SELECT tool, action_id::text, result_json FROM agents.agent_place_intents
+              WHERE session_id = $1::text::uuid AND idempotency_key = $2::text",
+            &[&session_id, &key],
+        )?;
+        let Some(r) = rows.first() else {
+            return Ok(Some(None));
+        };
+        let (held, action_id, text): (String, Option<String>, Option<String>) =
+            (r.try_get(0)?, r.try_get(1)?, r.try_get(2)?);
+        if let (true, Some(id), Some(text)) = (held == tool, action_id, text)
+            && let Some(a) = audit::by_id(c, &id)?
+        {
+            return Ok(Some(Some((text, a))));
+        }
+        Ok(Some(None))
+    })?;
+    Ok(match found {
+        None => Claim::Claimed,
+        Some(None) => Claim::Conflict,
+        Some(Some((text, a))) => Claim::Replay(parse_result(&text)?, Box::new(a)),
+    })
+}
+
+/// `releasePlaceClaim`: a claim whose `execute` never returned is dropped; a stored place stays.
+fn release_place_claim(
+    pool: &Pool,
+    session_id: &str,
+    key: &str,
+    tool: &str,
+) -> Result<(), RunError> {
+    db::with_client(pool, |c| {
+        c.execute(
+            "DELETE FROM agents.agent_place_intents
+              WHERE session_id = $1::text::uuid AND idempotency_key = $2::text AND tool = $3::text
+                AND result_json IS NULL",
+            &[&session_id, &key, &tool],
+        )?;
+        Ok(())
+    })?;
+    Ok(())
+}
+
+/// \`publishPendingUsageAlerts\`: recorded alerts not yet published, one person's or everyone's, each handed to the
+/// outbox, sent, and marked published once the bus has it; one the bus refuses stays owed there and unpublished here,
+/// and never holds back the ones after it.
 pub fn publish_usage_alerts(x: &Rt<'_>, owner: Option<&str>) -> Result<i64, RunError> {
     let rows = db::with_client(x.pool, |c| {
         Ok(c.query(
@@ -731,7 +1018,12 @@ pub fn publish_usage_alerts(x: &Rt<'_>, owner: Option<&str>) -> Result<i64, RunE
             ("assetId", Json::str(r.try_get::<_, String>(6)?)),
             ("email", Json::Bool(r.try_get(7)?)),
         ]);
-        if publish(x, USAGE_ALERT_CROSSED, &key, payload).is_err() {
+        // Owed in the outbox (a second sweep's write keeps the first), sent, and marked published once the bus has it.
+        db::with_client(x.pool, |c| {
+            owe(x, c, USAGE_ALERT_CROSSED, &key, payload)
+                .map_err(|e| StoreError::new(format!("{e:?}"), None))
+        })?;
+        if !sent(x, &key) {
             continue;
         }
         db::with_client(x.pool, |c| {
@@ -750,7 +1042,7 @@ pub fn publish_usage_alerts(x: &Rt<'_>, owner: Option<&str>) -> Result<i64, RunE
 /// \`retryUnpaidWindows\`: the person's sealed, unpaid windows retried smallest first on their own keys; the first the
 /// ledger does not take stops the retry, and it and every larger one stay owed.
 pub fn retry_unpaid_windows(x: &Rt<'_>, user_id: &str) -> Result<Amount, RunError> {
-    let mut owed = 0;
+    let mut owed = Amount::ZERO;
     let mut stopped = false;
     for (session_id, window_id, amount) in meter::unpaid_windows(x.pool, user_id)? {
         if !stopped {
@@ -794,7 +1086,7 @@ pub fn usage_cost(
     output_tokens: i64,
     price: &Price,
 ) -> Result<Amount, RunError> {
-    let cost = |t: i64, p: Amount| token_cost(Amount::from(t), p).map_err(|e| RunError::Other(e.0));
+    let cost = |t: i64, p: Amount| token_cost(i128::from(t), p).map_err(|e| RunError::Other(e.0));
     Ok(cost(input_tokens, price.input_per_million)?
         + cost(output_tokens, price.output_per_million)?)
 }
@@ -963,7 +1255,7 @@ pub fn think(x: &Rt<'_>, input: &ThinkInput<'_>) -> Result<ThinkResult, RunError
     if should_meter {
         let owed = retry_unpaid_windows(x, &s.user_id)?;
         let grace = x.rt.overage_grace;
-        if owed > 0 && grace.is_none_or(|g| owed > g) {
+        if owed > Amount::ZERO && grace.is_none_or(|g| owed > g) {
             let refusal = match grace {
                 None => refuse(
                     "agents.overage_grace_unset",
@@ -1002,12 +1294,15 @@ pub fn think(x: &Rt<'_>, input: &ThinkInput<'_>) -> Result<ThinkResult, RunError
     }
 
     // 2a · Funds, only for a runtime wired without a spend gate (with one, the hold checks them under its lock).
-    let funds = x.rt.funds.as_deref().filter(|_| should_meter && worst > 0);
+    let funds =
+        x.rt.funds
+            .as_deref()
+            .filter(|_| should_meter && worst > Amount::ZERO);
     if !x.rt.spend
         && let Some(f) = funds
     {
         let outcome = match f.available(x.pool, &s.user_id, fee, &s.agent_id, &s.id) {
-            Ok(reading) => funds::shortfall(&reading, 0, worst),
+            Ok(reading) => funds::shortfall(&reading, Amount::ZERO, worst),
             Err(u) => Some(Outcome::Unread(u)),
         };
         if let Some(o) = outcome {
@@ -1212,7 +1507,7 @@ pub fn think(x: &Rt<'_>, input: &ThinkInput<'_>) -> Result<ThinkResult, RunError
                 model: Some(&route.model),
                 input_tokens: usage.input_tokens,
                 output_tokens: usage.output_tokens,
-                cost: if recorded { cost } else { 0 },
+                cost: if recorded { cost } else { Amount::ZERO },
                 user_message_key: "agents.action.completed",
                 user_message_params: vec![audit::param("task", input.task)],
                 input_digest: Some(&input_digest),
@@ -1233,6 +1528,7 @@ pub fn think(x: &Rt<'_>, input: &ThinkInput<'_>) -> Result<ThinkResult, RunError
             // The cap counts this call's cost even when metering is off; the row's zero is the bill, not the cap.
             holds::commit_in(tx, &s.user_id, &key, cost).map_err(RunError::from)?;
         }
+        owe_completed(x, tx, &action, usage)?;
         Ok((action, recorded, window))
     });
     let (action, metered, window_id) = match committed {
@@ -1256,14 +1552,14 @@ pub fn think(x: &Rt<'_>, input: &ThinkInput<'_>) -> Result<ThinkResult, RunError
         }
     };
 
-    publish_completed(x, &action, usage)?;
+    send(x, &action_key(&action));
     if reserved.is_some() && own {
         let _ = publish_usage_alerts(x, Some(&s.user_id));
     }
     Ok(ThinkResult {
         text: done.result.text,
         usage,
-        cost: if metered { cost } else { 0 },
+        cost: if metered { cost } else { Amount::ZERO },
         metered,
         window_id,
         route,

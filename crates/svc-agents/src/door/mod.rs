@@ -5,7 +5,8 @@
 //!
 //! 1. the call is found and its method checked;
 //! 2. who may call: a scoped call needs a signed-in caller (`protectedProcedure`), then `scopedProcedure`'s guards in
-//!    their order (a service on the request refused for a person's call, the scope with its interactive-only and
+//!    their order (a service on the request refused for a person's call, a key or a sub-account on a person-only call
+//!    refused with the call's own code, the scope with its interactive-only and
 //!    two-factor rules, the region for the `agents` module); a service call needs a verified service, one the call
 //!    lists (`serviceProcedureFor`) or svc-agents itself (`requireSettleService`);
 //! 3. the call's own middleware before its input: a person-only check (a key or a sub-account refused with the call's
@@ -35,10 +36,14 @@ use service_kit::trpc::{self, TrpcError};
 
 use crate::advisors::Advisors;
 use crate::db::Store;
+use crate::factories::Factories;
 use crate::gateway::desk::GatewaySlice;
 use crate::gateway::readiness::{self, ReadyInput};
 use crate::metering::Metering;
+use crate::ops::Ops;
+use crate::own::Own;
 use crate::runtime::Runtime;
+use crate::team::Team;
 
 /// A query answers GET, a mutation POST.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -88,7 +93,7 @@ pub struct Post {
     pub lacks_identity_write: bool,
 }
 
-/// Which slice of the port owns a call's handler (`PORT.md`, `## Slices`). `Door` is answered here (`health`).
+/// Which slice of the port owns a call's handler (`README.md`, `## Slices`). `Door` is answered here (`health`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Slice {
     Door,
@@ -105,10 +110,11 @@ pub enum Slice {
     OwnRuns,
     OwnControls,
     OwnSharing,
+    Webhooks,
 }
 
 impl Slice {
-    pub const ALL: [Slice; 14] = [
+    pub const ALL: [Slice; 15] = [
         Slice::Door,
         Slice::Gateway,
         Slice::Runtime,
@@ -123,9 +129,10 @@ impl Slice {
         Slice::OwnRuns,
         Slice::OwnControls,
         Slice::OwnSharing,
+        Slice::Webhooks,
     ];
 
-    /// The slice's name in `PORT.md`.
+    /// The slice's name in `README.md`.
     pub fn name(self) -> &'static str {
         match self {
             Slice::Door => "door",
@@ -142,6 +149,7 @@ impl Slice {
             Slice::OwnRuns => "own-runs",
             Slice::OwnControls => "own-controls",
             Slice::OwnSharing => "own-sharing",
+            Slice::Webhooks => "webhooks",
         }
     }
 }
@@ -195,6 +203,9 @@ pub struct Ctx<'a> {
     pub service: Option<&'a str>,
     pub region: &'a str,
     pub now: Instant,
+    /// `forwardedPrincipalHeaders(ctx)`: the edge-signed principal, byte for byte, its signature and its region, for a
+    /// call made while acting for this person; empty without a verified principal.
+    pub forwarded: Vec<(String, String)>,
 }
 
 /// The answer of a call whose slice is not ported yet: the door's checks passed, and nothing past them is served.
@@ -273,10 +284,15 @@ pub struct DoorConfig {
     pub metering: Metering,
     /// The runtime's own settings: the spend gate, the funds, the transcript and the grace (`runtime`).
     pub runtime: Runtime,
+    /// The operator desks' owner values: the log's reasons, limit and retention, the registry's page, the baseline.
+    pub ops: Ops,
     /// The owner's values for a session's background runs (`background`).
     pub background: crate::background::Settings,
     /// The advisors' curriculum, holdings, prices and switches (`advisors`).
     pub advisors: Advisors,
+    /// The own agents' templates and owner values (`own-builder`).
+    pub own: Own,
+    pub team: Team,
 }
 
 pub struct AgentsDoor {
@@ -293,8 +309,14 @@ pub struct AgentsDoor {
     ready: ReadyInput,
     metering: Metering,
     runtime: Runtime,
+    factories: Factories,
+    ops: Ops,
     background: crate::background::Settings,
     advisors: Advisors,
+    own: Own,
+    team: Team,
+    /// The run webhooks (`webhooks`); none, every webhook call refuses `agents.webhooks_unwired`.
+    webhooks: Option<crate::webhooks::RunWebhooks>,
 }
 
 /// The system clock.
@@ -338,14 +360,36 @@ impl AgentsDoor {
             ready: config.ready,
             metering: config.metering,
             runtime: config.runtime,
+            factories: Factories::unwired(),
+            ops: config.ops,
             background: config.background,
             advisors: config.advisors,
+            own: config.own,
+            team: config.team,
+            webhooks: None,
         })
     }
 
     /// Also believes principals the edge signed with its key (`EDGE_PRINCIPAL_PUBLIC_KEY`).
     pub fn with_edge_key(mut self, key: EdgeKey) -> AgentsDoor {
         self.edge_key = Some(key);
+        self
+    }
+
+    /// The door with the run webhooks (`webhooks`); without them every webhook call refuses by name.
+    pub fn with_webhooks(mut self, webhooks: crate::webhooks::RunWebhooks) -> AgentsDoor {
+        self.webhooks = Some(webhooks);
+        self
+    }
+
+    /// The run webhooks, when wired.
+    pub fn webhooks(&self) -> Option<&crate::webhooks::RunWebhooks> {
+        self.webhooks.as_ref()
+    }
+
+    /// The door with the factories' live ports (\`factories\`); without them every live run refuses.
+    pub fn with_factories(mut self, factories: Factories) -> AgentsDoor {
+        self.factories = factories;
         self
     }
 
@@ -364,6 +408,11 @@ impl AgentsDoor {
         &self.gateway
     }
 
+    /// The operator desks' owner values.
+    pub fn ops(&self) -> &Ops {
+        &self.ops
+    }
+
     /// The runtime's own settings.
     pub fn runtime(&self) -> &Runtime {
         &self.runtime
@@ -374,7 +423,12 @@ impl AgentsDoor {
         self.background
     }
 
-    /// The slices' answers: the door's own call, the ported slices, and "not ported" for the rest.
+    /// The own agents' templates and owner values.
+    pub fn own(&self) -> &Own {
+        &self.own
+    }
+
+    /// The slices' answers: the door's own call and every slice.
     fn handle_call(&self, ctx: &Ctx<'_>) -> Result<Option<Json>, TrpcError> {
         match ctx.call.slice {
             Slice::Door => Ok(Some(Json::obj([
@@ -384,6 +438,22 @@ impl AgentsDoor {
             Slice::Gateway => self.gateway.handle(&self.store, ctx),
             Slice::Metering => crate::metering::slice::handle(ctx, &self.store, &self.metering),
             Slice::Runtime => crate::runtime::slice::handle(
+                ctx,
+                &self.store,
+                &self.gateway,
+                &self.metering,
+                &self.runtime,
+            ),
+            Slice::Factories => crate::factories::handle(
+                ctx,
+                &self.store,
+                &self.gateway,
+                &self.metering,
+                &self.runtime,
+                &self.factories,
+            ),
+            Slice::Ops => crate::ops::handle(ctx, &self.store, &self.metering, &self.ops),
+            Slice::Navigator => crate::navigator::slice::handle(
                 ctx,
                 &self.store,
                 &self.gateway,
@@ -409,7 +479,57 @@ impl AgentsDoor {
                     jurisdiction: &self.jurisdiction,
                 },
             ),
-            other => Err(not_ported(other)),
+            Slice::OwnBuilder => crate::own::slice::handle(
+                ctx,
+                &crate::own::slice::Deps {
+                    store: &self.store,
+                    gateway: &self.gateway,
+                    m: &self.metering,
+                    rt: &self.runtime,
+                    own: &self.own,
+                },
+            ),
+            Slice::OwnRuns => crate::own::runs::handle(
+                ctx,
+                &crate::own::slice::Deps {
+                    store: &self.store,
+                    gateway: &self.gateway,
+                    m: &self.metering,
+                    rt: &self.runtime,
+                    own: &self.own,
+                },
+            ),
+            Slice::OwnControls => crate::own::controls::slice::handle(
+                ctx,
+                &crate::own::controls::slice::Deps {
+                    store: &self.store,
+                    gateway: &self.gateway,
+                    m: &self.metering,
+                    rt: &self.runtime,
+                    own: &self.own,
+                },
+            ),
+            Slice::OwnSharing => crate::own::sharing_slice::handle(
+                ctx,
+                &crate::own::sharing_slice::Deps {
+                    store: &self.store,
+                    rt: &self.runtime,
+                    own: &self.own,
+                },
+            ),
+            Slice::Team => crate::team::slice::handle(
+                ctx,
+                &crate::team::slice::Deps {
+                    store: &self.store,
+                    gateway: &self.gateway,
+                    m: &self.metering,
+                    rt: &self.runtime,
+                    team: &self.team,
+                },
+            ),
+            Slice::Webhooks => {
+                crate::webhooks::slice::handle(ctx, &self.store, self.webhooks.as_ref())
+            }
         }
     }
 
@@ -472,6 +592,13 @@ impl AgentsDoor {
                 if g.person && service.is_some() {
                     return Err(forbidden(SESSION_REQUIRED));
                 }
+                // The person's own call: a key or a sub-account is told so before the scope, never to ask for a
+                // scope no key can hold (`scopedProcedure`'s `ownSession`, J-agents-12 #3).
+                if let Pre::PersonOnly(code) = call.pre
+                    && delegated(p)
+                {
+                    return Err(forbidden(code));
+                }
                 access::require_scope(p, g.scope).map_err(TrpcError::guard)?;
                 if g.module {
                     self.jurisdiction
@@ -502,14 +629,24 @@ impl AgentsDoor {
 
         let now = (self.now)();
         let region = trpc::header(req, "x-intafaced-region").unwrap_or_else(|| "XX".to_owned());
+        let raw_principal = trpc::header(req, "x-intafaced-principal");
+        let principal_signature = trpc::header(req, "x-intafaced-principal-sig");
         let principal = edge::verify_with(
-            trpc::header(req, "x-intafaced-principal").as_deref(),
-            trpc::header(req, "x-intafaced-principal-sig").as_deref(),
+            raw_principal.as_deref(),
+            principal_signature.as_deref(),
             &self.secret,
             self.edge_key.as_ref(),
             now,
             &region,
         );
+        let forwarded = match (&principal, raw_principal, principal_signature) {
+            (Some(_), Some(raw), Some(sig)) if !raw.is_empty() && !sig.is_empty() => vec![
+                ("x-intafaced-principal".to_owned(), raw),
+                ("x-intafaced-principal-sig".to_owned(), sig),
+                ("x-intafaced-region".to_owned(), region.clone()),
+            ],
+            _ => Vec::new(),
+        };
         let service = self.services.service(req, now.0.div_euclid(1000));
         self.admit(call, principal.as_ref(), service.as_deref(), &region)?;
 
@@ -563,6 +700,7 @@ impl AgentsDoor {
             service: service.as_deref(),
             region: &region,
             now,
+            forwarded,
         })
     }
 }

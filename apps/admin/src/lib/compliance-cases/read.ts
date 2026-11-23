@@ -1,14 +1,20 @@
 import 'server-only';
 import {
   complianceCaseSchema,
-  complianceCasesListOutputSchema,
   complianceInboxEntrySchema,
   type ComplianceCase,
   type ComplianceCasesListOutput,
   type ComplianceInboxEntry,
 } from '@intafaced/contracts';
-import { founderCall, parseWith, type FounderCallContext, partFrom, type Part } from '@/lib/desk';
+import { type FounderCallContext, partFrom, type Part, founderRecordRead, founderRecordCall } from '@/lib/desk';
 import { refusalWords, type RoomQuery } from './model';
+import {
+  OPS_COMPLIANCE_INBOXES_LIST,
+  OPS_COMPLIANCE_CASES_LIST,
+  OPS_COMPLIANCE_INBOXES_ACCESS,
+  OPS_COMPLIANCE_CASES_GET_BY_ID,
+  OPS_COMPLIANCE_CASES_NEXT,
+} from '@intafaced/contracts/ops-compliance-procedures';
 
 const labels = {
   service: 'svc-ops',
@@ -62,48 +68,29 @@ export interface CaseRoom {
 
 /** Everything the room shows, each part read on its own so one failure never hides the others. */
 export async function readCaseRoom(ctx: FounderCallContext, q: RoomQuery): Promise<CaseRoom> {
-  const inboxes = partFrom(
-    await founderCall(ctx, 'ops', 'compliance.inboxes.list', 'GET', undefined, parseInboxList),
-    (d) => d.inboxes,
-    labels,
-  );
+  const inboxes = partFrom(await founderRecordRead(ctx, OPS_COMPLIANCE_INBOXES_LIST, undefined, parseInboxList), (d) => d.inboxes, labels);
   let list: CaseRoom['list'] = null;
   let access: CaseRoom['access'] = null;
   if (q.inboxId) {
-    const result = await founderCall(
-      ctx,
-      'ops',
-      'compliance.cases.list',
-      'GET',
-      {
-        inboxId: q.inboxId,
-        filter: q.filter,
-        groupByReviewLevel: q.group,
-        ...(q.limit !== null ? { limit: q.limit } : {}),
-        ...(q.cursor ? { cursor: q.cursor } : {}),
-      },
-      parseWith(complianceCasesListOutputSchema),
-    );
+    const result = await founderRecordCall(ctx, OPS_COMPLIANCE_CASES_LIST, {
+      inboxId: q.inboxId,
+      filter: q.filter,
+      groupByReviewLevel: q.group,
+      ...(q.limit !== null ? { limit: q.limit } : {}),
+      ...(q.cursor ? { cursor: q.cursor } : {}),
+    });
     list = partFrom(result, (d) => d, labels);
     if (result.kind === 'refused' && result.refusal.code === 'compliance.inbox_forbidden') {
-      access = partFrom(
-        await founderCall(ctx, 'ops', 'compliance.inboxes.access', 'GET', { inboxId: q.inboxId }, parseAccess),
-        (d) => d,
-        labels,
-      );
+      access = partFrom(await founderRecordRead(ctx, OPS_COMPLIANCE_INBOXES_ACCESS, { inboxId: q.inboxId }, parseAccess), (d) => d, labels);
     }
   }
   let preview: CaseRoom['preview'] = null;
   let nextEmpty = false;
   if (q.caseId) {
-    preview = partFrom(
-      await founderCall(ctx, 'ops', 'compliance.cases.getById', 'GET', { id: q.caseId }, parseWith(complianceCaseSchema)),
-      (d) => d,
-      labels,
-    );
+    preview = partFrom(await founderRecordCall(ctx, OPS_COMPLIANCE_CASES_GET_BY_ID, { id: q.caseId }), (d) => d, labels);
   } else if (q.next && q.inboxId) {
     const found = partFrom(
-      await founderCall(ctx, 'ops', 'compliance.cases.next', 'GET', { inboxId: q.inboxId }, parseNext),
+      await founderRecordRead(ctx, OPS_COMPLIANCE_CASES_NEXT, { inboxId: q.inboxId }, parseNext),
       (d) => d.case,
       labels,
     );

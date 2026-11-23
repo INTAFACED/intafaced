@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, scopedProcedure, TRPCError, publicProcedure } from '@intafaced/contracts';
+import { router, scopedProcedure, TRPCError, publicProcedure } from '@intafaced/contracts/trpc';
 import {
   BANK_GLOBAL_CANCEL,
   BANK_GLOBAL_CORRIDORS_LIST,

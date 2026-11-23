@@ -19,7 +19,8 @@ import type { ApiResult } from '../../shared/api';
 import { base64Of, kib } from '../../shared/file-base64';
 import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
-import { Button, Failure, Field, Loading } from '../../shared/ui';
+import { Button, Field } from '@intafaced/ui/lit';
+import { Failure, Loading } from './kit-parts';
 import { verificationGuidedCopy as copy } from './verification-guided-copy';
 
 type Tier = KycProfileDraft['tier'];
@@ -109,7 +110,7 @@ export function VerificationGuided({ tier, disabled, onSent }: { tier: Tier; dis
     const open = draft && !draft.recordId ? draft : null;
     if (!open)
       return (
-        <div className="stack">
+        <div className="lt-stack">
           {draft?.recordId && sent && (
             <p role="status" data-testid="verification__guided-sent">
               <Copy k="sent" />
@@ -121,14 +122,15 @@ export function VerificationGuided({ tier, disabled, onSent }: { tier: Tier; dis
             </p>
           )}
           {documentCheck === 'not_connected' && (
-            <p className="muted" data-testid="verification__guided-manual">
+            <p className="lt-muted" data-testid="verification__guided-manual">
               <Copy k="manualReview" />
             </p>
           )}
-          <p className="muted">
+          <p className="lt-muted">
             <Copy k="startLevel" params={{ level: t(tier) }} />
           </p>
           <Button
+            tone="primary"
             disabled={disabled || busy}
             onClick={() => {
               setSent(false);
@@ -142,15 +144,15 @@ export function VerificationGuided({ tier, disabled, onSent }: { tier: Tier; dis
     const shown = Math.min(view ?? open.step, open.step);
     const name = (n: number) => t(KYC_PROFILE_STEPS[n - 1]!);
     return (
-      <div className="stack">
-        <p className="muted" data-testid="verification__guided-level" data-level={open.tier}>
+      <div className="lt-stack">
+        <p className="lt-muted" data-testid="verification__guided-level" data-level={open.tier}>
           <Copy k="startLevel" params={{ level: t(open.tier) }} />
           {open.tier !== tier && (
             <>
               {' '}
               <button
                 type="button"
-                className="text-link"
+                className="lt-link"
                 disabled={busy || disabled}
                 onClick={() => void run(() => api.call(IDENTITY_KYC_PROFILE_START, { tier }), uploadCaps)}
               >
@@ -164,15 +166,15 @@ export function VerificationGuided({ tier, disabled, onSent }: { tier: Tier; dis
             <Copy k="resume" params={{ step: String(open.step), name: name(open.step) }} />
           </p>
         )}
-        <ol className="verification__guided-steps" data-testid="verification__guided-steps" aria-label={t('stepsLabel')}>
+        <ol className="lt-list" data-testid="verification__guided-steps" aria-label={t('stepsLabel')}>
           {KYC_PROFILE_STEPS.map((step, i) => (
             <li key={step} data-step={step} aria-current={i + 1 === shown ? 'step' : undefined}>
               {i + 1 <= open.step ? (
-                <button type="button" className="text-link" disabled={busy} onClick={() => setView(i + 1)}>
+                <button type="button" className="lt-link" disabled={busy} onClick={() => setView(i + 1)}>
                   {i + 1}. <Copy k={step} />
                 </button>
               ) : (
-                <span className="muted">
+                <span className="lt-muted">
                   {i + 1}. <Copy k={step} />
                 </span>
               )}
@@ -222,11 +224,11 @@ export function VerificationGuided({ tier, disabled, onSent }: { tier: Tier; dis
   };
 
   return (
-    <section className="verification__cases" aria-labelledby="verification-guided-title" data-testid="verification__guided">
+    <section className="lt-stack" aria-labelledby="verification-guided-title" data-testid="verification__guided">
       <h2 id="verification-guided-title">
         <Copy k="title" />
       </h2>
-      <p className="muted">
+      <p className="lt-muted">
         <Copy k="intro" />
       </p>
       {body()}
@@ -290,7 +292,7 @@ function GuidedStep({
     onSave(step as KycProfileFieldStep, fields);
   };
   const saveButton = (
-    <Button type="submit" disabled={busy}>
+    <Button tone="primary" type="submit" disabled={busy}>
       <Copy k={busy ? 'saving' : 'save'} />
     </Button>
   );
@@ -298,7 +300,7 @@ function GuidedStep({
   if (step === 'residence')
     return (
       <form
-        className="form-stack"
+        className="lt-stack"
         onSubmit={(e) => submit(e, { residence: trimmed('residence').toUpperCase(), nationality: trimmed('nationality').toUpperCase() })}
       >
         {field('residence', t('residenceField'), { required: true, maxLength: 2, pattern: '[a-zA-Z]{2}', hint: t('countryHint') })}
@@ -309,7 +311,7 @@ function GuidedStep({
   if (step === 'identity')
     return (
       <form
-        className="form-stack"
+        className="lt-stack"
         onSubmit={(e) =>
           submit(e, { legalName: trimmed('legalName'), localName: optional('localName'), dateOfBirth: trimmed('dateOfBirth') })
         }
@@ -332,12 +334,12 @@ function GuidedStep({
     const chosen = types.data.types.find((row) => row.type === values.documentType) ?? null;
     return (
       <form
-        className="form-stack"
+        className="lt-stack"
         data-testid="verification__guided-doc-types"
         data-published="true"
         onSubmit={(e) => submit(e, { documentType: trimmed('documentType'), documentNumber: trimmed('documentNumber') })}
       >
-        <label className="field">
+        <label className="lt-field">
           <span>
             <Copy k="documentTypeField" />
           </span>
@@ -356,7 +358,7 @@ function GuidedStep({
           </select>
         </label>
         {chosen?.originalRequired && (
-          <p className="muted">
+          <p className="lt-muted">
             <Copy k="originalRequired" />
           </p>
         )}
@@ -368,7 +370,7 @@ function GuidedStep({
   if (step === 'address')
     return (
       <form
-        className="form-stack"
+        className="lt-stack"
         onSubmit={(e) => submit(e, { addressLine: trimmed('addressLine'), city: trimmed('city'), postalCode: trimmed('postalCode') })}
       >
         {field('addressLine', t('addressLineField'), { required: true, maxLength: 200 })}
@@ -386,7 +388,7 @@ function GuidedStep({
       );
     return (
       <form
-        className="form-stack"
+        className="lt-stack"
         onSubmit={(event) => {
           event.preventDefault();
           if (!file) return;
@@ -403,7 +405,7 @@ function GuidedStep({
         }}
       >
         {f.documentId && (
-          <p className="muted">
+          <p className="lt-muted">
             <Copy k="fileStored" />
           </p>
         )}
@@ -422,7 +424,7 @@ function GuidedStep({
             setFile(event.target.files?.[0] ?? null);
           }}
         />
-        <Button type="submit" disabled={busy || !file}>
+        <Button tone="primary" type="submit" disabled={busy || !file}>
           <Copy k="uploadButton" />
         </Button>
       </form>
@@ -445,7 +447,7 @@ function GuidedStep({
     [t('postalCodeField'), f.postalCode],
   ];
   return (
-    <div className="stack" data-testid="verification__guided-review">
+    <div className="lt-stack" data-testid="verification__guided-review">
       <dl>
         {rows.map(([label, value]) => (
           <div key={label}>
@@ -454,8 +456,8 @@ function GuidedStep({
           </div>
         ))}
       </dl>
-      <p className="muted">{f.documentId ? <Copy k="fileStored" /> : <Copy k="notEntered" />}</p>
-      <Button disabled={busy} onClick={onSend}>
+      <p className="lt-muted">{f.documentId ? <Copy k="fileStored" /> : <Copy k="notEntered" />}</p>
+      <Button tone="primary" disabled={busy} onClick={onSend}>
         <Copy k="send" />
       </Button>
     </div>

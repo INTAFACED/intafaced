@@ -11,7 +11,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
-import { TRPCError, type Context } from '@intafaced/contracts';
+import type { Context } from '@intafaced/contracts';
+import { TRPCError } from '@intafaced/contracts/trpc';
 import {
   DEVELOPER_SUPPORT_KEY_NOT_FOUND,
   DEVELOPER_SUPPORT_REQUEST_NOT_FOUND,

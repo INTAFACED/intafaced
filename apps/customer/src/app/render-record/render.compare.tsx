@@ -10,11 +10,14 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { afterAll, describe, expect, it, vi } from 'vitest';
+import { rawCustomerText } from './customer-words';
 import { renderPart, type Part } from './harness';
 import { fileOf, STATES } from './parts';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 vi.useFakeTimers({ toFake: ['Date'] });
+// 203 parts in one worker peak at 1.8 GB without the harness's collection (harness.tsx collectAbove).
+if (!(globalThis as { gc?: unknown }).gc) throw new Error('the render recording needs --expose-gc: run it with vitest.render.config.ts');
 
 // Paths from the package root, where vitest runs (happy-dom's URL can't make a file path from import.meta.url).
 const DIR = 'render-record';
@@ -58,6 +61,8 @@ describe('the Customer app renders what main recorded, part by part', () => {
 
   it.each(parts.map((part) => [part.name, part]))('%s', async (_name, part) => {
     const now = `${lines(await renderPart(part as Part))}\n`;
+    // What a customer reads carries no raw id, internal code or placeholder address (customer-words.ts), recorded or not.
+    expect(rawCustomerText((part as Part).name, now), `${(part as Part).name} shows text no customer should read`).toEqual([]);
     const path = `${DIR}/${fileOf((part as Part).name)}`;
     if (RECORD) return writeFileSync(path, now);
     if (!existsSync(path)) {

@@ -2,23 +2,24 @@
 //! engine's call and writes the engine's answer as the TypeScript writes it.
 //!
 //! The `triggers` slice's parts ride the same doors: a stop, a stop-limit, an OCO, a trailing stop and a dated expiry
-//! are submits, and `POST /markets/:marketId/mark` walks the trailing stops. An order that names a part only a later
-//! slice serves (an iceberg, a peg, all-or-none, an auction, an option or a combo) is that slice's: the door owes it and
-//! the engine never sees it.
+//! are submits, and `POST /markets/:marketId/mark` walks the trailing stops. The `liquidity` slice's parts (an iceberg,
+//! a peg, all-or-none, an auction) and the `spreads` slice's options and combos are submits too.
 
 use service_kit::json::Json;
 use service_kit::money::{Amount, format_amount, parse_amount};
 use service_kit::schema::Value;
 use service_kit::server::{Request, Response};
 
-use super::{Outcome, Route, Slice, published_limit, query};
+use super::{Outcome, Route, published_limit, query};
 use crate::book::QueueLevel;
-use crate::book::types::{CancelReason, EngineAmend, EngineOrder, Opt, OrderType, Side, Tif};
+use crate::book::types::{
+    CancelReason, ComboLeg, EngineAmend, EngineOrder, Opt, OrderType, Side, Tif,
+};
 use crate::engine::reconcile::{CounterpartOrder, reconcile};
 use crate::engine::{EngineError, Flags, MatchingEngine};
 use crate::errors;
 
-fn ok(body: Json) -> Outcome {
+pub(super) fn ok(body: Json) -> Outcome {
     Outcome::Answer(Response {
         status: 200,
         body: body.compact(),
@@ -29,21 +30,21 @@ fn not_found(code: &str, copy: &str) -> Outcome {
     Outcome::Answer(errors::plain(404, code, &errors::user_copy(copy)))
 }
 
-fn failed(e: &EngineError) -> Outcome {
+pub(super) fn failed(e: &EngineError) -> Outcome {
     Outcome::Answer(errors::thrown(&e.to_string()))
 }
 
-fn text(v: &Value) -> String {
+pub(super) fn text(v: &Value) -> String {
     v.as_str().unwrap_or("").to_owned()
 }
 
 /// A checked decimal string (`parseAmount`); the schema has already refused anything else.
-fn amount(v: &Value) -> Result<Amount, String> {
+pub(super) fn amount(v: &Value) -> Result<Amount, String> {
     parse_amount(v.as_str().unwrap_or(""))
 }
 
 /// `value == null ? null : parseAmount(value)`.
-fn nullish_amount(v: &Value) -> Result<Option<Amount>, String> {
+pub(super) fn nullish_amount(v: &Value) -> Result<Option<Amount>, String> {
     match v {
         Value::Undefined | Value::Null => Ok(None),
         _ => amount(v).map(Some),
@@ -59,38 +60,8 @@ fn opt_amount(v: &Value) -> Result<Opt<Amount>, String> {
     }
 }
 
-fn is_true(v: &Value) -> bool {
+pub(super) fn is_true(v: &Value) -> bool {
     matches!(v, Value::Bool(true))
-}
-
-/// The slice that owes a submit naming one of its parts, or none for an order this slice serves.
-pub fn submit_owed_by(body: &Value) -> Option<Slice> {
-    let present = |k: &str| !matches!(body.get(k), Value::Undefined);
-    let set = |k: &str| !matches!(body.get(k), Value::Undefined | Value::Null);
-    if is_true(body.get("iceberg"))
-        || set("displayQty")
-        || [
-            "aon",
-            "peg",
-            "midpoint",
-            "relative",
-            "reference",
-            "offset",
-            "auction",
-            "benchmark",
-        ]
-        .iter()
-        .any(|k| present(k))
-    {
-        return Some(Slice::Liquidity);
-    }
-    if ["strike", "expiry", "combo", "legs"]
-        .iter()
-        .any(|k| present(k))
-    {
-        return Some(Slice::Spreads);
-    }
-    None
 }
 
 /// `toEngineOrder` for an order this slice serves.
@@ -147,17 +118,66 @@ fn to_engine_order(body: &Value) -> Result<EngineOrder, String> {
         Value::Undefined => Opt::Absent,
         v => Opt::Some(is_true(v)),
     };
+    // The liquidity parts, as `toEngineOrder` copies them: each present one, and an iceberg with or without its display.
+    if is_true(body.get("iceberg"))
+        || !matches!(body.get("displayQty"), Value::Undefined | Value::Null)
+    {
+        order.iceberg = true;
+        order.display_qty = match nullish_amount(body.get("displayQty"))? {
+            None => Opt::Null,
+            Some(d) => Opt::Some(d),
+        };
+    }
+    let flag = |k: &str| match body.get(k) {
+        Value::Undefined => Opt::Absent,
+        v => Opt::Some(is_true(v)),
+    };
+    order.aon = flag("aon");
+    order.peg = flag("peg");
+    order.midpoint = flag("midpoint");
+    order.relative = flag("relative");
+    order.reference = opt_amount(body.get("reference"))?;
+    order.offset = opt_amount(body.get("offset"))?;
+    order.auction = flag("auction");
+    order.benchmark = flag("benchmark");
     order.min = opt_amount(body.get("min"))?;
     order.max = opt_amount(body.get("max"))?;
     order.min_notional = opt_amount(body.get("minNotional"))?;
+    order.strike = opt_amount(body.get("strike"))?;
+    order.expiry = match body.get("expiry") {
+        Value::Undefined => Opt::Absent,
+        Value::Null => Opt::Null,
+        v => Opt::Some(text(v)),
+    };
+    order.combo = match body.get("combo") {
+        Value::Undefined => Opt::Absent,
+        v => Opt::Some(is_true(v)),
+    };
+    order.legs = match body.get("legs") {
+        Value::Undefined => Opt::Absent,
+        Value::Null => Opt::Null,
+        Value::Array(legs) => Opt::Some(
+            legs.iter()
+                .map(|leg| {
+                    Ok(ComboLeg {
+                        name: leg.get("name").as_str().map(str::to_owned),
+                        ratio: nullish_amount(leg.get("ratio"))?,
+                        strike: nullish_amount(leg.get("strike"))?,
+                        expiry: leg.get("expiry").as_str().map(str::to_owned),
+                    })
+                })
+                .collect::<Result<Vec<_>, String>>()?,
+        ),
+        _ => return Err("legs".to_owned()),
+    };
     Ok(order)
 }
 
-fn proof(body: &Value) -> Option<Json> {
+pub(super) fn proof(body: &Value) -> Option<Json> {
     body.get("lifecycleProof").to_json()
 }
 
-fn flags_fields(f: Flags) -> Vec<(String, Json)> {
+pub(super) fn flags_fields(f: Flags) -> Vec<(String, Json)> {
     vec![
         ("venueHalted".into(), Json::Bool(f.venue_halted)),
         ("halted".into(), Json::Bool(f.halted)),
@@ -169,7 +189,7 @@ fn flags_fields(f: Flags) -> Vec<(String, Json)> {
     ]
 }
 
-fn ladder(levels: &[(Amount, Amount)]) -> Json {
+pub(super) fn ladder(levels: &[(Amount, Amount)]) -> Json {
     Json::Array(
         levels
             .iter()
@@ -256,7 +276,7 @@ fn board(engine: &MatchingEngine) -> Json {
     ])
 }
 
-fn limit_of(req: &Request<'_>) -> usize {
+pub(super) fn limit_of(req: &Request<'_>) -> usize {
     query(req.url)
         .iter()
         .find(|(k, _)| k == "limit")
@@ -294,9 +314,6 @@ pub fn serve(
     let market = param("marketId");
     match (route.method, route.path) {
         ("POST", "/markets/:marketId/orders") => {
-            if let Some(slice) = submit_owed_by(body) {
-                return Outcome::Owed(slice);
-            }
             let order = match to_engine_order(body) {
                 Ok(o) => o,
                 Err(e) => return Outcome::Answer(errors::thrown(&e)),
@@ -357,6 +374,7 @@ pub fn serve(
                         Some(t) => Some(Tif::parse(t).ok_or("tif")?),
                     },
                     expire_at: None,
+                    ..EngineAmend::default()
                 })
             })();
             let cmd = match cmd {

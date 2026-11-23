@@ -45,6 +45,8 @@ fn store_error(e: StoreError) -> TrpcError {
         message: e.message,
         intafaced_code: None,
         cause: e.code,
+        preview: None,
+        spend: None,
     }
 }
 

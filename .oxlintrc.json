@@ -42,6 +42,7 @@
     "garden/no-journey-sql-read": "error",
     "garden/no-hand-row": "error",
     "garden/no-hand-clock": "error",
+    "garden/test-postgres-helper": "error",
     "garden/no-raw-stored-search": "error",
     "garden/no-call-by-name": "error",
     "garden/no-runtime-swap": "error",
@@ -71,7 +72,19 @@
         "no-console": "error",
         "max-params": ["error", { "max": 3 }],
         "typescript/consistent-type-assertions": ["error", { "assertionStyle": "never" }],
-        "typescript/no-non-null-assertion": "error"
+        "typescript/no-non-null-assertion": "error",
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "@intafaced/contracts",
+                "allowTypeImports": true,
+                "message": "The barrel runs all 210 contract files (40 MB in each service). Import the file that defines the name: @intafaced/contracts/<file>. node tooling/codemod/contracts-subpaths/rewrite.mjs rewrites it."
+              }
+            ]
+          }
+        ]
       }
     },
     {

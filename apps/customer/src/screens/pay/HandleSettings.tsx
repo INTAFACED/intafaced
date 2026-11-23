@@ -145,7 +145,7 @@ export function HandleSettings({ handle, onRenamed }: { handle: string; onRename
           <span className="pay-section-title" id={switchLabelId}>
             {payCopy.t('Find me label')}
           </span>
-          <span className="pay-hint" id={switchHintId}>
+          <span className="lt-hint" id={switchHintId}>
             {settings === null ? payCopy.t('Checking handle') : settings.discoverable ? payCopy.t('Find me on') : payCopy.t('Find me off')}
           </span>
         </div>
@@ -165,7 +165,7 @@ export function HandleSettings({ handle, onRenamed }: { handle: string; onRename
       ) : null}
 
       <div className="pay-handle-row">
-        <span className="pay-hint" data-testid="handle-changes-left">
+        <span className="lt-hint" data-testid="handle-changes-left">
           {left}
         </span>
         <Button
@@ -190,7 +190,7 @@ export function HandleSettings({ handle, onRenamed }: { handle: string; onRename
               <DialogDescription>{payCopy.t('Change handle body')}</DialogDescription>
             </DialogHeader>
             <div className="pay-field">
-              <label className="pay-field__label" htmlFor={inputId}>
+              <label className="lt-hint" htmlFor={inputId}>
                 {payCopy.t('New handle')}
               </label>
               <div className="pay-to">
@@ -211,7 +211,7 @@ export function HandleSettings({ handle, onRenamed }: { handle: string; onRename
                   onChange={(event) => setDraft(event.target.value)}
                 />
               </div>
-              {left ? <span className="pay-hint">{left}</span> : null}
+              {left ? <span className="lt-hint">{left}</span> : null}
             </div>
             {refusal ? (
               <p className="pay-problem" role="alert">

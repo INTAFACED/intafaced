@@ -56,7 +56,7 @@ function PreviewRefusalAlert({ refusal }: { refusal: ReturnType<typeof useEngine
     <div
       data-testid="preview-refusal"
       role="alert"
-      className="failure"
+      className="lt-refusal"
       data-code={isPreview ? PREVIEW_CODE : ''}
       data-kind={isPreview ? 'preview' : ''}
     >
@@ -70,12 +70,12 @@ function PreviewShell({ room, paper, children }: { room: PreviewRoomId; paper: b
   const { t } = previewCopy.useCopy();
   return (
     <>
-      <QuantRooms active={room} paper={paper} />
+      <QuantRooms paper={paper} />
       <div data-testid="quant-preview" data-room={room} className="quant-preview">
         <p className="badge" role="note">
           <strong>{t('label')}</strong>
         </p>
-        <p className="muted">{t('sampleNote')}</p>
+        <p className="lt-muted">{t('sampleNote')}</p>
         {children}
       </div>
     </>
@@ -216,13 +216,13 @@ export function EditorRoom({ paper }: { paper: boolean }) {
             {t('compile')}
           </Button>
           <EnginePanel name={t('compile')}>
-            <p className="muted">{t('compileSample')}</p>
+            <p className="lt-muted">{t('compileSample')}</p>
             <ul>
               <li>TEST 0 errors, 0 warnings (sample)</li>
               <li>TEST built in 0.4 s (sample)</li>
             </ul>
           </EnginePanel>
-          <a className="text-link" href={preservePaperHref('/quant', paper)}>
+          <a className="lt-link" href={preservePaperHref('/quant', paper)}>
             {t('sandbox')}
           </a>
         </Region>
@@ -231,7 +231,7 @@ export function EditorRoom({ paper }: { paper: boolean }) {
             {t('debug')}
           </Button>
           <EnginePanel name={t('debugger')}>
-            <p className="muted">{t('debuggerSample')}</p>
+            <p className="lt-muted">{t('debuggerSample')}</p>
             <ul lang="zxx">
               <li>TEST fast = 101.2</li>
               <li>TEST slow = 99.8</li>
@@ -240,7 +240,7 @@ export function EditorRoom({ paper }: { paper: boolean }) {
         </Region>
         <Region name={t('profiler')}>
           <EnginePanel name={t('profiler')}>
-            <p className="muted">{t('profilerSample')}</p>
+            <p className="lt-muted">{t('profilerSample')}</p>
             <ul lang="zxx">
               <li>TEST onBar 0.12 ms</li>
               <li>TEST sma 0.04 ms</li>
@@ -278,7 +278,7 @@ export function TesterRoom({ paper }: { paper: boolean }) {
             <progress max={TICKS} value={tick} aria-label={t('tick', { tick, ticks: TICKS })} />
           </EnginePanel>
         </div>
-        <label className="field">
+        <label className="lt-field">
           <span>{t('speed')}</span>
           <input
             type="range"
@@ -297,7 +297,7 @@ export function TesterRoom({ paper }: { paper: boolean }) {
         <Button disabled={engine.waiting} onClick={() => void act('start')}>
           {t('start')}
         </Button>
-        <a className="text-link" href={preservePaperHref('/quant/backtest', paper)}>
+        <a className="lt-link" href={preservePaperHref('/quant/backtest', paper)}>
           {t('backtest')}
         </a>
       </Region>
@@ -344,7 +344,7 @@ export function OptimiseRoom({ paper }: { paper: boolean }) {
   // A performance header is a button that keeps the order: passes are never ranked by how well they did.
   const performance = (label: string) => (
     <th scope="col">
-      <button type="button" className="text-link" onClick={() => undefined}>
+      <button type="button" className="lt-link" onClick={() => undefined}>
         {label}
       </button>
     </th>
@@ -355,7 +355,7 @@ export function OptimiseRoom({ paper }: { paper: boolean }) {
         <Button disabled={engine.waiting} onClick={() => void act('start')}>
           {t('start')}
         </Button>
-        <label className="field">
+        <label className="lt-field">
           <span>{t('show')}</span>
           <select aria-label={t('show')} value={show} onChange={(event) => setShow(event.currentTarget.value === 'loss' ? 'loss' : 'all')}>
             <option value="all">{t('allPasses')}</option>
@@ -370,7 +370,7 @@ export function OptimiseRoom({ paper }: { paper: boolean }) {
                 <th scope="col" aria-sort={sort ?? 'none'}>
                   <button
                     type="button"
-                    className="text-link"
+                    className="lt-link"
                     onClick={() => setSort((s) => (s === 'ascending' ? 'descending' : 'ascending'))}
                   >
                     {t('pass')}
@@ -401,7 +401,7 @@ export function OptimiseRoom({ paper }: { paper: boolean }) {
       </Region>
       {walkOpen && (
         <Region name={t('walkForward')}>
-          <label className="field">
+          <label className="lt-field">
             <span>{t('preset')}</span>
             <select aria-label={t('preset')} value={preset} onChange={(event) => setPreset(event.currentTarget.value)}>
               <option value="25">25%</option>

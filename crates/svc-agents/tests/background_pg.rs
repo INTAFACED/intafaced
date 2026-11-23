@@ -16,7 +16,7 @@
     reason = "a test: a failure is the point"
 )]
 
-mod support;
+use crate::support;
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -78,7 +78,7 @@ impl FakeLedger {
             .available
             .get(user)
             .copied()
-            .unwrap_or(0)
+            .unwrap_or(Amount::ZERO)
     }
     fn house(&self) -> Amount {
         self.0.lock().unwrap().house
@@ -100,15 +100,15 @@ impl Ledger for FakeLedger {
             Recipe::FeeCharge {
                 user_id, amount, ..
             } => {
-                let have = b.available.get(user_id).copied().unwrap_or(0);
+                let have = b.available.get(user_id).copied().unwrap_or(Amount::ZERO);
                 if have < *amount {
                     return Err(LedgerError {
                         code: Some("ledger.insufficient_funds".to_owned()),
                         message: "Insufficient funds".to_owned(),
                     });
                 }
-                *b.available.entry(user_id.clone()).or_default() -= amount;
-                b.house += amount;
+                *b.available.entry(user_id.clone()).or_default() -= *amount;
+                b.house += *amount;
             }
             Recipe::ChargeEarn { .. } => b.journal.push("charge.earned"),
             Recipe::ChargeCollect { .. } => b.journal.push("charge.collected"),
@@ -333,7 +333,10 @@ impl World {
             metering: m,
             runtime: rt,
             background: settings,
+            ops: svc_agents::ops::Ops::unwired(),
+            own: svc_agents::own::Own::unwired(),
             advisors: svc_agents::advisors::Advisors::unwired(),
+            team: svc_agents::team::Team::unwired(),
         })
         .unwrap()
     }
@@ -752,7 +755,7 @@ fn stop_lets_the_call_in_flight_finish_runs_nothing_more_settles_once_and_a_seco
     // The money invariant: what the person paid is what the house received, and it equals the stop's billed total,
     // which covers the two steps.
     let billed = amt(&s(&result, "billed"));
-    assert!(billed > 0);
+    assert!(billed > Amount::ZERO);
     assert_eq!(before - w.ledger.balance(USER), billed);
     assert_eq!(w.ledger.house(), billed);
 
@@ -826,7 +829,7 @@ fn a_stop_whose_window_the_ledger_refuses_for_funds_names_it_unpaid_charges_noth
     assert_eq!(step_states(run), ["done", "done_after_stop"]);
     let stop = run.get("stop").unwrap().clone();
     assert_unpaid(&stop);
-    assert_eq!(w.ledger.house(), 0);
+    assert_eq!(w.ledger.house(), Amount::ZERO);
     let twice = ok(call(
         &door,
         UNFUNDED,
@@ -836,7 +839,7 @@ fn a_stop_whose_window_the_ledger_refuses_for_funds_names_it_unpaid_charges_noth
     ));
     assert_eq!(twice.get("repeated"), Some(&Json::Bool(true)));
     assert_eq!(twice.get("run").unwrap().get("stop"), Some(&stop));
-    assert_eq!(w.ledger.house(), 0);
+    assert_eq!(w.ledger.house(), Amount::ZERO);
 }
 
 #[test]

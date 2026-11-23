@@ -17,6 +17,7 @@ import {
   publicJurisdictionProcedure,
   publicProcedure,
   router,
+  personProcedure,
   scopedProcedure,
   serviceProcedureFor,
   signedInProcedure,
@@ -57,14 +58,14 @@ const partsOf = (parts: ServiceParts) =>
 
 type HandlerContext<A extends Access> = A extends { readonly caller: 'founder' }
   ? Context & { principal: Principal; founderUserId: string }
-  : A extends { readonly caller: 'scope' | 'anyScope' | 'signedIn' }
+  : A extends { readonly caller: 'scope' | 'anyScope' | 'signedIn' | 'person' }
     ? Context & { principal: Principal }
     : Context;
 
 /** What a handler receives: the guarded context and the parsed input. */
 export type RecordHandler<R extends ProcedureRecord> = (args: {
   /**
-   * A `scope`, `anyScope` or `signedIn` record's guard has verified the principal, so its handler reads it without a check of
+   * A `scope`, `anyScope`, `signedIn` or `person` record's guard has verified the principal, so its handler reads it without a check of
    * its own; a `founder` record's guard has also named the founder (`founderUserId`).
    */
   ctx: HandlerContext<R['access']>;
@@ -131,13 +132,21 @@ function guardFor(
       return anyScopeProcedure(access.scopes, {
         ...(access.module === undefined ? {} : { module: access.module }),
         ...(access.plane === undefined ? {} : { plane: access.plane }),
+        ...(access.check === undefined ? {} : { check: checkFor(name, access.check, checks) }),
       });
     case 'service':
-      return serviceProcedureFor(access.callers);
+      return serviceProcedureFor(access.callers, access.forbidden === undefined ? {} : { forbidden: access.forbidden });
+    case 'person':
+      return personProcedure(access.scope ?? null, {
+        ...(access.module === undefined ? {} : { module: access.module }),
+        ...(access.plane === undefined ? {} : { plane: access.plane }),
+        ...(access.tier === undefined ? {} : { tier: access.tier }),
+      });
     case 'signedIn':
       return signedInProcedure({
         ...(access.module === undefined ? {} : { module: access.module }),
         ...(access.plane === undefined ? {} : { plane: access.plane }),
+        ...(access.check === undefined ? {} : { check: checkFor(name, access.check, checks) }),
       });
     case 'founder':
       if (founder === undefined) throw new Error(`${name} is founder-only: mount it with the service's founder guard`);

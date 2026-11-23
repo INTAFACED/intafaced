@@ -3,7 +3,7 @@
  * `mine` signs the caller's own account id; `resolve` turns a scanned payload into the payee preview Send shows. See
  * pay-qr.ts for the payload and its refusals.
  */
-import { TRPCError } from '@intafaced/contracts';
+import { TRPCError } from '@intafaced/contracts/trpc';
 import { IDENTITY_QR_MINE, IDENTITY_QR_RESOLVE, payQrRefusalStatus } from '@intafaced/contracts/identity-handles';
 import { mountRecords, type RefusalOf } from '@intafaced/contracts/procedure-mount';
 import { PayQrError, type PayQrActor, type PayQrService } from './pay-qr.js';

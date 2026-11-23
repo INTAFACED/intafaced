@@ -27,7 +27,7 @@ import {
   type RunAction,
 } from '../../../features/trade/venue/VenueKit';
 import { futuresRoutesCopy } from './routes-copy';
-import { approvalState } from './venue-routes-logic';
+import { approvalAtConfirm, approvalState } from './venue-routes-logic';
 
 /**
  * ROUTING OVER THE VENUES THE PERSON CAN SIGN FOR (J-derivatives-28). Shown only when the deployment has more than one
@@ -79,16 +79,16 @@ export function VenueRoutes({
   return (
     <section className="dk-panel form-stack" aria-label={t('Venues')} data-testid="venue-routes">
       <h2 className="dk-tab-title">{t('Venues')}</h2>
-      <p className="muted">{t('Venues lead')}</p>
+      <p className="lt-muted">{t('Venues lead')}</p>
       {read.failure ? (
-        <p className="failure" role="alert" data-testid="venue-routes-error">
+        <p className="lt-refusal" role="alert" data-testid="venue-routes-error">
           {t('Venues read failed', { detail: read.failure.message })}{' '}
           <Button variant="secondary" onClick={read.reload}>
             {t('Read again')}
           </Button>
         </p>
       ) : null}
-      {!read.data && !read.failure ? <p className="muted">{t('Reading venues')}</p> : null}
+      {!read.data && !read.failure ? <p className="lt-muted">{t('Reading venues')}</p> : null}
       {read.data && venues.every((v) => v.listed === false) ? (
         <p data-testid="venue-routes-empty">{t('No venue lists', { symbol })}</p>
       ) : null}
@@ -118,17 +118,17 @@ export function VenueRoutes({
                 </td>
               ) : (
                 <>
-                  <td className="numeric" data-cell="bid">
+                  <td className="lt-num" data-cell="bid">
                     {v.book?.value.bids[0]
                       ? t('Level', { price: displayAmount(v.book.value.bids[0].price), amount: displayAmount(v.book.value.bids[0].amount) })
                       : t('None')}
                   </td>
-                  <td className="numeric" data-cell="ask">
+                  <td className="lt-num" data-cell="ask">
                     {v.book?.value.asks[0]
                       ? t('Level', { price: displayAmount(v.book.value.asks[0].price), amount: displayAmount(v.book.value.asks[0].amount) })
                       : t('None')}
                   </td>
-                  <td className="numeric" data-cell="depth">
+                  <td className="lt-num" data-cell="depth">
                     {v.book
                       ? t('Depth', {
                           bids: displayAmount(depthOf(v.book.value.bids)),
@@ -173,6 +173,7 @@ export function VenueRoutes({
                       <>
                         {t('Connect to use')}{' '}
                         <a
+                          className="lt-link"
                           href="/wallet"
                           onClick={(e) => {
                             e.preventDefault();
@@ -378,12 +379,8 @@ export function RoutedReview({
       // The poll's answer may be a read that failed or is older than an approval just signed: Confirm asks the venue once
       // more before it asks the person to sign an approval they may already hold.
       if (!approved) {
-        const fresh = carries ? await venue.builderFeeApproval(owner, undefined, chosen.venueId) : null;
+        const now = await approvalAtConfirm(carries, fee, approvalNow, () => venue.builderFeeApproval(owner, undefined, chosen.venueId));
         approval.reload();
-        const now = approvalState(carries, fee, {
-          approved: fresh?.ok ? fresh.data.value : null,
-          failed: fresh !== null && !fresh.ok,
-        });
         if (now !== 'approved' && now !== 'not_needed') {
           setStep('approval');
           return;
@@ -432,10 +429,10 @@ export function RoutedReview({
   const filled = result?.kind === 'outcome' && result.outcome.accepted ? result.outcome : null;
   return (
     <Dialog title={title} onClose={onClose}>
-      <div data-testid="venue-route-review" className="form-stack">
+      <div data-testid="venue-route-review" className="lt-stack">
         {!chosen ? (
           <div role="alert" data-testid="venue-route-none">
-            <p className="failure">{t('Why none')}</p>
+            <p className="lt-refusal">{t('Why none')}</p>
             <ul>
               {route.excluded.map((e, i) => (
                 <li key={e.venueId ?? i} data-venue={e.venueId ?? ''} data-code={e.code}>
@@ -456,7 +453,7 @@ export function RoutedReview({
               </div>
               <div>
                 <dt>{t('Expected fill')}</dt>
-                <dd className="numeric" data-line="route-fill">
+                <dd className="lt-num" data-line="route-fill">
                   {chosen.cost.fillsNow === null
                     ? t('Not known')
                     : chosen.cost.averagePrice === null
@@ -470,14 +467,14 @@ export function RoutedReview({
               </div>
               <div>
                 <dt>{t('Venue fee')}</dt>
-                <dd className="numeric" data-line="venue-fee">
+                <dd className="lt-num" data-line="venue-fee">
                   <Known value={p!.venueFee.known ? { known: true, value: p!.venueFee.value.amount } : { known: false }} />{' '}
                   {p!.venueFee.known ? p!.venueFee.value.asset : ''}
                 </dd>
               </div>
               <div>
                 <dt>{t('Our builder fee')}</dt>
-                <dd className="numeric" data-line="builder-fee">
+                <dd className="lt-num" data-line="builder-fee">
                   {!carries ? (
                     t('Builder none spot buy')
                   ) : (
@@ -490,7 +487,7 @@ export function RoutedReview({
               </div>
               <div>
                 <dt>{route.side === 'buy' ? t('Expected cost') : t('Expected proceeds')}</dt>
-                <dd className="numeric" data-line="route-total">
+                <dd className="lt-num" data-line="route-total">
                   {displayAmount(chosen.cost.total)} {route.quoteAsset}
                   {chosen.cost.unknownFees.length > 0 ? ` (${t('Known fees only')})` : ''}
                 </dd>
@@ -501,7 +498,7 @@ export function RoutedReview({
               </div>
               <div>
                 <dt>{t('Client id held')}</dt>
-                <dd className="numeric" data-line="client-id">
+                <dd className="lt-num" data-line="client-id">
                   {intent.clientOrderKey}
                 </dd>
               </div>
@@ -529,7 +526,7 @@ export function RoutedReview({
           </>
         )}
         {step === 'approval' && chosen && status.builder ? (
-          <section role="dialog" aria-label={t('Approve builder fee')} data-testid="venue-route-approval" className="form-stack">
+          <section role="dialog" aria-label={t('Approve builder fee')} data-testid="venue-route-approval" className="lt-stack">
             <h3>{t('Approve builder fee')}</h3>
             <p data-line="approval-words">
               {t('Approval words', { venue: chosen.displayName, bps: displayAmount(status.builder.feeBps) })}
@@ -547,7 +544,7 @@ export function RoutedReview({
               {t('Decline')}
             </Button>
             {approvalLimit(approving) ? (
-              <p className="failure" role="alert" data-testid="venue-route-approval-limit" ref={reveal}>
+              <p className="lt-refusal" role="alert" data-testid="venue-route-approval-limit" ref={reveal}>
                 {t('Approval limit words', { venue: chosen.displayName, detail: approvalLimit(approving) ?? '' })}
               </p>
             ) : (
@@ -556,7 +553,7 @@ export function RoutedReview({
           </section>
         ) : null}
         {step === 'declined' && chosen ? (
-          <p className="failure" role="alert" data-testid="venue-route-declined">
+          <p className="lt-refusal" role="alert" data-testid="venue-route-declined">
             {t('Declined words', { venue: chosen.displayName })}
           </p>
         ) : null}

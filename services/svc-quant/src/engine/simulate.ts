@@ -37,16 +37,19 @@ export interface EquityStop {
   readonly policy: QuantEquityStopPolicy;
 }
 
-/** Leverage, and the margin-call and stop-out levels as a percent of the margin used, all checked before the run. */
+/**
+ * Leverage; our margin-call warning as a margin level (equity over the margin used, in percent); and the venue's
+ * maintenance rate, a fraction of the position's value at which the venue closes it. All checked before the run.
+ */
 export interface MarginAccount {
   readonly leverage: Amount;
   readonly marginCallPercent: Amount;
-  readonly stopOutPercent: Amount;
+  readonly maintenanceRate: Amount;
 }
 
 export interface MarginEvent {
   readonly ts: string;
-  readonly kind: 'margin_call' | 'stop_out';
+  readonly kind: 'margin_call' | 'venue_close';
   readonly price: string;
   readonly marginLevelPercent: string;
 }
@@ -54,7 +57,7 @@ export interface MarginEvent {
 export interface SimulatedTrade {
   readonly ts: string;
   readonly side: 'buy' | 'sell';
-  readonly reason: 'signal' | 'stop_loss' | 'take_profit' | 'stop_out' | 'close_out';
+  readonly reason: 'signal' | 'stop_loss' | 'take_profit' | 'venue_close' | 'close_out';
   readonly qty: string;
   readonly barPrice: string;
   readonly price: string;
@@ -156,6 +159,15 @@ export function simulateSignalRules(input: SimulationInput): SimulationResult {
     return div(sub(mul(used, div(percent, HUNDRED, 'floor'), 'ceil'), cash), qty, 'ceil');
   }
 
+  /**
+   * The price at which the venue closes the position: equity there (cash plus the position's value) is its maintenance
+   * share of the position's value, `cash + qty·p = rate·qty·p`. With no borrowing (cash not below zero) it never closes.
+   */
+  function priceAtMaintenance(rate: Amount): Amount {
+    if (cash >= 0n) return 0n;
+    return div(-cash, mul(qty, sub(parseAmount('1'), rate), 'floor'), 'floor');
+  }
+
   /** What an order's notional takes from the account: all of it on cash, one leverage-th of it on margin. */
   function marginFor(notional: Amount): Amount {
     return account ? div(notional, account.leverage, 'ceil') : notional;
@@ -231,12 +243,13 @@ export function simulateSignalRules(input: SimulationInput): SimulationResult {
       fill(i, atOpen.side, 'signal', bar.open, true);
       pending = null;
     }
-    // Margin, against the bar's low (the worst it reached): the margin call is recorded once per position, and a
-    // stop-out closes the whole position at the price that reached its level, or at the open when the bar gapped past it.
+    // Margin, against the bar's low (the worst it reached): our margin call is recorded once per position, and the
+    // venue's close takes the whole position at the price where equity fell to its maintenance level, or at the open when
+    // the bar gapped past it. Our warning sits above the venue's close, so in one bar it is recorded first.
     let stoppedOut = false;
     if (account && qty > 0n) {
       const callAt = priceAtLevel(account.marginCallPercent);
-      const stopAt = priceAtLevel(account.stopOutPercent);
+      const stopAt = priceAtMaintenance(account.maintenanceRate);
       const ts = new Date(bar.openTimeMs).toISOString();
       const event = (kind: MarginEvent['kind'], at: Amount) => {
         const price = bar.open <= at ? bar.open : at;
@@ -248,14 +261,14 @@ export function simulateSignalRules(input: SimulationInput): SimulationResult {
         called = true;
       }
       if (bar.low <= stopAt) {
-        if (stopLoss !== null || takeProfit !== null) applied.add('stop_out_before_exits');
+        if (stopLoss !== null || takeProfit !== null) applied.add('venue_close_before_exits');
         // The event carries the bar price that reached the level; the sell fills there less slippage, like any order.
-        fill(i, 'sell', 'stop_out', event('stop_out', stopAt), true);
+        fill(i, 'sell', 'venue_close', event('venue_close', stopAt), true);
         stoppedOut = true;
         // The position is closed, so a sell the strategy queued for it has nothing left to sell: it is dropped and the
         // strategy may enter again on this bar's close.
         if ((pending as Pending | null)?.side === 'sell') pending = null;
-        // A bar that gaps through the stop-out can close below the margin posted; the run says so.
+        // A bar that gaps through the venue's close can close below the margin posted; the run says so.
         if (cash < 0n) applied.add('loss_beyond_margin');
       }
     }

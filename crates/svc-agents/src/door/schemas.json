@@ -3390,7 +3390,54 @@
       ]
     },
     { "t": "object", "shape": [["limit", 930]], "catchall": "strict" },
-    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 500, "incl": true }] }
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 500, "incl": true }] },
+    {
+      "t": "object",
+      "shape": [
+        ["endpointId", 932],
+        ["runId", 934],
+        ["limit", 936]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "optional", "in": 933 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "optional", "in": 935 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 500, "incl": true }] },
+    { "t": "object", "shape": [["limit", 938]], "catchall": "strict" },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 100, "incl": true }] },
+    {
+      "t": "object",
+      "shape": [
+        ["endpointId", 940],
+        ["url", 941]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 2048 }
+      ]
+    }
   ],
   "inputs": {
     "agent.get": 0,
@@ -3561,6 +3608,9 @@
     "usage.current": 922,
     "usage.settle": 924,
     "usage.settleSession": 927,
-    "usage.summary": 929
+    "usage.summary": 929,
+    "webhook.deliveries": 931,
+    "webhook.list": 937,
+    "webhook.register": 939
   }
 }

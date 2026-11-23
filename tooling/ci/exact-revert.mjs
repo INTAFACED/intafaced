@@ -1,7 +1,8 @@
 /**
  * EXACT REVERT: whether a pull request undoes one commit and does nothing else. No imports, so main's copy of the
- * test-diff guard can take it beside itself (ci.yml), and the CI review (ci-review.mjs automaticRevert) reads the same
- * rules. Two proofs, either enough:
+ * test-diff guard can take it beside itself (ci.yml); lint-ratchet, look-drift and the kit-ceilings and volt-off-kit
+ * tests (judgedCopy) read autoRevertOf below, and the CI
+ * review (ci-review.mjs automaticRevert) reads the same rules. Two proofs, either enough:
  *   exactReverse        the diff alone: every hunk of the commit undone, context lines included, moved together.
  *   revertTreeMatches   git: the head is exactly `git revert <commit>` made on its own parent (same tree, no conflict),
  *                       which still holds when main changed the lines around the commit since it merged (a later
@@ -109,3 +110,83 @@ export function revertTreeMatches(read, { culprit, head }) {
 export const AUTO_REVERT_BRANCH = /^revert\/auto-([0-9a-f]{10})$/;
 export const AUTO_REVERT_AUTHOR = 'intafaced-mac-agents[bot]';
 export const REVERTS_COMMIT = /^This reverts commit ([0-9a-f]{40})\.$/m;
+
+/**
+ * The commit this pull request reverts, when it is main-bisect's automatic revert by every proof; else null: a
+ * `revert/auto-<sha10>` branch in this repository, opened by the factory App as a Bot, exactly one commit whose message
+ * says it reverts the commit the branch names, that commit a non-merge main holds, and the pull request's diff exactly
+ * its reverse (exactReverse, else revertTreeMatches). `pr`: { ref, author, authorType, commits, headRepo, repo, headSha };
+ * `base`: main; `read(args)`: git's output, throwing on a failure.
+ */
+export function autoRevert(pr, base, read) {
+  const branch = AUTO_REVERT_BRANCH.exec(String(pr?.ref ?? ''));
+  if (!branch || pr.author !== AUTO_REVERT_AUTHOR || pr.authorType !== 'Bot' || String(pr.commits) !== '1') return null;
+  if (!pr.repo || pr.headRepo !== pr.repo || !/^[0-9a-f]{40}$/.test(String(pr.headSha ?? ''))) return null;
+  try {
+    const culprit = REVERTS_COMMIT.exec(read(['log', '-1', '--format=%B', pr.headSha]))?.[1];
+    if (!culprit || !culprit.startsWith(branch[1])) return null;
+    if (read(['rev-list', '--parents', '-n', '1', culprit]).trim().split(' ').length !== 2) return null;
+    read(['merge-base', '--is-ancestor', culprit, base]);
+    const diff = read(['diff', '--no-renames', `${base}...${pr.headSha}`]);
+    const was = read(['diff', '--no-renames', `${culprit}^`, culprit]);
+    return exactReverse(diff, was) || revertTreeMatches(read, { culprit, head: pr.headSha }) ? culprit : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * autoRevert for the pull request CI is judging, read from the env ci.yml's Doctrine gates job sets (PR_HEAD_REF,
+ * PR_AUTHOR, PR_AUTHOR_TYPE, PR_COMMITS, PR_HEAD_REPO, GITHUB_REPOSITORY, PR_HEAD_SHA); null off CI or for any other pull
+ * request. The gates that compare a pull request with main (test-diff-guard, lint-ratchet, look-drift) judge a proven
+ * revert of X against X^, the state it restores, so a culprit that deleted code today's rules count can still be
+ * reverted (project-state#3635: intafaced #9482, the revert of #9426, failed both ratchets on the code it restored).
+ */
+export const autoRevertOf = (env, base, read) =>
+  autoRevert(
+    {
+      ref: env.PR_HEAD_REF,
+      author: env.PR_AUTHOR,
+      authorType: env.PR_AUTHOR_TYPE,
+      commits: env.PR_COMMITS,
+      headRepo: env.PR_HEAD_REPO,
+      repo: env.GITHUB_REPOSITORY,
+      headSha: env.PR_HEAD_SHA,
+    },
+    base,
+    read,
+  );
+
+/** `a` and `b` together, the larger at each entry: lists joined (a's order, then what only b holds), tables key by key,
+ *  numbers the higher. Either missing (null or undefined): the other. */
+function widest(a, b) {
+  if (a == null || b == null) return a ?? b;
+  if (Array.isArray(a) && Array.isArray(b)) return [...a, ...b.filter((x) => !a.includes(x))];
+  if (typeof a === 'number' && typeof b === 'number') return Math.max(a, b);
+  if (typeof a === 'object' && typeof b === 'object' && !Array.isArray(a) && !Array.isArray(b))
+    return Object.fromEntries([...new Set([...Object.keys(a), ...Object.keys(b)])].map((k) => [k, widest(a[k], b[k])]));
+  return a;
+}
+
+/**
+ * A committed JSON list or table that may only shrink or fall (kit-ceilings.json, volt-off-kit.json), as the change is
+ * judged against: its copy at `fork`, where the change left main, and for main-bisect's proven revert of X (autoRevertOf)
+ * widest of that and X^'s copy, the tree the revert restores. So the revert may put back what X^ held, never more, and
+ * every other change is judged against main alone (project-state#3697: 13 of 18 reverts in a week closed unmerged, most
+ * on these lists). A ref without the file counts as none; null when no ref holds it. `read(args)`: git's output, throwing.
+ */
+export function judgedCopy(path, { env, main, fork, read }) {
+  const culprit = autoRevertOf(env, main, read);
+  let out = null;
+  for (const at of culprit ? [fork, `${culprit}^`] : [fork]) {
+    let text;
+    try {
+      text = read(['show', `${at}:${path}`]);
+    } catch (e) {
+      if (/does not exist|exists on disk, but not in/u.test(String(e.stderr ?? e.message))) continue;
+      throw e;
+    }
+    out = widest(out, JSON.parse(text));
+  }
+  return out;
+}

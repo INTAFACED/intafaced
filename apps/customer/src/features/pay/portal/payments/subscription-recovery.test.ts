@@ -19,7 +19,19 @@ async function fixture(operation: string, reference?: string) {
   const key = `TEST-user:${operation}`;
   await guard.run(key, async () => uncertain, reference);
   const query = vi.fn().mockResolvedValue({ ok: true, data: row });
-  const pay = { authority: { userId: 'TEST-user', merchantId: 'TEST-merchant' }, guard, query } as unknown as BusinessPayApi;
+  const pay = {
+    authority: { userId: 'TEST-user', merchantId: 'TEST-merchant' },
+    guard,
+    query,
+    queryRecord(
+      this: { query: (...args: never[]) => unknown },
+      record: { path: string; output: unknown },
+      input?: unknown,
+      signal?: unknown,
+    ) {
+      return Reflect.apply(this.query, this, [record.path, input, record.output, ...(signal === undefined ? [] : [signal])]);
+    },
+  } as unknown as BusinessPayApi;
   return { pay, guard, key, query };
 }
 it.each(['paused', 'active', 'cancelled'])('clears a subscription lock only after the recorded %s outcome is read', async (status) => {
@@ -63,6 +75,24 @@ it('admits create on the per-mandate lock and does not write a cutoff into the j
         opts,
       ]);
     },
+    queryRecord(
+      this: { query: (...args: never[]) => unknown },
+      record: { path: string; output: unknown },
+      input?: unknown,
+      signal?: unknown,
+    ) {
+      // tooling/codemod/call-records: a Business API read by its record reaches this double's own query, by the record's path.
+      return Reflect.apply(this.query, this, [record.path, input, record.output, ...(signal === undefined ? [] : [signal])]);
+    },
+    mutateRecord(
+      this: { mutate: (...args: never[]) => unknown },
+      record: { path: string; output: unknown },
+      input?: unknown,
+      ...rest: unknown[]
+    ) {
+      // tooling/codemod/call-records: a Business API write by its record reaches this double's own mutate, by the record's path.
+      return Reflect.apply(this.mutate, this, [record.path, input, record.output, ...rest]);
+    },
   } as unknown as BusinessPayApi;
   expect((await createSubscriptionWithRecovery(pay, mandateId, row.path)).ok).toBe(false);
   expect(query).not.toHaveBeenCalled();
@@ -80,14 +110,34 @@ it('admits create on the per-mandate lock and does not write a cutoff into the j
 });
 it('never sends a create when the input is invalid', async () => {
   const mutate = vi.fn();
-  const pay = { mutate } as unknown as BusinessPayApi;
+  const pay = {
+    mutate,
+    mutateRecord(
+      this: { mutate: (...args: never[]) => unknown },
+      record: { path: string; output: unknown },
+      input?: unknown,
+      ...rest: unknown[]
+    ) {
+      return Reflect.apply(this.mutate, this, [record.path, input, record.output, ...rest]);
+    },
+  } as unknown as BusinessPayApi;
   expect((await createSubscriptionWithRecovery(pay, '', row.path)).ok).toBe(false);
   expect((await createSubscriptionWithRecovery(pay, mandateId, 'wire')).ok).toBe(false);
   expect(mutate).not.toHaveBeenCalled();
 });
 it('does not replay a create when the path is blank or the view has left', async () => {
   const mutate = vi.fn();
-  const pay = { mutate } as unknown as BusinessPayApi;
+  const pay = {
+    mutate,
+    mutateRecord(
+      this: { mutate: (...args: never[]) => unknown },
+      record: { path: string; output: unknown },
+      input?: unknown,
+      ...rest: unknown[]
+    ) {
+      return Reflect.apply(this.mutate, this, [record.path, input, record.output, ...rest]);
+    },
+  } as unknown as BusinessPayApi;
   expect((await replaySubscriptionCreate(pay, mandateId, '', () => true)).ok).toBe(false);
   expect((await replaySubscriptionCreate(pay, mandateId, row.path, () => false)).ok).toBe(false);
   expect(mutate).not.toHaveBeenCalled();
@@ -112,6 +162,7 @@ it.each(['success', 'pay.idempotency_conflict', 'pay.subscription_mandate_open']
     resumedAt: null,
     stalledAt: null,
     stallReason: null,
+    priceId: null,
   };
   const creates: Array<{ idempotencyKey?: string; mandateId?: string; path?: string }> = [];
   const stored = new Map<string, typeof created>();
@@ -130,6 +181,7 @@ it.each(['success', 'pay.idempotency_conflict', 'pay.subscription_mandate_open']
                 kybStatus: 'approved',
                 kybRef: 'verified',
                 feeBps: null,
+                starterFee: null,
               },
             },
           }),
@@ -298,10 +350,20 @@ describe('a lost create is checked before anything is sent again', () => {
     resumedAt: null,
     stalledAt: null,
     stallReason: null,
+    priceId: null,
   };
   const merchantReply = {
     result: {
-      data: { id: merchantId, userId, mode: 'gateway', status: 'active', kybStatus: 'approved', kybRef: 'verified', feeBps: null },
+      data: {
+        id: merchantId,
+        userId,
+        mode: 'gateway',
+        status: 'active',
+        kybStatus: 'approved',
+        kybRef: 'verified',
+        feeBps: null,
+        starterFee: null,
+      },
     },
   };
   type Body = { idempotencyKey?: string; mandateId?: string; path?: string };

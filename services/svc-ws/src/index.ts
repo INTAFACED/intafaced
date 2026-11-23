@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import { JetStreamEventBus, type Subscription } from '@intafaced/events';
 import { JAVA_ENV } from '@intafaced/sbe-codec';
-import { s2sFromEnv } from '@intafaced/contracts';
+import { s2sFromEnv } from '@intafaced/contracts/s2s-env';
 import { env } from './env.js';
 import { createBusLifecycle } from './bus-lifecycle.js';
 import { attachBusHalf, closeBusSession } from './bus-session-close.js';

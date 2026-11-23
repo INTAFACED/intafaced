@@ -1,4 +1,5 @@
-import { MERCHANT_PORTAL_ROOMS, merchantRoomAccessSchema, type MerchantRoomAccess } from '@intafaced/contracts';
+import type { MerchantRoomAccess } from '@intafaced/contracts';
+import { MERCHANT_PORTAL_ROOMS, merchantRoomAccessSchema } from '@intafaced/contracts/merchant-room-access';
 import { merchantNotFound } from '../merchant-ownership.js';
 import { capabilityFlagsForSession, type MerchantPermission, type MerchantRole } from '../merchant-ops/roles.js';
 import type { MerchantTeamRead } from '../merchant-team-read.js';

@@ -6,6 +6,7 @@
 //! the run refuses \`agents.funds_unread\`: an unknown balance is not a covered one.
 
 use std::sync::Arc;
+use std::sync::mpsc;
 use std::time::Duration;
 
 use service_kit::http::{Fetch, HttpRequest};
@@ -16,6 +17,8 @@ use service_kit::s2s::CallSigner;
 
 use crate::db;
 use crate::metering::ports::{HeldBy, UsagePayment};
+use crate::navigator::onchain::ports::{Linked, LinkedWallets};
+use crate::runtime::chain_balance::ChainBalance;
 
 /// \`FundsReading\`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -218,13 +221,22 @@ impl Balances for BalancesHttp {
 }
 
 /// How \`index.ts\` reads funds: a team session by its business's payment method (\`teamFunds\`); a person's own agent
-/// with a wallet chosen as its payment method by that wallet (\`paymentMethodFunds\`, owed by the \`own-controls\` slice:
-/// until it lands the wallet is unread and the run refuses); everyone else by how they pay: nothing to pay with reads
-/// 0, a partner's reported figure (an unreported one is unread, never 0), else the ledger balance.
+/// with a wallet chosen as its payment method by that wallet (`paymentMethodFunds`: identity says it is still linked,
+/// then the chain's figure, with the platform balance the run is billed to); everyone else by how they pay: nothing to
+/// pay with reads 0, a partner's reported figure (an unreported one is unread, never 0), else the ledger balance.
 pub struct PersonFunds {
     pub payment: Box<dyn UsagePayment>,
     pub balances: Box<dyn Balances>,
+    /// Identity's list of the person's linked wallets; none reads `identity_unreachable`.
+    pub wallets: Option<Arc<dyn LinkedWallets>>,
+    /// The payment token's chain reader; none (a blank owner value) reads `payment_token_unset`.
+    pub chain: Option<Arc<dyn ChainBalance>>,
+    /// The deadline over identity's and the chain's reads of one wallet (`FUNDS_READ_DEADLINE_MS`).
+    pub deadline_ms: u64,
 }
+
+/// `FUNDS_READ_DEADLINE_MS`: the reading runs under the person's spend lock, so a slow node must not hold it.
+pub const FUNDS_READ_DEADLINE_MS: u64 = 5_000;
 
 /// `UUID_RE`: an id Postgres reads as a uuid, case-insensitively.
 pub fn is_uuid(s: &str) -> bool {
@@ -241,6 +253,50 @@ fn unread() -> Unread {
 }
 
 impl PersonFunds {
+    /// `paymentMethodFunds`' wallet reading: identity says the chosen wallet is still linked, then the chain's figure,
+    /// both under one deadline (past it the wallet is `method_unread`: which read was slow is not known); then the
+    /// platform balance the run is billed to, which a failed read leaves unread with no method named.
+    fn wallet(&self, user_id: &str, asset_id: &str, address: String) -> Result<Reading, Unread> {
+        let unread = |reason: &'static str| Unread {
+            address: Some(address.clone()),
+            reason: Some(reason),
+        };
+        let Some(chain) = self.chain.clone() else {
+            return Err(unread("payment_token_unset"));
+        };
+        let wallets = self.wallets.clone();
+        let (user, chosen) = (user_id.to_owned(), address.clone());
+        let (tx, rx) = mpsc::channel();
+        // A thread of its own, so a node that never answers is let go at the deadline; its late answer is dropped.
+        std::thread::spawn(move || {
+            let read = match wallets.as_ref().and_then(|w| w.read(&user)) {
+                None => Err("identity_unreachable"),
+                Some(Linked::AccountInactive) => Err("account_inactive"),
+                Some(Linked::Usable(linked)) if !linked.iter().any(|w| w.address == chosen) => {
+                    Err("wallet_unlinked")
+                }
+                Some(Linked::Usable(_)) => chain.read(&chosen),
+            };
+            let _ = tx.send(read);
+        });
+        let read = rx
+            .recv_timeout(Duration::from_millis(self.deadline_ms))
+            .unwrap_or(Err("method_unread"))
+            .map_err(unread)?;
+        let Reading::Ledger(billed) = self.by_payment(user_id, asset_id, None)? else {
+            return Err(Unread::default());
+        };
+        Ok(Reading::Wallet {
+            available: read.available,
+            token: read.token,
+            address,
+            chain_id: read.chain_id,
+            block: read.block,
+            as_of: read.as_of,
+            billed: Some(billed),
+        })
+    }
+
     fn by_payment(
         &self,
         user_id: &str,
@@ -249,7 +305,7 @@ impl PersonFunds {
     ) -> Result<Reading, Unread> {
         match self.payment.read_available(user_id, asset_id, business) {
             Err(_) => Err(unread()),
-            Ok((HeldBy::None, _)) => Ok(Reading::Ledger(0)),
+            Ok((HeldBy::None, _)) => Ok(Reading::Ledger(Amount::ZERO)),
             Ok((HeldBy::Partner, None)) => Err(unread()),
             Ok((HeldBy::Partner, Some(a))) => {
                 parse_amount(&a).map(Reading::Ledger).map_err(|_| unread())
@@ -305,11 +361,7 @@ impl Funds for PersonFunds {
                 None
             };
             if let Some(address) = method {
-                // The chain and the linked wallets are read by the own-controls slice (PORT.md).
-                return Err(Unread {
-                    address: Some(address),
-                    reason: Some("method_unread"),
-                });
+                return self.wallet(user_id, asset_id, address);
             }
         }
         self.by_payment(user_id, asset_id, None)

@@ -9,6 +9,7 @@ import {
   runFingerprint,
   type RestoreOutboxEntry,
   type RestoreRunStore,
+  type RestoreStepRow,
 } from './run-store.js';
 
 const run = { restoreNo: 'R-1', cutOff: '2026-10-20T12:00:00.000Z', startedBy: 'founder-a', startedAt: '2026-10-20T12:05:00.000Z' };
@@ -18,7 +19,7 @@ const started: RestoreOutboxEntry = {
   payload: { restoreNo: 'R-1' },
   createdAt: run.startedAt,
 };
-const stepRow = (step: 'restore_clean' | 'validate') => ({
+const stepRow = (step: 'restore_clean' | 'validate'): RestoreStepRow => ({
   restoreNo: 'R-1',
   step,
   actor: 'founder-a',

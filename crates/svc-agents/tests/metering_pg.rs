@@ -220,7 +220,7 @@ impl FakeLedger {
             .receivable
             .get(who)
             .copied()
-            .unwrap_or(0)
+            .unwrap_or(Amount::ZERO)
     }
     fn reserve(&self, partner: &str) -> Amount {
         self.0
@@ -229,7 +229,7 @@ impl FakeLedger {
             .reserve
             .get(partner)
             .copied()
-            .unwrap_or(0)
+            .unwrap_or(Amount::ZERO)
     }
     fn available(&self, user: &str) -> Amount {
         self.0
@@ -238,7 +238,7 @@ impl FakeLedger {
             .available
             .get(user)
             .copied()
-            .unwrap_or(0)
+            .unwrap_or(Amount::ZERO)
     }
     fn tx_of(&self, key: &str) -> Option<String> {
         self.0.lock().unwrap().by_key.get(key).cloned()
@@ -257,7 +257,7 @@ impl Ledger for FakeLedger {
             Recipe::FeeCharge {
                 user_id, amount, ..
             } => {
-                let have = b.available.get(user_id).copied().unwrap_or(0);
+                let have = b.available.get(user_id).copied().unwrap_or(Amount::ZERO);
                 if have < *amount {
                     return Err(LedgerError {
                         code: Some("ledger.insufficient_funds".to_owned()),
@@ -267,14 +267,14 @@ impl Ledger for FakeLedger {
                         ),
                     });
                 }
-                *b.available.entry(user_id.clone()).or_default() -= amount;
-                b.house += amount;
+                *b.available.entry(user_id.clone()).or_default() -= *amount;
+                b.house += *amount;
             }
             Recipe::ChargeEarn {
                 user_id, per_unit, ..
             } => {
-                b.house += per_unit;
-                *b.receivable.entry(user_id.clone()).or_default() -= per_unit;
+                b.house += *per_unit;
+                *b.receivable.entry(user_id.clone()).or_default() -= *per_unit;
             }
             Recipe::ChargeCollect {
                 user_id,
@@ -282,8 +282,8 @@ impl Ledger for FakeLedger {
                 amount,
                 ..
             } => {
-                *b.receivable.entry(user_id.clone()).or_default() += amount;
-                *b.reserve.entry(partner_id.clone()).or_default() -= amount;
+                *b.receivable.entry(user_id.clone()).or_default() += *amount;
+                *b.reserve.entry(partner_id.clone()).or_default() -= *amount;
             }
         }
         let tx = format!("tx-{}", b.journal.len() + 1);
@@ -569,7 +569,7 @@ fn partner_world(balance: &str) -> Option<World> {
 }
 
 fn custodial_world() -> Option<World> {
-    let door = PartnerDoor::new(0);
+    let door = PartnerDoor::new(Amount::ZERO);
     door.with(|s| s.held_by = HeldBy::Ledger);
     let w = World::new(TestDb::new()?, door, true);
     w.ledger.deposit(USER, amt("1000"));
@@ -598,7 +598,7 @@ fn a_partner_window_earns_once_is_paid_once_and_collected_once_however_many_time
     let first = w.settle(&session, &window).unwrap();
     let again = w.settle(&session, &window).unwrap();
     let amount = first.amount;
-    assert!(amount > 0);
+    assert!(amount > Amount::ZERO);
     assert!(first.settled);
     assert!(!again.settled);
     assert_eq!(again.amount, amount);
@@ -607,11 +607,11 @@ fn a_partner_window_earns_once_is_paid_once_and_collected_once_however_many_time
         (amt("10") - amount, 1)
     );
     assert_eq!(w.ledger.house(), amount);
-    assert_eq!(w.ledger.receivable(USER), 0);
+    assert_eq!(w.ledger.receivable(USER), Amount::ZERO);
     assert_eq!(w.ledger.reserve("test"), -amount);
     assert_eq!(
         w.ledger.available(USER),
-        0,
+        Amount::ZERO,
         "no customer balance in our book"
     );
     assert_eq!(w.ledger.reasons(), ["charge.earned", "charge.collected"]);
@@ -656,7 +656,7 @@ fn a_partner_refusal_leaves_the_window_earned_and_owed_and_the_next_settle_colle
     w.door.with(|s| s.refuse = None);
     assert!(w.settle(&session, &window).unwrap().settled);
     assert_eq!(w.door.with(|s| s.balance), amt("10") - amount);
-    assert_eq!(w.ledger.receivable(USER), 0);
+    assert_eq!(w.ledger.receivable(USER), Amount::ZERO);
     assert_eq!(w.ledger.reasons(), ["charge.earned", "charge.collected"]);
 }
 
@@ -788,7 +788,7 @@ fn a_team_run_is_owed_by_the_business_naming_the_member_and_collected_once_from_
     let first = w.settle(&session, &window).unwrap();
     let again = w.settle(&session, &window).unwrap();
     let amount = first.amount;
-    assert!(amount > 0 && !again.settled);
+    assert!(amount > Amount::ZERO && !again.settled);
     assert_eq!(
         w.door.with(|s| s.businesses.clone()),
         vec![Some(BUSINESS.to_owned()), Some(BUSINESS.to_owned())],
@@ -809,9 +809,9 @@ fn a_team_run_is_owed_by_the_business_naming_the_member_and_collected_once_from_
     assert_eq!(w.ledger.house(), amount);
     assert_eq!(
         (w.ledger.receivable(BUSINESS), w.ledger.receivable(USER)),
-        (0, 0)
+        (Amount::ZERO, Amount::ZERO)
     );
-    assert_eq!(w.ledger.available(USER), 0);
+    assert_eq!(w.ledger.available(USER), Amount::ZERO);
     assert_eq!(w.ledger.reserve("test"), -amount);
     let row = w.window_row(&session);
     assert_eq!(
@@ -833,13 +833,13 @@ fn a_team_window_the_business_cannot_pay_stays_owed_by_the_business_and_the_next
     let amount = w.pending(&session, &window);
     assert_eq!(
         (w.ledger.receivable(BUSINESS), w.ledger.receivable(USER)),
-        (-amount, 0)
+        (-amount, Amount::ZERO)
     );
     assert_eq!(w.window_row(&session).4.as_deref(), Some(BUSINESS));
     assert_eq!(w.door.with(|s| s.balance), amt("10"));
     w.door.with(|s| s.refuse = None);
     assert!(w.settle(&session, &window).unwrap().settled);
-    assert_eq!(w.ledger.receivable(BUSINESS), 0);
+    assert_eq!(w.ledger.receivable(BUSINESS), Amount::ZERO);
     assert_eq!(w.ledger.reasons(), ["charge.earned", "charge.collected"]);
 }
 
@@ -865,7 +865,7 @@ fn a_window_is_charged_exactly_its_priced_cost_under_its_business_key() {
         price: price(),
     }])
     .unwrap();
-    assert!(expected > 0);
+    assert!(expected > Amount::ZERO);
     let s = w.settle(&session, &window).unwrap();
     assert_eq!(s.amount, expected);
     assert_eq!(s.charge_key, charge_key_for(&session, &window));
@@ -1043,10 +1043,10 @@ fn metering_off_settle_posts_nothing_for_windows_left_from_metering_on() {
     w.m.enabled = false;
     let attempt = w.settle(&session, &window).unwrap();
     assert!(!attempt.settled);
-    assert_eq!((attempt.amount, attempt.charge_tx_id), (0, None));
+    assert_eq!((attempt.amount, attempt.charge_tx_id), (Amount::ZERO, None));
     assert_eq!(attempt.charge_key, charge_key_for(&session, &window));
     assert_eq!(w.ledger.available(USER), amt("1000"));
-    assert_eq!(w.ledger.house(), 0);
+    assert_eq!(w.ledger.house(), Amount::ZERO);
     assert_eq!(
         meter::open_windows(w.pool(), &session).unwrap(),
         vec![window.clone()]
@@ -1056,9 +1056,9 @@ fn metering_off_settle_posts_nothing_for_windows_left_from_metering_on() {
     assert!(!all.is_empty());
     assert!(
         all.iter()
-            .all(|r| !r.settled && r.amount == 0 && r.charge_tx_id.is_none())
+            .all(|r| !r.settled && r.amount == Amount::ZERO && r.charge_tx_id.is_none())
     );
-    assert_eq!(w.ledger.house(), 0);
+    assert_eq!(w.ledger.house(), Amount::ZERO);
     assert!(w.bus.0.lock().unwrap().is_empty());
 }
 
@@ -1162,7 +1162,7 @@ fn a_free_window_seals_with_no_charge_logs_it_free_and_publishes_nothing() {
     let window = w.record(&session, "r-0", 0, 0, now()).unwrap();
     let s = w.settle(&session, &window).unwrap();
     assert!(s.settled);
-    assert_eq!((s.amount, s.charge_tx_id), (0, None));
+    assert_eq!((s.amount, s.charge_tx_id), (Amount::ZERO, None));
     assert!(w.ledger.reasons().is_empty());
     assert!(meter::open_windows(w.pool(), &session).unwrap().is_empty());
     assert_eq!(
@@ -1336,7 +1336,7 @@ fn an_explicit_zero_is_stored_and_the_same_request_replays_as_one_write() {
     );
     let (again, replayed) = spend::set(pool, USER, &caps("0.00", "0", "0.0", "set-caps")).unwrap();
     assert!(replayed);
-    assert_eq!(again.per_call, 0);
+    assert_eq!(again.per_call, Amount::ZERO);
     let mut c = db.client();
     let n = |c: &mut Client, sql: &str| -> i64 { c.query_one(sql, &[&USER]).unwrap().get(0) };
     assert_eq!(
@@ -1468,8 +1468,11 @@ fn door_of(w: World) -> (AgentsDoor, FakeLedger, TestDb) {
         ready: svc_agents::gateway::readiness::ReadyInput::unwired(),
         metering: m,
         runtime: svc_agents::runtime::Runtime::unwired(),
+        ops: svc_agents::ops::Ops::unwired(),
         background: svc_agents::background::Settings::default(),
         advisors: svc_agents::advisors::Advisors::unwired(),
+        own: svc_agents::own::Own::unwired(),
+        team: svc_agents::team::Team::unwired(),
     })
     .unwrap();
     (door, ledger, db)
@@ -1545,7 +1548,7 @@ fn error_of(answer: &(u16, Json)) -> (u16, String, Option<String>) {
 #[test]
 fn the_door_refuses_a_blank_cap_and_reads_only_the_callers_own() {
     let db = db_or_skip!();
-    let (door, _, db) = door_of(World::new(db, PartnerDoor::new(0), true));
+    let (door, _, db) = door_of(World::new(db, PartnerDoor::new(Amount::ZERO), true));
     let me = principal(&person(USER));
     let set = |key: &str, call: &str| {
         Json::obj([
@@ -1595,7 +1598,7 @@ fn the_door_refuses_a_blank_cap_and_reads_only_the_callers_own() {
 #[test]
 fn only_the_person_sets_a_cap_and_no_hold_is_a_public_call() {
     let db = db_or_skip!();
-    let (door, _, _db) = door_of(World::new(db, PartnerDoor::new(0), true));
+    let (door, _, _db) = door_of(World::new(db, PartnerDoor::new(Amount::ZERO), true));
     let raise = Json::obj([
         ("idempotencyKey", Json::str("agent-raise")),
         ("assetId", Json::str("IFC")),
@@ -1720,7 +1723,7 @@ fn usage_settle_is_svc_agents_own_sweep_and_charges_once() {
         signed_as("svc-trade", "usage.settle", &body),
     );
     assert_eq!(trade.0, 403);
-    assert_eq!(ledger.house(), 0);
+    assert_eq!(ledger.house(), Amount::ZERO);
     let first = data(&mutate(
         &door,
         "usage.settle",
@@ -1884,7 +1887,7 @@ fn the_dashboard_equals_the_stored_rows_and_test_runs_stay_out_unless_asked_for(
         _ => panic!(),
     };
     assert_eq!(spent, sealed);
-    assert!(spent > 0);
+    assert!(spent > Amount::ZERO);
     let with_test = data(&query(&door, "analytics.summary", &range(true), &me));
     assert_eq!(
         with_test.get("totals").unwrap().get("testRuns"),
@@ -1998,4 +2001,52 @@ fn every_seeded_set_is_distinct() {
     assert_eq!(a.1, b.1);
     let set: BTreeSet<_> = [a.0, b.0].into_iter().collect();
     assert_eq!(set.len(), 2);
+}
+
+/// intafaced#10084, the hunt's own test: the meter records the charge, then the bus refuses `agentUsageSettled`; a
+/// retry of the same window took the already-settled branch and never published it, so the billed settlement's event
+/// was lost. The event is now written with the charge's record (`meter::record_charge`) and owed in the outbox until
+/// the bus takes it, so the settle no longer fails on the bus (its first answer is not asserted) and the retry sends it.
+#[test]
+fn retry_publishes_a_settlement_lost_before_bus_acceptance() {
+    struct FailOnce(AtomicUsize, FakeBus);
+
+    impl Bus for FailOnce {
+        fn publish(&self, subject: &str, key: &str, envelope: &Json) -> Result<(), String> {
+            if self.0.fetch_add(1, Ordering::SeqCst) == 0 {
+                return Err("TEST bus unavailable before publish".to_owned());
+            }
+            self.1.publish(subject, key, envelope)
+        }
+    }
+
+    let mut w = world_or_skip!(custodial_world());
+    w.m.bus = Box::new(FailOnce(AtomicUsize::new(0), w.bus.clone()));
+    let (session, window) = w.ran(USER);
+
+    let _first = w.settle(&session, &window);
+    assert!(w.bus.0.lock().unwrap().is_empty());
+    let owed: i64 = w
+        .db
+        .client()
+        .query_one(
+            "SELECT count(*) FROM agents.event_outbox WHERE published_at IS NULL AND last_error IS NOT NULL",
+            &[],
+        )
+        .unwrap()
+        .get(0);
+    assert_eq!(
+        owed, 1,
+        "the refused event stays owed in the outbox with its error"
+    );
+    w.settle(&session, &window).unwrap();
+
+    assert_eq!(w.ledger.reasons(), ["agents.usage.metered"]);
+    assert_eq!(w.bus.0.lock().unwrap().len(), 1);
+    // A third settle finds it sent and sends nothing more.
+    w.settle(&session, &window).unwrap();
+    assert_eq!(w.bus.0.lock().unwrap().len(), 1);
+    let (subject, key, _) = w.bus.0.lock().unwrap()[0].clone();
+    assert_eq!(subject, settle::USAGE_SETTLED);
+    assert_eq!(key, charge_key_for(&session, &window));
 }

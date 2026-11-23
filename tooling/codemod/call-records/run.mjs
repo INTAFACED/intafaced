@@ -8,11 +8,17 @@
 //   4. with --refusals, refusals.mjs lists what the service's own tests see each new record's handler refuse;
 //   5. procedures:write regenerates the registry and procedures/<service>.schema.json;
 //   with --door (a service the Rust door serves, its router read --from-rev), door-check.mjs holds each record to it;
-//   6. doubles.mjs gives every test's API client double that reaches a record caller a `call` (its own query or mutate).
+//   6. doubles.mjs gives every test's API client double that reaches a record caller a `call` (its own query or mutate);
+//   7. dead-hand-schemas.mjs deletes each bank hand schema the moved callers were the last to name, in the same change.
+// With --callers-only (a service whose Rust port is in flight) the service and its crate are never touched: step 1 mounts
+// nothing and moves no declaration out of the service, step 3 is skipped (its fixes would change a record away from the
+// router it copies, or the service's replay test), so a refused record is left by name; and the run fails if anything
+// under services/svc-* or crates/svc-* changed.
 // It starts only on a clean tree (nothing uncommitted under apps/, services/ or packages/contracts/), so step 3 can put
 // back exactly what step 1 wrote.
 //
-//   node tooling/codemod/call-records/run.mjs --module notify [--service svc-notify] [--paths a.,b.] [--refusals]
+//   node tooling/codemod/call-records/run.mjs --module notify [--service svc-notify] [--paths a.,b.] [--refusals] [--summary out.json]
+// --summary writes the last line's summary (records, calls moved, each call left and why) to a file: report.mjs --deep reads it.
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -22,10 +28,14 @@ const REPO = resolve(new URL('../../..', import.meta.url).pathname);
 const here = (f) => join(REPO, 'tooling/codemod/call-records', f);
 const sh = (cmd, args, opts = {}) => execFileSync(cmd, args, { cwd: REPO, stdio: ['ignore', 'inherit', 'inherit'], ...opts });
 const out = (cmd, args) => execFileSync(cmd, args, { cwd: REPO, encoding: 'utf8' });
+// A step handed the changed record files does nothing when none changed (a re-run on a branch whose records already
+// exist), and the run goes on: prettier given no paths fails, and the others would read nothing.
+const prettier = (files) => files.length && sh(join(REPO, 'node_modules/.bin/prettier'), ['--write', '--log-level', 'warn', ...files]);
 
 export function run(argv) {
   const refusals = argv.includes('--refusals');
-  const pass = argv.filter((a) => a !== '--refusals');
+  const summaryOut = argv.includes('--summary') ? argv[argv.indexOf('--summary') + 1] : undefined;
+  const pass = argv.filter((a, i) => a !== '--refusals' && a !== '--summary' && argv[i - 1] !== '--summary');
   const service =
     pass[pass.indexOf('--service') + 1] && pass.includes('--service')
       ? pass[pass.indexOf('--service') + 1]
@@ -46,6 +56,7 @@ export function run(argv) {
   }
 
   const door = pass.includes('--door') ? ['--door', pass[pass.indexOf('--door') + 1]] : [];
+  const callersOnly = pass.includes('--callers-only');
   const summary = join(tmpdir(), `call-records-${process.pid}.json`);
   const unportable = join(tmpdir(), `call-records-unportable-${process.pid}.json`);
   const step1 = (extra = []) => {
@@ -77,12 +88,19 @@ export function run(argv) {
     build();
     let skipped;
     for (;;) {
-      sh('node', [here('samples.mjs'), '--unportable', unportable, ...door, ...recordFiles()]);
+      const files = recordFiles();
+      if (!files.length) {
+        skipped = {};
+        break;
+      }
+      sh('node', [here('samples.mjs'), '--unportable', unportable, ...door, ...files]);
       skipped = JSON.parse(readFileSync(unportable, 'utf8'));
-      if (!Object.keys(skipped).length) break;
-      const fixed = JSON.parse(out('node', [here('portable.mjs'), '--unportable', unportable, '--write', ...recordFiles()]));
+      if (!Object.keys(skipped).length || callersOnly) break;
+      const fixed = JSON.parse(out('node', [here('portable.mjs'), '--unportable', unportable, '--write', ...door, ...files]));
       if (!fixed.fixed) break;
-      for (const f of fixed.files) if (tracked.has(f)) kept.add(f);
+      // A record file is written again by the next round's step 1 (and fixed again by portable.mjs), so only the
+      // schema sources it edited are kept: keeping a record file would bring back this round's records after a put back.
+      for (const f of fixed.files) if (tracked.has(f) && !files.includes(f)) kept.add(f);
       build();
     }
     if (!Object.keys(skipped).length) break;
@@ -96,19 +114,29 @@ export function run(argv) {
     skip = { ...skip, ...skipped };
     writeFileSync(skipFile, JSON.stringify(skip));
   }
-  sh(join(REPO, 'node_modules/.bin/prettier'), ['--write', '--log-level', 'warn', ...recordFiles()]);
-  if (refusals) {
+  prettier(recordFiles());
+  if (refusals && recordFiles().length) {
     build();
     sh('node', [here('refusals.mjs'), '--service', service, ...recordFiles()]);
-    sh(join(REPO, 'node_modules/.bin/prettier'), ['--write', '--log-level', 'warn', ...recordFiles()]);
+    prettier(recordFiles());
   }
   build();
   // A door's records are held to the door before anything else reads them: kind, access and the exact input tree.
-  if (door.length) sh('node', [here('door-check.mjs'), ...door, '--service', service, ...recordFiles()]);
+  if (door.length && recordFiles().length) sh('node', [here('door-check.mjs'), ...door, '--service', service, ...recordFiles()]);
   sh('pnpm', ['procedures:write'], { cwd: join(REPO, 'packages/contracts'), stdio: ['ignore', 'ignore', 'inherit'] });
   sh('node', [here('doubles.mjs'), '--write'], { stdio: ['ignore', 'ignore', 'inherit'] });
+  sh('node', [here('dead-hand-schemas.mjs'), '--write'], { stdio: ['ignore', 'ignore', 'inherit'] });
   for (const f of [summary, unportable, patchFile, skipFile]) if (existsSync(f)) rmSync(f);
-  console.log(JSON.stringify({ service, records: result.records.length, rewritten: result.rewritten, hand: result.hand }, null, 2));
+  if (callersOnly) {
+    const touched = out('git', ['status', '--porcelain', '--', 'services', 'crates']).trim();
+    if (touched) {
+      console.error(`--callers-only touched a service mid-port, which it never may:\n${touched}`);
+      process.exit(1);
+    }
+  }
+  const done = { service, records: result.records.length, rewritten: result.rewritten, hand: result.hand };
+  if (summaryOut) writeFileSync(summaryOut, JSON.stringify(done));
+  console.log(JSON.stringify(done, null, 2));
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) run(process.argv.slice(2));

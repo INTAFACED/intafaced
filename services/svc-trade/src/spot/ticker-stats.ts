@@ -224,20 +224,26 @@ export async function queryTickerStats(sql: Sql, marketIds: readonly string[], n
  * seconds; the 24 h aggregate does not change meaningfully in that time. Only
  * ids that are missing or expired go to the database — in ONE statement — so a
  * warm cache costs zero queries and a cold one costs exactly one.
+ *
+ * A market that printed after its entry was cached is expired too (`newestPrintMs`, the time of each market's newest
+ * public print, as the caller just read it): a ticker row never pairs a fresh last price with a 24 h volume, high and
+ * low that leave that print out (J-cex-spot-14 #8).
  */
 export function createTickerStatsReader(
   sql: Sql,
   opts: { ttlMs: number; maxEntries?: number },
-): (marketIds: readonly string[], nowMs: number) => Promise<Map<string, TickerStats24h>> {
+): (marketIds: readonly string[], nowMs: number, newestPrintMs?: ReadonlyMap<string, number>) => Promise<Map<string, TickerStats24h>> {
   const maxEntries = opts.maxEntries ?? 2000;
   const cache = new Map<string, { at: number; stats: TickerStats24h }>();
 
-  return async (marketIds, nowMs) => {
+  return async (marketIds, nowMs, newestPrintMs) => {
     const out = new Map<string, TickerStats24h>();
     const stale: string[] = [];
     for (const id of new Set(marketIds)) {
       const hit = cache.get(id);
-      if (hit && nowMs - hit.at >= 0 && nowMs - hit.at < opts.ttlMs) out.set(id, hit.stats);
+      const printed = newestPrintMs?.get(id);
+      const fresh = hit && nowMs - hit.at >= 0 && nowMs - hit.at < opts.ttlMs && (printed === undefined || printed < hit.at);
+      if (hit && fresh) out.set(id, hit.stats);
       else stale.push(id);
     }
     if (stale.length > 0) {

@@ -19,24 +19,29 @@ import {
 } from './token-holdings';
 import { tokenHoldingsCopy } from './token-holdings-copy';
 
-/** Holdings summary, unlock calendar, stake ticket and export. */
-export function TokenHoldings() {
+/** Every stake of mine, up to the service's cap, for the holdings summary; shared with the /token room on the kit. */
+export function useTokenHoldings() {
   const api = useApi();
   const { userId } = useSession();
+  return useResource(
+    (signal) =>
+      api.call(TOKEN_LIST_STAKES, { status: 'all', limit: 200 }, { signal, accept: (rows) => rows.every((row) => row.userId === userId) }),
+    `token-holdings:${userId}`,
+  );
+}
+
+/** Holdings summary, unlock calendar, stake ticket and export. */
+export function TokenHoldings() {
   const { hideBalances } = usePreferences();
   const { Copy, t } = tokenHoldingsCopy.useCopy();
   const [amount, setAmount] = useState('');
   const [term, setTerm] = useState<StakeRow['tier']>('flex');
   const [exported, setExported] = useState<boolean | null>(null);
-  const stakes = useResource(
-    (signal) =>
-      api.call(TOKEN_LIST_STAKES, { status: 'all', limit: 200 }, { signal, accept: (rows) => rows.every((row) => row.userId === userId) }),
-    `token-holdings:${userId}`,
-  );
+  const stakes = useTokenHoldings();
   const show = (value: string) => (hideBalances ? t('hidden') : displayAmount(value));
   return (
     <Panel title={t('holdingsTitle')}>
-      <p className="muted">
+      <p className="lt-muted">
         <Copy k="assetNote" />
       </p>
       <Read resource={stakes.resource} retry={stakes.reload}>
@@ -57,7 +62,7 @@ export function TokenHoldings() {
                   { label: t('sCount'), value: summary.count },
                 ]}
               />
-              <p className="muted">
+              <p className="lt-muted">
                 <Copy k="loadedNote" />
               </p>
               <h3>
@@ -113,7 +118,7 @@ export function TokenHoldings() {
           options={(['flex', 'm3', 'm12'] as const).map((value) => ({ value, label: t(`term_${value}`) }))}
         />
       </div>
-      <p className="muted">
+      <p className="lt-muted">
         {t('ticketLock')}: {STAKE_LOCK_DAYS[term] ? t('lockDays', { days: STAKE_LOCK_DAYS[term] }) : t('noLock')}
       </p>
       <DisabledAction label={t('ticketReview')} reason={t('ticketBlocked')} />

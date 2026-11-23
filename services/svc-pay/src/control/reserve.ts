@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { PAY_RESERVE_NOT_ENFORCED } from '@intafaced/contracts';
+import { PAY_RESERVE_NOT_ENFORCED } from '@intafaced/contracts/merchant-control';
 import { ControlError } from './errors.js';
 import { effectiveReserve, loadMerchantControl } from './store.js';
 

@@ -1,10 +1,13 @@
+// volt-room: /uc/paydividends
 import { useMemo, useState } from 'react';
-import { distributionsMineSchema, type DistributionKind, type DistributionRecord } from '@intafaced/contracts/campaigns-catalogue';
+import { type DistributionKind, type DistributionRecord } from '@intafaced/contracts/campaigns-catalogue';
 import { useApi } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
-import { Button, DataTable, Failure, Loading, Page } from '../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { RecordListTemplate } from '@intafaced/ui/lit/templates';
 import { dividendsCopy as copy } from './dividends-copy';
-import './dividends.css';
+import { FailureBox, LoadingLine } from '../../shared/record/record-parts';
+import { CAMPAIGNS_DISTRIBUTION_MINE } from '@intafaced/contracts/campaigns-distribution-procedures';
 
 /**
  * The dividend records room, /uc/paydividends (CM-airdrop-campaigns-01, J-campaigns-13 #1 #2 #3). Airdrops: each one the
@@ -18,10 +21,7 @@ export function Dividends() {
   const [kind, setKind] = useState<DistributionKind>(() =>
     typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('kind') === 'dividend' ? 'dividend' : 'airdrop',
   );
-  const records = useResource(
-    (signal) => api.query('campaigns', 'distribution.mine', { kind }, distributionsMineSchema, { signal }),
-    `distributions-${kind}`,
-  );
+  const records = useResource((signal) => api.call(CAMPAIGNS_DISTRIBUTION_MINE, { kind }, { signal }), `distributions-${kind}`);
   return <DividendsView kind={kind} onKind={setKind} records={records.resource} retry={records.reload} />;
 }
 
@@ -54,86 +54,108 @@ export function DividendsView({
       ? (records.failure.message ?? '').replace(/\s*\[owner\.decision\]$/, '')
       : null;
   return (
-    <div className="dividends" lang={languageFor('title')} style={{ display: 'contents' }}>
-      <Page title={t('title')} description={t('description')}>
-        <div className="dividends__columns">
-          <section aria-labelledby="dividends-what">
-            <h2 id="dividends-what">
-              <Copy k="whatTitle" />
-            </h2>
-            <p>
-              <Copy k="whatBody" />
-            </p>
-          </section>
-          <section aria-labelledby="dividends-need">
-            <h2 id="dividends-need">
-              <Copy k="needTitle" />
-            </h2>
-            <p>
-              <Copy k="needBody" />
-            </p>
-            <p className="muted">
-              <Copy k="needToken" />
-            </p>
-          </section>
-        </div>
-        <section aria-labelledby="dividends-history">
-          <h2 id="dividends-history">
-            <Copy k="historyTitle" />
-          </h2>
-          <div className="actions" role="group" aria-label={t('kindLabel')} data-testid="dividends-kind">
-            {(['airdrop', 'dividend'] as const).map((k) => (
-              <Button
-                key={k}
-                variant={k === kind ? 'primary' : 'secondary'}
-                aria-pressed={k === kind}
-                data-kind={k}
-                onClick={() => onKind(k)}
-              >
-                {t(k === 'airdrop' ? 'kindAirdrop' : 'kindDividend')}
-              </Button>
-            ))}
-          </div>
-          {records.status === 'loading' ? <Loading label={t('loading')} /> : null}
-          {refusedQuestion !== null ? (
-            <p role="status" data-testid="dividends-refusal" data-code="owner.decision">
-              {t('dividendRefused', { question: refusedQuestion })}
-            </p>
-          ) : records.status === 'failed' ? (
-            <Failure result={records.failure} retry={retry} />
-          ) : null}
-          <DataTable label={t('historyLabel')} headers={headers}>
-            {records.status === 'ready' && records.data.records.length > 0 ? (
-              records.data.records.map((r) => <RecordRow key={r.campaignId} r={r} when={when} />)
-            ) : (
-              <tr data-testid="dividends-empty" data-kind={kind}>
-                <td colSpan={headers.length}>
-                  <strong>{kind === 'dividend' ? <Copy k="dividendEmpty" /> : <Copy k="emptyTitle" />}</strong>
-                  {kind === 'airdrop' ? (
-                    <>
-                      <br />
-                      <span className="muted">
-                        <Copy k="emptyBody" />
-                      </span>
-                    </>
-                  ) : null}
-                </td>
-              </tr>
-            )}
-          </DataTable>
-        </section>
-        <div className="actions">
-          <a className="text-link" href="/token">
-            <Copy k="token" />
-          </a>
-          <a className="text-link" href="/bank/earn">
-            <Copy k="earn" />
-          </a>
-          <a className="text-link" href="/money/activity">
-            <Copy k="activity" />
-          </a>
-        </div>
-      </Page>
+    <div lang={languageFor('title')}>
+      <RecordListTemplate
+        title={t('title')}
+        description={t('description')}
+        state={{ kind: 'ready' }}
+        summary={
+          <>
+            <section aria-labelledby="dividends-what">
+              <h2 id="dividends-what">
+                <Copy k="whatTitle" />
+              </h2>
+              <p>
+                <Copy k="whatBody" />
+              </p>
+            </section>
+            <section aria-labelledby="dividends-need">
+              <h2 id="dividends-need">
+                <Copy k="needTitle" />
+              </h2>
+              <p>
+                <Copy k="needBody" />
+              </p>
+              <p className="lt-hint">
+                <Copy k="needToken" />
+              </p>
+            </section>
+          </>
+        }
+        list={
+          <>
+            <section aria-labelledby="dividends-history">
+              <h2 id="dividends-history">
+                <Copy k="historyTitle" />
+              </h2>
+              <div className="lt-actions" role="group" aria-label={t('kindLabel')} data-testid="dividends-kind">
+                {(['airdrop', 'dividend'] as const).map((k) => (
+                  <Button
+                    key={k}
+                    tone={k === kind ? 'primary' : 'secondary'}
+                    aria-pressed={k === kind}
+                    data-kind={k}
+                    onClick={() => onKind(k)}
+                  >
+                    {t(k === 'airdrop' ? 'kindAirdrop' : 'kindDividend')}
+                  </Button>
+                ))}
+              </div>
+              {records.status === 'loading' ? <LoadingLine label={t('loading')} /> : null}
+              {refusedQuestion !== null ? (
+                <p role="status" data-testid="dividends-refusal" data-code="owner.decision">
+                  {t('dividendRefused', { question: refusedQuestion })}
+                </p>
+              ) : records.status === 'failed' ? (
+                <FailureBox result={records.failure} retry={retry} />
+              ) : null}
+              <div>
+                <table className="lt-table" aria-label={t('historyLabel')}>
+                  <thead>
+                    <tr>
+                      {headers.map((head, index) => (
+                        <th key={index} scope="col">
+                          {head}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {records.status === 'ready' && records.data.records.length > 0 ? (
+                      records.data.records.map((r) => <RecordRow key={r.campaignId} r={r} when={when} />)
+                    ) : (
+                      <tr data-testid="dividends-empty" data-kind={kind} data-empty="">
+                        <td colSpan={headers.length}>
+                          <strong>{kind === 'dividend' ? <Copy k="dividendEmpty" /> : <Copy k="emptyTitle" />}</strong>
+                          {kind === 'airdrop' ? (
+                            <>
+                              <br />
+                              <span className="lt-hint">
+                                <Copy k="emptyBody" />
+                              </span>
+                            </>
+                          ) : null}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+            <div className="lt-actions">
+              <a className="lt-button lt-button-secondary" href="/token">
+                <Copy k="token" />
+              </a>
+              <a className="lt-button lt-button-secondary" href="/bank/earn">
+                <Copy k="earn" />
+              </a>
+              <a className="lt-button lt-button-secondary" href="/money/activity">
+                <Copy k="activity" />
+              </a>
+            </div>
+          </>
+        }
+      />
     </div>
   );
 }

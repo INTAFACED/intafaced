@@ -48,6 +48,7 @@ import {
   type AuthRecord,
 } from './public-auth-guards';
 import './public-auth.css';
+import { IDENTITY_AUTH_LOGIN, IDENTITY_AUTH_REGISTER } from '@intafaced/contracts/identity-auth-procedures';
 
 type Original = {
   api: ApiClient;
@@ -299,10 +300,13 @@ export function AuthForm({ register }: { register: boolean }) {
       target: inviteToken ? 'invite' : findRoom(destination.split(/[?#]/)[0] ?? '/money')!.path,
     };
     // Private inputs are captured in this invocation only. No request body enters the browser journal.
-    const input =
-      kind === 'register'
-        ? { handle: handle.trim(), email: identifierForRequest, password, ...(region ? { region: region.toUpperCase() } : {}) }
-        : { identifier: identifierForRequest, password, ...(totp ? { totpCode: totp } : {}) };
+    const registerInput = {
+      handle: handle.trim(),
+      email: identifierForRequest,
+      password,
+      ...(region ? { region: region.toUpperCase() } : {}),
+    };
+    const loginInput = { identifier: identifierForRequest, password, ...(totp ? { totpCode: totp } : {}) };
     const identifierForPasskey = identifierForRequest;
     const controller = new AbortController();
     abort.current = controller;
@@ -416,13 +420,10 @@ export function AuthForm({ register }: { register: boolean }) {
           });
         } else {
           if (!same(original)) return;
-          answer = await original.api.mutate(
-            'identity',
-            kind === 'register' ? 'auth.register' : 'auth.login',
-            input,
-            kind === 'register' ? sessionSchema : signInAnswerSchema,
-            { signal: controller.signal },
-          );
+          answer =
+            kind === 'register'
+              ? await original.api.call(IDENTITY_AUTH_REGISTER, registerInput, { signal: controller.signal })
+              : await original.api.call(IDENTITY_AUTH_LOGIN, loginInput, { signal: controller.signal });
           // Too many failed sign-ins came from this address: solve the service's challenge here, then send once more.
           if (kind !== 'register' && !answer.ok && answer.code === 'auth.challenge_required') {
             setChallengeTries(0);
@@ -435,9 +436,13 @@ export function AuthForm({ register }: { register: boolean }) {
                   if (same(original)) setChallengeTries(tries);
                 });
                 if (!same(original)) return;
-                answer = await original.api.mutate('identity', 'auth.login', { ...input, challenge: proof }, signInAnswerSchema, {
-                  signal: controller.signal,
-                });
+                answer = await original.api.call(
+                  IDENTITY_AUTH_LOGIN,
+                  { ...loginInput, challenge: proof },
+                  {
+                    signal: controller.signal,
+                  },
+                );
               }
             } finally {
               setChallengeTries(null);
@@ -653,17 +658,17 @@ export function AuthForm({ register }: { register: boolean }) {
                 }
               />
             </p>
-            <p className="muted">
+            <p className="lt-muted">
               <Copy k="original" /> · <Copy k={record.kind} />
             </p>
             <small>
               <Copy k="browserRef" /> · <span lang="zxx">{record.localRef}</span>
             </small>
-            <p className="muted">
+            <p className="lt-muted">
               <Copy k="after" /> ·{' '}
               {record.target === 'invite' ? <Copy k="invitation" /> : roomTitle(findRoom(record.target)!, requestedLocale)}
             </p>
-            <p className="muted">
+            <p className="lt-muted">
               <Copy k={register ? 'separateRegister' : 'separate'} />
             </p>
             {register && (
@@ -733,7 +738,7 @@ export function AuthForm({ register }: { register: boolean }) {
           />
         ) : (
           <>
-            <form ref={form} className="form-stack" onSubmit={submit}>
+            <form ref={form} className="lt-stack" onSubmit={submit}>
               {!register && (
                 <p className="public-auth-method">
                   <Copy k="method" />
@@ -820,14 +825,14 @@ export function AuthForm({ register }: { register: boolean }) {
                 <div lang="und">
                   {result.code === 'auth.too_many_attempts' && result.reason !== 'uncertain' ? (
                     // The per-account pause: say how long, from the service's own Retry-After.
-                    <p data-testid="failure" className="failure" role="alert" lang={languageFor('locked')}>
+                    <p data-testid="failure" className="lt-refusal" role="alert" lang={languageFor('locked')}>
                       {result.retryAfterSeconds
                         ? t('locked', { minutes: Math.max(1, Math.ceil(result.retryAfterSeconds / 60)) })
                         : t('lockedPlain')}
                     </p>
                   ) : secondStep ? (
                     // The second step, on the page that asks for it. A wrong code and a used one read the same.
-                    <div data-testid="failure" className="failure" role="alert">
+                    <div data-testid="failure" className="lt-refusal" role="alert">
                       <p lang={languageFor(secondStep)}>{t(secondStep)}</p>
                       {codeStep && (
                         <Button
@@ -861,13 +866,13 @@ export function AuthForm({ register }: { register: boolean }) {
                     </div>
                   ) : result.code === 'auth.account_frozen' && result.reason !== 'uncertain' && result.accountState ? (
                     // Sent only after the password verified: name the state and the one way forward.
-                    <div data-testid="failure" className="failure" role="alert">
+                    <div data-testid="failure" className="lt-refusal" role="alert">
                       <p lang={languageFor(result.accountState)}>{t(result.accountState)}</p>
-                      <a className="text-link" href="/help" lang={languageFor('stateHelp')}>
+                      <a className="lt-link" href="/help" lang={languageFor('stateHelp')}>
                         {t('stateHelp')}
                       </a>
                       {result.accountState === 'frozen' && (
-                        <a className="text-link" href="/appeal" lang={languageFor('stateAppeal')}>
+                        <a className="lt-link" href="/appeal" lang={languageFor('stateAppeal')}>
                           {t('stateAppeal')}
                         </a>
                       )}
@@ -891,14 +896,14 @@ export function AuthForm({ register }: { register: boolean }) {
                 {register ? (
                   <>
                     {p('Already have an account?')}{' '}
-                    <a className="text-link" href={publicAuthHref(authContext, '/login')}>
+                    <a className="lt-link" href={publicAuthHref(authContext, '/login')}>
                       {p('Sign in')}
                     </a>
                   </>
                 ) : (
                   <>
                     {p('Need an account?')}{' '}
-                    <a className="text-link" href={publicAuthHref(authContext, '/register')}>
+                    <a className="lt-link" href={publicAuthHref(authContext, '/register')}>
                       {p('Create one')}
                     </a>
                   </>
@@ -918,7 +923,7 @@ export function AuthForm({ register }: { register: boolean }) {
             {!register && <TesterBuild />}
             {!register && <CodeSignIn />}
             {!register && walletStopped && (
-              <p data-testid="failure" className="failure" role="alert" lang={languageFor(walletWordsStopped[walletStopped])}>
+              <p data-testid="failure" className="lt-refusal" role="alert" lang={languageFor(walletWordsStopped[walletStopped])}>
                 {t(walletWordsStopped[walletStopped])}
               </p>
             )}

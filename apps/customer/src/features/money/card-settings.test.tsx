@@ -9,30 +9,39 @@ import { channelSpec, freshCardCheck, limitsSpec } from './CardSettings';
 import { orderSpec } from './CardPanels';
 import { refusal, sendReviewed, wire } from './write-flow';
 import { cardSchema } from './contracts';
+import { BANK_CARDS_SET_LIMITS } from '@intafaced/contracts/bank-cards-2-procedures';
 
 const copy = cardDepthCopy.forLocale('en');
 const id = '7d0a2cd4-6a46-4f6b-9d8f-0d5f27ec7b11';
 const requestId = '0c1f0a52-5c7f-4c1c-8e7b-6f2d3b9a1e44';
-const card = cardSchema.parse({
-  id,
-  assetId: 'USDT',
-  settlementAssetId: 'USDT',
-  issuer: 'issuer-x',
-  simulated: false,
-  panTail: '4242',
-  status: 'active',
-  cashbackBps: 0,
-  perAuthorizationLimit: '250.5',
-  dailyLimit: '1000',
-  monthlyLimit: null,
-  cashLimit: '200',
-  online: true,
-  contactless: false,
-  atm: true,
-  abroad: false,
-  cardType: 'virtual',
-  shippingAddress: null,
-});
+// The card as the bank answers it: the app's card view, and the fields its answer always carries beside them.
+const card = {
+  ...cardSchema.parse({
+    id,
+    assetId: 'USDT',
+    settlementAssetId: 'USDT',
+    issuer: 'issuer-x',
+    simulated: false,
+    panTail: '4242',
+    status: 'active',
+    cashbackBps: 0,
+    perAuthorizationLimit: '250.5',
+    dailyLimit: '1000',
+    monthlyLimit: null,
+    cashLimit: '200',
+    online: true,
+    contactless: false,
+    atm: true,
+    abroad: false,
+    cardType: 'virtual',
+    shippingAddress: null,
+  }),
+  usesAllowed: null,
+  designId: null,
+  deliverySpeed: null,
+  replacesCardId: null,
+  replacedByCardId: null,
+};
 const ok = async () => ({ ok: true as const, data: null });
 const values = { perAuthorizationLimit: '300', dailyLimit: '900', monthlyLimit: '', cashLimit: '200' };
 const saved = { ...card, perAuthorizationLimit: '300', dailyLimit: '900' };
@@ -40,7 +49,7 @@ const saved = { ...card, perAuthorizationLimit: '300', dailyLimit: '900' };
 describe('changing the limits on a card', () => {
   const spec = limitsSpec(card, copy, ok);
   it('starts from the real caps, with a blank one left blank', () => {
-    expect(spec.procedure).toBe('cards.setLimits');
+    expect(spec.record).toBe(BANK_CARDS_SET_LIMITS);
     expect(spec.initial).toEqual({ perAuthorizationLimit: '250.5', dailyLimit: '1000', monthlyLimit: '', cashLimit: '200' });
     expect(spec.fields?.map((field) => [field.name, field.optional ?? false])).toEqual([
       ['perAuthorizationLimit', false],

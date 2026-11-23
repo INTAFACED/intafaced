@@ -2,25 +2,29 @@ import type { Queryable } from '@intafaced/db';
 import { z } from 'zod';
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
+import type {
+  PayDepositTravelRuleDeclareInput,
+  PayDepositTravelRuleState,
+  PayDepositTravelRuleView,
+  PayTravelRuleField,
+} from '@intafaced/contracts';
 import {
-  PAY_DEPOSIT_TRAVEL_RULE_STATES,
   PAY_DEPOSIT_WALLET_TYPES,
   PAY_TRAVEL_RULE_FIELDS,
   payDepositTravelRuleDeclareInputSchema,
   payDepositTravelRuleGetInputSchema,
   payDepositTravelRuleViewSchema,
-  router,
-  scopedProcedure,
-  TRPCError,
-  type PayDepositTravelRuleDeclareInput,
-  type PayDepositTravelRuleState,
-  type PayDepositTravelRuleView,
-  type PayTravelRuleField,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/pay-custody-deposit';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { founderProcedure, type FounderContext } from '../../namespaces/founder-procedure.js';
 import type { FounderAuthority } from '../../founder-authority.js';
 import { reasonSchema } from '../../registries/schemas.js';
 import type { MessageCipher } from '../../travel-rule/cipher.js';
+import { fieldSchema, heldDepositViewSchema } from '@intafaced/contracts/pay-call-schemas';
+import { asAssetId } from '@intafaced/contracts/asset-id';
+import { PAY_FOUNDER_ADMIN_DEPOSIT_TRAVEL_RULE_LIST } from '@intafaced/contracts/pay-founder-admin-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { payRefusal } from '../../record-refusal.js';
 
 /**
  * The inbound travel rule on customer crypto deposits (W-deposit-07, W-compliance-notices-05; J-wallet-03 #1-#3).
@@ -65,11 +69,9 @@ export class DepositTravelRuleError extends Error {
 }
 
 const assetIdSchema = z.string().regex(/^[A-Za-z0-9]{1,16}$/);
-const userIdSchema = z.string().min(1).max(128);
 const thresholdSchema = z.string().regex(/^(0|[1-9]\d{0,19})(\.\d{1,18})?$/, 'a threshold is an unsigned decimal string');
-const fieldSchema = z.enum(PAY_TRAVEL_RULE_FIELDS);
 
-export const inboundRuleSetInputSchema = z
+const inboundRuleSetInputSchema = z
   .object({
     assetId: assetIdSchema,
     applies: z.boolean(),
@@ -86,7 +88,7 @@ export const inboundRuleSetInputSchema = z
   .refine((v) => new Set(v.fields).size === v.fields.length, { path: ['fields'], message: 'each field once' });
 export type InboundRuleSetInput = z.infer<typeof inboundRuleSetInputSchema>;
 
-export const inboundRuleViewSchema = z
+const inboundRuleViewSchema = z
   .object({
     version: z.number().int(),
     assetId: z.string(),
@@ -100,30 +102,10 @@ export const inboundRuleViewSchema = z
   .strict();
 export type InboundRuleView = z.infer<typeof inboundRuleViewSchema>;
 
-export const heldDepositViewSchema = z
-  .object({
-    depositId: z.string(),
-    userId: z.string(),
-    assetId: z.string(),
-    networkId: z.string(),
-    txHash: z.string(),
-    amount: z.string(),
-    threshold: z.string(),
-    ruleVersion: z.number().int(),
-    requiredFields: z.array(fieldSchema),
-    state: z.enum(PAY_DEPOSIT_TRAVEL_RULE_STATES),
-    walletType: z.enum(PAY_DEPOSIT_WALLET_TYPES).nullable(),
-    declaredAt: z.string().nullable(),
-    waitDeadline: z.string().nullable(),
-    openedAt: z.string(),
-    lastActor: z.string(),
-    lastReason: z.string().nullable(),
-  })
-  .strict();
 export type HeldDepositView = z.infer<typeof heldDepositViewSchema>;
 
 const depositActionInputSchema = z.object({ depositId: z.string().uuid(), reason: reasonSchema }).strict();
-export const releaseResultSchema = z.object({ deposit: heldDepositViewSchema, credited: z.boolean() }).strict();
+const releaseResultSchema = z.object({ deposit: heldDepositViewSchema, credited: z.boolean() }).strict();
 
 interface RecordRow {
   deposit_id: string;
@@ -161,7 +143,7 @@ function heldView(r: RecordRow): HeldDepositView {
   return {
     depositId: r.deposit_id,
     userId: r.user_id,
-    assetId: r.asset_id,
+    assetId: asAssetId(r.asset_id),
     networkId: r.network_id,
     txHash: r.tx_hash,
     amount: decimal(r.amount),
@@ -426,10 +408,11 @@ export function createDepositTravelRuleRouter(deps: DepositTravelRuleDeps & { fo
         .output(inboundRuleViewSchema)
         .mutation(({ ctx, input }) => wrap(() => service.setRule(actorOf(ctx), input))),
     }),
-    list: founder
-      .input(z.object({ userId: userIdSchema, limit: z.number().int().min(1).max(200).default(50) }).strict())
-      .output(z.array(heldDepositViewSchema))
-      .query(({ input }) => wrap(() => service.listForUser(input.userId, input.limit))),
+    list: mountRecord(
+      PAY_FOUNDER_ADMIN_DEPOSIT_TRAVEL_RULE_LIST,
+      ({ input }) => wrap(() => service.listForUser(input.userId, input.limit)),
+      { refusalOf: payRefusal, founder },
+    ),
     markCounterpartyPending: founder
       .input(depositActionInputSchema)
       .output(heldDepositViewSchema)

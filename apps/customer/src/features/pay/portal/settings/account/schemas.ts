@@ -11,7 +11,7 @@ const status = z.enum(['pending', 'active', 'suspended', 'closed']);
 const kyb = z.enum(['none', 'pending', 'approved', 'rejected']);
 
 // ---- business profile ----------------------------------------------------------------------------------
-export const addressSchema = z.object({
+const addressSchema = z.object({
   line1: z.string(),
   line2: z.string().nullable(),
   city: z.string(),
@@ -31,7 +31,7 @@ const profileFields = {
   statementDescriptor: z.string().nullable(),
   industry: z.string().nullable(),
 };
-export const profileSchema = z.object({
+const profileSchema = z.object({
   merchantId: z.string(),
   version: z.string(),
   ...profileFields,
@@ -79,7 +79,7 @@ export const profileDecideResultSchema = z.object({
 export const secondApprovalResultSchema = z.object({ merchantId: z.string(), enabled: z.boolean() });
 
 // ---- onboarding progress ---------------------------------------------------------------------------------
-export const progressSchema = z.object({
+const progressSchema = z.object({
   merchantId: z.string(),
   business: z.object({ done: z.boolean(), missing: z.array(z.string()) }),
   documents: z.object({ state: z.string() }),
@@ -99,12 +99,11 @@ export const progressSchema = z.object({
 });
 export type Progress = z.infer<typeof progressSchema>;
 export type TermsState = Progress['terms'];
-export const termsAcceptedSchema = z.object({ merchantId: z.string(), version: z.string(), acceptedAt: z.string() });
 
 // ---- activity ----------------------------------------------------------------------------------------------
 export const ACTIVITY_TYPES = ['payment', 'team', 'kyb', 'dispute', 'export', 'approval', 'webhook'] as const;
 export type ActivityType = (typeof ACTIVITY_TYPES)[number];
-export const activityItemSchema = z.object({
+const activityItemSchema = z.object({
   id: z.string(),
   occurredAt: timestamp,
   actorId: z.string(),
@@ -116,7 +115,7 @@ export const activityItemSchema = z.object({
 export type ActivityItem = z.infer<typeof activityItemSchema>;
 
 // ---- network (sub-merchants) -------------------------------------------------------------------------------
-export const subMerchantSchema = z.object({
+const subMerchantSchema = z.object({
   id: z.string(),
   userId: z.string(),
   parentMerchantId: z.string().nullable(),
@@ -130,7 +129,7 @@ export const subMerchantSchema = z.object({
 });
 export type SubMerchant = z.infer<typeof subMerchantSchema>;
 
-export const subSummarySchema = subMerchantSchema.extend({
+const subSummarySchema = subMerchantSchema.extend({
   displayName: z.string().nullable(),
   legalName: z.string().nullable(),
   volume: z
@@ -149,7 +148,7 @@ export const subSummarySchema = subMerchantSchema.extend({
 });
 export type SubSummary = z.infer<typeof subSummarySchema>;
 
-export const grantSchema = z.object({
+const grantSchema = z.object({
   granteeMerchantId: z.string(),
   subjectMerchantId: z.string(),
   area: z.string(),

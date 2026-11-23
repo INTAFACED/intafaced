@@ -96,27 +96,41 @@
 </header>
 <main id="main" tabindex="-1">
 <div class="legacy-room">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div class="lt-room" data-template="reading" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<p class="eyebrow">Trade</p>
-<h1>Economic calendar</h1>
-<p class="muted">Scheduled releases with their priority, actual, forecast and previous values.</p>
+<h1 class="lt-title">Economic calendar</h1>
+<p class="lt-description">Scheduled releases with their priority, actual, forecast and previous values.</p>
 </div>
 </header>
-<div class="news-notice" role="status">
-<strong>News feed is off</strong>
-<p>The calendar needs a news data feed. It is switched off in this build.</p>
-<p class="muted">Service code: <code>feed.news</code>
+<div class="lt-room-section">
+<nav class="lt-tabs" aria-label="Trading rooms" data-region="section-tabs">
+<a href="/trade/spot/BTC-USDT" class="lt-tab">Spot</a>
+<a href="/trade/margin" class="lt-tab">Margin</a>
+<a href="/trade/futures" class="lt-tab">Futures</a>
+<a href="/trade/options" class="lt-tab">Options</a>
+<a href="/trade/copy" class="lt-tab">Copy</a>
+<a href="/trade/bots" class="lt-tab">Bots</a>
+<a href="/trade/convert" class="lt-tab">Convert</a>
+<a href="/execution" class="lt-tab">Execution</a>
+<a href="/otc" class="lt-tab">Quote desk</a>
+</nav>
+</div>
+<div class="lt-body">
+<div class="lt-grid lt-grid-reading-toc">
+<div class="lt-reading-main">
+<section class="lt-region" data-region="meta" aria-label="Details">
+<p class="lt-hint">Trade</p>
+<div class="lt-refusal" data-refusal="parked" role="status">
+<p class="lt-refusal-title">News feed is off</p>
+<p class="lt-refusal-body">The calendar needs a news data feed. It is switched off in this build.</p>
+<p class="lt-ref">Service code: <code>feed.news</code>
 </p>
 </div>
-<section class="if-panel" data-live="false">
-<header class="if-panel__header">
-<h2 class="if-panel__title">Economic calendar</h2>
-</header>
-<div class="if-panel__body">
-<form class="news-filters" aria-label="Economic calendar">
-<label class="news-filter">
+</section>
+<section class="lt-region" data-region="body" aria-label="Article">
+<form class="lt-toolbar" aria-label="Economic calendar">
+<label class="lt-field">
 <span>Priority</span>
 <select>
 <option value="">All priorities</option>
@@ -125,25 +139,28 @@
 <option value="high">High</option>
 </select>
 </label>
-<label class="news-filter">
+<label class="lt-field">
 <span>Country</span>
 <select>
 <option value="">All countries</option>
 </select>
 </label>
-<label class="news-filter news-filter--check">
+<label class="lt-field">
 <input type="checkbox" checked="">
 <span>Colour actual against forecast</span>
 </label>
 </form>
-<div class="empty-state">
-<span class="empty-mark" aria-hidden="true">↗</span>
-<h3>Economic calendar</h3>
-<p>The store holds no items, so there is nothing to list.</p>
-</div>
+<div class="lit-empty">
+<div data-part="title">Economic calendar</div>
+<div>The store holds no items, so there is nothing to list.</div>
 </div>
 </section>
-<a class="text-link" href="/trade/news">Open news</a>
+<section class="lt-region" data-region="related" aria-label="Related">
+<a class="lt-link" href="/trade/news">Open news</a>
+</section>
+</div>
+</div>
+</div>
 </div>
 </div>
 </main>

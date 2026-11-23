@@ -68,7 +68,7 @@ function leaseSql(options?: { onScan?: (merchantId: string) => void; block?: { g
       return [];
     }
     if (text.includes('FROM pay.settlements')) return [];
-    if (text.includes("e.event = 'refund.posted'")) return [];
+    if (text.includes("e.event IN ('refund.posted', 'refund.reversed')")) return [];
     if (text.includes('chargeback.opening_planned')) return [];
     if (text.includes('pay.payout_admissions')) return [];
     throw new Error(text);

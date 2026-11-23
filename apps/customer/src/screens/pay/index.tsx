@@ -131,7 +131,7 @@ function PayTabs({ path, search }: ScreenProps) {
               ) : null}
             </>
           ) : (
-            <div className="pay-body">
+            <div className="lt-stack">
               <Button variant="primary" size={56} fullWidth nativeButton={false} render={<a href={loginHref} role="link" />}>
                 {tab === 'receive' ? t('Log in to receive') : t('Log in to send')}
               </Button>

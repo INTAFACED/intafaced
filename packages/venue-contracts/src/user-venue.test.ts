@@ -106,7 +106,7 @@ describe('assertSignerMaySign', () => {
     },
   );
 
-  it('keeps withdrawal, every approval, every sub-account action, a market margin move, a spot-perps move, a mode change and a vault move owner-only', () => {
+  it('keeps withdrawal, every approval, every sub-account action, a market margin move, a spot-perps move, a mode change, a vault move and every staking action owner-only', () => {
     expect([...OWNER_ONLY_INTENTS].sort()).toEqual([
       'approve_agent',
       'approve_builder_fee',
@@ -115,6 +115,8 @@ describe('assertSignerMaySign', () => {
       'revoke_agent',
       'set_account_mode',
       'spot_perps_transfer',
+      'staking_delegate',
+      'staking_transfer',
       'sub_account_transfer',
       'vault_transfer',
       'withdraw',
@@ -152,6 +154,37 @@ describe('assertSignerMaySign', () => {
     expect(refusalCode(() => assertSignerMaySign(account, owner, { ...vaultMove, moveKey: '00000000-0000-4000-8000-000000000000' }))).toBe(
       'invalid_client_order_key',
     );
+  });
+
+  it('refuses an agent key and a sub-account every staking action, and a staking action with a bad face (J-cex-spot-21)', () => {
+    const stake: VenueIntent = {
+      kind: 'staking_transfer',
+      direction: 'to_staking',
+      asset: 'HYPE',
+      amount: parseAmount('100'),
+      moveKey: 'stake-move:0xowner:to-staking:d-1',
+    };
+    const delegate: VenueIntent = {
+      kind: 'staking_delegate',
+      validator: '0xvalidator',
+      direction: 'delegate',
+      asset: 'HYPE',
+      amount: parseAmount('100'),
+      moveKey: 'delegation:0xowner:0xvalidator:delegate:d-1',
+    };
+    for (const intent of [stake, delegate]) {
+      expect(refusalCode(() => assertSignerMaySign(account, agent, intent))).toBe('agent_not_permitted');
+      expect(() => assertSignerMaySign(account, owner, intent)).not.toThrow();
+      expect(refusalCode(() => assertSignerMaySign({ ...account, subAccount: '0xsub' }, owner, intent))).toBe('not_offered');
+      expect(refusalCode(() => assertSignerMaySign(account, owner, { ...intent, amount: parseAmount('0') }))).toBe('venue_rejected');
+      expect(refusalCode(() => assertSignerMaySign(account, owner, { ...intent, moveKey: '00000000-0000-4000-8000-000000000000' }))).toBe(
+        'invalid_client_order_key',
+      );
+    }
+    expect(refusalCode(() => assertSignerMaySign(account, owner, { ...stake, direction: 'sideways' as 'to_staking' }))).toBe(
+      'venue_rejected',
+    );
+    expect(refusalCode(() => assertSignerMaySign(account, owner, { ...delegate, validator: ' ' }))).toBe('venue_rejected');
   });
 
   it("refuses an agent key a move into a market deployer's margin account, and refuses it on a sub-account (J-derivatives-27 #7)", () => {
@@ -259,6 +292,22 @@ describe('refuseTestVenueOutsideTest', () => {
 
   it.each([['prod'], ['staging'], [''], ['TEST'], ['Dev'], [undefined]])('refuses a TEST venue in APP_ENV %j', (env) => {
     expect(refusalCode(() => refuseTestVenueOutsideTest(sim, env))).toBe('test_venue_outside_test');
+  });
+
+  it('allows a TEST venue in the beta posture: APP_ENV staging and INTAFACED_BETA_POSTURE test-networks', () => {
+    expect(() => refuseTestVenueOutsideTest(sim, 'staging', 'test-networks')).not.toThrow();
+    expect(() => refuseTestVenueOutsideTest({ ...sim, proofLevel: 'partner-sandbox' }, 'staging', 'test-networks')).not.toThrow();
+  });
+
+  it.each([
+    ['prod', 'test-networks'],
+    ['staging', 'mainnet'],
+    ['staging', ''],
+    ['staging', 'TEST-NETWORKS'],
+    ['staging', undefined],
+    [undefined, 'test-networks'],
+  ])('refuses a TEST venue in APP_ENV %j with the beta switch %j', (env, betaPosture) => {
+    expect(refusalCode(() => refuseTestVenueOutsideTest(sim, env, betaPosture))).toBe('test_venue_outside_test');
   });
 
   it('counts every proof level but live as TEST', () => {

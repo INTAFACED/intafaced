@@ -14,7 +14,8 @@ import { useSession } from '../../features/session/session';
 import type { ApiResult } from '../../shared/api';
 import { alertsCopy } from './alerts-copy';
 import { priceProblem } from './alerts-model';
-import { Button } from './deps';
+import { Button } from '@intafaced/ui/lit';
+import { StateTag } from './parts';
 import {
   ALERT_CONDITIONS,
   createWatchRule,
@@ -163,25 +164,23 @@ export function FollowListAlert({
   }
 
   return (
-    <section className="nf-card nf-alertform" aria-labelledby={`${id}-title`} data-testid="alerts-follow">
-      <h2 className="nf-h2" id={`${id}-title`}>
-        {copy.t('followTitle')}
-      </h2>
-      <p className="nf-muted">{copy.t('followIntro')}</p>
+    <section aria-labelledby={`${id}-title`} data-testid="alerts-follow">
+      <h2 id={`${id}-title`}>{copy.t('followTitle')}</h2>
+      <p className="lt-hint">{copy.t('followIntro')}</p>
       {lists.status === 'loading' ? (
-        <p className="nf-muted">{copy.t('followListsLoading')}</p>
+        <p className="lt-hint">{copy.t('followListsLoading')}</p>
       ) : lists.status !== 'ready' ? (
-        <p className="nf-muted" data-testid="alerts-follow-unread">
+        <p className="lt-hint" data-testid="alerts-follow-unread">
           {copy.t('followListsFailed')}
         </p>
       ) : accountLists.length === 0 ? (
-        <p className="nf-muted" data-testid="alerts-follow-empty">
+        <p className="lt-hint" data-testid="alerts-follow-empty">
           {copy.t('followNoLists')}
         </p>
       ) : review && chosen ? (
         <div data-testid="alerts-follow-review">
-          <h3 className="nf-h2">{copy.t('followReviewTitle')}</h3>
-          <dl className="nf-facts">
+          <h3>{copy.t('followReviewTitle')}</h3>
+          <dl className="lt-kv">
             <div>
               <dt>{copy.t('followReviewList')}</dt>
               <dd>{chosen.name}</dd>
@@ -192,17 +191,17 @@ export function FollowListAlert({
             </div>
             <div>
               <dt>{copy.t('reviewWhen')}</dt>
-              <dd lang="zxx" className="nf-num">
+              <dd lang="zxx" className="lt-mono">
                 {copy.t(CONDITION_KEY[review.condition])} {review.targetPrice}
               </dd>
             </div>
           </dl>
-          <p className="nf-muted">{copy.t('followLater')}</p>
-          <div className="nf-address__actions">
-            <Button variant="secondary" size={32} disabled={busy} onClick={() => setReview(null)}>
+          <p className="lt-hint">{copy.t('followLater')}</p>
+          <div className="lt-actions">
+            <Button tone="secondary" disabled={busy} onClick={() => setReview(null)}>
               {copy.t('back')}
             </Button>
-            <Button size={32} loading={busy} disabled={locked} onClick={() => void save(review)}>
+            <Button tone="primary" aria-busy={busy || undefined} disabled={locked} onClick={() => void save(review)}>
               {copy.t(busy ? 'saving' : 'followSave')}
             </Button>
           </div>
@@ -214,8 +213,8 @@ export function FollowListAlert({
             toReview();
           }}
         >
-          <fieldset className="nf-field" disabled={locked}>
-            <label className="nf-field">
+          <fieldset className="lt-field" disabled={locked}>
+            <label className="lt-field">
               <span>{copy.t('followList')}</span>
               <select value={chosen?.id ?? ''} onChange={(event) => setListId(event.target.value)}>
                 {accountLists.map((list) => (
@@ -225,10 +224,10 @@ export function FollowListAlert({
                 ))}
               </select>
             </label>
-            <p className="nf-muted" data-testid="alerts-follow-markets">
+            <p className="lt-hint" data-testid="alerts-follow-markets">
               {watchable.length > 0 ? copy.t('followMarketsNow', { markets: watchable.join(', ') }) : copy.t('followEmptyList')}
             </p>
-            <label className="nf-field">
+            <label className="lt-field">
               <span>{copy.t('followCondition')}</span>
               <select value={condition} onChange={(event) => setCondition(event.target.value as AlertCondition)}>
                 {ALERT_CONDITIONS.map((value) => (
@@ -238,7 +237,7 @@ export function FollowListAlert({
                 ))}
               </select>
             </label>
-            <label className="nf-field">
+            <label className="lt-field">
               <span>{copy.t('followPrice')}</span>
               <input
                 inputMode="decimal"
@@ -248,32 +247,34 @@ export function FollowListAlert({
                 onChange={(event) => setPrice(event.target.value)}
               />
             </label>
-            {problem ? <p className="nf-error">{copy.t(problem === 'empty' ? 'priceEmpty' : 'priceInvalid')}</p> : null}
+            {problem ? <p data-part="error">{copy.t(problem === 'empty' ? 'priceEmpty' : 'priceInvalid')}</p> : null}
           </fieldset>
-          <div className="nf-address__actions">
-            <Button type="submit" size={32} disabled={locked || watchable.length === 0}>
+          <div className="lt-actions">
+            <Button tone="primary" type="submit" disabled={locked || watchable.length === 0}>
               {copy.t('followReview')}
             </Button>
           </div>
         </form>
       )}
       <div aria-live="polite" data-testid="alerts-follow-notice">
-        {note ? (
-          <p className={`nf-banner${note.tone === 'ok' ? ' nf-banner--ok' : ''}`} role="status">
+        {note?.tone === 'ok' ? (
+          <p role="status">{note.text}</p>
+        ) : note ? (
+          <p className="lt-refusal" role="status">
             {note.text}
           </p>
         ) : null}
       </div>
-      {rules.status === 'failed' ? <p className="nf-muted">{copy.t('followRulesFailed')}</p> : null}
+      {rules.status === 'failed' ? <p className="lt-hint">{copy.t('followRulesFailed')}</p> : null}
       {rules.status === 'ready' && rules.items.length > 0 ? (
         <>
-          <h3 className="nf-h2">{copy.t('followRules')}</h3>
-          <ul className="nf-list" data-testid="alerts-follow-rules">
+          <h3>{copy.t('followRules')}</h3>
+          <ul className="lt-rows" data-testid="alerts-follow-rules">
             {rules.items.map((rule) => (
-              <li key={rule.id} className="nf-alertrow" data-testid="follow-rule" data-status={rule.status}>
+              <li key={rule.id} data-testid="follow-rule" data-status={rule.status}>
                 <div>
-                  <span className="nf-title">{rule.listName}</span>
-                  <span className="nf-body" lang="zxx">
+                  <span>{rule.listName}</span>
+                  <span lang="zxx">
                     {copy.t('followRuleLine', {
                       condition: copy.t(CONDITION_KEY[rule.condition]),
                       price: rule.targetPrice,
@@ -281,20 +282,18 @@ export function FollowListAlert({
                     })}
                   </span>
                   {rule.status === 'active' && rule.lastSyncCode ? (
-                    <span className="nf-body nf-body--wrap" data-testid="follow-rule-reason">
+                    <span data-testid="follow-rule-reason">
                       {copy.t(rule.lastSyncCode in SYNC_KEY ? SYNC_KEY[rule.lastSyncCode as keyof typeof SYNC_KEY] : 'followSyncUnknown')}
                     </span>
                   ) : null}
-                  <span className="nf-muted">
+                  <span className="lt-hint">
                     {rule.lastSyncAt ? copy.t('followLastCheck', { when: stamp(rule.lastSyncAt) }) : copy.t('followNotChecked')}
                   </span>
                 </div>
-                <div className="nf-alertside">
-                  <span className={`nf-pill${rule.status === 'active' ? ' nf-pill--ok' : ''}`}>
-                    {copy.t(rule.status === 'active' ? 'followActive' : 'followEnded')}
-                  </span>
+                <div className="lt-actions">
+                  <StateTag ok={rule.status === 'active'}>{copy.t(rule.status === 'active' ? 'followActive' : 'followEnded')}</StateTag>
                   {rule.status === 'active' ? (
-                    <Button variant="secondary" size={32} disabled={busy} onClick={() => void stop(rule)}>
+                    <Button tone="secondary" disabled={busy} onClick={() => void stop(rule)}>
                       {copy.t('followStop', { list: rule.listName })}
                     </Button>
                   ) : null}

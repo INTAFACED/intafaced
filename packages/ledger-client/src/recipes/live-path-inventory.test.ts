@@ -75,7 +75,7 @@ function scanProductionRecipeCallers(): Map<string, string[]> {
   }
 
   // A Rust service (`crates/svc-<x>`) sends a recipe through its client's `.post_recipe(`: in a file that calls it, each
-  // string literal naming a recipe is a caller. Its tests (the `#[cfg(test)]` module, and `tests/`) are not production.
+  // string literal naming a recipe, and each `Recipe::<Name>` variant it builds (crates/svc-agents), is a caller. Its tests (the `#[cfg(test)]` module, and `tests/`) are not production.
   const cratesRoot = join(repoRoot, 'crates');
   const rustSources = (dir: string): string[] =>
     readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -90,7 +90,11 @@ function scanProductionRecipeCallers(): Map<string, string[]> {
       const text = (readFileSync(full, 'utf8').split('#[cfg(test)]')[0] ?? '').replace(/\/\/.*$/gm, '');
       if (!/\.post_recipe\(/.test(text)) continue;
       const rel = relative(repoRoot, full).replace(/\\/g, '/');
-      for (const [, name] of text.matchAll(/"([A-Za-z][A-Za-z0-9_]*)"/g)) {
+      const variants = [...text.matchAll(/\bRecipe::([A-Z][A-Za-z0-9]*)/g)].map(([, v]) => [
+        '',
+        (v ?? '').charAt(0).toLowerCase() + (v ?? '').slice(1),
+      ]);
+      for (const [, name] of [...text.matchAll(/"([A-Za-z][A-Za-z0-9_]*)"/g), ...variants]) {
         if (name === undefined || !Object.hasOwn(recipes, name)) continue;
         const list = found.get(name) ?? [];
         if (!list.includes(rel)) list.push(rel);

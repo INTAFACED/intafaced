@@ -103,12 +103,12 @@
 <div>
 <p class="eyebrow">More</p>
 <h1>Mining workers</h1>
-<p class="muted">
+<p class="lt-muted">
 <span lang="en" dir="ltr" data-i18n="more.mining.availability.scope">Your workers, shares and mining credits</span>
 </p>
 </div>
 </header>
-<div class="more-grid">
+<div class="lt-stack">
 <div class="tabs" role="group" aria-label="Mining sections">
 <button type="button" class="" aria-pressed="false">Overview</button>
 <button type="button" class="selected" aria-pressed="true">Workers</button>
@@ -122,14 +122,14 @@
 <h2 class="if-panel__title">Register a worker</h2>
 </header>
 <div class="if-panel__body">
-<label class="field" for="field-_r_3_">
+<label class="lt-field" for="field-_r_3_">
 <span id="field-_r_3_-label">Worker name</span>
 <input maxlength="64" id="field-_r_3_" aria-labelledby="field-_r_3_-label" aria-invalid="false" aria-describedby="field-_r_3_-help" value="">
 <small id="field-_r_3_-help" class="">Letters and numbers. This only prepares the name; nothing is sent.</small>
 </label>
 <div class="depth-disabled">
-<button type="button" class="button button--primary" disabled="" aria-disabled="true">Register worker</button>
-<p class="muted" role="note">Unavailable: the pool doesn’t let customers register a worker.</p>
+<button type="button" class="lt-button lt-button-primary" disabled="" aria-disabled="true">Register worker</button>
+<p class="lt-muted" role="note">Unavailable: the pool doesn’t let customers register a worker.</p>
 </div>
 </div>
 </section>
@@ -138,7 +138,7 @@
 <h2 class="if-panel__title">Your workers</h2>
 </header>
 <div class="if-panel__body">
-<label class="field">
+<label class="lt-field">
 <span>Share weight window</span>
 <select>
 <option value="15">Last 15 minutes</option>
@@ -146,13 +146,13 @@
 <option value="1440">Last 24 hours</option>
 </select>
 </label>
-<label class="field" for="field-_r_4_">
+<label class="lt-field" for="field-_r_4_">
 <span id="field-_r_4_-label">Filter workers</span>
 <input maxlength="64" id="field-_r_4_" aria-labelledby="field-_r_4_-label" aria-invalid="false" aria-describedby="field-_r_4_-help" type="search" value="">
 <small id="field-_r_4_-help" class="">Part of a worker name. Letters, digits, dash and underscore.</small>
 </label>
 <div lang="und" style="display: contents;">
-<div data-testid="failure" class="failure" role="status">
+<div data-testid="failure" class="lt-refusal" role="status">
 <h3>
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
 </h3>
@@ -170,7 +170,7 @@
 </header>
 <div class="if-panel__body">
 <div lang="und" style="display: contents;">
-<div data-testid="failure" class="failure" role="status">
+<div data-testid="failure" class="lt-refusal" role="status">
 <h3>
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
 </h3>
@@ -180,9 +180,9 @@
 </button>
 </div>
 </div>
-<p role="status" class="muted">
+<p role="status" class="lt-muted">
 </p>
-<p class="muted">This is stored on your worker. The pool’s work server does not apply it to the jobs it sends.</p>
+<p class="lt-muted">This is stored on your worker. The pool’s work server does not apply it to the jobs it sends.</p>
 </div>
 </section>
 <section class="if-panel" data-live="false">
@@ -190,7 +190,7 @@
 <h2 class="if-panel__title">Pooled or solo</h2>
 </header>
 <div class="if-panel__body">
-<label class="field" for="field-_r_5_">
+<label class="lt-field" for="field-_r_5_">
 <span id="field-_r_5_-label">Rig name</span>
 <input maxlength="64" id="field-_r_5_" aria-labelledby="field-_r_5_-label" aria-invalid="false" aria-describedby="field-_r_5_-help" value="">
 <small id="field-_r_5_-help" class="">The name your rig sends. Letters, digits, dash and underscore.</small>
@@ -202,12 +202,12 @@
 <label>
 <input type="radio" value="solo" name="mining-worker-mode"> Solo</label>
 </fieldset>
-<div class="actions">
+<div class="lt-actions">
 <button type="button" class="button button--primary " disabled="">Save mode</button>
 </div>
-<p role="status" class="muted" data-testid="mining-mode-status">
+<p role="status" class="lt-muted" data-testid="mining-mode-status">
 </p>
-<p class="muted">A solo rig’s shares stay out of the pooled split.</p>
+<p class="lt-muted">A solo rig’s shares stay out of the pooled split.</p>
 </div>
 </section>
 <section class="if-panel" data-live="false">
@@ -216,7 +216,7 @@
 </header>
 <div class="if-panel__body">
 <div lang="und" style="display: contents;">
-<div data-testid="failure" class="failure" role="status">
+<div data-testid="failure" class="lt-refusal" role="status">
 <h3>
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
 </h3>
@@ -226,8 +226,8 @@
 </button>
 </div>
 </div>
-<p class="muted">This is the pool’s reference check of each share. It is not the token’s live proof of work, and it is not audited.</p>
-<div data-testid="failure" class="failure" role="status">
+<p class="lt-muted">This is the pool’s reference check of each share. It is not the token’s live proof of work, and it is not audited.</p>
+<div data-testid="failure" class="lt-refusal" role="status">
 <h3>
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
 </h3>

@@ -14,10 +14,16 @@
  * Usage (from the repo root):
  *   node tooling/ci/dead-code.mjs           run knip, compare with the baseline, exit 1 on a new finding
  *   node tooling/ci/dead-code.mjs --write   also delete the baseline rows knip no longer finds (never adds one)
+ *   node tooling/ci/dead-code.mjs --cache   knip keeps its cache in node_modules/.cache/knip (the pre-push run, 4 to 8 s
+ *                                           warm against 25 to 45 s cold on the box, 23 Nov); CI runs without it. A new
+ *                                           finding is judged again on a fresh cache before it fails: knip's cache keeps a
+ *                                           file's resolved imports while the file is unchanged, so an import whose target
+ *                                           came back after a checkout reads as unresolved and its exports as dead
+ *                                           (LoanDetail.tsx's two, checking out 55f82e29a after 5660af1ae, 23 Nov)
  * Its test, dead-code.test.mjs, plants each fault.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -25,8 +31,8 @@ export const BASELINE = 'tooling/ci/dead-code-baseline.json';
 export const CONFIG = 'knip.jsonc';
 
 /**
- * KEEPERS: each imports a live source and asserts against it. Four guard the agent money-tool deny lists, so deleting
- * one drops a safety property with every other gate green. A sweep by filename pattern (`*-honesty.ts`) would take them.
+ * KEEPERS: each imports a live source and asserts against it. The agent money-tool deny lists they once guarded are held
+ * in Rust now (`crates/svc-agents/tests/money_deny.rs`). A sweep by filename pattern (`*-honesty.ts`) would take them.
  * To retire one, delete its line here in the same PR and say why in the body.
  */
 export const KEEPERS = [
@@ -34,10 +40,6 @@ export const KEEPERS = [
   'packages/config/src/module-id-honesty.ts',
   'packages/config/src/marketing-language.ts',
   'packages/contracts/src/analytics-metric-honesty.ts',
-  'services/svc-agents/src/copy-intel/money-deny-honesty.ts',
-  'services/svc-agents/src/merchant/guardrail-honesty.ts',
-  'services/svc-agents/src/navigator/money-deny-honesty.ts',
-  'services/svc-agents/src/support-agent/money-deny-honesty.ts',
   'services/svc-identity/src/affiliates/commission-tier-honesty.ts',
   'services/svc-notify/src/channels/refusal-code-honesty.ts',
 ];
@@ -67,10 +69,11 @@ export function explain(finding) {
   return `${file}: export ${name} is imported by no other file. Drop \`export\` if this file uses it, else delete it.`;
 }
 
-function runKnip(root) {
+function runKnip(root, cache = false) {
   const bin = join(root, 'node_modules', 'knip', 'bin', 'knip.js');
   if (!existsSync(bin)) throw new Error(`knip is not installed at ${bin}: run pnpm install.`);
-  const run = spawnSync(process.execPath, [bin, '--include', 'files,exports', '--reporter', 'json', '--no-progress', '--no-exit-code'], {
+  const args = [bin, '--include', 'files,exports', '--reporter', 'json', '--no-progress', '--no-exit-code', ...(cache ? ['--cache'] : [])];
+  const run = spawnSync(process.execPath, args, {
     cwd: root,
     encoding: 'utf8',
     maxBuffer: 256 * 1024 * 1024,
@@ -97,8 +100,14 @@ function main() {
     process.exit(1);
   }
 
-  const found = findingsOf(runKnip(root));
+  const cache = process.argv.includes('--cache');
   const baseline = JSON.parse(readFileSync(join(root, BASELINE), 'utf8'));
+  let found = findingsOf(runKnip(root, cache));
+  if (cache && compare(found, baseline).added.length) {
+    console.log('  dead code: a new finding on the cache; judged again on a fresh one');
+    rmSync(join(root, 'node_modules', '.cache', 'knip'), { recursive: true, force: true });
+    found = findingsOf(runKnip(root, true));
+  }
   const { added, gone } = compare(found, baseline);
 
   if (gone.length) {

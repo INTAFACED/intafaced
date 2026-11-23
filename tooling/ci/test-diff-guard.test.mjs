@@ -5,8 +5,8 @@
 import test from 'node:test';
 import {
   DECLARED,
+  UNDECLARED_HINT,
   assertionDeltas,
-  autoRevert,
   declaredRooms,
   earlierFailures,
   failedInLog,
@@ -15,6 +15,7 @@ import {
   judgeBaselines,
   sourceFor,
 } from './test-diff-guard.mjs';
+import { autoRevert } from './exact-revert.mjs';
 
 const eq = (got, want, m) => {
   if (got !== want) throw new Error(`${m}: got ${got}, want ${want}`);
@@ -417,7 +418,7 @@ test('check 7: earlierFailures reads only failed Tests jobs on earlier heads of 
           { id: 3, head_sha: 'b'.repeat(40), head_repository: { full_name: 'fork/r' } },
         ],
       };
-    if (path.endsWith('/runs/2/jobs?per_page=100'))
+    if (path.endsWith('/runs/2/jobs?per_page=30&page=1'))
       return {
         jobs: [
           { id: 20, name: 'Tests (changed)', conclusion: 'failure' },
@@ -444,4 +445,9 @@ test('check 7: earlierFailures reads only failed Tests jobs on earlier heads of 
     },
   ).catch((e) => (refused = e.message));
   eq(refused, 'GitHub 403 Forbidden', 'a refusal is thrown, never read as no failures');
+});
+
+test('an undeclared finding says to re-run the job after adding the Test-change line: an edited description starts no run', () => {
+  eq(/line starting "Test-change:"/.test(UNDECLARED_HINT), true, 'names the line');
+  eq(/then re-run the Doctrine gates job/.test(UNDECLARED_HINT), true, 'says to re-run');
 });

@@ -32,6 +32,8 @@ export default defineConfig((env) =>
       environment: 'happy-dom',
       server: { deps: { inline: ['@number-flow/react', 'number-flow', 'esm-env'] } },
       testTimeout: 120_000,
+      // The harness collects each closed part's garbage itself (render-record/harness.tsx renderPart).
+      execArgv: ['--expose-gc'],
       // The trade chart's engine draws on a canvas, which happy-dom gives no context or colours; it throws after the
       // room's markup is drawn. Only that engine's own throw is let through: every other error still fails the run.
       onUnhandledError: (error) => !String((error as Error)?.stack ?? '').includes('vendor/lightweight-charts.standalone'),

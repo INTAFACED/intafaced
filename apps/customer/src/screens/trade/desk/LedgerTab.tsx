@@ -72,7 +72,7 @@ export function LedgerTab({ balances }: { balances: Loadable<Record<string, Bala
   }, [load]);
 
   return (
-    <div className="dk-ledger">
+    <div className="lt-stack">
       <div className="dk-ledger-head">
         <Statement />
         <Button variant="secondary" size={32} onClick={() => void load(null, null)}>
@@ -245,7 +245,7 @@ function Statement() {
                 <input type="date" value={toDay} onChange={(event) => setToDay(event.target.value)} />
               </label>
             </div>
-            <p className="dk-note">{t('Statement today', { time: clockMinutes(todayEnd(asOf).getTime(), 'UTC') })}</p>
+            <p className="lt-hint">{t('Statement today', { time: clockMinutes(todayEnd(asOf).getTime(), 'UTC') })}</p>
             {asked.status === 'refused' ? (
               <p data-testid="dk-note--bad" className="dk-note dk-note--bad" role="alert">
                 {asked.text}
@@ -266,7 +266,7 @@ function Statement() {
             ) : null}
             {job?.sha256 ? <p className="dk-note dk-note-ref">{t('Statement fingerprint', { sha: job.sha256 })}</p> : null}
             {saved ? (
-              <p className="dk-note" role="status">
+              <p className="lt-hint" role="status">
                 {saved}
               </p>
             ) : null}

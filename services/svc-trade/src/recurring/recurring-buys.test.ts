@@ -1,5 +1,5 @@
 import type http from 'node:http';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { keccak256, toHex, type TypedDataDefinition } from 'viem';
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
 import type { Principal } from '@intafaced/auth';
@@ -403,5 +403,46 @@ describe('the recurring buy on the venue (J-copy-bots-otc-16)', { timeout: 60_00
     expect((await store.orders(made.ruleId)).map((o) => o.orderKey)).toEqual(before);
     expect(await free('USDC')).toBe(a('90'));
     expect(formatAmount((await free(made.basket[0]!.baseAsset)) as Amount)).not.toBe('0');
+  });
+
+  it('still runs a due slot after the first attempt to insert it fails', async () => {
+    await approveBuilder();
+    const made = await sign(await create());
+    const spy = vi.spyOn(store, 'insertSlot').mockRejectedValueOnce(new Error('TEST: database connection lost before insert'));
+    try {
+      await nextDay(made.ruleId);
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(await free('USDC')).toBe(a('90'));
+    } finally {
+      spy.mockRestore();
+    }
+    await recurring.tickAll();
+    expect(await free('USDC')).toBe(a('80'));
+    expect((await recurring.get(person, made.ruleId)).slots).toHaveLength(2);
+  });
+
+  it('retries a timed-out slot order that never reached the venue under its original key', async () => {
+    await approveBuilder();
+    const made = await create({ basket: [{ symbol: SYMS[0]!, weightPct: '100' }] });
+    const submit = sim.submit.bind(sim);
+    const spy = vi
+      .spyOn(sim, 'submit')
+      .mockImplementation(async (prepared, signature) =>
+        prepared.intent.kind === 'place_order' ? { definite: false, reason: 'timeout' } : submit(prepared, signature),
+      );
+    try {
+      await sign(made);
+      expect(await free('USDC')).toBe(a('100'));
+      // The slot stays pending while its order's answer is unknown, so the next pass sends it again.
+      expect((await store.slots(made.ruleId))[0]?.outcome).toBe('pending');
+    } finally {
+      spy.mockRestore();
+    }
+    await recurring.tickAll();
+    const retried = await recurring.get(person, made.ruleId);
+    expect(retried.slots).toHaveLength(1);
+    expect(retried.slots[0]?.orders).toMatchObject([{ orderKey: slotOrderKey(made.ruleId, 0, SYMS[0]!), status: 'filled', spent: '10' }]);
+    expect((await store.slots(made.ruleId))[0]?.outcome).toBe('bought');
+    expect(await free('USDC')).toBe(a('90'));
   });
 });

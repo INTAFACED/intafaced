@@ -155,6 +155,7 @@ function populate(world, now) {
     createdAt: iso(now - (50 + i) * DAY),
     // The address the link takes a payer to. The real service will hand this back to the owner; the portal shows it
     // when the field is present.
+    token: `TEST-token-TESTl${i + 1}`,
     checkoutUrl: `/api/pay/checkout?token=TEST-token-TESTl${i + 1}`,
   }));
   const openLinks = [0, 2, 4, 6];
@@ -419,6 +420,8 @@ function populate(world, now) {
     resumedAt: null,
     stalledAt: i === 2 ? iso(now - 2 * DAY) : null,
     stallReason: i === 2 ? 'arrears' : null,
+    // Started from a mandate alone, as svc-pay answers such a subscription: no catalogue price.
+    priceId: null,
   }));
   /** Seeded subscription id -> the first charge that subscription billed. Any id not here (made since boot) has no history. */
   const chargeBySubscription = new Map(world.subscriptions.map((s, i) => [s.id, { i, charge: world.payments[119 + i] }]));

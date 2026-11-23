@@ -1,5 +1,4 @@
 import { useId, useRef, useState } from 'react';
-import './notifications.css';
 import { useSession } from '../../features/session/session';
 import { usePreferences } from '../../shared/preferences';
 import { stamp } from '../money/time';
@@ -31,7 +30,8 @@ import { WatchlistAlert, type BlockedReason } from './WatchlistAlert';
 import { FollowListAlert } from './FollowListAlert';
 import { useAlertQuota } from './use-quota';
 import { useTriggers } from './use-triggers';
-import { Button, StateBlock } from './deps';
+import { Button, EmptyState } from '@intafaced/ui/lit';
+import { LoadFailed, Loading, StateTag } from './parts';
 import {
   ALERT_CONDITIONS,
   ALERT_SOURCES,
@@ -45,7 +45,6 @@ import {
   type PriceAlert,
   type WatchlistIntent,
 } from './notify-api';
-import { NotifyNav } from './NotifyNav';
 import { useAlertMarkets, useAlerts, type AlertMarket } from './use-alerts';
 
 type Notice =
@@ -230,17 +229,11 @@ export default function AlertsPage() {
 
   if (mode !== 'Personal') {
     return (
-      <div data-testid="if-notify" className="if-notify">
-        <div className="nf-head">
-          <h1 data-testid="nf-h1" className="nf-h1">
-            {copy.t('title')}
-          </h1>
-        </div>
-        <NotifyNav current="alerts" />
-        <p className="nf-note" role="note">
+      <>
+        <p className="lt-hint" role="note">
           {copy.t('businessNote')}
         </p>
-      </div>
+      </>
     );
   }
 
@@ -414,16 +407,10 @@ export default function AlertsPage() {
   const priceId = `${id}-price`;
 
   return (
-    <div data-testid="if-notify" className="if-notify">
-      <div className="nf-head">
-        <h1 data-testid="nf-h1" className="nf-h1">
-          {copy.t('title')}
-        </h1>
-      </div>
-      <NotifyNav current="alerts" />
-      <p className="nf-intro">{copy.t('intro')}</p>
+    <>
+      <p className="lt-hint">{copy.t('intro')}</p>
       {quota.state.status === 'ready' ? (
-        <p className={`nf-banner${quotaState === 'room' ? ' nf-banner--ok' : ''}`} role="note" data-testid="alerts-quota">
+        <p role="note" data-testid="alerts-quota">
           {quota.state.quota.max === null
             ? copy.t('quotaOff')
             : copy.t(quotaState === 'full' ? 'quotaFull' : 'quotaUsed', {
@@ -437,68 +424,56 @@ export default function AlertsPage() {
         </p>
       ) : null}
       {evaluation ? (
-        <p className={`nf-banner${evaluation.canFire ? ' nf-banner--ok' : ''}`} role="note" data-testid="alerts-evaluation">
+        <p role="note" data-testid="alerts-evaluation">
           {copy.t(evaluationNote(evaluation))}
         </p>
       ) : null}
 
       <div aria-live="polite" data-testid="alerts-notices">
         {notice?.kind === 'saved' ? (
-          <p className="nf-banner nf-banner--ok" role="status">
-            {copy.t(notice.found ? 'savedFound' : 'saved')}
-          </p>
+          <p role="status">{copy.t(notice.found ? 'savedFound' : 'saved')}</p>
         ) : notice?.kind === 'cancelled' ? (
-          <p className="nf-banner nf-banner--ok" role="status">
-            {copy.t(CANCEL[notice.words])}
-          </p>
+          <p role="status">{copy.t(CANCEL[notice.words])}</p>
         ) : notice?.kind === 'active' ? (
-          <p className="nf-banner nf-banner--ok" role="status">
-            {copy.t(ACTIVE[notice.words])}
-          </p>
+          <p role="status">{copy.t(ACTIVE[notice.words])}</p>
         ) : notice?.kind === 'watchlistSaved' ? (
-          <p className="nf-banner nf-banner--ok" role="status">
-            {copy.t('watchSaved')}
-          </p>
+          <p role="status">{copy.t('watchSaved')}</p>
         ) : notice?.kind === 'edited' ? (
-          <p className="nf-banner nf-banner--ok" role="status">
-            {copy.t('editedDone')}
-          </p>
+          <p role="status">{copy.t('editedDone')}</p>
         ) : notice?.kind === 'deleted' ? (
-          <p className="nf-banner nf-banner--ok" role="status">
-            {copy.t(notice.gone ? 'deleteGone' : 'deletedDone')}
-          </p>
+          <p role="status">{copy.t(notice.gone ? 'deleteGone' : 'deletedDone')}</p>
         ) : notice?.kind === 'changeUnsure' ? (
-          <div className="nf-banner nf-banner--warn" role="status">
+          <div className="lt-refusal" role="status">
             <strong>{copy.t(UNSURE[notice.what][0])}</strong>
             <p>{copy.t(UNSURE[notice.what][1])}</p>
           </div>
         ) : notice?.kind === 'refused' ? (
-          <p className="nf-banner nf-banner--bad" role="alert">
+          <p className="lt-refusal" role="alert">
             {copy.t(REFUSAL[notice.refusal])}
           </p>
         ) : notice?.kind === 'cancelUnsure' ? (
-          <div className="nf-banner nf-banner--warn" role="status">
+          <div className="lt-refusal" role="status">
             <strong>{copy.t('cancelUnsureTitle')}</strong>
             <p>{copy.t('cancelUnsureBody')}</p>
           </div>
         ) : null}
         {unsure ? (
-          <div className="nf-banner nf-banner--warn" role="status" data-testid="alerts-unsure">
+          <div className="lt-refusal" role="status" data-testid="alerts-unsure">
             <strong>{copy.t('unsureTitle')}</strong>
             <p>{copy.t('unsureBody')}</p>
-            {unsure.phase === 'checking' ? <p className="nf-muted">{copy.t('unsureChecking')}</p> : null}
+            {unsure.phase === 'checking' ? <p className="lt-hint">{copy.t('unsureChecking')}</p> : null}
             {unsure.phase === 'absent' ? <p>{copy.t('unsureAbsent')}</p> : null}
             {unsure.phase === 'checkFailed' ? <p>{copy.t('unsureCheckFailed')}</p> : null}
-            <div className="nf-address__actions">
+            <div className="lt-actions">
               {unsure.phase === 'checkFailed' ? (
-                <Button size={32} onClick={() => void check(unsure)}>
+                <Button tone="primary" onClick={() => void check(unsure)}>
                   {copy.t('unsureCheckAgain')}
                 </Button>
               ) : null}
               {unsure.phase === 'absent' ? (
                 <>
                   <Button
-                    size={32}
+                    tone="primary"
                     onClick={() => {
                       // The first create may still land after the re-check, so warn again from the latest list.
                       setReview({ intent: unsure.intent, duplicate: list ? findDuplicate(list.items, unsure.intent) !== null : false });
@@ -508,7 +483,7 @@ export default function AlertsPage() {
                   >
                     {copy.t('unsureSaveAgain')}
                   </Button>
-                  <Button variant="ghost" size={32} onClick={() => setUnsure(null)}>
+                  <Button tone="quiet" onClick={() => setUnsure(null)}>
                     {copy.t('unsureDismiss')}
                   </Button>
                 </>
@@ -519,11 +494,9 @@ export default function AlertsPage() {
       </div>
 
       {review ? (
-        <section className="nf-card nf-alertform" aria-labelledby={`${id}-review`} data-testid="alerts-review">
-          <h2 className="nf-h2" id={`${id}-review`}>
-            {copy.t('reviewTitle')}
-          </h2>
-          <dl className="nf-facts">
+        <section aria-labelledby={`${id}-review`} data-testid="alerts-review">
+          <h2 id={`${id}-review`}>{copy.t('reviewTitle')}</h2>
+          <dl className="lt-kv">
             <div>
               <dt>{copy.t('reviewMarket')}</dt>
               <dd>{marketOf(review.intent.marketId)?.label ?? copy.t('unlistedMarket')}</dd>
@@ -535,7 +508,7 @@ export default function AlertsPage() {
             {(review.intent.extras ?? []).map((extra, index) => (
               <div key={index}>
                 <dt>{copy.t('reviewExtra')}</dt>
-                <dd lang="zxx" className="nf-num">
+                <dd lang="zxx" className="lt-mono">
                   {conditionWords(extra.condition)} {extra.targetPrice} {marketOf(review.intent.marketId)?.quote ?? ''}
                 </dd>
               </div>
@@ -585,31 +558,31 @@ export default function AlertsPage() {
             ) : null}
             <div>
               <dt>{copy.t('reviewPrice')}</dt>
-              <dd lang="zxx" className="nf-num">
+              <dd lang="zxx" className="lt-mono">
                 {review.intent.targetPrice} {marketOf(review.intent.marketId)?.quote ?? ''}
               </dd>
             </div>
           </dl>
-          <p className="nf-muted">{copy.t('reviewOnce')}</p>
-          {evaluation ? <p className="nf-muted">{copy.t(evaluationNote(evaluation))}</p> : null}
+          <p className="lt-hint">{copy.t('reviewOnce')}</p>
+          {evaluation ? <p className="lt-hint">{copy.t(evaluationNote(evaluation))}</p> : null}
           {review.duplicate ? (
-            <p className="nf-banner nf-banner--warn" role="note">
+            <p className="lt-refusal" role="note">
               {copy.t('reviewDuplicate')}
             </p>
           ) : null}
           {evaluation && !evaluation.canFire ? (
-            <label className="nf-check">
+            <label className="lt-field">
               <input type="checkbox" checked={ack} disabled={busy !== null} onChange={(event) => setAck(event.target.checked)} />
               <span>{copy.t('reviewAck')}</span>
             </label>
           ) : null}
-          <div className="nf-address__actions">
-            <Button variant="secondary" size={32} disabled={busy !== null} onClick={() => setReview(null)}>
+          <div className="lt-actions">
+            <Button tone="secondary" disabled={busy !== null} onClick={() => setReview(null)}>
               {copy.t('back')}
             </Button>
             <Button
-              size={32}
-              loading={busy === 'create'}
+              tone="primary"
+              aria-busy={busy === 'create' || undefined}
               disabled={busy !== null || (evaluation !== null && !evaluation.canFire && !ack)}
               onClick={() => void confirmSave()}
             >
@@ -619,7 +592,6 @@ export default function AlertsPage() {
         </section>
       ) : (
         <form
-          className="nf-card nf-alertform"
           noValidate
           aria-labelledby={`${id}-new`}
           data-testid="alerts-form"
@@ -628,10 +600,8 @@ export default function AlertsPage() {
             toReview();
           }}
         >
-          <h2 className="nf-h2" id={`${id}-new`}>
-            {copy.t('newTitle')}
-          </h2>
-          <label className="nf-field">
+          <h2 id={`${id}-new`}>{copy.t('newTitle')}</h2>
+          <label className="lt-field">
             <span>{copy.t('marketLabel')}</span>
             <select value={marketId} disabled={blockedReason !== null} onChange={(event) => setMarketId(event.target.value)}>
               <option value="">{copy.t('marketPlaceholder')}</option>
@@ -642,7 +612,7 @@ export default function AlertsPage() {
               ))}
             </select>
           </label>
-          <label className="nf-field">
+          <label className="lt-field">
             <span>{copy.t('kindLabel')}</span>
             <select
               value={alertKind}
@@ -654,11 +624,11 @@ export default function AlertsPage() {
             </select>
           </label>
           {alertKind === 'indicator' ? (
-            <p className="nf-note" role="status" data-testid="alerts-kind-refused">
+            <p className="lt-hint" role="status" data-testid="alerts-kind-refused">
               {copy.t('kindIndicatorRefused')}
             </p>
           ) : null}
-          <label className="nf-field">
+          <label className="lt-field">
             <span>{copy.t('conditionLabel')}</span>
             <select
               value={condition}
@@ -672,7 +642,7 @@ export default function AlertsPage() {
               ))}
             </select>
           </label>
-          <label className="nf-field">
+          <label className="lt-field">
             <span>{copy.t('sourceLabel')}</span>
             <select
               value={source}
@@ -687,12 +657,12 @@ export default function AlertsPage() {
             </select>
           </label>
           {isCrossing(condition) ? (
-            <label className="nf-check" data-testid="alerts-repeat">
+            <label className="lt-field" data-testid="alerts-repeat">
               <input type="checkbox" checked={repeat} disabled={priceFormLocked} onChange={(event) => setRepeat(event.target.checked)} />
               <span>{copy.t('repeatLabel')}</span>
             </label>
           ) : null}
-          <label className="nf-field" htmlFor={priceId}>
+          <label className="lt-field" htmlFor={priceId}>
             <span>{selected ? copy.t('priceLabel', { quote: selected.quote }) : copy.t('priceLabelNoMarket')}</span>
             <input
               id={priceId}
@@ -708,12 +678,12 @@ export default function AlertsPage() {
                 setTouched(false);
               }}
             />
-            <small id={`${priceId}-help`} className={problem ? 'nf-error' : 'nf-muted'}>
+            <small id={`${priceId}-help`} data-part={problem ? 'error' : undefined}>
               {problem === 'empty' ? copy.t('priceEmpty') : problem === 'invalid' ? copy.t('priceInvalid') : copy.t('priceHint')}
             </small>
           </label>
           {extras.map((extra, index) => (
-            <div className="nf-field" key={index} data-testid="alerts-extra">
+            <div className="lt-field" key={index} data-testid="alerts-extra">
               <span>{copy.t('extraLabel')}</span>
               <select
                 aria-label={copy.t('extraLabel')}
@@ -740,16 +710,15 @@ export default function AlertsPage() {
                   setTouched(false);
                 }}
               />
-              {touched && priceProblem(extra.price) !== null ? <small className="nf-error">{copy.t('priceInvalid')}</small> : null}
-              <Button variant="ghost" size={32} disabled={priceFormLocked} onClick={() => setExtras(extras.filter((_, i) => i !== index))}>
+              {touched && priceProblem(extra.price) !== null ? <small data-part="error">{copy.t('priceInvalid')}</small> : null}
+              <Button tone="quiet" disabled={priceFormLocked} onClick={() => setExtras(extras.filter((_, i) => i !== index))}>
                 {copy.t('extraRemove')}
               </Button>
             </div>
           ))}
-          <div className="nf-address__actions">
+          <div className="lt-actions">
             <Button
-              variant="secondary"
-              size={32}
+              tone="secondary"
               disabled={priceFormLocked || atConditionCap}
               onClick={() => setExtras([...extras, { condition: 'less_than', price: '' }])}
             >
@@ -758,30 +727,30 @@ export default function AlertsPage() {
           </div>
           {conditionCapNote !== null ? (
             <p
-              className="nf-muted"
+              className="lt-hint"
               data-testid="alerts-extra-cap"
               data-cap={conditionCapNote === 'extraCapUnset' ? 'unset' : quota.state.status}
             >
               {copy.t(conditionCapNote)}
             </p>
           ) : atConditionCap && maxConditions !== null ? (
-            <p className="nf-muted" data-testid="alerts-extra-cap">
+            <p className="lt-hint" data-testid="alerts-extra-cap">
               {copy.t('extraCap', { max: String(maxConditions) })}
             </p>
           ) : null}
-          <label className="nf-field">
+          <label className="lt-field">
             <span>{copy.t('nameLabel')}</span>
             <input autoComplete="off" value={name} disabled={priceFormLocked} onChange={(event) => setName(event.target.value)} />
-            <small className="nf-muted">{copy.t('nameHint')}</small>
+            <small className="lt-hint">{copy.t('nameHint')}</small>
           </label>
-          <label className="nf-field">
+          <label className="lt-field">
             <span>{copy.t('messageLabel')}</span>
             <input autoComplete="off" value={message} disabled={priceFormLocked} onChange={(event) => setMessage(event.target.value)} />
-            <small className="nf-muted">
+            <small className="lt-hint">
               {copy.t('messageHint', { market: '{market}', price: '{price}', condition: '{condition}', time: '{time}' })}
             </small>
           </label>
-          <label className="nf-field">
+          <label className="lt-field">
             <span>{copy.t('expiresLabel')}</span>
             <input
               type="datetime-local"
@@ -790,18 +759,18 @@ export default function AlertsPage() {
               aria-invalid={expiryProblem(expires) !== null}
               onChange={(event) => setExpires(event.target.value)}
             />
-            <small className={expiryProblem(expires) ? 'nf-error' : 'nf-muted'}>
+            <small data-part={expiryProblem(expires) ? 'error' : undefined}>
               {expiryProblem(expires) ? copy.t('expiresInvalid') : copy.t('expiresHint')}
             </small>
           </label>
           <AlertDelivery value={delivery} onChange={setDelivery} disabled={priceFormLocked} facts={deliveryFacts} />
-          <div className="nf-address__actions">
-            <Button type="submit" size={32} disabled={blockedReason !== null || alertKind !== 'price'}>
+          <div className="lt-actions">
+            <Button tone="primary" type="submit" disabled={blockedReason !== null || alertKind !== 'price'}>
               {copy.t('review')}
             </Button>
           </div>
           {blockedReason ? (
-            <p className="nf-muted" data-testid="alerts-reason">
+            <p className="lt-hint" data-testid="alerts-reason">
               {copy.t(blockedReason)}
             </p>
           ) : null}
@@ -833,26 +802,26 @@ export default function AlertsPage() {
 
       <section
         data-testid="nf-card"
-        className="nf-card"
+
         aria-label={copy.t('listLabel')}
         aria-busy={state.status === 'loading' || undefined}
       >
-        <div className="nf-listhead">
-          <h2 className="nf-h2 nf-h2--flush">{copy.t('listTitle')}</h2>
-          <button type="button" className="nf-link nf-linkbutton" disabled={busy !== null} onClick={reload}>
+        <div className="lt-title-row">
+          <h2>{copy.t('listTitle')}</h2>
+          <Button tone="quiet" disabled={busy !== null} onClick={reload}>
             {copy.t('refresh')}
-          </button>
+          </Button>
         </div>
         {state.status === 'loading' ? (
-          <StateBlock kind="loading" rows={3} rowHeight={72} label={copy.t('loadingList')} className="nf-card__loading" />
+          <Loading label={copy.t('loadingList')} rows={3} />
         ) : state.status === 'failed' ? (
-          <StateBlock kind="error" title={copy.t('listFailed')} onRetry={reload} retryLabel={copy.t('retry')} />
+          <LoadFailed title={copy.t('listFailed')} onRetry={reload} retryLabel={copy.t('retry')} />
         ) : state.items.length === 0 ? (
-          <StateBlock kind="empty" title={copy.t('emptyTitle')} body={copy.t('emptyBody')} />
+          <EmptyState title={copy.t('emptyTitle')} body={copy.t('emptyBody')} />
         ) : (
           <>
-            <div className="nf-alertfind" data-testid="alerts-find">
-              <label className="nf-field">
+            <div className="lt-actions" data-testid="alerts-find">
+              <label className="lt-field">
                 <span>{copy.t('findLabel')}</span>
                 <input
                   type="search"
@@ -862,7 +831,7 @@ export default function AlertsPage() {
                   onChange={(event) => setView({ ...view, search: event.target.value })}
                 />
               </label>
-              <label className="nf-field">
+              <label className="lt-field">
                 <span>{copy.t('statusFilterLabel')}</span>
                 <select
                   value={view.status}
@@ -881,7 +850,7 @@ export default function AlertsPage() {
                   ))}
                 </select>
               </label>
-              <label className="nf-field">
+              <label className="lt-field">
                 <span>{copy.t('sortLabel')}</span>
                 <select
                   value={view.sort}
@@ -897,26 +866,20 @@ export default function AlertsPage() {
               </label>
             </div>
             {shown.length === 0 ? (
-              <StateBlock kind="empty" title={copy.t('noMatchTitle')} body={copy.t('noMatchBody')} />
+              <EmptyState title={copy.t('noMatchTitle')} body={copy.t('noMatchBody')} />
             ) : (
-              <ul className="nf-list" data-testid="alerts-list">
+              <ul className="lt-rows" data-testid="alerts-list">
                 {shown.map((alert) => {
                   const market = marketOf(alert.marketId);
                   const name = market?.label ?? copy.t('unlistedMarket');
                   const kind = alert.kind === 'price' ? null : copy.t(KIND[alert.kind]);
                   return (
-                    <li key={alert.id} className="nf-alertrow" data-testid="alert-row" data-status={alert.status}>
-                      <div className="nf-text">
-                        <span data-testid="nf-title" className="nf-title">
-                          {alert.name ? alert.name : kind ? `${name} · ${kind}` : name}
-                        </span>
+                    <li key={alert.id} data-testid="alert-row" data-status={alert.status}>
+                      <div className="lt-lines">
+                        <span data-testid="nf-title">{alert.name ? alert.name : kind ? `${name} · ${kind}` : name}</span>
                         {/* A named alert's title is its name, so its market is shown on its own line. */}
-                        {alert.name ? (
-                          <span data-testid="alert-market" className="nf-body nf-body--wrap">
-                            {kind ? `${name} · ${kind}` : name}
-                          </span>
-                        ) : null}
-                        <span data-testid="nf-body" className="nf-body nf-body--wrap">
+                        {alert.name ? <span data-testid="alert-market">{kind ? `${name} · ${kind}` : name}</span> : null}
+                        <span data-testid="nf-body">
                           {copy.t('condition', {
                             side: conditionWords(alert.condition ?? (alert.direction === 'below' ? 'less_than' : 'greater_than')),
                             price: alert.targetPrice,
@@ -925,28 +888,24 @@ export default function AlertsPage() {
                             (alert.source && alert.source !== 'mark' ? ` · ${copy.t(SOURCE_KEY[alert.source])}` : '')}
                         </span>
                         {(alert.extras ?? []).map((extra, index) => (
-                          <span data-testid="nf-body" className="nf-body nf-body--wrap" key={index}>
+                          <span data-testid="nf-body" key={index}>
                             {copy.t('listAnd', { side: conditionWords(extra.condition), price: extra.targetPrice }) +
                               (alert.kind === 'price' && market ? ` ${market.quote}` : '')}
                           </span>
                         ))}
-                        {alert.message ? (
-                          <span data-testid="nf-body" className="nf-body nf-body--wrap">
-                            {alert.message}
-                          </span>
-                        ) : null}
+                        {alert.message ? <span data-testid="nf-body">{alert.message}</span> : null}
                         {alert.frequency === 'every_crossing' ? (
-                          <span className="nf-body nf-body--wrap" data-testid="alert-repeats">
+                          <span data-testid="alert-repeats">
                             {copy.t('repeatList', { count: String(alert.fireCount ?? 0) }) +
                               (alert.lastFiredAt ? ` · ${copy.t('repeatLast', { when: stamp(alert.lastFiredAt, timeZone) })}` : '')}
                           </span>
                         ) : null}
                         {alert.status === 'stopped' && alert.stopReason === 'burst' ? (
-                          <span className="nf-body nf-body--wrap" data-testid="alert-stop-reason">
+                          <span data-testid="alert-stop-reason">
                             {copy.t(alert.kind === 'price' ? 'stoppedBurst' : 'stoppedBurstNoResume')}
                           </span>
                         ) : null}
-                        <span className="nf-muted">
+                        <span className="lt-hint" data-testid="alert-dates">
                           {copy.t('created', { when: stamp(alert.createdAt, timeZone) }) +
                             // An open alert's last change (an edit, a stop or a resume); a finished one's is its end, already named.
                             ((alert.status === 'active' || alert.status === 'stopped') &&
@@ -960,13 +919,14 @@ export default function AlertsPage() {
                               : '')}
                         </span>
                       </div>
-                      <div className="nf-alertside">
-                        <span className={`nf-pill${alert.status === 'active' ? ' nf-pill--ok' : ''}`}>{copy.t(STATUS[alert.status])}</span>
-                        <div className="nf-alertbuttons">
+                      <div className="lt-actions">
+                        <StateTag ok={alert.status === 'active'} data-testid="alert-status">
+                          {copy.t(STATUS[alert.status])}
+                        </StateTag>
+                        <div className="lt-actions">
                           {alert.kind === 'price' && (alert.status === 'active' || alert.status === 'stopped') ? (
                             <Button
-                              variant="ghost"
-                              size={28}
+                              tone="quiet"
                               disabled={busy !== null || unsure !== null}
                               aria-label={copy.t(alert.status === 'active' ? 'pauseAria' : 'resumeAria', { market: name })}
                               onClick={() =>
@@ -983,8 +943,7 @@ export default function AlertsPage() {
                           ) : null}
                           {canEdit(alert) && editing !== alert.id ? (
                             <Button
-                              variant="ghost"
-                              size={28}
+                              tone="quiet"
                               disabled={busy !== null || unsure !== null}
                               aria-label={copy.t('editAria', { market: name })}
                               onClick={() => setEditing(alert.id)}
@@ -994,8 +953,7 @@ export default function AlertsPage() {
                           ) : null}
                           {(alert.status === 'active' || alert.status === 'stopped') && asking !== alert.id ? (
                             <Button
-                              variant="ghost"
-                              size={28}
+                              tone="quiet"
                               disabled={busy !== null || unsure !== null}
                               aria-label={copy.t('cancelAria', { market: name })}
                               onClick={() => setAsking(alert.id)}
@@ -1005,8 +963,7 @@ export default function AlertsPage() {
                           ) : null}
                           {askingDelete !== alert.id ? (
                             <Button
-                              variant="ghost"
-                              size={28}
+                              tone="quiet"
                               disabled={busy !== null || unsure !== null}
                               aria-label={copy.t('deleteAria', { market: name })}
                               onClick={() => setAskingDelete(alert.id)}
@@ -1033,15 +990,15 @@ export default function AlertsPage() {
                         />
                       ) : null}
                       {askingDelete === alert.id ? (
-                        <div className="nf-alertask" role="group" aria-label={copy.t('deleteAsk')}>
+                        <div role="group" aria-label={copy.t('deleteAsk')}>
                           <p>{copy.t('deleteAsk')}</p>
-                          <div className="nf-address__actions">
-                            <Button variant="secondary" size={32} disabled={busy !== null} onClick={() => setAskingDelete(null)}>
+                          <div className="lt-actions">
+                            <Button tone="secondary" disabled={busy !== null} onClick={() => setAskingDelete(null)}>
                               {copy.t('deleteKeep')}
                             </Button>
                             <Button
-                              size={32}
-                              loading={busy === alert.id}
+                              tone="primary"
+                              aria-busy={busy === alert.id || undefined}
                               disabled={busy !== null}
                               onClick={() =>
                                 void change(
@@ -1058,15 +1015,15 @@ export default function AlertsPage() {
                         </div>
                       ) : null}
                       {asking === alert.id ? (
-                        <div className="nf-alertask" role="group" aria-label={copy.t('cancelAsk')}>
+                        <div role="group" aria-label={copy.t('cancelAsk')}>
                           <p>{copy.t('cancelAsk')}</p>
-                          <div className="nf-address__actions">
-                            <Button variant="secondary" size={32} disabled={busy !== null} onClick={() => setAsking(null)}>
+                          <div className="lt-actions">
+                            <Button tone="secondary" disabled={busy !== null} onClick={() => setAsking(null)}>
                               {copy.t('cancelKeep')}
                             </Button>
                             <Button
-                              size={32}
-                              loading={busy === alert.id}
+                              tone="primary"
+                              aria-busy={busy === alert.id || undefined}
                               disabled={busy !== null}
                               onClick={() => void confirmCancel(alert)}
                             >
@@ -1083,8 +1040,8 @@ export default function AlertsPage() {
           </>
         )}
       </section>
-      <p className="nf-note">{copy.t('listBoundary')}</p>
+      <p className="lt-hint">{copy.t('listBoundary')}</p>
       <TriggerLog state={triggers.state} onRetry={triggers.reload} marketLabel={marketLabel} />
-    </div>
+    </>
   );
 }
