@@ -1503,6 +1503,7 @@ import {
   PAY_FOUNDER_ADMIN_OPS_NOTES_ADD,
   PAY_FOUNDER_ADMIN_OPS_NOTES_RETRACT,
   PAY_FOUNDER_ADMIN_OPS_NOTES_LIST,
+  PAY_FOUNDER_ADMIN_DEPOSIT_TRAVEL_RULE_LIST,
 } from './pay-founder-admin-procedures.js';
 
 import { PAY_FRAUD_LIST_OPEN_REVIEWS } from './pay-fraud-procedures.js';
@@ -1521,6 +1522,7 @@ import {
   PAY_KYB_DOCUMENTS_CHECKLIST,
   PAY_KYB_DOCUMENTS_UPLOAD,
   PAY_KYB_REQUESTS_LIST,
+  PAY_KYB_DOCUMENTS_REVIEW,
 } from './pay-kyb-procedures.js';
 
 import {
@@ -1592,6 +1594,7 @@ import {
   PAY_PAYMENT_CREATE,
   PAY_PAYMENT_REFUNDS_GET,
   PAY_PAYMENT_VIEWS_LIST,
+  PAY_PAYMENT_REFUND,
 } from './pay-payment-procedures.js';
 
 import { PAY_RAIL_HEALTH } from './pay-rail-health-procedures.js';
@@ -1632,6 +1635,7 @@ import {
   PAY_SUBSCRIPTION_RESUME,
   PAY_SUBSCRIPTION_CANCEL,
   PAY_SUBSCRIPTION_CREATE,
+  PAY_SUBSCRIPTION_CYCLES,
 } from './pay-subscription-procedures.js';
 
 import {
@@ -3752,6 +3756,7 @@ const part_pay_founder_admin_procedures: readonly ProcedureRecord[] = [
   PAY_FOUNDER_ADMIN_OPS_NOTES_ADD,
   PAY_FOUNDER_ADMIN_OPS_NOTES_RETRACT,
   PAY_FOUNDER_ADMIN_OPS_NOTES_LIST,
+  PAY_FOUNDER_ADMIN_DEPOSIT_TRAVEL_RULE_LIST,
 ];
 
 const part_pay_fraud_procedures: readonly ProcedureRecord[] = [PAY_FRAUD_LIST_OPEN_REVIEWS];
@@ -3775,6 +3780,7 @@ const part_pay_kyb_procedures: readonly ProcedureRecord[] = [
   PAY_KYB_DOCUMENTS_CHECKLIST,
   PAY_KYB_DOCUMENTS_UPLOAD,
   PAY_KYB_REQUESTS_LIST,
+  PAY_KYB_DOCUMENTS_REVIEW,
 ];
 
 const part_pay_merchant_catalog_procedures: readonly ProcedureRecord[] = [
@@ -3846,6 +3852,7 @@ const part_pay_payment_procedures: readonly ProcedureRecord[] = [
   PAY_PAYMENT_CREATE,
   PAY_PAYMENT_REFUNDS_GET,
   PAY_PAYMENT_VIEWS_LIST,
+  PAY_PAYMENT_REFUND,
 ];
 
 const part_pay_rail_health_procedures: readonly ProcedureRecord[] = [PAY_RAIL_HEALTH];
@@ -3890,6 +3897,7 @@ const part_pay_subscription_procedures: readonly ProcedureRecord[] = [
   PAY_SUBSCRIPTION_RESUME,
   PAY_SUBSCRIPTION_CANCEL,
   PAY_SUBSCRIPTION_CREATE,
+  PAY_SUBSCRIPTION_CYCLES,
 ];
 
 const part_pay_withdrawal_approval_procedures: readonly ProcedureRecord[] = [
