@@ -1469,16 +1469,15 @@ button.lt-tab {
   text-align: center;
 }
 
-/* A table whose cells carry no label (`data-label`) can't say which value is which once stacked: on a phone it keeps
-   its header and columns and scrolls inside its own box, so the page never scrolls sideways. (The kit's Table labels
-   every cell; this holds a hand-written `lt-table`.) */
+/* A table with a header row whose cells carry no label (`data-label`) can't say which value is which once stacked: on a
+   phone it keeps its header and columns, and its cells wrap (long words break) so it stays inside the phone's width.
+   (The kit's Table labels every cell; this holds a hand-written `lt-table`.) */
 @container room (max-width: 599px) {
-  .lt-table:not(:has(td[data-label], tr[data-empty])) {
-    display: block;
-    max-inline-size: 100%;
-    overflow-x: auto;
+  .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) {
+    display: table;
+    table-layout: auto;
   }
-  .lt-table:not(:has(td[data-label], tr[data-empty])) thead {
+  .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) thead {
     position: static;
     display: table-header-group;
     inline-size: auto;
@@ -1486,21 +1485,25 @@ button.lt-tab {
     overflow: visible;
     clip-path: none;
   }
-  .lt-table:not(:has(td[data-label], tr[data-empty])) tbody {
-    display: table-row-group;
-  }
-  .lt-table:not(:has(td[data-label], tr[data-empty])) tr {
+  .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) thead tr,
+  .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) tbody tr {
     display: table-row;
     padding-block: 0;
   }
-  .lt-table:not(:has(td[data-label], tr[data-empty])) :is(th, td) {
-    display: table-cell;
-    white-space: nowrap;
+  .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) tbody {
+    display: table-row-group;
   }
-  .lt-table:not(:has(td[data-label], tr[data-empty])) td {
+  .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) :is(th, td) {
+    display: table-cell;
+    overflow-wrap: anywhere;
+  }
+  .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) td {
     block-size: var(--lit-row-h);
     padding-inline: var(--lit-gap-item);
     border-block-end: 1px solid var(--lit-line);
+  }
+  .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) td::before {
+    content: none;
   }
 }
 

@@ -441,6 +441,9 @@
     overflow: hidden;
     clip-path: inset(50%);
   }
+  .bd-table:not(:has(tbody td:not([data-label]))) thead th {
+    clip-path: inset(50%);
+  }
   .bd-table:not(:has(tbody td:not([data-label]))),
   .bd-table:not(:has(tbody td:not([data-label]))) :is(tbody, tr) {
     display: block;

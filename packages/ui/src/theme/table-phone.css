@@ -25,6 +25,9 @@
     overflow: hidden;
     clip-path: inset(50%);
   }
+  [data-slot='table-scroll'] > table > thead th {
+    clip-path: inset(50%);
+  }
   [data-slot='table-scroll'] > table > tbody {
     display: block;
   }
