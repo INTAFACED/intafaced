@@ -36,8 +36,31 @@ export const POSTURE = {
 export const TEST_STAND_INS = {
   EDGE_RATE_LIMIT_MAX: '6000',
   EDGE_RATE_LIMIT_WINDOW_MS: '60000',
+  EDGE_BODY_LIMIT_BYTES: '1048576',
+  RECONCILE_CRON_MINUTES: '60',
+  MATCHING_SNAPSHOT_EVERY: '0',
+  MATCHING_OPERATOR_IDS: '00000000-0000-4000-8000-00000000000a,00000000-0000-4000-8000-00000000000b',
+  LOAN_QUOTE_ASSET_ID: 'USDT',
+  LOAN_SWEEP_BATCH_SIZE: '1',
+  TRANSFER_BATCH_SIZE: '1',
+  IDENTITY_SIGNUP_CLOSED_COUNTRIES: 'AQ',
+  NOTIFY_REQUIRED_CHANNELS: 'none',
+  INDEXER_VENUE_ADDRESS: '0x0000000000000000000000000000000000000000',
+  INDEXER_START_HEIGHT: '0',
+  INDEXER_FINALITY_DEPTH: '2',
+  INDEXER_BATCH_SIZE: '50',
   LITELLM_CONFIG_PATH: '/dev/null',
   LITELLM_MASTER_KEY: 'TEST-rehearsal-gateway-not-started',
+};
+
+/**
+ * Production posture refuses the local chain (.env.example's Anvil, chain 31337), and the beta posture runs TEST networks
+ * only: the rehearsal points the protocol and the indexer at the public Base Sepolia testnet's own endpoint. Always set.
+ */
+export const TEST_NETWORK = {
+  PROTOCOL_CHAIN_ID: '84532',
+  PROTOCOL_RPC_URL: 'https://sepolia.base.org',
+  INDEXER_RPC_URL: 'https://sepolia.base.org',
 };
 
 const LINE = /^([A-Z][A-Z0-9_]*)=(.*)$/;
@@ -67,7 +90,7 @@ export function rehearsalEnv({ example, compose, random = () => randomBytes(32).
     env.set(name, value);
     standIns.push(name);
   }
-  for (const [name, value] of Object.entries(POSTURE)) env.set(name, value);
+  for (const [name, value] of Object.entries({ ...TEST_NETWORK, ...POSTURE })) env.set(name, value);
   const roles = [];
   for (const [, name, svc] of compose.matchAll(DB_PASSWORD)) {
     if (roles.some((r) => r.name === name)) continue;

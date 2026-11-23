@@ -5,8 +5,8 @@
 #
 # Exit 0: every container runs healthy (or has no health check), and every one-shot job exited 0.
 # Exit 1: a container is in a terminal bad state (exited non-zero, dead, unhealthy, or restarted three times), or the
-# fleet was still starting after <tries> checks ten seconds apart. Prints one line per container either way; never a
-# container's logs, which can echo its settings into a public Actions log.
+# fleet was still starting after <tries> checks ten seconds apart. Prints one line per container either way, and a bad
+# container's last log lines with long hex runs and URL credentials masked.
 # The same reading as staging-deploy.yml's "Every container is healthy", runnable on the machine the stack is on.
 set -euo pipefail
 tries="$1"
