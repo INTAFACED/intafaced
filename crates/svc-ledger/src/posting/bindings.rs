@@ -98,8 +98,11 @@ fn is_floor_bps(amount: Amount, paid: Amount, bps: f64) -> bool {
         reason = "a whole, non-negative rate; past i128 it saturates, far above any rate below a stored taker rate"
     )]
     let bps = bps as i128;
-    cmp_products(amount, 10_000, paid, bps) != Ordering::Greater
-        && cmp_products(paid, bps, amount + 1, 10_000) == Ordering::Less
+    // A rate and 10^4 are plain factors, not money: they go in as raw integers so `cmp_products` forms each product
+    // exactly, in 256 bits.
+    let (bps, bps_base) = (Amount::from_scaled(bps), Amount::from_scaled(10_000));
+    cmp_products(amount, bps_base, paid, bps) != Ordering::Greater
+        && cmp_products(paid, bps, amount + Amount::UNIT, bps_base) == Ordering::Less
 }
 
 /// `assertMakerRebateBound`: a maker rebate is paid only against the fill it rebates (SP-fees-vip-01).
@@ -365,7 +368,7 @@ fn fee_of(fee: Option<&Json>) -> Result<Option<Amount>, PostError> {
             "meta.fee is not a decimal string",
         );
     };
-    if fee <= 0 {
+    if fee <= Amount::ZERO {
         return refuse(WITHDRAW_FEE_UNBOUND, LEAD, "meta.fee is not above zero");
     }
     Ok(Some(fee))

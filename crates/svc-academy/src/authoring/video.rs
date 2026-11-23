@@ -118,7 +118,7 @@ impl Gate {
 
     /// `videoGateNeedsStake`.
     pub fn needs_stake(&self) -> bool {
-        self.published() && parse_amount(js_trim(&self.min_stake)).is_ok_and(|a| a > 0)
+        self.published() && parse_amount(js_trim(&self.min_stake)).is_ok_and(|a| a > Amount::ZERO)
     }
 }
 
@@ -222,7 +222,7 @@ impl Library<'_> {
         let stake = if self.gate.needs_stake() {
             self.stake.stake_of(caller.user_id)?
         } else {
-            0
+            Amount::ZERO
         };
         assert_entitled(self.gate, caller.tier, stake)?;
         Ok(s)
@@ -240,7 +240,7 @@ impl Library<'_> {
         let stake = if self.gate.needs_stake() {
             self.stake.stake_of(caller.user_id)?
         } else {
-            0
+            Amount::ZERO
         };
         assert_entitled(self.gate, caller.tier, stake)?;
         let issued = storage::sign_get(s, item.object_key, now)?;
@@ -368,7 +368,7 @@ mod tests {
         let blank = Gate::default();
         assert!(!blank.needs_stake());
         assert_eq!(
-            code(assert_entitled(&blank, "full", 0)),
+            code(assert_entitled(&blank, "full", Amount::ZERO)),
             "academy.video_grant_required"
         );
         let g = Gate {
@@ -377,11 +377,11 @@ mod tests {
         };
         assert!(g.needs_stake());
         assert_eq!(
-            code(assert_entitled(&g, "none", 100_000_000_000_000_000_000)),
+            code(assert_entitled(&g, "none", Amount::whole(100))),
             "academy.video_grant_required"
         );
         assert_eq!(
-            code(assert_entitled(&g, "basic", 0)),
+            code(assert_entitled(&g, "basic", Amount::ZERO)),
             "academy.video_grant_required"
         );
         let zero = Gate {
@@ -389,7 +389,7 @@ mod tests {
             min_stake: "0".into(),
         };
         assert!(!zero.needs_stake());
-        assert_eq!(code(assert_entitled(&zero, "basic", 0)), "ok");
+        assert_eq!(code(assert_entitled(&zero, "basic", Amount::ZERO)), "ok");
     }
 
     #[test]
@@ -398,7 +398,7 @@ mod tests {
         let lib = Library {
             storage: None,
             gate: &gate,
-            stake: &FixedStake(0),
+            stake: &FixedStake(Amount::ZERO),
         };
         assert_eq!(code(lib.list()), "academy.video_storage_unconfigured");
         assert_eq!(

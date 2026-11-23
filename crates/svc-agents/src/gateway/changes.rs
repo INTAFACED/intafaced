@@ -735,7 +735,7 @@ mod tests {
     use super::*;
     use crate::gateway::routing::parse_routing_table;
 
-    const ONE: i128 = 1_000_000_000_000_000_000;
+    const ONE: service_kit::money::Amount = service_kit::money::Amount::ONE;
 
     fn at(iso: &str) -> Instant {
         service_kit::time::js_date(iso).unwrap()

@@ -6,6 +6,7 @@
 //! the answer is the stub (`meteringOffSettlementStub`): amount 0, no charge, not settled.
 
 use postgres::IsolationLevel;
+use service_kit::money::Amount;
 
 use service_kit::json::Json;
 use service_kit::money::format_amount;
@@ -52,7 +53,7 @@ pub fn metering_off_stub(session_id: &str, window_id: &str) -> Settlement {
         session_id: session_id.to_owned(),
         window_id: window_id.to_owned(),
         charge_key: charge_key_for(session_id, window_id),
-        amount: 0,
+        amount: Amount::ZERO,
         charge_tx_id: None,
         settled: false,
     }
@@ -125,7 +126,7 @@ pub fn settle_window(
     let result = meter::settle(m, pool, session_id, &session.user_id, window_id)?;
     // Only a settlement that happened is logged: a repeat finds the window sealed and appends nothing.
     if result.settled {
-        let (key, params) = if result.amount > 0 {
+        let (key, params) = if result.amount > Amount::ZERO {
             (
                 "agents.usage.settled",
                 vec![
@@ -150,7 +151,7 @@ pub fn settle_window(
         db::transaction_retrying(pool, IsolationLevel::ReadCommitted, 5, |tx| {
             audit::append(tx, &entry, now).map(|_| ())
         })?;
-        if result.amount > 0 {
+        if result.amount > Amount::ZERO {
             let envelope = usage_settled_envelope(m, &result, &session.user_id, now)
                 .map_err(|e| MeterError::Store(StoreError::new(e, None)))?;
             m.bus

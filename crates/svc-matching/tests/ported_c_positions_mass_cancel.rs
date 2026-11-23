@@ -16,7 +16,7 @@ use ported_c_common::{
     Answer, Body, ORDERS, at, first_order, get, kinds, levels, live_ids, mount, post, send, text,
 };
 use service_kit::json::Json;
-use service_kit::money::format_amount;
+use service_kit::money::{Amount, format_amount};
 use svc_matching::door::MatchingDoor;
 
 const CLOSE: &str = "/markets/BTC-USDT/positions/close";
@@ -133,7 +133,7 @@ fn close_closes_a_long_through_the_http_door_and_fills_at_the_book_price() {
     assert_eq!(text(at(&fills[0], "qty")), "2");
     assert_eq!(text(at(&fills[0], "price")), "100");
     assert_eq!(text(at(&fills[0], "takerSide")), "sell");
-    assert_eq!(door.engine().net_position("BTC-USDT", "desk"), 0);
+    assert_eq!(door.engine().net_position("BTC-USDT", "desk"), Amount::ZERO);
 }
 
 // ── close-position.router.test.ts: GET /markets/:marketId/positions/:accountId ─

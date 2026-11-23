@@ -400,7 +400,7 @@ pub fn pool_size(d: &Deps<'_>, pool_id: &str) -> Result<Amount, Refusal> {
         )
         .map_err(|e| pg(&e))
     })?;
-    let mut total: Amount = 0;
+    let mut total: Amount = Amount::ZERO;
     for r in &rows {
         let id: String = r.try_get(0).map_err(|e| pg(&e))?;
         let user: String = r.try_get(1).map_err(|e| pg(&e))?;
@@ -426,7 +426,7 @@ pub fn principal_of(d: &Deps<'_>, user_id: &str, asset_id: &str) -> Result<Amoun
         )
         .map_err(|e| pg(&e))
     })?;
-    let mut total: Amount = 0;
+    let mut total: Amount = Amount::ZERO;
     for r in &rows {
         let id: String = r.try_get(0).map_err(|e| pg(&e))?;
         let recorded = parse_amount(&r.try_get::<_, String>(1).map_err(|e| pg(&e))?)
@@ -449,7 +449,7 @@ pub fn staked_of(d: &Deps<'_>, user_id: &str, asset_id: &str) -> Result<Amount, 
         )
         .map_err(|e| pg(&e))
     })?;
-    let mut total: Amount = 0;
+    let mut total: Amount = Amount::ZERO;
     for r in &rows {
         let id: String = r.try_get(0).map_err(|e| pg(&e))?;
         total += d
@@ -483,7 +483,7 @@ pub fn pool_totals(d: &Deps<'_>) -> Result<Json, Refusal> {
             )
             .map_err(|e| pg(&e))
         })?;
-        let mut total: Option<Amount> = Some(0);
+        let mut total: Option<Amount> = Some(Amount::ZERO);
         for r in &positions {
             let id: String = r.try_get(0).map_err(|e| pg(&e))?;
             let user: String = r.try_get(1).map_err(|e| pg(&e))?;
@@ -990,7 +990,7 @@ pub fn accrual_states(
             Refusal::Other(format!(
                 "APR must be a non-negative integer in bps, got {apr_bps}"
             ))
-        })? == 0
+        })? == Amount::ZERO
         {
             "below_unit"
         } else if p.unbonding_started_at.is_some() {
@@ -1130,7 +1130,7 @@ pub fn withdraw(
             ))
             .map_err(Refusal::Other)?;
         // Empty pot, positive column: the take back already committed. Replay the same key.
-        let principal = if book == 0 && row.principal > 0 {
+        let principal = if book == Amount::ZERO && row.principal > Amount::ZERO {
             row.principal
         } else {
             stake_principal(&row.id, row.principal, book)?
@@ -1859,7 +1859,7 @@ pub fn accrue(
             return Ok(Step::Done(AccrualResult {
                 pool_id: p.id.clone(),
                 date: date.clone(),
-                paid: 0,
+                paid: Amount::ZERO,
                 recipients: 0,
                 ledger_tx_id: None,
                 already_accrued: false,

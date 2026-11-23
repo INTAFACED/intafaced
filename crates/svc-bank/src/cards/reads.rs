@@ -187,9 +187,9 @@ impl Hold {
     pub(crate) fn report(&self) -> HoldReport {
         let status = if self.expired {
             "expired"
-        } else if self.captured > 0 {
+        } else if self.captured > Amount::ZERO {
             "captured"
-        } else if self.released > 0 {
+        } else if self.released > Amount::ZERO {
             "released"
         } else {
             "held"
@@ -239,7 +239,7 @@ impl CardHoldBook {
                 id.clone(),
                 Book {
                     available,
-                    held: 0,
+                    held: Amount::ZERO,
                     open: BTreeSet::new(),
                 },
             );
@@ -253,7 +253,7 @@ impl CardHoldBook {
         let Some(h) = self.holds.get_mut(key) else {
             return;
         };
-        if h.expired || h.captured > 0 || h.open() == 0 {
+        if h.expired || h.captured > Amount::ZERO || h.open() == Amount::ZERO {
             return;
         }
         if now.0 < h.expires_at.0 && !switch_expired {
@@ -293,7 +293,7 @@ impl TestCardHolds<'_> {
 
     /// `testCardCredited` plus `payInCredited`: what else the TEST partner credited this cardholder in this asset.
     pub(crate) fn credited(&self, user_id: &str, asset_id: &str) -> Amount {
-        let mut sum: Amount = 0;
+        let mut sum: Amount = Amount::ZERO;
         if let Some(book) = self.issuer.sim_book() {
             for (_, c) in &book.credits {
                 if c.user_id == user_id && c.asset_id == asset_id && !c.reversed {
@@ -490,7 +490,7 @@ pub const CONVERSION_MAX_AGE_SECONDS: i64 = 60;
 /// `acceptableForMarking` under the card conversion policy: above zero, no older than its window, no more than 30 s in
 /// the future.
 pub fn acceptable_for_marking(price: Amount, as_of: Instant, now: Instant) -> bool {
-    if price <= 0 {
+    if price <= Amount::ZERO {
         return false;
     }
     let age_ms = now.0 - as_of.0;
@@ -1266,11 +1266,27 @@ mod tests {
     #[test]
     fn a_quote_is_fresh_for_its_window_and_never_from_more_than_30_s_ahead() {
         let now = Instant(1_000_000_000);
-        assert!(acceptable_for_marking(1, Instant(now.0 - 60_000), now));
-        assert!(!acceptable_for_marking(1, Instant(now.0 - 61_000), now));
-        assert!(!acceptable_for_marking(1, Instant(now.0 + 120_000), now));
-        assert!(acceptable_for_marking(1, Instant(now.0 + 30_000), now));
-        assert!(!acceptable_for_marking(0, now, now));
+        assert!(acceptable_for_marking(
+            Amount::from_scaled(1),
+            Instant(now.0 - 60_000),
+            now
+        ));
+        assert!(!acceptable_for_marking(
+            Amount::from_scaled(1),
+            Instant(now.0 - 61_000),
+            now
+        ));
+        assert!(!acceptable_for_marking(
+            Amount::from_scaled(1),
+            Instant(now.0 + 120_000),
+            now
+        ));
+        assert!(acceptable_for_marking(
+            Amount::from_scaled(1),
+            Instant(now.0 + 30_000),
+            now
+        ));
+        assert!(!acceptable_for_marking(Amount::ZERO, now, now));
     }
 
     #[test]
@@ -1339,9 +1355,9 @@ mod tests {
                     amount: parse_amount("40").unwrap(),
                     expires_at: Instant(t0.0 + TEST_CARD_HOLD_DAYS * 86_400_000),
                     conversion: None,
-                    captured: 0,
-                    released: 0,
-                    refunded: 0,
+                    captured: Amount::ZERO,
+                    released: Amount::ZERO,
+                    refunded: Amount::ZERO,
                     expired: false,
                 },
             );

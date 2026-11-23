@@ -94,7 +94,7 @@ pub fn balance(
         )
         .map_err(fault)?;
     match rows.first() {
-        None => Ok((String::new(), 0)),
+        None => Ok((String::new(), Amount::ZERO)),
         Some(row) => {
             let id: String = row.try_get(0).map_err(fault)?;
             let amount: String = row.try_get(1).map_err(fault)?;
