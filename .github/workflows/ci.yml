@@ -57,8 +57,14 @@ on:
 #
 # Other workflows in this repo are pull_request-only (or deploy), so they keep
 # their own cancel settings. Only this file is the trunk signal.
+#
+# `cancel-in-progress: false` stops a *running* main run being cancelled, never a *waiting* one: GitHub keeps one
+# pending run per group and the next push replaces it. A red main run's re-run (Main trust, attempt 2) waits behind
+# the running one, so in a merge burst the next merge cancelled every re-run and no "Main is red", bisect or revert
+# ever started (23 Nov 2026: seven red main runs from 11:32 UTC, each attempt 2 cancelled). So a re-run on main keeps
+# a group of its own; it re-runs only the failed jobs of one commit, once.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ (github.ref != 'refs/heads/main' || github.run_attempt == '1') && format('{0}-{1}', github.workflow, github.ref) || format('{0}-rerun-{1}', github.workflow, github.run_id) }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 # Read-only by default; a job that needs more declares its own block.

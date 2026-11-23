@@ -615,9 +615,45 @@ test("planted: a dispatchGroup that is not the workflow's group fails", () => {
   assert.ok(journeysProblems(longer).some((p) => /dispatchGroup is not the group/.test(p)));
 });
 
-test('CI: a run on main is never cancelled', () => {
-  const ci = read('ci.yml');
-  for (const e of ['push', 'workflow_dispatch']) assert.equal(resolve(ci, journeysRun(e, MAIN)).cancel, false, e);
+const ciRun = (event_name, ref, run_attempt = '1') => ({
+  github: { workflow: 'CI', repository: REPO, event_name, ref, run_id: Math.random(), run_attempt },
+  inputs: {},
+});
+
+/**
+ * Problems with CI's main runs in ci.yml's text, or []. A main run is never cancelled, and a re-run of a red main run
+ * (Main trust's attempt 2) is in no group a later main run joins: GitHub keeps one waiting run per group and the next
+ * push replaces it, so in the shared group every re-run was cancelled and no red was ever confirmed (23 Nov 2026).
+ */
+export function ciProblems(text) {
+  const problems = [];
+  const first = ['push', 'workflow_dispatch'].map((e) => resolve(text, ciRun(e, MAIN)));
+  if (first.some((r) => r.cancel)) problems.push('a CI run on main could be cancelled');
+  const rerun = resolve(text, ciRun('push', MAIN, '2'));
+  if (rerun.cancel) problems.push('a re-run of a main run could cancel another main run');
+  if (first.some((r) => r.group === rerun.group)) problems.push('a re-run of a red main run waits in the group the next main run joins');
+  if (rerun.group === resolve(text, ciRun('push', MAIN, '2')).group) problems.push('two main re-runs share one group');
+  const pr = (n, attempt) => {
+    const ctx = prEvent('pull_request', n, 'x', { attempt });
+    return resolve(text, { ...ctx, github: { ...ctx.github, workflow: 'CI' } });
+  };
+  if (pr(7, '1').group !== 'CI-refs/pull/7/merge' || pr(7, '2').group !== 'CI-refs/pull/7/merge')
+    problems.push("a pull request's CI left its group CI-refs/pull/<n>/merge, which journey-seal.mjs relies on");
+  return problems;
+}
+
+test("CI: a run on main is never cancelled, and a red main run's re-run is never cancelled by the next merge", () => {
+  assert.deepEqual(ciProblems(read('ci.yml')), []);
+});
+
+test("planted: yesterday's CI group (one per ref, re-runs included) fails", () => {
+  const t = read('ci.yml');
+  const old = t.replace(concurrency(t).group, '${{ github.workflow }}-${{ github.ref }}');
+  assert.notEqual(old, t);
+  assert.ok(ciProblems(old).some((p) => /waits in the group the next main run joins/.test(p)));
+  const always = t.replace(`cancel-in-progress: ${concurrency(t).cancel}`, 'cancel-in-progress: true');
+  assert.notEqual(always, t);
+  assert.ok(ciProblems(always).some((p) => /could be cancelled/.test(p)));
 });
 
 test("CI merge seal: a push cancels the older head's seal; edits, reopens and re-runs are never cancelled and cancel nothing", () => {

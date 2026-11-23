@@ -107,7 +107,7 @@ export function plan({ changed, present, formatExts, registries, has }) {
         'volt count',
         '@intafaced/customer',
         'src/app/volt-count.test.ts',
-        'a room the list holds that is now on the kit: node tooling/design/volt-count.mjs --write; a new room off the kit: build it on its template from the kit',
+        'a room off the kit that volt-off-kit.json does not allow: build it on its template from the kit',
       ),
     );
   if ((customer || contracts) && has('apps/customer/src/app/recorded-calls.test.ts'))

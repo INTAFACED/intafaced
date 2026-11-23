@@ -380,33 +380,27 @@ export function voltCount(source: VoltSource = APP_SOURCE): VoltCount {
   return { n: list.filter((r) => r.state === 'volt').length, N: list.length, rule: VOLT_RULE, rooms: list, batches, markErrors };
 }
 
-/**
- * Whether a run judges a batch PR into a Volt layer branch (`volt/<template>`): there a stale list entry (a room now in
- * Volt still allowed off the kit) does not fail, so no batch has to edit the shared list. Everywhere else, the layer's PR into
- * main included, the list is held exact: one `node tooling/design/volt-count.mjs --write` on the layer tightens it.
- */
-export const intoVoltLayer = (env: Record<string, string | undefined> = process.env) => (env.GITHUB_BASE_REF ?? '').startsWith('volt/');
-
 /** Whether a room is drawn on its template from the kit: in Volt, or a placeholder there. */
 const onKit = (room: VoltRoom) => room.state === 'volt' || room.state === 'placeholder';
 
 /**
  * What breaks the ratchet against `allowed` (the rooms volt-off-kit.json allows off the kit): a room off the kit that the
- * list does not allow (`off`), a bad `volt-room` line (`mark`), and, unless `staleAllowed`, a listed room now on the kit or
- * gone (`stale`). A placeholder is on the kit: the list never names it, and the count leaves it out.
+ * list does not allow (`off`) and a bad `volt-room` line (`mark`). A placeholder is on the kit: the list never names it, and
+ * the count leaves it out. A listed room now on the kit, or gone, is stale and passes on every PR, so a batch into main
+ * never edits the shared list; `pruned` drops it, run alone by `node tooling/design/volt-prune.mjs`.
  */
-export function ratchet(count: VoltCount, allowed: readonly string[], staleAllowed = false): string[] {
+export function ratchet(count: VoltCount, allowed: readonly string[]): string[] {
   const allow = new Set(allowed);
-  const offRooms = new Set(count.rooms.filter((r) => !onKit(r)).map((r) => r.key));
   return [
     ...count.markErrors.map((e) => `mark: ${e}`),
     ...count.rooms
       .filter((r) => !onKit(r) && !allow.has(r.key))
       .map((r) => `off: ${r.key}: ${r.reason}${r.findings.map((f) => `\n    ${f.kind} at ${f.at}: ${f.text}`).join('')}`),
-    ...(staleAllowed
-      ? []
-      : allowed
-          .filter((key) => !offRooms.has(key))
-          .map((key) => `stale: ${key} is in Volt now, or no longer a room: run \`node tooling/design/volt-count.mjs --write\``)),
   ];
+}
+
+/** `allowed` less each room now on the kit or no longer a room: the list volt-prune.mjs writes. It never adds a room. */
+export function pruned(count: VoltCount, allowed: readonly string[]): string[] {
+  const off = new Set(count.rooms.filter((r) => !onKit(r)).map((r) => r.key));
+  return allowed.filter((key) => off.has(key));
 }

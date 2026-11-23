@@ -3,13 +3,11 @@
 
 use std::collections::BTreeMap;
 
-use service_kit::money::{Amount, Rounding, mul_div};
+use service_kit::money::{Amount, Rounding, mul_ratio};
 use service_kit::time::Instant;
 
 /// `DAYS_PER_YEAR`: simple daily accrual.
 pub const DAYS_PER_YEAR: i64 = 365;
-
-const SCALE: Amount = Amount::whole(1);
 
 /// One UTC day in milliseconds.
 pub const DAY_MS: i64 = 24 * 60 * 60 * 1000;
@@ -27,17 +25,11 @@ pub fn daily_interest(principal: Amount, apr_bps: i64, days_per_year: i64) -> Op
     if apr_bps == 0 {
         return Some(Amount::ZERO);
     }
-    // `principal * apr_bps / 10_000`: the rate is a count of basis points, carried as a scaled factor.
-    let annual = mul_div(
-        principal,
-        Amount::from_scaled(i128::from(apr_bps)),
-        Amount::from_scaled(10_000),
-        Rounding::Floor,
-    );
-    Some(mul_div(
+    let annual = mul_ratio(principal, i128::from(apr_bps), 10_000, Rounding::Floor);
+    Some(mul_ratio(
         annual,
-        SCALE,
-        SCALE * i128::from(days_per_year),
+        1,
+        i128::from(days_per_year),
         Rounding::Floor,
     ))
 }

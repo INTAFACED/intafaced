@@ -1,12 +1,12 @@
 // The Volt ratchet: n never falls and no new room starts off the kit. `volt-off-kit.json` lists the rooms
-// allowed off the kit today; it only shrinks (`node tooling/design/volt-count.mjs --write` drops a room once it is in Volt;
-// tooling/design/volt-lists.test.mjs fails a list that gains a room). On a batch PR into a Volt layer a stale entry does
-// not fail, so no batch edits the list; the layer's PR into main holds it exact.
+// allowed off the kit today; it only shrinks (tooling/design/volt-lists.test.mjs fails a list that gains a room). A listed
+// room now in Volt is stale and passes on every PR, so no batch into main edits the list; `node tooling/design/volt-prune.mjs`,
+// run in its own PR, drops it.
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { intoVoltLayer, offKitFindings, placeholderOnly, ratchet, voltCount, type VoltSource } from './volt-count';
+import { offKitFindings, placeholderOnly, pruned, ratchet, voltCount, type VoltSource } from './volt-count';
 import allowedOffKit from './volt-off-kit.json';
 
 const count = voltCount();
@@ -20,17 +20,17 @@ describe('customer rooms in Volt', () => {
   });
 
   it('starts no room off the kit, and lets no room in Volt fall off it', () => {
-    const problems = ratchet(count, allowedOffKit, true);
+    const problems = ratchet(count, allowedOffKit);
     expect(problems, 'a room not in Volt that volt-off-kit.json does not allow (build it on its template from the kit)').toEqual([]);
   });
 
-  it('keeps the list of rooms allowed off the kit tight, except on a batch into a Volt layer', () => {
-    const stale = ratchet(count, allowedOffKit, intoVoltLayer()).filter((p) => p.startsWith('stale:'));
-    if (intoVoltLayer())
-      console.info(
-        `A batch into ${process.env.GITHUB_BASE_REF}: ${count.rooms.filter((r) => r.state === 'volt' && allowedOffKit.includes(r.key)).length} listed rooms now in Volt, tightened on the layer's PR into main`,
-      );
-    expect(stale).toEqual([]);
+  it("prunes only rooms on the kit: the pruned list still passes, and is no longer than today's", () => {
+    const list = pruned(count, allowedOffKit);
+    expect(ratchet(count, list)).toEqual([]);
+    expect(list.every((key) => allowedOffKit.includes(key))).toBe(true);
+    console.info(
+      `volt-off-kit.json: ${allowedOffKit.length} listed, ${allowedOffKit.length - list.length} stale (volt-prune.mjs drops them)`,
+    );
   });
 
   it('counts no room that shows only a placeholder: the three stubs counted on 22 Nov 2026', () => {
@@ -195,8 +195,9 @@ describe('a room that shows only a placeholder', () => {
     expect([c.n, c.N]).toEqual([1, 2]);
     expect(c.rooms.find((r) => r.key === '/m/b')?.state).toBe('placeholder');
     expect(c.batches).toEqual([{ batch: 'm · flow', size: 1, rooms: ['/m/b'] }]);
-    expect(ratchet(c, [], false)).toEqual([]);
-    expect(ratchet(c, ['/m/b'], false)[0]).toMatch(/^stale: \/m\/b/);
+    expect(ratchet(c, [])).toEqual([]);
+    expect(ratchet(c, ['/m/b'])).toEqual([]);
+    expect(pruned(c, ['/m/b'])).toEqual([]);
   });
 });
 
@@ -310,42 +311,38 @@ describe('batches side by side', () => {
     for (const batch of [batchA, batchB]) expect(Object.keys(batch).every((f) => f.startsWith('features/'))).toBe(true);
   });
 
-  it('each passes on its layer alone, and after the other merges, with volt-off-kit.json untouched', () => {
+  it('each passes into main alone, and after the other merges, with volt-off-kit.json untouched', () => {
     for (const [label, files] of [
       ['batch A', { ...main, ...batchA }],
       ['batch B', { ...main, ...batchB }],
       ['A after B', { ...main, ...batchB, ...batchA }],
     ] as const) {
       const c = voltCount(source(files));
-      expect(ratchet(c, offKit, true), label).toEqual([]);
+      expect(ratchet(c, offKit), label).toEqual([]);
     }
     expect(voltCount(source({ ...main, ...batchA, ...batchB })).n).toBe(3);
   });
 
-  it("the layer's PR into main holds the list exact, and --write's list passes it", () => {
+  it('the prune drops both stale rooms, keeps a room still off the kit, and leaves n as it was', () => {
     const both = voltCount(source({ ...main, ...batchA, ...batchB }));
-    expect(ratchet(both, offKit, false).map((p) => p.split(':')[0])).toEqual(['stale', 'stale']);
-    const written = offKit.filter((key) => both.rooms.some((r) => r.key === key && r.state !== 'volt'));
-    expect(ratchet(both, written, false)).toEqual([]);
+    expect(pruned(both, offKit)).toEqual([]);
+    const onlyA = voltCount(source({ ...main, ...batchA }));
+    expect(pruned(onlyA, offKit)).toEqual(['/m/c']);
+    expect(ratchet(onlyA, pruned(onlyA, offKit))).toEqual([]);
+    expect(onlyA.n).toBe(2);
   });
 
   it('a planted fault still fails a batch: a room in Volt moved off the kit', () => {
     const fault = { ...main, ...batchA, 'features/m/a/A.tsx': volt('/m/a', 'A').replace('<FlowTemplate />', '<div className="card" />') };
-    const problems = ratchet(voltCount(source(fault)), offKit, true);
+    const problems = ratchet(voltCount(source(fault)), offKit);
     expect(problems).toHaveLength(1);
     expect(problems[0]).toMatch(/^off: \/m\/a: on its template, but draws off the kit: own-class/);
     const unmarked = { ...main, 'features/m/a/A.tsx': old('A') };
-    expect(ratchet(voltCount(source(unmarked)), offKit, true)[0]).toMatch(/^off: \/m\/a: not on its flow template yet/);
+    expect(ratchet(voltCount(source(unmarked)), offKit)[0]).toMatch(/^off: \/m\/a: not on its flow template yet/);
   });
 
   it('fails a volt-room line that names no room, or a room two files claim', () => {
     const bad = { ...main, 'features/m/x/X.tsx': volt('/m/nowhere', 'X'), 'features/m/y/Y.tsx': volt('/m/a', 'Y') };
-    expect(ratchet(voltCount(source(bad)), offKit, true).map((p) => p.split(':')[0])).toEqual(['mark', 'mark']);
-  });
-
-  it('reads a batch PR into a Volt layer from the base branch only', () => {
-    expect(intoVoltLayer({ GITHUB_BASE_REF: 'volt/overview' })).toBe(true);
-    expect(intoVoltLayer({ GITHUB_BASE_REF: 'main' })).toBe(false);
-    expect(intoVoltLayer({})).toBe(false);
+    expect(ratchet(voltCount(source(bad)), offKit).map((p) => p.split(':')[0])).toEqual(['mark', 'mark']);
   });
 });

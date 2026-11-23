@@ -357,13 +357,17 @@ test(`${J} #3 picks the asset (stablecoin first), enters TEST 25 USDT and a note
 
   // The picker lists the stablecoin first and starts on it; A also holds BTC, listed after.
   // The picker is the browser's own select (the Volt kit's SelectField): its options are read and chosen in place.
-  const picker = page.getByRole('combobox', { name: 'Asset to send' });
+  const picker = page.getByRole('combobox', { name: 'Asset to send', exact: true });
   const options = picker.getByRole('option');
   await expect(options.first()).toHaveText('USDT');
   await expect(options.filter({ hasText: 'BTC' })).toHaveCount(1);
   await expect(picker.locator('option:checked')).toHaveText('USDT');
-  await picker.selectOption({ index: 0 });
-  await expect(picker).toContainText('USDT');
+  // A real pick: away to BTC, whose amount the summary then reads in BTC, and back to the stablecoin.
+  await picker.selectOption({ label: 'BTC' });
+  await expect(picker.locator('option:checked')).toHaveText('BTC');
+  await page.getByLabel('Amount to send', { exact: true }).fill('0.005');
+  await expect(page.getByTestId('pay-summary-amount')).toHaveText('0.005 BTC');
+  await picker.selectOption({ label: 'USDT' });
   await expect(picker.locator('option:checked')).toHaveText('USDT');
 
   // The amount is shown in exact units: every digit typed, nothing rounded or padded.
