@@ -1,8 +1,9 @@
 // World: book, restart
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { journeyState, toUnits } from './stack.mjs';
+import { MINUTE, minuteStart, utcDay } from './clock.mjs';
 import { signUp, verify } from './desk.mjs';
 import { partnerBookMoves, partnerMainBalance, personDoor } from './person-door.mjs';
 import { staffDoors } from './bank-desk.mjs';
@@ -366,4 +367,85 @@ test(`${J} #6 for the second TEST person, the mark gaps past the account's bankr
   await spendingUntouched(page, second);
   // INTAFACED posts nothing.
   expect(await (await two.door()).balances()).toEqual(ledger);
+});
+
+/** The file a Playwright download saved, as text. */
+async function downloaded(saved) {
+  const stream = await saved.createReadStream();
+  const parts = [];
+  for await (const chunk of stream) parts.push(chunk);
+  return Buffer.concat(parts).toString('utf8');
+}
+/** A statement file's rows, by column name. The venue's ids, symbols and decimals hold no comma or quote. */
+function csvRows(text) {
+  const [head, ...lines] = text.trimEnd().split('\n');
+  const cols = head.split(',');
+  return lines.map((line) => Object.fromEntries(line.split(',').map((v, i) => [cols[i], v])));
+}
+
+test(`${J} #7 opens the trading account statement: the venue's liquidation and fee, with the venue's ids`, async ({
+  page,
+  stepPicture,
+}) => {
+  test.setTimeout(300_000);
+  const { owner, ledger } = run.read();
+  // The one liquidation #3 saw, as the venue reports it.
+  const [liquidation, ...more] = await liquidationsOf(owner);
+  expect(more, 'the venue liquidated the account once').toEqual([]);
+  expect(liquidation.parts.length).toBeGreaterThan(0);
+  const lastPart = Math.max(...liquidation.parts.map((p) => Date.parse(p.liquidatedAt)));
+  // A statement that ends today ends at the last whole minute that has been over for a minute: wait until that end is
+  // past the liquidation, so it is inside the range.
+  await expect.poll(() => minuteStart(Date.now() - MINUTE), { timeout: 130_000, intervals: [1000] }).toBeGreaterThan(lastPart);
+  const today = utcDay(lastPart);
+
+  await openAccount(page, one, run);
+  const statement = page.getByTestId('trading-statement');
+  const venue = await venueNow();
+  await expect(statement).toContainText(`liquidations and money movements for the days you pick, as ${venue.name} records them.`);
+  await statement.getByLabel('From', { exact: true }).fill(today);
+  await statement.getByLabel('To (included)', { exact: true }).fill(today);
+  const asked = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/statements' && r.request().method() === 'POST');
+  await statement.getByRole('button', { name: 'Make statement', exact: true }).click();
+  const job = await (await asked).json();
+  expect(job).toMatchObject({ status: 'finished', owner, from: `${today}T00:00:00.000Z` });
+  expect(job.rows.liquidations).toBe(liquidation.parts.length);
+  await expect(statement.getByTestId('statement-job')).toHaveText(
+    `Statement ${job.id}: ${job.rows.orders} orders, ${job.rows.trades} trades, ${liquidation.parts.length} liquidation parts and ${job.rows.movements} money movements, from ${venue.name}’s records.`,
+    { timeout: 30_000 },
+  );
+
+  // The statement shows each part of the venue's liquidation, with its fee and the venue's part and liquidation ids.
+  const shown = statement.getByTestId('statement-liquidations');
+  await expect(shown).toContainText(`${liquidation.parts.length} liquidation parts, with ${venue.name}’s fee and ids:`);
+  await expect(shown.locator('tr[data-part]')).toHaveCount(liquidation.parts.length);
+  for (const part of liquidation.parts) {
+    const row = shown.locator(`tr[data-part="${part.partId}"]`);
+    await expect(row.locator('[data-cell="id"]')).toHaveText(part.partId);
+    await expect(row.locator('[data-cell="liquidation"]')).toHaveText(liquidation.liquidationId);
+    await expect(row.locator('[data-cell="market"]')).toHaveText(`${XCRS} · ${liquidation.side}`);
+    await expect.poll(async () => sameDecimal(await row.locator('[data-cell="size"]').innerText(), part.size)).toBe(true);
+    await expect.poll(async () => sameDecimal(await row.locator('[data-cell="price"]').innerText(), part.price)).toBe(true);
+    await expect(row.locator('[data-cell="fee"]')).toHaveText(new RegExp(` ${part.feeAsset}$`));
+    await expect.poll(async () => sameDecimal((await row.locator('[data-cell="fee"]').innerText()).split(' ')[0], part.fee)).toBe(true);
+  }
+  await stepPicture();
+
+  // The file itself, the one the job fingerprinted, lists exactly the venue's parts with the venue's fee and ids.
+  const download = page.waitForEvent('download');
+  await statement.getByRole('button', { name: 'Download', exact: true }).click();
+  const saved = await download;
+  expect(saved.suggestedFilename()).toBe(`statement-${today}-${today}.csv`);
+  const text = await downloaded(saved);
+  expect(createHash('sha256').update(text, 'utf8').digest('hex')).toBe(job.sha256);
+  const rows = csvRows(text).filter((r) => r.record === 'liquidation');
+  expect(rows.map((r) => r.id).sort()).toEqual(liquidation.parts.map((p) => p.partId).sort());
+  for (const part of liquidation.parts) {
+    const row = rows.find((r) => r.id === part.partId);
+    expect(row).toMatchObject({ source: venue.name, market: XCRS, side: liquidation.side, source_ref: liquidation.liquidationId });
+    expect(sameDecimal(row.fee, part.fee) && row.fee_asset === part.feeAsset).toBe(true);
+    expect(sameDecimal(row.amount, part.size) && sameDecimal(row.price, part.price)).toBe(true);
+  }
+  // A statement moves nothing, and our ledger posted nothing for the liquidation.
+  expect(await (await one.door()).balances()).toEqual(ledger);
 });
