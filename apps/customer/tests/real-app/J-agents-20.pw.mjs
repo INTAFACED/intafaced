@@ -17,6 +17,8 @@ import { ROOT, restartService } from './stack.mjs';
 // (AGENTS_ROUTING_TABLE in tooling/profiles/test-owner-values/agents.json); founders change a route's output ceiling and
 // rates, and a change takes two distinct founders and writes one audit row naming both (svc-agents `routes.propose`,
 // `routes.confirm`).
+// #1 reads the table as configured, then with no TEST rates published (svc-agents restarted with
+// LOCAL_STACK_AGENTS_RATES=off, then put back), where every unchanged route's rate reads "not set".
 // #2 changes index.embed, the route no journey runs, and withdraws it. #3 changes navigator.plan, the task the person's
 // Navigator session runs, while that session is open, and puts it back the same way in a finally, so the stack's other
 // journeys meet the table as it was. The session keeps the guardrail it copied when it opened: svc-agents' own record of
@@ -186,6 +188,28 @@ test(`${J} #1 opens the routing table: each task with provider alias, model alia
     });
   }
   await stepPicture(page);
+
+  // A rate configuration does not publish reads "not set": svc-agents restarted with no TEST rates published
+  // (LOCAL_STACK_AGENTS_RATES=off, as production until the owner sets them) serves its own routes with every rate
+  // blank, and each route no founder has changed shows both rates as "not set", beside its provider and model alias.
+  test.setTimeout(300_000);
+  try {
+    await restartService('agents', { LOCAL_STACK_AGENTS_RATES: 'off' });
+    const blank = await openRoutes(browser);
+    const unchanged = routes(blank)
+      .getByRole('row')
+      .filter({ has: blank.getByTestId('route-audit').getByText('No founder change yet', { exact: true }) });
+    const tasks = await unchanged.evaluateAll((rows) => rows.map((r) => r.cells[0].textContent.trim()));
+    expect(tasks.length).toBeGreaterThan(0);
+    for (const task of tasks) {
+      const c = await cells(blank, task);
+      expect(c, task).toMatchObject({ 'Input per million': 'not set', 'Output per million': 'not set', Provider: 'primary' });
+      expect(c.Model, task).not.toBe('');
+    }
+  } finally {
+    await restartService('agents', { LOCAL_STACK_AGENTS_RATES: null });
+  }
+  await openRoutes(browser);
 });
 
 test(`${J} #2 changes a route as the only founder: it stays pending`, async ({ browser, stepPicture }) => {
