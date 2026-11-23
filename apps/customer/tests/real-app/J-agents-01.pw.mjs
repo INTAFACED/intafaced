@@ -5,7 +5,7 @@ import { signIn } from './desk.mjs';
 import { existsSync, rmSync, writeFileSync } from 'node:fs';
 import { api, fromUnits, restartService, stackFile, toUnits } from './stack.mjs';
 import { ADMIN } from './admin.mjs';
-import { setPartner } from './partner.mjs';
+import { partnerBookMoves, partnerMainBalance, setPartner } from './partner.mjs';
 
 // J-agents-01, in the running app (docs/roadmap/journeys.json): find an agent, check what it may do, and run it once.
 // One test per step, titled "J-agents-01 #<n>", run in order on one verified TEST account whose payment method is the
@@ -15,8 +15,10 @@ import { setPartner } from './partner.mjs';
 // (`charge:collected:partner-reserve:test:…`, keyed on the partner's own payment id); a retried request id charges once,
 // and nothing else moves, in the partner's figures or in the person's own ledger balances. The run uses the stack's TEST
 // rate card (tooling/profiles/test-owner-values/agents.json) and the service's sandbox engine; #5 to #7 check its cost
-// against the published rate, the partner's own figures (svc-bank `spaces.list`, held at the TEST partner bank) and the
-// ledger's own transactions, read by a founder through the console's ledger lookup.
+// against the published rate, the partner's figures as our door shows them (svc-bank `spaces.list`, held at the TEST
+// partner bank), the TEST partner's own book read straight from it on loopback (partner.mjs: what it holds for the person
+// and every move it made; #5 and #6 hold the page's figures and our door's to it) and the ledger's own transactions, read
+// by a founder through the console's ledger lookup.
 // #1's empty state is seen last in this file, on the stack's empty-catalogue profile (`LOCAL_STACK_AGENTS_CATALOGUE=off`:
 // svc-agents on a database of its own with no agent stored; tooling/scripts/local-stack-services/agents.mjs), and
 // svc-agents is put back on the stack's database after. Not checkable on this stack: #2's ineligible agent (the TEST
@@ -103,6 +105,17 @@ async function partnerUsdt() {
   expect(main?.heldAt?.label, 'the person’s USDT is held at the TEST partner bank').toBe(PARTNER_BANK);
   return main.balance;
 }
+
+/**
+ * The TEST partner bank's own book for the person, read from the partner itself on loopback and never through our doors:
+ * what it holds on their USDT main balance, and every move on their record, oldest first.
+ */
+async function partnerBook(userId) {
+  return { balance: await partnerMainBalance(userId, 'USDT'), moves: await partnerBookMoves(userId) };
+}
+
+/** INTAFACED's own account at the partner, where a usage payment lands (svc-bank agents/usage-payment.ts). */
+const PARTNER_INTAFACED = 'partner:intafaced';
 
 /**
  * svc-ledger's own record of a business key, traced by founder A through the console's ledger lookup, on the console
@@ -468,6 +481,10 @@ test(`${J} #5 presses Run and confirms the spend ceiling: a run row before the e
   agents.run.write({ sessionId });
   const before = await ledgerBalances();
   const partnerBefore = await partnerUsdt();
+  // The partner's own book before the run; what our door shows the person holds there is the partner's own figure.
+  const { userId } = await api(agents.account());
+  const bookBefore = await partnerBook(userId);
+  expect(toUnits(partnerBefore)).toBe(toUnits(bookBefore.balance));
   const ask = workspace(page).getByRole('textbox', { name: /^Ask the agent/ });
   // A question about a market, so the reply comes with findings: the market the platform read itself before the engine ran.
   await ask.fill(QUESTION);
@@ -562,6 +579,9 @@ test(`${J} #5 presses Run and confirms the spend ceiling: a run row before the e
   expect(toUnits(usage.body.result.data.pending)).toBe(cost);
   expect(await ledgerBalances()).toEqual(before);
   expect(await partnerUsdt()).toBe(partnerBefore);
+  // The partner's own book says so too: the run and its retry made no payment there, and it holds what it held. The one
+  // charge is the open window's cost above; the partner is asked for it once, when the window closes (#6).
+  expect(await partnerBook(userId)).toEqual(bookBefore);
   // The service's own record: the session holds exactly this one run, completed, and one executed engine response.
   const detail = await agentsCall('session.detail', { sessionId }, 'GET');
   expect(detail.body.result.data.runs).toEqual([{ requestId, startedAt: expect.any(String), state: 'completed' }]);
@@ -605,6 +625,10 @@ test(`${J} #6 closes the session: open windows settle once; a closed session ref
 
   const before = await ledgerBalances();
   const partnerBefore = await partnerUsdt();
+  // The partner's own book before the close; what our door shows the person holds there is the partner's own figure.
+  const { userId } = await api(agents.account());
+  const bookBefore = await partnerBook(userId);
+  expect(toUnits(partnerBefore)).toBe(toUnits(bookBefore.balance));
   const selected = await selectRanSession(page);
   await selected.getByRole('button', { name: 'Close session' }).click();
   await expect(selected.getByRole('status')).toContainText('Session closed. Usage settled.');
@@ -622,6 +646,20 @@ test(`${J} #6 closes the session: open windows settle once; a closed session ref
   expect(paymentRef, `the window names the partner's payment: ${paidFrom}`).toBeTruthy();
   // The partner took exactly the window's cost from the person's balance there, once.
   expect(toUnits(partnerBefore) - toUnits(await partnerUsdt())).toBe(toUnits(cost));
+  // The partner's own book holds what the page says: one new move, the very payment the window names, made under the
+  // window's charge key, of exactly the cost the window shows, from the person's USDT main balance to INTAFACED's own
+  // account at the partner; and the partner holds that much less for the person, as our door showed above.
+  const book = await partnerBook(userId);
+  const paid = book.moves.slice(bookBefore.moves.length);
+  expect(paid, JSON.stringify(paid).slice(0, 300)).toHaveLength(1);
+  expect(paid[0]).toMatchObject({
+    id: paymentRef,
+    key: `agents.usage-payment:${chargeKey}`,
+    from: { owner: userId, assetId: 'USDT', spaceId: null },
+    to: { owner: PARTNER_INTAFACED, assetId: 'USDT', spaceId: null },
+  });
+  expect(toUnits(paid[0].amount)).toBe(toUnits(cost));
+  expect(toUnits(bookBefore.balance) - toUnits(book.balance)).toBe(toUnits(cost));
   // We keep no prepaid balance: the person's own ledger balances did not move at all.
   const after = await ledgerBalances();
   expect(after).toEqual(before);
@@ -665,6 +703,8 @@ test(`${J} #6 closes the session: open windows settle once; a closed session ref
   expect(await ledgerBalances()).toEqual(after);
   // Nothing more left the partner balance, and the window's keys still name those same two transactions.
   expect(toUnits(partnerBefore) - toUnits(await partnerUsdt())).toBe(toUnits(cost));
+  // The partner's own book is as it was after that one payment: the second close and the refused run asked it for nothing.
+  expect(await partnerBook(userId)).toEqual(book);
   expect((await ledgerTrace(founders, earnedKey(chargeKey))).transaction.txId).toBe(earned.transaction.txId);
   expect((await ledgerTrace(founders, collectedKey(paymentRef))).transaction.txId).toBe(collected.transaction.txId);
 });
