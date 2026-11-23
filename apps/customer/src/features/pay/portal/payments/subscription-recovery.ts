@@ -6,7 +6,13 @@ import { payRefusal } from '../../copy';
 import { plainFailure } from '../refusal';
 import { extensionCopy as c } from './copy';
 import { definite, neverRan } from './not-available';
-import { PAY_SUBSCRIPTION_LIST, PAY_SUBSCRIPTION_GET, PAY_SUBSCRIPTION_CREATE } from '@intafaced/contracts/pay-subscription-procedures';
+import {
+  PAY_SUBSCRIPTION_CANCEL,
+  PAY_SUBSCRIPTION_CREATE,
+  PAY_SUBSCRIPTION_GET,
+  PAY_SUBSCRIPTION_LIST,
+  PAY_SUBSCRIPTION_PAUSE,
+} from '@intafaced/contracts/pay-subscription-procedures';
 
 const unresolved = (): ApiResult<z.infer<typeof subscriptionSchema>> => ({
   ok: false,
@@ -98,10 +104,9 @@ export function checkSubscriptionOriginal(pay: BusinessPayApi, subscriptionId: s
 /** Pause or cancel one schedule (`subscription.pause`, `subscription.cancel`), held on `subscription:<id>` until settled. */
 export async function pauseOrCancelSubscription(pay: BusinessPayApi, s: { id: string }, action: 'pause' | 'cancel') {
   return definite(
-    await pay.mutate(
-      `subscription.${action}`,
+    await pay.mutateRecord(
+      action === 'pause' ? PAY_SUBSCRIPTION_PAUSE : PAY_SUBSCRIPTION_CANCEL,
       { subscriptionId: s.id },
-      subscriptionSchema,
       'pay:write',
       `subscription:${s.id}`,
       action === 'pause' ? 'paused' : 'cancelled',

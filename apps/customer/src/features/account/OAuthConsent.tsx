@@ -13,6 +13,7 @@ import {
   Refused,
   scopeCopyKey,
 } from '../developers';
+import { leaveTo } from '../../app/location';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -80,7 +81,7 @@ export function OAuthConsent() {
       return setStopped('no-redirect');
     }
     setStopped('done');
-    location.assign(target);
+    leaveTo(target);
   }
   if (preview.resource.status === 'loading') return <Loading label={t('consentLoading')} />;
   if (preview.resource.status === 'failed')

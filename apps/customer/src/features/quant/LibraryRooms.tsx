@@ -30,7 +30,6 @@ export function LibraryRoom({ paper }: { paper: boolean }) {
         <section>
           <h2>{t('libraryTitle')}</h2>
           <div data-testid="quant-library" data-tag={tag}>
-            <p className="lt-hint">{t('libraryIntro')}</p>
             <Select
               label={t('filterTag')}
               value={tag}

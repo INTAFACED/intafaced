@@ -10,9 +10,9 @@ import { WalletHomeRoom } from './WalletHomeRoom';
 import { SafetyPanel } from './SafetyPanel';
 import { ScanPanel } from './ScanPanel';
 import { SendPanel } from './SendPanel';
-import { WALLET_SECTIONS, type WalletSection } from '../routes';
+import { WALLET_SECTIONS, type WalletSection, walletSections } from '../routes';
 
-const SECTIONS = Object.keys(WALLET_SECTIONS) as WalletSection[];
+const SECTIONS = walletSections();
 type Section = WalletSection;
 
 /**
