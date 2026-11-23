@@ -26,7 +26,7 @@ export const CHARGEBACK_NOTHING_TO_REVERSE_CODE = 'pay.chargeback_nothing_to_rev
 export const CHARGEBACK_SHORTFALL_UNFUNDED_CODE = 'pay.chargeback_shortfall_unfunded' as const;
 
 /** Paid to the business's own wallet or held by the partner: nothing of it is in our book. */
-export const CHARGEBACK_NOT_IN_OUR_CUSTODY_CODE = 'pay.payment_not_in_our_custody' as const;
+const CHARGEBACK_NOT_IN_OUR_CUSTODY_CODE = 'pay.payment_not_in_our_custody' as const;
 
 export type ChargebackLedgerRefuseCode =
   | typeof CHARGEBACK_LEDGER_REFUSE_CODE
