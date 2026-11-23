@@ -940,10 +940,11 @@ impl BankDoor {
                         "A second factor is required",
                     ));
                 }
-                Err(forbidden(&format!(
-                    "One of {} is required",
-                    scopes.join(", ")
-                )))
+                // The typed `scope.denied` a single-scope refusal carries (`anyScopeProcedure`).
+                Err(TrpcError::guard(access::Refused {
+                    message: format!("One of {} is required", scopes.join(", ")),
+                    code: "scope.denied".to_owned(),
+                }))
             }
         }
     }

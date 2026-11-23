@@ -373,7 +373,7 @@ export function CashOut() {
           <div className="lt-stack">
             <p className="lt-muted">{t('noAccounts')}</p>
             <div className="lt-actions">
-              <a className="lt-button" href="/bank/ramps/accounts">
+              <a className="lt-button lt-button-primary" href="/bank/ramps/accounts">
                 {t('linkOne')}
               </a>
             </div>

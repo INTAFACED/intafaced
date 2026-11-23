@@ -32,6 +32,7 @@ import { p2pDepth } from './personal/p2p-depth-copy';
 import { P2PEligibilityPanel } from './personal/Eligibility';
 import { MethodsRoom } from './personal/MethodsRoom';
 import { P2PBoard } from './p2p-board/Board';
+import { P2PMine } from './p2p-board/Mine';
 import { AccessRoom } from './p2p-access/AccessRoom';
 // The other P2P rooms still draw the offer list's old look until they move to Volt.
 import './p2p-offer.css';
@@ -64,6 +65,8 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
     return <MethodsRoom pay={pay} userId={userId} />;
   // Trading access is on its flow template, which draws its own title and the P2P rooms.
   if (showAccess && !tradeId && current !== '/chat' && !showOrders && !publish) return <AccessRoom pay={pay} userId={userId} />;
+  // The person's own offers are on the overview template too, which draws its own title and the P2P rooms.
+  if (showMine && !tradeId) return <P2PMine pay={pay} userId={userId} />;
   // The offer board is on its overview template, which draws its own title and the P2P rooms.
   if (
     !tradeId &&

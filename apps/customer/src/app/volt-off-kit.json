@@ -38,7 +38,6 @@
   "/trade/bots/:kind",
   "/trade/bots/signals/publish",
   "/trade/convert",
-  "/uc/ad",
   "/uc/ad/create",
   "/uc/ad/update",
   "/uc/order",
