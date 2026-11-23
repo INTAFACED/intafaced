@@ -34,6 +34,7 @@ import { MoneyAction, useMoneyReason } from '../access/MoneyAction';
 import { refundableAmount, refundRate } from './model';
 import { type PayRefundItem as RefundItem, payRefundStatusSchema } from '@intafaced/contracts/pay-portal-reads';
 import type { z } from 'zod';
+import { leaveTo } from '../../../../app/location';
 
 type Payment = z.infer<typeof paymentSchema>;
 type Words = ReturnType<typeof mc.useCopy>['t'];
@@ -457,7 +458,7 @@ function RefundStep({
               paymentId={paymentId}
               onRecorded={payment.reload}
               onBack={() => {
-                window.location.href = `/pay/refunds?payment=${encodeURIComponent(paymentId)}`;
+                leaveTo(`/pay/refunds?payment=${encodeURIComponent(paymentId)}`);
               }}
             />
           </ExactMoneyScope>

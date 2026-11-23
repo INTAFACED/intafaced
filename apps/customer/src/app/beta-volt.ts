@@ -41,6 +41,21 @@ export function betaHides(path: string, list: BetaRooms | undefined = betaRooms(
 }
 
 /**
+ * Where a press that navigates in code lands in this build: `href` itself, unless it opens a room the beta hides; then the
+ * nearest parent room the beta shows (`/dex/pools` to `/dex`, if `/dex` is shown), else Home. So a Back button never ends
+ * on "Not in this beta". With the switch off it is always `href`. location.ts's navigate() and leaveTo() call it.
+ */
+export function betaShownHref(href: string, list: BetaRooms | undefined = betaRooms()): string {
+  if (!list || !href.startsWith('/') || href.startsWith('//')) return href;
+  const path = href.split(/[?#]/)[0] || '/';
+  if (!betaHides(path, list)) return href;
+  const shown = new Set(list.filter(([route, volt]) => volt && !hasPattern(route)).map(([route]) => route));
+  for (let parent = path.slice(0, path.lastIndexOf('/')); parent; parent = parent.slice(0, parent.lastIndexOf('/')))
+    if (shown.has(parent)) return parent;
+  return betaHides('/home', list) ? '/' : '/home';
+}
+
+/**
  * What the signed-in account can use, for the beta's menus: `business`, the session reads a business account the person
  * belongs to (use-profiles.ts); `venue`, svc-trade says the user-venue door is on (use-venue-mode.ts). Unknown counts as
  * no, so a menu never shows a room before the answer comes. App sets it on each of its renders (BetaAccess.ts), before

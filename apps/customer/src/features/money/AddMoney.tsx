@@ -11,6 +11,7 @@ import { DepthPanel, Fact } from './DepthParts';
 import { IncomingPayments } from './IncomingPayments';
 import './bank-depth.css';
 import { BANK_ADD_MONEY_REQUEST, BANK_ADD_MONEY_REQUESTS } from '@intafaced/contracts/bank-add-money-procedures';
+import { leaveTo } from '../../app/location';
 
 /**
  * Add money (J-bank-02): the amount, every way to pay with the fee and arrival the bank quoted (a blank reads "not set"),
@@ -459,7 +460,7 @@ export function AddMoney() {
     if (result.ok && result.data.status === 'opened') setFollowed(result.data.requestId);
     if (page) {
       setRedirecting(true);
-      window.location.assign(page);
+      leaveTo(page);
     }
     // A final answer closes this request, so asking again is a new one. A failure keeps the id, so a retry is the same request.
     if (result.ok && result.data.status !== 'opening') setRequestId(crypto.randomUUID());

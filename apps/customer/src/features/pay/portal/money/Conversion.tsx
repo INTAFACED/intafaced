@@ -30,6 +30,7 @@ import { useMoneyReason } from '../access/MoneyAction';
 import { type ConversionOrder, type ConversionQuote, PAY_CONVERSION_STATUSES as conversionStatuses } from '@intafaced/contracts/conversion';
 import { settlementName } from './Settlements';
 import { isConversionOff } from './refusals';
+import { leaveTo } from '../../../../app/location';
 
 const TONE: Record<string, StatusTone> = {
   quoted: 'progress',
@@ -343,7 +344,7 @@ export function ConversionNew({ portal, merchantId }: { portal: PortalApi; merch
                   if (sent.ok || sent.reason === 'error' || sent.reason === 'forbidden') request.renew();
                   return sent;
                 }}
-                onConfirmed={(o) => window.location.assign(orderHref(o.conversionId))}
+                onConfirmed={(o) => leaveTo(orderHref(o.conversionId))}
               />
             </PaySection>
           )}
