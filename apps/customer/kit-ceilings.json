@@ -212,7 +212,6 @@
     "apps/customer/src/screens/trade/execution/IcebergTab.tsx": 1,
     "apps/customer/src/screens/trade/futures/VenueFuturesDesk.tsx": 11,
     "apps/customer/src/screens/trade/futures/VenueProtect.tsx": 1,
-    "apps/customer/src/screens/trade/markets/TopCards.tsx": 1,
     "apps/customer/src/shared/LanguageMenu.tsx": 1,
     "apps/customer/src/shared/ui.tsx": 3
   },

@@ -30,7 +30,6 @@
   "/bank/ramps/new",
   "/bank/ramps/cash-out",
   "/bank/business/books",
-  "/trade",
   "/trade/buy",
   "/trade/copy",
   "/trade/copy/:ref",

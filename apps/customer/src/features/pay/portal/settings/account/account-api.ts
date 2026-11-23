@@ -1,3 +1,4 @@
+import type { ProcedureInput } from '@intafaced/contracts/procedure';
 import * as p from '../../schemas';
 import { type PortalTools } from '../../api-tools';
 import * as s from './schemas';
@@ -18,6 +19,7 @@ import {
   PAY_MERCHANT_TERMS_ACCEPT,
   PAY_MERCHANT_ONBOARDING_PROGRESS,
 } from '@intafaced/contracts/pay-merchant-procedures';
+import { PAY_MERCHANT_OPS_ACTIVITY_LIST, PAY_MERCHANT_OPS_TEAM_LIST } from '@intafaced/contracts/pay-merchant-ops-procedures';
 
 const cursorPart = (cursor: string | undefined) => (cursor ? { cursor } : {});
 
@@ -26,7 +28,9 @@ const cursorPart = (cursor: string | undefined) => (cursor ? { cursor } : {});
  * feed, the filtered team list and the platform network. The business is always passed by the page from the
  * resolved access; the service checks it against the signed session again.
  */
-export const accountApi = ({ query, mutate, list, mutateRecord, queryRecord }: PortalTools) => ({
+type TeamListInput = ProcedureInput<typeof PAY_MERCHANT_OPS_TEAM_LIST>;
+
+export const accountApi = ({ query, mutate, mutateRecord, queryRecord, listRecord }: PortalTools) => ({
   // ---- business profile (merchant.businessProfile.*) ----
   profileGet: (merchantId: string, signal?: AbortSignal) => queryRecord(PAY_MERCHANT_BUSINESS_PROFILE_GET, { merchantId }, signal),
   profileHistory: (merchantId: string, cursor: string | undefined, signal?: AbortSignal) =>
@@ -47,13 +51,13 @@ export const accountApi = ({ query, mutate, list, mutateRecord, queryRecord }: P
 
   // ---- team, with the filters the service now applies ----
   teamPage: (cursor: string | undefined, filters: { status?: string; role?: string; search?: string }, signal?: AbortSignal) =>
-    list(
-      'merchantOps.team.list',
-      p.memberSchema,
+    listRecord(
+      PAY_MERCHANT_OPS_TEAM_LIST,
       {
         ...cursorPart(cursor),
-        ...(filters.status ? { status: filters.status } : {}),
-        ...(filters.role ? { role: filters.role } : {}),
+        // The page's filter text is sent as before; the service checks it against its own lists and refuses any other.
+        ...(filters.status ? { status: filters.status as TeamListInput['status'] } : {}),
+        ...(filters.role ? { role: filters.role as TeamListInput['role'] } : {}),
         ...(filters.search ? { search: filters.search } : {}),
       },
       signal,
@@ -65,9 +69,8 @@ export const accountApi = ({ query, mutate, list, mutateRecord, queryRecord }: P
     filters: { objectType?: string; action?: string; actorId?: string; from?: string; to?: string; search?: string },
     signal?: AbortSignal,
   ) =>
-    list(
-      'merchantOps.activity.list',
-      s.activityItemSchema,
+    listRecord(
+      PAY_MERCHANT_OPS_ACTIVITY_LIST,
       {
         ...cursorPart(cursor),
         ...Object.fromEntries(Object.entries(filters).filter(([, v]) => v)),
