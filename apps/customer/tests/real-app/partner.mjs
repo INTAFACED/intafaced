@@ -53,7 +53,7 @@ export async function withPartner(who, change, fn) {
   }
 }
 
-/** `who`'s bank money held at the TEST partner from now on (OWNER 226), through their own bank API. */
+/** `who`'s bank money held at the TEST partner from now on (the launch money model: INTAFACED holds no customer money), through their own bank API. */
 export async function holdAtPartner(who) {
   const now = await setPartner(who, { custody: 'off' });
   if (now.custody !== 'off') throw new Error(`testPartner.set left ${who.email}'s money off the partner: ${JSON.stringify(now)}`);

@@ -22,7 +22,7 @@ import { fundAtPartner, holdAtPartner, partnerBookMoves, partnerMainBalance, wit
 
 // J-pay-01, in the running app (docs/roadmap/journeys.json): send TEST money to a person by handle and see it complete.
 // One test per step, titled "J-pay-01 #<n>", run in order on TEST accounts: A sends, B receives. INTAFACED holds none of
-// it (OWNER 226): A's and B's money is held at the stack's TEST partner bank (`testPartner.set({ custody: 'off' })`),
+// it (the launch money model): A's and B's money is held at the stack's TEST partner bank (`testPartner.set({ custody: 'off' })`),
 // A's TEST 100 USDT is paid in there, a send is the partner's one move, and both balances are the partner's figures,
 // checked against the partner's own book (partner.mjs). The stack's gates publish TEST send limits
 // (`local-test-gates.mjs apply`); every number here is a TEST number on the local stack, and each figure the screen
