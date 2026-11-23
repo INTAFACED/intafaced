@@ -76,7 +76,7 @@ export function betaPaths(home = os.homedir()) {
 }
 
 /** Seconds between the beta's TEST market cycles: its book stays quoted and its price moves, without an 8 s churn. */
-export const BETA_MARKET_INTERVAL_SECONDS = 300;
+const BETA_MARKET_INTERVAL_SECONDS = 300;
 
 /**
  * The environment every stack command of the beta runs with: its slot and its state folder, and the two settings of a
