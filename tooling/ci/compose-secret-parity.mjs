@@ -30,7 +30,7 @@
  * It matters most during a ROTATION. Rotating a shared secret means editing
  * every consumer; getting three of four is the same failure with a worse blast
  * radius, and the fourth service will not tell you until it restarts. See
- * docs/SECRET-ROTATION-READINESS-2026-08-03.md for the blast-radius map this
+ * docs/SECRET-ROTATION-READINESS.md for the blast-radius map this
  * check mechanises.
  *
  * WHAT IT DOES NOT DO, stated so the green line is not read as more than it is:
@@ -377,7 +377,7 @@ if (gaps.length > 0) {
   console.error('  A running container keeps the environment it started with, so this does NOT');
   console.error('  show up as a failure today — it shows up during the next deploy, or the next');
   console.error('  secret rotation, which is when nobody is looking for it. That is how #431');
-  console.error(`  hid. Blast-radius map: docs/SECRET-ROTATION-READINESS-2026-08-03.md\n`);
+  console.error(`  hid. Blast-radius map: docs/SECRET-ROTATION-READINESS.md\n`);
   process.exit(1);
 }
 

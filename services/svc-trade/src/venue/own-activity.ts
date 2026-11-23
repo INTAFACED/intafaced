@@ -46,7 +46,12 @@ export async function readOwnVenueActivity(deps: {
   const accounts = [];
   for (const { owner, subAccount } of listed) {
     const account = { venueId, owner, subAccount };
-    const [balances, fills] = await Promise.all([venue.balances(account), venue.fills(account, BEGINNING)]);
+    const [balances, fills, arrivals] = await Promise.all([
+      venue.balances(account),
+      venue.fills(account, BEGINNING),
+      // The coins credited from outside (J-portfolio-02 #6), when the venue's adapter reads them.
+      venue.arrivals ? venue.arrivals(account) : Promise.resolve(null),
+    ]);
     const spotFills = [];
     for (const f of [...fills.value].sort((a, b) => a.filledAt.getTime() - b.filledAt.getTime() || a.fillId.localeCompare(b.fillId))) {
       const market = spot.get(f.symbol);
@@ -74,7 +79,20 @@ export async function readOwnVenueActivity(deps: {
       balances: balances.value.map((b) => ({ asset: b.asset, total: formatAmount(b.total) })),
       fills: spotFills,
       ...(subAccount === null ? { transfers: moves.get(owner) ?? [] } : {}),
-      asOf: later(balances.asOf, fills.asOf).toISOString(),
+      ...(arrivals === null
+        ? {}
+        : {
+            arrivals: [...arrivals.value]
+              .sort((a, b) => a.arrivedAt.getTime() - b.arrivedAt.getTime() || a.arrivalId.localeCompare(b.arrivalId))
+              .map((a) => ({
+                arrivalId: a.arrivalId,
+                kind: a.kind,
+                asset: a.asset,
+                amount: formatAmount(a.amount),
+                arrivedAt: a.arrivedAt.toISOString(),
+              })),
+          }),
+      asOf: (arrivals === null ? later(balances.asOf, fills.asOf) : later(later(balances.asOf, fills.asOf), arrivals.asOf)).toISOString(),
     });
   }
   return { state: 'read', test, accounts };

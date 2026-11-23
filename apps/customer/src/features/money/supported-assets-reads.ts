@@ -1,42 +1,30 @@
-// hand-declared-ok: svc-bank's `bank.assets.list` mirrors packages/contracts/src/asset-registry.ts, whose module also hashes edits with node:crypto, so it has no browser-safe export yet.
-import { z } from 'zod';
-import { useSession } from '../session/session';
+import type { z } from 'zod';
+import {
+  type BANK_SUPPORTED_ASSET_ACTIONS,
+  type BANK_SUPPORTED_ASSET_STATES,
+  type bankSupportedAssetSchema,
+} from '@intafaced/contracts/bank-money-room';
+import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiClient, ApiResult } from '../../shared/api';
+import { BANK_ASSETS_LIST } from '@intafaced/contracts/bank-assets-procedures';
+import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 
-/** Mirrors the registry's own enums (`ASSET_ACTIONS`, `ASSET_STATES`, `REGISTRY_ASSET_KINDS`). */
-export const SUPPORTED_ASSET_ACTIONS = ['deposit', 'withdraw', 'trade', 'transfer'] as const;
-export const SUPPORTED_ASSET_STATES = ['active', 'halted', 'retired'] as const;
-
-/** One row of svc-ledger's supported asset and network list (W-balances-05), every state, as svc-bank hands it on. */
-export const supportedAssetSchema = z.object({
-  assetId: z.string().regex(/^[A-Z0-9]{1,16}$/),
-  kind: z.enum(['crypto', 'fiat', 'native', 'commodity']),
-  precision: z.number().int().min(0).max(18),
-  networks: z.array(
-    z.object({
-      networkId: z.string().min(1),
-      label: z.string().min(1),
-      /** The contract on this network, or null when the registry knows none (a native coin, or not published). */
-      contract: z.string().min(1).nullable().default(null),
-      links: z.array(z.object({ label: z.string().min(1), url: z.string().regex(/^https:\/\//) })).default([]),
-    }),
-  ),
-  defaultNetworkId: z.string().min(1).nullable(),
-  allowedActions: z.array(z.enum(SUPPORTED_ASSET_ACTIONS)),
-  state: z.enum(SUPPORTED_ASSET_STATES),
-});
-export type SupportedAsset = z.infer<typeof supportedAssetSchema>;
-export type SupportedAssetAction = (typeof SUPPORTED_ASSET_ACTIONS)[number];
-export type SupportedAssetState = (typeof SUPPORTED_ASSET_STATES)[number];
-
-export const supportedAssetsSchema = z.object({ assets: z.array(supportedAssetSchema) });
-export type SupportedAssets = z.infer<typeof supportedAssetsSchema>;
+/** svc-bank `assets.list` (W-balances-05), read with the schema in `@intafaced/contracts/bank-money-room`. */
+export {
+  BANK_SUPPORTED_ASSET_ACTIONS as SUPPORTED_ASSET_ACTIONS,
+  BANK_SUPPORTED_ASSET_STATES as SUPPORTED_ASSET_STATES,
+  bankSupportedAssetSchema as supportedAssetSchema,
+  bankSupportedAssetsSchema as supportedAssetsSchema,
+} from '@intafaced/contracts/bank-money-room';
+export type SupportedAsset = z.infer<typeof bankSupportedAssetSchema>;
+export type SupportedAssetAction = (typeof BANK_SUPPORTED_ASSET_ACTIONS)[number];
+export type SupportedAssetState = (typeof BANK_SUPPORTED_ASSET_STATES)[number];
+export type SupportedAssets = ProcedureOutput<typeof BANK_ASSETS_LIST>;
 
 export function createSupportedAssetReads(api: ApiClient) {
   return {
-    list: (signal?: AbortSignal): Promise<ApiResult<SupportedAssets>> =>
-      api.query('bank', 'assets.list', undefined, supportedAssetsSchema, { signal }),
+    list: (signal?: AbortSignal): Promise<ApiResult<SupportedAssets>> => api.call(BANK_ASSETS_LIST, undefined, { signal }),
   };
 }
 

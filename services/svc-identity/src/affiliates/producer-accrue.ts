@@ -12,7 +12,7 @@
  */
 
 import type { FastifyInstance } from 'fastify';
-import { retainRawBody } from '@intafaced/contracts';
+import { retainRawBody } from '@intafaced/contracts/raw-body';
 import { serviceOfRequest, type IdentityS2s } from '../s2s-door.js';
 import { z } from 'zod';
 import { accrueTreeUnderRateAuthority } from './accrual-tree-authority.js';

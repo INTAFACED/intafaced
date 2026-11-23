@@ -1,6 +1,7 @@
+import type { Queryable } from '@intafaced/db';
 import { keyRateLimitSchema, type KeyRateLimit } from '@intafaced/contracts/api-rate-limits';
 import { z } from 'zod';
-import { publicProcedure, router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { publicProcedure, router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import type { Sql } from 'postgres';
 import { ApiKeyProductError, normalizeProduct } from './auth/api-key-product.js';
 import { AuthError, assertDelegateCannotGrant } from './auth/auth-service.js';
@@ -32,6 +33,7 @@ type ProductExchanger = ApiKeyMinter & {
     requireNonEmptyIpAllowlist?: boolean;
     ipAllowlist?: string[];
     rateLimit?: KeyRateLimit | null;
+    apiVersionDefault?: string | null;
   }>;
 };
 
@@ -73,7 +75,7 @@ function toProductTrpc(err: unknown): never {
   throw new TRPCError({ code: 'BAD_REQUEST', message: (err as Error).message, cause: err });
 }
 
-async function currentList(sql: Sql, userId: string, keyId: string): Promise<string[]> {
+async function currentList(sql: Queryable, userId: string, keyId: string): Promise<string[]> {
   const rows = await sql<Array<{ product_scopes: string[] | null }>>`
     SELECT product_scopes FROM api_keys WHERE id = ${keyId} AND user_id = ${userId} AND revoked = false FOR UPDATE
   `;
@@ -193,6 +195,7 @@ export function createApiKeyProductRouter(sql: Sql, minter: ProductExchanger, ga
           requireNonEmptyIpAllowlist: z.boolean().optional(),
           ipAllowlist: z.array(z.string()).optional(),
           rateLimit: keyRateLimitSchema.nullable().optional(),
+          apiVersionDefault: z.string().nullable().optional(),
         }),
       )
       .mutation(async ({ input, ctx }) => {
@@ -214,6 +217,7 @@ export function createApiKeyProductRouter(sql: Sql, minter: ProductExchanger, ga
             ...(result.requireNonEmptyIpAllowlist === undefined ? {} : { requireNonEmptyIpAllowlist: result.requireNonEmptyIpAllowlist }),
             ...(result.ipAllowlist === undefined ? {} : { ipAllowlist: result.ipAllowlist }),
             ...(result.rateLimit === undefined ? {} : { rateLimit: result.rateLimit }),
+            ...(result.apiVersionDefault === undefined ? {} : { apiVersionDefault: result.apiVersionDefault }),
           };
         } catch (err) {
           toProductTrpc(err);

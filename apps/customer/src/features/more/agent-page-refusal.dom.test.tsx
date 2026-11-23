@@ -13,7 +13,24 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 vi.mock('../session/session', () => {
-  const api = { query: async () => answer, mutate: async () => answer };
+  const api = {
+    query: async () => answer,
+    mutate: async () => answer,
+    call(
+      this: { query: (...args: never[]) => unknown; mutate: (...args: never[]) => unknown },
+      record: { kind: string; module: string; path: string; output: unknown },
+      input?: unknown,
+      opts?: unknown,
+    ) {
+      return Reflect.apply(record.kind === 'query' ? this.query : this.mutate, this, [
+        record.module,
+        record.path,
+        input,
+        record.output,
+        opts,
+      ]);
+    },
+  };
   return { useApi: () => api, useSession: () => ({ userId: 'u-test' }) };
 });
 

@@ -19,7 +19,7 @@ import {
   VENDOR_EMAIL,
   VENDOR_PUSH,
   VENDOR_SMS,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/ops-alert-notify';
 import { OPS_ALERT_ACTOR_UNSET, OPS_IDEMPOTENCY_CONFLICT, OpsError } from '../codes.js';
 import { fingerprintOf } from './rules.js';
 import { assertChannelTarget, pinnedChannelPost } from './channel-target.js';

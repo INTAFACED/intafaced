@@ -21,7 +21,7 @@ export const serviceOffCopy = defineCopy(
     'owner.decision': 'an owner decision',
     'audit.external': 'an external security audit',
     'vendor.sms': 'an SMS delivery provider',
-    'vendor.email': 'an email delivery provider',
+    'vendor.email': 'an email sender',
     'vendor.tax': 'a tax calculation provider',
     'vendor.travelrule': 'a Travel Rule network',
     'vendor.cloud': 'a cloud provider account',

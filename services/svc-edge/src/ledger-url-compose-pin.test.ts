@@ -20,14 +20,13 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { composeServiceBlock } from '@intafaced/config/compose';
 
 const COMPOSE = resolve(import.meta.dirname, '../../../docker-compose.apps.yml');
 const ENV_TS = resolve(import.meta.dirname, './env.ts');
 
 function edgeServiceBlock(source: string): string {
-  const match = source.match(/^  svc-edge:\n(?:.*\n)*?(?=^  [a-z]|\Z)/m);
-  if (!match) throw new Error('svc-edge service block missing from docker-compose.apps.yml');
-  return match[0];
+  return composeServiceBlock(source, 'svc-edge');
 }
 
 const LEDGER = /^\s+LEDGER_URL:\s*http:\/\/svc-ledger:4001\s*$/gm;

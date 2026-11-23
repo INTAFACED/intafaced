@@ -53,7 +53,7 @@ function venueBook(input: {
  */
 function unstampedBook(input: { bid: readonly [string, string]; ask: readonly [string, string] }): VenueBookSnapshot {
   const { observedAt: _dropped, ...rest } = venueBook(input);
-  return rest as unknown as VenueBookSnapshot;
+  return rest as VenueBookSnapshot;
 }
 
 /** Real size on both sides, read a second ago. The book a mid SHOULD come from. */

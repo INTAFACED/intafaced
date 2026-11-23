@@ -47,14 +47,10 @@ export function ownAnswer(result: ApiResult<AccountOperatorEntitlement>, userId:
  * console link; everyone else gets a pointer to where their own tools live, and never a founder control.
  */
 export function TeamDesk({ href }: { href: string | undefined }) {
-  const { userId, mode, restoring, restoreFailed, retryRestore } = useSession();
+  const { userId, mode, restoreFailed, retryRestore } = useSession();
   if (userId) return <SignedInTeamDesk href={href} userId={userId} mode={mode} />;
-  // Until the boot refresh answers, a signed-in founder is not yet known; a refresh that failed is not a sign-out.
-  const check: FounderCheck = restoring
-    ? { kind: 'checking' }
-    : restoreFailed
-      ? { kind: 'unread', retry: retryRestore }
-      : { kind: 'signed_out' };
+  // The app renders no room until the boot refresh answers; a refresh that failed is not a sign-out.
+  const check: FounderCheck = restoreFailed ? { kind: 'unread', retry: retryRestore } : { kind: 'signed_out' };
   return <TeamDeskView href={href} check={check} mode={mode} />;
 }
 
@@ -84,7 +80,7 @@ export function TeamDeskView({ href, check, mode }: { href: string | undefined; 
             ← {t('Back to home')}
           </a>
         </p>
-        <p className="muted">
+        <p className="lt-muted">
           {t(
             'Founders and operators work in a separate console with its own sign-in. This app has no operator tools, and nothing on this page shows or changes company data.',
           )}
@@ -103,7 +99,7 @@ function FounderPanel({ href, check, mode }: { href: string | undefined; check: 
         title={t('Open the operator console')}
         action={
           href ? (
-            <a className="button button--primary" href={href} data-testid="team-desk-console">
+            <a className="lt-button lt-button-primary" href={href} data-testid="team-desk-console">
               {t('Open Team')}
             </a>
           ) : undefined
@@ -119,7 +115,7 @@ function FounderPanel({ href, check, mode }: { href: string | undefined; check: 
       <EmptyState
         title={t('Sign in to continue')}
         action={
-          <a className="button button--primary" href="/login">
+          <a className="lt-button lt-button-primary" href="/login">
             {t('Sign in')}
           </a>
         }
@@ -129,7 +125,7 @@ function FounderPanel({ href, check, mode }: { href: string | undefined; check: 
     );
   if (check.kind === 'checking')
     return (
-      <p className="muted" role="status">
+      <p className="lt-muted" role="status">
         {t('Checking founder access…')}
       </p>
     );
@@ -157,11 +153,11 @@ function FounderPanel({ href, check, mode }: { href: string | undefined; check: 
       title={t('Nothing to open here')}
       action={
         mode === 'Business' ? (
-          <a className="button button--primary" href="/pay/merchant" data-testid="team-desk-merchant">
+          <a className="lt-button lt-button-primary" href="/pay/merchant" data-testid="team-desk-merchant">
             {t('Open merchant admin')}
           </a>
         ) : (
-          <a className="button button--secondary" href="/">
+          <a className="lt-button lt-button-secondary" href="/">
             {t('Back to home')}
           </a>
         )

@@ -30,11 +30,11 @@ export function SubscriptionPricePicker({
       monthly ? portal.monthlyPriceChoices(mandate.assetId, mandate.amount, signal) : Promise.resolve({ ok: true as const, data: null }),
     `portal:catalog:subscription-prices:${mandate.id}`,
   );
-  if (!monthly) return <p className="muted">{t('subPriceNotMonthly')}</p>;
+  if (!monthly) return <p className="lt-muted">{t('subPriceNotMonthly')}</p>;
   if (resource.status === 'loading') return <PortalLoading />;
   if (resource.status === 'failed') return <PortalFailure result={resource.failure} retry={reload} />;
   const choices = resource.data?.items ?? [];
-  if (choices.length === 0 && !value) return <p className="muted">{t('subPriceNoMatch')}</p>;
+  if (choices.length === 0 && !value) return <p className="lt-muted">{t('subPriceNoMatch')}</p>;
   // A create being recovered keeps the price it was sent with, even once that price is no longer offered: the select
   // says so rather than showing "No catalogue price" over a request that names one.
   const kept = value && !choices.some((choice) => choice.price.id === value) ? [[value, t('subPriceKept')] as const] : [];
@@ -75,7 +75,7 @@ export function SubscriptionPriceFact({ portal, priceId }: { portal: PortalApi; 
     ...(read.product.status === 'archived' ? [t('subPriceProductArchived')] : []),
   ];
   return (
-    <a className="text-link" href={`/pay/products/${encodeURIComponent(read.product.id)}`}>
+    <a className="lt-link" href={`/pay/products/${encodeURIComponent(read.product.id)}`}>
       {optionText(read)}
       {marks.length > 0 && ` (${marks.join(', ')})`}
     </a>

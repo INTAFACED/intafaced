@@ -161,10 +161,13 @@ export class NotificationDispatcher {
    * J-agents-02 #6). Like a critical message, such a channel gets a row even when it could not be used, so the person
    * sees what happened to what they asked for: `channel.not_configured` when the platform has no sender for it (the
    * binding cause: no address would have been sent to either), else `channel.no_target` or `channel.target_unverified`.
+   *
+   * `only`: the asked channels are the whole out-of-app choice (an alert's own channels, J-charts-desk-10). A channel not asked for
+   * is not tried and gets no row, even where the person has a confirmed address for it.
    */
   async dispatch(
     notification: Notification,
-    opts: { outOfApp?: boolean; asked?: readonly OutOfAppChannel[] } = {},
+    opts: { outOfApp?: boolean; asked?: readonly OutOfAppChannel[]; only?: boolean } = {},
   ): Promise<DispatchReport> {
     return withNotifySpan(
       'notify.dispatch',
@@ -200,6 +203,7 @@ export class NotificationDispatcher {
         }
 
         for (const channel of OUT_OF_APP_CHANNELS) {
+          if (opts.only && !asked.has(channel)) continue;
           const target = byChannel.get(channel);
 
           if (!this.options.outOfAppEnabled || ownerDisabled.has(channel)) {

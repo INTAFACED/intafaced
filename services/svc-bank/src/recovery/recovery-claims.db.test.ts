@@ -84,6 +84,17 @@ function mount(options: { ledger?: LedgerClient; estates?: Record<string, Recove
   return { bank, identity, as: (userId: string, extra: Scopes = {}) => caller(bank, userId, extra) };
 }
 
+// One router and edge per bank: building the router costs tens of milliseconds, and the race test below asks for
+// hundreds of callers, which ran it past its timeout on a loaded runner. Each call still passes the whole
+// router with its own signed principal.
+const edge = createEdgeContext({ secret: SECRET, serviceName: 'svc-bank' });
+const routers = new WeakMap<BankServices, ReturnType<typeof createBankRouter>>();
+function routerFor(bank: BankServices) {
+  let router = routers.get(bank);
+  if (!router) routers.set(bank, (router = createBankRouter(bank, {})));
+  return router;
+}
+
 function caller(bank: BankServices, userId: string, extra: Scopes) {
   const raw = encodePrincipal({
     sub: userId,
@@ -96,8 +107,7 @@ function caller(bank: BankServices, userId: string, extra: Scopes) {
     ...(extra.kid ? { kid: extra.kid } : {}),
     ...(extra.sub_account ? { sub_account: extra.sub_account } : {}),
   } as Principal);
-  const edge = createEdgeContext({ secret: SECRET, serviceName: 'svc-bank' });
-  return createBankRouter(bank, {}).createCaller(
+  return routerFor(bank).createCaller(
     edge({
       headers: {
         'x-intafaced-principal': raw,
@@ -200,6 +210,33 @@ describe('recovery claims', () => {
     );
     const [{ n }] = await sql<[{ n: number }]>`SELECT count(*)::int AS n FROM bank.recovery_claims`;
     expect(n).toBe(1);
+  });
+
+  it('opens racing their own retry all answer the one claim; opens racing under another notice are refused (#8900)', async () => {
+    const OTHER_NOTICE = '76666666-6666-4666-8666-666666666666';
+    const { as } = mount({ estates: { [HEIR]: [ESTATE], [STRANGER]: [{ ...ESTATE, noticeId: OTHER_NOTICE }] } });
+    for (let round = 0; round < 20; round += 1) {
+      await sql`DELETE FROM bank.recovery_claims`; // TRUNCATE costs ~100ms a round under load; no sweep refers to these
+      const same = await Promise.allSettled(Array.from({ length: 6 }, () => as(HEIR).recovery.claims.open({ ownerUserId: OWNER })));
+      const rejected = same.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+      expect(rejected, String(rejected.map((r) => r.reason?.cause ?? r.reason))).toHaveLength(0);
+      for (const r of same) expect((r as PromiseFulfilledResult<{ claimId: string }>).value.claimId).toBe(recoveryClaimId(OWNER, NOTICE));
+      expect(await sql`SELECT id FROM bank.recovery_claims`).toHaveLength(1);
+    }
+
+    for (let round = 0; round < 20; round += 1) {
+      await sql`DELETE FROM bank.recovery_claims`; // TRUNCATE costs ~100ms a round under load; no sweep refers to these
+      const rivals = await Promise.allSettled(
+        Array.from({ length: 6 }, (_, i) => as(i % 2 === 0 ? HEIR : STRANGER).recovery.claims.open({ ownerUserId: OWNER })),
+      );
+      const [row] = await sql<Array<{ heir_user_id: string }>>`SELECT heir_user_id FROM bank.recovery_claims`;
+      for (const [i, r] of rivals.entries()) {
+        const caller = i % 2 === 0 ? HEIR : STRANGER;
+        if (caller === row!.heir_user_id) expect(r.status, String((r as PromiseRejectedResult).reason?.cause)).toBe('fulfilled');
+        else expect(r).toMatchObject({ status: 'rejected', reason: refused('bank.recovery_claim_conflict', 'CONFLICT') });
+      }
+      expect(await sql`SELECT id FROM bank.recovery_claims`).toHaveLength(1);
+    }
   });
 
   it('identity refusing the signatures moves nothing and names identity’s code', async () => {

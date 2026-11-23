@@ -23,6 +23,12 @@
  * refuses for want of funds (the recipient spent the payment in the instant between the send and the hold) is marked
  * `lapsed` only after the in-flight bound has passed since its last attempt and the hold key is still empty: the money is
  * then simply the recipient's, as if no rule applied.
+ *
+ * Two placers can work on one row at once: the send's own `placeFor` and the recovery timer (#8586). A placer posts only
+ * when its attempt finds the row still `placing`. A hold request already on its way when the other placer lapses the row
+ * can still land, within the in-flight bound: the money is then set aside after all, so the row goes back to `held`
+ * (the placer whose request landed does it, and the timer looks again at every row lapsed within twice the bound). No
+ * payment is ever left set aside under a `lapsed` row (services/svc-bank/model/ReceivedHold.tla).
  */
 import type { Sql, TransactionSql } from 'postgres';
 import {
@@ -295,6 +301,21 @@ export class ReceivedHoldService {
         results.push({ outcome: 'failed', reason: err instanceof Error ? err.message : String(err) });
       }
     }
+    // A hold request on its way when the row lapsed lands within the in-flight bound: look again at every row lapsed
+    // within twice that bound, and a hold the ledger booked puts its row back to `held`. Only a row it changes is reported.
+    const lapsed = await this.sql<HoldRow[]>`
+      SELECT ${this.sql.unsafe(HOLD_COLS)} FROM bank.received_holds
+       WHERE state = 'lapsed' AND decided_at > ${new Date(now.getTime() - 2 * POST_IN_FLIGHT_BOUND_SECONDS * 1000)}
+       ORDER BY decided_at LIMIT ${limit}
+    `;
+    for (const row of lapsed) {
+      try {
+        const booked = await this.ledger.getTxByKey(holdKeyOf(row));
+        if (booked && (await this.markHeld(row.transfer_id, booked.id, now))) results.push({ outcome: 'completed' });
+      } catch (err) {
+        results.push({ outcome: 'failed', reason: err instanceof Error ? err.message : String(err) });
+      }
+    }
     return results;
   }
 
@@ -347,7 +368,12 @@ export class ReceivedHoldService {
       assetId: row.asset_id,
       amount: parseAmount(row.amount),
     });
-    await this.sql`UPDATE bank.received_holds SET attempted_at = ${now} WHERE transfer_id = ${row.transfer_id} AND state = 'placing'`;
+    // The attempt is claimed on the row: a row no longer `placing` (the other placer lapsed or placed it) is not posted.
+    const [claimed] = await this.sql<Array<{ transfer_id: string }>>`
+      UPDATE bank.received_holds SET attempted_at = ${now} WHERE transfer_id = ${row.transfer_id} AND state = 'placing'
+      RETURNING transfer_id
+    `;
+    if (!claimed) return;
     let txId: string;
     try {
       txId = (await this.ledger.post(request)).id;
@@ -371,10 +397,20 @@ export class ReceivedHoldService {
       }
       txId = booked.id;
     }
-    await this.sql`
-      UPDATE bank.received_holds SET state = 'held', hold_tx_id = ${txId}, placed_at = ${now}
-       WHERE transfer_id = ${row.transfer_id} AND state = 'placing'
+    await this.markHeld(row.transfer_id, txId, now);
+  }
+
+  /**
+   * The hold is booked: the row is `held`. A row the other placer lapsed while this hold was on its way goes back to
+   * `held` too, because the money is set aside after all; true when the row changed.
+   */
+  private async markHeld(transferId: string, txId: string, now: Date): Promise<boolean> {
+    const changed = await this.sql`
+      UPDATE bank.received_holds
+         SET state = 'held', hold_tx_id = ${txId}, placed_at = ${now}, decided_at = NULL, lapse_reason = NULL
+       WHERE transfer_id = ${transferId} AND state IN ('placing', 'lapsed')
     `;
+    return changed.count > 0;
   }
 
   private async markLapsed(transferId: string, now: Date, why: string): Promise<void> {
@@ -412,6 +448,16 @@ export class ReceivedHoldService {
     `;
     return updated ?? (await this.find(row.transfer_id)) ?? row;
   }
+}
+
+/** The ledger key of a row's hold, as `payReceivedHold` builds it. */
+function holdKeyOf(row: HoldRow): string {
+  return recipes.payReceivedHold({
+    holdId: row.transfer_id,
+    userId: row.recipient_user_id,
+    assetId: row.asset_id,
+    amount: parseAmount(row.amount),
+  }).idempotencyKey;
 }
 
 function toView(row: HoldRow, fromHandle: string | null, note: string | null): ReceivedHoldView {

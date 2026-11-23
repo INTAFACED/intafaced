@@ -200,9 +200,6 @@ export async function searchAccounts(
   };
 }
 
-/** The most account ids one handle lookup takes: a desk asks for the owners on the page it shows, never the whole base. */
-export const HANDLES_CAP = 200;
-
 /**
  * The handle of each account id an operator's desk shows (an owner column, AG-registry-01): id and handle only, no email,
  * status or tier. An id with no account is left out, never answered with an invented handle. Every lookup writes one

@@ -1,422 +1,702 @@
-// World: book
+// World: book, gates, restart, stack
+import { randomBytes } from 'node:crypto';
+import { keccak256, toHex } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { api, fromUnits, fund, journeyState, toUnits } from './stack.mjs';
-import { awayBid, confirm, free, fundedTrader, held, openDesk, openOrders } from './desk.mjs';
+import { api, fromUnits, journeyState, restartWithSetting, toUnits } from './stack.mjs';
+import { reviewSheet, signUp, verify } from './desk.mjs';
+import { testWalletKey } from './test-wallet.mjs';
+import {
+  continueInWallet,
+  openVenueDesk,
+  sameDecimal,
+  testDeposit,
+  testVenue,
+  venueAccount,
+  venueBalance,
+  venueForThisFile,
+  venueInfo,
+  venueRecord,
+} from './venue.mjs';
 
-// J-cex-spot-05, in the running app (docs/roadmap/journeys.json): a person changes and cancels open orders, one by one
-// or all at once, and the hold matches the order after every step. One test per step, titled "J-cex-spot-05 #<n>", run
-// in order on one TEST account funded with TEST USDT through the real ledger. The orders rest far under the TEST market
-// maker's bids, so nothing fills while the journey runs.
+// J-cex-spot-05, in the running app (docs/roadmap/journeys.json; project-state operation-zero/modules/cex-spot/acceptance/
+// journeys.md): a person changes and cancels open venue orders, one by one or all at once, and the venue's lock matches
+// the order after every step. One test per step, titled "J-cex-spot-05 #<n>", on one TEST account: verified, its TEST
+// wallet connected, TEST USDC and TEST BTC in its own venue account, TEST orders resting far under the venue's bids in two
+// markets (BTC-USDC spot and BTC-PERP), on the venue spot desk. Every figure is TEST, and every order, lock and answer is
+// read from the stack's TEST venue itself (packages/venue-sim), never our ledger or engine; the ledger is read only to
+// show it posts nothing. The user-venue door is on for this file only.
 const J = 'J-cex-spot-05';
+const DESK = '/trade/spot/BTC-USDC';
+const SPOT = 'BTC-USDC';
+const PERP = 'BTC-PERP';
+const START_USDC = '3000';
+const START_BTC = '0.01';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
-const FUNDED = '5000';
 
 test.describe.configure({ mode: 'default' });
+venueForThisFile(test);
+// The stack's TEST venue, for this file only, lowers an order in place and cancels several in one signed action, as the
+// venue it stands for does; svc-trade restarted so its door reads the venue afresh. After the file, it does neither again.
+const ORDER_CHANGES = { amendsInPlace: true, cancelsPerAction: 20 };
+test.beforeAll(async () => {
+  test.setTimeout(240_000);
+  expect((await testVenue('/test/switches', ORDER_CHANGES)).body).toMatchObject(ORDER_CHANGES);
+  restartWithSetting('trade', 'LOCAL_STACK_USER_VENUE', 'on');
+});
+test.afterAll(async () => {
+  await testVenue('/test/switches', { amendsInPlace: false, cancelsPerAction: null });
+});
 
-function account() {
-  const who = run.read().account;
-  if (!who) throw new Error(`${J} #1 made no account, so this step has no one to act as`);
-  return who;
+function state() {
+  const s = run.read();
+  if (!s.account || !s.walletKey) throw new Error(`${J}'s TEST setup made no account and wallet, so this step has no one to act as`);
+  return s;
+}
+const ownerOf = (s) => privateKeyToAccount(s.walletKey).address.toLowerCase();
+
+/** The person's open orders and one order by its client id, from the TEST venue's own record. */
+const venueOpen = async (owner) => (await venueRecord(owner, '/open-orders')).value;
+const venueOrder = async (owner, venueClientOrderId) => (await venueRecord(owner, '/order-by-client-id', { venueClientOrderId })).value;
+/** USDC free and locked on the venue account, in units. */
+async function usdc(owner) {
+  const b = await venueBalance(owner, 'USDC');
+  return { free: toUnits(b.free), locked: toUnits(b.locked) };
+}
+/** What the venue locks for every live order of the person, summed, in units. */
+const lockedByOrders = async (owner) => (await venueOpen(owner)).reduce((sum, o) => sum + toUnits(o.locked), 0n);
+
+/** The wallet's signature prompts so far (typed data is the only thing an action is signed as). */
+const signatures = (wallet) => wallet.requests.filter((r) => r.method === 'eth_signTypedData_v4').length;
+
+/** Every door call this page makes, by its path (`prepare`, `submit`, `preview`). */
+function doorCalls(page) {
+  const calls = [];
+  page.on('request', (r) => {
+    const path = new URL(r.url()).pathname;
+    if (r.method() === 'POST' && path.startsWith('/api/v1/venue/'))
+      calls.push({ path: path.slice('/api/v1/venue/'.length), body: r.postDataJSON() });
+  });
+  return { all: calls, of: (name) => calls.filter((c) => c.path === name) };
 }
 
-const openTable = (page) => page.getByTestId('dk-bottom-body').locator('table');
-const rowOf = (page, price) => openTable(page).locator('tbody tr').filter({ hasText: price });
-const editDialog = (page) => page.getByRole('alertdialog');
-/** "64000" as the desk writes a USDT price: "64,000.00". */
-const shown = (price) => Number(price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-/** A quote hold as the desk writes it: six places, "52.108000". */
-const shownHold = (amount) => Number(amount).toLocaleString('en-US', { minimumFractionDigits: 6, maximumFractionDigits: 6 });
+/**
+ * The person signs and sends one action on the TEST venue directly with their own TEST wallet key, as from another app or
+ * device: an order placed this way rests on the venue and is the person's, though this page never placed it.
+ */
+async function ownRun(walletKey, intent) {
+  const key = privateKeyToAccount(walletKey);
+  const owner = key.address.toLowerCase();
+  const account = await venueAccount(owner);
+  const prepared = await testVenue('/prepare', { account, signer: { role: 'owner', address: owner }, intent });
+  expect(prepared.status, JSON.stringify(prepared.body)).toBe(200);
+  const t = prepared.body.typedData;
+  const signature = await key.signTypedData({ domain: t.domain, types: t.types, primaryType: t.primaryType, message: t.message });
+  const sent = await testVenue('/submit', {
+    prepared: prepared.body,
+    signature: { digest: prepared.body.digest, signature, signedBy: owner },
+  });
+  expect(sent.status, JSON.stringify(sent.body)).toBe(200);
+  return sent.body;
+}
 
-async function rest(who, symbol, price, amount, key) {
-  const res = await (
-    await api(who)
-  ).post('/api/v1/orders', {
+/** A TEST resting buy placed from another device; returns its client id on the venue. */
+async function restBuy(walletKey, symbol, price, amount, tag) {
+  const answer = await ownRun(walletKey, {
+    kind: 'place_order',
     symbol,
-    type: 'limit',
     side: 'buy',
+    type: 'limit',
     amount,
     price,
     timeInForce: 'GTC',
-    clientOrderId: `${J}-${key}-${Date.now()}`,
+    reduceOnly: false,
+    clientOrderKey: `order:${J.toLowerCase()}:${tag}:${randomBytes(4).toString('hex')}`,
+    builderFee: null,
   });
-  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBeLessThan(300);
-  return res.body;
+  expect(answer, JSON.stringify(answer).slice(0, 300)).toMatchObject({ accepted: true, order: { status: 'open' } });
+  return answer.order.venueClientOrderId;
 }
 
-async function orderById(who, id, symbol = 'BTC/USDT') {
-  const { status, body } = await (await api(who)).get(`/api/v1/orders/${id}?symbol=${encodeURIComponent(symbol)}`);
-  expect(status).toBe(200);
-  return body;
+/** A TEST price `percent` of the venue's own best bid on `symbol`, on its tick: a buy there rests and never fills. */
+async function awayBid(percent, symbol = SPOT) {
+  const { body } = await testVenue('/markets', {});
+  const market = body.value.find((m) => m.symbol === symbol);
+  expect(market, JSON.stringify(body).slice(0, 300)).toBeTruthy();
+  const { id } = await venueInfo();
+  // The TEST venue's own bid maker (venue-reads.mjs venueBook): the bid is read from the venue, never our engine.
+  const bidder = privateKeyToAccount(keccak256(toHex('intafaced TEST venue maker bid'))).address.toLowerCase();
+  const read = await testVenue('/open-orders', { account: { venueId: id, owner: bidder, subAccount: null } });
+  expect(read.status, JSON.stringify(read.body).slice(0, 300)).toBe(200);
+  const bids = read.body.value.filter((o) => o.symbol === symbol && o.side === 'buy').map((o) => toUnits(o.price));
+  expect(bids.length, `the TEST venue has bids on ${symbol}`).toBeGreaterThan(0);
+  const best = bids.reduce((a, b) => (b > a ? b : a));
+  const tick = toUnits(market.tickSize);
+  return fromUnits(((best * BigInt(percent)) / 100n / tick) * tick);
 }
 
-test(`${J} #1 opens Open orders: each order with its price, amount, filled and hold`, async ({ page }) => {
-  const who = await fundedTrader(page, 'js5', FUNDED);
-  const btc = await awayBid(80);
-  const eth = await awayBid(80, 'ETH/USDT');
-  const orders = {
-    a: await rest(who, 'BTC/USDT', btc, '0.002', 'a'),
-    b: await rest(who, 'BTC/USDT', fromUnits(toUnits(btc) - toUnits('10')), '0.001', 'b'),
-    e: await rest(who, 'ETH/USDT', eth, '0.01', 'e'),
-  };
-  run.reset({ account: who, orders, btc, eth });
-  await openDesk(page, who);
-  await expect(openTable(page).locator('thead th')).toHaveText([
-    'Select',
-    'Time',
-    'Market',
-    'Type',
-    'Side',
-    'Price',
-    'Amount',
-    'Filled',
-    'Held',
-    'Action',
-  ]);
-  // Every open order is a row, each with its own price, amount, filled and the hold its venue lock takes.
-  const seeded = [
-    [orders.a, 'BTC/USDT', btc, '0.002'],
-    [orders.b, 'BTC/USDT', fromUnits(toUnits(btc) - toUnits('10')), '0.001'],
-    [orders.e, 'ETH/USDT', eth, '0.01'],
-  ];
-  await expect(openTable(page).locator('tbody tr')).toHaveCount(seeded.length);
-  let sum = 0n;
-  for (const [order, symbol, price, amount] of seeded) {
-    const hold = (await orderById(who, order.id, symbol)).hold;
-    expect(hold?.asset).toBe('USDT');
-    expect(toUnits(hold.amount)).toBeGreaterThanOrEqual((toUnits(price) * toUnits(amount)) / toUnits('1'));
-    sum += toUnits(hold.amount);
-    const row = openTable(page)
-      .locator('tbody tr')
-      .filter({ hasText: symbol })
-      .filter({ hasText: shown(price) });
-    await expect(row).toHaveCount(1);
-    const cells = row.locator('td');
-    await expect(cells.nth(2)).toHaveText(symbol);
-    await expect(cells.nth(5)).toHaveText(shown(price));
-    await expect(cells.nth(6)).toHaveText(amount);
-    await expect(cells.nth(7)).toHaveText('0');
-    await expect(cells.nth(8)).toHaveText(`${shownHold(hold.amount)} USDT`);
-  }
-  // The holds of the open orders are what the ledger holds.
-  expect(held(await (await api(who)).balances(), 'USDT')).toBe(sum);
-});
+/** Our ledger's view of this account: the venue journeys' ledger posts nothing. */
+const ledgerView = async (who) => (await api(who)).balances();
 
-test(`${J} #2 lowers the amount of an open order: the same order, a smaller hold, the same price and place`, async ({ page }) => {
-  const who = account();
-  const { orders, btc } = run.read();
-  const before = await orderById(who, orders.a.id);
-  await openDesk(page, who);
-  await rowOf(page, shown(btc))
-    .getByRole('button', { name: /Edit buy order/ })
-    .click();
-  await editDialog(page).getByRole('textbox', { name: 'Amount left' }).fill('0.001');
-  await expect(editDialog(page)).toContainText('Lowering the amount keeps your place in the queue.');
-  await editDialog(page).getByRole('button', { name: 'Change amount' }).click();
-  await expect(editDialog(page)).toContainText('Your place in the queue was kept');
-  await editDialog(page).getByRole('button', { name: 'Close' }).click();
-  const after = await orderById(who, orders.a.id);
-  expect(after.id).toBe(before.id);
-  expect(after.price).toBe(before.price);
-  expect(after.remaining).toBe('0.001');
-  expect(toUnits(after.hold.amount)).toBeLessThan(toUnits(before.hold.amount));
-  await expect(rowOf(page, shown(btc))).toContainText(`${shownHold(after.hold.amount)} USDT`);
-});
+const openRows = (page) => page.getByTestId('venue-open-orders').locator('tbody tr');
+const rowOf = (page, cloid) => page.getByTestId('venue-open-orders').locator(`tr[data-client-order-id="${cloid}"]`);
+/** A figure as the desk writes it ("43,200" or "0.002 USDC"), read back as units. */
+const shownUnits = (text) => toUnits(text.replace(/,/g, '').trim().split(/\s+/)[0]);
 
-test(`${J} #3 tries to raise the amount: refused in words, the order and its hold untouched`, async ({ page }) => {
-  const who = account();
-  const { orders, btc } = run.read();
-  const before = await orderById(who, orders.a.id);
-  const heldBefore = held(await (await api(who)).balances(), 'USDT');
-  await openDesk(page, who);
-  await rowOf(page, shown(btc))
-    .getByRole('button', { name: /Edit buy order/ })
-    .click();
-  await editDialog(page).getByRole('textbox', { name: 'Amount left' }).fill('0.005');
-  await expect(editDialog(page)).toContainText(/can’t raise|cannot raise|only lower/i);
-  await expect(editDialog(page)).not.toContainText('trade.');
-  // The service refuses the same on its own: the amend door answers with its outcome, not accepted, and the typed reason.
-  const raised = await (await api(who)).patch(`/api/v1/orders/${orders.a.id}`, { qty: '0.005' });
-  expect(raised.body).toMatchObject({ accepted: false, code: 'NOT_AMENDABLE', reasonCode: 'trade.amend_qty_up' });
-  const after = await orderById(who, orders.a.id);
-  expect([after.remaining, after.price, after.hold.amount]).toEqual([before.remaining, before.price, before.hold.amount]);
-  expect(held(await (await api(who)).balances(), 'USDT')).toBe(heldBefore);
-});
-
-test(`${J} #4 changes the price: reviewed first, then the original is cancelled and the replacement rests under its own id`, async ({
-  page,
-}) => {
-  const who = account();
-  const { orders, btc } = run.read();
-  const next = fromUnits(toUnits(btc) - toUnits('5'));
-  await openDesk(page, who);
-  await rowOf(page, shown(btc))
-    .getByRole('button', { name: /Edit buy order/ })
-    .click();
-  await editDialog(page).getByRole('textbox', { name: 'Price' }).fill(next);
-  await expect(editDialog(page)).toContainText('the old one is cancelled first');
-  await editDialog(page).getByRole('button', { name: 'Review replacement' }).click();
-  await expect(editDialog(page)).toContainText(`${shown(btc)} → ${shown(next)}`);
-  const sent = page.waitForRequest((r) => r.method() === 'POST' && /\/api\/v1\/orders\/[^/]+\/replace$/.test(new URL(r.url()).pathname));
-  await editDialog(page).getByRole('button', { name: 'Replace order' }).click();
-  const request = await sent;
-  await expect(editDialog(page)).toContainText('Replaced.');
-  await editDialog(page).getByRole('button', { name: 'Close' }).click();
-
-  const original = await orderById(who, orders.a.id);
-  expect(original.status).toBe('canceled');
-  const open = await openOrders(who);
-  const replacement = open.find((o) => o.price === next);
-  expect(replacement, 'the replacement rests').toBeTruthy();
-  expect(replacement.id).not.toBe(orders.a.id);
-  expect(replacement.clientOrderId).not.toBe(original.clientOrderId);
-  expect(replacement.hold.asset).toBe('USDT');
-
-  // Sending the same replacement again returns the first, never a second order or hold.
-  const body = request.postDataJSON();
-  const heldNow = held(await (await api(who)).balances(), 'USDT');
-  const again = await (await api(who)).post(`/api/v1/orders/${orders.a.id}/replace`, body);
-  expect(again.status).toBeLessThan(300);
-  expect(again.body.replacementOrderId).toBe(replacement.id);
-  expect(await openOrders(who)).toHaveLength(open.length);
-  expect(held(await (await api(who)).balances(), 'USDT')).toBe(heldNow);
-
-  // A replacement the service refuses before the cancel leaves the original live and says why.
-  const far = fromUnits(toUnits(next) * 3n);
-  const refused = await (
-    await api(who)
-  ).post(`/api/v1/orders/${replacement.id}/replace`, {
-    ...body,
-    price: far,
-    clientOrderId: `${J}-4-far-${Date.now()}`,
-  });
-  expect(JSON.stringify(refused.body)).toContain('trade.price_band');
-  expect((await orderById(who, replacement.id)).status).toBe('open');
-  expect(held(await (await api(who)).balances(), 'USDT')).toBe(heldNow);
-
-  // A replacement that fails after the original was cancelled never claims the old order is safe: a fresh TEST order,
-  // replaced by one whose hold is more than the account has free once the old hold is back. The answer names the
-  // original as cancelled, no replacement, nothing accepted; the old lock was released exactly once and no new one taken.
-  const spare = await rest(who, 'BTC/USDT', fromUnits(toUnits(btc) - toUnits('3')), '0.001', '4c');
-  const spareHold = toUnits((await orderById(who, spare.id)).hold.amount);
-  const heldWithSpare = held(await (await api(who)).balances(), 'USDT');
-  expect(heldWithSpare).toBe(heldNow + spareHold);
-  const freeNow = free(await (await api(who)).balances(), 'USDT');
-  // Just past what is free once the old hold is back (110%), cut to the 0.00001 BTC step.
-  const tooBig = fromUnits((((((freeNow + spareHold) * 11n) / 10n) * toUnits('1')) / toUnits(next) / 10n ** 13n) * 10n ** 13n);
-  const failed = await (
-    await api(who)
-  ).post(`/api/v1/orders/${spare.id}/replace`, {
-    symbol: 'BTC/USDT',
-    type: 'limit',
-    side: 'buy',
-    price: next,
-    amount: tooBig,
-    timeInForce: 'GTC',
-    clientOrderId: `${J}-4-fail-${Date.now()}`,
-  });
-  expect(failed.body, JSON.stringify(failed.body).slice(0, 400)).toMatchObject({
-    accepted: false,
-    code: 'REPLACEMENT_NOT_SUBMITTED',
-    originalOrderId: spare.id,
-    // The outcome names the original as cancelled (its own spelling; the order read below says `canceled`), never open.
-    originalState: expect.stringMatching(/^cancell?ed$/),
-    replacementOrderId: null,
-  });
-  expect((await orderById(who, spare.id)).status).toBe('canceled');
-  expect(held(await (await api(who)).balances(), 'USDT')).toBe(heldNow);
-  expect((await openOrders(who)).map((o) => o.id).sort()).toEqual(open.map((o) => o.id).sort());
-  run.write({ ...run.read(), replacement });
-});
-
-test(`${J} #5 presses Cancel all in this market: asked first, only this market's orders cancel in one request, holds released`, async ({
-  page,
-}) => {
-  const who = account();
-  const { orders } = run.read();
-  const btcOpen = await openOrders(who);
-  expect(btcOpen.length).toBeGreaterThanOrEqual(2);
-  const ethHold = toUnits((await orderById(who, orders.e.id, 'ETH/USDT')).hold.amount);
-  await openDesk(page, who);
-  const deletes = [];
-  page.on('request', (r) => {
-    if (r.method() === 'DELETE' && new URL(r.url()).pathname === '/api/v1/orders') deletes.push(r.url());
-  });
-  await page.getByRole('button', { name: `Cancel all (${btcOpen.length})` }).click();
-  await expect(page.getByRole('alertdialog')).toContainText('Cancel all BTC/USDT orders?');
-  expect(deletes).toHaveLength(0);
-  await page.getByRole('alertdialog').getByRole('button', { name: 'Cancel all orders' }).click();
-  await expect(page.getByRole('alertdialog')).toContainText(`Cancelled ${btcOpen.length} orders.`);
-  expect(deletes).toHaveLength(1);
-  expect(deletes[0]).toContain('symbol=BTC');
-  await page.getByRole('alertdialog').getByRole('button', { name: 'Close' }).click();
-  expect(await openOrders(who)).toHaveLength(0);
-  expect(await openOrders(who, 'ETH/USDT')).toHaveLength(1);
-  // Every BTC hold came back once: what is still held is exactly the ETH order's hold.
-  expect(held(await (await api(who)).balances(), 'USDT')).toBe(ethHold);
-});
-
-test(`${J} #6 cancels a batch by ids, then every spot order: each id answered, an unknown id reported, holds released`, async ({
-  page,
-}) => {
-  const who = account();
-  const { orders, btc } = run.read();
-  const one = await rest(who, 'BTC/USDT', btc, '0.001', '6a');
-  const two = await rest(who, 'BTC/USDT', fromUnits(toUnits(btc) - toUnits('7')), '0.001', '6b');
-  const ethHold = toUnits((await orderById(who, orders.e.id, 'ETH/USDT')).hold.amount);
-
-  // The service on its own: an id that is not the caller's open order is answered as refused, the rest still go.
-  const unknown = await (await api(who)).post('/api/v1/orders/batch-cancel', { ids: [two.id, 'not-an-order'] });
-  expect(unknown.status).toBe(200);
-  expect(unknown.body.results.map((r) => [r.orderId, r.status])).toEqual([
-    [two.id, 'success'],
-    ['not-an-order', 'refused'],
-  ]);
-  expect((await orderById(who, two.id)).status).toBe('canceled');
-
-  // In the desk: tick this market's order, the other market's, and a third that is gone by the time the batch is sent
-  // (cancelled on its own door meanwhile). One batch request; each id answered from the venue, the gone one reported
-  // as not cancelled, the rest cancelled.
-  const three = await rest(who, 'BTC/USDT', fromUnits(toUnits(btc) - toUnits('9')), '0.001', '6e');
-  await openDesk(page, who);
-  const batches = [];
-  page.on('request', (r) => {
-    if (r.method() === 'POST' && new URL(r.url()).pathname === '/api/v1/orders/batch-cancel') batches.push(r.postDataJSON());
-  });
-  await expect(openTable(page).locator('tbody tr')).toHaveCount(3);
-  // The desk re-reads Open orders every 10 s and drops a ticked id that has left it. The third order is cancelled
-  // between the desk's last read and the press, so its reads are held (not answered) from here until the batch is sent:
-  // the desk still shows it, as it would if it had gone in the moments before the person pressed.
-  let release;
-  const gate = new Promise((resolve) => (release = resolve));
-  const OPEN_READ = /\/api\/v1\/orders\/open(\?|$)/;
-  await page.route(OPEN_READ, async (route) => {
-    await gate;
-    await route.continue().catch(() => {});
-  });
-  await rowOf(page, shown(btc)).getByRole('checkbox').check();
-  await rowOf(page, shown(fromUnits(toUnits(btc) - toUnits('9'))))
-    .getByRole('checkbox')
-    .check();
-  await openTable(page).locator('tbody tr').filter({ hasText: 'ETH/USDT' }).getByRole('checkbox').check();
-  const gone = await (await api(who)).delete(`/api/v1/orders/${three.id}?symbol=${encodeURIComponent('BTC/USDT')}`);
-  expect(gone.status, JSON.stringify(gone.body).slice(0, 300)).toBeLessThan(300);
-  await page.getByRole('button', { name: 'Cancel orders…' }).click();
-  const dialog = page.getByRole('alertdialog');
-  await expect(dialog.getByRole('radio', { name: 'The 3 selected' })).toBeChecked();
-  expect(batches).toHaveLength(0);
-  await dialog.getByRole('button', { name: 'Cancel orders' }).click();
-  await expect(dialog).toContainText('2 of 3 cancelled.');
-  await expect(dialog).toContainText('ETH/USDT: Cancelled');
-  await expect(dialog).toContainText('BTC/USDT: Cancelled');
-  await expect(dialog).toContainText('Not cancelled:');
-  expect(batches).toHaveLength(1);
-  expect([...batches[0].ids].sort()).toEqual([one.id, three.id, orders.e.id].sort());
-  release();
-  await page.unroute(OPEN_READ);
-  await dialog.getByRole('button', { name: 'Close' }).click();
-  expect(await openOrders(who)).toHaveLength(0);
-  expect(await openOrders(who, 'ETH/USDT')).toHaveLength(0);
-  expect(held(await (await api(who)).balances(), 'USDT')).toBe(0n);
-  expect(ethHold).toBeGreaterThan(0n);
-
-  // Spot only: two new orders in two spot markets and one resting TEST futures order (another product), one request
-  // with kind=spot, both spot orders cancelled; the futures order still rests with its margin still held.
-  const sixC = await rest(who, 'BTC/USDT', btc, '0.001', '6c');
-  const sixD = await rest(who, 'ETH/USDT', run.read().eth, '0.01', '6d');
-  const spotHolds = toUnits((await orderById(who, sixC.id)).hold.amount) + toUnits((await orderById(who, sixD.id, 'ETH/USDT')).hold.amount);
-  const me = await api(who);
-  const preview = await me.post('/api/v1/positions/preview', { symbol: 'BTC/USDT:USDT', side: 'long', size: '0.001', leverage: '2' });
-  expect(preview.status, JSON.stringify(preview.body).slice(0, 300)).toBe(200);
-  const cent = 10n ** 16n;
-  const futPrice = fromUnits(((toUnits(preview.body.markPrice) * 97n) / 100n / cent) * cent);
-  const fut = await me.post('/api/v1/futures/orders', {
-    symbol: 'BTC/USDT:USDT',
-    side: 'buy',
-    type: 'limit',
-    price: futPrice,
-    amount: '0.001',
-    leverage: '2',
-    marginMode: 'isolated',
-    clientOrderId: `${J}-6f-${Date.now()}`,
-  });
-  expect(fut.status, JSON.stringify(fut.body).slice(0, 300)).toBe(200);
-  expect(fut.body).toMatchObject({ status: 'open', limitPrice: futPrice, filledQty: '0' });
-  const futId = fut.body.orderId;
+/**
+ * TEST setup, not a step (the Starts line), made at the start of #1: a verified account, this run's TEST wallet key, TEST
+ * USDC and TEST BTC in its own venue account by the TEST venue's deposit control (keyed by chain-transfer-shaped
+ * references), and TEST orders resting far under the venue's bids, placed from another device: three on BTC-USDC and one
+ * on BTC-PERP. Made in #1, never in a beforeAll: a worker that restarts after a failed step would run a beforeAll again and
+ * replace the account the later steps act as.
+ */
+async function startsLine(browser) {
+  const page = await browser.newPage();
   try {
-    const futOpen = await me.get(`/api/v1/futures/orders/${futId}`);
-    expect(futOpen.body.status, JSON.stringify(futOpen.body).slice(0, 300)).toBe('open');
-    const heldWithFutures = held(await me.balances(), 'USDT');
-    await page.reload();
-    await expect(rowOf(page, shown(btc))).toHaveCount(1);
-    await expect(openTable(page).locator('tbody tr').filter({ hasText: 'ETH/USDT' })).toHaveCount(1);
-    const deletes = [];
-    page.on('request', (r) => {
-      if (r.method() === 'DELETE' && new URL(r.url()).pathname === '/api/v1/orders') deletes.push(new URL(r.url()).search);
-    });
-    await page.getByRole('button', { name: 'Cancel orders…' }).click();
-    await expect(dialog.getByRole('radio', { name: /Every spot order/ })).toBeChecked();
-    await dialog.getByRole('button', { name: 'Cancel orders' }).click();
-    await expect(dialog).toContainText('Cancelled 2 orders.');
-    expect(deletes).toEqual(['?kind=spot']);
-    await dialog.getByRole('button', { name: 'Close' }).click();
-    expect([...(await openOrders(who)), ...(await openOrders(who, 'ETH/USDT'))]).toHaveLength(0);
-    const futAfter = await me.get(`/api/v1/futures/orders/${futId}`);
-    expect(futAfter.body.status, JSON.stringify(futAfter.body).slice(0, 300)).toBe('open');
-    // Exactly the two spot holds came back; whatever the futures order holds did not move.
-    expect(held(await me.balances(), 'USDT')).toBe(heldWithFutures - spotHolds);
-    expect({ ...futAfter.body, status: undefined }).toMatchObject({ ...futOpen.body, status: undefined });
+    const account = await signUp(page, 'js5v');
+    await verify(page, account);
+    const walletKey = testWalletKey();
+    const owner = privateKeyToAccount(walletKey).address.toLowerCase();
+    expect(await testDeposit(owner, 'USDC', START_USDC, `84532:0x${randomBytes(32).toString('hex')}:0`)).toBe(true);
+    expect(await testDeposit(owner, 'BTC', START_BTC, `84532:0x${randomBytes(32).toString('hex')}:0`)).toBe(true);
+    const leverage = await ownRun(walletKey, { kind: 'update_leverage', symbol: PERP, leverageBps: 10_000, marginMode: 'isolated' });
+    expect(leverage).toMatchObject({ accepted: true });
+    const prices = { a: await awayBid(80), b: await awayBid(70), c: await awayBid(60), p: await awayBid(70, PERP) };
+    const orders = {
+      a: await restBuy(walletKey, SPOT, prices.a, '0.002', 'a'),
+      b: await restBuy(walletKey, SPOT, prices.b, '0.001', 'b'),
+      c: await restBuy(walletKey, SPOT, prices.c, '0.001', 'c'),
+      p: await restBuy(walletKey, PERP, prices.p, '0.001', 'p'),
+    };
+    run.reset({ account, walletKey, orders, prices, ledger: await ledgerView(account) });
   } finally {
-    // The futures order is then cancelled on its own door (clean-up, not this step's claim), whatever happened above.
-    const futCancel = await me.delete(`/api/v1/futures/orders/${futId}`);
-    expect(futCancel.status, JSON.stringify(futCancel.body).slice(0, 300)).toBeLessThan(300);
+    await page.close();
   }
+}
+
+/** The ledger shows the same as at the start: nothing in this journey posts to it. */
+async function ledgerUntouched(s) {
+  expect(await ledgerView(s.account)).toEqual(s.ledger);
+}
+
+test(`${J} #1 opens Open orders: each open venue order with its price, amount, filled and the venue's lock`, async ({ page, browser }) => {
+  test.setTimeout(420_000);
+  await startsLine(browser);
+  const s = state();
+  const owner = ownerOf(s);
+  await openVenueDesk(page, s.account, DESK, s.walletKey);
+  await page.getByRole('tab', { name: 'Open orders' }).click();
+  const heads = page.getByTestId('venue-open-orders').locator('thead th');
+  for (const head of ['Select', 'Market', 'Price', 'Amount', 'Filled', 'Locked'])
+    await expect(heads.filter({ hasText: head })).toHaveCount(1);
+  const open = await venueOpen(owner);
+  expect(open.map((o) => o.venueClientOrderId).sort()).toEqual(Object.values(s.orders).sort());
+  await expect(openRows(page)).toHaveCount(open.length, { timeout: 20_000 });
+  // Two markets: every one of the person's orders on the venue is a row, each with the venue's own figures.
+  expect(new Set(open.map((o) => o.symbol))).toEqual(new Set([SPOT, PERP]));
+  for (const o of open) {
+    const row = rowOf(page, o.venueClientOrderId);
+    await expect(row.locator('td').nth(1)).toHaveText(o.symbol);
+    expect(shownUnits(await row.locator('[data-cell=price]').innerText())).toBe(toUnits(o.price));
+    expect(shownUnits(await row.locator('[data-cell=amount]').innerText())).toBe(toUnits(o.amount));
+    expect(shownUnits(await row.locator('[data-cell=filled]').innerText())).toBe(0n);
+    const locked = await row.locator('[data-cell=locked]').innerText();
+    expect(shownUnits(locked)).toBe(toUnits(o.locked));
+    expect(locked).toContain(o.lockedAsset);
+    // The venue's lock matches the order: a spot buy locks its price times its amount, never nothing.
+    expect(toUnits(o.locked)).toBeGreaterThan(0n);
+    if (o.symbol === SPOT) expect(toUnits(o.locked)).toBe((toUnits(o.price) * toUnits(o.remaining)) / toUnits('1'));
+  }
+  // What the venue account has locked is exactly what its orders lock.
+  expect((await usdc(owner)).locked).toBe(await lockedByOrders(owner));
+  await ledgerUntouched(s);
 });
 
-test(`${J} #7 looks at Positions: not applicable to cash spot, no zero row`, async ({ page }) => {
-  const who = account();
-  await openDesk(page, who);
-  await page.getByRole('tab', { name: 'Positions', exact: true }).click();
-  await expect(page.getByText('Not applicable: cash spot holds balances, not positions')).toBeVisible();
-  await expect(page.getByTestId('dk-bottom-body').locator('table')).toHaveCount(0);
+test(`${J} #2 lowers the amount of an open order: the same order, a smaller venue lock, the same price, its place in the queue kept, where the venue amends in place; otherwise a reviewed cancel-and-replace, signed once`, async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(480_000);
+  const s = state();
+  const owner = ownerOf(s);
+  const wallet = await openVenueDesk(page, s.account, DESK, s.walletKey);
+  const before = await venueOrder(owner, s.orders.a);
+  const queue = (await venueOpen(owner)).map((o) => o.venueClientOrderId);
+  await rowOf(page, s.orders.a)
+    .getByRole('button', { name: `Edit order ${s.orders.a}` })
+    .click();
+  const dialog = page.getByTestId('venue-edit');
+  await dialog.getByRole('textbox', { name: 'Amount left' }).fill('0.001');
+  await expect(dialog).toContainText('Lowering the amount keeps your place in the queue; the venue changes the order in place.');
+  const asked = signatures(wallet);
+  await dialog.getByRole('button', { name: 'Change amount' }).click();
+  await continueInWallet(page);
+  const note = dialog.getByTestId('venue-edit-note');
+  await expect(note).toContainText('Your place in the queue was kept', { timeout: 20_000 });
+  expect(signatures(wallet)).toBe(asked + 1);
+  const after = await venueOrder(owner, s.orders.a);
+  expect(after).toMatchObject({ venueOrderId: before.venueOrderId, status: 'open', symbol: SPOT });
+  expect(sameDecimal(after.price, before.price)).toBe(true);
+  expect(sameDecimal(after.remaining, '0.001')).toBe(true);
+  expect(toUnits(after.locked)).toBeLessThan(toUnits(before.locked));
+  expect(toUnits(after.locked)).toBe((toUnits(after.price) * toUnits(after.remaining)) / toUnits('1'));
+  await expect(note).toContainText(`${fromUnits(toUnits(after.locked)).split('.')[0]}`);
+  // Its place: the venue still lists it where it was, ahead of every order placed after it.
+  expect((await venueOpen(owner)).map((o) => o.venueClientOrderId)).toEqual(queue);
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  // On screen: the same order's row, its smaller lock, its smaller amount, its same price.
+  await expect(rowOf(page, s.orders.a)).toHaveCount(1);
+  const cell = async (on, cloid, name) => shownUnits(await rowOf(on, cloid).locator(`[data-cell=${name}]`).innerText());
+  await expect.poll(() => cell(page, s.orders.a, 'locked'), { timeout: 20_000 }).toBe(toUnits(after.locked));
+  expect(await cell(page, s.orders.a, 'amount')).toBe(toUnits(after.amount));
+  expect(await cell(page, s.orders.a, 'price')).toBe(toUnits(before.price));
+  expect((await usdc(owner)).locked).toBe(await lockedByOrders(owner));
+
+  // Where the venue doesn't amend in place: the same running TEST venue declares no amend, and svc-trade restarted so it
+  // reads the venue afresh. A TEST order from another device is lowered: reviewed first, then one signed
+  // cancel-and-replace at the same price under the replacement's own client id.
+  const d = await restBuy(s.walletKey, SPOT, await awayBid(55), '0.002', 'lower-replace');
+  await testVenue('/test/switches', { amendsInPlace: false });
+  restartWithSetting('trade', 'LOCAL_STACK_USER_VENUE', 'on');
+  let replacementId = null;
+  // A fresh page after the restart: a page's TEST wallet is installed once.
+  const other = await browser.newPage();
+  try {
+    expect((await testVenue('/venue')).body.venue.amendsInPlace).toBeUndefined();
+    const plain = await openVenueDesk(other, s.account, DESK, s.walletKey);
+    const door = doorCalls(other);
+    const dialog = other.getByTestId('venue-edit');
+    const note = dialog.getByTestId('venue-edit-note');
+    const dBefore = await venueOrder(owner, d);
+    await rowOf(other, d)
+      .getByRole('button', { name: `Edit order ${d}` })
+      .click({ timeout: 30_000 });
+    await dialog.getByRole('textbox', { name: 'Amount left' }).fill('0.001');
+    await expect(dialog).toContainText(
+      'This venue doesn’t change an order in place: the order is cancelled and placed again for the new amount, signed once, and it loses its place in the queue. You review it first.',
+    );
+    await expect(dialog.getByRole('button', { name: 'Change amount' })).toHaveCount(0);
+    const askedPlain = signatures(plain);
+    await dialog.getByRole('button', { name: 'Review new amount' }).click();
+    const review = dialog.getByTestId('venue-replace-review');
+    await expect(review).toContainText('One signature covers both.', { timeout: 20_000 });
+    const lockShown = shownUnits((await review.getByTestId('venue-replace-lock').innerText()).replace('The venue locks ', ''));
+    expect(lockShown).toBe((toUnits(dBefore.price) * toUnits('0.001')) / toUnits('1'));
+    // Reviewed first: nothing prepared or signed yet, and the order rests as it was.
+    expect(door.of('prepare')).toHaveLength(0);
+    expect(signatures(plain)).toBe(askedPlain);
+    expect(await venueOrder(owner, d)).toEqual(dBefore);
+    const prepared = other.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/prepare' && r.request().method() === 'POST');
+    await dialog.getByRole('button', { name: 'Cancel and replace' }).click();
+    await continueInWallet(other);
+    await expect(note).toContainText('The venue cancelled the original order and released its lock. The replacement', { timeout: 20_000 });
+    // Signed once: one signature, one prepared action, the cancel-and-replace of this order at its own price.
+    expect(signatures(plain)).toBe(askedPlain + 1);
+    expect(door.of('prepare')).toHaveLength(1);
+    const sent = door.of('prepare')[0].body.intent;
+    expect(sent).toMatchObject({ kind: 'replace_order', symbol: SPOT, venueClientOrderId: d });
+    expect(sameDecimal(sent.order.amount, '0.001')).toBe(true);
+    expect(sameDecimal(sent.order.price, dBefore.price)).toBe(true);
+    replacementId = (await (await prepared).json()).prepared.venueClientOrderId;
+    expect(replacementId).toBeTruthy();
+    expect(replacementId).not.toBe(d);
+    const original = await venueOrder(owner, d);
+    expect(original).toMatchObject({ status: 'canceled' });
+    expect(toUnits(original.locked)).toBe(0n);
+    const replacement = await venueOrder(owner, replacementId);
+    expect(replacement).toMatchObject({ status: 'open', symbol: SPOT, side: 'buy' });
+    expect(sameDecimal(replacement.price, dBefore.price)).toBe(true);
+    expect(sameDecimal(replacement.remaining, '0.001')).toBe(true);
+    expect(toUnits(replacement.locked)).toBe(lockShown);
+    expect(toUnits(replacement.locked)).toBeLessThan(toUnits(dBefore.locked));
+    await dialog.getByRole('button', { name: 'Close' }).click();
+    await expect.poll(() => cell(other, replacementId, 'locked'), { timeout: 20_000 }).toBe(lockShown);
+    expect(await cell(other, replacementId, 'price')).toBe(toUnits(dBefore.price));
+    expect(await cell(other, replacementId, 'amount')).toBe(toUnits('0.001'));
+    expect((await usdc(owner)).locked).toBe(await lockedByOrders(owner));
+  } finally {
+    await other.close();
+    // Whatever of this branch still rests goes, from the same other device, so the later steps meet only their own
+    // orders; the venue amends in place again.
+    const left = (await venueOpen(owner)).filter((o) => o.venueClientOrderId === d || o.venueClientOrderId === replacementId);
+    if (left.length)
+      expect(
+        (
+          await ownRun(s.walletKey, {
+            kind: 'cancel_orders',
+            orders: left.map((o) => ({ symbol: SPOT, venueClientOrderId: o.venueClientOrderId })),
+          })
+        ).legs.every((l) => l.accepted),
+      ).toBe(true);
+    await testVenue('/test/switches', { amendsInPlace: true });
+    restartWithSetting('trade', 'LOCAL_STACK_USER_VENUE', 'on');
+  }
+  expect((await testVenue('/venue')).body.venue.amendsInPlace).toBe(true);
+  await ledgerUntouched(s);
 });
 
-test(`${J} #8 presses Flatten on a held coin: one reviewed market sell of all of it, the same order on every retry`, async ({ page }) => {
-  const who = account();
-  expect(fund(who.email, 'BTC', '0.003', `${J}-8-${Date.now()}`).tx).toBeTruthy();
-  const before = await (await api(who)).balances();
-  const btcFree = before.BTC.free;
-  expect(toUnits(btcFree)).toBeGreaterThan(0n);
-  await openDesk(page, who);
-  const posts = [];
-  page.on('request', (r) => {
-    if (r.method() === 'POST' && new URL(r.url()).pathname === '/api/v1/orders') posts.push(r.postDataJSON());
-  });
-  await page.getByRole('tab', { name: 'Assets' }).click();
-  const flatten = page.getByRole('button', { name: /^Flatten BTC: sell all/ });
-  await flatten.click();
-  const dialog = page.getByRole('alertdialog');
-  await expect(dialog).toContainText('Review your sell');
-  await expect(dialog).toContainText('Price protection');
-  const reference = await dialog.getByText('Client order ID').locator('..').getByTestId('client-order-id').innerText();
-  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await flatten.click();
-  await expect(dialog).toContainText('Review your sell');
-  expect(await dialog.getByText('Client order ID').locator('..').getByTestId('client-order-id').innerText()).toBe(reference);
-  expect(posts).toHaveLength(0);
-  // The TEST market can move the protection price between review and confirm; the desk then asks again, before sending.
-  await confirm(page, 'sell');
-  await expect(page.locator('form[data-testid="dk-form"][data-side="sell"]')).toContainText(/Your sell order (filled|is in)/, {
+test(`${J} #3 tries to raise the amount: refused with a typed reason in words before the wallet is asked; the order and its venue lock untouched`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  const s = state();
+  const owner = ownerOf(s);
+  const wallet = await openVenueDesk(page, s.account, DESK, s.walletKey);
+  const before = await venueOrder(owner, s.orders.a);
+  const balanceBefore = await usdc(owner);
+  await rowOf(page, s.orders.a)
+    .getByRole('button', { name: `Edit order ${s.orders.a}` })
+    .click();
+  const dialog = page.getByTestId('venue-edit');
+  await dialog.getByRole('textbox', { name: 'Amount left' }).fill('0.005');
+  const asked = signatures(wallet);
+  await dialog.getByRole('button', { name: 'Change amount' }).click();
+  const note = dialog.getByTestId('venue-edit-note');
+  await expect(note).toHaveAttribute('data-code', 'trade.venue_order_amount_raise', { timeout: 20_000 });
+  await expect(note).toContainText("raising an order's amount is refused");
+  await expect(note).toContainText('This order and its lock are untouched');
+  expect(signatures(wallet)).toBe(asked);
+  expect(await venueOrder(owner, s.orders.a)).toEqual(before);
+  expect(await usdc(owner)).toEqual(balanceBefore);
+  await ledgerUntouched(s);
+});
+
+test(`${J} #4 changes the price: reviewed first, then the original is cancelled on the venue and the replacement rests under its own client id; a failed replacement never calls the old order safe; submitting twice returns the first`, async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  const s = state();
+  const owner = ownerOf(s);
+  const wallet = await openVenueDesk(page, s.account, DESK, s.walletKey);
+  const door = doorCalls(page);
+  const dialog = page.getByTestId('venue-edit');
+
+  // A replacement the venue refuses after cancelling the original: a TEST order from another device first takes almost
+  // all the free USDC, so the dearer replacement can't be locked.
+  const higher = await awayBid(90);
+  const free = (await usdc(owner)).free;
+  const fillerPrice = await awayBid(50);
+  const lot = toUnits('0.0001');
+  const fillerAmount = fromUnits((((free - toUnits('2')) * toUnits('1')) / toUnits(fillerPrice) / lot) * lot);
+  const filler = await restBuy(s.walletKey, SPOT, fillerPrice, fillerAmount, 'filler');
+  await rowOf(page, s.orders.c)
+    .getByRole('button', { name: `Edit order ${s.orders.c}` })
+    .click();
+  await dialog.getByRole('textbox', { name: 'Price' }).fill(higher);
+  await expect(dialog).toContainText('A new price cancels this order on the venue and places a new one under its own client id.');
+  await dialog.getByRole('button', { name: 'Review new price' }).click();
+  await expect(dialog.getByTestId('venue-replace-review')).toContainText('One signature covers both.', { timeout: 20_000 });
+  await dialog.getByRole('button', { name: 'Cancel and replace' }).click();
+  await continueInWallet(page);
+  const note = dialog.getByTestId('venue-edit-note');
+  await expect(note).toContainText('The venue cancelled the original order and released its lock, then refused the replacement', {
     timeout: 20_000,
   });
-  expect(posts).toHaveLength(1);
-  expect(posts[0]).toMatchObject({ symbol: 'BTC/USDT', side: 'sell', type: 'market', amount: btcFree });
-  expect(posts[0].clientOrderId.endsWith(`:${reference}`)).toBe(true);
-  // Sending the very same order again returns the first, never a second sell.
-  const again = await (await api(who)).post('/api/v1/orders', posts[0]);
-  expect(again.status).toBeLessThan(300);
-  await expect.poll(async () => free(await (await api(who)).balances(), 'BTC')).toBe(0n);
-  const sells = (await (await api(who)).get('/api/v1/orders/closed?symbol=BTC%2FUSDT&limit=50')).body.filter(
-    (o) => o.side === 'sell' && o.clientOrderId === again.body.clientOrderId,
+  await expect(note).toContainText('Nothing of yours rests at the new price.');
+  // It never says a replacement rests, nor that the original still does.
+  await expect(note).not.toContainText(/The replacement \S+ rests at/);
+  await expect(note).not.toContainText(/original order (still )?rests/);
+  expect(await venueOrder(owner, s.orders.c)).toMatchObject({ status: 'canceled' });
+  expect(toUnits((await venueOrder(owner, s.orders.c)).locked)).toBe(0n);
+  const failedKey = (await dialog.getByTestId('venue-replace-id').innerText()).split(': ').at(-1).trim();
+  const failedId = door.of('prepare').at(-1).body.intent.order.clientOrderKey;
+  expect(failedId).toBe(failedKey);
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  // The filler goes, from the same other device.
+  expect(
+    (await ownRun(s.walletKey, { kind: 'cancel_orders', orders: [{ symbol: SPOT, venueClientOrderId: filler }] })).legs[0],
+  ).toMatchObject({
+    accepted: true,
+  });
+  // The refused replacement rests nowhere: no open order carries its key.
+  expect((await venueOpen(owner)).filter((o) => o.side === 'buy' && sameDecimal(o.price, higher))).toEqual([]);
+
+  // The change that goes through: order b at a new price, reviewed, then cancelled and replaced in one signed action.
+  const before = await venueOrder(owner, s.orders.b);
+  const newPrice = await awayBid(65);
+  await rowOf(page, s.orders.b)
+    .getByRole('button', { name: `Edit order ${s.orders.b}` })
+    .click();
+  await dialog.getByRole('textbox', { name: 'Price' }).fill(newPrice);
+  await dialog.getByRole('button', { name: 'Review new price' }).click();
+  const review = dialog.getByTestId('venue-replace-review');
+  await expect(review).toBeVisible({ timeout: 20_000 });
+  const lockShown = shownUnits((await review.getByTestId('venue-replace-lock').innerText()).replace('The venue locks ', ''));
+  expect(lockShown).toBe((toUnits(newPrice) * toUnits(before.remaining)) / toUnits('1'));
+  const asked = signatures(wallet);
+  const prepared = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/prepare' && r.request().method() === 'POST');
+  const submitted = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/submit' && r.request().method() === 'POST');
+  await dialog.getByRole('button', { name: 'Cancel and replace' }).click();
+  await continueInWallet(page);
+  await expect(note).toContainText('The venue cancelled the original order and released its lock. The replacement', { timeout: 20_000 });
+  const firstAnswer = await (await submitted).json();
+  expect(signatures(wallet)).toBe(asked + 1);
+  const replacementId = (await (await prepared).json()).prepared.venueClientOrderId;
+  expect(replacementId).toBeTruthy();
+  expect(replacementId).not.toBe(s.orders.b);
+  await expect(note).toContainText(`The replacement ${replacementId} rests at`);
+  const original = await venueOrder(owner, s.orders.b);
+  expect(original).toMatchObject({ status: 'canceled' });
+  expect(toUnits(original.locked)).toBe(0n);
+  const replacement = await venueOrder(owner, replacementId);
+  expect(replacement).toMatchObject({ status: 'open', symbol: SPOT, side: 'buy' });
+  expect(sameDecimal(replacement.price, newPrice)).toBe(true);
+  expect(sameDecimal(replacement.remaining, before.remaining)).toBe(true);
+  expect(toUnits(replacement.locked)).toBe(lockShown);
+  // Submitting twice returns the first. The same signed action sent to the door again, as a lost answer's retry sends it:
+  // the door answers with the first answer, word for word, and nothing new happens on the venue.
+  expect(firstAnswer.outcome).toMatchObject({
+    accepted: true,
+    legs: [
+      { accepted: true, order: { venueClientOrderId: s.orders.b, status: 'canceled' } },
+      { accepted: true, order: { venueClientOrderId: replacementId, status: 'open' } },
+    ],
+  });
+  const firstSubmit = door.of('submit').at(-1).body;
+  expect(firstSubmit.actionKey).toBe(door.of('prepare').at(-1).body.actionKey);
+  const again = await (await api(s.account)).post('/api/v1/venue/submit', firstSubmit);
+  expect(again.status, JSON.stringify(again.body).slice(0, 300)).toBe(200);
+  expect(again.body.actionKey).toBe(firstAnswer.actionKey);
+  expect(again.body.outcome).toEqual(firstAnswer.outcome);
+  expect(signatures(wallet)).toBe(asked + 1);
+  expect((await venueOpen(owner)).filter((o) => o.venueClientOrderId === replacementId)).toHaveLength(1);
+  expect(await venueOrder(owner, replacementId)).toEqual(replacement);
+  expect(await venueOrder(owner, s.orders.b)).toEqual(original);
+  // And pressed twice on the page: the same answer shown, no second signature asked.
+  await dialog.getByRole('button', { name: 'Cancel and replace' }).click();
+  await expect(note).toContainText(`The replacement ${replacementId} rests at`);
+  expect(signatures(wallet)).toBe(asked + 1);
+  expect((await venueOpen(owner)).filter((o) => o.venueClientOrderId === replacementId)).toHaveLength(1);
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  // Every lock the venue holds is an order's: the original's was released once.
+  expect((await usdc(owner)).locked).toBe(await lockedByOrders(owner));
+  run.write({ ...run.read(), replacement: replacementId });
+  await ledgerUntouched(s);
+});
+
+test(`${J} #5 presses Cancel all in this market: asked first; only this market's orders cancel, in one request; every venue lock released`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  const s = state();
+  const owner = ownerOf(s);
+  const wallet = await openVenueDesk(page, s.account, DESK, s.walletKey);
+  const door = doorCalls(page);
+  const open = await venueOpen(owner);
+  const here = open.filter((o) => o.symbol === SPOT).map((o) => o.venueClientOrderId);
+  const elsewhere = open.filter((o) => o.symbol !== SPOT);
+  expect(here.sort()).toEqual([s.orders.a, s.replacement].sort());
+  expect(elsewhere.map((o) => o.venueClientOrderId)).toEqual([s.orders.p]);
+  await expect(openRows(page)).toHaveCount(open.length, { timeout: 20_000 });
+  await page.getByRole('button', { name: `Cancel all in ${SPOT} (2)` }).click();
+  const ask = page.getByTestId('venue-cancel-ask');
+  await expect(ask).toContainText(`Cancel every open order in ${SPOT}?`);
+  await expect(ask).toContainText('Orders in other markets stay.');
+  // Asked first: nothing is sent before the person confirms.
+  expect(door.of('prepare')).toHaveLength(0);
+  const asked = signatures(wallet);
+  await ask.getByRole('button', { name: 'Cancel 2 orders' }).click();
+  await continueInWallet(page);
+  const lines = ask.getByTestId('venue-cancel-lines');
+  await expect(lines.locator('li[data-ok=yes]')).toHaveCount(2, { timeout: 20_000 });
+  // One request, signed once, naming exactly this market's orders.
+  expect(signatures(wallet)).toBe(asked + 1);
+  expect(door.of('prepare')).toHaveLength(1);
+  expect(door.of('submit')).toHaveLength(1);
+  const sent = door.of('prepare')[0].body.intent;
+  expect(sent.kind).toBe('cancel_orders');
+  expect(sent.orders.map((o) => o.venueClientOrderId).sort()).toEqual(here.sort());
+  for (const id of here) {
+    await expect(lines.locator(`li[data-client-order-id="${id}"]`)).toContainText('cancelled on the venue; its lock is released');
+    const o = await venueOrder(owner, id);
+    expect(o.status).toBe('canceled');
+    expect(toUnits(o.locked)).toBe(0n);
+  }
+  // The other market's order and its lock are untouched.
+  const perp = await venueOrder(owner, s.orders.p);
+  expect(perp).toEqual(elsewhere[0]);
+  expect((await usdc(owner)).locked).toBe(toUnits(perp.locked));
+  await ledgerUntouched(s);
+});
+
+test(`${J} #6 cancels a batch by ids, then the selected, then spot only, then all markets: each id answered from the venue, an unknown id reported, "Spot only" leaves other products alone`, async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  const s = state();
+  const owner = ownerOf(s);
+  const x1 = await restBuy(s.walletKey, SPOT, await awayBid(75), '0.001', 'x1');
+  const x2 = await restBuy(s.walletKey, SPOT, await awayBid(74), '0.001', 'x2');
+  const x3 = await restBuy(s.walletKey, SPOT, await awayBid(73), '0.001', 'x3');
+
+  // By ids, as a pro trader's own script sends it through the door: one signed action, each id answered by the venue.
+  const unknown = `0x${randomBytes(16).toString('hex')}`;
+  const door = await api(s.account);
+  const key = privateKeyToAccount(s.walletKey);
+  const prep = await door.post('/api/v1/venue/prepare', {
+    owner,
+    signer: { role: 'owner', address: owner },
+    intent: {
+      kind: 'cancel_orders',
+      orders: [
+        { symbol: SPOT, venueClientOrderId: x1 },
+        { symbol: SPOT, venueClientOrderId: unknown },
+      ],
+    },
+    actionKey: `cancel-batch:${owner}:js5-${randomBytes(4).toString('hex')}`,
+  });
+  expect(prep.status, JSON.stringify(prep.body).slice(0, 300)).toBe(200);
+  const t = prep.body.prepared.typedData;
+  const signature = await key.signTypedData({ domain: t.domain, types: t.types, primaryType: t.primaryType, message: t.message });
+  const sent = await door.post('/api/v1/venue/submit', {
+    actionKey: prep.body.actionKey,
+    signature: { digest: prep.body.prepared.digest, signature, signedBy: owner },
+  });
+  expect(sent.status, JSON.stringify(sent.body).slice(0, 300)).toBe(200);
+  expect(sent.body.outcome).toMatchObject({
+    accepted: true,
+    legs: [
+      { accepted: true, order: { venueClientOrderId: x1, status: 'canceled' } },
+      { accepted: false, refusal: { code: 'unknown_order' } },
+    ],
+  });
+  expect(sent.body.outcome.legs[1].refusal.detail).toContain(unknown);
+  expect(await venueOrder(owner, x1)).toMatchObject({ status: 'canceled', locked: '0' });
+
+  // The ones selected on the desk.
+  const wallet = await openVenueDesk(page, s.account, DESK, s.walletKey);
+  await expect(rowOf(page, x2)).toBeVisible({ timeout: 20_000 });
+  await page.getByRole('checkbox', { name: `Select order ${x2}` }).check();
+  await page.getByRole('button', { name: 'Cancel selected (1)' }).click();
+  const ask = page.getByTestId('venue-cancel-ask');
+  await expect(ask).toContainText('Cancel the orders you selected?');
+  let asked = signatures(wallet);
+  await ask.getByRole('button', { name: 'Cancel 1 orders' }).click();
+  await continueInWallet(page);
+  await expect(ask.locator(`li[data-client-order-id="${x2}"]`)).toContainText(`${SPOT} ${x2}: cancelled on the venue`, { timeout: 20_000 });
+  expect(signatures(wallet)).toBe(asked + 1);
+  expect((await venueOrder(owner, x2)).status).toBe('canceled');
+  expect((await venueOrder(owner, x3)).status).toBe('open');
+  await ask.getByRole('button', { name: 'Close' }).click();
+
+  // Spot only: every spot order, and the perpetual left alone.
+  const perpBefore = await venueOrder(owner, s.orders.p);
+  await page.getByRole('button', { name: 'Cancel all: spot only' }).click();
+  await expect(ask).toContainText('Cancel every open spot order?');
+  await expect(ask).toContainText('1 open spot orders are cancelled in one request you sign once. Other products’ orders stay.');
+  asked = signatures(wallet);
+  await ask.getByRole('button', { name: 'Cancel 1 orders' }).click();
+  await continueInWallet(page);
+  await expect(ask.locator(`li[data-client-order-id="${x3}"]`)).toContainText('cancelled on the venue', { timeout: 20_000 });
+  expect(signatures(wallet)).toBe(asked + 1);
+  expect((await venueOrder(owner, x3)).status).toBe('canceled');
+  expect(await venueOrder(owner, s.orders.p)).toEqual(perpBefore);
+  await ask.getByRole('button', { name: 'Close' }).click();
+
+  // All markets: the perpetual too.
+  // The desk has read the venue again: no row shows that order open (one this page didn't place leaves the table).
+  await expect(rowOf(page, x3).filter({ has: page.locator('[data-cell=status]', { hasText: /^Open$/ }) })).toHaveCount(0, {
+    timeout: 20_000,
+  });
+  await page.getByRole('button', { name: 'Cancel all markets' }).click();
+  await expect(ask).toContainText('Cancel every open order in every market?');
+  await ask.getByRole('button', { name: 'Cancel 1 orders' }).click();
+  await continueInWallet(page);
+  await expect(ask.locator(`li[data-client-order-id="${s.orders.p}"]`)).toContainText(`${PERP} ${s.orders.p}: cancelled on the venue`, {
+    timeout: 20_000,
+  });
+  // Every venue order of this journey ended exactly once: none is open, none locks anything, and the account's USDC is
+  // all free again, exactly what was deposited (nothing filled, nothing released twice).
+  expect(await venueOpen(owner)).toEqual([]);
+  for (const id of [...Object.values(s.orders), s.replacement, x1, x2, x3]) expect(toUnits((await venueOrder(owner, id)).locked)).toBe(0n);
+  expect(await usdc(owner)).toEqual({ free: toUnits(START_USDC), locked: 0n });
+  await ledgerUntouched(s);
+});
+
+test(`${J} #7 looks at the Positions tab: not applicable to cash spot, and no zero row`, async ({ page }) => {
+  test.setTimeout(240_000);
+  const s = state();
+  await openVenueDesk(page, s.account, DESK, s.walletKey);
+  await page.getByTestId('venue-bottom').getByRole('tab', { name: 'Positions' }).click();
+  // The Positions panel by name: while the tabs animate, the outgoing Open orders panel stays mounted (inert) for a
+  // moment, so an unnamed tabpanel locator can match both (#8591).
+  const panel = page.getByTestId('venue-bottom').getByRole('tabpanel', { name: 'Positions' });
+  await expect(panel.getByTestId('venue-positions-na')).toHaveText('Not applicable: cash spot holds balances, not positions');
+  await expect(panel.locator('table, tr')).toHaveCount(0);
+  await expect(panel).not.toContainText(/\b0(\.0+)?\s*BTC\b/);
+});
+
+test(`${J} #8 presses Flatten on a held coin: one reviewed market sell of all of it on the venue, signed once, under a retry-safe client id that is the same on every retry`, async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  const s = state();
+  const owner = ownerOf(s);
+  const wallet = await openVenueDesk(page, s.account, DESK, s.walletKey);
+  const door = doorCalls(page);
+  const btcBefore = await venueBalance(owner, 'BTC');
+  expect(sameDecimal(btcBefore.free, START_BTC)).toBe(true);
+  const account = page.getByTestId('venue-account');
+  const flatten = account.getByRole('button', { name: 'Flatten BTC' });
+  await expect(flatten).toBeVisible({ timeout: 20_000 });
+
+  // The review comes first; leaving it and pressing Flatten again keeps the same client id for the same sell.
+  await flatten.click();
+  const sheet = reviewSheet(page);
+  await expect(sheet).toBeVisible({ timeout: 20_000 });
+  await expect(sheet).toContainText(START_BTC);
+  const id = (await sheet.getByTestId('client-order-id').innerText()).trim();
+  await sheet.getByRole('button', { name: 'Cancel' }).click();
+  await expect(sheet).toHaveCount(0);
+  await flatten.click();
+  await expect(sheet).toBeVisible({ timeout: 20_000 });
+  await expect(sheet.getByTestId('client-order-id')).toHaveText(id);
+  expect(door.of('prepare')).toHaveLength(0);
+
+  // A spot sell carries our builder fee: until the wallet has approved it, the review asks for that approval first.
+  const approve = sheet.getByRole('button', { name: 'Approve our builder fee in your wallet' });
+  if ((await approve.count()) > 0) {
+    const before = wallet.requests.length;
+    await approve.click();
+    await continueInWallet(page);
+    await expect.poll(() => wallet.requests.length, { timeout: 20_000 }).toBe(before + 1);
+  }
+  await expect(sheet.getByRole('button', { name: 'Confirm sell' })).toBeEnabled({ timeout: 20_000 });
+
+  // The answer is lost on its way back: the sell reaches the venue once, and the desk reads it back by the same id.
+  await page.route('**/api/v1/venue/submit', async (route) => {
+    await route.fetch();
+    await route.abort('connectionreset');
+  });
+  const asked = signatures(wallet);
+  const submitsBefore = door.of('submit').length;
+  const prepared = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/prepare' && r.request().method() === 'POST');
+  await sheet.getByRole('button', { name: 'Confirm sell' }).click();
+  await continueInWallet(page);
+  const prep = await (await prepared).json();
+  const sell = prep.prepared.intent;
+  expect(sell).toMatchObject({ kind: 'place_order', symbol: SPOT, side: 'sell', type: 'market' });
+  expect(sameDecimal(sell.amount, START_BTC)).toBe(true);
+  const cloid = prep.prepared.venueClientOrderId;
+  await expect(page.getByTestId('venue-pending-found')).toContainText(`your order ${cloid} is Filled. Nothing was sent again.`, {
+    timeout: 30_000,
+  });
+  await page.unrouteAll({ behavior: 'wait' });
+  expect(signatures(wallet)).toBe(asked + 1);
+  // The sell was sent once (an approval of our builder fee, when the wallet needed one, is its own action before it).
+  expect(door.of('submit')).toHaveLength(submitsBefore + 1);
+  expect(door.of('submit').at(-1).body.actionKey).toBe(sell.clientOrderKey);
+  // The client id the review showed is the one the venue holds; one sell of all of it, filled once.
+  expect(sell.clientOrderKey).toBe(id);
+  const placed = await venueOrder(owner, cloid);
+  expect(placed).toMatchObject({ side: 'sell', type: 'market', status: 'filled', symbol: SPOT });
+  expect(sameDecimal(placed.filled, START_BTC)).toBe(true);
+  expect(toUnits((await venueBalance(owner, 'BTC')).free)).toBe(0n);
+  const fills = (await venueRecord(owner, '/fills', { since: new Date(0).toISOString() })).value.filter(
+    (f) => f.venueClientOrderId === cloid,
   );
-  expect(sells).toHaveLength(1);
+  expect(fills.reduce((sum, f) => sum + toUnits(f.amount), 0n)).toBe(toUnits(START_BTC));
+  // Nothing left to flatten: the control goes, and no second sell can be made of the same coin.
+  await expect(flatten).toHaveCount(0, { timeout: 20_000 });
+  await ledgerUntouched(s);
 });

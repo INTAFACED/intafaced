@@ -179,3 +179,15 @@ export function placements(page) {
   });
   return sent;
 }
+
+/**
+ * The step's picture from the top of the page with nothing focused, so the bar that stays at the top covers nothing of the
+ * step's answer (a whole-page picture of a scrolled page draws that bar over the middle) and the skip link stays hidden.
+ */
+export async function pictureFromTop(page, stepPicture) {
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    window.scrollTo(0, 0);
+  });
+  await stepPicture(page);
+}

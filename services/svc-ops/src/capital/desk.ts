@@ -1,5 +1,22 @@
 import { createHash } from 'node:crypto';
 import { add, compare, formatAmount, mul, parseAmount, sub, type Amount } from '@intafaced/ledger-client';
+import type {
+  BankPartnerReserves,
+  LedgerOwnFunds,
+  LedgerOwnFundsPlace,
+  OpsCapitalBuffer,
+  OpsCapitalPlaceOutside,
+  OpsCapitalPlaces,
+  OpsCapitalOwnFunds,
+  OpsCapitalScenario,
+  OpsCapitalScenarioInput,
+  OpsCapitalSnapshot,
+  OpsCapitalThreshold,
+  OpsCapitalThresholdSetInput,
+  OpsCapitalThresholdSetOutput,
+  OpsCapitalVenues,
+} from '@intafaced/contracts';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 import {
   OPS_CAPITAL_ASSET,
   OPS_CAPITAL_CONTACT_MAX,
@@ -17,21 +34,7 @@ import {
   opsCapitalBreachKey,
   opsCapitalThresholdFields,
   opsCapitalThresholdTargetId,
-  type BankPartnerReserves,
-  type LedgerOwnFunds,
-  type LedgerOwnFundsPlace,
-  type OpsCapitalBuffer,
-  type OpsCapitalPlaceOutside,
-  type OpsCapitalPlaces,
-  type OpsCapitalOwnFunds,
-  type OpsCapitalScenario,
-  type OpsCapitalScenarioInput,
-  type OpsCapitalSnapshot,
-  type OpsCapitalThreshold,
-  type OpsCapitalThresholdSetInput,
-  type OpsCapitalThresholdSetOutput,
-  type OpsCapitalVenues,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/ops-capital';
 import { OpsError } from '../codes.js';
 import { assertIdempotencyKey, consumeFounderApproval, type ApprovalConsumer } from '../operator-desks.js';
 import type { CapitalSources, SourceRead } from './sources.js';
@@ -67,7 +70,7 @@ export function composeOwnFunds(read: SourceRead<LedgerOwnFunds>): OpsCapitalOwn
     asOf: read.value.asOf,
     assets: [...sums.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([assetId, s]) => ({ assetId, amount: formatAmount(s.amount), accounts: s.accounts })),
+      .map(([assetId, s]) => ({ assetId: asAssetId(assetId), amount: formatAmount(s.amount), accounts: s.accounts })),
     accounts: read.value.accounts,
   };
 }
@@ -149,7 +152,7 @@ function thresholdView(stored: StoredThreshold | undefined): OpsCapitalThreshold
  * `ok`. With the ledger unread, a set threshold is `unknown`: neither ok nor a breach, and no alert is opened.
  */
 export function composeBuffers(ownFunds: OpsCapitalOwnFunds, thresholds: ReadonlyMap<string, StoredThreshold>): OpsCapitalBuffer[] {
-  const held = new Map(ownFunds.status === 'read' ? ownFunds.assets.map((a) => [a.assetId, a.amount]) : []);
+  const held = new Map<string, string>(ownFunds.status === 'read' ? ownFunds.assets.map((a) => [a.assetId, a.amount]) : []);
   const assets = [...new Set([...held.keys(), ...[...thresholds.values()].filter((t) => t.minimum !== null).map((t) => t.assetId)])].sort();
   return assets.map((assetId) => {
     const threshold = thresholdView(thresholds.get(assetId));
@@ -163,7 +166,7 @@ export function composeBuffers(ownFunds: OpsCapitalOwnFunds, thresholds: Readonl
           : compare(parseAmount(buffer), parseAmount(threshold.minimum)) < 0
             ? 'below_minimum'
             : 'ok';
-    return { assetId, buffer, threshold, state };
+    return { assetId: asAssetId(assetId), buffer, threshold, state };
   });
 }
 
@@ -243,7 +246,13 @@ export class CapitalDesk {
     const fingerprint = capitalFingerprint({ ...fields, approvalId: input.approvalId.trim(), operationId: input.operationId.trim() });
     const prior = await store.find(key, fingerprint);
     if (prior)
-      return { assetId: prior.assetId, minimum: prior.minimum ?? '', contact: prior.contact, version: prior.version, outcome: 'replayed' };
+      return {
+        assetId: asAssetId(prior.assetId),
+        minimum: prior.minimum ?? '',
+        contact: prior.contact,
+        version: prior.version,
+        outcome: 'replayed',
+      };
     const consumed = await consumeFounderApproval(this.deps.approvals, {
       approvalId: input.approvalId,
       operationId: input.operationId,
@@ -269,7 +278,7 @@ export class CapitalDesk {
       setAt: this.deps.now().toISOString(),
     });
     return {
-      assetId: stored.assetId,
+      assetId: asAssetId(stored.assetId),
       minimum: stored.minimum ?? '',
       contact: stored.contact,
       version: stored.version,
@@ -297,7 +306,7 @@ export class CapitalDesk {
       asOf: funds.asOf,
       kind: 'counterparty_default',
       counterparty: s.counterparty,
-      assetId: s.assetId,
+      assetId: asAssetId(s.assetId),
       exposure: formatAmount(parseAmount(s.exposure)),
       lossShare: formatAmount(parseAmount(s.lossShare)),
       loss: formatAmount(loss),

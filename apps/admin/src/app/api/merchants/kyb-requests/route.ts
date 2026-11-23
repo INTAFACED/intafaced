@@ -2,10 +2,11 @@ import { readAdminJson } from '@/lib/admin-json';
 import { adminSessionErrorResponse, AdminSessionError, authorizeAdminRequest } from '@/lib/founder-session';
 import { kybRequestFileBytesSchema, kybRequestResultSchema } from '@intafaced/contracts/kyb-information-requests';
 import { fromFailure, json } from '@/lib/merchants/bff';
-import { payCall, type PayCallContext } from '@/lib/merchants/pay-call';
+import { payCall, type PayCallContext, payRecordRead } from '@/lib/merchants/pay-call';
 import { isUuid } from '@/lib/founder-ops/read-model';
 import { KYB_CLOSE_NOTE_MAX, KYB_REASON_MIN, KYB_REQUEST_TEXT_MAX, kybRequestKey, reasonLength } from '@/lib/merchants/kyb-review-model';
 import { moduleDisabledResponse } from '@/lib/modules';
+import { PAY_KYB_REQUESTS_FILE } from '@intafaced/contracts/pay-kyb-procedures';
 
 /**
  * Merchants panel BFF: information requests to a business (compliance, J-merchant-02 step 4).
@@ -77,7 +78,7 @@ export async function POST(request: Request) {
     }
 
     if (body.action === 'file') {
-      const result = await payCall(ctx, 'kyb.requests.file', 'POST', { requestId }, (raw) => {
+      const result = await payRecordRead(ctx, PAY_KYB_REQUESTS_FILE, { requestId }, (raw) => {
         const parsed = kybRequestFileBytesSchema.safeParse(raw);
         return parsed.success ? parsed.data : null;
       });

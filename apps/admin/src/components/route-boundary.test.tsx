@@ -1,13 +1,23 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { RouteBoundary, ROUTE_BOUNDARY_COPY, type RouteBoundaryKind } from './route-boundary';
 import AppError from '@/app/error';
 import Loading from '@/app/loading';
 import NotFound from '@/app/not-found';
+import RouteProbeCrashPage from '@/app/(console)/route-probe/crash/page';
+
+const nav = vi.hoisted(() => ({
+  notFound: vi.fn(() => {
+    throw new Error('NEXT_NOT_FOUND');
+  }),
+}));
+vi.mock('next/navigation', async (actual) => ({ ...(await actual<object>()), notFound: nav.notFound }));
+const founder = vi.hoisted(() => ({ requireFounderPage: vi.fn(async () => ({})) }));
+vi.mock('@/lib/founder-page', () => founder);
 
 /**
  * WHAT THE OPERATOR READS WHEN THE SCREEN IS MISSING OR DEAD.
@@ -55,18 +65,47 @@ describe('App Router special files — present beside the operator shell', () =>
     for (const name of ['layout.tsx', 'error.tsx', 'not-found.tsx', 'loading.tsx']) {
       expect(existsSync(join(APP_DIR, name)), name).toBe(true);
     }
-    const errorSrc = readFileSync(join(APP_DIR, 'error.tsx'), 'utf8');
-    expect(errorSrc).toMatch(/^['"]use client['"]/m);
-    expect(errorSrc).toContain('kind="error"');
-    expect(errorSrc).toContain('error.digest');
-    expect(errorSrc).not.toMatch(/error\.message/);
   });
 
-  it('keeps the crash probe fail-closed unless ADMIN_ROUTE_PROBE=1', () => {
-    const src = readFileSync(join(APP_DIR, '(console)', 'route-probe', 'crash', 'page.tsx'), 'utf8');
-    expect(src).toContain("ADMIN_ROUTE_PROBE !== '1'");
-    expect(src).toContain('notFound()');
-    expect(src).toContain("throw new Error('admin.route_probe.render_error')");
+  // `'use client'` on error.tsx is held by `next build`, which refuses an error boundary that is not a client component.
+  it('error.tsx renders the error view with the digest and the retry, never the thrown text', () => {
+    const reset = () => undefined;
+    const view = AppError({ error: Object.assign(new Error('internal detail'), { digest: 'd1' }), reset });
+    expect(view.type).toBe(RouteBoundary);
+    expect(view.props).toEqual({ kind: 'error', digest: 'd1', onRetry: reset });
+    const html = renderToStaticMarkup(view);
+    expect(html).toContain('data-route-boundary="error"');
+    expect(html).toContain('d1');
+    expect(html).not.toContain('internal detail');
+  });
+
+  describe('the crash probe', () => {
+    afterEach(() => {
+      vi.unstubAllEnvs();
+      nav.notFound.mockClear();
+      founder.requireFounderPage.mockClear();
+    });
+
+    it('is not found unless ADMIN_ROUTE_PROBE=1, after the founder check', async () => {
+      for (const value of [undefined, '', '0', 'true', ' 1']) {
+        vi.stubEnv('ADMIN_ROUTE_PROBE', value);
+        await expect(RouteProbeCrashPage(), String(value)).rejects.toThrow('NEXT_NOT_FOUND');
+      }
+      expect(founder.requireFounderPage).toHaveBeenCalledTimes(5);
+    });
+
+    it('throws its render error only when ADMIN_ROUTE_PROBE=1', async () => {
+      vi.stubEnv('ADMIN_ROUTE_PROBE', '1');
+      await expect(RouteProbeCrashPage()).rejects.toThrow('admin.route_probe.render_error');
+      expect(nav.notFound).not.toHaveBeenCalled();
+      expect(founder.requireFounderPage).toHaveBeenCalledTimes(1);
+    });
+
+    it('renders nothing for a session the founder check refuses', async () => {
+      vi.stubEnv('ADMIN_ROUTE_PROBE', '1');
+      founder.requireFounderPage.mockRejectedValueOnce(new Error('REDIRECT:/sign-in'));
+      await expect(RouteProbeCrashPage()).rejects.toThrow('REDIRECT:/sign-in');
+    });
   });
 });
 

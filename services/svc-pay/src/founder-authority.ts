@@ -1,5 +1,7 @@
 import type { Context } from '@intafaced/contracts';
-import { accountOperatorEntitlementSchema, forwardedPrincipalHeaders, serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { accountOperatorEntitlementSchema } from '@intafaced/contracts/account-controls';
+import { forwardedPrincipalHeaders } from '@intafaced/contracts/edge';
+import { serviceAuthHeadersForBody } from '@intafaced/contracts/service-auth';
 import { MerchantControlError } from './merchant-account-controls.js';
 
 export type FounderAuthority = (ctx: Context) => Promise<string>;

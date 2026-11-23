@@ -1,6 +1,6 @@
 import { isTestBuild } from '../../shared/test-build';
 import { testerBuildCopy } from './tester-build-copy';
-import './public-pages.css';
+import '../../shared/public-pages.css';
 
 /**
  * The sign-in page of a test build says how a tester gets in (J-home-ia-11 #2): where the founder vault is and how to

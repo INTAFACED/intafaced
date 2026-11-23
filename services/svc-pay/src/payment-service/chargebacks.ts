@@ -39,7 +39,7 @@ import {
   type RailResolutionOutcome,
 } from '../fraud/dispute-case.js';
 import { recordDisputeOutcomeConflict } from '../fraud/dispute-outcome-conflict.js';
-import type { ChargebackPlan, ChargebackSplit, PayService, PayServiceInternal } from '../payment-service.js';
+import type { ChargebackPlan, ChargebackSplit, PayServiceInternal } from '../payment-service.js';
 import { PayError, appendEvent, isInsufficientFunds, openingTxIdFromDetail, postgresErrorCode, readLivePlan } from './internal.js';
 
 /**

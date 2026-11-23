@@ -150,7 +150,7 @@ if (!compose) {
   let current = null;
   let inServices = false;
   for (const line of compose.split('\n')) {
-    if (/^services:/.test(line)) {
+    if (line.startsWith('services:')) {
       inServices = true;
       continue;
     }
@@ -254,14 +254,23 @@ if (!adminApi) {
 // svc-ledger had `freeze`/`unfreeze` behind `admin:treasury` on a router that
 // was exported for its TYPE and served on no port. Correct code, reachable by
 // nothing.
-const ledgerIndex = read('services', 'svc-ledger', 'src', 'index.ts');
-if (!ledgerIndex) {
-  failures.push('services/svc-ledger/src/index.ts is missing');
-} else if (!callsWithApp(ledgerIndex, 'registerOperatorHttp')) {
-  failures.push(
-    'svc-ledger does not mount its operator surface — `posting_freeze` is durable and attributed but unreachable, ' +
-      'so the platform emergency stop needs a redeploy (§4.2, §14.6)',
-  );
+// svc-ledger is the Rust crate: its door serves every route in `ROUTES` (door/mod.rs), and the freeze slice answers
+// the two switches (door/freeze.rs). Both must stay, behind `admin:treasury` (`Treasury`).
+const ledgerRoutes = read('crates', 'svc-ledger', 'src', 'door', 'mod.rs');
+const ledgerFreeze = read('crates', 'svc-ledger', 'src', 'door', 'freeze.rs');
+if (!ledgerRoutes || !ledgerFreeze) {
+  failures.push('crates/svc-ledger/src/door/mod.rs or door/freeze.rs is missing');
+} else {
+  for (const path of ['/operator/freeze', '/operator/unfreeze']) {
+    const routed = new RegExp(`op\\(\\s*"POST",\\s*"${path}",\\s*Treasury,`).test(ledgerRoutes);
+    const answered = ledgerFreeze.includes(`("POST", "${path}") =>`);
+    if (!routed || !answered) {
+      failures.push(
+        `svc-ledger does not serve POST ${path} behind admin:treasury — \`posting_freeze\` is durable and attributed but ` +
+          'unreachable, so the platform emergency stop needs a redeploy (§4.2, §14.6)',
+      );
+    }
+  }
 }
 
 // ── 6 · apps/admin can reach it ─────────────────────────────────────────────

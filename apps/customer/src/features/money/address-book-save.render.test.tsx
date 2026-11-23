@@ -18,7 +18,30 @@ vi.mock('../../shared/preferences', async (original) => {
 });
 const mutate = vi.fn();
 const query = vi.fn();
-vi.mock('../session/session', () => ({ useSession: () => ({ userId: 'u1', api: { mutate, query } }) }));
+vi.mock('../session', async (original) => ({
+  ...(await original<typeof import('../session')>()),
+  useSession: () => ({
+    userId: 'u1',
+    api: {
+      mutate,
+      query,
+      call(
+        this: { query: (...args: never[]) => unknown; mutate: (...args: never[]) => unknown },
+        record: { kind: string; module: string; path: string; output: unknown },
+        input?: unknown,
+        opts?: unknown,
+      ) {
+        return Reflect.apply(record.kind === 'query' ? this.query : this.mutate, this, [
+          record.module,
+          record.path,
+          input,
+          record.output,
+          opts,
+        ]);
+      },
+    },
+  }),
+}));
 const mint = vi.fn();
 vi.mock('./withdraw-step-up', async (original) => ({
   ...(await original<typeof import('./withdraw-step-up')>()),
@@ -39,13 +62,12 @@ const ASSETS: WithdrawAsset[] = [
 ];
 vi.mock('./components', async (original) => {
   const real = await original<typeof import('./components')>();
-  return {
-    ...real,
-    useBankRead: (procedure: string) =>
-      procedure === 'ramps.destinations.networks'
-        ? { resource: { status: 'ready', data: ASSETS }, reload: () => undefined }
-        : { resource: { status: 'ready', data: rows }, reload: () => void (reloads.book += 1) },
-  };
+  // The room reads by its records now: each record's read is served from the same answers, by its path.
+  const useBankRead = (procedure: string) =>
+    procedure === 'ramps.destinations.networks'
+      ? { resource: { status: 'ready', data: ASSETS }, reload: () => undefined }
+      : { resource: { status: 'ready', data: rows }, reload: () => void (reloads.book += 1) };
+  return { ...real, useBankRead, useBankRecord: (record: { path: string }) => useBankRead(record.path) };
 });
 import { WithdrawalAddresses } from './WithdrawalAddresses';
 
@@ -77,7 +99,7 @@ async function mount() {
   await act(async () => mounted.render(<WithdrawalAddresses />));
 }
 function field(label: string): HTMLInputElement | HTMLSelectElement {
-  const found = [...document.querySelectorAll('label.field')].find((l) => l.querySelector('span')?.textContent === label);
+  const found = [...document.querySelectorAll('label.lt-field')].find((l) => l.querySelector('span')?.textContent === label);
   return found!.querySelector('input, select') as HTMLInputElement | HTMLSelectElement;
 }
 async function type(label: string, value: string) {

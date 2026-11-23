@@ -111,7 +111,7 @@ export function CopiedPositions({ follow, api, guard }: { follow: Follow; api: R
         const closeOff = busy || (isZero(r.open) && r.status !== 'closing');
         const partOff = busy || isZero(r.open);
         return (
-          <span className="cb-action-row">
+          <span className="lt-actions">
             <Button variant="secondary" size={32} disabled={closeOff} onClick={() => setClosing(r)}>
               {t('Close')}
             </Button>
@@ -262,7 +262,10 @@ const SKIP_WORDS: Record<string, string> = {
   insufficient_funds: 'Your balance did not cover it',
   max_copy_total: 'It would have gone past your limits',
   copy_slippage_exceeded: 'The price moved past your slippage limit',
+  per_contract_cap: 'It would have gone past your most per contract',
+  daily_cap: 'It would have gone past your most per day; copying resumes the next day',
   position_closed: 'Nothing you copied was left open to close',
+  not_lead_order: 'The leader marked that order as not a lead trade, so it is not copied',
   refused: 'The copy was refused',
 };
 /** The words for a skip reason id; an id this screen does not know reads as a plain refusal, never as the id. */

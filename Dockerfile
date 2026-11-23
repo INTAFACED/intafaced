@@ -22,9 +22,9 @@
 # ── Non-root ────────────────────────────────────────────────────────────────
 #
 # The final stage runs as `node` (uid 1000, shipped by the base image). Nothing
-# in the runtime writes inside /app except Next's `.next/cache`, and the one
-# service that does write — svc-matching's journal — writes to a named volume
-# mounted at /data.
+# in the runtime writes inside /app except Next's `.next/cache`. svc-matching's
+# journal, the one service write to a named volume, is the Rust image's now
+# (crates/svc-matching/Dockerfile).
 
 # ── base ────────────────────────────────────────────────────────────────────
 # bookworm-slim, not alpine: `@node-rs/argon2` (svc-identity's password hasher),
@@ -50,9 +50,8 @@ WORKDIR /app
 # "Cannot find module '@intafaced/contracts'" during `pnpm build` — which reads
 # like a broken import rather than a missing COPY.
 #
-# `tooling/ci/workspace-sync.mjs` compares this list against pnpm-workspace.yaml
-# and fails the build when they diverge. That check exists because this went
-# wrong three times in one day: twice in compose, once here.
+# A missing entry fails the image build, which the journeys stack runs on main
+# after every merge.
 FROM base AS deps
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
@@ -62,7 +61,7 @@ COPY apps/customer/package.json              apps/customer/
 COPY apps/invitation/package.json            apps/invitation/
 COPY apps/mobile/package.json                apps/mobile/
 
-COPY packages/academy-ambassadors-pay/package.json packages/academy-ambassadors-pay/
+COPY packages/assistant-mcp/package.json     packages/assistant-mcp/
 COPY packages/auth/package.json              packages/auth/
 COPY packages/config/package.json            packages/config/
 COPY packages/connect-data-lake/package.json packages/connect-data-lake/
@@ -91,14 +90,10 @@ COPY packages/venue-contracts/package.json   packages/venue-contracts/
 COPY packages/venue-sim/package.json         packages/venue-sim/
 COPY packages/venue-hyperliquid/package.json packages/venue-hyperliquid/
 
-COPY services/svc-academy/package.json       services/svc-academy/
-COPY services/svc-agents/package.json        services/svc-agents/
 COPY services/svc-bank/package.json          services/svc-bank/
 COPY services/svc-blueprint/package.json     services/svc-blueprint/
 COPY services/svc-identity/package.json      services/svc-identity/
-COPY services/svc-ledger/package.json        services/svc-ledger/
 COPY services/svc-mining-pool/package.json  services/svc-mining-pool/
-COPY services/svc-matching/package.json      services/svc-matching/
 COPY services/svc-notify/package.json        services/svc-notify/
 COPY services/svc-ops/package.json           services/svc-ops/
 COPY services/svc-support/package.json       services/svc-support/
@@ -114,7 +109,6 @@ COPY services/svc-dex/package.json           services/svc-dex/
 COPY services/svc-edge/package.json          services/svc-edge/
 COPY services/svc-execution/package.json     services/svc-execution/
 COPY services/svc-fix/package.json           services/svc-fix/
-COPY services/svc-tax/package.json           services/svc-tax/
 COPY services/svc-campaigns/package.json     services/svc-campaigns/
 COPY services/svc-indexer/package.json       services/svc-indexer/
 COPY services/svc-ws/package.json            services/svc-ws/
@@ -143,6 +137,9 @@ COPY . .
 # platform to be running.
 # Native packaging requires a verified HTTPS origin and ships separately.
 # This image is for HTTP services and browser apps, including Customer and Invitation.
+# Package builds call tooling/scripts/tsc.mjs, which runs tsc only when CI is set (tsrs otherwise): the image is
+# built by the same compiler that judged it in CI.
+ENV CI=true
 RUN pnpm exec turbo run build --filter='!mobile'
 
 # ── runtime ─────────────────────────────────────────────────────────────────
@@ -156,10 +153,6 @@ FROM base AS runtime
 ENV NODE_ENV=production
 
 COPY --from=build --chown=node:node /app /app
-
-# svc-matching fsyncs its order journal here; a named volume is mounted over it
-# so the books survive a container replacement (§5.1 recovery).
-RUN mkdir -p /data/matching && chown -R node:node /data
 
 USER node
 

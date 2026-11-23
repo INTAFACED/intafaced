@@ -1,29 +1,37 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { z } from 'zod';
+// volt-room: /agents/team
+import { BANK_BUSINESS_LIST } from '@intafaced/contracts/bank-business-procedures';
 import {
-  AGENTS_TEAM_ROLES,
-  agentsTeamGrantResultSchema,
-  agentsTeamHeldActionResultSchema,
-  agentsTeamHeldActionSchema,
-  agentsTeamPoolResultSchema,
-  agentsTeamProjectResultSchema,
-  agentsTeamRunClosedSchema,
-  agentsTeamRunResultSchema,
-  agentsTeamRunSessionSchema,
-  agentsTeamUsageSchema,
-  agentsTeamViewSchema,
-  type AgentsTeamRole,
-  type AgentsTeamView,
-} from '@intafaced/contracts/agents-team';
-import { ownAgentSchema } from '@intafaced/contracts/agents-own';
+  Children,
+  cloneElement,
+  isValidElement,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
+import { AGENTS_TEAM_ROLES, type AgentsTeamRole, type AgentsTeamView } from '@intafaced/contracts/agents-team';
+import { AGENTS_OWN_LIST } from '@intafaced/contracts/agents-own-procedures';
+import {
+  AGENTS_TEAM_VIEW,
+  AGENTS_TEAM_GRANTS_SET,
+  AGENTS_TEAM_POOL_SET,
+  AGENTS_TEAM_PROJECTS_CREATE,
+  AGENTS_TEAM_RUNS_OPEN,
+  AGENTS_TEAM_RUNS_RUN,
+  AGENTS_TEAM_RUNS_CLOSE,
+  AGENTS_TEAM_ACTIONS_LIST,
+  AGENTS_TEAM_ACTIONS_HOLD,
+  AGENTS_TEAM_ACTIONS_APPROVE,
+  AGENTS_TEAM_USAGE,
+} from '@intafaced/contracts/agents-team-procedures';
+import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 import type { ApiResult, RefusalReason } from '../../shared/api';
-import { businessListSchema } from '../money/business-schema';
-import { Checkbox } from '@intafaced/ui';
+import { Button, Checkbox, EmptyState, Field, Select } from '@intafaced/ui/lit';
+import { KeyValue, SettingsTemplate, Skeleton, type RoomState } from '@intafaced/ui/lit/templates';
 import { useResource } from '../../shared/resource';
-import { Button, DataTable, EmptyState, Field, Loading, Panel } from '../../shared/ui';
-import { useApi, useSession } from '../session/session';
-import { Select } from './common';
-import { StatRow } from './depth-kit';
+import { useApi, useSession } from '../session';
 import { agentsTeamCopy } from './agents-team-copy';
 
 const ROLES = AGENTS_TEAM_ROLES;
@@ -31,6 +39,11 @@ type Role = AgentsTeamRole;
 type Team = AgentsTeamView;
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
+/** A grant change sent and not yet seen in a team read. */
+type PendingGrant = { memberUserId: string; role: Role; allow: boolean; deny: boolean; version: number };
+/** The stored version of one member's grant for one role in a team read; 0 when the read holds none. */
+const grantVersion = (team: Team, memberUserId: string, role: Role) =>
+  team.members.find((m) => m.userId === memberUserId)?.grants.find((g) => g.role === role)?.version ?? 0;
 /** Each refusal the room words itself, by its code (`agents.<key>`, a run's hold refusals as `agents.team.<key>`). */
 const ERR_KEYS = {
   'agents.role_not_member': 'err_role_not_member',
@@ -104,65 +117,140 @@ const NoteLine = ({ note }: { note: Note | null }) =>
     </p>
   );
 
+/** A table in the kit's look, named as a region so a reader (and a test) finds it by its name. */
+function Grid({ headers, children, label }: { headers: readonly string[]; children: ReactNode; label: string }) {
+  return (
+    <div tabIndex={0} role="region" aria-label={label}>
+      <table className="lt-table">
+        <thead>
+          <tr>
+            {headers.map((head, index) => (
+              <th key={index} scope="col">
+                {head}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>{Children.map(children, (row) => labelled(row, headers))}</tbody>
+      </table>
+    </div>
+  );
+}
+
+type Cell = ReactElement<{ children?: ReactNode; 'data-label'?: string }>;
+
+/**
+ * A phone stacks each row and names each value by its column (the kit's lt-table reads `data-label`), so each cell of
+ * a row takes its column's words; a row header (`th`) keeps its own.
+ */
+function labelled(row: ReactNode, headers: readonly string[]): ReactNode {
+  if (!isValidElement<{ children?: ReactNode }>(row)) return row;
+  const cells = Children.toArray(row.props.children).map((cell, i) =>
+    isValidElement(cell) && cell.type === 'td' ? cloneElement(cell as Cell, { 'data-label': headers[i] }) : cell,
+  );
+  return cloneElement(row, undefined, ...cells);
+}
+
+/** The room's sections, each a link to its part of the page. */
+const SECTIONS = [
+  ['members', 'membersTitle'],
+  ['pool', 'poolTitle'],
+  ['projects', 'projectsTitle'],
+  ['limits', 'limitsTitle'],
+  ['runs', 'runsTitle'],
+  ['approvals', 'approvalsTitle'],
+  ['usage', 'usageTitle'],
+] as const;
+
 /** The agents Team room (/agents/team): one business's agent roles, pool, project limits, runs, approvals and usage. */
 export function AgentsTeam() {
   const api = useApi();
   const { userId } = useSession();
-  const { Copy, t } = agentsTeamCopy.useCopy();
+  const { t } = agentsTeamCopy.useCopy();
   // The businesses are the bank's own: the ones this person is a member of, closed ones included.
-  const businesses = useResource(
-    (signal) => api.query('bank', 'business.list', { limit: 50 }, businessListSchema, { signal }),
-    `agents-team-businesses:${userId}`,
-  );
+  const businesses = useResource((signal) => api.call(BANK_BUSINESS_LIST, { limit: 50 }, { signal }), `agents-team-businesses:${userId}`);
   const [chosen, setChosen] = useState('');
   const list = businesses.resource.status === 'ready' ? businesses.resource.data : [];
   const businessId = list.some((b) => b.id === chosen) ? chosen : (list[0]?.id ?? '');
 
-  if (businesses.resource.status === 'failed') {
-    return (
-      <Panel title={t('businessTitle')}>
-        <p role="alert">
-          <RefusalText failed={businesses.resource.failure} />
-        </p>
-        <Button variant="secondary" onClick={businesses.reload}>
-          <Copy k="retry" />
-        </Button>
-      </Panel>
-    );
-  }
-  if (businesses.resource.status !== 'ready') return <Loading />;
-  if (!businessId) {
-    return (
-      <Panel title={t('businessTitle')}>
-        <EmptyState title={<Copy k="noBusiness" />}>
-          <a href="/bank/business">{t('manageMembers')}</a>
-        </EmptyState>
-      </Panel>
-    );
-  }
-  return (
-    <>
-      <Panel title={t('businessTitle')}>
+  if (businesses.resource.status === 'ready' && businessId) {
+    const picker = (
+      <section>
+        <h2>{t('businessTitle')}</h2>
         <Select
           label={t('businessPick')}
           value={businessId}
           onChange={setChosen}
           options={list.map((b) => ({ value: b.id, label: b.status === 'closed' ? t('businessClosedName', { name: b.name }) : b.name }))}
         />
-      </Panel>
-      <TeamOf key={businessId} businessId={businessId} />
-    </>
+      </section>
+    );
+    return <TeamOf key={businessId} businessId={businessId} picker={picker} />;
+  }
+  let state: RoomState;
+  if (businesses.resource.status === 'failed') state = refusedState(t, businesses.resource.failure, t('businessTitle'));
+  else if (businesses.resource.status !== 'ready') state = { kind: 'loading' };
+  else state = { kind: 'empty', title: t('noBusiness'), action: { label: t('manageMembers'), href: '/bank/business' } };
+  return <TeamShell state={state} retry={businesses.resource.status === 'failed' ? businesses.reload : undefined} />;
+}
+
+type T = ReturnType<typeof agentsTeamCopy.useCopy>['t'];
+
+/** A read the room could not make: its title, the room's own words for the code, and the code. */
+function refusedState(t: T, failed: Refusal, title: string, action?: { label: string; href: string }): RoomState {
+  const code = refusalCodeOf(failed);
+  const key = Object.hasOwn(ERR_KEYS, code) ? ERR_KEYS[code as keyof typeof ERR_KEYS] : null;
+  return {
+    kind: 'refused',
+    refusal: {
+      variant: ANSWER_UNKNOWN.has(failed.reason) ? 'unreachable' : 'refused',
+      title,
+      body: key ? t(key) : t('err_other'),
+      reference: code,
+      action,
+    },
+  };
+}
+
+/** The room on its template. A read that failed offers to read again (`retry`), in place. */
+function TeamShell({ state, sections, retry }: { state: RoomState; sections?: ReactNode; retry?: () => void }) {
+  const { t } = agentsTeamCopy.useCopy();
+  return (
+    <SettingsTemplate
+      title={t('title')}
+      description={t('description')}
+      state={state}
+      roomAction={
+        retry ? (
+          <Button tone="secondary" onClick={retry}>
+            {t('retry')}
+          </Button>
+        ) : undefined
+      }
+      index={
+        <nav aria-label={t('sectionsLabel')}>
+          <ul>
+            {SECTIONS.map(([id, key]) => (
+              <li key={id}>
+                <a className="lt-link" href={`#agents-team-${id}`}>
+                  {t(key)}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      }
+      sections={sections ?? null}
+      explain={<p>{t('explain')}</p>}
+    />
   );
 }
 
-function TeamOf({ businessId }: { businessId: string }) {
+function TeamOf({ businessId, picker }: { businessId: string; picker: ReactNode }) {
   const api = useApi();
   const { userId } = useSession();
-  const { Copy, t } = agentsTeamCopy.useCopy();
-  const team = useResource(
-    (signal) => api.query('agents', 'team.view', { businessId }, agentsTeamViewSchema, { signal }),
-    `agents-team:${userId}:${businessId}`,
-  );
+  const { t } = agentsTeamCopy.useCopy();
+  const team = useResource((signal) => api.call(AGENTS_TEAM_VIEW, { businessId }, { signal }), `agents-team:${userId}:${businessId}`);
   // The last team read stays on screen while it is read again, so a form keeps what was typed.
   const [shown, setShown] = useState<Team | null>(null);
   useEffect(() => {
@@ -170,25 +258,25 @@ function TeamOf({ businessId }: { businessId: string }) {
     if (team.resource.status === 'failed') setShown(null);
   }, [team.resource]);
 
-  if (team.resource.status === 'failed') {
+  if (team.resource.status === 'failed')
     return (
-      <Panel title={t('membersTitle')}>
-        <p role="alert">
-          <RefusalText failed={team.resource.failure} />
-        </p>
-        <p>
-          <a href="/bank/business">
-            <Copy k="manageMembers" />
-          </a>
-        </p>
-        <Button variant="secondary" onClick={team.reload}>
-          <Copy k="retry" />
-        </Button>
-      </Panel>
+      <TeamShell
+        state={refusedState(t, team.resource.failure, t('membersTitle'), { label: t('manageMembers'), href: '/bank/business' })}
+        retry={team.reload}
+      />
     );
-  }
-  if (!shown) return <Loading />;
-  return <TeamRoom team={shown} reload={team.reload} />;
+  if (!shown) return <TeamShell state={{ kind: 'loading' }} />;
+  return (
+    <TeamShell
+      state={{ kind: 'ready' }}
+      sections={
+        <>
+          {picker}
+          <TeamRoom team={shown} reload={team.reload} />
+        </>
+      }
+    />
+  );
 }
 
 function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
@@ -205,27 +293,23 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
   const asset = team.pool?.assetId ?? '';
   const [busy, setBusy] = useState(false);
   const [rolesNote, setRolesNote] = useState<Note | null>(null);
-  const [override, setOverride] = useState<Record<string, boolean>>({});
-  // A saved tick stays shown, and the boxes stay locked, until the team is read again: the box never flips back to the
-  // old value in between, and the next change is sent on the grant's new version, never the one just used.
-  useEffect(() => {
-    setOverride({});
-    setBusy(false);
-  }, [team]);
+  const [pending, setPending] = useState<PendingGrant | null>(null);
+  // A changed grant stays shown, and the boxes stay locked, until a team read that holds the change (the grant's newer
+  // version) lands: a read sent before the save never flips the box back, and the next change is sent on the grant's
+  // new version, never the one just used.
+  const unseen = pending && grantVersion(team, pending.memberUserId, pending.role) <= pending.version ? pending : null;
+  const shownGrant = (memberUserId: string, g: Team['members'][number]['grants'][number]) =>
+    unseen && unseen.memberUserId === memberUserId && unseen.role === g.role ? unseen : g;
 
   /** Saves one member's allow and deny for one role as that grant's next change. */
   async function saveGrant(memberUserId: string, role: Role, allow: boolean, deny: boolean, version: number) {
     setBusy(true);
-    const result = await api.mutate(
-      'agents',
-      'team.grants.set',
-      { businessId, memberUserId, role, allow, deny, revision: version + 1 },
-      agentsTeamGrantResultSchema,
-    );
-    if (!result.ok) setBusy(false);
+    setPending({ memberUserId, role, allow, deny, version });
+    const result = await api.call(AGENTS_TEAM_GRANTS_SET, { businessId, memberUserId, role, allow, deny, revision: version + 1 });
+    setBusy(false);
     setRolesNote(result.ok ? { ok: true, text: t('saved') } : { ok: false, failed: result as Refusal });
-    // A refused change shows the stored value again at once; a saved one keeps its tick until the reload lands.
-    if (!result.ok) setOverride({});
+    // A refused change shows the stored value again at once; a saved one keeps its tick until a read holding it lands.
+    if (!result.ok) setPending(null);
     reload();
     return result.ok;
   }
@@ -247,17 +331,12 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
   async function savePool(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
-    const result = await api.mutate(
-      'agents',
-      'team.pool.set',
-      {
-        businessId,
-        limit: poolLimit,
-        allocations: team.members.map((m) => ({ memberUserId: m.userId, amount: allocations[m.userId] ?? '' })),
-        revision: (team.pool?.version ?? 0) + 1,
-      },
-      agentsTeamPoolResultSchema,
-    );
+    const result = await api.call(AGENTS_TEAM_POOL_SET, {
+      businessId,
+      limit: poolLimit,
+      allocations: team.members.map((m) => ({ memberUserId: m.userId, amount: allocations[m.userId] ?? '' })),
+      revision: (team.pool?.version ?? 0) + 1,
+    });
     setBusy(false);
     if (!result.ok) setPoolNote({ ok: false, failed: result as Refusal });
     else if (!result.data.ok) {
@@ -274,12 +353,13 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
   async function createProject(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
-    const result = await api.mutate(
-      'agents',
-      'team.projects.create',
-      { businessId, name: projectName, limit: projectLimit, memberUserIds: projectMembers, seq: team.nextProjectSeq },
-      agentsTeamProjectResultSchema,
-    );
+    const result = await api.call(AGENTS_TEAM_PROJECTS_CREATE, {
+      businessId,
+      name: projectName,
+      limit: projectLimit,
+      memberUserIds: projectMembers,
+      seq: team.nextProjectSeq,
+    });
     setBusy(false);
     if (result.ok) {
       setProjectNote({ ok: true, text: t('saved') });
@@ -290,20 +370,21 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
     reload();
   }
 
-  const locked = busy || !team.canManage;
+  const locked = busy || !!unseen || !team.canManage;
 
   return (
     <>
-      <Panel title={t('membersTitle')}>
-        <p className="muted">
+      <section id="agents-team-members">
+        <h2>{t('membersTitle')}</h2>
+        <p className="lt-hint">
           <Copy k="membersNote" /> <a href="/bank/business">{t('manageMembers')}</a>
         </p>
         {team.canManage ? null : (
-          <p className="muted">
+          <p className="lt-hint">
             <Copy k="readOnly" />
           </p>
         )}
-        <DataTable
+        <Grid
           label={t('membersTitle')}
           headers={[t('colMember'), t('colAccount'), t('colBusinessRole'), ...ROLES.map(roleName), t('colEffective')]}
         >
@@ -315,33 +396,28 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
               </td>
               <td>{t(`business_${m.businessRole}`)}</td>
               {m.grants.map((g) => {
-                const allow = override[`${m.userId}:${g.role}:allow`] ?? g.allow;
-                const deny = override[`${m.userId}:${g.role}:deny`] ?? g.deny;
-                const toggle = (effect: 'allow' | 'deny', value: boolean) => {
-                  setOverride((o) => ({ ...o, [`${m.userId}:${g.role}:${effect}`]: value }));
+                const { allow, deny } = shownGrant(m.userId, g);
+                const toggle = (effect: 'allow' | 'deny', value: boolean) =>
                   void saveGrant(m.userId, g.role, effect === 'allow' ? value : allow, effect === 'deny' ? value : deny, g.version);
-                };
                 return (
                   <td key={g.role}>
-                    <label>
-                      <Checkbox
-                        checked={allow}
-                        disabled={locked}
-                        aria-label={t('allowRole', { role: roleName(g.role) })}
-                        onCheckedChange={(on) => toggle('allow', on)}
-                      />{' '}
+                    <Checkbox
+                      checked={allow}
+                      disabled={locked}
+                      aria-label={t('allowRole', { role: roleName(g.role) })}
+                      onCheckedChange={(on) => toggle('allow', on)}
+                    >
                       <Copy k="allowed" />
-                    </label>
-                    <label>
-                      <Checkbox
-                        checked={deny}
-                        disabled={locked}
-                        aria-label={t('denyRole', { role: roleName(g.role) })}
-                        onCheckedChange={(on) => toggle('deny', on)}
-                      />{' '}
+                    </Checkbox>
+                    <Checkbox
+                      checked={deny}
+                      disabled={locked}
+                      aria-label={t('denyRole', { role: roleName(g.role) })}
+                      onCheckedChange={(on) => toggle('deny', on)}
+                    >
                       <Copy k="denied" />
-                    </label>
-                    <span className="muted" data-testid={`effective-${g.role}`}>
+                    </Checkbox>
+                    <span className="lt-hint" data-testid={`effective-${g.role}`}>
                       {g.deny ? t('denied') : g.allow ? t('allowed') : t('notGranted')}
                     </span>
                   </td>
@@ -350,13 +426,13 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
               <td data-testid="effective-roles">{m.effective.length ? m.effective.map(roleName).join(', ') : t('noRoles')}</td>
             </tr>
           ))}
-        </DataTable>
+        </Grid>
         <NoteLine note={rolesNote} />
         <form aria-label={t('grantTitle')} onSubmit={grantToAccount}>
           <h3>
             <Copy k="grantTitle" />
           </h3>
-          <div className="depth-filters">
+          <div className="lt-toolbar">
             <Field label={t('grantAccount')} value={grantTo} disabled={locked} onChange={(e) => setGrantTo(e.target.value)} />
             <Select
               label={t('grantRole')}
@@ -365,26 +441,27 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
               options={ROLES.map((role) => ({ value: role, label: roleName(role) }))}
             />
           </div>
-          <Button type="submit" disabled={locked || !grantTo.trim()}>
+          <Button tone="primary" type="submit" disabled={locked || !grantTo.trim()}>
             <Copy k="grant" />
           </Button>
         </form>
-      </Panel>
+      </section>
 
-      <Panel title={t('poolTitle')}>
-        <p className="muted">
+      <section id="agents-team-pool">
+        <h2>{t('poolTitle')}</h2>
+        <p className="lt-hint">
           <Copy k="poolNote" />
         </p>
         {team.pool ? (
-          <StatRow
-            items={[
+          <KeyValue
+            rows={[
               { label: t('poolLimitShown'), value: <span data-testid="pool-limit">{`${team.pool.limit} ${asset}`}</span> },
               { label: t('poolAllocated'), value: <span data-testid="pool-allocated">{`${team.pool.allocated} ${asset}`}</span> },
               { label: t('poolUsed'), value: <span data-testid="pool-used">{`${team.used} ${asset}`}</span> },
             ]}
           />
         ) : (
-          <EmptyState title={<Copy k="poolNone" />} />
+          <EmptyState title={t('poolNone')} />
         )}
         <form aria-label={t('poolTitle')} onSubmit={savePool}>
           <Field
@@ -405,15 +482,16 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
             />
           ))}
           <NoteLine note={poolNote} />
-          <Button type="submit" disabled={locked}>
+          <Button tone="primary" type="submit" disabled={locked}>
             <Copy k="savePool" />
           </Button>
         </form>
-      </Panel>
+      </section>
 
-      <Panel title={t('projectsTitle')}>
+      <section id="agents-team-projects">
+        <h2>{t('projectsTitle')}</h2>
         {team.projects.length ? (
-          <DataTable label={t('projectsTitle')} headers={[t('colProject'), t('colLimit'), t('colMembers')]}>
+          <Grid label={t('projectsTitle')} headers={[t('colProject'), t('colLimit'), t('colMembers')]}>
             {team.projects.map((p) => (
               <tr key={p.id}>
                 <th scope="row">{p.name}</th>
@@ -421,9 +499,9 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
                 <td>{p.memberUserIds.map(name).join(', ')}</td>
               </tr>
             ))}
-          </DataTable>
+          </Grid>
         ) : (
-          <EmptyState title={<Copy k="projectsEmpty" />} />
+          <EmptyState title={t('projectsEmpty')} />
         )}
         <form aria-label={t('newProject')} onSubmit={createProject}>
           <h3>
@@ -442,28 +520,26 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
               <Copy k="projectMembers" />
             </legend>
             {team.members.map((m) => (
-              <label key={m.userId}>
-                <Checkbox
-                  checked={projectMembers.includes(m.userId)}
-                  disabled={locked}
-                  onCheckedChange={(on) => setProjectMembers((list) => (on ? [...list, m.userId] : list.filter((id) => id !== m.userId)))}
-                />{' '}
+              <Checkbox
+                key={m.userId}
+                checked={projectMembers.includes(m.userId)}
+                disabled={locked}
+                onCheckedChange={(on) => setProjectMembers((list) => (on ? [...list, m.userId] : list.filter((id) => id !== m.userId)))}
+              >
                 {name(m.userId)}
-              </label>
+              </Checkbox>
             ))}
           </fieldset>
           <NoteLine note={projectNote} />
-          <Button type="submit" disabled={locked}>
+          <Button tone="primary" type="submit" disabled={locked}>
             <Copy k="createProject" />
           </Button>
         </form>
-      </Panel>
+      </section>
 
-      <Panel title={t('limitsTitle')}>
-        <DataTable
-          label={t('limitsTitle')}
-          headers={[t('colMember'), t('colAccount'), t('colAllocation'), t('colUsed'), t('colProjectLimits')]}
-        >
+      <section id="agents-team-limits">
+        <h2>{t('limitsTitle')}</h2>
+        <Grid label={t('limitsTitle')} headers={[t('colMember'), t('colAccount'), t('colAllocation'), t('colUsed'), t('colProjectLimits')]}>
           {team.members.map((m) => {
             const projects = team.projects.filter((p) => p.memberUserIds.includes(m.userId));
             return (
@@ -478,8 +554,8 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
               </tr>
             );
           })}
-        </DataTable>
-      </Panel>
+        </Grid>
+      </section>
 
       <TeamRuns businessId={businessId} onRun={reload} />
       <HeldActions team={team} name={name} />
@@ -488,19 +564,17 @@ function TeamRoom({ team, reload }: { team: Team; reload: () => void }) {
   );
 }
 
-const ownAgentsSchema = z.array(ownAgentSchema);
-
 /** Runs of the person's own agent on the business pool: each checked against their allocation, projects and the pool. */
 function TeamRuns({ businessId, onRun }: { businessId: string; onRun: () => void }) {
   const api = useApi();
   const { Copy, t } = agentsTeamCopy.useCopy();
-  const mine = useResource((signal) => api.query('agents', 'own.list', { limit: 50 }, ownAgentsSchema, { signal }), 'agents-team-own');
+  const mine = useResource((signal) => api.call(AGENTS_OWN_LIST, { limit: 50 }, { signal }), 'agents-team-own');
   const agents = mine.resource.status === 'ready' ? mine.resource.data : [];
   const [agentId, setAgentId] = useState('');
   const chosen = agents.some((a) => a.id === agentId) ? agentId : (agents[0]?.id ?? '');
   const [session, setSession] = useState<string | null>(null);
   const [ask, setAsk] = useState('');
-  const [reply, setReply] = useState<z.infer<typeof agentsTeamRunResultSchema> | null>(null);
+  const [reply, setReply] = useState<ProcedureOutput<typeof AGENTS_TEAM_RUNS_RUN> | null>(null);
   const [note, setNote] = useState<Note | null>(null);
   const [busy, setBusy] = useState(false);
   // Each run of a session is keyed by the session and its number there, a business key. A press after a lost or
@@ -510,7 +584,7 @@ function TeamRuns({ businessId, onRun }: { businessId: string; onRun: () => void
 
   async function open() {
     setBusy(true);
-    const result = await api.mutate('agents', 'team.runs.open', { businessId, agentId: chosen }, agentsTeamRunSessionSchema);
+    const result = await api.call(AGENTS_TEAM_RUNS_OPEN, { businessId, agentId: chosen });
     setBusy(false);
     setReply(null);
     if (result.ok) {
@@ -524,12 +598,7 @@ function TeamRuns({ businessId, onRun }: { businessId: string; onRun: () => void
     if (!session) return;
     const requestId = `run:${session}:${runCount.current + 1}`;
     setBusy(true);
-    const result = await api.mutate(
-      'agents',
-      'team.runs.run',
-      { businessId, sessionId: session, requestId, ask },
-      agentsTeamRunResultSchema,
-    );
+    const result = await api.call(AGENTS_TEAM_RUNS_RUN, { businessId, sessionId: session, requestId, ask });
     setBusy(false);
     if (result.ok || !ANSWER_UNKNOWN.has(result.reason)) runCount.current += 1;
     if (result.ok) {
@@ -544,7 +613,7 @@ function TeamRuns({ businessId, onRun }: { businessId: string; onRun: () => void
   async function close() {
     if (!session) return;
     setBusy(true);
-    const result = await api.mutate('agents', 'team.runs.close', { businessId, sessionId: session }, agentsTeamRunClosedSchema);
+    const result = await api.call(AGENTS_TEAM_RUNS_CLOSE, { businessId, sessionId: session });
     setBusy(false);
     if (result.ok) {
       setSession(null);
@@ -554,8 +623,9 @@ function TeamRuns({ businessId, onRun }: { businessId: string; onRun: () => void
   }
 
   return (
-    <Panel title={t('runsTitle')} aria-label={t('runsTitle')}>
-      <p className="muted">
+    <section id="agents-team-runs" aria-label={t('runsTitle')}>
+      <h2>{t('runsTitle')}</h2>
+      <p className="lt-hint">
         <Copy k="runsNote" />
       </p>
       {mine.resource.status === 'failed' ? (
@@ -563,9 +633,14 @@ function TeamRuns({ businessId, onRun }: { businessId: string; onRun: () => void
           <RefusalText failed={mine.resource.failure} />
         </p>
       ) : agents.length === 0 ? (
-        <EmptyState title={<Copy k="runsNoAgent" />}>
-          <a href="/agents/new">{t('runsMakeAgent')}</a>
-        </EmptyState>
+        <EmptyState
+          title={t('runsNoAgent')}
+          action={
+            <a className="lt-link" href="/agents/new">
+              {t('runsMakeAgent')}
+            </a>
+          }
+        />
       ) : (
         <>
           <Select
@@ -578,17 +653,17 @@ function TeamRuns({ businessId, onRun }: { businessId: string; onRun: () => void
             <form aria-label={t('runsTitle')} onSubmit={run}>
               <p data-testid="run-session">{t('runSession', { session })}</p>
               <Field label={t('runAsk')} value={ask} disabled={busy} onChange={(e) => setAsk(e.target.value)} />
-              <div className="actions">
-                <Button type="submit" disabled={busy || !ask.trim()}>
+              <div className="lt-actions">
+                <Button tone="primary" type="submit" disabled={busy || !ask.trim()}>
                   <Copy k="run" />
                 </Button>
-                <Button variant="secondary" disabled={busy} onClick={() => void close()}>
+                <Button tone="secondary" disabled={busy} onClick={() => void close()}>
                   <Copy k="runClose" />
                 </Button>
               </div>
             </form>
           ) : (
-            <Button disabled={busy || !chosen} onClick={() => void open()}>
+            <Button tone="primary" disabled={busy || !chosen} onClick={() => void open()}>
               <Copy k="runOpen" />
             </Button>
           )}
@@ -601,11 +676,9 @@ function TeamRuns({ businessId, onRun }: { businessId: string; onRun: () => void
         </section>
       ) : null}
       <NoteLine note={note} />
-    </Panel>
+    </section>
   );
 }
-
-const heldListSchema = z.array(agentsTeamHeldActionSchema);
 
 /** Tool actions of members' agents that wait for an approver who is not the agent's creator (four eyes). */
 function HeldActions({ team, name }: { team: Team; name: (userId: string) => string }) {
@@ -613,10 +686,10 @@ function HeldActions({ team, name }: { team: Team; name: (userId: string) => str
   const { Copy, t } = agentsTeamCopy.useCopy();
   const businessId = team.businessId;
   const held = useResource(
-    (signal) => api.query('agents', 'team.actions.list', { businessId, limit: 50 }, heldListSchema, { signal }),
+    (signal) => api.call(AGENTS_TEAM_ACTIONS_LIST, { businessId, limit: 50 }, { signal }),
     `agents-team-held:${businessId}`,
   );
-  const mine = useResource((signal) => api.query('agents', 'own.list', { limit: 50 }, ownAgentsSchema, { signal }), 'agents-team-own');
+  const mine = useResource((signal) => api.call(AGENTS_OWN_LIST, { limit: 50 }, { signal }), 'agents-team-own');
   const agents = mine.resource.status === 'ready' ? mine.resource.data : [];
   const [agentId, setAgentId] = useState('');
   const agent = agents.find((a) => a.id === agentId) ?? agents[0];
@@ -632,27 +705,23 @@ function HeldActions({ team, name }: { team: Team; name: (userId: string) => str
     event.preventDefault();
     if (!agent) return;
     setBusy(true);
-    const result = await api.mutate(
-      'agents',
-      'team.actions.hold',
-      { businessId, agentId: agent.id, tool: chosenTool, seq: nextSeq },
-      agentsTeamHeldActionResultSchema,
-    );
+    const result = await api.call(AGENTS_TEAM_ACTIONS_HOLD, { businessId, agentId: agent.id, tool: chosenTool, seq: nextSeq });
     setBusy(false);
     setNote(result.ok ? { ok: true, text: t('heldSaved') } : { ok: false, failed: result as Refusal });
     held.reload();
   }
   async function approve(actionId: string) {
     setBusy(true);
-    const result = await api.mutate('agents', 'team.actions.approve', { businessId, actionId }, agentsTeamHeldActionResultSchema);
+    const result = await api.call(AGENTS_TEAM_ACTIONS_APPROVE, { businessId, actionId });
     setBusy(false);
     setNote(result.ok ? { ok: true, text: t('approvedSaved') } : { ok: false, failed: result as Refusal });
     held.reload();
   }
 
   return (
-    <Panel title={t('approvalsTitle')} aria-label={t('approvalsTitle')}>
-      <p className="muted">
+    <section id="agents-team-approvals" aria-label={t('approvalsTitle')}>
+      <h2>{t('approvalsTitle')}</h2>
+      <p className="lt-hint">
         <Copy k="approvalsNote" />
       </p>
       {held.resource.status === 'failed' ? (
@@ -660,7 +729,7 @@ function HeldActions({ team, name }: { team: Team; name: (userId: string) => str
           <RefusalText failed={held.resource.failure} />
         </p>
       ) : rows.length ? (
-        <DataTable label={t('heldTitle')} headers={[t('colAction'), t('colCreator'), t('colTool'), t('colStatus'), t('colApprover')]}>
+        <Grid label={t('heldTitle')} headers={[t('colAction'), t('colCreator'), t('colTool'), t('colStatus'), t('colApprover')]}>
           {rows.map((row) => (
             <tr key={row.id}>
               <th scope="row">
@@ -675,23 +744,23 @@ function HeldActions({ team, name }: { team: Team; name: (userId: string) => str
                 {row.approvedBy ? (
                   name(row.approvedBy)
                 ) : (
-                  <Button variant="secondary" disabled={busy} onClick={() => void approve(row.id)}>
+                  <Button tone="secondary" disabled={busy} onClick={() => void approve(row.id)}>
                     <Copy k="approve" />
                   </Button>
                 )}
               </td>
             </tr>
           ))}
-        </DataTable>
+        </Grid>
       ) : (
-        <EmptyState title={<Copy k="heldEmpty" />} />
+        <EmptyState title={t('heldEmpty')} />
       )}
       {agent ? (
         <form aria-label={t('proposeTitle')} onSubmit={propose}>
           <h3>
             <Copy k="proposeTitle" />
           </h3>
-          <div className="depth-filters">
+          <div className="lt-toolbar">
             <Select
               label={t('runsAgent')}
               value={agent.id}
@@ -700,13 +769,13 @@ function HeldActions({ team, name }: { team: Team; name: (userId: string) => str
             />
             <Select label={t('proposeTool')} value={chosenTool} onChange={setTool} options={agent.tools} />
           </div>
-          <Button type="submit" disabled={busy || !chosenTool || held.resource.status !== 'ready'}>
+          <Button tone="primary" type="submit" disabled={busy || !chosenTool || held.resource.status !== 'ready'}>
             <Copy k="propose" />
           </Button>
         </form>
       ) : null}
       <NoteLine note={note} />
-    </Panel>
+    </section>
   );
 }
 
@@ -715,12 +784,13 @@ function TeamUsage({ team, name }: { team: Team; name: (userId: string) => strin
   const api = useApi();
   const { Copy, t } = agentsTeamCopy.useCopy();
   const usage = useResource(
-    (signal) => api.query('agents', 'team.usage', { businessId: team.businessId }, agentsTeamUsageSchema, { signal }),
+    (signal) => api.call(AGENTS_TEAM_USAGE, { businessId: team.businessId }, { signal }),
     `agents-team-usage:${team.businessId}:${team.used}`,
   );
   return (
-    <Panel title={t('usageTitle')} aria-label={t('usageTitle')}>
-      <p className="muted">
+    <section id="agents-team-usage" aria-label={t('usageTitle')}>
+      <h2>{t('usageTitle')}</h2>
+      <p className="lt-hint">
         <Copy k="usageNote" />
       </p>
       {usage.resource.status === 'failed' ? (
@@ -728,19 +798,19 @@ function TeamUsage({ team, name }: { team: Team; name: (userId: string) => strin
           <RefusalText failed={usage.resource.failure} />
         </p>
       ) : usage.resource.status !== 'ready' ? (
-        <Loading />
+        <Skeleton shape="rows" />
       ) : (
         <UsageTable data={usage.resource.data} name={name} />
       )}
-    </Panel>
+    </section>
   );
 }
 
-function UsageTable({ data, name }: { data: z.infer<typeof agentsTeamUsageSchema>; name: (userId: string) => string }) {
+function UsageTable({ data, name }: { data: ProcedureOutput<typeof AGENTS_TEAM_USAGE>; name: (userId: string) => string }) {
   const { Copy, t } = agentsTeamCopy.useCopy();
   return (
     <>
-      <DataTable
+      <Grid
         label={t('usageTitle')}
         headers={[t('colMember'), t('colWindows'), t('colTask'), t('colTokens'), t('colTaskCost'), t('colSealedTotal')]}
       >
@@ -754,10 +824,42 @@ function UsageTable({ data, name }: { data: z.infer<typeof agentsTeamUsageSchema
             <td data-testid="usage-member-total">{`${m.sealedTotal} ${data.assetId}`}</td>
           </tr>
         ))}
-      </DataTable>
+      </Grid>
       <p>
         <Copy k="usageTotal" /> <span data-testid="usage-total">{`${data.sealedTotal} ${data.assetId}`}</span>
       </p>
+      <h3>{t('windowsTitle')}</h3>
+      <p className="lt-hint">
+        <Copy k="windowsNote" />
+      </p>
+      {data.windows.length === 0 ? (
+        <p>
+          <Copy k="windowsEmpty" />
+        </p>
+      ) : (
+        <Grid
+          label={t('windowsTitle')}
+          headers={[t('colWindowMember'), t('colWindowCost'), t('colWindowOwedBy'), t('colWindowPaid'), t('colWindowKey')]}
+        >
+          {data.windows.map((w) => (
+            <tr key={`${w.sessionId}:${w.windowId}`} data-testid="sealed-window">
+              <th scope="row">{name(w.userId)}</th>
+              <td data-testid="window-cost">{`${w.amount} ${data.assetId}`}</td>
+              <td data-testid="window-owed-by">{w.owedBy === 'business' ? t('owedByBusiness') : t('owedByMember')}</td>
+              <td data-testid="window-paid">
+                {w.payment
+                  ? t('windowPaidFrom', { label: w.payment.label, ref: w.payment.ref })
+                  : w.state === 'settled'
+                    ? t('windowPaidMember')
+                    : t('windowOwed')}
+              </td>
+              <td>
+                <code data-testid="window-charge-key">{w.chargeKey ?? ''}</code>
+              </td>
+            </tr>
+          ))}
+        </Grid>
+      )}
     </>
   );
 }

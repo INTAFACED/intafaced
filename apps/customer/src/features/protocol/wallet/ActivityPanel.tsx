@@ -1,11 +1,13 @@
 import { useMemo, useState } from 'react';
 import { formatUnits } from 'viem';
 import type { ProtocolReplacement } from '@intafaced/contracts/protocol-wallet-tx';
-import { Button, DataTable, Dialog, EmptyState, Panel } from '../../../shared/ui';
+import { Button, Tag } from '@intafaced/ui/lit';
+import { Checkbox } from '@intafaced/ui/lit/templates';
+import { DataTable, Dialog, EmptyState, Panel } from '../volt/parts';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
 import type { ApiResult } from '../../../shared/api';
-import { useApi } from '../../session/session';
+import { useApi } from '../../session';
 import { createProtocolApi } from '../api';
 import { createExplorerApi, type ExplorerAddressTxsPage } from '../explorer/explorer-api';
 import { walletCopy } from './copy';
@@ -297,26 +299,20 @@ export function ActivityPanel() {
         />
       )}
       <Panel title={tw('section_activity')}>
-        {wallet.status !== 'connected' && <p className="muted">{tw('needsWallet')}</p>}
-        <div className="protocol-actions" data-activity-filters>
-          <label className="field field--check">
-            <input type="checkbox" checked={showFailed} onChange={(event) => setShowFailed(event.target.checked)} />
-            <span>{t('activityShowFailed')}</span>
-          </label>
-          <label className="field field--check">
-            <input type="checkbox" checked={showSpam} onChange={(event) => setShowSpam(event.target.checked)} />
-            <span>{t('activityShowSpam')}</span>
-          </label>
+        {wallet.status !== 'connected' && <p className="lt-hint">{tw('needsWallet')}</p>}
+        <div className="lt-actions" data-activity-filters>
+          <Checkbox label={t('activityShowFailed')} checked={showFailed} onChange={(event) => setShowFailed(event.target.checked)} />
+          <Checkbox label={t('activityShowSpam')} checked={showSpam} onChange={(event) => setShowSpam(event.target.checked)} />
           <span data-testid="activity-count" aria-live="polite">
             {t('activityShown', { count: String(visible.length) })}
           </span>
-          <Button variant="secondary" disabled={!feed.data} onClick={exportRows}>
+          <Button tone="secondary" disabled={!feed.data} onClick={exportRows}>
             {t('activityExport')}
           </Button>
         </div>
-        <p className="muted">{t('activitySpamNote')}</p>
+        <p className="lt-hint">{t('activitySpamNote')}</p>
         {feed.data?.page.asOfHeight !== null && feed.data?.page.asOfHeight !== undefined && (
-          <p className="muted">{t('activityAsOf', { block: String(feed.data.page.asOfHeight) })}</p>
+          <p className="lt-hint">{t('activityAsOf', { block: String(feed.data.page.asOfHeight) })}</p>
         )}
         {feed.failure && (
           <p role="note" data-code={feed.failure.code}>
@@ -334,27 +330,27 @@ export function ActivityPanel() {
           ) : (
             visible.map((row) => (
               <tr key={row.hash} data-activity-row={row.hash.toLowerCase()} data-status={row.status}>
-                <td className="numeric">
+                <td className="lt-mono">
                   <a href={`/chain/tx/${row.hash}`}>{shortAddress(row.hash)}</a>
                 </td>
                 <td>{when(row.time)}</td>
                 <td>
                   {row.what}
-                  {row.spam && <span className="badge"> {t('activitySpam')}</span>}
+                  {row.spam && <Tag> {t('activitySpam')}</Tag>}
                 </td>
                 <td>{statusWords(row)}</td>
                 <td>
                   {row.status === 'pending' && row.mine && (
                     <>
-                      <Button variant="secondary" onClick={() => void openSheet({ mode: 'speedUp', row })}>
+                      <Button tone="secondary" onClick={() => void openSheet({ mode: 'speedUp', row })}>
                         {t('speedUp')}
                       </Button>{' '}
-                      <Button variant="secondary" onClick={() => void openSheet({ mode: 'cancel', row })}>
+                      <Button tone="secondary" onClick={() => void openSheet({ mode: 'cancel', row })}>
                         {t('cancel')}
                       </Button>
                     </>
                   )}
-                  {(row.status === 'confirmed' || row.status === 'failed') && <span className="muted">{t('activityFinal')}</span>}
+                  {(row.status === 'confirmed' || row.status === 'failed') && <span className="lt-hint">{t('activityFinal')}</span>}
                 </td>
               </tr>
             ))
@@ -373,38 +369,38 @@ export function ActivityPanel() {
                   ? t('sheetSpeedUpWhat', { nonce: String(built.plan.nonce) })
                   : t('sheetCancelWhat', { nonce: String(built.plan.nonce) })}
               </p>
-              <dl className="protocol-facts">
+              <dl className="lt-kv">
                 <div>
                   <dt>{t('sheetOldFee')}</dt>
-                  <dd className="numeric" data-fee="old-max">
+                  <dd className="lt-mono" data-fee="old-max">
                     {gwei(built.plan.original.maxFeePerGas)}
                   </dd>
                 </div>
                 <div>
                   <dt>{t('sheetNewFee')}</dt>
-                  <dd className="numeric" data-fee="new-max">
+                  <dd className="lt-mono" data-fee="new-max">
                     {gwei(built.plan.replacement.maxFeePerGas)}
                   </dd>
                 </div>
                 <div>
                   <dt>{t('sheetOldTip')}</dt>
-                  <dd className="numeric">{gwei(built.plan.original.maxPriorityFeePerGas)}</dd>
+                  <dd className="lt-mono">{gwei(built.plan.original.maxPriorityFeePerGas)}</dd>
                 </div>
                 <div>
                   <dt>{t('sheetNewTip')}</dt>
-                  <dd className="numeric">{gwei(built.plan.replacement.maxPriorityFeePerGas)}</dd>
+                  <dd className="lt-mono">{gwei(built.plan.replacement.maxPriorityFeePerGas)}</dd>
                 </div>
               </dl>
-              <p className="muted">
+              <p className="lt-hint">
                 {t('sheetBump', { percent: String(built.plan.bumpBps / 100), ceiling: formatUnits(BigInt(built.plan.ceilingWei), 9) })}
               </p>
             </>
           )}
-          <div className="protocol-actions">
-            <Button variant="secondary" onClick={() => setSheet(null)}>
+          <div className="lt-actions">
+            <Button tone="secondary" onClick={() => setSheet(null)}>
               {t('sheetBack')}
             </Button>
-            <Button disabled={built.status !== 'ready'} onClick={() => void confirm()}>
+            <Button tone="primary" disabled={built.status !== 'ready'} onClick={() => void confirm()}>
               {t('sheetContinue')}
             </Button>
           </div>

@@ -5,7 +5,6 @@
  *   node tooling/ci/why-red.mjs 6064            a PR number (its current head)
  *   node tooling/ci/why-red.mjs <40-char sha>   one commit
  *   node tooling/ci/why-red.mjs --orphans       every open PR nobody has pushed to since its CI run went stale
- *   node tooling/ci/why-red.mjs --self-test
  *
  * Measured on 2026-10-23 across ten thread transcripts: a red CI took 7 to 10 calls and 30-40K characters to explain,
  * because the tail of a job log is runner cleanup (Postgres checkpoints, git), so threads fetched 3,000 and then 40,000
@@ -18,6 +17,8 @@
  *   RESEAL   the review is in but the seal stayed red and the sign-off workflow could not re-run it: re-run it once.
  *   RED      the lines say what failed.
  *   SUPERSEDED  a newer push to the PR cancelled this head's run.
+ *   JUDGE DOWN  every red check stopped on GitHub's spent hourly API budget (api-budget.mjs): nothing to fix; re-run
+ *               them once after the reset, never a push (project-state AGENTS.md, "How work flows" 7).
  *
  * Before the verdict, a STALE line names any run on the head whose current attempt started more than three hours after the
  * run was made: a re-run tests the merge commit made then, against main as it was then (30 Oct: #6831, #6832 and #6834
@@ -28,16 +29,31 @@
  * #6831, #6832 and #6834 sat 10.8 hours like that after their author sessions ended at the pause; this names them in one
  * call.
  *
+ * A red "Real-app journeys" check on a PR also gets its steps from the run's merged report (the `real-app-journeys`
+ * artifact): per failed step, the test line it stopped on and what Playwright said there. CI keeps no trace (`--trace
+ * off`: a trace would carry the TEST session into a public artifact), so the report is the record. A step is marked a
+ * hypothesis unless the PR's previous head with a journeys run failed it too; when that head was red, a PREMISE line says
+ * to test what both fixes assumed before the next push (pstack attack-the-premise; on #8802 J-portfolio-01 #5 failed on
+ * three heads in a row at three different lines), and a LAST GREEN line names the PR's newest head where the check passed.
+ *
  * Read only: it changes no check and no result. A 403 or 429 from GitHub stops it (tooling/scripts/gate-gh.mjs).
  */
+import { runJobsSync } from './run-jobs.mjs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ghJson, makeGh } from '../scripts/gate-gh.mjs';
+import { BUDGET_TITLE } from './api-budget.mjs';
 
-const SEAL = 'CI merge seal';
-const REVIEW_STATUS = 'Independent review';
-const RERUN_STATUS = 'Seal re-run'; // the retired review-signoff.mjs posted it red when it could not re-run the seal; old heads may still carry it
-const REVIEW_MISSING = 'Review sign-off missing'; // the annotation title review-marker.mjs prints
+export const SEAL = 'CI merge seal';
+export const REVIEW_STATUS = 'Independent review';
+export const RERUN_STATUS = 'Seal re-run'; // the retired review-signoff.mjs posted it red when it could not re-run the seal; old heads may still carry it
+export const REVIEW_MISSING = 'Review sign-off missing'; // the annotation title review-marker.mjs prints
+export const JOURNEYS = 'Real-app journeys'; // the scoreboard job: its run's `real-app-journeys` artifact holds report.json
 const MAX_LINES = 8;
+const MAX_STEPS = 4;
+const HISTORY = 10; // earlier heads read for the previous journeys run and the last green one
 const WIDTH = 200;
 
 const GREEN = new Set(['success', 'neutral', 'skipped']);
@@ -134,8 +150,8 @@ export function collectOrphans(gh, repo) {
       runs[headSha] = { run, jobs: [] };
       continue;
     }
-    const jobs = read(`repos/${repo}/actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100`);
-    if (jobs !== undefined) runs[headSha] = { run, jobs: jobs.jobs ?? [] };
+    const jobs = runJobsSync(`repos/${repo}/actions/runs/${run.id}/attempts/${run.run_attempt}/jobs`, read);
+    if (jobs !== null) runs[headSha] = { run, jobs };
   }
   return { prs, runs };
 }
@@ -172,12 +188,161 @@ export function latestPerName(checks) {
 }
 
 /**
+ * A red check stopped on the spent hourly API budget alone: it has error lines (annotationLine) and every one says so
+ * (api-budget.mjs). One line of its own beside them (a test that failed, a step not proven) keeps it a plain red.
+ */
+export function budgetRed(anns = []) {
+  const said = anns.filter((a) => annotationLine(a));
+  // By the title our own checks write alone: a test failure that quotes GitHub's words is the change's own red (review R1).
+  const isBudget = (a) => a.title === BUDGET_TITLE;
+  return said.length > 0 && said.every(isBudget);
+}
+
+const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g'); // terminal colour codes in Playwright's messages
+
+/**
+ * Each failed journey step in a Playwright JSON report: its title, the repo path and line it stopped on, that source
+ * line, and what Playwright said (the error's first line, its Expected, Received and Locator). A timed-out step names
+ * the action it was waiting on, from the error that carries a location. `null` for no report.
+ */
+export function journeyFailures(report) {
+  if (!report) return null;
+  const out = [];
+  const walk = (suite) => {
+    for (const spec of suite.specs ?? [])
+      for (const t of spec.tests ?? []) {
+        if (t.status !== 'unexpected') continue;
+        const errors = (t.results?.at(-1)?.errors ?? []).map((e) => ({ ...e, message: String(e.message ?? '').replace(ANSI, '') }));
+        const at = errors.find((e) => e.location) ?? errors[0];
+        const lines = (at?.message ?? '').split('\n');
+        // Expected and Received before the Locator: a long locator would push them past WIDTH.
+        const part = (re) => lines.filter((l) => re.test(l)).map((l) => l.replace(/\s+/g, ' '));
+        const said = [
+          lines[0].replace(/^Error: /, ''),
+          ...part(/^Expected[\w ]*:/),
+          ...part(/^Received[\w ]*:/),
+          ...part(/^Locator:/),
+        ].join('; ');
+        const timedOut = errors.some((e) => /^Test timeout of \d+ms exceeded/.test(e.message)) && at !== errors[0];
+        out.push({
+          title: spec.title,
+          file: (at?.location?.file ?? spec.file ?? '').replace(/^.*?\/(?=(apps|services|packages|tooling)\/)/, ''),
+          line: at?.location?.line ?? null,
+          source: /^> *\d+ \| (.*)$/m.exec(at?.message ?? '')?.[1]?.trim() ?? '',
+          said: `${timedOut ? 'timed out waiting on: ' : ''}${said}`,
+        });
+      }
+    for (const child of suite.suites ?? []) walk(child);
+  };
+  for (const suite of report.suites ?? []) walk(suite);
+  return out;
+}
+
+/**
+ * The lines under a red journeys check: each failed step (hypothesis, or compared with the previous head's failure of
+ * the same step), the PREMISE line when the PR's previous head with a journeys run was red, and the LAST GREEN head.
+ * @param {{ failures: ReturnType<typeof journeyFailures>, prev?: { sha: string, conclusion: string, failures: any[] | null } | null,
+ *   green?: string | null, read?: number }} j
+ */
+export function journeyLines({ failures, prev = null, green = null, read = 0 }) {
+  const out = [];
+  const cut = (l) => l.slice(0, WIDTH);
+  if (failures === null) out.push('         the run kept no journeys report (shards cancelled, or the artifact expired): no step to name');
+  for (const f of (failures ?? []).slice(0, MAX_STEPS)) {
+    out.push(cut(`STEP     ${f.title}`));
+    out.push(cut(`         ${f.file}:${f.line ?? '?'}: ${f.source}`));
+    out.push(cut(`         ${f.said}`));
+    const before = prev?.failures?.find((p) => p.title === f.title);
+    out.push(
+      cut(
+        before
+          ? `         compared: it failed on ${prev.sha.slice(0, 12)} too, at ${before.file}:${before.line ?? '?'}: ${before.said}`
+          : "         hypothesis: where it stopped, not yet why (no earlier head's failure of this step to compare)",
+      ),
+    );
+  }
+  if ((failures?.length ?? 0) > MAX_STEPS) out.push(`         ... ${failures.length - MAX_STEPS} more steps failed`);
+  if (prev?.conclusion === 'failure') {
+    const same = (failures ?? []).filter((f) => prev.failures?.some((p) => p.title === f.title)).length;
+    out.push(
+      cut(
+        `PREMISE  ${JOURNEYS} was red on the previous head ${prev.sha.slice(0, 12)} too${same ? ` (${same} of these steps)` : ''}: the fix since did not hold. Write down what both fixes assumed and test it before the next push.`,
+      ),
+    );
+  }
+  if (read > 0)
+    out.push(
+      green
+        ? `LAST GREEN  ${JOURNEYS} passed on this PR at ${green.slice(0, 12)}`
+        : `LAST GREEN  none: ${JOURNEYS} passed on none of the ${read} earlier heads read`,
+    );
+  return out;
+}
+
+/** A run's merged journeys report (report.json in its `real-app-journeys` artifact), or null when it kept none. */
+export function readJourneyReport(gh, repo, runId) {
+  const dir = mkdtempSync(join(tmpdir(), 'why-red-'));
+  try {
+    const r = gh(['run', 'download', String(runId), '-R', repo, '-n', 'real-app-journeys', '-D', dir], { allowFail: true });
+    return r.status === 0 ? JSON.parse(readFileSync(join(dir, 'report.json'), 'utf8')) : null;
+  } catch (e) {
+    if (e?.name === 'GitHubRefusalError') throw e;
+    return null;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** A head's finished journeys runs (success or failure), newest first; a cancelled PR run that a hand-run stood for is not one. */
+function journeyRuns(gh, repo, sha) {
+  const runs = ghJson(gh, ['api', `repos/${repo}/actions/workflows/real-app-journeys.yml/runs?head_sha=${sha}&per_page=20`]);
+  return (runs.workflow_runs ?? []).filter((r) => r.status === 'completed' && ['success', 'failure'].includes(r.conclusion));
+}
+
+/**
+ * journeyLines' input for a red journeys check on PR `pr`: the failures of the head's red run that kept a report (the
+ * check's own run first: a PR run whose shards were cancelled keeps none, while the hand-run on that head does), then
+ * the PR's earlier heads newest first (at most HISTORY) for the nearest with a finished journeys run and the nearest
+ * green one.
+ */
+export function collectJourneys(gh, repo, pr, sha, runId) {
+  const reds = journeyRuns(gh, repo, sha)
+    .filter((r) => r.conclusion === 'failure')
+    .map((r) => String(r.id));
+  let failures = null;
+  for (const id of new Set([runId, ...reds].filter(Boolean))) if ((failures = journeyFailures(readJourneyReport(gh, repo, id)))) break;
+  const shas = ghJson(gh, ['api', `repos/${repo}/pulls/${pr}/commits?per_page=100`]).map((c) => c.sha);
+  const earlier = shas
+    .slice(0, Math.max(0, shas.indexOf(sha)))
+    .reverse()
+    .slice(0, HISTORY);
+  let prev = null;
+  let green = null;
+  let read = 0;
+  for (const s of earlier) {
+    read++;
+    const run = journeyRuns(gh, repo, s)[0];
+    if (!run) continue;
+    prev ??= {
+      sha: s,
+      conclusion: run.conclusion,
+      failures: run.conclusion === 'failure' ? journeyFailures(readJourneyReport(gh, repo, run.id)) : [],
+    };
+    if (run.conclusion === 'success') {
+      green = s;
+      break;
+    }
+  }
+  return { failures, prev, green, read };
+}
+
+/**
  * The verdict and its lines.
  * @param {{ sha: string, checks: Array<{id:number,name:string,status:string,conclusion:string|null}>,
  *   annotations: Record<number, object[]>, failedSteps: Record<number, string[]>,
  *   statuses: Array<{context:string,state:string}> }} input
  */
-export function summarize({ sha, checks: all, annotations, failedSteps, statuses, runs }) {
+export function summarize({ sha, checks: all, annotations, failedSteps, statuses, runs, journeys = {} }) {
   const checks = latestPerName(all);
   const out = [];
   const running = checks.filter((c) => c.status !== 'completed');
@@ -227,6 +392,7 @@ export function summarize({ sha, checks: all, annotations, failedSteps, statuses
           : `         no error lines and no failed step (job ${c.id})`,
       );
     }
+    if (journeys[c.id]) out.push(...journeyLines(journeys[c.id]));
   }
   for (const s of redStatuses) out.push(`RED      status ${s.context}`);
 
@@ -239,7 +405,13 @@ export function summarize({ sha, checks: all, annotations, failedSteps, statuses
     others.every(
       (c) => c.conclusion === 'cancelled' && (annotations[c.id] ?? []).some((a) => /higher priority waiting request/.test(a.message ?? '')),
     );
+  // Every red stopped on the budget (none of its own beside it): a judge down, never a red to push for.
+  const budgetOnly = red.length > 0 && redStatuses.length === 0 && red.every((c) => budgetRed(annotations[c.id]));
   if (superseded) out.push("SUPERSEDED: a newer push cancelled this head's run; read the PR's current head instead.");
+  else if (budgetOnly)
+    out.push(
+      "JUDGE DOWN: GitHub's hourly API budget was spent when these checks ran, so they stopped before judging. Nothing to fix in the code and nothing to push: re-run the failed jobs once after the reset (the lines name it when GitHub said; it comes within the hour): `gh run rerun <run> --failed`.",
+    );
   else if (redStatuses.length > 0 || others.length > 0 || (seal && !sealOnlyReview)) out.push('RED: fix what the lines above name.');
   else if (red.length === 0 && running.length === 0)
     out.push(sealSeen ? 'GREEN: every check passed on this head.' : `RUNNING: the "${SEAL}" has not reported on this head yet.`);
@@ -293,192 +465,11 @@ export function collect(gh, repo, ref) {
     const r = gh(['api', `repos/${repo}/actions/runs/${id}`], { allowFail: true });
     runs[id] = r.status === 0 ? JSON.parse(r.stdout) : null; // a failed read is not asked again
   }
-  return { sha, checks, annotations, failedSteps, statuses, runs };
-}
-
-function selfTest() {
-  const assert = (cond, msg) => {
-    if (!cond) throw new Error(`why-red self-test: ${msg}`);
-  };
-  const sha = 'a'.repeat(40);
-  const fail = (message, extra = {}) => ({ annotation_level: 'failure', path: '.github', message, ...extra });
-  const ok = (id, name) => ({ id, name, status: 'completed', conclusion: 'success' });
-  const red = (id, name) => ({ id, name, status: 'completed', conclusion: 'failure' });
-  const review = fail(`No success status "Independent review" on ${sha}.`, { title: REVIEW_MISSING });
-  const last = (r) => r[r.length - 1];
-
-  assert(annotationLine(fail('Process completed with exit code 1.')) === null, 'drops the exit-code boilerplate');
-  assert(annotationLine({ annotation_level: 'notice', message: 'ubuntu-latest will migrate' }) === null, 'drops notices');
-  assert(
-    annotationLine(fail('command (/home/runner/work/x/x/services/svc-support) /bin/pnpm run typecheck exited (1)')) ===
-      'svc-support: typecheck failed (exit 1)',
-    'names the package a turbo task failed in',
-  );
-  assert(
-    annotationLine(fail('AssertionError: expected false', { path: 'packages/config/a.test.ts', start_line: 281 })) ===
-      'packages/config/a.test.ts:281 AssertionError: expected false',
-    'keeps the file and line',
-  );
-
-  const base = { sha, annotations: {}, failedSteps: {}, statuses: [] };
-  assert(last(summarize({ ...base, checks: [ok(1, 'Format'), ok(2, SEAL)] })).startsWith('GREEN'), 'all green');
-  assert(last(summarize({ ...base, checks: [] })).startsWith('RUNNING'), 'no checks yet is not green');
-  assert(last(summarize({ ...base, checks: [ok(1, 'Gate-file guard')] })).startsWith('RUNNING'), 'green without the seal is not green');
-  assert(
-    last(summarize({ ...base, checks: [ok(1, 'Format'), { id: 2, name: 'Tests', status: 'in_progress', conclusion: null }] })).startsWith(
-      'RUNNING',
-    ),
-    'running',
-  );
-
-  const onlyReview = {
-    ...base,
-    checks: [ok(1, 'Format'), red(2, SEAL)],
-    annotations: { 2: [review, fail('Process completed with exit code 1.')] },
-  };
-  assert(last(summarize(onlyReview)).startsWith('REVIEW'), 'a seal red only for the review says so');
-  assert(!summarize(onlyReview).some((l) => l.startsWith('RED ')), 'and lists nothing as red');
-  assert(
-    last(summarize({ ...onlyReview, statuses: [{ context: REVIEW_STATUS, state: 'success' }] })).startsWith('REVIEW'),
-    'a review status alone is still a REVIEW red',
-  );
-  assert(
-    last(summarize({ ...onlyReview, statuses: [{ context: REVIEW_STATUS, state: 'success' }] })).includes('no longer reads statuses'),
-    'and says a status no longer seals: the CI review job does',
-  );
-  assert(
-    last(summarize({ ...onlyReview, statuses: [{ context: RERUN_STATUS, state: 'failure' }] })).startsWith('RESEAL'),
-    'a failed sign-off re-run asks for one re-run by hand',
-  );
-  const reviewAndRunning = {
-    ...onlyReview,
-    checks: [...onlyReview.checks, { id: 6, name: 'Gitleaks', status: 'in_progress', conclusion: null }],
-  };
-  assert(last(summarize(reviewAndRunning)).startsWith('RUNNING'), 'never "nothing to fix" while another check still runs');
-  const sealWaiting = { ...base, checks: [ok(1, 'Format'), { id: 2, name: SEAL, status: 'in_progress', conclusion: null }] };
-  assert(last(summarize(sealWaiting)).includes('waiting for the independent review'), 'a running seal alone may be the review wait');
-
-  // Never "nothing to fix" while anything else is red, or while the seal is red for another reason.
-  const testsRed = {
-    ...onlyReview,
-    checks: [...onlyReview.checks, red(3, 'Tests (changed)')],
-    annotations: { ...onlyReview.annotations, 3: [fail(' FAIL  src/a.test.ts > b')] },
-  };
-  const r = summarize(testsRed);
-  assert(last(r).startsWith('RED'), 'a red job beside the review wait is RED');
-  assert(
-    r.some((l) => l.includes('FAIL src/a.test.ts > b')),
-    'and names the failing test',
-  );
-  const sealOther = { ...base, checks: [red(2, SEAL)], annotations: { 2: [review, fail('needed job build: failure')] } };
-  assert(last(summarize(sealOther)).startsWith('RED'), 'a seal red for another reason is RED');
-  const sealBare = { ...base, checks: [red(2, SEAL)], annotations: { 2: [fail('Process completed with exit code 1.')] } };
-  assert(last(summarize(sealBare)).startsWith('RED'), 'a seal red with no review annotation is RED');
-  const cancelled = { ...base, checks: [{ ...red(4, 'Tests (1)'), conclusion: 'cancelled' }] };
-  assert(last(summarize(cancelled)).startsWith('RED'), 'cancelled is not green');
-  const statusRed = { ...base, checks: [ok(1, 'Format')], statuses: [{ context: 'Gitleaks', state: 'failure' }] };
-  assert(
-    summarize(statusRed).some((l) => l.includes('status Gitleaks')),
-    'a red commit status is listed',
-  );
-  assert(
-    last(summarize({ ...statusRed, checks: [ok(1, 'Format'), ok(2, SEAL)] })).startsWith('RED'),
-    'a red commit status makes the verdict RED, never GREEN',
-  );
-  const sealFirst = summarize({ ...testsRed, checks: [red(2, SEAL), ok(1, 'Format'), red(3, 'Tests (changed)')] });
-  assert(
-    sealFirst.findIndex((l) => l.includes(SEAL)) > sealFirst.findIndex((l) => l.includes('Tests (changed)')),
-    'the seal prints after the jobs it follows',
-  );
-
-  const cancelledByPush = fail('Canceling since a higher priority waiting request for CI-refs/pull/1/merge exists');
-  const supersededRun = summarize({
-    ...base,
-    checks: [{ ...red(10, 'Tests (1/8)'), conclusion: 'cancelled' }, red(2, SEAL)],
-    annotations: { 10: [cancelledByPush], 2: [fail('needed job tests-full: cancelled')] },
-  });
-  assert(last(supersededRun).startsWith('SUPERSEDED'), 'a run cancelled by a newer push says so');
-  assert(last(summarize(cancelled)).startsWith('RED'), 'a cancel for another reason stays RED');
-
-  const rerun = summarize({
-    ...base,
-    checks: [
-      { ...red(7, 'Gate-file guard'), started_at: '2026-10-23T09:00:00Z' },
-      { ...ok(8, 'Gate-file guard'), started_at: '2026-10-23T09:05:00Z' },
-      ok(2, SEAL),
-    ],
-  });
-  assert(last(rerun).startsWith('GREEN'), 'a check that failed and then passed on a later run is green');
-  const rerunRed = summarize({
-    ...base,
-    checks: [
-      { ...ok(8, 'Gate-file guard'), started_at: '2026-10-23T09:00:00Z' },
-      { ...red(9, 'Gate-file guard'), started_at: '2026-10-23T09:05:00Z' },
-      ok(2, SEAL),
-    ],
-  });
-  assert(last(rerunRed).startsWith('RED'), 'a check that passed and then failed on a later run is red');
-
-  const bare = summarize({
-    ...base,
-    checks: [red(5, 'Doctrine gates')],
-    failedSteps: { 5: ['Doctrine gates (the same list `pnpm verify` runs)'] },
-  });
-  assert(
-    bare.some((l) => l.includes('failed step: Doctrine gates')),
-    'a red job with no annotations names its failed step',
-  );
-  const job = (id, name, run, status = 'in_progress', conclusion = null) => ({
-    id,
-    name,
-    status,
-    conclusion,
-    details_url: `https://github.com/o/r/actions/runs/${run}/job/${id}`,
-  });
-  const old = { event: 'pull_request', run_attempt: 3, created_at: '2026-10-30T02:47:29Z', run_started_at: '2026-10-30T13:35:00Z' };
-  const stale = summarize({ ...base, checks: [job(9, 'Tests (changed)', 40993723454)], runs: { 40993723454: old } });
-  assert(
-    stale.some((l) => l.startsWith('STALE    run 40993723454') && l.includes('attempt 3')),
-    'an old pull_request run re-run hours later is named stale (#6832, 30 Oct)',
-  );
-  assert(runIdOf({ details_url: 'https://github.com/o/r/actions/runs/77/job/2' }) === '77', 'reads the run id');
-  const at = (over) => ({ 1: { ...old, ...over } });
-  const testsJob = [job(5, 'Tests (changed)', 1)];
-  assert(staleLines(at({ run_started_at: '2026-10-30T03:30:00Z' }), testsJob).length === 0, 'a prompt confirmation re-run is not stale');
-  assert(staleLines(at({ run_attempt: 1 }), testsJob).length === 0, 'a first attempt that waited in the queue is not stale');
-  assert(staleLines(at({ event: 'push' }), testsJob).length === 0, 'a push run has no merge commit to go stale');
-  assert(staleLines(at({}), [job(6, SEAL, 1)]).length === 0, "the sign-off workflow's re-run of the seal is not stale");
-  assert(staleLines(at({}), [job(5, 'Tests (changed)', 1, 'completed', 'success')]).length === 0, 'a green run needs no advice');
-  assert(staleLines({ 1: null }, testsJob).length === 0, 'an unread run says nothing');
-  const now = Date.parse('2026-10-30T13:40:00Z');
-  const pr = { number: 6832, title: 'feat: x', headSha: 'b'.repeat(40) };
-  const run = { id: 40993723454, created_at: '2026-10-30T02:47:29Z', run_started_at: '2026-10-30T13:16:00Z', run_attempt: 3 };
-  const testsRerun = [
-    { name: 'Tests (changed)', run_attempt: 3 },
-    { name: SEAL, run_attempt: 3 },
-  ];
-  const orphan = (over = {}, jobs = testsRerun) => orphanLines([pr], { [pr.headSha]: { run: { ...run, ...over }, jobs } }, now);
-  assert(
-    orphan()[0].startsWith('ORPHAN   #6832 CI run 40993723454 was made 10.9h ago'),
-    'an old run re-run with no push is an orphan (#6832, 30 Oct)',
-  );
-  const clean = (lines) => lines.length === 1 && lines[0].startsWith('NO ORPHANS');
-  assert(clean(orphan({ run_attempt: 1 })), 'an old PR nobody re-ran is only waiting');
-  assert(clean(orphan({ created_at: '2026-10-30T12:00:00Z' })), 'a recent push is not an orphan');
-  assert(clean(orphan({ run_started_at: '2026-10-30T03:00:00Z' })), 'a prompt confirmation re-run is not an orphan');
-  assert(
-    clean(
-      orphan({}, [
-        { name: 'Tests (changed)', run_attempt: 1 },
-        { name: SEAL, run_attempt: 3 },
-      ]),
-    ),
-    "the sign-off workflow's seal re-run is not an orphan",
-  );
-  assert(clean(orphanLines([pr], { [pr.headSha]: null }, now)), 'a head with no CI run says nothing');
-  const unread = orphanLines([pr], {}, now);
-  assert(unread.length === 1 && unread[0].startsWith('UNREAD   the CI runs of #6832'), 'an unread head is named, never passed as fine');
-  console.log('why-red self-test ok');
+  // A red journeys check on a PR: its failed steps from the run's report, and the PR's earlier heads of that check.
+  const journeys = {};
+  for (const c of latestPerName(checks).filter((c) => c.name === JOURNEYS && c.status === 'completed' && c.conclusion === 'failure'))
+    if (/^\d+$/.test(String(ref))) journeys[c.id] = collectJourneys(gh, repo, ref, sha, runIdOf(c));
+  return { sha, checks, annotations, failedSteps, statuses, runs, journeys };
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
@@ -487,12 +478,10 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const repo = ri >= 0 ? (args[ri + 1] ?? '') : 'INTAFACED/intafaced';
   const ref = args.find((a, i) => !a.startsWith('--') && (ri < 0 || i !== ri + 1));
   const usage = () => {
-    console.error('usage: why-red.mjs <PR number | 40-char sha> [--repo owner/name] | --orphans [--repo owner/name] | --self-test');
+    console.error('usage: why-red.mjs <PR number | 40-char sha> [--repo owner/name] | --orphans [--repo owner/name]');
     process.exit(2);
   };
-  if (args.includes('--self-test')) {
-    selfTest();
-  } else if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) {
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) {
     usage();
   } else if (args.includes('--orphans')) {
     if (ref) usage();

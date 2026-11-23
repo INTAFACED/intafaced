@@ -1,17 +1,17 @@
 import { TRPCError } from '@trpc/server';
+import { supportMacroSaveInputSchema, supportMacroSchema } from '@intafaced/contracts/support-macros';
+import { scopedProcedure } from '@intafaced/contracts/trpc';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import {
-  scopedProcedure,
-  supportMacroAppliedSchema,
-  supportMacroApplyInputSchema,
-  supportMacroListSchema,
-  supportMacroSaveInputSchema,
-  supportMacroSchema,
-  supportSignatureSchema,
-  supportSignatureSetInputSchema,
-} from '@intafaced/contracts';
+  SUPPORT_DESK_MACRO_APPLY,
+  SUPPORT_DESK_MACROS,
+  SUPPORT_DESK_SIGNATURE,
+  SUPPORT_DESK_SIGNATURE_SET,
+} from '@intafaced/contracts/support-desk-procedures';
 import { MacroError, type DeskMacros } from './desk-macros.js';
 import { requireSupportOps } from './support-service.js';
 import { mapError } from './router.js';
+import { supportRefusal } from './record-refusal.js';
 import { userCopy } from './user-copy.js';
 
 /**
@@ -20,12 +20,14 @@ import { userCopy } from './user-copy.js';
  */
 export function macroProcedures(macros: DeskMacros) {
   return {
-    macros: scopedProcedure('support:ops')
-      .output(supportMacroListSchema)
-      .query(async ({ ctx }) => {
-        requireSupportOps(ctx.principal!);
+    macros: mountRecord(
+      SUPPORT_DESK_MACROS,
+      async ({ ctx }) => {
+        requireSupportOps(ctx.principal);
         return { macros: await macros.list() };
-      }),
+      },
+      supportRefusal,
+    ),
 
     macroSave: scopedProcedure('support:ops')
       .input(supportMacroSaveInputSchema)
@@ -40,36 +42,40 @@ export function macroProcedures(macros: DeskMacros) {
       }),
 
     /** The macro filled from this request. Writes nothing; the agent sends the reply themselves. */
-    macroApply: scopedProcedure('support:ops')
-      .input(supportMacroApplyInputSchema)
-      .output(supportMacroAppliedSchema)
-      .query(async ({ ctx, input }) => {
-        requireSupportOps(ctx.principal!);
+    macroApply: mountRecord(
+      SUPPORT_DESK_MACRO_APPLY,
+      async ({ ctx, input }) => {
+        requireSupportOps(ctx.principal);
         try {
-          return await macros.apply(ctx.principal!.userId, input);
+          return await macros.apply(ctx.principal.userId, input);
         } catch (err) {
-          mapMacro(err);
+          throw macroRefusal(err);
         }
-      }),
+      },
+      supportRefusal,
+    ),
 
-    signature: scopedProcedure('support:ops')
-      .output(supportSignatureSchema)
-      .query(async ({ ctx }) => {
-        requireSupportOps(ctx.principal!);
-        return macros.signature(ctx.principal!.userId);
-      }),
+    signature: mountRecord(
+      SUPPORT_DESK_SIGNATURE,
+      ({ ctx }) => {
+        requireSupportOps(ctx.principal);
+        return macros.signature(ctx.principal.userId);
+      },
+      supportRefusal,
+    ),
 
-    signatureSet: scopedProcedure('support:ops')
-      .input(supportSignatureSetInputSchema)
-      .output(supportSignatureSchema)
-      .mutation(async ({ ctx, input }) => {
-        requireSupportOps(ctx.principal!);
+    signatureSet: mountRecord(
+      SUPPORT_DESK_SIGNATURE_SET,
+      async ({ ctx, input }) => {
+        requireSupportOps(ctx.principal);
         try {
-          return await macros.setSignature(ctx.principal!.userId, input);
+          return await macros.setSignature(ctx.principal.userId, input);
         } catch (err) {
-          mapMacro(err);
+          throw macroRefusal(err);
         }
-      }),
+      },
+      supportRefusal,
+    ),
   };
 }
 
@@ -84,8 +90,16 @@ const HTTP: Record<string, TRPCError['code']> = {
   'support.macro_placeholder_blank': 'BAD_REQUEST',
 };
 
-/** A macro refusal keeps its own code in the message, as the desk's other refusals do; every other refusal maps as the desk's do. */
+/** A macro refusal in its wire form: its own code in the message and the cause, as the desk's other refusals are. Anything else is left as it is. */
+function macroRefusal(err: unknown): unknown {
+  return err instanceof MacroError
+    ? new TRPCError({ code: HTTP[err.code] ?? 'BAD_REQUEST', message: userCopy(err.code), cause: err })
+    : err;
+}
+
+/** For a door not mounted from a record: a macro refusal as above, every other refusal as the desk's are. */
 function mapMacro(err: unknown): never {
-  if (err instanceof MacroError) throw new TRPCError({ code: HTTP[err.code] ?? 'BAD_REQUEST', message: userCopy(err.code), cause: err });
+  const refusal = macroRefusal(err);
+  if (refusal !== err) throw refusal;
   return mapError(err);
 }

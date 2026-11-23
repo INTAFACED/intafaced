@@ -1,6 +1,6 @@
-import { searchTerm, type AccountSearchTerm } from '@/lib/account-search/search';
-import { LOOKUP_KEY_MAX, LOOKUP_TX_ID, lookupQuery, type LedgerLookupQuery } from '@/lib/ledger/lookup';
-import { transferIdOf } from '@/lib/ops-desk/transfer-id';
+import { searchTerm, type AccountSearchTerm } from '@/lib/account-search';
+import { LOOKUP_KEY_MAX, LOOKUP_TX_ID, lookupQuery, type LedgerLookupQuery } from '@/lib/ledger-lookup';
+import { transferIdOf } from '@/lib/transfer-id';
 
 /**
  * The console's cross-desk search (OPS-payments-desk-01, ops-console-payments-desk-016): one box that asks each desk that can

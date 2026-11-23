@@ -4,7 +4,7 @@ import type {
   CustodyTaskStatus,
   CustodyTaskView,
 } from '@intafaced/contracts/custody-approval-tasks';
-import type { Gate } from '@/lib/desk/desk-model';
+import type { Gate } from '@/lib/desk';
 
 /** The shapes svc-pay publishes under `founderAdmin.custody.*`, from contracts. Types only: client code never loads the schemas. */
 export type TaskStatus = CustodyTaskStatus;

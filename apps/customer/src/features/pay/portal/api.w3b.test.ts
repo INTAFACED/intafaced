@@ -11,7 +11,7 @@ function harness(reply: (call: Call) => { status?: number; body: unknown }) {
     calls.push(call);
     const { status = 200, body } = reply(call);
     return new Response(JSON.stringify(body), { status });
-  }) as unknown as typeof fetch;
+  }) as typeof fetch;
   return { calls, portal: createPortalApi(createApiClient({ fetch: fetcher }), 'user-1') };
 }
 const ok = (data: unknown) => ({ body: { result: { data } } });
@@ -42,11 +42,14 @@ const APPROVAL = {
   assetCode: 'USDT',
   payloadHash: `sha256:${'a'.repeat(64)}`,
   status: 'pending',
-  makerUserId: 'u1',
+  makerUserId: 'b1111111-1111-4111-8111-111111111111',
   checkerUserId: null,
   createdAt: '2026-10-15T00:00:00.000Z',
   decidedAt: null,
   expiresAt: '2026-10-16T00:00:00.000Z',
+  railId: 'crypto-native',
+  destinationKind: 'crypto',
+  destinationMasked: '0x7a3f…4421',
 };
 
 describe('portal api (W3b reads)', () => {
@@ -229,7 +232,7 @@ describe('portal api (payout decisions)', () => {
   });
   it('refuses without a session before any request leaves', async () => {
     const calls: unknown[] = [];
-    const api = createApiClient({ fetch: (async (...a: unknown[]) => (calls.push(a), new Response('{}'))) as unknown as typeof fetch });
+    const api = createApiClient({ fetch: (async (...a: unknown[]) => (calls.push(a), new Response('{}'))) as typeof fetch });
     const portal = createPortalApi(api, null);
     expect((await portal.payments(M, '', 25)).ok).toBe(false);
     expect(

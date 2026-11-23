@@ -2,6 +2,23 @@ import path from 'node:path';
 import { loadProfile } from '../owner-settings.mjs';
 import { NAVIGATOR_SIGNER_URL, TEST_CHAIN_ID } from '../local-test-chain.mjs';
 
+/**
+ * The stack's empty-catalogue profile: `LOCAL_STACK_AGENTS_CATALOGUE=off` on a start or restart of agents runs svc-agents
+ * on a database of its own, made new on each such start: svc-agents' migrations, then, once the service is up, every
+ * agent its boot stored taken out again, so the stored catalogue holds none (local-test-stack.mjs
+ * resetAgentsEmptyCatalogue, emptyAgentsCatalogue). Agents can then be seen with none published (J-agents-01 #1) while
+ * the shared stack's agents stay where they are. The stack records which database agents runs on, and a start that wants
+ * the other one restarts agents onto it.
+ */
+export const AGENTS_EMPTY_CATALOGUE_DB = 'intafaced_local_test_agents_empty';
+export const agentsCatalogueOff = (env = process.env) => env.LOCAL_STACK_AGENTS_CATALOGUE === 'off';
+/** `url` with its database name replaced by the empty-catalogue database's; the role, password, host, port and query stay. */
+export function onEmptyAgentsDb(url) {
+  const u = new URL(url);
+  u.pathname = `/${AGENTS_EMPTY_CATALOGUE_DB}`;
+  return u.toString();
+}
+
 /** One labelled TEST value from this service's profile file; a missing one names the file instead of a bare TypeError. */
 function testValue(name) {
   const entry = loadProfile().values[name];
@@ -100,9 +117,12 @@ export function navigatorTrading(chain) {
 
 export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, testChain }) => ({
   name: 'agents',
+  // The Rust binary (crates/svc-agents), built by the stack (ensureRustBinaries); it applies its own migrations
+  // (`svc-agents migrate`).
+  rust: true,
   env: () => ({
     ...c('svc-agents', PORTS.agents),
-    DATABASE_URL: dbUrl('svc_agents', secrets),
+    DATABASE_URL: agentsCatalogueOff() ? onEmptyAgentsDb(dbUrl('svc_agents', secrets)) : dbUrl('svc_agents', secrets),
     LEDGER_URL: urlOf('ledger'),
     IDENTITY_URL: urlOf('identity'),
     ACADEMY_URL: urlOf('academy'),
@@ -132,6 +152,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, testChain }) => ({
     // LOCAL TEST background test runs of an own agent, slow enough to be quarantined mid-run (J-agents-14 #3).
     AGENTS_BACKGROUND_TEST_STEPS: testValue('AGENTS_BACKGROUND_TEST_STEPS'),
     AGENTS_BACKGROUND_STEP_MS: testValue('AGENTS_BACKGROUND_STEP_MS'),
+    AGENTS_SESSION_RUN_MAX_STEPS: testValue('AGENTS_SESSION_RUN_MAX_STEPS'),
+    // LOCAL TEST uncertainty scale of a Navigator research answer (J-agents-10 #4); production leaves it blank and an answer
+    // about a market refuses agents.uncertainty_scale_unset before the engine.
+    AGENTS_RESEARCH_UNCERTAINTY_SCALE: testValue('AGENTS_RESEARCH_UNCERTAINTY_SCALE'),
     // LOCAL TEST managed baseline for own agents' tools (J-agents-05 #1). `LOCAL_STACK_AGENTS_POLICY_BASELINE=off` leaves
     // it blank, so every own-agent tool call refuses agents.baseline_value_unset.
     ...(process.env.LOCAL_STACK_AGENTS_POLICY_BASELINE === 'off' ? {} : { AGENTS_POLICY_BASELINE: testValue('AGENTS_POLICY_BASELINE') }),
@@ -160,6 +184,13 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, testChain }) => ({
     ...(process.env.LOCAL_STACK_AGENTS_NAVIGATOR_SIGNER === 'off'
       ? {}
       : { AGENTS_NAVIGATOR_ONCHAIN_SIGNER: testValue('AGENTS_NAVIGATOR_ONCHAIN_SIGNER') }),
+    // LOCAL TEST schedules of own agents (J-agents-07 #1 to #4): the owner's cadence values, and two due-run workers waking
+    // together every tick. Production leaves all four blank until the owner sets them: a new schedule refuses
+    // agents.schedule_cadence_unset and nothing runs on a clock.
+    AGENTS_SCHEDULE_MIN_INTERVAL_MINUTES: testValue('AGENTS_SCHEDULE_MIN_INTERVAL_MINUTES'),
+    AGENTS_SCHEDULE_DAILY_LIMIT: testValue('AGENTS_SCHEDULE_DAILY_LIMIT'),
+    AGENTS_SCHEDULE_TICK_MS: testValue('AGENTS_SCHEDULE_TICK_MS'),
+    AGENTS_SCHEDULE_WORKERS: testValue('AGENTS_SCHEDULE_WORKERS'),
     ...engine(STATE),
     ...paymentToken(testChain?.() ?? null),
     ...navigatorTrading(testChain?.() ?? null),

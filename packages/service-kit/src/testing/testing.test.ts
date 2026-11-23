@@ -5,7 +5,18 @@ import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { TRPCError } from '@intafaced/contracts';
 import { defineRefusals } from '../refusals.js';
-import { edgeCallers, expectRefusal, refusalCodeOf, serviceMigrations, TEST_USER, testAdminUrl } from './index.js';
+import {
+  edgeCallers,
+  expectRefusal,
+  fakeFetch,
+  fakeSql,
+  partial,
+  refusalCodeOf,
+  serviceMigrations,
+  TEST_USER,
+  testAdminUrl,
+  tick,
+} from './index.js';
 
 function fakeService(): string {
   const root = mkdtempSync(join(tmpdir(), 'service-kit-'));
@@ -86,5 +97,71 @@ describe('expectRefusal', () => {
     expect(refusalCodeOf(new TRPCError({ code: 'NOT_FOUND', cause: new Error('plain') }))).toBeUndefined();
     expect(refusalCodeOf(new TRPCError({ code: 'NOT_FOUND' }))).toBeUndefined();
     expect(refusalCodeOf('nothing')).toBeUndefined();
+  });
+});
+
+describe('edgeCallers.hmacSigned', () => {
+  const callers = edgeCallers({ serviceName: 'svc-kit-test', scopes: ['admin:read'] });
+
+  it('is a signed context that also names this service as the caller', () => {
+    const ctx = callers.hmacSigned();
+    expect(ctx.service).toBe('svc-kit-test');
+    expect(ctx.principal?.userId).toBe(TEST_USER);
+    expect(ctx.principal?.scopes).toEqual(['admin:read']);
+  });
+
+  it('names another service when asked, and keeps the principal it was given', () => {
+    const ctx = callers.hmacSigned({ scopes: ['x'] }, 'svc-other');
+    expect(ctx.service).toBe('svc-other');
+    expect(ctx.principal?.scopes).toEqual(['x']);
+  });
+});
+
+describe('fakeSql', () => {
+  it('answers every query with the rows it was given, whatever the query', async () => {
+    const sql = fakeSql<(...args: unknown[]) => Promise<unknown[]>>([{ id: 1 }]);
+    await expect(sql(['select 1'])).resolves.toEqual([{ id: 1 }]);
+    await expect(sql(['select 2'])).resolves.toEqual([{ id: 1 }]);
+  });
+
+  it('answers with no rows by default', async () => {
+    await expect(fakeSql<() => Promise<unknown[]>>()()).resolves.toEqual([]);
+  });
+});
+
+describe('fakeFetch', () => {
+  it('records each call in order and answers it', async () => {
+    const { fetch, calls } = fakeFetch((call, n) => new Response(JSON.stringify({ n, url: call.url }), { status: n === 1 ? 200 : 503 }));
+    const a = await fetch('http://a.test/x', { method: 'POST' });
+    const b = await fetch(new URL('http://b.test/y'));
+    expect(a.status).toBe(200);
+    expect(await a.json()).toEqual({ n: 1, url: 'http://a.test/x' });
+    expect(b.status).toBe(503);
+    expect(calls.map((c) => c.url)).toEqual(['http://a.test/x', 'http://b.test/y']);
+    expect(calls[0]?.init?.method).toBe('POST');
+  });
+});
+
+describe('partial', () => {
+  it('returns the very object it was given, typed as the whole', () => {
+    interface Port {
+      read(): number;
+      write(n: number): void;
+    }
+    const x = { read: () => 7 };
+    const port = partial<Port>(x);
+    expect(port).toBe(x);
+    expect(port.read()).toBe(7);
+  });
+});
+
+describe('tick', () => {
+  it('runs queued timers before it resolves', async () => {
+    let ran = false;
+    setTimeout(() => {
+      ran = true;
+    }, 0);
+    await tick();
+    expect(ran).toBe(true);
   });
 });

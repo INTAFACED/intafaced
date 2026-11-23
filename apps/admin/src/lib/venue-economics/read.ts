@@ -1,7 +1,7 @@
 import 'server-only';
-import { opsVenueEconomicsSchema, type OpsVenueEconomics } from '@intafaced/contracts';
-import { founderCall, parseWith, type FounderCallContext } from '@/lib/desk/founder-call';
-import { partFrom, type Part } from '@/lib/desk/part';
+import { type OpsVenueEconomics } from '@intafaced/contracts';
+import { type FounderCallContext, partFrom, type Part, founderRecordCall } from '@/lib/desk';
+import { OPS_VENUE_ECONOMICS } from '@intafaced/contracts/ops-venue-economics-procedures';
 
 export interface VenueEconomicsRead {
   readonly asOf: string;
@@ -16,7 +16,7 @@ const REFUSAL_WORDS: Readonly<Record<string, string>> = {
 
 /** The month's report from svc-ops as the signed-in founder. A failed read says why and shows no figures. */
 export async function readVenueEconomics(ctx: FounderCallContext, period: string): Promise<VenueEconomicsRead> {
-  const result = await founderCall(ctx, 'ops', 'venueEconomics', 'GET', { period }, parseWith(opsVenueEconomicsSchema));
+  const result = await founderRecordCall(ctx, OPS_VENUE_ECONOMICS, { period });
   return {
     asOf: new Date().toISOString(),
     period,

@@ -274,8 +274,8 @@ export function StopEdit({
             {t('Edit stop explain')}
           </p>
         ) : null}
-        {problem && !review && !finished ? <p className="dk-note">{problem}</p> : null}
-        {unchanged && !finished ? <p className="dk-note">{t('Edit nothing changed')}</p> : null}
+        {problem && !review && !finished ? <p className="lt-hint">{problem}</p> : null}
+        {unchanged && !finished ? <p className="lt-hint">{t('Edit nothing changed')}</p> : null}
         {note ? (
           <p
             data-testid={note.tone === 'good' ? undefined : 'dk-note--bad'}

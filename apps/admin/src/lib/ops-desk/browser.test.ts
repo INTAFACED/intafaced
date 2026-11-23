@@ -11,6 +11,17 @@ const OUTCOME = {
 };
 const reply = (body: unknown, status = 200) => vi.fn(async (_url: string, _init?: RequestInit) => Response.json(body, { status }));
 
+describe('fetchDesk', () => {
+  it('sends the sections and the page address’s narrowing on, encoded', async () => {
+    const fn = reply({ deskId: 'academy', asOf: '2026-11-19T00:00:00.000Z', reads: {} });
+    vi.stubGlobal('fetch', fn);
+    expect(await fetchDesk('academy', undefined, ['grants'], { course: 'a b' })).not.toBeNull();
+    expect(fn.mock.calls[0]![0]).toBe('/api/academy-ops?section=grants&course=a%20b');
+    await fetchDesk('academy');
+    expect(fn.mock.calls[1]![0]).toBe('/api/academy-ops');
+  });
+});
+
 describe('fetchTransfer', () => {
   it('asks the console’s own server for the id, encoded, without caching', async () => {
     const fn = reply(OUTCOME);

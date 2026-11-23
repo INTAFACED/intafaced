@@ -1,7 +1,7 @@
 import { Failure, Loading } from '../../shared/ui';
 import type { Resource } from '../../shared/resource';
 import { formatAmount, parseAmount } from '../../shared/money';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { funds, useBankRead } from './components';
 import type { AccountTerms } from './contracts';
 import { planRuleCopy } from './plan-rule-copy';
@@ -73,7 +73,7 @@ export function PlanRuleText({ resource, reload }: { resource: Resource<AccountT
       {parts.code && (
         <>
           {' '}
-          <small className="muted">{planRuleCopy.t('reference', { code: parts.code })}</small>
+          <small className="lt-muted">{planRuleCopy.t('reference', { code: parts.code })}</small>
         </>
       )}
     </>
@@ -91,7 +91,7 @@ export function PlanRule({ plan }: { plan: ReturnType<typeof usePlanTerms> }) {
   return (
     <div data-testid="plan-rule">
       <h4 className="bd-subhead">{t('title')}</h4>
-      <div className="money-caption">
+      <div className="lt-muted">
         <PlanRuleText resource={plan.resource} reload={plan.reload} />
       </div>
     </div>

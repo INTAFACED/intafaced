@@ -1,12 +1,5 @@
-import {
-  OPS_COST_CATEGORIES,
-  opsCostAmountSchema,
-  opsCostPeriodSchema,
-  type OpsCostCategory,
-  type OpsCostEntry,
-  type OpsCostEntryInput,
-  type OpsVenueEconomics,
-} from '@intafaced/contracts';
+import type { OpsCostCategory, OpsCostEntry, OpsCostEntryInput, OpsVenueEconomics } from '@intafaced/contracts';
+import { OPS_COST_CATEGORIES, opsCostAmountSchema, opsCostPeriodSchema } from '@intafaced/contracts/ops-venue-economics';
 import { OPS_COST_AMOUNT_INVALID, OPS_COST_CATEGORY_INVALID, OPS_COST_PERIOD_INVALID, OpsError } from './codes.js';
 import type { FeeRevenueRead } from './fee-revenue-client.js';
 import type { RevenueResult } from './ops-service.js';

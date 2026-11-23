@@ -15,7 +15,6 @@ import type { MoneyRow } from './portfolio-source';
  * a figure that cannot be known is null with a reason, never a zero.
  */
 
-export { basisWriteResultSchema, lotBookSchema, lotChoiceSavedSchema, missingBasisSchema } from '@intafaced/contracts/tax-lot-book';
 export type { LotBookAnswer as LotBook, LotBookChoices, LotBookLot, LotBookSale, LotMethodSource } from '@intafaced/contracts/tax-lot-book';
 import type { missingBasisSchema as MissingBasisSchema } from '@intafaced/contracts/tax-lot-book';
 import type { z } from 'zod';

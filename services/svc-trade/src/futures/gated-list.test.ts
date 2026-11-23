@@ -4,8 +4,8 @@ import { readGatedList, type GatedListDeps } from './gated-list.js';
 import { EligibilityError } from './derivatives-eligibility.js';
 
 const perp = (symbol: string, status: Market['status'] = 'active') =>
-  ({ id: `id-${symbol}`, symbol, kind: 'futures', status, baseAsset: 'BTC', quoteAsset: 'USDT' }) as unknown as Market;
-const spot = { id: 'id-spot', symbol: 'BTC/USDT', kind: 'spot', status: 'active' } as unknown as Market;
+  ({ id: `id-${symbol}`, symbol, kind: 'futures', status, baseAsset: 'BTC', quoteAsset: 'USDT' }) as Market;
+const spot = { id: 'id-spot', symbol: 'BTC/USDT', kind: 'spot', status: 'active' } as Market;
 const subject = { userId: 'u1', tier: 'full', region: 'XX' };
 
 function deps(over: Partial<GatedListDeps> = {}): GatedListDeps {

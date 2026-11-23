@@ -1,8 +1,7 @@
 /** Browser hop for the moderation and course team desks (J-academy-18). Same-origin BFF only; the CSRF nonce is fetched per change. */
 import { founderMutationHeaders } from '@/lib/founder-browser';
 import type { ModerationView, TeamDeskReply, TeamView } from './team-model';
-
-const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === 'object' && !Array.isArray(value));
+import { isRecord } from '@intafaced/contracts/guards';
 
 const query = (courseId: string | null) => (courseId ? `?courseId=${encodeURIComponent(courseId)}` : '');
 

@@ -1,0 +1,882 @@
+{
+  "cases": [
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+        "DATABASE_POOL_MAX": "4"
+      },
+      "answer": {
+        "ok": {
+          "NODE_ENV": "development",
+          "APP_ENV": "test",
+          "LOG_LEVEL": "info",
+          "SERVICE_NAME": "svc-academy",
+          "LAUNCH_DROP": "0",
+          "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+          "DATABASE_POOL_MAX": 4,
+          "DATABASE_SSL": false,
+          "REDIS_URL": "redis://localhost:6379",
+          "NATS_URL": "nats://localhost:4222",
+          "NATS_STREAM_PREFIX": "INTAFACED",
+          "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+          "OTEL_ENABLED": true,
+          "HTTP_HOST": "0.0.0.0",
+          "HTTP_PORT": 4016,
+          "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+          "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+          "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+          "S2S_AUTH_MODE": "off",
+          "TOKEN_URL": "http://localhost:4003",
+          "IDENTITY_URL": "http://localhost:4002",
+          "ACADEMY_STREAM_PROVIDER": "none",
+          "LIVEKIT_URL": "",
+          "LIVEKIT_API_KEY": "",
+          "LIVEKIT_API_SECRET": "",
+          "LIVEKIT_TOKEN_TTL_SECONDS": 3600,
+          "ACADEMY_TOURNAMENT_ENABLED": true,
+          "ACADEMY_PAPER_TRADING_ENABLED": true,
+          "ACADEMY_AMBASSADOR_IFC_PAY_LAW_JSON": "",
+          "ACADEMY_AMBASSADOR_REVENUE_SHARE_LAW_JSON": "",
+          "ACADEMY_VIDEO_S3_ENDPOINT": "",
+          "ACADEMY_VIDEO_S3_BUCKET": "",
+          "ACADEMY_VIDEO_S3_ACCESS_KEY": "",
+          "ACADEMY_VIDEO_S3_SECRET_KEY": "",
+          "ACADEMY_VIDEO_S3_REGION": "",
+          "ACADEMY_VIDEO_MIN_TIER": "",
+          "ACADEMY_VIDEO_MIN_STAKE": ""
+        }
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+        "DATABASE_POOL_MAX": "4",
+        "ACADEMY_MAX_ROOM_CAPACITY": "5000",
+        "ACADEMY_PLANNER_TODO_LIMIT": " 12 ",
+        "ACADEMY_OUTLINE_MAX_SECTIONS": ""
+      },
+      "answer": {
+        "ok": {
+          "NODE_ENV": "development",
+          "APP_ENV": "test",
+          "LOG_LEVEL": "info",
+          "SERVICE_NAME": "svc-academy",
+          "LAUNCH_DROP": "0",
+          "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+          "DATABASE_POOL_MAX": 4,
+          "DATABASE_SSL": false,
+          "REDIS_URL": "redis://localhost:6379",
+          "NATS_URL": "nats://localhost:4222",
+          "NATS_STREAM_PREFIX": "INTAFACED",
+          "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+          "OTEL_ENABLED": true,
+          "HTTP_HOST": "0.0.0.0",
+          "HTTP_PORT": 4016,
+          "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+          "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+          "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+          "S2S_AUTH_MODE": "off",
+          "TOKEN_URL": "http://localhost:4003",
+          "IDENTITY_URL": "http://localhost:4002",
+          "ACADEMY_STREAM_PROVIDER": "none",
+          "LIVEKIT_URL": "",
+          "LIVEKIT_API_KEY": "",
+          "LIVEKIT_API_SECRET": "",
+          "LIVEKIT_TOKEN_TTL_SECONDS": 3600,
+          "ACADEMY_MAX_ROOM_CAPACITY": 5000,
+          "ACADEMY_PLANNER_TODO_LIMIT": 12,
+          "ACADEMY_TOURNAMENT_ENABLED": true,
+          "ACADEMY_PAPER_TRADING_ENABLED": true,
+          "ACADEMY_AMBASSADOR_IFC_PAY_LAW_JSON": "",
+          "ACADEMY_AMBASSADOR_REVENUE_SHARE_LAW_JSON": "",
+          "ACADEMY_VIDEO_S3_ENDPOINT": "",
+          "ACADEMY_VIDEO_S3_BUCKET": "",
+          "ACADEMY_VIDEO_S3_ACCESS_KEY": "",
+          "ACADEMY_VIDEO_S3_SECRET_KEY": "",
+          "ACADEMY_VIDEO_S3_REGION": "",
+          "ACADEMY_VIDEO_MIN_TIER": "",
+          "ACADEMY_VIDEO_MIN_STAKE": ""
+        }
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+        "DATABASE_POOL_MAX": "4",
+        "ACADEMY_MAX_ROOM_CAPACITY": "0"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - ACADEMY_MAX_ROOM_CAPACITY: Too small: expected number to be >=1"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+        "DATABASE_POOL_MAX": "4",
+        "ACADEMY_MAX_ROOM_CAPACITY": "100001"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - ACADEMY_MAX_ROOM_CAPACITY: Too big: expected number to be <=100000"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+        "DATABASE_POOL_MAX": "4",
+        "ACADEMY_MAX_ROOM_CAPACITY": "1.5"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - ACADEMY_MAX_ROOM_CAPACITY: Invalid input"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+        "DATABASE_POOL_MAX": "4",
+        "ACADEMY_MAX_ROOM_CAPACITY": "many"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - ACADEMY_MAX_ROOM_CAPACITY: Invalid input"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+        "DATABASE_POOL_MAX": "4",
+        "ACADEMY_MAX_ROOM_CAPACITY": "0x10"
+      },
+      "answer": {
+        "ok": {
+          "NODE_ENV": "development",
+          "APP_ENV": "test",
+          "LOG_LEVEL": "info",
+          "SERVICE_NAME": "svc-academy",
+          "LAUNCH_DROP": "0",
+          "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+          "DATABASE_POOL_MAX": 4,
+          "DATABASE_SSL": false,
+          "REDIS_URL": "redis://localhost:6379",
+          "NATS_URL": "nats://localhost:4222",
+          "NATS_STREAM_PREFIX": "INTAFACED",
+          "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+          "OTEL_ENABLED": true,
+          "HTTP_HOST": "0.0.0.0",
+          "HTTP_PORT": 4016,
+          "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+          "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+          "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+          "S2S_AUTH_MODE": "off",
+          "TOKEN_URL": "http://localhost:4003",
+          "IDENTITY_URL": "http://localhost:4002",
+          "ACADEMY_STREAM_PROVIDER": "none",
+          "LIVEKIT_URL": "",
+          "LIVEKIT_API_KEY": "",
+          "LIVEKIT_API_SECRET": "",
+          "LIVEKIT_TOKEN_TTL_SECONDS": 3600,
+          "ACADEMY_MAX_ROOM_CAPACITY": 16,
+          "ACADEMY_TOURNAMENT_ENABLED": true,
+          "ACADEMY_PAPER_TRADING_ENABLED": true,
+          "ACADEMY_AMBASSADOR_IFC_PAY_LAW_JSON": "",
+          "ACADEMY_AMBASSADOR_REVENUE_SHARE_LAW_JSON": "",
+          "ACADEMY_VIDEO_S3_ENDPOINT": "",
+          "ACADEMY_VIDEO_S3_BUCKET": "",
+          "ACADEMY_VIDEO_S3_ACCESS_KEY": "",
+          "ACADEMY_VIDEO_S3_SECRET_KEY": "",
+          "ACADEMY_VIDEO_S3_REGION": "",
+          "ACADEMY_VIDEO_MIN_TIER": "",
+          "ACADEMY_VIDEO_MIN_STAKE": ""
+        }
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+        "DATABASE_POOL_MAX": "4",
+        "ACADEMY_MAX_ROOM_CAPACITY": "   "
+      },
+      "answer": {
+        "ok": {
+          "NODE_ENV": "development",
+          "APP_ENV": "test",
+          "LOG_LEVEL": "info",
+          "SERVICE_NAME": "svc-academy",
+          "LAUNCH_DROP": "0",
+          "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+          "DATABASE_POOL_MAX": 4,
+          "DATABASE_SSL": false,
+          "REDIS_URL": "redis://localhost:6379",
+          "NATS_URL": "nats://localhost:4222",
+          "NATS_STREAM_PREFIX": "INTAFACED",
+          "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+          "OTEL_ENABLED": true,
+          "HTTP_HOST": "0.0.0.0",
+          "HTTP_PORT": 4016,
+          "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+          "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+          "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+          "S2S_AUTH_MODE": "off",
+          "TOKEN_URL": "http://localhost:4003",
+          "IDENTITY_URL": "http://localhost:4002",
+          "ACADEMY_STREAM_PROVIDER": "none",
+          "LIVEKIT_URL": "",
+          "LIVEKIT_API_KEY": "",
+          "LIVEKIT_API_SECRET": "",
+          "LIVEKIT_TOKEN_TTL_SECONDS": 3600,
+          "ACADEMY_TOURNAMENT_ENABLED": true,
+          "ACADEMY_PAPER_TRADING_ENABLED": true,
+          "ACADEMY_AMBASSADOR_IFC_PAY_LAW_JSON": "",
+          "ACADEMY_AMBASSADOR_REVENUE_SHARE_LAW_JSON": "",
+          "ACADEMY_VIDEO_S3_ENDPOINT": "",
+          "ACADEMY_VIDEO_S3_BUCKET": "",
+          "ACADEMY_VIDEO_S3_ACCESS_KEY": "",
+          "ACADEMY_VIDEO_S3_SECRET_KEY": "",
+          "ACADEMY_VIDEO_S3_REGION": "",
+          "ACADEMY_VIDEO_MIN_TIER": "",
+          "ACADEMY_VIDEO_MIN_STAKE": ""
+        }
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+        "DATABASE_POOL_MAX": "4",
+        "ACADEMY_GRADE_REPORT_ROWS": "",
+        "ACADEMY_CERT_ISSUED_ROWS": "50",
+        "ACADEMY_GRANT_AUDIT_PAGE_SIZE": "201"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - ACADEMY_GRANT_AUDIT_PAGE_SIZE: Too big: expected number to be <=200"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+        "DATABASE_POOL_MAX": "4",
+        "ACADEMY_UPLOAD_VIDEO_TYPES": "Video/MP4, video/webm ,,",
+        "ACADEMY_UPLOAD_HANDOUT_TYPES": "application/pdf"
+      },
+      "answer": {
+        "ok": {
+          "NODE_ENV": "development",
+          "APP_ENV": "test",
+          "LOG_LEVEL": "info",
+          "SERVICE_NAME": "svc-academy",
+          "LAUNCH_DROP": "0",
+          "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+          "DATABASE_POOL_MAX": 4,
+          "DATABASE_SSL": false,
+          "REDIS_URL": "redis://localhost:6379",
+          "NATS_URL": "nats://localhost:4222",
+          "NATS_STREAM_PREFIX": "INTAFACED",
+          "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+          "OTEL_ENABLED": true,
+          "HTTP_HOST": "0.0.0.0",
+          "HTTP_PORT": 4016,
+          "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+          "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+          "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+          "S2S_AUTH_MODE": "off",
+          "TOKEN_URL": "http://localhost:4003",
+          "IDENTITY_URL": "http://localhost:4002",
+          "ACADEMY_STREAM_PROVIDER": "none",
+          "LIVEKIT_URL": "",
+          "LIVEKIT_API_KEY": "",
+          "LIVEKIT_API_SECRET": "",
+          "LIVEKIT_TOKEN_TTL_SECONDS": 3600,
+          "ACADEMY_UPLOAD_VIDEO_TYPES": ["video/mp4", "video/webm"],
+          "ACADEMY_UPLOAD_HANDOUT_TYPES": ["application/pdf"],
+          "ACADEMY_TOURNAMENT_ENABLED": true,
+          "ACADEMY_PAPER_TRADING_ENABLED": true,
+          "ACADEMY_AMBASSADOR_IFC_PAY_LAW_JSON": "",
+          "ACADEMY_AMBASSADOR_REVENUE_SHARE_LAW_JSON": "",
+          "ACADEMY_VIDEO_S3_ENDPOINT": "",
+          "ACADEMY_VIDEO_S3_BUCKET": "",
+          "ACADEMY_VIDEO_S3_ACCESS_KEY": "",
+          "ACADEMY_VIDEO_S3_SECRET_KEY": "",
+          "ACADEMY_VIDEO_S3_REGION": "",
+          "ACADEMY_VIDEO_MIN_TIER": "",
+          "ACADEMY_VIDEO_MIN_STAKE": ""
+        }
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+        "DATABASE_POOL_MAX": "4",
+        "ACADEMY_UPLOAD_VIDEO_TYPES": "mp4"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - ACADEMY_UPLOAD_VIDEO_TYPES.0: Invalid string: must match pattern /^[a-z]+\\/[a-z0-9.+-]+$/"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+        "DATABASE_POOL_MAX": "4",
+        "ACADEMY_UPLOAD_VIDEO_TYPES": " , "
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - ACADEMY_UPLOAD_VIDEO_TYPES: Too small: expected array to have >=1 items"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+        "DATABASE_POOL_MAX": "4",
+        "ACADEMY_UPLOAD_MAX_BYTES": "5368709120"
+      },
+      "answer": {
+        "ok": {
+          "NODE_ENV": "development",
+          "APP_ENV": "test",
+          "LOG_LEVEL": "info",
+          "SERVICE_NAME": "svc-academy",
+          "LAUNCH_DROP": "0",
+          "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+          "DATABASE_POOL_MAX": 4,
+          "DATABASE_SSL": false,
+          "REDIS_URL": "redis://localhost:6379",
+          "NATS_URL": "nats://localhost:4222",
+          "NATS_STREAM_PREFIX": "INTAFACED",
+          "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+          "OTEL_ENABLED": true,
+          "HTTP_HOST": "0.0.0.0",
+          "HTTP_PORT": 4016,
+          "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+          "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+          "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+          "S2S_AUTH_MODE": "off",
+          "TOKEN_URL": "http://localhost:4003",
+          "IDENTITY_URL": "http://localhost:4002",
+          "ACADEMY_STREAM_PROVIDER": "none",
+          "LIVEKIT_URL": "",
+          "LIVEKIT_API_KEY": "",
+          "LIVEKIT_API_SECRET": "",
+          "LIVEKIT_TOKEN_TTL_SECONDS": 3600,
+          "ACADEMY_UPLOAD_MAX_BYTES": 5368709120,
+          "ACADEMY_TOURNAMENT_ENABLED": true,
+          "ACADEMY_PAPER_TRADING_ENABLED": true,
+          "ACADEMY_AMBASSADOR_IFC_PAY_LAW_JSON": "",
+          "ACADEMY_AMBASSADOR_REVENUE_SHARE_LAW_JSON": "",
+          "ACADEMY_VIDEO_S3_ENDPOINT": "",
+          "ACADEMY_VIDEO_S3_BUCKET": "",
+          "ACADEMY_VIDEO_S3_ACCESS_KEY": "",
+          "ACADEMY_VIDEO_S3_SECRET_KEY": "",
+          "ACADEMY_VIDEO_S3_REGION": "",
+          "ACADEMY_VIDEO_MIN_TIER": "",
+          "ACADEMY_VIDEO_MIN_STAKE": ""
+        }
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+        "DATABASE_POOL_MAX": "4",
+        "ACADEMY_STREAM_PROVIDER": "livekit",
+        "LIVEKIT_URL": "wss://lk.example",
+        "LIVEKIT_TOKEN_TTL_SECONDS": "59"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - LIVEKIT_TOKEN_TTL_SECONDS: Too small: expected number to be >=60"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+        "DATABASE_POOL_MAX": "4",
+        "ACADEMY_STREAM_PROVIDER": "zoom"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - ACADEMY_STREAM_PROVIDER: Invalid option: expected one of \"none\"|\"livekit\""
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+        "DATABASE_POOL_MAX": "4",
+        "ACADEMY_TOURNAMENT_ENABLED": "off",
+        "ACADEMY_PAPER_TRADING_ENABLED": "FALSE"
+      },
+      "answer": {
+        "ok": {
+          "NODE_ENV": "development",
+          "APP_ENV": "test",
+          "LOG_LEVEL": "info",
+          "SERVICE_NAME": "svc-academy",
+          "LAUNCH_DROP": "0",
+          "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+          "DATABASE_POOL_MAX": 4,
+          "DATABASE_SSL": false,
+          "REDIS_URL": "redis://localhost:6379",
+          "NATS_URL": "nats://localhost:4222",
+          "NATS_STREAM_PREFIX": "INTAFACED",
+          "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+          "OTEL_ENABLED": true,
+          "HTTP_HOST": "0.0.0.0",
+          "HTTP_PORT": 4016,
+          "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+          "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+          "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+          "S2S_AUTH_MODE": "off",
+          "TOKEN_URL": "http://localhost:4003",
+          "IDENTITY_URL": "http://localhost:4002",
+          "ACADEMY_STREAM_PROVIDER": "none",
+          "LIVEKIT_URL": "",
+          "LIVEKIT_API_KEY": "",
+          "LIVEKIT_API_SECRET": "",
+          "LIVEKIT_TOKEN_TTL_SECONDS": 3600,
+          "ACADEMY_TOURNAMENT_ENABLED": false,
+          "ACADEMY_PAPER_TRADING_ENABLED": false,
+          "ACADEMY_AMBASSADOR_IFC_PAY_LAW_JSON": "",
+          "ACADEMY_AMBASSADOR_REVENUE_SHARE_LAW_JSON": "",
+          "ACADEMY_VIDEO_S3_ENDPOINT": "",
+          "ACADEMY_VIDEO_S3_BUCKET": "",
+          "ACADEMY_VIDEO_S3_ACCESS_KEY": "",
+          "ACADEMY_VIDEO_S3_SECRET_KEY": "",
+          "ACADEMY_VIDEO_S3_REGION": "",
+          "ACADEMY_VIDEO_MIN_TIER": "",
+          "ACADEMY_VIDEO_MIN_STAKE": ""
+        }
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+        "DATABASE_POOL_MAX": "4",
+        "ACADEMY_TOURNAMENT_ENABLED": "yes please",
+        "ACADEMY_PAPER_TRADING_ENABLED": ""
+      },
+      "answer": {
+        "ok": {
+          "NODE_ENV": "development",
+          "APP_ENV": "test",
+          "LOG_LEVEL": "info",
+          "SERVICE_NAME": "svc-academy",
+          "LAUNCH_DROP": "0",
+          "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+          "DATABASE_POOL_MAX": 4,
+          "DATABASE_SSL": false,
+          "REDIS_URL": "redis://localhost:6379",
+          "NATS_URL": "nats://localhost:4222",
+          "NATS_STREAM_PREFIX": "INTAFACED",
+          "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+          "OTEL_ENABLED": true,
+          "HTTP_HOST": "0.0.0.0",
+          "HTTP_PORT": 4016,
+          "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+          "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+          "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+          "S2S_AUTH_MODE": "off",
+          "TOKEN_URL": "http://localhost:4003",
+          "IDENTITY_URL": "http://localhost:4002",
+          "ACADEMY_STREAM_PROVIDER": "none",
+          "LIVEKIT_URL": "",
+          "LIVEKIT_API_KEY": "",
+          "LIVEKIT_API_SECRET": "",
+          "LIVEKIT_TOKEN_TTL_SECONDS": 3600,
+          "ACADEMY_TOURNAMENT_ENABLED": true,
+          "ACADEMY_PAPER_TRADING_ENABLED": true,
+          "ACADEMY_AMBASSADOR_IFC_PAY_LAW_JSON": "",
+          "ACADEMY_AMBASSADOR_REVENUE_SHARE_LAW_JSON": "",
+          "ACADEMY_VIDEO_S3_ENDPOINT": "",
+          "ACADEMY_VIDEO_S3_BUCKET": "",
+          "ACADEMY_VIDEO_S3_ACCESS_KEY": "",
+          "ACADEMY_VIDEO_S3_SECRET_KEY": "",
+          "ACADEMY_VIDEO_S3_REGION": "",
+          "ACADEMY_VIDEO_MIN_TIER": "",
+          "ACADEMY_VIDEO_MIN_STAKE": ""
+        }
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+        "DATABASE_POOL_MAX": "4",
+        "TRADE_URL": "  ",
+        "ACADEMY_PAPER_MARKETS_LIMIT": "500"
+      },
+      "answer": {
+        "ok": {
+          "NODE_ENV": "development",
+          "APP_ENV": "test",
+          "LOG_LEVEL": "info",
+          "SERVICE_NAME": "svc-academy",
+          "LAUNCH_DROP": "0",
+          "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+          "DATABASE_POOL_MAX": 4,
+          "DATABASE_SSL": false,
+          "REDIS_URL": "redis://localhost:6379",
+          "NATS_URL": "nats://localhost:4222",
+          "NATS_STREAM_PREFIX": "INTAFACED",
+          "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+          "OTEL_ENABLED": true,
+          "HTTP_HOST": "0.0.0.0",
+          "HTTP_PORT": 4016,
+          "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+          "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+          "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+          "S2S_AUTH_MODE": "off",
+          "TOKEN_URL": "http://localhost:4003",
+          "IDENTITY_URL": "http://localhost:4002",
+          "ACADEMY_STREAM_PROVIDER": "none",
+          "LIVEKIT_URL": "",
+          "LIVEKIT_API_KEY": "",
+          "LIVEKIT_API_SECRET": "",
+          "LIVEKIT_TOKEN_TTL_SECONDS": 3600,
+          "ACADEMY_TOURNAMENT_ENABLED": true,
+          "ACADEMY_PAPER_TRADING_ENABLED": true,
+          "ACADEMY_AMBASSADOR_IFC_PAY_LAW_JSON": "",
+          "ACADEMY_AMBASSADOR_REVENUE_SHARE_LAW_JSON": "",
+          "ACADEMY_PAPER_MARKETS_LIMIT": 500,
+          "ACADEMY_VIDEO_S3_ENDPOINT": "",
+          "ACADEMY_VIDEO_S3_BUCKET": "",
+          "ACADEMY_VIDEO_S3_ACCESS_KEY": "",
+          "ACADEMY_VIDEO_S3_SECRET_KEY": "",
+          "ACADEMY_VIDEO_S3_REGION": "",
+          "ACADEMY_VIDEO_MIN_TIER": "",
+          "ACADEMY_VIDEO_MIN_STAKE": ""
+        }
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+        "DATABASE_POOL_MAX": "4",
+        "TRADE_URL": "not a url"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - TRADE_URL: Invalid URL"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+        "DATABASE_POOL_MAX": "4",
+        "TRADE_URL": "http://localhost:4004"
+      },
+      "answer": {
+        "ok": {
+          "NODE_ENV": "development",
+          "APP_ENV": "test",
+          "LOG_LEVEL": "info",
+          "SERVICE_NAME": "svc-academy",
+          "LAUNCH_DROP": "0",
+          "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+          "DATABASE_POOL_MAX": 4,
+          "DATABASE_SSL": false,
+          "REDIS_URL": "redis://localhost:6379",
+          "NATS_URL": "nats://localhost:4222",
+          "NATS_STREAM_PREFIX": "INTAFACED",
+          "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+          "OTEL_ENABLED": true,
+          "HTTP_HOST": "0.0.0.0",
+          "HTTP_PORT": 4016,
+          "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+          "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+          "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+          "S2S_AUTH_MODE": "off",
+          "TOKEN_URL": "http://localhost:4003",
+          "IDENTITY_URL": "http://localhost:4002",
+          "ACADEMY_STREAM_PROVIDER": "none",
+          "LIVEKIT_URL": "",
+          "LIVEKIT_API_KEY": "",
+          "LIVEKIT_API_SECRET": "",
+          "LIVEKIT_TOKEN_TTL_SECONDS": 3600,
+          "ACADEMY_TOURNAMENT_ENABLED": true,
+          "ACADEMY_PAPER_TRADING_ENABLED": true,
+          "ACADEMY_AMBASSADOR_IFC_PAY_LAW_JSON": "",
+          "ACADEMY_AMBASSADOR_REVENUE_SHARE_LAW_JSON": "",
+          "TRADE_URL": "http://localhost:4004",
+          "ACADEMY_VIDEO_S3_ENDPOINT": "",
+          "ACADEMY_VIDEO_S3_BUCKET": "",
+          "ACADEMY_VIDEO_S3_ACCESS_KEY": "",
+          "ACADEMY_VIDEO_S3_SECRET_KEY": "",
+          "ACADEMY_VIDEO_S3_REGION": "",
+          "ACADEMY_VIDEO_MIN_TIER": "",
+          "ACADEMY_VIDEO_MIN_STAKE": ""
+        }
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+        "DATABASE_POOL_MAX": "4",
+        "ACADEMY_PAYMENT_RPC_URL": "http://chain.example",
+        "ACADEMY_PAYMENT_CHAIN_ID": "8453",
+        "ACADEMY_PAYMENT_TOKEN_ADDRESS": " 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ",
+        "ACADEMY_PAYMENT_TOKEN_DECIMALS": "0",
+        "ACADEMY_PAYMENT_ASSET": "USDC",
+        "ACADEMY_PAYMENT_RECEIVER": "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+        "ACADEMY_PAYMENT_CONFIRMATIONS": "12",
+        "ACADEMY_REFUND_SIGNER_URL": "http://signer.example",
+        "LEDGER_URL": "http://localhost:4001",
+        "ACADEMY_PURCHASE_RECONCILE_SECONDS": "30"
+      },
+      "answer": {
+        "ok": {
+          "NODE_ENV": "development",
+          "APP_ENV": "test",
+          "LOG_LEVEL": "info",
+          "SERVICE_NAME": "svc-academy",
+          "LAUNCH_DROP": "0",
+          "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+          "DATABASE_POOL_MAX": 4,
+          "DATABASE_SSL": false,
+          "REDIS_URL": "redis://localhost:6379",
+          "NATS_URL": "nats://localhost:4222",
+          "NATS_STREAM_PREFIX": "INTAFACED",
+          "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+          "OTEL_ENABLED": true,
+          "HTTP_HOST": "0.0.0.0",
+          "HTTP_PORT": 4016,
+          "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+          "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+          "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+          "S2S_AUTH_MODE": "off",
+          "TOKEN_URL": "http://localhost:4003",
+          "IDENTITY_URL": "http://localhost:4002",
+          "ACADEMY_STREAM_PROVIDER": "none",
+          "LIVEKIT_URL": "",
+          "LIVEKIT_API_KEY": "",
+          "LIVEKIT_API_SECRET": "",
+          "LIVEKIT_TOKEN_TTL_SECONDS": 3600,
+          "ACADEMY_TOURNAMENT_ENABLED": true,
+          "ACADEMY_PAPER_TRADING_ENABLED": true,
+          "ACADEMY_AMBASSADOR_IFC_PAY_LAW_JSON": "",
+          "ACADEMY_AMBASSADOR_REVENUE_SHARE_LAW_JSON": "",
+          "ACADEMY_VIDEO_S3_ENDPOINT": "",
+          "ACADEMY_VIDEO_S3_BUCKET": "",
+          "ACADEMY_VIDEO_S3_ACCESS_KEY": "",
+          "ACADEMY_VIDEO_S3_SECRET_KEY": "",
+          "ACADEMY_VIDEO_S3_REGION": "",
+          "ACADEMY_VIDEO_MIN_TIER": "",
+          "ACADEMY_VIDEO_MIN_STAKE": "",
+          "ACADEMY_PAYMENT_RPC_URL": "http://chain.example",
+          "ACADEMY_PAYMENT_CHAIN_ID": 8453,
+          "ACADEMY_PAYMENT_TOKEN_ADDRESS": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "ACADEMY_PAYMENT_TOKEN_DECIMALS": 0,
+          "ACADEMY_PAYMENT_ASSET": "USDC",
+          "ACADEMY_PAYMENT_RECEIVER": "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+          "ACADEMY_PAYMENT_CONFIRMATIONS": 12,
+          "ACADEMY_REFUND_SIGNER_URL": "http://signer.example",
+          "LEDGER_URL": "http://localhost:4001",
+          "ACADEMY_PURCHASE_RECONCILE_SECONDS": 30
+        }
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+        "DATABASE_POOL_MAX": "4",
+        "ACADEMY_PAYMENT_TOKEN_ADDRESS": "0x12",
+        "ACADEMY_PAYMENT_ASSET": "usdc",
+        "ACADEMY_PAYMENT_RECEIVER": "nope",
+        "ACADEMY_PAYMENT_CHAIN_ID": "0"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - ACADEMY_PAYMENT_CHAIN_ID: Too small: expected number to be >=1\n  - ACADEMY_PAYMENT_TOKEN_ADDRESS: a 0x token address\n  - ACADEMY_PAYMENT_ASSET: an asset code\n  - ACADEMY_PAYMENT_RECEIVER: INTAFACED's receiving address"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+        "DATABASE_POOL_MAX": "4",
+        "ACADEMY_TRUSTED_PROXY_CIDRS": "10.0.0.0/8",
+        "ACADEMY_VIDEO_S3_BUCKET": "b",
+        "ACADEMY_VIDEO_URL_TTL_SECONDS": "3601"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - ACADEMY_VIDEO_URL_TTL_SECONDS: Too big: expected number to be <=3600"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+        "DATABASE_POOL_MAX": "4",
+        "ACADEMY_TRUSTED_PROXY_CIDRS": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - ACADEMY_TRUSTED_PROXY_CIDRS: Too big: expected string to have <=4000 characters"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+        "DATABASE_POOL_MAX": "4",
+        "HTTP_PORT": "0",
+        "TOKEN_URL": "nope",
+        "IDENTITY_URL": ""
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - TOKEN_URL: Invalid URL\n  - IDENTITY_URL: Invalid URL"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+        "DATABASE_POOL_MAX": "4",
+        "SERVICE_NAME": "svc-academy-2",
+        "LOG_LEVEL": "loud"
+      },
+      "answer": {
+        "refused": "Invalid environment for svc-academy-2:\n  - LOG_LEVEL: Invalid option: expected one of \"fatal\"|\"error\"|\"warn\"|\"info\"|\"debug\"|\"trace\""
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder",
+        "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+        "DATABASE_POOL_MAX": "4"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - EDGE_PRINCIPAL_SECRET: Too small: expected string to have >=32 characters"
+      }
+    },
+    {
+      "env": {
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+        "DATABASE_POOL_MAX": "4"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - EDGE_PRINCIPAL_SECRET: Invalid input: expected string, received undefined\n  - INTERNAL_SERVICE_SECRET: Invalid input: expected string, received undefined"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_POOL_MAX": " "
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - DATABASE_URL: Invalid input: expected string, received undefined\n  - DATABASE_POOL_MAX: Invalid input: expected number, received NaN"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+        "DATABASE_POOL_MAX": "201",
+        "DATABASE_SSL": "YES",
+        "OTEL_ENABLED": "no",
+        "NATS_URL": "  ",
+        "NATS_STREAM_PREFIX": "T"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - DATABASE_POOL_MAX: Too big: expected number to be <=200\n  - NATS_URL: Too small: expected string to have >=1 characters"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+        "APP_ENV": "test",
+        "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+        "DATABASE_POOL_MAX": "4",
+        "HTTP_PORT": "-5",
+        "S2S_AUTH_MODE": "dual",
+        "S2S_SIGNING_KID": "ab",
+        "INTERNAL_SERVICE_BODY_BIND": "require"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - S2S_SIGNING_KID: Too small: expected string to have >=3 characters"
+      }
+    },
+    {
+      "env": {
+        "EDGE_PRINCIPAL_SECRET": "placeholder-academy-env-parity-edge-secret",
+        "INTERNAL_SERVICE_SECRET": "placeholder-academy-env-parity-internal-secret",
+        "APP_ENV": "prod",
+        "DATABASE_URL": "postgres://academy:academy@localhost:5432/academy_test",
+        "DATABASE_POOL_MAX": "4",
+        "NODE_ENV": "production"
+      },
+      "answer": {
+        "refused": "DEVELOPMENT MATERIAL IS NOT ALLOWED HERE (APP_ENV=prod, config.dev_material_in_production_posture). Refusing to start.\nOnly APP_ENV exactly \"dev\" or \"test\" may run on dev keys, the Anvil chain or published passwords.\n  - DATABASE_URL uses a connection password that is published in this repo (or equals the user name)\n  - INTERNAL_SERVICE_BODY_BIND must be exactly \"require\" where INTERNAL_SERVICE_SECRET is set: any other value (or none) leaves signed service calls replayable against any body for 300 seconds. Fix: set INTERNAL_SERVICE_BODY_BIND=require (docs/decisions/s2s-body-bind.md)"
+      }
+    }
+  ]
+}

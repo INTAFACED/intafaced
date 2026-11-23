@@ -1,7 +1,7 @@
 import 'server-only';
-import { founderCall, type FounderCallContext } from '@/lib/desk/founder-call';
-import { partFrom, type Part } from '@/lib/desk/part';
+import { type FounderCallContext, partFrom, type Part, founderRecordRead } from '@/lib/desk';
 import { refusalWords } from './model';
+import { BANK_GLOBAL_OPS_HOLDS, BANK_GLOBAL_OPS_CONTROLS } from '@intafaced/contracts/bank-global-records';
 
 type Rec = Record<string, unknown>;
 const rec = (v: unknown): Rec | null => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Rec) : null);
@@ -128,8 +128,8 @@ const labels = {
 /** Both parts are read on their own, so a refused queue never hides the controls and the other way round. */
 export async function readHoldDesk(ctx: FounderCallContext): Promise<HoldDesk> {
   const [queue, controls] = await Promise.all([
-    founderCall(ctx, 'bank', 'global.ops.holds', 'GET', { limit: QUEUE_LIMIT }, parseQueue),
-    founderCall(ctx, 'bank', 'global.ops.controls', 'GET', undefined, parseControls),
+    founderRecordRead(ctx, BANK_GLOBAL_OPS_HOLDS, { limit: QUEUE_LIMIT }, parseQueue),
+    founderRecordRead(ctx, BANK_GLOBAL_OPS_CONTROLS, undefined, parseControls),
   ]);
   return { asOf: new Date().toISOString(), queue: partFrom(queue, (d) => d, labels), controls: partFrom(controls, (d) => d, labels) };
 }

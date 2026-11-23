@@ -1,8 +1,7 @@
 /** Browser hop for the prerequisites and due dates section. Same-origin BFF only; the CSRF nonce is fetched per change. */
 import { founderMutationHeaders } from '@/lib/founder-browser';
 import type { ItemRulesDeskReply, ItemRulesView } from './item-rules-model';
-
-const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === 'object' && !Array.isArray(value));
+import { isRecord } from '@intafaced/contracts/guards';
 
 export async function fetchItemRules(courseId: string): Promise<ItemRulesView | null> {
   try {

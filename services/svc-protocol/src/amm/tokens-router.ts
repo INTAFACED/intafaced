@@ -1,20 +1,16 @@
 import type { Address } from 'viem';
+import type { TokenBasics } from '@intafaced/contracts';
+import { TOKENS_QUOTE_UNSET, TOKEN_NOT_LISTED, TOKEN_UNSUPPORTED } from '@intafaced/contracts/protocol-tokens';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import {
-  publicJurisdictionProcedure,
-  router,
-  TRPCError,
-  TOKENS_QUOTE_UNSET,
-  TOKEN_NOT_LISTED,
-  TOKEN_UNSUPPORTED,
-  tokenPageInputSchema,
-  tokenPageOutputSchema,
-  tokensBriefOutputSchema,
-  tokensLeaderboardOutputSchema,
-  tokensListInputSchema,
-  tokensListOutputSchema,
-  type TokenBasics,
-} from '@intafaced/contracts';
+  PROTOCOL_TOKENS_BRIEF,
+  PROTOCOL_TOKENS_LEADERBOARD,
+  PROTOCOL_TOKENS_LIST,
+  PROTOCOL_TOKENS_PAGE,
+} from '@intafaced/contracts/protocol-chain-procedures';
 import { isZeroAddress } from '../chain/availability.js';
+import { protocolRefusal } from '../refusal.js';
 import { leaderboard, marketBrief, tokenPage, tokensList, TokensReadError } from './tokens.js';
 import { holdersReader, marketReader, shapeToken, type TokenLogsChain } from './token-reader.js';
 
@@ -68,19 +64,18 @@ export function createTokensRouter(deps: TokensRouterDeps) {
   };
 
   return router({
-    list: publicJurisdictionProcedure('protocol', 'protocol')
-      .input(tokensListInputSchema)
-      .output(tokensListOutputSchema)
-      .query(({ input }) =>
+    list: mountRecord(
+      PROTOCOL_TOKENS_LIST,
+      ({ input }) =>
         guard(async () => {
           const { snap, quote } = await context(input.blockNumber === undefined ? undefined : BigInt(input.blockNumber));
           return tokensList(snap, quote, input.window);
         }),
-      ),
-    page: publicJurisdictionProcedure('protocol', 'protocol')
-      .input(tokenPageInputSchema)
-      .output(tokenPageOutputSchema)
-      .query(({ input }) =>
+      protocolRefusal,
+    ),
+    page: mountRecord(
+      PROTOCOL_TOKENS_PAGE,
+      ({ input }) =>
         guard(async () => {
           const { snap, quote } = await context();
           const address = input.address as Address;
@@ -93,23 +88,26 @@ export function createTokensRouter(deps: TokensRouterDeps) {
             throw new TokensReadError(TOKEN_NOT_LISTED, `${address} is in none of the factory's pools; no token page is read for it.`);
           return tokenPage(snap, quote, token, await readHolders(token.address as Address, snap.blockNumber));
         }),
-      ),
-    leaderboard: publicJurisdictionProcedure('protocol', 'protocol')
-      .output(tokensLeaderboardOutputSchema)
-      .query(() =>
+      protocolRefusal,
+    ),
+    leaderboard: mountRecord(
+      PROTOCOL_TOKENS_LEADERBOARD,
+      () =>
         guard(async () => {
           const { snap, quote } = await context();
           return leaderboard(snap, quote);
         }),
-      ),
+      protocolRefusal,
+    ),
     /** The market brief: the 24 hours to the head block, from the same read as the 24-hour list; null with no swap. */
-    brief: publicJurisdictionProcedure('protocol', 'protocol')
-      .output(tokensBriefOutputSchema)
-      .query(() =>
+    brief: mountRecord(
+      PROTOCOL_TOKENS_BRIEF,
+      () =>
         guard(async () => {
           const { snap, quote } = await context();
           return marketBrief(snap, quote);
         }),
-      ),
+      protocolRefusal,
+    ),
   });
 }

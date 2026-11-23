@@ -11,6 +11,7 @@
  */
 
 import { z } from 'zod';
+import { OPS_RESTORE_ARCHIVE_UNCONFIGURED, OPS_RESTORE_ARCHIVE_UNPROBED } from './ops-call-schemas.js';
 
 export const OPS_RESTORE_WATERMARKS_DISAGREE = 'ops.restore_watermarks_disagree' as const;
 export const OPS_RESTORE_TARGET_UNSET = 'ops.restore_target_unset' as const;
@@ -149,3 +150,83 @@ export function nextRestoreStep(done: readonly RestoreStep[]): RestoreStep | nul
   for (let i = 0; i < done.length; i += 1) if (done[i] !== RESTORE_STEPS[i]) return null;
   return RESTORE_STEPS[done.length] ?? null;
 }
+
+/** What a recorded step holds beside its row: an attestation, and for validate, preview and finalize the joint check it passed. */
+export interface RestoreStepDetail {
+  readonly attested: true;
+  readonly joint?: JointWatermark;
+}
+
+const restoreServiceVerdictSchema = z.object({
+  service: z.enum(RESTORE_SERVICES),
+  ok: z.boolean(),
+  reason: z
+    .enum([
+      'stamp_missing',
+      'position_differs',
+      'written_after_cutoff',
+      'read_missing',
+      'cutoff_invalid',
+      'read_not_as_of',
+      'read_before_cutoff',
+    ])
+    .nullable(),
+  stamp: z.string().nullable(),
+  position: z.string().nullable(),
+});
+
+/** One `JointWatermark` as it goes on the wire. */
+export const jointWatermarkSchema = z.object({
+  agree: z.boolean(),
+  cutOff: z.string(),
+  services: z.array(restoreServiceVerdictSchema).readonly(),
+});
+
+/** One joint restore run as svc-ops stores it. */
+export const restoreRunSchema = z.object({ restoreNo: z.string(), cutOff: z.string(), startedBy: z.string(), startedAt: z.string() });
+
+/** svc-ops `restore.runs`: every run, newest first. */
+export const restoreRunListSchema = z.object({ asOf: z.string(), runs: z.array(restoreRunSchema).readonly() });
+
+/** svc-ops `restore.run`: one run, its recorded steps, what comes next, and the live joint check beside it. */
+export const restoreRunDetailSchema = z.object({
+  run: restoreRunSchema,
+  steps: z
+    .array(
+      z.object({
+        restoreNo: z.string(),
+        step: z.enum(RESTORE_STEPS),
+        actor: z.string(),
+        approverId: z.string().nullable(),
+        detail: z.object({ attested: z.literal(true), joint: jointWatermarkSchema.optional() }),
+        at: z.string(),
+      }),
+    )
+    .readonly(),
+  restored: z.boolean(),
+  next: z.enum(RESTORE_STEPS).nullable(),
+  finalizeOffered: z.boolean(),
+  live: z.object({
+    joint: jointWatermarkSchema,
+    /** Whether the posting freeze is on now; when it is not, the code says why. */
+    halt: z.union([z.object({ halted: z.literal(true) }), z.object({ halted: z.literal(false), code: z.string(), message: z.string() })]),
+    /** What each service answered, or why it could not. */
+    reads: z
+      .array(z.object({ service: z.string(), ok: z.boolean(), code: z.string().nullable(), message: z.string().nullable() }))
+      .readonly(),
+  }),
+});
+
+/** svc-ops `restore.backups`: the archive's posture and the backups its manifest listed, with the reason in words. */
+export const restoreBackupListSchema = z.object({
+  asOf: z.string(),
+  archive: z.object({
+    configured: z.boolean(),
+    probed: z.boolean(),
+    code: z.enum([OPS_RESTORE_ARCHIVE_UNCONFIGURED, OPS_RESTORE_ARCHIVE_UNPROBED]).nullable(),
+  }),
+  backups: z
+    .array(z.object({ id: z.string(), kind: z.enum(['full', 'incremental']), sequence: z.string(), takenAt: z.string() }))
+    .readonly(),
+  reason: z.string(),
+});

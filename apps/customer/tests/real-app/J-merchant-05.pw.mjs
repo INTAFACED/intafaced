@@ -248,7 +248,7 @@ test(`${J} #2 opens the list: totals with their period, filters the service appl
   await page.getByRole('button', { name: 'Export these results' }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
-  await dialog.locator('.form-stack > button').last().click();
+  await dialog.locator(':is(.form-stack, .lt-stack) > button').last().click();
   await expect(page.getByRole('status').filter({ hasText: 'Your export is being prepared.' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Open exports' })).toHaveAttribute('href', '/pay/reports/exports');
 
@@ -781,9 +781,9 @@ test(`${J} #5 reads the fees and the decline reasons: a TEST 1.50 fee shows its 
   expect(reasons['pay.failed'], 'the unlisted decline counts under the generic reason').toBeGreaterThanOrEqual(1);
 
   const declines = page.getByRole('group', { name: 'Declines' });
-  await expect(declines.getByRole('link', { name: /^Decline rate/ }).locator('.pp-kpi-value')).toHaveText(`${rate}%`);
-  await expect(declines.getByRole('link', { name: /^Declined/ }).locator('.pp-kpi-value')).toHaveText(String(declined.length));
-  await expect(declines.getByRole('link', { name: /^Finished/ }).locator('.pp-kpi-value')).toHaveText(String(finished));
+  await expect(declines.getByRole('link', { name: /^Decline rate/ }).getByTestId('pp-kpi-value')).toHaveText(`${rate}%`);
+  await expect(declines.getByRole('link', { name: /^Declined/ }).getByTestId('pp-kpi-value')).toHaveText(String(declined.length));
+  await expect(declines.getByRole('link', { name: /^Finished/ }).getByTestId('pp-kpi-value')).toHaveText(String(finished));
   const reasonRows = bodyRows(tableIn(page, 'Decline reasons'));
   await expect(reasonRows).toHaveCount(Object.keys(reasons).length);
   for (const r of server.reasons) {

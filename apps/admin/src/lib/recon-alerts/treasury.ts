@@ -7,12 +7,18 @@ import {
   type OpsAlertDetail,
   type OpsAlertResolveInput,
 } from '@intafaced/contracts/ops-reconciliation-alerts';
-import { treasuryHolder } from '@/lib/accounts/holds-server';
-import type { ExecuteFn } from '@/lib/desk/approval-steps';
-import { edgeCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
-import { explainRefusal, type RefusalView } from '@/lib/desk/refusal-copy';
-import { treasuryTransport } from '@/lib/ledger/reconciliation-server';
-import { failureRefusal } from '@/lib/ops-desk/execute';
+import { treasuryHolder } from '@/lib/accounts';
+import {
+  edgeCall,
+  type ExecuteFn,
+  explainRefusal,
+  failureRefusal,
+  type FounderCallContext,
+  type FounderCallResult,
+  parseWith,
+  type RefusalView,
+} from '@/lib/desk';
+import { treasuryTransport } from '@/lib/ledger';
 
 /**
  * The console's treasury hops for reconciliation alerts (OPS-reconciliation-04, J-ops-console-07 #9).

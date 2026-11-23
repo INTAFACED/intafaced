@@ -1,16 +1,12 @@
 import { useMemo, useState } from 'react';
-import {
-  taskClaimResultSchema,
-  taskProgressSchema,
-  type CampaignView,
-  type RewardRecord,
-  type TaskProgress,
-} from '@intafaced/contracts/campaigns-catalogue';
-import { useApi } from '../session/session';
+import { type CampaignView, type RewardRecord, type TaskProgress } from '@intafaced/contracts/campaigns-catalogue';
+import { CAMPAIGNS_TASKS_CLAIM, CAMPAIGNS_TASKS_PROGRESS } from '@intafaced/contracts/campaigns-procedures';
+import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
-import { Button, DataTable, Failure, Loading, Panel } from '../../shared/ui';
-import { StatRow } from './depth-kit';
+import { Button } from '@intafaced/ui/lit';
+import { KeyValue } from '@intafaced/ui/lit/templates';
+import { FailureNote, ScrollTable, Section, Waiting } from './volt-parts';
 import { campaignTasksCopy } from './campaign-tasks-copy';
 
 /**
@@ -80,14 +76,14 @@ export function CampaignTasks({ campaign }: { campaign: CampaignView }) {
   const { when, duration } = useFormat();
   const tasks = campaign.tasks!;
   const progress = useResource(
-    (signal) => api.query('campaigns', 'tasks.progress', { campaignId: campaign.id }, taskProgressSchema, { signal }),
+    (signal) => api.call(CAMPAIGNS_TASKS_PROGRESS, { campaignId: campaign.id }, { signal }),
     `campaign-tasks-${campaign.id}`,
   );
   const [refusal, setRefusal] = useState<Failed | null>(null);
   const [busy, setBusy] = useState(false);
   const claim = async () => {
     setBusy(true);
-    const result = await api.mutate('campaigns', 'tasks.claim', { campaignId: campaign.id }, taskClaimResultSchema);
+    const result = await api.call(CAMPAIGNS_TASKS_CLAIM, { campaignId: campaign.id });
     setBusy(false);
     setRefusal(result.ok ? null : result);
     // Whatever came back, or nothing, the stored reward is read again: a lost answer never sends a second claim.
@@ -97,9 +93,9 @@ export function CampaignTasks({ campaign }: { campaign: CampaignView }) {
   const code = refusal ? claimCode(refusal.code) : null;
   return (
     <>
-      <Panel title={t('stepsTitle')}>
-        <StatRow
-          items={[
+      <Section title={t('stepsTitle')}>
+        <KeyValue
+          rows={[
             {
               label: t('claimWindow'),
               value: (
@@ -123,24 +119,44 @@ export function CampaignTasks({ campaign }: { campaign: CampaignView }) {
               ),
             },
             { label: t('verification'), value: <span data-testid="task-gate">{t(`gate_${tasks.kycGate}`)}</span> },
+            ...(p
+              ? [
+                  {
+                    label: t('budget'),
+                    value: p.budget ? (
+                      <span
+                        data-testid="task-budget"
+                        data-limit={p.budget.limit}
+                        data-reserved={p.budget.reserved}
+                        data-spent={p.budget.spent}
+                        data-left={p.budget.left}
+                      >
+                        {t('budgetValue', { ...p.budget })}
+                      </span>
+                    ) : (
+                      <span data-testid="task-budget">{t('budgetUnset')}</span>
+                    ),
+                  },
+                ]
+              : []),
           ]}
         />
         {progress.resource.status === 'loading' ? (
-          <Loading label={t('progressLoading')} />
+          <Waiting label={t('progressLoading')} />
         ) : progress.resource.status === 'failed' ? (
-          <Failure result={progress.resource.failure} retry={progress.reload} />
+          <FailureNote result={progress.resource.failure} retry={progress.reload} />
         ) : (
           <Steps progress={progress.resource.data} />
         )}
-        <p className="muted">{t('stepsFromEvents')}</p>
-      </Panel>
-      <Panel title={t('rewardTitle')}>
+        <p className="lt-hint">{t('stepsFromEvents')}</p>
+      </Section>
+      <Section title={t('rewardTitle')}>
         {p?.reward ? (
           <>
             <Reward reward={p.reward} when={when} duration={duration} desk={deskOf(tasks)} />
             {/* A withheld reward is looked at again on a later claim, once the account is active. */}
             {p.reward.state === 'withheld' ? (
-              <Button onClick={() => void claim()} disabled={busy}>
+              <Button tone="primary" onClick={() => void claim()} disabled={busy}>
                 {busy ? t('claiming') : t('claimAgain')}
               </Button>
             ) : null}
@@ -150,27 +166,27 @@ export function CampaignTasks({ campaign }: { campaign: CampaignView }) {
             <p data-testid="task-reward-none">{t('rewardNone')}</p>
             {p.claimClosesAt ? <p data-testid="task-claim-by">{t('claimBy', { when: when(p.claimClosesAt) })}</p> : null}
             {p.joined ? (
-              <Button onClick={() => void claim()} disabled={busy}>
+              <Button tone="primary" onClick={() => void claim()} disabled={busy}>
                 {busy ? t('claiming') : t('claim')}
               </Button>
             ) : null}
-            <p className="muted">{t('claimNote')}</p>
+            <p className="lt-hint">{t('claimNote')}</p>
           </>
         ) : null}
         {refusal ? (
           code ? (
-            <p role="status" className="muted" data-testid="task-refusal" data-code={code}>
+            <p role="status" className="lt-hint" data-testid="task-refusal" data-code={code}>
               {code === 'campaigns.kyc_required' ? t(code, { gate: t(`gate_${tasks.kycGate}`) }) : t(code)}
             </p>
           ) : refusal.reason === 'unreachable' || refusal.reason === 'uncertain' || refusal.reason === 'aborted' ? (
-            <p role="status" className="muted" data-testid="task-checking">
+            <p role="status" className="lt-hint" data-testid="task-checking">
               {t('checking')}
             </p>
           ) : (
-            <Failure result={refusal} />
+            <FailureNote result={refusal} />
           )
         ) : null}
-      </Panel>
+      </Section>
     </>
   );
 }
@@ -182,7 +198,7 @@ function Steps({ progress: p }: { progress: TaskProgress }) {
       <p data-testid="task-progress" data-done={p.completed} data-total={p.total}>
         {p.joined ? t('progressValue', { done: String(p.completed), total: String(p.total) }) : t('progressNotJoined')}
       </p>
-      <ol className="depth-list" aria-label={t('stepsLabel')}>
+      <ol aria-label={t('stepsLabel')}>
         {p.steps.map((s) => (
           <li key={s.index} data-testid="task-step" data-complete={s.complete ? 'true' : 'false'}>
             <strong lang="und">{s.title}</strong>:{' '}
@@ -194,9 +210,40 @@ function Steps({ progress: p }: { progress: TaskProgress }) {
           </li>
         ))}
       </ol>
+      {p.deposit ? <DepositRead deposit={p.deposit} /> : null}
     </>
   );
 }
+
+/** How a deposit step was read from the venue just now: read with its as-of time, unread, or no wallet to read. */
+function DepositRead({ deposit }: { deposit: NonNullable<TaskProgress['deposit']> }) {
+  const { t } = campaignTasksCopy.useCopy();
+  const { when } = useFormat();
+  return (
+    <p data-testid="task-deposit-source" data-source={deposit.source} data-as-of={deposit.asOf ?? undefined}>
+      {deposit.source === 'read' && deposit.asOf
+        ? t('depositRead', { when: when(deposit.asOf) })
+        : deposit.source === 'no_wallet'
+          ? t('depositNoWallet')
+          : t('depositUnread')}
+      {deposit.source === 'no_wallet' ? (
+        <>
+          {' '}
+          <a className="lt-link" href="/wallet/venue">
+            {t('connectWallet')}
+          </a>
+        </>
+      ) : null}
+    </p>
+  );
+}
+
+/** Why a reward INTAFACED owes is not in the wallet yet, from its typed reason. */
+const WHY: Record<string, 'why_no_wallet' | 'why_wallet_short' | 'why_frozen'> = {
+  'campaigns.no_connected_wallet': 'why_no_wallet',
+  'campaigns.reward_wallet_short': 'why_wallet_short',
+  'ledger.frozen': 'why_frozen',
+};
 
 /** A streak's run: alive until the zone midnight, or reset after a missed day. Times are the platform zone's. */
 function StreakState({ streak }: { streak: NonNullable<TaskProgress['steps'][number]['streak']> }) {
@@ -238,7 +285,10 @@ function Reward({
         <strong data-testid="task-reward-amount">{t('rewardAmount', { amount: r.amount, asset: r.asset })}</strong>:{' '}
         <span data-testid="task-reward-state">{t(`state_${r.state}`)}</span>
       </p>
-      {r.state === 'held' && r.holdUntil ? (
+      {/* An owed reward on its review hold is paid after the hold; a held one (custodial) likewise. */}
+      {(r.state === 'held' || (r.state === 'owed' && (!r.reason || r.reason === 'campaigns.reward_payout_unavailable'))) &&
+      r.holdUntil &&
+      Date.parse(r.holdUntil) > Date.now() ? (
         <p data-testid="task-reward-held-until" data-until={r.holdUntil}>
           {t('rewardHeldUntil', { when: when(r.holdUntil) })}
         </p>
@@ -248,18 +298,57 @@ function Reward({
           {t('rewardLockedUntil', { when: when(r.lock.until) })}
         </p>
       ) : null}
-      {r.ledgerTxId ? (
+      {r.state === 'owed' ? (
+        <p data-testid="task-reward-why" data-reason={r.reason ?? undefined}>
+          {t(r.reason && WHY[r.reason] ? WHY[r.reason]! : 'why_waiting')}
+          {r.reason === 'campaigns.no_connected_wallet' ? (
+            <>
+              {' '}
+              <a className="lt-link" href="/wallet/venue">
+                {t('connectWallet')}
+              </a>
+            </>
+          ) : null}
+        </p>
+      ) : null}
+      {r.payout ? (
+        <>
+          <p data-testid="task-reward-paid-to" data-wallet={r.payout.toWallet}>
+            {t('paidTo', { wallet: r.payout.toWallet, when: when(r.payout.at) })}{' '}
+            {/* The chain's own record of the payment, in the app's explorer. */}
+            <a
+              className="lt-link"
+              data-testid="task-reward-chain-tx"
+              data-tx={r.payout.chainTx}
+              href={`/chain/tx/${encodeURIComponent(r.payout.chainTx)}`}
+            >
+              {t('chainTx', { tx: r.payout.chainTx })}
+            </a>
+          </p>
+          <p
+            data-testid="task-reward-network-fee"
+            data-asset={r.payout.networkFee?.asset}
+            data-amount={r.payout.networkFee?.amount}
+            data-paid-by="intafaced"
+          >
+            {r.payout.networkFee
+              ? t('networkFee', { amount: r.payout.networkFee.amount, asset: r.payout.networkFee.asset })
+              : t('networkFeeUnread')}
+          </p>
+        </>
+      ) : null}
+      {r.ledgerTxId && r.state === 'posted' ? (
         <p>
           <span data-testid="task-reward-tx" data-tx={r.ledgerTxId}>
             {t('rewardTx', { tx: r.ledgerTxId })}
           </span>{' '}
-          <a className="text-link" href={desk}>
+          <a className="lt-link" href={desk}>
             {t('rewardLedger')}
           </a>
         </p>
       ) : null}
       <h3>{t('logTitle')}</h3>
-      <DataTable label={t('logLabel')} headers={[t('logWhen'), t('logOutcome'), t('logReason')]}>
+      <ScrollTable label={t('logLabel')} headers={[t('logWhen'), t('logOutcome'), t('logReason'), t('logChain')]}>
         {r.attempts.map((a, i) => (
           <tr key={`${a.at}-${i}`} data-testid="redemption-attempt" data-outcome={a.outcome}>
             <td>{when(a.at)}</td>
@@ -267,18 +356,43 @@ function Reward({
             <td data-testid="redemption-reason">
               <code>{a.reason ?? t('reasonNone')}</code>
             </td>
+            {/* The chain reference once paid: the payment line names the transaction that paid it. */}
+            <td data-testid="redemption-chain-tx" data-tx={a.outcome === 'paid' && r.payout ? r.payout.chainTx : undefined}>
+              {a.outcome === 'paid' && r.payout ? <code>{r.payout.chainTx}</code> : t('chainNone')}
+            </td>
           </tr>
         ))}
-      </DataTable>
-      <p data-testid="task-rollback" data-code={r.rollback.blocker}>
+      </ScrollTable>
+      <p
+        data-testid="task-rollback"
+        data-code={r.rollback.blocker}
+        data-closes-on={r.rollback.closesOn}
+        data-closes-at={r.rollback.closesAt ?? undefined}
+        data-open={rollbackOpen(r) ? 'true' : 'false'}
+      >
         <strong>{t('rollbackWindow')}</strong>:{' '}
         {window === null
           ? t('rollbackUnset')
-          : r.rollback.closesAt
-            ? t('rollbackValue', { duration: duration(window), when: when(r.rollback.closesAt) })
-            : t('rollbackPending', { duration: duration(window) })}
+          : r.rollback.closesOn === 'payment'
+            ? r.payout && r.rollback.closesAt === r.payout.at
+              ? t('rollbackClosedPaid', { when: when(r.rollback.closesAt) })
+              : r.rollback.closesAt && !rollbackOpen(r)
+                ? t('rollbackClosedOwed', { when: when(r.rollback.closesAt) })
+                : r.rollback.closesAt
+                  ? t('rollbackOpenUntilPaid', { duration: duration(window), when: when(r.rollback.closesAt) })
+                  : t('rollbackPending', { duration: duration(window) })
+            : r.rollback.closesAt
+              ? t('rollbackValue', { duration: duration(window), when: when(r.rollback.closesAt) })
+              : t('rollbackPending', { duration: duration(window) })}
         . {t('rollbackBlocked')}
       </p>
     </div>
   );
+}
+
+/** Whether the rollback window is still open now: a paid reward's closed at its payment, any other's at its end. */
+function rollbackOpen(r: RewardRecord): boolean {
+  if (r.rollback.windowSeconds === null) return false;
+  if (r.rollback.closesOn === 'payment' && r.payout) return false;
+  return r.rollback.closesAt === null || Date.parse(r.rollback.closesAt) > Date.now();
 }

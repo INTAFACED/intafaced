@@ -6,7 +6,7 @@ import { SECRET, keyCases } from './s2s-keys-fixture.js';
 
 const USER = '22222222-2222-4222-8222-222222222222';
 const answer = (status: number, body: unknown) =>
-  (async () => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch;
+  (async () => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })) as typeof fetch;
 
 describe('svc-p2p public profile from identity', () => {
   it('names the account by its handle and claims no member-since date the door does not carry', async () => {
@@ -19,7 +19,7 @@ describe('svc-p2p public profile from identity', () => {
     const recorder = (async (_url: string, init: RequestInit) => {
       seen.push(init);
       return new Response(JSON.stringify({ userId: USER, handle: 'TESTbuyer' }), { status: 200 });
-    }) as unknown as typeof fetch;
+    }) as typeof fetch;
     await createIdentityPublicProfile('http://identity', SECRET, undefined, recorder).lookup(USER);
     expect(seen.map((init) => init.redirect)).toEqual(['error']);
   });
@@ -31,7 +31,7 @@ describe('svc-p2p public profile from identity', () => {
     });
     const down = (async () => {
       throw new TypeError('fetch failed');
-    }) as unknown as typeof fetch;
+    }) as typeof fetch;
     await expect(createIdentityPublicProfile('http://identity', SECRET, undefined, down).lookup(USER)).rejects.toMatchObject({
       code: 'p2p.public_profile_unavailable',
     });

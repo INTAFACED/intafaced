@@ -2,9 +2,10 @@ import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
-import { describe, expect, it, beforeAll, beforeEach, afterAll } from 'vitest';
+import { storedText } from '@intafaced/db/testing';
+import { describe, expect, it, beforeAll, afterAll } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import {
   createEdgeContext,
@@ -21,6 +22,7 @@ import { stubApprovalConsumer } from '../action-approval-consume.js';
 import { CardService } from './card-service.js';
 import { cardIssuerFor, cardProgrammeOutput, cardSim, type CardIssuerAdapter } from './issuer.js';
 import { NOTHING_REPORTED } from './partner-terms.js';
+import { testPartner, type TestPartner } from '../partner/test-partner.js';
 
 function luhnOk(digits: string): boolean {
   let sum = 0;
@@ -199,7 +201,7 @@ describe('customer card procedures (PG-hard)', () => {
       // name ending in `_test`. intafaced_test is the same server and role.
       db = await createTestDatabase({ service: 'bank', url: testAdminUrl(envUrl), migrations: MIGRATIONS });
     } else {
-      const container = await new PostgreSqlContainer('postgres:16-alpine')
+      const container = await testPostgres('postgres:16-alpine')
         .withDatabase('intafaced_h8a_test')
         .withUsername('intafaced')
         .withPassword('intafaced')
@@ -513,7 +515,7 @@ describe('customer card procedures (PG-hard)', () => {
     const ledger = new MemoryLedger();
     const { issuer, calls } = countingLiveIssuer();
     const cards = new CardService(sql, ledger, { issuer, clock: () => NOW });
-    const bank = { cards } as unknown as BankServices;
+    const bank = { cards } as BankServices;
     const user = caller(bank, ['bank:read', 'bank:write']);
     await sql.unsafe(SIMULATED_DOWN);
     try {
@@ -540,7 +542,7 @@ describe('customer card procedures (PG-hard)', () => {
     await sql`TRUNCATE bank.card_secret_audits, bank.card_commands, bank.card_cashback, bank.card_settlements, bank.card_conversions, bank.card_authorizations, bank.cards RESTART IDENTITY CASCADE`;
     const ledger = new MemoryLedger();
     const cards = new CardService(sql, ledger, { issuer: liveIssuer(), clock: () => NOW });
-    const bank = { cards } as unknown as BankServices;
+    const bank = { cards } as BankServices;
     const identity = new FakeIdentity();
     const user = caller(bank, ['bank:read', 'bank:write'], createStepUpGate({ mode: 'required', approvals: identity, clock: () => NOW }));
     await sql.unsafe(SIMULATED_DOWN);
@@ -598,12 +600,13 @@ describe('customer card procedures (PG-hard)', () => {
   });
 
   /** The TEST partner adapter with `secrets: "test"` and the owner's PIN try limit (J-bank-14 #3, #4). */
-  async function testSecretsSim(pinTryLimit: number | null, threeDSTryLimit: number | null = null) {
+  async function testSecretsSim(pinTryLimit: number | null, threeDSTryLimit: number | null = null, partnerSwitches?: TestPartner) {
     await sql`TRUNCATE bank.card_3ds_challenges, bank.card_fraud_reports, bank.card_wallet_tokens, bank.card_controls, bank.card_status_events, bank.card_secret_audits, bank.card_commands, bank.card_cashback, bank.card_settlements, bank.card_conversions, bank.card_authorizations, bank.cards RESTART IDENTITY CASCADE`;
     const ledger = new MemoryLedger();
     const partner = { ...NOTHING_REPORTED, secrets: 'test' as const };
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
       cards: { issuer: cardIssuerFor('card-sim', { live: false }, partner), clock: () => NOW, pinTryLimit, threeDSTryLimit },
+      ...(partnerSwitches ? { testPartner: partnerSwitches } : {}),
     });
     const identity = new FakeIdentity();
     const gate = createStepUpGate({ mode: 'required', approvals: identity, clock: () => NOW });
@@ -612,7 +615,13 @@ describe('customer card procedures (PG-hard)', () => {
 
   it('shows the TEST partner card details once per step-up, labelled TEST, and keeps none of them', async () => {
     const { bank, user, identity } = await testSecretsSim(3);
-    await expect(user.cards.secretsOffered()).resolves.toEqual({ details: true, pin: true, wallet: true, test: true });
+    await expect(user.cards.secretsOffered()).resolves.toEqual({
+      details: true,
+      pin: true,
+      wallet: true,
+      test: true,
+      walletNotOffered: false,
+    });
     const cardId = randomUUID();
     await bank.cards.issue({ cardId, userId: HOLDER, assetId: 'USDT', perAuthorizationLimit: amt('100') });
     const revealId = randomUUID();
@@ -720,16 +729,8 @@ describe('customer card procedures (PG-hard)', () => {
     expect(await tap('0000')).toMatchObject({ declineCode: 'bank.card_pin_wrong' });
     expect(await tap('0000')).toMatchObject({ declineCode: 'bank.card_pin_blocked' });
 
-    // Random ids, hex hashes and clock times can hold any four digits ("86422193-…" did, on #7779's run 42738583878; a
-    // payload_hash "e691a724987c4321…" did, on #7815's run 42759902360), so they are taken out before the search; every
-    // other stored value is still searched for both PINs. A hash is a whole quoted run of 32 or more hex digits, so a
-    // PIN stored in the clear, alone or inside other text, is never masked.
-    const stored = (
-      JSON.stringify(await sql`SELECT * FROM bank.card_authorizations`) + JSON.stringify(await sql`SELECT * FROM bank.card_secret_audits`)
-    )
-      .replace(/"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"/gi, '"<uuid>"')
-      .replace(/(?<=")[0-9a-f]{32,}(?=\\?")/gi, '<hash>')
-      .replace(/"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z"/g, '"<time>"');
+    // Every stored value is searched for both PINs; storedText masks the random ids, hashes and clock times first.
+    const stored = storedText(await sql`SELECT * FROM bank.card_authorizations`, await sql`SELECT * FROM bank.card_secret_audits`);
     expect(stored).not.toContain('4321');
     expect(stored).not.toContain('8642');
   });
@@ -780,6 +781,71 @@ describe('customer card procedures (PG-hard)', () => {
     expect((await user.cards.walletTokens({ cardId })).tokens).toHaveLength(1);
     const rows = JSON.stringify(await sql`SELECT * FROM bank.card_wallet_tokens`);
     expect(rows).not.toContain(first.payload);
+  });
+
+  it('a phone-wallet add sent twice at once with one provision id is one token and no error (#8895)', async () => {
+    await testSecretsSim(3);
+    // A retry that overlaps the first call repeats its provision id. Both pass the audit and insert the same token row at
+    // once. Postgres absorbs a clash only on the key ON CONFLICT names, so the loser must not raise a unique violation on
+    // the token's id. The calls reach the insert at different times, so this holds each call's real insert until all of a
+    // round's calls are there, then sends them together on separate connections.
+    const ROUND = 8;
+    let waiting: Array<() => void> = [];
+    const together = new Proxy(sql, {
+      apply(target, thisArg, args: [TemplateStringsArray, ...unknown[]]) {
+        if (!args[0].join('?').includes('INSERT INTO bank.card_wallet_tokens')) return Reflect.apply(target, thisArg, args);
+        return new Promise<void>((release) => {
+          waiting.push(release);
+          if (waiting.length === ROUND) {
+            for (const go of waiting) go();
+            waiting = [];
+          }
+        }).then(() => Reflect.apply(target, thisArg, args));
+      },
+    });
+    const partner = { ...NOTHING_REPORTED, secrets: 'test' as const };
+    const cards = new CardService(together, new MemoryLedger(), {
+      issuer: cardIssuerFor('card-sim', { live: false }, partner),
+      clock: () => NOW,
+    });
+    for (let round = 0; round < 30; round += 1) {
+      const cardId = randomUUID();
+      await cards.issue({ cardId, userId: HOLDER, assetId: 'USDT', perAuthorizationLimit: amt('100') });
+      const provisionId = randomUUID();
+      const settled = await Promise.allSettled(
+        Array.from({ length: ROUND }, () =>
+          cards.walletProvision({ cardId, userId: HOLDER, provisionId, wallet: 'apple', nonce: 'device-race' }),
+        ),
+      );
+      expect(settled.flatMap((s) => (s.status === 'rejected' ? [String(s.reason)] : []))).toEqual([]);
+      const tokens = await sql<Array<{ id: string }>>`SELECT id FROM bank.card_wallet_tokens WHERE card_id = ${cardId}`;
+      expect(tokens.map((t) => t.id)).toEqual([provisionId]);
+    }
+  });
+
+  it('a card partner that does not add cards to phone wallets reads "not offered by the partner" and refuses, adding nothing (J-bank-13 #8)', async () => {
+    const switches = testPartner();
+    switches.set(HOLDER, { notOffered: ['phone_wallet'] });
+    const { bank, user } = await testSecretsSim(3, null, switches);
+    await expect(user.cards.secretsOffered()).resolves.toEqual({
+      details: true,
+      pin: true,
+      wallet: false,
+      test: true,
+      walletNotOffered: true,
+    });
+    const cardId = randomUUID();
+    await bank.cards.issue({ cardId, userId: HOLDER, assetId: 'USDT', perAuthorizationLimit: amt('100') });
+    await expect(
+      user.cards.walletProvision({ cardId, provisionId: randomUUID(), wallet: 'apple', nonce: 'device-n' }),
+    ).rejects.toMatchObject({ message: expect.stringContaining('Not offered by the partner') });
+    expect((await user.cards.walletTokens({ cardId })).tokens).toEqual([]);
+    expect(await sql`SELECT id FROM bank.card_secret_audits WHERE kind = 'wallet_provision'`).toHaveLength(0);
+    // The partner offers it again: the same person's card goes in.
+    switches.set(HOLDER, { notOffered: [] });
+    await expect(user.cards.secretsOffered()).resolves.toMatchObject({ wallet: true, walletNotOffered: false });
+    await user.cards.walletProvision({ cardId, provisionId: randomUUID(), wallet: 'apple', nonce: 'device-o' });
+    expect((await user.cards.walletTokens({ cardId })).tokens).toEqual([expect.objectContaining({ wallet: 'apple', state: 'added' })]);
   });
 
   it('completes a 3D Secure purchase once on the right code, and locks a challenge at the owner count of wrong codes (J-bank-14 #5)', async () => {
@@ -1037,7 +1103,13 @@ describe('customer card procedures (PG-hard)', () => {
       message: expect.stringContaining('bank.card_wallet_issuer_unset'),
     });
     await expect(user.cards.walletTokens({ cardId })).resolves.toEqual({ test: false, tokens: [] });
-    await expect(user.cards.secretsOffered()).resolves.toEqual({ details: false, pin: false, wallet: false, test: false });
+    await expect(user.cards.secretsOffered()).resolves.toEqual({
+      details: false,
+      pin: false,
+      wallet: false,
+      test: false,
+      walletNotOffered: false,
+    });
   });
 
   it('issues a simulated physical card only with a delivery address', async () => {
@@ -1116,7 +1188,7 @@ describe('customer card procedures (PG-hard)', () => {
     await sql`TRUNCATE bank.card_secret_audits, bank.card_commands, bank.card_cashback, bank.card_settlements, bank.card_conversions, bank.card_authorizations, bank.cards RESTART IDENTITY CASCADE`;
     const ledger = new MemoryLedger();
     const cards = new CardService(sql, ledger, { issuer: liveIssuer(), clock: () => NOW });
-    const bank = { cards } as unknown as BankServices;
+    const bank = { cards } as BankServices;
     const user = caller(bank);
     await sql.unsafe(SIMULATED_DOWN);
     try {

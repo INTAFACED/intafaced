@@ -374,6 +374,79 @@ describe('recipient cannot receive — svc-bank refuses before posting', () => {
       expect(await available(RECIPIENT)).toBe('0');
     });
 
+    // The sender's freeze is enforced at the edge (recipient-state.ts), but a standing order runs on svc-bank's own timer
+    // and never passes the edge. A frozen account's money must not keep leaving by its standing orders.
+    it.each(['frozen', 'closed', 'not_found'] as const)(
+      'a SENDER %s after scheduling: the run records bank.sender_cannot_send, posts nothing, the recipient is not paid',
+      async (status) => {
+        const schedule = await order();
+        identity.set(SENDER, status);
+        const before = journalKeys();
+
+        const report = await bank.transfers.runDueTransfers({ now: new Date('2026-01-01T10:00:00Z'), limit: 200 });
+
+        expect(report.settled).toBe(0);
+        expect(report.rejected).toBe(1);
+        expect(report.failures).toEqual([]);
+        expect(journalKeys()).toEqual(before);
+        const runs = await bank.transfers.executions(schedule.id, 50);
+        expect(runs).toHaveLength(1);
+        expect(runs[0]).toMatchObject({ status: 'rejected', rejectionCode: 'bank.sender_cannot_send' });
+        expect(await available(RECIPIENT)).toBe('0');
+        expect(await available(SENDER)).toBe('100');
+      },
+    );
+
+    it('identity down for the SENDER check does NOT consume the occurrence; it settles once identity says active', async () => {
+      const schedule = await order();
+      const now = new Date('2026-01-01T10:00:00Z');
+      // Recipient answers active; the next ask (the sender's) fails.
+      const port = identity;
+      let calls = 0;
+      const realStatusOf = port.statusOf.bind(port);
+      port.statusOf = async (userId: string) => {
+        calls += 1;
+        if (userId === SENDER) throw new RecipientStateUnavailableError('down');
+        return realStatusOf(userId);
+      };
+
+      const down = await bank.transfers.runDueTransfers({ now, limit: 200 });
+      expect(calls).toBeGreaterThan(0);
+      expect(down.settled).toBe(0);
+      expect(down.failures).toHaveLength(1);
+      expect(await bank.transfers.executions(schedule.id, 50)).toHaveLength(0);
+      expect(await available(RECIPIENT)).toBe('0');
+
+      port.statusOf = realStatusOf;
+      const up = await bank.transfers.runDueTransfers({ now, limit: 200 });
+      expect(up.settled).toBe(1);
+      expect(await available(RECIPIENT)).toBe('25');
+      expect(await available(SENDER)).toBe('75');
+    });
+
+    it("a frozen SENDER's move between their own spaces is not a payment out: it settles, and identity is not asked", async () => {
+      const from = await sender();
+      const pot = await bank.spaces.create({ userId: SENDER, assetId: 'USDT', name: 'Pot' });
+      const schedule = await bank.transfers.schedule({
+        scheduleId: randomUUID(),
+        userId: SENDER,
+        fromSpaceId: from.id,
+        toSpaceId: pot.id,
+        amount: amt('25'),
+        cadence: 'monthly',
+        startsAt: new Date('2026-01-01T09:00:00Z'),
+      });
+      identity.set(SENDER, 'frozen');
+      const askedBefore = identity.asked.length;
+
+      const report = await bank.transfers.runDueTransfers({ now: new Date('2026-01-01T10:00:00Z'), limit: 200 });
+
+      expect(report.settled).toBe(1);
+      expect(identity.asked.slice(askedBefore)).toEqual([]);
+      expect(formatAmount(await bank.spaces.balanceOf(pot))).toBe('25');
+      expect((await bank.transfers.executions(schedule.id, 50))[0]).toMatchObject({ status: 'settled' });
+    });
+
     it('identity down at run time does NOT consume the occurrence; it settles when identity is back', async () => {
       const schedule = await order();
       identity.failWith(new RecipientStateUnavailableError('down'));
@@ -516,6 +589,84 @@ describe('recipient cannot receive — svc-bank refuses before posting', () => {
       expect(row).toMatchObject({ status: 'rejected', rejection_code: 'bank.recipient_cannot_receive' });
       expect(await available(MAKER)).toBe('1000');
       expect(await available(RECIPIENT)).toBe('0');
+    });
+
+    it('two approves at once, the recipient frozen between them: the settle that posted is recorded, the row never says rejected (#4689)', async () => {
+      // A passes its checks and is held just before its settle posts. B's check sees the freeze and no settle yet;
+      // A's settle then posts, and A is held again before it records the post. B closes the row and tries to
+      // release a hold A has already spent.
+      let asks = 0;
+      const recipients = {
+        // 1 = propose, 2 = A's pre-claim check, 3 = A's settle check, 4 = B's settle check.
+        async statusOf() {
+          asks += 1;
+          return asks >= 4 ? ('frozen' as const) : ('active' as const);
+        },
+      };
+      const gate = () => {
+        let open!: () => void;
+        const opened = new Promise<void>((resolve) => (open = resolve));
+        return { open, opened };
+      };
+      const aAtSettle = gate();
+      const aMaySettle = gate();
+      const aPosted = gate();
+      const aMayRecord = gate();
+      let settlePosts = 0;
+      let bAsked = false;
+      const settleKey = (approvalId: string) => `bank.business.settle:${approvalId}`;
+      let approvalId = '';
+      const racingLedger = new Proxy(ledger, {
+        get(target, prop) {
+          if (prop === 'post') {
+            return async (request: Parameters<MemoryLedger['post']>[0]) => {
+              if (request.idempotencyKey !== settleKey(approvalId) || settlePosts++ > 0) return target.post(request);
+              aAtSettle.open();
+              await aMaySettle.opened;
+              const tx = await target.post(request);
+              aPosted.open();
+              await aMayRecord.opened;
+              return tx;
+            };
+          }
+          if (prop === 'getTxByKey') {
+            return async (key: string) => {
+              const found = await target.getTxByKey(key);
+              if (key === settleKey(approvalId) && settlePosts > 0 && !bAsked) {
+                bAsked = true;
+                aMaySettle.open();
+                await aPosted.opened;
+              }
+              return found;
+            };
+          }
+          const value = Reflect.get(target, prop, target) as unknown;
+          return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+        },
+      });
+      const racing = createBankServices(sql, racingLedger, memoryLedgerHistory(ledger), { nativeAssetId: 'IFC', recipients });
+      const approval = await pendingToRecipient(racing);
+      approvalId = approval.id;
+
+      const a = racing.business.approve({ approvalId: approval.id, checkerUserId: CHECKER });
+      await aAtSettle.opened;
+      const b = await racing.business.approve({ approvalId: approval.id, checkerUserId: CHECKER });
+      aMayRecord.open();
+      const first = await a;
+
+      const settled = await ledger.getTxByKey(settleKey(approval.id));
+      expect(settled).not.toBeNull();
+      expect(first).toEqual({ transferId: approval.id, ledgerTxId: settled!.id });
+      expect(b).toEqual(first);
+      const [row] = await sql<Array<{ status: string; rejection_code: string | null; ledger_tx_id: string | null }>>`
+        SELECT status, rejection_code, ledger_tx_id FROM bank.business_approvals WHERE id = ${approval.id}::uuid
+      `;
+      expect(row).toEqual({ status: 'approved', rejection_code: null, ledger_tx_id: settled!.id });
+      // Money invariant: the 250 moved once, the hold is spent and never released.
+      expect(await available(MAKER)).toBe('750');
+      expect(await available(RECIPIENT)).toBe('250');
+      expect(journalKeys().filter((k) => k === settleKey(approval.id))).toHaveLength(1);
+      expect(journalKeys()).not.toContain(`bank.business.release:${approval.id}`);
     });
   });
 });

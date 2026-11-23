@@ -7,9 +7,9 @@ vi.mock('../../shared/preferences', async (original) => {
 });
 const answers: { chain: unknown; indexer?: unknown; keyed: Record<string, unknown> } = { chain: undefined, keyed: {} };
 vi.mock('../session/session', async (original) => {
-  const real = await original<typeof import('../session/session')>();
+  const real = await original<typeof import('../session')>();
   const api = { query: () => new Promise(() => undefined), canWrite: () => true };
-  return { ...real, useApi: () => api as never, useSession: () => ({ session: null, restoring: false }) as never };
+  return { ...real, useApi: () => api as never, useSession: () => ({ session: null }) as never };
 });
 vi.mock('../../shared/resource', () => ({
   // Only the chain status is answered; every other source stays loading, so the rooms show their own checking state.
@@ -57,6 +57,17 @@ describe('Web3 shell', () => {
     answers.chain = { status: 'failed', failure: { ok: false, reason: 'unreachable', message: 'x', code: 'edge.upstream_unavailable' } };
     expect(page('/dex')).toContain('Network unreachable · The Protocol service did not answer');
   });
+  it('treats a region svc-protocol does not serve (denied.region_blocked) as a blocked region too', () => {
+    answers.chain = { status: 'failed', failure: { ok: false, reason: 'forbidden', message: 'x', code: 'denied.region_blocked' } };
+    const html = renderToStaticMarkup(
+      <Web3Shell path="/wallet">
+        <PermitForm />
+      </Web3Shell>,
+    );
+    expect(html).toContain('data-notice="region" data-code="denied.region_blocked"');
+    expect(html).toContain('This service is not available in your region.');
+    expect(html).not.toContain('Review and sign');
+  });
   it('names a blocked region in words and offers no signing action while the edge refuses it', () => {
     answers.chain = { status: 'failed', failure: { ok: false, reason: 'forbidden', message: 'x', code: 'edge.geo_blocked' } };
     const html = renderToStaticMarkup(
@@ -101,8 +112,8 @@ describe('Web3 shell', () => {
     answers.chain = chain(84532);
     const html = page('/dex');
     const swap = /<li data-action="swap">([\s\S]*?)<\/li>/.exec(html)?.[1] ?? '';
-    expect(swap).toMatch(/<div class="protocol-actions__reason protocol-actions__gap" role="note"><div class="empty-state">/);
-    expect(swap).toMatch(/<h3>Blocked: [^<]+<\/h3>/);
+    expect(swap).toMatch(/<div class="lt-hint" role="note"><div class="lt-empty">/);
+    expect(swap).toMatch(/<h3 class="lt-empty-title">Blocked: [^<]+<\/h3>/);
     expect(swap).not.toContain('data-not-connected');
   });
   it('gives a block page its layout and names the indexer when it cannot be read, never a blank', () => {

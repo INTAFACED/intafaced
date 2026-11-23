@@ -1,5 +1,5 @@
 import type { AcademyCourseLearnerView, AcademyPrivateLink } from '@intafaced/contracts/academy-courses';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 
 /**
  * Preview as new learner and private links (AC-catalogue-03). Pure, so the server loader, the route and the browser

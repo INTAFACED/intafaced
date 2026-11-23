@@ -233,7 +233,7 @@ export class Metrics {
 
     let s = this.series.get(key);
     if (!s) {
-      s = { labels: stored, count: 0, sum: 0, buckets: new Array<number>(DURATION_BUCKETS.length).fill(0) };
+      s = { labels: stored, count: 0, sum: 0, buckets: Array.from({ length: DURATION_BUCKETS.length }, () => 0) };
       this.series.set(key, s);
     }
 

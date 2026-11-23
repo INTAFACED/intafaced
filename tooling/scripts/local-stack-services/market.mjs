@@ -1,6 +1,12 @@
 // LOCAL TEST only, labelled in tooling/profiles/test-owner-values/market.json: the refund policy (MC-market-02). A journey
 // restarts market with LOCAL_STACK_MARKET_REFUND_POLICY=off to prove the blank refusal (owner.decision).
 const refundPolicy = () => (process.env.LOCAL_STACK_MARKET_REFUND_POLICY === 'off' ? {} : { MARKET_REFUND_POLICY: 'seller_full' });
+// LOCAL TEST only, labelled in the same file: the signal provider criteria (J-copy-bots-otc-22). A journey restarts market
+// with LOCAL_STACK_MARKET_SIGNAL_CRITERIA=off to prove the blank refusal (market.provider_criteria_not_set).
+const signalCriteria = () =>
+  process.env.LOCAL_STACK_MARKET_SIGNAL_CRITERIA === 'off'
+    ? {}
+    : { MARKET_SIGNAL_PROVIDER_MIN_TIER: 'full', MARKET_SIGNAL_PROVIDER_MIN_FILLS: '1' };
 
 export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
   name: 'market',
@@ -10,6 +16,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     TOKEN_URL: urlOf('token'),
     LEDGER_URL: urlOf('ledger'),
     IDENTITY_URL: urlOf('identity'),
+    TRADE_URL: urlOf('trade'),
     // LOCAL TEST only, the labelled value in tooling/profiles/test-owner-values/market.json: the house commission on a
     // Market sale. Production stays blank and every listing and purchase refuses (market.commission_not_configured).
     MARKET_HOUSE_COMMISSION_BPS: '100',
@@ -20,5 +27,6 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     MARKET_REFUND_WINDOW_SECONDS: '120',
     MARKET_RELEASE_SWEEP_SECONDS: '5',
     ...refundPolicy(),
+    ...signalCriteria(),
   }),
 });

@@ -3,14 +3,14 @@
  * Empty account id refuses before create — no leftover unbound key.
  * Foreign / revoked / missing account refuses before create.
  */
-import type { Sql } from 'postgres';
+import type { Queryable } from '@intafaced/db';
 import { ApiKeyAccountError, requireAccountId } from './api-key-account.js';
 import { assertPortfolioKeyRoom, bindApiKeyAccount } from './bind-api-key-account.js';
 import type { ApiKeyMinter } from './mint-api-key-ip.js';
 
 export async function mintApiKeyBoundToAccount(
   minter: ApiKeyMinter,
-  sql: Sql,
+  sql: Queryable,
   input: {
     userId: string;
     name: string;

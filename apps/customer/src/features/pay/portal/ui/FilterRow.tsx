@@ -118,7 +118,7 @@ export function FilterRow({
       )}
       {more && (
         <div>
-          <button type="button" className="text-link" aria-expanded={open} onClick={() => setOpen(!open)}>
+          <button type="button" className="lt-link" aria-expanded={open} onClick={() => setOpen(!open)}>
             {t('moreFilters')}
           </button>
           {open && <div className="pp-filter-row">{more}</div>}
@@ -131,7 +131,7 @@ export function FilterRow({
             {' '}
             <button
               type="button"
-              className="text-link"
+              className="lt-link"
               onClick={() => {
                 filters.setSearch('');
                 filters.setStatus('');

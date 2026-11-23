@@ -476,8 +476,6 @@ function after(a: LedgerPageEntry, b: LedgerPageEntry): number {
   return a.txId < b.txId ? 1 : a.txId > b.txId ? -1 : 0;
 }
 
-/** A partner move between a person's own spaces is never a personal send: its note comes from `transfer_messages`. */
-const NO_PERSONAL_TX: ReadonlySet<string> = new Set();
 const NO_WITHDRAWALS: ReadonlyMap<string, string> = new Map();
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -493,8 +491,11 @@ export class ActivityService {
     if (partner) {
       const limit = Math.min(Math.max(Math.trunc(input.limit ?? ACTIVITY_DEFAULT_LIMIT), 1), ACTIVITY_MAX_LIMIT);
       const page = await partnerActivityPage(userId, partner, this.spaces, input, limit);
-      // Each line's note and reference, private note and dispute, kept in svc-bank against the partner's move reference.
-      return { ...page, items: await this.withRecords(userId, page.items, NO_PERSONAL_TX, false, false) };
+      // A send to another person takes its note, reference and the other person's handle from the send's record, kept
+      // against the partner's move id (J-bank-04 #4); each line's private note and dispute, and a space move's note, from
+      // the records kept against the partner's move reference.
+      const sent = await this.withTransferFacts(userId, page.items);
+      return { ...page, items: await this.withRecords(userId, sent.items, sent.personalTx, false, false) };
     }
     if (input.sort === 'asc') return this.listOldestFirst(userId, input);
     if (!hasFilter(input)) return this.listPage(userId, input);
@@ -511,7 +512,8 @@ export class ActivityService {
     const partner = this.options.custody?.bankFor(userId);
     if (partner) {
       const found = await partnerActivityItem(userId, partner, this.spaces, id);
-      const lines = await this.withRecords(userId, found.lines, NO_PERSONAL_TX, false, false);
+      const sent = await this.withTransferFacts(userId, found.lines);
+      const lines = await this.withRecords(userId, sent.items, sent.personalTx, false, false);
       return { ...found, item: lines.find((line) => line.id === found.item.id) ?? found.item, lines };
     }
     if (id.startsWith('order:')) {
@@ -626,18 +628,42 @@ export class ActivityService {
     return { userId, assetId, owners: map };
   }
 
+  /**
+   * A transaction's lines can straddle lookup pages, so the lines come from every page read before the hit and from
+   * the pages after it until one ends older than the hit's posting time. `complete` is false when the bound stops that.
+   */
   private async findItem(userId: string, id: string): Promise<{ item: ActivityItem; lines: ActivityItem[]; complete: boolean }> {
     let cursor: string | undefined;
-    for (let page = 0; page < GET_MAX_PAGES; page += 1) {
+    const read: ActivityItem[] = [];
+    let hit: ActivityItem | undefined;
+    let page = 0;
+    for (; page < GET_MAX_PAGES; page += 1) {
       const got = await this.listPage(userId, { limit: GET_PAGE, cursor });
-      const hit = got.items.find((item) => item.id === id);
-      if (hit) {
-        return { item: hit, lines: got.items.filter((item) => item.txId === hit.txId), complete: true };
-      }
+      read.push(...got.items);
+      hit = got.items.find((item) => item.id === id);
+      cursor = got.nextCursor ?? undefined;
+      if (hit) break;
       if (!got.nextCursor) throw new ActivityNotFoundError();
-      cursor = got.nextCursor;
     }
-    throw new ActivityLookupBoundedError();
+    if (!hit) throw new ActivityLookupBoundedError();
+    const at = Date.parse(hit.postedAt);
+    const mayContinue = () => {
+      const last = read.at(-1);
+      return last !== undefined && (last.txId === hit.txId || Date.parse(last.postedAt) >= at);
+    };
+    let complete = true;
+    while (cursor !== undefined && mayContinue()) {
+      page += 1;
+      if (page >= GET_MAX_PAGES) {
+        complete = false;
+        break;
+      }
+      const got = await this.listPage(userId, { limit: GET_PAGE, cursor });
+      read.push(...got.items);
+      cursor = got.nextCursor ?? undefined;
+    }
+    const lines = [...new Map(read.filter((item) => item.txId === hit.txId).map((item) => [item.id, item])).values()];
+    return { item: hit, lines, complete };
   }
 
   private async findOrder(userId: string, orderId: string): Promise<{ item: ActivityItem; lines: ActivityItem[]; complete: boolean }> {
@@ -939,6 +965,32 @@ export class ActivityService {
       const address = item.kind === 'withdrawal' ? byTx.get(item.txId) : undefined;
       return address === undefined ? item : { ...item, address };
     });
+  }
+
+  /** A partner line of a send to another person, with that send's note, reference and the other person's handle. */
+  private async withTransferFacts(userId: string, items: ActivityItem[]): Promise<{ items: ActivityItem[]; personalTx: Set<string> }> {
+    const personalTx = new Set<string>();
+    const facts = this.options.transferFacts;
+    const wanted = [...new Set(items.filter((i) => i.kind === 'transfer_in' || i.kind === 'transfer_out').map((i) => i.txId))];
+    if (facts === undefined || wanted.length === 0) return { items, personalTx };
+    try {
+      const recorded = await facts.forTransfers(userId, wanted);
+      const out = items.map((i) => {
+        const fact = i.kind === 'transfer_in' || i.kind === 'transfer_out' ? recorded.get(i.txId) : undefined;
+        if (fact === undefined) return i;
+        personalTx.add(i.txId);
+        return {
+          ...i,
+          ...(fact.counterpartyHandle ? { counterparty: { handle: fact.counterpartyHandle } } : {}),
+          ...(fact.note ? { note: fact.note } : {}),
+          ...(fact.reference ? { reference: fact.reference } : {}),
+        };
+      });
+      return { items: out, personalTx };
+    } catch {
+      // A missing note never hides the money movement.
+      return { items, personalTx };
+    }
   }
 
   /**

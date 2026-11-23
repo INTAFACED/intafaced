@@ -9,7 +9,7 @@ import { VenueUnavailableError } from './quote/venue.js';
 import { venuesFor, type VenueSetEnv } from './quote/venue-set.js';
 
 /**
- * THE MOUNT BOUNDARY, for svc-dex (docs/decisions/mount-boundary.md).
+ * THE MOUNT BOUNDARY, for svc-dex.
  *
  * `quote-service.test.ts` proves the sourcing rule in isolation: a price is
  * never invented. What it cannot prove is that the rule survives the mount —

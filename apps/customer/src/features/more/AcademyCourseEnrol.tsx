@@ -9,14 +9,16 @@ import {
 } from '@intafaced/contracts/academy-catalogue';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { ServiceOffNotice } from '../../shared/service-off';
-import { Button, Loading } from '../../shared/ui';
+import { Button, Radio } from '@intafaced/ui/lit';
 import { usePreferences } from '../../shared/preferences';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { leaveReceipt } from './academy-flows';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { formatDay } from './academy-lms';
-import { AcademyRefusal, GuardedButton } from './AcademyLmsParts';
+import { AcademyRefusal } from './academy-refusal';
+import { KitGuardedButton as GuardedButton } from './academy-guarded';
+import { ServiceOffNote as ServiceOffNotice } from './service-off-note';
+import { Waiting } from './volt-parts';
 
 type Failure = Extract<ApiResult<never>, { ok: false }>;
 type T = (typeof copy)['t'];
@@ -94,7 +96,7 @@ export function AcademyCourseEnrol({
             leaveReceipt(userId, slug),
           ),
     );
-  if (terms.resource.status === 'loading') return <Loading />;
+  if (terms.resource.status === 'loading') return <Waiting />;
   if (terms.resource.status === 'failed')
     return (
       <>
@@ -103,7 +105,16 @@ export function AcademyCourseEnrol({
         <AcademyRefusal failure={terms.resource.failure} retry={terms.reload} />
       </>
     );
-  return <CourseEnrolView terms={terms.resource.data} sending={sending} refusal={refusal} onEnrol={enrol} onLeave={leave} />;
+  return (
+    <CourseEnrolView
+      terms={terms.resource.data}
+      sending={sending}
+      refusal={refusal}
+      onEnrol={enrol}
+      onLeave={leave}
+      selectClosed={authored}
+    />
+  );
 }
 
 /** The enrol block as data says it. Pure: state arrives as props. */
@@ -113,12 +124,19 @@ export function CourseEnrolView({
   refusal,
   onEnrol,
   onLeave,
+  selectClosed = false,
 }: {
   terms: AcademyAuthoredCourseEnrolment;
   sending: boolean;
   refusal: { kind: 'enrol' | 'leave'; failure: Failure } | null;
   onEnrol: (track: AcademyEnrolmentTrack) => void;
   onLeave: (enrolledAt: string) => void;
+  /**
+   * A course staff made (J-academy-07 #1): a track closed only because no price is set can still be chosen, and Enrol
+   * then refuses with "price not set" beside it, so the refusal is seen where the person presses. A track closed for
+   * any other reason (payments switched off, J-academy-11 #10) stays disabled with its reason.
+   */
+  selectClosed?: boolean;
 }) {
   const { t, Copy } = copy.useCopy();
   const { language } = usePreferences();
@@ -126,40 +144,48 @@ export function CourseEnrolView({
   const [confirmingLeave, setConfirmingLeave] = useState(false);
   const [picked, setPicked] = useState<AcademyEnrolmentTrack | null>(null);
   // A track that has closed since it was picked is no longer the choice; the first open one is.
-  const chosen = openTracks.find((row) => row.track === picked)?.track ?? openTracks[0]?.track ?? null;
+  const choosable = (row: { closed: string | null }) => row.closed === null || (selectClosed && row.closed === 'no_price');
+  const pickedClosed = selectClosed ? (terms.tracks.find((row) => row.track === picked && row.closed === 'no_price') ?? null) : null;
+  const chosen = pickedClosed?.track ?? openTracks.find((row) => row.track === picked)?.track ?? openTracks[0]?.track ?? null;
   const enrolled = terms.enrolment;
   const reason = terms.closed
     ? closedReasonText(t, terms.closed)
     : chosen === null
       ? t('enrolChooseTrack')
-      : sending
-        ? t('enrolSending')
-        : null;
+      : pickedClosed
+        ? t('enrolRefusedNoPrice')
+        : sending
+          ? t('enrolSending')
+          : null;
   return (
-    <div className="academy-lms-stack" data-academy-enrol={terms.slug}>
-      <dl className="academy-enrol-terms">
-        <dt>
-          <Copy k="enrolStart" />
-        </dt>
-        <dd>
-          {terms.startsAt ? (
-            <time dateTime={terms.startsAt}>
-              <Copy k="enrolOpensOn" params={{ date: formatDay(terms.startsAt, language) }} />
-            </time>
-          ) : (
-            <Copy k="enrolSelfPaced" />
-          )}
-        </dd>
-        <dt>
-          <Copy k="enrolSeats" />
-        </dt>
-        <dd>
-          {terms.seatCap === null || terms.seatsRemaining === null ? (
-            <Copy k="enrolSeatsNotSet" />
-          ) : (
-            <Copy k="enrolSeatsLeft" params={{ remaining: terms.seatsRemaining, cap: terms.seatCap }} />
-          )}
-        </dd>
+    <div className="lt-stack" data-academy-enrol={terms.slug}>
+      <dl className="lt-kv">
+        <div>
+          <dt>
+            <Copy k="enrolStart" />
+          </dt>
+          <dd>
+            {terms.startsAt ? (
+              <time dateTime={terms.startsAt}>
+                <Copy k="enrolOpensOn" params={{ date: formatDay(terms.startsAt, language) }} />
+              </time>
+            ) : (
+              <Copy k="enrolSelfPaced" />
+            )}
+          </dd>
+        </div>
+        <div>
+          <dt>
+            <Copy k="enrolSeats" />
+          </dt>
+          <dd>
+            {terms.seatCap === null || terms.seatsRemaining === null ? (
+              <Copy k="enrolSeatsNotSet" />
+            ) : (
+              <Copy k="enrolSeatsLeft" params={{ remaining: terms.seatsRemaining, cap: terms.seatCap }} />
+            )}
+          </dd>
+        </div>
       </dl>
       {enrolled ? (
         <>
@@ -170,7 +196,7 @@ export function CourseEnrolView({
           </p>
           {terms.activationMail && <ServiceOffNotice code={terms.activationMail} action={t('enrolActivationMail')} role="status" />}
           {confirmingLeave ? (
-            <div className="academy-lms-stack" role="group" aria-label={t('courseLeave')}>
+            <div className="lt-stack" role="group" aria-label={t('courseLeave')}>
               <p>
                 <Copy k="courseLeaveNote" />
               </p>
@@ -184,7 +210,7 @@ export function CourseEnrolView({
               >
                 <Copy k="courseLeaveConfirm" />
               </GuardedButton>
-              <Button variant="secondary" onClick={() => setConfirmingLeave(false)}>
+              <Button tone="secondary" onClick={() => setConfirmingLeave(false)}>
                 <Copy k="courseLeaveKeep" />
               </Button>
             </div>
@@ -202,7 +228,7 @@ export function CourseEnrolView({
       ) : (
         <>
           {/* A closed course says why once, next to the disabled Enrol now. */}
-          <fieldset className="academy-enrol-tracks">
+          <fieldset className="lt-stack">
             <legend>
               <Copy k="enrolTracks" />
             </legend>
@@ -210,27 +236,25 @@ export function CourseEnrolView({
               const id = `academy-enrol-${terms.slug}-${row.track}`;
               return (
                 <div key={row.track}>
-                  <label htmlFor={id}>
-                    <input
-                      id={id}
-                      type="radio"
-                      name={`academy-enrol-${terms.slug}`}
-                      value={row.track}
-                      checked={chosen === row.track}
-                      disabled={row.closed !== null || terms.closed !== null}
-                      aria-describedby={row.closed ? `${id}-closed` : undefined}
-                      onChange={() => setPicked(row.track)}
-                    />{' '}
+                  <Radio
+                    id={id}
+                    name={`academy-enrol-${terms.slug}`}
+                    value={row.track}
+                    checked={chosen === row.track}
+                    disabled={!choosable(row) || terms.closed !== null}
+                    aria-describedby={row.closed ? `${id}-closed` : undefined}
+                    onSelect={() => setPicked(row.track)}
+                  >
                     {t(TRACK_KEYS[row.track])}
                     {row.free && (
-                      <span className="muted">
+                      <span className="lt-hint">
                         {' · '}
                         <Copy k="trackFree" />
                       </span>
                     )}
-                  </label>
+                  </Radio>
                   {row.closed && (
-                    <small id={`${id}-closed`} className="muted">
+                    <small id={`${id}-closed`} className="lt-hint">
                       {' '}
                       {closedReasonText(t, row.closed)}
                     </small>

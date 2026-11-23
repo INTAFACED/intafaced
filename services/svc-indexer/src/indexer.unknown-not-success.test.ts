@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createEdgeContext } from '@intafaced/contracts';
+import { formatAmount } from '@intafaced/ledger-client/money';
 import { MemoryChainSource } from './chain/memory-source.js';
 import type { ChainBlock, ChainSource } from './chain/source.js';
 import { Indexer, MissingBlockError } from './indexer.js';
@@ -145,8 +146,8 @@ describe('Indexer · missing block is not caught-up and not a fill', () => {
   });
 });
 
-describe('public fills / stream · reorg and halt are not success', () => {
-  it('does not serve a reorged fill on the public tape', async () => {
+describe('the projection and the public reads · reorg and halt are not success', () => {
+  it('keeps no reorged fill on the tape', async () => {
     const store = new MemoryProjectionStore(CHAIN_ID);
     const source = new MemoryChainSource(CHAIN_ID);
     source.append([fillAt(0, '1')]);
@@ -167,23 +168,14 @@ describe('public fills / stream · reorg and halt are not success', () => {
     source.reorg(0, [[{ kind: 'book_level', logIndex: 0, market: 'IFC-USD', side: 'bid', price: '100', quantity: '5' }]]);
     await indexer.sync();
 
-    const caller = createIndexerRouter({
-      store,
-      indexer,
-      chainId: CHAIN_ID,
-      finalityDepth: 64,
-      ingestEnabled: () => true,
-      chainSource: 'memory',
-    }).createCaller(anonymous());
-
-    const fills = await caller.fills({ market: 'IFC-USD', limit: 100 });
+    const fills = await store.recentFills('IFC-USD', 100);
     expect(fills.find((f) => f.blockHash === dead.hash)).toBeUndefined();
-    expect(fills.find((f) => f.quantity === '9')).toBeUndefined();
-    const account = await caller.accountFills({ account: MAKER, limit: 100 });
+    expect(fills.find((f) => formatAmount(f.quantity) === '9')).toBeUndefined();
+    const account = await store.fillsForAccount(MAKER, 100);
     expect(account.find((f) => f.blockHash === dead.hash)).toBeUndefined();
   });
 
-  it('stream is not status ok after a deep-reorg halt', async () => {
+  it('the book and positions are not served after a deep-reorg halt', async () => {
     const store = new MemoryProjectionStore(CHAIN_ID);
     const source = new MemoryChainSource(CHAIN_ID);
     source.append([{ kind: 'book_level', logIndex: 0, market: 'IFC-USD', side: 'bid', price: '100', quantity: '5' }, fillAt(1, '1')]);
@@ -205,9 +197,9 @@ describe('public fills / stream · reorg and halt are not success', () => {
       rpcUrl: 'http://127.0.0.1:8545',
     }).createCaller(anonymous());
 
-    await expect(caller.stream({ market: 'IFC-USD', depth: 50 })).rejects.toMatchObject({
+    await expect(caller.book({ market: 'IFC-USD', depth: 50 })).rejects.toMatchObject({
       code: 'SERVICE_UNAVAILABLE',
     });
-    await expect(caller.fills({ market: 'IFC-USD', limit: 100 })).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
+    await expect(caller.positions({ account: MAKER, limit: 100 })).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
   });
 });

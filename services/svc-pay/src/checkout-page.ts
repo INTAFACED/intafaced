@@ -32,7 +32,9 @@
  */
 
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import { CHECKOUT_METHODS, checkoutButtonTextColor, checkoutMethodOfferSchema, type CheckoutMethodOffer } from '@intafaced/contracts';
+import type { CheckoutMethodOffer } from '@intafaced/contracts';
+import { checkoutButtonTextColor } from '@intafaced/contracts/merchant-checkout-branding';
+import { CHECKOUT_METHODS, checkoutMethodOfferSchema } from '@intafaced/contracts/merchant-checkout-methods';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { formatMoney } from '@intafaced/i18n';
 import { PAYER_COPY_KEYS, payerTranslator, resolvePayerCopy } from './payer-copy.js';
@@ -782,6 +784,10 @@ export function stateForError(err: unknown): CheckoutPageState {
     case 'pay.merchant_not_found':
     case 'pay.merchant_pricing_invalid':
     case 'pay.fee_bps_unset':
+    // Our fee rate with the partner that would take this payment is unset: nothing was started.
+    case 'pay.partner_fee_rate_unset':
+    // The business has not given its own receiving wallet: nothing was started, and the page says it cannot take payment.
+    case 'pay.receiving_wallet_unset':
     case 'pay.routing_no_rail':
     // The owner has not declared a success fraction for any rail that could take this.
     case 'pay.routing_approval_rate_unset':

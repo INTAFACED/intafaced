@@ -21,6 +21,10 @@ const api = {
     world.asked.push({ kind: 'query', procedure, input });
     return Promise.resolve(world.list);
   },
+  call: (record: { path: string }, input: unknown) => {
+    world.asked.push({ kind: 'query', procedure: record.path, input });
+    return Promise.resolve(world.list);
+  },
   mutate: (_service: string, procedure: string, input: unknown) => {
     world.asked.push({ kind: 'mutate', procedure, input });
     return Promise.resolve(world.mutate.shift());

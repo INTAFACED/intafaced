@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { P2P_INSTRUMENTS_CREATE } from '@intafaced/contracts/p2p-procedures';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -13,14 +14,10 @@ describe('instruments.create requires a caller instrumentId', () => {
     expect(create).not.toMatch(/crypto\.randomUUID\(\)/);
   });
 
-  it('router create input requires instrumentId uuid', () => {
-    const router = readFileSync(join(here, 'router.ts'), 'utf8');
-    const instruments = router.slice(router.indexOf('instruments: router({'));
-    const create = instruments.slice(
-      instruments.indexOf('create: merchantApiProcedure'),
-      instruments.indexOf('update: merchantApiProcedure'),
-    );
-    expect(create).toMatch(/instrumentId: z\.string\(\)\.guid\(\)/);
-    expect(create).toMatch(/instrumentId: input\.instrumentId/);
+  it('the create record refuses a missing or non-UUID instrumentId (the mounted door: router.mount.test.ts)', () => {
+    const add = { methodId: 'sepa', country: 'DE', fiatCurrency: 'EUR', details: { iban: 'DE00' } };
+    expect(P2P_INSTRUMENTS_CREATE.input.safeParse(add).success).toBe(false);
+    expect(P2P_INSTRUMENTS_CREATE.input.safeParse({ ...add, instrumentId: 'not-a-uuid' }).success).toBe(false);
+    expect(P2P_INSTRUMENTS_CREATE.input.safeParse({ ...add, instrumentId: '66666666-6666-4666-8666-666666666666' }).success).toBe(true);
   });
 });

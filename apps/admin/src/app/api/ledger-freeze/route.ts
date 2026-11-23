@@ -3,7 +3,7 @@ import { adminBffGate, adminBffSession } from '@/lib/admin-bff-gate';
 import { readFreeze, sendFreezeWithApproval } from '@/lib/control-plane-client';
 import { readConsoleStatus } from '@/lib/console-status';
 import { decodeFreezeExecute } from '@/lib/desk/execute-decode';
-import { explainRefusal } from '@/lib/desk/refusal-copy';
+import { explainRefusal } from '@/lib/refusal-copy';
 import { handleStep } from '@/lib/desk/step-route';
 import { describeUnconfigured } from '@/lib/console-status';
 

@@ -1,5 +1,5 @@
 import { accountStatusSchema } from '@intafaced/contracts/identity-account-status';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { Failure, Loading } from '../../shared/ui';
 import { RestrictionList } from './AccountStatus';
