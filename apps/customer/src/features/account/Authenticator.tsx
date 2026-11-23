@@ -1,25 +1,29 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, Failure, Field, Loading } from '../../shared/ui';
+import { Button, Field } from '@intafaced/ui/lit';
+import { Failure, Loading } from './kit-parts';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import { authenticatorCopy as copy } from './authenticator-copy';
 import { CodesHelp } from './CodesHelp';
 import {
-  disabledAnswer,
   isProof,
   isSixDigits,
   replacedAnswer,
-  replaceStarted,
   stepUpBegun,
   stepUpBeginInput,
   stepUpDone,
   stepUpProof,
-  totpStatus,
   type StepUpScope,
 } from './authenticator-api';
+import {
+  IDENTITY_TOTP_MANAGE_STATUS,
+  IDENTITY_TOTP_MANAGE_REPLACE_START,
+  IDENTITY_TOTP_MANAGE_DISABLE,
+  IDENTITY_TOTP_MANAGE_RENAME,
+} from '@intafaced/contracts/identity-totp-manage-procedures';
 
 type Mode =
   | { kind: 'idle' }
@@ -62,9 +66,7 @@ export function Authenticator({ onChanged }: { onChanged?: (change?: { sessionsE
   }, []);
   const { resource, reload } = useResource(
     (signal) =>
-      userId
-        ? api.query('identity', 'totpManage.status', undefined, totpStatus, { signal })
-        : Promise.resolve({ ok: true as const, data: null }),
+      userId ? api.call(IDENTITY_TOTP_MANAGE_STATUS, undefined, { signal }) : Promise.resolve({ ok: true as const, data: null }),
     `authenticator:${userId}`,
   );
 
@@ -120,12 +122,10 @@ export function Authenticator({ onChanged }: { onChanged?: (change?: { sessionsE
         return;
       }
       // The confirmation just given lets a session that signed in without its second factor start the replace too.
-      const started = await api.mutate(
-        'identity',
-        'totpManage.replaceStart',
-        { clientRequestId: requestId, stepUpApprovalId: approved.data.stepUpApprovalId },
-        replaceStarted,
-      );
+      const started = await api.call(IDENTITY_TOTP_MANAGE_REPLACE_START, {
+        clientRequestId: requestId,
+        stepUpApprovalId: approved.data.stepUpApprovalId,
+      });
       if (fail(started)) return;
       if (mounted.current) setMode({ kind: 'replace', requestId, approvalId: approved.data.stepUpApprovalId, ...started.data });
     });
@@ -136,11 +136,9 @@ export function Authenticator({ onChanged }: { onChanged?: (change?: { sessionsE
     const proof = read(new FormData(event.currentTarget), 'next-code');
     if (!isProof(proof)) return setProblem('invalidProof');
     await run(async () => {
-      const answer = await api.mutate(
-        'identity',
-        'totpManage.disable',
+      const answer = await api.call(
+        IDENTITY_TOTP_MANAGE_DISABLE,
         { code: proof, clientRequestId: step.requestId, stepUpApprovalId: step.approvalId },
-        disabledAnswer,
         { keepSessionFor: ['auth.mfa_invalid'] },
       );
       // The service spends the approval before it checks the code, so any refusal needs a fresh confirmation.
@@ -195,7 +193,7 @@ export function Authenticator({ onChanged }: { onChanged?: (change?: { sessionsE
     event.preventDefault();
     const label = read(new FormData(event.currentTarget), 'label');
     await run(async () => {
-      const answer = await api.mutate('identity', 'totpManage.rename', { label }, totpStatus);
+      const answer = await api.call(IDENTITY_TOTP_MANAGE_RENAME, { label });
       if (fail(answer)) return;
       if (mounted.current) done(t('renamed'));
     });
@@ -210,7 +208,7 @@ export function Authenticator({ onChanged }: { onChanged?: (change?: { sessionsE
   return (
     <section
       data-testid="security__authenticator"
-      className="security__authenticator security__card"
+
       aria-label={t('title')}
       lang={languageFor('title')}
     >
@@ -220,24 +218,24 @@ export function Authenticator({ onChanged }: { onChanged?: (change?: { sessionsE
         {when ? ` · ${t('since')} ${when}` : ''} · {t('codesLeft', { count: status.recoveryCodesLeft })}
       </p>
       {note && (
-        <p data-testid="notice" className="notice" role="status">
+        <p data-testid="notice" className="lt-hint" role="status">
           {note}
         </p>
       )}
       {failure && <Failure result={failure} />}
       {mode.kind === 'idle' && (
-        <div className="row">
-          <Button variant="secondary" onClick={() => setMode({ kind: 'rename' })}>
+        <div className="lt-actions">
+          <Button tone="secondary" onClick={() => setMode({ kind: 'rename' })}>
             {t('rename')}
           </Button>
-          <Button variant="secondary" onClick={() => (setNote(null), setMode({ kind: 'confirm', action: 'replace' }))}>
+          <Button tone="secondary" onClick={() => (setNote(null), setMode({ kind: 'confirm', action: 'replace' }))}>
             {t('replace')}
           </Button>
-          <Button variant="danger" onClick={() => (setNote(null), setMode({ kind: 'confirm', action: 'disable' }))}>
+          <Button tone="primary" onClick={() => (setNote(null), setMode({ kind: 'confirm', action: 'disable' }))}>
             {t('disable')}
           </Button>
           {!help && (
-            <Button variant="ghost" onClick={() => setHelp(true)}>
+            <Button tone="quiet" onClick={() => setHelp(true)}>
               {t('codesHelp')}
             </Button>
           )}
@@ -250,20 +248,20 @@ export function Authenticator({ onChanged }: { onChanged?: (change?: { sessionsE
         />
       )}
       {mode.kind === 'rename' && (
-        <form ref={form} className="stack" onSubmit={(e) => void rename(e)} noValidate>
+        <form ref={form} onSubmit={(e) => void rename(e)} noValidate>
           <Field label={t('renameField')} name="label" maxLength={64} defaultValue={status.label ?? ''} required disabled={busy} />
-          <div className="row">
-            <Button type="submit" disabled={busy}>
+          <div className="lt-actions">
+            <Button tone="primary" type="submit" disabled={busy}>
               {busy ? t('working') : t('renameSave')}
             </Button>
-            <Button variant="ghost" onClick={() => setMode({ kind: 'idle' })} disabled={busy}>
+            <Button tone="quiet" onClick={() => setMode({ kind: 'idle' })} disabled={busy}>
               {t('cancel')}
             </Button>
           </div>
         </form>
       )}
       {mode.kind === 'confirm' && (
-        <form ref={form} className="stack" onSubmit={(e) => void confirm(e, mode.action)} noValidate>
+        <form ref={form} onSubmit={(e) => void confirm(e, mode.action)} noValidate>
           <h3>{t('confirmTitle')}</h3>
           <p>{t('confirmBody')}</p>
           <Field
@@ -276,22 +274,22 @@ export function Authenticator({ onChanged }: { onChanged?: (change?: { sessionsE
             data-security-sensitive="true"
           />
           {problemText && (
-            <p className="error-text" role="alert">
+            <p className="lt-hint" role="alert">
               {problemText}
             </p>
           )}
-          <div className="row">
-            <Button type="submit" disabled={busy}>
+          <div className="lt-actions">
+            <Button tone="primary" type="submit" disabled={busy}>
               {busy ? t('working') : t('confirmSubmit')}
             </Button>
-            <Button variant="ghost" onClick={() => setMode({ kind: 'idle' })} disabled={busy}>
+            <Button tone="quiet" onClick={() => setMode({ kind: 'idle' })} disabled={busy}>
               {t('cancel')}
             </Button>
           </div>
         </form>
       )}
       {mode.kind === 'disable' && (
-        <form ref={form} className="stack" onSubmit={(e) => void disable(e, mode)} noValidate>
+        <form ref={form} onSubmit={(e) => void disable(e, mode)} noValidate>
           <p>{t('nextBody')}</p>
           <Field
             label={t('nextField')}
@@ -303,15 +301,15 @@ export function Authenticator({ onChanged }: { onChanged?: (change?: { sessionsE
             data-security-sensitive="true"
           />
           {problemText && (
-            <p className="error-text" role="alert">
+            <p className="lt-hint" role="alert">
               {problemText}
             </p>
           )}
-          <div className="row">
-            <Button type="submit" variant="danger" disabled={busy}>
+          <div className="lt-actions">
+            <Button type="submit" tone="primary" disabled={busy}>
               {busy ? t('working') : t('disableSubmit')}
             </Button>
-            <Button variant="ghost" onClick={() => setMode({ kind: 'idle' })} disabled={busy}>
+            <Button tone="quiet" onClick={() => setMode({ kind: 'idle' })} disabled={busy}>
               {t('cancel')}
             </Button>
           </div>
@@ -319,27 +317,27 @@ export function Authenticator({ onChanged }: { onChanged?: (change?: { sessionsE
       )}
       {mode.kind === 'codes' && (
         // Shown once, after the swap. "I saved them" drops the codes from this page; nothing is written to storage.
-        <div data-testid="security__recovery" className="security__recovery stack" data-security-sensitive="true">
+        <div data-testid="security__recovery" data-security-sensitive="true">
           <h3>{t('newCodesTitle')}</h3>
           <p>{t('newCodesOnce')}</p>
-          <ul data-testid="recovery-codes" className="recovery-codes">
+          <ul data-testid="recovery-codes" className="lt-mono">
             {mode.codes.map((value) => (
               <li key={value} lang="zxx">
                 {value}
               </li>
             ))}
           </ul>
-          <label className="security__check">
+          <label>
             <input type="checkbox" checked={codesKept} onChange={(event) => setCodesKept(event.target.checked)} />
             {t('newCodesCheck')}
           </label>
-          <Button disabled={!codesKept} onClick={() => (setCodesKept(false), setMode({ kind: 'idle' }), reload())}>
+          <Button tone="primary" disabled={!codesKept} onClick={() => (setCodesKept(false), setMode({ kind: 'idle' }), reload())}>
             {t('newCodesSaved')}
           </Button>
         </div>
       )}
       {mode.kind === 'replace' && (
-        <form ref={form} className="stack" onSubmit={(e) => void replace(e, mode)} noValidate>
+        <form ref={form} onSubmit={(e) => void replace(e, mode)} noValidate>
           <p>{t('replaceBody')}</p>
           <p>
             {t('replaceKey')}: <code data-security-sensitive="true">{mode.secret}</code>
@@ -365,15 +363,15 @@ export function Authenticator({ onChanged }: { onChanged?: (change?: { sessionsE
             data-security-sensitive="true"
           />
           {problemText && (
-            <p className="error-text" role="alert">
+            <p className="lt-hint" role="alert">
               {problemText}
             </p>
           )}
-          <div className="row">
-            <Button type="submit" disabled={busy}>
+          <div className="lt-actions">
+            <Button tone="primary" type="submit" disabled={busy}>
               {busy ? t('working') : t('replaceSubmit')}
             </Button>
-            <Button variant="ghost" onClick={() => setMode({ kind: 'idle' })} disabled={busy}>
+            <Button tone="quiet" onClick={() => setMode({ kind: 'idle' })} disabled={busy}>
               {t('cancel')}
             </Button>
           </div>

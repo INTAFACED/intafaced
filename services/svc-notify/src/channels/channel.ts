@@ -1,3 +1,4 @@
+import { CHANNEL_IDS, type ChannelId, OUT_OF_APP_CHANNELS } from '@intafaced/contracts/notify-call-schemas';
 /**
  * THE CHANNEL INTERFACE — Doctrine §0.4, "adapters, not integrations".
  *
@@ -45,12 +46,6 @@
  * business, not this codebase's.
  */
 
-/** Every way of reaching a user. `inapp` is always available; the rest are adapters. */
-export const CHANNEL_IDS = ['inapp', 'email', 'push', 'sms'] as const;
-export type ChannelId = (typeof CHANNEL_IDS)[number];
-
-/** Channels that leave the platform and therefore need an address and credentials. */
-export const OUT_OF_APP_CHANNELS = ['email', 'push', 'sms'] as const satisfies readonly ChannelId[];
 export type OutOfAppChannel = (typeof OUT_OF_APP_CHANNELS)[number];
 
 export function isChannelId(value: string): value is ChannelId {
@@ -306,3 +301,4 @@ export interface NotificationChannel {
   /** Throws `ChannelRefusal` (terminal) or `ChannelDeliveryError` (attempted). */
   deliver(message: OutboundMessage): Promise<DeliveryReceipt>;
 }
+export { CHANNEL_IDS, type ChannelId, OUT_OF_APP_CHANNELS };

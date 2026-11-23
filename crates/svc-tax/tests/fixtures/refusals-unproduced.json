@@ -1,0 +1,26 @@
+{
+  "$comment": "Refusals svc-tax's records list that no recorded answer produces yet (crates/svc-tax/tests/refusal_coverage.rs). This list may only shrink: each entry is a scenario to add. It began as the TypeScript service's list (45) less what the parity corpus now produces.",
+  "unproduced": [
+    "tax.basisOverride.remove tax.basis_price_invalid",
+    "tax.basisOverride.set tax.lot_method_required",
+    "tax.exportPack tax.basis_price_invalid",
+    "tax.exportPack tax.jurisdiction_map_invalid",
+    "tax.exportPack tax.ledger_history_unavailable",
+    "tax.exportPack tax.ledger_unwired",
+    "tax.exportPreview tax.basis_price_invalid",
+    "tax.exportPreview tax.jurisdiction_map_invalid",
+    "tax.exportPreview tax.ledger_history_unavailable",
+    "tax.exportPreview tax.ledger_unwired",
+    "tax.lotBook tax.basis_price_invalid",
+    "tax.lotBook tax.lot_method_required",
+    "tax.missingBasis tax.basis_price_invalid",
+    "tax.missingBasis tax.lot_method_required",
+    "tax.pickSaleLot tax.basis_price_invalid",
+    "tax.pickSaleLot tax.lot_method_required",
+    "tax.pnlOverTime tax.basis_price_invalid",
+    "tax.pnlOverTime tax.lot_method_required",
+    "tax.pnlOverTime tax.pnl_breakdown_mismatch",
+    "tax.setDayMethod tax.lot_method_required",
+    "tax.setLotMethod tax.lot_method_required"
+  ]
+}

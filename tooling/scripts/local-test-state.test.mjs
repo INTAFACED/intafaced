@@ -1,13 +1,15 @@
+// tooling-tests: alone. It takes the checkout's index.lock.
 // State isolation, including the detached market child; no stack, database or real funds started.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   localStackState,
   localPgOsUser,
+  localPgBin,
   assertStackOwnership,
   processRecordMatches,
   postgresProcessMatches,
@@ -21,6 +23,16 @@ assert.equal(localStackState('/test-home', {}), '/test-home/.intafaced/local-tes
 assert.equal(localStackState('/root', { LOCAL_STACK_STATE: '/srv/stack' }), '/srv/stack');
 assert.equal(localPgOsUser({}, 501), null);
 assert.equal(localPgOsUser({}, 0), 'postgres');
+
+// psql and pg_ctl: the setting, else Homebrew's on the Mac, else a Linux box's newest /usr/lib/postgresql major.
+{
+  const has = (...bins) => ({ exists: (p) => bins.some((b) => p === `${b}/pg_ctl`), list: () => ['14', '17', 'common'] });
+  assert.equal(localPgBin({ LOCAL_STACK_PG_BIN: '/opt/pg/bin' }, has('/opt/homebrew/bin')), '/opt/pg/bin');
+  assert.equal(localPgBin({}, has('/opt/homebrew/bin', '/usr/lib/postgresql/17/bin')), '/opt/homebrew/bin');
+  // A Linux home: no /opt/homebrew, Postgres 17 from apt (main took 16, which this box does not have).
+  assert.equal(localPgBin({}, has('/usr/lib/postgresql/14/bin', '/usr/lib/postgresql/17/bin')), '/usr/lib/postgresql/17/bin');
+  assert.equal(localPgBin({}, { exists: () => false, list: () => [] }), '/usr/lib/postgresql/16/bin');
+}
 assert.equal(localPgOsUser({ LOCAL_STACK_PG_USER: 'pgrunner' }, 0), 'pgrunner');
 for (const value of ['', ' ', 'relative/path']) {
   assert.throws(() => localStackState('/test-home', { LOCAL_STACK_STATE: value }), /absolute folder path/);
@@ -66,10 +78,12 @@ try {
     }),
   );
   fs.writeFileSync(
-    path.join(state, 'run', 'market.json'),
+    path.join(state, 'run', 'processes.json'),
     JSON.stringify({
-      pid: 999999999,
-      args: ['--edge-url', 'http://127.0.0.1:1'],
+      'market-maker': {
+        pid: 999999999,
+        args: ['--edge-url', 'http://127.0.0.1:1'],
+      },
     }),
   );
   result = run('local-test-market.mjs', 'ensure');
@@ -157,6 +171,43 @@ const fixture = () => ({
   services: ['edge'],
 });
 assert.doesNotThrow(() => assertStackOwnership(fixture()));
+// A Node service started with this checkout's code-reach preload (service-reach.mjs) is still this checkout's.
+const preloaded = (url) => {
+  const f = fixture();
+  const argv = command.split(' ');
+  f.records.edge.argv = [argv[0], '--import', url, ...argv.slice(1)];
+  f.processes.get(20).command = f.records.edge.argv.join(' ');
+  return f;
+};
+assert.doesNotThrow(
+  () => assertStackOwnership(preloaded(pathToFileURL(path.join(repo, 'tooling', 'scripts', 'service-reach.mjs')).href)),
+  'ownership: the preload of this checkout passes',
+);
+assert.throws(
+  () => assertStackOwnership(preloaded(pathToFileURL('/fixture/old/tooling/scripts/service-reach.mjs').href)),
+  /edge checkout differs/,
+  "ownership: another checkout's preload refuses",
+);
+// A Rust service (svc-ledger) is this checkout's when it runs this checkout's own binary and nothing else.
+const rust = (bin) => {
+  const f = fixture();
+  f.marker.ports.ledger = 14501;
+  f.services = ['edge', 'ledger'];
+  f.records.ledger = { pid: 21, argv: bin, startedAt: new Date(startedAt + 123).toISOString() };
+  f.processes.set(21, { command: bin.join(' '), startedAt });
+  f.listeners.set(21, new Set(['127.0.0.1:14501']));
+  return f;
+};
+assert.doesNotThrow(
+  () => assertStackOwnership(rust(['/fixture/checkout/crates/svc-ledger/dist/svc-ledger'])),
+  "ownership: this checkout's Rust binary passes",
+);
+for (const [bin, why] of [
+  [['/fixture/old/crates/svc-ledger/dist/svc-ledger'], "another checkout's binary"],
+  [['/fixture/checkout/crates/svc-ledger/dist/svc-ledger', '--other-root'], 'an extra argument'],
+  [['/fixture/checkout/crates/svc-tax/dist/svc-tax'], "another service's binary"],
+])
+  assert.throws(() => assertStackOwnership(rust(bin)), /ledger checkout differs/, `ownership: ${why} refuses`);
 for (const alter of [
   (f) => {
     f.postgres[1] = '/fixture/old/data/postgres';

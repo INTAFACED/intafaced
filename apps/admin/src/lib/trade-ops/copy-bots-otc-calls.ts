@@ -1,5 +1,5 @@
 import 'server-only';
-import { searchTerm } from '@/lib/account-search/search';
+import { searchTerm } from '@/lib/account-search';
 import {
   parseCustomerLookup,
   parseFirstAccountId,

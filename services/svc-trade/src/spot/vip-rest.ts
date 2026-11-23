@@ -11,7 +11,8 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AuthError, requireScope } from '@intafaced/auth';
-import { createEdgeContext, type EdgeRequest } from '@intafaced/contracts';
+import type { EdgeRequest } from '@intafaced/contracts';
+import { createEdgeContext } from '@intafaced/contracts/edge';
 import type { EdgeTrust } from '../edge-trust.js';
 import type { OwnerFeeSchedule } from './fee-schedule.js';
 import {

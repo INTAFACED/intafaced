@@ -250,6 +250,28 @@ export const deathNoticeConfirmed = defineEvent(
 );
 
 /**
+ * The owner's own freeze (W-security-accounts-03, J-wallet-13 #1). Published by svc-identity from the freeze's own row
+ * after the freeze commits, at least once, with the business key `identity.self_freeze.frozen:<freezeId>`. The freeze
+ * itself ended every session and API key in its transaction; each service that keeps a permission for an agent to act
+ * for the person revokes it on this event and stops that person's scheduled agent orders. A revoked permission stays
+ * revoked after the lift: the person signs a new one. Consumers are idempotent by `freezeId`, and every service that acts
+ * for the person still reads the freeze itself (`GET /internal/self-freeze/:userId`) before it acts, so a late or lost
+ * event never lets an action through. Moves no money.
+ */
+export const selfFreezeApplied = defineEvent(
+  'identity',
+  'self_freeze',
+  'frozen',
+  1,
+  z.object({
+    userId: userIdSchema,
+    freezeId: z.string().guid(),
+    since: z.string().datetime({ offset: true }),
+  }),
+  'The owner froze their own account: every agent permission kept for them is revoked and their scheduled agent orders stop (J-wallet-13).',
+);
+
+/**
  * A staff record changed (OPS-admin-access-03). `created`: an invite one person was approved for; `updated`: status,
  * roles or permissions changed; `deleted`: the staff record was removed. svc-identity publishes it from an outbox row
  * in the same transaction as the change, at least once, with the business key
@@ -1470,6 +1492,28 @@ export const copyStopped = defineEvent(
 );
 
 /**
+ * A recurring buy found too little free quote on the person's own venue account for a slot and was suspended
+ * (J-copy-bots-otc-16 #6). No funds move: the slot bought nothing. svc-trade publishes once per rule and slot, after the
+ * status moved, so consumers dedupe on (ruleId, slot). The person is told once; funds arriving resume the rule.
+ */
+export const recurringBuySuspended = defineEvent(
+  'trade',
+  'recurring_buy',
+  'paused',
+  1,
+  z.object({
+    ruleId: copyFollowIdSchema,
+    userId: userIdSchema,
+    slot: z.number().int().min(0),
+    asset: z.string().regex(/^[A-Z0-9]{2,20}$/),
+    amount: z.string().regex(/^[0-9]+(\.[0-9]+)?$/),
+    free: z.string().regex(/^[0-9]+(\.[0-9]+)?$/),
+    suspendedAt: z.string().datetime({ offset: true }),
+  }),
+  'A recurring buy was suspended for insufficient funds at one slot. No funds move; consumers dedupe on (ruleId, slot). The person is told once.',
+);
+
+/**
  * A delisting INTAFACED scheduled for a market on an outside venue it routes customers' own orders to (J-cex-spot-16 #8).
  * Our listing record only: the venue's own state is the venue's. No funds move and no order is touched.
  */
@@ -2195,6 +2239,7 @@ export const EVENT_CATALOG = {
   securityFactorChanged,
   deathNoticeCreated,
   deathNoticeConfirmed,
+  selfFreezeApplied,
   staffCreated,
   staffUpdated,
   staffDeleted,
@@ -2274,6 +2319,7 @@ export const EVENT_CATALOG = {
   copySkipped,
   copyFailed,
   copyStopped,
+  recurringBuySuspended,
   venueDelistingScheduled,
   projectionUpdated,
 } as const;
@@ -2634,34 +2680,6 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       'The escalation runner lives inside svc-ops and reads the stored group; no other service needs the event yet. Nothing pages anyone on main today, so no one is promised a page by it.',
-  },
-  {
-    event: 'coreOpsReconciliationAlertOpened',
-    missing: 'subscriber',
-    class: 'A',
-    reason:
-      'No other service needs it yet: the alert is a durable svc-ops row that /alerts reads, and nothing outside svc-ops is promised a reaction. The subject exists so audit and a later consumer can follow without polling.',
-  },
-  {
-    event: 'coreOpsReconciliationAlertUpdated',
-    missing: 'subscriber',
-    class: 'A',
-    reason:
-      'No other service needs it yet: the alert is a durable svc-ops row that /alerts reads, and nothing outside svc-ops is promised a reaction. The subject exists so audit and a later consumer can follow without polling.',
-  },
-  {
-    event: 'coreOpsReconciliationAlertResolved',
-    missing: 'subscriber',
-    class: 'A',
-    reason:
-      'No other service needs it yet: the alert is a durable svc-ops row that /alerts reads, and nothing outside svc-ops is promised a reaction. The subject exists so audit and a later consumer can follow without polling.',
-  },
-  {
-    event: 'coreOpsReconciliationAlertAccepted',
-    missing: 'subscriber',
-    class: 'A',
-    reason:
-      'No other service needs it yet: the alert is a durable svc-ops row that /alerts reads, and nothing outside svc-ops is promised a reaction. The subject exists so audit and a later consumer can follow without polling.',
   },
   {
     event: 'coreOpsComplianceCaseCreated',

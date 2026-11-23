@@ -13,8 +13,8 @@
  * Read from CI's own files on every call, so nothing here is a hand list:
  *   · the packages: tooling/ci/ci-affected.mjs `affectedFilters` / `buildFilters` against the merge-base, the functions
  *     CI's jobs print (`--filters`, `--build-filters`);
- *   · Node: the major in .node-version (CI's setup-node), taken from /opt/homebrew/opt/node@<major> when the default
- *     node differs (Node 25+ has a global localStorage that breaks jsdom suites CI passes);
+ *   · Node: the major in .node-version (CI's setup-node), taken when the default node differs from CI_NODE_BIN, else
+ *     Homebrew's /opt/homebrew/opt/node@<major> (macOS), else nvm's newest v<major> (Linux) (Node 25+ has a global localStorage that breaks jsdom suites CI passes);
  *   · the database: the `Test environment` step of .github/actions/test-infra/action.yml (TEST_DATABASE_URL and the
  *     per-service URLs, REQUIRE_POSTGRES=1, so a database suite fails instead of skipping), CI's bootstrap script, its
  *     schema count and tooling/ci/assert-test-db-env.mjs;
@@ -37,8 +37,8 @@
  *   node tooling/scripts/ci-checks.mjs --list           print what would run, run nothing
  */
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -46,8 +46,10 @@ const ROOT = process.cwd();
 const ACTION = '.github/actions/test-infra/action.yml';
 const BOOTSTRAP = 'tooling/infra/postgres-init/02-intafaced-test-db.sh';
 
-/** A test that walks a directory and reads the source files it finds: no file imports it, so `related` never picks it. */
-export const WALKS = /\breaddirSync\b|\bopendirSync\b|\bglobSync\b|\bls-files\b/;
+/** A test that walks a directory and reads the source files it finds: no file imports it, so `related` never picks it.
+ * `declaredRoutes` is the published-routes gate's walk of svc-trade's files (tooling/ci/published-routes.mjs), which a
+ * test may call instead of walking them itself. */
+export const WALKS = /\breaddirSync\b|\bopendirSync\b|\bglobSync\b|\bls-files\b|\bdeclaredRoutes\b/;
 export const READS_SOURCE = /\\?\.tsx?(?:\?|\$|['"`)\]|])|\bts\|tsx\b/;
 export const IS_VITEST_FILE = /\.test\.tsx?$/;
 export const ruleTest = (path, text) => IS_VITEST_FILE.test(path) && WALKS.test(text) && READS_SOURCE.test(text);
@@ -97,15 +99,38 @@ export function touchedPackages(tested, files) {
   return tested.map((p) => ({ ...p, own: files.filter((f) => f.startsWith(`${p.directory}/`)) })).filter((p) => p.own.length > 0);
 }
 
-/** The Node CI runs (.node-version's major): null when the default is it, else the bin dir to put first, or an error. */
-export function ciNode(nodeVersionText, current = process.versions.node, exists = existsSync) {
+const listDir = (dir) => {
+  try {
+    return readdirSync(dir);
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * The Node CI runs (.node-version's major): null when the default is it, else the bin dir to put first (CI_NODE_BIN,
+ * else Homebrew's keg, else nvm's newest of that major), or an error.
+ */
+export function ciNode(
+  nodeVersionText,
+  current = process.versions.node,
+  exists = existsSync,
+  { env = process.env, home = env.HOME || homedir(), list = listDir } = {},
+) {
   const want = String(nodeVersionText).trim().split('.')[0];
   if (!/^\d+$/.test(want)) return { error: `.node-version reads "${String(nodeVersionText).trim()}"` };
   if (current.split('.')[0] === want) return { bin: null, want };
-  const bin = `/opt/homebrew/opt/node@${want}/bin`;
-  return exists(`${bin}/node`)
+  const nvm = join(home, '.nvm', 'versions', 'node');
+  const nvmBins = list(nvm)
+    .filter((name) => name.startsWith(`v${want}.`))
+    .sort((a, b) => b.localeCompare(a, 'en', { numeric: true }))
+    .map((name) => join(nvm, name, 'bin'));
+  const bin = [env.CI_NODE_BIN, `/opt/homebrew/opt/node@${want}/bin`, ...nvmBins].filter(Boolean).find((dir) => exists(`${dir}/node`));
+  return bin
     ? { bin, want }
-    : { error: `CI runs Node ${want} and this machine has ${current}: brew install node@${want}` };
+    : {
+        error: `CI runs Node ${want} and this machine has ${current}: brew install node@${want} (macOS), nvm install ${want} (Linux), or set CI_NODE_BIN`,
+      };
 }
 
 const git = (args) => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
@@ -197,15 +222,21 @@ export function packageTestCommand(script, targets, exclude = []) {
 }
 
 /**
- * The verdict on CI's gates run here. Red is red, except one case: the only red gate is the tooling tests and they were
- * stopped by their own 300 s limit (tooling-tests.mjs TIMEOUT_MS, spawnSync ETIMEDOUT) with no failing test before the
- * stop. That is a loaded Mac's limit, not the code's (#8219's false red in the replay): it is "not checked here, CI will",
- * and the push goes. CI's own gates job keeps the limit as it is.
+ * The verdict on CI's gates run here. Red is red, except one case: the only red gate is the tooling tests and every
+ * file they name was stopped by its limit (tooling-tests.mjs FILE_TIMEOUT_MS, or TIMEOUT_MS for the whole run) with no
+ * failing test before the stop. That is a loaded Mac's limit, not the code's (#8219's false red in the replay): it is
+ * "not checked here, CI will", and the push goes. CI's own gates job keeps the limits as they are.
  */
 export function gatesVerdict(status, output) {
   if (status === 0) return { ok: true };
   const red = [...output.matchAll(/^ {2}✖ (\S+) +\d+ms/gm)].map((m) => m[1]);
-  const timedOut = /TOOLING TESTS FAILED — exit \S+ \(spawnSync \S+ ETIMEDOUT\)/.test(output);
+  const block = /TOOLING TESTS FAILED — \d+ of \d+ files: 0 failed, 0 cancelled, [^\n]*\n((?: {2}✖ [^\n]*\n?)+)/.exec(output);
+  const timedOut =
+    !!block &&
+    block[1]
+      .trim()
+      .split('\n')
+      .every((l) => /^✖ \S+: (stopped after \d+ s, its limit|not run: the whole run reached its limit)/.test(l.trim()));
   if (red.length === 1 && red[0] === 'tooling-tests' && timedOut && !/^\s*not ok \d+/m.test(output))
     return { ok: true, notChecked: 'the tooling tests ran past their 300 s limit on this machine: not checked here, CI will' };
   return { ok: false };

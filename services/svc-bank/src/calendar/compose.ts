@@ -22,6 +22,7 @@ export function composeCalendarArea(
     readonly loans: LoanService;
   },
 ): CalendarServices {
+  const partner = root.testPartner;
   return {
     calendar: new CalendarService({
       sql: root.sql,
@@ -30,6 +31,7 @@ export function composeCalendarArea(
       directDebits: made.directDebits,
       earn: made.earn,
       loans: made.loans,
+      ...(partner ? { testFailing: (userId: string) => partner.switches(userId).calendarSource } : {}),
       log: (source, err) =>
         console.error(
           JSON.stringify({

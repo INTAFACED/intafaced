@@ -8,7 +8,7 @@ vi.mock('../../shared/preferences', async (original) => {
 });
 
 import type { AcademyVideoPlayback, AcademyVideoPlayer } from '@intafaced/contracts/academy-catalogue';
-import { SessionProvider } from '../session/session';
+import { SessionProvider } from '../session';
 import { VideoPlayerView, activeCue, clock, cuePlainText, cuesToVtt } from './AcademyVideoPlayer';
 
 const html = (node: React.ReactNode) => renderToStaticMarkup(<SessionProvider>{node}</SessionProvider>);

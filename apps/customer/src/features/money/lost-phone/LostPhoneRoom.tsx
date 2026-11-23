@@ -1,18 +1,19 @@
+// volt-room: /bank/safety/lost-phone
 import { useState, type FormEvent } from 'react';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import { FlowTemplate, type Refusal, type RoomState } from '@intafaced/ui/lit/templates';
 import {
   EXTRA_CONTROLS,
   EXTRA_CONTROLS_ASSETS,
   safetyChangeOutputSchema,
-  safetyReadOutputSchema,
   type ExtraControl,
   type SafetyRead,
 } from '@intafaced/contracts/identity-safety';
 import { defineCopy } from '../../../shared/i18n';
 import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
-import { useSession } from '../../session/session';
+import { useSession } from '../../session';
+import { IDENTITY_ACCOUNT_SAFETY_READ } from '@intafaced/contracts/identity-account-procedures';
 
 /**
  * Lost phone or compromised account (BK-safe-01, J-bank-18 #4), on the flow template. From the bank: the ordered steps
@@ -107,7 +108,7 @@ export function LostPhoneRoom() {
   const { resource } = useResource<SafetyRead>(
     (signal) =>
       userId
-        ? api.query('identity', 'account.safety.read', undefined, safetyReadOutputSchema, { signal })
+        ? api.call(IDENTITY_ACCOUNT_SAFETY_READ, undefined, { signal })
         : Promise.resolve({ ok: false as const, reason: 'unauthorized' as const, message: t('signedOutBody') }),
     `safety-read:${userId ?? 'out'}`,
   );
@@ -169,25 +170,25 @@ export function LostPhoneRoom() {
             <ol>
               <li>
                 {t('stepSecure')}{' '}
-                <a className="text-link" href="/uc/safe/compromised">
+                <a className="lt-link" href="/uc/safe/compromised">
                   {t('stepSecureLink')}
                 </a>
               </li>
               <li>
                 {t('stepCards')}{' '}
-                <a className="text-link" href="/bank/cards">
+                <a className="lt-link" href="/bank/cards">
                   {t('stepCardsLink')}
                 </a>
               </li>
               <li>
                 {t('stepSecurity')}{' '}
-                <a className="text-link" href="/uc/safe">
+                <a className="lt-link" href="/uc/safe">
                   {t('stepSecurityLink')}
                 </a>
               </li>
               <li>
                 {t('stepScam')}{' '}
-                <a className="text-link" href="/bank/safety/scam">
+                <a className="lt-link" href="/bank/safety/scam">
                   {t('stepScamLink')}
                 </a>
               </li>
@@ -212,7 +213,7 @@ export function LostPhoneRoom() {
             <form aria-label={t('extrasTitle')} onSubmit={saveExtras}>
               <fieldset>
                 {EXTRA_CONTROLS.map((control) => (
-                  <label key={control} className="field">
+                  <label key={control} className="lt-field">
                     <input
                       type="checkbox"
                       name="controls"
@@ -224,11 +225,11 @@ export function LostPhoneRoom() {
                   </label>
                 ))}
               </fieldset>
-              <label className="field">
+              <label className="lt-field">
                 <span>{t('allowanceLabel')}</span>
                 <input name="allowance" inputMode="decimal" value={allowance} onChange={(e) => setAmount(e.target.value)} />
               </label>
-              <label className="field">
+              <label className="lt-field">
                 <span>{t('assetLabel')}</span>
                 <select
                   name="allowanceAsset"
@@ -242,7 +243,7 @@ export function LostPhoneRoom() {
                   ))}
                 </select>
               </label>
-              <label className="field">
+              <label className="lt-field">
                 <span>{t('passwordLabel')}</span>
                 <input
                   type="password"
@@ -252,11 +253,12 @@ export function LostPhoneRoom() {
                   onChange={(e) => setPassword(e.target.value)}
                 />
               </label>
-              <Button type="submit" variant="primary" loading={busy} disabled={busy || !password || !allowance.trim()}>
+              <Button type="submit" tone="primary" aria-busy={busy || undefined} disabled={busy || !password || !allowance.trim()}>
                 {t('saveExtras')}
               </Button>
               {savedAllowance ? (
                 <Button
+                  tone="primary"
                   type="button"
                   disabled={busy || !password}
                   onClick={() => void change('account.safety.clearExtraControls', { password }, t('extrasRemoved'))}
@@ -270,7 +272,7 @@ export function LostPhoneRoom() {
           <section aria-labelledby="lost-phone-location" data-testid="lost-phone__location">
             <h2 id="lost-phone-location">{t('locationTitle')}</h2>
             <p>{t('locationBody')}</p>
-            <label className="field">
+            <label className="lt-field">
               <input
                 type="checkbox"
                 name="locationConsent"

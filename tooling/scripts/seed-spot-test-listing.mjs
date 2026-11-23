@@ -116,15 +116,77 @@ export const TEST_SPOT_LISTINGS = Object.freeze([
     /** Days from the seed to the end of the opening window. */
     openingWindowInDays: 30,
   }),
+  // J-cex-spot-14 #7: a market in the higher-risk zone. It takes limit orders only, each worth at most its TEST order cap
+  // of 100 USDC (an owner value; on a real listing a blank cap refuses every order with `trade.zone_setting_unset`). A
+  // market order refuses `trade.higher_risk_zone`. Unquoted: its book holds only what a journey rests on it.
+  Object.freeze({
+    symbol: 'TRSK/USDC',
+    baseAsset: 'TRSK',
+    quoteAsset: 'USDC',
+    displayName: 'TEST market in the higher-risk zone',
+    tickSize: '0.0001',
+    lotSize: '0.01',
+    minQty: '0.01',
+    minNotional: '1',
+    makerBps: '10',
+    takerBps: '20',
+    zone: 'higher_risk',
+    /** TEST: the zone's order cap in USDC. */
+    zoneOrderCap: '100',
+  }),
+  // J-cex-spot-14 #8: a book only that step trades, between two TEST accounts, so its candles and ticker move by real
+  // taker fills (the market maker's fills are left out of both) while the step watches the stream. Two assets the ledger
+  // already holds. Unquoted, and named by no other journey.
+  Object.freeze({
+    symbol: 'USDT/USDC',
+    baseAsset: 'USDT',
+    quoteAsset: 'USDC',
+    displayName: 'TEST tape: Tether in USD Coin (J-cex-spot-14 #8 only)',
+    tickSize: '0.0001',
+    lotSize: '0.01',
+    minQty: '0.01',
+    minNotional: '1',
+    makerBps: '10',
+    takerBps: '20',
+  }),
+  // J-copy-bots-otc-04 #5 to #8: the lead's own book, on two assets the ledger already holds (a made-up base asset has
+  // no ledger row, so it can be neither funded nor reserved). Unquoted and named by no other journey, so a lead's post-only
+  // buy rests on an empty book and only that journey's TEST taker fills it (`LEAD_TEST_SPOT`); no other file's orders
+  // stand in front of it, and the shared market maker keeps running.
+  Object.freeze({
+    symbol: 'USDC/USDT',
+    baseAsset: 'USDC',
+    quoteAsset: 'USDT',
+    displayName: 'TEST lead book: USD Coin in Tether (lead trading journey only)',
+    tickSize: '0.0001',
+    lotSize: '0.01',
+    minQty: '0.01',
+    minNotional: '1',
+    makerBps: '10',
+    takerBps: '20',
+  }),
 ]);
 
 /** TEST listings the market maker never quotes, so their book holds only what a journey rests on it (J-copy-bots-otc-23
  * step 7 needs a book with one side empty and a known size on the other). Every other listing is quoted. */
-export const UNQUOTED_TEST_SPOT = Object.freeze(['IFC/USDC', 'IFC/BTC', 'TNEW/USDT', 'TOLD/USDT', 'TSES/USD', 'TWIN/USDC']);
+export const UNQUOTED_TEST_SPOT = Object.freeze([
+  'IFC/USDC',
+  'IFC/BTC',
+  'TNEW/USDT',
+  'TOLD/USDT',
+  'TSES/USD',
+  'TWIN/USDC',
+  'TRSK/USDC',
+  'USDT/USDC',
+  'USDC/USDT',
+]);
 
 /** The open TEST market whose public tape stays empty: unquoted, and named only by the charts journeys that read it as a
  * market with no trades (their shared `untradedMarket` helper). No journey trades it. */
 export const UNTRADED_TEST_SPOT = 'IFC/BTC';
+
+/** The unquoted TEST market only J-copy-bots-otc-04 trades: the lead's own book for its lead orders. */
+export const LEAD_TEST_SPOT = 'USDC/USDT';
 
 /** The url back, or a refusal when its database is not obviously local or test. */
 export function localTestDatabaseUrl(url, env = process.env) {
@@ -152,12 +214,12 @@ export async function insertSpotTestListing(sql, l) {
     INSERT INTO trade.markets (
       symbol, base_asset, quote_asset, kind, tick_size, lot_size, min_qty, min_notional,
       maker_bps, taker_bps, status, display_name, listed_at, "test", test_fixture, delists_at,
-      asset_class, schedule, pip_size, opening_window_ends_at
+      asset_class, schedule, pip_size, opening_window_ends_at, zone, zone_order_cap
     ) VALUES (
       ${l.symbol}, ${l.baseAsset}, ${l.quoteAsset}, 'spot', ${l.tickSize}::numeric, ${l.lotSize}::numeric,
       ${l.minQty}::numeric, ${l.minNotional}::numeric, ${l.makerBps}::numeric, ${l.takerBps}::numeric,
       ${status}, ${l.displayName}, now(), true, ${sql.json(fixture)}, ${delistsAt},
-      ${assetClass}, ${schedule}, ${pipSize}::numeric, ${openingWindowEndsAt}
+      ${assetClass}, ${schedule}, ${pipSize}::numeric, ${openingWindowEndsAt}, ${l.zone ?? null}, ${l.zoneOrderCap ?? null}::numeric
     )
     ON CONFLICT (symbol) DO UPDATE SET
       display_name = EXCLUDED.display_name,
@@ -171,6 +233,8 @@ export async function insertSpotTestListing(sql, l) {
       status = EXCLUDED.status,
       delists_at = EXCLUDED.delists_at,
       opening_window_ends_at = EXCLUDED.opening_window_ends_at,
+      zone = EXCLUDED.zone,
+      zone_order_cap = EXCLUDED.zone_order_cap,
       updated_at = now()
     WHERE trade.markets."test" = true
     RETURNING id, symbol

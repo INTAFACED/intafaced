@@ -34,10 +34,10 @@ This folder is the maintained source for verifying what a person can do in INTAF
 
 Each generated feature file starts with an H1 title (`<J-id>: <journey title>`) and one paragraph: who the journey is for, where in the app, its order and marks, and which test files drive it. It then has exactly four H2 sections, in this order.
 
-1. `Sub-features` lists each step as `#<n>` with the words of the test that proves it, and its marks (parked, later, deferred).
-2. `How to get to it (user POV)` lists the paths a person opens, as the journey's tests open them.
-3. `Driving it with verify` starts with `Preconditions:`, then pairs each step with its exact drive command and the test whose pass is the observable result.
-4. `Gotchas` lists what can waste or invalidate a run: serial files, past-trade reads, a fresh-stack need, a live market, tests that prove no step, steps no test proves yet, and marks.
+1. `Sub-features` lists each step as `#<n>` with the words of the test that proves it, and its marks (parked, later, deferred). Its last line names the UI states (hover, focus, disabled, loading, empty, error or refusal, selected, open or expanded) its tests' titles or Playwright calls name, each with its `file:line`, and marks the rest not named: a drive does not show those, so check one by hand with `look`.
+2. `How to get to it (user POV)` lists the paths a person opens, as the journey's tests open them, each with the keys its room's screen binds (from the screen's own code, by `file:line`), or why they were not read, then the keys the top bar binds on every page.
+3. `Driving it with verify` starts with `Preconditions:`, each test file with what it changes in the shared stack and who it acts as (a TEST person, a second trader, staff, an operator), then pairs each step with its exact drive command, the test whose pass is the observable result, and what that step needs beyond the baseline (the TEST chain, past trades, a fresh stack, the live TEST market).
+4. `Gotchas` lists what can waste or invalidate a run: serial files, past-trade reads, a fresh-stack need, a live market, tests that prove no step, steps no test proves yet, marks, and the TEST stand-in each opened door meets on this stack (from `docs/LOCAL-TEST-STACK.md`, "Every Customer door is reachable").
 
 ## Features
 

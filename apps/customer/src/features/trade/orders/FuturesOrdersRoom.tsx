@@ -18,7 +18,7 @@ import { useFuturesApi } from '../../../screens/trade/futures/data';
 import { cancellable, FuturesOrderOrigin, FuturesOrderStatus } from '../../../screens/trade/futures/OrderStatus';
 import { futuresRefusal } from '../../../screens/trade/futures/refusals';
 import { tabsCopy } from '../../../screens/trade/futures/tabs-copy';
-import { useSession } from '../../session/session';
+import { useSession } from '../../session';
 import { futuresOrdersCopy, type FuturesOrdersT } from './futures-orders-copy';
 import { appendPage } from './history-query';
 import { ordersCopy } from './orders-copy';
@@ -206,7 +206,7 @@ export function FuturesOrdersRoom({ path }: { path: string }) {
         <EmptyState
           title={orders('signedOutTitle')}
           action={
-            <a className="button button--primary" href={`/login?redirect=${encodeURIComponent(`/trade/orders${search}`)}`}>
+            <a className="lt-button lt-button-primary" href={`/login?redirect=${encodeURIComponent(`/trade/orders${search}`)}`}>
               {orders('signIn')}
             </a>
           }
@@ -249,7 +249,7 @@ export function FuturesOrdersRoom({ path }: { path: string }) {
       header: t('colAction'),
       cell: (o) => (
         <span className="flex items-center gap-2">
-          <a className="text-link" href={detailsHref(o.orderId)}>
+          <a className="lt-link" href={detailsHref(o.orderId)}>
             {t('details')}
           </a>
           {cancellable(o) ? (
@@ -302,7 +302,7 @@ export function FuturesOrdersRoom({ path }: { path: string }) {
       header: t('colOrder'),
       cell: (e) =>
         e.orderId ? (
-          <a className="text-link" href={detailsHref(e.orderId)}>
+          <a className="lt-link" href={detailsHref(e.orderId)}>
             {t('details')}
           </a>
         ) : null,
@@ -393,7 +393,7 @@ export function FuturesOrdersRoom({ path }: { path: string }) {
                   aria-describedby="futures-label-hint"
                   onChange={(event) => setLabelDraft(event.target.value)}
                 />
-                <small id="futures-label-hint" className="muted">
+                <small id="futures-label-hint" className="lt-muted">
                   {labelBad ? t('refusedLabel') : t('labelHint')}
                 </small>
               </label>
@@ -413,7 +413,7 @@ export function FuturesOrdersRoom({ path }: { path: string }) {
           ) : null}
         </form>
         <p className="muted orders-note">
-          <a className="text-link" href="/trade/futures">
+          <a className="lt-link" href="/trade/futures">
             {t('deskLink')}
           </a>
         </p>
@@ -425,7 +425,7 @@ export function FuturesOrdersRoom({ path }: { path: string }) {
         {state.status === 'loading' ? <Loading label={params.view === 'executions' ? t('loadingExecutions') : t('loadingOrders')} /> : null}
         {state.status === 'failed' ? <Failure result={state.failure} retry={() => setRevision((n) => n + 1)} /> : null}
         {state.status === 'refused' ? (
-          <div className="failure" role="alert">
+          <div className="lt-refusal" role="alert">
             <h3>{t('refusedTitle')}</h3>
             <p>{state.words}</p>
             <Button

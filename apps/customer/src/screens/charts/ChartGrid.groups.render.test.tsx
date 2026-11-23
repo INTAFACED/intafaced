@@ -21,7 +21,25 @@ vi.mock('../../shared/preferences', async (original) => {
 vi.mock('../../features/session/session', () => ({
   useSession: () => ({
     userId: 'u1',
-    api: { query: () => new Promise(() => {}), mutate: () => new Promise(() => {}), rest: () => new Promise(() => {}) },
+    api: {
+      query: () => new Promise(() => {}),
+      mutate: () => new Promise(() => {}),
+      rest: () => new Promise(() => {}),
+      call(
+        this: { query: (...args: never[]) => unknown; mutate: (...args: never[]) => unknown },
+        record: { kind: string; module: string; path: string; output: unknown },
+        input?: unknown,
+        opts?: unknown,
+      ) {
+        return Reflect.apply(record.kind === 'query' ? this.query : this.mutate, this, [
+          record.module,
+          record.path,
+          input,
+          record.output,
+          opts,
+        ]);
+      },
+    },
   }),
 }));
 // The chart's own order controls read open orders through the desk's data; these tests place none.

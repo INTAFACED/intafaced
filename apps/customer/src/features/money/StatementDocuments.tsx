@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Download, RefreshCw } from 'lucide-react';
 import { Button } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { refusalCopy } from '../../data';
 import { decodeBase64, saveFile, shortFingerprint } from '../../screens/money/statement-model';
-import { statementFileSchema, statementJobsSchema, type StatementJob } from './contracts';
+import { type StatementJob } from './contracts';
 import { statementCentreCopy } from './statement-centre-copy';
 import { statementDocumentsCopy } from './statement-documents-copy';
 import { refusedWords } from './statement-refusals';
+import { BANK_STATEMENTS_JOBS_LIST, BANK_STATEMENTS_JOBS_DOWNLOAD } from '@intafaced/contracts/bank-statements-procedures';
 
 type Load =
   | { kind: 'loading' }
@@ -34,7 +35,7 @@ export function StatementDocuments({ version }: { version: number }) {
   const latest = useRef(0);
   const read = useCallback(async () => {
     const asked = ++latest.current;
-    const result = await api.query('bank', 'statements.jobs.list', undefined, statementJobsSchema);
+    const result = await api.call(BANK_STATEMENTS_JOBS_LIST, undefined);
     if (asked !== latest.current) return;
     if (!result.ok) {
       const code = result.code ?? null;
@@ -57,7 +58,7 @@ export function StatementDocuments({ version }: { version: number }) {
 
   async function download(job: StatementJob) {
     setSaid(null);
-    const result = await api.query('bank', 'statements.jobs.download', { id: job.id }, statementFileSchema);
+    const result = await api.call(BANK_STATEMENTS_JOBS_DOWNLOAD, { id: job.id });
     if (!result.ok) {
       const code = result.code ?? null;
       const words =
@@ -76,17 +77,17 @@ export function StatementDocuments({ version }: { version: number }) {
   }
 
   return (
-    <section className="bd-stack" data-testid="statement-documents" aria-label={t('title')}>
+    <section className="lt-stack" data-testid="statement-documents" aria-label={t('title')}>
       <h4>{t('title')}</h4>
-      <p className="money-caption">{t('lead')}</p>
+      <p className="lt-muted">{t('lead')}</p>
       {load.kind === 'loading' ? (
         <p role="status">…</p>
       ) : load.kind === 'failed' ? (
-        <div className="bd-stack">
+        <div className="lt-stack">
           <p role="alert" className="error-text" data-code={load.code ?? undefined}>
             {t('loadFailed')} {load.words}
           </p>
-          <div className="actions">
+          <div className="lt-actions">
             <Button type="button" variant="secondary" onClick={() => void read()}>
               {t('retry')}
             </Button>
@@ -95,38 +96,38 @@ export function StatementDocuments({ version }: { version: number }) {
       ) : (
         <>
           {!load.enabled && (
-            <p className="money-caption" data-code="bank.statement_jobs_unset">
+            <p className="lt-muted" data-code="bank.statement_jobs_unset">
               {t('off')}
             </p>
           )}
           {load.items.length === 0 ? (
-            <p className="money-caption" data-testid="statement-documents-empty">
+            <p className="lt-muted" data-testid="statement-documents-empty">
               {t('empty')}
             </p>
           ) : (
-            <ul className="bd-stack" role="list">
+            <ul className="lt-stack" role="list">
               {load.items.map((job) => (
                 <li key={job.id} className="bd-card" data-job={job.id} data-state={job.state}>
                   <strong>
                     {centre.t(`report_${job.report}`)} · {job.format.toUpperCase()}
                   </strong>
-                  <span className="money-caption">{t('range', { from: job.from.slice(0, 10), to: job.to.slice(0, 10) })}</span>
+                  <span className="lt-muted">{t('range', { from: job.from.slice(0, 10), to: job.to.slice(0, 10) })}</span>
                   <span data-testid="statement-document-state">{t(`state_${job.state}`)}</span>
                   {job.state === 'failed' && job.errorCode && (
-                    <span className="money-caption" data-code={job.errorCode}>
+                    <span className="lt-muted" data-code={job.errorCode}>
                       {refusedWords(centre.t, job.errorCode, job.errorCode)}
                     </span>
                   )}
                   {job.attempts > 1 && job.state === 'ready' && (
-                    <span className="money-caption">{t('retried', { attempts: String(job.attempts) })}</span>
+                    <span className="lt-muted">{t('retried', { attempts: String(job.attempts) })}</span>
                   )}
                   {job.state === 'ready' && job.sha256 && (
-                    <span className="money-caption">
+                    <span className="lt-muted">
                       {t('lines', { count: String(job.rowCount ?? 0), fingerprint: shortFingerprint(job.sha256) })}
                     </span>
                   )}
                   {job.state === 'ready' && (
-                    <div className="actions">
+                    <div className="lt-actions">
                       <Button type="button" variant="secondary" onClick={() => void download(job)}>
                         <Download size={16} aria-hidden="true" />
                         {t('download')}
@@ -137,7 +138,7 @@ export function StatementDocuments({ version }: { version: number }) {
               ))}
             </ul>
           )}
-          <div className="actions">
+          <div className="lt-actions">
             <Button type="button" variant="ghost" onClick={() => void read()}>
               <RefreshCw size={16} aria-hidden="true" />
               {t('refresh')}

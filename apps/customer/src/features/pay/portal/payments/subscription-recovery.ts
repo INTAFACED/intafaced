@@ -3,10 +3,10 @@ import type { BusinessPayApi } from '../../pay-api';
 import { id, subscriptionSchema } from '../../schemas';
 import type { ApiResult } from '../../../../shared/api';
 import { payRefusal } from '../../copy';
-import * as portalSchemas from '../schemas';
 import { plainFailure } from '../refusal';
 import { extensionCopy as c } from './copy';
 import { definite, neverRan } from './not-available';
+import { PAY_SUBSCRIPTION_LIST, PAY_SUBSCRIPTION_GET, PAY_SUBSCRIPTION_CREATE } from '@intafaced/contracts/pay-subscription-procedures';
 
 const unresolved = (): ApiResult<z.infer<typeof subscriptionSchema>> => ({
   ok: false,
@@ -26,7 +26,7 @@ export async function createSubscriptionWithRecovery(pay: BusinessPayApi, mandat
   if (!input.success) return payRefusal('invalidInput', { reason: 'error' });
   // A call that never ran (the gateway has no such procedure) is a definite refusal, never an outcome to wait for.
   return plainFailure(
-    definite(await pay.mutate('subscription.create', input.data, subscriptionSchema, 'pay:write', `subscription-create:${mandateId}`)),
+    definite(await pay.mutateRecord(PAY_SUBSCRIPTION_CREATE, input.data, 'pay:write', `subscription-create:${mandateId}`)),
   );
 }
 
@@ -37,11 +37,7 @@ export async function createSubscriptionWithRecovery(pay: BusinessPayApi, mandat
  */
 async function findOpenSubscription(pay: BusinessPayApi, mandateId: string) {
   for (const status of ['active', 'paused'] as const) {
-    const listed = await pay.query(
-      'subscription.list',
-      { merchantId: pay.authority!.merchantId, status, limit: 200 },
-      portalSchemas.page(subscriptionSchema),
-    );
+    const listed = await pay.queryRecord(PAY_SUBSCRIPTION_LIST, { merchantId: pay.authority!.merchantId, status, limit: 200 });
     if (!listed.ok) return null;
     const found = listed.data.items.find((row) => row.mandateId === mandateId && row.merchantId === pay.authority!.merchantId);
     if (found) return found;
@@ -90,7 +86,7 @@ export function checkSubscriptionOriginal(pay: BusinessPayApi, subscriptionId: s
     `${pay.authority!.userId}:subscription:${subscriptionId}`,
     async (original) => {
       // Not wrapped in definite(): this is a read of an outcome that may already exist, so "nothing was changed" would be wrong.
-      const result = await pay.query('subscription.get', { subscriptionId }, subscriptionSchema);
+      const result = await pay.queryRecord(PAY_SUBSCRIPTION_GET, { subscriptionId });
       if (!result.ok) return neverRan(result) ? { ...result, message: c.t('subscriptionCheckFailed') } : result;
       if (result.data.id !== subscriptionId || result.data.status !== original.reference) return unresolved();
       return result;

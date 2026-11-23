@@ -3,11 +3,10 @@ import { randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { fromUnits, journeyState, toUnits } from './stack.mjs';
-import { signIn, signUp, verify } from './desk.mjs';
-import { installTestWallet, testWalletKey } from './test-wallet.mjs';
-import { connectWhenAsked } from './dex.mjs';
-import { doorCalls, ledgerUntouched, ledgerView, walletOwner } from './venue-door.mjs';
-import { TEST_VENUE, continueInWallet, testVenueAt, venueForThisFile } from './venue.mjs';
+import { signUp, verify } from './desk.mjs';
+import { testWalletKey } from './test-wallet.mjs';
+import { doorCalls, ledgerUntouched, ledgerView, openVenueRoom, signedOnVenue, venueAt, venueNow, walletOwner } from './venue-door.mjs';
+import { continueInWallet, venueForThisFile } from './venue.mjs';
 
 // J-derivatives-06's venue steps, "I watch and top up the margin on an isolated position", on the person's own venue
 // account (the launch money model: the venue holds the position and its margin, the ledger posts nothing), in the running
@@ -32,33 +31,12 @@ venueForThisFile(test);
 
 // ── the TEST venue, read and signed on directly ──
 
-async function at(path, body) {
-  const { status, body: out } = await testVenueAt(TEST_VENUE, path, body);
-  expect(status, `${path}: ${JSON.stringify(out).slice(0, 300)}`).toBe(200);
-  return out;
-}
-async function venueNow() {
-  const v = await at('/venue');
-  expect(v.label).toBe('TEST');
-  return { id: v.venue.id, name: v.venue.displayName, chainId: v.chainId };
-}
 const accountOf = (venue, owner) => ({ venueId: venue.id, owner, subAccount: null });
 /** The venue's own record for the account (`/positions`, `/balances`, `/account-summary`, `/isolated-margin`, ...). */
-const record = async (venue, owner, path, extra = {}) => (await at(path, { account: accountOf(venue, owner), ...extra })).value;
+const record = async (venue, owner, path, extra = {}) => (await venueAt(path, { account: accountOf(venue, owner), ...extra })).value;
 const positionOn = async (venue, owner) => (await record(venue, owner, '/positions')).find((p) => p.symbol === BTC);
 const usdcOn = async (venue, owner) =>
   (await record(venue, owner, '/balances')).find((b) => b.asset === 'USDC') ?? { free: '0', locked: '0', total: '0' };
-
-/** One action signed by `key` as the owner and sent to the TEST venue itself (setup, never a step's own action). */
-async function signedOn(venue, key, intent) {
-  const owner = key.address.toLowerCase();
-  const prepared = await at('/prepare', { account: accountOf(venue, owner), signer: { role: 'owner', address: owner }, intent });
-  const t = prepared.typedData;
-  const signature = await key.signTypedData({ domain: t.domain, types: t.types, primaryType: t.primaryType, message: t.message });
-  const sent = await at('/submit', { prepared, signature: { digest: prepared.digest, signature, signedBy: owner } });
-  expect(sent, JSON.stringify(sent).slice(0, 300)).toMatchObject({ definite: true, accepted: true });
-  return sent;
-}
 
 // ── the person and the page ──
 
@@ -67,19 +45,6 @@ const signatures = (wallet) => wallet.requests.filter((r) => r.method === 'eth_s
 const same = (a, b) => toUnits(String(a).trim()) === toUnits(String(b).trim());
 /** A fraction as the room draws it in percent: times 100, to its last digit. */
 const percent = (fraction) => `${fromUnits(toUnits(fraction) * 100n)}%`;
-
-/** Signs in, installs the TEST wallet with this run's key on the venue's chain, opens the room and connects. */
-async function openRoom(page, s) {
-  const { chainId } = await venueNow();
-  const wallet = await installTestWallet(page, { chainId, privateKey: s.walletKey });
-  await signIn(page, s.account);
-  await page.goto(ROOM);
-  const address = page.getByTestId('venue-wallet-address');
-  await connectWhenAsked(page, address);
-  await expect(address).toHaveText(s.owner);
-  await expect(page.getByTestId('positions-all')).toBeVisible({ timeout: 30_000 });
-  return wallet;
-}
 
 /** Opens the margin panel of the BTC-PERP row and waits for the venue's figures in it. */
 async function openMargin(page, venue) {
@@ -105,15 +70,15 @@ async function startsLine(browser) {
     const key = privateKeyToAccount(walletKey);
     const owner = key.address.toLowerCase();
     const venue = await venueNow();
-    await at('/test/deposit', {
+    await venueAt('/test/deposit', {
       account: accountOf(venue, owner),
       asset: 'USDC',
       amount: FUNDS,
       depositRef: `84532:0x${randomBytes(32).toString('hex')}:0`,
     });
     const tag = randomBytes(4).toString('hex');
-    await signedOn(venue, key, { kind: 'update_leverage', symbol: BTC, leverageBps: 100_000, marginMode: 'isolated' });
-    await signedOn(venue, key, {
+    await signedOnVenue(venue, key, { kind: 'update_leverage', symbol: BTC, leverageBps: 100_000, marginMode: 'isolated' });
+    await signedOnVenue(venue, key, {
       kind: 'place_order',
       symbol: BTC,
       side: 'buy',
@@ -142,7 +107,7 @@ test(`${J} #1 opens Account metrics: equity, free, used margin and margin ratio 
   await startsLine(browser);
   const s = state();
   const venue = await venueNow();
-  await openRoom(page, s);
+  await openVenueRoom(page, s, ROOM);
   const region = page.getByRole('region', { name: 'Account metrics', exact: true });
   await expect(region).toBeVisible();
   const block = region.locator(`[data-venue="${venue.id}"]`);
@@ -183,7 +148,7 @@ test(`${J} #2 adds margin to a position: a signed venue margin change; margin an
   test.setTimeout(300_000);
   const s = state();
   const venue = await venueNow();
-  const wallet = await openRoom(page, s);
+  const wallet = await openVenueRoom(page, s, ROOM);
   const door = doorCalls(page);
   const before = await positionOn(venue, s.owner);
   const usdcBefore = await usdcOn(venue, s.owner);
@@ -228,7 +193,7 @@ test(`${J} #3 removes margin: allowed down to the venue's limit; otherwise refus
   test.setTimeout(300_000);
   const s = state();
   const venue = await venueNow();
-  const wallet = await openRoom(page, s);
+  const wallet = await openVenueRoom(page, s, ROOM);
   const door = doorCalls(page);
   const limit = await record(venue, s.owner, '/isolated-margin', { symbol: BTC });
   // #2 added margin above the venue's minimum for the position, so there is room to remove, and the page shows the limit.

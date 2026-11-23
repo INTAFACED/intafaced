@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 
 /**
  * `tax.lotBook`: the customer's profit and loss indicator, built by svc-tax from their own ledger history. Shared by the
@@ -61,9 +62,9 @@ export const lotBookChoicesSchema = z.discriminatedUnion('status', [
   z.object({
     status: z.literal('saved'),
     accountMethod: lotBookMethodSchema.nullable(),
-    assetMethods: z.array(z.object({ assetId: z.string(), method: lotBookMethodSchema })),
-    days: z.array(z.object({ day: z.string(), assetId: z.string().nullable(), method: lotBookMethodSchema })),
-    picks: z.array(z.object({ saleTxId: z.string(), assetId: z.string(), lotId: z.string() })),
+    assetMethods: z.array(z.object({ assetId: assetIdSchema, method: lotBookMethodSchema })),
+    days: z.array(z.object({ day: z.string(), assetId: assetIdSchema.nullable(), method: lotBookMethodSchema })),
+    picks: z.array(z.object({ saleTxId: z.string(), assetId: assetIdSchema, lotId: z.string() })),
     /** Null: not chosen, and transfers count (the product default). */
     includeTransfers: z.boolean().nullable(),
   }),
@@ -91,14 +92,14 @@ export const lotBookValuedAtSchema = z.object({
  * null when the fill has no dollar side. `unknown`: the ledger did not say what the fee was.
  */
 export const lotBookFeeSchema = z.discriminatedUnion('status', [
-  z.object({ status: z.literal('known'), assetId: z.string(), amount: z.string(), usd: z.string().nullable() }),
+  z.object({ status: z.literal('known'), assetId: assetIdSchema, amount: z.string(), usd: z.string().nullable() }),
   z.object({ status: z.literal('unknown') }),
 ]);
 
 export const lotBookLotSchema = z.object({
   /** `lot:<acquireTxId>:<assetId>`: the same history gives the same id. */
   id: z.string(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   acquiredAt: z.string(),
   source: z.enum(LOT_SOURCES),
   qty: z.string(),
@@ -130,7 +131,7 @@ export const lotBookLotSchema = z.object({
 export const lotBookSpacesSchema = z.discriminatedUnion('status', [
   z.object({
     status: z.literal('read'),
-    list: z.array(z.object({ spaceId: z.string(), assetId: z.string(), name: z.string(), archived: z.boolean() })),
+    list: z.array(z.object({ spaceId: z.string(), assetId: assetIdSchema, name: z.string(), archived: z.boolean() })),
   }),
   /** No bank to ask: the book follows the main account only. */
   z.object({ status: z.literal('unwired'), code: z.literal('tax.own_spaces_unwired') }),
@@ -164,7 +165,7 @@ export const lotBookSaleSchema = z.object({
   methodSource: z.enum(LOT_METHOD_SOURCES),
   /** The lot the customer picked for this sale, when it was open and so drawn first. */
   pickedLotId: z.string().nullable(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   txId: z.string(),
   disposedAt: z.string(),
   qty: z.string(),
@@ -180,7 +181,7 @@ export const lotBookSaleSchema = z.object({
 });
 
 export const lotBookAssetSchema = z.object({
-  assetId: z.string(),
+  assetId: assetIdSchema,
   /** Open quantity in the main account that the figures count. */
   openQty: z.string(),
   openCostUsd: z.string().nullable(),
@@ -251,7 +252,7 @@ export const lotBookSchema = z.object({
     .array(
       z.object({
         id: z.string(),
-        assetId: z.string(),
+        assetId: assetIdSchema,
         acquiredAt: z.string(),
         qty: z.string(),
         costUsd: z.string(),
@@ -269,7 +270,7 @@ export const UNKNOWN_SHARE = 'unknown share' as const;
 
 export const missingBasisItemSchema = z.object({
   lotId: z.string().nullable(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   kind: z.enum(['open', 'disposal']),
   qty: z.string(),
   code: z.enum(['tax.cost_basis_unavailable', 'tax.lot_underflow']),
@@ -287,7 +288,7 @@ export const basisOverrideSetInputSchema = z
     pricePerUnit: z.string(),
     date: z.string(),
     sourceNote: z.string(),
-    assetId: z.string().optional(),
+    assetId: assetIdSchema.optional(),
     qty: z.string().optional(),
   })
   .strict();
@@ -335,7 +336,7 @@ export const PNL_SERIES_INTERVALS = ['5m', '1h', '4h', '1d', '1w'] as const;
 export const PNL_BREAKDOWN_MAX_DAYS = 400;
 
 export const pnlMissingSchema = z.object({
-  assetId: z.string(),
+  assetId: assetIdSchema,
   /** `no_price`: no candle had ended by then. `cost_unknown`: a lot's cost or a sale's result is not known. */
   reason: z.enum(['no_price', 'cost_unknown']),
 });

@@ -3,7 +3,7 @@
 // (Failure it prevents: Playwright's own --shard splits by test count, in file-name order. In run 338 the bank journeys
 // sat together and shard 2 ran 36 minutes while shard 4 ran 3, so every run waited about 20 minutes on one shard.)
 //
-// Usage: node tooling/scripts/journey-shards.mjs --shards <n | auto> [--report <report.json>]... [--only "<files>"] [--main]
+// Usage: node tooling/scripts/journey-shards.mjs --shards <n | auto> [--report <report.json>]... [--only "<files>"] [--main] [--pull]
 // (`--main` is accepted and changes nothing: every full run plans as main's.)
 // Prints a JSON array with one string per shard: that shard's journey files (relative to the journey folder),
 // separated by spaces. Each file counts the longest time of each of its tests' titles across the reports, wherever that
@@ -13,7 +13,7 @@
 // counts UNTIMED_STEP_MS, the time a step took on main, so a run that could not read the last reports still plans its
 // shards from a real size. A report that cannot be read is skipped.
 //
-// `--shards auto` picks as many shards as keep each one's journeys near the target (shardTarget), between MIN_SHARDS
+// `--shards auto` picks as many shards as keep each one's journeys near the target, between MIN_SHARDS
 // and MAX_SHARDS. (Failure it prevents: run 631 spent about 30 minutes per shard of a 60-minute job, and the real-app
 // tests for about 2,364 more steps were on their way; a fixed 8 would have pushed shards past the limit, and a shard that
 // hits it loses its whole report.) The target follows the longest journey file: a file runs in one shard, one step at a
@@ -46,42 +46,58 @@ export const SETUP_SPREAD_MINUTES = 10;
 export const MIN_TARGET_MINUTES = 10;
 // Never above this, so setup plus the journeys stays well inside the job's limit.
 export const MAX_TARGET_MINUTES = 25;
-// At least the 8 shards the suite ran on before. At most 32: the org's runners are not the 500 GitHub's limits page names
-// for its plan. Counted from the jobs' own start and end times (project-state #1906, 9 Nov 2026), about 180 jobs ran at
-// once (178 to 185 through 09:50-10:50 UTC, 175 to 179 through 13:16-13:28, peaks to about 230) while jobs that wait on
-// nothing queued for up to 37 minutes. A main run of 48 shards took over a quarter of that, and pull-request CI starved
-// behind it. The replay above puts the median run at about 36 minutes with
-// 32 shards and the same 36 with 40 or 56, so 32 costs main's verdict about nothing and leaves the rest for CI.
+// At least the 8 shards the suite ran on before.
 export const MIN_SHARDS = 8;
-export const MAX_SHARDS = 32;
-// A full run (on main: a push, the daily run, a manual full run; off it: a pull request's or a branch's) aims every shard at MIN_TARGET_MINUTES of
-// journeys, up to MAIN_MAX_SHARDS, so a break is named sooner: the journeys revert starts as the failing shard ends
+// A full run (on main: a push, the daily run, a manual full run; off it: a branch's run by hand; a pull request's run is never full, PR_MAX_SHARDS) aims every shard at MIN_TARGET_MINUTES of
+// journeys, up to MAX_SHARDS, so a break is named sooner: the journeys revert starts as the failing shard ends
 // (real-app-journeys.yml early-break), not when the run ends, and that shard ends with its own journeys, not with the
 // longest file. The run's own end still waits on the longest file (J-wallet-05, 25.8 minutes in run 5027). Measured
-// 14 Nov 2026: the ceiling above is gone (the org is on the paid Enterprise plan since 11 Nov): from 10:00 to 13:00 UTC,
+// 14 Nov 2026: the old ceiling of 32 (9 Nov: about 180 jobs ran at once while others queued) is gone (the org is on the
+// paid Enterprise plan since 11 Nov): from 10:00 to 13:00 UTC,
 // counted from every job's own times in both of the org's repositories, at most 235 jobs ran at once (median 88), at
 // most 4 waited at any minute, and the median wait was 2 seconds (505 shard jobs: 6 s at most). Replaying the reports of
 // main's runs 5011, 5020 and 5027 (a shard's setup 8.0 minutes at the median, its journeys 0.94 of their planned time):
 // with 32 shards a step's shard ended at 28.7 minutes at the median, with 64 at 17.8, for 1,179 runner-minutes a run
 // instead of 923. 32 more runners for about 18 minutes is well under the 235 that ran with nothing waiting.
-// Every full run plans this way, a pull request's and a manual one on a branch too (fullPlan), so a journey meets the
+// Every full run plans this way, a manual one on a branch too (fullPlan), so a journey meets the
 // same neighbours in its shard as on main. (Failure it prevents: 15 Nov 2026, #8509's full runs planned 32 shards and
 // went red on J-charts-desk-04 #4, run 43731598319, "no open spot market is without trades on this stack", in a shard of
 // 10 files, and on J-cex-spot-02 #7, run 43745698376, in a shard of 10, while main's runs 43730198295, 43732941860 and
 // 43745093079 planned 64 and passed them in shards of 3 to 6: steps that read the shared stack failed only beside a pull
-// request's extra neighbours, and the pull request waited 420 minutes.) A targeted run keeps its own plan.
-export const MAIN_MAX_SHARDS = 64;
+// request's extra neighbours, and the pull request waited 420 minutes.) A targeted run too big for its cap plans the
+// same way (targetedShards).
+// Raised from 64 to 90 on 19 Nov 2026 (INTAFACED/project-state#3240): main's run 44464621638 planned 64 shards of about
+// 14 minutes (891 in all against the 10-minute target, so the ceiling bound), their journeys took 6.7 to 18.1 minutes
+// (median 12.5) and the run ended at 29.4. Replaying that run's own times through this planner: 64 shards give a median
+// shard of 11.9 minutes of journeys, 90 give 8.5 (p90 9.3); past that the longest file (J-campaigns-18, 14.7) sets the
+// end. Never past JOBS_PAGE less the workflow's other jobs (jobsFit): the readers of a run's jobs ask one page of 100
+// (journeys-revert.mjs early, main-trust.mjs, post-merge-trust.mjs, journey-seal.mjs), so a shard on page two would be
+// a shard they never see.
+export const MAX_SHARDS = 90;
+// One page of the jobs API, as the run's readers ask it (`jobs?per_page=100`).
+export const JOBS_PAGE = 100;
 // The workflow stops a shard's journeys after this (Playwright's globalTimeout), so the shard still reports.
 const JOURNEY_LIMIT_MINUTES = Number(process.env.JOURNEY_GLOBAL_TIMEOUT_MS || 3_600_000) / 60_000;
 // The planner warns when a shard's journeys come within this of the limit; a capped plan must stay clear of it.
 const LIMIT_MARGIN_MINUTES = 20;
-// A targeted run (a pull request's touched journeys, or a manual run's files) takes at most this many shards
-// (project-state research/fable-blueprint-2026-11-10 file 10, item 6: "the run is capped at 10 shards"). Each shard
-// costs a runner and about 8 minutes of setup, and runners are what main's verdict and every other pull request wait
-// on. The cap only packs the same files into fewer shards; it never drops one. It gives way, and the shards stay
-// as many as the target asks, whenever the capped plan's longest shard would come within LIMIT_MARGIN_MINUTES of the
-// limit (targetedShards), so a cap never costs a journey its report.
+// A run by hand of named journey files (`--only` without `--pull`) takes at most this many shards
+// (project-state research/fable-blueprint-2026-11-10 file 10, item 6: "the run is capped at 10 shards"). The cap only
+// packs the same files into fewer shards; it never drops one. It gives way, and the shards stay as many as the target
+// asks, whenever the capped plan's longest shard would come within LIMIT_MARGIN_MINUTES of the limit (targetedShards),
+// so a cap never costs a journey its report. A pull request's run is not capped by it (PR_MAX_SHARDS says why).
 export const TARGETED_MAX_SHARDS = 10;
+// A pull request's run (`--pull`) takes as many shards as its target asks, never more than this, and is never the full
+// suite: a pick too big for it runs journey-touch.mjs's bounded set instead (pullPick, PR_MAX_FILES), and main's full run
+// after the merge judges the rest. (Failure it prevents: in the 48 hours to 20 Nov 2026, 174 of 233 merged pull
+// requests ran the full suite, 51 to 90 shards each.) 30 holds PR_MAX_FILES's 100 files, about 240 to 270 minutes, at
+// the 10-minute target. Raised from 12 on 20 Nov 2026, and the pull request's run freed from TARGETED_MAX_SHARDS
+// (project-state#3035): #9170's bounded set of 65 files, about 194 minutes, packed into 10 shards of about 19 minutes
+// planned and 20 to 25 run (run 44668020108), and the pull request took 41 minutes from push to merge; replaying that
+// run's own times, 20 shards end with its longest file, J-campaigns-18 at 14.7 minutes, about 9 minutes sooner. What
+// the cap saved is gone: a shard's setup took 2.2 minutes there, not 8 (the stack is seeded once in the build job,
+// #9151), and from 03:20 to 06:00 UTC that day 526 shard jobs waited 2 seconds at the median for a runner (8 at most),
+// at most 137 running at once.
+export const PR_MAX_SHARDS = 30;
 // A step is a `test(` call at the start of a line, the way journey files declare one. A step a loop declares counts
 // once until a run has timed its file; from then on the report's count wins.
 const STEP = /^\s*test\(/gm;
@@ -285,11 +301,26 @@ export function planCovers(plan, files, fresh = new Set()) {
 }
 
 /**
- * The full suite's target and ceiling, the same on main and off it (MAIN_MAX_SHARDS says why). A targeted run plans from
- * shardTarget and MAX_SHARDS instead. Pure, for the tests.
+ * The full suite's target and ceiling, the same on main and off it (MAX_SHARDS says why). A targeted run plans from
+ * shardTarget instead, until it is too big for its cap (targetedShards). Pure, for the tests.
  */
 export function fullPlan() {
-  return { target: MIN_TARGET_MINUTES * 60_000, max: MAIN_MAX_SHARDS };
+  return { target: MIN_TARGET_MINUTES * 60_000, max: MAX_SHARDS };
+}
+
+/**
+ * The jobs a Real-app journeys run holds besides its shards: the job keys of the workflow file, less the one matrix job.
+ * Problems with `max` shards beside them on one page of the jobs API, or none. Pure, for the tests.
+ */
+export function jobsFit(workflowText, max = MAX_SHARDS, page = JOBS_PAGE) {
+  const body = String(workflowText).split(/^jobs:$/m)[1] ?? '';
+  const others = (body.match(/^ {2}[a-z][a-z0-9_-]*:$/gm) ?? []).length - 1;
+  if (others < 1) return [`no jobs read from the workflow`];
+  return others + max > page
+    ? [
+        `${max} shards and ${others} other jobs make ${others + max}, past one page of ${page} jobs: lower MAX_SHARDS in tooling/scripts/journey-shards.mjs to ${page - others} or less`,
+      ]
+    : [];
 }
 
 /** How many shards keep each one's journeys near `targetMs`, between `min` and `max`. */
@@ -298,17 +329,31 @@ export function shardCount(totalMs, targetMs, min = MIN_SHARDS, max = MAX_SHARDS
 }
 
 /**
- * How many shards a targeted run takes: as many as the target asks (from one, never more than its files), capped at
- * TARGETED_MAX_SHARDS, unless the capped plan's longest shard (planShards) would need more than `limitMs` of journeys;
- * then the uncapped count stands. Fails open: an uncapped count is never lowered past what keeps every shard clear of
- * the limit. Pure, for the tests.
+ * How many shards a targeted run takes: as many as the target asks (from one, never more than its files). A pull
+ * request's run (`pull`) stops at PR_MAX_SHARDS. A run by hand is capped at TARGETED_MAX_SHARDS, unless the capped plan's longest shard (planShards) would need more than `limitMs` of journeys;
+ * then it is planned as a full run is (fullPlan), so it ends no later than the full suite would and its journeys meet
+ * main's neighbours. Fails open: a count is never lowered past what keeps every shard clear of the limit. Pure, for the
+ * tests. (Failure it prevents: 18 Nov 2026, #8836's run 44250481099: the touched-journeys map narrowed four svc-bank
+ * paths to 355 journey files, about 877 minutes; the targeted plan stopped at the old ceiling of 32 shards of about 27
+ * minutes and took 45 minutes, while a full run's 64 shards took 28 to 34. Twelve pull requests merged in 24 hours
+ * waited on such runs, and lead time read 48 minutes against 45.)
  */
-export function targetedShards(files, durations, targetMs, limitMs = (JOURNEY_LIMIT_MINUTES - LIMIT_MARGIN_MINUTES) * 60_000) {
+export function targetedShards(
+  files,
+  durations,
+  targetMs,
+  limitMs = (JOURNEY_LIMIT_MINUTES - LIMIT_MARGIN_MINUTES) * 60_000,
+  pull = false,
+) {
   const totalMs = files.reduce((a, f) => a + (durations.get(f) ?? 0), 0);
   const uncapped = Math.min(files.length, shardCount(totalMs, targetMs, 1));
+  // A pull request's run stops at its own cap (PR_MAX_SHARDS), never planned as a full run.
+  if (pull) return Math.min(uncapped, PR_MAX_SHARDS);
   if (uncapped <= TARGETED_MAX_SHARDS) return uncapped;
   const capped = planShards(files, durations, TARGETED_MAX_SHARDS);
-  return Math.max(...capped.map((bin) => bin.ms)) <= limitMs ? TARGETED_MAX_SHARDS : uncapped;
+  if (Math.max(...capped.map((bin) => bin.ms)) <= limitMs) return TARGETED_MAX_SHARDS;
+  const full = fullPlan();
+  return Math.min(files.length, shardCount(totalMs, full.target, MIN_SHARDS, full.max));
 }
 
 /**
@@ -386,6 +431,12 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const argv = process.argv.slice(2);
   const asked = argv[argv.indexOf('--shards') + 1];
   const only = argv.includes('--only') ? argv[argv.indexOf('--only') + 1] : null;
+  // `--pull`: a pull request's run, at most PR_MAX_SHARDS and never the full suite.
+  const pull = argv.includes('--pull');
+  if (pull && only === null) {
+    console.error("::error::a pull request's journeys run is never the full suite (tooling/ci/journey-touch.mjs pullPick)");
+    process.exit(1);
+  }
   // `--main` (the workflow passes it on main) no longer changes the plan: every full run plans as main's (fullPlan).
   const reports = argv.flatMap((a, i) => (argv[i - 1] === '--report' && fs.existsSync(a) ? [a] : []));
   if (!reports.length) console.error('journey-shards: no report from a finished run, so every step counts the same');
@@ -403,15 +454,16 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   );
   const totalMs = [...durations.values()].reduce((a, b) => a + b, 0);
   // Never more shards than files: a shard must have a file to run.
-  // A targeted run takes as few stacks as its files need (from one), not the full suite's floor, and at most
-  // TARGETED_MAX_SHARDS while every shard stays clear of the limit (targetedShards).
-  const { target, max } = only === null ? fullPlan() : { target: shardTarget(durations), max: MAX_SHARDS };
+  // A targeted run takes as few stacks as its files need (from one), not the full suite's floor: a pull request's at
+  // most PR_MAX_SHARDS, a run by hand's at most TARGETED_MAX_SHARDS while every shard stays clear of the limit
+  // (targetedShards).
+  const { target, max } = only === null ? fullPlan() : { target: shardTarget(durations), max: pull ? PR_MAX_SHARDS : MAX_SHARDS };
   const shards =
     asked !== 'auto'
-      ? Number(asked)
+      ? Math.min(Number(asked), pull ? PR_MAX_SHARDS : Infinity)
       : only === null
         ? Math.min(files.length, shardCount(totalMs, target, MIN_SHARDS, max))
-        : targetedShards(files, durations, target);
+        : targetedShards(files, durations, target, undefined, pull);
   const fresh = freshFiles(JOURNEY_DIR, files);
   // A targeted run too small to give each file that needs a fresh stack a shard it runs first in takes one more shard.
   let plan = null;
@@ -428,7 +480,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     process.exit(1);
   }
   console.error(
-    `journey-shards: ${files.length} files, about ${Math.round(totalMs / 60_000)} min in all, ${shards} shards aimed at about ${Math.round(target / 60_000)} min each${only === null ? ` (a full run, on main or off it: at most ${MAIN_MAX_SHARDS})` : ''}${only !== null ? ` (a targeted run: at most ${TARGETED_MAX_SHARDS} while each shard stays clear of the limit)` : ''}`,
+    `journey-shards: ${files.length} files, about ${Math.round(totalMs / 60_000)} min in all, ${shards} shards aimed at about ${Math.round(target / 60_000)} min each${only === null ? ` (a full run, on main or off it: at most ${MAX_SHARDS})` : ''}${only !== null && pull ? ` (a pull request's run: as many as the target asks, at most ${PR_MAX_SHARDS})` : ''}${only !== null && !pull ? ` (a targeted run: at most ${TARGETED_MAX_SHARDS} while each shard stays clear of the limit, else planned as a full run)` : ''}`,
   );
   plan.forEach((bin, i) =>
     console.error(`shard ${i + 1}: ${bin.files.length} files, about ${Math.round(bin.ms / 60_000)} min by the last runs`),
@@ -441,7 +493,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   // Stderr, so the plan on stdout stays clean; the runner reads workflow commands from both.
   if (longest > JOURNEY_LIMIT_MINUTES - LIMIT_MARGIN_MINUTES)
     console.error(
-      `::warning::the longest shard needs about ${Math.round(longest)} of its ${JOURNEY_LIMIT_MINUTES} minutes of journeys; raise ${only === null ? 'MAIN_MAX_SHARDS' : 'MAX_SHARDS'} in tooling/scripts/journey-shards.mjs`,
+      `::warning::the longest shard needs about ${Math.round(longest)} of its ${JOURNEY_LIMIT_MINUTES} minutes of journeys; raise MAX_SHARDS in tooling/scripts/journey-shards.mjs`,
     );
   process.stdout.write(JSON.stringify(plan.map((bin) => bin.files.join(' '))));
 }

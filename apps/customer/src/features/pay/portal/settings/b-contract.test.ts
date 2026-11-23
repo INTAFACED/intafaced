@@ -36,14 +36,14 @@ type Call = (api: SettingsBApi) => Promise<{ ok: boolean }>;
 const calls: Record<string, Call> = {
   keysList: (a) => a.keysList(),
   keyCreate: (a) => a.keyCreate({ name: 'TEST', scopes: ['pay:read'] }),
-  keyRevoke: (a) => a.keyRevoke('TEST-key-1'),
-  signingSet: (a) => a.signingSet('TEST-key-1', true, false),
+  keyRevoke: (a) => a.keyRevoke('7e570000-0000-4000-8000-000000000001'),
+  signingSet: (a) => a.signingSet('7e570000-0000-4000-8000-000000000001', true, false),
   signingRotate: async (a) => {
-    await a.signingSet('TEST-key-1', true, false);
-    return a.signingRotate('TEST-key-1');
+    await a.signingSet('7e570000-0000-4000-8000-000000000001', true, false);
+    return a.signingRotate('7e570000-0000-4000-8000-000000000001');
   },
-  ipsBind: (a) => a.ipsBind('TEST-key-1', ['203.0.113.10']),
-  ipsUnbind: (a) => a.ipsUnbind('TEST-key-1', '203.0.113.10'),
+  ipsBind: (a) => a.ipsBind('7e570000-0000-4000-8000-000000000001', ['203.0.113.10']),
+  ipsUnbind: (a) => a.ipsUnbind('7e570000-0000-4000-8000-000000000001', '203.0.113.10'),
   endpointsList: (a) => a.endpointsList(undefined, '', ''),
   endpointCreate: (a) => a.endpointCreate('https://receiver.example/new', ['payment.captured']),
   endpointUpdate: (a) => a.endpointUpdate('TEST-endpoint-1', 'https://receiver.example/other'),

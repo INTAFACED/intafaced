@@ -7,10 +7,23 @@ import {
   quantQuotaSetInputSchema,
   quantSandboxLimitSetInputSchema,
 } from '@intafaced/contracts';
-import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
-import { partFrom, type PartLabels } from '@/lib/desk/part';
-import { explainRefusal } from '@/lib/desk/refusal-copy';
+import {
+  parseWith,
+  type FounderCallContext,
+  type FounderCallResult,
+  partFrom,
+  type PartLabels,
+  explainRefusal,
+  founderRecordRead,
+} from '@/lib/desk';
 import type { LimitsDeskOp, LimitsDeskReply, LimitsDeskView } from './model';
+import {
+  QUANT_OPS_QUOTA_PROFILE,
+  QUANT_OPS_QUOTA_SET,
+  QUANT_OPS_QUOTA_SANDBOX,
+  QUANT_OPS_QUOTA_ASSIGN,
+  QUANT_OPS_SANDBOX_CORPUS,
+} from '@intafaced/contracts/quant-ops-procedures';
 
 /**
  * Plan quotas and sandbox limits as the signed-in founder (J-algo-dev-12). svc-quant holds the profiles and records
@@ -28,7 +41,7 @@ const readProfile = parseWith(quantQuotaProfileSchema);
 const readCorpus = parseWith(quantEscapeCorpusSchema);
 
 export async function loadLimitsDesk(ctx: FounderCallContext, profile: string): Promise<LimitsDeskView> {
-  const read = await founderCall(ctx, 'quant', 'ops.quota.profile', 'GET', { profile }, readProfile);
+  const read = await founderRecordRead(ctx, QUANT_OPS_QUOTA_PROFILE, { profile }, readProfile);
   return { asOf: new Date().toISOString(), profile: partFrom(read, (d) => d, QUANT) };
 }
 
@@ -61,10 +74,10 @@ function reply(result: FounderCallResult<unknown>, what: string, corpus: boolean
 }
 
 const OPS = {
-  set: { procedure: 'ops.quota.set', schema: quantQuotaSetInputSchema, what: 'the quota limit is saved' },
-  sandbox: { procedure: 'ops.quota.sandbox', schema: quantSandboxLimitSetInputSchema, what: 'the sandbox limit is saved' },
-  assign: { procedure: 'ops.quota.assign', schema: quantQuotaAssignInputSchema, what: 'the account is on the plan' },
-  corpus: { procedure: 'ops.sandbox.corpus', schema: quantEscapeCorpusInputSchema, what: 'the escape corpus ran' },
+  set: { record: QUANT_OPS_QUOTA_SET, schema: quantQuotaSetInputSchema, what: 'the quota limit is saved' },
+  sandbox: { record: QUANT_OPS_QUOTA_SANDBOX, schema: quantSandboxLimitSetInputSchema, what: 'the sandbox limit is saved' },
+  assign: { record: QUANT_OPS_QUOTA_ASSIGN, schema: quantQuotaAssignInputSchema, what: 'the account is on the plan' },
+  corpus: { record: QUANT_OPS_SANDBOX_CORPUS, schema: quantEscapeCorpusInputSchema, what: 'the escape corpus ran' },
 } as const;
 
 /** One listed action. The input is checked against the contract here; svc-quant checks it again and decides. */
@@ -77,5 +90,5 @@ export async function actOnLimits(
   const spec = OPS[op];
   const parsed = spec.schema.safeParse(input);
   if (!parsed.success) return { why: 'Which plan, which limit and value, and a reason of at most 500 characters?' };
-  return reply(await founderCall(ctx, 'quant', spec.procedure, 'POST', parsed.data, (raw) => raw), spec.what, op === 'corpus');
+  return reply(await founderRecordRead(ctx, spec.record, parsed.data, (raw) => raw), spec.what, op === 'corpus');
 }

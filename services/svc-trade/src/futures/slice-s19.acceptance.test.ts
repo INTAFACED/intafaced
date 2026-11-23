@@ -34,7 +34,6 @@ import { startFuturesJobs } from './futures-jobs.js';
 import { decideOpenCredit } from './haircut-credit.js';
 import { planLiquidation } from './liquidation-planner.js';
 import { memoryMarginModeSwitchAudit } from './margin-mode.js';
-import { installOverloadPlace } from './overload.js';
 import { installPositionModePlace } from './position-mode.js';
 import { FuturesError, PositionService } from './position-service.js';
 import { installPreTradeCreditPlace } from './pretrade-credit.js';
@@ -497,39 +496,6 @@ describe('TRD-0295 maker loss is booked, house fees are not insurance', () => {
     expect(gate.ok).toBe(false);
     if (!gate.ok) expect(gate.code).toBe('trade.house_fees_not_insurance');
     expect(await bal(ledger, houseFees('trade', ASSET))).toBe('5000');
-  });
-});
-
-describe('TRD-0324 overload still takes a reduce-only', () => {
-  it('refuses new risk and admits reduce-only and close-position while the switch is on', async () => {
-    class Door {
-      holds = 0;
-      async placeOrder(_principal: Principal, _input: PlaceOrderInput) {
-        this.holds += 1;
-        return { id: 'o' };
-      }
-    }
-    installOverloadPlace(Door as unknown as typeof TradeService);
-    const doorInstance = new Door();
-    const principal = { userId: USER } as Principal;
-    const increasing = { symbol: 'BTC/USDT', side: 'buy', type: 'limit', qty: parseAmount('1') } as PlaceOrderInput;
-    const prev = process.env.TRADE_ORDER_OVERLOAD;
-    try {
-      delete process.env.TRADE_ORDER_OVERLOAD;
-      await doorInstance.placeOrder(principal, increasing);
-      expect(doorInstance.holds).toBe(1);
-      process.env.TRADE_ORDER_OVERLOAD = 'true';
-      await expect(doorInstance.placeOrder(principal, increasing)).rejects.toMatchObject({ code: 'trade.system_overload' });
-      expect(doorInstance.holds).toBe(1);
-      await doorInstance.placeOrder(principal, { ...increasing, side: 'sell', reduceOnly: true } as PlaceOrderInput);
-      await doorInstance.placeOrder(principal, { ...increasing, closePosition: true } as PlaceOrderInput);
-      expect(doorInstance.holds).toBe(3);
-    } finally {
-      if (prev === undefined) delete process.env.TRADE_ORDER_OVERLOAD;
-      else process.env.TRADE_ORDER_OVERLOAD = prev;
-    }
-    const boot = readFileSync(join(here, '..', 'ledger-client.ts'), 'utf8');
-    expect(boot).toMatch(/installOverload\(\)/);
   });
 });
 

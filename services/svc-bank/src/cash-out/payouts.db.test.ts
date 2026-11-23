@@ -31,7 +31,8 @@ import type { SecurityLockPort } from '../security-lock.js';
 import { CashOutService, cashOutWithdrawalId } from './cash-out.js';
 import { PAYOUT_SIM_RAIL, payoutSim, type CashOutPartner } from './payout-sim.js';
 import { partnerPayoutsAccount, type PostingFreeze } from '../partner/partner-bank.js';
-import { TEST_PARTNER_LABEL, testPartner, type TestPartner } from '../partner/test-partner.js';
+import { testPartner, type TestPartner } from '../partner/test-partner.js';
+import { TEST_PARTNER_LABEL } from '../partner/test-partner-book.js';
 
 const SECRET = 'bank-cash-out-payout-edge-secret-long-enough';
 const RECEIPTS = 'bank-cash-out-receipt-secret-long-enough';

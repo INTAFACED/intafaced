@@ -1,0 +1,556 @@
+[
+  {
+    "path": "alert.create",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "alert.list",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "approval.decide",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "approval.get",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "approval.policy.get",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "approval.policy.set",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "approval.request",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "backtest.accountRules",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "backtest.fee",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "backtest.get",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "backtest.history",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "backtest.monteCarlo",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "backtest.rename",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "backtest.report",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "backtest.result",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "backtest.run",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "backtest.start",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "disclosure.accept",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "disclosure.current",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "disclosure.status",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "health",
+    "type": "query",
+    "caller": "public"
+  },
+  {
+    "path": "lake.catalogue",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "library.browse",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "library.check",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "library.clone",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "library.get",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "library.grant",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "library.lineage",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "library.mine",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "library.options",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "library.preview",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "library.publish",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "library.request",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "library.review",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "library.revoke",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "lifecycle.get",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "lifecycle.promote",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "limits.get",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "live.check",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "live.deploy",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "marketplace.claim",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "notify.get",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "notify.set",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "ops.criteria.get",
+    "type": "query",
+    "caller": "scope"
+  },
+  {
+    "path": "ops.criteria.set",
+    "type": "mutation",
+    "caller": "scope"
+  },
+  {
+    "path": "ops.disclosure.counts",
+    "type": "query",
+    "caller": "scope"
+  },
+  {
+    "path": "ops.disclosure.publish",
+    "type": "mutation",
+    "caller": "scope"
+  },
+  {
+    "path": "ops.lake.capture",
+    "type": "mutation",
+    "caller": "scope"
+  },
+  {
+    "path": "ops.library.dispute.open",
+    "type": "mutation",
+    "caller": "scope"
+  },
+  {
+    "path": "ops.library.dispute.resolve",
+    "type": "mutation",
+    "caller": "scope"
+  },
+  {
+    "path": "ops.library.hide",
+    "type": "mutation",
+    "caller": "scope"
+  },
+  {
+    "path": "ops.library.queue",
+    "type": "query",
+    "caller": "scope"
+  },
+  {
+    "path": "ops.library.remove",
+    "type": "mutation",
+    "caller": "scope"
+  },
+  {
+    "path": "ops.library.unhide",
+    "type": "mutation",
+    "caller": "scope"
+  },
+  {
+    "path": "ops.lifecycle.audit",
+    "type": "query",
+    "caller": "scope"
+  },
+  {
+    "path": "ops.quota.assign",
+    "type": "mutation",
+    "caller": "scope"
+  },
+  {
+    "path": "ops.quota.profile",
+    "type": "query",
+    "caller": "scope"
+  },
+  {
+    "path": "ops.quota.sandbox",
+    "type": "mutation",
+    "caller": "scope"
+  },
+  {
+    "path": "ops.quota.set",
+    "type": "mutation",
+    "caller": "scope"
+  },
+  {
+    "path": "ops.quota.tier",
+    "type": "mutation",
+    "caller": "scope"
+  },
+  {
+    "path": "ops.runCounts",
+    "type": "query",
+    "caller": "scope"
+  },
+  {
+    "path": "ops.runs",
+    "type": "query",
+    "caller": "scope"
+  },
+  {
+    "path": "ops.sandbox.corpus",
+    "type": "mutation",
+    "caller": "scope"
+  },
+  {
+    "path": "ops.strategy.source",
+    "type": "query",
+    "caller": "scope"
+  },
+  {
+    "path": "ops.template.listing",
+    "type": "mutation",
+    "caller": "scope"
+  },
+  {
+    "path": "ops.template.publish",
+    "type": "mutation",
+    "caller": "scope"
+  },
+  {
+    "path": "paper.get",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "paper.list",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "paper.start",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "paper.stop",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "preview.act",
+    "type": "mutation"
+  },
+  {
+    "path": "quickStart",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "quota.get",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "result.share.create",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "result.share.embed",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "result.share.get",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "result.share.public",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "result.share.revoke",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "risk.get",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "risk.set",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "risk.trading",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "sandbox.capabilities",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "sandbox.run",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "studio.clone",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "studio.compile",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "studio.delete",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "studio.diff",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "studio.get",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "studio.list",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "studio.listDeleted",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "studio.operatorList",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "studio.organise",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "studio.restore",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "studio.run",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "studio.save",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "studio.update",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "team.get",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "team.grant",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "team.lock",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "team.open",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "team.order",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "team.paperRuns",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "team.remove",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "team.save",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "team.set",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "team.shared",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "team.stop",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "team.unlock",
+    "type": "mutation",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "template.get",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "template.list",
+    "type": "query",
+    "caller": "jurisdiction"
+  },
+  {
+    "path": "tier.list",
+    "type": "query",
+    "caller": "jurisdiction"
+  }
+]

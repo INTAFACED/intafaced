@@ -8,7 +8,7 @@ const WARN_ASSUMPTIONS = new Set([
   'take_profit_without_slippage',
   'open_position_marked_at_last_close',
   'risk_limits_not_simulated',
-  'stop_out_before_exits',
+  'venue_close_before_exits',
   'loss_beyond_margin',
 ]);
 
@@ -25,7 +25,7 @@ export function logOf(run: Stored): QuantBacktestLogLine[] {
       ts: gap.from,
       values: { from: gap.from, to: gap.to },
     })),
-    // A margin call or stop-out comes before the fill it caused at the same instant.
+    // Our margin call or the venue's close comes before the fill it caused at the same instant.
     ...run.marginEvents.map((event): QuantBacktestLogLine => ({
       level: 'warn',
       code: 'margin_event',

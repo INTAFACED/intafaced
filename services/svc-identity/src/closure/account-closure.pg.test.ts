@@ -59,6 +59,8 @@ describe('closure diff', () => {
     const diff = execFileSync('git', ['diff', 'origin/main', '--', 'services/svc-identity'], {
       cwd: join(here, '..', '..', '..', '..'),
       encoding: 'utf8',
+      // The whole diff is read: a branch adding a large recorded file passes the default 1 MB and failed with ENOBUFS.
+      maxBuffer: 256 * 1024 * 1024,
     });
     const files = ['closure-service.ts', 'closure-job.ts', 'closure-router.ts', 'closure-ops-router.ts', 'closure-client.ts'].map((name) =>
       readFileSync(join(here, name), 'utf8'),

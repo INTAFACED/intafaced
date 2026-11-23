@@ -6,17 +6,14 @@ import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { edgeTrustFromEnv, isExplicitDevOrTest } from '@intafaced/config';
-import {
-  createEdgeContext,
-  createPayCustodyDepositClient,
-  createPayWithdrawalAddressesClient,
-  rawBodyOf,
-  retainRawBody,
-  s2sFromEnv,
-  verifyServiceHeaders,
-  verifyServiceRequest,
-  type HttpServiceRequest,
-} from '@intafaced/contracts';
+import type { HttpServiceRequest } from '@intafaced/contracts';
+import { createEdgeContext } from '@intafaced/contracts/edge';
+import { createPayCustodyDepositClient } from '@intafaced/contracts/pay-custody-deposit-client';
+import { createPayWithdrawalAddressesClient } from '@intafaced/contracts/pay-withdrawal-addresses-client';
+import { rawBodyOf, retainRawBody } from '@intafaced/contracts/raw-body';
+import { s2sFromEnv } from '@intafaced/contracts/s2s-env';
+import { verifyServiceHeaders } from '@intafaced/contracts/service-auth';
+import { verifyServiceRequest } from '@intafaced/contracts/service-auth-http';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
 import { parseRemindPolicy } from './transfers/personal-pay.js';
@@ -37,8 +34,9 @@ import { globalPortsFor } from './personal-pay/global-sim.js';
 import { parseSendReviewRule } from './transfers/send-review.js';
 import { readStrangerHoldDays } from './holds/received-holds.js';
 import { onrampStandInFor } from './ramps/onramp-sim.js';
-import { moneyHeldBy, testPartnerAccountDetails, testPartnerFor } from './partner/test-partner.js';
-import { firstAdministrator, registerAgentsUsagePayment } from './agents/usage-payment.js';
+import { testPartnerAccountDetails, testPartnerFor, type TestPartnerDoors } from './partner/test-partner.js';
+import { testCashLegFor } from './partner/cash-leg.js';
+import { firstAdministrator, registerAgentsUsagePayment, usagePaymentHeldBy } from './agents/usage-payment.js';
 import { taxEffectsFor } from './activity/tax-effects.js';
 import { cardTermsOrNone, partnerReservesRead } from './partner/reserves.js';
 import { cashOutPartnerFor } from './cash-out/payout-sim.js';
@@ -48,8 +46,12 @@ import { testPayInRailFor } from './pay-yourself/test-pay-in.js';
 import { salaryView } from './salary/salary.router.js';
 import { onrampPartnerFor, payinPaidBody, payinReturnedBody } from './ramps/payin-sim.js';
 import { registerPayinSimPage } from './ramps/payin-sim-page.js';
-import { rampMetricsView } from './ops/ramp-metrics.js';
-import { answerTestPartnerRecord, onLoopback, TEST_PARTNER_RECORD_BASE } from './partner/test-partner-record.js';
+import {
+  answerTestRampPartnerRecord,
+  TEST_RAMP_PARTNER_RECORD_BASE,
+  TEST_RAMP_PARTNER_RECORD_PATHS,
+} from './ramps/test-ramp-partner-record.js';
+import { answerTestPartnerRecord, onLoopback, TEST_PARTNER_PERSON_PATHS, TEST_PARTNER_RECORD_BASE } from './partner/test-partner-record.js';
 import {
   answerTestCardPartnerRecord,
   TEST_CARD_PARTNER_RECORD_BASE,
@@ -110,7 +112,7 @@ import { recoveryCounts, startBankRecoveryJobs } from './recovery-jobs.js';
 import { withSpan } from './tracing.js';
 import { registerTestAgeDoor, testAgeDoorOpen } from '@intafaced/service-kit';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
-import { ageBusinessInvite, agePayYourselfRule, ageSharedPotInvite } from './test-age-door.js';
+import { ageBusinessInvite, agePayYourselfRule, ageScheduledTransfer, ageSharedPotInvite } from './test-age-door.js';
 
 // §9 — register the TracerProvider before the first span is created.
 // `@opentelemetry/api` alone is a no-op: without this call every span in
@@ -189,7 +191,9 @@ const onrampPartner = onrampPartnerFor(
 );
 
 /** The TEST partner bank and ramp: none unless chosen, and it refuses to boot outside dev/test. It holds no money. */
-const testPartner = testPartnerFor(env.BANK_TEST_PARTNER, { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV });
+const wholeTestPartner = testPartnerFor(env.BANK_TEST_PARTNER, { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV });
+/** Everything below holds it without its raw bank: a move at the partner goes through `bank.partnerCustody` (floor 4). */
+const testPartner: TestPartnerDoors | null = wholeTestPartner;
 /** The TEST partner's USDC pay-in a venue can withdraw to (J-bank-31): none unless the TEST chain is given. */
 const payInRail = testPayInRailFor(testPartner, {
   rpcUrl: env.BANK_TEST_PAY_IN_RPC_URL,
@@ -208,8 +212,17 @@ const cardIssuer = cardIssuerFor(
   cardSimPartnerFor(env.BANK_CARD_SIM_PARTNER_JSON, { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV }),
 );
 
+/** LOCAL TEST: the TEST partner's cash leg (J-cex-spot-11 #11): its TEST rates and its payout into the TEST venue, or none. */
+const testCashLeg = testCashLegFor({
+  rates: env.BANK_TEST_CASH_LEG_RATES,
+  venueUrl: env.BANK_TEST_CASH_LEG_VENUE_URL,
+  partner: testPartner,
+  env: { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV },
+});
+
 const bank = createBankServices(sql, ledger, history, {
-  testPartner,
+  testPartner: wholeTestPartner,
+  testCashLeg,
   // J-bank-24 #5: a webhook endpoint on loopback, over http, only on an explicit dev or test stack (the URL guard's hatch).
   bankApi: { allowLocalHttp: isExplicitDevOrTest(env.APP_ENV) && process.env.NODE_ENV !== 'production' },
   taxEffects,
@@ -521,12 +534,15 @@ export const appRouter = createBankRouter(bank, {
   interestAccrualEnabled: env.INTEREST_ACCRUAL_ENABLED,
   loanAccrualEnabled: env.LOAN_ACCRUAL_ENABLED,
   loanRiskSweepEnabled: env.LOAN_RISK_SWEEP_ENABLED,
+  marginWarningLtvBps: env.BANK_MARGIN_WARNING_LTV_BPS,
   autoInvestEnabled: env.AUTO_INVEST_ENABLED,
   autoInvestConvertWired: usableTradeConvertUrl(env.TRADE_URL),
   approvals: approvalConsumer,
   stepUp: createStepUpGate({ mode: env.BANK_STEP_UP_MONEY_OUT, approvals: approvalConsumer, store: new SqlStepUpUseStore(sql) }),
   // A business statement reaching back past the partner's strong customer authentication age always needs one (J-bank-23 #3).
   statementStepUp: createStepUpGate({ mode: 'required', approvals: approvalConsumer, store: new SqlStepUpUseStore(sql) }),
+  // Money leaving the partner account for a wallet, on to the person's trading account, always needs one (J-derivatives-25 #2).
+  ownMoveStepUp: createStepUpGate({ mode: 'required', approvals: approvalConsumer, store: new SqlStepUpUseStore(sql) }),
 });
 export type AppRouter = typeof appRouter;
 
@@ -550,6 +566,7 @@ registerTestAgeDoor(app, {
     'shared-pot-invite': ageSharedPotInvite(sql),
     'business-invite': ageBusinessInvite(sql),
     'pay-yourself-rule': agePayYourselfRule(sql),
+    'scheduled-transfer': ageScheduledTransfer(sql),
   },
   installRawBody: false,
 });
@@ -561,12 +578,7 @@ registerAgentsUsagePayment(app, {
   s2s: doorS2s,
   freeze: ledgerPostingFreeze(env.LEDGER_URL),
   businessPayer: (businessId) => firstAdministrator(sql, businessId),
-  heldBy: (userId) => {
-    const held = moneyHeldBy(testPartner, userId, env.LEDGER_CUSTODY_LAYER);
-    return held === 'partner' && testPartner
-      ? { kind: 'partner', bank: testPartner.bank, partnerId: 'test' }
-      : { kind: held === 'partner' ? 'none' : held };
-  },
+  heldBy: usagePaymentHeldBy(testPartner, bank.partnerCustody, env.LEDGER_CUSTODY_LAYER),
 });
 
 app.get('/health', async () => ({ ok: true, service: env.SERVICE_NAME }));
@@ -941,42 +953,32 @@ if (testPartner) {
   const read = async (req: FastifyRequest, reply: FastifyReply) => {
     if (!onLoopback(req.socket.remoteAddress)) return reply.code(403).send({ error: 'loopback only' });
     const below = req.url.split('?')[0]!.slice(TEST_PARTNER_RECORD_BASE.length);
-    const [status, body] = answerTestPartnerRecord(record, req.method, below, req.body ?? null);
+    const [status, body] = await answerTestPartnerRecord(record, req.method, below, req.body ?? null);
     return reply.code(status).header('cache-control', 'no-store').send(body);
   };
   app.get(`${TEST_PARTNER_RECORD_BASE}/venue`, read);
-  app.post(`${TEST_PARTNER_RECORD_BASE}/balances`, read);
-  app.post(`${TEST_PARTNER_RECORD_BASE}/moves`, read);
+  for (const path of TEST_PARTNER_PERSON_PATHS) app.post(`${TEST_PARTNER_RECORD_BASE}${path}`, read);
   app.post(`${TEST_PARTNER_RECORD_BASE}/direct-debits`, read);
   app.post(`${TEST_PARTNER_RECORD_BASE}/dd-refund`, read);
 }
 /**
- * LOCAL TEST: the TEST ramp partner's own report on loopback (J-bank-28 #3), so a journey compares the finance desk's ramp
- * metrics with what the partner itself recorded. Mounted only with the pay-in stand-in, which refuses to start outside
- * `dev`/`test`; a caller off loopback is refused.
+ * LOCAL TEST: the TEST ramp partner's own report on loopback (`ramps/test-ramp-partner-record.ts`), so a journey compares
+ * the finance desk's ramp metrics with what the partner itself recorded (J-bank-28 #3). Mounted only with the pay-in
+ * stand-in, which refuses to start outside `dev`/`test`; a caller off loopback is refused.
  */
 const rampBook = onrampPartner?.book;
 if (rampBook) {
-  app.get('/test-ramp-partner/report', async (req, reply) => {
+  const book = rampBook;
+  const read = async (req: FastifyRequest, reply: FastifyReply) => {
     if (!onLoopback(req.socket.remoteAddress)) return reply.code(403).send({ error: 'loopback only' });
-    return reply
-      .code(200)
-      .header('cache-control', 'no-store')
-      .send({ label: 'TEST', value: rampMetricsView(rampBook.report()).partner });
-  });
-  // The TEST age door: the partner's clock passes for one order it opened (no wall-clock wait in a journey).
-  app.post('/test-ramp-partner/age', async (req, reply) => {
-    if (!onLoopback(req.socket.remoteAddress)) return reply.code(403).send({ error: 'loopback only' });
-    const body = (req.body ?? {}) as { orderId?: unknown; seconds?: unknown };
-    if (typeof body.orderId !== 'string' || typeof body.seconds !== 'number') {
-      return reply.code(400).send({ error: 'orderId and seconds are required' });
-    }
-    const aged = rampBook.age(body.orderId, Math.round(body.seconds * 1000));
-    return reply
-      .code(aged ? 200 : 404)
-      .header('cache-control', 'no-store')
-      .send(aged ? { label: 'TEST', aged: true } : { error: 'no such order' });
-  });
+    const below = (req.url.split('?')[0] ?? '').slice(TEST_RAMP_PARTNER_RECORD_BASE.length);
+    const [status, body] = answerTestRampPartnerRecord({ book, method: req.method, path: below, body: req.body ?? null });
+    return reply.code(status).header('cache-control', 'no-store').send(body);
+  };
+  for (const path of TEST_RAMP_PARTNER_RECORD_PATHS) {
+    if (path === '/venue') app.get(`${TEST_RAMP_PARTNER_RECORD_BASE}${path}`, read);
+    else app.post(`${TEST_RAMP_PARTNER_RECORD_BASE}${path}`, read);
+  }
 }
 /**
  * LOCAL TEST: the TEST card partner's own book on loopback (`cards/test-card-partner-record.ts`), so a journey compares
@@ -985,11 +987,11 @@ if (rampBook) {
  */
 const cardRecord = cardIssuer.testRecord?.bind(cardIssuer);
 if (cardRecord) {
-  const recorder = { programme: cardIssuer.programme, testRecord: cardRecord };
+  const recorder = { programme: cardIssuer.programme, testRecord: cardRecord, holds: bank.partnerCardHolds };
   const read = async (req: FastifyRequest, reply: FastifyReply) => {
     if (!onLoopback(req.socket.remoteAddress)) return reply.code(403).send({ error: 'loopback only' });
     const below = req.url.split('?')[0]!.slice(TEST_CARD_PARTNER_RECORD_BASE.length);
-    const [status, body] = answerTestCardPartnerRecord(recorder, req.method, below, req.body ?? null);
+    const [status, body] = await answerTestCardPartnerRecord(recorder, req.method, below, req.body ?? null);
     return reply.code(status).header('cache-control', 'no-store').send(body);
   };
   for (const path of TEST_CARD_PARTNER_RECORD_PATHS) {

@@ -17,7 +17,8 @@ import { MemoryLedger, bankTransferKey, parseAmount, recipes } from '@intafaced/
 import { createBankServices, memoryRecipientState, type BankServiceOptions } from '../bank-service.js';
 import { memoryLedgerHistory } from '../analytics/ledger-history.js';
 import { createBankRouter } from '../router.js';
-import { TEST_PARTNER_LABEL, TEST_PARTNER_STALE_AFTER_MS, testPartner, type TestPartner } from './test-partner.js';
+import { TEST_PARTNER_STALE_AFTER_MS, testPartner, type TestPartner } from './test-partner.js';
+import { TEST_PARTNER_LABEL } from './test-partner-book.js';
 import { TEST_PARTNER_ID } from './partner-stops.js';
 import type { FreezeReading } from './partner-bank.js';
 
@@ -218,13 +219,16 @@ describe('partner-held bank moves (OWNER 226)', () => {
     );
   });
 
-  it('testPartner.spend moves TEST money once per id: a payment leaves as a transfer, a payout as a withdrawal', async () => {
+  it('testPartner.spend moves TEST money once per id: a payment leaves as a transfer, a payout as a withdrawal, a fee as a fee', async () => {
     const { api } = await partnerHeld(ADA);
     const one = await api.testPartner.spend({ spendId: 'spend-ada-1', assetId: 'USDT', amount: '30', kind: 'payment' });
     expect(await api.testPartner.spend({ spendId: 'spend-ada-1', assetId: 'USDT', amount: '30', kind: 'payment' })).toEqual(one);
     await api.testPartner.spend({ spendId: 'spend-ada-2', assetId: 'USDT', amount: '10', kind: 'payout' });
+    await api.testPartner.spend({ spendId: 'spend-ada-4', assetId: 'USDT', amount: '2', kind: 'fee' });
+    await api.testPartner.spend({ spendId: 'spend-ada-4', assetId: 'USDT', amount: '2', kind: 'fee' });
     const feed = await api.activity.list({ limit: 50 });
     expect(feed.items.map((l) => [l.kind, l.direction, l.amount])).toEqual([
+      ['fee', 'out', '2'],
       ['withdrawal', 'out', '10'],
       ['transfer_out', 'out', '30'],
       ['deposit', 'in', '100'],

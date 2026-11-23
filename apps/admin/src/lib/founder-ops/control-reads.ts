@@ -1,9 +1,11 @@
 import 'server-only';
-import { founderControlAuditListSchema, founderLimitRequestListSchema, type FounderControlAuditListInput } from '@intafaced/contracts';
-import { asTier } from '@/lib/merchants/control-model';
-import { parseWith, payCall, type PayCallContext } from '@/lib/merchants/pay-call';
-import { asList } from '@/lib/merchants/registry-model';
+import { founderControlAuditListSchema, type FounderControlAuditListInput } from '@intafaced/contracts';
+import { asList, asTier, parseWith, payCall, type PayCallContext, payRecordRead, payRecordCall } from '@/lib/merchants';
 import { one, PAGE_LIMIT, type Query } from './read-model';
+import {
+  PAY_FOUNDER_ADMIN_CONTROL_TIERS_LIST,
+  PAY_FOUNDER_ADMIN_CONTROL_LIMIT_REQUESTS_LIST,
+} from '@intafaced/contracts/pay-founder-admin-procedures';
 
 /**
  * The control-room reads behind the tiers (F54), limit requests (F58) and activity and audit (F64) pages. Each returns a named
@@ -11,20 +13,17 @@ import { one, PAGE_LIMIT, type Query } from './read-model';
  */
 
 export function loadTiers(ctx: PayCallContext) {
-  return payCall(ctx, 'founderAdmin.control.tiers.list', 'GET', {}, (raw) => asList(raw, asTier));
+  return payRecordRead(ctx, PAY_FOUNDER_ADMIN_CONTROL_TIERS_LIST, {}, (raw) => asList(raw, asTier));
 }
 
 const LIMIT_CURSOR = /^[1-9]\d*$/;
 
 export function loadLimitRequests(ctx: PayCallContext, query: Query | undefined) {
   const cursor = one(query, 'cursor');
-  return payCall(
-    ctx,
-    'founderAdmin.control.limitRequests.list',
-    'GET',
-    { limit: PAGE_LIMIT, ...(cursor && LIMIT_CURSOR.test(cursor) ? { cursor } : {}) },
-    parseWith(founderLimitRequestListSchema),
-  );
+  return payRecordCall(ctx, PAY_FOUNDER_ADMIN_CONTROL_LIMIT_REQUESTS_LIST, {
+    limit: PAGE_LIMIT,
+    ...(cursor && LIMIT_CURSOR.test(cursor) ? { cursor } : {}),
+  });
 }
 
 export function loadControlAudit(ctx: PayCallContext, input: FounderControlAuditListInput) {

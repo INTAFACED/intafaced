@@ -1,0 +1,76 @@
+{
+  "verdicts": [
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[],\"message\":\"Invalid input: expected object, received undefined\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[],\"message\":\"Invalid input: expected object, received null\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[],\"message\":\"Invalid input: expected object, received number\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[],\"message\":\"Invalid input: expected object, received string\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[],\"message\":\"Invalid input: expected object, received array\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"accountId\"],\"message\":\"Invalid input: expected string, received undefined\"}]",
+    "ok {\"accountId\":\"mm\",\"sessionId\":null,\"side\":\"sell\"}",
+    "issues [{\"origin\":\"string\",\"code\":\"too_small\",\"minimum\":1,\"inclusive\":true,\"path\":[\"accountId\"],\"message\":\"Too small: expected string to have >=1 characters\"}]",
+    "issues [{\"code\":\"invalid_value\",\"values\":[\"buy\",\"sell\"],\"path\":[\"side\"],\"message\":\"Invalid option: expected one of \\\"buy\\\"|\\\"sell\\\"\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"too_big\",\"maximum\":128,\"inclusive\":true,\"path\":[\"sessionId\"],\"message\":\"Too big: expected string to have <=128 characters\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"accountId\"],\"message\":\"Invalid input: expected string, received null\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"accountId\"],\"message\":\"Invalid input: expected string, received number\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"accountId\"],\"message\":\"Invalid input: expected string, received boolean\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"too_big\",\"maximum\":128,\"inclusive\":true,\"path\":[\"accountId\"],\"message\":\"Too big: expected string to have <=128 characters\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"accountId\"],\"message\":\"Invalid input: expected string, received array\"},{\"origin\":\"array\",\"code\":\"too_small\",\"minimum\":1,\"inclusive\":true,\"path\":[\"accountId\"],\"message\":\"Too small: expected array to have >=1 items\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"accountId\"],\"message\":\"Invalid input: expected string, received object\"}]",
+    "ok =",
+    "ok {\"accountId\":\"mm\",\"sessionId\":null,\"side\":null}",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"sessionId\"],\"message\":\"Invalid input: expected string, received number\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"sessionId\"],\"message\":\"Invalid input: expected string, received boolean\"}]",
+    "ok {\"accountId\":\"mm\",\"sessionId\":\"\",\"side\":\"sell\"}",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"sessionId\"],\"message\":\"Invalid input: expected string, received array\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"sessionId\"],\"message\":\"Invalid input: expected string, received object\"}]"
+  ],
+  "cases": [
+    [null, 0],
+    ["null", 1],
+    ["7", 2],
+    ["\"x\"", 3],
+    ["[]", 4],
+    ["{}", 5],
+    ["{\"accountId\":\"mm\",\"side\":\"sell\",\"sessionId\":null}", 6],
+    ["{\"accountId\":\"mm\",\"side\":\"sell\",\"sessionId\":null,\"extra\":1}", 6],
+    ["{\"accountId\":\"\"}", 7],
+    ["{\"accountId\":\"mm\",\"side\":\"up\"}", 8],
+    [
+      "{\"accountId\":\"mm\",\"sessionId\":\"sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss\"}",
+      9
+    ],
+    ["{\"side\":\"sell\",\"sessionId\":null}", 5],
+    ["{\"accountId\":null,\"side\":\"sell\",\"sessionId\":null}", 10],
+    ["{\"accountId\":7,\"side\":\"sell\",\"sessionId\":null}", 11],
+    ["{\"accountId\":true,\"side\":\"sell\",\"sessionId\":null}", 12],
+    ["{\"accountId\":\"\",\"side\":\"sell\",\"sessionId\":null}", 7],
+    [
+      "{\"accountId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"side\":\"sell\",\"sessionId\":null}",
+      13
+    ],
+    ["{\"accountId\":[],\"side\":\"sell\",\"sessionId\":null}", 14],
+    ["{\"accountId\":{},\"side\":\"sell\",\"sessionId\":null}", 15],
+    ["{\"accountId\":\"mm\",\"sessionId\":null}", 16],
+    ["{\"accountId\":\"mm\",\"side\":null,\"sessionId\":null}", 17],
+    ["{\"accountId\":\"mm\",\"side\":7,\"sessionId\":null}", 8],
+    ["{\"accountId\":\"mm\",\"side\":true,\"sessionId\":null}", 8],
+    ["{\"accountId\":\"mm\",\"side\":\"\",\"sessionId\":null}", 8],
+    [
+      "{\"accountId\":\"mm\",\"side\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"sessionId\":null}",
+      8
+    ],
+    ["{\"accountId\":\"mm\",\"side\":[],\"sessionId\":null}", 8],
+    ["{\"accountId\":\"mm\",\"side\":{},\"sessionId\":null}", 8],
+    ["{\"accountId\":\"mm\",\"side\":\"sell\"}", 16],
+    ["{\"accountId\":\"mm\",\"side\":\"sell\",\"sessionId\":null}", 6],
+    ["{\"accountId\":\"mm\",\"side\":\"sell\",\"sessionId\":7}", 18],
+    ["{\"accountId\":\"mm\",\"side\":\"sell\",\"sessionId\":true}", 19],
+    ["{\"accountId\":\"mm\",\"side\":\"sell\",\"sessionId\":\"\"}", 20],
+    [
+      "{\"accountId\":\"mm\",\"side\":\"sell\",\"sessionId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+      9
+    ],
+    ["{\"accountId\":\"mm\",\"side\":\"sell\",\"sessionId\":[]}", 21],
+    ["{\"accountId\":\"mm\",\"side\":\"sell\",\"sessionId\":{}}", 22]
+  ]
+}

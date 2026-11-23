@@ -1,12 +1,17 @@
 // pnpm local:stack verify (verify-app.mjs): the feature map, the drive plan, the doctor, the evidence and the stop rule.
 // Run: node --test tooling/scripts/verify-app.test.mjs
 import assert from 'node:assert/strict';
+import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
+  KEEP_DAYS,
   STEP_TITLE,
+  appFacts,
+  pruneRuns,
   doctorChecks,
   harnessNotes,
   shellWord,
@@ -19,7 +24,6 @@ import {
   lsofPorts,
   parseHealth,
   planDrive,
-  recordedDrive,
   againCommand,
   installedAnvil,
   reportTests,
@@ -272,6 +276,21 @@ test('doctor: worth driving only when every check holds; each failure names its 
   assert.deepEqual(failing({ ...healthy, launch: null }), ['readied']);
 });
 
+test('doctor: a TEST adapter the start left off is healthy, whatever LOCAL_STACK_USER_VENUE is; a wanted one that is DOWN fails', () => {
+  // The stack's own rows (local-test-stack.mjs status): a venue the switch does not ask for reads "off (not started)".
+  const venues = (a, b) =>
+    `${TABLE}  test-venue (TEST)  14632       ${a}\n  test-venue-b (TEST)  14633       ${b}\n  test-wallet-provider (TEST)  14634  9  ok (TEST)\n`;
+  const off = '-       off (not started)';
+  const up = '7       ok (TEST)';
+  const down = '7       DOWN (0)';
+  const at = (text) => ({ ...healthy, status: { code: 0, text } });
+  assert.deepEqual(failing(at(venues(off, off))), [], 'switch unset: both venues off');
+  assert.deepEqual(failing(at(venues(up, off))), [], 'switch on: the second venue off');
+  assert.deepEqual(failing(at(venues(up, up))), [], 'switch two');
+  assert.deepEqual(failing(at(venues(down, off))), ['health'], 'switch on: the first venue down');
+  assert.equal(doctorChecks(at(venues(up, down))).find((c) => c.name === 'health').detail, 'test-venue-b DOWN (0)');
+});
+
 test('stack identity: Postgres pid and start time, null when unreadable', () => {
   assert.equal(stackId('87121\n/s/data/postgres\n1794855383\n15460\n'), '87121@1794855383');
   assert.equal(stackId(''), null);
@@ -412,36 +431,187 @@ test('anvil: the stack’s own rule first; else Foundry’s, then the newest ~/.
   assert.equal(installedAnvil(args()), null);
 });
 
-test('run.json: a whole-journey drive records its run as `journey` does; a drive of steps records none (#8757)', async () => {
-  const world = () => {
-    const records = [];
-    return { records, io: { tree: () => 'tree1', now: () => 1700000000000, record: (r) => records.push(r) } };
+test('run.json: a drive, whole or of steps, records nothing; only `pnpm local:stack journey` writes the first-push record (project-state #3021)', async () => {
+  const local = await import('./journey-local.mjs');
+  // The one writer of .jr/run.json is private to journeyLocal, so no other command can import it.
+  assert.equal('recordRun' in local, false, 'journey-local.mjs must not export recordRun: only `journey` records a run');
+  // A whole drive, a drive of steps and a look, each run to its end in a planted checkout: no .jr/run.json is written.
+  const box = verifyCheckout();
+  for (const argv of [
+    ['drive', 'J-x-01'],
+    ['drive', 'J-x-01', '#1'],
+    ['look', '/'],
+  ]) {
+    const r = box.verify(argv);
+    assert.equal(r.status, 0, `${argv.join(' ')}\n${r.output}`);
+    assert.match(r.output, /verify: PASS\. Evidence: \.verify\/runs\//, `${argv.join(' ')} ran to its end\n${r.output}`);
+    assert.equal(fs.existsSync(box.runJson), false, `${argv.join(' ')} wrote ${box.runJson}`);
+  }
+  assert.equal(fs.readdirSync(path.join(box.root, '.verify', 'runs')).length, 3, 'each kept its evidence');
+  // Control: the one writer, journey-local's realIo().record, writes exactly the file watched above.
+  assert.equal(box.node(`(await import('./tooling/scripts/journey-local.mjs')).realIo().record({ code: 0 });`).status, 0);
+  assert.equal(fs.existsSync(box.runJson), true, 'the record lands where the drives were watched');
+});
+
+/**
+ * A checkout of verify-app.mjs and the modules it runs (copied to run, never read as text) with one journey file, its
+ * slot claimed live in a planted home, the stack's status and plan answered by a stand-in local-test-stack.mjs, its launch
+ * record readied for that very stack, and Playwright (pnpm) a stand-in that reports every test passed.
+ */
+function verifyCheckout() {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'verify-run-')));
+  const home = path.join(root, 'home');
+  const state = path.join(home, 'state');
+  const put = (rel, text, mode) => {
+    fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+    fs.writeFileSync(path.join(root, rel), text);
+    if (mode) fs.chmodSync(path.join(root, rel), mode);
   };
-  const files = ['J-x-01.pw.mjs'];
-  const pass = world();
-  assert.equal(await recordedDrive([], files, pass.io, async () => 0), 0);
-  assert.deepEqual(pass.records, [
-    { tree: 'tree1', files, startedAt: 1700000000000, pid: process.pid, code: null },
-    { tree: 'tree1', files, startedAt: 1700000000000, pid: process.pid, code: 0 },
-  ]);
-  const fail = world();
-  assert.equal(await recordedDrive([], files, fail.io, async () => 1), 1);
-  assert.deepEqual(
-    fail.records.map((r) => r.code),
-    [null, 1],
+  for (const rel of [
+    'tooling/scripts/verify-app.mjs',
+    'tooling/scripts/journey-local.mjs',
+    'tooling/scripts/local-test-facts.mjs',
+    'tooling/scripts/journey-market-past.mjs',
+    'apps/customer/tests/real-app/world-line.mjs',
+  ]) {
+    fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+    fs.copyFileSync(new URL(`../../${rel}`, import.meta.url), path.join(root, rel));
+  }
+  put(
+    'apps/customer/tests/real-app/J-x-01.pw.mjs',
+    "test('J-x-01 #1 opens the room', async ({ page }) => {\n  await page.goto('/x');\n});\n",
   );
-  const part = world();
-  assert.equal(await recordedDrive([2], files, part.io, async () => 0), 0);
-  assert.deepEqual(part.records, []);
-  // A drive that crashes leaves only the start record, code null: never a pass.
-  const crash = world();
-  await assert.rejects(
-    recordedDrive([], files, crash.io, async () => {
-      throw new Error('boom');
+  put(
+    'tooling/scripts/local-test-stack.mjs',
+    `if (process.argv[2] === 'status') process.stdout.write('  SERVICE  PORT  PID  HEALTH\\n  svc-x  4001  123  ok\\n');
+if (process.argv[2] === 'plan') process.stdout.write(JSON.stringify({ services: [{ name: 'x', running: true, onCurrentBuild: true }], build: { backend: 'none', customer: false, head: 'abc' } }));
+`,
+  );
+  const report = {
+    suites: [
+      { file: 'J-x-01.pw.mjs', specs: [{ title: 'J-x-01 #1 opens the room', line: 1, tests: [{ status: 'expected', results: [{}] }] }] },
+    ],
+  };
+  put('bin/pnpm', `#!/bin/sh\nprintf '%s' '${JSON.stringify(report)}' > "$JOURNEY_REPORT"\n`, 0o755);
+  put('home/.intafaced/slots/0.json', JSON.stringify({ repo: root, pid: process.pid, state }));
+  put('home/state/data/postgres/postmaster.pid', '4242\n/x\n1700000000\n');
+  put(
+    '.verify/launch.json',
+    JSON.stringify({
+      checkout: root,
+      slot: 0,
+      stack: '4242@1700000000',
+      startedByUs: true,
+      readiedAt: '2026-11-22T00:00:00Z',
+      history: false,
     }),
   );
-  assert.deepEqual(
-    crash.records.map((r) => r.code),
-    [null],
+  execFileSync('git', ['init', '-q'], { cwd: root });
+  const env = { ...process.env, HOME: home, PATH: `${path.join(root, 'bin')}:${process.env.PATH}` };
+  delete env.LOCAL_STACK_SLOT;
+  delete env.LOCAL_STACK_STATE;
+  const node = (code) => {
+    const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], { cwd: root, env, encoding: 'utf8', timeout: 60_000 });
+    return { status: r.status, output: `${r.stdout}${r.stderr}` };
+  };
+  return {
+    root,
+    runJson: path.join(root, '.jr', 'run.json'),
+    node,
+    verify: (argv) => node(`await (await import('./tooling/scripts/verify-app.mjs')).main(${JSON.stringify(argv)});`),
+  };
+}
+
+test('feature file: a room’s states, the keys its screen and the shell bind, who it acts as, each step’s own needs, the TEST stand-ins (project-state #3041)', () => {
+  const src = fs.mkdtempSync(path.join(os.tmpdir(), 'verify-map-'));
+  const put = (rel, text) => {
+    fs.mkdirSync(path.dirname(path.join(src, rel)), { recursive: true });
+    fs.writeFileSync(path.join(src, rel), text);
+  };
+  put('app/rooms/room.ts', 'export type Room = { path: string };\n');
+  put(
+    'app/rooms/more.ts',
+    "export const rooms = [\n  { path: '/academy/:id', title: 'A', area: 'more', screen: 'academy' },\n  { path: '/learn', alias: '/academy/:id' },\n  { path: '/old', area: 'more' },\n];\n",
   );
+  put('app/Shell.tsx', "import { Search } from './Search';\n");
+  put('app/Search.tsx', "export const Search = () => onKey((event) => event.key === '/');\n");
+  put('screens/academy/index.tsx', "import { Panel } from './Panel';\nconst later = import('../other');\n");
+  put(
+    'screens/academy/Panel.tsx',
+    "export const Panel = (e) => {\n  if (e.key === 'Escape') close();\n  if (row.key === 'volume') sort();\n};\n",
+  );
+  put('screens/other.tsx', "if (event.key === 'Enter') never();\n");
+  const doc = path.join(src, 'LOCAL-TEST-STACK.md');
+  fs.writeFileSync(
+    doc,
+    '## Every Customer door is reachable\n\n| Door | Not connected | Why |\n| --- | --- | --- |\n| Academy | Live classes, video | No LiveKit. |\n| P2P | Offer caps | Unset. |\n\n## Next\n',
+  );
+  const app = appFacts(src, doc);
+  const file = `// World: none
+import { test, expect } from './journey.mjs';
+import { testPerson } from './stack.mjs';
+import { staffSignIn } from './staff.mjs';
+const J = 'J-r-01';
+const who = testPerson('class');
+await staffSignIn(page, browser, 'support');
+test(\`\${J} #1 opens a class and its join button is disabled\`, async ({ page }) => {
+  await page.goto(\`/academy/\${id}\`);
+  await expect(page.getByRole('link')).toBeFocused();
+});
+test(\`\${J} #2 reads the candles\`, async ({ page }) => {
+  await page.goto('/old');
+  await page.goto('/nowhere');
+});
+`;
+  const found = journeyIndex(['J-r-01.pw.mjs'], () => file).get('J-r-01');
+  const j = { id: 'J-r-01', title: 'A class', persona: 'retail', tier: 'core', module: 'academy', order: 1, steps: [{ n: 1 }, { n: 2 }] };
+  const md = featureMarkdown(j, found, app);
+  assert.match(
+    md,
+    /- States its tests name: focus \(`J-r-01\.pw\.mjs:10`\), disabled \(`J-r-01\.pw\.mjs:8`\)\. Not named, so no drive shows them: hover, loading, empty, error or refusal, selected, open or expanded\./,
+  );
+  assert.match(
+    md,
+    /Open `\/academy\/…` in the app \(the journey's tests open it\)\. Keys its screen binds: Escape \(`screens\/academy\/Panel\.tsx:2`\)\.\n/,
+  );
+  assert.doesNotMatch(md, /volume|other\.tsx/, 'a sort key and a lazy import are no key a person presses');
+  assert.match(md, /Open `\/old` [^\n]*Its room \(`\/old`\) has no screen/);
+  assert.match(md, /Open `\/nowhere` [^\n]*No room row in `apps\/customer\/src\/app\/rooms\/` names it/);
+  assert.match(md, /- On every page with the app's top bar: \/ \(`app\/Search\.tsx:1`\)\./);
+  assert.match(md, /It acts as a TEST person it signs up itself, staff \(staffSignIn, staffFreeze\)\./);
+  assert.match(md, /Step #2\.\*\*[^\n]* It needs past trades \(`pnpm local:stack verify launch J-r-01`\)\./);
+  assert.match(md, /TEST stand-in: on this stack the Academy door's outside part \(Live classes, video\) is not connected/);
+  assert.doesNotMatch(md, /P2P door/);
+  assert.equal(appFacts(src, doc).rooms.length, 3);
+  fs.rmSync(src, { recursive: true });
+});
+
+test('stop prunes: a run folder older than the CI window goes; a young one, one a running process writes, and any other folder stay (project-state #3041)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'verify-runs-'));
+  const now = Date.UTC(2026, 10, 19, 12);
+  const day = 24 * 3600 * 1000;
+  const make = (name, ageDays, pid) => {
+    fs.mkdirSync(path.join(dir, name));
+    fs.writeFileSync(path.join(dir, name, 'summary.md'), 'x');
+    if (pid) fs.writeFileSync(path.join(dir, name, 'pid'), `${pid}\n`);
+    const t = new Date(now - ageDays * day);
+    fs.utimesSync(path.join(dir, name), t, t);
+  };
+  const old = '20261020T100000Z-J-x-01-s1';
+  make(old, 30);
+  make('20261103T100000Z-J-x-01', 16, 999999999); // a pid no process has
+  make('20261110T100000Z-J-x-01-s2', 9); // younger than 14 days
+  make('20261020T100000Z-look-home', 30, process.pid); // a run this very process writes
+  make('20261020T110000Z-touched', 1); // started long ago, written to yesterday
+  make('notes', 60); // not a run folder
+  assert.equal(KEEP_DAYS, 14);
+  assert.equal(pruneRuns(dir, now), 2);
+  assert.deepEqual(fs.readdirSync(dir).sort(), [
+    '20261020T100000Z-look-home',
+    '20261020T110000Z-touched',
+    '20261110T100000Z-J-x-01-s2',
+    'notes',
+  ]);
+  assert.equal(pruneRuns(path.join(dir, 'absent'), now), 0);
+  fs.rmSync(dir, { recursive: true });
 });

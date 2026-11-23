@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Model-checks CashOutLock.tla: the code (with its fix for #8597) keeps every rule, the lock held or lost; the code
-# before the fix breaks the promise with the lock lost; each deliberately broken variant fails on the rule it breaks. Exit 0 only when all of that holds. Needs Java 11+ (`java` on PATH, or $JAVA).
+# before the fix breaks the promise with the lock lost; each deliberately broken variant fails on the rule it breaks. TLC's deadlock check is on: a state with no step out
+# other than `Done` (every driver finished) fails. Exit 0 only when all of that holds. Needs Java 11+ (`java` on PATH, or $JAVA).
 # The TLA+ tools are pinned to v1.7.4 by URL and SHA-256 and cached in ${TLA_CACHE:-~/.cache/intafaced-tla}.
 set -euo pipefail
 
@@ -15,17 +16,25 @@ sha256() { if command -v sha256sum >/dev/null; then sha256sum "$1" | cut -d' ' -
 
 mkdir -p "$cache"
 if [ ! -f "$jar" ] || [ "$(sha256 "$jar")" != "$TLA_SHA256" ]; then
-  curl -fsSL -o "$jar.part" "https://github.com/tlaplus/tlaplus/releases/download/$TLA_VERSION/tla2tools.jar"
+  curl -fsSL -o "$jar.part" "https://github.com/tlaplus/tlaplus/releases/download/$TLA_VERSION/tla2tools.jar" ||
+    { echo "COULD NOT CHECK: tla2tools.jar $TLA_VERSION did not download" >&2; exit 3; }
   got="$(sha256 "$jar.part")"
-  if [ "$got" != "$TLA_SHA256" ]; then echo "tla2tools.jar $TLA_VERSION has sha256 $got, expected $TLA_SHA256" >&2; exit 2; fi
+  if [ "$got" != "$TLA_SHA256" ]; then echo "tla2tools.jar $TLA_VERSION has sha256 $got, expected $TLA_SHA256; COULD NOT CHECK" >&2; exit 3; fi
   mv "$jar.part" "$jar"
 fi
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 failed=0
+couldnt=0
 ALL="RefusedTookNothing TakenMeansMoved TakenStays MovedOnce"
 KEPT="TakenMeansMoved TakenStays MovedOnce"
+
+# The whole counterexample of a run that broke a rule, from the line that names the break to the end; a run that
+# names none prints its last 80 lines.
+trace() {
+  if grep -qE 'is violated|Deadlock reached' "$1"; then sed -nE '/is violated|Deadlock reached/,$p' "$1"; else tail -n 80 "$1"; fi
+}
 
 # run <name> <canLose> <fixed> <invariants> <expect: "pass" or the invariant that must be violated> [<sed expression>]
 run() {
@@ -37,14 +46,17 @@ run() {
   else
     cp "$here/CashOutLock.tla" "$d/CashOutLock.tla"
   fi
-  printf 'CONSTANTS Procs = {"call", "redrive"}  CanLose = %s  Fixed = %s\nSPECIFICATION Spec\nINVARIANTS %s\nCHECK_DEADLOCK FALSE\n' \
+  printf 'CONSTANTS Procs = {"call", "redrive"}  CanLose = %s  Fixed = %s\nSPECIFICATION Spec\nINVARIANTS %s\n' \
     "$lose" "$fixed" "$invariants" > "$d/CashOutLock.cfg"
   local status=0
   ( cd "$d" && "$java" -XX:+UseSerialGC -Xmx1g -cp "$jar" tlc2.TLC -workers 1 -config CashOutLock.cfg CashOutLock.tla > out.txt 2>&1 ) || status=$?
+  # TLC's exit: 0 no error, 11 to 13 a broken rule (deadlock, invariant, temporal property); anything else (a parse
+  # error, out of memory, no Java) means it could not check, which is no verdict on the code (pstack statechart run.ts).
+  case "$status" in 0 | 11 | 12 | 13) ;; *) echo "COULD NOT CHECK $name: TLC exit $status"; tail -n 40 "$d/out.txt"; couldnt=1; return ;; esac
   local states; states="$(grep -Eo '[0-9,]+ distinct states found' "$d/out.txt" | tail -1 || true)"
   if [ "$expect" = pass ]; then
     if [ "$status" -eq 0 ] && grep -q 'No error has been found' "$d/out.txt"; then echo "ok   $name: no error, $states"
-    else echo "FAIL $name: expected no error (exit $status)"; sed -n '1,80p' "$d/out.txt"; failed=1; fi
+    else echo "FAIL $name: expected no error (exit $status)"; trace "$d/out.txt"; failed=1; fi
   else
     if grep -q "Invariant $expect is violated" "$d/out.txt"; then echo "ok   $name: $expect violated as it should be, $states"
       if [ -n "${SHOW_TRACE:-}" ]; then sed -n "/is violated/,\$p" "$d/out.txt"; fi
@@ -67,4 +79,6 @@ run broken-key-repeats TRUE FALSE "$KEPT" MovedOnce 's/IF moves > 0 THEN/IF FALS
 # 3. The refusal is recorded without `WHERE status = 'processing'`: a taken request is turned refused.
 run broken-refuse-without-check TRUE FALSE "$KEPT" TakenStays 's/^  \/\\ IF status = "processing"$/  \/\\ IF status = "processing" \\\/ answer[p] = "refused"/'
 
+# A broken rule fails (1); a run that could not check, with no rule broken, exits 3: the workflow reads it as judge down.
+if [ "$failed" -eq 0 ] && [ "$couldnt" -eq 1 ]; then exit 3; fi
 exit "$failed"

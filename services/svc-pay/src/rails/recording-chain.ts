@@ -68,7 +68,8 @@ export class RecordingChain implements CryptoChainPort {
 
   async send(request: ChainSendRequest): Promise<{ txHash: string }> {
     const key = recordKey(request.idempotencyKey);
-    if ((await this.inner.lookupSend(request.idempotencyKey)).state !== 'sent' && (await this.records.has(key))) {
+    // Records first: `lookupSend` closes a key it answers not_sent for, so it is asked only when a record says the key went out.
+    if ((await this.records.has(key)) && (await this.inner.lookupSend(request.idempotencyKey)).state !== 'sent') {
       throw new Error(`${key} is recorded as sent before this chain's memory began; it is not sent again`);
     }
     const sent = await this.inner.send(request);

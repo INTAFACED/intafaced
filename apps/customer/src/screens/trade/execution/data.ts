@@ -6,6 +6,8 @@
  */
 import { useMemo } from 'react';
 import { z } from 'zod';
+import { EXECUTION_SPINE } from '@intafaced/contracts/execution-procedures';
+import type { ProcedureOutput } from '@intafaced/contracts/procedure';
 import { useDataEnv, useTicker } from '../../../data';
 import type { Decimal, Loadable } from '../../../data/types';
 import { createTradeApi } from '../../../features/trade/trade-api';
@@ -16,13 +18,8 @@ import type { AlgoListPage, AlgoParent, AlgoPolicy, AlgoProgress, AlgoResult } f
 import { compareDecimals } from '../rooms/math';
 import { useStoredIds } from './parts';
 
-/** Same shape as `executionSpine` in features/trade/tool-api.ts, kept here so this room reads it without the legacy client. */
-export const spineSchema = z.object({
-  doors: z.array(z.object({ id: z.string(), module: z.string(), kind: z.string(), callerSubmit: z.boolean() })),
-  externalOnly: z.boolean(),
-  houseInternalRefuse: z.boolean(),
-});
-export type Spine = z.infer<typeof spineSchema>;
+/** What `execution.spine` answers, from its record. */
+export type Spine = ProcedureOutput<typeof EXECUTION_SPINE>;
 
 /** A real spot market with its rules and the published fee rates (decimal fractions: 0.001 = 10 bps); null: none published. */
 export interface ExecMarket extends DeskMarket {
@@ -56,11 +53,7 @@ export function useAlgoPolicy(): Loadable<AlgoPolicy> {
 
 export function useSpine(): Loadable<Spine> {
   const { api } = useSession();
-  return usePrivateRead(
-    'exec-spine',
-    (signal) => api.query('execution', 'execution.spine', undefined, spineSchema, { signal }),
-    SPINE_INTERVAL_MS,
-  );
+  return usePrivateRead('exec-spine', (signal) => api.call(EXECUTION_SPINE, undefined, { signal }), SPINE_INTERVAL_MS);
 }
 
 /** What one stored id turned out to be when the service was asked. */

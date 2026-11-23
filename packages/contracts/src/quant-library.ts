@@ -39,20 +39,7 @@ export const quantLibraryOptionsSchema = z.object({
 });
 export type QuantLibraryOptions = z.infer<typeof quantLibraryOptionsSchema>;
 
-const listingDetails = {
-  strategyId: z.string().min(1).max(128),
-  strategyVersion: z.number().int().positive(),
-  title: z.string().max(QUANT_LISTING_TITLE_MAX),
-  description: z.string().max(QUANT_LISTING_DESCRIPTION_MAX),
-  tags: z.array(z.enum(QUANT_LIBRARY_TAGS)).max(QUANT_LISTING_TAGS_MAX),
-  visibility: z.enum(QUANT_LISTING_VISIBILITIES),
-  licence: z.string().max(200),
-};
-
 /** `library.check`: the publish checks of one version and its text. Writes nothing. */
-export const quantListingCheckInputSchema = z.object(listingDetails);
-export type QuantListingCheckInput = z.infer<typeof quantListingCheckInputSchema>;
-
 export const quantListingCheckSchema = z.object({
   strategyId: z.string(),
   strategyVersion: z.number().int().positive(),
@@ -60,14 +47,6 @@ export const quantListingCheckSchema = z.object({
   checks: z.array(z.object({ id: z.enum(QUANT_LISTING_CHECKS), passed: z.boolean(), detail: z.string() })),
 });
 export type QuantListingCheck = z.infer<typeof quantListingCheckSchema>;
-
-/** `library.publish`: the same details, the checklist version the screen showed, and whether every item was accepted. */
-export const quantListingPublishInputSchema = z.object({
-  ...listingDetails,
-  checklistVersion: z.string().max(200),
-  checklistAccepted: z.boolean(),
-});
-export type QuantListingPublishInput = z.infer<typeof quantListingPublishInputSchema>;
 
 /** One access row of an invite-only listing, newest state per person. */
 export const quantListingAccessSchema = z.object({
@@ -114,11 +93,6 @@ export const quantLibraryEntrySchema = z.object({
 export type QuantLibraryEntry = z.infer<typeof quantLibraryEntrySchema>;
 
 /** `library.browse`: listings in registration order (oldest first), optionally of one tag. */
-export const quantLibraryBrowseInputSchema = z.object({
-  tag: z.enum(QUANT_LIBRARY_TAGS).optional().nullable(),
-  limit: z.number().int().min(1).max(50),
-  cursor: z.string().max(40).optional().nullable(),
-});
 export const quantLibraryPageSchema = z.object({ entries: z.array(quantLibraryEntrySchema), nextCursor: z.string().nullable() });
 export type QuantLibraryPage = z.infer<typeof quantLibraryPageSchema>;
 
@@ -181,16 +155,6 @@ export const quantLineageSchema = z.object({
 });
 export type QuantLineage = z.infer<typeof quantLineageSchema>;
 export const quantLineageReadSchema = z.object({ lineage: quantLineageSchema.nullable() });
-
-/** `library.access.*`: request (any signed-in person), grant and revoke (the owner); `seq` is the rows the screen read. */
-export const quantAccessRequestInputSchema = z.object({ listingId: z.string().min(1).max(64), seq: z.number().int().nonnegative() });
-export const quantAccessSetInputSchema = z.object({
-  listingId: z.string().min(1).max(64),
-  userId: z.string().max(64),
-  seq: z.number().int().nonnegative(),
-});
-
-export const quantReviewInputSchema = z.object({ listingId: z.string().min(1).max(64), text: z.string().max(QUANT_REVIEW_TEXT_MAX) });
 
 /**
  * Library moderation (J-algo-dev-10, AL-library-03): an operator with `admin:read` reads the review queue, and with

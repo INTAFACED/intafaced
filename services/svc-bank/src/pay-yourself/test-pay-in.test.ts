@@ -31,14 +31,14 @@ function chain() {
     mine: (n = 1) => {
       head += BigInt(n);
     },
-    transfer(to: string, units: bigint, tx: string) {
+    transfer(to: string, units: bigint, tx: string, from = `0x${'0'.repeat(40)}`) {
       head += 1n;
       logs.push({
         transactionHash: tx,
         logIndex: '0x0',
         blockNumber: `0x${head.toString(16)}`,
         data: `0x${units.toString(16)}`,
-        topics: [TOPIC, `0x${'0'.repeat(64)}`, `0x${'0'.repeat(24)}${to.slice(2)}`],
+        topics: [TOPIC, `0x${'0'.repeat(24)}${from.slice(2)}`, `0x${'0'.repeat(24)}${to.slice(2)}`],
       });
     },
   };
@@ -53,9 +53,11 @@ describe('the TEST partner pay-in', () => {
     expect(route.address).toBe(testPayInAddress('user-1'));
     expect(route.address).not.toBe(testPayInAddress('user-2'));
     await rail.poll();
-    c.transfer(route.address, 298_750_000n, '0xaaa');
+    c.transfer(route.address, 298_750_000n, '0xaaa', '0x52908400098527886E0F7030069857D2E4169EE7');
     await rail.poll();
     expect(rail.credits('user-1').map((x) => [x.status, formatAmount(x.amount), x.confirmations])).toEqual([['pending', '298.75', 1]]);
+    // The sender, as the transfer log names it, lowercase: the person's own wallet here, so the room can say who sent it.
+    expect(rail.credits('user-1')[0]!.from).toBe('0x52908400098527886e0f7030069857d2e4169ee7');
     expect(payInCredited(rail, 'user-1', 'USDC')).toBe(0n);
     // One short of its confirmations: still pending, not counted.
     c.mine(TEST_PAY_IN_CONFIRMATIONS - 2);

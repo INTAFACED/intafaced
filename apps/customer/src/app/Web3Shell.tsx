@@ -6,7 +6,7 @@ import { protocolCopy } from '../features/protocol/copy';
 import { ShellSwitch } from '../features/protocol/ShellSwitch';
 import { shortAddress } from '../features/protocol/wallet/eip1193';
 import { WalletGate, WalletProvider, useWallet } from '../features/protocol/wallet/WalletProvider';
-import { RegionContext, REGION_BLOCKED_CODE } from '../features/protocol/region';
+import { RegionContext, isRegionBlocked } from '../features/protocol/region';
 import { useApi, useSession } from '../features/session/session';
 import { usePreferences } from '../shared/preferences';
 import { useResource } from '../shared/resource';
@@ -48,9 +48,10 @@ function Web3Frame({ path, children }: { path: string; children: ReactNode }) {
   const transport = useApi();
   const api = useMemo(() => createProtocolApi(transport), [transport]);
   const chain = useResource((signal) => api.chainStatus(signal), 'web3-shell:chain').resource;
-  // The edge refuses every Protocol read from a blocked region. The shell says so once, in words, and the rooms offer no
-  // signing action while it holds.
-  const regionBlocked = chain.status === 'failed' && chain.failure.code === REGION_BLOCKED_CODE;
+  // A blocked region refuses every Protocol read: the edge's screening list (edge.geo_blocked), or svc-protocol's own guard
+  // for a region the business does not serve (denied.region_blocked). The shell says so once, in words, and the rooms offer
+  // no signing action while it holds.
+  const regionBlocked = chain.status === 'failed' && isRegionBlocked(chain.failure.code);
   const chip =
     chain.status === 'loading'
       ? t('networkChecking')
@@ -123,7 +124,12 @@ function Web3Frame({ path, children }: { path: string; children: ReactNode }) {
             <main id="main" tabIndex={-1}>
               <SessionNotice />
               {regionBlocked && (
-                <p className="web3-region-notice" role="alert" data-notice="region" data-code={REGION_BLOCKED_CODE}>
+                <p
+                  className="web3-region-notice"
+                  role="alert"
+                  data-notice="region"
+                  data-code={chain.status === 'failed' ? chain.failure.code : undefined}
+                >
                   {t('regionBlocked')}
                 </p>
               )}

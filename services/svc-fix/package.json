@@ -13,8 +13,8 @@
   },
   "description": "FIX gateway adapter. QuickFIX/J 3.0.2 dictionary/session only. Not a book. Not a ledger.",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs",
+    "build": "node ../../tooling/scripts/tsc.mjs -p tsconfig.json",
+    "typecheck": "node ../../tooling/scripts/tsc.mjs -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs",
     "test": "node scripts/run-mvn.mjs test && vitest run",
     "test:watch": "vitest",
     "start": "node scripts/run-acceptor.mjs",
@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@intafaced/contracts": "workspace:*",
+    "@intafaced/exchange-contract": "workspace:*",
     "zod": "^4.6.7"
   },
   "devDependencies": {

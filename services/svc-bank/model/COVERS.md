@@ -48,18 +48,25 @@ The same on the real service with a real Postgres: `src/holds/received-holds.db.
 
 ## What it covers
 
-| Model step                           | Code (`services/svc-bank/src/holds/received-holds.ts`)                                   |
-| ------------------------------------ | ---------------------------------------------------------------------------------------- |
-| `Start`                              | `placeFor` (`find`) and `sweep` (the pass's `SELECT`): the row as the placer read it     |
-| `Attempt`, `Timeout`, `Land`, `Lose` | `place`: the `attempted_at` update, `ledger.post(payReceivedHold)`, its answer or none   |
-| `Attempt` (`fix: claim`)             | `place`: `UPDATE ... attempted_at ... RETURNING`, nothing posted with no row back        |
-| `Decide`                             | `place`: `getTxByKey`, the short-refusal lapse (`markLapsed`), `refused_at`, `markHeld`  |
-| `Heal`                               | `sweep`'s second step: lapsed rows within `2 * POST_IN_FLIGHT_BOUND_SECONDS`, `markHeld` |
-| `Claim`, `Finish`                    | `decideHold` and the release date in `advance`; `finish`                                 |
-| `Spend`, `Receive`, `Tick`           | the recipient's other payments, and time against `POST_IN_FLIGHT_BOUND_SECONDS`          |
+| Model step                           | Code (`services/svc-bank/src/holds/received-holds.ts`)                                                 |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| `Start`                              | `placeFor` (`find`) and `sweep` (the pass's `SELECT`): the row as the placer read it                   |
+| `Attempt`, `Timeout`, `Land`, `Lose` | `place`: the `attempted_at` update, `ledger.post(payReceivedHold)`, its answer or none                 |
+| `Attempt` (`fix: claim`)             | `place`: `UPDATE ... attempted_at ... RETURNING`, nothing posted with no row back                      |
+| `Decide`                             | `place`: `getTxByKey`, the short-refusal lapse (`markLapsed`), `refused_at`, `markHeld`                |
+| `Heal`                               | `sweep`'s second step: lapsed rows within `2 * POST_IN_FLIGHT_BOUND_SECONDS`, `markHeld`               |
+| `Claim`, `Finish`                    | `decideHold` and the release date in `advance`; `finish`                                               |
+| `Decide`'s key                       | `pay.recv.hold:<holdId>` (`packages/ledger-client/src/recipes/pay-received-hold.ts` `payReceivedHold`) |
+| `Spend`, `Receive`, `Tick`           | the recipient's other payments, and time against `POST_IN_FLIGHT_BOUND_SECONDS`                        |
 
 Not covered: the send itself and the "never arrived" lapse (the model starts with the send posted), the release date's own timing, the timer's singleton lock (one timer pass at a time is assumed), and a placer paused between its claim and its post for longer than the in-flight bound (the model sends the request at the claim, as the code's bound assumes).
+
+TLC's deadlock check is on: every state of this model has a step out (the clock and the in-flight requests run to their bound), so a run that freezes fails.
 
 ## Last confirmed
 
 Against `received-holds.ts` with #8586's fix, branch `model/received-hold-strand` off `origin/main` at `76621e07ff`, 16 Nov 2026. Whoever changes a covered function reruns `check.sh` and updates this line.
+
+## Changing it
+
+Run `check.sh` once before you change a covered function or the model, and keep the result: a pass then only says the old description still holds. Update the model from the code, never from what makes it pass; when the code breaks a rule, that is a finding. A rule changes only when the promise changes on purpose: the PR gives the old wording, the new wording and the evidence in the change (a doc comment, a test or the commit message). Keep the bounds unless the change makes them wrong, and name any bound you reduce in the PR. The model's update goes in the same PR as the code change. The method in full: [`create-formal-verification-skill`](https://github.com/cursor/plugins/blob/93b916d/pstack/skills/create-formal-verification-skill/SKILL.md) and [`maintain-formal-verification-skill`](https://github.com/cursor/plugins/blob/93b916d/pstack/skills/maintain-formal-verification-skill/SKILL.md).

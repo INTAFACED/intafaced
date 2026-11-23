@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -41,6 +41,14 @@ import {
 
 const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url));
 const SERVICES_DIR = join(REPO_ROOT, 'services');
+
+/**
+ * svc-edge's live route table, imported at run time. Its path is a URL rather
+ * than a static specifier only so this package's type program does not pull a
+ * services/ file under its own rootDir; the value is the module's real export.
+ */
+const EDGE_ROUTES_URL = new URL('../../../services/svc-edge/src/routes.ts', import.meta.url).href;
+const { UPSTREAMS: EDGE_UPSTREAMS } = (await import(EDGE_ROUTES_URL)) as { UPSTREAMS: readonly { module: string }[] };
 
 function serviceSourceFiles(): string[] {
   const out: string[] = [];
@@ -86,10 +94,17 @@ describe('the enforcement field is answered for every flag', () => {
 });
 
 /**
- * Where a service reads its boot-time env: `src/env.ts` for a Node service, and for the one Java
- * service (svc-fix, no env.ts) the `"NAME"` string constants in its main sources.
+ * Where a service reads its boot-time env: `src/env.ts` for a Node service, the `"NAME"` string
+ * constants in `crates/<service>/src/env.rs` for a Rust service (svc-academy, svc-tax), and for the
+ * one Java service (svc-fix, no env.ts) the `"NAME"` string constants in its main sources.
  */
 function bootEnvSource(service: string): string {
+  const envRs = join(REPO_ROOT, 'crates', service, 'src', 'env.rs');
+  if (existsSync(envRs)) {
+    // Only string constants outside comments count: a comment naming the variable is not a switch.
+    const code = readFileSync(envRs, 'utf8').replace(/\/\/.*$/gm, '');
+    return (code.match(/"[A-Z][A-Z0-9_]*"/g) ?? []).join('\n');
+  }
   const envTs = join(SERVICES_DIR, service, 'src', 'env.ts');
   try {
     return readFileSync(envTs, 'utf8');
@@ -239,13 +254,11 @@ describe('why the edge does not gate on these flags', () => {
    * (`services/svc-edge/src/kill-switch.ts`); the launch flags are the rollout
    * plan on top of it, and the console now says so.
    *
-   * Read off `routes.ts` rather than hardcoded, so raising `LAUNCH_DROP`'s
+   * Taken from svc-edge's own route table (`UPSTREAMS`) rather than hardcoded, so raising `LAUNCH_DROP`'s
    * default or moving a flag's drop turns this red and forces the argument to be
    * made again with the new numbers.
    */
-  const ROUTES = readFileSync(join(SERVICES_DIR, 'svc-edge', 'src', 'routes.ts'), 'utf8');
-
-  const ROUTED_MODULES = [...new Set([...ROUTES.matchAll(/\bmodule:\s*'([a-z0-9-]+)'/g)].map((m) => m[1] as string))];
+  const ROUTED_MODULES: string[] = [...new Set(EDGE_UPSTREAMS.map((u) => u.module))];
 
   const DEFAULT_DROP = '0' as const;
 

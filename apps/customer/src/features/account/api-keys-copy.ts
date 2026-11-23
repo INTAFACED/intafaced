@@ -5,6 +5,12 @@ const messages = {
   intro: 'Keys let your own programs read your account and trade for you. Each key holds only the permissions you give it.',
   create: 'Create a key',
   backToKeys: 'Back to API keys',
+  sectionsLabel: 'API key sections',
+  explain:
+    'A key acts for you inside the permissions it holds and, when you list IP addresses, only from those. Revoking a key stops it at once and cannot be undone; no key can withdraw or move money off the platform.',
+  detailSectionsLabel: 'Key sections',
+  detailExplain:
+    'An earlier end date saves at once; a later one needs your passkey or a code. Rotating makes a new key and keeps the old one working only for the overlap you choose.',
   security: 'Security',
   safetyTitle: 'Keeping a key safe',
   safetyOnePurpose: 'Make one key for each program, so you can switch one off without stopping the others.',
@@ -169,6 +175,8 @@ const messages = {
     'An agent key cannot hold refund, payout, withdrawal or settings permissions. Remove them and try again. Nothing was created.',
   accountOwn: 'This account',
   'refused.identity.delegated_refused': 'Sign in on this device. An API key or a sub-account cannot make keys.',
+  'refused.identity.account_frozen_self':
+    'You froze this account, so no new API key can be made. Nothing was created. Reactivate it in Security first.',
   colActions: 'Actions',
   revoke: 'Revoke',
   revokeTitle: 'Revoke this key',

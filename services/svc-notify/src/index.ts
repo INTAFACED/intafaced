@@ -2,7 +2,10 @@ import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { edgeTrustFromEnv } from '@intafaced/config';
-import { createIdentityWatchlistsClient, retainRawBody, s2sFromEnv, type StatusPage } from '@intafaced/contracts';
+import type { StatusPage } from '@intafaced/contracts';
+import { createIdentityWatchlistsClient } from '@intafaced/contracts/identity-watchlists-client';
+import { retainRawBody } from '@intafaced/contracts/raw-body';
+import { s2sFromEnv } from '@intafaced/contracts/s2s-env';
 import { createGuestIngressContext } from './guests/context.js';
 import { GuestNotificationService } from './guests/service.js';
 import { channelGuestMailSender, GuestVerificationService, outboxGuestMailSender } from './guests/verification.js';
@@ -50,8 +53,11 @@ import { PostgresTargetRateLimiter } from './target-rate-limit.js';
 import { NotifyService } from './notify-service.js';
 import { createNotifyRouter, type NotifyRouter } from './router.js';
 import { subscribeNotificationEvents } from './events.js';
+import { SqlReconAlertFeedStore } from './reconciliation-alert-feed/feed.js';
 import { ALERT_SWEEP_INTERVAL_MS, AlertService, type AlertSweepReport } from './alerts/service.js';
 import { runAlertSweepPass } from './alerts/sweep-driver.js';
+import { AlertOpsReader } from './alerts/ops-health.js';
+import { AlertOwnerValues, parseAccountPlans } from './alerts/owner-values.js';
 import { PostgresAlertStore } from './alerts/store.js';
 import { PostgresWatchRuleStore, WatchRuleService } from './alerts/watch-rules.js';
 import { PostgresAlertTriggerLog } from './alerts/trigger-log.js';
@@ -427,6 +433,23 @@ const statusPageDeps = {
   maintenance,
   publicOrigin: env.NOTIFY_PUBLIC_ORIGIN ?? null,
 };
+// The founder console's alert engine read (J-charts-desk-18 #3 #4): counts of this service's own rows.
+alerts.attachOpsReader(new AlertOpsReader(sql));
+// The founder's alert values (J-charts-desk-18 #5 #6): a value never set on the page keeps the deployment's own setting.
+alerts.attachOwnerValues(
+  new AlertOwnerValues(
+    sql,
+    {
+      maxActivePrice: env.NOTIFY_ALERT_MAX_ACTIVE_PRICE ?? null,
+      triggerLogDays: env.NOTIFY_ALERT_TRIGGER_LOG_DAYS ?? null,
+    },
+    parseAccountPlans(env.BANK_PLANS_JSON),
+  ),
+);
+// The teams' reconciliation alert feed (OPS-reconciliation-04): svc-ops' alert transitions, one row per business key.
+const reconAlertFeed = new SqlReconAlertFeedStore(sql);
+// Set once the consumers attach below; until then, and if any of the four is pending, the feed reads as detached.
+let reconAlertFeedAttached = false;
 export const appRouter = createNotifyRouter(
   notify,
   alerts,
@@ -452,6 +475,7 @@ export const appRouter = createNotifyRouter(
     },
   ),
   watchRules,
+  { store: reconAlertFeed, attached: () => reconAlertFeedAttached },
 );
 export type AppRouter = typeof appRouter;
 
@@ -466,7 +490,8 @@ const edgeContext = createGuestIngressContext({
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 retainRawBody(app);
 
-const { subscriptions, pending } = await subscribeNotificationEvents(bus, notify);
+const { subscriptions, pending } = await subscribeNotificationEvents(bus, notify, { reconAlertFeed });
+reconAlertFeedAttached = !pending.some((p) => p.durable.startsWith('notify-recon-alert-'));
 
 // The status badge as an image another page can show (SP-status-05). Public through Edge; no script, no personal data.
 // Hot-linked pages can ask often, so one page read serves every badge for a few seconds.

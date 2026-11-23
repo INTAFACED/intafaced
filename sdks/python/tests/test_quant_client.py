@@ -13,6 +13,7 @@ from urllib.parse import parse_qs, urlsplit
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from intafaced_quant import QuantApiError, QuantClient, strategy_template
+from intafaced_quant.client import API_VERSION
 
 KEY = "ifk_test-quant-key"
 
@@ -94,6 +95,8 @@ class QuantClientTest(unittest.TestCase):
         self.assertEqual(row["method"], "GET")
         self.assertEqual(row["headers"]["authorization"], f"Bearer {KEY}")
         self.assertNotIn("idempotency-key", row["headers"])
+        # The release-time API version pin (J-developer-16 #5): our API refuses a key call with no version.
+        self.assertEqual(row["headers"]["intafaced-version"], API_VERSION)
         query = parse_qs(urlsplit(row["path"]).query)
         self.assertEqual(json.loads(query["input"][0]), {"limit": 20})
 

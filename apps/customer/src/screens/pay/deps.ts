@@ -84,7 +84,7 @@ export {
 
 export { useSession } from '../../features/session/session';
 export { createPersonalPayApi, type PersonalPayApi } from '../../features/pay/pay-api';
-export { sendInput, spaceSchema } from '../../features/pay/schemas';
+export { sendInput } from '../../features/pay/schemas';
 export { pendingKey as bankPendingKey, pendingOutcomes } from '../../features/money/pending-outcomes';
 export { AccountDetailsByCurrency } from '../../features/money/AccountDetails';
 export type { ApiClient, ApiResult } from '../../shared/api';
@@ -112,7 +112,7 @@ export {
   type RequestEntry,
   type SentEntry,
 } from '../../features/pay/personal/personal-model';
-export { encodeQr, qrPath } from '../../features/pay/personal/qr';
+export { encodeQr, qrPath } from '@intafaced/ui/lit/templates';
 
 export { PersonalRoom } from '../../features/pay/personal/rooms/PersonalRoom';
 export { personalRoomFor, requestRoomHref } from '../../features/pay/personal/rooms/rooms';

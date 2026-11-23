@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { parseAmount } from '@intafaced/ledger-client';
 import { partnerPayoutsAccount } from './partner-bank.js';
-import { TEST_PARTNER_DD_BLOCKED, testPartner } from './test-partner.js';
+import { testPartner } from './test-partner.js';
+import { TEST_PARTNER_DD_BLOCKED } from './test-partner-direct-debits.js';
 import { directDebitMandatesView } from '../ops/direct-debit-mandates.js';
 
 const ADA = '11111111-1111-4111-8111-111111111111';

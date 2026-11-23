@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { describe, expect, it, beforeAll, beforeEach, afterAll, afterEach, vi } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
@@ -88,7 +88,7 @@ async function openH8aAdmin(): Promise<{ url: string; stop: () => Promise<void> 
   }
 
   try {
-    const container = await new PostgreSqlContainer(H8A_IMAGE)
+    const container = await testPostgres(H8A_IMAGE)
       .withDatabase('intafaced_h8a_test')
       .withUsername('intafaced')
       .withPassword('intafaced')
@@ -1440,6 +1440,11 @@ describe('svc-p2p payment instruments', () => {
         // P-trade-orders-05: the caller's own cancel count; it reads trade rows only, no instrument field.
         'access.limits': undefined,
         'offers.bulk': { action: 'pause', offerIds: [crypto.randomUUID()], idempotencyKey: `bulk:${crypto.randomUUID()}` },
+        // RC-p2p-02: the contract escrow offer is chain facts and owner settings; attach and sync act on the caller's own
+        // order only (a stranger is refused not_a_party or not_found); none reads an instrument field.
+        'trades.contractEscrow': { asset: 'USDT' },
+        'trades.attachContractDeal': { tradeId: trade.id, dealId: '1' },
+        'trades.syncContractDeal': { tradeId: trade.id },
       };
 
       const paths = Object.keys((api as { _def: { procedures: Record<string, unknown> } })._def.procedures);

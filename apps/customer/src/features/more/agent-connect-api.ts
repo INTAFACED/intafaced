@@ -4,17 +4,12 @@
  * svc-trade's user-venue door. The venue is the record for every balance; amounts are decimal strings, never numbers.
  * INTAFACED holds and moves nothing here: each move is the person's own wallet-signed venue transfer.
  */
-import {
-  apiKeyCreateOutputSchema,
-  apiKeyCreateRequestId,
-  apiKeyListOutputSchema,
-  type ApiKeyCreateOutput,
-  type ApiKeyList,
-} from '@intafaced/contracts/api-keys';
+import { apiKeyCreateOutputSchema, apiKeyCreateRequestId, type ApiKeyCreateOutput, type ApiKeyList } from '@intafaced/contracts/api-keys';
+import { IDENTITY_DEVELOPER_KEYS_LIST } from '@intafaced/contracts/identity-developer-keys-procedures';
 import { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
-import { requestPasskeyAssertion } from '../session/webauthn';
-import type { StepUpBegin } from '../account/security-step-up';
+import { requestPasskeyAssertion } from '../session';
+import type { StepUpBegin } from '../account';
 
 const decimal = z.string().regex(/^-?[0-9]+(\.[0-9]+)?$/);
 
@@ -90,7 +85,7 @@ export function readAgentConnections(api: ApiClient, signal?: AbortSignal): Prom
 }
 
 export function readKeys(api: ApiClient, signal?: AbortSignal): Promise<ApiResult<ApiKeyList>> {
-  return api.query('identity', 'developerKeys.list', { limit: 200 }, apiKeyListOutputSchema, { signal });
+  return api.call(IDENTITY_DEVELOPER_KEYS_LIST, { limit: 200 }, { signal });
 }
 
 /** The asset's total in the account as the venue reports it; null before the sub-account exists. */

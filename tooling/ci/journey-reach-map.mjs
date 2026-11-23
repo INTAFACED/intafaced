@@ -19,8 +19,8 @@
  * has no record in a run where it existed reaches everything: it runs for every product change. With fewer than
  * MIN_RUNS whole runs the builder refuses: it writes a map whose mode is 'full', and nothing narrows.
  * A journey's reach comes only from the runs where every one of its tests passed, or where each test that didn't pass is
- * a step main's journey baseline calls unbuilt (or a test skipped after one), red in every run the map is built from,
- * all of which hold the file (speaksFor); with no such run it reaches everything. The baseline is the checkout's own
+ * a step main's journey baseline calls unbuilt (or a test skipped after one) or a test with no step title, red in every
+ * run the map is built from, all of which hold the file (speaksFor); with no such run it reaches everything. The baseline is the checkout's own
  * copy, so `verify` on main rebuilds it from the same baseline. Open edge, not covered: a service that publishes an
  * event from background work without logging while a journey runs is not tied to the journey that sees the
  * subscriber's effect (review 7561-R1 #3;
@@ -69,6 +69,7 @@ import { tmpdir } from 'node:os';
 import { join, posix, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { isMainRun, manifestsAt, moneyCodeDirs, rootInputs, stepOf, testPassed } from './journey-verdict.mjs';
+import { countCall } from './api-count.mjs';
 
 /**
  * The off switch: 'full' sends every product change to the full suite, whatever the map says. 'reach' uses the map.
@@ -222,12 +223,20 @@ export function unbuiltSteps(baseline) {
  * Whether each whole run can speak for a journey file: an array of booleans, one per run in `whole` (false where the run
  * doesn't hold the file). `unbuilt`: unbuiltSteps of the baseline. A run counts when the file is not broken in it and
  * every test of it passed there, or when each test that didn't pass is excused:
- *   - it is a numbered step of this file the baseline calls unbuilt, or a test skipped after such a step in the same
- *     file and project; and
+ *   - it is a numbered step of this file the baseline calls unbuilt, a test with no step title (`starts:`, `ends:`,
+ *     `outside:`, `part of #n`) that ran and failed, or a test skipped after such an unbuilt step in the same file and
+ *     project; and
  *   - it didn't pass in any whole run, and every whole run the map is built from (at least MIN_RUNS) holds the file.
- * Every other test that didn't pass stops the journey short, so the run doesn't count (review 7561-R1): a setup or end
- * test, a `regression` step, a step the baseline doesn't list, a test skipped with no excused step before it, a test
- * that passed in another run (flaky), a test another run lacks, and any red test of a file some whole run doesn't hold.
+ * A test with no step title that never passed is, to the journey verdict, work not built yet that stays out until it
+ * first passes (journey-verdict.mjs), as an unbuilt step is; and the tests that did pass ran whole and are recorded.
+ * Its excuse does not reach the tests skipped after it: a red setup test whose steps were skipped leaves the run unable
+ * to speak, so the file is full, not the setup's own small reach. (Failure it prevents: J-dex-protocol-11, -13 and -20,
+ * J-more-catalogue-15, J-agents-12 and J-pay-03, each with a `starts:`, `ends:`, `outside:` or `part of #1` test red in
+ * all three main runs the map was built from on 22 Nov 2026 and every other test green or unbuilt, read as reaching
+ * everything, so every pull request ran them.)
+ * Every other test that didn't pass stops the journey short, so the run doesn't count (review 7561-R1): a `regression`
+ * step, a step the baseline doesn't list, a test skipped with no excused unbuilt step before it, a test that passed in
+ * another run (flaky), a test another run lacks, and any red test of a file some whole run doesn't hold.
  *
  * Why an excused red test leaves the run's reach sound (project-state#1574): the reach taken is still every record of
  * the file in that run (runReach), never only the passing tests' records, since each record holds only what its worker
@@ -252,7 +261,7 @@ export function speaksFor(whole, f, unbuilt = new Map()) {
     for (const [key, t] of o.tests) {
       if (t.passed) continue;
       const isUnbuilt = !!t.step && unbuilt.get(t.step) === f;
-      if (!persistent(key) || !(isUnbuilt || (t.skipped && after.has(t.project)))) return false;
+      if (!persistent(key) || !(isUnbuilt || (!t.step && !t.skipped) || (t.skipped && after.has(t.project)))) return false;
       if (isUnbuilt) after.add(t.project);
     }
     return true;
@@ -585,7 +594,7 @@ export function nodeTargets(text, file) {
       if (/^\.\.?\//.test(s)) out.add(posix.normalize(posix.join(posix.dirname(file), s)));
       else if (at >= 0) out.add(posix.normalize(s.slice(at)));
       else if (file.startsWith('apps/customer/') && /^\/?src\//.test(s)) out.add(posix.normalize(`apps/customer/${s.replace(/^\//, '')}`));
-      else if (!/\s/.test(s) && !/^(apps|packages|services|tooling)\//.test(s) && /\/src(\/|$)/.test(s)) any = true;
+      else if (!/\s/.test(s) && !/^(apps|packages|services|tooling|crates)\//.test(s) && /\/src(\/|$)/.test(s)) any = true;
     }
   }
   return { targets: [...out].filter((p) => !p.startsWith('..')).map((p) => p.replace(/\/$/, '')), any };
@@ -808,7 +817,7 @@ export function buildMap({
     });
     if (!why && !clean)
       why =
-        "no run the map is built from speaks for it: in each, a spec held no test, or a test didn't pass that is not an unbuilt step of main's baseline (or skipped after one) red in every run, all of which hold the file";
+        "no run the map is built from speaks for it: in each, a spec held no test, or a test didn't pass that is not an unbuilt step of main's baseline (or skipped after one) or a test with no step title, red in every run, all of which hold the file";
     if (why) {
       full[f] = why;
       continue;
@@ -1087,22 +1096,22 @@ export function pathReach(map, path, subscribesHere = false, head = null) {
 }
 
 /**
+ * The journey files the map can't speak for, which run with every change: its `full` journeys and every journey file at
+ * the head (`atHead`, a Set of names) it doesn't know. Read only from a map mapProblem passes.
+ */
+export function alwaysRun(map, atHead) {
+  const known = new Set(map?.journeys ?? []);
+  return [...Object.keys(map?.full ?? {}), ...[...atHead].filter((f) => !known.has(f))];
+}
+
+/**
  * The journeys a set of product paths reaches: { mode: 'files', files, because } or { mode: 'full', why }. `atHead`:
  * the journey files at the head (a Set of names), or null when they can't be listed. `subscribes(path)`: pathReach's
  * `subscribesHere`; `head`: its `head`. Every journey the map can't speak for (its `full` journeys, and a journey file at the head it
- * doesn't know) is selected too, unless `unrecorded` is false (a named pull request: main's full run holds those, as
- * journey-touch.mjs says); a selection holding every journey at the head is the full run.
+ * doesn't know) is selected too, for a named pull request as for any other: no record says such a journey misses what
+ * changed (intafaced #8851); a selection holding every journey at the head is the full run.
  */
-export function reachSelect({
-  map,
-  paths,
-  behind,
-  atHead,
-  subscribes = () => false,
-  head = null,
-  mode = REACH_MAP_MODE,
-  unrecorded = true,
-}) {
+export function reachSelect({ map, paths, behind, atHead, subscribes = () => false, head = null, mode = REACH_MAP_MODE }) {
   const problem = mapProblem(map, behind, mode);
   if (problem) return { mode: 'full', why: problem };
   if (!(atHead instanceof Set)) return { mode: 'full', why: "the journey files at the head couldn't be listed" };
@@ -1119,8 +1128,7 @@ export function reachSelect({
     for (const i of r.journeys) picked.add(map.journeys[i]);
     because.push(`${p}: ${r.journeys.length} journey file(s) reach it`);
   }
-  const known = new Set(map.journeys);
-  const always = unrecorded ? [...Object.keys(map.full ?? {}), ...[...atHead].filter((f) => !known.has(f))] : [];
+  const always = alwaysRun(map, atHead);
   for (const f of always) picked.add(f);
   const files = [...picked].filter((f) => atHead.has(f)).sort();
   if (files.length >= atHead.size) return { mode: 'full', why: 'the recorded reach of what it changes holds every journey' };
@@ -1130,7 +1138,10 @@ export function reachSelect({
 
 // ---- The builder's I/O ----
 
-const gh = (args) => execFileSync('gh', args, { encoding: 'utf8', maxBuffer: 64 * 2 ** 20 });
+const gh = (args) => {
+  countCall();
+  return execFileSync('gh', args, { encoding: 'utf8', maxBuffer: 64 * 2 ** 20 });
+};
 
 /** The journey files at a commit, from git (the commit must be fetched). */
 export const filesAt = (sha, root = ROOT) =>

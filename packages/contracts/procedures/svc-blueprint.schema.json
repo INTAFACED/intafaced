@@ -1,0 +1,1873 @@
+{
+  "$comment": "Written by `procedures:write`; held by its drift test. Do not edit by hand.",
+  "procedures": {
+    "blueprint.card": {
+      "service": "svc-blueprint",
+      "module": "blueprint",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "card",
+      "access": {
+        "caller": "scope",
+        "scope": "blueprint:read",
+        "module": "blueprint"
+      },
+      "refusals": {
+        "blueprint.not_found": "NOT_FOUND"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "size": {
+            "default": "portrait",
+            "type": "string",
+            "enum": ["portrait", "landscape"]
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "size": {
+            "type": "string",
+            "enum": ["portrait", "landscape"]
+          },
+          "width": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "height": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "svg": {
+            "type": "string",
+            "minLength": 1
+          },
+          "raster": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "rendered"
+                  },
+                  "url": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "contentType": {
+                    "type": "string",
+                    "const": "image/png"
+                  },
+                  "bytes": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": ["status", "url", "contentType", "bytes"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "unavailable"
+                  },
+                  "code": {
+                    "type": "string",
+                    "enum": [
+                      "blueprint.card_renderer_unconfigured",
+                      "blueprint.card_renderer_unreachable",
+                      "blueprint.card_renderer_protocol"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": ["status", "code", "reason"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "shareMode": {
+            "type": "string",
+            "enum": ["svg", "png"]
+          }
+        },
+        "required": ["size", "width", "height", "svg", "raster", "shareMode"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "size": "landscape"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "size": "square"
+          }
+        }
+      ]
+    },
+    "blueprint.cardOf": {
+      "service": "svc-blueprint",
+      "module": "blueprint",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "cardOf",
+      "access": {
+        "caller": "scope",
+        "scope": "blueprint:read",
+        "module": "blueprint"
+      },
+      "refusals": {
+        "blueprint.not_found": "NOT_FOUND"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "shareId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "size": {
+            "default": "portrait",
+            "type": "string",
+            "enum": ["portrait", "landscape"]
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "size": {
+            "type": "string",
+            "enum": ["portrait", "landscape"]
+          },
+          "width": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "height": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "svg": {
+            "type": "string",
+            "minLength": 1
+          },
+          "raster": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "rendered"
+                  },
+                  "url": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "contentType": {
+                    "type": "string",
+                    "const": "image/png"
+                  },
+                  "bytes": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": ["status", "url", "contentType", "bytes"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "unavailable"
+                  },
+                  "code": {
+                    "type": "string",
+                    "enum": [
+                      "blueprint.card_renderer_unconfigured",
+                      "blueprint.card_renderer_unreachable",
+                      "blueprint.card_renderer_protocol"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": ["status", "code", "reason"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "shareMode": {
+            "type": "string",
+            "enum": ["svg", "png"]
+          }
+        },
+        "required": ["size", "width", "height", "svg", "raster", "shareMode"],
+        "additionalProperties": false
+      },
+      "checks": {
+        "blueprint.subject_or_share": {
+          "at": "input",
+          "says": "a subject account or a share id is given"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "userId": "22222222-2222-4222-8222-222222222222"
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "shareId": "22222222-2222-4222-8222-222222222222",
+            "size": "landscape"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "by": "blueprint.subject_or_share",
+          "input": {
+            "size": "portrait"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "userId": "not-an-id"
+          }
+        }
+      ]
+    },
+    "blueprint.erase": {
+      "service": "svc-blueprint",
+      "module": "blueprint",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "erase",
+      "access": {
+        "caller": "scope",
+        "scope": "blueprint:write",
+        "module": "blueprint"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "erasedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "removed": {
+            "type": "object",
+            "properties": {
+              "blueprints": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "crewMemberships": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "matchRuns": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "mentorMatches": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "emptiedCrews": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "shares": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "cardOpens": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": ["blueprints", "crewMemberships", "matchRuns", "mentorMatches", "emptiedCrews", "shares", "cardOpens"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["userId", "erasedAt", "removed"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "blueprint.export": {
+      "service": "svc-blueprint",
+      "module": "blueprint",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "export",
+      "access": {
+        "caller": "scope",
+        "scope": "blueprint:read",
+        "module": "blueprint"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "exportedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "schemaVersion": {
+            "type": "number",
+            "const": 2
+          },
+          "blueprint": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  },
+                  "userId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  },
+                  "engineVersion": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "profile": {
+                    "type": "object",
+                    "properties": {
+                      "decisionStyle": {
+                        "type": "string",
+                        "enum": ["analytical", "intuitive", "collaborative", "decisive"]
+                      },
+                      "riskTemperament": {
+                        "type": "string",
+                        "enum": ["guarded", "measured", "assertive", "bold"]
+                      },
+                      "energyRhythm": {
+                        "type": "string",
+                        "enum": ["dawn", "steady", "surge", "nocturnal"]
+                      },
+                      "learningMode": {
+                        "type": "string",
+                        "enum": ["visual", "narrative", "hands_on", "systematic"]
+                      },
+                      "crewRole": {
+                        "type": "string",
+                        "enum": ["anchor", "scout", "builder", "catalyst"]
+                      },
+                      "curriculumPath": {
+                        "type": "string",
+                        "enum": ["foundations", "markets", "builder", "sovereign"]
+                      },
+                      "toneRegister": {
+                        "type": "string",
+                        "enum": ["direct", "warm", "socratic", "terse"]
+                      },
+                      "guardrails": {
+                        "type": "object",
+                        "properties": {
+                          "maxLeverage": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 20
+                          },
+                          "dailyLossPromptPct": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 100
+                          },
+                          "confirmBeforeMarketOrder": {
+                            "type": "boolean"
+                          },
+                          "copyTradingVisible": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": ["maxLeverage", "dailyLossPromptPct", "confirmBeforeMarketOrder", "copyTradingVisible"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "decisionStyle",
+                      "riskTemperament",
+                      "energyRhythm",
+                      "learningMode",
+                      "crewRole",
+                      "curriculumPath",
+                      "toneRegister",
+                      "guardrails"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "cardAssetUrl": {
+                    "type": ["string", "null"]
+                  },
+                  "visibility": {
+                    "type": "string",
+                    "enum": ["private", "crew", "public"]
+                  },
+                  "createdAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  }
+                },
+                "required": ["id", "userId", "engineVersion", "profile", "cardAssetUrl", "visibility", "createdAt"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "card": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "size": {
+                    "type": "string",
+                    "enum": ["portrait", "landscape"]
+                  },
+                  "width": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "height": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "svg": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "raster": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "status": {
+                            "type": "string",
+                            "const": "rendered"
+                          },
+                          "url": {
+                            "type": "string",
+                            "format": "uri"
+                          },
+                          "contentType": {
+                            "type": "string",
+                            "const": "image/png"
+                          },
+                          "bytes": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": ["status", "url", "contentType", "bytes"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "status": {
+                            "type": "string",
+                            "const": "unavailable"
+                          },
+                          "code": {
+                            "type": "string",
+                            "enum": [
+                              "blueprint.card_renderer_unconfigured",
+                              "blueprint.card_renderer_unreachable",
+                              "blueprint.card_renderer_protocol"
+                            ]
+                          },
+                          "reason": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": ["status", "code", "reason"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "shareMode": {
+                    "type": "string",
+                    "enum": ["svg", "png"]
+                  }
+                },
+                "required": ["size", "width", "height", "svg", "raster", "shareMode"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "crew": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "formedAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  },
+                  "season": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  "xp": {
+                    "type": "string"
+                  },
+                  "lobbyId": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "capacity": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": ["id", "name", "formedAt", "season", "xp", "lobbyId", "capacity"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "membership": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "crewId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  },
+                  "userId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  },
+                  "role": {
+                    "type": "string",
+                    "enum": ["anchor", "scout", "builder", "catalyst"]
+                  },
+                  "joinedAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  }
+                },
+                "required": ["crewId", "userId", "role", "joinedAt"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "crewmates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "userId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "role": {
+                  "type": "string",
+                  "enum": ["anchor", "scout", "builder", "catalyst"]
+                },
+                "joinedAt": {
+                  "type": "string"
+                }
+              },
+              "required": ["userId", "role", "joinedAt"],
+              "additionalProperties": false
+            }
+          },
+          "matchRuns": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "candidates": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "crewId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      },
+                      "size": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": ["crewId", "size"],
+                    "additionalProperties": false
+                  }
+                },
+                "scores": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  },
+                  "additionalProperties": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "placedCrewId": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "ts": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                }
+              },
+              "required": ["id", "candidates", "scores", "placedCrewId", "ts"],
+              "additionalProperties": false
+            }
+          },
+          "mentorMatches": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "studentId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "mentorId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "fitScore": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 10000
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["shortlisted", "accepted", "declined", "ended"]
+                }
+              },
+              "required": ["studentId", "mentorId", "fitScore", "status"],
+              "additionalProperties": false
+            }
+          },
+          "mentoringOthers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "studentId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "mentorId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "fitScore": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 10000
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["shortlisted", "accepted", "declined", "ended"]
+                }
+              },
+              "required": ["studentId", "mentorId", "fitScore", "status"],
+              "additionalProperties": false
+            }
+          },
+          "shares": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "size": {
+                  "type": "string",
+                  "enum": ["portrait", "landscape"]
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "revokedAt": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "state": {
+                  "type": "string",
+                  "enum": ["active", "revoked"]
+                },
+                "openCount": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "openers": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": ["crew member", "signed-in account"]
+                      },
+                      "firstOpened": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                      },
+                      "lastOpened": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                      },
+                      "openCount": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": ["kind", "firstOpened", "lastOpened", "openCount"],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": ["id", "size", "createdAt", "revokedAt", "state", "openCount", "openers"],
+              "additionalProperties": false
+            }
+          },
+          "cardsOpened": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "shareId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "firstOpened": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "lastOpened": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "openCount": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": ["shareId", "firstOpened", "lastOpened", "openCount"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "exportedAt",
+          "schemaVersion",
+          "blueprint",
+          "card",
+          "crew",
+          "membership",
+          "crewmates",
+          "matchRuns",
+          "mentorMatches",
+          "mentoringOthers",
+          "shares",
+          "cardsOpened"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "blueprint.health": {
+      "service": "svc-blueprint",
+      "module": "blueprint",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "health",
+      "access": {
+        "caller": "public"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "service": {
+            "type": "string",
+            "const": "svc-blueprint"
+          }
+        },
+        "required": ["ok", "service"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "blueprint.me": {
+      "service": "svc-blueprint",
+      "module": "blueprint",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "me",
+      "access": {
+        "caller": "scope",
+        "scope": "blueprint:read",
+        "module": "blueprint"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "userId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "engineVersion": {
+                "type": "string",
+                "minLength": 1
+              },
+              "profile": {
+                "type": "object",
+                "properties": {
+                  "decisionStyle": {
+                    "type": "string",
+                    "enum": ["analytical", "intuitive", "collaborative", "decisive"]
+                  },
+                  "riskTemperament": {
+                    "type": "string",
+                    "enum": ["guarded", "measured", "assertive", "bold"]
+                  },
+                  "energyRhythm": {
+                    "type": "string",
+                    "enum": ["dawn", "steady", "surge", "nocturnal"]
+                  },
+                  "learningMode": {
+                    "type": "string",
+                    "enum": ["visual", "narrative", "hands_on", "systematic"]
+                  },
+                  "crewRole": {
+                    "type": "string",
+                    "enum": ["anchor", "scout", "builder", "catalyst"]
+                  },
+                  "curriculumPath": {
+                    "type": "string",
+                    "enum": ["foundations", "markets", "builder", "sovereign"]
+                  },
+                  "toneRegister": {
+                    "type": "string",
+                    "enum": ["direct", "warm", "socratic", "terse"]
+                  },
+                  "guardrails": {
+                    "type": "object",
+                    "properties": {
+                      "maxLeverage": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 20
+                      },
+                      "dailyLossPromptPct": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 100
+                      },
+                      "confirmBeforeMarketOrder": {
+                        "type": "boolean"
+                      },
+                      "copyTradingVisible": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": ["maxLeverage", "dailyLossPromptPct", "confirmBeforeMarketOrder", "copyTradingVisible"],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "decisionStyle",
+                  "riskTemperament",
+                  "energyRhythm",
+                  "learningMode",
+                  "crewRole",
+                  "curriculumPath",
+                  "toneRegister",
+                  "guardrails"
+                ],
+                "additionalProperties": false
+              },
+              "cardAssetUrl": {
+                "type": ["string", "null"]
+              },
+              "visibility": {
+                "type": "string",
+                "enum": ["private", "crew", "public"]
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              }
+            },
+            "required": ["id", "userId", "engineVersion", "profile", "cardAssetUrl", "visibility", "createdAt"],
+            "additionalProperties": false
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "blueprint.mentors": {
+      "service": "svc-blueprint",
+      "module": "blueprint",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "mentors",
+      "access": {
+        "caller": "scope",
+        "scope": "blueprint:read",
+        "module": "blueprint"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "studentId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+            },
+            "mentorId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+            },
+            "fitScore": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000
+            },
+            "status": {
+              "type": "string",
+              "enum": ["shortlisted", "accepted", "declined", "ended"]
+            }
+          },
+          "required": ["studentId", "mentorId", "fitScore", "status"],
+          "additionalProperties": false
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "blueprint.onboard": {
+      "service": "svc-blueprint",
+      "module": "blueprint",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "onboard",
+      "access": {
+        "caller": "scope",
+        "scope": "blueprint:write",
+        "module": "blueprint"
+      },
+      "refusals": {
+        "blueprint.not_found": "NOT_FOUND",
+        "blueprint.crew_not_found": "NOT_FOUND",
+        "blueprint.crew_full": "CONFLICT",
+        "blueprint.crew_capacity_unset": "PRECONDITION_FAILED",
+        "blueprint.mentor_shortlist_unset": "PRECONDITION_FAILED",
+        "blueprint.season_unset": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "locale": {
+            "default": "en",
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 10
+          },
+          "responses": {
+            "minItems": 1,
+            "maxItems": 64,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                "value": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2000
+                }
+              },
+              "required": ["key", "value"]
+            }
+          },
+          "birthData": {
+            "type": "object",
+            "properties": {
+              "date": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+              },
+              "time": {
+                "type": "string",
+                "pattern": "^\\d{2}:\\d{2}$"
+              },
+              "place": {
+                "type": "string",
+                "maxLength": 200
+              }
+            },
+            "required": ["date"]
+          },
+          "visibility": {
+            "default": "private",
+            "type": "string",
+            "enum": ["private", "crew", "public"]
+          },
+          "mentorAvailable": {
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        "required": ["responses"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "blueprint": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "userId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "engineVersion": {
+                "type": "string",
+                "minLength": 1
+              },
+              "profile": {
+                "type": "object",
+                "properties": {
+                  "decisionStyle": {
+                    "type": "string",
+                    "enum": ["analytical", "intuitive", "collaborative", "decisive"]
+                  },
+                  "riskTemperament": {
+                    "type": "string",
+                    "enum": ["guarded", "measured", "assertive", "bold"]
+                  },
+                  "energyRhythm": {
+                    "type": "string",
+                    "enum": ["dawn", "steady", "surge", "nocturnal"]
+                  },
+                  "learningMode": {
+                    "type": "string",
+                    "enum": ["visual", "narrative", "hands_on", "systematic"]
+                  },
+                  "crewRole": {
+                    "type": "string",
+                    "enum": ["anchor", "scout", "builder", "catalyst"]
+                  },
+                  "curriculumPath": {
+                    "type": "string",
+                    "enum": ["foundations", "markets", "builder", "sovereign"]
+                  },
+                  "toneRegister": {
+                    "type": "string",
+                    "enum": ["direct", "warm", "socratic", "terse"]
+                  },
+                  "guardrails": {
+                    "type": "object",
+                    "properties": {
+                      "maxLeverage": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 20
+                      },
+                      "dailyLossPromptPct": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 100
+                      },
+                      "confirmBeforeMarketOrder": {
+                        "type": "boolean"
+                      },
+                      "copyTradingVisible": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": ["maxLeverage", "dailyLossPromptPct", "confirmBeforeMarketOrder", "copyTradingVisible"],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "decisionStyle",
+                  "riskTemperament",
+                  "energyRhythm",
+                  "learningMode",
+                  "crewRole",
+                  "curriculumPath",
+                  "toneRegister",
+                  "guardrails"
+                ],
+                "additionalProperties": false
+              },
+              "cardAssetUrl": {
+                "type": ["string", "null"]
+              },
+              "visibility": {
+                "type": "string",
+                "enum": ["private", "crew", "public"]
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              }
+            },
+            "required": ["id", "userId", "engineVersion", "profile", "cardAssetUrl", "visibility", "createdAt"],
+            "additionalProperties": false
+          },
+          "placement": {
+            "type": "object",
+            "properties": {
+              "crewId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "crewName": {
+                "type": "string"
+              },
+              "score": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 10000
+              },
+              "matchRunId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "crewFormed": {
+                "type": "boolean"
+              }
+            },
+            "required": ["crewId", "crewName", "score", "matchRunId", "crewFormed"],
+            "additionalProperties": false
+          },
+          "mentors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "studentId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "mentorId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "fitScore": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 10000
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["shortlisted", "accepted", "declined", "ended"]
+                }
+              },
+              "required": ["studentId", "mentorId", "fitScore", "status"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["blueprint", "placement", "mentors"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "responses": [
+              {
+                "key": "placeholder",
+                "value": "a"
+              }
+            ]
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "responses": [
+              {
+                "key": "placeholder",
+                "value": "a"
+              }
+            ],
+            "birthData": {
+              "date": "1990-01-01"
+            },
+            "visibility": "crew",
+            "mentorAvailable": true
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "responses": []
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    },
+    "blueprint.setVisibility": {
+      "service": "svc-blueprint",
+      "module": "blueprint",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "setVisibility",
+      "access": {
+        "caller": "scope",
+        "scope": "blueprint:write",
+        "module": "blueprint"
+      },
+      "refusals": {
+        "blueprint.not_found": "NOT_FOUND"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "visibility": {
+            "type": "string",
+            "enum": ["private", "crew", "public"]
+          }
+        },
+        "required": ["visibility"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "engineVersion": {
+            "type": "string",
+            "minLength": 1
+          },
+          "profile": {
+            "type": "object",
+            "properties": {
+              "decisionStyle": {
+                "type": "string",
+                "enum": ["analytical", "intuitive", "collaborative", "decisive"]
+              },
+              "riskTemperament": {
+                "type": "string",
+                "enum": ["guarded", "measured", "assertive", "bold"]
+              },
+              "energyRhythm": {
+                "type": "string",
+                "enum": ["dawn", "steady", "surge", "nocturnal"]
+              },
+              "learningMode": {
+                "type": "string",
+                "enum": ["visual", "narrative", "hands_on", "systematic"]
+              },
+              "crewRole": {
+                "type": "string",
+                "enum": ["anchor", "scout", "builder", "catalyst"]
+              },
+              "curriculumPath": {
+                "type": "string",
+                "enum": ["foundations", "markets", "builder", "sovereign"]
+              },
+              "toneRegister": {
+                "type": "string",
+                "enum": ["direct", "warm", "socratic", "terse"]
+              },
+              "guardrails": {
+                "type": "object",
+                "properties": {
+                  "maxLeverage": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 20
+                  },
+                  "dailyLossPromptPct": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100
+                  },
+                  "confirmBeforeMarketOrder": {
+                    "type": "boolean"
+                  },
+                  "copyTradingVisible": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["maxLeverage", "dailyLossPromptPct", "confirmBeforeMarketOrder", "copyTradingVisible"],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "decisionStyle",
+              "riskTemperament",
+              "energyRhythm",
+              "learningMode",
+              "crewRole",
+              "curriculumPath",
+              "toneRegister",
+              "guardrails"
+            ],
+            "additionalProperties": false
+          },
+          "cardAssetUrl": {
+            "type": ["string", "null"]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["private", "crew", "public"]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          }
+        },
+        "required": ["id", "userId", "engineVersion", "profile", "cardAssetUrl", "visibility", "createdAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "visibility": "crew"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "visibility": "everyone"
+          }
+        }
+      ]
+    },
+    "blueprint.shares.create": {
+      "service": "svc-blueprint",
+      "module": "blueprint",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "shares.create",
+      "access": {
+        "caller": "scope",
+        "scope": "blueprint:write",
+        "module": "blueprint"
+      },
+      "refusals": {
+        "blueprint.not_found": "NOT_FOUND",
+        "blueprint.share_limit_unset": "PRECONDITION_FAILED",
+        "blueprint.share_limit_reached": "CONFLICT"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "size": {
+            "type": "string",
+            "enum": ["portrait", "landscape"]
+          }
+        },
+        "required": ["size"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "size": {
+            "type": "string",
+            "enum": ["portrait", "landscape"]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "revokedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": ["active", "revoked"]
+          },
+          "openCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["id", "size", "createdAt", "revokedAt", "state", "openCount"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "size": "portrait"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    },
+    "blueprint.shares.list": {
+      "service": "svc-blueprint",
+      "module": "blueprint",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "shares.list",
+      "access": {
+        "caller": "scope",
+        "scope": "blueprint:read",
+        "module": "blueprint"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+            },
+            "size": {
+              "type": "string",
+              "enum": ["portrait", "landscape"]
+            },
+            "createdAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+            },
+            "revokedAt": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "state": {
+              "type": "string",
+              "enum": ["active", "revoked"]
+            },
+            "openCount": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": ["id", "size", "createdAt", "revokedAt", "state", "openCount"],
+          "additionalProperties": false
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "blueprint.shares.openers": {
+      "service": "svc-blueprint",
+      "module": "blueprint",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "shares.openers",
+      "access": {
+        "caller": "scope",
+        "scope": "blueprint:read",
+        "module": "blueprint"
+      },
+      "refusals": {
+        "blueprint.not_found": "NOT_FOUND",
+        "blueprint.opens_list_limit_unset": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "shareId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["shareId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": ["crew member", "signed-in account"]
+            },
+            "firstOpened": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+            },
+            "lastOpened": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+            },
+            "openCount": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": ["kind", "firstOpened", "lastOpened", "openCount"],
+          "additionalProperties": false
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "shareId": "22222222-2222-4222-8222-222222222222"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    },
+    "blueprint.shares.revoke": {
+      "service": "svc-blueprint",
+      "module": "blueprint",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "shares.revoke",
+      "access": {
+        "caller": "scope",
+        "scope": "blueprint:write",
+        "module": "blueprint"
+      },
+      "refusals": {
+        "blueprint.not_found": "NOT_FOUND"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "shareId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["shareId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "size": {
+            "type": "string",
+            "enum": ["portrait", "landscape"]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "revokedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": ["active", "revoked"]
+          },
+          "openCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["id", "size", "createdAt", "revokedAt", "state", "openCount"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "shareId": "22222222-2222-4222-8222-222222222222"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "shareId": "x"
+          }
+        }
+      ]
+    }
+  }
+}

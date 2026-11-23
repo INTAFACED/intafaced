@@ -15,7 +15,7 @@ import {
   secondReason,
   writeReads,
 } from './step-read.mjs';
-import { attach, picturesIn, waitOver } from './step-pictures.mjs';
+import { STEP_PICTURE, attach, fetchRun, picturesIn, waitOver } from './step-pictures.mjs';
 
 const HEAD = 'a'.repeat(40);
 const BASE = 'b'.repeat(40);
@@ -439,4 +439,82 @@ test('#2693 review S5 planted: a picture that is a link, or that climbs out of i
   assert.equal(pics.has('J-x-01#1'), true, 'the control: a plain file inside its shard is a picture');
   assert.equal(pics.has('J-x-01#2'), false, 'a link');
   assert.equal(pics.has('J-x-01#3'), false, 'a path out of the shard');
+});
+
+// project-state #2952: J-derivatives-01 #2 at run 44213652045 attached eight window pictures, seven of them a campaigns
+// page an earlier file left open, and the reader was shown the last one listed, a campaigns page: NOT SHOWN. The test's own
+// whole page, attached as STEP_PICTURE, is the step's picture wherever it stands in the list.
+test('#2952 planted: the step picture is chosen over the window pictures of other pages; without one, the last stays', () => {
+  const root = shards({ 'J-x-01 #1 does': true, 'J-x-01 #2 sees': true });
+  const art = join(root, '900-1', 'real-app-journeys-shard-1');
+  const report = join(art, 'home/runner/work/_temp/journeys/report.json');
+  const doc = JSON.parse(readFileSync(report, 'utf8'));
+  const own = '/tmp/intafaced-real-app/results/t0/step-picture.png';
+  const left = '/tmp/intafaced-real-app/results/t0/test-finished-7.png';
+  for (const p of [own, left]) writeFileSync(join(art, p.slice(1)), 'png');
+  const a = doc.suites[0].suites[0].specs[0].tests[0].results[0].attachments;
+  a.splice(0, a.length, { name: 'screenshot', contentType: 'image/png', path: '/tmp/intafaced-real-app/results/t0/test-finished-1.png' });
+  a.splice(1, 0, { name: STEP_PICTURE, contentType: 'image/png', path: own });
+  a.push({ name: 'screenshot', contentType: 'image/png', path: left });
+  doc.suites[0].suites[0].specs[1].tests[0].results[0].attachments.push({
+    name: 'screenshot',
+    contentType: 'image/png',
+    path: '/tmp/intafaced-real-app/results/t1/test-finished-1.png',
+  });
+  writeFileSync(report, JSON.stringify(doc));
+  const pics = picturesIn(root);
+  assert.match(pics.get('J-x-01#1').file, /t0\/step-picture\.png$/, 'the step picture, not the last window picture');
+  assert.match(pics.get('J-x-01#2').file, /t1\/test-finished-1\.png$/, 'the control: no step picture, the last stays');
+  // The fixture that attaches it names it the same.
+  const fixture = readFileSync(new URL('../../apps/customer/tests/real-app/journey.mjs', import.meta.url), 'utf8');
+  assert.match(fixture, new RegExp(`const STEP_PICTURE = '${STEP_PICTURE}';`));
+});
+
+// project-state #3162: a local read fetched about 60 shard zips in a row with no retry, and one transient HTTP 503 on any
+// of them ended the whole read with no read. A failed shard is tried again (shard-download.mjs's rule); a refusal is not,
+// and the last failure still ends the fetch with no .done.
+const failing = (code) => {
+  const e = new Error('Command failed: sh -c gh api ...');
+  e.stderr = Buffer.from(`gh: HTTP ${code}`);
+  return e;
+};
+const quiet = { log: () => {} };
+
+test('a shard download that fails once with a 503 is tried again and the run still unpacks whole', () => {
+  const pic = tmp();
+  const arts = [1, 2, 3].map((i) => ({ id: i, name: `real-app-journeys-shard-${i}` })).concat({ id: 9, name: 'other' });
+  const calls = [];
+  const waits = [];
+  const get = (_repo, a, dir) => {
+    calls.push(a.id);
+    if (a.id === 2 && calls.filter((x) => x === 2).length === 1) throw failing(503);
+    writeFileSync(join(dir, 'report.json'), '{}');
+  };
+  const n = fetchRun('o/r', { id: 44, run_attempt: 1 }, pic, { ...quiet, list: () => arts, get, wait: (ms) => waits.push(ms) });
+  assert.equal(n, 3);
+  assert.deepEqual(calls, [1, 2, 2, 3]);
+  assert.deepEqual(waits, [10_000]);
+  assert.ok(existsSync(join(pic, '44-1', '.done')));
+  assert.ok(existsSync(join(pic, '44-1', 'real-app-journeys-shard-2', 'report.json')));
+});
+
+test('a shard that keeps failing, or is refused, still ends the fetch, and no .done is written', () => {
+  const arts = [{ id: 1, name: 'real-app-journeys-shard-1' }];
+  for (const [code, tries] of [
+    [503, 3],
+    [403, 1],
+  ]) {
+    const pic = tmp();
+    let seen = 0;
+    const get = () => {
+      seen++;
+      throw failing(code);
+    };
+    assert.throws(
+      () => fetchRun('o/r', { id: 5 }, pic, { ...quiet, list: () => arts, get, wait: () => {} }),
+      new RegExp(`shard-1: .*HTTP ${code}`),
+    );
+    assert.equal(seen, tries, `HTTP ${code}`);
+    assert.ok(!existsSync(join(pic, '5-1', '.done')));
+  }
 });

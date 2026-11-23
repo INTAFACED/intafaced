@@ -494,6 +494,8 @@ export function memoryWithdrawDestinations(options: DestinationStoreOptions = {}
 
 const COLUMNS = `destination_id, kind, ref, label, asset_id, network, tag, origin, state, created_at, updated_at, lookalike_of, lookalike_confirmed_at, approved_at, approved_by`;
 
+const LABEL_INDEX = 'user_withdraw_destinations_label_idx';
+
 function isUniqueViolation(err: unknown, constraintSuffix: string): boolean {
   const e = err as { code?: string; constraint_name?: string } | null;
   return e?.code === '23505' && (e.constraint_name ?? '').endsWith(constraintSuffix);
@@ -509,20 +511,30 @@ export class UserWithdrawDestinationStore implements UserWithdrawDestinations {
     const dest = assertPersistableWithdrawDestination(input);
     const label = input.label === undefined ? null : assertDestinationLabel(input.label);
     const keepLabel = input.label === undefined;
+    // Two first persists for one customer and kind race on two unique indexes at once, the legacy slot (the conflict
+    // target) and the label index (which the target does not absorb), and Postgres's speculative inserts can deadlock
+    // on each other there (40P01). So a persist takes the customer's address-book lock, the one `save` takes: the next
+    // persist starts only once the first committed, finds its legacy row and updates it, as a call made after it
+    // would. A label that still clashes is held by another of the customer's entries.
     try {
-      const rows = await this.sql<DestinationRow[]>`
-        INSERT INTO bank.user_withdraw_destinations (user_id, kind, ref, label, origin)
-        VALUES (${input.userId}, ${dest.kind}, ${dest.ref}, ${label}, 'legacy')
-        ON CONFLICT (user_id, kind) WHERE origin = 'legacy'
-        DO UPDATE SET
-          ref = excluded.ref,
-          label = CASE WHEN ${keepLabel} THEN bank.user_withdraw_destinations.label ELSE excluded.label END,
-          updated_at = now()
-        RETURNING ${this.sql.unsafe(COLUMNS)}
-      `;
-      return toDestination(rows[0]!);
+      return await this.sql.begin(async (tx) => {
+        await tx`SELECT pg_advisory_xact_lock(hashtext(${`withdraw-address-book:${input.userId}`}))`;
+        const rows = await tx<DestinationRow[]>`
+          INSERT INTO bank.user_withdraw_destinations (user_id, kind, ref, label, origin)
+          VALUES (${input.userId}, ${dest.kind}, ${dest.ref}, ${label}, 'legacy')
+          ON CONFLICT (user_id, kind) WHERE origin = 'legacy'
+          DO UPDATE SET
+            ref = excluded.ref,
+            label = CASE WHEN ${keepLabel} THEN bank.user_withdraw_destinations.label ELSE excluded.label END,
+            updated_at = now()
+          RETURNING ${tx.unsafe(COLUMNS)}
+        `;
+        const row = rows[0];
+        if (!row) throw new Error('withdraw destination upsert returned no row');
+        return toDestination(row);
+      });
     } catch (err) {
-      if (isUniqueViolation(err, 'label_idx')) throw LABEL_TAKEN();
+      if (isUniqueViolation(err, LABEL_INDEX)) throw LABEL_TAKEN();
       throw err;
     }
   }

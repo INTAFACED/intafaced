@@ -13,8 +13,8 @@ import {
   SegmentedControl,
 } from '@intafaced/ui';
 import type { Listing } from '../../../features/trade/trade-api';
-import type { z } from 'zod';
-import type { algoSchema } from '../../../features/trade/tool-api';
+import type { ProcedureOutput } from '@intafaced/contracts/procedure';
+import type { TRADE_ALGO_CREATE_TWAP } from '@intafaced/contracts/trade-algo-procedures';
 import { useTicker } from '../../../data';
 import { dec, str, times } from '../../../data/decimal';
 import { ratioPercent } from './desk';
@@ -27,7 +27,7 @@ import { formatClock, minutesToMs, planSlices, MAX_DURATION_MS } from './plan';
 
 type Step = 1 | 2 | 3;
 export type BotKind = 'twap' | 'vwap' | 'pov';
-export type CreatedAlgo = z.infer<typeof algoSchema>;
+export type CreatedAlgo = ProcedureOutput<typeof TRADE_ALGO_CREATE_TWAP>;
 
 const PRESETS = [
   { value: '5', label: '5 min' },
@@ -184,7 +184,7 @@ export function TwapWizard({
         </DialogHeader>
 
         {step === 1 ? (
-          <div className="cb-form">
+          <div className="lt-stack">
             <SelectField
               label={t('Market')}
               value={symbol}
@@ -212,7 +212,7 @@ export function TwapWizard({
         ) : null}
 
         {step === 2 && market ? (
-          <div className="cb-form">
+          <div className="lt-stack">
             <Field
               label={t('Total amount ({asset})', { asset: market.base })}
               hint={t('Lot size {lot}', { lot: market.precision.amount })}
@@ -286,7 +286,7 @@ export function TwapWizard({
         ) : null}
 
         {step === 3 && market && plan && plan.ok ? (
-          <div className="cb-form">
+          <div className="lt-stack">
             {guard.failure ? <RefusalNote failure={guard.failure} /> : null}
             <section aria-label={t('What it will do')}>
               <h3 className="cb-h3">{t('What it will do')}</h3>

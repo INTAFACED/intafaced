@@ -9,15 +9,22 @@
  */
 import { z } from 'zod';
 import type { ApiClient } from '../shared/api';
+import {
+  BANK_HOLDS_RULE,
+  BANK_HOLDS_SET_RULE,
+  BANK_HOLDS_WAITING,
+  BANK_HOLDS_ACCEPT,
+  BANK_HOLDS_DENY,
+} from '@intafaced/contracts/bank-holds-procedures';
 
-export const receiveRuleSchema = z.object({
+const receiveRuleSchema = z.object({
   strangers: z.enum(['pay_in', 'hold']),
   holdDays: z.number().int().positive().nullable(),
 });
 export type ReceiveRule = z.infer<typeof receiveRuleSchema>;
 export type StrangerRule = ReceiveRule['strangers'];
 
-export const receivedHoldSchema = z.object({
+const receivedHoldSchema = z.object({
   transferId: z.string(),
   state: z.enum(['placing', 'held', 'releasing', 'released', 'returning', 'returned', 'lapsed']),
   reasonClass: z.literal('stranger'),
@@ -49,13 +56,13 @@ function outcome<T>(result: { ok: true; data: T } | { ok: false; code?: string }
 }
 
 export const fetchReceiveRule = async (api: ApiClient, signal?: AbortSignal) =>
-  outcome(await api.query('bank', 'holds.rule', undefined, receiveRuleSchema, { signal }));
+  outcome(await api.call(BANK_HOLDS_RULE, undefined, { signal }));
 
 export const setReceiveRule = async (api: ApiClient, strangers: StrangerRule) =>
-  outcome(await api.mutate('bank', 'holds.setRule', { strangers }, receiveRuleSchema));
+  outcome(await api.call(BANK_HOLDS_SET_RULE, { strangers }));
 
 export const fetchWaitingPayments = async (api: ApiClient, signal?: AbortSignal) =>
-  outcome(await api.query('bank', 'holds.waiting', undefined, z.array(receivedHoldSchema), { signal }));
+  outcome(await api.call(BANK_HOLDS_WAITING, undefined, { signal }));
 
 export const answerWaitingPayment = async (api: ApiClient, answer: 'accept' | 'deny', transferId: string) =>
-  outcome(await api.mutate('bank', answer === 'accept' ? 'holds.accept' : 'holds.deny', { transferId }, receivedHoldSchema));
+  outcome(await (answer === 'accept' ? api.call(BANK_HOLDS_ACCEPT, { transferId }) : api.call(BANK_HOLDS_DENY, { transferId })));

@@ -14,7 +14,7 @@ import {
   type PartnerPaymentMethod,
   type PartnerPaymentRecipient,
 } from '../partner/partner-bank.js';
-import type { TestPartner } from '../partner/test-partner.js';
+import type { TestPartnerDoors } from '../partner/test-partner.js';
 import { lockEnd, type SpaceRecord, type SpaceService } from '../spaces/space-service.js';
 import type { SharedPotService } from '../spaces/shared-pots.js';
 import { pinnedPost, type WebhookTransport } from './webhook-pinned-post.js';
@@ -128,7 +128,7 @@ export interface ApiDelivery {
 
 export interface BankApiOptions {
   /** The TEST partner, for its settle door only (`testPartner.settlePayment`). */
-  readonly testPartner?: TestPartner | null;
+  readonly testPartner?: TestPartnerDoors | null;
   /** dev/test only: a webhook endpoint on loopback, over http, is allowed (the URL guard's hatch). */
   readonly allowLocalHttp?: boolean;
   readonly transport?: WebhookTransport;
@@ -429,8 +429,10 @@ export class BankApiService {
       await this.sql`
         INSERT INTO bank.api_moves (user_id, dedupe_id, quote_id, partner_key, state)
         VALUES (${userId}, ${input.dedupeId}, ${input.quoteId}, ${MOVE_KEY(userId, input.dedupeId)}, 'pending')
-        ON CONFLICT (user_id, dedupe_id) DO NOTHING
+        ON CONFLICT DO NOTHING
       `;
+      // No conflict target: partner_key is MOVE_KEY of (user_id, dedupe_id), so both unique keys name the same row, and a
+      // call that loses the insert race to the same dedupe id reads the row that won instead of raising 23505 on partner_key.
       [row] = await this.sql<MoveRow[]>`SELECT * FROM bank.api_moves WHERE user_id = ${userId} AND dedupe_id = ${input.dedupeId}`;
       if (!row || row.quote_id !== input.quoteId) throw conflict('dedupe id');
       if (row.state === 'completed') return this.moveView(row, quote);
@@ -512,8 +514,10 @@ export class BankApiService {
         ${userId}, ${input.idempotencyKey}, ${PAY_KEY(userId, input.idempotencyKey)}, ${from.id}::uuid, ${from.assetId},
         ${input.method}, ${this.sql.json(input.recipient as never)}, ${amount}::numeric, 'asked'
       )
-      ON CONFLICT (user_id, idempotency_key) DO NOTHING
+      ON CONFLICT DO NOTHING
     `;
+    // No conflict target: partner_key is PAY_KEY of (user_id, idempotency_key), so both unique keys name the same row, and a
+    // call that loses the insert race to the same key reads the row that won instead of raising 23505 on partner_key.
     const row = await this.paymentByKey(userId, input.idempotencyKey);
     if (
       row.from_space_id !== from.id ||

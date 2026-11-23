@@ -51,6 +51,11 @@
       "value": "{\"DE\":[{\"type\":\"passport\",\"label\":\"TEST: Passport\",\"originalRequired\":true},{\"type\":\"national_id\",\"label\":\"TEST: National ID card\",\"originalRequired\":true}],\"US\":[{\"type\":\"passport\",\"label\":\"TEST: Passport\",\"originalRequired\":true},{\"type\":\"drivers_license\",\"label\":\"TEST: Driver's license\",\"originalRequired\":true}]}",
       "note": "TEST: accepted ID types for DE and US only, so another country reads not published (J-identity-08 #2)."
     },
+    "IDENTITY_STREAM_TOKEN_TTL_SECONDS": {
+      "service": "identity",
+      "value": "20",
+      "note": "LOCAL TEST ONLY, not an owner decision: a stream token from POST /api/v1/stream/token opens the private stream for twenty seconds, so a journey can wait out its end and see ws.token_expired (J-developer-09 #2). LOCAL_STACK_IDENTITY_STREAM_TOKEN_TTL=off leaves it blank, so every mint refuses identity.stream_token_ttl_unset."
+    },
     "IDENTITY_REQUEST_SIGN_WINDOW_SECONDS": {
       "service": "identity",
       "value": "300",

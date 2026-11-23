@@ -1,10 +1,10 @@
 import { useId, useRef, useState } from 'react';
-import { Button, ReviewDialog as Dialog } from '@intafaced/ui';
-import { uiCopy } from '../../../shared/ui-copy';
+import { Button } from '@intafaced/ui/lit';
+import { Sheet } from '@intafaced/ui/lit/templates';
 import { useResource } from '../../../shared/resource';
 import type { PersonalPayApi } from '../pay-api';
 import type { Contacts } from '../schemas';
-import { FailureText } from './OrderChat';
+import { FailureText } from './p2p-failure-text';
 import { p2pChatCopy } from './p2p-chat-copy';
 import {
   blockAndUnfollow,
@@ -63,17 +63,17 @@ export function ContactButtons({
   const following = view.status === 'ready' && view.following;
   const blocking = view.status === 'ready' && view.blocking;
   return (
-    <div className="p2p-contact" data-testid="contact-actions" lang={languageFor('contactsTitle')} dir={directionFor('contactsTitle')}>
+    <div className="lt-stack" data-testid="contact-actions" lang={languageFor('contactsTitle')} dir={directionFor('contactsTitle')}>
       <h3>{t('contactsTitle')}</h3>
       {following || blocking ? (
-        <p className="p2p-contact-status" data-testid="contact-status">
+        <p data-testid="contact-status">
           {following ? <span>{t('statusFollowing')}</span> : null}
           {blocking ? <span>{t('statusBlocked')}</span> : null}
         </p>
       ) : null}
-      <div className="p2p-cp-actions" role="group" aria-label={t('contactsTitle')}>
+      <div className="lt-actions" role="group" aria-label={t('contactsTitle')}>
         <Button
-          variant="secondary"
+          tone="secondary"
           disabled={off}
           aria-describedby={reasonId}
           onClick={() => onChange(following ? 'unfollow' : 'follow')}
@@ -82,7 +82,7 @@ export function ContactButtons({
           {following ? t('unfollowAction') : t('followAction')}
         </Button>
         <Button
-          variant="secondary"
+          tone="secondary"
           disabled={off}
           aria-describedby={reasonId}
           onClick={() => (blocking ? onChange('unblock') : onAskBlock())}
@@ -91,21 +91,21 @@ export function ContactButtons({
           {blocking ? t('unblockAction') : t('blockAction')}
         </Button>
         {view.status === 'failed' ? (
-          <Button variant="ghost" onClick={onReload}>
+          <Button tone="quiet" onClick={onReload}>
             {t('contactsRetry')}
           </Button>
         ) : null}
       </div>
-      <p className="muted" id={reasonId}>
+      <p className="lt-hint" id={reasonId}>
         {reason ?? t('followNote')}
       </p>
       {view.status === 'failed' ? (
-        <p role="alert" className="p2p-contact-problem" data-testid="contact-load-failed">
+        <p role="alert" data-testid="contact-load-failed">
           <FailureText kind={view.kind} />
         </p>
       ) : null}
       {saved ? (
-        <p role="status" className="pay-confirmed" data-testid="contact-saved">
+        <p role="status" data-testid="contact-saved">
           {saved === 'follow'
             ? t('savedFollow')
             : saved === 'unfollow'
@@ -116,7 +116,7 @@ export function ContactButtons({
         </p>
       ) : null}
       {failure ? (
-        <p role="alert" className="p2p-contact-problem" data-testid="contact-failure">
+        <p role="alert" data-testid="contact-failure">
           {partial ? <>{t('blockPartial')} </> : null}
           <FailureText kind={failure} />
         </p>
@@ -141,19 +141,19 @@ export function BlockConfirmBody({
 }) {
   const { t } = p2pChatCopy.useCopy();
   return (
-    <div className="form-stack" data-testid="block-confirm">
+    <div className="lt-stack" data-testid="block-confirm">
       <p>{t('blockBody')}</p>
       {failure ? (
-        <p role="alert" className="p2p-contact-problem">
+        <p role="alert">
           {partial ? <>{t('blockPartial')} </> : null}
           <FailureText kind={failure} />
         </p>
       ) : null}
-      <div className="actions">
-        <Button variant="sell" disabled={busy} onClick={onConfirm}>
+      <div className="lt-actions">
+        <Button tone="primary" disabled={busy} onClick={onConfirm}>
           {busy ? t('saving') : t('blockConfirm')}
         </Button>
-        <Button variant="ghost" disabled={busy} onClick={onCancel}>
+        <Button tone="quiet" disabled={busy} onClick={onCancel}>
           {t('blockCancel')}
         </Button>
       </div>
@@ -164,7 +164,6 @@ export function BlockConfirmBody({
 /** Follow / unfollow and block / unblock one member, read from and written to svc-p2p. */
 export function ContactActions({ pay, peerId }: { pay: PersonalPayApi; peerId: string }) {
   const { t } = p2pChatCopy.useCopy();
-  const ui = uiCopy.useCopy();
   const list = useResource((signal) => pay.contacts(signal), `pay:contacts:${pay.viewer}`);
   const [lists, setLists] = useState<Contacts | null>(null);
   const [busy, setBusy] = useState<ContactChange | null>(null);
@@ -235,12 +234,12 @@ export function ContactActions({ pay, peerId }: { pay: PersonalPayApi; peerId: s
         }}
       />
       {confirming ? (
-        <Dialog
-          closeLabel={ui.t('closeDialog')}
+        <Sheet
+          open
           title={t('blockTitle')}
-          onClose={() => {
-            if (!inFlight.current) setConfirming(false);
-          }}
+          // The sheet closes itself on Escape, so a close is always taken: a block still being sent lands its answer
+          // beside the buttons, never in a sheet that is gone.
+          onClose={() => setConfirming(false)}
         >
           <BlockConfirmBody
             busy={busy === 'block'}
@@ -249,7 +248,7 @@ export function ContactActions({ pay, peerId }: { pay: PersonalPayApi; peerId: s
             onConfirm={() => void change('block')}
             onCancel={() => setConfirming(false)}
           />
-        </Dialog>
+        </Sheet>
       ) : null}
     </>
   );

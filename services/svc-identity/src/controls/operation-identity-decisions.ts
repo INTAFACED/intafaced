@@ -1,19 +1,22 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction, type Queryable } from '@intafaced/db';
-import {
-  identityOperationDecisionInputSchema,
-  identityOperationDecisionSchema,
-  normalizeIdentityOperationInput,
-  canonicalIdentityOperationIntent,
-  type CurrentAuthorityInput,
-  type IdentityOperationDecision,
-  type IdentityOperationDecisionInput,
-  type IdentityOperationIntent,
+import type {
+  CurrentAuthorityInput,
+  IdentityOperationDecision,
+  IdentityOperationDecisionInput,
+  IdentityOperationIntent,
 } from '@intafaced/contracts';
+import { normalizeIdentityOperationInput, canonicalIdentityOperationIntent } from '@intafaced/contracts/operation-identity-client';
+import { identityOperationDecisionInputSchema, identityOperationDecisionSchema } from '@intafaced/contracts/operation-identity-decisions';
 import { lockFounderControls } from './founder-control-lock.js';
 
-type Refusal = 'auth.account_frozen' | 'auth.credential_denied' | 'auth.sub_account_denied' | 'trade.account_restricted';
+type Refusal =
+  | 'auth.account_frozen'
+  | 'auth.credential_denied'
+  | 'auth.sub_account_denied'
+  | 'trade.account_restricted'
+  | 'identity.account_frozen_self';
 type CredentialCheck = { subject: CurrentAuthorityInput | null; expiresAt: Date | null; refusal: Refusal | null };
 
 /** Immutable identity half of owner admission; owner restriction barriers are mandatory. */
@@ -130,6 +133,15 @@ export class OperationIdentityDecisions {
             SELECT restricted FROM trading_restrictions WHERE user_id = ${intent.operation.userId} FOR SHARE
           `;
             if (trading?.restricted || closing) refusal = 'trade.account_restricted';
+          }
+          // The owner's own freeze (J-wallet-13 #1 #2): INTAFACED takes no trading action for the person while it holds, a
+          // reduce-only stop included (svc-trade refuses those by the same freeze). Read after the user row's share lock,
+          // which the freeze takes FOR UPDATE, so a freeze and a fresh grant never both commit from stale reads.
+          if (refusal === null && intent.operation.service === 'svc-trade') {
+            const [own] = await tx<Array<{ id: string }>>`
+            SELECT id FROM account_self_freezes WHERE user_id = ${intent.operation.userId} AND state = 'frozen'
+          `;
+            if (own) refusal = 'identity.account_frozen_self';
           }
           const decision: IdentityOperationDecision =
             refusal !== null

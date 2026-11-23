@@ -1,13 +1,10 @@
 import type { Address } from 'viem';
-import {
-  PRICE_SETTINGS_UNSET,
-  protocolPortfolioInputSchema,
-  protocolPortfolioOutputSchema,
-  publicJurisdictionProcedure,
-  router,
-  TRPCError,
-} from '@intafaced/contracts';
+import { PRICE_SETTINGS_UNSET } from '@intafaced/contracts/protocol-swap';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { PROTOCOL_PORTFOLIO_READ } from '@intafaced/contracts/protocol-chain-procedures';
 import { isZeroAddress } from '../chain/availability.js';
+import { protocolRefusal } from '../refusal.js';
 import { readPortfolio, type PortfolioChain } from './portfolio.js';
 import type { PriceSetting } from './prices.js';
 import { TokensReadError } from './tokens.js';
@@ -28,10 +25,9 @@ export interface PortfolioRouterDeps {
  */
 export function createPortfolioRouter(deps: PortfolioRouterDeps) {
   return router({
-    read: publicJurisdictionProcedure('protocol', 'protocol')
-      .input(protocolPortfolioInputSchema)
-      .output(protocolPortfolioOutputSchema)
-      .query(async ({ input }) => {
+    read: mountRecord(
+      PROTOCOL_PORTFOLIO_READ,
+      async ({ input }) => {
         const setting = deps.priceSetting();
         if (!setting)
           throw new TRPCError({
@@ -50,6 +46,8 @@ export function createPortfolioRouter(deps: PortfolioRouterDeps) {
           if (err instanceof TokensReadError) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
           throw deps.toTrpcError(err);
         }
-      }),
+      },
+      protocolRefusal,
+    ),
   });
 }

@@ -50,11 +50,11 @@ The full slice specs (behaviour, tests, failure cases, references) live in the p
 
 ### Journey map
 
-The journeys are 451 (3005 steps) in `modules/<module>/acceptance/journeys.md`; when one is done is in [`../GLOSSARY.md`](../GLOSSARY.md). Order 1 is a module's first usable journey, and lane queues take its slices first. 70 steps still need a capability no slice covers yet.
+The journeys are 454 (3022 steps) in `modules/<module>/acceptance/journeys.md`; when one is done is in [`../GLOSSARY.md`](../GLOSSARY.md). Order 1 is a module's first usable journey, and lane queues take its slices first. 70 steps still need a capability no slice covers yet.
 
 | Module         | Journeys | Order 1 | Order 2 | Order 3 | Steps | Steps with no slice |
 | -------------- | -------- | ------- | ------- | ------- | ----- | ------------------- |
-| merchant       | 35       | 0       | 24      | 11      | 200   | 5                   |
+| merchant       | 37       | 0       | 26      | 11      | 211   | 5                   |
 | bank           | 31       | 5       | 17      | 9       | 190   | 10                  |
 | copy-bots-otc  | 30       | 0       | 18      | 12      | 210   | 5                   |
 | dex-protocol   | 30       | 0       | 19      | 11      | 251   | 0                   |
@@ -73,7 +73,7 @@ The journeys are 451 (3005 steps) in `modules/<module>/acceptance/journeys.md`; 
 | portfolio      | 17       | 3       | 9       | 5       | 101   | 11                  |
 | academy        | 16       | 0       | 11      | 5       | 97    | 0                   |
 | algo-dev       | 16       | 0       | 9       | 7       | 105   | 0                   |
-| home-ia        | 11       | 3       | 7       | 1       | 61    | 3                   |
+| home-ia        | 12       | 3       | 8       | 1       | 67    | 3                   |
 | more-catalogue | 11       | 0       | 8       | 3       | 68    | 1                   |
 
 ### Parked

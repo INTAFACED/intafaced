@@ -225,6 +225,9 @@ async function seed(out: string) {
       // A chain seeded before the TEST trading venue existed gets it now (J-dex-protocol-05 #9).
       const venue = await ensureVenueParts(clients(), out);
       if (venue) console.log(`trading venue: ${venue}`);
+      // A chain seeded before the P2P escrow existed gets it now (J-p2p-21).
+      const p2pEscrow = await ensureP2pEscrow(clients(), out);
+      if (p2pEscrow) console.log(`P2P escrow: ${p2pEscrow}`);
       // A chain seeded before the TEST lending market existed gets it now (J-dex-protocol-06 #4).
       const lending = await ensureLendingParts(clients(), out);
       if (lending) console.log(`lending market: ${lending}`);
@@ -399,6 +402,8 @@ async function seed(out: string) {
   await ensureVenueParts(all, out);
   // After the venue, for the same reason.
   await ensureLendingParts(all, out);
+  // Last, for the same reason.
+  await ensureP2pEscrow(all, out);
   await mineOnInterval(publicClient);
   console.log(`seeded: factory ${factory}, router ${router}, ${seeded.length} TEST pools, fee relay ${feeRelay}`);
 }
@@ -429,6 +434,25 @@ async function ensureAccountParts(
   const accountFactory = await deployed('AccountFactory', [accountImplementation]);
   writeFileSync(out, `${JSON.stringify({ ...record, accountFactory, accountImplementation }, null, 2)}\n`);
   return { accountFactory, accountImplementation };
+}
+
+/**
+ * The sovereign P2P escrow (RC-p2p-01, J-p2p-21): one SovereignEscrow that holds a TEST seller's TEST USD for one P2P
+ * order. It has no owner and no constructor arguments. Deployed once per chain and added to the record as `p2pEscrow`; a
+ * chain that already has it keeps it. Returns it, or null when it was there already. Runs on automine.
+ */
+async function ensureP2pEscrow({ publicClient, walletClient }: Clients, out: string): Promise<Address | null> {
+  const record = JSON.parse(readFileSync(out, 'utf8')) as { p2pEscrow?: Address };
+  if (record.p2pEscrow) {
+    const code = await publicClient.getCode({ address: record.p2pEscrow });
+    if (code && code !== '0x') return null;
+  }
+  const a = artifact('SovereignEscrow');
+  const hash = await walletClient.deployContract({ abi: a.abi, bytecode: a.bytecode, args: [] });
+  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  if (receipt.status !== 'success' || !receipt.contractAddress) throw new Error(`P2P escrow deploy failed: ${hash}`);
+  writeFileSync(out, `${JSON.stringify({ ...JSON.parse(readFileSync(out, 'utf8')), p2pEscrow: receipt.contractAddress }, null, 2)}\n`);
+  return receipt.contractAddress;
 }
 
 /** The TEST trading venue's one market: TEST Token A priced in TEST USD (both 6 decimals), no taker fee. */

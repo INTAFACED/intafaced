@@ -64,7 +64,7 @@
  *   - open: svc-matching POST /markets/:id/open consumes an identity action approval proposed by
  *     operator A and approved by a different signed-in operator B who passed a TOTP second factor
  *     (services/svc-identity/src/action-approval-router.ts). Only svc-trade may call that route, so the
- *     stack signs as svc-trade with its own internal secret (services/svc-matching/src/router.ts, TRADE_ONLY).
+ *     stack signs as svc-trade with its own internal secret (crates/svc-matching/src/door/mod.rs, TRADE_ONLY).
  *   - verify: identity kyc.submit by the account itself, then kyc.approve by operator A, which needs
  *     scope admin:compliance, a TOTP session and a consumed approval from operator B
  *     (services/svc-identity/src/router.ts, kyc.approve). User sessions never carry admin:compliance, so the
@@ -222,7 +222,7 @@ export function lifecycleIsFresh(publication, now = new Date(), renewBelowDays =
   return Date.parse(publication.expiresAt) - now.getTime() > renewBelowDays * 86_400_000;
 }
 
-/** Same hash services/svc-matching/src/action-approval-consume.ts computes for a matching action. */
+/** Same hash crates/svc-matching/src/approval.rs computes for a matching action. */
 export function matchingPayloadHash(actionType, fields) {
   return `sha256:${crypto
     .createHash('sha256')
@@ -237,7 +237,7 @@ export function identityPayloadHash(targetId, fields = {}) {
     .digest('hex')}`;
 }
 
-/** A four-eyes proposal for one book in matching: `open`, `halt` or `resume` (services/svc-matching/src/router.ts). */
+/** A four-eyes proposal for one book in matching: `open`, `halt` or `resume` (crates/svc-matching/src/door/venue.rs). */
 export function bookProposal(action, marketId) {
   if (!['open', 'halt', 'resume'].includes(action)) throw new Error(`no book action ${action}`);
   return {
@@ -418,7 +418,7 @@ function psqlRead(secrets, role, sql) {
     ],
     {
       encoding: 'utf8',
-      env: { PATH: '/usr/bin:/bin:/opt/homebrew/bin', PGPASSWORD: secrets.pgService },
+      env: { PATH: `${path.dirname(PSQL)}:/usr/bin:/bin`, PGPASSWORD: secrets.pgService },
     },
   );
   if (r.error) throw new Error(`psql could not start (${PSQL}): ${r.error.message}`);
@@ -805,6 +805,20 @@ export async function approverSessions(ctx) {
   return shared(ctx, 'founders', () => {
     const { ops, saveSteps } = founderOps(ctx, pair);
     return signInPair(ctx, ops, saveSteps);
+  });
+}
+
+/**
+ * One founder's session (`a` or `b`), for a read that needs only that founder: one TOTP step, never the pair's two. On a
+ * stack without enrolled founders, that key of the test operators' pair. A founder has at most two TOTP steps per 30 s
+ * window, so a read that signs in a founder it does not use makes the next sign-in of that founder wait on the clock.
+ */
+export async function founderSession(ctx, key) {
+  const pair = founderSignIns(readJson(path.join(ctx.paths.stateDir, FOUNDER_VAULT_NAME), null));
+  if (pair.length === 0) return (await operatorSessions(ctx))[key];
+  return shared(ctx, `founder:${key}`, () => {
+    const { ops, saveSteps } = founderOps(ctx, pair);
+    return signInOne(ctx, ops[key], saveSteps);
   });
 }
 
@@ -1261,14 +1275,14 @@ export async function dropEngineOrder(ctx, symbol, orderId) {
   return { symbol, marketId: market.id, orderId };
 }
 
-/** svc-trade's operator audit rows (admin.audit.feed) of one kind on one account, oldest first, every page, as founder A. */
+/** svc-trade's operator audit rows (admin.audit.feed) of one kind on one account, oldest first, every page, as founder A alone. */
 export async function tradeAudit(ctx, { kind, account }) {
-  const pair = await approverSessions(ctx);
+  const a = await founderSession(ctx, 'a');
   const rows = [];
   let cursor = null;
   for (let page = 0; page < 50; page++) {
     const got = data(
-      await ctx.edge.query('trade', 'admin.audit.feed', { kind, accountId: account, cursor, limit: 200 }, await pair.a.tradeOpsToken()),
+      await ctx.edge.query('trade', 'admin.audit.feed', { kind, accountId: account, cursor, limit: 200 }, await a.tradeOpsToken()),
     );
     if (!Array.isArray(got?.rows)) throw new Error(`trade admin.audit.feed gave no rows: ${JSON.stringify(got).slice(0, 300)}`);
     rows.push(...got.rows);
@@ -2719,6 +2733,8 @@ export const TEST_CHART_COUNTS = Object.freeze({
   drawingCap: 50,
   brushPointCap: 2000,
   delayedBoundarySeconds: 30,
+  // The owner's stale age (row d115): a stream older than this reads stale on the feed desk (J-charts-desk-18 #1). TEST.
+  staleAgeSeconds: 35,
   renderBudgetMs: 500,
   // 5% of the last price: a chart order dragged further than that asks first (J-charts-desk-15 #5). TEST stand-in.
   orderProtectionBps: 500,
@@ -3388,6 +3404,11 @@ export async function scopedConsoleSession(ctx, without) {
   };
 }
 
+/** The CLI's help: every command and its arguments, printed for one this script does not know. */
+export function gatesUsage() {
+  return 'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | withdraw-terms | withdraw-limit <tier> <assetId> unset|test | withdraw-fee <networkId> unset|test | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | kyc-reject <handle> <reasonCode> | kyc-capability-off <handle> <capability> <reasonCode> | trading-restrict <handle> restrict [<reasonCode>] | restore | account-close <handle> final <reasonCode> | halt <SYMBOL> | resume <SYMBOL> | posting-freeze on|off | age <handle> <seconds> | scoped-session --without <scope> | status';
+}
+
 async function main() {
   const cmd = process.argv[2] ?? 'status';
   // Usage first: a typo never signs anyone in or touches the stack.
@@ -3589,10 +3610,7 @@ async function main() {
     } else if (cmd === 'status') {
       say(JSON.stringify(await status(ctx), null, 2));
     } else {
-      die(
-        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | withdraw-terms | withdraw-limit <tier> <assetId> unset|test | withdraw-fee <networkId> unset|test | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | kyc-reject <handle> <reasonCode> | kyc-capability-off <handle> <capability> <reasonCode> | trading-restrict <handle> restrict [<reasonCode>] | restore | account-close <handle> final <reasonCode> | halt <SYMBOL> | resume <SYMBOL> | posting-freeze on|off | age <handle> <seconds> | scoped-session --without <scope> | status',
-        2,
-      );
+      die(gatesUsage(), 2);
     }
   } catch (err) {
     die(String(err.message ?? err));

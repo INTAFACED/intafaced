@@ -2,8 +2,9 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { test, expect } from './journey.mjs';
+import { DAY as DAY_MS, utcDay } from './clock.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { ORIGIN, api, restartWithSetting } from './stack.mjs';
+import { api, ORIGIN, restartService } from './stack.mjs';
 import { signUp } from './desk.mjs';
 import { userIdOf } from './copy.mjs';
 
@@ -49,8 +50,6 @@ async function staff(kind, procedure, input) {
   return JSON.parse(res.text).result.data;
 }
 
-const DAY_MS = 86_400_000;
-const utcDay = (t) => new Date(t).toISOString().slice(0, 10);
 /** The console's activity window: the last 14 whole UTC days, today last (apps/admin analytics-model.ts). */
 const windowNow = () => ({ from: utcDay(Date.now() - 13 * DAY_MS), to: utcDay(Date.now()) });
 const today = () => utcDay(Date.now());
@@ -190,7 +189,7 @@ test(`${J} #2 per-learner summaries: empty when no learner matches, one row per 
   await expect(row).toContainText(TAG);
 
   // The owner's page size left blank: svc-academy lists no learner and says why, in the page's full layout.
-  restartWithSetting('academy', 'LOCAL_STACK_ACADEMY_LEARNER_SUMMARIES', 'off');
+  await restartService('academy', { LOCAL_STACK_ACADEMY_LEARNER_SUMMARIES: 'off' });
   try {
     await open();
     const refused = desk.locator('[data-code="academy.learner_summaries_list_limit_unset"]');
@@ -199,7 +198,7 @@ test(`${J} #2 per-learner summaries: empty when no learner matches, one row per 
     await expect(desk.getByTestId('learner-summaries')).toHaveCount(0);
     await expect(desk.getByTestId('activity-by-day')).toBeVisible();
   } finally {
-    restartWithSetting('academy', 'LOCAL_STACK_ACADEMY_LEARNER_SUMMARIES', null);
+    await restartService('academy', { LOCAL_STACK_ACADEMY_LEARNER_SUMMARIES: null });
   }
 });
 
@@ -278,7 +277,7 @@ test(`${J} #4 a finished report downloads with its time and hash; once expired i
 
   // Later: with svc-academy keeping a file one minute, a report made then runs out on its own. The list says Expired and
   // the file is refused.
-  restartWithSetting('academy', 'LOCAL_STACK_ACADEMY_REPORT_CENTRE_RETENTION', '1');
+  await restartService('academy', { LOCAL_STACK_ACADEMY_REPORT_CENTRE_RETENTION: '1' });
   try {
     await desk.reload();
     const short = await requestReport(desk);
@@ -302,11 +301,11 @@ test(`${J} #4 a finished report downloads with its time and hash; once expired i
     expect(body.code).toBe('academy.report_expired');
     expect(body.title).toBe('This report file has expired');
   } finally {
-    restartWithSetting('academy', 'LOCAL_STACK_ACADEMY_REPORT_CENTRE_RETENTION', null);
+    await restartService('academy', { LOCAL_STACK_ACADEMY_REPORT_CENTRE_RETENTION: null });
   }
 
   // The owner's retention left blank: a request is refused by name and no task is made.
-  restartWithSetting('academy', 'LOCAL_STACK_ACADEMY_REPORT_CENTRE_RETENTION', 'off');
+  await restartService('academy', { LOCAL_STACK_ACADEMY_REPORT_CENTRE_RETENTION: 'off' });
   try {
     await desk.reload();
     const count = await desk.locator('[data-report-task]').count();
@@ -318,7 +317,7 @@ test(`${J} #4 a finished report downloads with its time and hash; once expired i
     await expect(outcome(desk)).toContainText('The report retention is not set');
     await expect(desk.locator('[data-report-task]')).toHaveCount(count);
   } finally {
-    restartWithSetting('academy', 'LOCAL_STACK_ACADEMY_REPORT_CENTRE_RETENTION', null);
+    await restartService('academy', { LOCAL_STACK_ACADEMY_REPORT_CENTRE_RETENTION: null });
   }
 });
 

@@ -62,7 +62,9 @@ describe('coin key stats: network, contract and links where known (J-portfolio-1
       { networkId: 'base', label: 'TEST Base', contract: null, links: [] },
     ]);
     await mount();
-    expect(host.querySelector('[data-testid="coin-network"] .coin-stats__value')!.textContent).toBe('TEST Ethereum, TEST Base');
+    expect(host.querySelector('[data-testid="coin-network"] [data-testid="coin-stats__value"]')!.textContent).toBe(
+      'TEST Ethereum, TEST Base',
+    );
     const details = host.querySelectorAll('[data-testid="coin-network-detail"]');
     expect([...details].map((d) => d.getAttribute('data-network'))).toEqual(['ethereum']);
     expect(details[0]!.textContent).toContain('On TEST Ethereum');

@@ -67,6 +67,11 @@ export const UPSTREAMS: readonly Upstream[] = [
   // reached under a different contract, so the kill-switch must treat the two
   // as one module or halting the market would only halt half of it.
   { prefix: '/api/v1', module: 'trade', envVar: 'TRADE_URL', devUrl: 'http://localhost:4004', preservePath: true },
+  // The private stream's short-lived token (J-developer-09 #2): svc-identity cuts it from the key's own exchanged
+  // principal, so it is served there, at the same absolute path. Longest prefix wins, so only this one path leaves
+  // `/api/v1`. `module: 'trade'` and not 'identity': the token opens the private trade stream, so halting trade halts
+  // it too, and a key bound to the trade product reaches it as it reaches every other `/api/v1` path.
+  { prefix: '/api/v1/stream/token', module: 'trade', envVar: 'IDENTITY_URL', devUrl: 'http://localhost:4002', preservePath: true },
   { prefix: '/api/token', module: 'token', envVar: 'TOKEN_URL', devUrl: 'http://localhost:4003' },
   { prefix: '/api/agents', module: 'agents', envVar: 'AGENTS_URL', devUrl: 'http://localhost:4008' },
   { prefix: '/api/bank', module: 'bank', envVar: 'BANK_URL', devUrl: 'http://localhost:4009' },

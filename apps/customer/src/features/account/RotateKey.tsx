@@ -2,8 +2,10 @@ import { useMemo, useRef, useState } from 'react';
 import { API_KEY_ROTATE_REFUSALS, type ApiKeyRotateOutput } from '@intafaced/contracts/api-keys';
 import type { ApiResult } from '../../shared/api';
 import { defineCopy } from '../../shared/i18n';
-import { Button, Dialog, Failure, Field } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { Button, Field } from '@intafaced/ui/lit';
+import { Sheet } from '@intafaced/ui/lit/templates';
+import { useSession } from '../session';
+import { Failure } from './kit-parts';
 import { ShownOnce } from './ApiKeyCreate';
 import { rotateDeveloperKey } from './developer-keys-api';
 
@@ -100,7 +102,7 @@ export function RotateKey({ keyId, onRotated }: { keyId: string; onRotated: () =
         </>
       )}
       <Button
-        variant="secondary"
+        tone="secondary"
         onClick={() => {
           setMade(null);
           setOpen(true);
@@ -109,7 +111,7 @@ export function RotateKey({ keyId, onRotated }: { keyId: string; onRotated: () =
         {t('open')}
       </Button>
       {open && (
-        <Dialog title={t('title')} onClose={() => !busy && setOpen(false)}>
+        <Sheet open title={t('title')} onClose={() => !busy && setOpen(false)}>
           <p>{t('body')}</p>
           <Field
             label={t('overlap')}
@@ -120,18 +122,14 @@ export function RotateKey({ keyId, onRotated }: { keyId: string; onRotated: () =
             error={invalid ? t('overlapInvalid') : undefined}
             onChange={(event) => setOverlap(event.currentTarget.value)}
           />
-          {refused && (
-            <p className="error-text" role="alert">
-              {t(`refused.${refused}`)}
-            </p>
-          )}
+          {refused && <p role="alert">{t(`refused.${refused}`)}</p>}
           {failure && <Failure result={failure} />}
-          <div className="api-keys__actions">
-            <Button onClick={() => void rotate()} disabled={busy}>
+          <div className="lt-actions">
+            <Button tone="primary" onClick={() => void rotate()} disabled={busy}>
               {busy ? t('sending') : t('confirm')}
             </Button>
           </div>
-        </Dialog>
+        </Sheet>
       )}
     </>
   );

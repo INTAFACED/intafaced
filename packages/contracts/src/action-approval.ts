@@ -72,6 +72,8 @@ export const SAME_PERSON_ACTION_TYPES = [
   // Withdrawals. Identity mints and consumes these. svc-bank ramps still gate on the
   // trade:withdraw bearer until a bank change reads the approval.
   'bank.step_up.ramps.offramp',
+  // A move from the person's partner account to their own wallet, on to their trading account (J-derivatives-25 #2).
+  'bank.step_up.ownMoves.toWallet',
   'bank.step_up.ramps.setWithdrawDestination',
   // Merchant payout destination. Identity mints it; svc-pay consumes it.
   // A bank door cannot spend this approval (target service follows the prefix).

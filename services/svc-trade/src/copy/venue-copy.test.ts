@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { MemoryFreezeRead } from '../quant/live-run/ports.js';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
@@ -19,6 +20,7 @@ import { listedTestStore } from '../venue/venue-listing-store.js';
 import { StoreVenueRoutingGate } from '../venue/venue-listing.js';
 import { copyMirrorClientOrderId } from './auto-mirror-place.js';
 import { copyCloseKey } from './copy-close.js';
+import { copyFollowPositionsAnswer } from './follow-answers.js';
 import { MemoryCopyFollowStore } from './follow-store.js';
 import type { CopyFollow } from './follows.js';
 import {
@@ -128,7 +130,14 @@ describe('copy trading on the venue (TEST venue)', { timeout: 120_000 }, () => {
       now: () => new Date(),
     });
     accountStore = new InMemoryAgentAccountStore();
-    accounts = new AgentAccounts({ door, store: accountStore, stepUp, values: VALUES, now: () => new Date() });
+    accounts = new AgentAccounts({
+      door,
+      store: accountStore,
+      stepUp,
+      values: VALUES,
+      freeze: new MemoryFreezeRead(),
+      now: () => new Date(),
+    });
     orders = new AgentOrders({
       door,
       accounts: accountStore,
@@ -136,6 +145,7 @@ describe('copy trading on the venue (TEST venue)', { timeout: 120_000 }, () => {
       keys: { read: async () => ({ state: 'none' }) },
       stepUp,
       values: VALUES,
+      freeze: new MemoryFreezeRead(),
       now: () => new Date(),
     });
     copyStore = new MemoryCopyFollowStore();
@@ -322,7 +332,10 @@ describe('copy trading on the venue (TEST venue)', { timeout: 120_000 }, () => {
     const since = new Date(Date.now() - 1);
     await leaderBuys('0.002', 1);
     await copyNewFills(since);
-    const [copy] = (await desk.copiedOrders(FOLLOW, FOLLOWER))!;
+    const copies = (await desk.copiedOrders(FOLLOW, FOLLOWER))!;
+    const [copy] = copies;
+    // copy.followPositions sends these through its answer schema byte for byte, key order included.
+    expect(JSON.stringify(copyFollowPositionsAnswer.parse({ positions: copies }))).toBe(JSON.stringify({ positions: copies }));
     const record = (await accountStore.find(FOLLOWER, accountId))!;
     const cloid = (await actions.find(FOLLOWER, copy!.orderId))!.prepared.venueClientOrderId!;
     const onVenue = (await subFills()).filter((f) => f.venueClientOrderId === cloid);

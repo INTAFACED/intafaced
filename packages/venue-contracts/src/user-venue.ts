@@ -335,6 +335,33 @@ export interface MarketMarginTransferIntent {
 }
 
 /**
+ * Move USDC between the account's own perps and spot balances, while the venue holds the account in standard mode
+ * (J-derivatives-29 #2 #3 #6; Hyperliquid: `usdClassTransfer`), signed by the owner's wallet. Only free balance moves;
+ * the venue refuses `insufficient_balance` for more than the source balance holds free, and refuses outright where the
+ * account's mode keeps one balance per asset. Nothing leaves the venue and the ledger posts nothing.
+ */
+export interface SpotPerpsTransferIntent {
+  readonly kind: 'spot_perps_transfer';
+  readonly direction: 'perps_to_spot' | 'spot_to_perps';
+  readonly asset: string;
+  /** Always positive. */
+  readonly amount: Amount;
+  /** The business key of this move (`class-move:<owner>:<draft>`): a retry re-sends the same bytes and it moves once. */
+  readonly moveKey: string;
+}
+
+/**
+ * Change the venue account's mode (J-derivatives-29 #7 #8), the person's own signed venue action; the venue may refuse it,
+ * and the mode is then unchanged. Only the owner's wallet signs it; INTAFACED never changes it for them.
+ */
+export interface SetAccountModeIntent {
+  readonly kind: 'set_account_mode';
+  readonly mode: VenueAccountMode;
+  /** The business key of this change (`account-mode:<owner>:<draft>`). */
+  readonly changeKey: string;
+}
+
+/**
  * Add margin to, or remove margin from, the account's open isolated position on one perpetual (J-derivatives-06 #2 #3),
  * one signed venue action (Hyperliquid: `updateIsolatedMargin`). `add` moves free collateral into the position's margin;
  * `remove` moves it back, and the venue refuses a removal that would take the margin below its own limit for the
@@ -367,6 +394,57 @@ export interface PlaceUserOrdersIntent {
   readonly actionKey: string;
 }
 
+/**
+ * Put USDC into a venue vault, or take it out, signed by the owner's wallet on the main account (J-derivatives-31 #2 #5;
+ * Hyperliquid: `vaultTransfer`). The vault and the money in it are the venue's: the venue keeps the position, its lock-up
+ * and the leader's profit share, and refuses a withdrawal before the position's lock-up ends, naming the time it ends. A
+ * deposit moves only free balance. Nothing leaves the venue and the ledger posts nothing.
+ */
+export interface VaultTransferIntent {
+  readonly kind: 'vault_transfer';
+  /** The vault's address, as `vaults()` lists it. */
+  readonly vault: string;
+  readonly direction: 'deposit' | 'withdraw';
+  readonly asset: string;
+  /** Always positive. */
+  readonly amount: Amount;
+  /** The business key of this move (`vault-move:<owner>:<vault>:<direction>:<draft>`): a retry re-sends the same bytes. */
+  readonly moveKey: string;
+}
+
+/**
+ * Move HYPE (the venue's staking asset) between the account's spot balance and its staking balance, signed by the owner's
+ * wallet on the main account (J-cex-spot-21 #2 #7; Hyperliquid: `cDeposit` and `cWithdraw`). Into staking it moves at
+ * once; back to spot it waits in the venue's unstaking queue for the venue's own time, and the venue refuses a new one
+ * while its limit of pending withdrawals is already pending. Nothing leaves the venue and the ledger posts nothing.
+ */
+export interface StakingTransferIntent {
+  readonly kind: 'staking_transfer';
+  readonly direction: 'to_staking' | 'to_spot';
+  readonly asset: string;
+  /** Always positive. */
+  readonly amount: Amount;
+  /** The business key of this move (`stake-move:<owner>:<direction>:<draft>`): a retry re-sends the same bytes. */
+  readonly moveKey: string;
+}
+
+/**
+ * Delegate staked HYPE to one validator, or undelegate it back to the staking balance, signed by the owner's wallet on the
+ * main account (J-cex-spot-21 #3 #6; Hyperliquid: `tokenDelegate`). The venue sets the delegation's lock-up and refuses an
+ * undelegation before it ends, naming the time it ends.
+ */
+export interface StakingDelegateIntent {
+  readonly kind: 'staking_delegate';
+  /** The validator's address, as `staking()` lists it. */
+  readonly validator: string;
+  readonly direction: 'delegate' | 'undelegate';
+  readonly asset: string;
+  /** Always positive. */
+  readonly amount: Amount;
+  /** The business key of this move (`delegation:<owner>:<validator>:<direction>:<draft>`). */
+  readonly moveKey: string;
+}
+
 export type VenueIntent =
   | PlaceUserOrderIntent
   | PlaceUserOrdersIntent
@@ -383,7 +461,12 @@ export type VenueIntent =
   | CreateSubAccountIntent
   | SubAccountTransferIntent
   | MarketMarginTransferIntent
-  | UpdateIsolatedMarginIntent;
+  | UpdateIsolatedMarginIntent
+  | SpotPerpsTransferIntent
+  | SetAccountModeIntent
+  | VaultTransferIntent
+  | StakingTransferIntent
+  | StakingDelegateIntent;
 
 export type VenueIntentKind = VenueIntent['kind'];
 
@@ -396,6 +479,11 @@ export const OWNER_ONLY_INTENTS: ReadonlySet<VenueIntentKind> = new Set<VenueInt
   'create_sub_account',
   'sub_account_transfer',
   'market_margin_transfer',
+  'spot_perps_transfer',
+  'set_account_mode',
+  'vault_transfer',
+  'staking_transfer',
+  'staking_delegate',
 ]);
 
 /** Actions signed on the owner's MAIN account only, never on a sub-account. */
@@ -403,9 +491,20 @@ export const MAIN_ACCOUNT_ONLY_INTENTS: ReadonlySet<VenueIntentKind> = new Set<V
   'create_sub_account',
   'sub_account_transfer',
   'market_margin_transfer',
+  'vault_transfer',
+  'staking_transfer',
+  'staking_delegate',
 ]);
 
 export type VenueMarginMode = 'cross' | 'isolated';
+
+/**
+ * The venue's own setting on the person's account for how it keeps their money (J-derivatives-29; Hyperliquid
+ * `account-abstraction-modes`): `standard` keeps separate spot and perps balances; `unified` and `portfolio_margin` hold one
+ * balance for each asset, used by spot and perps alike.
+ */
+export type VenueAccountMode = 'standard' | 'unified' | 'portfolio_margin';
+export const VENUE_ACCOUNT_MODES: readonly VenueAccountMode[] = ['standard', 'unified', 'portfolio_margin'];
 
 // ════════════════════════════════════════════════════════════════════════════
 // PREPARED → SIGNED → SUBMITTED
@@ -514,6 +613,11 @@ export type VenueRefusalCode =
   | 'builder_fee_not_approved'
   /** The order's builder fee is above the venue's own published cap for its market (`UserVenueMarket.builderFeeCapBps`). */
   | 'builder_fee_above_cap'
+  /**
+   * The account already holds the most active builder-fee approvals the venue allows at a time, so it refuses one for
+   * another builder. The detail is the venue's own reason with its limit; revoking one of the others frees a place.
+   */
+  | 'builder_approval_limit'
   /** An agent key tried an owner-only action (withdraw, approvals). */
   | 'agent_not_permitted'
   /** The signer is not the account's owner or an approved agent. */
@@ -627,6 +731,18 @@ export interface VenueBuilderTotal {
 }
 
 /**
+ * Our builder address's account mode at the venue (J-ops-console-28), beside the mode the venue requires an address to be
+ * in to accrue builder fees. Each is the venue's own name for it: on Hyperliquid, "Builder code addresses must be in
+ * standard mode to accrue builder fees". `mode` not known is a mode that can't be read, never "ok"; `required` not known
+ * is a requirement the venue does not publish.
+ */
+export interface VenueBuilderAccountMode {
+  readonly builder: string;
+  readonly mode: MaybeKnown<string>;
+  readonly required: MaybeKnown<string>;
+}
+
+/**
  * One claim of builder fees, as the venue itself records it (J-derivatives-17; launch money model, rule 5): the venue paid
  * `amount` of the builder's earned fees into the builder's own account at the venue. `claimId` is the venue's own id for
  * it, so a claim read twice is one claim.
@@ -659,7 +775,12 @@ export interface UserVenueBalance {
 export interface UserVenueLockSplit {
   readonly inOrders: Amount;
   readonly margin: Amount;
+  /** Staked and not delegated (J-cex-spot-21 #8: the staking balance). */
   readonly staked: Amount;
+  /** Delegated to validators (J-cex-spot-21 #8); absent on a venue or asset with none. With it the parts still add to `locked`. */
+  readonly delegated?: Amount;
+  /** Waiting in the venue's unstaking queue (J-cex-spot-21 #8); absent on a venue or asset with none. */
+  readonly unstaking?: Amount;
 }
 
 export interface UserVenueFill {
@@ -787,6 +908,274 @@ export interface UserVenueAccountSummary {
   readonly usedMargin: Amount;
   readonly maintenanceMargin: Amount;
   readonly marginRatio: MaybeKnown<Amount>;
+  /**
+   * The account's cross margin as the venue judges it (J-derivatives-26), or `null` with no cross position open (and on a
+   * venue that reads none). Absent where the venue reports no cross figure at all.
+   */
+  readonly cross?: UserVenueCrossMargin | null;
+}
+
+/**
+ * Cross margin on one venue account, every figure the venue's own: the cross positions share the account's equity, the
+ * venue calls for margin while equity is below their maintenance requirement (`margin_call`), and liquidates every cross
+ * position of the account once equity falls to `liquidationEquity`, the account's liquidation level. `rule` is the venue's
+ * own words for both. A cross loss reaches only this venue account, never a balance outside it.
+ */
+export interface UserVenueCrossMargin {
+  readonly state: 'healthy' | 'margin_call';
+  readonly equity: Amount;
+  readonly maintenanceMargin: Amount;
+  /** Maintenance over equity, a fraction; `known: false` where equity is not above zero. */
+  readonly marginRatio: MaybeKnown<Amount>;
+  readonly liquidationEquity: Amount;
+  readonly rule: string;
+}
+
+/**
+ * The account's mode as the venue reports it (J-derivatives-29 #1 #9 #11). `mode` is `null` where the venue does not
+ * report it: never a guess. In standard mode `spot` and `perps` are the two balances, each as the venue reports it (and
+ * `balances()` is then the perps balance); in a mode with one balance per asset both are `null` and `balances()` holds it.
+ * `actions` is the venue's count of the account's actions today and its daily limit for the mode (`dailyLimit` `null`:
+ * the mode has none), or `null` where the venue reports no count.
+ */
+export interface UserVenueAccountMode {
+  readonly mode: VenueAccountMode | null;
+  readonly spot: readonly UserVenueBalance[] | null;
+  readonly perps: readonly UserVenueBalance[] | null;
+  readonly actions: { readonly usedToday: number; readonly dailyLimit: number | null } | null;
+}
+
+// ── Liquidation and its aftermath, as the venue reports them (J-derivatives-07) ─────────────────────────────────────
+// The venue liquidates, charges its fee and runs its insurance fund and auto-deleveraging: every figure below is the
+// venue's own, with the venue's ids, and the app computes none of them. INTAFACED runs no fund, and our ledger posts
+// nothing for a liquidation (the launch money model).
+
+/** Where a position's liquidation stands on the venue: none, in progress (parts closed, more to come) or done. */
+export type VenueLiquidationState = 'none' | 'in_progress' | 'done';
+
+/** One part of a liquidation the venue carried out: it closed `size` of the position at `price` and charged `fee`. */
+export interface UserVenueLiquidationPart {
+  /** The venue's own id for this part. */
+  readonly partId: string;
+  readonly size: Amount;
+  readonly price: Amount;
+  /** The venue's liquidation fee on this part, as the venue charged it. */
+  readonly fee: Amount;
+  readonly feeAsset: string;
+  readonly liquidatedAt: Date;
+}
+
+/** One liquidation of one position, as the venue reports it, with every part it closed (a partial one lists each). */
+export interface UserVenueLiquidation {
+  /** The venue's own id for the liquidation. */
+  readonly liquidationId: string;
+  readonly symbol: string;
+  /** The side of the position the venue liquidated. */
+  readonly side: 'long' | 'short';
+  readonly state: Exclude<VenueLiquidationState, 'none'>;
+  readonly parts: readonly UserVenueLiquidationPart[];
+  readonly startedAt: Date;
+}
+
+/**
+ * A position's liquidation state on one perpetual and the venue's rules for it, in the venue's own words: how it prices
+ * a liquidation (`priceRule`) and what fee it charges (`feeRule`, `null` where it publishes none). `liquidationId` names
+ * the venue's latest liquidation there, `null` when there has been none.
+ */
+export interface UserVenueLiquidationStatus {
+  readonly symbol: string;
+  readonly state: VenueLiquidationState;
+  readonly liquidationId: string | null;
+  readonly priceRule: string;
+  readonly feeRule: string | null;
+}
+
+// ── Venue vaults, as the venue publishes them (J-derivatives-31) ──────────────────────────────────────────────────
+// A vault is the venue's: the venue runs it, holds its money, sets its lock-up and the leader's profit share, and counts a
+// depositor's position in their account value. Every figure below is the venue's own; `null` is a figure the venue does
+// not publish, never a zero or a guess of ours.
+
+/** One vault the venue lists: a protocol vault the venue runs itself, or a user vault one leader trades. */
+export interface UserVenueVault {
+  /** The vault's address on the venue, what a `vault_transfer` names. */
+  readonly address: string;
+  readonly name: string;
+  readonly kind: 'protocol' | 'user';
+  /** The leader's address for a user vault; `null` for a protocol vault. */
+  readonly leader: string | null;
+  /** The one asset it takes and pays back. */
+  readonly asset: string;
+  /** How long each deposit is locked before it can be withdrawn, in seconds; `null`: not published. */
+  readonly lockUpSeconds: number | null;
+  /** The share of a depositor's profit the leader takes on withdrawal, in basis points; `null`: not published. */
+  readonly profitShareBps: number | null;
+  /** What the vault holds, in `asset`; `null`: not published. */
+  readonly vaultValue: Amount | null;
+  /** The vault's return over its last `days` days, in basis points (negative is a loss); `null`: not published. */
+  readonly pastReturn: { readonly bps: number; readonly days: number } | null;
+}
+
+/** The account's position in one vault, as the venue reports it. */
+export interface UserVenueVaultPosition {
+  readonly vault: string;
+  readonly name: string;
+  readonly asset: string;
+  /** What the position is worth now, as the venue values it. */
+  readonly equity: Amount;
+  /** When the position's lock-up ends, as the venue sets it; before then a withdrawal is refused. */
+  readonly lockUpEndsAt: Date;
+}
+
+/** One deposit into or withdrawal from a vault, as the venue records it. */
+export interface UserVenueVaultTransfer {
+  readonly vault: string;
+  readonly direction: 'deposit' | 'withdraw';
+  /** The amount asked for, in the vault's asset. */
+  readonly amount: Amount;
+  /** What reached the account's free balance (a withdrawal), or left it (a deposit). */
+  readonly creditedAmount: Amount;
+  /** The leader's profit share the venue took on a withdrawal; `null` on a deposit. */
+  readonly leaderShare: Amount | null;
+  readonly transferredAt: Date;
+  /** The signed action's nonce, the one id the venue knows it by. */
+  readonly nonce: string;
+}
+
+/**
+ * The account's vault positions and its account value as the venue counts it (Hyperliquid `portfolio-graphs.md`: "Account
+ * value includes ... vault balances"): `accountValue` is the venue's own figure, in `asset`, or `null` where it publishes
+ * none. Its transfers into and out of vaults, newest first.
+ */
+export interface UserVenueVaultHoldings {
+  readonly positions: readonly UserVenueVaultPosition[];
+  readonly accountValue: { readonly asset: string; readonly amount: Amount } | null;
+  readonly transfers: readonly UserVenueVaultTransfer[];
+}
+
+// ── Staking, as the venue publishes it (J-cex-spot-21) ─────────────────────────────────────────────────────────────
+// Staking is the venue's: it lists the validators, sets the reward rate, the delegation lock-up, the unstaking queue and
+// its limit, and the fee discount a stake earns on its own fee. Every figure is the venue's; `null` is one it does not
+// publish, never a zero or a guess of ours.
+
+/** One validator the venue lists, as it reports it. */
+export interface UserVenueValidator {
+  /** What a `staking_delegate` names. */
+  readonly address: string;
+  readonly name: string;
+  /** The validator's commission on rewards, in whole basis points; `null`: not published. */
+  readonly commissionBps: number | null;
+  /** What is delegated to it, in the staking asset; `null`: not published. */
+  readonly totalStake: Amount | null;
+  readonly status: 'active' | 'jailed' | 'inactive';
+}
+
+/** One staking tier of the venue's fee discount: from `fromStaked` staked, `discountBps` off the venue's own fee. */
+export interface UserVenueStakingTier {
+  readonly name: string;
+  readonly fromStaked: Amount;
+  /** Whole basis points off the venue's fee (1000 is 10%). */
+  readonly discountBps: number;
+}
+
+/** The venue's staking terms (J-cex-spot-21 #1). */
+export interface UserVenueStaking {
+  /** The asset staked (HYPE). */
+  readonly asset: string;
+  readonly validators: readonly UserVenueValidator[];
+  /** The yearly reward rate, in whole basis points; `null`: not published. */
+  readonly rewardRateBps: number | null;
+  /** The fee-discount tiers, lowest first; `null`: not published. */
+  readonly discountTiers: readonly UserVenueStakingTier[] | null;
+  /** How long a delegation is locked before it can be undelegated, in seconds; `null`: not published. */
+  readonly delegationLockUpSeconds: number | null;
+  /** How long a move from staking to spot waits in the queue, in seconds; `null`: not published. */
+  readonly unstakingQueueSeconds: number | null;
+  /** The most staking withdrawals the venue lets wait at once; `null`: not published. */
+  readonly maxPendingWithdrawals: number | null;
+}
+
+/** The account's staking as the venue reports it (J-cex-spot-21 #2 #3 #6 #7 #8). */
+export interface UserVenueStakingAccount {
+  readonly asset: string;
+  /** Staked and not delegated: the staking balance. */
+  readonly staked: Amount;
+  readonly delegations: readonly {
+    readonly validator: string;
+    readonly name: string;
+    readonly amount: Amount;
+    /** When the venue lets it be undelegated. */
+    readonly lockUpEndsAt: Date;
+  }[];
+  /** Moves from staking to spot waiting in the venue's queue, oldest first, each with the time the venue says it arrives. */
+  readonly pending: readonly { readonly amount: Amount; readonly requestedAt: Date; readonly arrivesAt: Date; readonly nonce: string }[];
+  /** Moves that came through the queue to spot, newest first. */
+  readonly arrived: readonly { readonly amount: Amount; readonly requestedAt: Date; readonly arrivedAt: Date; readonly nonce: string }[];
+  /** The rewards the venue paid the account's delegations, in all and newest first. */
+  readonly rewards: {
+    readonly total: Amount;
+    readonly recent: readonly { readonly validator: string; readonly amount: Amount; readonly rewardedAt: Date }[];
+  };
+}
+
+/**
+ * The venue's staking discount on its own fee for one account (J-cex-spot-21 #4): the stake it counts, the tier and its
+ * discount, and each listed market's venue rates before and after it, as the venue charges them. Our builder fee is not
+ * the venue's fee and the discount never touches it.
+ */
+export interface VenueStakingDiscount {
+  readonly asset: string;
+  readonly countedStake: Amount;
+  /** `null`: below the first tier. */
+  readonly tierName: string | null;
+  /** Whole basis points off the venue's fee; 0 below the first tier. */
+  readonly discountBps: number;
+  readonly markets: readonly {
+    readonly symbol: string;
+    readonly kind: 'spot' | 'perpetual';
+    readonly before: VenueFeeRates;
+    readonly after: VenueFeeRates;
+  }[];
+}
+
+/** The venue's own insurance fund or vault: its name, what it holds, where to read it and its rule, as it publishes them. */
+export interface UserVenueInsuranceFund {
+  readonly name: string;
+  readonly asset: string;
+  readonly balance: Amount;
+  /** Where a person reads the fund on the venue itself, in the venue's words or as its address. */
+  readonly whereToRead: string;
+  readonly rule: string;
+}
+
+/** The venue's auto-deleveraging rules, as it publishes them, with the version a person acknowledges. */
+export interface UserVenueAdlRules {
+  readonly version: string;
+  readonly text: string;
+}
+
+/** One auto-deleveraging of the account's position, as the venue reports it: the close, and the venue's notice. */
+export interface UserVenueDeleverage {
+  /** The venue's own id for it. */
+  readonly adlId: string;
+  readonly symbol: string;
+  /** The side of the account's position the venue closed. */
+  readonly side: 'long' | 'short';
+  readonly size: Amount;
+  readonly price: Amount;
+  readonly realisedPnl: Amount;
+  /** The venue's notice to the account, as written. */
+  readonly notice: string;
+  readonly deleveragedAt: Date;
+}
+
+/** One public liquidation or auto-deleveraging alert: the market, side, size and price, and no account identity. */
+export interface VenueLiquidationAlert {
+  readonly kind: 'liquidation' | 'deleverage';
+  readonly symbol: string;
+  readonly side: 'long' | 'short';
+  readonly size: Amount;
+  readonly price: Amount;
+  readonly alertedAt: Date;
 }
 
 /**
@@ -875,6 +1264,20 @@ export interface UserVenueDepositRoute {
   readonly minimum?: string | null;
   readonly confirmations?: number | null;
   readonly network?: string | null;
+  /** The venue's own warning for a transfer sent on any other chain (J-wallet-24 #1), word for word; null when it publishes none. */
+  readonly warning?: string | null;
+}
+
+/**
+ * How the venue takes one of its assets as a deposit, as it publishes it (J-wallet-24 #5 #6). An asset its bridge takes
+ * is `UserVenueDepositRoute.asset`; every other asset is either taken by another route the venue names (`network`, the
+ * venue's own name for where to send it, and `how`, its own words), or not offered (`network` null): the venue publishes
+ * no route for it. INTAFACED adds no route of its own.
+ */
+export interface UserVenueAssetRoute {
+  readonly asset: string;
+  readonly network: string | null;
+  readonly how: string | null;
 }
 
 /**
@@ -1054,6 +1457,15 @@ export interface UserVenueOpenInterest {
 }
 
 /**
+ * How many accounts hold a long and how many a short on a perpetual, as the venue counts its own open positions
+ * (J-derivatives-14 #4: the long/short ratio is read from positions, never from a book of ours).
+ */
+export interface UserVenueLongShort {
+  readonly longAccounts: number;
+  readonly shortAccounts: number;
+}
+
+/**
  * The latest event the venue reports that settled a market's positions (J-derivatives-27 #9 #10): its deployer halted it,
  * or a split in what it tracks. The venue cancelled every order on the market and settled every position at
  * `settlementPrice` at `eventAt`; `reopenedAt` is when it took orders again, `null` while it has not.
@@ -1091,6 +1503,50 @@ export interface UserVenueFunding {
   readonly rate: Amount;
   readonly intervalSeconds: number;
   readonly nextFundingAt: Date;
+  /**
+   * What the venue built the rate from, as it publishes them (J-derivatives-08 #1), or `known: false` where it publishes
+   * none. Optional on the wire for venues that report none: read as not published.
+   */
+  readonly inputs?: MaybeKnown<UserVenueFundingInputs>;
+}
+
+/**
+ * The parts of a perpetual's funding rate, each the venue's own figure: its premium (a signed scaled fraction, how far the
+ * mark sits from the index), its interest component (a signed scaled fraction per interval), the cap it holds the rate
+ * within (either way), and the mark and index prices the premium was taken from. Never recomputed by us.
+ */
+export interface UserVenueFundingInputs {
+  readonly premium: Amount;
+  readonly interestRate: Amount;
+  readonly rateCap: Amount;
+  readonly markPrice: Amount;
+  readonly indexPrice: Amount;
+  /** The venue's own published rule for the rate, in its words, or `known: false`. */
+  readonly rule: MaybeKnown<string>;
+}
+
+/**
+ * One funding payment on one of the account's positions, as the venue booked it when it closed a funding period
+ * (J-derivatives-08 #3 #4 #5): the period it closed (`periodAt`), the position's side and size then, the mark it charged
+ * against, the period's signed rate and the signed amount (positive: the account received it; negative: it paid it), in
+ * the venue's settle asset. The venue's figures, never recomputed by us; our ledger holds none of it.
+ */
+export interface UserVenueFundingPayment {
+  readonly paymentId: string;
+  readonly symbol: string;
+  readonly side: 'long' | 'short';
+  readonly size: Amount;
+  readonly markPrice: Amount;
+  readonly rate: Amount;
+  readonly amount: Amount;
+  readonly asset: string;
+  readonly periodAt: Date;
+}
+
+/** One sample of a perpetual's mark or index price as the venue published it (J-derivatives-08 #6). */
+export interface VenuePriceSample {
+  readonly sampledAt: Date;
+  readonly price: Amount;
 }
 
 export interface UserVenueMarket {
@@ -1156,6 +1612,11 @@ export interface UserVenueMarket {
   readonly marginAccount: MaybeKnown<UserVenueMarginAccountRule>;
   /** The market's open interest and its deployer's cap (in base units), or `known: false` where the venue reports none. */
   readonly openInterest: MaybeKnown<UserVenueOpenInterest>;
+  /**
+   * The accounts long and short on the market from the venue's own positions, or `known: false` where it publishes no
+   * count. Optional on the wire for venues that report none.
+   */
+  readonly longShort?: MaybeKnown<UserVenueLongShort>;
   /** The latest halt or split that settled the market's positions, or `known: false` when the venue reports none. */
   readonly lastEvent: MaybeKnown<UserVenueMarketEvent>;
   /**
@@ -1186,6 +1647,12 @@ export interface UserVenueMarket {
    */
   readonly marginTiers?: MaybeKnown<readonly UserVenueMarginTier[]>;
   /**
+   * A perpetual's one maintenance margin rate, a scaled fraction of notional (`0.005` is 0.5 %), where the venue publishes
+   * one rate for every position size; `known: false` where it publishes none or publishes tiers instead. The venue closes
+   * a position when its equity falls to this share of its value. Optional on the wire for venues that report none.
+   */
+  readonly maintenanceMarginRate?: MaybeKnown<Amount>;
+  /**
    * What the venue takes as margin on this market, each asset with its haircut, or `known: false` where it publishes no
    * list. Nothing else the account holds counts toward buying power. Optional on the wire for venues that report none.
    */
@@ -1197,6 +1664,11 @@ export interface VenueFundingRow {
   readonly fundingAt: Date;
   /** A signed scaled fraction of notional per interval (as `UserVenueFunding.rate`), never a percent. */
   readonly rate: Amount;
+  /**
+   * The period's premium as the venue published it (J-derivatives-08 #6), or `null` where it publishes none. Optional on
+   * the wire for venues that report none.
+   */
+  readonly premium?: Amount | null;
 }
 
 /**
@@ -1324,12 +1796,31 @@ export interface VenueAccountFees {
   readonly perpetual: VenueFeeRates;
   /** When the venue last placed the account in its tier; `null` when it does not say. */
   readonly tierUpdatedAt: Date | null;
+  /** The venue's staking discount on its own fee (J-cex-spot-21 #4); absent or `null`: the venue reports none. */
+  readonly stakingDiscount?: VenueStakingDiscount | null;
+}
+
+/**
+ * A fee the venue publishes beside its trading fees (J-derivatives-12 #2): its settlement fee and any other it charges,
+ * each in bps of the value it is charged on, with the venue's own words for when.
+ */
+export interface VenueOtherFee {
+  readonly kind: 'settlement' | 'liquidation' | 'other';
+  /** The venue's own name for the fee. */
+  readonly name: string;
+  /** The market it is charged on, or `null` for every market. */
+  readonly symbol: string | null;
+  readonly feeBps: Amount;
+  /** The venue's own words for what it is charged on. */
+  readonly rule: string;
 }
 
 /** `UserVenue.feeStatus`: the schedule, and the account's own fees when an account was named. */
 export interface VenueFeeStatus {
   readonly schedule: VenueFeeTiers;
   readonly account: VenueAccountFees | null;
+  /** The venue's settlement and other fees (J-derivatives-12 #2); absent or `null`: the venue publishes none. */
+  readonly otherFees?: readonly VenueOtherFee[] | null;
 }
 
 /**
@@ -1514,6 +2005,19 @@ export interface UserVenue {
   fundingHistory?(symbol: string, since: Date): Promise<AsOf<readonly VenueFundingRow[]>>;
 
   /**
+   * The mark or index price this venue published for the perpetual `symbol` since `since`, oldest first, no account
+   * (J-derivatives-08 #6). `known: false` with the venue's reason where it publishes no such series (an index it does not
+   * publish), never a series of ours. Optional: absent, the door refuses `not_offered`.
+   */
+  priceHistory?(
+    symbol: string,
+    kind: 'mark' | 'index',
+    since: Date,
+  ): Promise<
+    AsOf<{ readonly known: true; readonly value: readonly VenuePriceSample[] } | { readonly known: false; readonly reason: string }>
+  >;
+
+  /**
    * The newest `limit` public prints on `symbol`, newest first, no account (J-cex-spot-01 #5: the desk's tape). Refuses
    * `unknown_market` for a symbol it does not list. Optional: a venue (or an adapter) that does not read its prints leaves
    * it out, and the desk then shows the tape refused by name.
@@ -1581,6 +2085,11 @@ export interface UserVenue {
    */
   withdrawalTerms?(asset: string): Promise<AsOf<UserVenueWithdrawalTerms>>;
   /**
+   * How the venue takes each of its assets as a deposit (J-wallet-24 #5 #6): one row per asset it lists. Optional: a
+   * venue whose adapter does not read them leaves it out, and the door refuses the read `not_offered`.
+   */
+  depositRoutes?(): Promise<AsOf<readonly UserVenueAssetRoute[]>>;
+  /**
    * The account's orders in every state, newest placed first, as the venue keeps them (J-cex-spot-06 #1): open, filled,
    * partly filled and cancelled. A venue keeps a bounded history (Hyperliquid: its 2000 most recent orders). Optional: a
    * venue that publishes no order history leaves it out, and the door refuses the read `not_offered`.
@@ -1604,6 +2113,11 @@ export interface UserVenue {
   marketMargin?(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueMarketMargin>>;
   /** The account's settlements in market events (a deployer's halt, a split) since `since`, oldest first. Absent: not read. */
   settlements?(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueSettlement[]>>;
+  /**
+   * The funding the venue charged or paid on the account's positions since `since`, one payment per position per period
+   * it closed, oldest first (J-derivatives-08 #3 #4 #5). Absent: not read, and the door refuses `not_offered`.
+   */
+  fundingPayments?(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueFundingPayment[]>>;
 
   /**
    * The venue's scheduled cancel for this account (J-cex-spot-07), as the venue records it. Present only on a venue whose
@@ -1628,6 +2142,11 @@ export interface UserVenue {
    * claim of our builder fees"). Absent on an adapter that does not read the claim record; nothing is then collected.
    */
   builderClaims?(builder: string): Promise<AsOf<readonly UserVenueBuilderClaim[]>>;
+  /**
+   * Our builder address's account mode as the venue reports it, and the mode the venue requires for it to accrue builder
+   * fees (J-ops-console-28). Absent on an adapter that does not read it; the console then reads the mode as unknown.
+   */
+  builderAccountMode?(builder: string): Promise<AsOf<VenueBuilderAccountMode>>;
   agents(account: UserVenueAccount): Promise<AsOf<readonly UserVenueAgent[]>>;
   /**
    * The account's leverage setting on `symbol`, or `null` when none is set
@@ -1656,6 +2175,35 @@ export interface UserVenue {
   isolatedMargin?(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueIsolatedMargin>>;
   /** The account's margin summary as the venue reports it (J-derivatives-06 #1). Optional: absent, not read. */
   accountSummary?(account: UserVenueAccount): Promise<AsOf<UserVenueAccountSummary>>;
+  /** The account's mode, its spot and perps balances in standard mode, and its daily action count (J-derivatives-29). */
+  accountMode?(account: UserVenueAccount): Promise<AsOf<UserVenueAccountMode>>;
+  /** The vaults the venue lists, each with its lock-up, profit share, value and past return (J-derivatives-31 #1). */
+  vaults?(): Promise<AsOf<readonly UserVenueVault[]>>;
+  /** The account's vault positions, its account value as the venue counts it, and its vault transfers (J-derivatives-31). */
+  vaultHoldings?(account: UserVenueAccount): Promise<AsOf<UserVenueVaultHoldings>>;
+  /** The venue's staking terms: validators, reward rate, discount tiers, lock-up, queue and its limit (J-cex-spot-21 #1). */
+  staking?(): Promise<AsOf<UserVenueStaking>>;
+  /** The account's staking balance, delegations, queued and arrived withdrawals and rewards (J-cex-spot-21). */
+  stakingAccount?(account: UserVenueAccount): Promise<AsOf<UserVenueStakingAccount>>;
+
+  /**
+   * The account's position's liquidation state on `symbol` and the venue's price and fee rules (J-derivatives-07 #1 #3).
+   * Optional: a venue (or an adapter) that reads none leaves it out, and the door refuses `not_offered`.
+   */
+  liquidationStatus?(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueLiquidationStatus>>;
+  /** The account's liquidations the venue reports since `since`, oldest first, each with its parts (J-derivatives-07 #2). */
+  liquidations?(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueLiquidation[]>>;
+  /** The venue's insurance fund, or `known: false` where it publishes none, never a zero (J-derivatives-07 #4). */
+  insuranceFund?(): Promise<AsOf<MaybeKnown<UserVenueInsuranceFund>>>;
+  /** The venue's auto-deleveraging rules and their version, or `null` where it publishes none (J-derivatives-07 #5). */
+  adlRules?(): Promise<AsOf<UserVenueAdlRules | null>>;
+  /** The account's auto-deleveragings since `since`, oldest first, with the venue's notice (J-derivatives-07 #6). */
+  deleverages?(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueDeleverage[]>>;
+  /**
+   * The newest `limit` public liquidation and auto-deleveraging alerts, newest first, on `symbol` or on every market when
+   * `null`, with no account identity (J-derivatives-07 #7). Optional, as the reads above.
+   */
+  liquidationAlerts?(symbol: string | null, limit: number): Promise<AsOf<readonly VenueLiquidationAlert[]>>;
 }
 
 /**
@@ -1769,6 +2317,62 @@ export function assertSignerMaySign(account: UserVenueAccount, signer: VenueSign
     }
     if (typeof intent.amount !== 'bigint' || compare(intent.amount, ZERO) <= 0) {
       throw new VenueRefusalError({ venueId, code: 'venue_rejected', detail: 'a margin change must be positive' });
+    }
+    assertBusinessKey(venueId, intent.changeKey, 'change key');
+  }
+  if (intent.kind === 'spot_perps_transfer') {
+    if (intent.direction !== 'perps_to_spot' && intent.direction !== 'spot_to_perps') {
+      throw new VenueRefusalError({
+        venueId,
+        code: 'venue_rejected',
+        detail: `transfer direction "${String(intent.direction)}" is not one the venue knows`,
+      });
+    }
+    if (typeof intent.amount !== 'bigint' || compare(intent.amount, ZERO) <= 0) {
+      throw new VenueRefusalError({ venueId, code: 'venue_rejected', detail: 'a transfer must be positive' });
+    }
+    assertBusinessKey(venueId, intent.moveKey, 'move key');
+  }
+  if (intent.kind === 'staking_transfer' || intent.kind === 'staking_delegate') {
+    const directions = intent.kind === 'staking_transfer' ? ['to_staking', 'to_spot'] : ['delegate', 'undelegate'];
+    if (!directions.includes(intent.direction)) {
+      throw new VenueRefusalError({
+        venueId,
+        code: 'venue_rejected',
+        detail: `${intent.kind} direction "${String(intent.direction)}" is not one the venue knows`,
+      });
+    }
+    if (intent.kind === 'staking_delegate' && (typeof intent.validator !== 'string' || intent.validator.trim() === '')) {
+      throw new VenueRefusalError({ venueId, code: 'venue_rejected', detail: 'a delegation names its validator' });
+    }
+    if (typeof intent.amount !== 'bigint' || compare(intent.amount, ZERO) <= 0) {
+      throw new VenueRefusalError({ venueId, code: 'venue_rejected', detail: `a ${intent.kind} must be positive` });
+    }
+    assertBusinessKey(venueId, intent.moveKey, 'move key');
+  }
+  if (intent.kind === 'vault_transfer') {
+    if (intent.direction !== 'deposit' && intent.direction !== 'withdraw') {
+      throw new VenueRefusalError({
+        venueId,
+        code: 'venue_rejected',
+        detail: `vault transfer direction "${String(intent.direction)}" is not one the venue knows`,
+      });
+    }
+    if (typeof intent.vault !== 'string' || intent.vault.trim() === '') {
+      throw new VenueRefusalError({ venueId, code: 'venue_rejected', detail: 'a vault transfer names its vault' });
+    }
+    if (typeof intent.amount !== 'bigint' || compare(intent.amount, ZERO) <= 0) {
+      throw new VenueRefusalError({ venueId, code: 'venue_rejected', detail: 'a vault transfer must be positive' });
+    }
+    assertBusinessKey(venueId, intent.moveKey, 'move key');
+  }
+  if (intent.kind === 'set_account_mode') {
+    if (!VENUE_ACCOUNT_MODES.includes(intent.mode)) {
+      throw new VenueRefusalError({
+        venueId,
+        code: 'venue_rejected',
+        detail: `account mode "${String(intent.mode)}" is not one the venue knows`,
+      });
     }
     assertBusinessKey(venueId, intent.changeKey, 'change key');
   }

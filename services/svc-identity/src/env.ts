@@ -169,6 +169,12 @@ const schema = serviceEnvSchema
        */
       IDENTITY_REQUEST_SIGN_WINDOW_SECONDS: z.string().optional().default(''),
       /**
+       * The owner's stream-token lifetime, whole seconds from 1 to 3600 (J-developer-09 #2): how long a token from
+       * `POST /api/v1/stream/token` opens the private stream. Blank = unset: every mint refuses
+       * `identity.stream_token_ttl_unset`.
+       */
+      IDENTITY_STREAM_TOKEN_TTL_SECONDS: z.string().optional().default(''),
+      /**
        * The owner's `API_KEY_SIGNING_OPTIONAL` (DV-auth-01): `true` lets a key that places orders turn signing off,
        * with a fresh factor. Blank (or anything else): signing stays required on such a key.
        */

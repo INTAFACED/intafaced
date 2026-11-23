@@ -3,7 +3,7 @@
  * the same ladder, time and sales, depth chart and one-click strip as today's desk (OrderFlow.tsx, OneClick.tsx), drawn
  * from the venue's own book and prints and the person's own venue orders, every figure read through svc-trade's
  * user-venue door. One book read feeds the ladder, the depth chart and my place in the queue. Nothing here holds a
- * balance or sends an order: a ladder click asks the venue ticket for a draft (VenueSpotDesk.tsx), and a one-click cancel
+ * balance or sends an order: a ladder click asks the venue ticket for a draft (VenueSideForm.tsx, through the desk in VenueSpotDesk.tsx), and a one-click cancel
  * is the desk's own signed venue cancel.
  */
 import { useMemo, type ReactNode } from 'react';

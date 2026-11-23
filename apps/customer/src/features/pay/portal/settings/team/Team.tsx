@@ -1,9 +1,9 @@
+// volt-room: /pay/settings/team
+// volt-room: /pay/team
+// volt-room: portal:team
 import { useState } from 'react';
-import { Field } from '../../../ui-kit';
 import { useResource, type Resource } from '../../../../../shared/resource';
-import { useSession } from '../../../../session/session';
-import { PaySection } from '../../../components';
-import { Chip, Gate, ListShell, MoreFooter, SelectField } from '../../components';
+import { useSession } from '../../../../session';
 import { useCursorList, useMemberNames, useUrlParam, type ListState } from '../../hooks';
 import type { PortalApi } from '../../api';
 import {
@@ -16,24 +16,25 @@ import {
   type TeamRole,
 } from '../../schemas';
 import { DateTime } from '../../ui/DateTime';
-import { EntityList } from '../../ui/EntityList';
-import { PortalReview } from '../../ui/PortalReview';
-import { Timeline } from '../../ui/Timeline';
 import { useServerList } from '../../ui/useServerList';
 import { useUnsavedForm } from '../../useUnsavedForm';
 import { actorName } from '../account/actors';
 import { accountCopy } from '../account/copy';
+import { SettingsRoom } from '../../volt/SettingsRoom';
 import { memberKey, memberName, pinOwner } from '../account/model';
 import { extensionCopy, portalCopy } from '../copy';
 import { grantableRoles, memberActions } from '../model';
 import { inviteEmailOf, maskEmail, normaliseInviteEmail } from './email';
 import { RolesCatalogue } from './Roles';
+import { Chip, EntityList, Gate, ListShell, MoreFooter, Section, SelectField, Timeline } from '../../volt/parts';
+import { Review } from '../../volt/Review';
+import { Field } from '@intafaced/ui/lit';
 
 type TeamMe = { merchantId: string; userId: string; role: MemberRole };
 type Filters = { search: string; role: string; status: string };
 
 /** `/pay/team`: who is on the account, what each may do, and every change to it. */
-export function Team({ portal }: { portal: PortalApi }) {
+function Team({ portal }: { portal: PortalApi }) {
   const [search, setSearch] = useUrlParam('q');
   const [role, setRole] = useUrlParam('role');
   const [status, setStatus] = useUrlParam('status');
@@ -118,16 +119,16 @@ export function TeamView(props: {
     return memberName(m, `${a('teamMemberFallback')} (${m.userId.length > 14 ? `…${m.userId.slice(-8)}` : m.userId})`);
   };
   return (
-    <div className="stack">
-      <p className="pp-callout" role="note">
+    <div>
+      <p className="lt-hint" role="note">
         <strong>{t('mfaTitle')}</strong> {t('mfaBody')}
       </p>
 
       <Invitations portal={portal} invitations={props.invitations} refresh={refresh} />
 
-      <PaySection title={t('membersTitle')} description={t('membersBody')}>
-        <div className="pp-filterbar" role="search" aria-label={t('membersTitle')}>
-          <div className="pp-filter-row">
+      <Section title={t('membersTitle')} description={t('membersBody')}>
+        <div className="lt-toolbar" role="search" aria-label={t('membersTitle')}>
+          <div className="lt-toolbar">
             <Field
               label={extensionCopy.t('search')}
               value={filters.search}
@@ -155,7 +156,7 @@ export function TeamView(props: {
           {filtered && (
             <button
               type="button"
-              className="text-link"
+              className="lt-link"
               onClick={() => {
                 filters.setSearch('');
                 filters.setRole('');
@@ -184,10 +185,8 @@ export function TeamView(props: {
                     cell: (m) => (
                       <>
                         <strong>{nameOf(m)}</strong>
-                        {inviteEmailOf(m.userId) && m.label && (
-                          <small className="pay-cell-note">{maskEmail(inviteEmailOf(m.userId)!)}</small>
-                        )}
-                        {m.role === 'owner' && <small className="sa-pin pay-cell-note">{a('ownerPinned')}</small>}
+                        {inviteEmailOf(m.userId) && m.label && <small className="lt-hint">{maskEmail(inviteEmailOf(m.userId)!)}</small>}
+                        {m.role === 'owner' && <small className="lt-hint">{a('ownerPinned')}</small>}
                       </>
                     ),
                   },
@@ -195,17 +194,12 @@ export function TeamView(props: {
                   { header: t('colStatus'), cell: (m) => <Chip kind="member" value={m.status} /> },
                   { header: t('colSince'), cell: (m) => <DateTime value={m.activatedAt ?? m.createdAt} /> },
                 ]}
-                card={(m) => ({
-                  title: `${nameOf(m)} · ${roleName(m.role)}`,
-                  time: <DateTime value={m.activatedAt ?? m.createdAt} />,
-                  status: <Chip kind="member" value={m.status} />,
-                })}
               />
               {props.members.status === 'ready' && <MoreFooter state={props.members} onMore={props.loadMoreMembers} />}
             </>
           )}
         </ListShell>
-      </PaySection>
+      </Section>
 
       {chosen && (
         <MemberPanel
@@ -226,7 +220,7 @@ export function TeamView(props: {
 
       <RolesCatalogue catalogue={props.catalogue} retry={props.retryCatalogue} />
 
-      <PaySection title={t('teamHistoryTitle')} description={t('teamHistoryBody')}>
+      <Section title={t('teamHistoryTitle')} description={t('teamHistoryBody')}>
         <ListShell state={props.history} retry={refresh} empty={{ title: t('teamHistoryEmptyTitle'), body: t('teamHistoryEmptyBody') }}>
           {(events) => (
             <>
@@ -242,7 +236,7 @@ export function TeamView(props: {
             </>
           )}
         </ListShell>
-      </PaySection>
+      </Section>
     </div>
   );
 }
@@ -255,24 +249,24 @@ function Invitations({ portal, invitations, refresh }: { portal: PortalApi; invi
     <Gate resource={invitations} retry={refresh} rows={1}>
       {(pending) =>
         pending.length === 0 ? null : (
-          <PaySection title={t('invitesTitle')} description={t('invitesBody')}>
-            <ul className="pp-cards">
+          <Section title={t('invitesTitle')} description={t('invitesBody')}>
+            <ul>
               {pending.map((invite) => (
-                <li key={invite.memberId} className="pp-card">
+                <li key={invite.memberId}>
                   <div>
                     <strong>{t('inviteLine', { role: roleName(invite.role) })}</strong>
-                    <small className="muted">
+                    <small className="lt-hint">
                       {t('invitedOn')} <DateTime value={invite.invitedAt} />
                     </small>
                   </div>
-                  <div className="pp-actions">
-                    <PortalReview
+                  <div className="lt-actions">
+                    <Review
                       title={t('accept')}
                       description={t('acceptBody')}
                       perform={() => portal.acceptInvite(invite.memberId)}
                       onConfirmed={refresh}
                     />
-                    <PortalReview
+                    <Review
                       title={t('decline')}
                       description={t('declineBody')}
                       perform={() => portal.declineInvite(invite.memberId)}
@@ -282,7 +276,7 @@ function Invitations({ portal, invitations, refresh }: { portal: PortalApi; invi
                 </li>
               ))}
             </ul>
-          </PaySection>
+          </Section>
         )
       }
     </Gate>
@@ -348,15 +342,15 @@ function MemberPanel({
   const actions = memberActions(me, member);
   const target: TeamRole | '' = options.includes(next as TeamRole) ? next : (options[0] ?? '');
   return (
-    <PaySection
+    <Section
       title={a('memberPanelTitle', { name })}
       action={
-        <button type="button" className="text-link" onClick={close}>
+        <button type="button" className="lt-link" onClick={close}>
           {a('closePanel')}
         </button>
       }
     >
-      <dl data-testid="pp-facts" className="pp-facts">
+      <dl data-testid="pp-facts" className="lt-kv">
         <div>
           <dt>{t('colRole')}</dt>
           <dd>{t(`role_${member.role}` as 'role_owner')}</dd>
@@ -386,17 +380,17 @@ function MemberPanel({
           </div>
         )}
       </dl>
-      <p className="muted">{t(`roleCan_${member.role}` as 'roleCan_owner')}</p>
-      {inviteEmailOf(member.userId) && member.status === 'invited' && <p className="muted">{t('pendingEmailBody')}</p>}
+      <p className="lt-hint">{t(`roleCan_${member.role}` as 'roleCan_owner')}</p>
+      {inviteEmailOf(member.userId) && member.status === 'invited' && <p className="lt-hint">{t('pendingEmailBody')}</p>}
       {actions.canChange && member.memberId ? (
-        <div className="pp-row-actions">
+        <div className="lt-actions">
           <SelectField
             label={t('newRole')}
             value={target}
             onChange={(v) => setNext(v as TeamRole)}
             options={options.map((r) => [r, t(`role_${r}` as 'role_owner')] as const)}
           />
-          <PortalReview
+          <Review
             title={t('changeRole')}
             description={t('changeRoleBody')}
             review={
@@ -412,7 +406,7 @@ function MemberPanel({
             onConfirmed={refresh}
             disabled={!target}
           />
-          <PortalReview
+          <Review
             title={t('remove')}
             variant="sell"
             description={t('removeBody')}
@@ -422,7 +416,7 @@ function MemberPanel({
           />
         </div>
       ) : (
-        <p className="muted">
+        <p className="lt-hint">
           {member.status === 'removed'
             ? t('noActionsRemoved')
             : actions.reason === 'owner'
@@ -432,7 +426,7 @@ function MemberPanel({
                 : t('whyRole')}
         </p>
       )}
-    </PaySection>
+    </Section>
   );
 }
 
@@ -449,19 +443,19 @@ export function InviteReview({ userId = '', email, label, role }: { userId?: str
   return (
     <>
       <p>{address !== null ? t('inviteReviewEmail', { who: address, role: roleName }) : t('inviteReview', { who: id, role: roleName })}</p>
-      <dl data-testid="pp-facts" className="pp-facts">
+      <dl data-testid="pp-facts" className="lt-kv">
         {address !== null ? (
           <div>
             <dt>{t('fEmail')}</dt>
             <dd>
-              <code className="pp-wrap">{address}</code>
+              <code className="lt-mono">{address}</code>
             </dd>
           </div>
         ) : (
           <div>
             <dt>{t('fUserId')}</dt>
             <dd>
-              <code className="pp-wrap">{id}</code>
+              <code className="lt-mono">{id}</code>
             </dd>
           </div>
         )}
@@ -497,8 +491,8 @@ function InviteForm({ portal, role, refresh }: { portal: PortalApi; role: Member
   useUnsavedForm(Boolean(email || userId || label), extensionCopy.t('draftWarning'));
   return (
     <div id="invite">
-      <PaySection title={t('inviteTitle')} description={byEmail ? t('inviteBody') : t('inviteBodyId')}>
-        <div data-testid="form-stack" className="form-stack pp-form">
+      <Section title={t('inviteTitle')} description={byEmail ? t('inviteBody') : t('inviteBodyId')}>
+        <div data-testid="form-stack">
           {byEmail ? (
             <Field
               label={`${t('fEmail')} *`}
@@ -530,7 +524,7 @@ function InviteForm({ portal, role, refresh }: { portal: PortalApi; role: Member
               required
             />
           )}
-          <div className="form-row">
+          <div className="lt-toolbar">
             <SelectField
               label={`${t('fRole')} *`}
               value={chosen}
@@ -548,7 +542,7 @@ function InviteForm({ portal, role, refresh }: { portal: PortalApi; role: Member
               disabled={blocked}
             />
           </div>
-          <PortalReview
+          <Review
             title={t('sendInvite')}
             variant="primary"
             description={t('sendInviteBody')}
@@ -577,16 +571,22 @@ function InviteForm({ portal, role, refresh }: { portal: PortalApi; role: Member
             disabledReason={blocked ? t('whyRole') : undefined}
           />
           {sentTo && (
-            <p className="pay-confirmed" role="status">
+            <p className="lt-hint" role="status">
               {t('inviteSentEmail', { email: sentTo })}
             </p>
           )}
-          <button type="button" className="text-link" onClick={() => setByEmail(!byEmail)} disabled={blocked}>
+          <button type="button" className="lt-link" onClick={() => setByEmail(!byEmail)} disabled={blocked}>
             {byEmail ? t('inviteById') : t('inviteByEmail')}
           </button>
-          {blocked && <p className="muted pp-note">{t('whyRole')}</p>}
+          {blocked && <p className="lt-hint">{t('whyRole')}</p>}
         </div>
-      </PaySection>
+      </Section>
     </div>
   );
+}
+
+/** `/pay/team` on the settings template. */
+export function TeamRoom({ portal }: { portal: PortalApi }) {
+  const { t } = accountCopy.useCopy();
+  return <SettingsRoom explain={<p>{t('teamExplain')}</p>}>{() => <Team portal={portal} />}</SettingsRoom>;
 }

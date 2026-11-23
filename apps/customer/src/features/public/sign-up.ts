@@ -1,11 +1,11 @@
 import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
-import { sessionSchema } from '../session/session';
+import { sessionSchema } from '../session';
 
 // hand-declared-ok: svc-identity's sign-up answers (auth.signUpStart, auth.signUpConfirm) have no browser-safe schema in packages/contracts yet
 
 /** `auth.signUpStart` and `auth.signUpResend`: the same answer for a new address and a known one, and no session. */
-export const signUpAcceptedSchema = z.object({
+const signUpAcceptedSchema = z.object({
   accepted: z.literal(true),
   next: z.literal('confirm_email'),
   flowId: z.string().guid(),
@@ -15,9 +15,6 @@ export type SignUpAccepted = z.infer<typeof signUpAcceptedSchema>;
 
 /** `auth.signUpConfirm`: the first session, and which account type was chosen so business accounts go to verification. */
 export const signUpConfirmedSchema = sessionSchema.extend({ accountType: z.enum(['individual', 'business']) });
-
-/** `auth.signUpPasswordScreening`: whether the owner's breached-password list is set. */
-export const passwordScreeningSchema = z.object({ breachedList: z.enum(['on', 'unset']) });
 
 export const ACCOUNT_TYPES = ['individual', 'business'] as const;
 export type AccountType = (typeof ACCOUNT_TYPES)[number];

@@ -27,7 +27,7 @@ export function ResearchReply({ text, provenance }: { text: string; provenance: 
     .map((s) => s.trim())
     .filter(Boolean);
   return (
-    <p data-testid="more-body" className="more-body">
+    <p data-testid="more-body" className="lt-pre-wrap">
       {sentences.map((sentence, index) => (
         <span key={index}>
           {index > 0 ? ' ' : null}

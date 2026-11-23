@@ -14,7 +14,7 @@ import {
   walletTypedData,
 } from './venue-api';
 import { closeMarketPrice, closeWorstPrice, totalToCommit } from '../../screens/trade/futures/VenueFuturesDesk';
-import { refuseReason } from '../protocol/wallet/eip1193';
+import { refuseReason } from '../protocol';
 
 // The TEST venue simulator's payload shape (packages/venue-sim/src/signing.ts): EIP712Domain left implicit.
 const SIM_TYPED = {

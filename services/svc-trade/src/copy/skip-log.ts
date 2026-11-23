@@ -36,6 +36,8 @@ export const COPY_SKIP_REASONS = [
   'copy_slippage_exceeded',
   /** A leader close found nothing copied left open to close. */
   'position_closed',
+  /** The lead marked the order as not a lead trade: the lead switch was off, or it was an iceberg (CB-copy-14). */
+  'not_lead_order',
   /** Any other refusal. */
   'refused',
 ] as const;
@@ -61,6 +63,7 @@ const BY_COPY_CODE: Partial<Record<string, CopySkipReason>> = {
   'trade.copy_slippage_exceeded': 'copy_slippage_exceeded',
   'trade.copy_reserve_exceeds_balance': 'insufficient_funds',
   'trade.copy_position_closed': 'position_closed',
+  'trade.copy_not_lead_order': 'not_lead_order',
 };
 
 /** The reason id for a refusal that kept a leader fill from being copied. */

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 
 /**
  * THE CAPITAL MONITOR (RC-ops-console-06, J-ops-console-24 #1): INTAFACED's own funds beside its buffer thresholds.
@@ -49,7 +50,7 @@ export const OPS_CAPITAL_CONTACT_MAX = 200;
 export const ledgerOwnFundsAccountSchema = z.object({
   ownerType: z.enum(['house', 'module']),
   ownerId: z.string().min(1),
-  assetId: z.string().min(1),
+  assetId: assetIdSchema.min(1),
   kind: z.string().min(1),
   purpose: z.string(),
   /** The account's balance now, as the ledger holds it. Decimal string, never negative (house and module pots are hard non-negative). */
@@ -69,7 +70,7 @@ export const ledgerOwnFundsPlaceSchema = z.object({
   kind: z.enum(OWN_FUNDS_PLACE_KINDS),
   /** The venue, partner or wallet id the place is named for (`venue-builder-account:<placeId>` and so on). */
   placeId: z.string().min(1),
-  assetId: z.string().min(1),
+  assetId: assetIdSchema.min(1),
   /** What the ledger's own book shows of ours at that place now. Decimal string, never negative. */
   held: z.string().regex(decimal),
 });
@@ -94,7 +95,7 @@ export const opsCapitalOwnFundsSchema = z.discriminatedUnion('status', [
     status: z.literal('read'),
     asOf: z.string(),
     /** Per asset: the sum over the accounts below, and how many accounts it sums. */
-    assets: z.array(z.object({ assetId: z.string(), amount: z.string().regex(decimal), accounts: z.number().int().positive() })),
+    assets: z.array(z.object({ assetId: assetIdSchema, amount: z.string().regex(decimal), accounts: z.number().int().positive() })),
     accounts: z.array(ledgerOwnFundsAccountSchema),
   }),
   unknownPart,
@@ -112,7 +113,7 @@ export const opsCapitalVenueSchema = z.object({
   balance: z.discriminatedUnion('status', [
     z.object({
       status: z.literal('read'),
-      assetId: z.string().regex(OPS_CAPITAL_ASSET),
+      assetId: assetIdSchema.regex(OPS_CAPITAL_ASSET),
       amount: z.string().regex(decimal),
       /** The venue's own as-of time, with its offset: never a local time read in some zone. */
       asOf: z.string().datetime({ offset: true }),
@@ -121,7 +122,7 @@ export const opsCapitalVenueSchema = z.object({
   ]),
   /** The venue's published minimum, that it publishes none, or "unknown" when the venue could not be read. */
   minimum: z.discriminatedUnion('status', [
-    z.object({ status: z.literal('published'), assetId: z.string().regex(OPS_CAPITAL_ASSET), amount: z.string().regex(decimal) }),
+    z.object({ status: z.literal('published'), assetId: assetIdSchema.regex(OPS_CAPITAL_ASSET), amount: z.string().regex(decimal) }),
     z.object({ status: z.literal('not_published') }),
     unknownPart,
   ]),
@@ -142,7 +143,7 @@ export const opsCapitalReserveSchema = z.discriminatedUnion('status', [
   z.object({ status: z.literal('not_known') }),
   z.object({
     status: z.literal('reported'),
-    assetId: z.string().regex(OPS_CAPITAL_ASSET),
+    assetId: assetIdSchema.regex(OPS_CAPITAL_ASSET),
     amount: z.string().regex(decimal),
     /** The partner's own time for the reserve (b2 change 6); a reserve sent with no time is `not_known`. */
     asOf: z.string().datetime({ offset: true }),
@@ -220,7 +221,7 @@ export const OPS_CAPITAL_BUFFER_STATES = ['not_monitored', 'ok', 'below_minimum'
 export type OpsCapitalBufferState = (typeof OPS_CAPITAL_BUFFER_STATES)[number];
 
 export const opsCapitalBufferSchema = z.object({
-  assetId: z.string(),
+  assetId: assetIdSchema,
   /** INTAFACED's own funds in this asset, or null when the ledger could not be read. */
   buffer: z.string().regex(decimal).nullable(),
   threshold: opsCapitalThresholdSchema,
@@ -231,7 +232,7 @@ export type OpsCapitalBuffer = z.infer<typeof opsCapitalBufferSchema>;
 export const opsCapitalAlertSchema = z.object({
   /** `capital-breach:{asset}:{day}`: one alert per asset and UTC day. */
   key: z.string(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   period: z.string(),
   buffer: z.string().regex(decimal),
   minimum: z.string().regex(decimal),
@@ -258,7 +259,7 @@ export type OpsCapitalSnapshot = z.infer<typeof opsCapitalSnapshotSchema>;
 // ── Setting a threshold (two founders) ───────────────────────────────────────
 
 export const opsCapitalThresholdSetInputSchema = z.object({
-  assetId: z.string(),
+  assetId: assetIdSchema,
   /** The minimum buffer, or `''` to clear the threshold (the asset is then not monitored). */
   minimum: z.string(),
   /** Who a breach is escalated to. Required with a minimum; `''` when clearing. */
@@ -272,7 +273,7 @@ export const opsCapitalThresholdSetInputSchema = z.object({
 export type OpsCapitalThresholdSetInput = z.infer<typeof opsCapitalThresholdSetInputSchema>;
 
 export const opsCapitalThresholdSetOutputSchema = z.object({
-  assetId: z.string(),
+  assetId: assetIdSchema,
   minimum: z.string(),
   contact: z.string(),
   version: z.number().int().positive(),
@@ -306,7 +307,7 @@ export const OPS_CAPITAL_SCENARIO_KINDS = ['counterparty_default'] as const;
 export const opsCapitalScenarioInputSchema = z.object({
   kind: z.enum(OPS_CAPITAL_SCENARIO_KINDS),
   counterparty: z.string().optional(),
-  assetId: z.string().optional(),
+  assetId: assetIdSchema.optional(),
   /** What the counterparty owes or holds of ours. Decimal string. */
   exposure: z.string().optional(),
   /** The share of the exposure lost, from 0 to 1. Decimal string. */
@@ -318,7 +319,7 @@ export const opsCapitalScenarioSchema = z.object({
   asOf: z.string(),
   kind: z.enum(OPS_CAPITAL_SCENARIO_KINDS),
   counterparty: z.string(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   exposure: z.string().regex(decimal),
   lossShare: z.string().regex(decimal),
   /** `exposure × lossShare`, exact. */

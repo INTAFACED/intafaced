@@ -602,6 +602,8 @@ export class LiveRuns {
       fail('quant.live_request_invalid', `${JSON.stringify(key)} is not this run's agent permission`, 404);
     if (r.state !== 'signing')
       fail('quant.run_not_signing', `run ${r.runId} is ${r.state}; its agent permission is no longer asked for`, 409);
+    // J-wallet-13 #2: no agent permission is signed while the owner's own freeze is on (an unreadable freeze refuses too).
+    await this.assertNotFrozen(r, "signing this run's agent permission");
     await this.deps.door.submit(principal, key, signature, { liveRun: true });
     return this.advance(principal, (await this.deps.store.find(r.userId, r.runId))!);
   }
@@ -1238,6 +1240,44 @@ export class LiveRuns {
         `Stopped by the account freeze: ${n} open order${n === 1 ? '' : 's'} cancelled; the position is kept.`,
       );
     await this.revokePermission(moved.run);
+  }
+
+  /**
+   * J-wallet-13 #1: the owner froze their own account (the `selfFreezeApplied` event). At once, not on the next pass:
+   * every running or unknown run is stopped as the supervisor's freeze stop does (open orders cancelled once, position
+   * kept, permission revoked); a run still waiting for its signature ends, so a signature sent before the freeze never
+   * starts it; and every other run that still holds an active permission has it revoked. Safe to repeat: each step moves
+   * only from the state it expects, so a second delivery changes nothing. A run whose cancels the venue did not take
+   * stays held (`freeze_cancel_pending`) and places nothing; the supervisor's pass finishes it. Nothing is restored on
+   * the lift: the person signs a new permission.
+   */
+  async applySelfFreeze(userId: string): Promise<{ readonly runs: number }> {
+    const runs = await this.deps.store.listForUser(userId);
+    for (const r of runs) {
+      await this.locked(r, async () => {
+        const run = await this.deps.store.find(r.userId, r.runId);
+        if (!run) return;
+        if (STOPPABLE.includes(run.state)) return this.freezeStop(run);
+        if (run.state === 'signing') {
+          const moved = await this.deps.store.move(run.userId, run.runId, ['signing'], {
+            state: 'ended',
+            endReason: 'account_frozen',
+            permission: 'revoked',
+            stoppedAt: this.deps.now(),
+          });
+          this.workers.delete(this.id(run));
+          if (moved.moved)
+            await this.log(
+              moved.run,
+              'permission_revoked',
+              'The account freeze ended this run before it started: its agent permission is not asked for any more. Start a new run after you unfreeze.',
+            );
+          return;
+        }
+        if (run.permission === 'active') await this.revokePermission(run);
+      });
+    }
+    return { runs: runs.length };
   }
 
   /** The live process's step: its heartbeat, and the next order block of the plan not yet placed. */

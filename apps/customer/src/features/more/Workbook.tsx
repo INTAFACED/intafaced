@@ -2,11 +2,15 @@ import { t as copyText, Text } from './copy';
 import { useEffect, useState } from 'react';
 import { z } from 'zod';
 import { tradeSchema } from '@intafaced/exchange-contract/schemas';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { decimalSchema, signedDecimalSchema } from '../../shared/money';
-import { Button, DataTable, Panel } from '../../shared/ui';
-import { Details, Read, Select } from './common';
+import { Button, Checkbox } from '@intafaced/ui/lit';
+import { SelectField } from '@intafaced/ui/lit/templates';
+import { KitDetails } from './volt-action';
+import { KitRead, ScrollTable, Section } from './volt-parts';
+import { callAs } from '../../shared/api';
+import { ACADEMY_PAPER_DRILL } from '@intafaced/contracts/academy-paper-drill-procedures';
 const marketSchema = z.object({ id: z.string().min(1), symbol: z.string().min(1), paper: z.boolean(), quote: z.string().optional() });
 const seal = {
   simulated: z.literal(true),
@@ -86,9 +90,9 @@ export function Workbook({ slug }: { slug: string }) {
   const gate = useResource(
       (signal) =>
         flag
-          ? api.query(
-              'academy',
-              'paperDrill',
+          ? callAs(
+              api,
+              ACADEMY_PAPER_DRILL,
               { slug, market: flag },
               drill.refine(
                 (r) => !r.ok || (r.marketId === flag.marketId && r.symbol === flag.symbol),
@@ -128,10 +132,10 @@ export function Workbook({ slug }: { slug: string }) {
     setRequest(null);
   }, [selected, userId, slug]);
   return (
-    <Panel title={copyText('workbook.simulated.workbook.drill')}>
-      <Read resource={catalogue.resource} retry={catalogue.reload}>
+    <Section title={copyText('workbook.simulated.workbook.drill')} className="lt-stack">
+      <KitRead resource={catalogue.resource} retry={catalogue.reload}>
         {(rows) => (
-          <Select
+          <SelectField
             label={copyText('workbook.simulated.market')}
             value={selected}
             onChange={setSelected}
@@ -141,42 +145,41 @@ export function Workbook({ slug }: { slug: string }) {
             ]}
           />
         )}
-      </Read>
+      </KitRead>
       {market && (
-        <a className="text-link" href={`/exchange/${encodeURIComponent(market.symbol)}?simulated=true`}>
+        <a className="lt-link lt-link-alone" href={`/exchange/${encodeURIComponent(market.symbol)}?simulated=true`}>
           <Text k="workbook.open" />
           {market.symbol}
           <Text k="workbook.on.the.simulated.desk" />
         </a>
       )}
-      <Read resource={gate.resource} retry={gate.reload} empty={copyText('workbook.choose.a.published.simulated.market.to.begin')}>
+      <KitRead resource={gate.resource} retry={gate.reload} empty={copyText('workbook.choose.a.published.simulated.market.to.begin')}>
         {(d) =>
           d ? (
             d.ok ? (
               <>
-                <p className="more-badge">
+                <p className="lt-hint">
                   {d.disclaimer}
                   <Text k="workbook.no.real.ledger.not.withdrawable" />
                 </p>
-                <div className="more-grid">
+                <div className="lt-stack">
                   {d.steps.map((s) => (
-                    <label key={s.id}>
-                      <input
-                        type="checkbox"
-                        aria-label={copyText('workbook.complete.2', { value1: s.instruction })}
-                        checked={steps.includes(s.id)}
-                        onChange={(e) => setSteps((ids) => (e.target.checked ? [...ids, s.id] : ids.filter((id) => id !== s.id)))}
-                      />{' '}
+                    <Checkbox
+                      key={s.id}
+                      aria-label={copyText('workbook.complete.2', { value1: s.instruction })}
+                      checked={steps.includes(s.id)}
+                      onCheckedChange={(checked) => setSteps((ids) => (checked ? [...ids, s.id] : ids.filter((id) => id !== s.id)))}
+                    >
                       {s.instruction}
-                    </label>
+                    </Checkbox>
                   ))}
                 </div>
                 <h3>
                   <Text k="workbook.attach.your.published.fills" />
                 </h3>
-                <Read resource={fills.resource} retry={fills.reload} empty={copyText('workbook.no.fills.for.this.simulated.market')}>
+                <KitRead resource={fills.resource} retry={fills.reload} empty={copyText('workbook.no.fills.for.this.simulated.market')}>
                   {(rows) => (
-                    <DataTable
+                    <ScrollTable
                       headers={[
                         copyText('workbook.attach'),
                         copyText('workbook.fill'),
@@ -189,12 +192,15 @@ export function Workbook({ slug }: { slug: string }) {
                       {rows.map((f) => (
                         <tr key={f.id}>
                           <td>
-                            <input
-                              type="checkbox"
+                            <Checkbox
                               aria-label={copyText('workbook.attach.fill', { value1: f.id })}
                               checked={fillIds.includes(f.id)}
-                              onChange={(e) => setFillIds((ids) => (e.target.checked ? [...ids, f.id] : ids.filter((id) => id !== f.id)))}
-                            />
+                              onCheckedChange={(checked) =>
+                                setFillIds((ids) => (checked ? [...ids, f.id] : ids.filter((id) => id !== f.id)))
+                              }
+                            >
+                              {null}
+                            </Checkbox>
                           </td>
                           <td>{f.id}</td>
                           <td>{f.side}</td>
@@ -202,14 +208,14 @@ export function Workbook({ slug }: { slug: string }) {
                           <td>{f.amount}</td>
                         </tr>
                       ))}
-                    </DataTable>
+                    </ScrollTable>
                   )}
-                </Read>
-                <p className="muted">
+                </KitRead>
+                <p className="lt-hint">
                   <Text k="workbook.a.maximum.of.100.fills.can.be" />
                 </p>
                 <Button
-                  variant="secondary"
+                  tone="secondary"
                   disabled={fills.resource.status !== 'ready' || !userId}
                   onClick={() => {
                     if (!market || fills.resource.status !== 'ready') return;
@@ -232,15 +238,15 @@ export function Workbook({ slug }: { slug: string }) {
             )
           ) : null
         }
-      </Read>
+      </KitRead>
       {Boolean(request) && (
-        <Read resource={reading.resource} retry={reading.reload}>
+        <KitRead resource={reading.resource} retry={reading.reload}>
           {(r) =>
             r ? (
               r.ok ? (
                 <>
                   <p>{r.disclaimer}</p>
-                  <Details
+                  <KitDetails
                     items={[
                       [
                         copyText('workbook.progress'),
@@ -272,8 +278,8 @@ export function Workbook({ slug }: { slug: string }) {
               )
             ) : null
           }
-        </Read>
+        </KitRead>
       )}
-    </Panel>
+    </Section>
   );
 }

@@ -1,6 +1,7 @@
 // Customer words for every refusal the Copy and Bots rooms can meet. A screen shows these, never the service's own
 // sentence (those carry internal desk-law wording). Codes not listed here fall to the shared table in data/refusals.ts.
 // The raw code is only offered as a small "Ref" line for support.
+import { LEAD_ORDER_REFUSALS } from '../../../features/trade/lead-mode';
 import type { ApiResult } from '../../../shared/api';
 import { refusalCopy } from '../../../data';
 import type { RefusalCopy } from '../../../data';
@@ -8,6 +9,8 @@ import type { RefusalCopy } from '../../../data';
 type Words = { title: string; body: string };
 
 const COPY: Readonly<Record<string, Words>> = {
+  // A listed lead's lead trades (J-copy-bots-otc-04 #5 to #7): the same words the order ticket shows.
+  ...LEAD_ORDER_REFUSALS,
   'trade.copy_jurisdiction_blank': {
     title: 'Copy trading isn’t open for your country',
     body: 'The list of countries where it can be offered hasn’t been approved. Nothing was followed and no money moved.',
@@ -306,6 +309,26 @@ const COPY: Readonly<Record<string, Words>> = {
   },
   'trade.copy_lead_application_decided': { title: 'That application is decided', body: 'Read it again to see the decision.' },
   'trade.copy_lead_application_not_found': { title: 'That application wasn’t found', body: 'Read the page again.' },
+  'trade.copy_lead_following': {
+    title: 'Leave your leader first',
+    body: 'You are following a leader. Leave that leader before you apply to lead. Nothing was sent.',
+  },
+  'trade.copy_lead_balance_threshold_unset': {
+    title: 'Applying to lead is closed',
+    body: 'The least venue balance to lead is not set by the platform, so no application can be measured. Nothing was sent.',
+  },
+  'trade.copy_lead_venue_account_missing': {
+    title: 'Connect your venue account first',
+    body: 'Connect the wallet whose venue account you will lead from, on the trading desk, and sign once with it. Nothing was sent.',
+  },
+  'trade.copy_lead_venue_unreadable': {
+    title: 'Your venue account could not be read',
+    body: 'The trading venue did not answer, so your balance could not be measured. Nothing was sent.',
+  },
+  'trade.copy_lead_balance_below': {
+    title: 'Your venue balance is under the threshold',
+    body: 'Your venue account holds less than leading needs, as the venue reports it. Nothing was sent.',
+  },
 };
 
 const DEVICE: Readonly<Record<string, Words>> = {
@@ -442,6 +465,38 @@ const GRID: Readonly<Record<string, Words>> = {
     title: 'The grid could not start',
     body: 'Its levels could not all be placed, so every placed order was cancelled and the reserve was released.',
   },
+  'trade.bots_grid_wallet_required': {
+    title: 'Connect your wallet',
+    body: 'The bot trades on your own venue account, so connect the wallet that holds it. Nothing was created.',
+  },
+  'trade.bots_grid_builder_fee_unapproved': {
+    title: 'Approve our builder fee first',
+    body: 'Every sell the grid places carries our builder fee, so your wallet approves it once on your venue account. Nothing was created.',
+  },
+  'trade.bots_grid_wallet_rejected': {
+    title: 'You rejected the signature',
+    body: 'Your wallet did not sign the agent permission, so the bot placed nothing. Create it again to sign.',
+  },
+  'trade.bots_grid_wallet_failed': {
+    title: 'Your wallet did not answer',
+    body: 'Nothing was signed, so the bot placed nothing. Check your wallet and try again.',
+  },
+  'trade.bots_grid_not_signing': {
+    title: 'The agent permission is no longer asked for',
+    body: 'Refresh to see the bot as it is now. Nothing more was sent.',
+  },
+  'trade.bots_grid_venue_unreadable': {
+    title: 'The venue could not be read',
+    body: 'Your balance on the venue could not be read just now, so nothing was created. Try again in a moment.',
+  },
+  'trade.bots_grid_agent_key_unset': {
+    title: 'Grids on the venue are not set up',
+    body: 'The platform has not set up the key a grid signs with, so no grid runs on the venue. Nothing was created.',
+  },
+  'trade.bots_grid_withdraw_not_permitted': {
+    title: 'A bot can’t withdraw',
+    body: 'Its agent permission can’t withdraw. You withdraw from the venue with your own wallet. Nothing was moved.',
+  },
   'trade.grid_tick_failed': {
     title: 'The grid could not check its orders',
     body: 'It tries again on its next check. Your reserve and orders stay as they are.',
@@ -536,6 +591,73 @@ const GRID: Readonly<Record<string, Words>> = {
   'trade.bots_grid_trailing_not_built': {
     title: 'Trailing isn’t built',
     body: 'Your settings passed every check, but a grid can’t trail the price. It keeps its range. Nothing was changed.',
+  },
+  'trade.bots_grid_rsi_source_not_set': {
+    title: 'An RSI exit can’t be saved',
+    body: 'No RSI source is connected, so the bot can’t read RSI. Nothing was saved.',
+  },
+  'trade.bots_grid_exit_price_invalid': {
+    title: 'Check the exit prices',
+    body: 'Each exit is a price above zero, and the falls-to price must be below the rises-to price. Nothing was saved.',
+  },
+  'trade.bots_grid_idle_yield_unwired': {
+    title: 'Earning on idle funds isn’t connected',
+    body: 'A grid earns on its idle funds only through the bank’s earn service, which isn’t connected here. Nothing was moved.',
+  },
+  // The recurring buy (J-copy-bots-otc-16). The editor adds which row or what total, from what the person typed.
+  'trade.recurring_weights_not_100': {
+    title: 'The weights must add up to 100%',
+    body: 'Change the weights so they total exactly 100%. Nothing was saved.',
+  },
+  'trade.recurring_price_range_inverted': {
+    title: 'Check the price range',
+    body: 'The lowest price must be below the highest price. Nothing was saved.',
+  },
+  'trade.recurring_card_funding_off': {
+    title: 'Card funding is switched off',
+    body: 'Card funding needs the card processor, which is switched off in this build. Nothing was saved.',
+  },
+  'trade.recurring_field_invalid': {
+    title: 'Check the form',
+    body: 'Each amount and weight is a number above zero. Nothing was saved.',
+  },
+  'trade.recurring_market_not_found': {
+    title: 'That coin can’t be bought here',
+    body: 'Choose a coin the venue lists as an open spot market. Nothing was saved.',
+  },
+  'trade.recurring_wallet_required': {
+    title: 'Connect your wallet',
+    body: 'A recurring buy trades on your own venue account. Nothing was saved.',
+  },
+  'trade.recurring_builder_fee_unapproved': {
+    title: 'Approve our builder fee first',
+    body: 'Ending a recurring buy sells what it bought, and every sell carries our builder fee. Nothing was saved.',
+  },
+  'trade.recurring_agent_key_unset': {
+    title: 'Recurring buys aren’t set up here',
+    body: 'The key that places a recurring buy’s orders hasn’t been set. Nothing was saved.',
+  },
+  'trade.recurring_not_signing': {
+    title: 'The permission isn’t needed now',
+    body: 'This recurring buy already has its permission, or has ended. Nothing was sent.',
+  },
+  'trade.recurring_ended': { title: 'This recurring buy has ended', body: 'Nothing was changed.' },
+  'trade.recurring_not_found': { title: 'We couldn’t find that recurring buy', body: 'Check your recurring buys and try again.' },
+  'trade.recurring_request_conflict': {
+    title: 'That request was already used',
+    body: 'Open the form again to set up a new recurring buy. Nothing was saved.',
+  },
+  'trade.recurring_unavailable': {
+    title: 'Recurring buys aren’t available right now',
+    body: 'A recurring buy trades on your own venue account, and no venue is connected here. Nothing was saved.',
+  },
+  'trade.recurring_wallet_rejected': {
+    title: 'Your wallet did not sign',
+    body: 'Nothing is bought until your wallet signs the permission. Your recurring buy is saved and waits for it.',
+  },
+  'trade.recurring_wallet_failed': {
+    title: 'Your wallet could not sign',
+    body: 'Nothing is bought until your wallet signs the permission. Try again.',
   },
   'trade.grid_unavailable': {
     title: 'Grid bots aren’t available right now',

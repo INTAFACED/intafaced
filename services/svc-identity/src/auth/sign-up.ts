@@ -5,29 +5,8 @@ import type { Sql } from 'postgres';
 import { flowSubjectHash, type PasswordResetMail } from './password-reset.js';
 import { sealBirthDate } from '../kyc/birth-date.js';
 import { assertPasswordNotBreached, assertPasswordNotIdentity, assertPasswordShape, hashPassword, WeakPasswordError } from './passwords.js';
+import { ACCOUNT_TYPES } from '@intafaced/contracts/identity-call-schemas';
 
-/**
- * Sign-up by email, with the code before the first session (I-signin-sessions-18) and the eligibility check
- * at the door (I-kyc-compliance-06).
- *
- * `start` checks, in this order: age (owner `IDENTITY_SIGNUP_MIN_AGE_YEARS`), then the country of residence and
- * the optional nationality (a real ISO country, not switched off by the owner, not on the screening list), then
- * the password. Nothing is written on a refusal. A good record writes one `auth_flows` row, one `signup_drafts`
- * row and one `mail_outbox` row, and answers `{ accepted, next: 'confirm_email', flowId }` with no session.
- *
- * A new address and an address that already has an account get the same answer and the same work: the
- * password is hashed, the three rows are written. The new address is mailed a six-digit code; the known one is
- * mailed a "someone tried to sign up with your address" notice, and its flow is `suppressed`, so no code
- * finishes it. `confirm` makes the account only when the right code is entered, inside one transaction with
- * the flow consumed and the draft (and its password hash) deleted.
- *
- * Blank owner numbers refuse every caller the same way (`identity.signup_unwired`, `identity.age_rule_unset`);
- * nothing here invents a lifetime, a cap or an age. The date of birth is used for the age check and, with the KYC
- * document key set (`birthDateKey`), kept sealed for the trading checks' sanctions screen (`birth_dates`, J-cex-spot-01
- * #3); never in plaintext, and with the key unset it is not kept at all.
- */
-
-export const ACCOUNT_TYPES = ['individual', 'business'] as const;
 export type AccountType = (typeof ACCOUNT_TYPES)[number];
 
 /** One day. Longer than that is not a sign-up code. */
@@ -557,3 +536,4 @@ export async function confirmSignUp(
   if (outcome instanceof SignUpError) throw outcome;
   return outcome;
 }
+export { ACCOUNT_TYPES };

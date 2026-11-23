@@ -306,6 +306,7 @@ test.beforeAll(async ({ browser }) => {
 
 test(`${J} #1 opens /money: every holding in the wallet, the venue account and the partner account with amount, price, value, share and source; the total with its breakdown by source and quick actions`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(180_000);
   const { account: who, owner, ledgerStart } = state();
@@ -337,7 +338,8 @@ test(`${J} #1 opens /money: every holding in the wallet, the venue account and t
   async function holding(section, row, { amountCells, source }) {
     const el = page.getByTestId(section).locator(`tr[data-asset="${row.asset}"]`);
     for (const [name, value] of Object.entries(amountCells))
-      await expect(el.locator(`[data-cell="${name}"]`).first()).toHaveText(new RegExp(`^${shown(value).replace(/\./g, '\\.')}`));
+      // The whole figure, exactly: no further digit, point or comma may follow it (500 never passes for 5000 or 500.5).
+      await expect(el.locator(`[data-cell="${name}"]`).first()).toHaveText(new RegExp(`^${shown(value).replace(/\./g, '\\.')}(?![\\d.,])`));
     if (row.price === null) {
       await expect(el.locator('[data-cell="price"]')).toHaveText('No price published');
       await expect(el.locator('[data-cell="value"]')).toHaveText('No price published');
@@ -349,13 +351,21 @@ test(`${J} #1 opens /money: every holding in the wallet, the venue account and t
     }
     const sourceCell = el.locator('[data-cell="source"]');
     await expect(sourceCell).toHaveAttribute('data-source', row.part);
-    await expect(sourceCell).toContainText(source);
+    if (typeof source === 'function') await expect.poll(source(sourceCell), `${row.asset}'s source names the page's block`).toBe(true);
+    else await expect(sourceCell).toContainText(source);
   }
+  /**
+   * A wallet row's source names the network and the block the wallet section reads at, read together: the page
+   * re-reads the chain while the TEST chain mines, so the block moves on while this test runs.
+   */
+  const atPageBlock = (cell) => async () => {
+    const now = await walletSection.getByTestId('source-wallet-block').getAttribute('data-block');
+    return (await cell.innerText()).includes(`${NETWORK}, block ${now}`);
+  };
   // The wallet: every token the chain holds for the address at the block the page names.
   const walletRows = valued.filter((row) => row.part === 'wallet');
   await expect(walletSection.locator('tbody tr')).toHaveCount(walletRows.length);
-  for (const row of walletRows)
-    await holding('source-wallet', row, { amountCells: { amount: decimal(row.amount) }, source: `${NETWORK}, block ${block}` });
+  for (const row of walletRows) await holding('source-wallet', row, { amountCells: { amount: decimal(row.amount) }, source: atPageBlock });
   // The venue account: free, locked and total exactly as the venue reports them, each asset it holds.
   await expect(page.getByTestId('source-venue').locator('tbody > tr')).toHaveCount(venueRows.length);
   for (const b of venueRows) {
@@ -401,6 +411,7 @@ test(`${J} #1 opens /money: every holding in the wallet, the venue account and t
     ['Activity', /^\/money\/activity$/],
   ])
     await expect(actions.locator('a').filter({ hasText: new RegExp(`^${name}$`) })).toHaveAttribute('href', href);
+  await stepPicture();
   await actions
     .locator('a')
     .filter({ hasText: /^Fund your venue account$/ })

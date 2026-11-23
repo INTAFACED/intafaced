@@ -11,6 +11,7 @@ import { deskCopy } from '../../screens/trade/desk/copy';
 import { acceptedCells, refusedName } from './trading/order-types-view';
 import { tradingApiCopy } from './trading/trading-api-copy';
 import { idempotencyCopy } from './idempotency/idempotency-copy';
+import { developerSupportCopy } from './support/support-copy';
 import { quantApiCopy } from './quant/quant-api-copy';
 import { QUANT_API_ENDPOINTS } from './quant/quant-api-endpoints';
 import { developersCopy } from './developers-copy';
@@ -34,6 +35,7 @@ import {
   scopeText,
   streamName,
 } from './developers-reference';
+import { PROTOCOL_GUIDE, STREAM_ENDPOINTS, STREAM_ENDPOINT_PATH } from './developers-streams';
 
 const portal = developersCopy.forLocale('en').t;
 const docs = docsCopy.forLocale('en').t;
@@ -43,6 +45,7 @@ const tradeErrors = tradeErrorsCopy.forLocale('en').t;
 const errorClass = errorClassCopy.forLocale('en').t;
 const trading = tradingApiCopy.forLocale('en').t;
 const idem = idempotencyCopy.forLocale('en').t;
+const devSupport = developerSupportCopy.forLocale('en').t;
 const quantApi = quantApiCopy.forLocale('en').t;
 const desk = deskCopy.forLocale('en').t;
 const sectionTitle = (id: string) => (portal as (key: string) => string)(`section_${id.replace(/-/g, '_')}`);
@@ -376,6 +379,33 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     body: () => [trading('botLead'), trading('botStaticNote')].join('\n\n'),
   },
   {
+    slug: 'websocket',
+    title: sectionTitle('websocket'),
+    summary: docs('wsLead'),
+    body: () =>
+      [
+        docs('wsLead'),
+        docs('wsStaticNote'),
+        `## ${docs('wsEndpointsTitle')}`,
+        table(
+          [docs('colEndpoint'), docs('colPath')],
+          STREAM_ENDPOINTS.map((endpoint) => [docs(`wsEndpoint_${endpoint}`), code(STREAM_ENDPOINT_PATH[endpoint])]),
+        ),
+        docs('wsFailover'),
+        `## ${docs('wsMessagesTitle')}`,
+        `${docs('wsUnknown')} ${docs('wsUnknownMore')}`,
+        `## ${docs('wsGuideTable')}`,
+        table(
+          [docs('colProtocolName'), docs('colUseFor'), docs('colOwner')],
+          PROTOCOL_GUIDE.map(({ protocol, module }) => [
+            docs(`guide_${protocol}`),
+            docs(`guide_${protocol}_use`),
+            docs('ownedBy', { module }),
+          ]),
+        ),
+      ].join('\n\n'),
+  },
+  {
     slug: 'idempotency',
     title: sectionTitle('idempotency'),
     summary: idem('lead'),
@@ -392,6 +422,26 @@ export const DOCS_PAGES: readonly DocsPage[] = [
         `## ${idem('listTitle')}`,
         idem('listBody'),
         idem('listMax'),
+      ].join('\n\n'),
+  },
+  {
+    slug: 'support',
+    title: sectionTitle('support'),
+    summary: devSupport('lead'),
+    body: () =>
+      [
+        devSupport('lead'),
+        `## ${devSupport('sendTitle')}`,
+        [devSupport('sendRequestId'), devSupport('sendWhen'), devSupport('sendCall'), devSupport('sendAddress'), devSupport('sendHeaders')]
+          .map((line) => `- ${line}`)
+          .join('\n'),
+        `## ${devSupport('neverTitle')}`,
+        devSupport('neverKey'),
+        // The contacts are the owner's live settings: the page reads them, so the file names the page instead of a copy.
+        `## ${devSupport('contactsTitle')}`,
+        '[/developers/support](/developers/support)',
+        `## ${devSupport('ticketTitle')}`,
+        devSupport('ticketBody'),
       ].join('\n\n'),
   },
   {

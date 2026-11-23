@@ -101,6 +101,13 @@ export function recordSignIn(url, body) {
 }
 
 /** One file per journey run, so a later step (a new worker after a failure) finds the account an earlier step made. */
+/** The account an earlier step of `journey` kept in its journey state (`run.write({ who })`); a step with none fails in words. */
+export function stepAccount(run, journey) {
+  const kept = run.read().who;
+  if (!kept) throw new Error(`${journey}: step 1 left no account, so this step has no one to sign in`);
+  return kept;
+}
+
 export function journeyState(id) {
   const file = path.join(RUN, `${id}.json`);
   return {
@@ -114,6 +121,15 @@ export function journeyState(id) {
       writeFileSync(file, JSON.stringify(state, null, 2), { mode: 0o600 });
       return state;
     },
+  };
+}
+
+/** A step's read of its run (`journeyState`), refusing by name when an earlier step left one of `keys` unset. */
+export function stepState(run, J) {
+  return function state(...keys) {
+    const s = run.read();
+    for (const k of keys) if (!s[k]) throw new Error(`${J}: an earlier step left no ${k}, so this step has nothing to act on`);
+    return s;
   };
 }
 
@@ -273,6 +289,65 @@ export async function toolAwaited(script, ...args) {
     if (typeof raw?.code === 'number') Object.assign(raw, { status: raw.code, code: null });
     throw toolError(raw, script, args);
   }
+}
+
+/**
+ * After a stop, start or restart: cheap reads of Edge's own health (unthrottled, it moves nothing) drop every kept-alive
+ * socket Edge closed while the stack tool ran, until three in a row answer, so the next request, a write included, goes
+ * out on a live socket and is never sent twice. A read that meets a closed socket fails before any answer
+ * (`UND_ERR_SOCKET`, "other side closed").
+ */
+async function dropClosedSockets() {
+  for (let i = 0, live = 0; i < 20 && live < 3; i++) {
+    try {
+      await fetch(`${EDGE}/health`, { headers: { origin: ORIGIN } }).then((r) => r.arrayBuffer());
+      live += 1;
+    } catch (error) {
+      if (error?.cause?.code !== 'UND_ERR_SOCKET') throw error;
+      live = 0;
+    }
+  }
+}
+
+/** Runs `fn` with these stack settings set (a string) or unset (`undefined` or `null`), and puts the environment back. */
+async function withSettings(settings, fn) {
+  const before = Object.fromEntries(Object.keys(settings).map((k) => [k, process.env[k]]));
+  const put = (values) => {
+    for (const [k, v] of Object.entries(values)) {
+      if (v === undefined || v === null) delete process.env[k];
+      else process.env[k] = v;
+    }
+  };
+  put(settings);
+  try {
+    return await fn();
+  } finally {
+    put(before);
+  }
+}
+
+/**
+ * The one supported way a journey stops, starts or restarts a stack service. The stack tool waits for the service's
+ * health (local-test-stack.mjs `waitHealthy`); it runs awaited, so this worker's event loop sees Edge close an idle
+ * kept-alive socket while it runs, and then every closed socket is dropped (`dropClosedSockets`). A blocking `tool(…)`
+ * restart froze the worker past Edge's 72 s keep-alive, and the next call through Edge failed with "other side closed"
+ * (#7449, #8395). `settings` are `LOCAL_STACK_*` values for this call only (`undefined` or `null` unsets one).
+ */
+export async function restartService(service, settings = {}) {
+  await withSettings(settings, () => toolAwaited('local-test-stack.mjs', 'restart', service));
+  await dropClosedSockets();
+}
+
+/** A stack service stopped, as `restartService` (awaited, closed sockets dropped). */
+export async function stopService(service, settings = {}) {
+  await withSettings(settings, () => toolAwaited('local-test-stack.mjs', 'stop', service));
+  await dropClosedSockets();
+}
+
+/** A stopped stack service started again on its own (`start --only`), as `restartService`. */
+export async function startService(service, settings = {}) {
+  await withSettings(settings, () => toolAwaited('local-test-stack.mjs', 'start', '--only', service));
+  await dropClosedSockets();
 }
 
 /**
@@ -593,3 +668,12 @@ export function fromUnits(units) {
 }
 /** price x amount, in units. */
 export const times = (a, b) => (toUnits(a) * toUnits(b)) / SCALE;
+
+/** The svc-trade market id of a listed spot symbol, from the public markets list; throws by name when it is not listed. */
+export async function marketIdOf(symbol) {
+  const res = await fetch(`${EDGE}/api/v1/markets?limit=500`);
+  if (res.status !== 200) throw new Error(`the public markets list answered ${res.status}`);
+  const market = (await res.json()).find((m) => m.symbol === symbol);
+  if (!market) throw new Error(`${symbol} is not listed on the stack`);
+  return market.id;
+}

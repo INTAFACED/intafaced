@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { testPartner } from '../partner/test-partner.js';
-import type { PartnerAccountRef, PostingFreeze } from '../partner/partner-bank.js';
-import { collectUsagePayment, partnerIntafacedAccount, readUsagePayment, type UsagePaymentDeps } from './usage-payment.js';
+import { testPartner, testPartnerCustody } from '../partner/test-partner.js';
+import { freezeGuardedCustody, type PartnerAccountRef, type PostingFreeze } from '../partner/partner-bank.js';
+import { stopGuardedCustody, type PartnerStopGate } from '../partner/partner-stops.js';
+import { BankError } from '../errors.js';
+import {
+  collectUsagePayment,
+  partnerIntafacedAccount,
+  readUsagePayment,
+  usagePaymentHeldBy,
+  type UsagePaymentDeps,
+} from './usage-payment.js';
 
 const USER = '11111111-1111-4111-8111-111111111111';
 const MEMBER = '33333333-3333-4333-8333-333333333333';
@@ -9,17 +17,29 @@ const BUSINESS = '44444444-4444-4444-8444-444444444444';
 const KEY = 'agent.usage:22222222-2222-4222-8222-222222222222:2026-11-15#0012';
 const open: PostingFreeze = { postingEnabled: async () => true };
 const frozen: PostingFreeze = { postingEnabled: async () => false };
+const going: PartnerStopGate = { assertOpen: async () => undefined };
+const stoppedGate: PartnerStopGate = {
+  assertOpen: async () => {
+    throw new BankError('The operator stopped this partner.', 'bank.partner_stopped');
+  },
+};
+const unreadableGate: PartnerStopGate = {
+  assertOpen: async () => {
+    throw new BankError('The partner stop could not be read.', 'bank.partner_stop_unreadable');
+  },
+};
 
-function setup(freeze: PostingFreeze = open) {
+function setup(freeze: PostingFreeze = open, stop: PartnerStopGate = going) {
   const partner = testPartner();
   partner.set(USER, { custody: 'off' });
   partner.fund(USER, { fundId: 'fund-usage-1', assetId: 'USDT', amount: 10_000_000_000_000_000_000n });
+  // Wired as svc-bank's index wires it: the custody createBankServices builds, both guards on, never the raw bank.
+  const custody = stopGuardedCustody(freezeGuardedCustody(testPartnerCustody(partner), freeze), 'test', stop);
   const deps: UsagePaymentDeps = {
     freeze,
     // The business's payer is USER, its first administrator; any other business is closed or unknown.
     businessPayer: async (businessId) => (businessId === BUSINESS ? USER : null),
-    heldBy: (userId) =>
-      partner.switches(userId).custody === 'off' ? { kind: 'partner', bank: partner.bank, partnerId: 'test' } : { kind: 'ledger' },
+    heldBy: usagePaymentHeldBy(partner, custody, 'on'),
   };
   const collect = (amount = '0.0123') =>
     collectUsagePayment(deps, { action: 'collect', userId: USER, assetId: 'USDT', amount, chargeKey: KEY });
@@ -63,6 +83,17 @@ describe('agent usage payment at the partner (J-agents-01)', () => {
     const custodial = setup();
     custodial.partner.set(USER, { custody: 'on' });
     expect(await custodial.collect()).toEqual({ ok: false, reason: 'not_partner_held' });
+  });
+
+  it("an operator's partner stop refuses the payment and moves nothing, as it refuses every partner move", async () => {
+    const stopped = setup(open, stoppedGate);
+    expect(await stopped.collect()).toEqual({ ok: false, reason: 'partner_stopped' });
+    expect(await stopped.has()).toBe(10_000_000_000_000_000_000n);
+    expect(await stopped.has(partnerIntafacedAccount('USDT'))).toBe(0n);
+
+    const unknown = setup(open, unreadableGate);
+    expect(await unknown.collect()).toEqual({ ok: false, reason: 'partner_stopped' });
+    expect(await unknown.has()).toBe(10_000_000_000_000_000_000n);
   });
 
   it('a lost answer is asked again under the same key and makes the payment once', async () => {

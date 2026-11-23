@@ -102,6 +102,8 @@ const service = ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_OR
     // Edge reads each caller's current account authority with this key; without it
     // Edge refuses every signed-in token as 'invalid' and forwards anonymously.
     IDENTITY_EDGE_AUTHORITY_SECRET: secrets.edgeAuthority,
+    // svc-ws's own read key for the private stream's current-authority lease; identity refuses it when it equals the edge's.
+    IDENTITY_WS_AUTHORITY_SECRET: secrets.wsAuthority,
     // LOCAL TEST ONLY (Nitro, option B, 2026-10-13). Required, no default, owner-unpublished: how long a
     // two-person action approval lives. 600 s is a local test value, not an owner decision. The labelled
     // local test operators (tooling/scripts/local-test-gates.mjs) use it to open markets and verify
@@ -233,6 +235,11 @@ const service = ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_OR
     // owner sets it, so a journey can see every signed request refused with auth.request_window_unset.
     IDENTITY_REQUEST_SIGN_WINDOW_SECONDS:
       process.env.LOCAL_STACK_IDENTITY_REQUEST_SIGN_WINDOW === 'off' ? '' : testValue('IDENTITY_REQUEST_SIGN_WINDOW_SECONDS'),
+    // The stream-token lifetime (J-developer-09 #2): a TEST value, not an owner decision. `LOCAL_STACK_IDENTITY_STREAM_TOKEN_TTL=off`
+    // on a start or restart leaves it blank, as production is until the owner sets it, so every mint refuses
+    // identity.stream_token_ttl_unset.
+    IDENTITY_STREAM_TOKEN_TTL_SECONDS:
+      process.env.LOCAL_STACK_IDENTITY_STREAM_TOKEN_TTL === 'off' ? '' : testValue('IDENTITY_STREAM_TOKEN_TTL_SECONDS'),
     // LOCAL TEST ONLY: the KYC document vault's key, generated for this stack (secrets.json, mode 600). Without it the vault is
     // off and the founder console's document list and viewer refuse kyc_doc.unwired.
     IDENTITY_KYC_DOC_KEY: secrets.identityKycDoc,

@@ -481,11 +481,11 @@ export function VenueChartOrders({ host, market, venueName, owner, openOrders, r
     <div className="ct-bar" data-testid="chart-trading" data-locked={locked ? 'true' : 'false'}>
       {overlay}
       {refusal !== null ? (
-        <p className="dk-note" role="status" data-testid="chart-trading-refusal" data-code={ORDER_ENTRY_REFUSED}>
+        <p className="lt-hint" role="status" data-testid="chart-trading-refusal" data-code={ORDER_ENTRY_REFUSED}>
           {refusal}
         </p>
       ) : owner === null ? (
-        <p className="dk-note" role="status" data-testid="chart-trading-refusal">
+        <p className="lt-hint" role="status" data-testid="chart-trading-refusal">
           {t('No wallet')}
         </p>
       ) : null}

@@ -49,7 +49,7 @@ describe('publicListings limit unset refuse', () => {
 
   it('router does not invent 50 when listings omits limit', () => {
     const src = readFileSync(join(ROOT, 'services/svc-market/src/router.ts'), 'utf8');
-    const start = src.indexOf('listings: publicProcedure');
+    const start = src.indexOf('listings: mountRecord(');
     const end = src.indexOf('subscribe:', start);
     const fn = src.slice(start, end === -1 ? undefined : end);
     expect(fn).toContain('publicListings({ limit: input?.limit })');

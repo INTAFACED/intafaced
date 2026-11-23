@@ -475,7 +475,7 @@ test(`${J} #5 a new device's sign-in waits until a signed-in session on a truste
 
   // The signed-in session sees the waiting sign-in and approves it, confirmed with its authenticator.
   await trusted.goto('/uc/safe');
-  const card = trusted.locator('section.security__trusted-devices');
+  const card = trusted.locator('section[data-card="trusted-devices"]');
   await expect(card.getByRole('heading', { name: 'Waiting for your approval' })).toBeVisible({ timeout: 15_000 });
   const approve = card.getByRole('button', { name: /^Approve / });
   await expect(approve).toHaveCount(1);

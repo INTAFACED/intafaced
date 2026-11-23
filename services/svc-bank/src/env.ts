@@ -8,6 +8,7 @@ import { CARD_ISSUER_SETTINGS } from './cards/issuer.js';
 import { parseRecoveryBatchLimit, parseRecoveryInterval } from './recovery-jobs.js';
 import { parseStatementJobsInterval, parseStatementJobsLease } from './statements/statement-jobs.js';
 import { readStrangerHoldDays } from './holds/received-holds.js';
+import { readMarginWarningLevel } from './home/work-items.js';
 import { RAMP_SETTINGS } from './ramps/rails.js';
 import { GLOBAL_PARTNER_SETTINGS } from './personal-pay/global-sim.js';
 import { ONRAMP_RATE_SETTINGS } from './ramps/onramp-sim.js';
@@ -334,6 +335,14 @@ const schema = serviceEnvSchema
        * `BANK_TEST_PARTNER=test`, the TEST partner gives each person a TEST pay-in address a venue can withdraw to, and
        * credits what arrives there once. Any blank: no pay-in, and every pay yourself write refuses `bank.pay_in_unset`.
        */
+      /**
+       * LOCAL TEST: the TEST partner's cash leg of a cash-through-a-coin convert (J-cex-spot-11 #11, `partner/cash-leg.ts`):
+       * its TEST rates (`EUR:USDC:1.08`, each the coins one unit of cash buys) and the TEST venue it pays the coin into.
+       * Both set, with `BANK_TEST_PARTNER=test`, the TEST partner offers the cash leg; either blank, nothing is offered and
+       * the Convert room says so. Set without the TEST partner, or outside dev or test, the service refuses to start.
+       */
+      BANK_TEST_CASH_LEG_RATES: z.string().optional(),
+      BANK_TEST_CASH_LEG_VENUE_URL: z.string().optional(),
       BANK_TEST_PAY_IN_RPC_URL: z.string().optional(),
       BANK_TEST_PAY_IN_CHAIN_ID: z.string().optional(),
       BANK_TEST_PAY_IN_TOKEN: z.string().optional(),
@@ -396,6 +405,23 @@ const schema = serviceEnvSchema
         .optional()
         .refine((raw) => raw === undefined || raw.trim() === '' || readStrangerHoldDays(raw) !== null, {
           message: 'BANK_STRANGER_HOLD_DAYS must be a whole number of days from 1 to 365, or blank',
+        }),
+
+      /**
+       * HOME'S MARGIN WARNING LEVEL (HM-dashboard-03): the loan-to-value, in basis points, past which Home would list a loan
+       * that is drifting towards its margin call. An owner value, and blank: while it is blank Home lists only loans already
+       * in a call, and `loans.products` publishes the level as null. Any value refuses boot (`readMarginWarningLevel`).
+       */
+      BANK_MARGIN_WARNING_LTV_BPS: z
+        .string()
+        .optional()
+        .transform((raw, ctx) => {
+          try {
+            return readMarginWarningLevel(raw);
+          } catch (error) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: error instanceof Error ? error.message : String(error) });
+            return z.NEVER;
+          }
         }),
 
       /**

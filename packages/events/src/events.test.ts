@@ -937,6 +937,7 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
     securityFactorChanged: { userId: uid(), change: 'totp_replaced', changedAt: ts(), noticeKey: 'factor-changed:u:1' },
     deathNoticeCreated: { userId: uid(), noticeId: uid(), at: ts() },
     deathNoticeConfirmed: { userId: uid(), noticeId: uid(), at: ts() },
+    selfFreezeApplied: { userId: uid(), freezeId: uid(), since: ts() },
     staffCreated: {
       staffId: 'staff-1',
       actorId: 'staff-0',
@@ -1496,6 +1497,7 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
     copySkipped: { followId: 'follow-1', followerId: uid(), leaderId: uid(), leaderFillId: uid(), reason: 'paused', skippedAt: ts() },
     copyFailed: { followId: 'follow-1', followerId: uid(), leaderId: uid(), leaderFillId: uid(), reason: 'order_rejected', failedAt: ts() },
     copyStopped: { followId: 'follow-1', followerId: uid(), leaderId: uid(), reason: 'follower', closeOnly: true, stoppedAt: ts() },
+    recurringBuySuspended: { ruleId: 'rule-1', userId: uid(), slot: 2, asset: 'USDC', amount: '20', free: '10', suspendedAt: ts() },
     venueDelistingScheduled: {
       venueId: 'test-venue-sim',
       symbol: 'BTC-USDC',

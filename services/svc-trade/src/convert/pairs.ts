@@ -100,6 +100,9 @@ const CASH = new Set([
   'ZAR',
 ]);
 
+/** True for an ISO 4217 cash currency the route check recognises. */
+export const isCashCurrency = (asset: string): boolean => CASH.has(asset);
+
 export type ConvertRoute = { readonly kind: 'direct'; readonly symbol: string; readonly side: 'buy' | 'sell' };
 
 /**

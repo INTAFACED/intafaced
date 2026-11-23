@@ -18,7 +18,8 @@ import { NO_PAUSES, mirrorPausedReason, type PauseSnapshot } from './platform-pa
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount, type LedgerClient } from '@intafaced/ledger-client';
 import { requireScope, type Principal } from '@intafaced/auth';
-import { StepUpCheckError, type StepUpCheck } from '@intafaced/contracts';
+import type { StepUpCheck } from '@intafaced/contracts';
+import { StepUpCheckError } from '@intafaced/contracts/step-up-check';
 import type { AlgoQuotedMark } from '../algo/types.js';
 import {
   copyLimitPriceFromPlan,
@@ -70,6 +71,7 @@ import {
   type CopyCursor,
   type CopyEnvelope,
   type CopyFollow,
+  type PresentCopyFollow,
 } from './follows.js';
 import { TradeError } from '../spot/types.js';
 import { randomUUID } from 'node:crypto';
@@ -172,6 +174,7 @@ import {
   sqlLeadFeeShares,
   type ReadLeadFeeShares,
 } from './lead-desk.js';
+import { readMyCopyFees, type MyCopyFees, type MyCopyFeesDeps } from './my-copy-fees.js';
 import { COPY_SKIP_LOG_LIMIT, asCopySkipReason, copySkipReasonFor, isCopySkipRefusal, recordCopySkip } from './skip-log.js';
 
 /** Settled follower fill fee — `fills.fee_amount`, never a notional×bps invent. */
@@ -197,11 +200,21 @@ export type LeaderFill = {
   readonly notional: Amount;
   /** Leader fill price. Absent → a slippage cap cannot be evaluated. */
   readonly price?: Amount;
+  /** The lead marked the fill's order as not a lead trade (switch off, or an iceberg; CB-copy-14): never copied. */
+  readonly notLead?: boolean;
 };
 
 /** Production wires `trade.fills`. Absent or missing fill row → refuse-closed. */
 /** One leader fill by its id; `leaderId` is the follow's leader, whose own accounts the fill must be on. */
 export type LookupLeaderFillPort = (fillId: string, leaderId?: string) => Promise<LeaderFill | null>;
+
+/**
+ * A venue follow's check: the follow the same clientRequestId already made, or, when none, what the wallet is asked to
+ * approve (the quote asset and the most in total) with nothing written.
+ */
+export type CheckVenueFollowAnswer =
+  | { readonly followId: string; readonly follow: PresentCopyFollow }
+  | { readonly followId: string; readonly follow: null; readonly quoteAsset: string; readonly maxAggregateExposure: string };
 
 /** One copied order on a follow, as its follower sees it. */
 export type CopyPosition = {
@@ -319,6 +332,8 @@ export interface CopyServiceOptions {
   lookupMark?: (marketId: string) => Promise<AlgoQuotedMark | null>;
   /** A lead's own settled fee-share rows (lead-desk.ts). Omitted → from `sql`, else the earnings panel refuses. */
   leadFeeShares?: ReadLeadFeeShares;
+  /** A follower's copied venue fills and their fees (my-copy-fees.ts). Omitted → `copy.myCopyFees` refuses as unavailable. */
+  myCopyFees?: MyCopyFeesDeps;
   /** Operator-published leader directory. Omitted → in-memory, empty until an operator writes. */
   directory?: LeaderDirectory;
   /** Owner wording for each lead-page metric. Omitted → unpublished, every metric reads "not set". */
@@ -442,6 +457,7 @@ export class CopyService {
   private readonly gridUnusedReserves: (userId: string, asset: string) => Promise<Amount>;
   private readonly copiedPositionsPort: ReadCopiedPositions | null;
   private readonly leadFeeShares: ReadLeadFeeShares | null;
+  private readonly myCopyFeesDeps: MyCopyFeesDeps | null;
   private readonly copyClose: CopyClosePort | null;
   private readonly stepUp: StepUpCheck | null;
   private readonly notices: CopyNotices;
@@ -471,6 +487,7 @@ export class CopyService {
     this.gridUnusedReserves = options.gridUnusedReserves ?? (async () => 0n);
     this.copiedPositionsPort = options.copiedPositions ?? (options.sql ? sqlCopiedPositions(options.sql) : null);
     this.leadFeeShares = options.leadFeeShares ?? (options.sql ? sqlLeadFeeShares(options.sql) : null);
+    this.myCopyFeesDeps = options.myCopyFees ?? null;
     this.copyClose = options.copyClose ?? null;
     this.stepUp = options.stepUp ?? null;
     this.notices = options.notices ?? NO_COPY_NOTICES;
@@ -807,15 +824,26 @@ export class CopyService {
     }
     const asset = copyQuoteAsset(input.permittedMarkets);
     const venueFollows = this.venueFollows;
-    return this.follow(principal, input, {
-      followId,
-      leaderId,
-      region,
-      reserveAsset: null,
-      beforeSave: async () => {
-        await venueFollows.bind(principal.userId, followId, input.agentAccountId, asset, this.now());
-      },
-    });
+    try {
+      return await this.follow(principal, input, {
+        followId,
+        leaderId,
+        region,
+        reserveAsset: null,
+        beforeSave: async () => {
+          await venueFollows.bind(principal.userId, followId, input.agentAccountId, asset, this.now());
+        },
+      });
+    } catch (err) {
+      // The same press sent twice at once: nothing serialises a leader with no listing row, so the loser meets the
+      // winner's row on the one-live-follow index, or in the already-following check once it has committed.
+      // The row under this request's follow id is the follow this request made: answer it, as a later retry would.
+      if (err instanceof CopyError && err.code === 'trade.copy_already_following') {
+        const won = await this.store.getFollow(followId);
+        if (won && won.followerId === principal.userId) return this.presentFollow(won);
+      }
+      throw err;
+    }
   }
 
   /**
@@ -894,7 +922,10 @@ export class CopyService {
    * holds, before the follower's wallet is asked to open an agent account for the follow. Writes nothing. The same
    * clientRequestId that already made a follow answers that follow.
    */
-  async checkVenueFollow(principal: Principal, input: Parameters<CopyService['follow']>[1] & { readonly clientRequestId: string }) {
+  async checkVenueFollow(
+    principal: Principal,
+    input: Parameters<CopyService['follow']>[1] & { readonly clientRequestId: string },
+  ): Promise<CheckVenueFollowAnswer> {
     if (!this.venueFollows) throw new CopyError('Copy trading on the venue is not connected here', 'trade.copy_unavailable');
     try {
       assertCopyRegionAllowed(this.jurisdictionLaw, input.region);
@@ -1809,6 +1840,9 @@ export class CopyService {
         'trade.copy_leader_fill_not_found',
       );
     }
+    if (fill.notLead) {
+      throw new CopyError('The leader marked this order as not a lead trade, so it is not copied', 'trade.copy_not_lead_order');
+    }
     return {
       observation: parseLeaderFillObservation({
         fillId,
@@ -2132,6 +2166,16 @@ export class CopyService {
       throw new CopyError(`limit must be a whole number from 1 to ${LEAD_EARNINGS_PAGE_MAX}`, 'trade.copy_limit_missing');
     }
     return presentLeadEarnings(this.feeShareLaw, await this.leadFeeShares(principal.userId, limit));
+  }
+
+  /**
+   * The caller's own copied venue fills, newest first (J-copy-bots-otc-06 #1): each one's venue fee and our builder fee as
+   * the venue reports them, and the lead's share of our builder fee, paid by INTAFACED. Never a profit share.
+   */
+  async myCopyFees(principal: Principal, input: { limit: number }): Promise<MyCopyFees> {
+    requireScope(principal, 'trade:read');
+    if (!this.myCopyFeesDeps) throw new CopyError('Copy trading on the venue is not connected here', 'trade.copy_unavailable');
+    return readMyCopyFees(this.myCopyFeesDeps, principal.userId, input.limit);
   }
 
   /** The caller's own lead level (J-copy-bots-otc-06 #5): not set while the owner's thresholds are blank; no ratio. */

@@ -1,70 +1,37 @@
 #!/bin/sh
 #
-# Refuse direct push to main + require the Doctrine gates before any push. The rest of CI runs on GitHub.
-# Safety net only — --no-verify bypasses; real enforcement is branch protection (needs Pro).
-# Formatting is checked by .githooks/pre-commit on every commit and by CI's Format job on the pull request.
+# Refuse a direct push to main, and run before a push only the cheap checks whose failure would cost a CI round trip:
+# the lint ratchet on the pushed files, and, when the push changes a journey file, the tooling tests that read every
+# journey file and the merge seal's title rule; and the CI review's size count. Each takes seconds. Formatting is
+# checked by .githooks/pre-commit on every commit and by CI's Format job.
+#
+# Everything heavier runs on GitHub only, as in pingdotgg/t3code (one pre-commit hook, no pre-push hook, CI the rest):
+# the Doctrine gates (CI's Fast gates job names a red one about two minutes after the push; the Doctrine gates job runs
+# them all again and blocks the merge), the cross-package read scan (both gate jobs), the typecheck (Typecheck & build),
+# the unit tests (Tests) and rust:check (Rust, which runs format, clippy and the unit tests first). Until 22 Nov the hook
+# ran those here too: on the Mac CI once took 13 to 91 minutes, and the hook spared a round trip. On GitHub a job now
+# waits about a second for a runner, while the box ran a typical push's checks in 7 min 15 s at load 111, most of its
+# CPU spent repeating CI (project-state #3676).
+#
+# Every refusal is named in one run: a check that fails is recorded, the rest still run, and the push is refused at the
+# end with the whole list (project-state#3035: a second push spent on a refusal the first run never reached).
+# Safety net only — --no-verify bypasses; real enforcement is branch protection.
+# `node tooling/scripts/ci-checks.mjs` still runs CI's checks here by hand, to diagnose a red.
 
 TOP=$(git rev-parse --show-toplevel)
+
+# The checks that refused this push, one per line; refuse() records one and the hook goes on to the next check.
+REFUSED=""
+refuse() {
+  REFUSED="${REFUSED}$1
+"
+}
 
 # Every step below runs node.
 if ! command -v node >/dev/null 2>&1; then
   echo "pre-push: node is missing — refuse push." >&2
   exit 1
 fi
-
-# The tooling tests that read every journey file, when this push changes one. They take under a second together, and a
-# journey file that breaks one is otherwise first seen as a red Doctrine gates job minutes after the push (J-merchant-01
-# and J-algo-dev-03 on 14 Nov, each a push spent on journey-navigation.test.mjs). A test joins by its marker line;
-# the slow tooling tests stay in CI.
-JOURNEY_SCAN_MARK='^// Before a push: runs from .githooks/pre-push when the push changes a journey file'
-SCAN_BASE=$(git merge-base HEAD origin/main 2>/dev/null || true)
-if [ -n "$SCAN_BASE" ] && git diff --name-only "$SCAN_BASE" HEAD 2>/dev/null | grep -qE '^apps/[^/]+/tests/real-app/'; then
-  SCANS=$(CDPATH= cd -- "$TOP" && grep -rlE --include='*.test.mjs' --exclude-dir=node_modules "$JOURNEY_SCAN_MARK" tooling 2>/dev/null | sort)
-  if [ -n "$SCANS" ]; then
-    echo "journey-file scans: $(echo "$SCANS" | wc -l | tr -d ' ') tooling test file(s)"
-    # A push made inside a node test (pre-push-hook.test.mjs) would hand node's test context on, and `node --test`
-    # would then skip every file and pass; the scan always runs as its own test run.
-    # shellcheck disable=SC2086 # one path per word; no tooling test path holds a space
-    if ! (CDPATH= cd -- "$TOP" && env -u NODE_TEST_CONTEXT node --test --test-concurrency=1 $SCANS) </dev/null; then
-      cat >&2 <<'MSG'
-
-  ✖ a tooling test that reads every journey file failed — push refused.
-
-    The failed test and its message are above. CI's Doctrine gates job runs the same test and would fail the same way.
-
-MSG
-      exit 1
-    fi
-  fi
-  # The merge seal's title rule for journey files (journey-seal.mjs titleBeforePush): the title it needs, before the push.
-  if [ -f "$TOP/tooling/ci/journey-seal.mjs" ] && ! (CDPATH= cd -- "$TOP" && node tooling/ci/journey-seal.mjs --before-push) </dev/null; then exit 1; fi
-fi
-
-# CI's lint ratchet (a Doctrine gate), the same command on the files this push touches against origin/main, with main's
-# rules: under 2 seconds. A push that raised a rule was otherwise first seen as a red Doctrine gates job minutes after it
-# (J-campaigns-03 and J-agents-01 on 14 Nov, each a push spent on garden/no-promise-copy in a copy file).
-if [ -f "$TOP/tooling/ci/lint-ratchet.mjs" ] && [ ! -x "$TOP/node_modules/.bin/oxlint" ]; then
-  echo "  ✖ lint-ratchet needs this worktree's oxlint — push refused. Install it: pnpm install --frozen-lockfile --prefer-offline" >&2
-  exit 1
-fi
-if [ -f "$TOP/tooling/ci/lint-ratchet.mjs" ]; then
-  # --rules-ref: this hook runs on the Mac against origin/main; without it, under GITHUB_ACTIONS (its own tests in CI)
-  # the gate fetches the repository's main, which shares no history with a test's planted repository.
-  if ! (CDPATH= cd -- "$TOP" && node tooling/ci/lint-ratchet.mjs --rules-ref origin/main) </dev/null; then
-    cat >&2 <<'MSG'
-
-  ✖ lint-ratchet failed — push refused.
-
-    The rule, the file and the fix are named above. CI's Doctrine gates job runs the same check and would fail the same way.
-
-MSG
-    exit 1
-  fi
-fi
-
-# CI's cross-package read scan (1.6 s on CI) when a test or what it checks changed: else a red after the push (4, 13-14 Nov).
-if git diff --name-only "${SCAN_BASE:-HEAD}" HEAD | grep -qE '\.test\.|turbo\.json$|package\.json$|test-read-edges\.json$' &&
-  ! (CDPATH= cd -- "$TOP" && node tooling/ci/cross-package-reads.mjs) </dev/null; then exit 1; fi
 
 protected="main"
 remote_ref_prefix="refs/heads/"
@@ -98,37 +65,131 @@ MESSAGE
   fi
 done < "$PUSHED"
 
-# CI's Doctrine gates that read the pushed tree, all at once, as CI would fail them (#8616's first red, the boundary scan).
-if grep -qv ' 0000000000000000000000000000000000000000 ' "$PUSHED" && [ -f "$TOP/tooling/ci/gates.mjs" ]; then
-  if [ ! -d "$TOP/node_modules" ]; then
-    echo "  ✖ the Doctrine gates need this worktree's install — push refused. Install it: pnpm install --frozen-lockfile --prefer-offline" >&2
-    rm -f "$PUSHED"
-    exit 1
-  elif ! (CDPATH= cd -- "$TOP" && node tooling/ci/gates.mjs --before-push) </dev/null; then
-    echo "  ✖ a Doctrine gate failed — push refused. Its name, its message and why it exists are above; CI's Doctrine gates job runs it too." >&2
-    rm -f "$PUSHED"
-    exit 1
-  fi
+# A push that brings nothing of its own skips every check below: main's commits were judged by main's CI, and a clean
+# merge adds only them. On 22 Nov moving seven volt/* layer branches to main took over 30 minutes, every push a full run
+# of the checks (3 min 16 s for one fast-forward). Judged from git alone, commit by commit down from the pushed tip:
+# nothing new is the tip the remote already holds, or a commit on origin/main, or a two-parent merge of a commit on
+# origin/main into a commit with nothing new whose tree is exactly what git's own merge of the two gives (so no conflict
+# resolution or edit rode in on it). Anything else, on any pushed ref, runs every check.
+adds_nothing() {
+  _c=$1
+  _n=0
+  while [ "$_n" -lt 100 ]; do
+    _n=$((_n + 1))
+    [ "$_c" = "$2" ] && return 0
+    git merge-base --is-ancestor "$_c" refs/remotes/origin/main 2>/dev/null && return 0
+    # shellcheck disable=SC2046 # the commit and its parents, one word each
+    set -- $(git rev-list --parents -n 1 "$_c" 2>/dev/null) "$2"
+    [ $# -eq 4 ] || return 1
+    if git merge-base --is-ancestor "$3" refs/remotes/origin/main 2>/dev/null; then
+      _side=$2 _main=$3
+    elif git merge-base --is-ancestor "$2" refs/remotes/origin/main 2>/dev/null; then
+      _side=$3 _main=$2
+    else
+      return 1
+    fi
+    _merged=$(git merge-tree --write-tree "$_side" "$_main" 2>/dev/null) || return 1
+    [ "$(printf '%s\n' "$_merged" | head -n 1)" = "$(git rev-parse "$1^{tree}")" ] || return 1
+    _c=$_side
+    set -- "$_c" "$4"
+  done
+  return 1
+}
+NOTHING_NEW=yes
+while read -r _lref lsha _rref rsha; do
+  [ "$lsha" = "0000000000000000000000000000000000000000" ] && continue
+  adds_nothing "$lsha" "$rsha" || NOTHING_NEW=no
+done < "$PUSHED"
+if [ "$NOTHING_NEW" = yes ]; then
+  echo "pre-push: this push adds nothing beyond origin/main and what the remote already holds; the checks are skipped."
+  rm -f "$PUSHED"
+  exit 0
 fi
 
 # The CI review's size rule, by the review's own diff step on local git (review-before-push.mjs --size): the bytes it
 # will count and its refusal, before the push. #8463 and #8491 were each refused for size after a whole round (15 Nov).
+# It runs beside the checks below, its output held and printed after them, so the push waits for the slower of the two.
+SIZE_OUT=$(mktemp)
+SIZE_REFUSED=$(mktemp)
 if [ -f "$TOP/tooling/scripts/review-before-push.mjs" ]; then
   while read -r _lref lsha rref _rsha; do
     [ "$lsha" = "0000000000000000000000000000000000000000" ] && continue
     if ! (CDPATH= cd -- "$TOP" && node tooling/scripts/review-before-push.mjs --size --head "$lsha" --branch "${rref#refs/heads/}") </dev/null; then
-      rm -f "$PUSHED"
-      exit 1
+      echo "CI review size (${rref#refs/heads/})" >> "$SIZE_REFUSED"
     fi
-  done < "$PUSHED"
+  done < "$PUSHED" > "$SIZE_OUT" 2>&1 &
+  SIZE_PID=$!
 fi
 
-# What runs here takes seconds: the tooling tests that read
-# journey files (when one is pushed), the lint ratchet on the pushed files, the cross-package read scan, the Doctrine
-# gates that read the pushed tree, the CI review's size count and the refusal of main. Only on GitHub: build, typecheck,
-# unit tests, the other tooling tests and the gates gates.mjs leaves to CI (on the Mac CI's checks took 13 to 91 minutes
-# a push under three builders; GitHub runs them in 9 to 20), on the pull request.
-# `node tooling/scripts/ci-checks.mjs` still runs CI's checks here by hand, to diagnose a red.
-rm -f "$PUSHED"
+# The tooling tests that read every journey file, when this push changes one. They take under a second together, and a
+# journey file that breaks one is otherwise first seen as a red Doctrine gates job minutes after the push (J-merchant-01
+# and J-algo-dev-03 on 14 Nov, each a push spent on journey-navigation.test.mjs). A test joins by its marker line;
+# the slow tooling tests stay in CI.
+JOURNEY_SCAN_MARK='^// Before a push: runs from .githooks/pre-push when the push changes a journey file'
+SCAN_BASE=$(git merge-base HEAD origin/main 2>/dev/null || true)
+if [ -n "$SCAN_BASE" ] && git diff --name-only "$SCAN_BASE" HEAD 2>/dev/null | grep -qE '^apps/[^/]+/tests/real-app/'; then
+  SCANS=$(CDPATH= cd -- "$TOP" && grep -rlE --include='*.test.mjs' --exclude-dir=node_modules "$JOURNEY_SCAN_MARK" tooling 2>/dev/null | sort)
+  if [ -n "$SCANS" ]; then
+    echo "journey-file scans: $(echo "$SCANS" | wc -l | tr -d ' ') tooling test file(s)"
+    # A push made inside a node test (pre-push-hook.test.mjs) would hand node's test context on, and `node --test`
+    # would then skip every file and pass; the scan always runs as its own test run.
+    # shellcheck disable=SC2086 # one path per word; no tooling test path holds a space
+    if ! (CDPATH= cd -- "$TOP" && env -u NODE_TEST_CONTEXT node --test --test-concurrency=1 $SCANS) </dev/null; then
+      cat >&2 <<'MSG'
+
+  ✖ a tooling test that reads every journey file failed — push refused.
+
+    The failed test and its message are above. CI's Doctrine gates job runs the same test and would fail the same way.
+
+MSG
+      refuse 'journey-file scans'
+    fi
+  fi
+  # The merge seal's title rule for journey files (journey-seal.mjs titleBeforePush): the title it needs, before the push.
+  if [ -f "$TOP/tooling/ci/journey-seal.mjs" ] && ! (CDPATH= cd -- "$TOP" && node tooling/ci/journey-seal.mjs --before-push) </dev/null; then refuse 'journey seal title'; fi
+fi
+
+# CI's lint ratchet (a Doctrine gate), CI's own command: it fetches main and judges the files this push touches with
+# main's rules as they are now, never a stale origin/main. A push that raised a rule was otherwise first seen as a red
+# Doctrine gates job minutes after it (J-campaigns-03 and J-agents-01 on 14 Nov; J-cex-spot-10 and J-identity-22 on 17 Nov,
+# whose branches were cut before main gained garden/no-copied-journey-function).
+if [ -f "$TOP/tooling/ci/lint-ratchet.mjs" ] && [ ! -x "$TOP/node_modules/.bin/oxlint" ]; then
+  echo "  ✖ lint-ratchet needs this worktree's oxlint — push refused. Install it: pnpm install --frozen-lockfile --prefer-offline" >&2
+  refuse 'lint-ratchet (no oxlint)'
+elif [ -f "$TOP/tooling/ci/lint-ratchet.mjs" ]; then
+  if ! (CDPATH= cd -- "$TOP" && node tooling/ci/lint-ratchet.mjs) </dev/null; then
+    cat >&2 <<'MSG'
+
+  ✖ lint-ratchet failed — push refused.
+
+    The rule, the file and the fix are named above. CI's Doctrine gates job runs the same check and would fail the same way.
+
+MSG
+    refuse 'lint-ratchet'
+  fi
+fi
+
+# The wire replay of each service this push changes that keeps one (tooling/scripts/pre-push-wire-replay.mjs, under a time
+# limit that prints TIMEOUT and lets the push go; skipped when the push changes a shared package, so the packages it reads
+# come from turbo's cache and nothing builds here). A new route its recording lacked was otherwise first seen as a red
+# Tests job minutes after the push, then a second push with the recording rewritten (#9297 and #9519, project-state#3682).
+if [ -f "$TOP/tooling/scripts/pre-push-wire-replay.mjs" ] && ! (CDPATH= cd -- "$TOP" && node tooling/scripts/pre-push-wire-replay.mjs) </dev/null; then
+  refuse 'wire replay'
+fi
+
+if [ -n "${SIZE_PID:-}" ]; then
+  wait "$SIZE_PID"
+  cat "$SIZE_OUT"
+  while read -r line; do refuse "$line"; done < "$SIZE_REFUSED"
+fi
+rm -f "$PUSHED" "$SIZE_OUT" "$SIZE_REFUSED"
+
+if [ -n "$REFUSED" ]; then
+  echo >&2
+  echo "  ✖ push refused by $(printf '%s' "$REFUSED" | grep -c .) check(s), each named above, all from this one run:" >&2
+  printf '%s' "$REFUSED" | sed 's/^/      - /' >&2
+  echo "    Fix them all, then push once." >&2
+  exit 1
+fi
 
 exit 0

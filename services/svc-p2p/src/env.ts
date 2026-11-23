@@ -35,6 +35,22 @@ const schema = serviceEnvSchema
       IDENTITY_URL: z.string().url().optional(),
 
       /**
+       * RC-p2p-02: svc-protocol, for the contract escrow's status and its deals' chain state, read for the person of the
+       * request. Unset: the contract escrow refuses `p2p.contract_escrow_unavailable`; the ledger escrow is untouched.
+       */
+      PROTOCOL_URL: z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), z.string().url().optional()),
+      /**
+       * RC-p2p-02: which token on the escrow's chain carries each P2P asset, `{"USDC": {"address": "0x…", "decimals": 6}}`.
+       * NO DEFAULT: blank and the contract escrow refuses `p2p.contract_escrow_unavailable`.
+       */
+      P2P_CONTRACT_ESCROW_TOKENS: z.string().optional(),
+      /**
+       * RC-p2p-02: seconds a contract dispute runs before anyone may settle it by the refund agreed at open. NO DEFAULT:
+       * blank and the contract escrow refuses `p2p.contract_escrow_unavailable`.
+       */
+      P2P_CONTRACT_ESCROW_DISPUTE_WINDOW_SECONDS: ownerInt,
+
+      /**
        * KILL-SWITCH (§14 admin controls).
        *
        * OFF stops new offers and new takes. It deliberately does NOT stop
