@@ -552,8 +552,9 @@ test(`${J} #3 money flows into the space on its own: a standing order and a card
     const rules = await api.query('autoInvest.list', { limit: 50, targetSpaceId: pot });
     expect(rules).toMatchObject({ ok: true, data: [] });
   });
-  // The refused round-up moved nothing at the partner: its book still lists only the step's two moves.
-  expect((await partnerMovesSince(api.userId, movesAtStart)).map((m) => m.id).sort()).toEqual(made.map((m) => m.id).sort());
+  // The refused round-up moved nothing at the partner: its book still lists only the step's moves, the card hold's and
+  // the two above.
+  expect((await partnerMovesSince(api.userId, movesAtStart)).map((m) => m.id).sort()).toEqual(all.map((m) => m.id).sort());
 });
 
 test(`${J} #4 sets an income sorter: one over 100% is refused, and a TEST 100 payment from another person splits 60 and 40, once`, async ({
