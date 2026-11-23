@@ -44,6 +44,8 @@ mod business_procedures_db;
 mod business_retry_db;
 #[path = "business_roles_db.rs"]
 mod business_roles_db;
+#[path = "business_team_db.rs"]
+mod business_team_db;
 #[path = "business_team_membership_db.rs"]
 mod business_team_membership_db;
 #[path = "card_ops_desk_disputes_db.rs"]

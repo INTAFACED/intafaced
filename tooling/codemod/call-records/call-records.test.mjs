@@ -9,6 +9,7 @@ import {
   answerChecks,
   Changes,
   checkedCall,
+  checkedToolCall,
   importedFrom,
   importsFile,
   holdCallersOnly,
@@ -915,6 +916,74 @@ test("the portal's tools and validatedMutation, each caller naming its call alon
   assert.match(sender.problem, /its tool query has a record form its callers move to one by one, and stays while a caller is left/);
   const { reasonOf } = await import('./report.mjs');
   assert.equal(reasonOf(sender.problem), 'tool kept while a caller is left (each caller named under its own reason)');
+});
+
+test('a portal caller whose schema only refines the answer keeps it in queryRecordAs/listRecordAs; a built or changing schema, or the settings tools, stay', async () => {
+  const { toolFormsIn } = await import('./tool-forms.mjs');
+  const repo = mkdtempSync(join(tmpdir(), 'call-records-'));
+  const put = (path, lines) => {
+    mkdirSync(join(repo, dirname(path)), { recursive: true });
+    writeFileSync(join(repo, path), `${lines.join('\n')}\n`);
+  };
+  const portal = 'apps/customer/src/features/pay/portal';
+  put(`${portal}/api-tools.ts`, [
+    'export function portalTools(api, userId) { return { userId }; }',
+    'export type PortalTools = ReturnType<typeof portalTools>;',
+  ]);
+  put(`${portal}/settings/b-client.ts`, ['export type SettingsBTools = {};']);
+  // The very calls the weed found in payments/api.ts: a row tied to the merchant asked for, by .refine().
+  put(`${portal}/payments/api.ts`, [
+    "import type { PortalTools } from '../api-tools';",
+    'export const paymentsApi = ({ query, mutate, list }: PortalTools) => ({',
+    "  one: (merchantId: string, id: string, signal?: AbortSignal) => query('subscription.get', { subscriptionId: id }, subscriptionSchema.refine((row) => row.merchantId === merchantId), signal),",
+    "  page: (merchantId: string, signal?: AbortSignal) => list('subscription.list', subscriptionSchema.refine((row) => row.merchantId === merchantId), { merchantId }, signal),",
+    "  built: (merchantId: string) => query('merchant.x', {}, tolerantPage(rowSchema)),",
+    "  changed: () => query('merchant.y', {}, rowSchema.transform((r) => r.id)),",
+    "  stop: (id: string) => mutate('subscription.cancel', { id }, s),",
+    '});',
+  ]);
+  put(`${portal}/settings/reports/client.ts`, [
+    "import type { SettingsBTools } from '../b-client';",
+    "export const reportsApi = ({ query }: SettingsBTools) => ({ r: (m: string) => query('reports.get', {}, rowSchema.refine((x) => x.m === m)) });",
+  ]);
+  execFileSync('git', ['init', '-q'], { cwd: repo });
+  execFileSync('git', ['add', '.'], { cwd: repo });
+  const sites = findSites(repo).filter((s) => String(s.shape).startsWith('tool:'));
+  const of = (path) => sites.find((s) => s.path === path);
+  const checksOf = (s) => {
+    const p = load(s.file);
+    return answerChecks(p, s.node.arguments[s.tool.schema ?? s.tool.item]);
+  };
+  assert.equal(checkedToolCall(of('subscription.get'), checksOf(of('subscription.get'))), true);
+  assert.equal(checkedToolCall(of('subscription.list'), checksOf(of('subscription.list'))), true);
+  assert.match(checksOf(of('merchant.x'))[0], /^tolerantPage\(\) builds the schema/);
+  assert.equal(checkedToolCall(of('merchant.x'), checksOf(of('merchant.x'))), false);
+  assert.equal(checkedToolCall(of('merchant.y'), checksOf(of('merchant.y'))), false);
+  assert.equal(checkedToolCall(of('reports.get'), checksOf(of('reports.get'))), false);
+
+  const changes = new Changes();
+  for (const [path, name] of [
+    ['subscription.get', 'PAY_SUBSCRIPTION_GET'],
+    ['subscription.list', 'PAY_SUBSCRIPTION_LIST'],
+    ['subscription.cancel', 'PAY_SUBSCRIPTION_CANCEL'],
+  ]) {
+    const s = of(path);
+    if (path !== 'subscription.cancel') s.checked = text(load(s.file), s.node.arguments[s.tool.schema ?? s.tool.item]);
+    rewriteSite(changes, s, name, '@intafaced/contracts/x');
+  }
+  toolFormsIn(changes);
+  const file = of('subscription.get').file;
+  const out = applyEdits(load(file).src, changes.of(file).edits);
+  assert.match(out, /^export const paymentsApi = \(\{ query, queryRecordAs, listRecordAs, mutateRecord \}: PortalTools\) => \(\{$/m);
+  assert.match(
+    out,
+    /queryRecordAs\(PAY_SUBSCRIPTION_GET, \{ subscriptionId: id \}, subscriptionSchema\.refine\(\(row\) => row\.merchantId === merchantId\), signal\)/,
+  );
+  assert.match(
+    out,
+    /listRecordAs\(PAY_SUBSCRIPTION_LIST, \{ merchantId \}, subscriptionSchema\.refine\(\(row\) => row\.merchantId === merchantId\), signal\)/,
+  );
+  assert.match(out, /mutateRecord\(PAY_SUBSCRIPTION_CANCEL, \{ id \}\)/);
 });
 
 test('a name imported from a contracts subpath is read from that file, though another contracts file exports the name too', () => {
@@ -2649,6 +2718,23 @@ test("the report adds a wrapper's sender the rule counts and drops the callers i
   assert.equal(wrapperSenders(sites.slice(0, 1)), 0, 'no wrapper, nothing to add');
 });
 
+// The rule counts each caller that hands a helper the call's name by a string (project-state#3841): at a wrapper's or a
+// tool's caller that is a site the codemod already finds; at the helper's other callers it is one the codemod sees inside
+// the helper's one sender, named `helperCallers` so the totals still meet the rule.
+test("the report matches each finding at a helper's caller to the site there, and names the rest helperCallers", async () => {
+  const { helperFindings, wrapperSenders } = await import('./report.mjs');
+  const caller = (line) => ({ file: 'Room.tsx', line, shape: 'wrapper', node: { type: 'CallExpression' }, wrapper: { key: 'w' } });
+  const sites = [{ file: 'Room.tsx', line: 1, shape: 'query', node: { type: 'CallExpression' } }, caller(5), caller(6)];
+  const found = new Map([
+    ['Room.tsx:5', 1],
+    ['Room.tsx:9', 2],
+  ]);
+  const { counted, helperCallers } = helperFindings(sites, found);
+  assert.deepEqual([...counted], [sites[1]]);
+  assert.equal(helperCallers, 2);
+  assert.equal(wrapperSenders(sites, counted), 1 + 1 - 2, 'the sender and one counted caller, over two sites');
+});
+
 test('the shared schema file reads a declaration it already holds where it stands, and imports one from another contracts file', () => {
   const dir = mkdtempSync(join(tmpdir(), 'call-records-schemas-'));
   const file = join(dir, 'trade-call-schemas.ts');
@@ -2680,4 +2766,48 @@ test('an assetId field the codemod appends to contracts starts from assetIdSchem
   // A file whose own assetIdSchema is another schema keeps its fields.
   const own = "import { z } from 'zod';\nconst assetIdSchema = z.string();\nexport const a = z.object({ assetId: z.string() });\n";
   assert.equal(brandAssetIds(own), own);
+});
+
+test('the router reader follows an optional part (`...ext?.merchant`) and a property of a switch-built object (`ready ? build() : null`), and names a member it cannot read', async () => {
+  const { procedures } = await import('./router.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-svc-'));
+  mkdirSync(join(dir, 'src'), { recursive: true });
+  writeFileSync(
+    join(dir, 'src/portal.ts'),
+    [
+      'export function portalParts(deps: unknown) {',
+      '  const merchant = { myAccess: p.query(h), terms: router({ accept: p.mutation(h) }) };',
+      '  return { merchant, analytics: router({ fees: p.query(h) }) };',
+      '}',
+      '',
+    ].join('\n'),
+  );
+  writeFileSync(
+    join(dir, 'src/router.ts'),
+    [
+      "import { portalParts } from './portal.js';",
+      'export function createSvcRouter(sql: unknown, mounts: { ops?: unknown }) {',
+      '  const portal = sql ? portalParts({ sql }) : null;',
+      '  return router({',
+      '    merchant: router({ ...portal?.merchant, me: p.query(h) }),',
+      '    ...(portal ? { merchantAnalytics: portal.analytics } : {}),',
+      '    ops: mounts.ops ?? router({ note: p.query(h) }),',
+      '  });',
+      '}',
+      '',
+    ].join('\n'),
+  );
+  const { procedures: found, unread } = procedures(dir);
+  assert.deepEqual([...found.keys()].sort(), [
+    'merchant.me',
+    'merchant.myAccess',
+    'merchant.terms.accept',
+    'merchantAnalytics.fees',
+    'ops.note',
+  ]);
+  // `mounts.ops` is a supplied router nothing in the service builds: named, never guessed, beside the branch it reads.
+  assert.deepEqual(
+    unread.map((u) => `${u.path}: ${u.why}`),
+    ['ops.*: MemberExpression not followed'],
+  );
 });

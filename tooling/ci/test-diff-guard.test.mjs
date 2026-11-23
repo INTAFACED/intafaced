@@ -5,6 +5,7 @@
 import test from 'node:test';
 import {
   DECLARED,
+  UNDECLARED_HINT,
   assertionDeltas,
   declaredRooms,
   earlierFailures,
@@ -444,4 +445,9 @@ test('check 7: earlierFailures reads only failed Tests jobs on earlier heads of 
     },
   ).catch((e) => (refused = e.message));
   eq(refused, 'GitHub 403 Forbidden', 'a refusal is thrown, never read as no failures');
+});
+
+test('an undeclared finding says to re-run the job after adding the Test-change line: an edited description starts no run', () => {
+  eq(/line starting "Test-change:"/.test(UNDECLARED_HINT), true, 'names the line');
+  eq(/then re-run the Doctrine gates job/.test(UNDECLARED_HINT), true, 'says to re-run');
 });

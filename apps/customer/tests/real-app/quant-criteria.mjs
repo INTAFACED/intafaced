@@ -1,11 +1,15 @@
 // svc-quant's owner criteria (AL-lifecycle-01), set and read as an operator, for the Algo dev journeys.
 
-/** svc-quant's owner-criteria door (AL-lifecycle-01), with the stack's TEST founder's operator token, as the founder console would use it. */
+/**
+ * svc-quant's owner-criteria door (AL-lifecycle-01), with the stack's TEST founder's operator token, as the founder
+ * console would use it. An operator token lives 300 s and a step may wait longer than that between two calls (a wait for
+ * TEST bars, a backtest), so each call mints its own: no call depends on how long the step waited before it.
+ */
 export async function criteriaDoor(journey) {
   const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
   const ctx = await gates.makeContext({ log: () => {} });
   const founders = await gates.approverSessions(ctx);
-  const token = await founders.a.tradeOpsToken();
+  const token = () => founders.a.tradeOpsToken();
   const data = (res, what) => {
     const got = res.json?.result?.data;
     if (!got) throw new Error(`${what} refused: ${res.status} ${res.text.slice(0, 300)}`);
@@ -15,7 +19,7 @@ export async function criteriaDoor(journey) {
   const stamp = `${process.env.JOURNEY_RUN_ID ?? 'local'}:${Date.now()}`;
   return {
     async read() {
-      return data(await ctx.edge.query('quant', 'ops.criteria.get', undefined, token), 'ops.criteria.get').criteria;
+      return data(await ctx.edge.query('quant', 'ops.criteria.get', undefined, await token()), 'ops.criteria.get').criteria;
     },
     async set(name, value, toBoot = false) {
       n += 1;
@@ -24,7 +28,7 @@ export async function criteriaDoor(journey) {
           'quant',
           'ops.criteria.set',
           { name, value, toBoot, reason: `LOCAL TEST ${journey}`, idempotencyKey: `journey:${journey}:${stamp}:${n}:${name}` },
-          token,
+          await token(),
         ),
         'ops.criteria.set',
       );

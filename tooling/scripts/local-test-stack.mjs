@@ -1279,8 +1279,12 @@ function ensureRustBinaries(rebuild) {
       fail(`svc-${name} did not build (see ${logPath})\n${tail}`);
     }
     fs.mkdirSync(path.dirname(rustBin(name)), { recursive: true });
-    fs.copyFileSync(built, rustBin(name));
-    fs.chmodSync(rustBin(name), 0o755);
+    // Copied beside it, then renamed over it: a copy onto the binary of a running service fails with ETXTBSY, and on
+    // the long-lived beta every round after a Rust change then failed before it could start a service that was down.
+    const next = `${rustBin(name)}.${process.pid}.next`;
+    fs.copyFileSync(built, next);
+    fs.chmodSync(next, 0o755);
+    fs.renameSync(next, rustBin(name));
     fs.writeFileSync(rustBinInputsFile(name), `${want}\n`);
   }
 }
