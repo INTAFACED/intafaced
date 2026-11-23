@@ -127,7 +127,7 @@ export function deadHandSchemas(repo = REPO) {
 }
 
 /** Each bank record by its path: `path -> { name, spec }`, read from contracts' record files. */
-export function bankRecords(repo = REPO) {
+function bankRecords(repo = REPO) {
   const dir = join(repo, 'packages/contracts/src');
   const out = new Map();
   for (const f of readdirSync(dir).filter((x) => /^bank-.*-procedures\.ts$/u.test(x))) {

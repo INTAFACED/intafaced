@@ -366,7 +366,7 @@ function importsOf(src) {
  * Whether contracts file `from` reaches `to` through its imports (`textOf` reads a file as this run has written it) and
  * the `[importer, imported]` edges a group is about to add.
  */
-export function reaches(from, to, textOf, added = []) {
+function reaches(from, to, textOf, added = []) {
   const seen = new Set();
   const next = [from];
   while (next.length) {
