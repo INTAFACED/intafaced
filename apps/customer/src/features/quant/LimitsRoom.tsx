@@ -19,7 +19,7 @@ export function LimitsRoom({ paper }: { paper: boolean }) {
       title={t('title')}
       description={t('description')}
       state={{ kind: 'ready' }}
-      filters={<QuantRooms active="strategies" paper={paper} />}
+      section={<QuantRooms paper={paper} />}
       list={
         <>
           <SandboxLimitsPanel />

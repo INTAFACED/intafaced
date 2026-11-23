@@ -23,9 +23,13 @@
  *     the record said about that package may no longer hold on the base;
  *   - anything when main's record is unknown: a base not on main, or none of the base and the WALK - 1 commits before it
  *     with a finished record (each has no run of main, a run not finished, cancelled, a Tests job without its record,
- *     or a record for another commit). While a run of main on a commit newer than the record it found (or on any of
- *     them, when it found none) is not finished, and that run could still excuse what is held, it waits for it, up to
- *     WAIT_MIN minutes; it does not wait when the record it has already excuses every failure.
+ *     or a record for another commit). Only then does it wait, while a run of main on one of those commits is not
+ *     finished, up to WAIT_MIN minutes, and only when every failure held waits on that alone (needsMain).
+ * It never waits once main's record is known, even when that record passed the test, failed it for another reason, or
+ * is older than a change main made to what the test reads: main's CI is busy all day, so a newer run is nearly always
+ * going, and a wait there made every pull request's own failure turn red about 20 minutes late, while a newer run
+ * turning that record around (main breaking the test itself in its last few commits) is rare (owner decision of
+ * 23 Nov 2026, project-state#3859 item 4).
  * The Tests job stays red for anything held, and its output names each failure excused, why, the commit whose record
  * it used, and main's run on it.
  *
@@ -51,7 +55,7 @@ import { REPORT_VERSION } from './test-results-reporter.mjs';
 
 export const RECORD_VERSION = 1;
 export const WORKFLOW = 'ci.yml';
-export const WAIT_MIN = 20;
+export const WAIT_MIN = 10;
 /** How far back main's first-parent line is read for a finished record: the base and the 39 commits before it. */
 export const WALK = 40;
 const POLL_MS = 60_000;
@@ -306,17 +310,16 @@ export function compare({ pr, main, moneyDirs }) {
       const prot = protectedWhy(f, { moneyDirs });
       if (prot) held.push({ f, what: failureId(f), why: `never excused: ${prot}` });
       else if (!pkg.explained) held.push({ f, what: failureId(f), why: 'its package is held (above)' });
-      // byMain: a newer record of main could still change this one (needsMain)
+      // byMain: only an unknown record of main is waited for (needsMain); a known one is final
       else if (!main?.known)
         held.push({ f, byMain: true, what: failureId(f), why: `main's result is unknown: ${main?.why ?? 'not read'}` });
       else if (!main.failures.has(failureId(f)))
-        held.push({ f, byMain: true, what: failureId(f), why: 'main did not fail it: only this pull request does' });
+        held.push({ f, what: failureId(f), why: 'main did not fail it: only this pull request does' });
       else if (main.failures.get(failureId(f)) !== f.reason)
-        held.push({ f, byMain: true, what: failureId(f), why: `main failed it for another reason: ${main.failures.get(failureId(f))}` });
+        held.push({ f, what: failureId(f), why: `main failed it for another reason: ${main.failures.get(failureId(f))}` });
       else if (main.changed?.has(f.dir))
         held.push({
           f,
-          byMain: true,
           what: failureId(f),
           why: `main changed ${f.dir} after the record it has (${main.sha}), so that record may not hold on the base`,
         });
@@ -327,7 +330,7 @@ export function compare({ pr, main, moneyDirs }) {
   return { pass: held.length === 0, excused, held };
 }
 
-/** Whether main's record could still change the verdict: every held item waits only on main. */
+/** Whether main's record could still change the verdict: every held item waits only on main's record being unknown. */
 export const needsMain = (held) => held.length > 0 && held.every((h) => h.f && h.byMain);
 
 /**
@@ -599,8 +602,8 @@ async function verdictMain(args) {
 }
 
 /**
- * The verdict on `pr` (a record) against main's nearest finished record for `base`, reading GitHub and git; waits while
- * a newer run of main could still excuse what is held (WAIT_MIN). { verdict, runUrl, record: { sha, behind } }.
+ * The verdict on `pr` (a record) against main's nearest finished record for `base`, reading GitHub and git; waits only
+ * while main has no known record and a run of main near the base is still going (WAIT_MIN). { verdict, runUrl, record: { sha, behind } }.
  */
 export async function judge({
   repo,
@@ -629,9 +632,9 @@ export async function judge({
     runUrl = read.run ? `${process.env.GITHUB_SERVER_URL ?? 'https://github.com'}/${repo}/actions/runs/${read.run.id}` : null;
     record = read.state.known ? { sha: read.state.sha, behind: read.state.behind } : { sha: base, behind: 0 };
     const pending = read.state.pending;
-    // needsMain is false once nothing is held, so a record that already excuses every failure ends it without a wait
+    // needsMain is false once nothing is held or main's record is known, so either ends it without a wait
     if (!needsMain(verdict.held) || !pending || Date.now() + POLL_MS > deadline) break;
-    console.log(`${pending.why}, newer than any record found: waiting for it (until ${new Date(deadline).toISOString()})`);
+    console.log(`${pending.why}, and main has no record near the base yet: waiting for it (until ${new Date(deadline).toISOString()})`);
     await sleep(POLL_MS);
   }
   if (record.sha !== base) console.log(`main's record used: ${record.sha}, ${record.behind} commit(s) before the base ${base} (${runUrl})`);

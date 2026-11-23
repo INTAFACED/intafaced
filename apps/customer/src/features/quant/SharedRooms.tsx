@@ -19,7 +19,7 @@ export function SharedRoom({ paper }: { paper: boolean }) {
       title={t('sharedTitle')}
       description={t('sharedIntro')}
       state={{ kind: 'ready' }}
-      filters={<QuantRooms active="strategies" paper={paper} />}
+      section={<QuantRooms paper={paper} />}
       list={
         <section>
           <h2>{t('sharedTitle')}</h2>

@@ -1,9 +1,10 @@
 import type { ReactNode } from 'react';
 import { Button } from '@intafaced/ui/lit';
-import { SettingsTemplate, Tabs, type RoomState } from '@intafaced/ui/lit/templates';
+import { SettingsTemplate, type RoomState } from '@intafaced/ui/lit/templates';
 import { uiCopy } from '../../../shared/ui-copy';
 import { t as copyText } from '../copy';
-import { bankLabels, bankRoomHref, shownBankRooms, type bankRooms } from '../bank-frame/bank-rooms';
+import { BankTabs } from '../bank-frame/BankFrame';
+import type { bankRooms } from '../bank-frame/bank-rooms';
 
 type BankRoom = (typeof bankRooms)[number];
 
@@ -25,7 +26,7 @@ export function BankSettingsRoom({
   explain,
   children,
 }: {
-  /** The bank room this one sits in, marked in the bank's navigation. */
+  /** The bank room this one sits in (the bank's navigation lights the route's own). */
   room: BankRoom;
   title: string;
   description: string;
@@ -45,6 +46,7 @@ export function BankSettingsRoom({
     <SettingsTemplate
       title={title}
       description={description}
+      section={<BankTabs />}
       state={state}
       roomAction={
         retry ? (
@@ -58,27 +60,24 @@ export function BankSettingsRoom({
         ) : undefined
       }
       index={
-        <>
-          <Tabs
-            label={copyText('rooms.bank.rooms')}
-            current={bankRoomHref(room)}
-            items={shownBankRooms(room).map((r) => ({ label: copyText(bankLabels[r]), href: bankRoomHref(r) }))}
-          />
-          {state.kind === 'ready' && sections.length > 0 ? (
-            <nav aria-label={sectionsLabel}>
-              <ul>
-                {sections.map(([id, name]) => (
-                  <li key={id}>
-                    <a className="lt-link" href={`#${id}`}>
-                      {name}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </nav>
-          ) : null}
-          {index}
-        </>
+        (state.kind === 'ready' && sections.length > 0) || index ? (
+          <>
+            {state.kind === 'ready' && sections.length > 0 ? (
+              <nav aria-label={sectionsLabel}>
+                <ul>
+                  {sections.map(([id, name]) => (
+                    <li key={id}>
+                      <a className="lt-link" href={`#${id}`}>
+                        {name}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </nav>
+            ) : null}
+            {index}
+          </>
+        ) : undefined
       }
       sections={state.kind === 'ready' ? children : null}
       explain={<p>{explain}</p>}

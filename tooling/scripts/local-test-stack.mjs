@@ -172,6 +172,7 @@ import {
   custodyOffRefusal,
   DEFAULT_SERVICES,
 } from './local-test-state.mjs';
+import { lostAccountFiles, pgDurable, pgServerFlags, retireAccountFiles } from './local-test-db-state.mjs';
 
 // ── Paths and ports ─────────────────────────────────────────────────────────
 
@@ -643,15 +644,12 @@ function preparePgPaths(extra = []) {
 }
 
 /**
- * The throwaway server skips crash durability, as CI's service database and the tests' own containers do
- * (packages/db/src/test-postgres.ts): on a busy disk durable writes stalled every test start (intafaced#9610). The beta
- * stack (~/.intafaced/beta) is not started by this script and keeps full durability.
- */
-const PG_THROWAWAY_FLAGS = '-c fsync=off -c synchronous_commit=off -c full_page_writes=off';
-
-/**
- * Without crash durability a folder left by an unclean stop may be torn, so it is made again rather than trusted: only a
- * cluster whose control file says "shut down" is reused.
+ * The throwaway server skips crash durability (PG_THROWAWAY_FLAGS), as CI's service database and the tests' own
+ * containers do (packages/db/src/test-postgres.ts): on a busy disk durable writes stalled every test start
+ * (intafaced#9610). Without it a folder left by an unclean stop may be torn, so it is made again rather than trusted:
+ * only a cluster whose control file says "shut down" is reused. The beta host runs this script with
+ * LOCAL_STACK_PG_DURABLE=1 (tooling/beta/beta-host.mjs): full durability, and a box restart is recovered by Postgres
+ * itself, so its testers' accounts survive (#10352).
  */
 function pgCleanlyStopped() {
   const r = pgServerTool('pg_controldata', ['-D', P.pgdata], { encoding: 'utf8', env: { ...baseEnv(), LC_ALL: 'C' } });
@@ -659,7 +657,7 @@ function pgCleanlyStopped() {
 }
 
 function ensurePostgres(secrets) {
-  if (fs.existsSync(path.join(P.pgdata, 'PG_VERSION')) && !pgRunning() && !pgCleanlyStopped()) {
+  if (!pgDurable() && fs.existsSync(path.join(P.pgdata, 'PG_VERSION')) && !pgRunning() && !pgCleanlyStopped()) {
     say('  postgres: the data directory was not stopped cleanly; without crash durability it is made again');
     fs.rmSync(P.pgdata, { recursive: true, force: true });
   }
@@ -697,7 +695,7 @@ function ensurePostgres(secrets) {
         '-l',
         path.join(P.logs, 'postgres.log'),
         '-o',
-        `-p ${PORTS.postgres} -h ${HOST} -k ${P.run} ${PG_THROWAWAY_FLAGS}`,
+        `-p ${PORTS.postgres} -h ${HOST} -k ${P.run} ${pgServerFlags()}`.trim(),
         '-w',
         'start',
       ],
@@ -2072,6 +2070,25 @@ async function restartIdentity() {
 }
 
 /**
+ * Move aside founders.json and operators.json when identity holds none of the accounts they name: the database was made
+ * again (an unclean stop of the throwaway server) and the stack would otherwise sign in as people who no longer exist
+ * (local-test-db-state.mjs, #10352).
+ */
+function retireLostAccountFiles() {
+  const rows = psql(readJson(P.secrets), 'SELECT id FROM identity.users', { db: DB_NAME, tuples: true });
+  const present = new Set(
+    rows
+      .split('\n')
+      .map((l) => l.trim().toLowerCase())
+      .filter(Boolean),
+  );
+  const lost = lostAccountFiles(STATE, present);
+  if (lost.length === 0) return;
+  for (const moved of retireAccountFiles(STATE, lost))
+    say(`  accounts: identity holds none of the accounts this file named, so it was moved aside: ${moved}`);
+}
+
+/**
  * Seed local_test_founder_a and local_test_founder_b on this stack's identity and
  * pin IDENTITY_FOUNDER_* to those two ids. No-op when identity or edge is not up.
  */
@@ -2082,6 +2099,7 @@ async function ensureLocalTestFounders() {
     say('  founders: identity or edge is not up, so the local test founder pair was not enrolled on this run');
     return;
   }
+  retireLostAccountFiles();
   const marker = readJson(P.marker);
   const edgeUrl = urlOf('edge');
   const { vaultPath } = ensureFounderVaultDraft({ stateDir: STATE, marker, edgeUrl, log: say });

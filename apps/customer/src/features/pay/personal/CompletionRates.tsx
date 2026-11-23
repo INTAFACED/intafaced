@@ -2,7 +2,7 @@ import { useId, useState } from 'react';
 import { Button } from '@intafaced/ui/lit';
 import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
-import { PayFailure, PaySection, PayState } from '../components';
+import { PayFailure, PaySection, PayState } from '../volt/parts';
 import type { PersonalPayApi } from '../pay-api';
 import type { CompletionAppeal, Trade } from '../schemas';
 import { completionCopy } from './completion-copy';

@@ -1,4 +1,5 @@
 // volt-room: /trade/screener
+import { TradeSubNav } from '../../../screens/trade/TradeSubNav';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { z } from 'zod';
 import { ohlcvSchema } from '@intafaced/exchange-contract/schemas';
@@ -325,8 +326,10 @@ export function ScreenerRoom() {
 
   const toolsSlot = (
     <div>
-      <fieldset role="group" aria-label={t('columns')}>
-        <legend>{t('columns')}</legend>
+      <div className="lt-stack" role="group" aria-labelledby="screener-columns">
+        <span id="screener-columns" className="lt-hint">
+          {t('columns')}
+        </span>
         {SCREEN_COLUMNS.map((column) => (
           <Checkbox
             key={column}
@@ -336,7 +339,7 @@ export function ScreenerRoom() {
             {column === 'change' ? t('col_change', { tf: t(`tfShort_${tf}`) }) : t(`col_${column}`)}
           </Checkbox>
         ))}
-      </fieldset>
+      </div>
       <Select
         label={t('timeframe')}
         value={tf}
@@ -501,6 +504,7 @@ export function ScreenerRoom() {
   return (
     <div data-testid="screener-room" data-status={status}>
       <RecordListTemplate
+        section={<TradeSubNav />}
         title={t('title')}
         description={t('description')}
         mode="pro"
