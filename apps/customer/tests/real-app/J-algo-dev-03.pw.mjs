@@ -9,17 +9,7 @@ import { answerAfterNavigation } from './navigation.mjs';
 import { createRequire } from 'node:module';
 import nodePath from 'node:path';
 import { fileURLToPath } from 'node:url';
-// A whole number as the usage and limits views write it (apps/customer/src/features/quant/limit-words.ts): bytes in KB or
-// MB (1 MB is 1,000,000 bytes), exact with trailing zeros dropped; every other count with its thousands grouped.
-const grouped = (value) => value.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-function inWords(value, unit) {
-  if (unit !== 'bytes') return grouped(value);
-  const places = value.length > 6 ? 6 : value.length > 3 ? 3 : 0;
-  if (places === 0) return `${value} bytes`;
-  const whole = grouped(value.slice(0, -places));
-  const fraction = value.slice(-places).replace(/0+$/, '');
-  return `${fraction ? `${whole}.${fraction}` : whole} ${places === 6 ? 'MB' : 'KB'}`;
-}
+import { inWords } from './quant-words.mjs';
 
 // J-algo-dev-03, in the running app (docs/roadmap/journeys.json): keep strategies organised and stay inside the plan
 // limits. One test per step, titled "J-algo-dev-03 #<n>", run in order on one TEST developer who starts signed in,

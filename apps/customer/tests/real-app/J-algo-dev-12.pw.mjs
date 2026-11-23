@@ -4,17 +4,7 @@ import { api, journeyState, restartWithSetting } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { userIdOf } from './copy.mjs';
-// A whole number as the usage and limits views write it (apps/customer/src/features/quant/limit-words.ts): bytes in KB or
-// MB (1 MB is 1,000,000 bytes), exact with trailing zeros dropped; every other count with its thousands grouped.
-const grouped = (value) => value.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-function inWords(value, unit) {
-  if (unit !== 'bytes') return grouped(value);
-  const places = value.length > 6 ? 6 : value.length > 3 ? 3 : 0;
-  if (places === 0) return `${value} bytes`;
-  const whole = grouped(value.slice(0, -places));
-  const fraction = value.slice(-places).replace(/0+$/, '');
-  return `${fraction ? `${whole}.${fraction}` : whole} ${places === 6 ? 'MB' : 'KB'}`;
-}
+import { grouped, inWords } from './quant-words.mjs';
 
 // J-algo-dev-12, in the running app (docs/roadmap/journeys.json): a founder sets plan quotas and sandbox limits with a
 // reason, and reads what developers see. One test per step, titled "J-algo-dev-12 #<n>", run in order. The founder is the
