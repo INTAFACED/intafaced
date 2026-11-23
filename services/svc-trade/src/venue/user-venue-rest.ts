@@ -777,6 +777,19 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
         });
       return venue.accountMode(a);
     },
+    // J-derivatives-05 #3: the position mode the account holds one perpetual in, as the venue reports it; a venue with one
+    // mode that reads none refuses not_offered, and the room shows that one mode.
+    '/api/v1/venue/position-mode': async (d, q, a) => {
+      if (!q.symbol) throw new VenueWireError('symbol is required');
+      const venue = await d.venue();
+      if (!venue.positionMode)
+        throw new VenueRefusalError({
+          venueId: venue.venue.id,
+          code: 'not_offered',
+          detail: `${venue.venue.displayName} does not report a position mode`,
+        });
+      return venue.positionMode(a, q.symbol);
+    },
     // J-derivatives-31 #2 #3 #5: the account's vault positions with their lock-up ends, its account value as the venue
     // counts it, and its vault transfers; a venue that reads none refuses not_offered.
     '/api/v1/venue/vault-holdings': async (d, _q, a) => {
@@ -921,6 +934,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     '/api/v1/venue/isolated-margin',
     '/api/v1/venue/account-summary',
     '/api/v1/venue/account-mode',
+    '/api/v1/venue/position-mode',
     '/api/v1/venue/vault-holdings',
     '/api/v1/venue/staking-account',
     '/api/v1/venue/liquidation',
