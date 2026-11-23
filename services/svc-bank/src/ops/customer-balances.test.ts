@@ -10,8 +10,8 @@ import { flattenBreakdown } from './customer-balances.js';
 
 /**
  * `bank.ops.customerBalances` and `bank.ops.customerBalanceEntries` through the real router and edge context: the finance-treasury
- * desk reads a customer's balances with `admin:treasury` only, every read is logged with operator and customer before any figure
- * is read, and a customer's own session is refused.
+ * desk reads a customer's balances with `admin:read` or `admin:treasury` and the entries behind them with `admin:treasury` only,
+ * every read is logged with operator and customer before any figure is read, and a customer's own session is refused.
  */
 
 const SECRET = 'a-bank-customer-balances-edge-secret-long-enough';
@@ -90,12 +90,36 @@ describe('finance-treasury customer balances', () => {
     info.mockRestore();
   });
 
-  it('refuses a customer session and an operator without the treasury scope, and reads nothing', async () => {
+  it('refuses a customer session and an operator holding neither admin:read nor admin:treasury with scope.denied, and reads nothing', async () => {
     const { as, asked } = build([row('USDT', 'available', '5')]);
-    await expect(as(CUSTOMER, ['bank:read']).ops.customerBalances({ userId: CUSTOMER })).rejects.toBeDefined();
-    await expect(as(OPERATOR, ['admin:compliance']).ops.customerBalances({ userId: CUSTOMER })).rejects.toBeDefined();
-    await expect(as(CUSTOMER, ['bank:read']).ops.customerBalanceEntries({ userId: CUSTOMER, assetId: 'USDT' })).rejects.toBeDefined();
+    const denied = (message: string) => ({ code: 'FORBIDDEN', message, cause: expect.objectContaining({ code: 'scope.denied' }) });
+    const balances = denied('One of admin:read, admin:treasury is required');
+    await expect(as(CUSTOMER, ['bank:read']).ops.customerBalances({ userId: CUSTOMER })).rejects.toMatchObject(balances);
+    await expect(
+      as(OPERATOR, ['support:ops', 'support:lookup', 'market:ops']).ops.customerBalances({ userId: CUSTOMER }),
+    ).rejects.toMatchObject(balances);
+    await expect(as(CUSTOMER, ['bank:read']).ops.customerBalanceEntries({ userId: CUSTOMER, assetId: 'USDT' })).rejects.toMatchObject(
+      denied('Scope "admin:treasury" is required'),
+    );
     expect(asked).toEqual([]);
+  });
+
+  it('reads the balances with admin:read (or a scope granting it) but keeps the entries behind them on admin:treasury', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const { as, asked } = build([row('USDT', 'available', '5')], [{ direction: 'debit', amount: '5' }]);
+    const five = [{ assetId: 'USDT', total: '5', available: '5', hold: '0', escrow: '0', stake: '0', collateral: '0' }];
+    expect((await as(OPERATOR, ['admin:read']).ops.customerBalances({ userId: CUSTOMER })).assets).toEqual(five);
+    expect((await as(OPERATOR, ['admin:compliance']).ops.customerBalances({ userId: CUSTOMER })).assets).toEqual(five);
+    expect(asked).toEqual([`user:${CUSTOMER}`, `user:${CUSTOMER}`]);
+    for (const scopes of [['admin:read'], ['admin:compliance']]) {
+      await expect(as(OPERATOR, scopes).ops.customerBalanceEntries({ userId: CUSTOMER, assetId: 'USDT' })).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+        message: 'Scope "admin:treasury" is required',
+        cause: expect.objectContaining({ code: 'scope.denied' }),
+      });
+    }
+    expect(asked).toHaveLength(2);
+    info.mockRestore();
   });
 
   it('refuses a smuggled field and a non-uuid customer', async () => {

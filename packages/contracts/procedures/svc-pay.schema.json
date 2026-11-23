@@ -13777,6 +13777,173 @@
         }
       ]
     },
+    "pay.merchant.businessProfile.confirm": {
+      "service": "svc-pay",
+      "module": "pay",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "merchant.businessProfile.confirm",
+      "access": {
+        "caller": "anyScope",
+        "scopes": ["pay:write", "pay:onboard"],
+        "module": "pay"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "merchantId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "decision": {
+            "type": "string",
+            "enum": ["confirm", "reject", "withdraw"]
+          },
+          "expectedChangeHash": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 200
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 500
+          }
+        },
+        "required": ["merchantId", "requestId", "decision", "expectedChangeHash", "reason"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": ["applied", "rejected", "pending_review"]
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^\\d{1,18}$"
+          },
+          "profile": {
+            "type": "object",
+            "properties": {
+              "merchantId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "version": {
+                "type": "string",
+                "pattern": "^\\d{1,18}$"
+              },
+              "displayName": {
+                "type": ["string", "null"]
+              },
+              "legalName": {
+                "type": ["string", "null"]
+              },
+              "address": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "line1": {
+                        "type": "string"
+                      },
+                      "line2": {
+                        "type": ["string", "null"]
+                      },
+                      "city": {
+                        "type": "string"
+                      },
+                      "region": {
+                        "type": ["string", "null"]
+                      },
+                      "postalCode": {
+                        "type": "string"
+                      },
+                      "country": {
+                        "type": "string",
+                        "pattern": "^[A-Z]{2}$"
+                      }
+                    },
+                    "required": ["line1", "line2", "city", "region", "postalCode", "country"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "website": {
+                "type": ["string", "null"]
+              },
+              "supportEmail": {
+                "type": ["string", "null"]
+              },
+              "supportPhone": {
+                "type": ["string", "null"]
+              },
+              "statementDescriptor": {
+                "type": ["string", "null"]
+              },
+              "industry": {
+                "type": ["string", "null"]
+              },
+              "secondApprovalEnabled": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "merchantId",
+              "version",
+              "displayName",
+              "legalName",
+              "address",
+              "website",
+              "supportEmail",
+              "supportPhone",
+              "statementDescriptor",
+              "industry",
+              "secondApprovalEnabled"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": ["requestId", "outcome", "version", "profile"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "merchantId": "11111111-1111-4111-8111-111111111111",
+            "requestId": "11111111-1111-4111-8111-111111111111",
+            "decision": "confirm",
+            "expectedChangeHash": "ethereum",
+            "reason": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "pay.merchant.businessProfile.get": {
       "service": "svc-pay",
       "module": "pay",
@@ -13893,6 +14060,348 @@
           "verdict": "accept",
           "input": {
             "merchantId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "pay.merchant.businessProfile.history": {
+      "service": "svc-pay",
+      "module": "pay",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "merchant.businessProfile.history",
+      "access": {
+        "caller": "anyScope",
+        "scopes": ["pay:onboard", "pay:read"],
+        "module": "pay"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "merchantId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "cursor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          }
+        },
+        "required": ["merchantId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "requestId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "seq": {
+                  "type": "string",
+                  "pattern": "^\\d+$"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["applied", "applied_pre_kyb", "pending", "pending_review", "rejected", "conflict"]
+                },
+                "before": {
+                  "type": "object",
+                  "properties": {
+                    "displayName": {
+                      "type": ["string", "null"]
+                    },
+                    "legalName": {
+                      "type": ["string", "null"]
+                    },
+                    "address": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "line1": {
+                              "type": "string"
+                            },
+                            "line2": {
+                              "type": ["string", "null"]
+                            },
+                            "city": {
+                              "type": "string"
+                            },
+                            "region": {
+                              "type": ["string", "null"]
+                            },
+                            "postalCode": {
+                              "type": "string"
+                            },
+                            "country": {
+                              "type": "string",
+                              "pattern": "^[A-Z]{2}$"
+                            }
+                          },
+                          "required": ["line1", "line2", "city", "region", "postalCode", "country"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "website": {
+                      "type": ["string", "null"]
+                    },
+                    "supportEmail": {
+                      "type": ["string", "null"]
+                    },
+                    "supportPhone": {
+                      "type": ["string", "null"]
+                    },
+                    "statementDescriptor": {
+                      "type": ["string", "null"]
+                    },
+                    "industry": {
+                      "type": ["string", "null"]
+                    }
+                  },
+                  "required": [
+                    "displayName",
+                    "legalName",
+                    "address",
+                    "website",
+                    "supportEmail",
+                    "supportPhone",
+                    "statementDescriptor",
+                    "industry"
+                  ],
+                  "additionalProperties": false
+                },
+                "after": {
+                  "type": "object",
+                  "properties": {
+                    "displayName": {
+                      "type": ["string", "null"]
+                    },
+                    "legalName": {
+                      "type": ["string", "null"]
+                    },
+                    "address": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "line1": {
+                              "type": "string"
+                            },
+                            "line2": {
+                              "type": ["string", "null"]
+                            },
+                            "city": {
+                              "type": "string"
+                            },
+                            "region": {
+                              "type": ["string", "null"]
+                            },
+                            "postalCode": {
+                              "type": "string"
+                            },
+                            "country": {
+                              "type": "string",
+                              "pattern": "^[A-Z]{2}$"
+                            }
+                          },
+                          "required": ["line1", "line2", "city", "region", "postalCode", "country"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "website": {
+                      "type": ["string", "null"]
+                    },
+                    "supportEmail": {
+                      "type": ["string", "null"]
+                    },
+                    "supportPhone": {
+                      "type": ["string", "null"]
+                    },
+                    "statementDescriptor": {
+                      "type": ["string", "null"]
+                    },
+                    "industry": {
+                      "type": ["string", "null"]
+                    }
+                  },
+                  "required": [
+                    "displayName",
+                    "legalName",
+                    "address",
+                    "website",
+                    "supportEmail",
+                    "supportPhone",
+                    "statementDescriptor",
+                    "industry"
+                  ],
+                  "additionalProperties": false
+                },
+                "sensitiveKeys": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": ["legalName", "address", "statementDescriptor", "industry"]
+                  }
+                },
+                "changeHash": {
+                  "type": "string"
+                },
+                "expectedVersion": {
+                  "type": "string",
+                  "pattern": "^\\d{1,18}$"
+                },
+                "makerId": {
+                  "type": "string"
+                },
+                "checkerId": {
+                  "type": ["string", "null"]
+                },
+                "secondApproverId": {
+                  "type": ["string", "null"]
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "checkerReason": {
+                  "type": ["string", "null"]
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "decidedAt": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "requestId",
+                "seq",
+                "status",
+                "before",
+                "after",
+                "sensitiveKeys",
+                "changeHash",
+                "expectedVersion",
+                "makerId",
+                "checkerId",
+                "secondApproverId",
+                "reason",
+                "checkerReason",
+                "createdAt",
+                "decidedAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["items", "nextCursor"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "merchantId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "pay.merchant.businessProfile.setSecondApproval": {
+      "service": "svc-pay",
+      "module": "pay",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "merchant.businessProfile.setSecondApproval",
+      "access": {
+        "caller": "anyScope",
+        "scopes": ["pay:write", "pay:onboard"],
+        "module": "pay"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "merchantId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": ["merchantId", "enabled"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "merchantId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": ["merchantId", "enabled"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "merchantId": "11111111-1111-4111-8111-111111111111",
+            "enabled": true
           }
         },
         {

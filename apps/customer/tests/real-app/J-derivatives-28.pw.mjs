@@ -326,7 +326,7 @@ test(`${J} #2 enters an order the first venue's shown depth can't fill at the sh
   const why = line(sheet, 'route-why');
   await expect(why).toContainText(`${v.a.displayName}'s shown depth fills`);
   await expect(why).toContainText(`at its shown price`);
-  expect(sameDecimal(plain(await why.innerText()).match(/shown depth fills ([\d.]+) of/)[1], ask.amount)).toBe(true);
+  await expect.poll(async () => sameDecimal(plain(await why.innerText()).match(/shown depth fills ([\d.]+) of/)[1], ask.amount)).toBe(true);
   await expect(why).toContainText(`${v.b.displayName} fills all of it at the lowest total cost`);
   await expect(sheet.getByTestId('venue-route-others').locator(`li[data-venue="${v.a.id}"]`)).toContainText(v.a.displayName);
   await closeReview(sheet);
@@ -684,8 +684,10 @@ test(`${J} #6 an operator opens the routing view: our users' routed volume and b
       await expect(r).toHaveAttribute('data-state', 'up');
       expect(fromUnits(await cell(r, 'volume')), `${venue.displayName} volume`).toBe(fromUnits(volume));
       expect(fromUnits(await cell(r, 'builder-fees')), `${venue.displayName} builder fees`).toBe(fromUnits(fees));
-      expect(Number(await r.locator('[data-cell="fills"]').innerText())).toBe(fills.length);
-      expect(Number(await r.locator('[data-cell="orders"]').innerText())).toBe(new Set(fills.map((f) => f.venueClientOrderId)).size);
+      await expect.poll(async () => Number(await r.locator('[data-cell="fills"]').innerText())).toBe(fills.length);
+      await expect
+        .poll(async () => Number(await r.locator('[data-cell="orders"]').innerText()))
+        .toBe(new Set(fills.map((f) => f.venueClientOrderId)).size);
       ours = { fills: ours.fills + fills.length, volume: ours.volume + volume, fees: ours.fees + fees };
     }
     expect(ours.fees > 0n, 'our builder fee was charged on the routed fills').toBe(true);

@@ -4876,6 +4876,182 @@
         }
       ]
     },
+    "support.listAll": {
+      "service": "svc-support",
+      "module": "support",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "listAll",
+      "access": {
+        "caller": "scope",
+        "scope": "support:ops"
+      },
+      "refusals": {},
+      "inputOptional": true,
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 500
+          },
+          "filter": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "sort": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/__schema0"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "q": {
+            "type": "string",
+            "maxLength": 200
+          }
+        },
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+            },
+            "userId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+            },
+            "category": {
+              "type": "string",
+              "enum": ["account", "trading", "deposit_withdraw", "phishing", "fraud_report", "other", "complaint", "bereavement", "scam"]
+            },
+            "subject": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "body": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 10000
+            },
+            "messageHeaders": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 10000
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "status": {
+              "type": "string",
+              "enum": ["open", "pending", "on_hold", "resolved", "closed"]
+            },
+            "assigneeId": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "mergedInto": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "customerStatus": {
+              "type": "string",
+              "enum": ["awaiting_reply", "open", "solved"]
+            },
+            "createdAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "updatedAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            }
+          },
+          "required": ["id", "userId", "category", "subject", "body", "status", "assigneeId", "createdAt", "updatedAt"],
+          "additionalProperties": false
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "limit": 200,
+            "q": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "support.listComments": {
       "service": "svc-support",
       "module": "support",
