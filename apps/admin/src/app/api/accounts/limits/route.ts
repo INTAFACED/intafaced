@@ -6,9 +6,13 @@ import {
   accountLimitsStateSchema,
 } from '@intafaced/contracts';
 import { adminBffSession } from '@/lib/admin-bff-gate';
-import { adminSessionErrorResponse, AdminSessionError, authorizeAdminRequest, founderEdgeCall } from '@/lib/founder-session';
+import { adminSessionErrorResponse, AdminSessionError, authorizeAdminRequest, founderEdgeRecordCall } from '@/lib/founder-session';
 import { limitsExecute } from '@/lib/accounts/limits-server';
 import { handleStep } from '@/lib/desk/step-route';
+import {
+  IDENTITY_ACCOUNT_CONTROLS_LIMITS_HISTORY,
+  IDENTITY_ACCOUNT_CONTROLS_LIMITS,
+} from '@intafaced/contracts/identity-account-controls-procedures';
 
 /**
  * A customer's limit overrides (J-ops-console-04 #12).
@@ -33,7 +37,7 @@ export async function GET(request: Request) {
     if (params.get('history') === 'true') {
       const parsed = accountLimitsHistoryInputSchema.safeParse({ userId, limit: Number(params.get('limit')) });
       if (!parsed.success) throw new AdminSessionError('admin.accounts_input', 400);
-      const data = await founderEdgeCall(config, 'identity', 'accountControls.limitsHistory', 'GET', parsed.data, session.accessToken);
+      const data = await founderEdgeRecordCall(config, IDENTITY_ACCOUNT_CONTROLS_LIMITS_HISTORY, parsed.data, session.accessToken);
       const valid =
         Array.isArray(data) &&
         data.length <= Number(params.get('limit')) &&
@@ -46,7 +50,7 @@ export async function GET(request: Request) {
     }
     const parsed = accountLimitsLookupInputSchema.safeParse({ userId });
     if (!parsed.success || params.size !== 1) throw new AdminSessionError('admin.accounts_input', 400);
-    const data = await founderEdgeCall(config, 'identity', 'accountControls.limits', 'GET', parsed.data, session.accessToken);
+    const data = await founderEdgeRecordCall(config, IDENTITY_ACCOUNT_CONTROLS_LIMITS, parsed.data, session.accessToken);
     const valid =
       data === null ||
       (() => {
