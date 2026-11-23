@@ -657,6 +657,11 @@ pub trait Directory: Send + Sync {
     fn handles_of(&self, ids: &[String]) -> Result<BTreeMap<String, String>, DirError>;
     /// An active account, exact match: its id and handle, or none for unknown, frozen and closed.
     fn find_active(&self, query: &Lookup) -> Result<Option<(String, String)>, DirError>;
+    /// `publishedNames`: display names the owner chose to show; an id with no published choice is omitted. Identity
+    /// does not publish that choice, so the live client answers none.
+    fn published_names(&self, _ids: &[String]) -> Result<BTreeMap<String, String>, DirError> {
+        Ok(BTreeMap::new())
+    }
 }
 
 /// `unconfiguredBusinessDirectory`: no `IDENTITY_URL`, every read refuses as unset.
@@ -667,6 +672,9 @@ impl Directory for NoDirectory {
         Err(DirError::Unset)
     }
     fn find_active(&self, _: &Lookup) -> Result<Option<(String, String)>, DirError> {
+        Err(DirError::Unset)
+    }
+    fn published_names(&self, _: &[String]) -> Result<BTreeMap<String, String>, DirError> {
         Err(DirError::Unset)
     }
 }
