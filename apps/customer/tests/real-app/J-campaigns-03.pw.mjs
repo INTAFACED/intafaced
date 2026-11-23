@@ -3,10 +3,10 @@
 import { randomBytes } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import { founderPagesOf } from './admin.mjs';
-import { signIn } from './desk.mjs';
+import { signIn, signUp, verify } from './desk.mjs';
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { api, fund, journeyState, signOutBrowser, signUpInBrowser, stepState, tool } from './stack.mjs';
+import { EDGE, ORIGIN, api, fund, journeyState, signOutBrowser, signUpInBrowser, stepState, tool } from './stack.mjs';
 import { agePast } from './test-age.mjs';
 import { installTestWallet, TEST_WALLET } from './test-wallet.mjs';
 import { CHAIN_ID, TOKEN_USD, fundOnTestChain, testChain } from './dex.mjs';
@@ -17,6 +17,7 @@ import { call, data, openHub, operatorPair, potFunding } from './campaign-desk.m
 import { chainUsd, mineBlocks } from './chain-node.mjs';
 import { sumDecimal } from './reward-funds.mjs';
 import { ownerDoor } from './venue-room.mjs';
+import { testPasskey } from './p2p.mjs';
 
 // J-campaigns-03, in the running app (docs/roadmap/journeys.json): see what I have earned, what is on hold, and why.
 // One test per step, titled "J-campaigns-03 #<n>", run in order. The launch money model (OWNER 226, OWNER 288): a reward
@@ -288,6 +289,41 @@ async function fundTradePot(reference, amount) {
   );
   const funded = data(await ctx.edge.mutate('campaigns', 'ops.pot.approve', { reference }, b), 'ops.pot.approve');
   expect(funded.state, JSON.stringify(funded)).toBe('posted');
+}
+
+/** A person's own USDT deposit address on TEST Ethereum, asked of the bank through their own API (as J-wallet-07 does). */
+async function depositAddress(client) {
+  const res = await client.post('/api/bank/trpc/deposits.address', { assetId: 'USDT', networkId: 'ethereum' });
+  const address = res.body?.result?.data?.address;
+  expect(address, `deposits.address: ${res.status} ${JSON.stringify(res.body).slice(0, 300)}`).toBeTruthy();
+  return address;
+}
+
+/**
+ * The short `trade:withdraw` token a "Confirm it's you" buys, answered with a TEST passkey saved on the person's account
+ * through identity's own doors (p2p.mjs testPasskey; a passkey leaves password sign-in as it was, so later steps' api()
+ * sessions keep working).
+ */
+async function withdrawStepUp(who) {
+  const session = await api(who);
+  const passkey = await testPasskey(session);
+  const options = await session.post('/api/identity/trpc/auth.stepUpOptions', {});
+  const challenge = options.body?.result?.data?.challenge;
+  expect(challenge, JSON.stringify(options.body).slice(0, 300)).toBeTruthy();
+  const stepped = await session.post('/api/identity/trpc/auth.stepUp', { webauthn: await passkey.assertion(challenge) });
+  const data = stepped.body?.result?.data;
+  expect(data?.scopes, JSON.stringify(stepped.body).slice(0, 300)).toContain('trade:withdraw');
+  return data.accessToken;
+}
+
+/** svc-pay's `withdrawal.create`, sent with the step-up token as its own bearer, as the withdraw form sends it. */
+async function withdrawWith(token, input) {
+  const res = await fetch(`${EDGE}/api/pay/trpc/withdrawal.create`, {
+    method: 'POST',
+    headers: { origin: ORIGIN, authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  return { status: res.status, body: await res.json().catch(() => null) };
 }
 
 /** Adds two decimal strings exactly (no float). */
@@ -569,7 +605,7 @@ test(`${J} #4 fails the condition on a locked reward: it shows forfeited once an
 test(`${J} #5 tries to spend or withdraw a reward that is still owed: the screen explains it is owed by INTAFACED and not yet in the wallet; nothing is sent`, async ({
   page,
 }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(360_000);
   const { me, wallet } = state('me', 'fees', 'wallet');
   // Its own owed reward, with a day's hold so it is never paid during the run (#2 and #3 wait for theirs to be paid).
   const still = await liveCampaign(`TEST owed, held a day ${tag}`, { holdSeconds: 86_400 });
@@ -625,6 +661,34 @@ test(`${J} #5 tries to spend or withdraw a reward that is still owed: the screen
   // The ledger itself keeps the bonus out of what can be withdrawn: the person's USDT is what it was before the claim.
   expect(await ledgerBalance(me, 'USDT')).toEqual(usdtBefore);
 
+  // The withdraw path itself refuses the bonus, whatever a screen lets through: the person, confirmed with their passkey,
+  // asks svc-pay to send their available USDT plus the bonus to another account on the platform (it settles inside, so
+  // the ledger is the one that answers). The ledger refuses it as more than is available, and nothing moves on either side.
+  await signOutBrowser(page.context());
+  const friend = await signUp(page, 'jc03f');
+  await verify(page, friend);
+  const friendAddress = await depositAddress(await api(friend));
+  const friendBefore = await ledgerBalance(friend, 'USDT');
+  const mineBefore = await ledgerBalance(me, 'USDT');
+  const token = await withdrawStepUp(me);
+  const over = addDecimal(mineBefore.free, REWARD);
+  const asked = await withdrawWith(token, {
+    assetId: 'USDT',
+    amount: over,
+    railId: 'internal',
+    destination: { kind: 'crypto', ref: friendAddress },
+    clientRef: `${J}-5-bonus-${tag}`,
+  });
+  const cause = asked.body?.error?.data?.cause;
+  expect(asked.status, JSON.stringify(asked.body).slice(0, 400)).not.toBe(200);
+  expect(cause?.code, JSON.stringify(asked.body).slice(0, 400)).toBe('pay.internal_settlement_refused');
+  expect(JSON.stringify(cause), 'the ledger refused it as more than is available').toContain('ledger.insufficient_funds');
+  // Nothing was sent: the person's USDT and the friend's are what they were, and the bonus is still locked, still theirs.
+  expect(await ledgerBalance(me, 'USDT')).toEqual(mineBefore);
+  expect(await ledgerBalance(friend, 'USDT')).toEqual(friendBefore);
+  expect((await progressOf(me, bonus.id)).reward.state).toBe('locked');
+  expect((await mine(me)).totals.filter((t) => t.status === 'locked' && t.asset === 'USDT').map((t) => t.amount)).toEqual([REWARD]);
+  await signIn(page, me);
   const bonusHub = await openHub(page);
   await expect(row(bonusHub, bonus.id)).toHaveAttribute('data-status', 'locked');
   await expect(row(bonusHub, bonus.id).getByTestId('reward-why')).toContainText(
