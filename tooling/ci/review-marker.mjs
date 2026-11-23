@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Merge-seal step: a pull request that changes gate-file or look-baseline paths is sealed only when
+ * Merge-seal step: a pull request that changes gate-file or look-baseline paths, or draws a Customer room, is sealed only when
  * the `CI review` job (.github/workflows/ci-review.yml) passed its `Verdict` step on the pull request's exact head, and
  * one that changes a journey test or shared test code only when the same job passed its `Test verdict` step there
  * (JUDGE_CHECK; one model call answers both).
@@ -25,8 +25,8 @@
  * hand. Same requirement, later verdict: a head without the
  * review still fails.
  *
- * Only gate-file and look-baseline changes need it (owner decisions 2026-10-22 and, for baselines,
- * 2026-10-26). Money and security code no longer does (owner decision 2026-11-06): it is sealed on its checks alone, like every other pull
+ * Only gate-file, look-baseline and Customer-room changes need it (owner decisions 2026-10-22 and, for baselines,
+ * 2026-10-26; for rooms, AGENTS.md's design change and its pictures' review). Money and security code no longer does (owner decision 2026-11-06): it is sealed on its checks alone, like every other pull
  * request. On a merge queue's commit (`merge_group`) the
  * same rule is applied to every pull request in the group, each against its own head, without waiting (sealMergeGroup).
  * The seal runs the default branch's copy of this file, so a pull request cannot change which of its files need the
@@ -37,6 +37,7 @@ import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { gateFilesTouched } from '../scripts/gate-files.mjs';
 import { BASELINE } from './look-baselines.mjs';
+import { reachesLook } from './look-paths.mjs';
 import { judgeReason } from './test-judge.mjs';
 import { httpMessage, titleFor } from './api-budget.mjs';
 import { githubFetch, githubToken } from './github-fetch.mjs';
@@ -273,8 +274,11 @@ export async function ciReviewVerdict({ sha, runs, attempts, tree, base, number,
 
 /**
  * Why this change needs the independent review, or null when it does not: a gate file (gate-files.mjs GATE_PATHS),
- * or a look baseline. Money and security code alone does not (owner decision
- * 2026-11-06). An empty file list fails closed.
+ * a look baseline, or a change that draws a Customer room or kit part (look-paths.mjs reachesLook), whose review is
+ * given the look gate's before and after pictures (REVIEW.md item 6; AGENTS.md: a design change merges "on its checks
+ * and the independent review of those pictures"). Until this, #9910 merged over the review's FAIL on /bank's rows
+ * (job 137281761301, 22 Nov 2026): the pictures were judged and the verdict was not read. Money and security code alone
+ * does not (owner decision 2026-11-06). An empty file list fails closed.
  */
 export function reviewReason(files) {
   if (files.length === 0) return 'no changed files could be read for this head';
@@ -282,8 +286,15 @@ export function reviewReason(files) {
   if (gate.length > 0) return `gate file: ${gate[0].file}`;
   const baseline = files.find((f) => BASELINE.test(f));
   if (baseline) return `look baseline: ${baseline}`;
+  const room = files.find(drawsRoom);
+  if (room) return `draws a Customer room: ${room}`;
   return null;
 }
+
+/** A test draws no room: a test-only change keeps its own judge (JUDGE_CHECK), and a review FAIL never blocks it. */
+const TEST_PATH = /(^|\/)tests?\/|\.(test|spec|pw)\.[cm]?[jt]sx?$/;
+/** Whether a changed path draws a Customer room or kit part: the look gate runs for it (reachesLook) and it is not a test. */
+export const drawsRoom = (f) => reachesLook([f]) && !TEST_PATH.test(f);
 
 /** The verdicts a change needs, each with why: the CI review's two parts, its review and its test part (none when neither applies). */
 export function requiredChecks(files) {
@@ -912,7 +923,7 @@ async function main() {
     needs = requiredChecks(await readChangedFiles(REPO, PR_NUMBER, HEAD_SHA, GH_TOKEN));
     if (needs.length === 0) {
       console.log(
-        'independent review not required: no gate file, look baseline, journey test or shared test code changed (owner decisions 2026-10-22 and 2026-11-06; the test judge, E1)',
+        'independent review not required: no gate file, look baseline, Customer room, journey test or shared test code changed (owner decisions 2026-10-22 and 2026-11-06; the test judge, E1)',
       );
       return;
     }

@@ -127,6 +127,8 @@ export const JOURNEY_CI = [
   'tooling/ci/tooling-reach.mjs',
   'tooling/ci/post-merge-trust.mjs',
   'tooling/ci/review-marker.mjs',
+  // The paths that draw a Customer room or kit part, read by the seal's review rule and the journeys pick.
+  'tooling/ci/look-paths.mjs',
   'tooling/ci/workflow-concurrency.test.mjs',
   'tooling/ci/factory-switch.mjs',
   // The seal's scripts word a spent API budget with it (judge down).
