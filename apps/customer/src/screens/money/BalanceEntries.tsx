@@ -177,17 +177,17 @@ export default function BalanceEntries({ rawAsset, search }: { rawAsset: string;
       <header className="lt-stack">
         <h1 className="money-title">{t('Balance entries title', { asset })}</h1>
         <p className="lt-hint">{t('Balance entries intro', { asset })}</p>
+        <Segmented
+          label={t('Entries account scope')}
+          value={accountId ?? ALL}
+          options={[
+            { value: ALL, label: t('Entries all accounts') },
+            { value: 'main', label: t('Entries main account') },
+            ...spaces.map((space) => ({ value: space.id, label: space.name })),
+          ]}
+          onChange={(target) => navigate(balanceEntriesHref(asset, target === ALL ? undefined : target))}
+        />
       </header>
-      <Segmented
-        label={t('Entries account scope')}
-        value={accountId ?? ALL}
-        options={[
-          { value: ALL, label: t('Entries all accounts') },
-          { value: 'main', label: t('Entries main account') },
-          ...spaces.map((space) => ({ value: space.id, label: space.name })),
-        ]}
-        onChange={(target) => navigate(balanceEntriesHref(asset, target === ALL ? undefined : target))}
-      />
       {body}
       {asset !== '' && <SetAside asset={asset} hidden={hideBalances} />}
     </div>
