@@ -37,8 +37,10 @@ const notes = existsSync(join(ROOT, 'crates'))
       .filter((p) => existsSync(join(ROOT, p)))
   : [];
 
-test('the checkout has port notes to read', () => {
-  assert.ok(notes.length > 0, 'no crates/*/PORT.md found: run from the repo root');
+// Every port so far has finished and its notes became the crate's README.md (svc-bank last); a new port's PORT.md is
+// read below the moment it lands. Run from anywhere else, there is nothing to read and that is the mistake.
+test('the checkout is the repo root, where port notes are read', () => {
+  assert.ok(existsSync(join(ROOT, 'crates')), 'no crates/ here: run from the repo root');
 });
 
 for (const p of notes) {

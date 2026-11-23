@@ -103,17 +103,6 @@ const sourceDir = mkdtempSync(join(tmpdir(), 'local-test-gates-source-'));
 writeFileSync(join(sourceDir, 'tsconfig.json'), JSON.stringify({ compilerOptions: { paths: sourcePaths } }));
 const source = register({ namespace: 'local-test-gates', tsconfig: join(sourceDir, 'tsconfig.json') });
 const load = (rel) => source.import(pathToFileURL(join(root, rel)).href, import.meta.url);
-// A consumer that records what a door asked to consume, then refuses, so nothing behind the door runs.
-const recordingConsumer = (ConsumeError) => {
-  const asked = [];
-  return {
-    asked,
-    consume: async (...args) => {
-      asked.push(args.at(-1));
-      throw new ConsumeError('LOCAL TEST: recorded, not consumed', 'action_approval.consume_failed');
-    },
-  };
-};
 const boundTo = (p) => ({
   payloadHash: p.payloadHash,
   targetService: p.targetService,
@@ -336,23 +325,18 @@ assert.equal(
   bankPayloadHash('bank.ops.publishTransferTerms', { fee: '0', assetId: 'USDT' }),
   sha({ actionType: 'bank.ops.publishTransferTerms', fields: { assetId: 'USDT', fee: '0' } }),
 );
-const bankConsume = await load('services/svc-bank/src/action-approval-consume.ts');
-for (const fields of [{ fee: '0', assetId: 'USDT' }, { reason: 'LOCAL TEST: x', address: '0xabc', network: '*' }, {}]) {
-  assert.equal(
-    bankPayloadHash('bank.ops.x', fields),
-    bankConsume.bankActionPayloadHash('bank.ops.x', fields),
-    'bank hash recipe changed; update bankPayloadHash',
-  );
+// What svc-bank (crates/svc-bank) binds an ops approval to, as its own test writes and holds it
+// (crates/svc-bank/tests/ops_approval_golden.rs).
+const bankBinds = JSON.parse(readFileSync(join(root, 'crates/svc-bank/tests/fixtures/ops-approval.golden.json'), 'utf8'));
+for (const v of bankBinds.hashes) {
+  assert.equal(bankPayloadHash(v.actionType, v.fields), v.payloadHash, 'bank hash recipe changed; update bankPayloadHash');
 }
-// What svc-bank's ops doors ask identity to consume for an action and its fields.
-const bankAsks = async (actionType, fields) => {
-  const approvals = recordingConsumer(bankConsume.ActionApprovalConsumeError);
-  await assert.rejects(
-    bankConsume.consumeBankOpsApprovalPair(approvals, { approvalId: 'appr-1', operationId: 'op-1' }, actionType, fields),
-  );
-  assert.equal(approvals.asked.length, 1);
-  return askedOf(approvals.asked[0]);
-};
+const bankBound = (actionType, payloadHash) => ({
+  payloadHash,
+  targetService: bankBinds.consume.targetService,
+  targetId: actionType,
+  expectedVersion: bankBinds.consume.expectedVersion,
+});
 const terms = termsProposal(TEST_TRANSFER_TERMS[0]);
 assert.deepEqual(
   [terms.actionType, terms.targetService, terms.targetId, terms.expectedVersion, terms.policyVersion],
@@ -360,11 +344,16 @@ assert.deepEqual(
 );
 // svc-bank's publish door binds its action and the fields it normalises from the figures; each TEST row's proposal is
 // exactly what it asks to consume.
-const { PUBLISH_TRANSFER_TERMS_ACTION, publishTransferTermsFields } = await load('services/svc-bank/src/transfers/transfer-terms.ts');
-assert.equal(terms.actionType, PUBLISH_TRANSFER_TERMS_ACTION, 'terms action renamed; update termsProposal');
-for (const t of TEST_TRANSFER_TERMS) {
+assert.deepEqual(
+  bankBinds.transferTerms.map((t) => t.input),
+  TEST_TRANSFER_TERMS.map((t) => ({ assetId: t.assetId, perTransferLimit: t.perTransferLimit, dailyLimit: t.dailyLimit, fee: t.fee })),
+  'the TEST transfer terms changed; update crates/svc-bank/tests/ops_approval_golden.rs and rewrite its golden',
+);
+for (const [i, t] of TEST_TRANSFER_TERMS.entries()) {
+  const bound = bankBinds.transferTerms[i];
+  assert.equal(terms.actionType, bound.actionType, 'terms action renamed; update termsProposal');
   assert.deepEqual(
-    await bankAsks(PUBLISH_TRANSFER_TERMS_ACTION, publishTransferTermsFields(t)),
+    bankBound(bound.actionType, bound.payloadHash),
     boundTo(termsProposal(t)),
     `${t.assetId}: the terms proposal is not what svc-bank consumes`,
   );
@@ -375,22 +364,15 @@ for (const t of TEST_TRANSFER_TERMS)
 
 // The TEST fraud list (W-withdraw-03): the approval is bound to the fields svc-bank normalises (lower-case EVM address, `*` or a
 // lower-case network, the next revision, the reason), so the hash the stack signs is the one svc-bank recomputes.
-const bankFraud = await load('services/svc-bank/src/ramps/fraud-list.ts');
-assert.equal(SET_FRAUD_LISTING_ACTION, bankFraud.SET_FRAUD_LISTING_ACTION, 'fraud listing action renamed; update the stack');
-for (const input of [
-  { network: '*', address: '0x7E5700000000000000000000000000000000FA1D', listed: true, expectedRevision: 0, reason: ' LOCAL TEST: x ' },
-  { network: 'Base', address: 'bc1Qx', listed: false, expectedRevision: 2, reason: 'LOCAL TEST: y' },
-  ...TEST_FRAUD_LIST.map((listed) => ({ ...listed, listed: true, expectedRevision: 0 })),
-]) {
-  assert.deepEqual(
-    fraudListingFields(input),
-    bankFraud.fraudListingFields(input),
-    'fraud listing approval fields changed; update fraudListingFields',
-  );
-  assert.equal(
-    (await bankAsks(bankFraud.SET_FRAUD_LISTING_ACTION, bankFraud.fraudListingFields(input))).payloadHash,
-    bankPayloadHash(SET_FRAUD_LISTING_ACTION, fraudListingFields(input)),
-  );
+assert.deepEqual(
+  bankBinds.fraudList.slice(2).map((f) => f.input),
+  TEST_FRAUD_LIST.map((listed) => ({ ...listed, listed: true, expectedRevision: 0 })),
+  'the TEST fraud list changed; update crates/svc-bank/tests/ops_approval_golden.rs and rewrite its golden',
+);
+for (const bound of bankBinds.fraudList) {
+  assert.equal(SET_FRAUD_LISTING_ACTION, bound.actionType, 'fraud listing action renamed; update the stack');
+  assert.deepEqual(fraudListingFields(bound.input), bound.fields, 'fraud listing approval fields changed; update fraudListingFields');
+  assert.equal(bankPayloadHash(SET_FRAUD_LISTING_ACTION, fraudListingFields(bound.input)), bound.payloadHash);
 }
 assert.deepEqual(
   fraudListingFields({

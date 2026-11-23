@@ -54,7 +54,9 @@ if (!once) setInterval(() => {}, 1 << 30);
   sh('tax-bin', 'tax');
   // svc-matching is the Rust binary (crates/svc-matching), stood in like svc-ledger's and svc-tax's.
   sh('matching-bin', 'svc-matching');
-  for (const svc of ['identity', 'pay', 'bank', 'trade'])
+  // svc-bank is the Rust binary (crates/svc-bank) too.
+  sh('bank-bin', 'svc-bank');
+  for (const svc of ['identity', 'pay', 'trade'])
     put(`services/svc-${svc}/dist/index.js`, `await import(${JSON.stringify(pathToFileURL(join(box, 'stub.mjs')).href)});\n`);
   put('services/svc-trade/scripts/order-path-smoke.mjs', `await import(${JSON.stringify(pathToFileURL(join(box, 'stub.mjs')).href)});\n`);
   // Health is answered only once the service on that port has logged its start, so a loaded machine cannot end the
@@ -94,6 +96,7 @@ else if (process.argv[1]?.endsWith('dist/index.js')) process.argv.splice(2, 0, p
       SVC_LEDGER_BIN: join(box, 'ledger-bin'),
       SVC_TAX_BIN: join(box, 'tax-bin'),
       SVC_MATCHING_BIN: join(box, 'matching-bin'),
+      SVC_BANK_BIN: join(box, 'bank-bin'),
       CX8_AFTER: JSON.stringify([process.execPath, join(box, 'stub.mjs'), 'after']),
       CX8_TEST_LOG: log,
     },

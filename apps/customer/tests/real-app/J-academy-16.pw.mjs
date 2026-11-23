@@ -110,6 +110,7 @@ async function requestReport(page) {
 
 test(`${J} #1 the Academy desk's daily table shows each day's lesson reads and completions as recorded, and an unrecorded day says so`, async ({
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(240_000);
   const before = await metricsToday();
@@ -158,6 +159,7 @@ test(`${J} #1 the Academy desk's daily table shows each day's lesson reads and c
   const todayRow = table.locator(`tr[data-day="${today()}"]`);
   await expect(todayRow.locator('td[data-metric="lessonsRead"]')).toHaveText(String(after.lessonsRead.value));
   await expect(todayRow.locator('td[data-metric="completions"]')).toHaveText(String(after.completions.value));
+  await stepPicture(desk);
 });
 
 test(`${J} #2 per-learner summaries: empty when no learner matches, one row per learner, and a blank page size refuses by name`, async ({
@@ -321,18 +323,22 @@ test(`${J} #4 a finished report downloads with its time and hash; once expired i
   }
 });
 
-test(`${J} #5 deleting a report task takes it and its file off the list`, async ({ browser }) => {
+test(`${J} #5 deleting a report task takes it and its file off the list`, async ({ browser, stepPicture }) => {
   test.setTimeout(180_000);
   const desk = await console_(browser);
+  /** The list as svc-academy holds it, read in full: its heading is drawn only once the read has answered. */
+  const listRead = () => expect(desk.getByRole('heading', { name: 'Report tasks', exact: true })).toBeVisible();
   await desk.goto('/academy-ops/catalogue/report-centre');
+  await listRead();
   for (const id of [tasks.done, tasks.aborted, tasks.lapsed]) {
     const row = taskRow(desk, id);
     await expect(row).toHaveCount(1);
     const n = await row.locator('td').first().textContent();
-    await row.getByRole('button', { name: `Delete report ${n}` }).click();
+    await row.getByRole('button', { name: `Delete report ${n}`, exact: true }).click();
     await expect(outcome(desk)).toContainText('Done: report deleted with its file');
     await expect(taskRow(desk, id)).toHaveCount(0);
     await desk.reload();
+    await listRead();
     await expect(taskRow(desk, id)).toHaveCount(0);
     const file = await desk.request.get(`/api/academy-report-centre?task=${id}`);
     expect(file.status()).toBe(404);
@@ -342,4 +348,6 @@ test(`${J} #5 deleting a report task takes it and its file off the list`, async 
   expect(left).not.toContain(tasks.done);
   expect(left).not.toContain(tasks.aborted);
   expect(left).not.toContain(tasks.lapsed);
+  // The page shows the list as last read in full, with none of the three.
+  await stepPicture(desk);
 });
