@@ -19,8 +19,11 @@
  *   exit 0  every check that ran passed, or the checks ran past the limit (TIMEOUT: stopped; CI judges them)
  *   exit 1  a check failed: its output is printed, then the command that fixes it
  *
- *   node tooling/scripts/pre-push-changed.mjs [--base <commit>] [--limit <seconds>] [--refusals <file>]
+ *   node tooling/scripts/pre-push-changed.mjs [--base <commit>] [--limit <seconds>] [--refusals <file>] [--build-after <file>]
  *   --refusals writes the name of each check that refused, one a line, for the hook's list at the end.
+ *   --build-after holds the turbo build (and the checks that need it) until that file exists: the hook creates it once
+ *   its wire replay, which builds with turbo too, is done, so two builds never write the same packages at once. The
+ *   checks that build nothing run meanwhile; the ones that wait get the whole limit from when it opens.
  */
 import { spawn, execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
@@ -346,8 +349,18 @@ async function main() {
 
   // The packages the test checks import, from turbo's cache when main's (about a second); a changed package builds here.
   const builds = [...new Set(checks.map((c) => c.build).filter(Boolean))];
+  const gate = flag('--build-after');
+  let buildDeadline = deadline;
   const built = builds.length
-    ? run(['pnpm', 'turbo', 'run', 'build', '--output-logs=errors-only', ...builds.map((p) => `--filter=${p}^...`)], { deadline, env })
+    ? (async () => {
+        // A hook stopped before it opens the gate (Ctrl-C) leaves no waiter behind: it gives up a minute after the limit.
+        while (gate && !existsSync(gate) && Date.now() < deadline + 60_000) await new Promise((r) => setTimeout(r, 200));
+        buildDeadline = Date.now() + limitSeconds * 1000;
+        return run(['pnpm', 'turbo', 'run', 'build', '--output-logs=errors-only', ...builds.map((p) => `--filter=${p}^...`)], {
+          deadline: buildDeadline,
+          env,
+        });
+      })()
     : Promise.resolve({ verdict: 'pass', out: '' });
   const results = await Promise.all(
     checks.map(async (c) => {
@@ -374,7 +387,7 @@ async function main() {
           renderPattern(parts),
         ];
       }
-      const r = await run(cmd, { cwd: c.cwd, deadline, env });
+      const r = await run(cmd, { cwd: c.cwd, deadline: c.build ? buildDeadline : deadline, env });
       return { c, ...r, took: Math.round((Date.now() - t0) / 1000) };
     }),
   );

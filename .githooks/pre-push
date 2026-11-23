@@ -127,25 +127,27 @@ if [ -f "$TOP/tooling/scripts/review-before-push.mjs" ]; then
   SIZE_PID=$!
 fi
 
+# CI's checks on the changed files (tooling/scripts/pre-push-changed.mjs): format, dead code, and each generated or
+# recorded file whose inputs changed, each refusal with the command that fixes it, under a time limit that prints TIMEOUT
+# and lets the push go. It runs beside the checks below, its output held and printed after them; its turbo build waits
+# for the wire replay's to finish (--build-after), so two builds never write the same packages at once.
+CHANGED_OUT=$(mktemp)
+CHANGED_REFUSED=$(mktemp)
+BUILD_GATE="$CHANGED_OUT.wire-replay-done"
+if [ -f "$TOP/tooling/scripts/pre-push-changed.mjs" ]; then
+  ( (CDPATH= cd -- "$TOP" && node tooling/scripts/pre-push-changed.mjs --refusals "$CHANGED_REFUSED" --build-after "$BUILD_GATE") </dev/null > "$CHANGED_OUT" 2>&1 ||
+    { [ -s "$CHANGED_REFUSED" ] || echo "changed-file checks" > "$CHANGED_REFUSED"; } ) &
+  CHANGED_PID=$!
+fi
+
 # The wire replay of each service this push changes that keeps one (tooling/scripts/pre-push-wire-replay.mjs, under a time
 # limit that prints TIMEOUT and lets the push go; skipped when the push changes a shared package, so the packages it reads
 # come from turbo's cache and nothing builds here). A new route its recording lacked was otherwise first seen as a red
 # Tests job minutes after the push, then a second push with the recording rewritten (#9297 and #9519, project-state#3682).
-# It runs before the changed-file checks start, so two turbo builds never write the same packages at once.
 if [ -f "$TOP/tooling/scripts/pre-push-wire-replay.mjs" ] && ! (CDPATH= cd -- "$TOP" && node tooling/scripts/pre-push-wire-replay.mjs) </dev/null; then
   refuse 'wire replay'
 fi
-
-# CI's checks on the changed files (tooling/scripts/pre-push-changed.mjs): format, dead code, and each generated or
-# recorded file whose inputs changed, each refusal with the command that fixes it, under a time limit that prints TIMEOUT
-# and lets the push go. It runs beside the checks below, its output held and printed after them.
-CHANGED_OUT=$(mktemp)
-CHANGED_REFUSED=$(mktemp)
-if [ -f "$TOP/tooling/scripts/pre-push-changed.mjs" ]; then
-  ( (CDPATH= cd -- "$TOP" && node tooling/scripts/pre-push-changed.mjs --refusals "$CHANGED_REFUSED") </dev/null > "$CHANGED_OUT" 2>&1 ||
-    { [ -s "$CHANGED_REFUSED" ] || echo "changed-file checks" > "$CHANGED_REFUSED"; } ) &
-  CHANGED_PID=$!
-fi
+: > "$BUILD_GATE"
 
 # The tooling tests that read every journey file, when this push changes one. They take under a second together, and a
 # journey file that breaks one is otherwise first seen as a red Doctrine gates job minutes after the push (J-merchant-01
@@ -205,7 +207,7 @@ if [ -n "${SIZE_PID:-}" ]; then
   cat "$SIZE_OUT"
   while read -r line; do refuse "$line"; done < "$SIZE_REFUSED"
 fi
-rm -f "$PUSHED" "$SIZE_OUT" "$SIZE_REFUSED" "$CHANGED_OUT" "$CHANGED_REFUSED"
+rm -f "$PUSHED" "$SIZE_OUT" "$SIZE_REFUSED" "$CHANGED_OUT" "$CHANGED_REFUSED" "$BUILD_GATE"
 
 if [ -n "$REFUSED" ]; then
   echo >&2
