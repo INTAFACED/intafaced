@@ -96,7 +96,7 @@ function boundNames(p, out) {
  * `returned`: function name → { method → positions } for a sender it returns in an object (`return { run }`);
  * `exported`: exported name → local name.
  */
-export function helpersOf(program) {
+function helpersOf(program) {
   const bindings = new Map();
   const fns = [];
   const exported = new Map();
