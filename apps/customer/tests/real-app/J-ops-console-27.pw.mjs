@@ -870,7 +870,7 @@ test(`${J} #6 moves profit to spending: a signed venue withdrawal to the wallet,
   await ledgerHoldsNothing('after moving profit to spending');
 });
 
-test(`${J} #7 sells what is left of the coin on the desk, then withdraws what is left on the venue to the TEST wallet: one signature and one venue order for the sale; its fill and fee as the venue reports them; our builder fee for the sale's fill on the ledger once, equal to the venue's; then the wallet signs one venue withdrawal of all the USDC; its amount and the venue's fee read back from the venue and the chain; the venue account reads empty in every asset; the ledger records nothing for the customer`, async ({
+test(`${J} #7 sells what is left of the coin on the desk, then withdraws what is left on the venue to the TEST wallet: one signature and one venue order for the sale; its fill and fee as the venue reports them; our builder fee for the sale's fill on the ledger once, equal to the venue's; then the wallet signs one venue withdrawal of all the USDC; its amount and the venue's fee read back from the venue and the chain; the venue account reads empty in every asset but USDC under one unit of the token it pays out in; the ledger records nothing for the customer`, async ({
   page,
   stepPicture,
 }) => {
@@ -967,10 +967,13 @@ test(`${J} #7 sells what is left of the coin on the desk, then withdraws what is
   expect(toUnits((await venueBalance(owner, 'BTC')).total), 'the venue holds none of the coin').toBe(0n);
   expect(toUnits(before.locked), 'nothing is locked behind an order').toBe(0n);
 
-  // All the USDC: the venue's free USDC less the withdrawal fee the venue publishes for it.
+  // All the USDC: the venue's free USDC less the withdrawal fee the venue publishes for it, in whole units of the USDC
+  // token it pays out in (the form takes no finer amount). The venue keeps its fees finer than that unit, so what is left
+  // under one unit stays on the venue: it is read below, exactly.
   const terms = (await testVenue('/withdrawal-terms', { asset: 'USDC' })).body.value;
   const published = terms.fee.known ? toUnits(terms.fee.value) : null;
-  const leftUnits = toUnits(before.free) - (published ?? 0n);
+  const leftUnits = ((toUnits(before.free) - (published ?? 0n)) / usdcUnit) * usdcUnit;
+  const underUnit = toUnits(before.free) - (published ?? 0n) - leftUnits;
   expect(leftUnits > 0n, `free ${before.free} covers the fee ${published === null ? 'not known' : fromUnits(published)}`).toBe(true);
   const left = fromUnits(leftUnits);
   const walletBefore = await chainBalance(TOKEN_USD.address, owner);
@@ -1029,17 +1032,20 @@ test(`${J} #7 sells what is left of the coin on the desk, then withdraws what is
   expect(arrived, 'the wallet rose by exactly the payout').toBe(paidOut);
   if (w.networkFee?.known) expect(paidOut).toBe(leftUnits / 10n ** 12n - toUnits(w.networkFee.value) / 10n ** 12n);
   else expect(paidOut <= leftUnits / 10n ** 12n, 'the payout is never more than the withdrawal').toBe(true);
-  // The venue account reads empty in every asset: the venue's own record lists nothing above zero, free or locked, in
-  // either asset the loop used, and the desk shows the venue's own USDC figures.
+  // The venue account reads empty in every asset, but USDC under one unit of the token it pays out in: the venue's own
+  // record lists nothing locked, no coin, and exactly the USDC the withdrawal's unit left, and the desk shows the venue's
+  // own USDC figures.
+  expect(underUnit >= 0n && underUnit < usdcUnit, `${fromUnits(underUnit)} USDC is under one unit of the payout token`).toBe(true);
   const every = (await venueRecord(owner, '/balances')).value;
   expect(
     every.map((b) => b.asset),
     'the venue lists the two assets the loop used',
   ).toEqual(expect.arrayContaining(['BTC', 'USDC']));
   for (const b of every) {
-    expect(toUnits(b.free), `the venue account holds no free ${b.asset}`).toBe(0n);
+    const kept = b.asset === 'USDC' ? underUnit : 0n;
+    expect(toUnits(b.free), `the venue account's free ${b.asset}`).toBe(kept);
     expect(toUnits(b.locked), `the venue account holds no locked ${b.asset}`).toBe(0n);
-    expect(toUnits(b.total), `the venue account holds no ${b.asset}`).toBe(0n);
+    expect(toUnits(b.total), `the venue account's ${b.asset}`).toBe(kept);
   }
   await panelEqualsVenue(page, 7);
   // And Home reads the whole venue account, every asset of it, as holding nothing, in the venue's own name and time;
@@ -1047,13 +1053,12 @@ test(`${J} #7 sells what is left of the coin on the desk, then withdraws what is
   await toHome(page);
   const venuePart = page.getByTestId('home-standing').locator('[data-testid="standing-part"][data-part="venue"]');
   await expect(venuePart).toHaveAttribute('data-state', 'read', { timeout: 30_000 });
-  await expect(venuePart).toContainText('Holds nothing', { timeout: 30_000 });
   await expect(venuePart.getByTestId('standing-part-source')).toHaveText('the venue’s own figures');
   await expect(venuePart.getByTestId('standing-part-as-of')).toHaveAttribute('datetime', /\d{4}-\d\d-\d\dT/);
   const withdrawable = part(page, 'venue');
   await expect(withdrawable.locator('[data-part-source]')).toContainText('the venue’s own figure, as of');
   const venueEnd = await venueBalance(owner, 'USDC');
-  expect(toUnits(venueEnd.free)).toBe(0n);
+  expect(toUnits(venueEnd.free), 'the venue lets the customer withdraw only what is under one unit').toBe(underUnit);
   await expect
     .poll(async () => sameDecimal(await amountOf(withdrawable.locator('[data-part-amount]')), venueEnd.free), { timeout: 30_000 })
     .toBe(true);
@@ -1063,7 +1068,7 @@ test(`${J} #7 sells what is left of the coin on the desk, then withdraws what is
     await amountOf(withdrawable.locator('[data-part-amount]')),
     venueEnd.free,
   );
-  // The picture: Home, where the venue account reads empty in every asset, in the venue's own name and time.
+  // The picture: Home, where the venue account reads empty but for USDC under one payout unit, in the venue’s own name and time.
   await venuePart.scrollIntoViewIfNeeded();
   await stepPicture(page);
   await ledgerHoldsNothing('after the last withdrawal');
