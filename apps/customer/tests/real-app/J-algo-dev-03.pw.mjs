@@ -9,17 +9,17 @@ import { answerAfterNavigation } from './navigation.mjs';
 import { createRequire } from 'node:module';
 import nodePath from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { limitText } from '../../src/features/quant/limit-words.ts';
-
-// The words the usage view reads a whole-number value in (apps/customer/src/features/quant/limits-copy.ts).
-const LIMIT_WORDS = {
-  seconds: (n) => `${n} seconds`,
-  oneSecond: '1 second',
-  bytes: (n) => `${n} bytes`,
-  kb: (n) => `${n} KB`,
-  mb: (n) => `${n} MB`,
-  characters: (n) => `${n} characters`,
-};
+// A whole number as the usage and limits views write it (apps/customer/src/features/quant/limit-words.ts): bytes in KB or
+// MB (1 MB is 1,000,000 bytes), exact with trailing zeros dropped; every other count with its thousands grouped.
+const grouped = (value) => value.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+function inWords(value, unit) {
+  if (unit !== 'bytes') return grouped(value);
+  const places = value.length > 6 ? 6 : value.length > 3 ? 3 : 0;
+  if (places === 0) return `${value} bytes`;
+  const whole = grouped(value.slice(0, -places));
+  const fraction = value.slice(-places).replace(/0+$/, '');
+  return `${fraction ? `${whole}.${fraction}` : whole} ${places === 6 ? 'MB' : 'KB'}`;
+}
 
 // J-algo-dev-03, in the running app (docs/roadmap/journeys.json): keep strategies organised and stay inside the plan
 // limits. One test per step, titled "J-algo-dev-03 #<n>", run in order on one TEST developer who starts signed in,
@@ -632,7 +632,7 @@ test(`${J} #7 opens the usage view: counts for strategies, runs, storage and col
     await expect(row(resource)).toHaveAttribute('data-limit', limit ?? '');
     // In words: storage's bytes in KB or MB, a count with its thousands grouped.
     const unit = resource === 'storage' ? 'bytes' : 'count';
-    await expect(row(resource).locator('td').nth(1)).toHaveText(limit === null ? 'not set' : limitText(limit, unit, LIMIT_WORDS));
+    await expect(row(resource).locator('td').nth(1)).toHaveText(limit === null ? 'not set' : inWords(limit, unit));
   }
   // Storage is the bytes of the source of every version this account keeps (the recycle bin's too) and of every stored
   // run's result, each row read from svc-quant's own tables and measured here in UTF-8 bytes.
@@ -647,7 +647,7 @@ test(`${J} #7 opens the usage view: counts for strategies, runs, storage and col
   });
   expect(bytes).toBeGreaterThan(0);
   await expect(row('storage')).toHaveAttribute('data-used', String(bytes));
-  await expect(row('storage').locator('td').first()).toHaveText(limitText(String(bytes), 'bytes', LIMIT_WORDS));
+  await expect(row('storage').locator('td').first()).toHaveText(inWords(String(bytes), 'bytes'));
 });
 
 const REPO = fileURLToPath(new URL('../../../../', import.meta.url));

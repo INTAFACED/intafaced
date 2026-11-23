@@ -4,17 +4,17 @@ import { api, journeyState, restartWithSetting } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { userIdOf } from './copy.mjs';
-import { grouped, limitText } from '../../src/features/quant/limit-words.ts';
-
-// The words the limits page reads a whole-number value in (apps/customer/src/features/quant/limits-copy.ts).
-const WORDS = {
-  seconds: (n) => `${n} seconds`,
-  oneSecond: '1 second',
-  bytes: (n) => `${n} bytes`,
-  kb: (n) => `${n} KB`,
-  mb: (n) => `${n} MB`,
-  characters: (n) => `${n} characters`,
-};
+// A whole number as the usage and limits views write it (apps/customer/src/features/quant/limit-words.ts): bytes in KB or
+// MB (1 MB is 1,000,000 bytes), exact with trailing zeros dropped; every other count with its thousands grouped.
+const grouped = (value) => value.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+function inWords(value, unit) {
+  if (unit !== 'bytes') return grouped(value);
+  const places = value.length > 6 ? 6 : value.length > 3 ? 3 : 0;
+  if (places === 0) return `${value} bytes`;
+  const whole = grouped(value.slice(0, -places));
+  const fraction = value.slice(-places).replace(/0+$/, '');
+  return `${fraction ? `${whole}.${fraction}` : whole} ${places === 6 ? 'MB' : 'KB'}`;
+}
 
 // J-algo-dev-12, in the running app (docs/roadmap/journeys.json): a founder sets plan quotas and sandbox limits with a
 // reason, and reads what developers see. One test per step, titled "J-algo-dev-12 #<n>", run in order. The founder is the
@@ -318,7 +318,7 @@ test(`${J} #4 opens the developer limits page: every limit with its current valu
     await expect(row.getByRole('rowheader'), resource).toHaveText(label);
     // The use as svc-quant counts it, in the same words: storage's bytes in KB or MB, every other count as it is.
     await expect(row, resource).toHaveAttribute('data-used', used);
-    await expect(row.getByRole('cell').nth(0), resource).toHaveText(limitText(used, resource === 'storage' ? 'bytes' : 'count', WORDS));
+    await expect(row.getByRole('cell').nth(0), resource).toHaveText(inWords(used, resource === 'storage' ? 'bytes' : 'count'));
     await expect(row.getByRole('cell').nth(1), resource).toHaveText(limitWords);
   }
 
