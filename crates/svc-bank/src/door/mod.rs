@@ -732,6 +732,12 @@ impl BankDoor {
             Slice::Activity => self
                 .activity_deps(ctx.now, |d| crate::activity::answer(d, ctx))
                 .unwrap_or_else(|| Err(not_ported(Slice::Activity))),
+            Slice::Business => self
+                .transfers_deps(|d| {
+                    let d = crate::transfers::Deps { now: ctx.now, ..*d };
+                    crate::business::router::answer(&d, ctx)
+                })
+                .unwrap_or_else(|| Err(not_ported(Slice::Business))),
             other => Err(not_ported(other)),
         }
     }
