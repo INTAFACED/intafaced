@@ -303,10 +303,15 @@ test('J-ops-console-02 #3 one customer record: six tabs each loading or refusing
 
   // svc-trade down: only the trade tab refuses, each of its reads as unavailable in its own words, and every other tab
   // (money, pay, cards, documents and tickets) shows exactly what it showed before, values included.
-  /** A tab's whole state: each read's state, and its panel's words with the moments of reading left out. */
+  /**
+   * A tab's whole state: each read's state, and its panel's words with the moments of reading left out (a read's "As of"
+   * line and its export's "as read at <time>", which the reload above reads again).
+   */
   const tabSnapshot = async (tab) => {
     const reads = await tabStates(page, tab);
-    const words = (await page.getByTestId(`customer-panel-${tab}`).innerText()).replace(/As of [^\n]*/g, '');
+    const words = (await page.getByTestId(`customer-panel-${tab}`).innerText())
+      .replace(/As of [^\n]*/g, '')
+      .replace(/, as read at \d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2}:\d{2} UTC\./g, '');
     return { reads, words };
   };
   const others = ['money', 'pay', 'cards', 'documents', 'tickets'];
