@@ -5,8 +5,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { api, journeyState, STACK_PORTS } from './stack.mjs';
-import { keyHolder, makeKey, withKey } from './developer.mjs';
+import { EDGE, ORIGIN, api, journeyState, restartService, STACK_PORTS } from './stack.mjs';
+import { codeOf, keyHolder, makeKey, withKey } from './developer.mjs';
+import { bodyRows, tableIn } from './tables.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import { openVenueDesk, sameDecimal, shownBalance, testDeposit, venueBalance, venueForThisFile, venueRecord } from './venue.mjs';
 
@@ -307,5 +308,106 @@ test(`${J} #9 subscribes to the private balances stream: one event per change in
     await stepPicture();
   } finally {
     stream.close();
+  }
+});
+
+// ── #7: the per-user budget and a blank per-key budget ───────────────────────────────────────────────────────────────
+// The route the bot reads (a read on the trade door); its cost comes from the edge's published cost table.
+const BALANCE = '/api/v1/account/balance';
+// Restarting identity with this LOCAL TEST switch leaves its TEST tiers blank (tooling/profiles/test-owner-values).
+const TIERS_SWITCH = 'LOCAL_STACK_IDENTITY_RATE_LIMITS';
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/** The published limits, read where a developer reads them: identity's tiers and the edge's cost for `BALANCE`. */
+async function publishedLimits() {
+  const tiers = await (await fetch(`${EDGE}/api/identity/trpc/apiRateTiers`, { headers: { origin: ORIGIN } })).json();
+  const costs = await (await fetch(`${EDGE}/api/edge/rate-limits/costs`, { headers: { origin: ORIGIN } })).json();
+  const tier = (id) => tiers.result.data.tiers.find((t) => t.id === id);
+  const cost = costs.costs.find((row) => row.route === `GET ${BALANCE}`)?.cost;
+  return { base: tier('base'), user: tier('user'), cost };
+}
+
+test(`${J} #7 goes over the per-user budget: edge.rate_limited with the reset time; a blank per-key budget refuses and no key is issued`, async ({
+  browser,
+  stepPicture,
+}) => {
+  test.setTimeout(300_000);
+  // A developer of their own, with two live Trade keys: the per-user budget is what both spend together.
+  const { page } = await keyHolder(browser, 'cs15r');
+  try {
+    const first = await makeKey(page, { name: 'bot-a' });
+    const second = await makeKey(page, { name: 'bot-b' });
+    const { base, user, cost } = await publishedLimits();
+    expect(base, 'the base tier is published').toBeTruthy();
+    expect(user, 'the per-user budget is published').toBeTruthy();
+    expect(cost).toBeGreaterThan(0);
+
+    // The published limits page lists the per-user budget with its own numbers.
+    await page.goto('/developers/rate-limits');
+    const row = bodyRows(tableIn(page, 'Rate-limit tiers')).filter({ hasText: /^Per user/ });
+    await expect(row).toHaveCount(1);
+    await expect(row.getByRole('cell').nth(0)).toHaveText(new RegExp(`^${user.burst.toLocaleString('en')}\\b`));
+    await expect(row.getByRole('cell').nth(1)).toHaveText(new RegExp(`^${user.refillPerMinute.toLocaleString('en')}\\b`));
+
+    // Each key sends fewer calls than its own burst, together a third more than the per-user budget, all at once. Each
+    // key's own bucket holds every call it sends, so whatever is refused is refused by the per-user budget alone.
+    const perKey = Math.floor((user.burst / cost) * (2 / 3));
+    expect(perKey * cost, `each key's ${perKey} calls fit its own burst of ${base.burst}`).toBeLessThanOrEqual(base.burst);
+    expect(2 * perKey * cost, 'together they are past the per-user budget').toBeGreaterThan(user.burst);
+    // A fresh account: its keys and its per-user budget have spent nothing on the trade door, so every bucket is full.
+    const started = Date.now();
+    const replies = await Promise.all(
+      [first, second].flatMap((key) => Array.from({ length: perKey }, () => withKey(key, { path: BALANCE }))),
+    );
+    const elapsedMs = Date.now() - started;
+    const allowed = replies.filter((r) => r.status !== 429);
+    const refused = replies.filter((r) => r.status === 429);
+    for (const r of allowed) expect(r.status, JSON.stringify(r.body)).toBe(200);
+    // Allowed up to the per-user budget (plus only what refilled while the calls were in flight), then refused.
+    expect(allowed.length).toBeGreaterThanOrEqual(Math.floor(user.burst / cost));
+    expect(allowed.length).toBeLessThanOrEqual(Math.floor((user.burst + (user.refillPerMinute / 60_000) * elapsedMs) / cost));
+    expect(refused.length).toBeGreaterThan(0);
+    for (const limited of refused) {
+      expect(codeOf(limited.body), JSON.stringify(limited.body)).toBe('edge.rate_limited');
+      // The reason: the per-user budget is spent, not the key's own bucket.
+      expect(limited.body.reason).toBe('user');
+      // The reset time: whole seconds until the budget holds one call's cost again, in the body and the header.
+      expect(Number.isInteger(limited.body.retryAfterSeconds), JSON.stringify(limited.body)).toBe(true);
+      expect(limited.body.retryAfterSeconds).toBeGreaterThanOrEqual(1);
+      expect(limited.body.retryAfterSeconds).toBeLessThanOrEqual(Math.ceil(cost / (user.refillPerMinute / 60)));
+      expect(limited.headers.get('retry-after')).toBe(String(limited.body.retryAfterSeconds));
+      expect(limited.headers.get('x-ratelimit-reason')).toBe('user');
+      expect(limited.body.requestId).toMatch(UUID);
+    }
+    // Once that time has passed, the refused key's next call goes through: its first try comes after the longest wait named.
+    const waitMs = Math.max(...refused.map((r) => r.body.retryAfterSeconds)) * 1000;
+    await expect
+      .poll(async () => (await withKey(second, { path: BALANCE })).status, { intervals: [waitMs + 250, 1_000], timeout: waitMs + 5_000 })
+      .toBe(200);
+
+    // ── A blank per-key budget: identity with its TEST tiers blank refuses the key, and no key is issued ─────────────
+    await page.goto('/uc/safe/api-keys');
+    const keyRows = page.getByTestId('api-keys__table').locator('tbody tr');
+    await expect(keyRows).toHaveCount(2);
+    await restartService('identity', { [TIERS_SWITCH]: 'off' });
+    try {
+      await page.goto('/uc/safe/api-keys/new');
+      await page.getByLabel('Key name', { exact: true }).fill('bot-c');
+      await page.getByLabel('Trade', { exact: true }).check();
+      await page.getByRole('button', { name: 'Create with a passkey', exact: true }).click();
+      await expect(page.getByRole('alert')).toHaveText(
+        'No rate budget is set for API keys yet, so a key could make no call. No key was issued.',
+      );
+      await expect(page.getByRole('heading', { name: 'Your new key', exact: true })).toHaveCount(0);
+      await stepPicture(page);
+      // No key was issued: the account still holds its two.
+      await page.goto('/uc/safe/api-keys');
+      await expect(keyRows).toHaveCount(2);
+      await expect(page.getByTestId('api-keys__table').getByRole('link', { name: 'bot-c', exact: true })).toHaveCount(0);
+    } finally {
+      await restartService('identity', { [TIERS_SWITCH]: null });
+    }
+  } finally {
+    await page.context().close();
   }
 });
