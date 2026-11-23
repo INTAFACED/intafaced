@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { z } from 'zod';
 import type { ApiKeyCreateOutput, ApiKeyList } from '@intafaced/contracts/api-keys';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, EmptyState, Failure, Field, Loading, Panel } from '../../shared/ui';
 import { useSession } from '../session';
 import { StepUpConfirm } from '../money';
-import { useWallet, type TypedDataDocument, withDomainTypes } from '../protocol';
+import { useWallet } from '../protocol';
 import { useVenueMode, VenueFrame, WalletBar } from '../trade';
 import { endOfDayUtc } from '../account';
 import {
@@ -26,16 +25,15 @@ import {
   readKeys,
   submitAgentAction,
   venueTotal,
+  walletTypedData,
   type AgentAccount,
   type AgentConnection,
-  type AgentNext,
   type AgentPermission,
   type AgentTerms,
 } from './agent-connect-api';
 import { agentConnectCopy as copy } from './agent-connect-copy';
-
-type Failed = Extract<ApiResult<unknown>, { ok: false }>;
-type Words = ReturnType<typeof copy.useCopy>['t'];
+import { STEP_KEY, refusalText, type Words } from './agent-connect-shared';
+import { AccountControls, Connections } from './AgentAccountControls';
 
 /** `off`: svc-trade's user-venue door is off here, so there are no agent accounts to read or make. */
 type Ready =
@@ -64,35 +62,11 @@ async function readRoom(api: ReturnType<typeof useSession>['api'], signal: Abort
   };
 }
 
-/** A refusal in this room's words when it has some, else the service's own sentence with its code. */
-function refusalText(t: Words, failed: Failed): string {
-  const key = `refused.${failed.code ?? ''}`;
-  if (failed.code && key in REFUSAL_KEYS) return t(key as RefusalKey);
-  return t('refusedOther', { message: [failed.code, failed.message].filter(Boolean).join(': ') });
-}
-const REFUSAL_KEYS = {
-  'refused.auth.agent_scope_forbidden': true,
-  'refused.auth.scope_empty': true,
-  'refused.identity.key_name_invalid': true,
-  'refused.identity.key_name_taken': true,
-  'refused.identity.key_expiry_invalid': true,
-  'refused.auth.webauthn_invalid': true,
-  'refused.auth.passkey_missing': true,
-} as const;
-type RefusalKey = keyof typeof REFUSAL_KEYS;
-
 const STATUS_KEY: Record<string, 'status_opening' | 'status_open' | 'status_closed' | 'status_abandoned'> = {
   opening: 'status_opening',
   open: 'status_open',
   closed: 'status_closed',
   abandoned: 'status_abandoned',
-};
-const STEP_KEY: Record<string, 'step_open_sub_account' | 'step_approve_agent' | 'step_move_in' | 'step_move_out' | 'step_revoke_agent'> = {
-  open_sub_account: 'step_open_sub_account',
-  approve_agent: 'step_approve_agent',
-  move_in: 'step_move_in',
-  move_out: 'step_move_out',
-  revoke_agent: 'step_revoke_agent',
 };
 const SCOPE_KEY: Record<string, 'scope_trade_read' | 'scope_trade_write' | 'scope_trade_withdraw'> = {
   'trade:read': 'scope_trade_read',
@@ -110,9 +84,10 @@ const stepUpWords = (t: Words, why: 'stepUpWhy' | 'connectStepUpWhy') => ({
 });
 
 /**
- * Connect your assistant (`/agents/connect`, J-agents-21 #2 and #6; AG-outside-01, AG-outside-02): what the person's
- * own outside assistant can and cannot do, their agent accounts with Create agent account, and the connection: an API
- * key tagged Agent with trade scopes, bound to one agent account after step-up, its secret and MCP setup shown once.
+ * Connect your assistant (`/agents/connect`, J-agents-21; AG-outside-01, AG-outside-02, AG-outside-04): what the
+ * person's own outside assistant can and cannot do, their agent accounts with Create agent account and each open
+ * account's own controls (AgentAccountControls.tsx), and the connection: an API key tagged Agent with trade scopes, bound
+ * to one agent account after step-up, its secret and MCP setup shown once, then its Activity and Revoke.
  * Every refusal is the service's own; nothing is checked only in the browser. INTAFACED holds and moves nothing.
  */
 export function AgentConnect() {
@@ -197,7 +172,7 @@ function Room({ data, reload }: { data: Extract<Ready, { off: false }>; reload: 
         {data.accounts.length === 0 ? (
           <EmptyState title={t('accountsEmpty')} />
         ) : (
-          <DataTable label={t('accountsTitle')} headers={[t('colAccount'), t('colStatus'), t('colBalance'), t('colCap')]}>
+          <DataTable label={t('accountsTitle')} headers={[t('colAccount'), t('colStatus'), t('colBalance'), t('colCap'), t('colLimits')]}>
             {data.accounts.map((a) => {
               const total = venueTotal(a);
               return (
@@ -205,58 +180,40 @@ function Room({ data, reload }: { data: Extract<Ready, { off: false }>; reload: 
                   <td>
                     <bdi lang="und">{a.name}</bdi> {a.test ? <span className="badge">{t('testLabel')}</span> : null}
                   </td>
-                  <td>{STATUS_KEY[a.status] ? t(STATUS_KEY[a.status]!) : a.status}</td>
-                  <td>{total === null ? t('notOpened') : `${total} ${a.asset}`}</td>
-                  <td>{`${a.cap} ${a.asset}`}</td>
+                  <td data-testid="agent-connect__status">{STATUS_KEY[a.status] ? t(STATUS_KEY[a.status]!) : a.status}</td>
+                  <td data-testid="agent-connect__balance">{total === null ? t('notOpened') : `${total} ${a.asset}`}</td>
+                  <td data-testid="agent-connect__cap">{`${a.cap} ${a.asset}`}</td>
+                  <td data-testid="agent-connect__limits">
+                    <AccountLimits account={a} />
+                  </td>
                 </tr>
               );
             })}
           </DataTable>
         )}
+        {open.map((a) => (
+          <AccountControls key={a.accountId} account={a} reload={reload} />
+        ))}
         <CreateAccount terms={data.terms} reload={reload} />
       </Panel>
       <ConnectAssistant open={open} keys={data.keys} reload={reload} />
-      <Panel title={t('connectionsTitle')} data-testid="agent-connect__connections">
-        {data.connections.length === 0 ? (
-          <p className="lt-muted">{t('connectionsEmpty')}</p>
-        ) : (
-          <DataTable label={t('connectionsTitle')} headers={[t('colKey'), t('colAccount')]}>
-            {data.connections.map((c) => {
-              const key = data.keys.find((k) => k.id === c.keyId);
-              const account = data.accounts.find((a) => a.accountId === c.accountId);
-              return (
-                <tr key={c.keyId} data-key={c.keyId}>
-                  <td>
-                    <bdi lang="und">{key?.name ?? c.keyId}</bdi> <span className="badge">{t('tagAgent')}</span>
-                  </td>
-                  <td>
-                    <bdi lang="und">{account?.name ?? c.accountId}</bdi>
-                  </td>
-                </tr>
-              );
-            })}
-          </DataTable>
-        )}
-      </Panel>
+      <Connections connections={data.connections} keys={data.keys} accounts={data.accounts} reload={reload} />
     </>
   );
 }
 
-/** The EIP-712 domain the wallet reads, every field the venue sent kept as sent (a salt included). */
-const walletDomain = z
-  .object({
-    name: z.string().optional(),
-    version: z.string().optional(),
-    chainId: z.union([z.number(), z.string()]).optional(),
-    verifyingContract: z.string().optional(),
-  })
-  .passthrough();
-
-/** The venue's payload with its domain types declared, as the wallet signs it; null when its domain is not one. */
-function walletTypedData(typed: AgentNext['prepared']['typedData']): TypedDataDocument | null {
-  const withTypes = withDomainTypes(typed);
-  const domain = walletDomain.safeParse(withTypes.domain);
-  return domain.success ? { ...withTypes, domain: domain.data } : null;
+/** The person's own three caps on the assistant's orders, beside the funding cap (J-agents-21 #16); one not set says so. */
+function AccountLimits({ account }: { account: AgentAccount }) {
+  const { t } = copy.useCopy();
+  const limits = account.limits;
+  const amount = (value: string | null | undefined) => (value ? `${value} ${account.asset}` : t('limitNotSet'));
+  return (
+    <ul>
+      <li>{t('limitOrder', { value: amount(limits?.maxOrderNotional) })}</li>
+      <li>{t('limitLeverage', { value: limits?.maxLeverage ? t('times', { times: limits.maxLeverage }) : t('limitNotSet') })}</li>
+      <li>{t('limitDailyLoss', { value: amount(limits?.maxDailyLoss) })}</li>
+    </ul>
+  );
 }
 
 type CreateAsk = { accountId: string; owner: string; asset: string; cap: string; fund: string };
