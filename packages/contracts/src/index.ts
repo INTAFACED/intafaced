@@ -53,6 +53,7 @@ export * from './ops-venue-economics.js';
 export * from './ops-console-mode.js';
 export * from './ops-capital.js';
 export * from './ops-staff-holds.js';
+export * from './ops-ledger-reversals.js';
 export * from './identity-recovery.js';
 export * from './identity-staff.js';
 export * from './ops-console-announcements.js';

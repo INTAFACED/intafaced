@@ -235,10 +235,10 @@ function StudyRow({
   const { t, word } = words;
   const def = studyDef(study.kind);
   let body: ReactNode = null;
-  if (result === null || result.status === 'loading') body = <span className="st-row-note">{t('Loading')}</span>;
+  if (result === null || result.status === 'loading') body = <span className="lt-muted">{t('Loading')}</span>;
   else if (result.status === 'refused')
     body = (
-      <span className="st-row-note" role="status">
+      <span className="lt-muted" role="status">
         {reasonText(result, t, word)}
       </span>
     );
@@ -260,7 +260,7 @@ function StudyRow({
           </span>
         ))}
         {result.notes.map((n) => (
-          <span key={`${n.label}:${n.reason}`} className="st-row-note" role="status">
+          <span key={`${n.label}:${n.reason}`} className="lt-muted" role="status">
             {word(n.label)}: {reasonText(n, t, word)}
           </span>
         ))}
@@ -583,7 +583,7 @@ export function StudiesBar({
         {hiddenHere.map((study) => (
           <div key={study.id} className="st-row" data-study={study.id} data-hidden-here="true">
             <span className="st-row-name">{word(studyDef(study.kind).name)}</span>
-            <span className="st-row-note">{word('Hidden on this interval')}</span>
+            <span className="lt-muted">{word('Hidden on this interval')}</span>
           </div>
         ))}
       </div>

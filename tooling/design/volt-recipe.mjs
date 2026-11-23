@@ -91,6 +91,23 @@ export const ONE_RULE = {
   'cvt-field__label': 'lt-hint',
   // Secondary words a step quieter: the colour only.
   'of-note': 'lt-muted',
+  // The third map (#10049, 24 Nov 2026), read from the stylesheets the same way.
+  // A wrapping row of parts centred on one line: the kit's toolbar.
+  'vk-row': 'lt-toolbar',
+  'ct-review': 'lt-toolbar',
+  'ct-bar': 'lt-toolbar',
+  // Parts one under another with a gap.
+  'vk-grid': 'lt-stack',
+  // A small secondary line or label with no margin of its own; one that also keeps to one line.
+  'dk-layouts-note': 'lt-hint',
+  'dk-stat-label': 'lt-hint',
+  'money-act__sub': 'lt-hint',
+  'dk-tif-label': 'lt-hint lt-nowrap',
+  // Secondary words: the colour only.
+  'st-row-note': 'lt-muted',
+  // An address, code or reference in the mono face, breaking anywhere.
+  'pp-mono': 'lt-mono',
+  'money-code': 'lt-mono',
 };
 
 /** Whole class strings of utilities (as written, in this order) that together say exactly what one kit class says: a
@@ -106,7 +123,22 @@ export const WHOLE = {
   'flex min-w-0 flex-col gap-3': 'lt-stack',
   'flex flex-wrap gap-2': 'lt-actions',
   'flex flex-wrap gap-3': 'lt-actions',
+  'flex flex-wrap items-center gap-1': 'lt-toolbar',
+  'flex flex-wrap items-center gap-2': 'lt-toolbar',
+  'flex flex-wrap items-center gap-3': 'lt-toolbar',
+  'flex flex-wrap items-end gap-2': 'lt-field-row',
+  'flex flex-wrap items-end gap-3': 'lt-field-row',
+  'm-0 flex list-none flex-col gap-2 p-0': 'lt-list',
+  'font-mono': 'lt-mono',
 };
+
+/** Whole strings that say what the kit class says on an element the browser gives no margin, where the kit class's
+ * `margin: 0` changes nothing; on a paragraph, a heading or a list they are left, as WHOLE says why. */
+export const WHOLE_UNSPACED = {
+  'text-sm text-fg-2': 'lt-hint',
+  'text-xs text-fg-2': 'lt-hint',
+};
+const UNSPACED = new Set(['span', 'div', 'dt', 'li', 'label', 'small', 'strong', 'em', 'a', 'td', 'th', 'section', 'header']);
 
 /** The old classes with a one-to-one class in the kit (packages/ui/src/lit/templates/templates.css): each does the kit
  * class's job, the same role drawn in Volt's values. A class not here stays a finding for the redraw. */
@@ -400,14 +432,15 @@ export function recipe(source, { found = new Set() } = {}) {
       continue;
     }
     const written = value.split(/\s+/).filter(Boolean);
-    const whole = WHOLE[written.join(' ')];
+    const tag = opening.name.type === 'JSXIdentifier' ? opening.name.name : '';
+    const whole = WHOLE[written.join(' ')] ?? (UNSPACED.has(tag) ? WHOLE_UNSPACED[written.join(' ')] : undefined);
     const names = whole ? [whole] : written;
     const own = names.filter((c) => !c.startsWith('lt-') && !Object.hasOwn(CLASSES, c) && !GONE.has(c));
     if (own.length > 0) {
       left.push(`${lineOf(attr.start)}: className "${value}" (${own.join(' ')} has no recipe)`);
       continue;
     }
-    const kit = [...new Set(names.filter((c) => !GONE.has(c)).map((c) => CLASSES[c] ?? c))].join(' ');
+    const kit = [...new Set(names.filter((c) => !GONE.has(c)).flatMap((c) => (CLASSES[c] ?? c).split(' ')))].join(' ');
     if (kit === value) continue;
     const typed = (elementOf.get(opening)?.children ?? []).some(
       (c) => (c.type === 'JSXText' && ARROW.test(c.value)) || (c.type === 'JSXExpressionContainer' && typedIn(c.expression)),

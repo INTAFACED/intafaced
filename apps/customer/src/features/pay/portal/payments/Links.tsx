@@ -271,7 +271,7 @@ export function LinksView({
                             <a className="lt-link" href={`/pay/links/${encodeURIComponent(link.id)}`}>
                               {link.label}
                             </a>
-                            <small data-testid="pp-mono" className="pay-cell-note pp-mono">
+                            <small data-testid="pp-mono" className="lt-hint lt-mono">
                               {link.prefix}
                             </small>
                           </>

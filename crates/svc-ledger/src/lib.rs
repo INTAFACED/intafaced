@@ -11,6 +11,7 @@
 //! the account and transaction reads (`balances`); the `desk` slice the ledger desk's reads and account metadata writes
 //! (`desk`); the `ops-reads` slice svc-ops' five reads (`ops_reads`); the `posting` slice books `post` (`posting`: the
 //! caller binding, the recipe gate, the binding checks, the custody switch, the engine and the `ledgerTxPosted` relay).
+//! `reversal` books an operator's corrective reversal, built from the stored original, through the same engine.
 //! Past the door a call is owed by its slice; `README.md` lists the slices and what each ported.
 
 pub mod approval;
@@ -36,4 +37,5 @@ pub mod reconcile;
 pub mod reconciler;
 pub mod refines;
 pub mod reports;
+pub mod reversal;
 pub mod status;

@@ -41,7 +41,7 @@ export function RfqBoard({ board, makers }: { board: Loadable<Board>; makers: Lo
                 {t('Board group', { label: t(GROUP_WORD[group.status]), count: String(group.count) })}
               </h3>
               {group.requests.length === 0 ? <p className="lt-hint">{t('Board group empty')}</p> : null}
-              <ul className="m-0 flex list-none flex-col gap-2 p-0">
+              <ul className="lt-list">
                 {group.requests.map((request) => (
                   <li key={request.rfqId} data-testid="board-request" data-rfq-id={request.rfqId} className="lt-stack">
                     <span className="text-sm text-fg">
