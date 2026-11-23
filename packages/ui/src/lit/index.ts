@@ -17,3 +17,7 @@ export { StatusNote, type StatusNoteProps } from './components/status-note.js';
 export { contrastRatio, deltaE2000, hue, luminance, parseColour, toHex } from './colour.js';
 export { heldStateOf, totalFreshness, type HeldState } from '../components/freshness.js';
 export { useFreshnessClock } from '../components/use-freshness-clock.js';
+export { GridTable, type GridColumn, type GridTableProps } from './components/grid-table.js';
+export { FreshnessTag, type FreshnessTagProps } from './components/freshness-tag.js';
+export { SearchField, type SearchFieldProps } from './components/search-field.js';
+export { CardRow, type CardRowProps } from './components/card-row.js';

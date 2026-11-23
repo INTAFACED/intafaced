@@ -150,8 +150,8 @@
     "apps/customer/src/features/trade/market-analytics/MarketAnalyticsRoom.tsx": 1,
     "apps/customer/src/features/trade/news/NewsRooms.tsx": 3,
     "apps/customer/src/features/trade/news/NewsWidget.tsx": 1,
-    "apps/customer/src/features/trade/orders/FuturesOrdersRoom.tsx": 4,
-    "apps/customer/src/features/trade/orders/OrderHistoryRoom.tsx": 4,
+    "apps/customer/src/features/trade/orders/FuturesOrdersRoom.tsx": 2,
+    "apps/customer/src/features/trade/orders/OrderHistoryRoom.tsx": 3,
     "apps/customer/src/features/trade/orders/VenueOrders.tsx": 3,
     "apps/customer/src/features/trade/positions/PositionsRoom.tsx": 7,
     "apps/customer/src/features/trade/PriceAlerts.tsx": 2,
@@ -218,7 +218,6 @@
     "apps/customer/src/screens/trade/execution/IcebergTab.tsx": 1,
     "apps/customer/src/screens/trade/futures/VenueFuturesDesk.tsx": 11,
     "apps/customer/src/screens/trade/futures/VenueProtect.tsx": 1,
-    "apps/customer/src/screens/trade/markets/TopCards.tsx": 1,
     "apps/customer/src/shared/LanguageMenu.tsx": 1,
     "apps/customer/src/shared/ui.tsx": 3
   },

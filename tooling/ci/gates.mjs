@@ -40,9 +40,6 @@
  *        (the tooling tests read the workflows too); every other gate runs as always. `--base <ref>` compares against
  *        another ref (a stacked branch). An unreadable diff runs everything. CI and main never pass the flag: they
  *        keep the full run (U4, project-state #1574).
- *   node tooling/ci/gates.mjs --fast
- *        CI's Fast gates job: every gate but LEFT_TO_FULL_RUN, all at once, so a red gate is named in about two minutes
- *        of the push, not after the tooling tests' three (the Doctrine gates job still runs the whole list and blocks).
  */
 import { readdirSync, existsSync, readFileSync } from 'node:fs';
 import { join, basename, resolve } from 'node:path';
@@ -429,7 +426,7 @@ export const NOT_GATES = {
   'test-typecheck.mjs':
     'runs under the turbo `typecheck` task, not here. Every package script is now `node ../../tooling/scripts/tsc.mjs -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs`, because type-checking a test file needs the workspace deps BUILT for their `.d.ts` — which `typecheck` already declares via `dependsOn: ["^build"]` and which a doctrine gate, by design, cannot: gates run first and take ~2s, before any build exists. Wiring it there would either make the fast pre-flight slow or make it wrong. So `pnpm typecheck`, `pnpm verify` and CI all run it, in parallel and turbo-cached (the script is a globalDependency, so editing the pinned list busts that cache). It is a ratchet in the same shape as the since-deleted fabricated-money-scan: 70 pre-existing test type errors frozen by exact text AND count, a new one is red, and a FIXED one is red too until its row is deleted — so the list can only shrink. Run it repo-wide by hand with `node tooling/ci/test-typecheck.mjs --all`.',
   'base-failures.mjs':
-    "not a gate: the Tests job's own verdict on a pull request whose unit tests failed (ci.yml, `Failures main already has`): a failure main's run recorded the same way on the pull request's base doesn't hold it, a protected test never is excused, and main's own runs stay red. It reads that job's results, so it runs there, not here. Its tests are base-failures.test.mjs.",
+    "not a gate: the Tests job's own verdict on a pull request whose unit tests failed (ci.yml, `Failures main already has`): a failure main's run recorded the same way on the pull request's base, or on the nearest commit before it with a finished record, doesn't hold it, a protected test never is excused, and main's own runs stay red. It reads that job's results, so it runs there, not here. Its tests are base-failures.test.mjs.",
   'test-results-reporter.mjs':
     'not a gate: the vitest reporter the Tests job adds (tooling/vitest/budget.mjs testResults) to write what each run failed as data for base-failures.mjs. It changes no pass or fail. Its tests are in base-failures.test.mjs.',
 };
@@ -459,11 +456,6 @@ function manifestCheck() {
     if (!existsSync(join(ROOT, gate.script))) problems.push(`gate "${gate.id}" points at ${gate.script}, which does not exist.`);
   }
 
-  const ids = new Set(GATES.map((g) => g.id));
-  for (const id of Object.keys(LEFT_TO_FULL_RUN)) {
-    if (!ids.has(id)) problems.push(`LEFT_TO_FULL_RUN names "${id}", which is not a gate. Remove the entry.`);
-  }
-
   // The other half of the drift: CI must consume THIS list, not its own copy.
   const workflow = join(ROOT, '.github', 'workflows', 'ci.yml');
   if (existsSync(workflow) && !/pnpm\s+gates\b/.test(readFileSync(workflow, 'utf8'))) {
@@ -486,20 +478,6 @@ export function gatesToRun(gates, changed) {
   if (changed === null) return gates;
   const reachesTooling = changed.some((p) => TOOLING_TEST_PATHS.some((prefix) => p.startsWith(prefix)));
   return reachesTooling ? gates : gates.filter((g) => g.id !== 'tooling-tests');
-}
-
-// ── --fast: the gates CI's Fast gates job runs, all at once ─────────────────
-/** The gates the fast run leaves to the Doctrine gates job's full run, each with why. Every other gate runs at once. */
-export const LEFT_TO_FULL_RUN = {
-  'tooling-tests': 'about three minutes on CI, the bulk of the full run; the push runs the ones that read journey files itself',
-  'secret-scan-mutation': 'plants secret-shaped files in the tree, which the secret scan beside it would read at once',
-  'money-property-mutation':
-    'rewrites packages/ledger-client/src/money.ts in place while it runs, which the scans beside it would read at once',
-  'empty-denominator': 'runs every gate again against an empty tree: only a change to a gate reaches it',
-};
-
-export function gatesFast(gates) {
-  return gates.filter((g) => !Object.hasOwn(LEFT_TO_FULL_RUN, g.id));
 }
 
 /**
@@ -569,13 +547,12 @@ export function runGate(gate) {
 }
 
 async function main() {
-  const fast = process.argv.includes('--fast');
   const changedOnly = process.argv.includes('--changed');
   // `--base <ref>` for a branch stacked on another (default origin/main).
   const baseAt = process.argv.indexOf('--base');
   const base = baseAt > 0 ? process.argv[baseAt + 1] : 'origin/main';
   const changed = changedOnly ? changedSinceMain(ROOT, base) : null;
-  const gates = fast ? gatesFast(GATES) : gatesToRun(GATES, changed);
+  const gates = gatesToRun(GATES, changed);
 
   if (process.argv.includes('--list')) {
     for (const gate of gates) console.log(gate.id);
@@ -591,19 +568,16 @@ async function main() {
 
   console.log(`\n══ DOCTRINE GATES (${gates.length}) ══\n`);
   if (changedOnly && changed === null) console.log(`  --changed: the diff against ${base} is unreadable, so every gate runs\n`);
-  else if (fast) console.log(`  --fast: all at once; left to the full run: ${Object.keys(LEFT_TO_FULL_RUN).join(', ')}\n`);
   else if (gates.length < GATES.length)
     console.log('  --changed: nothing under tooling/ or .github/ changed, so the tooling tests are left to CI\n');
 
   const failed = [];
   const advisoryNoise = [];
   let totalMs = 0;
-  const runStarted = process.hrtime.bigint();
 
-  // The full run takes one gate at a time; the fast run takes its gates at once and still reports them in the list's order.
+  // One gate at a time.
   const results = [];
-  if (fast) results.push(...(await Promise.all(gates.map(runGate))));
-  else for (const gate of gates) results.push(await runGate(gate));
+  for (const gate of gates) results.push(await runGate(gate));
 
   for (const [i, gate] of gates.entries()) {
     const { ok, output, ms } = results[i];
@@ -651,6 +625,5 @@ async function main() {
     process.exit(1);
   }
 
-  const wallMs = Number((process.hrtime.bigint() - runStarted) / 1000000n);
-  console.log(`\n✓ all ${gates.length} doctrine gates passed — ${totalMs}ms total${fast ? `, ${wallMs}ms at once` : ''}\n`);
+  console.log(`\n✓ all ${gates.length} doctrine gates passed — ${totalMs}ms total\n`);
 }
