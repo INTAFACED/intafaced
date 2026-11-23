@@ -47,10 +47,12 @@ Blank prices and limits refuse, as on every test stack. Every rail is a TEST sta
 
 1. Open `https://beta.intafaced.com/`. Cloudflare asks for your email. Enter an invited one, then type the 6-digit code
    Cloudflare mails you. You stay signed in for a week on that browser.
-2. Tap **Sign up**. Enter any email ending in `@local-test.invalid` (for example `nino1@local-test.invalid`), a handle,
-   a password of your choice, a country, "No, I am not a US person", and a birth date. Tap **Create account**.
-3. The app asks for the code from the email. Open `https://beta-mail.intafaced.com/` in a second tab: the TEST mailbox
-   shows the newest code for your address. Type it in and tap **Confirm and open my account**. A new browser signing in
+2. Open `https://beta-mail.intafaced.com/` in a second tab. The TEST mailbox names your token (your login email, with
+   every other character a dash) and shows only mail to TEST addresses that start with it, so each person sees only the
+   codes for the accounts they created. Back in the app, tap **Sign up**. Enter an email that is your token, or your
+   token, a dot and anything (for example `alice-gmail-com.1@local-test.invalid`), a handle, a password of your choice,
+   a country, "No, I am not a US person", and a birth date. Tap **Create account**.
+3. The app asks for the code from the email. The mailbox tab shows the newest code for your address. Type it in and tap **Confirm and open my account**. A new browser signing in
    later is asked for a device code: it is in the same mailbox.
 4. You are on Home, in Volt, dark. To unlock the rooms that need a verified person, open **Verification**, request
    **Full**, enter any country code, and submit: the stack's TEST operators approve it within a minute. Sign out and in

@@ -15,6 +15,10 @@
  *   - Location answers on the loopback origin point back at the public origin.
  *   - WebSocket upgrades get the same request rewrites.
  *   - Cloudflare Access's token (Cf-Access-Jwt-Assertion, the CF_Authorization cookie) never reaches the stack.
+ *   - The mailbox gets the viewer's token (VIEWER_HEADER), read from the Access token, and shows only the mail of the
+ *     TEST addresses that start with it, so each person sees only the codes for the accounts they created (owner
+ *     decision project-state#3903). No Access token, no mailbox. The tunnel already refused any request whose Access
+ *     token its app did not sign (cloudflared's `originRequest.access`), so the token's email is read, not re-checked.
  * Only the public name and this front's own loopback names are served (DNS rebinding stays closed).
  */
 import http from 'node:http';
@@ -22,7 +26,7 @@ import net from 'node:net';
 import { pathToFileURL } from 'node:url';
 
 export const PUBLIC_ORIGIN = 'https://beta.intafaced.com';
-export const MAIL_PUBLIC_HOST = 'beta-mail.intafaced.com';
+const MAIL_PUBLIC_HOST = 'beta-mail.intafaced.com';
 const APP = { listen: 6211, upstream: 6210, upstreamHost: 'localhost:6210', upstreamOrigin: 'http://localhost:6210' };
 const MAIL = { listen: 6291, upstream: 6290, upstreamHost: 'localhost:6290' };
 const LOOPBACK_ORIGINS = ['http://localhost:6210', 'http://127.0.0.1:6210'];
@@ -31,6 +35,30 @@ const HOP = new Set(['connection', 'keep-alive', 'proxy-connection', 'transfer-e
 const servedHosts = (publicHost, port) => new Set([publicHost, `localhost:${port}`, `127.0.0.1:${port}`]);
 const APP_HOSTS = servedHosts(new URL(PUBLIC_ORIGIN).host, APP.listen);
 const MAIL_HOSTS = servedHosts(MAIL_PUBLIC_HOST, MAIL.listen);
+
+export const VIEWER_HEADER = 'x-beta-viewer';
+
+/** The token a viewer's TEST addresses start with: their Access email, lowercased, every other character a dash. */
+export function viewerToken(email) {
+  const t = String(email ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return t.includes('-') ? t : null;
+}
+
+/** The Access-verified viewer's token, from Cf-Access-Jwt-Assertion or the CF_Authorization cookie; null without one. */
+export function viewerFromAccess(headers) {
+  const fromCookie = /(?:^|;\s*)CF_Authorization=([^;]+)/i.exec(String(headers.cookie ?? ''))?.[1];
+  const jwt = String(headers['cf-access-jwt-assertion'] ?? fromCookie ?? '');
+  const payload = jwt.split('.')[1];
+  if (!payload) return null;
+  try {
+    return viewerToken(JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')).email);
+  } catch {
+    return null;
+  }
+}
 
 function withoutAccessCookie(cookie) {
   const kept = String(cookie)
@@ -124,13 +152,16 @@ const LOOPBACK_ORIGIN_RE = /http:\/\/(?:localhost|127\.0\.0\.1):6210/g;
 function frontMail() {
   return http.createServer((req, res) => {
     if (!MAIL_HOSTS.has(req.headers.host ?? '')) return refuse(res, 403, 'forbidden host');
+    const viewer = viewerFromAccess(req.headers);
+    if (!viewer) return refuse(res, 403, 'sign in through the beta login first');
     const headers = {};
     for (const [k, v] of Object.entries(req.headers)) {
       const lk = k.toLowerCase();
-      if (HOP.has(lk) || lk === 'cf-access-jwt-assertion' || lk === 'accept-encoding') continue;
+      if (HOP.has(lk) || lk === 'cf-access-jwt-assertion' || lk === 'accept-encoding' || lk === VIEWER_HEADER) continue;
       headers[lk] = v;
     }
     headers.host = MAIL.upstreamHost;
+    headers[VIEWER_HEADER] = viewer;
     if (headers.cookie !== undefined) {
       const c = withoutAccessCookie(headers.cookie);
       if (c) headers.cookie = c;
