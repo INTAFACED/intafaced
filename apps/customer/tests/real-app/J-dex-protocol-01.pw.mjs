@@ -206,6 +206,7 @@ const fact = (page, label) =>
 
 test(`${J} #6 the network card shows the name and chain id, "RPC: Not published" and Add to wallet disabled with its blocker; once published, Add to wallet adds exactly those values`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(300_000);
   const wallet = await installTestWallet(page, { chainId: 84532 });
@@ -227,13 +228,19 @@ test(`${J} #6 the network card shows the name and chain id, "RPC: Not published"
     await expect(fact(page, 'Name')).toHaveText(PUBLISHED.chainName);
     await expect(fact(page, 'Chain id')).toHaveText('84532');
     await expect(fact(page, 'RPC address')).toHaveText(PUBLISHED.rpcUrls[0]);
-    await expect(fact(page, 'Native currency (decimals)')).toHaveText('ETH (18)');
+    await expect(fact(page, 'Native currency (decimals)')).toHaveText(
+      `${PUBLISHED.nativeCurrency.symbol} (${PUBLISHED.nativeCurrency.decimals})`,
+    );
+    await expect(fact(page, 'Explorer')).toHaveText(PUBLISHED.blockExplorerUrls[0]);
     const add = card.getByRole('button', { name: 'Add to wallet', exact: true });
     await expect(add).toBeEnabled();
     await expect(card).not.toContainText('protocol.network_params_unset');
     await add.click();
     await expect(card.getByRole('status')).toHaveText('The wallet accepted the network.');
     expect(wallet.added).toEqual([[PUBLISHED]]);
+    // The step ends here, on the published card the wallet accepted: its picture is taken before the owner's registry is
+    // put back, from the top of the page (step-picture.mjs).
+    await stepPicture(page);
   });
 });
 

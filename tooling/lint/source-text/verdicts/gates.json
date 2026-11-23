@@ -23,39 +23,6 @@
   },
   {
     "file": "tooling/scripts/local-test-gates.test.mjs",
-    "target": "../../services/svc-bank/src/action-approval-consume.ts",
-    "verdict": "rewrite",
-    "asserts": "The approval hash the stack signs for bank ops is the one svc-bank recomputes (fields sorted by key).",
-    "guard": {
-      "kind": "test",
-      "ref": "tooling/scripts/local-test-gates.test.mjs#bank hash recipe changed; update bankPayloadHash"
-    },
-    "why": "Calls svc-bank's bankActionPayloadHash and the tool's bankPayloadHash on the same inputs, and drives consumeBankOpsApprovalPair to read what bank consumes."
-  },
-  {
-    "file": "tooling/scripts/local-test-gates.test.mjs",
-    "target": "../../services/svc-bank/src/transfers/transfer-terms.ts",
-    "verdict": "rewrite",
-    "asserts": "The stack's transfer-terms proposal names svc-bank's publish action and binds the fields svc-bank normalises.",
-    "guard": {
-      "kind": "test",
-      "ref": "tooling/scripts/local-test-gates.test.mjs#${t.assetId}: the terms proposal is not what svc-bank consumes"
-    },
-    "why": "Imports PUBLISH_TRANSFER_TERMS_ACTION and publishTransferTermsFields, and requires each TEST row's termsProposal to equal what consumeBankOpsApprovalPair asks to consume for them."
-  },
-  {
-    "file": "tooling/scripts/local-test-gates.test.mjs",
-    "target": "../../services/svc-bank/src/ramps/fraud-list.ts",
-    "verdict": "rewrite",
-    "asserts": "The stack's fraud-listing approval names svc-bank's action and the fields svc-bank normalises, so its hash is the one svc-bank recomputes.",
-    "guard": {
-      "kind": "test",
-      "ref": "tooling/scripts/local-test-gates.test.mjs#fraud listing approval fields changed; update fraudListingFields"
-    },
-    "why": "Compares SET_FRAUD_LISTING_ACTION and svc-bank's own fraudListingFields with the tool's on the same inputs (including every TEST_FRAUD_LIST row) and the consumed hash."
-  },
-  {
-    "file": "tooling/scripts/local-test-gates.test.mjs",
     "target": "../../packages/contracts/src/asset-registry.ts",
     "verdict": "rewrite",
     "asserts": "The asset-edit proposal names the action type and target service svc-ledger consumes.",
