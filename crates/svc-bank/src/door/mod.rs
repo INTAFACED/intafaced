@@ -761,6 +761,13 @@ impl BankDoor {
                     crate::business::router::answer(&d, ctx)
                 })
                 .unwrap_or_else(|| Err(not_ported(Slice::Business))),
+            Slice::BusinessTeam => self
+                .transfers_deps(|d| {
+                    let d = crate::transfers::Deps { now: ctx.now, ..*d };
+                    let minutes = d.w.settings.business_invite_minutes.as_deref();
+                    crate::business_team::router::answer(&d, ctx, minutes)
+                })
+                .unwrap_or_else(|| Err(not_ported(Slice::BusinessTeam))),
             other => Err(not_ported(other)),
         }
     }

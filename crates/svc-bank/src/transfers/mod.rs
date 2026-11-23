@@ -50,6 +50,9 @@ pub struct Settings {
     pub batch_size: Option<i64>,
     /// `SERVICE_NAME`: the producer each notice names.
     pub producer: String,
+    /// `BANK_BUSINESS_INVITE_MINUTES`: how long a business team invite lasts (slice `business-team`, which shares these
+    /// dependencies); blank refuses every invite.
+    pub business_invite_minutes: Option<String>,
 }
 
 impl Default for Settings {
@@ -65,6 +68,7 @@ impl Default for Settings {
             scheduled_transfers: true,
             batch_size: None,
             producer: String::new(),
+            business_invite_minutes: None,
         }
     }
 }
