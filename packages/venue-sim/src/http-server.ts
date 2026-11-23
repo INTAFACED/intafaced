@@ -1519,6 +1519,8 @@ export interface StartTestVenueOptions {
   readonly port: number;
   /** The RAW `process.env.APP_ENV`. Anything but `dev` or `test` refuses to start. */
   readonly appEnv: string | undefined;
+  /** The RAW `process.env.INTAFACED_BETA_POSTURE`: `test-networks` beside APP_ENV `staging` also lets a TEST venue run (the beta posture). */
+  readonly betaPosture?: string;
   readonly chainId?: number;
   readonly clock?: () => Date;
   /** The venue's id and name, so a stack can run two TEST venues side by side (J-derivatives-28). Defaults: the simulator's. */
@@ -1560,7 +1562,7 @@ export async function startTestVenueServer(
     ...(opts.cancelsPerAction !== undefined ? { cancelsPerAction: opts.cancelsPerAction } : {}),
     ...(opts.scheduledCancelMinLeadMs !== undefined ? { scheduledCancelMinLeadMs: opts.scheduledCancelMinLeadMs } : {}),
   });
-  refuseTestVenueOutsideTest(sim.venue, opts.appEnv);
+  refuseTestVenueOutsideTest(sim.venue, opts.appEnv, opts.betaPosture);
   const server = http.createServer(testVenueHandler(sim, opts.deposit ?? null));
   // A scheduled cancel fires on the venue's own clock, when nobody is talking to it (J-cex-spot-07 #3).
   const sweep = setInterval(() => {
