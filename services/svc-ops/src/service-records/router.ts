@@ -4,16 +4,16 @@ import {
   SERVICE_RECORD_INVALID,
   SERVICE_RECORD_STALE,
   SERVICE_STORAGE_UNCONFIGURED,
-  serviceGetInputSchema,
-  serviceGetOutputSchema,
   serviceListOutputSchema,
   serviceRecordValues,
-  serviceSetInputSchema,
 } from '@intafaced/contracts/ops-console-services';
 import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { isModuleId, type ModuleId } from '@intafaced/config';
 import { OpsError } from '../codes.js';
 import type { ServiceRecordStore } from './store.js';
+import { OPS_SERVICES_GET, OPS_SERVICES_SET } from '@intafaced/contracts/ops-services-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { opsRefusal } from '../refusal.js';
 
 const guards = { module: 'core-ops' as const, plane: 'fiat' as const };
 
@@ -54,17 +54,17 @@ export function createServiceRecordsRouter(deps: ServiceRecordsDeps) {
     list: scopedProcedure('admin:read', guards)
       .output(serviceListOutputSchema)
       .query(async () => ({ records: await storeOf(deps).list(), asOf: deps.now() })),
-    get: scopedProcedure('admin:read', guards)
-      .input(serviceGetInputSchema)
-      .output(serviceGetOutputSchema)
-      .query(async ({ input }) => {
+    get: mountRecord(
+      OPS_SERVICES_GET,
+      async ({ input }) => {
         const module = moduleOf(input.module);
         return { record: await storeOf(deps).get(module), asOf: deps.now() };
-      }),
-    set: scopedProcedure('admin:write', guards)
-      .input(serviceSetInputSchema)
-      .output(serviceGetOutputSchema)
-      .mutation(async ({ ctx, input }) => {
+      },
+      opsRefusal,
+    ),
+    set: mountRecord(
+      OPS_SERVICES_SET,
+      async ({ ctx, input }) => {
         const module = moduleOf(input.module);
         const checked = serviceRecordValues(module, input);
         if (!checked.ok)
@@ -80,6 +80,8 @@ export function createServiceRecordsRouter(deps: ServiceRecordsDeps) {
           if (err instanceof OpsError && err.code === SERVICE_RECORD_STALE) throw refusal('CONFLICT', err);
           throw err;
         }
-      }),
+      },
+      opsRefusal,
+    ),
   });
 }
