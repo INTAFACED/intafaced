@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CALENDAR_SOURCES } from '../calendar/sources.js';
 
 /**
  * THE TEST PARTNER'S SWITCHES: the one place a switch is declared.
@@ -12,7 +13,8 @@ import { z } from 'zod';
  */
 
 /** What a partner may not offer. `currencies` is the partner's currency accounts (J-bank-01 #3). */
-export const PARTNER_FEATURES = ['currencies', 'spaces', 'pots', 'joint', 'phone_wallet'] as const;
+/** What a partner may not offer. `cash_leg` is cash through a coin in Convert (J-cex-spot-11 #11). */
+export const PARTNER_FEATURES = ['currencies', 'spaces', 'pots', 'joint', 'phone_wallet', 'cash_leg'] as const;
 export type PartnerFeature = (typeof PARTNER_FEATURES)[number];
 
 export const testPartnerSwitches = z
@@ -117,6 +119,11 @@ export const testPartnerSwitches = z
       .string()
       .regex(/^[A-Z0-9]{2,16}$/)
       .nullable(),
+    /**
+     * A money calendar source (J-bank-06 #8): reading it fails for this person as an outage would, so the calendar names it
+     * unavailable and still shows every other kind. null, the default, is every source answering.
+     */
+    calendarSource: z.enum(CALENDAR_SOURCES).nullable(),
   })
   .strict();
 
@@ -144,6 +151,7 @@ export const SWITCHES_OFF: TestPartnerSwitches = Object.freeze({
   holderName: null,
   payIn: 'answered',
   openOrder: null,
+  calendarSource: null,
 });
 
 /**

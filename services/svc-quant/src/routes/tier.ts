@@ -1,6 +1,8 @@
-import { QUANT_QUOTA_RESOURCES, publicJurisdictionProcedure, quantTierListSchema, router } from '@intafaced/contracts';
-import { z } from 'zod';
-import { toTrpc, accountField, type QuantCore } from './core.js';
+import { QUANT_QUOTA_RESOURCES } from '@intafaced/contracts/quant-algo';
+import { router } from '@intafaced/contracts/trpc';
+import { toTrpc, type QuantCore, quantRefusal } from './core.js';
+import { QUANT_TIER_LIST } from '@intafaced/contracts/quant-tier-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
 
 export function tierRoutes(core: QuantCore) {
   const { quota, accountOf } = core;
@@ -9,10 +11,9 @@ export function tierRoutes(core: QuantCore) {
      * The published compute tiers (RC-algo-dev-05): each tier's data freshness, priority class and the limits of its
      * profile, blank values null ("not set"), and the profile that applies to the caller. None published: an empty list.
      */
-    list: publicJurisdictionProcedure('quant', 'fiat')
-      .input(z.object({ ...accountField }).optional())
-      .output(quantTierListSchema)
-      .query(async ({ input, ctx }) => {
+    list: mountRecord(
+      QUANT_TIER_LIST,
+      async ({ input, ctx }) => {
         try {
           const accountId = accountOf(ctx, input?.accountId);
           const [applied, published] = await Promise.all([quota.applied(accountId), quota.tiers()]);
@@ -35,6 +36,8 @@ export function tierRoutes(core: QuantCore) {
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
   });
 }

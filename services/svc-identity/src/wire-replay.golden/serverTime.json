@@ -1,0 +1,34 @@
+{
+  "inputs": {
+    "serverTime": { "sample": "null", "sample-nulls": "null" }
+  },
+  "bodies": ["{\"result\":{\"data\":{\"now\":\"2026-11-19T00:00:00.000Z\"}}}"],
+  "answers": {
+    "serverTime": {
+      "absent anon": [200, 0],
+      "absent no-scope": [200, 0],
+      "absent all": [200, 0],
+      "absent all-US": [200, 0],
+      "null anon": [200, 0],
+      "null no-scope": [200, 0],
+      "null all": [200, 0],
+      "null all-US": [200, 0],
+      "wrong-type anon": [200, 0],
+      "wrong-type no-scope": [200, 0],
+      "wrong-type all": [200, 0],
+      "wrong-type all-US": [200, 0],
+      "empty anon": [200, 0],
+      "empty no-scope": [200, 0],
+      "empty all": [200, 0],
+      "empty all-US": [200, 0],
+      "sample anon": [200, 0],
+      "sample no-scope": [200, 0],
+      "sample all": [200, 0],
+      "sample all-US": [200, 0],
+      "sample-nulls anon": [200, 0],
+      "sample-nulls no-scope": [200, 0],
+      "sample-nulls all": [200, 0],
+      "sample-nulls all-US": [200, 0]
+    }
+  }
+}

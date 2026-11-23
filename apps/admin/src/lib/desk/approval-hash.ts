@@ -15,7 +15,7 @@ import {
   staffHoldReleaseFields,
   staffHoldTargetId,
 } from '@intafaced/contracts/ops-staff-holds';
-import { normaliseCostAmount } from '@/lib/venue-economics/model';
+import { normaliseCostAmount } from '@/lib/venue-economics';
 import { APPROVAL_POLICY_SET_ACTION_TYPE, approvalPolicySetPayloadFields } from '@intafaced/contracts/action-approval-policy';
 import { staffChangeApprovalSubject, staffChangePayloadText } from '@intafaced/contracts/identity-staff';
 import type { DeskRequest } from './approval-packet';

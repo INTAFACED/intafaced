@@ -1,8 +1,10 @@
 import { z } from 'zod';
-import { router, scopedProcedure } from '@intafaced/contracts';
-import { drawBoardInputSchema, drawBoardSchema, drawRunInputSchema } from '@intafaced/contracts/campaigns-catalogue';
+import { router } from '@intafaced/contracts/trpc';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { drawRunInputSchema } from '@intafaced/contracts/campaigns-catalogue';
+import { CAMPAIGNS_DRAW_BOARD } from '@intafaced/contracts/campaigns-procedures';
 import { CampaignsError } from '../codes.js';
-import { guard, mapError, opsProcedure } from './kit.js';
+import { mapError, opsProcedure, refusalOf } from './kit.js';
 import type { CampaignServices } from '../router.js';
 
 /** Lucky draws (J-campaigns-12). */
@@ -14,17 +16,14 @@ export function drawRoutes({ draws }: CampaignServices) {
          * One draw's board (J-campaigns-12): odds, prize table, the caller's own chances and the cap for their user type, the
          * seed's commitment and the entry list's hash, and why the draw does not run. The account is the signed principal's.
          */
-        board: scopedProcedure('campaigns:read', guard)
-          .input(drawBoardInputSchema)
-          .output(drawBoardSchema)
-          .query(async ({ ctx, input }) => {
-            try {
-              if (!draws) throw new CampaignsError('campaigns.store_unwired', 'Draws are not wired');
-              return await draws.board({ campaignId: input.campaignId, accountId: ctx.principal!.userId });
-            } catch (err) {
-              mapError(err);
-            }
-          }),
+        board: mountRecord(
+          CAMPAIGNS_DRAW_BOARD,
+          async ({ ctx, input }) => {
+            if (!draws) throw new CampaignsError('campaigns.store_unwired', 'Draws are not wired');
+            return draws.board({ campaignId: input.campaignId, accountId: ctx.principal.userId });
+          },
+          refusalOf,
+        ),
       }),
     },
     opsCampaigns: {

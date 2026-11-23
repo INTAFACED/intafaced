@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -48,7 +48,7 @@ async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> 
   const envUrl = process.env.TEST_DATABASE_URL?.trim();
   if (envUrl) return { url: envUrl, stop: async () => undefined };
   try {
-    const container = await new PostgreSqlContainer(PG_IMAGE)
+    const container = await testPostgres(PG_IMAGE)
       .withDatabase('intafaced_matched_test')
       .withUsername('intafaced')
       .withPassword('intafaced')
@@ -508,6 +508,30 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
       expect(engine.submits).toHaveLength(1);
       expect(await bal(futuresOrderMarginAccount(ALICE, USDT, first.orderId))).toBe(A('10'));
     });
+
+    it('the same clientOrderId sent twice at once places one order: no call fails on a duplicate key (#8877)', async () => {
+      const svc = build();
+      // Every call passes the pre-check before any has inserted. A narrow window, so 20 rounds of 8 at once; on the
+      // targeted insert the losers raised 23505 futures_orders_pkey every run.
+      for (let round = 0; round < 20; round += 1) {
+        const clientOrderId = `at-once-${round}`;
+        const input = order({ userId: ALICE, side: 'buy', qty: A('0.01'), clientOrderId });
+        const outs = await Promise.allSettled(Array.from({ length: 8 }, () => svc.place(principal(ALICE), input)));
+        const orderId = matchedOrderIdFor(ALICE, MARKET, clientOrderId);
+        // A loser that replays while the winner's submit is in flight gets the typed in-flight refusal, as any retry
+        // does then; every other call answers with the one order. Nothing else, and never a duplicate key.
+        for (const out of outs) {
+          if (out.status === 'fulfilled') expect(out.value.orderId).toBe(orderId);
+          else expect(out.reason).toMatchObject({ code: 'trade.futures_submit_unknown', status: 503 });
+        }
+        expect(outs.some((o) => o.status === 'fulfilled')).toBe(true);
+        const rows = await sql`SELECT id FROM trade.futures_orders WHERE user_id = ${ALICE} AND client_order_id = ${clientOrderId}`;
+        expect(rows.map((r) => r.id)).toEqual([orderId]);
+        expect(engine.submits.filter((s) => s.orderId === orderId)).toHaveLength(1);
+        expect(await bal(futuresOrderMarginAccount(ALICE, USDT, orderId))).toBe(A('0.1'));
+      }
+      await assertBooksAgree();
+    }, 60_000);
 
     it('a retry that names a different order refuses', async () => {
       const svc = build();

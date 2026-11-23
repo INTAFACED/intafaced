@@ -8,7 +8,12 @@
  * stores nothing, so there is no key and nothing to retry. It takes no free text and echoes only the validated pair.
  */
 import { z } from 'zod';
-import { PREVIEW_REFUSAL_CODE, previewRefusal, protectedProcedure, router, TRPCError } from '@intafaced/contracts';
+import { PREVIEW_REFUSAL_CODE, previewRefusal } from '@intafaced/contracts/preview-refusal';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
+import { previewActInputSchema } from '@intafaced/contracts/quant-call-schemas';
+import { QUANT_PREVIEW_ACT } from '@intafaced/contracts/quant-preview-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { quantRefusal } from '../routes/core.js';
 
 /** Each Preview room's engine actions, and the engine each one needs. Engine ids name the missing engine, never a vendor. */
 export const PREVIEW_ACTIONS = {
@@ -31,11 +36,6 @@ export const PREVIEW_ACTIONS = {
 
 export type PreviewRoom = keyof typeof PREVIEW_ACTIONS;
 
-export const previewActInputSchema = z.discriminatedUnion('room', [
-  z.object({ room: z.literal('editor'), action: z.enum(['compile', 'debug', 'step', 'profile']) }).strict(),
-  z.object({ room: z.literal('tester'), action: z.enum(['start']) }).strict(),
-  z.object({ room: z.literal('optimise'), action: z.enum(['start', 'stop', 'resume', 'export']) }).strict(),
-]);
 export type PreviewActInput = z.infer<typeof previewActInputSchema>;
 
 /** The engine a validated room and action needs. */
@@ -56,9 +56,6 @@ export function refusePreviewAct(input: PreviewActInput): never {
 /** `quant.preview.act`: signed-in sessions only; answers every engine action with the typed Preview refusal. */
 export function createPreviewRouter() {
   return router({
-    act: protectedProcedure
-      .input(previewActInputSchema)
-      .output(z.never())
-      .mutation(({ input }): never => refusePreviewAct(input)),
+    act: mountRecord(QUANT_PREVIEW_ACT, ({ input }): never => refusePreviewAct(input), quantRefusal),
   });
 }

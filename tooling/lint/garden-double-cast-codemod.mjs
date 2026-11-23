@@ -85,11 +85,15 @@ function tsconfigOf(pkg) {
 }
 
 function tsc(pkg, config, extra = []) {
-  const run = spawnSync(BIN('tsc'), ['-p', config, '--noEmit', '--pretty', 'false', ...extra], {
-    cwd: pkg,
-    encoding: 'utf8',
-    maxBuffer: 256 * 1024 * 1024,
-  });
+  const run = spawnSync(
+    process.execPath,
+    [join(ROOT, 'tooling', 'scripts', 'tsc.mjs'), '-p', config, '--noEmit', '--pretty', 'false', ...extra],
+    {
+      cwd: pkg,
+      encoding: 'utf8',
+      maxBuffer: 256 * 1024 * 1024,
+    },
+  );
   return run.stdout + run.stderr;
 }
 

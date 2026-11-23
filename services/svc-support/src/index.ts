@@ -5,9 +5,12 @@ import { createHmac } from 'node:crypto';
 import { createChatProfileClient, SqlChatBook, SupportChat } from './chat.js';
 import { officialChannelsFromEnv } from './official-channels.js';
 import { GuestRequests } from './guest-requests.js';
+import { createIdentityLayoutsClient, createNotifyChartsClient } from './charts-lookup.js';
 import { createGuestVerificationClient } from './guest-verification-client.js';
 import { edgeTrustFromEnv } from '@intafaced/config';
-import { createBankScamTransferClient, createEdgeContext, s2sFromEnv } from '@intafaced/contracts';
+import { createBankScamTransferClient } from '@intafaced/contracts/bank-scam-transfer';
+import { createEdgeContext } from '@intafaced/contracts/edge';
+import { s2sFromEnv } from '@intafaced/contracts/s2s-env';
 import { env } from './env.js';
 import { createAccountStateClient } from './account-state.js';
 import { createTicketOrderClient, DarkTicketOrderSource } from './ticket-order.js';
@@ -278,6 +281,12 @@ const links = new TicketLinks(
 );
 support.useRecoveryLinks(() => links.recoveryTickets());
 support.useResponseTargets(new SqlResponseTargetBook(sql));
+// A customer's alerts and layouts for a ticket (J-charts-desk-19 #1): read per lookup from svc-notify and svc-identity on
+// svc-support's own credentials. No notify address or secret leaves the alerts unwired, and the lookup says so.
+support.useChartsSources({
+  alerts: createNotifyChartsClient({ notifyUrl: env.NOTIFY_URL, secret: env.NOTIFY_SUPPORT_SERVICE_SECRET, s2s: s2sKey }),
+  layouts: createIdentityLayoutsClient({ identityUrl: env.IDENTITY_URL, secret: env.INTERNAL_SERVICE_SECRET, s2s: s2sKey }),
+});
 const appRouter = createSupportRouter(
   support,
   loop,

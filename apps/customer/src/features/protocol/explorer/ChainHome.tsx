@@ -1,11 +1,12 @@
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { navigate } from '../../../app/location';
-import { useApi } from '../../session/session';
+import { useApi } from '../../session';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
-import { useDebouncedValue } from '../../pay/portal/payments/use-debounced';
+import { useDebouncedValue } from '../../../shared/use-debounced';
 import type { ApiResult } from '../../../shared/api';
-import { Button, DataTable, Loading, Panel } from '../../../shared/ui';
+import { Button, Tag } from '@intafaced/ui/lit';
+import { DataTable, Loading, Panel } from '../volt/parts';
 import { KNOWN_NETWORKS, networkLabel } from '../blockers';
 import type { ChainRef } from '../NetworkPanels';
 import { explorerCopy, type ExplorerTranslate } from './copy';
@@ -35,7 +36,7 @@ export function ChainHome({ chain }: { chain: ChainRef }) {
   const network = chainId === null ? null : networkLabel(chainId).name;
   return (
     <>
-      <p className="explorer-intachain" data-testid="chain-intachain">
+      <p className="lt-hint" data-testid="chain-intachain">
         {network ? t('intachainLine', { network }) : t('intachainLineUnknown')}
       </p>
       <ExplorerSearch api={api} chain={chain} t={t} />
@@ -76,7 +77,7 @@ function LatestBlocks({ api, chain, locale, t }: { api: ExplorerApi; chain: Chai
         <BlockerNote
           title={t('blocksRefused', { reason: refusalWords(resource.failure, t) })}
           action={
-            <Button variant="secondary" onClick={blocks.reload}>
+            <Button tone="secondary" onClick={blocks.reload}>
               {t('retry')}
             </Button>
           }
@@ -97,22 +98,22 @@ function LatestBlocks({ api, chain, locale, t }: { api: ExplorerApi; chain: Chai
           {/* A height opens the canonical block, so a reorged row shows its height and hash without a link to another block. */}
           {row.orphaned ? (
             <>
-              {row.height} <span className="badge">{t('blockOrphaned', { reason: row.orphaned.reason })}</span>{' '}
-              <span className="muted">{short(row.hash)}</span>
+              {row.height} <Tag>{t('blockOrphaned', { reason: row.orphaned.reason })}</Tag>{' '}
+              <span className="lt-hint">{short(row.hash)}</span>
             </>
           ) : (
             <a href={`/chain/blocks/${row.height}`}>{row.height}</a>
           )}
         </th>
         <td>{when(new Date(row.timestamp * 1000))}</td>
-        <td className="numeric">{row.txCount}</td>
-        <td className="numeric">{row.gasUsed}</td>
+        <td className="lt-mono">{row.txCount}</td>
+        <td className="lt-mono">{row.gasUsed}</td>
       </tr>
     ));
   }
   return (
     <Panel title={t('latestBlocks')}>
-      {asOf && <p className="muted">{t('blocksAsOf', { time: when(new Date(asOf)) })}</p>}
+      {asOf && <p className="lt-hint">{t('blocksAsOf', { time: when(new Date(asOf)) })}</p>}
       <DataTable label={t('latestBlocks')} headers={headers}>
         {body}
       </DataTable>
@@ -239,7 +240,7 @@ function ExplorerSearch({ api, chain, t }: { api: ExplorerApi; chain: ChainRef; 
 
   return (
     <Panel title={t('homeTitle')}>
-      <form role="search" className="explorer-search" onSubmit={submit}>
+      <form role="search" className="lt-toolbar" onSubmit={submit}>
         <input
           type="search"
           aria-label={t('searchLabel')}
@@ -251,7 +252,7 @@ function ExplorerSearch({ api, chain, t }: { api: ExplorerApi; chain: ChainRef; 
             setSearched(null);
           }}
         />
-        <Button type="submit" variant="secondary">
+        <Button type="submit" tone="secondary">
           {t('searchSubmit')}
         </Button>
       </form>
@@ -261,7 +262,7 @@ function ExplorerSearch({ api, chain, t }: { api: ExplorerApi; chain: ChainRef; 
         <SearchResults id={listId} query={query} onPick={open} t={t} />
       )}
       {answers && (
-        <ul className="explorer-networks" aria-label={t('networksSearched')}>
+        <ul className="lt-rows" aria-label={t('networksSearched')}>
           {answers.map((network) => (
             <li key={network.chainId} data-state={network.state === 'found_elsewhere' ? 'found' : network.state}>
               {network.state === 'checking' && t('searchingNetwork', { network: network.name })}
@@ -315,17 +316,17 @@ function TokenResults({
       chainId === null || !fits ? Promise.resolve({ ok: true as const, data: null }) : api.tokensBySymbol(chainId, settled, signal),
     `explorer:tokens:${chainId ?? 'none'}:${settled}`,
   );
-  if (chain.status === 'failed') return <p className="muted">{t('tokensChainUnknown')}</p>;
+  if (chain.status === 'failed') return <p className="lt-hint">{t('tokensChainUnknown')}</p>;
   const network = chainId === null ? '' : networkLabel(chainId).name;
   const { resource } = tokens;
   if (chain.status === 'loading' || settled !== symbol || resource.status === 'loading')
-    return <p className="muted">{t('tokensSearching', { network: network || '…' })}</p>;
-  if (resource.status === 'failed') return <p className="muted">{t('tokensRefused', { reason: refusalWords(resource.failure, t) })}</p>;
+    return <p className="lt-hint">{t('tokensSearching', { network: network || '…' })}</p>;
+  if (resource.status === 'failed') return <p className="lt-hint">{t('tokensRefused', { reason: refusalWords(resource.failure, t) })}</p>;
   const rows: readonly ExplorerToken[] = resource.data?.rows ?? [];
-  if (rows.length === 0) return <p className="muted">{t('tokensNone', { network, symbol })}</p>;
+  if (rows.length === 0) return <p className="lt-hint">{t('tokensNone', { network, symbol })}</p>;
   return (
     <>
-      <ul id={id} role="listbox" aria-label={t('resultsLabel')} className="explorer-results">
+      <ul id={id} role="listbox" aria-label={t('resultsLabel')} className="lt-rows">
         {rows.map((token) => {
           const pick = () => navigate(`/chain/address/${token.address}`);
           return (
@@ -342,13 +343,13 @@ function TokenResults({
                 if (event.key === 'Enter') pick();
               }}
             >
-              <span className="badge">{t('resultToken')}</span> <span>{token.symbol ?? t('tokenNoSymbol')}</span>
-              {token.name && <span className="muted"> {token.name}</span>} <span className="explorer-results__value">{token.address}</span>
+              <Tag>{t('resultToken')}</Tag> <span>{token.symbol ?? t('tokenNoSymbol')}</span>
+              {token.name && <span className="lt-hint"> {token.name}</span>} <span className="lt-mono">{token.address}</span>
             </li>
           );
         })}
       </ul>
-      {resource.data?.more && <p className="muted">{t('tokensMore')}</p>}
+      {resource.data?.more && <p className="lt-hint">{t('tokensMore')}</p>}
     </>
   );
 }
@@ -358,7 +359,7 @@ function SearchResults({ id, query, onPick, t }: { id: string; query: ExplorerQu
   if (query.kind === 'empty' || query.kind === 'text') return null;
   const label = query.kind === 'address' ? t('resultAddress') : query.kind === 'tx' ? t('resultTx') : t('resultBlock');
   return (
-    <ul id={id} role="listbox" aria-label={t('resultsLabel')} className="explorer-results">
+    <ul id={id} role="listbox" aria-label={t('resultsLabel')} className="lt-rows">
       <li
         role="option"
         aria-selected="false"
@@ -370,8 +371,7 @@ function SearchResults({ id, query, onPick, t }: { id: string; query: ExplorerQu
           if (event.key === 'Enter') onPick();
         }}
       >
-        <span className="badge">{label}</span>{' '}
-        <span className="explorer-results__value">{query.kind === 'tx' ? short(query.value) : query.value}</span>
+        <Tag>{label}</Tag> <span className="lt-mono">{query.kind === 'tx' ? short(query.value) : query.value}</span>
       </li>
     </ul>
   );

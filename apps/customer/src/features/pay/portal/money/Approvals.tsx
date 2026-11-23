@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import { useResource } from '../../../../shared/resource';
 import { HaltBanner, SpanText } from '../components';
 import type { PortalApi } from '../api';
@@ -85,10 +85,10 @@ export function Approvals({ portal, merchantId }: { portal: PortalApi; merchantI
     ) : null;
   const waiting = (a: Approval) => {
     const w = waitingFrom(a);
-    return w ? <small className="pay-cell-note">{w === 'intafaced' ? t('waitingIntafaced') : t('waitingTeam')}</small> : null;
+    return w ? <small className="lt-hint">{w === 'intafaced' ? t('waitingIntafaced') : t('waitingTeam')}</small> : null;
   };
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <HaltBanner resource={halts.resource} scopes={['payout']} />
       <TestBanner />
       <Freshness asOf={readAt} />
@@ -131,9 +131,9 @@ export function Approvals({ portal, merchantId }: { portal: PortalApi; merchantI
         shown={rows.length}
         hasMore={list.state.status === 'ready' && list.state.hasMore}
       />
-      <div className="pp-actions">
+      <div className="lt-actions">
         <Button
-          variant="secondary"
+          tone="secondary"
           disabled={rows.length === 0}
           onClick={() =>
             downloadText(
@@ -148,7 +148,7 @@ export function Approvals({ portal, merchantId }: { portal: PortalApi; merchantI
         >
           {t('mnExportPage')}
         </Button>
-        <small className="muted">{t('mnExportPageNote')}</small>
+        <small className="lt-muted">{t('mnExportPageNote')}</small>
       </div>
       <ListBody
         state={list.state}
@@ -166,7 +166,7 @@ export function Approvals({ portal, merchantId }: { portal: PortalApi; merchantI
           title: t('apvEmptyTitle'),
           body: t('apvEmptyBody'),
           action: (
-            <a className="text-link" href="/pay/payouts/new">
+            <a className="lt-link" href="/pay/payouts/new">
               {t('apvEmptyAction')}
             </a>
           ),
@@ -180,7 +180,7 @@ export function Approvals({ portal, merchantId }: { portal: PortalApi; merchantI
             cell: (a) => (
               <>
                 {name(a)}
-                {destination(a) && <small className="pay-cell-note">{destination(a)}</small>}
+                {destination(a) && <small className="lt-hint">{destination(a)}</small>}
               </>
             ),
           },
@@ -213,7 +213,7 @@ export function Approvals({ portal, merchantId }: { portal: PortalApi; merchantI
         })}
       />
       <p className="muted pp-note">
-        <a className="text-link" href="/pay/settings/notifications">
+        <a className="lt-link" href="/pay/settings/notifications">
           {t('apvNotify')}
         </a>
       </p>
@@ -318,12 +318,12 @@ export function ApprovalDecision({
           {overWarning}
         </p>
       )}
-      <label className="field">
+      <label className="lt-field">
         <span>{t('decisionReason')} *</span>
         <textarea value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} rows={2} disabled={block !== null} />
         <small>{t('hDecisionReason')}</small>
       </label>
-      <div className="pp-actions">
+      <div className="lt-actions">
         <PortalReview
           title={t('approve')}
           variant="primary"
@@ -376,7 +376,7 @@ export function CancelRequest({
   const why = !mine ? t('cancelOnlyMaker') : stepReason ? stepReason : !minReasonOk(reason) ? t('reasonNeeded') : undefined;
   return (
     <div data-testid="form-stack" className="form-stack pp-form">
-      <label className="field">
+      <label className="lt-field">
         <span>{t('cancelReason')} *</span>
         <textarea value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} rows={2} disabled={!mine} />
         <small>{t('hDecisionReason')}</small>

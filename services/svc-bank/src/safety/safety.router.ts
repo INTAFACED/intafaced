@@ -1,12 +1,6 @@
 import { z } from 'zod';
-import {
-  BANK_SCAM_TRANSFER_CALLERS,
-  bankScamTransferInputSchema,
-  bankScamTransferSchema,
-  router,
-  publicProcedure,
-  serviceProcedureFor,
-} from '@intafaced/contracts';
+import { BANK_SCAM_TRANSFER_CALLERS, bankScamTransferInputSchema, bankScamTransferSchema } from '@intafaced/contracts/bank-scam-transfer';
+import { router, publicProcedure, serviceProcedureFor } from '@intafaced/contracts/trpc';
 import { regionNotice } from './region-notice.js';
 
 /**

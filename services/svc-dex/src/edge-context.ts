@@ -1,5 +1,5 @@
 import { edgeTrustFromEnv } from '@intafaced/config';
-import { createEdgeContext } from '@intafaced/contracts';
+import { createEdgeContext } from '@intafaced/contracts/edge';
 import type { DexEnv } from './env.js';
 
 /** Built before the listener opens: verifies the shared secret and, when set, the edge public key. */

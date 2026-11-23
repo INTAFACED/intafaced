@@ -33,7 +33,8 @@ export function sumDecimal(values) {
   return frac ? `${sum.slice(0, -scale)}.${frac}` : sum.slice(0, -scale);
 }
 
-async function rpc(method, params) {
+/** One call to the stack's TEST chain node, through its gate. */
+export async function rpc(method, params) {
   const res = await fetch(GATE_URL, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -250,4 +251,37 @@ export function rewardFunds({ J, RUN, operators }) {
   }
 
   return { earnBuilderFees, fundPotFromFees, claimOurBuilderFees };
+}
+
+const topicOf = (address) => `0x${address.slice(2).toLowerCase().padStart(64, '0')}`;
+/** Every TEST USD transfer from `from` to `to`, read from the TEST chain's own logs (not from us). */
+export async function usdTransfers(from, to) {
+  const logs = await rpc('eth_getLogs', [
+    { address: TOKEN_USD.address, fromBlock: '0x0', toBlock: 'latest', topics: [TRANSFER_TOPIC, topicOf(from), topicOf(to)] },
+  ]);
+  return logs.filter((l) => !l.removed).map((l) => ({ tx: l.transactionHash.toLowerCase(), value: BigInt(l.data) }));
+}
+
+let stack;
+/**
+ * The next send of one reward meets `fault` on the TEST chain, through svc-campaigns' signed TEST pay-fault door
+ * (`lost_after_broadcast`, `unanswered` or `revert`); anything but its TEST answer fails the step.
+ */
+export async function payFault(rewardKey, fault) {
+  stack ??= import('../../../../tooling/scripts/local-test-gates.mjs').then((gates) => gates.makeContext({ log: () => {} }));
+  const ctx = await stack;
+  const raw = JSON.stringify({ rewardKey, fault });
+  const res = await fetch(`${ctx.url('campaigns')}/internal/test/pay-fault`, {
+    method: 'POST',
+    redirect: 'error',
+    headers: {
+      'content-type': 'application/json',
+      ...ctx.contracts.serviceAuthHeadersForBody('local-test-stack', ctx.secrets.internal, raw),
+    },
+    body: raw,
+    signal: AbortSignal.timeout(30_000),
+  });
+  const answer = await res.json().catch(() => null);
+  expect(res.status, JSON.stringify(answer)).toBe(200);
+  expect(answer).toMatchObject({ rewardKey, fault, label: 'TEST' });
 }

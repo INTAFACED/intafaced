@@ -2,14 +2,13 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
+import type { NetworkEntry, ProtocolDeploymentsOutput } from '@intafaced/contracts';
 import {
   FORBIDDEN_NETWORK_KINDS,
   NETWORK_KIND_FORBIDDEN,
   networkEntrySchema,
   routerIsSunset,
-  type NetworkEntry,
-  type ProtocolDeploymentsOutput,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/protocol-networks';
 import { isExplicitDevOrTest } from '@intafaced/config';
 import { parseDeploymentRegistry } from '../deployments/registry.js';
 
@@ -162,4 +161,13 @@ export function routerVersionIsSunset(
 ): boolean {
   const row = routers.find((r) => r.chainId === chainId && r.name === name);
   return row !== undefined && routerIsSunset(row, now);
+}
+
+/**
+ * Mainnet unless the owner's network registry names this chain `testnet` or `local`. An unknown or `unconfirmed` chain is
+ * treated as mainnet, so what refuses on mainnet (`audit.external`) refuses there too.
+ */
+export function chainIsMainnet(chainId: number, networks: ReadonlyArray<{ chainId: number; kind: string }>): boolean {
+  const entry = networks.find((n) => n.chainId === chainId);
+  return !(entry && (entry.kind === 'testnet' || entry.kind === 'local'));
 }

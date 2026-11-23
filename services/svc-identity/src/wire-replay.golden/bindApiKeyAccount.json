@@ -1,0 +1,46 @@
+{
+  "inputs": {
+    "bindApiKeyAccount": {
+      "sample": "{\"keyId\":\"22222222-2222-4222-8222-222222222222\",\"accountId\":\"22222222-2222-4222-8222-222222222222\"}",
+      "sample-nulls": "{\"keyId\":null,\"accountId\":null}"
+    }
+  },
+  "bodies": [
+    "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"bindApiKeyAccount\",\"requestId\":\"replay-request\"}}}",
+    "{\"error\":{\"message\":\"Scope \\\"identity:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"bindApiKeyAccount\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}",
+    "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"bindApiKeyAccount\",\"requestId\":\"replay-request\"}}}",
+    "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"bindApiKeyAccount\",\"requestId\":\"replay-request\"}}}",
+    "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"bindApiKeyAccount\",\"requestId\":\"replay-request\"}}}",
+    "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"keyId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"accountId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"bindApiKeyAccount\",\"requestId\":\"replay-request\"}}}",
+    "{\"error\":{\"message\":\"The number of keys a sub-account may hold is not set\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"bindApiKeyAccount\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"identity.portfolio_key_cap_unset\"}}}}",
+    "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"keyId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received null\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"accountId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"bindApiKeyAccount\",\"requestId\":\"replay-request\"}}}"
+  ],
+  "answers": {
+    "bindApiKeyAccount": {
+      "absent anon": [401, 0],
+      "absent no-scope": [403, 1],
+      "absent all": [400, 2],
+      "absent all-US": [400, 2],
+      "null anon": [401, 0],
+      "null no-scope": [403, 1],
+      "null all": [400, 3],
+      "null all-US": [400, 3],
+      "wrong-type anon": [401, 0],
+      "wrong-type no-scope": [403, 1],
+      "wrong-type all": [400, 4],
+      "wrong-type all-US": [400, 4],
+      "empty anon": [401, 0],
+      "empty no-scope": [403, 1],
+      "empty all": [400, 5],
+      "empty all-US": [400, 5],
+      "sample anon": [401, 0],
+      "sample no-scope": [403, 1],
+      "sample all": [412, 6],
+      "sample all-US": [412, 6],
+      "sample-nulls anon": [401, 0],
+      "sample-nulls no-scope": [403, 1],
+      "sample-nulls all": [400, 7],
+      "sample-nulls all-US": [400, 7]
+    }
+  }
+}

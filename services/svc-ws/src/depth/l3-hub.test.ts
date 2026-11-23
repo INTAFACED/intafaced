@@ -7,6 +7,9 @@ import { CLOSE_TRY_LATER, type DepthSink } from './hub.js';
 
 const MARKET = 'BTC-USDT';
 
+/** Lets every queued promise callback run: the hub's open and refetch are promise chains, never timers. */
+const drainQueued = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
+
 const native: NativeL3Queue = {
   level: 'L3',
   marketId: MARKET,
@@ -61,7 +64,7 @@ describe('NativeL3Hub', () => {
 
     const sink = new RecordingSink();
     hub.attach(MARKET, sink);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
     expect(JSON.parse(sink.frames[0]!)).toMatchObject({
       type: 'snapshot',
       transport: 'poll',
@@ -97,7 +100,7 @@ describe('NativeL3Hub', () => {
 
     const sink = new RecordingSink();
     hub.attach(MARKET, sink);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
     expect(sink.closed?.code).toBe(CLOSE_TRY_LATER);
     expect(sink.frames).toEqual([]);
     expect(queued).toEqual([]);
@@ -135,7 +138,7 @@ describe('NativeL3Hub', () => {
     });
     const sink = new RecordingSink();
     hub.attach(MARKET, sink);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
     source.snapshotCalls = 0;
     source.queue = {
       level: 'L3',
@@ -174,7 +177,7 @@ describe('NativeL3Hub', () => {
     expect(await hub.probe(MARKET)).toBe('ok');
     const sink = new RecordingSink();
     hub.attach(MARKET, sink);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
     const frame = JSON.parse(sink.frames[0]!) as { bids: Array<{ price: string }>; asks: Array<{ price: string }> };
     expect(frame.bids.map((l) => l.price)).toEqual(['100', '99']);
     expect(frame.asks.map((l) => l.price)).toEqual(['101', '102']);
@@ -194,7 +197,7 @@ describe('NativeL3Hub', () => {
     expect(await hub.probe(MARKET)).toBe('nobook');
     const sink = new RecordingSink();
     hub.attach(MARKET, sink);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
     expect(sink.frames).toEqual([]);
     expect(sink.closed).toBeNull();
   });
@@ -210,7 +213,7 @@ describe('NativeL3Hub', () => {
     });
     const live = new RecordingSink();
     hub.attach(MARKET, live);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
     hub.ingest(native);
     expect(JSON.parse(live.frames.at(-1)!)).toMatchObject({
       type: 'snapshot',
@@ -247,7 +250,7 @@ describe('NativeL3Hub', () => {
 
     const late = new RecordingSink();
     hub.attach(MARKET, late);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
     expect(late.frames).toEqual([]);
     expect(late.closed).toBeNull();
 
@@ -286,7 +289,7 @@ describe('NativeL3Hub', () => {
     });
     const live = new RecordingSink();
     hub.attach(MARKET, live);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
     hub.ingest(native);
     hub.markEngineUnavailable(MARKET);
     expect(JSON.parse(live.frames.at(-1)!)).toEqual({
@@ -332,7 +335,7 @@ describe('NativeL3Hub', () => {
     });
     const watched = new RecordingSink();
     const leaveWatched = hub.attach(MARKET, watched);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
     hub.ingest(native);
     hub.markEngineUnavailable(MARKET);
     expect(JSON.parse(watched.frames.at(-1)!)).toEqual({
@@ -352,7 +355,7 @@ describe('NativeL3Hub', () => {
     const callsAfterEngineIdle = l3Calls;
     const afterEngine = new RecordingSink();
     const leaveAfterEngine = hub.attach(MARKET, afterEngine);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
 
     expect(l3Calls).toBeGreaterThan(callsAfterEngineIdle);
     expect(afterEngine.frames.some((frame) => JSON.parse(frame).code === DEPTH_ENGINE_UNAVAILABLE)).toBe(false);
@@ -383,7 +386,7 @@ describe('NativeL3Hub', () => {
     const callsAfterL3Idle = l3Calls;
     const afterUnavailable = new RecordingSink();
     hub.attach(MARKET, afterUnavailable);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
 
     expect(l3Calls).toBeGreaterThan(callsAfterL3Idle);
     expect(afterUnavailable.frames.some((frame) => JSON.parse(frame).code === DEPTH_L3_UNAVAILABLE)).toBe(false);
@@ -416,7 +419,7 @@ describe('NativeL3Hub', () => {
     });
     const watched = new RecordingSink();
     const leave = hub.attach(MARKET, watched);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
     hub.ingest(native);
     leave!();
 
@@ -435,7 +438,7 @@ describe('NativeL3Hub', () => {
     const callsAtIdle = l3Calls;
     const next = new RecordingSink();
     hub.attach(MARKET, next);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
 
     expect(l3Calls).toBeGreaterThan(callsAtIdle);
     expect(JSON.stringify(next.frames)).not.toContain('stale');
@@ -472,7 +475,7 @@ describe('NativeL3Hub', () => {
 
     const watched = new RecordingSink();
     const leave = hub.attach(MARKET, watched);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
     gate = new Promise<void>((_resolve, reject) => {
       rejectPoll = reject;
     });
@@ -492,7 +495,7 @@ describe('NativeL3Hub', () => {
     const callsAtIdle = l3Calls;
     const next = new RecordingSink();
     hub.attach(MARKET, next);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
 
     expect(hub.stats.code).toBeNull();
     expect(l3Calls).toBeGreaterThan(callsAtIdle);
@@ -540,7 +543,7 @@ describe('NativeL3Hub', () => {
 
     const watched = new RecordingSink();
     const leave = hub.attach(MARKET, watched);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
     holdPoll = true;
     pollGate = new Promise<void>((_resolve, reject) => {
       rejectPoll = reject;
@@ -566,7 +569,7 @@ describe('NativeL3Hub', () => {
     rejectPoll(new DepthL3UnavailableError(MARKET));
     await poll;
     releaseKnown();
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
 
     expect(JSON.parse(next.frames.at(-1)!)).toEqual({
       type: 'snapshot',
@@ -608,7 +611,7 @@ describe('NativeL3Hub', () => {
 
     const watched = new RecordingSink();
     const leave = hub.attach(MARKET, watched);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
     holdPoll = true;
     pollGate = new Promise<void>((_resolve, reject) => {
       rejectPoll = reject;
@@ -626,7 +629,7 @@ describe('NativeL3Hub', () => {
     const callsAtLeave = l3Calls;
     const next = new RecordingSink();
     hub.attach(MARKET, next);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
 
     expect(l3Calls).toBeGreaterThan(callsAtLeave);
     expect(JSON.parse(next.frames.at(-1)!)).toEqual({
@@ -640,7 +643,7 @@ describe('NativeL3Hub', () => {
     const callsAfterRefetch = l3Calls;
     rejectPoll(new Error('matching engine down'));
     await poll;
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
 
     expect(l3Calls).toBe(callsAfterRefetch);
     expect(JSON.parse(next.frames.at(-1)!)).toEqual({
@@ -682,7 +685,7 @@ describe('NativeL3Hub', () => {
 
     const watched = new RecordingSink();
     const leave = hub.attach(MARKET, watched);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
     holdPoll = true;
     pollGate = new Promise<void>((_resolve, reject) => {
       rejectPoll = reject;
@@ -699,7 +702,7 @@ describe('NativeL3Hub', () => {
     source.queue = recovered;
     const next = new RecordingSink();
     hub.attach(MARKET, next);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
     const callsAfterRefetch = l3Calls;
 
     rejectPoll(new DepthNoBookError(MARKET));
@@ -707,7 +710,7 @@ describe('NativeL3Hub', () => {
 
     const peer = new RecordingSink();
     hub.attach(MARKET, peer);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
 
     expect(l3Calls).toBe(callsAfterRefetch);
     expect(peer.frames.map((frame) => JSON.parse(frame))).toEqual([
@@ -752,14 +755,14 @@ describe('NativeL3Hub', () => {
 
     const first = new RecordingSink();
     const leave = hub.attach(MARKET, first);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
     gate = new Promise<void>((_resolve, reject) => {
       rejectPoll = reject;
     });
     const poll = hub.tick();
     const second = new RecordingSink();
     hub.attach(MARKET, second);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
     leave!();
     rejectPoll(new DepthL3UnavailableError(MARKET));
     await poll;
@@ -808,7 +811,7 @@ describe('NativeL3Hub', () => {
     });
     const watched = new RecordingSink();
     const leave = hub.attach(MARKET, watched);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
     expect(l3Calls).toBe(1);
     leave!();
 
@@ -828,9 +831,9 @@ describe('NativeL3Hub', () => {
     hub.attach(MARKET, next);
 
     rejectPoll(new DepthL3UnavailableError(MARKET));
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
     releaseKnown();
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
 
     expect(JSON.parse(next.frames.at(-1)!)).toEqual({
       type: 'snapshot',
@@ -876,7 +879,7 @@ describe('NativeL3Hub', () => {
     });
     const watched = new RecordingSink();
     const leave = hub.attach(MARKET, watched);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
     expect(l3Calls).toBe(1);
     leave!();
 
@@ -890,7 +893,7 @@ describe('NativeL3Hub', () => {
     const callsAtLeave = l3Calls;
     const next = new RecordingSink();
     hub.attach(MARKET, next);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
 
     expect(l3Calls).toBeGreaterThan(callsAtLeave);
     expect(JSON.parse(next.frames.at(-1)!)).toEqual({
@@ -903,7 +906,7 @@ describe('NativeL3Hub', () => {
     });
     const callsAfterRefetch = l3Calls;
     rejectPoll(new Error('matching engine down'));
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
 
     expect(l3Calls).toBe(callsAfterRefetch);
     expect(JSON.parse(next.frames.at(-1)!)).toEqual({
@@ -949,7 +952,7 @@ describe('NativeL3Hub', () => {
     });
     const watched = new RecordingSink();
     const leave = hub.attach(MARKET, watched);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
     expect(l3Calls).toBe(1);
     leave!();
 
@@ -962,15 +965,15 @@ describe('NativeL3Hub', () => {
     source.queue = recovered;
     const next = new RecordingSink();
     hub.attach(MARKET, next);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
     const callsAfterRefetch = l3Calls;
 
     rejectPoll(new DepthNoBookError(MARKET));
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
 
     const peer = new RecordingSink();
     hub.attach(MARKET, peer);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
 
     expect(l3Calls).toBe(callsAfterRefetch);
     expect(peer.frames.map((frame) => JSON.parse(frame))).toEqual([
@@ -1023,13 +1026,13 @@ describe('NativeL3Hub', () => {
     });
     const first = new RecordingSink();
     const leave = hub.attach(MARKET, first);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
     const second = new RecordingSink();
     hub.attach(MARKET, second);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
     leave!();
     rejectPoll(new DepthL3UnavailableError(MARKET));
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
 
     expect(JSON.parse(second.frames.at(-1)!)).toEqual({
       type: 'status',
@@ -1074,7 +1077,7 @@ describe('NativeL3Hub', () => {
 
     const watched = new RecordingSink();
     const leave = hub.attach(MARKET, watched);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
     holdPoll = true;
     pollGate = new Promise<void>((resolve) => {
       releasePoll = resolve;
@@ -1098,7 +1101,7 @@ describe('NativeL3Hub', () => {
     releasePoll();
     await poll;
     releaseKnown();
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
 
     expect(l3Calls).toBeGreaterThan(callsBeforeOpen);
     expect(next.frames.map((frame) => JSON.parse(frame))).toEqual([
@@ -1143,7 +1146,7 @@ describe('NativeL3Hub', () => {
 
     const watched = new RecordingSink();
     const leave = hub.attach(MARKET, watched);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
     source.queue = { level: 'L3', marketId: MARKET, bids: [], asks: [] };
     holdPoll = true;
     pollGate = new Promise<void>((resolve) => {
@@ -1160,14 +1163,14 @@ describe('NativeL3Hub', () => {
     };
     const next = new RecordingSink();
     hub.attach(MARKET, next);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
     const callsAfterRefetch = l3Calls;
     releasePoll();
     await poll;
 
     const peer = new RecordingSink();
     hub.attach(MARKET, peer);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
 
     expect(l3Calls).toBe(callsAfterRefetch);
     expect(JSON.parse(next.frames.at(-1)!)).toEqual({
@@ -1222,7 +1225,7 @@ describe('NativeL3Hub', () => {
 
     const watched = new RecordingSink();
     const leave = hub.attach(MARKET, watched);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
     holdPoll = true;
     pollGate = new Promise<void>((resolve) => {
       releasePoll = resolve;
@@ -1238,14 +1241,14 @@ describe('NativeL3Hub', () => {
     };
     const next = new RecordingSink();
     hub.attach(MARKET, next);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
     const callsAfterRefetch = l3Calls;
     releasePoll();
     await poll;
 
     const peer = new RecordingSink();
     hub.attach(MARKET, peer);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
 
     expect(l3Calls).toBe(callsAfterRefetch);
     expect(JSON.parse(next.frames.at(-1)!)).toEqual({
@@ -1304,7 +1307,7 @@ describe('NativeL3Hub', () => {
     });
     const watched = new RecordingSink();
     const leave = hub.attach(MARKET, watched);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
     expect(l3Calls).toBe(1);
     leave!();
 
@@ -1316,14 +1319,14 @@ describe('NativeL3Hub', () => {
     };
     const next = new RecordingSink();
     hub.attach(MARKET, next);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
     const callsAfterRefetch = l3Calls;
     releasePoll();
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
 
     const peer = new RecordingSink();
     hub.attach(MARKET, peer);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
 
     expect(l3Calls).toBe(callsAfterRefetch);
     expect(JSON.parse(next.frames.at(-1)!)).toEqual({
@@ -1383,7 +1386,7 @@ describe('NativeL3Hub', () => {
     });
     const watched = new RecordingSink();
     const leave = hub.attach(MARKET, watched);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
     expect(l3Calls).toBe(1);
     leave!();
 
@@ -1395,14 +1398,14 @@ describe('NativeL3Hub', () => {
     };
     const next = new RecordingSink();
     hub.attach(MARKET, next);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
     const callsAfterRefetch = l3Calls;
     releasePoll();
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
 
     const peer = new RecordingSink();
     hub.attach(MARKET, peer);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
 
     expect(l3Calls).toBe(callsAfterRefetch);
     expect(JSON.parse(next.frames.at(-1)!)).toEqual({
@@ -1453,7 +1456,7 @@ describe('NativeL3Hub', () => {
 
     const watched = new RecordingSink();
     const leave = hub.attach(MARKET, watched);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
     leave!();
     source.queue = {
       level: 'L3',
@@ -1471,7 +1474,7 @@ describe('NativeL3Hub', () => {
     hub.attach(MARKET, first);
     hub.attach(MARKET, second);
     releaseKnown();
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
 
     const current = {
       type: 'snapshot',
@@ -1501,7 +1504,7 @@ describe('NativeL3Hub', () => {
     });
     const live = new RecordingSink();
     hub.attach(MARKET, live);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
     source.queue = { level: 'L3', marketId: MARKET, bids: [], asks: [] };
     await hub.tick();
 
@@ -1541,7 +1544,7 @@ describe('NativeL3Hub', () => {
     });
     const sink = new RecordingSink();
     hub.attach(MARKET, sink);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
     const held = JSON.parse(sink.frames[0]!) as { asks: Array<{ price: string; orders: Array<{ remaining: string }> }> };
     expect(held.asks[0]!.price).toBe('100');
     expect(held.asks[0]!.orders[0]!.remaining).toBe('1');
@@ -1581,7 +1584,7 @@ describe('NativeL3Hub', () => {
     });
     const sink = new RecordingSink();
     hub.attach(MARKET, sink);
-    await new Promise((r) => setTimeout(r, 0));
+    await drainQueued();
     expect(JSON.parse(sink.frames[0]!).asks[0]).toMatchObject({ price: '100', orders: [{ remaining: '1' }] });
 
     const quiet: NativeL3Queue = {

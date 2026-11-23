@@ -112,6 +112,12 @@ export const DESK_ROOMS: readonly DeskRoom[] = [
     job: 'Our users’ orders routed to each venue: volume and our builder fees as each venue reports them; house exposure none.',
   },
   {
+    id: 'builder-account',
+    href: '/trade-ops/builder-account',
+    label: 'Builder account',
+    job: 'Our builder address’s account mode at each venue beside the mode required for builder fees; its alerts.',
+  },
+  {
     id: 'adapters',
     href: '/trade-ops/adapters',
     label: 'FIX and SBE',

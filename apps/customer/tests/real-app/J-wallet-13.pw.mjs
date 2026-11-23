@@ -232,6 +232,24 @@ test(`${J} #1 Presses Freeze on Safe: at once every session ends, every agent pe
     .poll(async () => (await subRecord(s, '/open-orders')).length, { timeout: 10_000, message: 'the run left an order open on the venue' })
     .toBe(0);
   expect((await openPositions(s)).map((x) => x.size)).toEqual([BLOCK]);
+  // svc-trade cancels the run's orders on the venue first and records the stop and the revoke after (a cancel the venue
+  // refuses must leave the run active), so the record is read within the same window, not at the instant the venue
+  // shows no order; the revoke's own time below still holds it to "at once".
+  // The revoke is recorded before its log line, so the wait covers the log too.
+  await expect
+    .poll(
+      async () => {
+        const run = body200(await fresh.get(`${LIVE}/${s.runId}`));
+        return { state: run.state, endReason: run.endReason, permission: run.permission, logged: run.log.map((e) => e.kind) };
+      },
+      { timeout: 10_000, message: 'the run was not stopped by the freeze' },
+    )
+    .toMatchObject({
+      state: 'stopped',
+      endReason: 'account_frozen',
+      permission: 'revoked',
+      logged: expect.arrayContaining(['stopped', 'permission_revoked']),
+    });
   const after = body200(await fresh.get(`${LIVE}/${s.runId}`));
   expect(after).toMatchObject({ state: 'stopped', endReason: 'account_frozen', permission: 'revoked' });
   expect(after.log.map((e) => e.kind)).toEqual(expect.arrayContaining(['stopped', 'permission_revoked']));
@@ -417,6 +435,12 @@ test(`${J} #4 Asks to unfreeze before the wait is over, then after it: refused w
   );
   expect(again.state).toBe('signing');
   expect(again.next?.prepared?.typedData, 'a new run asks the wallet for a new signature').toBeTruthy();
+  // The TEST venue's own record agrees: the new run's agent holds no permission on the sub-account until the wallet
+  // signs it, and no agent has traded there since the freeze of #1, through the lift.
+  expect(again.agentAddress, 'the new run names its agent').toMatch(/^0x[0-9a-f]{40}$/i);
+  expect((await subRecord(s, '/agents')).map((a) => a.address.toLowerCase())).not.toContain(again.agentAddress.toLowerCase());
+  expect(await subRecord(s, '/open-orders')).toEqual([]);
+  expect(await subRecord(s, '/fills', { since: new Date(s.frozenAt).toISOString() })).toEqual([]);
   // The own agent's permission stays revoked until the person allows it again, which now works.
   expect((await consentsOf(s.who, s.agentId)).map((c) => c.state)).toEqual(['withdrawn']);
   body200(await session.post('/api/agents/trpc/own.consents.grant', { id: s.agentId, dataClass: 'own_data' }));

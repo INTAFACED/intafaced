@@ -1,10 +1,8 @@
 import 'server-only';
-import type { ExecuteReply } from '@/lib/desk/approval-types';
-import { founderCall, type FounderCallContext } from '@/lib/desk/founder-call';
-import { explainRefusal } from '@/lib/desk/refusal-copy';
+import { type ExecuteReply, explainRefusal, failureRefusal, type FounderCallContext, founderRecordRead } from '@/lib/desk';
 import type { EscalateRequest } from './direct-model';
-import { failureRefusal } from './execute';
 import { isRecord } from '@intafaced/contracts/guards';
+import { P2P_DISPUTES_ESCALATE } from '@intafaced/contracts/p2p-disputes-procedures';
 
 /** Run a one-operator desk action as the signed-in founder. The service checks the permission and the moderator list itself. */
 
@@ -21,11 +19,9 @@ export function readEscalateAnswer(raw: unknown): EscalateAnswer | null {
 }
 
 export async function runDirect(ctx: FounderCallContext, request: EscalateRequest): Promise<ExecuteReply> {
-  const result = await founderCall(
+  const result = await founderRecordRead(
     ctx,
-    'p2p',
-    'disputes.escalate',
-    'POST',
+    P2P_DISPUTES_ESCALATE,
     { disputeId: request.disputeId, reason: request.reason, clientRequestId: request.clientRequestId },
     readEscalateAnswer,
   );

@@ -1,0 +1,51 @@
+{
+  "verdicts": [
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[],\"message\":\"Invalid input: expected object, received undefined\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[],\"message\":\"Invalid input: expected object, received null\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[],\"message\":\"Invalid input: expected object, received number\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[],\"message\":\"Invalid input: expected object, received string\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[],\"message\":\"Invalid input: expected object, received array\"}]",
+    "issues [{\"expected\":\"array\",\"code\":\"invalid_type\",\"path\":[\"orders\"],\"message\":\"Invalid input: expected array, received undefined\"}]",
+    "ok =",
+    "ok {\"orders\":[{\"orderId\":\"cccccccc-cccc-4ccc-8ccc-cccccccccccc\",\"marketId\":\"BTC-USDT\",\"state\":\"open\",\"remaining\":\"2\",\"funded\":true}]}",
+    "issues [{\"code\":\"invalid_value\",\"values\":[\"pending\",\"open\",\"terminal\"],\"path\":[\"orders\",0,\"state\"],\"message\":\"Invalid option: expected one of \\\"pending\\\"|\\\"open\\\"|\\\"terminal\\\"\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"invalid_format\",\"format\":\"regex\",\"pattern\":\"/^\\\\d+(\\\\.\\\\d{1,18})?$/\",\"path\":[\"orders\",0,\"remaining\"],\"message\":\"amounts are positive decimal strings with at most 18 decimal places\"},{\"origin\":\"string\",\"code\":\"too_big\",\"maximum\":256,\"inclusive\":true,\"path\":[\"orders\",0,\"detail\"],\"message\":\"Too big: expected string to have <=256 characters\"}]",
+    "issues [{\"expected\":\"array\",\"code\":\"invalid_type\",\"path\":[\"orders\"],\"message\":\"Invalid input: expected array, received null\"}]",
+    "issues [{\"expected\":\"array\",\"code\":\"invalid_type\",\"path\":[\"orders\"],\"message\":\"Invalid input: expected array, received number\"}]",
+    "issues [{\"expected\":\"array\",\"code\":\"invalid_type\",\"path\":[\"orders\"],\"message\":\"Invalid input: expected array, received boolean\"}]",
+    "issues [{\"expected\":\"array\",\"code\":\"invalid_type\",\"path\":[\"orders\"],\"message\":\"Invalid input: expected array, received string\"}]",
+    "issues [{\"expected\":\"array\",\"code\":\"invalid_type\",\"path\":[\"orders\"],\"message\":\"Invalid input: expected array, received object\"}]"
+  ],
+  "cases": [
+    [null, 0],
+    ["null", 1],
+    ["7", 2],
+    ["\"x\"", 3],
+    ["[]", 4],
+    ["{}", 5],
+    [
+      "{\"orders\":[{\"orderId\":\"cccccccc-cccc-4ccc-8ccc-cccccccccccc\",\"marketId\":\"BTC-USDT\",\"state\":\"open\",\"remaining\":\"2\",\"funded\":true}]}",
+      6
+    ],
+    [
+      "{\"orders\":[{\"orderId\":\"cccccccc-cccc-4ccc-8ccc-cccccccccccc\",\"marketId\":\"BTC-USDT\",\"state\":\"open\",\"remaining\":\"2\",\"funded\":true}],\"extra\":1}",
+      7
+    ],
+    ["{\"orders\":[{\"orderId\":\"x\",\"marketId\":\"m\",\"state\":\"gone\",\"remaining\":\"1\",\"funded\":true}]}", 8],
+    [
+      "{\"orders\":[{\"orderId\":\"x\",\"marketId\":\"m\",\"state\":\"open\",\"remaining\":\"-1\",\"funded\":true,\"detail\":\"ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\"}]}",
+      9
+    ],
+    ["{}", 5],
+    ["{\"orders\":null}", 10],
+    ["{\"orders\":7}", 11],
+    ["{\"orders\":true}", 12],
+    ["{\"orders\":\"\"}", 13],
+    [
+      "{\"orders\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+      13
+    ],
+    ["{\"orders\":[]}", 6],
+    ["{\"orders\":{}}", 14]
+  ]
+}

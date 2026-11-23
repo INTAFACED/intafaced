@@ -1,7 +1,7 @@
 import 'server-only';
 import { adminBffSession } from '@/lib/admin-bff-gate';
 import { moduleDisabledResponse } from '@/lib/modules';
-import { loadRead } from '@/lib/ops-desk/server';
+import { loadRead } from '@/lib/ops-desk';
 import { accountSearchSpec, searchCursor, searchTerm } from './search';
 
 const NO_STORE = { 'cache-control': 'no-store' } as const;

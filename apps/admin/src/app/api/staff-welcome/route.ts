@@ -6,8 +6,9 @@ import {
   adminSessionConfig,
   adminSessionErrorResponse,
   assertAdminOrigin,
-  founderEdgeCall,
+  founderEdgeRecordCall,
 } from '@/lib/founder-session';
+import { IDENTITY_STAFF_ACCEPT_INVITE } from '@intafaced/contracts/identity-staff-procedures';
 
 /**
  * A staff member's first connection (J-ops-console-09 #2). Public: the one-time token from the invite mail is the only
@@ -35,7 +36,7 @@ export async function POST(request: Request) {
       throw new AdminSessionError('admin.request_invalid', 400);
     // This browser's console device key, trusted as at sign-up (the cookie is set here when it had none).
     const device = adminDeviceKey(request.headers.get('cookie'));
-    const raw = await founderEdgeCall(config, 'identity', 'staff.acceptInvite', 'POST', {
+    const raw = await founderEdgeRecordCall(config, IDENTITY_STAFF_ACCEPT_INVITE, {
       token: input.token,
       password: input.password,
       deviceKey: device.key,

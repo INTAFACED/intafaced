@@ -104,12 +104,22 @@ describe('business bank team and approval rules (J-bank-19)', () => {
     partner = testPartner();
     inviteMinutes = '2';
     postingFreeze = { postingEnabled: async () => true };
+    built = undefined;
   });
+
+  // The bank's router is built once a test, as the server builds it once at start-up, and again only when the test
+  // changes the freeze it stands on. Built for every caller it cost 70 to 300 ms, and the tests that make many callers
+  // ran out the 30 s budget on a loaded runner.
+  let built: { freeze: typeof postingFreeze; router: ReturnType<typeof createBankRouter> } | undefined;
+  function bankRouter() {
+    if (!built || built.freeze !== postingFreeze) built = { freeze: postingFreeze, router: createBankRouter(services()) };
+    return built.router;
+  }
 
   function as(userId: string) {
     const raw = encodePrincipal(principal(userId));
     const edge = createEdgeContext({ secret: SECRET, serviceName: 'svc-bank' });
-    return createBankRouter(services()).createCaller(
+    return bankRouter().createCaller(
       edge({
         headers: {
           'x-intafaced-principal': raw,
@@ -426,6 +436,25 @@ describe('business bank team and approval rules (J-bank-19)', () => {
     expect(await owner.businessTeam.payments({ accountId })).toEqual([]);
   });
 
+  it('the same payment proposed eight times at once is recorded once, and every call gets it, never a 23505 (#8893)', async () => {
+    const { accountId, owner } = await business();
+    await join(accountId, owner, A1, { role: 'checker' });
+    await owner.businessTeam.addRule({ accountId, ruleId: randomUUID(), overAmount: '1000', payee: null, paymentType: null, approvals: 1 });
+    for (let round = 0; round < 30; round += 1) {
+      const paymentId = randomUUID();
+      const input = { accountId, paymentId, payee: 'TEST Supplier', paymentType: 'domestic' as const, amount: '1500' };
+      const settled = await Promise.allSettled(Array.from({ length: 8 }, () => as(OWNER).businessTeam.propose(input)));
+      const failed = settled.filter((s): s is PromiseRejectedResult => s.status === 'rejected');
+      expect(failed.map((f) => `${(f.reason as Error)?.message} ${JSON.stringify((f.reason as { cause?: unknown }).cause)}`)).toEqual([]);
+      for (const s of settled) {
+        expect((s as PromiseFulfilledResult<{ id: string; status: string }>).value).toMatchObject({ id: paymentId, status: 'pending' });
+      }
+      const rows = await sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM bank.business_payments WHERE id = ${paymentId}::uuid`;
+      expect(rows[0]!.n).toBe(1);
+    }
+    expect(ledger.journal()).toEqual([]);
+  });
+
   it('a payment sent at once whose partner answer is lost, pressed again with the same id, moves once', async () => {
     const { accountId, owner } = await business();
     const paymentId = randomUUID();
@@ -523,5 +552,35 @@ describe('business bank team and approval rules (J-bank-19)', () => {
     const self = await as(A1).businessTeam.spend({ accountId });
     expect(self).toMatchObject({ scope: 'self', departments: [] });
     expect(self.members.map((m) => m.handle)).toEqual(['approver1']);
+  });
+
+  it('concurrent adds of one department id are one department, and every call gets it; another id with the same name is refused by name (#8894)', async () => {
+    const { accountId, owner } = await business();
+    for (let round = 0; round < 25; round++) {
+      const departmentId = randomUUID();
+      const name = `TEST Dept ${round}`;
+      const results = await Promise.allSettled(
+        Array.from({ length: 8 }, () => owner.businessTeam.addDepartment({ accountId, departmentId, name, budget: '100' })),
+      );
+      const failures = results.flatMap((r) => (r.status === 'rejected' ? [codeOf(r.reason) ?? String(r.reason)] : []));
+      expect(failures, `round ${round}`).toEqual([]);
+      for (const r of results) expect(r.status === 'fulfilled' && r.value).toEqual({ id: departmentId, name, budget: '100' });
+    }
+    const rows = await sql`SELECT count(*)::int AS n FROM bank.business_departments WHERE account_id = ${accountId}::uuid`;
+    expect(rows[0]!.n).toBe(25);
+
+    // Different ids racing for one name: exactly one is made, every other is refused by name, never an internal error.
+    const racing = await Promise.allSettled(
+      Array.from({ length: 8 }, () =>
+        owner.businessTeam.addDepartment({ accountId, departmentId: randomUUID(), name: 'TEST Ops', budget: null }),
+      ),
+    );
+    expect(racing.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect(racing.flatMap((r) => (r.status === 'rejected' ? [codeOf(r.reason)] : []))).toEqual(
+      Array(7).fill('bank.business_role_name_taken'),
+    );
+    expect(await refused(owner.businessTeam.addDepartment({ accountId, departmentId: randomUUID(), name: 'test ops', budget: null }))).toBe(
+      'bank.business_role_name_taken',
+    );
   });
 });

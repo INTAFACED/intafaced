@@ -642,7 +642,9 @@ export function doctorChecks({ claim, status, plan, launch, stack }) {
   const ports = slotPorts(claim.slot).stack;
   add(true, 'stack', `slot ${claim.slot}, this checkout's, Customer at http://127.0.0.1:${ports.customer}`);
   const rows = parseHealth(status.text);
-  const bad = rows.filter((r) => !/^(ok|absent)\b/.test(r.health) && r.name !== 'market-maker');
+  // The stack's own verdict (local-test-stack.mjs): "absent" (left out on purpose) and "off" (a TEST adapter the start
+  // left off, such as a venue LOCAL_STACK_USER_VENUE doesn't ask for) don't fail; a wanted one that is DOWN does.
+  const bad = rows.filter((r) => !/^(ok|absent|off)\b/.test(r.health) && r.name !== 'market-maker');
   // The table's own exit also fails on a stale market maker, which the next check names apart.
   add(
     rows.length > 0 && bad.length === 0,

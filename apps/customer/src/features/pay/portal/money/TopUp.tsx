@@ -1,5 +1,5 @@
 import { useId, useState } from 'react';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import { useResource, type Resource } from '../../../../shared/resource';
 import { Field } from '../../ui-kit';
 import { PaySection } from '../../components';
@@ -51,8 +51,8 @@ export function TopUpView({ resource: r, retry }: { resource: Resource<unknown>;
             onChange={(e) => setAmount(e.target.value)}
             disabled={off}
           />
-          <div className="pp-actions">
-            <Button type="submit" variant="primary" disabled={off} aria-describedby={why ? whyId : undefined}>
+          <div className="lt-actions">
+            <Button type="submit" tone="primary" disabled={off} aria-describedby={why ? whyId : undefined}>
               {t('tuRequest')}
             </Button>
           </div>

@@ -20,7 +20,8 @@ import {
   TEST_TIER,
 } from '../control/control.testkit.js';
 import { createPayNamespaces } from '../namespaces/index.js';
-import { readMerchantReserve, RESERVE_HOLDING } from './reserve-read.js';
+import { RESERVE_HOLDING } from '@intafaced/contracts';
+import { readMerchantReserve } from './reserve-read.js';
 
 /**
  * M-money-out-01 reserve read. Every amount here is a TEST VALUE.

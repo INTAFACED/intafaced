@@ -125,13 +125,13 @@ const BIG_PNG = Buffer.concat([PNG, Buffer.alloc(120_000 - PNG.length)]);
 /** The owner makes a fixed-amount link from the form and reads its checkout address from the receipt. */
 async function makeLink(page, label, amount, asset) {
   await page.goto('/pay/links/new');
-  await page.getByLabel('Link label *').fill(label);
+  await page.getByLabel('Link label *', { exact: true }).fill(label);
   await page.getByLabel('Fixed amount', { exact: true }).fill(amount);
   await page.getByRole('combobox', { name: /^Asset/ }).selectOption(asset);
-  await page.getByRole('button', { name: 'Create link' }).click();
+  await page.getByRole('button', { name: 'Create link', exact: true }).click();
   await page.getByRole('dialog').locator('[data-testid="form-stack"] > button').last().click();
-  await expect(page.getByRole('heading', { name: 'Your link is ready' })).toBeVisible();
-  return page.getByTestId('link-address').getByRole('link', { name: 'Open the link' }).getAttribute('href');
+  await expect(page.getByRole('heading', { name: 'Your link is ready', exact: true })).toBeVisible();
+  return page.getByTestId('link-address').getByRole('link', { name: 'Open the link', exact: true }).getAttribute('href');
 }
 
 /** A tRPC reply's data, single or batched. */
@@ -176,35 +176,38 @@ test(`${J} #1 the owner sets up hosted checkout once: defaults with Save, an ove
   const refused = refusedPayCalls(page);
   const look = page
     .locator('section[data-testid="pay-section"]')
-    .filter({ has: page.getByRole('heading', { name: 'How your checkout looks' }) });
+    .filter({ has: page.getByRole('heading', { name: /How your checkout looks/i }) });
   // Not configured: the default look, with Save.
   await expect(look.getByTestId('checkout-look-state')).toHaveText(/You are using the default look/);
-  await expect(look.getByLabel('Brand colour *')).toHaveValue('#1a5fd0');
-  await expect(look.getByRole('button', { name: 'Save look' })).toBeEnabled();
-  await expect(look.getByText('PNG, JPEG or WebP, up to 100 KB.')).toBeVisible();
+  await expect(look.getByLabel('Brand colour *', { exact: true })).toHaveValue('#1a5fd0');
+  await expect(look.getByRole('button', { name: 'Save look', exact: true })).toBeEnabled();
+  await expect(look.getByText('PNG, JPEG or WebP, up to 100 KB.', { exact: true })).toBeVisible();
 
   // A logo over the published size is refused with the limits, and nothing is sent.
-  await look.getByLabel('Logo').setInputFiles({ name: 'big-logo.png', mimeType: 'image/png', buffer: BIG_PNG });
+  await look.getByLabel('Logo', { exact: true }).setInputFiles({ name: 'big-logo.png', mimeType: 'image/png', buffer: BIG_PNG });
   await expect(look.getByRole('alert')).toHaveText('This logo is 120 KB. A logo can be up to 100 KB, as PNG, JPEG or WebP.');
-  await expect(look.getByRole('img', { name: 'Your logo' })).toHaveCount(0);
+  await expect(look.getByRole('img', { name: /Your logo/i })).toHaveCount(0);
 
   // A valid logo and colour show in the preview, then are saved.
-  await look.getByLabel('Logo').setInputFiles({ name: 'logo.png', mimeType: 'image/png', buffer: PNG });
-  await look.getByLabel('Brand colour *').fill('#FF6600');
-  const preview = look.getByRole('figure', { name: 'Checkout preview' });
-  await expect(preview.getByRole('img', { name: 'Your logo' })).toBeVisible();
+  await look.getByLabel('Logo', { exact: true }).setInputFiles({ name: 'logo.png', mimeType: 'image/png', buffer: PNG });
+  await look.getByLabel('Brand colour *', { exact: true }).fill('#FF6600');
+  const preview = look.getByRole('figure', { name: 'Checkout preview', exact: true });
+  await expect(preview.getByRole('img', { name: 'Your logo', exact: true })).toBeVisible();
   await expect(preview.getByTestId('checkout-look-button')).toHaveCSS('background-color', 'rgb(255, 102, 0)');
   const savedLook = page.waitForResponse((r) => r.url().includes('merchantCheckout.branding.save') && r.request().method() === 'POST');
-  await look.getByRole('button', { name: 'Save look' }).click();
+  await look.getByRole('button', { name: 'Save look', exact: true }).click();
   expect((await savedLook).status()).toBe(200);
-  await expect(look.getByText('Saved. Your payment links now show this look.')).toBeVisible();
+  await expect(look.getByText('Saved. Your payment links now show this look.', { exact: true })).toBeVisible();
   await expect(look.getByTestId('checkout-look-state')).toHaveText(/Last saved:/);
-  await expect(look.getByLabel('Brand colour *')).toHaveValue('#ff6600');
-  await expect(preview.getByRole('img', { name: 'Your logo' })).toBeVisible();
+  await expect(look.getByLabel('Brand colour *', { exact: true })).toHaveValue('#ff6600');
+  await expect(preview.getByRole('img', { name: 'Your logo', exact: true })).toBeVisible();
   // Saved means kept: a fresh read shows it.
   await page.reload();
   await expect(look.getByTestId('checkout-look-state')).toHaveText(/Last saved:/);
-  await expect(preview.getByRole('img', { name: 'Your logo' })).toHaveAttribute('src', `data:image/png;base64,${PNG.toString('base64')}`);
+  await expect(preview.getByRole('img', { name: 'Your logo', exact: true })).toHaveAttribute(
+    'src',
+    `data:image/png;base64,${PNG.toString('base64')}`,
+  );
   expect(refused).toEqual([]);
 
   // Where crypto payments go: no wallet is set, so the checkout says it cannot take crypto. A private key is refused and
@@ -214,26 +217,26 @@ test(`${J} #1 the owner sets up hosted checkout once: defaults with Save, an ove
   const { master, account } = wallet(seed);
   const walletSection = page
     .locator('section[data-testid="pay-section"]')
-    .filter({ has: page.getByRole('heading', { name: 'Where crypto payments go' }) });
+    .filter({ has: page.getByRole('heading', { name: 'Where crypto payments go', exact: true }) });
   const walletState = walletSection.getByTestId('receiving-wallet-state');
   await expect(walletState).toHaveText('No wallet is set, so your checkout cannot take crypto. Add your wallet’s public key below.');
-  await walletSection.getByLabel('Wallet public key (xpub) *').fill(account.privateExtendedKey);
+  await walletSection.getByLabel('Wallet public key (xpub) *', { exact: true }).fill(account.privateExtendedKey);
   const refusedSave = page.waitForResponse((r) => r.url().includes('merchantReceivingWallet.save') && r.request().method() === 'POST');
-  await walletSection.getByRole('button', { name: 'Save wallet' }).click();
+  await walletSection.getByRole('button', { name: 'Save wallet', exact: true }).click();
   expect((await refusedSave).status()).toBe(400);
   await expect(walletSection.getByRole('alert')).toHaveText(
     'That is a private key. Never share it. Paste your wallet’s public key, which starts xpub, instead.',
   );
   await expect(walletState).toHaveText(/^No wallet is set/);
-  await walletSection.getByLabel('Wallet public key (xpub) *').fill(account.publicExtendedKey);
+  await walletSection.getByLabel('Wallet public key (xpub) *', { exact: true }).fill(account.publicExtendedKey);
   const savedWallet = page.waitForResponse((r) => r.url().includes('merchantReceivingWallet.save') && r.request().method() === 'POST');
-  await walletSection.getByRole('button', { name: 'Save wallet' }).click();
+  await walletSection.getByRole('button', { name: 'Save wallet', exact: true }).click();
   expect((await savedWallet).status()).toBe(200);
-  await expect(walletSection.getByText('Saved. Your next crypto payment goes to this wallet.')).toBeVisible();
+  await expect(walletSection.getByText('Saved. Your next crypto payment goes to this wallet.', { exact: true })).toBeVisible();
   await expect(walletSection.getByTestId('receiving-wallet-first-address')).toHaveText(hdKeyToAccount(master, { addressIndex: 0 }).address);
   await page.reload();
   await expect(walletState).toHaveText(/Last saved:/);
-  await expect(walletSection.getByLabel('Wallet public key (xpub) *')).toHaveValue(account.publicExtendedKey);
+  await expect(walletSection.getByLabel('Wallet public key (xpub) *', { exact: true })).toHaveValue(account.publicExtendedKey);
   expect(refused).toEqual(['400 merchantReceivingWallet.save']);
 
   // The payer page of a link shows the logo and the colour, to someone with no INTAFACED session.
@@ -244,8 +247,8 @@ test(`${J} #1 the owner sets up hosted checkout once: defaults with Save, an ove
   try {
     const payerPage = await payer.newPage();
     await payerPage.goto(address);
-    await expect(payerPage.getByRole('heading', { name: 'TEST Hoodie' })).toBeVisible();
-    await expect(payerPage.getByRole('img', { name: 'Merchant logo' })).toHaveAttribute(
+    await expect(payerPage.getByRole('heading', { name: 'TEST Hoodie', exact: true })).toBeVisible();
+    await expect(payerPage.getByRole('img', { name: 'Merchant logo', exact: true })).toHaveAttribute(
       'src',
       `data:image/png;base64,${PNG.toString('base64')}`,
     );
@@ -264,38 +267,38 @@ test(`${J} #2 the owner makes a link from a product's price: the receipt shows t
   const refused = refusedPayCalls(page);
 
   // A product with a one-time TEST 25 USDC price.
-  await page.getByLabel('Type *').selectOption({ label: 'Physical good' });
-  await page.getByLabel('Name *').fill('TEST Tote bag');
-  await page.getByRole('button', { name: 'Save product' }).click();
+  await page.getByLabel(/^Type \*/).selectOption({ label: 'Physical good' });
+  await page.getByLabel('Name *', { exact: true }).fill('TEST Tote bag');
+  await page.getByRole('button', { name: 'Save product', exact: true }).click();
   await expect(page).toHaveURL(/\/pay\/products\/[0-9a-f-]{36}$/);
-  await page.getByRole('button', { name: 'Add price' }).click();
-  await page.getByLabel('Billing *').selectOption({ label: 'One time' });
-  await page.getByLabel('Amount *').fill('25');
-  await page.getByLabel('Asset *').fill('USDC');
-  await page.getByRole('button', { name: 'Save price' }).click();
+  await page.getByRole('button', { name: 'Add price', exact: true }).click();
+  await page.getByLabel(/^Billing \*/).selectOption({ label: 'One time' });
+  await page.getByLabel('Amount *', { exact: true }).fill('25');
+  await page.getByLabel('Asset *', { exact: true }).fill('USDC');
+  await page.getByRole('button', { name: 'Save price', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Price added.' })).toBeVisible();
 
   // The picker reads the product and its price, and the price sets the amount and asset.
   await page.goto('/pay/links/new');
   const picker = page.getByRole('combobox', { name: /^Product and price/ });
   await picker.selectOption({ label: 'TEST Tote bag · 25.00 USDC' });
-  await expect(page.getByLabel('Link label *')).toHaveValue('TEST Tote bag');
+  await expect(page.getByLabel('Link label *', { exact: true })).toHaveValue('TEST Tote bag');
   await expect(page.getByLabel('Fixed amount', { exact: true })).toHaveValue(/^25(\.0+)?$/);
   await expect(page.getByLabel('Fixed amount', { exact: true })).toBeDisabled();
   await expect(page.getByRole('combobox', { name: /^Asset/ })).toHaveValue('USDC');
   await expect(page.getByRole('combobox', { name: /^Asset/ })).toBeDisabled();
-  await page.getByLabel('Maximum completed payments').fill('3');
+  await page.getByLabel('Maximum completed payments', { exact: true }).fill('3');
 
   // Create, reviewed, then confirmed with a double press: one request body, one key.
   const creates = [];
   page.on('request', (request) => {
     if (request.url().includes('merchant.createLink') && request.method() === 'POST') creates.push(request);
   });
-  await page.getByRole('button', { name: 'Create link' }).click();
+  await page.getByRole('button', { name: 'Create link', exact: true }).click();
   const review = page.getByRole('dialog');
   await expect(review).toContainText('TEST Tote bag · 25.00 USDC');
   const answered = page.waitForResponse((r) => r.url().includes('merchant.createLink') && r.request().method() === 'POST');
-  await review.getByRole('button', { name: 'Create link' }).dblclick();
+  await review.getByRole('button', { name: 'Create link', exact: true }).dblclick();
   // The service's own link: its id, its expiry and the checkout address it stored or the token it gave.
   const made = dataOf(await (await answered).json());
   expect(made.id).toMatch(/^[0-9a-f-]{36}$/);
@@ -303,9 +306,9 @@ test(`${J} #2 the owner makes a link from a product's price: the receipt shows t
   // The receipt is the innermost section under its heading (the form's own section holds it).
   const receipt = page
     .getByTestId('pay-section')
-    .filter({ has: page.getByRole('heading', { name: 'Your link is ready', level: 2 }) })
+    .filter({ has: page.getByRole('heading', { name: 'Your link is ready', level: 2, exact: true }) })
     .last();
-  await expect(page.getByRole('heading', { name: 'Your link is ready' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Your link is ready', exact: true })).toBeVisible();
   // The receipt shows the link address, the service's own, once: one address block, one link to open it.
   const shownAddress = await page.evaluate((link) => {
     if (link.checkoutUrl && /^https?:\/\//i.test(link.checkoutUrl)) return link.checkoutUrl;
@@ -315,7 +318,7 @@ test(`${J} #2 the owner makes a link from a product's price: the receipt shows t
   expect(shownAddress).toMatch(/\/api\/pay\/checkout\?token=pl_/);
   const address = receipt.getByTestId('link-address');
   await expect(page.getByTestId('link-address')).toHaveCount(1);
-  await expect(address.getByRole('link', { name: 'Open the link' })).toHaveAttribute('href', shownAddress);
+  await expect(address.getByRole('link', { name: 'Open the link', exact: true })).toHaveAttribute('href', shownAddress);
   await expect(address).toContainText(shownAddress);
   const linkId = (await page.getByTestId('pp-facts').getByTestId('pp-mono').first().textContent())?.trim();
   expect(linkId).toBe(made.id);
@@ -348,8 +351,8 @@ test(`${J} #2 the owner makes a link from a product's price: the receipt shows t
   run.write({ owner: saved(journey().owner), toteLinkId: linkId });
 
   // Hiding the address closes the receipt; the address is not shown on the new-link page again.
-  await receipt.getByRole('button', { name: 'Hide address' }).click();
-  await expect(page.getByRole('heading', { name: 'Your link is ready' })).toHaveCount(0);
+  await receipt.getByRole('button', { name: 'Hide address', exact: true }).click();
+  await expect(page.getByRole('heading', { name: /Your link is ready/i })).toHaveCount(0);
   await expect(page.getByTestId('link-address')).toHaveCount(0);
   await expect(page.getByText(shownAddress)).toHaveCount(0);
 
@@ -374,7 +377,7 @@ test(`${J} #2 the owner makes a link from a product's price: the receipt shows t
   await expect(rows.first()).toContainText('0 of 3');
   await expiryIs(rows.first().locator('time'), listed.expiresAt);
   await expect(page.getByTestId('link-address')).toHaveCount(0);
-  await expect(page.getByRole('link', { name: 'Open the link' })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: /Open the link/i })).toHaveCount(0);
   await expect(page.getByText(shownAddress)).toHaveCount(0);
   const token = new URL(shownAddress).searchParams.get('token');
   await expect(page.locator('main')).not.toContainText(token);
@@ -399,43 +402,46 @@ test(`${J} #3 the owner copies the full address, the QR and the payment button; 
 
   // Copy puts the full address on the clipboard: the same one Open the link goes to, with this site's host.
   const address = page.getByTestId('link-address');
-  const href = await address.getByRole('link', { name: 'Open the link' }).getAttribute('href');
+  const href = await address.getByRole('link', { name: 'Open the link', exact: true }).getAttribute('href');
   expect(href).toMatch(/^https?:\/\/[^/]+\/api\/pay\/checkout\?token=pl_/);
-  await address.getByRole('button', { name: 'Copy link address' }).click();
+  await address.getByRole('button', { name: 'Copy link address', exact: true }).click();
   await expect(address.getByRole('status').filter({ hasText: 'Copied' })).toBeVisible();
   expect(await clipboard()).toBe(href);
   // The QR code, read as a camera reads it, is that same full address.
-  const qr = address.getByRole('img', { name: 'QR code for the link address' });
+  const qr = address.getByRole('img', { name: 'QR code for the link address', exact: true });
   await expect(qr).toBeVisible();
   expect(await scanQr(qr), 'the drawn QR code scans to the link address').toBe(href);
 
   // The payment button's code carries the same full address and the link's label.
   const button = page
     .locator('section[data-testid="pay-section"]')
-    .filter({ has: page.getByRole('heading', { name: 'Payment button for your website' }) });
-  await button.getByRole('button', { name: 'Copy button code' }).click();
+    .filter({ has: page.getByRole('heading', { name: 'Payment button for your website', exact: true }) });
+  await button.getByRole('button', { name: 'Copy button code', exact: true }).click();
   const code = await clipboard();
   expect(code).toContain(`href="${href}"`);
   expect(code).toContain('>TEST Tote bag</a>');
 
   // An after-payment page that is not https is refused before anything is sent; an https one is kept.
   await page.goto('/pay/links/new');
-  await page.getByLabel('Link label *').fill('TEST Pop-up stall');
+  await page.getByLabel('Link label *', { exact: true }).fill('TEST Pop-up stall');
   await page.getByLabel('Fixed amount', { exact: true }).fill('10');
   await page.getByRole('combobox', { name: /^Asset/ }).selectOption('USDT');
   await page.getByRole('combobox', { name: /^What the customer sees after paying/ }).selectOption({ label: 'Your own web page' });
-  const pageAddress = page.getByLabel('Page address *');
+  const pageAddress = page.getByLabel('Page address *', { exact: true });
   await pageAddress.fill('http://shop.example/thanks');
   await expect(page.getByText('Use an address that starts with https://.', { exact: false })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Create link' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Create link', exact: true })).toBeDisabled();
   await pageAddress.fill('https://shop.example/thanks');
   const stallCreate = page.waitForRequest((request) => request.url().includes('merchant.createLink') && request.method() === 'POST');
-  await page.getByRole('button', { name: 'Create link' }).click();
+  await page.getByRole('button', { name: 'Create link', exact: true }).click();
   const review = page.getByRole('dialog');
   await expect(review).toContainText('Your own web page: https://shop.example/thanks');
-  await review.getByRole('button', { name: 'Create link' }).click();
-  await expect(page.getByRole('heading', { name: 'Your link is ready' })).toBeVisible();
-  const stallAddress = await page.getByTestId('link-address').getByRole('link', { name: 'Open the link' }).getAttribute('href');
+  await review.getByRole('button', { name: 'Create link', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Your link is ready', exact: true })).toBeVisible();
+  const stallAddress = await page
+    .getByTestId('link-address')
+    .getByRole('link', { name: 'Open the link', exact: true })
+    .getAttribute('href');
   const stallId = (await page.getByTestId('pp-facts').getByTestId('pp-mono').first().textContent())?.trim();
   const stallSent = await stallCreate;
 
@@ -467,13 +473,13 @@ test(`${J} #3 the owner copies the full address, the QR and the payment button; 
   // Turned off with a message: the link's page and a customer opening it both show it.
   await page.goto(`/pay/links/${stallId}`);
   await expect(page.locator('dl[data-testid="pp-facts"]')).toContainText('Your own web page: https://shop.example/thanks');
-  await page.getByLabel('Message for customers').fill('TEST Sold out until Monday');
-  await page.getByRole('button', { name: 'Deactivate link' }).click();
+  await page.getByLabel('Message for customers', { exact: true }).fill('TEST Sold out until Monday');
+  await page.getByRole('button', { name: 'Deactivate link', exact: true }).click();
   const off = page.getByRole('dialog');
   await expect(off).toContainText('TEST Sold out until Monday');
-  await off.getByRole('button', { name: 'Deactivate link' }).click();
+  await off.getByRole('button', { name: 'Deactivate link', exact: true }).click();
   await expect(page.locator('dl[data-testid="pp-facts"]')).toContainText('TEST Sold out until Monday');
-  await expect(page.getByText('Deactivated').first()).toBeVisible();
+  await expect(page.getByText('Deactivated', { exact: true }).first()).toBeVisible();
   // The one refusal is the plain-http create above; the owner's own calls were all accepted.
   expect(refused).toEqual(['400 merchant.createLink']);
 
@@ -481,7 +487,7 @@ test(`${J} #3 the owner copies the full address, the QR and the payment button; 
   try {
     const payerPage = await payer.newPage();
     await payerPage.goto(stallAddress);
-    await expect(payerPage.getByText('TEST Sold out until Monday').first()).toBeVisible();
+    await expect(payerPage.getByText('TEST Sold out until Monday', { exact: true }).first()).toBeVisible();
     await expect(payerPage.getByRole('button', { name: /continue/i })).toHaveCount(0);
   } finally {
     await payer.close();
@@ -490,10 +496,10 @@ test(`${J} #3 the owner copies the full address, the QR and the payment button; 
 
 /** The payer's hosted page (no INTAFACED session): the session page's acceptance reference, after Continue. */
 async function payerContinues(payerPage, country = 'DE') {
-  await payerPage.getByLabel('Country').fill(country);
+  await payerPage.getByLabel('Country', { exact: true }).fill(country);
   await payerPage.getByRole('button', { name: /continue/i }).click();
   await expect(payerPage.getByRole('heading', { level: 1 })).toBeVisible();
-  await expect(payerPage.getByText('Send exactly this amount to')).toBeVisible();
+  await expect(payerPage.getByText('Send exactly this amount to', { exact: true })).toBeVisible();
   return (await payerPage.locator('.reference code').textContent())?.trim();
 }
 
@@ -506,19 +512,22 @@ test(`${J} #4 the payer opens the link: the fixed amount and asset before confir
   if (!state.toteLinkId) throw new Error(`${J} #2 made no link, so this step has none for the payer to open`);
   await signInOwner(page, state, `/pay/links/${state.toteLinkId}`);
   const refused = refusedPayCalls(page);
-  const toteAddress = await page.getByTestId('link-address').getByRole('link', { name: 'Open the link' }).getAttribute('href');
+  const toteAddress = await page.getByTestId('link-address').getByRole('link', { name: 'Open the link', exact: true }).getAttribute('href');
 
   // A link for one payment of TEST 5 USDT, and the create request it sent (replayed below for a short-lived link).
   await page.goto('/pay/links/new');
-  await page.getByLabel('Link label *').fill('TEST Single print');
+  await page.getByLabel('Link label *', { exact: true }).fill('TEST Single print');
   await page.getByLabel('Fixed amount', { exact: true }).fill('5');
   await page.getByRole('combobox', { name: /^Asset/ }).selectOption('USDT');
-  await page.getByLabel('Maximum completed payments').fill('1');
+  await page.getByLabel('Maximum completed payments', { exact: true }).fill('1');
   const created = page.waitForRequest((request) => request.url().includes('merchant.createLink') && request.method() === 'POST');
-  await page.getByRole('button', { name: 'Create link' }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Create link' }).click();
-  await expect(page.getByRole('heading', { name: 'Your link is ready' })).toBeVisible();
-  const printAddress = await page.getByTestId('link-address').getByRole('link', { name: 'Open the link' }).getAttribute('href');
+  await page.getByRole('button', { name: 'Create link', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Create link', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Your link is ready', exact: true })).toBeVisible();
+  const printAddress = await page
+    .getByTestId('link-address')
+    .getByRole('link', { name: 'Open the link', exact: true })
+    .getAttribute('href');
   const sent = await created;
 
   // A link that expires 20 seconds from now: the same request with its own key and an expiry the form does not offer.
@@ -549,30 +558,30 @@ test(`${J} #4 the payer opens the link: the fixed amount and asset before confir
 
   // A link with no amount: the payer names it.
   await page.goto('/pay/links/new');
-  await page.getByLabel('Link label *').fill('TEST Tip jar');
+  await page.getByLabel('Link label *', { exact: true }).fill('TEST Tip jar');
   await page.getByRole('combobox', { name: /^Asset/ }).selectOption('USDT');
-  await page.getByRole('button', { name: 'Create link' }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Create link' }).click();
-  await expect(page.getByRole('heading', { name: 'Your link is ready' })).toBeVisible();
-  const tipAddress = await page.getByTestId('link-address').getByRole('link', { name: 'Open the link' }).getAttribute('href');
+  await page.getByRole('button', { name: 'Create link', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Create link', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Your link is ready', exact: true })).toBeVisible();
+  const tipAddress = await page.getByTestId('link-address').getByRole('link', { name: 'Open the link', exact: true }).getAttribute('href');
 
   // A link the owner turned off: created with a fixed amount, then deactivated on its own page.
   await page.goto('/pay/links/new');
-  await page.getByLabel('Link label *').fill('TEST Retired print');
+  await page.getByLabel('Link label *', { exact: true }).fill('TEST Retired print');
   await page.getByLabel('Fixed amount', { exact: true }).fill('7');
   await page.getByRole('combobox', { name: /^Asset/ }).selectOption('USDT');
-  await page.getByRole('button', { name: 'Create link' }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Create link' }).click();
-  await expect(page.getByRole('heading', { name: 'Your link is ready' })).toBeVisible();
-  const offAddress = await page.getByTestId('link-address').getByRole('link', { name: 'Open the link' }).getAttribute('href');
+  await page.getByRole('button', { name: 'Create link', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Create link', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Your link is ready', exact: true })).toBeVisible();
+  const offAddress = await page.getByTestId('link-address').getByRole('link', { name: 'Open the link', exact: true }).getAttribute('href');
   const offId = (await page.getByTestId('pp-facts').getByTestId('pp-mono').first().textContent())?.trim();
   expect(offId, 'the new link has an id').toBeTruthy();
   await page.goto(`/pay/links/${offId}`);
-  await page.getByLabel('Message for customers').fill('TEST This print is retired');
-  await page.getByRole('button', { name: 'Deactivate link' }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Deactivate link' }).click();
+  await page.getByLabel('Message for customers', { exact: true }).fill('TEST This print is retired');
+  await page.getByRole('button', { name: 'Deactivate link', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Deactivate link', exact: true }).click();
   await expect(page.locator('dl[data-testid="pp-facts"]')).toContainText('TEST This print is retired');
-  await expect(page.getByText('Deactivated').first()).toBeVisible();
+  await expect(page.getByText('Deactivated', { exact: true }).first()).toBeVisible();
   expect(refused).toEqual([]);
 
   const payer = await browser.newContext();
@@ -581,9 +590,9 @@ test(`${J} #4 the payer opens the link: the fixed amount and asset before confir
 
     // The fixed amount and asset show before the payer confirms anything; Continue opens the payment's own reference.
     await payerPage.goto(toteAddress);
-    await expect(payerPage.getByRole('heading', { name: 'TEST Tote bag' })).toBeVisible();
+    await expect(payerPage.getByRole('heading', { name: 'TEST Tote bag', exact: true })).toBeVisible();
     await expect(payerPage.locator('.amount')).toHaveText('25.00 USDC');
-    await expect(payerPage.getByLabel('Amount')).toHaveCount(0);
+    await expect(payerPage.getByLabel(/Amount/i)).toHaveCount(0);
     const toteReference = await payerContinues(payerPage);
     // The address is one of the business's own wallet, which only the business can spend from.
     expect(ownWalletIndex(toteReference)).toBeGreaterThanOrEqual(0);
@@ -597,20 +606,20 @@ test(`${J} #4 the payer opens the link: the fixed amount and asset before confir
     tool('local-test-stack.mjs', 'chain-deposit', printReference, 'USDT', '5', '12', '--tx', `j-merchant-04-print-${Date.now()}`);
     await expect(async () => {
       await payerPage.goto(sessionUrl);
-      await expect(payerPage.getByText('Payment received')).toBeVisible({ timeout: 2_000 });
+      await expect(payerPage.getByText('Payment received', { exact: true })).toBeVisible({ timeout: 2_000 });
     }).toPass({ timeout: 60_000 });
     // Paid to the business's own wallet: our ledger booked only our fee on it, once.
     expect(ownWalletIndex(printReference)).toBeGreaterThanOrEqual(0);
     expectOnlyOurFee(printReference, '5', 'USDT', 'merchant');
     await payerPage.goto(printAddress);
-    await expect(payerPage.getByRole('heading', { name: 'Link already used' })).toBeVisible();
+    await expect(payerPage.getByRole('heading', { name: 'Link already used', exact: true })).toBeVisible();
     await expect(payerPage.getByRole('button', { name: /continue/i })).toHaveCount(0);
 
     // Past its expiry the link opens a plain state and no payment form.
     await payerPage.goto(flashAddress);
     await expect(async () => {
       await payerPage.goto(flashAddress);
-      await expect(payerPage.getByRole('heading', { name: 'Link expired' })).toBeVisible({ timeout: 2_000 });
+      await expect(payerPage.getByRole('heading', { name: 'Link expired', exact: true })).toBeVisible({ timeout: 2_000 });
     }).toPass({ timeout: 60_000 });
     await expect(payerPage.getByRole('button', { name: /continue/i })).toHaveCount(0);
 
@@ -647,7 +656,7 @@ async function outsideRow(page, asset, where) {
   await page.goto('/pay/money');
   const section = page.getByTestId('outside-funds');
   await expect(
-    section.getByText('No payment has reached your own wallet or the partner yet.').or(section.getByRole('table')),
+    section.getByText('No payment has reached your own wallet or the partner yet.', { exact: true }).or(section.getByRole('table')),
   ).toBeVisible();
   const rows = section.getByRole('row').filter({ hasText: asset }).filter({ hasText: where });
   if ((await rows.count()) === 0) return null;
@@ -694,7 +703,7 @@ test(`${J} #5 the payer pays in two transfers: TEST 60 of TEST 100 received and 
       await payerPage.goto(sessionUrl);
       await expect(payerPage.getByRole('status')).toHaveText('60.00 USDT of 100.00 USDT received, 40.00 USDT missing', { timeout: 2_000 });
     }).toPass({ timeout: 60_000 });
-    await expect(payerPage.getByText('Send the missing 40.00 USDT to the same reference')).toBeVisible();
+    await expect(payerPage.getByText('Send the missing 40.00 USDT to the same reference', { exact: true })).toBeVisible();
     await expect(payerPage.locator('.reference code')).toHaveText(reference);
     // Not paid, and nothing booked: the business sees the 60 in its own wallet as the chain reports it, with its time.
     expect(ledgerPosts(reference)).toEqual([]);
@@ -713,14 +722,14 @@ test(`${J} #5 the payer pays in two transfers: TEST 60 of TEST 100 received and 
       expect(figure(row.Clearing)).toBe(was.clearing + 40);
     }).toPass({ timeout: 60_000 });
     expect(figure(row.Available)).toBe(was.available + 60);
-    await expect(payerPage.getByText('Payment received')).toHaveCount(0);
+    await expect(payerPage.getByText(/Payment received/i)).toHaveCount(0);
     expect(ledgerPosts(reference)).toEqual([]);
 
     // The same transfer, now final, completes the payment once.
     tool('local-test-stack.mjs', 'chain-deposit', reference, 'USDT', '40', '12', '--tx', second);
     await expect(async () => {
       await payerPage.goto(sessionUrl);
-      await expect(payerPage.getByText('Payment received')).toBeVisible({ timeout: 2_000 });
+      await expect(payerPage.getByText('Payment received', { exact: true })).toBeVisible({ timeout: 2_000 });
     }).toPass({ timeout: 60_000 });
     await expect(payerPage.locator('.amount')).toHaveText('100.00 USDT');
     // Available in the business's own wallet, as the chain reports it; our ledger booked only our fee on it.
@@ -732,7 +741,7 @@ test(`${J} #5 the payer pays in two transfers: TEST 60 of TEST 100 received and 
     // Once: delivering the second transfer again books nothing more and counts nothing twice.
     tool('local-test-stack.mjs', 'chain-deposit', reference, 'USDT', '40', '12', '--tx', second);
     await payerPage.goto(sessionUrl);
-    await expect(payerPage.getByText('Payment received')).toBeVisible();
+    await expect(payerPage.getByText('Payment received', { exact: true })).toBeVisible();
     expectOnlyOurFee(reference, '100', 'USDT', 'merchant');
     expect(figure((await outsideRow(page, 'USDT', OWN)).Available)).toBe(was.available + 100);
   } finally {
@@ -754,15 +763,15 @@ async function payerSendsByBank(payerPage, address, amount, currency, name) {
   await payerPage.goto(address);
   await expect(payerPage.locator('.amount')).toHaveText('Choose an amount');
   await payerPage.getByLabel(/Amount/).fill(amount);
-  await payerPage.getByLabel('Currency').fill(currency);
-  await payerPage.getByLabel('Country').fill('DE');
+  await payerPage.getByLabel('Currency', { exact: true }).fill(currency);
+  await payerPage.getByLabel('Country', { exact: true }).fill('DE');
   await payerPage.getByRole('button', { name: /continue/i }).click();
   // A bank transfer is checked against the name on the account it comes from, so the page asks for it.
   await expect(payerPage.getByRole('alert')).toHaveText('Give the name on the bank account you will send the transfer from.');
-  await payerPage.getByLabel('Name on your bank account').fill(name);
+  await payerPage.getByLabel('Name on your bank account', { exact: true }).fill(name);
   await payerPage.getByRole('button', { name: /continue/i }).click();
   await expect(payerPage.getByText('Pay by bank transfer', { exact: true })).toBeVisible();
-  await expect(payerPage.getByText('TEST bank: no real bank account receives this transfer.')).toBeVisible();
+  await expect(payerPage.getByText('TEST bank: no real bank account receives this transfer.', { exact: true })).toBeVisible();
   const reference = (await payerPage.locator('.reference code').textContent())?.trim();
   expect(reference).toMatch(/^BT[0-9A-F]{12}$/);
   return reference;
@@ -779,12 +788,12 @@ test(`${J} #6 the payer pays by bank from an account in another name: the transf
 
   // A link with no amount or asset: the payer names both, here TEST 30 EUR, which only the TEST bank takes.
   const label = `TEST Bank invoice ${Date.now().toString(36)}`;
-  await page.getByLabel('Link label *').fill(label);
+  await page.getByLabel('Link label *', { exact: true }).fill(label);
   await page.getByRole('combobox', { name: /^Asset/ }).selectOption('');
-  await page.getByRole('button', { name: 'Create link' }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Create link' }).click();
-  await expect(page.getByRole('heading', { name: 'Your link is ready' })).toBeVisible();
-  const address = await page.getByTestId('link-address').getByRole('link', { name: 'Open the link' }).getAttribute('href');
+  await page.getByRole('button', { name: 'Create link', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Create link', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Your link is ready', exact: true })).toBeVisible();
+  const address = await page.getByTestId('link-address').getByRole('link', { name: 'Open the link', exact: true }).getAttribute('href');
   expect(refused).toEqual([]);
   // This business has never been paid in EUR.
   const PARTNER = 'With the payment partner';
@@ -798,14 +807,14 @@ test(`${J} #6 the payer pays by bank from an account in another name: the transf
     // The payer says the transfer comes from Ada Lovelace; the TEST bank reports it from "A LOVELACE".
     const reference = await payerSendsByBank(payerPage, address, '30', 'EUR', 'Ada Lovelace');
     const sessionUrl = payerPage.url();
-    await expect(payerPage.getByText('Waiting for your transfer')).toBeVisible();
+    await expect(payerPage.getByText(/^Waiting for your transfer/)).toBeVisible();
     tool('local-test-stack.mjs', 'bank-transfer', reference, 'EUR', '30', '--tx', `j-merchant-04-name-${run}`, '--payer', 'A LOVELACE');
     await expect(async () => {
       await payerPage.goto(sessionUrl);
       await expect(payerPage.getByRole('status')).toHaveText('Your bank transfer arrived and is held for a check', { timeout: 2_000 });
     }).toPass({ timeout: 60_000 });
-    await expect(payerPage.getByText('Being checked')).toBeVisible();
-    await expect(payerPage.getByText('Payment received')).toHaveCount(0);
+    await expect(payerPage.getByText('Being checked', { exact: true })).toBeVisible();
+    await expect(payerPage.getByText(/Payment received/i)).toHaveCount(0);
 
     // Delivered again, the same transfer is still one held transfer: nothing is counted for the business, nothing booked.
     tool('local-test-stack.mjs', 'bank-transfer', reference, 'EUR', '30', '--tx', `j-merchant-04-name-${run}`, '--payer', 'A LOVELACE');
@@ -819,7 +828,7 @@ test(`${J} #6 the payer pays by bank from an account in another name: the transf
     await expect(page.getByTestId('payment-name-hold')).toHaveText(
       'Held for a name check. The bank transfer came from an account in another name than the one your customer gave. Nothing has been taken or added to your balance while it is checked.',
     );
-    await expect(page.getByText('Bank transfer held for a name check').first()).toBeVisible();
+    await expect(page.getByText('Bank transfer held for a name check', { exact: true }).first()).toBeVisible();
 
     // The contrast: the same TEST bank and amount, from the name the payer gave, completes once: the partner holds it for
     // the business, which sees it as the partner reports it, and our ledger books only our fee, owed by the partner.
@@ -828,7 +837,7 @@ test(`${J} #6 the payer pays by bank from an account in another name: the transf
     tool('local-test-stack.mjs', 'bank-transfer', matching, 'EUR', '30', '--tx', `j-merchant-04-match-${run}`, '--payer', 'GRACE  HOPPER');
     await expect(async () => {
       await payerPage.goto(matchingUrl);
-      await expect(payerPage.getByText('Payment received')).toBeVisible({ timeout: 2_000 });
+      await expect(payerPage.getByText('Payment received', { exact: true })).toBeVisible({ timeout: 2_000 });
     }).toPass({ timeout: 60_000 });
     await expect(async () => {
       const row = await outsideRow(page, 'EUR', PARTNER);
@@ -850,13 +859,13 @@ test(`${J} #7 the payer is offered only the methods for the country and currency
   const state = journey();
   await signInOwner(page, state, '/pay/checkout');
   const refused = refusedPayCalls(page);
-  const methods = page.getByRole('list', { name: 'Payment methods' });
+  const methods = page.getByRole('list', { name: /Payment methods/i });
   const method = (id) => methods.locator(`li[data-method="${id}"]`);
 
   // What the platform can take: crypto and the TEST bank's transfers are available; card, bank debit and pay later each
   // name the piece they need.
-  await expect(method('crypto').getByText('Available')).toBeVisible();
-  await expect(method('bank_transfer').getByText('Available')).toBeVisible();
+  await expect(method('crypto').getByText('Available', { exact: true })).toBeVisible();
+  await expect(method('bank_transfer').getByText('Available', { exact: true })).toBeVisible();
   await expect(method('bank_debit').locator('[data-not-connected="rail.bank"]')).toContainText('Bank debit needs a banking partner.');
   await expect(method('card').locator('[data-not-connected="rail.card"]')).toBeVisible();
   await expect(method('pay_later').locator('[data-not-connected="rail.card"]')).toBeVisible();
@@ -864,12 +873,12 @@ test(`${J} #7 the payer is offered only the methods for the country and currency
   // The owner puts bank debit first and turns it on, and keeps crypto on.
   // (A rerun on the same business finds it saved already.)
   for (let moves = 0; moves < 3 && (await methods.locator(':scope > li').first().getAttribute('data-method')) !== 'bank_debit'; moves++) {
-    await page.getByRole('button', { name: 'Move Bank debit up' }).click();
+    await page.getByRole('button', { name: 'Move Bank debit up', exact: true }).click();
   }
-  await page.getByRole('checkbox', { name: 'Offer Bank debit' }).check();
-  await expect(page.getByRole('checkbox', { name: 'Offer Crypto' })).toBeChecked();
-  await page.getByRole('button', { name: 'Save methods' }).click();
-  await expect(page.getByText('Saved. Your checkout now offers these methods in this order.')).toBeVisible();
+  await page.getByRole('checkbox', { name: 'Offer Bank debit', exact: true }).check();
+  await expect(page.getByRole('checkbox', { name: 'Offer Crypto', exact: true })).toBeChecked();
+  await page.getByRole('button', { name: 'Save methods', exact: true }).click();
+  await expect(page.getByText('Saved. Your checkout now offers these methods in this order.', { exact: true })).toBeVisible();
   await page.reload();
   await expect(page.getByTestId('checkout-methods-state')).toContainText('Last saved:');
   expect(await methods.locator(':scope > li').evaluateAll((items) => items.map((li) => li.dataset.method))).toEqual([
@@ -882,8 +891,8 @@ test(`${J} #7 the payer is offered only the methods for the country and currency
 
   // A customer in Germany paying in EUR is offered bank debit, which names rail.bank, then bank transfer, and not crypto.
   const preview = async (country, currency) => {
-    await page.getByLabel('Country').fill(country);
-    await page.getByLabel('Currency').fill(currency);
+    await page.getByLabel('Country', { exact: true }).fill(country);
+    await page.getByLabel('Currency', { exact: true }).fill(currency);
     const answered = page.waitForResponse((response) => response.url().includes('merchantCheckoutMethods.preview'));
     await page.getByRole('button', { name: 'Check', exact: true }).click();
     await answered;
@@ -907,12 +916,12 @@ test(`${J} #7 the payer is offered only the methods for the country and currency
   // payer who arrives naming card (as a shop's own Pay-by-card button would post it) is sent back to the page's list of
   // the methods this business offers for that payment, in its order.
   await page.goto('/pay/links/new');
-  await page.getByLabel('Link label *').fill(`TEST Poster ${Date.now().toString(36)}`);
+  await page.getByLabel('Link label *', { exact: true }).fill(`TEST Poster ${Date.now().toString(36)}`);
   await page.getByRole('combobox', { name: /^Asset/ }).selectOption('');
-  await page.getByRole('button', { name: 'Create link' }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Create link' }).click();
-  await expect(page.getByRole('heading', { name: 'Your link is ready' })).toBeVisible();
-  const address = await page.getByTestId('link-address').getByRole('link', { name: 'Open the link' }).getAttribute('href');
+  await page.getByRole('button', { name: 'Create link', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Create link', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Your link is ready', exact: true })).toBeVisible();
+  const address = await page.getByTestId('link-address').getByRole('link', { name: 'Open the link', exact: true }).getAttribute('href');
   expect(refused).toEqual([]);
   const payer = await browser.newContext();
   try {
@@ -930,11 +939,11 @@ test(`${J} #7 the payer is offered only the methods for the country and currency
         }, named);
       }
       await payerPage.getByLabel(/Amount/).fill(amount);
-      await payerPage.getByLabel('Currency').fill(currency);
-      await payerPage.getByLabel('Country').fill('DE');
+      await payerPage.getByLabel('Currency', { exact: true }).fill(currency);
+      await payerPage.getByLabel('Country', { exact: true }).fill('DE');
       await payerPage.getByRole('button', { name: /continue/i }).click();
     };
-    const howToPay = payerPage.getByRole('group', { name: 'How to pay' });
+    const howToPay = payerPage.getByRole('group', { name: /How to pay/i });
     const listed = () => howToPay.getByRole('radio').evaluateAll((radios) => radios.map((r) => r.value));
 
     // In Germany in EUR the page lists bank debit first, which cannot be picked and names rail.bank, then bank transfer,
@@ -942,12 +951,12 @@ test(`${J} #7 the payer is offered only the methods for the country and currency
     await offeredTo('12', 'EUR', 'card');
     await expect(payerPage.getByRole('alert')).toHaveText('Choose one of the ways to pay listed here.');
     expect(await listed()).toEqual(['bank_debit', 'bank_transfer']);
-    await expect(howToPay.getByRole('radio', { name: 'Bank debit' })).toBeDisabled();
+    await expect(howToPay.getByRole('radio', { name: 'Bank debit', exact: true })).toBeDisabled();
     await expect(howToPay.locator('[data-not-connected="rail.bank"]')).toHaveText(
       'Bank debit needs a banking partner. It is switched off here. rail.bank',
     );
-    await expect(howToPay.getByRole('radio', { name: 'Bank transfer' })).toBeChecked();
-    await expect(payerPage.getByText('Send exactly this amount to')).toHaveCount(0);
+    await expect(howToPay.getByRole('radio', { name: 'Bank transfer', exact: true })).toBeChecked();
+    await expect(payerPage.getByText(/Send exactly this amount to/i)).toHaveCount(0);
     // Naming nothing, the same payer goes on with the one method that can take it: bank transfer asks for the name.
     await offeredTo('12', 'EUR');
     await expect(payerPage.getByRole('alert')).toHaveText('Give the name on the bank account you will send the transfer from.');
@@ -958,18 +967,18 @@ test(`${J} #7 the payer is offered only the methods for the country and currency
     await offeredTo('7', 'USDT', 'card');
     await expect(payerPage.getByRole('alert')).toHaveText('Choose one of the ways to pay listed here.');
     expect(await listed()).toEqual(['crypto']);
-    await expect(howToPay.getByRole('radio', { name: 'Crypto' })).toBeChecked();
+    await expect(howToPay.getByRole('radio', { name: 'Crypto', exact: true })).toBeChecked();
     await expect(howToPay.locator('[data-not-connected]')).toHaveCount(0);
     await payerPage.getByRole('button', { name: /continue/i }).click();
-    await expect(payerPage.getByText('Send exactly this amount to')).toBeVisible();
+    await expect(payerPage.getByText('Send exactly this amount to', { exact: true })).toBeVisible();
     const reference = (await payerPage.locator('.reference code').textContent())?.trim();
     expect(ownWalletIndex(reference)).toBeGreaterThanOrEqual(0);
     const sessionUrl = payerPage.url();
-    await expect(payerPage.getByText('Payment received')).toHaveCount(0);
+    await expect(payerPage.getByText(/Payment received/i)).toHaveCount(0);
     tool('local-test-stack.mjs', 'chain-deposit', reference, 'USDT', '7', '12', '--tx', `j-merchant-04-methods-${Date.now()}`);
     await expect(async () => {
       await payerPage.goto(sessionUrl);
-      await expect(payerPage.getByText('Payment received')).toBeVisible({ timeout: 2_000 });
+      await expect(payerPage.getByText('Payment received', { exact: true })).toBeVisible({ timeout: 2_000 });
     }).toPass({ timeout: 60_000 });
     expectOnlyOurFee(reference, '7', 'USDT', 'merchant');
   } finally {

@@ -7,7 +7,7 @@
  * owner value on the status page row: blank means the kinds alone, and svc-notify then refuses any category.
  */
 import { NOTICE_CATEGORIES_MAX, NOTICE_CATEGORY_ID, STATUS_PAGE_REASON_MAX, type NoticeCategory } from '@intafaced/contracts/status-page';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 import type { PublishApproval } from './incidents-model';
 import { isRecord } from '@intafaced/contracts/guards';
 

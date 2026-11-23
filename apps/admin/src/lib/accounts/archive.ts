@@ -1,12 +1,16 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
 import { accountArchiveResultSchema, type AccountArchiveResult } from '@intafaced/contracts';
-import type { DeskRequest } from '@/lib/desk/approval-packet';
-import type { ExecuteFn } from '@/lib/desk/approval-steps';
-import type { ExecuteReply } from '@/lib/desk/approval-types';
-import { founderCall, parseWith, type FounderCallContext } from '@/lib/desk/founder-call';
-import { failureRefusal } from '@/lib/ops-desk/execute';
-import { explainRefusal } from '@/lib/desk/refusal-copy';
+import {
+  type DeskRequest,
+  type ExecuteFn,
+  type ExecuteReply,
+  explainRefusal,
+  failureRefusal,
+  founderCall,
+  type FounderCallContext,
+  parseWith,
+} from '@/lib/desk';
 
 /**
  * Run an approved archive of one closed customer record (J-ops-console-04 #10) against identity, as the signed-in founder.

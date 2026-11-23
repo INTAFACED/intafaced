@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { storedText } from '@intafaced/db/testing';
 import { describe, expect, it, beforeAll, afterAll } from 'vitest';
@@ -201,7 +201,7 @@ describe('customer card procedures (PG-hard)', () => {
       // name ending in `_test`. intafaced_test is the same server and role.
       db = await createTestDatabase({ service: 'bank', url: testAdminUrl(envUrl), migrations: MIGRATIONS });
     } else {
-      const container = await new PostgreSqlContainer('postgres:16-alpine')
+      const container = await testPostgres('postgres:16-alpine')
         .withDatabase('intafaced_h8a_test')
         .withUsername('intafaced')
         .withPassword('intafaced')
@@ -781,6 +781,46 @@ describe('customer card procedures (PG-hard)', () => {
     expect((await user.cards.walletTokens({ cardId })).tokens).toHaveLength(1);
     const rows = JSON.stringify(await sql`SELECT * FROM bank.card_wallet_tokens`);
     expect(rows).not.toContain(first.payload);
+  });
+
+  it('a phone-wallet add sent twice at once with one provision id is one token and no error (#8895)', async () => {
+    await testSecretsSim(3);
+    // A retry that overlaps the first call repeats its provision id. Both pass the audit and insert the same token row at
+    // once. Postgres absorbs a clash only on the key ON CONFLICT names, so the loser must not raise a unique violation on
+    // the token's id. The calls reach the insert at different times, so this holds each call's real insert until all of a
+    // round's calls are there, then sends them together on separate connections.
+    const ROUND = 8;
+    let waiting: Array<() => void> = [];
+    const together = new Proxy(sql, {
+      apply(target, thisArg, args: [TemplateStringsArray, ...unknown[]]) {
+        if (!args[0].join('?').includes('INSERT INTO bank.card_wallet_tokens')) return Reflect.apply(target, thisArg, args);
+        return new Promise<void>((release) => {
+          waiting.push(release);
+          if (waiting.length === ROUND) {
+            for (const go of waiting) go();
+            waiting = [];
+          }
+        }).then(() => Reflect.apply(target, thisArg, args));
+      },
+    });
+    const partner = { ...NOTHING_REPORTED, secrets: 'test' as const };
+    const cards = new CardService(together, new MemoryLedger(), {
+      issuer: cardIssuerFor('card-sim', { live: false }, partner),
+      clock: () => NOW,
+    });
+    for (let round = 0; round < 30; round += 1) {
+      const cardId = randomUUID();
+      await cards.issue({ cardId, userId: HOLDER, assetId: 'USDT', perAuthorizationLimit: amt('100') });
+      const provisionId = randomUUID();
+      const settled = await Promise.allSettled(
+        Array.from({ length: ROUND }, () =>
+          cards.walletProvision({ cardId, userId: HOLDER, provisionId, wallet: 'apple', nonce: 'device-race' }),
+        ),
+      );
+      expect(settled.flatMap((s) => (s.status === 'rejected' ? [String(s.reason)] : []))).toEqual([]);
+      const tokens = await sql<Array<{ id: string }>>`SELECT id FROM bank.card_wallet_tokens WHERE card_id = ${cardId}`;
+      expect(tokens.map((t) => t.id)).toEqual([provisionId]);
+    }
   });
 
   it('a card partner that does not add cards to phone wallets reads "not offered by the partner" and refuses, adding nothing (J-bank-13 #8)', async () => {

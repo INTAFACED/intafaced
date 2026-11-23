@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
-import { Button, Field, Panel } from '../../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { Field, Panel } from '../volt/parts';
 import { usePreferences } from '../../../shared/preferences';
-import { useApi } from '../../session/session';
+import { useApi } from '../../session';
 import { createProtocolApi, type RepresentationStatus } from '../api';
 import { isRegionBlocked, useRegionBlocked } from '../region';
 import { RepresentationPanel } from './RepresentationPanel';
@@ -99,7 +100,7 @@ export function PermitForm() {
   if (regionBlocked)
     return (
       <Panel title={t('permitTitle')}>
-        <p className="muted" data-permit-refused="region">
+        <p className="lt-hint" data-permit-refused="region">
           {t('permitRefused_region')}
         </p>
       </Panel>
@@ -121,8 +122,8 @@ export function PermitForm() {
         />
       )}
       <Panel title={t('permitTitle')}>
-        <p className="muted">{t('permitNote')}</p>
-        {!ready && <p className="muted">{t('needsWallet')}</p>}
+        <p className="lt-hint">{t('permitNote')}</p>
+        {!ready && <p className="lt-hint">{t('needsWallet')}</p>}
         <form
           data-form="permit"
           onSubmit={(event) => {
@@ -134,7 +135,7 @@ export function PermitForm() {
           <Field label={t('permitSpender')} hint={t('permitSpenderHint')} value={spender} onChange={edit(setSpender)} />
           <Field label={t('permitAmount')} inputMode="decimal" value={amount} onChange={edit(setAmount)} />
           <Field label={t('permitMinutes')} inputMode="numeric" value={minutes} onChange={edit(setMinutes)} />
-          <Button type="submit" disabled={!ready || outcome.kind === 'reading' || outcome.kind === 'representation'}>
+          <Button tone="primary" type="submit" disabled={!ready || outcome.kind === 'reading' || outcome.kind === 'representation'}>
             {t('permitSubmit')}
           </Button>
         </form>
@@ -157,11 +158,11 @@ export function PermitForm() {
         {outcome.kind === 'signed' && (
           <div role="status" data-permit-result="signed">
             <p>{t('permitSigned')}</p>
-            <p className="muted">{t('permitSignedValues')}</p>
-            <pre className="numeric" data-permit-signed>
+            <p className="lt-hint">{t('permitSignedValues')}</p>
+            <pre className="lt-mono" data-permit-signed>
               {JSON.stringify({ domain: outcome.signed.domain, message: outcome.signed.message }, null, 2)}
             </pre>
-            <pre className="numeric" data-permit-signature>
+            <pre className="lt-mono" data-permit-signature>
               {outcome.signature}
             </pre>
           </div>

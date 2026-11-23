@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   academyAssignmentViewSchema,
-  academySubmissionFileSchema,
   type AcademyAnswerMode,
   type AcademyAssignmentView,
   type AcademySubmissionState,
@@ -10,12 +9,13 @@ import type { ApiResult } from '../../shared/api';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
 import { Button, Loading, Panel } from '../../shared/ui';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { academyCodeOf, academyRefusalText } from './academy-flows';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { academyCourseHref } from './academy-lms';
 import { AcademyRefusal } from './AcademyLmsParts';
 import { AcademyPeerReview } from './AcademyPeerReview';
+import { ACADEMY_UPLOAD_ASSIGNMENT_FILE } from '@intafaced/contracts/academy-upload-assignment-file-procedures';
 
 type Failure = Extract<ApiResult<never>, { ok: false }>;
 type T = (typeof copy)['t'];
@@ -80,7 +80,7 @@ function OutcomeLine({ outcome, retry }: { outcome: Outcome; retry?: () => void 
     );
   if (outcome.kind === 'uncertain')
     return (
-      <p role="status" className="failure" data-testid="assignment-outcome">
+      <p role="status" className="lt-refusal" data-testid="assignment-outcome">
         {t('asgUncertain')}
       </p>
     );
@@ -88,7 +88,7 @@ function OutcomeLine({ outcome, retry }: { outcome: Outcome; retry?: () => void 
   const words =
     academyCodeOf(outcome.failure) === 'academy.video_storage_unconfigured' ? t('asgStorageUnset') : academyRefusalText(outcome.failure, t);
   return (
-    <div role="status" className="failure" data-testid="assignment-outcome" data-code={academyCodeOf(outcome.failure) ?? undefined}>
+    <div role="status" className="lt-refusal" data-testid="assignment-outcome" data-code={academyCodeOf(outcome.failure) ?? undefined}>
       {words === null ? <AcademyRefusal failure={outcome.failure} retry={retry} /> : <p>{words}</p>}
     </div>
   );
@@ -121,12 +121,12 @@ export function AssignmentSubmissions({ data }: { data: AcademyAssignmentView })
   const { language } = usePreferences();
   if (data.submissions.length === 0)
     return (
-      <p className="muted" data-testid="assignment-submissions">
+      <p className="lt-muted" data-testid="assignment-submissions">
         {t('asgNothingYet')}
       </p>
     );
   return (
-    <ol className="academy-lms-stack" data-testid="assignment-submissions">
+    <ol className="lt-stack" data-testid="assignment-submissions">
       {data.submissions.map((s) => (
         <li key={s.version} className="academy-lms-card">
           <strong>{t('asgVersion', { version: s.version })}</strong>
@@ -136,7 +136,7 @@ export function AssignmentSubmissions({ data }: { data: AcademyAssignmentView })
             <span>{t('asgSubmittedAt', { date: when(s.submittedAt, language) })}</span>
           </span>
           {s.text && (
-            <p className="muted" lang="und">
+            <p className="lt-muted" lang="und">
               {s.text}
             </p>
           )}
@@ -168,12 +168,12 @@ export function AssignmentGrade({
   const { language } = usePreferences();
   if (!grade)
     return (
-      <p className="muted" data-testid="assignment-grade">
+      <p className="lt-muted" data-testid="assignment-grade">
         {t('grdNone')}
       </p>
     );
   return (
-    <section className="academy-lms-stack" data-testid="assignment-grade" aria-label={t('grdTitle')}>
+    <section className="lt-stack" data-testid="assignment-grade" aria-label={t('grdTitle')}>
       <h3>{t('grdTitle')}</h3>
       <strong>{t('grdScore', { score: grade.score, points: grade.points })}</strong>
       {grade.entered !== null && <p data-testid="assignment-grade-late">{t('grdLate', { entered: grade.entered })}</p>}
@@ -199,9 +199,9 @@ export function AssignmentBrief({ data }: { data: AcademyAssignmentView }) {
   const { t } = copy.useCopy();
   const { language } = usePreferences();
   return (
-    <div className="academy-lms-stack">
+    <div className="lt-stack">
       <nav className="academy-lms-crumbs" aria-label={t('breadcrumb')}>
-        <a className="text-link" href={academyCourseHref(data.courseSlug)} lang="und">
+        <a className="lt-link" href={academyCourseHref(data.courseSlug)} lang="und">
           {t('asgBack')}
         </a>
       </nav>
@@ -266,10 +266,10 @@ export function AcademyAssignment({ slug, itemId }: { slug: string; itemId: stri
     const notEnrolled = academyCodeOf(failure) === 'academy.enrolment_required';
     return (
       <Panel title={t('asgBrief')}>
-        <div className="academy-lms-stack" data-academy-assignment={itemId}>
+        <div className="lt-stack" data-academy-assignment={itemId}>
           <OutcomeLine outcome={{ kind: 'refused', failure }} retry={notEnrolled ? undefined : view.reload} />
           {notEnrolled && (
-            <a className="button button--primary" href={academyCourseHref(slug)}>
+            <a className="lt-button lt-button-primary" href={academyCourseHref(slug)}>
               {t('linkedOpenPublic')}
             </a>
           )}
@@ -291,12 +291,12 @@ export function AcademyAssignment({ slug, itemId }: { slug: string; itemId: stri
       if (file && data.fileLimits.maxBytes !== null && file.size > data.fileLimits.maxBytes)
         return setOutcome({ kind: 'refused', failure: refusalOf('academy.upload_too_large') });
       if (file) {
-        const uploaded = await api.mutate(
-          'academy',
-          'uploadAssignmentFile',
-          { itemId, fileName: file.name, contentType: file.type || 'application/octet-stream', contentBase64: await base64Of(file) },
-          academySubmissionFileSchema,
-        );
+        const uploaded = await api.call(ACADEMY_UPLOAD_ASSIGNMENT_FILE, {
+          itemId,
+          fileName: file.name,
+          contentType: file.type || 'application/octet-stream',
+          contentBase64: await base64Of(file),
+        });
         // The same file again is the same stored row, so a lost upload reply is safe to send again from here.
         if (!uploaded.ok)
           return setOutcome(uploaded.reason === 'uncertain' ? { kind: 'uncertain' } : { kind: 'refused', failure: uploaded });
@@ -340,12 +340,12 @@ export function AcademyAssignment({ slug, itemId }: { slug: string; itemId: stri
         <AssignmentBrief data={data} />
       </Panel>
       <Panel title={t('asgSubmissions')}>
-        <div className="academy-lms-stack">
+        <div className="lt-stack">
           {closed ? (
-            <p className="muted">{t('asgWithdrawn')}</p>
+            <p className="lt-muted">{t('asgWithdrawn')}</p>
           ) : (
             <form
-              className="academy-lms-stack"
+              className="lt-stack"
               onSubmit={(event) => {
                 event.preventDefault();
                 void handIn();

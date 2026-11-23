@@ -12,6 +12,7 @@
  * coordinates (UI-SPEC principle 5). Every figure shown as text comes from the decimal strings.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { ChartCanvas } from '@intafaced/ui/lit/templates';
 import { usePreferences } from '../../shared/preferences';
 import { planUpdate, priceFormat, toLinePoint } from '../trade/chart/chart-data';
 import { axisTime, tickMark } from '../trade/chart/PriceChart';
@@ -239,8 +240,6 @@ export function CoinChart({ candles, resetKey, tickSize, direction, timeZone, la
   }, [candles, tickSize, ready]);
 
   return (
-    <div data-testid="coin-chart" className="coin-chart" role="img" aria-label={label}>
-      <div ref={host} data-testid="coin-chart__host" className="coin-chart__host" />
-    </div>
+    <ChartCanvas label={label} host={host} marks={{ 'data-testid': 'coin-chart' }} hostMarks={{ 'data-testid': 'coin-chart__host' }} />
   );
 }

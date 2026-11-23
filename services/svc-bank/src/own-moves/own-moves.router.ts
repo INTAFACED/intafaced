@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, scopedProcedure } from '@intafaced/contracts';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { formatAmount } from '@intafaced/ledger-client';
 import { unwiredApprovalConsumer } from '../action-approval-consume.js';
 import { createStepUpGate } from '../step-up/step-up-gate.js';
@@ -7,6 +7,7 @@ import type { BankRouterContext } from '../router/context.js';
 import { guard } from '../router/errors.js';
 import { amountString, stepUpApprovalField } from '../router/shared.js';
 import { ownMoveMessage, type OwnMove } from './own-move-service.js';
+import { ownMoveMessageSchema, ownMoveViewSchema } from '@intafaced/contracts/bank-trading-account-reads';
 
 /**
  * `bank.ownMoves.*` (J-derivatives-25 #2 #3, BK-ownmove-01): moves between the person's own spending money at the partner
@@ -19,24 +20,10 @@ const moveId = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4
 const wallet = z.string().regex(/^0x[0-9a-f]{40}$/, 'a lower-case EVM address');
 const asset = z.string().regex(/^[A-Z0-9]{2,16}$/);
 
-export const ownMoveView = z.object({
-  id: z.string(),
-  direction: z.literal('in'),
-  assetId: z.string(),
-  amount: z.string(),
-  wallet: z.string(),
-  status: z.enum(['opening', 'sent']),
-  partner: z.string(),
-  partnerRef: z.string().nullable(),
-  partnerFee: z.string().nullable(),
-  deliveryTx: z.string().nullable(),
-  depositTx: z.string().nullable(),
-  createdAt: z.string(),
-  sentAt: z.string().nullable(),
-  depositAt: z.string().nullable(),
-});
+/** svc-bank's own-move answer, the one schema its callers read too. */
+export const ownMoveView = ownMoveViewSchema;
 
-function moveOut(m: OwnMove): z.infer<typeof ownMoveView> {
+function moveOut(m: OwnMove): z.input<typeof ownMoveView> {
   return {
     id: m.id,
     direction: m.direction,
@@ -49,6 +36,7 @@ function moveOut(m: OwnMove): z.infer<typeof ownMoveView> {
     partnerFee: m.partnerFee === null ? null : formatAmount(m.partnerFee),
     deliveryTx: m.deliveryTx,
     depositTx: m.depositTx,
+    depositConfirmed: m.depositConfirmed,
     createdAt: m.createdAt.toISOString(),
     sentAt: m.sentAt?.toISOString() ?? null,
     depositAt: m.depositAt?.toISOString() ?? null,
@@ -63,7 +51,7 @@ export function createOwnMovesRouter(c: BankRouterContext) {
     /** The exact message the wallet signs for one move: it proves the wallet is the person's and names the move. */
     message: scopedProcedure('bank:read', { module: 'bank' })
       .input(z.object({ moveId, assetId: asset, amount: amountString, wallet }).strict())
-      .output(z.object({ message: z.string() }))
+      .output(ownMoveMessageSchema)
       .query(({ input }) => ({ message: ownMoveMessage(input) })),
     /** Spending to trading, leg one: the partner sends `amount` from the main balance to the person's own wallet, once. */
     toWallet: scopedProcedure('bank:write', { module: 'bank' })

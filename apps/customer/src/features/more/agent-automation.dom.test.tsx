@@ -82,6 +82,21 @@ vi.mock('../session/session', () => {
       }
       return { ok: false, reason: 'error', message: 'agents.trigger_subject_invalid' };
     },
+    call(
+      this: { query: (...args: never[]) => unknown; mutate: (...args: never[]) => unknown },
+      record: { kind: string; module: string; path: string; output: unknown },
+      input?: unknown,
+      opts?: unknown,
+    ) {
+      // tooling/codemod/call-records: a call by its record reaches this double's own query or mutate, as the client sends it.
+      return Reflect.apply(record.kind === 'query' ? this.query : this.mutate, this, [
+        record.module,
+        record.path,
+        input,
+        record.output,
+        opts,
+      ]);
+    },
   };
   return { useApi: () => api, useSession: () => ({ userId: 'u-test' }) };
 });
@@ -100,7 +115,8 @@ async function mount(node: React.ReactNode, ready: string) {
 }
 const button = (host: HTMLElement, name: string) => [...host.querySelectorAll('button')].find((b) => b.textContent === name)!;
 const field = (host: HTMLElement, label: RegExp) =>
-  [...host.querySelectorAll('label')].find((l) => label.test(l.querySelector('span')?.textContent ?? ''))!.querySelector('input')!;
+  [...host.querySelectorAll('label')].find((l) => label.test((l.querySelector('span') ?? l).textContent ?? ''))!
+    .control as HTMLInputElement;
 async function type(input: HTMLInputElement, value: string) {
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);

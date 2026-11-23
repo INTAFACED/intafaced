@@ -1,13 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  currentSharedCardRoute,
   sharedCardFailure,
   sharedCardHref,
-  sharedCardResponse,
+  sharedCardMatches,
   sharedCardRoute,
   sharedCardSelection,
-  subscribeSharedCardRoute,
 } from './blueprint-shared-card-contract';
+import { BLUEPRINT_CARD_OF } from '@intafaced/contracts/blueprint-procedures';
+
+/** What the room accepts: the record's reply schema, then the room's own size check (`api.call`'s `accept`). */
+const sharedCardResponse = (selection: Parameters<typeof sharedCardMatches>[0]) =>
+  BLUEPRINT_CARD_OF.output.refine(sharedCardMatches(selection));
 const subject = '22222222-2222-4222-8222-222222222222';
 const selection = { userId: subject, size: 'portrait' as const };
 const card = {
@@ -31,8 +34,10 @@ describe('Blueprint shared card exact contract', () => {
   });
   it('binds the response size and canonical dimensions to the submitted request', () => {
     expect(sharedCardResponse(selection).safeParse(card).success).toBe(true);
-    for (const extra of [{ size: 'landscape' }, { width: 1200 }, { height: 630 }, { viewerId: subject }])
+    for (const extra of [{ size: 'landscape' }, { width: 1200 }, { height: 630 }])
       expect(sharedCardResponse(selection).safeParse({ ...card, ...extra }).success).toBe(false);
+    // A field the record does not name never reaches the room: its reply schema drops it.
+    expect(sharedCardResponse(selection).parse({ ...card, viewerId: subject })).not.toHaveProperty('viewerId');
   });
   it('refuses unknown or malformed raster variants without losing their distinction from read failures', () => {
     for (const raster of [
@@ -86,26 +91,5 @@ describe('Blueprint shared card exact contract', () => {
       { ...original, providerUrl: 'https://fixture.invalid/private' },
     ])
       expect(() => sharedCardHref(invalid as typeof original)).toThrow();
-  });
-  it('observes query/hash A→B→A synchronously and restores only owned history wrappers', () => {
-    const loc = { origin: 'https://fixture.invalid', href: 'https://fixture.invalid/blueprint' };
-    vi.stubGlobal('location', loc);
-    const target = new EventTarget();
-    vi.stubGlobal('window', target);
-    vi.stubGlobal('HashChangeEvent', class extends Event {});
-    const push = function (_data: unknown, _unused: string, href?: string | URL | null) {
-      loc.href = new URL(String(href), loc.origin).href;
-    };
-    vi.stubGlobal('history', { pushState: push, replaceState: push });
-    const original = currentSharedCardRoute();
-    const notify = vi.fn(),
-      unsubscribe = subscribeSharedCardRoute(notify);
-    history.replaceState(null, '', '/blueprint?subject=' + subject);
-    history.replaceState(null, '', '/blueprint');
-    expect(currentSharedCardRoute().epoch).toBe(original.epoch + 2);
-    expect(notify).toHaveBeenCalledTimes(2);
-    unsubscribe();
-    expect(history.pushState).toBe(push);
-    expect(history.replaceState).toBe(push);
   });
 });

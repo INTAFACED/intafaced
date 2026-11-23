@@ -51,7 +51,7 @@ export function StrangerRule() {
       <legend id={titleId} className="pay-section-title">
         {payCopy.t('Payments from people not in your contacts')}
       </legend>
-      <p className="pay-hint">{payCopy.t('Stranger rule hint')}</p>
+      <p className="lt-hint">{payCopy.t('Stranger rule hint')}</p>
       {loaded.status === 'failed' ? (
         <p className="pay-problem" role="alert">
           {payCopy.t('Stranger rule load failed')}{' '}
@@ -69,11 +69,11 @@ export function StrangerRule() {
         {payCopy.t('Hold for me to accept')}
       </label>
       {rule?.strangers === 'hold' && rule.holdDays !== null ? (
-        <p className="pay-hint" data-testid="stranger-hold-days">
+        <p className="lt-hint" data-testid="stranger-hold-days">
           {payCopy.t('Stranger hold days {n}', { n: String(rule.holdDays) })}
         </p>
       ) : null}
-      {rule && rule.holdDays === null ? <p className="pay-hint">{payCopy.t('Stranger hold unset')}</p> : null}
+      {rule && rule.holdDays === null ? <p className="lt-hint">{payCopy.t('Stranger hold unset')}</p> : null}
       {problem ? (
         <p className="pay-problem" role="alert">
           {problem}

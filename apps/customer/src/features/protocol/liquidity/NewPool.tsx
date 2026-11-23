@@ -5,10 +5,10 @@ import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
 import { ServiceOffNotice } from '../../../shared/service-off';
 import { Button, Field, Loading, Panel } from '../../../shared/ui';
-import { useApi } from '../../session/session';
+import { useApi } from '../../session';
 import { createProtocolApi } from '../api';
 import { networkLabel } from '../blockers';
-import { WatchShell } from '../watch/AddressPage';
+import { WatchShell } from '../watch/WatchShell';
 import { APP_CHAIN_ID } from '../wallet/eip1193';
 import { liquidityCopy } from './copy';
 import { amountText, bpsPercent, percentToBps, priceText, toUnits } from './format';
@@ -143,7 +143,7 @@ export function NewPool() {
   const ready =
     !busy && !!wallet.address && !!a && !!b && a.address !== b.address && unitsA !== null && unitsB !== null && usableFee !== null;
   const select = (id: string, label: string, value: string, set: (v: string) => void) => (
-    <label className="field">
+    <label className="lt-field">
       <span id={id}>{label}</span>
       <select value={value} onChange={(event) => set(event.target.value)} aria-labelledby={id}>
         <option value="">{t('chooseToken')}</option>
@@ -173,7 +173,7 @@ export function NewPool() {
         >
           {select(ids.a, t('firstToken'), tokenA, setTokenA)}
           {select(ids.b, t('secondToken'), tokenB, setTokenB)}
-          <label className="field">
+          <label className="lt-field">
             <span id={ids.tier}>{t('feeTier')}</span>
             <select value={tier} onChange={(event) => setTier(event.target.value)} aria-labelledby={ids.tier}>
               <option value="">{t('chooseTier')}</option>
@@ -202,8 +202,8 @@ export function NewPool() {
           {existing ? (
             <>
               <p role="status">{t('exists')}</p>
-              <p className="muted">{t('existsNote')}</p>
-              <a className="button button--primary" href={`/dex/pools/${existing.toLowerCase()}/add`}>
+              <p className="lt-muted">{t('existsNote')}</p>
+              <a className="lt-button lt-button-primary" href={`/dex/pools/${existing.toLowerCase()}/add`}>
                 {t('addLiquidity')}
               </a>
             </>
@@ -224,11 +224,11 @@ export function NewPool() {
                 onChange={(event) => setAmountB(event.target.value)}
               />
               {a && b && unitsA !== null && unitsB !== null && (
-                <p className="numeric" data-testid="starting-price">
+                <p className="lt-num" data-testid="starting-price">
                   {t('startingPrice', { a: a.name, price: priceText(unitsA, a.decimals, unitsB, b.decimals), b: b.name })}
                 </p>
               )}
-              <p className="muted">{t('firstDepositor')}</p>
+              <p className="lt-muted">{t('firstDepositor')}</p>
               <Button type="submit" disabled={!ready}>
                 {t('createPool')}
               </Button>

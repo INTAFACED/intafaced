@@ -12,7 +12,8 @@ import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import { mergeRouters, s2sFromEnv } from '@intafaced/contracts';
+import { s2sFromEnv } from '@intafaced/contracts/s2s-env';
+import { mergeRouters } from '@intafaced/contracts/trpc';
 import { serviceOfRequest } from './s2s-door.js';
 import { mintStreamToken, parseStreamTokenTtl, StreamTokenError } from './stream-token.js';
 import { readIdentityWatermark } from './restore-watermark.js';
@@ -37,6 +38,7 @@ import { registerServiceMailRoute } from './auth/service-mail.js';
 import { registerRotationRequestRoutes } from './auth/key-rotation-requests.js';
 import { registerWalletSignatureVerifyRoute, signingAccount, verifyWalletSignature } from './auth/wallet-signature-verify.js';
 import { linkedWallets, registerLinkedWalletsRoute } from './auth/linked-wallets.js';
+import { deskLayoutsFor, registerSupportDeskLayoutsRoute } from './preferences/desk-layouts-support-read.js';
 import { readAgentKey, readAgentKeyCalls, registerAgentKeyCallsRoute, registerAgentKeyReadRoute } from './auth/agent-key-read.js';
 import { registerTrustedDeviceReadRoute } from './auth/trusted-device-read.js';
 import { assertProdTotpKey, assertSigningEncKey, parseTotpSecretKey } from './auth/totp-crypto.js';
@@ -104,6 +106,8 @@ import { createOperationIdentityRouter } from './controls/operation-identity-rou
 import { createLimitFeeTierRouter } from './limit-fee-tier-router.js';
 import { SavedRecipientService } from './saved-recipients.js';
 import { createSavedRecipientsRouter } from './saved-recipients.router.js';
+import { ApiVersionDefaults, createApiVersionRouter } from './api-version-default.js';
+import { createDeveloperSupportRouter } from './ops/developer-support.js';
 import { createHandleRouter } from './profile/handle-router.js';
 import { createReceiveContactsRouter } from './account/receive-contacts-router.js';
 import { ReceiveContactService, receiveContactSettings } from './account/receive-contacts.js';
@@ -899,6 +903,8 @@ export const appRouter = mergeRouters(
   }),
   createLimitFeeTierRouter(sql, rank, actionApprovals),
   createSavedRecipientsRouter(new SavedRecipientService(sql)),
+  createApiVersionRouter(new ApiVersionDefaults(sql)),
+  createDeveloperSupportRouter(sql),
   createHandleRouter(new HandleSettingsService(sql, env.IDENTITY_HANDLE_CHANGE_MAX ?? null)),
   createReceiveContactsRouter(
     new ReceiveContactService({
@@ -1186,6 +1192,14 @@ registerWalletSignatureVerifyRoute(app, {
 /** The wallets a customer linked, for svc-agents' payment method (linked-wallets.ts). */
 registerLinkedWalletsRoute(app, {
   read: (userId) => linkedWallets(sql, userId),
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  bodyBind: env.INTERNAL_SERVICE_BODY_BIND,
+  ...(doorS2s ? { s2s: doorS2s } : {}),
+});
+
+/** One account's saved desk layouts, for svc-support's ticket lookup (desk-layouts-support-read.ts, J-charts-desk-19 #1). */
+registerSupportDeskLayoutsRoute(app, {
+  read: (userId) => deskLayoutsFor(sql, userId),
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   bodyBind: env.INTERNAL_SERVICE_BODY_BIND,
   ...(doorS2s ? { s2s: doorS2s } : {}),

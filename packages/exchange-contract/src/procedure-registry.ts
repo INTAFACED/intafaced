@@ -1,5 +1,9 @@
-import type { ProcedureRecord } from '@intafaced/contracts/procedure';
+// Written by `procedures:write` (scripts/procedure-registry.mjs) from every `defineProcedure` in src/. Do not edit by hand.
 import { MATCHING_SUBMIT_ORDER } from './matching-submit-order.js';
 
-/** Every call recorded in this package (`defineProcedure`). `procedures.schema.json` is written from this list. */
-export const EXCHANGE_PROCEDURES: readonly ProcedureRecord[] = [MATCHING_SUBMIT_ORDER];
+import type { ProcedureRecord } from '@intafaced/contracts/procedure';
+
+const part_matching_submit_order: readonly ProcedureRecord[] = [MATCHING_SUBMIT_ORDER];
+
+/** Every call recorded in this package. `procedures/<service>.schema.json` is written from this list. */
+export const EXCHANGE_PROCEDURES: readonly ProcedureRecord[] = [...part_matching_submit_order];

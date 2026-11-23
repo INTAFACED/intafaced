@@ -80,10 +80,12 @@ export class ChainObserver {
   }
 
   /**
-   * A registry row exists only after `claim` verified that the address is the
-   * CREATE2 account the factory derives for that owner with the fixed
-   * implementation, so a registered address is a factory account. A look-alike
-   * contract has no row and is dropped. The row's `deployed` flag is NOT
+   * A registry row was written only by the account claim, which verified that
+   * the address is the CREATE2 account the factory derives for that owner with
+   * the fixed implementation, so a registered address is a factory account. A
+   * look-alike contract has no row and is dropped. The claim call is deleted
+   * (nothing called it), so no new row is written: an account with no row is
+   * dropped as below. The row's `deployed` flag is NOT
    * checked: a grant that lands in the same transaction as the deployment
    * arrives before `recordDeployment`, and dropping it would lose a real event.
    *

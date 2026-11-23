@@ -8,7 +8,7 @@ vi.mock('../../shared/preferences', async (original) => {
 });
 
 import type { AcademyPlanner, AcademyProgressPage } from '@intafaced/contracts/academy-catalogue';
-import { SessionProvider } from '../session/session';
+import { SessionProvider } from '../session';
 import { CourseGradesView, PlannerView, ProgressPageView, localPercent, todoKey, type PlannerViewProps } from './AcademyProgressPage';
 import { TimedQuizView } from './AcademyAssessment';
 

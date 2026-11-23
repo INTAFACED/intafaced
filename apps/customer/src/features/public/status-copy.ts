@@ -56,6 +56,7 @@ export const statusCopy = defineCopy('public-status', {
   windowTo: 'to',
   noticesLink: 'Open notices',
   componentsTitle: 'Components',
+  pageAsOf: 'As of',
   componentsLoading: 'Loading component status…',
   componentsFailed: 'Couldn’t load component status. Nothing here should be read as “all working”.',
   componentsNone: 'No components are set. The founders have not defined what this page reports on, so no overall status is shown.',

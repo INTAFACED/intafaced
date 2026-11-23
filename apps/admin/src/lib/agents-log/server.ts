@@ -1,6 +1,12 @@
 import 'server-only';
-import { founderCall, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
+import { founderCall, type FounderCallContext, type FounderCallResult, founderRecordRead } from '@/lib/desk';
 import { customerReference, OUTCOMES, type AgentsLogAction, type CustomerReference } from './model';
+import {
+  AGENTS_OPS_LOG_REASONS,
+  AGENTS_OPS_LOG_TRANSCRIPT,
+  AGENTS_OPS_LOG_ACTIONS,
+  AGENTS_OPS_LOG_EXPORT,
+} from '@intafaced/contracts/agents-ops-log-procedures';
 
 /**
  * The agent action log desk's hops, always as the signed-in founder through svc-edge: identity resolves a handle to its
@@ -78,7 +84,7 @@ export function refusalOf(result: Exclude<FounderCallResult<unknown>, { kind: 'o
 export async function readReasons(
   ctx: FounderCallContext,
 ): Promise<{ kind: 'ok'; reasons: string[] } | { kind: 'refused'; code: string; status: number }> {
-  const result = await founderCall(ctx, 'agents', 'opsLog.reasons', 'GET', undefined, (raw) =>
+  const result = await founderRecordRead(ctx, AGENTS_OPS_LOG_REASONS, undefined, (raw) =>
     isObject(raw) && isStrings(raw.reasons) ? { reasons: raw.reasons } : null,
   );
   return result.kind === 'ok' ? { kind: 'ok', reasons: result.data.reasons } : refusalOf(result);
@@ -136,11 +142,9 @@ export type AgentsLogAnswer =
 /** One desk action as the founder: the customer reference is resolved first, except for a transcript, which names its action. */
 export async function runAgentsLog(ctx: FounderCallContext, action: AgentsLogAction): Promise<AgentsLogAnswer> {
   if (action.action === 'transcript') {
-    const result = await founderCall(
+    const result = await founderRecordRead(
       ctx,
-      'agents',
-      'opsLog.transcript',
-      'POST',
+      AGENTS_OPS_LOG_TRANSCRIPT,
       { actionId: action.actionId, requestId: action.requestId, ...(action.reason ? { reason: action.reason } : {}) },
       parseTranscript,
     );
@@ -159,7 +163,7 @@ export async function runAgentsLog(ctx: FounderCallContext, action: AgentsLogAct
   };
   const result =
     action.action === 'actions'
-      ? await founderCall(ctx, 'agents', 'opsLog.actions', 'POST', input, parseActions)
-      : await founderCall(ctx, 'agents', 'opsLog.export', 'POST', input, parseExport);
+      ? await founderRecordRead(ctx, AGENTS_OPS_LOG_ACTIONS, input, parseActions)
+      : await founderRecordRead(ctx, AGENTS_OPS_LOG_EXPORT, input, parseExport);
   return result.kind === 'ok' ? { kind: 'ok', data: { ...result.data, userId: customer.userId } } : refusalOf(result);
 }

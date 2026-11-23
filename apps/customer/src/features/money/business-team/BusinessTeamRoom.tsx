@@ -1,6 +1,10 @@
+// volt-room: /bank/business/team
+// volt-room: /bank/business/spend
+// volt-room: /bank/business/payment
+// volt-room: /bank/business/join
 import { useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { z, type ZodType } from 'zod';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import { FlowTemplate, type RoomState } from '@intafaced/ui/lit/templates';
 import {
   BUSINESS_PAYMENT_TYPES,
@@ -25,7 +29,7 @@ import {
 import { defineCopy } from '../../../shared/i18n';
 import type { ApiResult } from '../../../shared/api';
 import { useResource, type Resource } from '../../../shared/resource';
-import { useSession } from '../../session/session';
+import { useSession } from '../../session';
 import { useHeldId, type HeldId } from './held-id';
 
 /**
@@ -463,13 +467,13 @@ function TeamParts({ o, reloadTop, t }: { o: BusinessTeamOverview; reloadTop: ()
               });
           }}
         >
-          <label className="field">
+          <label className="lt-field">
             <span>{t('roleName')}</span>
             <input name="roleName" value={roleName} onChange={(e) => setRoleName(e.target.value)} />
           </label>
           <fieldset>
             {BUSINESS_TEAM_PERMISSIONS.map((p) => (
-              <label key={p} className="field">
+              <label key={p} className="lt-field">
                 <input
                   type="checkbox"
                   name="permissions"
@@ -481,7 +485,7 @@ function TeamParts({ o, reloadTop, t }: { o: BusinessTeamOverview; reloadTop: ()
               </label>
             ))}
           </fieldset>
-          <Button type="submit" variant="primary" disabled={change.busy || !roleName.trim() || rolePerms.length === 0}>
+          <Button type="submit" tone="primary" disabled={change.busy || !roleName.trim() || rolePerms.length === 0}>
             {t('createRole')}
           </Button>
         </form>
@@ -496,7 +500,7 @@ function TeamParts({ o, reloadTop, t }: { o: BusinessTeamOverview; reloadTop: ()
                 <span>
                   {' '}
                   <label>
-                    <span className="sr-only">{t('roleFor', { handle: m.handle })}</span>
+                    <span className="lt-sr">{t('roleFor', { handle: m.handle })}</span>
                     <select
                       aria-label={t('roleFor', { handle: m.handle })}
                       value={memberRole[m.userId] ?? (m.customRole ? m.customRole.id : '')}
@@ -511,6 +515,7 @@ function TeamParts({ o, reloadTop, t }: { o: BusinessTeamOverview; reloadTop: ()
                     </select>
                   </label>{' '}
                   <Button
+                    tone="primary"
                     type="button"
                     disabled={change.busy}
                     onClick={() =>
@@ -543,6 +548,7 @@ function TeamParts({ o, reloadTop, t }: { o: BusinessTeamOverview; reloadTop: ()
                 <>
                   {' '}
                   <Button
+                    tone="primary"
                     type="button"
                     disabled={change.busy}
                     onClick={() =>
@@ -570,11 +576,11 @@ function TeamParts({ o, reloadTop, t }: { o: BusinessTeamOverview; reloadTop: ()
                 .then((a) => a && setAdvisorHandle(''));
             }}
           >
-            <label className="field">
+            <label className="lt-field">
               <span>{t('advisorHandle')}</span>
               <input name="advisorHandle" autoCapitalize="none" value={advisorHandle} onChange={(e) => setAdvisorHandle(e.target.value)} />
             </label>
-            <Button type="submit" disabled={change.busy || !advisorHandle.trim()}>
+            <Button tone="primary" type="submit" disabled={change.busy || !advisorHandle.trim()}>
               {t('addAdvisor')}
             </Button>
           </form>
@@ -607,7 +613,7 @@ function TeamParts({ o, reloadTop, t }: { o: BusinessTeamOverview; reloadTop: ()
                 });
             }}
           >
-            <label className="field">
+            <label className="lt-field">
               <span>{t('inviteEmail')}</span>
               <input
                 name="inviteEmail"
@@ -617,7 +623,7 @@ function TeamParts({ o, reloadTop, t }: { o: BusinessTeamOverview; reloadTop: ()
                 onChange={(e) => setInviteEmail(e.target.value)}
               />
             </label>
-            <label className="field">
+            <label className="lt-field">
               <span>{t('inviteRole')}</span>
               <select name="inviteRole" value={inviteRole} onChange={(e) => setInviteRole(e.target.value)}>
                 {['viewer', 'maker', 'checker', 'admin'].map((r) => (
@@ -632,14 +638,14 @@ function TeamParts({ o, reloadTop, t }: { o: BusinessTeamOverview; reloadTop: ()
                 ))}
               </select>
             </label>
-            <Button type="submit" variant="primary" disabled={change.busy}>
+            <Button type="submit" tone="primary" disabled={change.busy}>
               {t('sendInvite')}
             </Button>
           </form>
           {link ? (
             <div data-testid="team-invite-link">
               <p>{link.email ? t('inviteLinkEmail', { email: link.email }) : t('inviteLinkOnly')}</p>
-              <label className="field">
+              <label className="lt-field">
                 <span>{t('inviteLink')}</span>
                 <input readOnly name="inviteLink" value={link.url} />
               </label>
@@ -661,6 +667,7 @@ function TeamParts({ o, reloadTop, t }: { o: BusinessTeamOverview; reloadTop: ()
                   <>
                     {' '}
                     <Button
+                      tone="primary"
                       type="button"
                       disabled={change.busy}
                       onClick={() =>
@@ -681,6 +688,7 @@ function TeamParts({ o, reloadTop, t }: { o: BusinessTeamOverview; reloadTop: ()
                   <>
                     {' '}
                     <Button
+                      tone="primary"
                       type="button"
                       disabled={change.busy}
                       onClick={() => void change.run('businessTeam.revokeInvite', { accountId, inviteId: i.id }, businessTeamInviteSchema)}
@@ -733,17 +741,17 @@ function TeamParts({ o, reloadTop, t }: { o: BusinessTeamOverview; reloadTop: ()
                 });
             }}
           >
-            <label className="field">
+            <label className="lt-field">
               <span>
                 {t('ruleOver')} ({o.account.assetId})
               </span>
               <input name="ruleOver" inputMode="decimal" value={ruleOver} onChange={(e) => setRuleOver(e.target.value)} />
             </label>
-            <label className="field">
+            <label className="lt-field">
               <span>{t('rulePayee')}</span>
               <input name="rulePayee" value={rulePayee} onChange={(e) => setRulePayee(e.target.value)} />
             </label>
-            <label className="field">
+            <label className="lt-field">
               <span>{t('ruleType')}</span>
               <select name="ruleType" value={ruleType} onChange={(e) => setRuleType(e.target.value)}>
                 <option value="">{t('anyType')}</option>
@@ -754,7 +762,7 @@ function TeamParts({ o, reloadTop, t }: { o: BusinessTeamOverview; reloadTop: ()
                 ))}
               </select>
             </label>
-            <label className="field">
+            <label className="lt-field">
               <span>{t('ruleApprovals')}</span>
               <select name="ruleApprovals" value={ruleApprovals} onChange={(e) => setRuleApprovals(e.target.value)}>
                 {['1', '2', '3', '4', '5'].map((n) => (
@@ -764,7 +772,7 @@ function TeamParts({ o, reloadTop, t }: { o: BusinessTeamOverview; reloadTop: ()
                 ))}
               </select>
             </label>
-            <Button type="submit" variant="primary" disabled={change.busy || !ruleOver.trim()}>
+            <Button type="submit" tone="primary" disabled={change.busy || !ruleOver.trim()}>
               {t('saveRule')}
             </Button>
           </form>
@@ -777,7 +785,7 @@ function TeamParts({ o, reloadTop, t }: { o: BusinessTeamOverview; reloadTop: ()
           {(payments.resource.status === 'ready' ? payments.resource.data : []).map((p) => (
             <li key={p.id} data-testid="team-payment" data-payment={p.id} data-status={p.status} data-amount={p.amount}>
               {p.payee} · {p.amount} {p.assetId} · {paymentStatus(p, o.partner?.label ?? '', t)}{' '}
-              <a className="text-link" href={`/bank/business/payment?id=${p.id}`}>
+              <a className="lt-link" href={`/bank/business/payment?id=${p.id}`}>
                 {t('open')}
               </a>
             </li>
@@ -804,11 +812,11 @@ function TeamParts({ o, reloadTop, t }: { o: BusinessTeamOverview; reloadTop: ()
                 });
             }}
           >
-            <label className="field">
+            <label className="lt-field">
               <span>{t('payee')}</span>
               <input name="payee" value={payee} onChange={(e) => setPayee(e.target.value)} />
             </label>
-            <label className="field">
+            <label className="lt-field">
               <span>{t('ruleType')}</span>
               <select
                 name="paymentType"
@@ -822,13 +830,13 @@ function TeamParts({ o, reloadTop, t }: { o: BusinessTeamOverview; reloadTop: ()
                 ))}
               </select>
             </label>
-            <label className="field">
+            <label className="lt-field">
               <span>
                 {t('amount')} ({o.account.assetId})
               </span>
               <input name="amount" inputMode="decimal" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} />
             </label>
-            <Button type="submit" variant="primary" disabled={change.busy || !payee.trim() || !payAmount.trim()}>
+            <Button type="submit" tone="primary" disabled={change.busy || !payee.trim() || !payAmount.trim()}>
               {t('propose')}
             </Button>
           </form>
@@ -925,15 +933,15 @@ function SpendPart({ o, t }: { o: BusinessTeamOverview; t: T }) {
                     });
                 }}
               >
-                <label className="field">
+                <label className="lt-field">
                   <span>{t('departmentName')}</span>
                   <input name="departmentName" value={name} onChange={(e) => setName(e.target.value)} />
                 </label>
-                <label className="field">
+                <label className="lt-field">
                   <span>{t('departmentBudget')}</span>
                   <input name="departmentBudget" inputMode="decimal" value={budget} onChange={(e) => setBudget(e.target.value)} />
                 </label>
-                <Button type="submit" disabled={change.busy || !name.trim()}>
+                <Button tone="primary" type="submit" disabled={change.busy || !name.trim()}>
                   {t('addDepartment')}
                 </Button>
               </form>
@@ -956,6 +964,7 @@ function SpendPart({ o, t }: { o: BusinessTeamOverview; t: T }) {
                       </select>
                     </label>{' '}
                     <Button
+                      tone="primary"
                       type="button"
                       disabled={change.busy}
                       onClick={() =>
@@ -1050,7 +1059,7 @@ export function BusinessPaymentRoom({ search }: { search: string }) {
                 <>
                   <Button
                     type="button"
-                    variant="primary"
+                    tone="primary"
                     disabled={change.busy}
                     onClick={() =>
                       void change.run('businessTeam.approve', { paymentId: p.id }, businessTeamPaymentSchema, () => t('approved'))
@@ -1059,6 +1068,7 @@ export function BusinessPaymentRoom({ search }: { search: string }) {
                     {t('approve')}
                   </Button>{' '}
                   <Button
+                    tone="primary"
                     type="button"
                     disabled={change.busy}
                     onClick={() => void change.run('businessTeam.reject', { paymentId: p.id }, businessTeamPaymentSchema)}
@@ -1069,6 +1079,7 @@ export function BusinessPaymentRoom({ search }: { search: string }) {
               ) : null}
               {p.status === 'sending' ? (
                 <Button
+                  tone="primary"
                   type="button"
                   disabled={change.busy}
                   onClick={() =>
@@ -1114,14 +1125,14 @@ export function BusinessJoinRoom() {
           {joined ? (
             <p role="status" data-testid="team-joined">
               {t('joined', { name: joined })}{' '}
-              <a className="text-link" href="/bank/business/team">
+              <a className="lt-link" href="/bank/business/team">
                 {t('goToTeam')}
               </a>
             </p>
           ) : (
             <Button
               type="button"
-              variant="primary"
+              tone="primary"
               disabled={change.busy}
               onClick={() =>
                 void change.run('businessTeam.acceptInvite', { token }, businessTeamJoinedSchema).then((j) => j && setJoined(j.name))

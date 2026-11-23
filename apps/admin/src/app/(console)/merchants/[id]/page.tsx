@@ -5,7 +5,7 @@ import { loadNotes } from '@/lib/founder-ops/reads';
 import { loadKybReview } from '@/lib/merchants/kyb-review';
 import { loadKybRequests } from '@/lib/merchants/kyb-requests';
 import { loadMerchantApprovals, loadMerchantControls, loadMerchantDetail, loadMerchantHalts, parsePreset } from '@/lib/merchants/loaders';
-import { isTestData } from '@/components/merchants/test-data-badge';
+import { isTestData } from '@/components/test-data-badge';
 import { requireModulePage } from '@/lib/module-page-guard';
 import { requireMerchantsFounder } from '@/lib/merchants/page-gate';
 

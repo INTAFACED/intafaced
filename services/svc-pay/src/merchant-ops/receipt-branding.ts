@@ -1,6 +1,6 @@
 import type { Queryable } from '@intafaced/db';
 import { createHash } from 'node:crypto';
-import { ASSET_AMOUNT_EXCEEDS_PRECISION, toAssetUnits } from '@intafaced/contracts';
+import { ASSET_AMOUNT_EXCEEDS_PRECISION, toAssetUnits } from '@intafaced/contracts/asset-registry';
 import { formatMoney, locale } from '@intafaced/i18n';
 import type { Sql } from 'postgres';
 

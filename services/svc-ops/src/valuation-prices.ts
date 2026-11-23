@@ -9,14 +9,11 @@
  * refuses at boot, so a misspelt asset never reaches a customer as a different total.
  */
 import { isExplicitDevOrTest } from '@intafaced/config';
-import {
-  publicProcedure,
-  router,
-  VALUATION_PRICES_UNSET,
-  valuationPriceSchema,
-  valuationPricesOutputSchema,
-  type ValuationPrices,
-} from '@intafaced/contracts';
+import { OPS_VALUATION_PRICES } from '@intafaced/contracts/ops-public-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import type { ValuationPrices } from '@intafaced/contracts';
+import { router } from '@intafaced/contracts/trpc';
+import { VALUATION_PRICES_UNSET, valuationPriceSchema, valuationPricesOutputSchema } from '@intafaced/contracts/valuation-prices';
 
 export const VALUATION_TEST_PRICES_OUTSIDE_TEST = 'ops.valuation_test_prices_outside_test' as const;
 export const VALUATION_TEST_SOURCE = 'TEST price list';
@@ -50,9 +47,16 @@ export function valuationPricesFromEnv(
   });
 }
 
-/** `valuation.prices`: public and read only. Prices are not personal, and the answer is the same for everyone. */
+/**
+ * `valuation.prices`, mounted from its record (`OPS_VALUATION_PRICES`): public and read only. Prices are not personal, and
+ * the answer is the same for everyone. It refuses nothing: an unpublished list is an answer.
+ */
 export function createValuationPricesRouter(prices: ValuationPrices) {
   return router({
-    prices: publicProcedure.output(valuationPricesOutputSchema).query(() => prices),
+    prices: mountRecord(
+      OPS_VALUATION_PRICES,
+      () => prices,
+      () => undefined,
+    ),
   });
 }

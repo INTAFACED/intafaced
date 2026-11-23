@@ -663,3 +663,61 @@ export function storedText(...values: unknown[]): string {
     .replace(HEX_RUN, '<hash>')
     .replace(CLOCK_TIME, '<time>');
 }
+
+/**
+ * A column whose value the database makes up on insert (a clock or a random id): its value differs on every run, so a
+ * row comparison sees only that it is set. Every other value is compared exactly.
+ */
+const MADE_BY_DATABASE =
+  /\b(now|clock_timestamp|statement_timestamp|transaction_timestamp|gen_random_uuid|uuid_generate_v\d)\(|\bcurrent_(timestamp|date|time)\b/i;
+
+/**
+ * Every row in a service's schema, one line each, `<table> <row as jsonb>`, sorted: what the service's tables hold right
+ * now, to compare after the same inputs (the wire replay's rows). Values are Postgres's own JSON text, so the driver's
+ * types never enter it. A column the database fills from a clock or a random id (its default) reads `<database>` when set.
+ */
+export async function storedRows(sql: postgres.Sql, schema: string): Promise<string[]> {
+  if (!SAFE_IDENT.test(schema)) throw new Error(`Refusing to read rows of unsafe schema name: ${schema}`);
+  // A time reads in the session's time zone: UTC here, so the same row reads the same on every machine.
+  return sql.begin(async (tx) => {
+    await tx.unsafe(`SET LOCAL TIME ZONE 'UTC'`);
+    const columns = await tx<Array<{ table_name: string; column_name: string; column_default: string | null }>>`
+      SELECT table_name, column_name, column_default FROM information_schema.columns
+      WHERE table_schema = ${schema} ORDER BY table_name, ordinal_position
+    `;
+    const tables = new Map<string, string[]>();
+    for (const c of columns) {
+      let made = tables.get(c.table_name);
+      if (made === undefined) tables.set(c.table_name, (made = []));
+      if (c.column_default !== null && MADE_BY_DATABASE.test(c.column_default)) made.push(c.column_name);
+    }
+    const lines: string[] = [];
+    for (const [table, made] of tables) {
+      if (!SAFE_IDENT.test(table)) throw new Error(`Refusing to read rows of unsafe table name: ${schema}.${table}`);
+      // Masked in SQL, not after JSON.parse: a numeric(38,18) through a JS number would lose digits.
+      const mask = made.map((c) => {
+        if (!SAFE_IDENT.test(c)) throw new Error(`Refusing to read rows with unsafe column name: ${table}.${c}`);
+        return ` || jsonb_build_object('${c}', CASE WHEN t."${c}" IS NULL THEN NULL ELSE '<database>' END)`;
+      });
+      const rows = await tx.unsafe<Array<{ row: string }>>(
+        `SELECT (to_jsonb(t)${mask.join('')})::text AS row FROM "${schema}"."${table}" t`,
+      );
+      for (const { row } of rows) lines.push(`${table} ${row}`);
+    }
+    return lines.sort();
+  });
+}
+
+/** The rows one call left: lines of `storedRows` that are new after it, and lines gone. A changed row is one of each. */
+export function rowsChange(before: readonly string[], after: readonly string[]): { added: string[]; removed: string[] } {
+  const left = new Map<string, number>();
+  for (const line of before) left.set(line, (left.get(line) ?? 0) + 1);
+  const added: string[] = [];
+  for (const line of after) {
+    const n = left.get(line) ?? 0;
+    if (n > 0) left.set(line, n - 1);
+    else added.push(line);
+  }
+  const removed = [...left].flatMap(([line, n]) => Array<string>(n).fill(line));
+  return { added, removed: removed.sort() };
+}

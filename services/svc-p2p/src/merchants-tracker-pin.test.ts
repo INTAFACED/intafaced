@@ -6,6 +6,14 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import {
+  P2P_MERCHANTS_API_ACCESS,
+  P2P_MERCHANTS_MY_OFFER_CEILING,
+  P2P_MERCHANTS_OFFER_LIMITS,
+  P2P_MERCHANTS_SUBMIT_APPLICATION,
+  P2P_PROCEDURES,
+  P2P_REPUTATION_GET,
+} from '@intafaced/contracts/p2p-procedures';
 
 const ROOT = resolve(import.meta.dirname);
 
@@ -15,14 +23,27 @@ function read(name: string): string {
 
 describe('p2p.merchants product pin', () => {
   it('mounts membership + honest ceiling doors', () => {
-    const router = read('router.ts');
-    expect(router).toMatch(/merchants:\s*router\(/);
-    expect(router).toMatch(/submitApplication:\s*merchantApiProcedure\('p2p:write'/);
-    expect(router).toMatch(/offerLimits:\s*merchantApiProcedure\('p2p:read'/);
-    expect(router).toMatch(/myOfferCeiling:\s*merchantApiProcedure\('p2p:read'/);
-    expect(router).toMatch(/apiAccess:\s*scopedProcedure\('p2p:read'/);
-    expect(router).toMatch(/merchant:\s*z\.boolean\(\)\.nullable\(\)/);
-    expect(router).toMatch(/keyPlane:\s*'identity'/);
+    // The doors are records now: their guard and reply are the record's, mounted by `mountRecords`.
+    expect(P2P_MERCHANTS_SUBMIT_APPLICATION.access).toMatchObject({ caller: 'scope', scope: 'p2p:write' });
+    expect(P2P_MERCHANTS_OFFER_LIMITS.access).toMatchObject({ caller: 'scope', scope: 'p2p:read' });
+    expect(P2P_MERCHANTS_MY_OFFER_CEILING.access).toMatchObject({ caller: 'scope', scope: 'p2p:read' });
+    expect(P2P_MERCHANTS_API_ACCESS.access).toMatchObject({ caller: 'scope', scope: 'p2p:read' });
+    expect(P2P_MERCHANTS_API_ACCESS.output.shape.keyPlane.safeParse('identity').success).toBe(true);
+    expect(P2P_MERCHANTS_API_ACCESS.output.shape.keyPlane.safeParse('svc-p2p').success).toBe(false);
+    for (const record of [
+      P2P_MERCHANTS_SUBMIT_APPLICATION,
+      P2P_MERCHANTS_OFFER_LIMITS,
+      P2P_MERCHANTS_MY_OFFER_CEILING,
+      P2P_MERCHANTS_API_ACCESS,
+    ])
+      expect(P2P_PROCEDURES).toContain(record);
+  });
+
+  it('the reputation card carries the merchant badge as approved, not, or programme off', () => {
+    const merchant = P2P_REPUTATION_GET.output.shape.merchant;
+    for (const value of [true, false, null]) expect(merchant.safeParse(value).success).toBe(true);
+    expect(merchant.safeParse(undefined).success).toBe(false);
+    expect(merchant.safeParse('approved').success).toBe(false);
   });
 
   it('wires the programme into the live router (not a stub)', () => {

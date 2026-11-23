@@ -134,7 +134,7 @@ export const academyTeamHolderSchema = z.object({
   role: z.string(),
   roleName: z.string(),
   active: z.boolean(),
-  since: z.coerce.date(),
+  since: z.iso.datetime({ offset: true }),
 });
 export const academyTeamChangeSchema = z.object({
   id: z.string().guid(),
@@ -144,10 +144,10 @@ export const academyTeamChangeSchema = z.object({
   roleName: z.string(),
   reason: z.string(),
   proposedBy: z.string().guid(),
-  proposedAt: z.coerce.date(),
+  proposedAt: z.iso.datetime({ offset: true }),
   state: z.enum(['pending', 'confirmed']),
   confirmedBy: z.string().guid().nullable(),
-  confirmedAt: z.coerce.date().nullable(),
+  confirmedAt: z.iso.datetime({ offset: true }).nullable(),
 });
 export type AcademyTeamChange = z.infer<typeof academyTeamChangeSchema>;
 export const academyCourseTeamSchema = z.object({
@@ -201,10 +201,10 @@ export const academyModerationReportSchema = z.object({
   body: z.string(),
   authorId: z.string().guid(),
   anonymous: z.boolean(),
-  postedAt: z.coerce.date(),
+  postedAt: z.iso.datetime({ offset: true }),
   reports: z.number().int().positive(),
   reasons: z.array(z.string()),
-  firstReportedAt: z.coerce.date(),
+  firstReportedAt: z.iso.datetime({ offset: true }),
   /** True when the caller may delete this post: a session with `admin:write` whose roles on the course permit moderation. */
   mayModerate: z.boolean(),
 });
@@ -221,7 +221,7 @@ export const academyModerationEventSchema = z.object({
   posts: z.number().int().nonnegative(),
   actorId: z.string().guid(),
   reason: z.string(),
-  recordedAt: z.coerce.date(),
+  recordedAt: z.iso.datetime({ offset: true }),
 });
 export type AcademyModerationEvent = z.infer<typeof academyModerationEventSchema>;
 

@@ -1,23 +1,17 @@
-import {
-  QUANT_ALERT_LIST_MAX,
-  publicJurisdictionProcedure,
-  quantAlertCreateInputSchema,
-  quantAlertListSchema,
-  quantAlertSchema,
-  router,
-} from '@intafaced/contracts';
+import { QUANT_ALERT_LIST_MAX } from '@intafaced/contracts/quant-algo';
+import { router } from '@intafaced/contracts/trpc';
 import { QUANT_VERSION_NOT_FOUND, QuantError } from '../errors.js';
 import { alertKey, checkTemplate } from '../notify/rules.js';
-import { z } from 'zod';
-import { toTrpc, accountField, alertView, missingStrategy, type QuantCore } from './core.js';
+import { toTrpc, alertView, missingStrategy, type QuantCore, quantRefusal } from './core.js';
+import { QUANT_ALERT_LIST, QUANT_ALERT_CREATE } from '@intafaced/contracts/quant-alert-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
 
 export function alertRoutes(core: QuantCore) {
   const { strategies, notify, accountOf } = core;
   return router({
-    list: publicJurisdictionProcedure('quant', 'fiat')
-      .input(z.object({ strategyId: z.string().min(1).max(128), ...accountField }))
-      .output(quantAlertListSchema)
-      .query(async ({ input, ctx }) => {
+    list: mountRecord(
+      QUANT_ALERT_LIST,
+      async ({ input, ctx }) => {
         try {
           const accountId = accountOf(ctx, input.accountId);
           const found = await strategies.get({ accountId, id: input.strategyId });
@@ -27,11 +21,12 @@ export function alertRoutes(core: QuantCore) {
         } catch (err) {
           toTrpc(err);
         }
-      }),
-    create: publicJurisdictionProcedure('quant', 'fiat')
-      .input(quantAlertCreateInputSchema.extend(accountField))
-      .output(quantAlertSchema)
-      .mutation(async ({ input, ctx }) => {
+      },
+      quantRefusal,
+    ),
+    create: mountRecord(
+      QUANT_ALERT_CREATE,
+      async ({ input, ctx }) => {
         try {
           const accountId = accountOf(ctx, input.accountId);
           const found = await strategies.get({ accountId, id: input.strategyId });
@@ -49,6 +44,8 @@ export function alertRoutes(core: QuantCore) {
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
   });
 }

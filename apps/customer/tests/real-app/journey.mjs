@@ -6,7 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { guardPostingFreeze, postingFromHealth } from '../../../../tooling/scripts/journey-freeze-guard.mjs';
 import { FAIL_FAST, failFastSteps, failsFast } from '../../../../tooling/scripts/journey-fail-fast.mjs';
-import { REACH_ATTACHMENT, makeLogReader, makeRecorder } from '../../../../tooling/scripts/journey-reach.mjs';
+import { REACH_ATTACHMENT, makeCodeReader, makeLogReader, makeRecorder, settleCode } from '../../../../tooling/scripts/journey-reach.mjs';
+import { codeReachDir } from '../../../../tooling/scripts/service-reach.mjs';
 import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
 import { LEDGER, ROOT, recordSignIn } from './stack.mjs';
 import { enterFile } from './world-restore.mjs';
@@ -67,7 +68,13 @@ export const expect = new Proxy(baseExpect, {
 // The build on disk here, unless the stack serves the customer app from another folder (local-test-stack.mjs's
 // customer-dist override): then no script can be placed, and each record says so (otherDist).
 const servesOtherDist = !!process.env.LOCAL_STACK_CUSTOMER_DIST || existsSync(path.join(localStackState(), 'customer-dist.json'));
-const reach = makeRecorder({ root: ROOT, distDir: servesOtherDist ? null : path.join(ROOT, 'apps', 'customer', 'dist') });
+// Which of each Node service's own files ran (service-reach.mjs, a preload the stack starts every Node service with).
+const stackCode = makeCodeReader(codeReachDir(localStackState()));
+const reach = makeRecorder({
+  root: ROOT,
+  distDir: servesOtherDist ? null : path.join(ROOT, 'apps', 'customer', 'dist'),
+  codeServices: () => stackCode.services(),
+});
 let reachFile = 'outside-any-file';
 // What the stack's services logged they served, read from their own logs at each read below (journey-reach.mjs).
 const stackLogs = makeLogReader(path.join(localStackState(), 'logs'));
@@ -110,10 +117,17 @@ globalThis.fetch = (input, init) => {
  * Each page's coverage of the customer app: Chromium's precise coverage with call counts, started before the page's
  * first navigation and read without a gap at every test's end and before the page or its context closes (CDP
  * Profiler.takePreciseCoverage reads and resets the counts). A page the app opened by itself (a popup) starts counting
- * only once it is seen, and a page that closed or lost its session before it was read can't be read whole: both mark
- * the record incomplete, which the map reads as reaching every source.
+ * only once it is seen, so one that asked the customer app for anything before then (its URL, or a request seen for it,
+ * askedEarly) may have run customer code no count holds; it, and a page that closed or lost its session before it was
+ * read, can't be read whole: each marks the record incomplete, which the map reads as reaching every source. A popup
+ * that asked the customer app for nothing first ran none of its code before its count began (only the customer app's
+ * scripts are placed), so it marks nothing. (Failure it prevents: J-merchant-02 and J-merchant-02-payouts open a
+ * founder console file as a blob: tab, and every record of theirs was incomplete (popup) in all three main runs the
+ * touched-journeys map was built from on 22 Nov 2026, 44964720047, 44960297816 and 44959368996, so every pull request ran
+ * them.)
  */
-const covered = new Map(); // page -> { cdp, file }
+const covered = new Map(); // page -> { cdp, gone, started }
+const askedEarly = new WeakSet(); // pages that asked the customer app for something before their coverage started
 async function startCoverage(page, { opened = false } = {}) {
   if (covered.has(page)) return;
   const entry = { cdp: null, gone: false };
@@ -129,7 +143,8 @@ async function startCoverage(page, { opened = false } = {}) {
     entry.cdp.on('close', () => {
       if (!entry.gone) reach.incomplete(reachFile, 'detached');
     });
-    if (opened) reach.incomplete(reachFile, 'popup');
+    entry.started = true;
+    if (opened && (askedEarly.has(page) || reach.servesCustomer(page.url()))) reach.incomplete(reachFile, 'popup');
   } catch {
     reach.incomplete(reachFile, 'noStart');
   }
@@ -184,6 +199,11 @@ function watchContext(context) {
   context.on('request', (req) => {
     recordSignIn(req.url(), req.postData() ?? undefined);
     noted(() => reach.request(reachFile, req.url(), req.method()));
+    noted(() => {
+      if (!reach.servesCustomer(req.url())) return;
+      const page = req.frame().page(); // throws for a service worker's request, which no page made
+      if (!covered.get(page)?.started) askedEarly.add(page);
+    });
   });
   context.on('page', (page) => {
     if (!(creating.get(context) > 0)) void startCoverage(page, { opened: true });
@@ -359,6 +379,7 @@ const extended = base.extend({
       try {
         await readAll([...covered.keys()]);
         readLogs();
+        await settleCode(stackCode, reach);
         for (const file of reach.files()) {
           const record = reach.take(file);
           if (record) await testInfo.attach(REACH_ATTACHMENT, { body: JSON.stringify(record), contentType: 'application/json' });
@@ -448,8 +469,11 @@ extended.beforeAll = (...args) => {
   return beforeAll(...args, entered);
 };
 
-/** A file's afterAll hooks run after its last test: what they reach is its own, read once they end and attached by the
- *  next test that runs (journeyReach). */
+/** A file's afterAll hooks run after its last test: what they reach is its own, read once they end and attached from the
+ *  hook itself, which Playwright reports on the file's last test. (Failure it prevents: the record waited for the next
+ *  test, and a shard's last file has none, so in main's run 44964720047 all 19 files whose afterAll record never came
+ *  were the last in their shard; the touched-journeys map then reads each as reaching everything, every pull request ran
+ *  them, and the longest of them, J-campaigns-18 and J-cex-spot-17, each held a shard of their own and ended the run.) */
 /** The journey file (`*.pw.mjs`) whose loading registers a hook, from the call stack, or null. */
 const registeringFile = () => {
   for (const line of String(new Error().stack).split('\n')) {
@@ -471,7 +495,16 @@ extended.afterAll = (...args) => {
     } finally {
       await readAll([...covered.keys()]).catch(() => {});
       readLogs();
+      await settleCode(stackCode, reach);
       reach.afterAll(testInfo.file);
+      try {
+        for (const file of reach.files()) {
+          const record = reach.take(file);
+          if (record) await testInfo.attach(REACH_ATTACHMENT, { body: JSON.stringify(record), contentType: 'application/json' });
+        }
+      } catch {
+        /* recording never fails a hook */
+      }
     }
   };
   after.toString = () => hook.toString();

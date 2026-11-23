@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 import type { ActionReply } from '@/lib/support/browser';
 import { SUPPORT_OPS_FORBIDDEN } from '@/lib/support/refusal';
 

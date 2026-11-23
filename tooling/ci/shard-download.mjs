@@ -22,6 +22,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, rmSync } from 'node:fs';
 import { missingArtifact } from './journey-verdict.mjs';
+import { countCall } from './api-count.mjs';
 
 export const PATTERN = 'real-app-journeys-shard-*';
 export const MAX_WAITS = 2;
@@ -93,6 +94,56 @@ export function downloadShards(io, { maxWaits = MAX_WAITS, pauses = PAUSES, dead
   }
 }
 
+/**
+ * Downloads at once. `gh run download` takes a run's artifacts one after another: about 2 GB of 64 shard artifacts took
+ * 103 s of main's run 44464621638 (19 Nov 2026), 1.7 of the 3.1 minutes its verdict job adds after the last shard
+ * (INTAFACED/project-state#3240). Each artifact is still one API call, as before.
+ */
+export const PARALLEL = 8;
+// stdin: "<id> <name>" lines; $1 repo, $2 folder, $3 how many at once (each child gets repo, folder, id, name). Each artifact unzips into <folder>/<name>, the
+// layout gh run download gives; any failure fails the whole step with gh's own words on stderr.
+const PARALLEL_SCRIPT = `set -euo pipefail
+xargs -P "$3" -L 1 bash -c 'set -euo pipefail; z=$(mktemp); gh api "repos/$0/actions/artifacts/$2/zip" > "$z"; mkdir -p "$1/$3"; unzip -q -o "$z" -d "$1/$3"; rm -f "$z"' "$1" "$2"`;
+
+/**
+ * The shard artifacts in `list` ("<id> <name>" lines, as the artifacts API gives them): every name PATTERN matches, once,
+ * the newest (highest id) when a re-run kept two of one name, in shard order. Pure, for the tests.
+ */
+export function shardArtifacts(list) {
+  const newest = new Map();
+  for (const line of String(list ?? '').split('\n')) {
+    const m = /^(\d+) (real-app-journeys-shard-(\d+))$/.exec(line.trim());
+    if (!m) continue;
+    const had = newest.get(m[2]);
+    if (!had || Number(m[1]) > had.id) newest.set(m[2], { id: Number(m[1]), name: m[2], shard: Number(m[3]) });
+  }
+  return [...newest.values()].sort((a, b) => a.shard - b.shard);
+}
+
+/** One try: every shard artifact of `run`, PARALLEL at a time, each into `<dir>/<name>`; a failure throws with gh's stderr. */
+export function downloadAll(repo, run, dir) {
+  // A fresh folder each try: a half-finished download never mixes with the next.
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(dir, { recursive: true });
+  countCall(); // the artifact list: one page holds a run's shards
+  const list = execFileSync(
+    'gh',
+    ['api', '--paginate', `repos/${repo}/actions/runs/${run}/artifacts?per_page=100`, '--jq', '.artifacts[] | "\\(.id) \\(.name)"'],
+    { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8' },
+  );
+  const wanted = shardArtifacts(list);
+  // gh run download's own words for a run with none, so downloadShards reads it as it always has (missingArtifact).
+  if (!wanted.length)
+    throw Object.assign(new Error('no valid artifacts found to download'), { stderr: 'no valid artifacts found to download' });
+  console.log(`${wanted.length} shard artifacts, ${PARALLEL} at a time`);
+  for (const _ of wanted) countCall();
+  execFileSync('bash', ['-c', PARALLEL_SCRIPT, 'shard-download', repo, dir, String(PARALLEL)], {
+    input: wanted.map((a) => `${a.id} ${a.name}`).join('\n'),
+    stdio: ['pipe', 'inherit', 'pipe'],
+    encoding: 'utf8',
+  });
+}
+
 const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 /** A synchronous pause, for the waits above (step-pictures.mjs shares it). */
 export const pause = sleep;
@@ -118,15 +169,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   // The job's own limit (real-app-journeys.yml scoreboard timeout-minutes) less the time the later steps need.
   const deadline = Date.now() + Number(process.env.WAIT_BUDGET_MINUTES ?? 65) * 60_000;
   const io = {
-    download: () => {
-      // A fresh folder each try: a half-finished download never mixes with the next.
-      rmSync(dir, { recursive: true, force: true });
-      mkdirSync(dir, { recursive: true });
-      execFileSync('gh', ['run', 'download', run, '--repo', repo, '--pattern', PATTERN, '--dir', dir], {
-        stdio: ['ignore', 'inherit', 'pipe'],
-        encoding: 'utf8',
-      });
-    },
+    download: () => downloadAll(repo, run, dir),
     budget,
     wait: sleep,
     now: Date.now,

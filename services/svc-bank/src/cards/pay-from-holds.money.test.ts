@@ -11,7 +11,7 @@ import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryLedger, parseAmount as amt } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -31,7 +31,7 @@ const migrations = readdirSync(drizzle)
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
   const envUrl = process.env.TEST_DATABASE_URL?.trim();
   if (envUrl) return { url: envUrl, stop: async () => undefined };
-  const container = await new PostgreSqlContainer('postgres:16-alpine').start();
+  const container = await testPostgres('postgres:16-alpine').start();
   return { url: container.getConnectionUri(), stop: async () => void (await container.stop()) };
 }
 
@@ -218,6 +218,25 @@ describe('a card payment by the pay-from order (J-bank-29 #3 to #8, PG-hard)', (
     const forgetful = testPartnerCardHolds({ terms: () => PARTNER, switches: () => testPartner().switches(user), clock: () => AT });
     const broken = await service(forgetful).payFromReconciliation();
     expect(broken.breaks.find((b) => b.authorizationRef === first.ref)).toMatchObject({ reason: 'not_reported', partner: null });
+  });
+
+  it('#8 a partner whose read fails is a break row "unreadable", never "not reported", and no line sums it (#9353)', async () => {
+    const first = await pay('25');
+    await service().capture({ cardId, authorizationRef: first.ref, amount: amt('22') });
+    const down: PartnerCardHolds = {
+      ...holds,
+      holdState: async () => {
+        throw new Error('TEST partner read is down');
+      },
+    };
+    const view = await service(down).payFromReconciliation();
+    const mine = view.breaks.filter((b) => b.authorizationRef === first.ref);
+    expect(mine).toEqual([
+      { authorizationRef: first.ref, assetId: 'USDC', reason: 'unreadable', app: { spend: amt('22'), open: 0n }, partner: null },
+    ]);
+    expect(view.breaks.some((b) => b.reason === 'not_reported')).toBe(false);
+    // Every read failed, so every line leaves every payment out on both sides, as it does one the partner does not report.
+    expect(view.lines.find((l) => l.assetId === 'USDC' && l.kind === 'spend')).toMatchObject({ app: 0n, partner: 0n, status: 'matches' });
   });
 
   it('a partner answer for another amount or an asset outside the order is refused, and the row stays pending', async () => {

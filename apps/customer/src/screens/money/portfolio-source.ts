@@ -9,7 +9,8 @@
  */
 import { BANK_SPACES_LIST } from '@intafaced/contracts/bank-spaces-list';
 import { useEffect, useMemo } from 'react';
-import { z } from 'zod';
+import { breakdownSchema } from '@intafaced/contracts/bank-portfolio-reads';
+import type { z } from 'zod';
 import { classOf, useDataEnv, useSource, type Decimal, type Holding, type Loadable, type PortfolioSummary } from '../../data';
 import { dec, decOrNull, ratio, str, sub, sumOf, type Scaled } from '../../data/decimal';
 import { portfolioSource, type DataEnv } from '../../data/queries';
@@ -17,6 +18,8 @@ import { balancesFetcher } from '../../data/fetchers';
 import type { BalanceEntry } from '../../data/derive';
 import { constantSource, type Source } from '../../data/source';
 import type { Fetcher, Outcome } from '../../data/poll';
+import { BANK_PORTFOLIO_SUMMARY, BANK_PORTFOLIO_BALANCE_BREAKDOWN } from '@intafaced/contracts/bank-portfolio-procedures';
+import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 
 export interface MoneyRow {
   asset: string;
@@ -63,28 +66,7 @@ export type MoneyUnit = 'USD' | 'BTC';
 
 // ── the server's answer ──────────────────────────────────────────────────────
 
-const pricedSchema = z.object({
-  asset: z.string(),
-  amount: z.string(),
-  priceUsd: z.string(),
-  valueUsd: z.string(),
-  change24hUsd: z.string().nullable(),
-  pair: z.string().nullable(),
-});
-const unpricedSchema = z.object({ asset: z.string(), amount: z.string(), reason: z.string() });
-export const summarySchema = z.object({
-  totalUsd: z.string().nullable(),
-  change24hUsd: z.string().nullable(),
-  cashUsd: z.string().nullable(),
-  cryptoUsd: z.string().nullable(),
-  priced: z.array(pricedSchema),
-  unpriced: z.array(unpricedSchema),
-  asOf: z.number(),
-  windowStart: z.number().nullable(),
-  /** Only present when the screen asked for BTC: the same total in BTC, or null with the bank's reason. */
-  btc: z.object({ total: z.string().nullable(), priceUsd: z.string().nullable(), reason: z.string().nullable() }).optional(),
-});
-export type ServerSummary = z.infer<typeof summarySchema>;
+export type ServerSummary = ProcedureOutput<typeof BANK_PORTFOLIO_SUMMARY>;
 
 /** Coin amounts and dollar values in the order the screen shows them. */
 function byValue(a: MoneyRow, b: MoneyRow): number {
@@ -204,7 +186,7 @@ function summaryInput(scope: MoneyScope, unit: MoneyUnit): { scope?: string; dis
 
 export function summaryFetcher(env: DataEnv, scope: MoneyScope = 'combined', unit: MoneyUnit = 'USD'): Fetcher<ServerSummary> {
   return async (signal): Promise<Outcome<ServerSummary>> => {
-    const result = await env.api.query('bank', 'portfolio.summary', summaryInput(scope, unit), summarySchema, { signal });
+    const result = await env.api.call(BANK_PORTFOLIO_SUMMARY, summaryInput(scope, unit), { signal });
     if (result.ok) return result;
     // The bank says it cannot read prices: that is a typed refusal with words of its own (it arrives as a 503, which the
     // poller would otherwise read as a broken connection).
@@ -252,7 +234,7 @@ export function useDisplayRate(code: string): DisplayRate {
           ? env.poller.source(
               `${SERVER_SUMMARY_KEY}:${env.userId}:unit:${code}`,
               async (signal): Promise<Outcome<ServerSummary>> =>
-                env.api.query('bank', 'portfolio.summary', { displayCurrency: code }, summarySchema, { signal }),
+                env.api.call(BANK_PORTFOLIO_SUMMARY, { displayCurrency: code }, { signal }),
               { intervalMs: RATE_PROBE_INTERVAL },
             )
           : constantSource<ServerSummary>({ status: 'refused', code: 'auth.required' }),
@@ -394,24 +376,6 @@ export function useNamedAccounts(): Loadable<NamedAccount[]> {
 
 const BALANCE_INTERVAL = 15_000;
 
-/** The bank's `bank.portfolio.balanceBreakdown` for the main account: each asset split into spendable and every lock kind. */
-export const breakdownSchema = z.object({
-  assets: z.array(
-    z.object({
-      assetId: z.string(),
-      total: z.string(),
-      available: z.string(),
-      locked: z.array(
-        z.object({
-          kind: z.string(),
-          amount: z.string(),
-          claims: z.array(z.object({ purpose: z.string(), amount: z.string() })),
-        }),
-      ),
-    }),
-  ),
-});
-
 /** One coin of the main account with its locks told apart: orders on one side, everything else locked on the other. */
 export interface LockSplit {
   /** What the main account holds of the coin, as the bank returned it. Absent on a coin the answer did not list. */
@@ -426,7 +390,7 @@ export interface LockSplit {
 }
 
 /** Reshape the bank's answer into one `LockSplit` per coin. Sums are exact (scaled integers), never floating point. */
-export function lockSplits(answer: z.infer<typeof breakdownSchema>): Record<string, LockSplit> | null {
+export function lockSplits(answer: z.input<typeof breakdownSchema>): Record<string, LockSplit> | null {
   const out: Record<string, LockSplit> = {};
   for (const asset of answer.assets) {
     // One amount that does not parse makes the whole answer unusable: never turn an unknown figure into a shown zero.
@@ -458,7 +422,7 @@ export function lockSplits(answer: z.infer<typeof breakdownSchema>): Record<stri
 
 export function breakdownFetcher(env: DataEnv): Fetcher<Record<string, LockSplit>> {
   return async (signal) => {
-    const result = await env.api.query('bank', 'portfolio.balanceBreakdown', { scope: 'main' }, breakdownSchema, { signal });
+    const result = await env.api.call(BANK_PORTFOLIO_BALANCE_BREAKDOWN, { scope: 'main' }, { signal });
     if (!result.ok) return result;
     const splits = lockSplits(result.data);
     return splits ? { ok: true, data: splits } : { ok: false, reason: 'invalid_response', code: 'money.breakdown_invalid' };

@@ -20,6 +20,19 @@ export async function assertAdminUp() {
     );
 }
 
+/** The two founders' console pages (`founders`, the file's own `{ a, b }`), each opened and signed in once on first use. */
+export function founderPagesOf(founders) {
+  return async function founderPages(browser) {
+    for (const key of ['a', 'b']) {
+      if (founders[key]) continue;
+      founders[key] = await (await browser.newContext()).newPage();
+      await founderSignIn(founders[key], key);
+      await founders[key].goto(`${ADMIN}/`, { waitUntil: 'load' });
+    }
+    return founders;
+  };
+}
+
 /** Signs founder `key` ('a' or 'b') in to the console in this page, and returns the founder's vault entry (no secrets used after). */
 export async function founderSignIn(page, key = 'a') {
   await assertAdminUp();
