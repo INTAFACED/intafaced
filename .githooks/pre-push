@@ -71,6 +71,20 @@ MESSAGE
   fi
 done < "$PUSHED"
 
+# A notice, never a refusal: CI still running on the head this push replaces (tooling/scripts/pre-push-ci-running.mjs,
+# project-state#3754). It runs beside the checks and prints at the end; offline or without gh it prints nothing.
+CI_NOTE=$(mktemp)
+if [ -f "$TOP/tooling/scripts/pre-push-ci-running.mjs" ]; then
+  # shellcheck disable=SC2046 # one sha per word
+  (CDPATH= cd -- "$TOP" && node tooling/scripts/pre-push-ci-running.mjs $(awk '{print $4}' "$PUSHED")) </dev/null > "$CI_NOTE" 2>/dev/null &
+  NOTE_PID=$!
+fi
+ci_note() {
+  [ -n "${NOTE_PID:-}" ] && wait "$NOTE_PID"
+  cat "$CI_NOTE"
+  rm -f "$CI_NOTE"
+}
+
 # A push that brings nothing of its own skips every check below: main's commits were judged by main's CI, and a clean
 # merge adds only them. On 22 Nov moving seven volt/* layer branches to main took over 30 minutes, every push a full run
 # of the checks (3 min 16 s for one fast-forward). Judged from git alone, commit by commit down from the pushed tip:
@@ -109,6 +123,7 @@ done < "$PUSHED"
 if [ "$NOTHING_NEW" = yes ]; then
   echo "pre-push: this push adds nothing beyond origin/main and what the remote already holds; the checks are skipped."
   rm -f "$PUSHED"
+  ci_note
   exit 0
 fi
 
@@ -208,6 +223,7 @@ if [ -n "${SIZE_PID:-}" ]; then
   while read -r line; do refuse "$line"; done < "$SIZE_REFUSED"
 fi
 rm -f "$PUSHED" "$SIZE_OUT" "$SIZE_REFUSED" "$CHANGED_OUT" "$CHANGED_REFUSED" "$BUILD_GATE"
+ci_note
 
 if [ -n "$REFUSED" ]; then
   echo >&2
