@@ -331,7 +331,10 @@ function ChangeRow({
 }) {
   const { t } = accountCopy.useCopy();
   const [reason, setReason] = useState('');
-  const keys = Object.keys(change.after) as Array<keyof ProfileFields>;
+  // svc-pay sends every field before and after a change: name only the ones it changed.
+  const keys = (Object.keys(change.after) as Array<keyof ProfileFields>).filter(
+    (k) => JSON.stringify(change.before[k] ?? null) !== JSON.stringify(change.after[k] ?? null),
+  );
   const statusWord: Record<string, string> = {
     applied: t('chSaved'),
     applied_pre_kyb: t('chSaved'),
