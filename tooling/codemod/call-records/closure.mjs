@@ -198,6 +198,18 @@ export function closureOf(repo, roots) {
     order.push(key);
   };
   for (const { p, node, where } of roots) if (node) visit(p, node, where);
+  // A helper that would move under a name the group already imports from contracts (svc-pay's invoices router reads
+  // founder-admin's `id`; its caller's schema reads the app's own `id`): the same text is that one copy, so it is read
+  // from contracts and stays in its old home; a different one cannot share the record file with it.
+  for (const key of [...order]) {
+    const m = moved.get(key);
+    const c = fromContracts.get(m.name);
+    if (!c || m.inline) continue;
+    if (declaresSame(c.file, c.imported, m.text.replace(new RegExp(`\\b${m.name}\\b`), c.imported))) {
+      moved.delete(key);
+      order.splice(order.indexOf(key), 1);
+    } else problems.push(`${key}: ${m.name} clashes with another ${m.name} the record imports from ${relative(repo, c.file)}`);
+  }
   const names = new Map();
   for (const key of order) {
     const m = moved.get(key);
