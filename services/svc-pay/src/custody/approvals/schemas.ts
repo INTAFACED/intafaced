@@ -12,7 +12,6 @@ import {
   listInputSchema,
   APPROVER_ROLES,
   approverViewSchema,
-  taskIdInputSchema,
   taskDetailSchema,
 } from '@intafaced/contracts/pay-founder-admin-procedures';
 
@@ -71,4 +70,4 @@ export const settleResultSchema = z.object({
   failures: z.array(z.object({ taskId: id, code: z.string() })),
 });
 export type SettleResult = z.infer<typeof settleResultSchema>;
-export { taskViewSchema, approverViewSchema, taskIdInputSchema };
+export { taskViewSchema, approverViewSchema };

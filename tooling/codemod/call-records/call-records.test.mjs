@@ -1153,13 +1153,38 @@ test('a call naming one of two paths by `? :` is a site per branch, its input wr
     [
       "export const a = (api: any, ok: boolean, id: string) => api.mutate('bank', ok ? 'holds.accept' : 'holds.deny', { id }, s);",
       "export const b = (api: any, reg: boolean, body: object) => api.mutate('identity', reg ? 'auth.register' : 'auth.login', body, s);",
+      // An input that is a `? :` on the very test that picks the call: each value sends its own branch. On another test it stays.
+      "export const c = (api: any, rotate: boolean, ids: object) => api.mutate('identity', rotate ? 'keys.rotate' : 'keys.removeOld', rotate ? { keyId: 'k', ...ids } : ids, s);",
+      "export const d = (api: any, rotate: boolean, other: boolean, ids: object) => api.mutate('identity', rotate ? 'keys.rotate' : 'keys.removeOld', other ? { keyId: 'k' } : ids, s);",
       '',
     ].join('\n'),
   );
   execFileSync('git', ['init', '-q'], { cwd: repo });
   execFileSync('git', ['add', '.'], { cwd: repo });
   const found = findSites(repo).map((s) => `${s.path} ${s.fan.at} ${s.problem ? 'stays' : 'moves'}`);
-  assert.deepEqual(found, ['holds.accept 0 moves', 'holds.deny 1 moves', 'auth.register 0 stays', 'auth.login 1 stays']);
+  assert.deepEqual(found, [
+    'holds.accept 0 moves',
+    'holds.deny 1 moves',
+    'auth.register 0 stays',
+    'auth.login 1 stays',
+    'keys.rotate 0 moves',
+    'keys.removeOld 1 moves',
+    'keys.rotate 0 stays',
+    'keys.removeOld 1 stays',
+  ]);
+
+  // Written back as one call, each value sending its own branch of the input.
+  const { callText } = await import('./index.mjs');
+  const { fanIn } = await import('./fan.mjs');
+  const file = join(repo, 'apps/customer/src/holds.ts');
+  const keys = findSites(repo).filter((s) => s.path?.startsWith('keys.') && !s.problem);
+  const changes = new Changes();
+  for (const s of keys) rewriteSite(changes, s, s.path.toUpperCase().replace('.', '_'), '@intafaced/contracts/x', false);
+  const planned = { hand: [], existing: [] };
+  fanIn(changes, planned, [], callText);
+  const out = applyEdits(load(file).src, changes.of(file).edits);
+  assert.match(out, /=> \(rotate \? api\.call\(KEYS_ROTATE, \{ keyId: 'k', \.\.\.ids \}\) : api\.call\(KEYS_REMOVEOLD, ids\)\);$/m);
+  assert.deepEqual(planned.hand, []);
 });
 
 test('a call named by a template over a closed set the code lists is one site per value, written back as one call; an open one stays, named', async () => {
