@@ -155,6 +155,9 @@ FROM base AS runtime
 ENV NODE_ENV=production
 
 COPY --from=build --chown=node:node /app /app
+# /app itself is root's (WORKDIR made it); a service's own state directory, `.data` (svc-edge's kill-switch file,
+# EDGE_KILL_STATE_PATH), is the node user's, or the service could never write it.
+RUN mkdir -p /app/.data && chown node:node /app/.data
 
 USER node
 

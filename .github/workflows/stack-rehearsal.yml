@@ -73,11 +73,11 @@ jobs:
 
       # The edge keeps its operator kill-switch in a state file, and a missing file halts every module (fail-closed,
       # services/svc-edge/src/kill-switch.ts). `{ "killed": [] }` is the recorded all-on state an operator writes on a
-      # new host; the rehearsal writes it the same way, restarts the edge to read it, and waits for it again.
+      # new host (docs/runbooks/OPS-KILL-SWITCH-RUNBOOK.md); the rehearsal writes it the same way, restarts the edge to read it, and waits for it again.
       - name: The operator records every module on
         run: |
           set -euo pipefail
-          $COMPOSE exec -T svc-edge sh -c 'p="${EDGE_KILL_STATE_PATH}"; mkdir -p "$(dirname "$p")" && printf "%s" "{\"killed\":[]}" > "$p"'
+          $COMPOSE exec -T svc-edge sh -c 'printf %s "{\"killed\":[]}" > "$EDGE_KILL_STATE_PATH"'
           $COMPOSE restart svc-edge
           tooling/infra/compose-health.sh 30 -f docker-compose.apps.yml
 

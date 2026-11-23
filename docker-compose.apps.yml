@@ -382,6 +382,11 @@ services:
       CONNECT_DATA_LAKE_TSDB_URL: postgres://svc_connect_lake:${SVC_CONNECT_LAKE_DB_PASSWORD:-svc_connect_lake}@postgres:5432/intafaced
       CONNECT_DATA_LAKE_RETENTION_DAYS: ${CONNECT_DATA_LAKE_RETENTION_DAYS:-}
     ports: ['127.0.0.1:4000:4000']
+    # The kill-switch state file (EDGE_KILL_STATE_PATH, relative to /app) outlives a recreated container, so an
+    # incident halt is not lost on a redeploy. A new volume holds no file: the edge halts every module until an operator
+    # records `{ "killed": [] }` (docs/runbooks/OPS-KILL-SWITCH-RUNBOOK.md).
+    volumes:
+      - edgestate:/app/.data
     healthcheck: *healthcheck
     # Started last on purpose: the door should open onto services that are
     # already answering, so a user's first request is not a 502.
@@ -2486,6 +2491,7 @@ services:
       - ${LOCAL_STACK_STATE:-/var/lib/intafaced/local-test-stack}:${LOCAL_STACK_STATE:-/var/lib/intafaced/local-test-stack}
 
 volumes:
+  edgestate:
   matchingjournal:
   execution-ems-journal:
   academy-miniodata:
