@@ -9,10 +9,11 @@ import { HOLD_MAX_MS } from '../../../../tooling/scripts/local-test-market.mjs';
 // on one TEST account. The contract is the TEST perpetual `local-test-gates.mjs futures` lists; no agreement, knowledge
 // check or notice gates it (owner decision 2026-10-27). Every number is a TEST number on the local stack, read back
 // through the customer's own API.
-// Steps #1, #4, #5, #6, #8, #9, #10 and #11 run on the TEST venue (J-derivatives-01-venue.pw.mjs carries their step titles).
-// Here they are titled "J-derivatives-01, part of #<n>, checked on our own ledger": the margin lock, the closes and the
-// ledger's figures stay checked, and the journeys verdict on main turns red when one fails after it passed on main
-// (tooling/ci/journey-verdict.mjs judge, project-state #2232).
+// Steps #1, #2, #4, #5, #6, #8, #9, #10 and #11 run on the TEST venue (J-derivatives-01-venue.pw.mjs carries their step
+// titles). Here they are titled "J-derivatives-01, part of #<n>, checked on our own ledger": our own gated list and
+// strip, the margin lock, the closes and the ledger's figures stay checked, and the journeys verdict on main turns red
+// when one fails after it passed on main (tooling/ci/journey-verdict.mjs judge, project-state #2232). A step titled in
+// two files is pictured from whichever file the run's report lists first, so each step is titled in the venue file alone.
 const J = 'J-derivatives-01';
 const DESK = '/trade/futures';
 const SYMBOL = 'BTC/USDT:USDT';
@@ -89,7 +90,7 @@ test(`${J}, part of #1, checked on our own ledger: opens /trade/futures and sees
 // The legal and suitability reasons the list used to carry. None of them is a reason any more (owner decision 2026-10-27).
 const LEGAL_CODES = ['trade.derivatives_eligibility_unset', 'trade.agreement_required', 'trade.adl_disclosure_required'];
 
-test(`${J} #2 reads the gated list: each contract open or blocked as the service says, with each reason; no legal step is a reason`, async ({
+test(`${J}, part of #2, checked on our own ledger: reads the gated list: each contract open or blocked as the service says, with each reason; no legal step is a reason`, async ({
   page,
 }) => {
   const who = account();
