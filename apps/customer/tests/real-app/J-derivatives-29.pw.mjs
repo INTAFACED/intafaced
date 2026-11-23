@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { fromUnits, journeyState, toUnits } from './stack.mjs';
-import { signUp, verify } from './desk.mjs';
+import { pictureFromTop, signUp, verify } from './desk.mjs';
 import { personDoor } from './person-door.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import {
@@ -254,7 +254,7 @@ test(`${J} #3 signs the move: the venue moves the USDC once; perps falls and spo
   expect(await ledgerOf()).toEqual(state().ledger);
 });
 
-test(`${J} #4 sends the same move again: nothing moves; the first move's result is shown`, async () => {
+test(`${J} #4 sends the same move again: nothing moves; the first move's result is shown`, async ({ stepPicture }) => {
   test.setTimeout(180_000);
   const { owner, moved } = state();
   const page = movePage;
@@ -273,6 +273,8 @@ test(`${J} #4 sends the same move again: nothing moves; the first move's result 
     });
     // The first move's result stays shown, word for word.
     await expect(offer.getByTestId('spot-short-landed')).toHaveText(firstResult);
+    // The step's picture, of #3's page: this test has no page of its own, and closes this one as it ends.
+    await pictureFromTop(page, stepPicture);
     // The door answered the stored move: one prepare under #3's key, no new signature, nothing submitted.
     expect(calls.of('prepare')).toHaveLength(1);
     expect(calls.of('submit')).toHaveLength(0);
@@ -386,6 +388,7 @@ test(`${J} #7 asks to switch the account to unified mode while the venue refuses
 
 test(`${J} #8 switches the account to unified mode and signs: one signed venue action; the account then reads unified, with one USDC balance used by spot and perps, from the venue`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(180_000);
   const { owner } = state();
@@ -422,6 +425,9 @@ test(`${J} #8 switches the account to unified mode and signs: one signed venue a
     .toBe(true);
   await expect(oneBalance).toContainText('One USDC balance, used by spot and perps');
   await expect(panel(page).getByTestId('mode-spot')).toHaveCount(0);
+  // The step's picture from the top of the page: signing left it scrolled to the switch, and a whole-page picture of a
+  // scrolled page draws the top bar across the mode panel, over the one balance.
+  await pictureFromTop(page, stepPicture);
   expect(await ledgerOf()).toEqual(state().ledger);
 });
 
