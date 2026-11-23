@@ -10,7 +10,7 @@ import { staffDoors } from './bank-desk.mjs';
 import { ADMIN } from './admin.mjs';
 import { CHAIN_ID, connectWhenAsked } from './dex.mjs';
 import { installTestWallet, testWalletKey } from './test-wallet.mjs';
-import { otherTraderKey, sameDecimal, testDeposit, venueForThisFile, venueRecord } from './venue.mjs';
+import { otherTraderKey, sameDecimal, testDeposit, venueForThisFile, venueRecord, walletDoorAct } from './venue.mjs';
 import { signedOnVenue, venueAt, venueNow } from './venue-door.mjs';
 
 // J-derivatives-26, in the running app (docs/roadmap/journeys.json): my spending money stays untouched when my cross
@@ -121,15 +121,24 @@ async function startsFor(page, door, store, tag) {
     clientOrderKey: `order:${tag}:${randomBytes(4).toString('hex')}:ask`,
     builderFee: null,
   });
+  // The person's own actions go through our door, signed by their wallet, as the app sends them: the door then knows
+  // this venue account is theirs (the founder's read in #8 finds it there). A market listed a moment ago may not be in
+  // the door's list yet, so the same action, under the same key, is asked again until the door takes it.
   const key = privateKeyToAccount(walletKey);
-  await signedOnVenue(venue, key, cross);
-  await signedOnVenue(venue, key, {
-    ...ask,
-    side: 'buy',
-    timeInForce: 'IOC',
-    reduceOnly: false,
-    clientOrderKey: `order:${tag}:${randomBytes(4).toString('hex')}:open`,
-    builderFee: null,
+  const session = await door.door();
+  await expect(() => walletDoorAct(session, key, { intent: cross, actionKey: `leverage:${owner}:${XCRS}:cross` })).toPass({
+    timeout: 30_000,
+    intervals: [2_000],
+  });
+  await walletDoorAct(session, key, {
+    intent: {
+      ...ask,
+      side: 'buy',
+      timeInForce: 'IOC',
+      reduceOnly: false,
+      clientOrderKey: `order:${tag}:${randomBytes(4).toString('hex')}:open`,
+      builderFee: null,
+    },
   });
   const position = (await venueRecord(owner, '/positions')).value.find((p) => p.symbol === XCRS);
   expect(position).toMatchObject({ side: 'long', marginMode: 'cross' });
