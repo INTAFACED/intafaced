@@ -7,7 +7,7 @@
 //   - garden/no-raw-type-class: a raw type utility in a room (`text-sm`, `text-[13px]`, `font-medium`, `leading-5`,
 //     `tracking-wide`); use the kit's type roles (`<Text variant="body">`, packages/ui/src/components/text.tsx).
 // Main still holds findings of all three: each room file's count is frozen in apps/customer/kit-ceilings.json and may only
-// fall (tooling/lint/kit-ceilings.mjs; its test fails when a count passes its ceiling or a ceiling is stale), and the lint
+// fall (tooling/lint/kit-ceilings.mjs; its test fails when a count passes its ceiling or its count on main), and the lint
 // ratchet fails a change whose touched files gain one.
 
 const ROOM = /\/apps\/customer\/src\//u;

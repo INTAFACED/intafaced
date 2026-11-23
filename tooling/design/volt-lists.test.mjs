@@ -1,7 +1,7 @@
 // tooling-tests: alone. It runs `git fetch` into the checkout's own .git (FETCH_HEAD, objects/maintenance.lock).
 // volt-off-kit.json only shrinks: a change may drop rooms from it, never add one that its fork point from main did not
-// list. volt-count.test.ts holds the rest of the ratchet: every room off the kit is listed, and, but on a
-// batch into a Volt layer, every listed room is off the kit.
+// list. volt-count.test.ts holds the rest of the ratchet: every room off the kit is listed, and no room on the kit at
+// the fork point is off it now; a stale entry passes, and tooling/design/prune-lists.mjs drops it.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';

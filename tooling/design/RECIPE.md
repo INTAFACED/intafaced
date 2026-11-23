@@ -23,9 +23,9 @@ row already on their template. One PR per batch.
      barrel (`../trade`; the finding names the file that holds it). Redraw it from the kit where it lives, once, for every room that shares it (volt-count judges it by the same rule); a generic part goes into the kit.
    - `stylesheet`, `inline-style`: delete; the template and the kit's classes carry the layout.
 5. **Prove it:** `GITHUB_BASE_REF=volt/<template> pnpm --filter @intafaced/customer exec vitest run src/app/volt-count.test.ts`
-   shows n rose by the batch and nothing fell. A batch leaves `volt-off-kit.json` and `kit-ceilings.json` as they are: on a
-   batch into a layer a stale entry does not fail. The layer's PR into main holds them exact: before opening it, run
-   `node tooling/design/volt-count.mjs --write` and `node tooling/lint/kit-ceilings.mjs --write` on the layer and push. Typecheck, the customer unit tests and the Look gate's pictures pass in CI on the batch's head; the journeys
+   shows n rose by the batch and nothing fell. A batch leaves `volt-off-kit.json` and `kit-ceilings.json` as they are, into
+   main or a layer: a stale entry passes everywhere, and a room or file still may not fall back below main.
+   `node tooling/design/prune-lists.mjs`, in its own PR, drops stale entries. Typecheck, the customer unit tests and the Look gate's pictures pass in CI on the batch's head; the journeys
    the rooms reach pass on the layer's PR into main, where the CI review judges the before and after pictures. A journey test changes only when the PR names its step and proves
    it again. Every `data-testid`, `data-cell` and `data-col` a journey test finds by stays:
    `node --test tooling/design/volt-keep-ids.test.mjs` (run with the tooling tests) names any the batch dropped.
