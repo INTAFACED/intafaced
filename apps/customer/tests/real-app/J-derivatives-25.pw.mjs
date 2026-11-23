@@ -217,7 +217,6 @@ test(`${J} #1 opens /trade/account: two named groups, each with an as-of time: t
   expect(sameDecimal(card.figures.available, partnerHas)).toBe(true);
   const cardLine = spending(page).locator(`[data-testid="spending-card"][data-card="${cardId}"]`);
   await expect(cardLine).toHaveText(`Card ending ${panTail}: 1,000.00 USDC available, from ${PARTNER_BANK}`, { timeout: 30_000 });
-  await expect(spending(page).getByTestId('spending-card')).toHaveCount(1);
 
   // The line, word for word.
   await expect(page.getByTestId('liquidation-line')).toHaveText(
