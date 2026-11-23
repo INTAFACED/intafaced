@@ -113,7 +113,15 @@ import { codeReachDir, nodeServiceReach } from './service-reach.mjs';
 import { runMvnSync } from './mvn-run.mjs';
 import { marketStatus } from './local-test-market.mjs';
 import { serveRailStatements } from './local-test-rail-statements.mjs';
-import { serveTestVenue, testVenueChainId, testVenueId, userVenueCount, userVenueSwitchOn } from './local-test-venue.mjs';
+import {
+  serveTestVenue,
+  testVenueChainId,
+  testVenueId,
+  testVenueKind,
+  userVenueCount,
+  userVenueKind,
+  userVenueSwitchOn,
+} from './local-test-venue.mjs';
 import { serveTestWalletProvider, TEST_WALLET_PROVIDER_CLIENT_PATH } from './local-test-wallet-provider.mjs';
 import { ensureTestCert, httpsGetTrusting, serveTeamTls } from './local-test-team-tls.mjs';
 import { serveVideoStore } from './local-video-store.mjs';
@@ -173,6 +181,7 @@ import {
   DEFAULT_SERVICES,
 } from './local-test-state.mjs';
 import { lostAccountFiles, pgDurable, pgServerFlags, retireAccountFiles } from './local-test-db-state.mjs';
+import { BANNER_TEXT, withTestBanner } from '../../apps/customer/deployment/test-banner.mjs';
 
 // ── Paths and ports ─────────────────────────────────────────────────────────
 
@@ -250,7 +259,6 @@ const SCHEMAS = [
 const SCHEMA_SERVICE = { mining_pool: 'mining-pool' };
 const serviceOfSchema = (s) => SCHEMA_SERVICE[s] ?? s;
 const STREAM_PREFIX = 'LOCAL_TEST';
-const BANNER_TEXT = 'LOCAL TEST STACK — TEST PRICES · TEST FUNDS · not real money';
 const FUND_RAIL = 'local-test';
 const MIN_FREE_GB = 14; // 10 GB machine floor + build margin
 
@@ -2225,6 +2233,8 @@ async function startTestVenue(name = 'test-venue') {
     TEST_VENUE_CHAIN_ID: String(testVenueChainId(process.env.TEST_VENUE_CHAIN_ID)),
     TEST_VENUE_RPC_URL: chain?.usdToken ? `http://${HOST}:${CHAIN_PORTS.anvil}` : '',
     TEST_VENUE_DEPOSIT_TOKEN: chain?.usdToken ?? '',
+    // Which venue the first one is: the simulator, or the Hyperliquid test network recorded or live (#10203).
+    TEST_VENUE_KIND: userVenueKind(process.env.LOCAL_STACK_USER_VENUE) ?? '',
   };
   const cmd = name === 'test-venue' ? '__serve-test-venue' : '__serve-test-venue-b';
   const pid = startProc(name, [process.execPath, SCRIPT, cmd], env, REPO);
@@ -3277,16 +3287,13 @@ const MIME = {
   '.webmanifest': 'application/manifest+json',
 };
 
-const BANNER_HTML =
-  `<style>body{padding-top:28px !important}</style>` +
-  `<div id="local-test-stack-banner" role="status" style="position:fixed;top:0;left:0;right:0;height:28px;z-index:2147483647;` +
-  `display:flex;align-items:center;justify-content:center;background:#F5A915;color:#0b0b0b;` +
-  `font:600 12px/1 ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;letter-spacing:.04em;text-align:center;` +
-  `pointer-events:none;user-select:none">${BANNER_TEXT}</div>`;
-
-function indexWithBanner(dist) {
+/**
+ * The page a site serves. The Customer build carries its own TEST banner (apps/customer/deployment/test-banner.mjs),
+ * so its page is served as built; the invitation and apex stand-ins get the same banner here.
+ */
+function indexWithBanner(dist, site) {
   const html = fs.readFileSync(path.join(dist, 'index.html'), 'utf8');
-  return html.replace(/<body([^>]*)>/i, (m) => `${m}${BANNER_HTML}`);
+  return site === SITES.customer ? html : withTestBanner(html, {});
 }
 
 /** What nginx's /api/ location adds to Edge's answers (security-headers-api.conf). */
@@ -3524,7 +3531,7 @@ function serveCustomer(port = PORTS.customer, site = SITES.customer) {
     if (p.startsWith('/assets/')) return send(res, 404, 'text/plain; charset=utf-8', 'not found');
     let html;
     try {
-      html = indexWithBanner(dist);
+      html = indexWithBanner(dist, site);
     } catch {
       return send(res, 503, 'text/plain; charset=utf-8', `No ${site.label} build found in ${dist}. Run: pnpm local:stack --rebuild`);
     }
@@ -4967,6 +4974,7 @@ async function runCli() {
       rpcUrl: process.env.TEST_VENUE_RPC_URL,
       depositToken: process.env.TEST_VENUE_DEPOSIT_TOKEN,
       id: testVenueId(process.env.TEST_VENUE_ID),
+      kind: testVenueKind(process.env.TEST_VENUE_KIND),
     });
   else if (cmd === '__serve-test-venue-b')
     await serveTestVenue({

@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { defineConfig, loadEnv, runnerImport, type Plugin } from 'vite';
 import tailwindcss from '@tailwindcss/vite';
 import { homeBoot } from './src/app/boot';
+import { testBanner } from './deployment/test-banner.mjs';
 import { localWorkers } from '../../tooling/scripts/local-jobs.mjs';
 import { nodeStorageOff, testResults } from '../../tooling/vitest/budget.mjs';
 
@@ -105,10 +106,11 @@ export function developerDocs(): Plugin {
 }
 
 export default defineConfig(({ mode }) => {
-  assertLocalTestBuildAllowed(mode, { ...loadEnv(mode, process.cwd(), ['VITE_', 'INTAFACED_']), ...process.env });
+  const env = { ...loadEnv(mode, process.cwd(), ['VITE_', 'INTAFACED_']), ...process.env };
+  assertLocalTestBuildAllowed(mode, env);
   return {
     esbuild: { jsx: 'automatic' },
-    plugins: [tailwindcss(), homeBoot(), hostDispatchReceipt(), developerDocs()],
+    plugins: [tailwindcss(), homeBoot(), testBanner(env), hostDispatchReceipt(), developerDocs()],
     server: {
       proxy: {
         '/api': { target: process.env.CUSTOMER_EDGE_URL ?? 'http://127.0.0.1:4000', changeOrigin: false },

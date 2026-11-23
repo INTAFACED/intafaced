@@ -3,7 +3,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { api, fromUnits, journeyState, toUnits } from './stack.mjs';
-import { pictureFromTop, signUp, verify } from './desk.mjs';
+import { signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import { ownSpotMarket } from './own-market.mjs';
 import {
@@ -386,7 +386,7 @@ test(`${J} #3 places a stop-market and looks at the pending list: pending orders
         expect(b && box && b.x >= box.x && b.x + b.width <= box.x + box.width, `${name} is cut off at the list's edge`).toBe(true);
       }
     // The step's picture: the pending list with both orders, each with its trigger, reference price, Modify and Cancel.
-    await pictureFromTop(page, stepPicture);
+    await stepPicture(page);
     const shown = await conditional(s, market);
     expect(shown).toMatchObject({ kind: 'stop_market', triggerPrice: '95', referencePrice: '100', triggerSource: 'last', status: 'armed' });
 

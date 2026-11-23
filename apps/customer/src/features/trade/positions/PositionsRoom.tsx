@@ -38,6 +38,7 @@ import {
 } from './positions-math';
 import { positionsCopy } from './positions-copy';
 import { LiquidationAftermath, LiquidationPanel } from './LiquidationPanels';
+import { AutoTopUpPanel } from './AutoTopUpPanel';
 
 /**
  * The positions room (`/trade/positions`, J-derivatives-05): the person's futures positions on every connected venue with
@@ -803,6 +804,7 @@ function IsolatedMargin({
           })}
         </p>
       ) : null}
+      {now ? <AutoTopUpPanel owner={owner} symbol={p.symbol} venueName={row.venue.name} /> : null}
       <Button tone="secondary" onClick={onClose}>
         {t('close')}
       </Button>
