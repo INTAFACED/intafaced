@@ -444,6 +444,10 @@ describe('states never contradict themselves', () => {
     expect(print).toMatch(
       /body:has\(\.lt-print-alone\) \*:not\(:has\(\.lt-print-alone\)\):not\(\.lt-print-alone, \.lt-print-alone \*\) \{\s*display: none !important;/,
     );
+    // Its frame prints as plain in-flow blocks, so the browser keeps its named page.
+    expect(print).toMatch(
+      /body:has\(\.lt-print-alone\),\s*body:has\(\.lt-print-alone\) \*:has\(\.lt-print-alone\) \{\s*display: block !important;\s*position: static !important;\s*float: none !important;\s*\}/,
+    );
     expect(print).toMatch(/\.lt-print-alone \{\s*page: lt-print-alone;\s*\}/);
     expect(print).toMatch(/\.lt-print-alone section \{\s*break-inside: avoid;\s*\}/);
     expect(print).toMatch(/\.lt-print-alone \.lt-no-print \{\s*display: none;\s*\}/);
