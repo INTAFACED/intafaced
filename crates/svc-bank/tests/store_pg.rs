@@ -262,11 +262,11 @@ fn a_job_door_answers_401_unsigned_then_names_its_slice() {
         body.compact(),
         r#"{"error":"service credentials required","code":"bank.unauthenticated"}"#
     );
-    let (status, body) = post(&d, "/internal/jobs/bill-pay/run-due", Some("svc-bank"));
+    let (status, body) = post(&d, "/internal/jobs/payout-sim/verify", Some("svc-bank"));
     assert_eq!(status, 500);
     assert_eq!(
         body.compact(),
-        r#"{"error":"svc-bank in Rust: the business-spend slice is not ported"}"#
+        r#"{"error":"svc-bank in Rust: the partner-account slice is not ported"}"#
     );
     d.end();
 }
