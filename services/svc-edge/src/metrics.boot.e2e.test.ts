@@ -63,16 +63,31 @@ async function freePort(): Promise<number> {
 let child: ChildProcess | null = null;
 let base = '';
 
+/** A boot attempt lost the port to another process between probe and listen. */
+class PortTaken extends Error {}
+
+/**
+ * `freePort` closes its probe before the child binds, and the child takes
+ * seconds to get through `tsx` and the module-scope wiring. Another test process
+ * on the same runner can take the port in that gap, and the child then exits
+ * with `listen EADDRINUSE`. Only that loss is retried, on a fresh port; any
+ * other exit before listening still fails the suite with the child's output.
+ */
+const BOOT_ATTEMPTS = 5;
+
 /** Poll until the process is listening, or give up loudly. */
-async function waitForBoot(url: string, log: () => string): Promise<void> {
+async function waitForBoot(proc: ChildProcess, url: string, log: () => string): Promise<void> {
   const deadline = Date.now() + 60_000;
   let last = '';
   while (Date.now() < deadline) {
-    if (child?.exitCode !== null && child?.exitCode !== undefined) {
-      throw new Error(`svc-edge exited with ${child.exitCode} before listening:\n${log()}`);
+    if (proc.exitCode !== null) {
+      if (log().includes('EADDRINUSE')) throw new PortTaken(log());
+      throw new Error(`svc-edge exited with ${proc.exitCode} before listening:\n${log()}`);
     }
     try {
-      const res = await fetch(`${url}/health`);
+      // Bounded, so a port taken by something that accepts and never answers
+      // cannot hold this loop past the child's exit.
+      const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(2_000) });
       if (res.ok) return;
       last = `status ${res.status}`;
     } catch (err) {
@@ -83,9 +98,9 @@ async function waitForBoot(url: string, log: () => string): Promise<void> {
   throw new Error(`svc-edge never became reachable (${last}):\n${log()}`);
 }
 
-beforeAll(async () => {
-  const port = await freePort();
-  base = `http://127.0.0.1:${port}`;
+/** Spawn the shipped entrypoint on `port` and wait until it answers `/health`. */
+async function boot(port: number): Promise<void> {
+  const url = `http://127.0.0.1:${port}`;
 
   let output = '';
   const log = () => output;
@@ -93,7 +108,7 @@ beforeAll(async () => {
   // `--import tsx` keeps this to ONE process, so the kill in `afterAll` cannot
   // leave an orphan holding the port. `tsx src/index.ts` would spawn a grandchild
   // that survives killing its parent on Windows.
-  child = spawn(process.execPath, ['--import', 'tsx', ENTRYPOINT], {
+  const proc = spawn(process.execPath, ['--import', 'tsx', ENTRYPOINT], {
     cwd: join(HERE, '..'),
     env: {
       ...process.env,
@@ -119,15 +134,31 @@ beforeAll(async () => {
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
+  child = proc;
 
-  child.stdout?.on('data', (d: Buffer) => {
+  proc.stdout?.on('data', (d: Buffer) => {
     output += d.toString();
   });
-  child.stderr?.on('data', (d: Buffer) => {
+  proc.stderr?.on('data', (d: Buffer) => {
     output += d.toString();
   });
 
-  await waitForBoot(base, log);
+  await waitForBoot(proc, url, log);
+  base = url;
+}
+
+beforeAll(async () => {
+  let lost = '';
+  for (let attempt = 1; attempt <= BOOT_ATTEMPTS; attempt += 1) {
+    try {
+      await boot(await freePort());
+      return;
+    } catch (err) {
+      if (!(err instanceof PortTaken)) throw err;
+      lost = err.message;
+    }
+  }
+  throw new Error(`svc-edge lost its port ${BOOT_ATTEMPTS} times in a row:\n${lost}`);
 }, 90_000);
 
 afterAll(async () => {
