@@ -1,6 +1,5 @@
 {
   "garden/no-restyled-kit-part": {
-    "apps/customer/src/features/account/Verification.tsx": 3,
     "apps/customer/src/screens/trade/futures/ContractStrip.tsx": 1,
     "apps/customer/src/screens/trade/futures/FuturesChart.tsx": 1,
     "apps/customer/src/screens/trade/futures/index.tsx": 3
@@ -24,7 +23,7 @@
     "apps/customer/src/features/account/VerificationGuided.tsx": 3,
     "apps/customer/src/features/account/VerificationLadder.tsx": 1,
     "apps/customer/src/features/account/VerificationProofOfAddress.tsx": 1,
-    "apps/customer/src/features/account/VerificationTradingChecks.tsx": 2,
+    "apps/customer/src/features/account/VerificationTradingChecks.tsx": 1,
     "apps/customer/src/features/account/View.tsx": 4,
     "apps/customer/src/features/developers/apps/AppsRoom.tsx": 6,
     "apps/customer/src/features/developers/ChangelogPages.tsx": 2,
@@ -235,7 +234,6 @@
     "apps/customer/src/shared/ui.tsx": 3
   },
   "garden/no-raw-type-class": {
-    "apps/customer/src/features/account/Verification.tsx": 2,
     "apps/customer/src/features/pay/ui-kit.tsx": 6,
     "apps/customer/src/screens/trade/convert/OtcConvert.tsx": 10,
     "apps/customer/src/screens/trade/execution/AlgoForm.tsx": 5,
