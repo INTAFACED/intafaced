@@ -609,7 +609,12 @@ jobs:
       matrix:
         shard: ${{ fromJSON(needs.changes.outputs.shards) }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 45 # healthy run: 11-20 min
+    # healthy run: 11-20 min; a pull request's red one may wait up to 20 more for main's run on its base
+    # (tooling/ci/base-failures.mjs WAIT_MIN)
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read # main's run on this pull request's base: its jobs and its test-results artifacts (base-failures.mjs)
 
     services:
       postgres:
@@ -701,14 +706,81 @@ jobs:
       # packages plus the readers in test-read-edges.json (ci-affected.mjs --filters); turbo builds what those tests
       # depend on (^build).
       # A piece shard passes vitest its `--shard=<k>/<m>` (after turbo's --), so it runs its share of the package's files.
+      # INTAFACED_TEST_RESULTS: each vitest run writes what it failed there (tooling/ci/test-results-reporter.mjs), and
+      # --summarize writes turbo's task results to .turbo/runs; the next steps read both.
+      # On a pull request a red here is judged by "Failures main already has" below, which fails the job unless every
+      # failure is one main already has (tooling/ci/base-failures.mjs). On main, and everywhere else, a red here is red.
       - name: Run pnpm test --continue
+        id: test
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        env:
+          INTAFACED_TEST_RESULTS: ${{ runner.temp }}/test-results
         run: |
           set -o pipefail
           filters=()
           while IFS= read -r f; do filters+=("--filter=$f"); done < "$RUNNER_TEMP/filters.txt"
           piece=()
           if [ -s "$RUNNER_TEMP/piece.txt" ]; then piece=(-- "--shard=$(cat "$RUNNER_TEMP/piece.txt")"); fi
-          pnpm test --continue --concurrency=3 "${filters[@]}" "${piece[@]}" 2>&1 | tee "$RUNNER_TEMP/test-output.log"
+          pnpm test --continue --concurrency=3 --summarize "${filters[@]}" "${piece[@]}" 2>&1 | tee "$RUNNER_TEMP/test-output.log"
+
+      # What this job's tests failed, as data: on main it is kept for pull requests to compare with. A pull request runs
+      # main's copy of the rules (base-failures.mjs and the files it imports, which base-failures.test.mjs keeps listed
+      # here), never its own, so it can't loosen the rule it is judged by; while main has none, nothing is excused.
+      # A recorder that breaks on main leaves main's verdict as its tests left it (continue-on-error there); pull
+      # requests then find no record and excuse nothing.
+      - name: Record this job's test results
+        id: record
+        if: >-
+          (success() || failure()) && (steps.test.outcome == 'success' || steps.test.outcome == 'failure') &&
+          (github.event_name != 'pull_request' || steps.test.outcome == 'failure')
+        continue-on-error: ${{ github.event_name != 'pull_request' }}
+        env:
+          SHARD: ${{ matrix.shard }}
+          OUTCOME: ${{ steps.test.outcome }}
+        run: |
+          bf=tooling/ci/base-failures.mjs
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            git fetch --no-tags --quiet origin main
+            if ! git cat-file -e origin/main:tooling/ci/base-failures.mjs 2>/dev/null; then
+              echo "::notice::main has no tooling/ci/base-failures.mjs yet, so no failure is excused"
+              exit 0
+            fi
+            mkdir -p "$RUNNER_TEMP/main-rules"
+            git archive origin/main tooling/ci/base-failures.mjs tooling/ci/github-fetch.mjs tooling/ci/api-budget.mjs \
+              tooling/ci/api-count.mjs tooling/ci/refusal.mjs tooling/ci/run-jobs.mjs tooling/ci/test-results-reporter.mjs |
+              tar -x -C "$RUNNER_TEMP/main-rules"
+            bf="$RUNNER_TEMP/main-rules/$bf"
+          fi
+          echo "BASE_FAILURES=$bf" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/test-results-record"
+          node "$bf" record --results "$RUNNER_TEMP/test-results" --turbo .turbo/runs \
+            --outcome "$OUTCOME" --shard "$SHARD" --out "$RUNNER_TEMP/test-results-record/test-record.json"
+          echo "artifact=test-results-${SHARD//\//-of-}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+      - name: Keep this job's test results
+        if: (success() || failure()) && github.event_name == 'push' && steps.record.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.record.outputs.artifact }}
+          path: ${{ runner.temp }}/test-results-record/test-record.json
+          retention-days: 14
+          if-no-files-found: error
+
+      # The owner's decision of 23 Nov 2026: a failing unit test that main's own run recorded the same way (test id and
+      # reason) on the commit this pull request merges into doesn't hold it. Never a test of money, custody, sign-in or
+      # permissions, nor a journey test; nothing when main's result is unknown. It names each failure it excused, and
+      # main's run. Only on a pull request; only when its tests failed.
+      - name: Failures main already has
+        if: (success() || failure()) && github.event_name == 'pull_request' && steps.test.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # The head is the merge commit; its first parent is main as this pull request merges into it.
+          if [ "$(git rev-list --parents -n 1 HEAD | wc -w)" = 3 ]; then
+            BASE_SHA="$(git rev-parse HEAD^1)"
+            export BASE_SHA
+          fi
+          if [ -z "${BASE_FAILURES:-}" ]; then echo "Verdict: red. Main has no base-failures rule yet."; exit 1; fi
+          node "$BASE_FAILURES" verdict --record "$RUNNER_TEMP/test-results-record/test-record.json"
 
       # Makes a red run readable without the full log. The Postgres service
       # container dumps its own log after the last step, so the tail of the job
@@ -774,10 +846,11 @@ jobs:
         if: always()
         run: node tooling/ci/infra-verdict.mjs
 
-      # Save each package's Maven repository that test-infra restored (#9531), only from a passing job that ran that
-      # package's Maven tests (its surefire reports exist), so the saved repository holds every plugin its tests need.
+      # Save each package's Maven repository that test-infra restored (#9531), only from a job whose tests all passed (not
+      # one green on excused failures) and that ran that package's Maven tests (its surefire reports exist), so the saved
+      # repository holds every plugin its tests need.
       - name: Save sbe-codec's Maven repository
-        if: success() && hashFiles('packages/sbe-codec/target/surefire-reports/TEST-*.xml') != ''
+        if: success() && steps.test.outcome == 'success' && hashFiles('packages/sbe-codec/target/surefire-reports/TEST-*.xml') != ''
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -786,7 +859,7 @@ jobs:
             !packages/sbe-codec/.tools/m2/**/resolver-status.properties
           key: maven-repo-sbe-codec-${{ runner.os }}-${{ hashFiles('packages/sbe-codec/pom.xml') }}
       - name: Save svc-fix's Maven repository
-        if: success() && hashFiles('services/svc-fix/target/surefire-reports/TEST-*.xml') != ''
+        if: success() && steps.test.outcome == 'success' && hashFiles('services/svc-fix/target/surefire-reports/TEST-*.xml') != ''
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
