@@ -758,6 +758,19 @@ test("a schema the caller's own function builds is an answer check, so its call 
   assert.deepEqual(answerChecks(p, init('b')), []);
 });
 
+test("a page builder imported from contracts is the routers' schema, not the caller's own function", () => {
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-'));
+  const file = join(dir, 'f.ts');
+  writeFileSync(
+    file,
+    "import { z } from 'zod';\nimport { payPageSchema } from '@intafaced/contracts/pay-merchant-reads';\nconst row = z.object({ id: z.string() });\nexport const a = payPageSchema(row);\nexport const b = payPageSchema(row.refine(Boolean));\n",
+  );
+  const p = load(file);
+  const init = (name) => p.program.body.find((s) => s.declaration?.declarations?.[0]?.id.name === name).declaration.declarations[0].init;
+  assert.deepEqual(answerChecks(p, init('a')), []);
+  assert.match(answerChecks(p, init('b'))[0], /^\.refine\(\)/);
+});
+
 test('a useBankRead, payCall and founderEdgeCall call each moves to its record form, its other arguments kept', () => {
   const repo = mkdtempSync(join(tmpdir(), 'call-records-'));
   const put = (path, lines) => {

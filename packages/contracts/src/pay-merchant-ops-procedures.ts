@@ -4,7 +4,13 @@ import { merchantCustomerSeriesInputSchema, merchantCustomerSeriesSchema } from 
 import { merchantActivationSchema } from './merchant-activation.js';
 import { id, limitInput, cursorInput } from './pay-founder-admin-procedures.js';
 import { payPageSchema } from './pay-merchant-reads.js';
-import { payActivityItemSchema, PAY_EXPORT_KINDS, payExportJobSchema, payExportDownloadSchema } from './pay-portal-reads.js';
+import {
+  payActivityItemSchema,
+  PAY_EXPORT_KINDS,
+  payExportJobSchema,
+  payExportDownloadSchema,
+  payPayoutListItemSchema,
+} from './pay-portal-reads.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-pay `merchantOps.*`, one record per call: svc-pay mounts each (`mountRecord`) and every app caller calls it by its record. */
@@ -664,6 +670,103 @@ export const PAY_MERCHANT_OPS_TEAM_DECLINE_INVITE = defineProcedure({
   output: z.object({ declined: z.literal(true) }),
   samples: [
     { verdict: 'accept', input: { memberId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_MERCHANT_OPS_PAYOUTS_LIST = defineProcedure({
+  ...base,
+  name: 'pay.merchantOps.payouts.list',
+  kind: 'query',
+  path: 'merchantOps.payouts.list',
+  access: { caller: 'anyScope', scopes: ['pay:onboard', 'pay:read'], module: 'pay' },
+  refusals: {},
+  input: z.object({
+    limit: limitInput,
+    cursor: cursorInput,
+    status: z.enum(['pending', 'posted', 'paid_out', 'failed']).optional(),
+    assetId: assetIdIn.optional(),
+    from: iso.optional(),
+    to: iso.optional(),
+    search: z.string().trim().min(1).max(200).optional(),
+  }),
+  output: payPageSchema(payPayoutListItemSchema),
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const endpointSchema = z.object({
+  id: z.string(),
+  url: z.string(),
+  status: z.enum(['active', 'disabled']),
+  disabledReason: z.string().nullish(),
+  consecutiveFailures: z.number().int().min(0),
+  /** The event types it subscribed to. An older service that does not send them is read as every type. */
+  eventTypes: z.array(z.string()).optional(),
+  /** While a rolled secret still signs beside the new one: when it stops. */
+  previousSecretUntil: stamp.nullish(),
+  createdAt: stamp,
+  updatedAt: stamp,
+});
+
+export const DELIVERY_STATUSES = ['pending', 'delivered', 'failed', 'dead', 'unknown'] as const;
+
+export const deliveryStatuses = ['pending', 'delivered', 'failed', 'dead', 'unknown'] as const;
+
+export const deliverySchema = z.object({
+  id: z.string(),
+  endpointId: z.string(),
+  eventId: z.string().optional(),
+  eventType: z.string(),
+  status: z.enum(deliveryStatuses),
+  attempts: z.number().int().min(0),
+  lastStatusCode: z.number().int().nullable(),
+  latencyMs: z.number().nullish(),
+  nextAttemptAt: stamp.nullish(),
+  createdAt: stamp,
+  deliveredAt: stamp.nullable(),
+});
+
+export const PAY_MERCHANT_OPS_WEBHOOKS_LIST = defineProcedure({
+  ...base,
+  name: 'pay.merchantOps.webhooks.list',
+  kind: 'query',
+  path: 'merchantOps.webhooks.list',
+  access: { caller: 'anyScope', scopes: ['pay:onboard', 'pay:read'], module: 'pay' },
+  refusals: {},
+  input: z.object({
+    limit: limitInput,
+    cursor: cursorInput,
+    status: z.enum(['active', 'disabled']).optional(),
+    search: z.string().trim().min(1).max(500).optional(),
+  }),
+  output: payPageSchema(endpointSchema),
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_MERCHANT_OPS_WEBHOOKS_DELIVERIES_LIST = defineProcedure({
+  ...base,
+  name: 'pay.merchantOps.webhooks.deliveries.list',
+  kind: 'query',
+  path: 'merchantOps.webhooks.deliveries.list',
+  access: { caller: 'anyScope', scopes: ['pay:onboard', 'pay:read'], module: 'pay' },
+  refusals: {},
+  input: z.object({
+    limit: limitInput,
+    cursor: cursorInput,
+    endpointId: id.optional(),
+    status: z.enum(DELIVERY_STATUSES).optional(),
+    from: iso.optional(),
+    to: iso.optional(),
+  }),
+  output: payPageSchema(deliverySchema),
+  samples: [
+    { verdict: 'accept', input: {} },
     { verdict: 'refuse', input: 42 },
   ],
 });
