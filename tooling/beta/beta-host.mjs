@@ -292,7 +292,7 @@ export function decide({ screening, head, target, updatedAt = null, now = Date.n
  */
 export const UPDATE_EVERY_MS = 2 * 3600_000;
 /** When the next update may run: UPDATE_EVERY_MS after the last one, or now when none is recorded. */
-export const nextUpdateAt = (updatedAt) => {
+const nextUpdateAt = (updatedAt) => {
   const at = Date.parse(updatedAt ?? '');
   return Number.isFinite(at) ? at + UPDATE_EVERY_MS : 0;
 };
