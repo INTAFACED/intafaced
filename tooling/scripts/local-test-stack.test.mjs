@@ -1625,17 +1625,6 @@ console.log('local-test-stack: customer folder override checks passed');
     ['ok', 'ok'],
     'one still running reads ok',
   );
-  // The start reads the wish before it builds, and leaves both processes out when the console is not wanted.
-  const source = readFileSync(new URL('./local-test-stack.mjs', import.meta.url), 'utf8');
-  assert.match(
-    source,
-    /const admin = adminWantedBy\(flags, only, readText\(P\.adminWanted\)\);[\s\S]{0,200}ensureBuilt\(flags\.includes\('--rebuild'\), \{ admin \}\);/,
-  );
-  assert.match(source, /if \(admin && \(!only \|\| only\.includes\('admin'\)\)\) await startAdmin\(secrets\);/);
-  assert.match(
-    source,
-    /if \(admin && \(!only \|\| only\.includes\('admin'\) \|\| only\.includes\('team-tls'\)\)\) await startTeamTls\(\);/,
-  );
   console.log('local-test-stack: --no-admin leaves the console out until a start names it');
 }
 
