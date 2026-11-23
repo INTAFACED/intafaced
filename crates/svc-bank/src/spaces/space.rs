@@ -519,7 +519,7 @@ pub fn set_goal(
     user_id: &str,
     goal: Option<Amount>,
 ) -> Result<Space, Refusal> {
-    if goal.is_some_and(|g| g <= 0) {
+    if goal.is_some_and(|g| g <= Amount::ZERO) {
         return Err(refuse(
             "bank.space_change_invalid",
             "A goal is an amount above zero; clear it to have none",
@@ -761,7 +761,7 @@ impl Money<'_> {
                     continue;
                 }
                 let amount = reported(&b)?;
-                if amount > 0 {
+                if amount > Amount::ZERO {
                     out.push((b.account.asset_id.clone(), amount));
                 }
             }
@@ -772,7 +772,10 @@ impl Money<'_> {
             .balances("user", user_id)
             .map_err(Refusal::Other)?
         {
-            if b.kind == "available" && b.amount > 0 && asset.is_none_or(|a| a == b.asset_id) {
+            if b.kind == "available"
+                && b.amount > Amount::ZERO
+                && asset.is_none_or(|a| a == b.asset_id)
+            {
                 out.push((b.asset_id, b.amount));
             }
         }
@@ -889,7 +892,7 @@ pub fn funded_archived(
     })?;
     let mut out = Vec::new();
     for s in rows {
-        if money.balance_of(&s)? > 0 {
+        if money.balance_of(&s)? > Amount::ZERO {
             out.push(s);
         }
     }

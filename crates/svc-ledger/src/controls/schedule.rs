@@ -10,12 +10,12 @@ use super::{ASOF_INVALID, ControlError, MARGIN_UNSET};
 
 const HOUR_MS: i64 = 3_600_000;
 const DAY_MS: i64 = 86_400_000;
-/// `SCALE`: the ledger's 18 places.
-const SCALE: Amount = 1_000_000_000_000_000_000;
+/// `SCALE`: the ledger's 18 places (one second, as the margin parses).
+const SCALE: i128 = Amount::ONE.scaled();
 /// `MS_DIVISOR`: one millisecond is a thousandth of the scale.
-const MS_DIVISOR: Amount = SCALE / 1000;
+const MS_DIVISOR: i128 = SCALE / 1000;
 /// `MAX_MARGIN_SECONDS`: a margin past a year is refused.
-const MAX_MARGIN_SECONDS: Amount = 366 * 24 * 60 * 60;
+const MAX_MARGIN_SECONDS: i128 = 366 * 24 * 60 * 60;
 
 /// `ReconciliationSchedule`, as its schema leaves it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -201,7 +201,8 @@ pub fn margin_millis(margin: &str) -> Result<i64, ControlError> {
     if t.is_empty() {
         return Err(unset());
     }
-    let scaled = parse_amount(t).map_err(|_| unset())?;
+    // The margin is seconds parsed at the ledger's 18 places, not money: its scaled integer is what is divided.
+    let scaled = parse_amount(t).map_err(|_| unset())?.scaled();
     if scaled < 0 || scaled / SCALE > MAX_MARGIN_SECONDS {
         return Err(unset());
     }

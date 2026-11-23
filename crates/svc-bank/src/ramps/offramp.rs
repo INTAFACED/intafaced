@@ -323,7 +323,7 @@ pub fn offramp(d: &Deps<'_>, input: &OfframpInput<'_>) -> Result<Offramp, Refusa
     if input.kind == "fiat" {
         return Err(refuse_fiat());
     }
-    if input.amount <= 0 {
+    if input.amount <= Amount::ZERO {
         return Err(refuse(
             "bank.ramp_invalid_amount",
             "Off-ramp amount must be positive",

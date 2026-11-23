@@ -619,12 +619,13 @@ function refuseJurisdiction(ctx: Context & { principal: Principal }, guards: Gua
 
 /**
  * Any signed-in principal, holding no particular scope; then, when `module` is named, the same jurisdiction check as
- * `scopedProcedure`. Like `protectedProcedure` it names nobody (`procedureCallers` reports `undefined`): use it only where
+ * `scopedProcedure`, and last the service's own `check` when one is given. Like `protectedProcedure` it names nobody (`procedureCallers` reports `undefined`): use it only where
  * a record says `signedIn`.
  */
-export function signedInProcedure(guards: Pick<GuardOptions, 'module' | 'plane'> = {}) {
-  return protectedProcedure.use(({ ctx, next }) => {
+export function signedInProcedure(guards: Pick<GuardOptions, 'module' | 'plane' | 'check'> = {}) {
+  return protectedProcedure.use(async ({ ctx, next }) => {
     refuseJurisdiction(ctx, guards);
+    if (guards.check) await guards.check(ctx);
     return next({ ctx });
   });
 }
@@ -655,7 +656,7 @@ export function scopedProcedure(scope: Scope, guards: GuardOptions = {}) {
  * List `pay:onboard` before `pay:read` so a stale read does not hide a live
  * onboarding session.
  */
-export function anyScopeProcedure(scopes: readonly [Scope, ...Scope[]], guards: Omit<GuardOptions, 'ownSession' | 'check'> = {}) {
+export function anyScopeProcedure(scopes: readonly [Scope, ...Scope[]], guards: Omit<GuardOptions, 'ownSession'> = {}) {
   return protectedProcedure.meta({ caller: 'scope' }).use(async ({ ctx, next }) => {
     refuseActingService(ctx, guards);
     let accepted = false;
@@ -699,6 +700,7 @@ export function anyScopeProcedure(scopes: readonly [Scope, ...Scope[]], guards: 
       throw new TRPCError({ code: 'FORBIDDEN', message: `One of ${scopes.join(', ')} is required` });
     }
     refuseJurisdiction(ctx, guards);
+    if (guards.check) await guards.check(ctx);
     return next({ ctx });
   });
 }

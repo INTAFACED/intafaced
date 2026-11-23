@@ -130,15 +130,16 @@ pub fn person(id: &str, names: &BTreeMap<String, String>) -> Json {
 }
 
 fn directory_error(e: DirError) -> Refusal {
-    match e {
-        DirError::Unset => refuse(
+    if e.unset() {
+        refuse(
             "bank.business_directory_unset",
             "svc-bank cannot read handles, so shared pots cannot name anyone",
-        ),
-        DirError::Unavailable => refuse(
+        )
+    } else {
+        refuse(
             "bank.business_directory_unavailable",
             "svc-identity did not answer for handles; try again",
-        ),
+        )
     }
 }
 
@@ -204,7 +205,7 @@ fn log(
 }
 
 /// `normaliseHandleQuery`: one handle, a leading @ dropped, 3 to 32 of `[a-zA-Z0-9_]`.
-fn handle_query(raw: &str) -> Option<String> {
+pub(crate) fn handle_query(raw: &str) -> Option<String> {
     let t = service_kit::money::js_trim(raw);
     let bare = t.strip_prefix('@').unwrap_or(t);
     ((3..=32).contains(&bare.len()) && bare.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'))
@@ -212,7 +213,7 @@ fn handle_query(raw: &str) -> Option<String> {
 }
 
 /// `normaliseEmailQuery`: `^[^\s@]+@[^\s@]+\.[^\s@]+$`, at most 320 units.
-fn email_query(raw: &str) -> Option<String> {
+pub(crate) fn email_query(raw: &str) -> Option<String> {
     let t = service_kit::money::js_trim(raw);
     if t.encode_utf16().count() > 320 {
         return None;

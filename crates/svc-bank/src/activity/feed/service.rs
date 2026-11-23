@@ -494,7 +494,7 @@ fn with_own_fee(line: Item, fee: Option<&Option<Amount>>) -> Vec<Item> {
     let Some(Some(taken)) = fee else {
         return vec![line];
     };
-    if line.direction != "in" || *taken <= 0 {
+    if line.direction != "in" || *taken <= Amount::ZERO {
         return vec![line];
     }
     let fee_line = Item {

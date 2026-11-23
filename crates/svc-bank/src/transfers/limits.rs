@@ -173,7 +173,7 @@ pub fn request(
             "A limit increase request needs a reason of at least 10 characters",
         ));
     }
-    if ask.requested <= 0 {
+    if ask.requested <= Amount::ZERO {
         return Err(refuse(
             "bank.validation_failed",
             "The requested limit must be positive",
@@ -317,7 +317,7 @@ pub fn check_decision(d: &Decision<'_>) -> Result<(), Refusal> {
             "A limit decision needs a note of at least 10 characters (bank.ops_reason_too_short)",
         ));
     }
-    if d.approve && d.granted.is_none_or(|g| g <= 0) {
+    if d.approve && d.granted.is_none_or(|g| g <= Amount::ZERO) {
         return Err(refuse(
             "bank.limit_grant_unset",
             "An approval names the granted limit; it is never defaulted to the requested one",

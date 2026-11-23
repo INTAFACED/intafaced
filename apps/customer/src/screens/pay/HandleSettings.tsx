@@ -190,7 +190,7 @@ export function HandleSettings({ handle, onRenamed }: { handle: string; onRename
               <DialogDescription>{payCopy.t('Change handle body')}</DialogDescription>
             </DialogHeader>
             <div className="pay-field">
-              <label className="pay-field__label" htmlFor={inputId}>
+              <label className="lt-hint" htmlFor={inputId}>
                 {payCopy.t('New handle')}
               </label>
               <div className="pay-to">

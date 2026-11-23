@@ -18,7 +18,7 @@ import type { ControlService } from '../control/service.js';
 import { isInteractivePrincipal, type MerchantRole } from '../merchant-ops/roles.js';
 import { toContractApproval } from '../control/approvals.js';
 import { guarded } from './control-errors.js';
-import { teamMemberWrite } from '../team-member-write.js';
+import { PAY_OR_ONBOARD, teamMemberCheck } from '../team-member-write.js';
 import { notBuilt } from './errors.js';
 import { merchantReserveViewSchema } from '@intafaced/contracts/merchant-control';
 import { refuseTopUpUnwired } from '../merchant-pay-dev-out/top-up.js';
@@ -69,19 +69,9 @@ async function assertLimitAsk(control: ControlService, principal: Principal, mer
 export function createMerchantControlRouter(control?: ControlService) {
   const read = ownMerchantRead();
   const write = scopedProcedure('pay:write', { module: 'pay' });
-  /**
-   * A payout decision is the checker's, and the checkers are the team: admin and finance hold `payout.approve` in the
-   * role table, while the owner grant law gives `pay:write` to the owner alone. So deciding is a team member's write
-   * (`teamMemberWrite`: an owner on a live `pay:write`, or an active member of a KYB-approved business that is not shut,
-   * on `pay:onboard`), and who may decide is the role check in `approvals.decide` (`canApprovePayout`, a person in a live
-   * session, never the maker). It moves no money: sending stays the owner's, under `pay:payout`.
-   */
-  const decide = control
-    ? teamMemberWrite(() => control.db)
-    : // Not built: the same scopes reach the typed not-built refusal.
-      anyScopeProcedure(['pay:write', 'pay:onboard'], { module: 'pay' });
-
   if (!control) {
+    // Not built: the same scopes reach the typed not-built refusal.
+    const decide = anyScopeProcedure(PAY_OR_ONBOARD, { module: 'pay' });
     return router({
       merchantControl: router({
         get: read
@@ -114,6 +104,15 @@ export function createMerchantControlRouter(control?: ControlService) {
   }
 
   const principalOf = (ctx: { principal: Principal | null }): Principal => ctx.principal as Principal;
+  /**
+   * A payout decision is the checker's, and the checkers are the team: admin and finance hold `payout.approve` in the
+   * role table, while the owner grant law gives `pay:write` to the owner alone. So deciding is a team member's write
+   * (`teamMemberCheck`: an owner on a live `pay:write`, or an active member of a KYB-approved business that is not shut,
+   * on `pay:onboard`), and who may decide is the role check in `approvals.decide` (`canApprovePayout`, a person in a live
+   * session, never the maker). It moves no money: sending stays the owner's, under `pay:payout`.
+   */
+  const teamMember = teamMemberCheck(() => control.db);
+  const decide = anyScopeProcedure(PAY_OR_ONBOARD, { module: 'pay', check: teamMember });
 
   return router({
     merchantControl: router({

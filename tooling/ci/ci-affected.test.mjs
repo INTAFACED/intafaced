@@ -207,7 +207,7 @@ test('base and trigger: merge-base, run-everything events, edges', () => {
 });
 
 test('seal: the required jobs a classification needs', () => {
-  const ok = { changes: 'success', gates: 'success', format: 'success', build: 'success' };
+  const ok = { changes: 'success', gates: 'success', build: 'success' };
   assert(sealNeeded(none, ok).length === 0, 'docs only needs no test job');
   assert(sealNeeded({ full: false, affected: true }, { ...ok, 'tests-full': 'success' }).length === 0, 'affected run green');
   assert(

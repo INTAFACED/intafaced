@@ -70,6 +70,7 @@ test.beforeAll(async ({ browser }) => {
 
 test(`${J} #1 opens /coin/BTC: price chart, range pills, stats, holding, about and activity, with the coin bar staying under the top bar`, async ({
   page,
+  stepPicture,
 }) => {
   await signIn(page, who);
   // The price chart draws the default range's candles (1D: 5-minute candles), as the page asked the stack for them.
@@ -114,6 +115,9 @@ test(`${J} #1 opens /coin/BTC: price chart, range pills, stats, holding, about a
   // The activity is this person's own: the two BTC buys from the start.
   await expect(page.getByTestId('recent').locator('tbody tr[data-fill]')).toHaveCount(2);
 
+  // The step's picture: the room as it opens, its coin bar under the top bar, before the scroll below (a whole-page
+  // picture of a scrolled page draws the fixed top bar part-way down it).
+  await stepPicture();
   // The coin bar sits right under the top bar while the page scrolls.
   const topBar = await page.locator('header').first().boundingBox();
   await page.mouse.wheel(0, 900);
@@ -132,7 +136,7 @@ test(`${J} #2 picks the 6M range: about six months of daily candles, the pills k
   await expect(pills.filter({ hasText: /^6M$/ })).toBeVisible();
   // The pills' own words, in order. The kit's Segmented sets its labels in capitals by CSS, which innerText would
   // report (ALL); the words the page holds are what the step's order is about.
-  expect(await pills.allTextContents()).toEqual(['1D', '1W', '1M', '6M', '1Y', 'All']);
+  await expect.poll(async () => await pills.allTextContents()).toEqual(['1D', '1W', '1M', '6M', '1Y', 'All']);
   // Six months of daily candles: the chart asks for daily candles, 180 of them, and draws what came back.
   const asked = page.waitForResponse(
     (res) => res.url().includes('/ohlcv/') && /timeframe=1d/.test(res.url()) && /limit=180\b/.test(res.url()),
@@ -158,7 +162,7 @@ test(`${J} #2 picks the 6M range: about six months of daily candles, the pills k
   await expect(page.getByTestId('chart-empty')).toHaveCount(0);
   // The pills' own words, in order. The kit's Segmented sets its labels in capitals by CSS, which innerText would
   // report (ALL); the words the page holds are what the step's order is about.
-  expect(await pills.allTextContents()).toEqual(['1D', '1W', '1M', '6M', '1Y', 'All']);
+  await expect.poll(async () => await pills.allTextContents()).toEqual(['1D', '1W', '1M', '6M', '1Y', 'All']);
   // Arrow keys move between the pills.
   await pills.filter({ hasText: /^6M$/ }).focus();
   await page.keyboard.press('ArrowRight');
@@ -266,10 +270,12 @@ test(`${J} #4 reads "Your position": quantity, average price, cost basis and res
   expect(asset.openCostUsd).not.toBeNull();
   await expect(position.locator('[data-figure="quantity"]')).toContainText(`${Number(asset.openQty)} BTC`);
   // To the cent, half up, from the book's exact figures.
-  expect(units(await position.locator('[data-figure="cost-basis"]').innerText())).toBe(cents(toUnits(asset.openCostUsd)));
+  await expect
+    .poll(async () => units(await position.locator('[data-figure="cost-basis"]').innerText()))
+    .toBe(cents(toUnits(asset.openCostUsd)));
   // Divided as the app divides: half up at the 18th place, then to the cent.
   const average = (2n * toUnits(asset.openCostUsd) * ONE + toUnits(asset.openQty)) / (2n * toUnits(asset.openQty));
-  expect(units(await position.locator('[data-figure="average-price"]').innerText())).toBe(cents(average));
+  await expect.poll(async () => units(await position.locator('[data-figure="average-price"]').innerText())).toBe(cents(average));
   // The result is those open lots at the live price less their cost: the same price values the holding shown above it
   // (every BTC held is in those lots), so the result is that value less the cost basis, to the cent (each side is
   // rounded to the cent on the page, so they may differ by one cent).
@@ -343,6 +349,7 @@ test(`${J} #5 reads recent activity for the coin: this person's BTC fills, newes
 
 test(`${J} #6 presses Buy (Simple) or Trade (Pro): the Buy card with the coin chosen, or the spot desk for the pair`, async ({
   browser,
+  stepPicture,
 }) => {
   // Simple: the Buy card on the page has BTC chosen and locked; pressing its Buy reaches the review of a BTC buy.
   const simple = await browser.newContext({ baseURL: ORIGIN });
@@ -363,6 +370,8 @@ test(`${J} #6 presses Buy (Simple) or Trade (Pro): the Buy card with the coin ch
     await expect(review).toContainText('Review your buy');
     await expect(review.getByTestId('review-get')).toContainText(/BTC/);
     await expect(review).toContainText(/per BTC/);
+    // The step's picture: the coin room's own Buy card, BTC chosen, at its review (the Pro half below ends on the desk).
+    await stepPicture(page);
     // Leaving the review places nothing.
     await review.getByRole('button', { name: 'Cancel' }).click();
     await expect(review).toHaveCount(0);
