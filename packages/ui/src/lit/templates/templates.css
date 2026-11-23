@@ -634,7 +634,9 @@
   font: inherit;
   text-decoration: underline;
   cursor: pointer;
-  min-block-size: 1.5rem;
+  /* A link that is its own box (a <summary>, a button) is a whole 24 CSS pixel target at any root size: 1.5rem alone drew
+     21px under Pro's smaller root (summary.lt-link 88x21, look gate run 45057109047). Inline in a sentence it takes none. */
+  min-block-size: max(1.5rem, 24px); /* look-drift-allow: WCAG 2.5.8 sets the minimum target in CSS pixels */
 }
 
 /*

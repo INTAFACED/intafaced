@@ -79,3 +79,14 @@ if (rustup.error)
     "rustup is missing, so the Rust toolchain is not installed. Run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none && rustup toolchain install",
   );
 else if (rustup.status !== 0) console.warn(`rustup toolchain install exited ${rustup.status}; pnpm rust:check installs it on first use.`);
+
+// knip's cache for the dead-code check before each push (tooling/scripts/pre-push-changed.mjs): about 35 s to fill once,
+// then about 8 s a push. Filled here, detached and at the lowest priority, so the first push does not pay for it; setup
+// is done without waiting for it.
+const warm = spawn('nice', ['-n', '19', process.execPath, 'tooling/ci/dead-code.mjs', '--cache'], {
+  cwd: worktree,
+  stdio: 'ignore',
+  detached: true,
+});
+warm.on('error', () => {});
+warm.unref();
