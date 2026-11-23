@@ -13,7 +13,10 @@ const noLedger: LedgerHistory = {
     throw new Error('a partner-held person is never read from the ledger');
   },
 };
-const noSpaces = { namedSpaces: () => Promise.reject(new Error('not read')) } as never;
+const noSpaces = {
+  namedSpaces: () => Promise.reject(new Error('not read')),
+  allNamedSpaces: () => Promise.reject(new Error('not read')),
+} as never;
 const wholeDay = () => ({ from: new Date(Date.now() - 3_600_000), to: new Date(Date.now() + 3_600_000) });
 
 function held() {

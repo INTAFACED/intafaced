@@ -111,6 +111,18 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
     title: 'This market is in its opening window',
     body: 'A newly listed market takes limit orders only until its opening window ends. Place a limit order instead. Nothing was held.',
   },
+  higherRiskZone: {
+    title: 'This market is in the higher-risk zone',
+    body: 'A market in the higher-risk zone takes limit orders only. Place a limit order instead. Nothing was held.',
+  },
+  zoneSettingUnset: {
+    title: 'This market takes no orders while its cap is not set',
+    body: 'It is in the higher-risk zone and its order cap is not set, so no order is taken. Nothing was held.',
+  },
+  zoneCapExceeded: {
+    title: 'That order is over the zone cap',
+    body: 'An order in the higher-risk zone may be worth at most the cap shown on the market. Lower the amount or the price. Nothing was held.',
+  },
   optionUnsupported: { title: "That option isn't offered", body: "This order option isn't offered on spot orders. Nothing was held." },
   requestExpired: {
     title: 'That request expired',

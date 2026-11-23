@@ -36,6 +36,7 @@ import {
   type UserVenueOrder,
 } from '@intafaced/venue-contracts';
 import type { Sql } from 'postgres';
+import { z } from 'zod';
 import type { AgentAccountRecord, AgentAccountStore } from '../venue/agent-account-store.js';
 import { AgentVenueRefusal, type AgentOrders } from '../venue/agent-orders.js';
 import type { PreparedActionStore, StoredVenueAction } from '../venue/prepared-action-store.js';
@@ -48,6 +49,8 @@ import { CopyError } from './errors.js';
 import type { CopyFollowStore } from './follow-store.js';
 import { fenceNewIntent } from './follower-flatten-port.js';
 import type { CopyCursor } from './follows.js';
+import { builderFeeVenueAccount } from '../builder-fee/builder-fee-store.js';
+import type { VenueCopyFill } from './venue-fee-share.js';
 
 // ── the binding ──────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -84,6 +87,8 @@ export interface VenueFollowStore {
   get(followId: string): Promise<VenueFollowBinding | null>;
   /** Stores `binding` unless the follow already has one; returns the one stored (the caller refuses a different one). */
   bindOnce(binding: VenueFollowBinding): Promise<VenueFollowBinding>;
+  /** Every venue follow, or one follower's, oldest first. */
+  list(followerId?: string): Promise<VenueFollowBinding[]>;
 }
 
 export class InMemoryVenueFollowStore implements VenueFollowStore {
@@ -97,9 +102,20 @@ export class InMemoryVenueFollowStore implements VenueFollowStore {
     this.rows.set(binding.followId, binding);
     return binding;
   }
+  async list(followerId?: string) {
+    return [...this.rows.values()]
+      .filter((b) => followerId === undefined || b.followerId === followerId)
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  }
 }
 
 type BindingRow = { follow_id: string; follower_id: string; account_id: string; created_at: Date };
+const BindingRowSchema = z.object({
+  follow_id: z.string(),
+  follower_id: z.string(),
+  account_id: z.string(),
+  created_at: z.union([z.date(), z.string()]).transform((v) => (v instanceof Date ? v : new Date(v))),
+});
 const bindingOf = (r: BindingRow): VenueFollowBinding => ({
   followId: r.follow_id,
   followerId: r.follower_id,
@@ -121,6 +137,15 @@ export class SqlVenueFollowStore implements VenueFollowStore {
       VALUES (${b.followId}, ${b.followerId}, ${b.accountId}::uuid, ${b.createdAt})
       ON CONFLICT (follow_id) DO NOTHING`;
     return (await this.get(b.followId))!;
+  }
+  async list(followerId?: string) {
+    const rows = BindingRowSchema.array().parse(
+      await this.sql`
+        SELECT follow_id, follower_id, account_id::text AS account_id, created_at FROM trade.copy_venue_follows
+         WHERE ${followerId === undefined} OR follower_id = ${followerId ?? ''}
+         ORDER BY created_at ASC, follow_id ASC`,
+    );
+    return rows.map(bindingOf);
   }
 }
 
@@ -459,6 +484,59 @@ export class VenueCopy {
       });
     }
     return out;
+  }
+
+  /**
+   * Every fill our copies made on the followers' sub-accounts, as the venue reports them (venue-fee-share.ts reads them
+   * for the lead's share of our builder fee; the follower's activity lists their own). One follower's when named. A
+   * close of a copy is the follower's own order and is not a copied fill. A follow whose agent account is gone has none.
+   */
+  async copiedFills(followerId?: string): Promise<VenueCopyFill[]> {
+    const out: VenueCopyFill[] = [];
+    for (const binding of await this.deps.bindings.list(followerId)) {
+      const follow = await this.deps.copyStore.getFollow(binding.followId);
+      if (!follow) continue;
+      const mirrors = await this.deps.placedMirrors(binding.followId);
+      if (mirrors.length === 0) continue;
+      let b: Bound | null;
+      try {
+        b = await this.bound(binding.followId);
+      } catch (err) {
+        if (err instanceof CopyCloseError) continue;
+        throw err;
+      }
+      if (!b) continue;
+      const leaderFillByCloid = new Map<string, string>();
+      for (const m of mirrors) {
+        const row = await this.deps.actions.find(binding.followerId, m.orderKey);
+        const cloid = row?.signature ? (row.prepared.venueClientOrderId ?? null) : null;
+        if (cloid) leaderFillByCloid.set(cloid, m.leaderFillId);
+      }
+      if (leaderFillByCloid.size === 0) continue;
+      const since = new Date(Math.min(...mirrors.map((m) => m.placedAt.getTime())) - 60_000);
+      for (const fill of (await b.venue.fills(b.sub, since)).value) {
+        const leaderFillId = fill.venueClientOrderId ? leaderFillByCloid.get(fill.venueClientOrderId) : undefined;
+        if (!leaderFillId) continue;
+        out.push({
+          followId: binding.followId,
+          followerId: binding.followerId,
+          leaderId: follow.leaderId,
+          leaderFillId,
+          feeShareKilled: follow.feeShareKilled,
+          venueId: b.sub.venueId,
+          venueAccount: builderFeeVenueAccount(b.sub),
+          account: b.sub,
+          fill,
+        });
+      }
+    }
+    return out;
+  }
+
+  /** The venue's name and whether it is a TEST venue, for a reader that names its source. */
+  async venueLabel(): Promise<{ name: string; test: boolean }> {
+    const venue = await this.deps.venue();
+    return { name: venue.venue.displayName, test: isTestVenue(venue.venue) };
   }
 
   // ── closes ─────────────────────────────────────────────────────────────────────────────────────────────────────

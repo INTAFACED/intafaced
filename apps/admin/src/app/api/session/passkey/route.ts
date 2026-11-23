@@ -8,8 +8,10 @@ import {
   founderEdgeCall,
   newFounderSession,
   sealFounderSession,
+  founderEdgeRecordCall,
 } from '@/lib/founder-session';
 import { readAdminJson } from '@/lib/admin-json';
+import { IDENTITY_WEBAUTHN_AUTH_OPTIONS } from '@intafaced/contracts/identity-webauthn-procedures';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,7 +28,7 @@ export async function POST(request: Request) {
     )
       throw new AdminSessionError('admin.login_input', 400);
     if (input.action === 'options' && !('credential' in input)) {
-      const options = await founderEdgeCall(config, 'identity', 'webauthn.authOptions', 'POST', { identifier: input.identifier });
+      const options = await founderEdgeRecordCall(config, IDENTITY_WEBAUTHN_AUTH_OPTIONS, { identifier: input.identifier });
       return Response.json(options, { headers: { 'cache-control': 'no-store' } });
     }
     if (input.action !== 'authenticate' || !input.credential || typeof input.credential !== 'object' || Array.isArray(input.credential))

@@ -17,8 +17,10 @@ import {
   partFrom,
   type PartLabels,
   explainRefusal,
+  founderRecordRead,
 } from '@/lib/desk';
 import type { MediaDeskReply, MediaView } from './media-model';
+import { ACADEMY_ADMIN_ITEM_MEDIA, ACADEMY_ADMIN_CONFIRM_MEDIA } from '@intafaced/contracts/academy-admin-records';
 
 /**
  * Course files as the signed-in founder. The browser sends a file's bytes straight to our own object store through the
@@ -39,7 +41,7 @@ const readMedia = parseWith(academyMediaSchema);
 const readCaptions = parseWith(academySetItemCaptionsResultSchema);
 
 export async function loadItemMedia(ctx: FounderCallContext, itemId: string): Promise<MediaView> {
-  const media = await founderCall(ctx, 'academy', 'admin.itemMedia', 'GET', { itemId }, readItemMedia);
+  const media = await founderRecordRead(ctx, ACADEMY_ADMIN_ITEM_MEDIA, { itemId }, readItemMedia);
   return { media: partFrom(media, (d) => d, ACADEMY), asOf: new Date().toISOString() };
 }
 
@@ -80,7 +82,7 @@ export async function changeMedia(
     case 'confirm': {
       const parsed = academyConfirmMediaInputSchema.safeParse(input);
       if (!parsed.success) return { why: 'Which upload?' };
-      const result = await founderCall(ctx, 'academy', 'admin.confirmMedia', 'POST', parsed.data, readMedia);
+      const result = await founderRecordRead(ctx, ACADEMY_ADMIN_CONFIRM_MEDIA, parsed.data, readMedia);
       return reply(result, (media) => ({ status: 200, reply: { ok: true, what: 'checked and stored', media } }));
     }
     case 'captions': {
@@ -167,6 +169,6 @@ export async function uploadMedia(
     if (seen !== parsed.data.bytes || hash.digest('hex') !== parsed.data.sha256)
       return stopped('The bytes sent are not the size or fingerprint the browser declared, so the file was not checked.');
   }
-  const confirmed = await founderCall(ctx, 'academy', 'admin.confirmMedia', 'POST', { mediaId: media.id }, readMedia);
+  const confirmed = await founderRecordRead(ctx, ACADEMY_ADMIN_CONFIRM_MEDIA, { mediaId: media.id }, readMedia);
   return reply(confirmed, (m) => ({ status: 200, reply: { ok: true, what: 'checked and stored', media: m } }));
 }

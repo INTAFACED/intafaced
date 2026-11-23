@@ -3,6 +3,7 @@
  * internal deposits read. index.ts calls `wireUserVenue` once and `startAtBoot` where the door used to connect, so a
  * journey that adds to the door edits this file, not the service's wiring file.
  */
+import { createCashLegClient } from '../convert/cash-leg-client.js';
 import type { FastifyInstance } from 'fastify';
 import type { Sql } from 'postgres';
 import type { EventBus } from '@intafaced/events';
@@ -18,7 +19,7 @@ import { registerInternalEquity } from './internal-equity.js';
 import { registerInternalOurFills } from './internal-our-fills.js';
 import { registerInternalRealised } from './internal-realised.js';
 import { SqlPreparedActionStore } from './prepared-action-store.js';
-import { UserVenueDoor, parseBuilderFee, parseOrdersPageMax } from './user-venue-door.js';
+import { UserVenueDoor, parseBuilderAddress, parseBuilderFee, parseOrdersPageMax } from './user-venue-door.js';
 import { SqlVenueListingStore } from './venue-listing-store.js';
 import {
   StoreVenueRoutingGate,
@@ -31,6 +32,7 @@ import {
 import { UserVenueRouter, parseUserVenueUrls } from './venue-router.js';
 import { parseVenueEligibilityLevel } from './venue-eligibility.js';
 import { SqlVenueSellQuoteStore, VenueSellQuotes } from './venue-sell-quotes.js';
+import { SqlConvertQuoteStore, VenueConverts } from './venue-convert.js';
 
 export function wireUserVenue(deps: {
   app: FastifyInstance;
@@ -87,6 +89,7 @@ export function wireUserVenue(deps: {
         store: userVenueStore,
         stepUp,
         builder: parseBuilderFee(env.TRADE_USER_VENUE_BUILDER_ADDRESS, env.TRADE_USER_VENUE_BUILDER_FEE_BPS),
+        builderAddress: parseBuilderAddress(env.TRADE_USER_VENUE_BUILDER_ADDRESS),
         slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
         spreadLimitBps: env.TRADE_MARKET_SPREAD_LIMIT_BPS,
         ordersPageMax: parseOrdersPageMax(env.TRADE_USER_VENUE_ORDERS_PAGE_MAX),
@@ -145,6 +148,19 @@ export function wireUserVenue(deps: {
   const venueSellQuotes = userVenue
     ? new VenueSellQuotes({ door: userVenue, store: new SqlVenueSellQuoteStore(sql), now: () => new Date() })
     : null;
+  // Convert on the customer's own venue account (J-cex-spot-11): quotes hold nothing; an accept is one venue order the
+  // wallet signs. On whichever door the request names. Off with the door.
+  const venueConverts = userVenueRouter
+    ? new VenueConverts({
+        store: new SqlConvertQuoteStore(sql),
+        now: () => new Date(),
+        enabled: env.TRADE_CONVERT_ENABLED,
+        windowMs: env.TRADE_CONVERT_ACCEPT_WINDOW_MS,
+        slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
+        // The partner's cash leg of a cash convert (#11), asked as the person through svc-bank; blank BANK_URL offers none.
+        cashLeg: createCashLegClient(env.BANK_URL),
+      })
+    : null;
 
   /** The listing sweep, then each door's first connect; index.ts awaits it where the door has always connected. */
   async function startAtBoot(): Promise<void> {
@@ -169,5 +185,15 @@ export function wireUserVenue(deps: {
     }
   }
 
-  return { userVenueDoors, userVenue, userVenueRouter, userVenueStore, venueListings, venueDelistingNotices, venueSellQuotes, startAtBoot };
+  return {
+    userVenueDoors,
+    userVenue,
+    userVenueRouter,
+    userVenueStore,
+    venueListings,
+    venueDelistingNotices,
+    venueSellQuotes,
+    venueConverts,
+    startAtBoot,
+  };
 }

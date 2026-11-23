@@ -1,11 +1,11 @@
-import { customerDetailsResultSchema } from '@intafaced/contracts';
 import { moduleDisabledResponse } from '@/lib/modules';
 import { adminBffSession } from '@/lib/admin-bff-gate';
 import { readAdminJson } from '@/lib/admin-json';
 import { adminSessionErrorResponse, AdminSessionError } from '@/lib/founder-session';
-import { founderCall, parseWith } from '@/lib/desk/founder-call';
+import { founderRecordCall } from '@/lib/desk/founder-call';
 import { readDecideForm } from '@/lib/accounts/details-forms';
 import { detailsAnswer } from '@/lib/accounts/details-server';
+import { IDENTITY_ACCOUNT_CONTROLS_DETAILS_DECIDE } from '@intafaced/contracts/identity-account-controls-procedures';
 
 /**
  * The other founder's decision on a compliance review of a customer's protected details (J-ops-console-04 #9). A pass
@@ -31,13 +31,12 @@ export async function POST(request: Request) {
       { ok: false, text: 'That decision was not accepted: give a note of 12 to 255 characters. Nothing was sent.' },
       { status: 400, headers: { 'cache-control': 'no-store' } },
     );
-  const result = await founderCall(
-    session,
-    'identity',
-    'accountControls.detailsDecide',
-    'POST',
-    { requestId: form.requestId, userId: form.userId, reviewId: form.reviewId, decision: form.decision, note: form.note },
-    parseWith(customerDetailsResultSchema),
-  );
+  const result = await founderRecordCall(session, IDENTITY_ACCOUNT_CONTROLS_DETAILS_DECIDE, {
+    requestId: form.requestId,
+    userId: form.userId,
+    reviewId: form.reviewId,
+    decision: form.decision,
+    note: form.note,
+  });
   return detailsAnswer(result, form.userId);
 }

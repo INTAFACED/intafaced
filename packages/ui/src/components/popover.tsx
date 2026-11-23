@@ -19,7 +19,7 @@ export function PopoverTrigger(props: PopoverPrimitive.Trigger.Props) {
 }
 
 export type PopoverContentProps = PopoverPrimitive.Popup.Props &
-  Pick<PopoverPrimitive.Positioner.Props, 'side' | 'sideOffset' | 'align' | 'alignOffset' | 'anchor'>;
+  Pick<PopoverPrimitive.Positioner.Props, 'side' | 'sideOffset' | 'align' | 'alignOffset' | 'anchor' | 'positionMethod'>;
 
 /** Portal + positioner + popup in one. `panel`, 1 px `line`, `r-lg`, 16 px padding. */
 export function PopoverContent({
@@ -29,6 +29,7 @@ export function PopoverContent({
   align = 'center',
   alignOffset = 0,
   anchor,
+  positionMethod,
   ...props
 }: PopoverContentProps) {
   return (
@@ -39,6 +40,7 @@ export function PopoverContent({
         align={align}
         alignOffset={alignOffset}
         anchor={anchor}
+        positionMethod={positionMethod}
         className="isolate z-50"
       >
         <PopoverPrimitive.Popup

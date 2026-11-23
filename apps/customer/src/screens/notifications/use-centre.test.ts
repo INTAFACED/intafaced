@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { createApiClient } from '../../shared/api';
+import { setMute } from './notify-api';
 import { buildChannels } from './use-centre';
 
 describe('buildChannels', () => {
@@ -13,7 +15,7 @@ describe('buildChannels', () => {
         { channel: 'email', muted: true },
         { channel: 'sms', muted: false },
       ],
-      [{ channel: 'email', address: 'a@b.co', verifiedAt: '2026-10-01T00:00:00.000Z' }],
+      [{ channel: 'email', address: 'a@b.co', locale: 'en', verifiedAt: '2026-10-01T00:00:00.000Z' }],
     );
     expect(view.email).toEqual({
       facts: { ready: true, muted: true, target: { verified: true } },
@@ -31,7 +33,29 @@ describe('buildChannels', () => {
   });
 
   it('marks a saved address with no confirmation time as unconfirmed', () => {
-    const view = buildChannels([], [], [{ channel: 'sms', address: '+447700900000', verifiedAt: null }]);
+    const view = buildChannels([], [], [{ channel: 'sms', address: '+447700900000', locale: 'en', verifiedAt: null }]);
     expect(view.sms.facts.target).toEqual({ verified: false });
+  });
+});
+
+describe('setMute', () => {
+  const trpc = (data: unknown) => new Response(JSON.stringify({ result: { data } }), { status: 200 });
+  const client = (data: unknown) => createApiClient({ fetch: async () => trpc(data), token: () => 'tok' });
+  it('believes an answer that shows the channel at the setting sent', async () => {
+    const result = await setMute(
+      client([
+        { channel: 'email', muted: true },
+        { channel: 'sms', muted: false },
+      ]),
+      'email',
+      true,
+    );
+    expect(result.ok).toBe(true);
+  });
+  it('does not believe an answer that shows the channel at another setting, or does not show it', async () => {
+    for (const rows of [[{ channel: 'email', muted: false }], [{ channel: 'sms', muted: true }], []]) {
+      const result = await setMute(client(rows), 'email', true);
+      expect(result.ok, JSON.stringify(rows)).toBe(false);
+    }
   });
 });

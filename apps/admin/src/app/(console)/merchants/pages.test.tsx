@@ -736,6 +736,8 @@ const tierRow = {
   approvalTtlSeconds: 86_400,
   version: '2',
   merchants: 3,
+  merchantVisible: false,
+  payoutFee: null,
 };
 const merchantRule = {
   layer: 'merchant',
@@ -1333,6 +1335,8 @@ describe('registries', () => {
           actorId: USER,
           approverId: null,
           dualControl: false,
+          before: null,
+          after: { displayName: 'Binance testnet' },
           reason: 'First entry',
           createdAt: '2026-10-14T10:00:00.000Z',
         },

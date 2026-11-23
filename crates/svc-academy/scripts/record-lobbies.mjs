@@ -11,12 +11,21 @@
 // It stops being runnable when the TypeScript service is deleted, and from then on what it wrote is the reference.
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const CRATE = fileURLToPath(new URL('../', import.meta.url));
 const SVC = `${ROOT}services/svc-academy/src/`;
+const NAME = 'record-lobbies';
+// The TypeScript service was deleted when svc-academy switched to this crate (weed project-state#3343): what this script
+// wrote is now the reference, and a change to it is made in the recorded file itself. Read the TypeScript in git history.
+if (!existsSync(SVC)) {
+  console.error(
+    `${NAME}: services/svc-academy no longer exists (the Rust crate replaced it); nothing to record from. The files it wrote are the reference now.`,
+  );
+  process.exit(2);
+}
 const CHECK = process.argv.includes('--check');
 
 const { parseScene, emptyScene } = await import(`${SVC}spatial/scene.ts`);

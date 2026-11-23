@@ -138,7 +138,7 @@ it('startHeight missing under a live tip refuses — no healthy empty caughtUp',
   expect(indexer.halted).toBeNull();
 });
 
-it('startHeight lastError refuses book/markets and leaves /ready — empty is not a live book', async () => {
+it('startHeight lastError refuses book/positions and leaves /ready — empty is not a live book', async () => {
   const source = new MemoryChainSource(CHAIN_ID, 0);
   source.appendEmpty(3);
   const store = new MemoryProjectionStore(CHAIN_ID);
@@ -165,10 +165,8 @@ it('startHeight lastError refuses book/markets and leaves /ready — empty is no
     halted: null,
     indexedHeight: null,
   });
-  await expect(caller.health()).resolves.toMatchObject({ ok: true, service: 'svc-indexer' });
   await expect(caller.book({ market: 'IFC-USD', depth: 50 })).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
-  await expect(caller.markets({ limit: 2 })).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
-  await expect(caller.fills({ market: 'IFC-USD', limit: 100 })).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
+  await expect(caller.positions({ account: '0x' + 'a'.repeat(40), limit: 2 })).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
 
   const ready = readinessOf(indexer.halted, true, undefined, indexer.lastError);
   expect(ready.httpStatus).toBe(503);

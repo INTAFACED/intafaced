@@ -486,8 +486,8 @@ test(`${J} #7 reads best and worst movers: the coins that moved most today, from
         else ranked.push({ asset: row.asset, change, move: ratio(change, before) });
       }
       ranked.sort((a, b) => (a.move === b.move ? 0 : a.move > b.move ? -1 : 1));
-      // The direction is said by a glyph as well as the sign: never by colour alone.
-      const text = (r) => `${r.asset} ${r.asset} ${r.move > 0n ? '▲' : '▼'} ${usdSigned(r.change)} (${pct(r.move, 2)})`;
+      // The direction is said by a glyph, a word for a screen reader ("up" or "down") and the sign: never by colour alone.
+      const text = (r) => `${r.asset} ${r.asset} ${r.move > 0n ? '▲ up' : '▼ down'} ${usdSigned(r.change)} (${pct(r.move, 2)})`;
       return {
         best: ranked
           .filter((r) => r.move > 0n)

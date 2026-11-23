@@ -162,6 +162,12 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
     effect: 'Inbox row trade.copy.skipped for the follower, the reason in words, once per follow and leader fill',
   },
   {
+    event: 'recurringBuySuspended',
+    durable: 'notify-recurring-buy-suspended',
+    subject: 'intafaced.trade.recurring_buy.paused',
+    effect: 'Inbox row trade.recurring_buy.suspended for the person, once per recurring buy and slot',
+  },
+  {
     event: 'copyStopped',
     durable: 'notify-copy-stopped',
     subject: 'intafaced.trade.copy.stopped',

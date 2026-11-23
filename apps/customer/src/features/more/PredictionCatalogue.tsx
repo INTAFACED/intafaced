@@ -23,7 +23,7 @@ export function PredictionCatalogue({
       {/* Why the list is empty and stays so: publishing waits for the owner's determination decision (ENGINE E-1). */}
       <div className="prediction-catalogue-blocker" data-testid="prediction-blocker">
         <ServiceOffNotice code="owner.decision" action={t('publishAction')} role="note" />
-        <p className="muted">
+        <p className="lt-muted">
           <Copy k="publishWhy" />
         </p>
       </div>
@@ -34,7 +34,7 @@ export function PredictionCatalogue({
               <h3>
                 <Copy k="empty" />
               </h3>
-              <p className="muted">
+              <p className="lt-muted">
                 <Copy k="emptyBody" />
               </p>
             </div>
@@ -45,13 +45,13 @@ export function PredictionCatalogue({
                   <h3 lang="und" dir="auto">
                     {m.question}
                   </h3>
-                  <p className="muted">
+                  <p className="lt-muted">
                     <Copy k="closes" />{' '}
                     <time lang="und" dir="ltr" dateTime={m.closeAt}>
                       {m.closeAt}
                     </time>
                   </p>
-                  <p className="muted">
+                  <p className="lt-muted">
                     <Copy k="source" />{' '}
                     <span lang="und" dir="auto">
                       {m.settlementSource}
@@ -67,7 +67,7 @@ export function PredictionCatalogue({
         }
       </Read>
       {resource.status === 'failed' ? (
-        <p className="muted">
+        <p className="lt-muted">
           <Copy k="failedBody" />
         </p>
       ) : (

@@ -418,12 +418,32 @@ describe('swap builder refuses an unbounded minAmountOut before it builds callda
     });
   }
 
-  function caller(slippageBps: number | null, reads: { n: number } = { n: 0 }) {
+  function caller(slippageBps: number | null, reads: { n: number } = { n: 0 }, blocked: readonly string[] = []) {
+    // The blocklist answers only `blockedAmong`; the swap reads nothing else from it.
+    const trustDesk = { blockedAmong: async (_chainId: number, tokens: readonly string[]) => tokens.filter((t) => blocked.includes(t)) };
     return {
       reads,
-      api: createProtocolRouter(stubDeps({ chain: chain(reads), swapSlippageBps: () => slippageBps })).createCaller(anonymous()),
+      api: createProtocolRouter(
+        stubDeps({ chain: chain(reads), swapSlippageBps: () => slippageBps, compliance: { store: {}, trustDesk } }),
+      ).createCaller(anonymous()),
     };
   }
+
+  it('a pool trading a blocked token is not routed: the swap refuses protocol.token_blocked and quotes nothing', async () => {
+    const { api, reads } = caller(SLIPPAGE_BPS, { n: 0 }, [TOKEN_B.toLowerCase()]);
+    await expect(api.amm.buildSwapExactIn(swap(floor))).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      message: expect.stringContaining('protocol.token_blocked'),
+    });
+    expect(reads.n).toBe(0);
+  });
+
+  it('with no blocklist wired the swap refuses rather than routing unchecked', async () => {
+    const reads = { n: 0 };
+    const api = createProtocolRouter(stubDeps({ chain: chain(reads), swapSlippageBps: () => SLIPPAGE_BPS })).createCaller(anonymous());
+    await expect(api.amm.buildSwapExactIn(swap(floor))).rejects.toMatchObject({ code: 'INTERNAL_SERVER_ERROR' });
+    expect(reads.n).toBe(0);
+  });
 
   const swap = (minAmountOut: bigint) => ({
     pool: POOL,

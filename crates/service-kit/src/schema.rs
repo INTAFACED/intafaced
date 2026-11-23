@@ -219,6 +219,8 @@ pub struct Issue {
     path: Vec<Json>,
     message: String,
     cont: Cont,
+    /// `ctx.addIssue({ code, message, path })`: the message ahead of the path, in the order the call wrote them.
+    message_first: bool,
 }
 
 impl Issue {
@@ -228,6 +230,7 @@ impl Issue {
             path: Vec::new(),
             message,
             cont,
+            message_first: false,
         }
     }
 
@@ -243,8 +246,13 @@ impl Issue {
             .iter()
             .map(|(k, v)| ((*k).to_owned(), v.clone()))
             .collect();
-        out.push(("path".to_owned(), Json::Array(self.path.clone())));
-        out.push(("message".to_owned(), Json::str(self.message.clone())));
+        let path = ("path".to_owned(), Json::Array(self.path.clone()));
+        let message = ("message".to_owned(), Json::str(self.message.clone()));
+        if self.message_first {
+            out.extend([message, path]);
+        } else {
+            out.extend([path, message]);
+        }
         Json::Object(out)
     }
 
@@ -283,6 +291,42 @@ pub fn issues_json(issues: &[Issue]) -> Json {
 /// `Err(message)` is a refine that threw.
 pub trait Refiner {
     fn refine(&self, id: &str, value: &Value) -> Result<bool, String>;
+    /// A `superRefine` named `id`: the issues its `ctx.addIssue` calls add (code `custom`, and the parse goes on, as zod
+    /// 3's form of `addIssue` sets it). A service without one refuses the name.
+    fn super_refine(&self, id: &str, value: &Value) -> Result<Vec<Added>, String> {
+        let _ = value;
+        Err(format!("no superRefine named {id}"))
+    }
+}
+
+/// One `ctx.addIssue({ code: 'custom', ... })`: its path and message, and which of the two the call wrote first (an
+/// absent path is written after the message).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Added {
+    pub path: Vec<Json>,
+    pub message: String,
+    pub message_first: bool,
+}
+
+impl Added {
+    /// `ctx.addIssue({ code, path, message })`, or `{ code, message }` when the path is empty: zod then writes the path
+    /// after the message.
+    pub fn at(path: Vec<Json>, message: impl Into<String>) -> Added {
+        Added {
+            message_first: path.is_empty(),
+            path,
+            message: message.into(),
+        }
+    }
+
+    /// `ctx.addIssue({ code, message, path })`, or `{ code, message }` with no path.
+    pub fn saying(message: impl Into<String>, path: Vec<Json>) -> Added {
+        Added {
+            path,
+            message: message.into(),
+            message_first: true,
+        }
+    }
 }
 
 /// A refine threw: the parse stops, and tRPC answers 400 with this message.
@@ -293,6 +337,8 @@ pub struct Thrown(pub String);
 enum Check {
     MinLength(usize),
     MaxLength(usize),
+    /// `.length(n)`: exactly `n` (code points for a string, as the length checks count them).
+    LengthEquals(usize),
     Regex(Regex, Option<String>),
     StartsWith(String, Option<String>),
     Format(&'static str, Regex, Option<String>),
@@ -308,6 +354,8 @@ enum Check {
         msg: Option<String>,
         abort: bool,
     },
+    /// `superRefine(fn)`: the service's own code adds its issues.
+    Super(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -322,7 +370,9 @@ enum Kind {
     String,
     Number,
     Boolean,
-    Date { coerce: bool },
+    Date {
+        coerce: bool,
+    },
     Unknown,
     Enum(Vec<Json>),
     Literal(Vec<Json>),
@@ -335,12 +385,17 @@ enum Kind {
     Dunion(String, Vec<usize>),
     Record(usize, usize),
     Lazy(usize),
+    /// `.pipe()`: the first part's output into the second; any issue but an unrecognized key stops the pipe.
+    Pipe(usize, usize),
 }
 
 #[derive(Debug, Clone)]
 struct Node {
     kind: Kind,
     checks: Vec<Check>,
+    /// The part's own `error` where it gives one message for any input but `undefined` (recorded as `definedMsg`):
+    /// that message on the type issue the part raises; an absent input keeps zod's own.
+    defined_msg: Option<String>,
 }
 
 /// zod's `optin` and `optout`: whether an absent key is allowed in, and whether `undefined` may come out.
@@ -432,6 +487,7 @@ fn read_check(c: &Json) -> Result<Check, String> {
     Ok(match k {
         "min_length" => Check::MinLength(field_usize(c, "n")?),
         "max_length" => Check::MaxLength(field_usize(c, "n")?),
+        "length_equals" => Check::LengthEquals(field_usize(c, "n")?),
         "regex" => Check::Regex(
             Regex::new(field_str(c, "src").ok_or("a regex without its source")?)?,
             msg,
@@ -447,6 +503,7 @@ fn read_check(c: &Json) -> Result<Check, String> {
                 Some("guid") => "guid",
                 Some("datetime") => "datetime",
                 Some("uuid") => "uuid",
+                Some("date") => "date",
                 other => return Err(format!("an unknown format {other:?}")),
             };
             Check::Format(
@@ -468,6 +525,11 @@ fn read_check(c: &Json) -> Result<Check, String> {
             }
         }
         "int" => Check::Int,
+        "super" => Check::Super(
+            field_str(c, "id")
+                .ok_or("a superRefine without its name")?
+                .to_owned(),
+        ),
         "refine" => Check::Refine {
             id: field_str(c, "id")
                 .ok_or("a refine without its name")?
@@ -547,7 +609,8 @@ fn read_node(n: &Json) -> Result<Node, String> {
             field_usize(n, "in")?,
             n.get("value").cloned().unwrap_or(Json::Null),
         ),
-        "lazy" => Kind::Lazy(field_usize(n, "in")?),
+        // `.readonly()` parses as its inner part does (it only freezes the output), as a lazy part does.
+        "lazy" | "readonly" => Kind::Lazy(field_usize(n, "in")?),
         "union" => Kind::Union(ids(n, "options")?),
         "dunion" => Kind::Dunion(
             field_str(n, "disc")
@@ -556,13 +619,26 @@ fn read_node(n: &Json) -> Result<Node, String> {
             ids(n, "options")?,
         ),
         "record" => Kind::Record(field_usize(n, "key")?, field_usize(n, "value")?),
+        "pipe" => Kind::Pipe(field_usize(n, "in")?, field_usize(n, "out")?),
         other => return Err(format!("an unknown part {other}")),
     };
-    let checks = match n.get("checks") {
+    let checks: Vec<Check> = match n.get("checks") {
         Some(Json::Array(c)) => c.iter().map(read_check).collect::<Result<_, _>>()?,
         _ => Vec::new(),
     };
-    Ok(Node { kind, checks })
+    // A stopped pipe marks its payload aborted, which skips its own checks; no recorded pipe carries any.
+    if matches!(kind, Kind::Pipe(..)) && !checks.is_empty() {
+        return Err("a pipe with its own checks".to_owned());
+    }
+    let defined_msg = field_str(n, "definedMsg").map(str::to_owned);
+    if defined_msg.is_some() && !(matches!(kind, Kind::String) && checks.is_empty()) {
+        return Err("an own error is recorded only on a string without checks".to_owned());
+    }
+    Ok(Node {
+        kind,
+        checks,
+        defined_msg,
+    })
 }
 
 /// The length a length check reads (`input.length`), and whether it has one at all (`_whenHasLength`).
@@ -633,7 +709,7 @@ impl Schema {
                 | Kind::Default(a, _)
                 | Kind::Lazy(a) => vec![*a],
                 Kind::Union(o) | Kind::Dunion(_, o) => o.clone(),
-                Kind::Record(k, v) => vec![*k, *v],
+                Kind::Record(k, v) | Kind::Pipe(k, v) => vec![*k, *v],
                 _ => Vec::new(),
             };
             if let Some(bad) = refs.iter().find(|r| **r >= schema.nodes.len()) {
@@ -693,6 +769,8 @@ impl Schema {
             }
             Kind::Default(..) => (Optin::Defaulted, false),
             Kind::Nullable(inner) | Kind::Lazy(inner) => self.optin(*inner, depth + 1),
+            // `optin` is the first part's, `optout` the second's.
+            Kind::Pipe(from, to) => (self.optin(*from, depth + 1).0, self.optin(*to, depth + 1).1),
             Kind::Union(options) | Kind::Dunion(_, options) => {
                 let each: Vec<_> = options.iter().map(|o| self.optin(*o, depth + 1)).collect();
                 let optin = if each.iter().any(|(i, _)| *i == Optin::Defaulted) {
@@ -726,7 +804,9 @@ impl Schema {
                 v.push(Some(Json::Null));
                 Some(v)
             }
-            Kind::Default(inner, _) | Kind::Lazy(inner) => self.admitted(*inner, depth + 1),
+            Kind::Default(inner, _) | Kind::Lazy(inner) | Kind::Pipe(inner, _) => {
+                self.admitted(*inner, depth + 1)
+            }
             _ => None,
         }
     }
@@ -763,7 +843,10 @@ impl Schema {
     ) -> Result<Payload, Thrown> {
         let mut is_aborted = aborted(&p.issues, 0);
         for ch in checks {
-            if matches!(ch, Check::MinLength(_) | Check::MaxLength(_)) {
+            if matches!(
+                ch,
+                Check::MinLength(_) | Check::MaxLength(_) | Check::LengthEquals(_)
+            ) {
                 if explicitly_aborted(&p.issues) || matches!(length_of(&p.value), Length::None) {
                     continue;
                 }
@@ -831,6 +914,38 @@ impl Schema {
                     Cont::Yes,
                 ));
             }
+            Check::LengthEquals(n) => {
+                let length = match length_of(&p.value) {
+                    Length::None => return Ok(()),
+                    Length::Str(u, cp) => usize_f64(if u >= *n && u <= n * 2 { cp } else { u }),
+                    Length::Count(c) => c,
+                };
+                if length == usize_f64(*n) {
+                    return Ok(());
+                }
+                let o = origin(&p.value);
+                let big = length > usize_f64(*n);
+                let (code, bound, word) = if big {
+                    ("too_big", "maximum", "Too big")
+                } else {
+                    ("too_small", "minimum", "Too small")
+                };
+                let message = match units(o) {
+                    Some(u) => format!("{word}: expected {o} to have exactly {n} {u}"),
+                    None => format!("{word}: expected {o} to be exactly {n}"),
+                };
+                p.issues.push(Issue::new(
+                    vec![
+                        ("origin", Json::str(o)),
+                        ("code", Json::str(code)),
+                        (bound, num(*n)),
+                        ("inclusive", Json::Bool(true)),
+                        ("exact", Json::Bool(true)),
+                    ],
+                    message,
+                    Cont::Yes,
+                ));
+            }
             Check::Regex(re, msg) => {
                 let Some(s) = p.value.as_str() else {
                     return Ok(());
@@ -862,6 +977,7 @@ impl Schema {
                 let name = match *format {
                     "guid" => "GUID",
                     "uuid" => "UUID",
+                    "date" => "ISO date",
                     _ => "ISO datetime",
                 };
                 p.issues.push(Issue::new(
@@ -1027,6 +1143,18 @@ impl Schema {
                     .at(path.clone()),
                 );
             }
+            Check::Super(id) => {
+                for added in refiner.super_refine(id, &p.value).map_err(Thrown)? {
+                    let mut issue = Issue::new(
+                        vec![("code", Json::str("custom"))],
+                        added.message,
+                        Cont::Yes,
+                    )
+                    .at(added.path);
+                    issue.message_first = added.message_first;
+                    p.issues.push(issue);
+                }
+            }
         }
         Ok(())
     }
@@ -1056,7 +1184,15 @@ impl Schema {
         match &node.kind {
             Kind::String => {
                 if !matches!(p.value, Value::String(_)) {
-                    p.issues.push(Self::invalid_type("string", &p.value));
+                    let mut issue = Self::invalid_type("string", &p.value);
+                    if let Some(msg) = node
+                        .defined_msg
+                        .as_ref()
+                        .filter(|_| p.value != Value::Undefined)
+                    {
+                        issue.message.clone_from(msg);
+                    }
+                    p.issues.push(issue);
                 }
             }
             Kind::Number => match p.value {
@@ -1194,6 +1330,14 @@ impl Schema {
                 return Ok(r);
             }
             Kind::Lazy(inner) => return self.run(*inner, p, refiner, d),
+            // `handlePipeResult`: the second part runs only on what passed the first.
+            Kind::Pipe(from, to) => {
+                let left = self.run(*from, p, refiner, d)?;
+                if left.issues.iter().any(|i| i.code() != "unrecognized_keys") {
+                    return Ok(left);
+                }
+                return self.run(*to, left, refiner, d);
+            }
             Kind::Union(options) => {
                 if let [only] = options.as_slice() {
                     return self.run(*only, p, refiner, d);
@@ -1561,6 +1705,25 @@ mod tests {
         assert_eq!(
             verdict(&s, "{}"),
             r#"[{"expected":"date","code":"invalid_type","received":"Invalid Date","path":[],"message":"Invalid input: expected date, received Date"}]"#
+        );
+    }
+
+    /// `z.string({ error: (i) => (i.input === undefined ? undefined : 'M') })`, as zod 4 answers it.
+    #[test]
+    fn a_string_with_its_own_error_names_it_for_any_input_but_an_absent_one() {
+        let s = schema(
+            r#"[{"t":"object","shape":[["a",1],["b",2]]},{"t":"nullable","in":2},{"t":"string","definedMsg":"M"}]"#,
+        );
+        assert_eq!(
+            verdict(&s, r#"{"a":7}"#),
+            r#"[{"expected":"string","code":"invalid_type","path":["a"],"message":"M"},{"expected":"string","code":"invalid_type","path":["b"],"message":"Invalid input: expected string, received undefined"}]"#
+        );
+        assert!(
+            Schema::from_json(
+                &json::parse(r#"{"nodes":[{"t":"number","definedMsg":"M"}]}"#)
+                    .unwrap_or(Json::Null)
+            )
+            .is_err()
         );
     }
 }

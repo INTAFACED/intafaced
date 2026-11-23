@@ -1,3 +1,4 @@
+// volt-room: /trade/analytics/:pair
 import { useMemo, useState } from 'react';
 import { MonitorTemplate } from '@intafaced/ui/lit/templates';
 import type { RoomState } from '@intafaced/ui/lit/templates';

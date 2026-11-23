@@ -1,14 +1,14 @@
-import { forwardedPrincipalHeaders, router, scopedProcedure } from '@intafaced/contracts';
+import { forwardedPrincipalHeaders } from '@intafaced/contracts/edge';
+import { router } from '@intafaced/contracts/trpc';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import {
-  distributionRunInputSchema,
-  distributionRunSchema,
-  distributionsMineInputSchema,
-  distributionsMineSchema,
-} from '@intafaced/contracts/campaigns-catalogue';
-import { distributionPlanInputSchema, distributionPlanSchema } from '@intafaced/contracts/campaigns-payout-board';
+  CAMPAIGNS_OPS_CAMPAIGNS_DISTRIBUTION_PLAN,
+  CAMPAIGNS_OPS_CAMPAIGNS_DISTRIBUTION_RUN,
+} from '@intafaced/contracts/campaigns-procedures';
 import { CampaignsError } from '../codes.js';
-import { guard, mapError, opsProcedure } from './kit.js';
+import { mapError, refusalOf, requireOpsMfa } from './kit.js';
 import type { CampaignServices } from '../router.js';
+import { CAMPAIGNS_DISTRIBUTION_MINE } from '@intafaced/contracts/campaigns-distribution-procedures';
 
 /** Airdrop distributions (J-campaigns-13, J-campaigns-19 #5 #6). */
 export function distributionRoutes({ distributions }: CampaignServices) {
@@ -19,10 +19,9 @@ export function distributionRoutes({ distributions }: CampaignServices) {
          * The caller's own distributions (J-campaigns-13 #1 #2 #3): each airdrop they joined, how they stood at its snapshot,
          * their share and the chain transaction that paid it. Dividends refuse `owner.decision` naming the question.
          */
-        mine: scopedProcedure('campaigns:read', guard)
-          .input(distributionsMineInputSchema)
-          .output(distributionsMineSchema)
-          .query(async ({ ctx, input }) => {
+        mine: mountRecord(
+          CAMPAIGNS_DISTRIBUTION_MINE,
+          async ({ ctx, input }) => {
             try {
               if (!distributions) throw new CampaignsError('campaigns.store_unwired', 'Distributions are not wired');
               return await distributions.mine({
@@ -33,7 +32,9 @@ export function distributionRoutes({ distributions }: CampaignServices) {
             } catch (err) {
               mapError(err);
             }
-          }),
+          },
+          refusalOf,
+        ),
       }),
     },
     opsCampaigns: {
@@ -42,29 +43,24 @@ export function distributionRoutes({ distributions }: CampaignServices) {
        * returns the run as it stands and owes nothing twice. The operator and their reason are audited.
        */
       distribution: router({
-        /** An airdrop's plan, account by account (J-campaigns-19 #5 #6): the run as it stands. Read only. */
-        plan: opsProcedure
-          .input(distributionPlanInputSchema)
-          .output(distributionPlanSchema)
-          .query(async ({ input }) => {
-            try {
-              if (!distributions) throw new CampaignsError('campaigns.store_unwired', 'Distributions are not wired');
-              return await distributions.plan(input.campaignId);
-            } catch (err) {
-              mapError(err);
-            }
-          }),
-        run: opsProcedure
-          .input(distributionRunInputSchema)
-          .output(distributionRunSchema)
-          .mutation(async ({ ctx, input }) => {
-            try {
-              if (!distributions) throw new CampaignsError('campaigns.store_unwired', 'Distributions are not wired');
-              return await distributions.run(input.campaignId, { actor: ctx.principal!.userId, reason: input.reason });
-            } catch (err) {
-              mapError(err);
-            }
-          }),
+        plan: mountRecord(
+          CAMPAIGNS_OPS_CAMPAIGNS_DISTRIBUTION_PLAN,
+          async ({ ctx, input }) => {
+            requireOpsMfa(ctx);
+            if (!distributions) throw new CampaignsError('campaigns.store_unwired', 'Distributions are not wired');
+            return distributions.plan(input.campaignId);
+          },
+          refusalOf,
+        ),
+        run: mountRecord(
+          CAMPAIGNS_OPS_CAMPAIGNS_DISTRIBUTION_RUN,
+          async ({ ctx, input }) => {
+            requireOpsMfa(ctx);
+            if (!distributions) throw new CampaignsError('campaigns.store_unwired', 'Distributions are not wired');
+            return distributions.run(input.campaignId, { actor: ctx.principal.userId, reason: input.reason });
+          },
+          refusalOf,
+        ),
       }),
     },
   };

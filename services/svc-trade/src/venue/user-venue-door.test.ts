@@ -655,6 +655,8 @@ describe('the deposit route and a withdrawal read back through the door (J-walle
     minimum: '5',
     confirmations: 3,
     network: 'TEST chain',
+    // The venue's own warning for any other chain (J-wallet-24 #1).
+    warning: 'TEST: send only TEST USDC on TEST chain.',
   };
   let server: http.Server;
   let sim: TestVenueSimulator;
@@ -743,12 +745,13 @@ describe('the deposit route and a withdrawal read back through the door (J-walle
       address: ROUTE.address,
       asset: ROUTE.asset,
     };
-    expect(readDepositRoute(bare)).toEqual({ ...bare, minimum: null, confirmations: null, network: null });
-    expect(readDepositRoute({ ...ROUTE, minimum: 5, confirmations: 0, network: ' ' })).toEqual({
+    expect(readDepositRoute(bare)).toEqual({ ...bare, minimum: null, confirmations: null, network: null, warning: null });
+    expect(readDepositRoute({ ...ROUTE, minimum: 5, confirmations: 0, network: ' ', warning: 7 })).toEqual({
       ...bare,
       minimum: null,
       confirmations: null,
       network: null,
+      warning: null,
     });
     expect(readDepositRoute(null)).toBeNull();
     expect(readDepositRoute({ ...ROUTE, address: 'nowhere' })).toBeNull();

@@ -1,6 +1,12 @@
-import { parseAmount } from '@intafaced/ledger-client/money';
+import { div, formatAmount, mul, parseAmount } from '@intafaced/ledger-client/money';
 import { z } from 'zod';
-import { QUANT_BACKTEST_HISTORY_RANGE, QUANT_BACKTEST_LAKE_MISSING, QUANT_COST_UNSET, QuantError } from '../errors.js';
+import {
+  QUANT_ACCOUNT_RULE_UNSET,
+  QUANT_BACKTEST_HISTORY_RANGE,
+  QUANT_BACKTEST_LAKE_MISSING,
+  QUANT_COST_UNSET,
+  QuantError,
+} from '../errors.js';
 import { barSpanMs, type Bar, type BarSize } from './bars.js';
 
 /**
@@ -123,6 +129,91 @@ export function tradeHistoryPort(options: {
   };
 }
 
+/**
+ * The prices a paper run trades on (J-algo-dev-04 #2): closed candles of the venue's own prints on the spot market we list
+ * on the strategy's asset, read from svc-trade's public route (`GET /api/v1/venue/spot-candles?base=BTC&interval=1m`),
+ * never a book of ours. An answer that says where the prices come from, or why there are none: the run is then unpriced
+ * and nothing fills, and no bar is invented.
+ */
+export type VenuePrices = { readonly venueMarket: string; readonly test: boolean; readonly bars: Bar[] } | { readonly unavailable: string };
+
+export interface VenuePricePort {
+  readonly wired: boolean;
+  /** Closed bars that start at or after `fromMs` and end by `toMs`, oldest first. An interval with no print is absent. */
+  bars(query: { readonly symbol: string; readonly barSize: BarSize; readonly fromMs: number; readonly toMs: number }): Promise<VenuePrices>;
+}
+
+/** The venue's candle read answers at most this many candles, the newest (svc-trade's `limit` cap on the route). */
+const VENUE_BARS_BACK = 500;
+
+const venueCandles = z.object({
+  symbol: z.string().min(1),
+  test: z.boolean(),
+  value: z.array(z.object({ openAt: z.string(), openPrice: price, highPrice: price, lowPrice: price, closePrice: price })),
+});
+
+export function missingVenuePrices(): VenuePricePort {
+  return {
+    wired: false,
+    bars: async () => ({ unavailable: "the venue's price read is not wired (TRADE_URL is unset)" }),
+  };
+}
+
+export function tradeVenuePricePort(options: {
+  readonly tradeUrl: string;
+  readonly now: () => number;
+  readonly fetch?: Fetch;
+  readonly timeoutMs?: number;
+}): VenuePricePort {
+  const base = options.tradeUrl.replace(/\/+$/, '');
+  const fetchImpl: Fetch = options.fetch ?? ((url, init) => globalThis.fetch(url, init));
+  return {
+    wired: true,
+    async bars({ symbol, barSize, fromMs, toMs }) {
+      const span = barSpanMs(barSize);
+      const now = options.now();
+      // One candle short of the route's cap, so the venue's own count (on its own clock) never lands one over it.
+      if (fromMs < now - (VENUE_BARS_BACK - 1) * span) {
+        throw new QuantError(
+          QUANT_BACKTEST_HISTORY_RANGE,
+          `the run started more than ${VENUE_BARS_BACK} bars of ${barSize} ago; the venue's price read reaches back that far`,
+        );
+      }
+      const asset = baseAssetOf(symbol);
+      const url = `${base}/api/v1/venue/spot-candles?base=${encodeURIComponent(asset)}&interval=${barSize}&limit=${VENUE_BARS_BACK}`;
+      let answer: { status: number; body: unknown };
+      try {
+        answer = await getJson(fetchImpl, url, options.timeoutMs ?? 10_000);
+      } catch {
+        return { unavailable: "the venue's price read did not answer" };
+      }
+      if (answer.status !== 200) return { unavailable: `the venue's price read answered ${answer.status} (${codeOf(answer.body)})` };
+      const read = venueCandles.safeParse(answer.body);
+      if (!read.success) return { unavailable: "the venue's price read answered rows that are not candles" };
+      const end = Math.min(toMs, now);
+      const byOpen = new Map<number, Bar>();
+      for (const candle of read.data.value) {
+        const openTimeMs = Date.parse(candle.openAt);
+        // Only whole, closed intervals inside the window: the strategy never sees a bar that has not closed.
+        if (!Number.isFinite(openTimeMs) || openTimeMs < fromMs || openTimeMs + span > end || openTimeMs % span !== 0) continue;
+        if (byOpen.has(openTimeMs)) return { unavailable: "the venue's price read answered two candles for one interval" };
+        byOpen.set(openTimeMs, {
+          openTimeMs,
+          open: parseAmount(candle.openPrice),
+          high: parseAmount(candle.highPrice),
+          low: parseAmount(candle.lowPrice),
+          close: parseAmount(candle.closePrice),
+        });
+      }
+      return {
+        venueMarket: read.data.symbol,
+        test: read.data.test,
+        bars: [...byOpen.values()].sort((a, b) => a.openTimeMs - b.openTimeMs),
+      };
+    },
+  };
+}
+
 export function tradeFeePort(options: { readonly tradeUrl: string; readonly fetch?: Fetch; readonly timeoutMs?: number }): FeePort {
   const base = options.tradeUrl.replace(/\/+$/, '');
   const fetchImpl = options.fetch ?? (globalThis.fetch as unknown as Fetch);
@@ -143,6 +234,102 @@ export function tradeFeePort(options: { readonly tradeUrl: string; readonly fetc
       const row = parsed.data.fees[symbol];
       if (!row) throw new QuantError(QUANT_COST_UNSET, `fees — the published schedule has no rate for ${symbol}`);
       return { version: parsed.data.version, makerBps: row.makerBps, takerBps: row.takerBps };
+    },
+  };
+}
+
+/**
+ * The venue's published margin rules for the perpetual on a backtest symbol's asset (J-algo-dev-02 #5), read from
+ * svc-trade's public route (`GET /api/v1/venue/margin-rules?base=BTC`), never set by us: the maximum leverage in times and
+ * the maintenance level as a percent of the position's value, each null where the venue publishes none, and the market
+ * null where the venue lists no perpetual on the asset. A read that does not answer refuses by name.
+ */
+export interface VenueMarginRules {
+  readonly venueMarket: string | null;
+  readonly maxLeverage: string | null;
+  readonly maintenancePercent: string | null;
+  readonly test: boolean;
+}
+
+export interface MarginRulesPort {
+  readonly wired: boolean;
+  rules(symbol: string): Promise<VenueMarginRules>;
+}
+
+const marginRulesAnswer = z.object({
+  symbol: z.string().min(1),
+  maxLeverageBps: z.number().int().positive().nullable(),
+  maintenanceRate: price.nullable(),
+  test: z.boolean(),
+});
+
+/** The asset a backtest symbol trades: `BTC/USDT` and `BTC-USDC` are BTC. */
+function baseAssetOf(symbol: string): string {
+  const [asset = ''] = symbol.split(/[/-]/);
+  return asset.toUpperCase();
+}
+
+export function missingMarginRules(): MarginRulesPort {
+  return {
+    wired: false,
+    rules: async () => {
+      throw new QuantError(
+        QUANT_ACCOUNT_RULE_UNSET,
+        "maximum leverage — the venue's margin rules read is not wired (TRADE_URL is unset); nothing is assumed",
+      );
+    },
+  };
+}
+
+export function tradeMarginRulesPort(options: {
+  readonly tradeUrl: string;
+  readonly fetch?: Fetch;
+  readonly timeoutMs?: number;
+}): MarginRulesPort {
+  const base = options.tradeUrl.replace(/\/+$/, '');
+  const fetchImpl: Fetch = options.fetch ?? ((url, init) => globalThis.fetch(url, init));
+  return {
+    wired: true,
+    async rules(symbol) {
+      const asset = baseAssetOf(symbol);
+      let answer: { status: number; body: unknown };
+      try {
+        answer = await getJson(
+          fetchImpl,
+          `${base}/api/v1/venue/margin-rules?base=${encodeURIComponent(asset)}`,
+          options.timeoutMs ?? 10_000,
+        );
+      } catch {
+        throw new QuantError(
+          QUANT_ACCOUNT_RULE_UNSET,
+          "maximum leverage — the venue's margin rules read did not answer; nothing is assumed",
+        );
+      }
+      // The venue lists no perpetual on the asset: there are no venue rules to follow, which the run refuses by name.
+      if (answer.status === 422 && codeOf(answer.body) === 'trade.venue.not_offered') {
+        return { venueMarket: null, maxLeverage: null, maintenancePercent: null, test: false };
+      }
+      if (answer.status !== 200) {
+        throw new QuantError(
+          QUANT_ACCOUNT_RULE_UNSET,
+          `maximum leverage — the venue's margin rules read answered ${answer.status} (${codeOf(answer.body)}); nothing is assumed`,
+        );
+      }
+      const parsed = marginRulesAnswer.safeParse(answer.body);
+      if (!parsed.success) {
+        throw new QuantError(
+          QUANT_ACCOUNT_RULE_UNSET,
+          "maximum leverage — the venue's margin rules read answered no rules; nothing is assumed",
+        );
+      }
+      const { maxLeverageBps, maintenanceRate } = parsed.data;
+      return {
+        venueMarket: parsed.data.symbol,
+        maxLeverage: maxLeverageBps === null ? null : formatAmount(div(parseAmount(String(maxLeverageBps)), parseAmount('10000'), 'floor')),
+        maintenancePercent:
+          maintenanceRate === null ? null : formatAmount(mul(parseAmount(maintenanceRate), parseAmount('100'), 'half-up')),
+        test: parsed.data.test,
+      };
     },
   };
 }

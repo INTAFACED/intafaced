@@ -75,7 +75,7 @@
  * dependency.
  */
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -150,15 +150,41 @@ function readAudit() {
   }
 }
 
-/** The registry crates in a `Cargo.lock`: the workspace's own crates have no `source` and are not asked about. */
-export function cargoPackages(lockText) {
+/** Where third-party crates live with a fix of ours (`crates/vendor/<crate>/VENDORED.md`), named by path, so with no `source`. */
+export const VENDOR_DIR = 'crates/vendor';
+
+/**
+ * Each vendored crate's name and version, read from its own `Cargo.toml`. A vendored crate is still that release of that
+ * crate and is asked about like a registry one; one whose name or version cannot be read stops the run, never drops out.
+ */
+export function vendoredCrates(root = ROOT) {
+  const dir = join(root, VENDOR_DIR);
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir, { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => {
+      const manifest = readFileSync(join(dir, d.name, 'Cargo.toml'), 'utf8');
+      const pkg = manifest.split(/^\[(?!package\])/m)[0].split(/^\[package\]$/m)[1] ?? '';
+      const field = (key) => pkg.match(new RegExp(`^${key} = "([^"]*)"$`, 'm'))?.[1];
+      const [name, version] = [field('name'), field('version')];
+      if (!name || !version) throw new Error(`${VENDOR_DIR}/${d.name}/Cargo.toml: no [package] name and version to audit`);
+      return { name, version };
+    });
+}
+
+/**
+ * The crates in a `Cargo.lock` that OSV is asked about: every registry crate, and each vendored crate (`vendored`, from
+ * `vendoredCrates`), which has no `source`. The workspace's own crates have no `source` either and are not asked about.
+ */
+export function cargoPackages(lockText, vendored = []) {
   const out = [];
   for (const block of String(lockText)
     .split(/^\[\[package\]\]$/m)
     .slice(1)) {
     const field = (key) => block.match(new RegExp(`^${key} = "([^"]*)"$`, 'm'))?.[1];
     const [name, version, source] = [field('name'), field('version'), field('source')];
-    if (name && version && source?.startsWith('registry+')) out.push({ name, version });
+    const isVendored = !source && vendored.some((v) => v.name === name && v.version === version);
+    if (name && version && (source?.startsWith('registry+') || isVendored)) out.push({ name, version });
   }
   return out;
 }
@@ -199,7 +225,7 @@ async function readRustAudit() {
   } catch {
     return { found: new Map(), notices: [] };
   }
-  const packages = cargoPackages(lock);
+  const packages = cargoPackages(lock, vendoredCrates());
   if (packages.length === 0) return { found: new Map(), notices: [] };
   try {
     const ask = async (url, init) => {
@@ -359,6 +385,22 @@ function selfTest() {
     '',
   ].join('\n');
   eq(cargoPackages(lock), [{ name: 'smallvec', version: '0.6.9' }], 'registry crates only, the workspace crate left out');
+  const withVendored = `${lock}\n[[package]]\nname = "tiny_http"\nversion = "0.12.0"\n`;
+  eq(
+    cargoPackages(withVendored, [{ name: 'tiny_http', version: '0.12.0' }]),
+    [
+      { name: 'smallvec', version: '0.6.9' },
+      { name: 'tiny_http', version: '0.12.0' },
+    ],
+    'a vendored crate is asked about as its release, the workspace crate still left out',
+  );
+  eq(cargoPackages(withVendored), [{ name: 'smallvec', version: '0.6.9' }], 'a path crate not vendored is not asked about');
+  const vendored = vendoredCrates();
+  eq(
+    vendored.some((v) => v.name === 'tiny_http' && v.version === '0.12.0'),
+    existsSync(join(ROOT, VENDOR_DIR, 'tiny_http')),
+    "this tree's vendored tiny_http is read from its Cargo.toml",
+  );
   const pkgs = [{ name: 'smallvec', version: '0.6.9' }];
   const details = {
     'RUSTSEC-2019-0009': { aliases: ['GHSA-mm7v-vpv8-xfc3'] },
@@ -378,7 +420,7 @@ function selfTest() {
   );
   eq(got.notices.length, 2, 'an unmaintained notice and a withdrawn advisory pass as notices');
   eq(judge([...got.found.keys()], {}, true).fail, true, 'a vulnerable crate fails a strict run');
-  console.log('✓ dependency-audit --self-test OK (15 fixtures)');
+  console.log('✓ dependency-audit --self-test OK (18 fixtures)');
 }
 
 // Nothing imports this file, so there is no main-module guard to fail open on an odd checkout path.

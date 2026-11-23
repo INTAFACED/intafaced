@@ -7,18 +7,19 @@ import {
   QUANT_APPROVAL_SELF_REVIEW,
   QuantError,
 } from '../errors.js';
+import { quantApprovalPolicySchema } from '@intafaced/contracts/quant-research';
+import { publicJurisdictionProcedure, router } from '@intafaced/contracts/trpc';
 import {
-  publicJurisdictionProcedure,
-  quantApprovalDecideInputSchema,
-  quantApprovalPolicySchema,
-  quantApprovalPolicySetInputSchema,
-  quantApprovalRequestInputSchema,
-  quantApprovalStateSchema,
-  router,
-} from '@intafaced/contracts';
+  QUANT_APPROVAL_DECIDE,
+  QUANT_APPROVAL_GET,
+  QUANT_APPROVAL_POLICY_SET,
+  QUANT_APPROVAL_REQUEST,
+} from '@intafaced/contracts/quant-approval-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { z } from 'zod';
-import { toTrpc, accountField, missingStrategy, type QuantCore } from './core.js';
+import { quantRefusal, toTrpc, accountField, missingStrategy, type QuantCore } from './core.js';
 
+/** `quant.approval.*`; all but `policy.get` are mounted from their records (`@intafaced/contracts/quant-approval-procedures`). */
 export function approvalRoutes(core: QuantCore) {
   const { strategies, now, approvals, approvalHashOf, approvalStrategy, approvalStateOf, accountOf } = core;
   return router({
@@ -34,10 +35,9 @@ export function approvalRoutes(core: QuantCore) {
             toTrpc(err);
           }
         }),
-      set: publicJurisdictionProcedure('quant', 'fiat')
-        .input(quantApprovalPolicySetInputSchema.extend(accountField))
-        .output(quantApprovalPolicySchema)
-        .mutation(async ({ input, ctx }) => {
+      set: mountRecord(
+        QUANT_APPROVAL_POLICY_SET,
+        async ({ input, ctx }) => {
           try {
             const accountId = accountOf(ctx, input.accountId);
             const stored = await approvals.setPolicy({
@@ -51,30 +51,32 @@ export function approvalRoutes(core: QuantCore) {
           } catch (err) {
             toTrpc(err);
           }
-        }),
+        },
+        quantRefusal,
+      ),
     }),
 
     /** One strategy's approvals and whether its newest version may go live now. The owner or a teammate reads it. */
-    get: publicJurisdictionProcedure('quant', 'fiat')
-      .input(z.object({ strategyId: z.string().min(1).max(128), ...accountField }))
-      .output(quantApprovalStateSchema)
-      .query(async ({ input, ctx }) => {
+    get: mountRecord(
+      QUANT_APPROVAL_GET,
+      async ({ input, ctx }) => {
         try {
           return await approvalStateOf(accountOf(ctx, input.accountId), input.strategyId);
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
 
     /**
      * The owner asks for an independent review of one version, bound to its hash now, under
      * `quant.approval:<strategy>:v<n>:<hash8>:request`: the same ask again is the same request. With no policy set it
      * refuses `quant.approval_policy_unset`.
      */
-    request: publicJurisdictionProcedure('quant', 'fiat')
-      .input(quantApprovalRequestInputSchema.extend(accountField))
-      .output(quantApprovalStateSchema)
-      .mutation(async ({ input, ctx }) => {
+    request: mountRecord(
+      QUANT_APPROVAL_REQUEST,
+      async ({ input, ctx }) => {
         try {
           const accountId = accountOf(ctx, input.accountId);
           const found = await strategies.get({ accountId, id: input.strategyId });
@@ -97,7 +99,9 @@ export function approvalRoutes(core: QuantCore) {
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
 
     /**
      * A teammate decides one request, once. The requester, or the owner on their own strategy, refuses
@@ -105,10 +109,9 @@ export function approvalRoutes(core: QuantCore) {
      * `quant.approval_hash_stale`; a decided request answers its decision again when the same reviewer sends the
      * same decision, and refuses `quant.approval_decided` otherwise.
      */
-    decide: publicJurisdictionProcedure('quant', 'fiat')
-      .input(quantApprovalDecideInputSchema.extend(accountField))
-      .output(quantApprovalStateSchema)
-      .mutation(async ({ input, ctx }) => {
+    decide: mountRecord(
+      QUANT_APPROVAL_DECIDE,
+      async ({ input, ctx }) => {
         try {
           const callerId = accountOf(ctx, input.accountId);
           const { found, member } = await approvalStrategy(callerId, input.strategyId);
@@ -151,6 +154,8 @@ export function approvalRoutes(core: QuantCore) {
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
   });
 }

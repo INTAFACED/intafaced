@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, scopedProcedure } from '@intafaced/contracts';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { MEMBERSHIP_NOT_OFFERED, membershipOffer, type MembershipTier } from './membership-offer.js';
 
 const tierOut = z

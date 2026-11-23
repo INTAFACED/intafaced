@@ -82,7 +82,7 @@ export function manualMoveKey(owner: string, askedAt: number): string {
 
 const decimal = z.string().regex(/^-?[0-9]+(\.[0-9]+)?$/);
 /** svc-bank `payYourself.summary` (services/svc-bank/src/pay-yourself/pay-yourself.router.ts). */
-export const payYourselfSummarySchema = z.object({
+const payYourselfSummarySchema = z.object({
   payIn: z.union([
     z.object({
       label: z.literal('TEST'),

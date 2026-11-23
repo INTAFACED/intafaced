@@ -56,7 +56,6 @@ const en = {
   tileFees: 'Fees',
   tileNet: 'Net',
   tileRefunded: 'Refunded',
-  feesOf: 'Fees in {asset}',
   feesTableTitle: 'By period',
   feesTableBody: 'Settled amounts for each period and asset. Different assets are never added together.',
   rateTitle: 'Effective rate',

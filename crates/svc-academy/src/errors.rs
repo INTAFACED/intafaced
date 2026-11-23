@@ -126,6 +126,8 @@ impl Refusal {
                 message: "Request failed".to_owned(),
                 intafaced_code: None,
                 cause: code.clone(),
+                preview: None,
+                spend: None,
             },
             Refusal::Academy(e) => match trpc_code(&e.code) {
                 Some((trpc, send, copy)) => {
@@ -160,6 +162,8 @@ impl Refusal {
             message,
             intafaced_code: None,
             cause: code,
+            preview: None,
+            spend: None,
         }
     }
 }

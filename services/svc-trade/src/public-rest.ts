@@ -1,14 +1,8 @@
 import { spotOrderTypes } from '@intafaced/contracts/spot-order-types';
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import {
-  isScheduleKey,
-  isScheduleOpen,
-  nextScheduleTransition,
-  TRADING_SCHEDULES,
-  upcomingMaintenanceFor,
-  type TradingSchedule,
-  type UpcomingMaintenance,
-} from '@intafaced/contracts';
+import type { TradingSchedule, UpcomingMaintenance } from '@intafaced/contracts';
+import { isScheduleKey, isScheduleOpen, nextScheduleTransition, TRADING_SCHEDULES } from '@intafaced/contracts/instruments';
+import { upcomingMaintenanceFor } from '@intafaced/contracts/market-maintenance';
 import { TIMEFRAMES, timeframeSchema, RATE_LIMITS, type Timeframe } from '@intafaced/exchange-contract';
 import type { MarketStateSnapshot } from '@intafaced/exchange-contract';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
@@ -501,6 +495,14 @@ export function presentCcxtMarket(
      * or stop order refuses `trade.opening_window`. Null when the market has no window or its window has ended.
      */
     openingWindowEndsAt: openingWindowEndsAtOf(market, nowMs),
+    /**
+     * The higher-risk zone (J-cex-spot-14 #7): `higher_risk` when the market sits in it, else null. A zone market takes
+     * limit orders only, each worth at most `zoneOrderCap` in the quote asset; a null cap there means unset, and the
+     * market takes no order (`trade.zone_setting_unset`).
+     */
+    zone: market.zone === 'higher_risk' ? ('higher_risk' as const) : null,
+    zoneOrderCap:
+      market.zone === 'higher_risk' && market.zoneOrderCap != null ? formatAmount(market.zoneOrderCap) : (null as string | null),
     /**
      * TRUE = the order path will accept a new order/open here (subject to
      * session, paper, risk). FALSE = listed but refused — futures kill-switch
@@ -1260,6 +1262,8 @@ export function fakeMarket(partial: {
   assetClass?: Market['assetClass'];
   delistsAt?: Date | null;
   openingWindowEndsAt?: Date | null;
+  zone?: Market['zone'];
+  zoneOrderCap?: Amount | null;
 }): Market {
   return {
     id: partial.id ?? '00000000-0000-4000-8000-000000000001',
@@ -1281,6 +1285,8 @@ export function fakeMarket(partial: {
     paper: partial.paper ?? false,
     ...(partial.delistsAt !== undefined ? { delistsAt: partial.delistsAt } : {}),
     ...(partial.openingWindowEndsAt !== undefined ? { openingWindowEndsAt: partial.openingWindowEndsAt } : {}),
+    ...(partial.zone !== undefined ? { zone: partial.zone } : {}),
+    ...(partial.zoneOrderCap !== undefined ? { zoneOrderCap: partial.zoneOrderCap } : {}),
   };
 }
 

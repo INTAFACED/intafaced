@@ -49,6 +49,17 @@ const sellForm = (page) => page.locator('form[data-testid="dk-form"][data-side="
 const orderTab = (page, name) => page.getByTestId('dk-order').locator('[role=tab]', { hasText: new RegExp(`^${name}$`) });
 const line = (scope, name) => scope.locator(`[data-line="${name}"]`);
 
+/**
+ * Opens a tab of the desk's bottom strip and checks it is the one shown. The caller first waits for the desk to settle
+ * (its wallet back, its own orders read): until then it still grows above the strip, and a click lands where the tab
+ * was a moment before. In run 44570528831 the Trade history click on a reloaded desk left Open orders shown.
+ */
+async function bottomTab(page, name) {
+  const tab = page.getByTestId('venue-bottom').getByRole('tab', { name, exact: true });
+  await tab.click();
+  await expect(tab, `the ${name} tab is the one shown after its click`).toHaveAttribute('aria-selected', 'true');
+}
+
 /** "3.5" bps → "0.035%": the point moved two places, exactly as the page writes a rate. */
 function pct(bps) {
   const units = toUnits(bps);
@@ -473,12 +484,18 @@ test(`${J} #4 fills where the venue charges no fee, and where the venue pays a r
 
   // The desk's trade history, each fill as the venue charged it: "Zero fee" on one, the venue's rebate on the other.
   await openVenueDesk(page, s.account, desk(zero.symbol), s.walletKey);
-  await page.getByRole('tab', { name: 'Trade history', exact: true }).click();
+  await bottomTab(page, 'Trade history');
   const zeroRow = page.getByTestId('venue-fills').locator(`tr[data-fill="${zeroFill.fillId}"]`);
   await expect(zeroRow.locator('[data-cell="venue-fee"]')).toHaveText('Zero fee');
   await page.goto(desk(rebate.symbol));
   await expect(page.getByTestId('venue-header')).toBeVisible({ timeout: 30_000 });
-  await page.getByRole('tab', { name: 'Trade history', exact: true }).click();
+  // The wallet comes back on its own after the load (no prompt): the desk is the person's before its history is read.
+  await expect(page.getByTestId('venue-wallet-address')).toHaveText(s.owner, { timeout: 20_000 });
+  // And its reads of the person's account have answered: the rested order is listed, Filled, under Open orders.
+  await expect(page.getByTestId('venue-open-orders').locator(`a[href="/trade/orders/${rested.venueClientOrderId}"]`)).toBeVisible({
+    timeout: 20_000,
+  });
+  await bottomTab(page, 'Trade history');
   const rebateRow = page.getByTestId('venue-fills').locator(`tr[data-fill="${rebateFill.fillId}"]`);
   await expect(rebateRow.locator('[data-cell="venue-fee"]')).toHaveText('Venue rebate 0.01');
   await expect(rebateRow.locator('[data-cell="venue-fee"] [data-fee="rebate"]')).toHaveAttribute('data-rebate', '0.01');

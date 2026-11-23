@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, scopedProcedure } from '@intafaced/contracts';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { formatAmount } from '@intafaced/ledger-client';
 import { unwiredApprovalConsumer } from '../action-approval-consume.js';
 import { createStepUpGate } from '../step-up/step-up-gate.js';
@@ -36,6 +36,7 @@ function moveOut(m: OwnMove): z.input<typeof ownMoveView> {
     partnerFee: m.partnerFee === null ? null : formatAmount(m.partnerFee),
     deliveryTx: m.deliveryTx,
     depositTx: m.depositTx,
+    depositConfirmed: m.depositConfirmed,
     createdAt: m.createdAt.toISOString(),
     sentAt: m.sentAt?.toISOString() ?? null,
     depositAt: m.depositAt?.toISOString() ?? null,

@@ -2,9 +2,16 @@ import { createServer, type IncomingMessage } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
-import { createPayClient, PayClient, signPayRequest, signaturesEqual } from './index.js';
+import { timingSafeEqual } from 'node:crypto';
+import { describe, expect, it, vi } from 'vitest';
+import { bindOperations, createPayClient, PayClient, signPayRequest, signaturesEqual, type PayOperations } from './index.js';
 import { retryDelayMs, type PayTransportRequest } from './client.js';
+
+// Pass-through spy on the constant-time compare: sign.ts must reach it for every well-formed comparison.
+vi.mock('node:crypto', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:crypto')>();
+  return { ...actual, timingSafeEqual: vi.fn(actual.timingSafeEqual) };
+});
 
 const SECRET = 'ifs_vector-lock';
 const GOLDEN = 'd61e9fa131b74a34ffdf69dbeee3fe8b82b68168d54a230d9d7ed12f042b4283';
@@ -70,17 +77,28 @@ describe('request signing helper', () => {
   });
 
   it('compares signatures in constant time and ignores a length mismatch', () => {
-    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'sign.ts'), 'utf8');
-    expect(src).toContain('timingSafeEqual');
-    expect(src).not.toMatch(/signature\s*===/);
+    const compare = vi.mocked(timingSafeEqual);
+    compare.mockClear();
     expect(signaturesEqual('abcd', 'abcd')).toBe(true);
+    expect(compare).toHaveBeenCalledTimes(1);
+    expect(compare).toHaveBeenLastCalledWith(Buffer.from('abcd', 'hex'), Buffer.from('abcd', 'hex'));
+    // A same-length mismatch is decided by the constant-time compare too, never by an early string equality.
+    expect(signaturesEqual('abcd', 'abce')).toBe(false);
+    expect(compare).toHaveBeenCalledTimes(2);
     expect(signaturesEqual('abcd', 'ab')).toBe(false);
     expect(signaturesEqual('zz', 'zz')).toBe(false);
+    expect(compare).toHaveBeenCalledTimes(2);
   });
 
   it('holds no signing window of its own: the window is the owner value the server publishes', async () => {
-    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'sign.ts'), 'utf8');
-    expect(src).not.toMatch(/WINDOW_SECONDS\s*=|\b300\b/);
+    const at = (timestamp: string) =>
+      signPayRequest({ secret: SECRET, method: 'GET', path: '/api/pay/v1/balances', timestamp, nonce: 'nonce-window-1', body: null });
+    const now = Math.floor(Date.now() / 1000);
+    // Any unix-seconds timestamp signs, however far from now: the helper refuses none on a window of its own.
+    for (const timestamp of ['0', '1', String(now - 301), String(now - 300), String(now + 301), String(now + 86_400 * 365)]) {
+      expect(at(timestamp).timestamp).toBe(timestamp);
+      expect(at(timestamp).canonical.split('\n')[3]).toBe(timestamp);
+    }
     expect(Object.keys(await import('./index.js')).filter((name) => /WINDOW/.test(name))).toEqual([]);
   });
 });
@@ -351,13 +369,30 @@ describe('sandbox contract', () => {
 });
 
 describe('generated surface', () => {
-  it('has no founder or operator paths', () => {
-    const root = dirname(fileURLToPath(import.meta.url));
-    const operations = readFileSync(join(root, 'operations.ts'), 'utf8');
-    const spec = readFileSync(join(root, '..', 'openapi', 'payments.openapi.json'), 'utf8');
-    for (const text of [operations, spec]) {
-      expect(text).not.toMatch(/founderAdmin|founder-admin|payHalts|operatorStatus/);
-      expect(text).not.toMatch(/\/operator(\/|")/);
+  it('has no founder or operator paths', async () => {
+    const forbidden = /founderAdmin|founder-admin|payHalts|operatorStatus/;
+    const calls: string[] = [];
+    const client = new PayClient({
+      baseUrl: 'https://pay.example/api/pay/v1',
+      apiKey: 'ifc_test_x',
+      maxRetries: 0,
+      transport: async (input) => {
+        calls.push(new URL(input.url).pathname);
+        return { status: 200, body: '{}' };
+      },
+    });
+    const operations = bindOperations(client);
+    const names = Object.keys(operations) as (keyof PayOperations)[];
+    for (const name of names) await operations[name]({ params: { id: 'op-1' } }).catch(() => undefined);
+    expect(calls, 'every generated operation reaches the client').toHaveLength(names.length);
+    for (const name of names) expect(name).not.toMatch(forbidden);
+    for (const path of calls) {
+      expect(path).not.toMatch(forbidden);
+      expect(path).not.toMatch(/\/operator(\/|$)/);
     }
+    const root = dirname(fileURLToPath(import.meta.url));
+    const spec = readFileSync(join(root, '..', 'openapi', 'payments.openapi.json'), 'utf8');
+    expect(spec).not.toMatch(forbidden);
+    expect(spec).not.toMatch(/\/operator(\/|")/);
   });
 });

@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { payCall, type PayCallContext } from './pay-call';
+import { PAY_HALTS_HISTORY, PAY_HALTS_SET } from '@intafaced/contracts/pay-halt-procedures';
+import { IDENTITY_RECIPIENTS_LIST } from '@intafaced/contracts/identity-recipients-procedures';
+import { payCall, payRecordCall, payRecordRead, type PayCallContext } from './pay-call';
 
 const ctx: PayCallContext = {
   session: {
@@ -105,5 +107,48 @@ describe('payCall', () => {
     expect((await payCall(ctx, 'x', 'GET', {}, () => null)).kind).toBe('invalid');
     stub(Response.json({ hello: 'world' }));
     expect((await payCall(ctx, 'x', 'GET', {}, identity)).kind).toBe('invalid');
+  });
+});
+
+describe('payRecordCall: a call through its record', () => {
+  it('sends the record path and method, parses the answer with the record, and never sends an input the record refuses', async () => {
+    const fetchFn = vi.fn(async (_url: string) => Response.json({ result: { data: [] } }));
+    vi.stubGlobal('fetch', fetchFn);
+    expect(await payRecordCall(ctx, PAY_HALTS_HISTORY, { limit: 5 })).toEqual({ kind: 'ok', data: [] });
+    expect(fetchFn.mock.calls[0]?.[0]).toBe(
+      `http://edge:4000/api/pay/trpc/payHalts.history?input=${encodeURIComponent(JSON.stringify({ limit: 5 }))}`,
+    );
+    stub(Response.json({ result: { data: [{ not: 'an event' }] } }));
+    expect(await payRecordCall(ctx, PAY_HALTS_HISTORY, { limit: 5 })).toEqual({ kind: 'invalid', requestId: null });
+    const unsent = stub(Response.json({ result: { data: {} } }));
+    const refused = await payRecordCall(ctx, PAY_HALTS_SET, { reason: 'no' } as never);
+    expect(refused).toMatchObject({ kind: 'refused', refusal: { code: null, status: 400 } });
+    expect(unsent).not.toHaveBeenCalled();
+  });
+});
+
+describe('payRecordRead and identity records: what the codemod moves `payCall` to', () => {
+  const requests = (fn: ReturnType<typeof vi.fn>) =>
+    fn.mock.calls.map(([url, init]) => {
+      const { signal: _signal, ...rest } = (init ?? {}) as RequestInit;
+      return [url, rest];
+    });
+  it('an identity call and a page reader send the same request and read the same answer as the call by name', async () => {
+    const reply = () => Response.json({ result: { data: [] } });
+    const byName = vi.fn(async (_url: string, _init?: RequestInit) => reply());
+    vi.stubGlobal('fetch', byName);
+    const read = (rows: unknown[]) => ({ count: rows.length });
+    const named = await payCall(ctx, 'recipients.list', 'GET', { limit: 5 }, (raw) => (Array.isArray(raw) ? read(raw) : null), 'identity');
+    const byRecord = vi.fn(async (_url: string, _init?: RequestInit) => reply());
+    vi.stubGlobal('fetch', byRecord);
+    const recorded = await payRecordRead(ctx, IDENTITY_RECIPIENTS_LIST, { limit: 5 }, read);
+    expect(recorded).toEqual(named);
+    expect(recorded).toEqual({ kind: 'ok', data: { count: 0 } });
+    expect(requests(byRecord)).toEqual(requests(byName));
+    expect(byName.mock.calls[0]?.[0]).toBe(`http://edge:4000/api/identity/trpc/recipients.list?input=${encodeURIComponent('{"limit":5}')}`);
+  });
+  it("a reader's null reads as unreadable, as it did by name", async () => {
+    stub(Response.json({ result: { data: [] } }));
+    expect(await payRecordRead(ctx, IDENTITY_RECIPIENTS_LIST, {}, () => null)).toEqual({ kind: 'invalid', requestId: null });
   });
 });

@@ -3,7 +3,7 @@ import type { OutsideFunds } from '@intafaced/contracts';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { iso } from '../merchant-ops/money.js';
 import type { MerchantCaller } from '../merchant-ops/roles.js';
-import { asAssetId } from '@intafaced/contracts';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 
 /**
  * A business's money held outside our book, per asset and holder (J-merchant-04: "the merchant sees it as clearing, then
@@ -12,7 +12,8 @@ import { asAssetId } from '@intafaced/contracts';
  * Read from the payments' own append-only events, which record what the chain or the partner reported, never from the
  * ledger (our ledger holds only our fee on these payments):
  * - an open payment to the business's own wallet: the chain's last report (`rail.pending`): what is final is available
- *   in the wallet, what is still confirming is clearing;
+ *   in the wallet, what is still confirming is clearing; once authorized, the chain has reported it all final, so the
+ *   authorized amount is available from that report, before capture;
  * - a captured payment: available, unless the partner reported its funds held (`funds.pending` with no `funds.available`
  *   since), which is clearing. Captured minus refunded: a refund the partner reported is no longer the business's.
  * `asOf` is the newest of those reports' times.
@@ -25,6 +26,7 @@ interface Row {
   received: string | null;
   confirming: string | null;
   pending_at: Date | null;
+  authorized_at: Date | null;
   held: boolean;
   report_at: Date | null;
   refunded: string | null;
@@ -36,6 +38,8 @@ export async function outsideFundsOf(sql: Sql, caller: MerchantCaller): Promise<
   const rows = await sql<Row[]>`
     SELECT p.currency, p.custody, p.status::text AS status, p.amount::text AS amount,
            pend.payload->>'received' AS received, pend.payload->>'confirming' AS confirming, pend.ts AS pending_at,
+           (SELECT max(e.ts) FROM pay.payment_events e
+             WHERE e.payment_id = p.id AND e.event = 'authorized') AS authorized_at,
            (EXISTS (SELECT 1 FROM pay.payment_events f WHERE f.payment_id = p.id AND f.event = 'funds.pending')
              AND NOT EXISTS (SELECT 1 FROM pay.payment_events f WHERE f.payment_id = p.id AND f.event = 'funds.available')) AS held,
            (SELECT max(e.ts) FROM pay.payment_events e
@@ -65,6 +69,9 @@ export async function outsideFundsOf(sql: Sql, caller: MerchantCaller): Promise<
         else available = net;
       }
       at = r.report_at;
+    } else if (r.status === 'authorized' && r.custody === 'merchant_wallet' && r.authorized_at) {
+      available = parseAmount(r.amount);
+      at = r.authorized_at;
     } else if (r.status === 'created' && r.pending_at) {
       available = r.received ? parseAmount(r.received) : 0n;
       clearing = r.confirming ? parseAmount(r.confirming) : 0n;

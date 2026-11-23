@@ -138,6 +138,17 @@ export const TickerStrip = memo(function TickerStrip({ market, ticker, favorite,
             <span className="dk-stat-value">{t('Opening window until', { time: dayTime(market.openingWindowEndsAt, zone) })}</span>
           </div>
         ) : null}
+        {market.zone === 'higher_risk' ? (
+          // The higher-risk zone (J-cex-spot-14 #7): flagged, capped and disclosed. Limit orders only, under the owner cap.
+          <div className="dk-stat" data-testid="dk-zone">
+            <span className="dk-stat-label">{t('Higher-risk zone')}</span>
+            <span className="dk-stat-value">
+              {market.zoneOrderCap != null
+                ? t('Zone cap', { cap: fmtAmount(market.zoneOrderCap, { places: 8 }), asset: market.quote })
+                : t('Zone cap not set')}
+            </span>
+          </div>
+        ) : null}
         <Stat
           label={since ? t('Low since', { time: since }) : t('24h low')}
           value={dollarPrice(row?.low24h ?? null, market)}

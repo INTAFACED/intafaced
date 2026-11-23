@@ -1,20 +1,20 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import {
-  academyCourseOutlineSchema,
-  academyItemCompletionSchema,
-  academyUndoCompletionSchema,
-  type AcademyCourseOutline,
-  type AcademyCourseOutlineItem,
-} from '@intafaced/contracts/academy-catalogue';
+import { type AcademyCourseOutline, type AcademyCourseOutlineItem } from '@intafaced/contracts/academy-catalogue';
+import { ACADEMY_MARK_CURRICULUM_COMPLETE } from '@intafaced/contracts/academy-learner-procedures';
 import type { ApiResult } from '../../shared/api';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
-import { Button, Loading, Panel } from '../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
 import { navigate } from '../../app/location';
 import { useApi, useSession } from '../session';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { academyCourseHref, formatDay } from './academy-lms';
-import { AcademyRefusal, GuardedButton, itemTypeLabel, pathLabel } from './AcademyLmsParts';
+import { itemTypeLabel, pathLabel } from './academy-labels';
+import { AcademyRefusal } from './academy-refusal';
+import { KitGuardedButton } from './academy-guarded';
+import { Section, Waiting } from './volt-parts';
+import { ACADEMY_COURSE_OUTLINE } from '@intafaced/contracts/academy-course-outline-procedures';
+import { ACADEMY_UNDO_CURRICULUM_COMPLETE } from '@intafaced/contracts/academy-undo-curriculum-complete-procedures';
 
 type Failure = Extract<ApiResult<never>, { ok: false }>;
 
@@ -41,7 +41,7 @@ export function AcademyCourseOutline({ itemSlug, refresh, progress = 0 }: { item
   const { userId } = useSession();
   const { t } = copy.useCopy();
   const outline = useResource(
-    (signal) => api.query('academy', 'courseOutline', { itemSlug }, academyCourseOutlineSchema, { signal }),
+    (signal) => api.call(ACADEMY_COURSE_OUTLINE, { itemSlug }, { signal }),
     `course-outline:${userId}:${itemSlug}`,
   );
   // A completion recorded in the reader beside it can unlock items, and a finished quiz can meet a rule: read the outline again.
@@ -53,9 +53,9 @@ export function AcademyCourseOutline({ itemSlug, refresh, progress = 0 }: { item
   }, [refresh, progress]);
   const completion = useItemCompletion(itemSlug, () => reload.current());
   return (
-    <Panel title={t('outlineTitle')}>
+    <Section title={t('outlineTitle')}>
       {outline.resource.status === 'loading' ? (
-        <Loading />
+        <Waiting />
       ) : outline.resource.status === 'failed' ? (
         <AcademyRefusal failure={outline.resource.failure} retry={outline.reload} />
       ) : (
@@ -64,7 +64,7 @@ export function AcademyCourseOutline({ itemSlug, refresh, progress = 0 }: { item
           <CourseOutlineView outline={outline.resource.data} current={itemSlug} />
         </>
       )}
-    </Panel>
+    </Section>
   );
 }
 
@@ -95,8 +95,8 @@ function useItemCompletion(current: string, reload: () => void) {
   };
   const complete = () =>
     send(async () => {
-      const sent = await api.mutate('academy', 'markCurriculumComplete', { itemSlug: current }, academyItemCompletionSchema);
-      const fresh = await api.query('academy', 'courseOutline', { itemSlug: current }, academyCourseOutlineSchema);
+      const sent = await api.call(ACADEMY_MARK_CURRICULUM_COMPLETE, { itemSlug: current });
+      const fresh = await api.call(ACADEMY_COURSE_OUTLINE, { itemSlug: current });
       const recorded = fresh.ok && fresh.data.items.some((row) => row.slug === current && row.state === 'completed');
       if (!recorded) {
         if (!sent.ok) setFailure(sent);
@@ -111,12 +111,11 @@ function useItemCompletion(current: string, reload: () => void) {
   const undo = (completedAt: string) =>
     send(async () => {
       // The key names this one completion, so a replay after a lost reply undoes it once and a later completion is new.
-      const sent = await api.mutate(
-        'academy',
-        'undoCurriculumComplete',
-        { itemSlug: current, completedAt, clientRequestId: `undo:${current}:${completedAt}` },
-        academyUndoCompletionSchema,
-      );
+      const sent = await api.call(ACADEMY_UNDO_CURRICULUM_COMPLETE, {
+        itemSlug: current,
+        completedAt,
+        clientRequestId: `undo:${current}:${completedAt}`,
+      });
       if (!sent.ok) setFailure(sent);
       else setUndone(true);
       reload();
@@ -149,20 +148,20 @@ export function ItemCompletionView({
   if (!row || row.lock !== null) return null;
   const rule = row.ruleMet ? null : row.rule === 'score' ? t('ruleScore') : row.rule === 'watch' ? t('ruleWatch') : null;
   return (
-    <div className="academy-lms-stack" data-item-completion={row.slug} data-item-state={row.state}>
+    <div className="lt-stack" data-item-completion={row.slug} data-item-state={row.state}>
       {row.state === 'completed' && row.completedAt ? (
-        <div className="academy-outline-nav">
+        <div className="lt-actions">
           <span role="status">{t('completedOn', { date: formatDay(row.completedAt, language) })}</span>
-          <Button variant="secondary" disabled={sending} onClick={() => onUndo(row.completedAt!)}>
+          <Button tone="secondary" disabled={sending} onClick={() => onUndo(row.completedAt!)}>
             {t('undoCompletion')}
           </Button>
         </div>
       ) : rule !== null ? (
-        <GuardedButton reason={rule} reasonId={reasonId}>
+        <KitGuardedButton reason={rule} reasonId={reasonId}>
           {t('completeContinue')}
-        </GuardedButton>
+        </KitGuardedButton>
       ) : (
-        <Button disabled={sending} onClick={onComplete}>
+        <Button tone="primary" disabled={sending} onClick={onComplete}>
           {t('completeContinue')}
         </Button>
       )}
@@ -191,14 +190,14 @@ export function CourseOutlineView({ outline, current }: { outline: AcademyCourse
   const navLink = (side: typeof previous, label: 'outlinePrevious' | 'outlineNext', none: 'outlineNoPrevious' | 'outlineNoNext') => (
     <div>
       {side.item ? (
-        <a className="button button--secondary" href={itemHref(side.item.slug)} rel={label === 'outlineNext' ? 'next' : 'prev'}>
+        <a className="lt-button lt-button-secondary" href={itemHref(side.item.slug)} rel={label === 'outlineNext' ? 'next' : 'prev'}>
           {t(label)}
         </a>
       ) : (
-        <span className="muted">{t(none)}</span>
+        <span className="lt-hint">{t(none)}</span>
       )}
       {side.skipped > 0 && (
-        <small className="muted">
+        <small className="lt-hint">
           {' '}
           <Copy k="outlineSkipped" params={{ count: side.skipped }} />
         </small>
@@ -206,23 +205,28 @@ export function CourseOutlineView({ outline, current }: { outline: AcademyCourse
     </div>
   );
   return (
-    <nav className="academy-lms-stack" aria-label={t('outlineTitle')} data-academy-outline={outline.slug}>
-      <a className="academy-learning-link" href={academyCourseHref(outline.slug)}>
+    <nav className="lt-stack" aria-label={t('outlineTitle')} data-academy-outline={outline.slug}>
+      <a className="lt-link lt-link-alone" href={academyCourseHref(outline.slug)}>
         {pathLabel(t, outline.slug)}
       </a>
-      <ol className="academy-outline">
+      <ol className="lt-stack">
         {outline.items.map((row) => {
           const why = reason(row);
           return (
-            <li key={row.slug} data-outline-item={row.slug} data-outline-state={row.state}>
+            <li key={row.slug} className="lt-stack" data-outline-item={row.slug} data-outline-state={row.state}>
               {row.lock !== null ? (
                 <span lang="und">{row.title}</span>
               ) : (
-                <a href={itemHref(row.slug)} aria-current={row.slug === current ? 'page' : undefined} lang="und">
+                <a
+                  className="lt-link lt-link-alone"
+                  href={itemHref(row.slug)}
+                  aria-current={row.slug === current ? 'page' : undefined}
+                  lang="und"
+                >
                   {row.title}
                 </a>
               )}
-              <span data-testid="academy-lms-meta" className="academy-lms-meta">
+              <span data-testid="academy-lms-meta" className="lt-actions lt-hint">
                 <span data-item-type={row.type}>{itemTypeLabel(t, row.type)}</span>
                 {why && <span>{why}</span>}
                 {row.dueAt && (
@@ -240,14 +244,14 @@ export function CourseOutlineView({ outline, current }: { outline: AcademyCourse
           {t('courseComplete')}
         </p>
       )}
-      <div className="academy-outline-nav">
+      <div className="lt-actions">
         {outline.items.some(opens) ? (
           <>
             {navLink(previous, 'outlinePrevious', 'outlineNoPrevious')}
             {navLink(next, 'outlineNext', 'outlineNoNext')}
           </>
         ) : (
-          <span className="muted">{t('outlineNoneOpen')}</span>
+          <span className="lt-hint">{t('outlineNoneOpen')}</span>
         )}
       </div>
     </nav>

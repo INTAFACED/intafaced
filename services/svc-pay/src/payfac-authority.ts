@@ -1,5 +1,6 @@
 import type { Queryable } from '@intafaced/db';
-import { identityOperationIntentSchema, type IdentityOperationIntent, type IdentityOperationDecisionPort } from '@intafaced/contracts';
+import type { IdentityOperationIntent, IdentityOperationDecisionPort } from '@intafaced/contracts';
+import { identityOperationIntentSchema } from '@intafaced/contracts/operation-identity-decisions';
 import type { SubMerchantService, PermissionAuthorityEvidence, PermissionEventRecord } from './submerchants.js';
 import type { OwnerIdentityAuthorityPort } from './payment-authority.js';
 import { PayoutAdmissionError, stable, verifiedDecision } from './payout-admission.js';

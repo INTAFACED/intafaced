@@ -171,7 +171,7 @@ export function DeadMan({ onChanged }: { onChanged: () => void }) {
               <AlertDialogDescription>{t('Dead man intro')}</AlertDialogDescription>
             </AlertDialogHeader>
             {state === null ? (
-              <p className="dk-note" role={unreadable ? 'alert' : 'status'}>
+              <p className="lt-hint" role={unreadable ? 'alert' : 'status'}>
                 {unreadable ? t('Dead man unreadable') : t('Dead man loading')}
               </p>
             ) : choices.length === 0 ? (
@@ -206,7 +206,7 @@ export function DeadMan({ onChanged }: { onChanged: () => void }) {
               </fieldset>
             )}
             {state?.armed && !note ? (
-              <p className="dk-note" role="status">
+              <p className="lt-hint" role="status">
                 {passed ? t('Dead man firing') : t('Dead man armed', { time: at(state) })}
               </p>
             ) : null}

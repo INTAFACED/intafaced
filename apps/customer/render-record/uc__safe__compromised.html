@@ -106,6 +106,9 @@
 <a href="/uc/safe" aria-current="page">Security</a>
 </li>
 <li>
+<a href="/uc/trading-permissions">Trading permissions</a>
+</li>
+<li>
 <a href="/verification">Verification</a>
 </li>
 <li>
@@ -115,23 +118,45 @@
 </nav>
 <div data-testid="acct-body" class="acct-body legacy-room">
 <div lang="en" style="display: contents;">
-<div data-testid="compromised" class="security stack" lang="en">
-<header>
-<h1>My account is compromised</h1>
-<p class="muted">Use this if someone else may have signed in, or you saw money leave that you did not send.</p>
+<div data-testid="compromised" lang="en">
+<div class="lt-room" data-template="settings" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
+<div>
+<h1 class="lt-title">My account is compromised</h1>
+<p class="lt-description">Use this if someone else may have signed in, or you saw money leave that you did not send.</p>
+</div>
 </header>
-<div data-testid="failure" class="failure" role="status">
-<h3>
+<div class="lt-body">
+<div class="lt-grid lt-grid-settings">
+<section class="lt-region" data-region="index" aria-label="Sections">
+<nav aria-label="Compromised account sections">
+<ul>
+<li>
+<a class="lt-link" href="#compromised-what">What happens when you press it</a>
+</li>
+</ul>
+</nav>
+</section>
+<section class="lt-region" data-region="sections" aria-label="Settings">
+<div data-testid="failure" class="lt-refusal" role="status">
+<h3 class="lt-refusal-title">
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
 </h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
 </button>
 </div>
-<p class="muted">
-<a class="text-link" href="/help/official-channels">Official channels and scam guides</a> · <a class="text-link" href="/support/new?topic=phishing">Report a scam message</a>
+<p class="lt-hint">
+<a class="lt-link" href="/help/official-channels">Official channels and scam guides</a> · <a class="lt-link" href="/support/new?topic=phishing">Report a scam message</a>
 </p>
+</section>
+<section class="lt-region" data-region="explain" aria-label="What this means">
+<p>Securing your account ends every sign-in and API key, freezes the account and opens one case, in one step. Pressing again returns the same case. A stolen-funds report is a note on that case: it moves no money and does not promise any back.</p>
+</section>
+</div>
+</div>
+</div>
 </div>
 </div>
 </div>

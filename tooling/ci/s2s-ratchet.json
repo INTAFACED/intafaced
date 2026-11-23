@@ -1,9 +1,5 @@
 {
   "files": {
-    "services/svc-agents/src/router.ts": {
-      "sign": 0,
-      "caller": 1
-    },
     "services/svc-bank/src/personal-pay/router.ts": {
       "sign": 0,
       "caller": 1
@@ -39,10 +35,6 @@
     "services/svc-identity/src/router.ts": {
       "sign": 0,
       "caller": 5
-    },
-    "services/svc-ledger/src/router.ts": {
-      "sign": 0,
-      "caller": 3
     },
     "services/svc-notify/src/guests/router.ts": {
       "sign": 0,

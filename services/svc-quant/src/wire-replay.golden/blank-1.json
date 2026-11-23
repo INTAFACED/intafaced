@@ -540,12 +540,12 @@
     "body": "{\"error\":{\"message\":\"quant.database_url_unset — DATABASE_URL is unset\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"tier.list\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.database_url_unset\"}}}}"
   },
   "blank backtest.accountRules valid anon": {
-    "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":null,\"marginCallPercent\":null,\"stopOutPercent\":null}}}"
+    "status": 500,
+    "body": "{\"error\":{\"message\":\"quant.account_rule_unset — maximum leverage — the venue's margin rules read is not wired (TRADE_URL is unset); nothing is assumed\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"backtest.accountRules\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.account_rule_unset\"}}}}"
   },
   "blank backtest.accountRules valid signed": {
-    "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":null,\"marginCallPercent\":null,\"stopOutPercent\":null}}}"
+    "status": 500,
+    "body": "{\"error\":{\"message\":\"quant.account_rule_unset — maximum leverage — the venue's margin rules read is not wired (TRADE_URL is unset); nothing is assumed\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"backtest.accountRules\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.account_rule_unset\"}}}}"
   },
   "blank backtest.accountRules valid signed-US": {
     "status": 403,
@@ -556,72 +556,72 @@
     "body": "{\"error\":{\"message\":\"Not served in KP (sanctions screening, §24 Lane A)\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"backtest.accountRules\",\"requestId\":\"replay-request\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}"
   },
   "blank backtest.accountRules valid tier-none": {
-    "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":null,\"marginCallPercent\":null,\"stopOutPercent\":null}}}"
+    "status": 500,
+    "body": "{\"error\":{\"message\":\"quant.account_rule_unset — maximum leverage — the venue's margin rules read is not wired (TRADE_URL is unset); nothing is assumed\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"backtest.accountRules\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.account_rule_unset\"}}}}"
   },
   "blank backtest.accountRules valid member": {
-    "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":null,\"marginCallPercent\":null,\"stopOutPercent\":null}}}"
+    "status": 500,
+    "body": "{\"error\":{\"message\":\"quant.account_rule_unset — maximum leverage — the venue's margin rules read is not wired (TRADE_URL is unset); nothing is assumed\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"backtest.accountRules\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.account_rule_unset\"}}}}"
   },
   "blank backtest.accountRules valid key": {
     "status": 404,
     "body": "{\"error\":{\"message\":\"backtest.accountRules is not in the strategy API; an API key can't call it (see /developers/quant)\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"<stack>\",\"path\":\"backtest.accountRules\",\"cause\":{\"code\":\"quant.key_no_such_endpoint\"}}}}"
   },
   "blank backtest.accountRules valid ops": {
-    "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":null,\"marginCallPercent\":null,\"stopOutPercent\":null}}}"
+    "status": 500,
+    "body": "{\"error\":{\"message\":\"quant.account_rule_unset — maximum leverage — the venue's margin rules read is not wired (TRADE_URL is unset); nothing is assumed\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"backtest.accountRules\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.account_rule_unset\"}}}}"
   },
   "blank backtest.accountRules valid forged": {
-    "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":null,\"marginCallPercent\":null,\"stopOutPercent\":null}}}"
+    "status": 500,
+    "body": "{\"error\":{\"message\":\"quant.account_rule_unset — maximum leverage — the venue's margin rules read is not wired (TRADE_URL is unset); nothing is assumed\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"backtest.accountRules\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.account_rule_unset\"}}}}"
   },
   "blank backtest.accountRules absent signed": {
-    "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":null,\"marginCallPercent\":null,\"stopOutPercent\":null}}}"
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"backtest.accountRules\",\"requestId\":\"replay-request\"}}}"
   },
   "blank backtest.accountRules absent ops": {
-    "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":null,\"marginCallPercent\":null,\"stopOutPercent\":null}}}"
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"backtest.accountRules\",\"requestId\":\"replay-request\"}}}"
   },
   "blank backtest.accountRules null signed": {
-    "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":null,\"marginCallPercent\":null,\"stopOutPercent\":null}}}"
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"backtest.accountRules\",\"requestId\":\"replay-request\"}}}"
   },
   "blank backtest.accountRules null ops": {
-    "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":null,\"marginCallPercent\":null,\"stopOutPercent\":null}}}"
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"backtest.accountRules\",\"requestId\":\"replay-request\"}}}"
   },
   "blank backtest.accountRules wrong-type signed": {
-    "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":null,\"marginCallPercent\":null,\"stopOutPercent\":null}}}"
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"backtest.accountRules\",\"requestId\":\"replay-request\"}}}"
   },
   "blank backtest.accountRules wrong-type ops": {
-    "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":null,\"marginCallPercent\":null,\"stopOutPercent\":null}}}"
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"backtest.accountRules\",\"requestId\":\"replay-request\"}}}"
   },
   "blank backtest.accountRules empty signed": {
-    "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":null,\"marginCallPercent\":null,\"stopOutPercent\":null}}}"
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"symbol\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"backtest.accountRules\",\"requestId\":\"replay-request\"}}}"
   },
   "blank backtest.accountRules empty ops": {
-    "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":null,\"marginCallPercent\":null,\"stopOutPercent\":null}}}"
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"symbol\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"backtest.accountRules\",\"requestId\":\"replay-request\"}}}"
   },
   "blank backtest.accountRules extra-key signed": {
-    "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":null,\"marginCallPercent\":null,\"stopOutPercent\":null}}}"
+    "status": 500,
+    "body": "{\"error\":{\"message\":\"quant.account_rule_unset — maximum leverage — the venue's margin rules read is not wired (TRADE_URL is unset); nothing is assumed\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"backtest.accountRules\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.account_rule_unset\"}}}}"
   },
   "blank backtest.accountRules extra-key ops": {
-    "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":null,\"marginCallPercent\":null,\"stopOutPercent\":null}}}"
+    "status": 500,
+    "body": "{\"error\":{\"message\":\"quant.account_rule_unset — maximum leverage — the venue's margin rules read is not wired (TRADE_URL is unset); nothing is assumed\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"backtest.accountRules\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.account_rule_unset\"}}}}"
   },
   "blank backtest.accountRules all-null signed": {
-    "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":null,\"marginCallPercent\":null,\"stopOutPercent\":null}}}"
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"symbol\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"backtest.accountRules\",\"requestId\":\"replay-request\"}}}"
   },
   "blank backtest.accountRules all-null ops": {
-    "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":null,\"marginCallPercent\":null,\"stopOutPercent\":null}}}"
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"symbol\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"backtest.accountRules\",\"requestId\":\"replay-request\"}}}"
   },
   "blank backtest.fee valid anon": {
     "status": 400,

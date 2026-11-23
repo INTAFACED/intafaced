@@ -24,7 +24,7 @@ describe('"Needs you" empty state on a right-to-left page', () => {
     const html = renderToString(<WorkList hidden={false} />);
     expect(span(html, 'Work nothing')).toContain('lang="en"');
     expect(span(html, 'Work nothing')).toContain('dir="ltr"');
-    expect(html).toMatch(/<p class="home-work__none"[^>]*><span [^>]*>Nothing needs you right now\.<\/span><\/p>/);
+    expect(html).toMatch(/<p class="lt-hint" data-complete="true"><span [^>]*>Nothing needs you right now\.<\/span><\/p>/);
   });
 
   it('marks a translated sentence with its own language', () => {

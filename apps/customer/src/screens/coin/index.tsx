@@ -1,5 +1,7 @@
+// volt-room: /coin/:asset
 import { useEffect, useState } from 'react';
-import './coin.css';
+import { MonitorTemplate, RoomBar, Skeleton } from '@intafaced/ui/lit/templates';
+import type { RoomState } from '@intafaced/ui/lit/templates';
 import type { ScreenProps } from '../../app/screen-types';
 import { AboutSection } from './AboutSection';
 import { aboutFor } from './about';
@@ -7,14 +9,13 @@ import { CoinBar } from './CoinBar';
 import { coinCopy, coinName } from './copy';
 import {
   BuyCard,
-  Button,
   coinHref,
   dec,
+  KitState,
+  LinkButton,
   navigate,
   PAR_ASSETS,
   refusalCopy,
-  Skeleton,
-  StateBlock,
   useFavorites,
   useMarkets,
   usePortfolio,
@@ -31,14 +32,17 @@ import { KeyStats, holdingOf } from './KeyStats';
 import { PriceCard } from './PriceCard';
 import { RecentActivity } from './RecentActivity';
 import { YourCoin } from './YourCoin';
+import { RecurringBuyButton } from '../trade/copybots/RecurringBuy';
 
 const ASSET = /^[A-Z0-9]{2,12}$/;
 /** The two coins every price is read against, in the order a price is looked up (UI-SPEC 1.2). */
 const QUOTES = ['USDT', 'USDC'] as const;
+const READY: RoomState = { kind: 'ready' };
 
 /**
- * Coin page (UI-SPEC 5.5), `/coin/:asset`: coin bar, price and chart with range pills, the Simple Buy card (Pro: a
- * "Trade" button to the desk), key stats, what you hold, About, and your recent trades in this coin.
+ * Coin page (UI-SPEC 5.5), `/coin/:asset`, on the kit's monitor template: the coin bar (the room's own bar), price and
+ * chart with range pills, the Simple Buy card (Pro: a "Trade" button to the desk), key stats, what you hold, About, and
+ * your recent trades in this coin.
  */
 export default function CoinScreen({ params }: ScreenProps) {
   const asset = (params.asset ?? '').trim().toUpperCase();
@@ -58,29 +62,27 @@ export default function CoinScreen({ params }: ScreenProps) {
   if (unknown) return null;
   if (markets.status === 'error' || markets.status === 'refused')
     return (
-      <Frame>
-        <section data-testid="coin-problem" className="coin-card coin-problem">
+      <Frame asset={asset}>
+        <section data-testid="coin-problem">
           <MarketsProblem markets={markets} />
         </section>
       </Frame>
     );
-  if (!settled || (markets.status === 'empty' && portfolio.status === 'loading'))
-    return (
-      <Frame>
-        <PageSkeleton />
-      </Frame>
-    );
+  if (!settled || (markets.status === 'empty' && portfolio.status === 'loading')) return <PageSkeleton asset={asset} />;
   return (
-    <Frame>
+    <div data-testid="if-coin">
       <CoinPage key={asset} asset={asset} markets={markets.status === 'ready' ? markets.data : []} portfolio={portfolio} />
-    </Frame>
+    </div>
   );
 }
 
-function Frame({ children }: { children: React.ReactNode }) {
+/** The room with only its title and one part: the markets could not be read. */
+function Frame({ asset, children }: { asset: string; children: React.ReactNode }) {
+  const copy = coinCopy.useCopy();
+  const name = coinName(asset, copy) ?? asset;
   return (
-    <div data-testid="if-coin" className="if-coin">
-      {children}
+    <div data-testid="if-coin">
+      <MonitorTemplate title={copy.t('{name} price', { name })} state={READY} figures={[]} chart={children} />
     </div>
   );
 }
@@ -88,32 +90,34 @@ function Frame({ children }: { children: React.ReactNode }) {
 function MarketsProblem({ markets }: { markets: Loadable<MarketRow[]> }) {
   const { t } = coinCopy.useCopy();
   if (markets.status === 'error')
-    return <StateBlock kind="error" title={t('Couldn’t load the price')} onRetry={markets.retry} retryLabel={t('Try again')} />;
+    return <KitState kind="error" title={t('Couldn’t load the price')} onRetry={markets.retry} retryLabel={t('Try again')} />;
   if (markets.status === 'refused') {
     const words = refusalCopy(markets.code);
-    return <StateBlock kind="refused" title={words.title} body={words.body} code={words.reference} action={words.action} />;
+    return <KitState kind="refused" title={words.title} body={words.body} code={words.reference} action={words.action} />;
   }
   return null;
 }
 
-/** The page's final shape while the markets load: bar, title, two cards of their real sizes. */
-function PageSkeleton() {
+/** The page's final shape while the markets load: the bar, the title, and the template's own placeholders. */
+function PageSkeleton({ asset }: { asset: string }) {
+  const copy = coinCopy.useCopy();
+  const name = coinName(asset, copy) ?? asset;
   return (
     <div aria-busy="true" data-testid="coin-loading">
-      <div data-testid="coin-bar" className="coin-bar">
-        <Skeleton width={160} height={40} className="bg-field" />
-      </div>
-      <div className="coin-titlerow">
-        <Skeleton width={220} height={34} className="bg-field" />
-      </div>
-      <div data-testid="coin-grid" className="coin-grid">
-        <div className="coin-col">
-          <Skeleton height={580} className="bg-panel" />
-        </div>
-        <div className="coin-col">
-          <Skeleton height={440} className="bg-panel" />
-          <Skeleton height={150} className="bg-panel" />
-        </div>
+      <div data-testid="if-coin">
+        <MonitorTemplate
+          title={copy.t('{name} price', { name })}
+          bar={
+            <RoomBar marks={{ 'data-testid': 'coin-bar' }}>
+              <Skeleton shape="text" count={1} />
+            </RoomBar>
+          }
+          state={{ kind: 'loading' }}
+          figures={[]}
+          chart={null}
+          panels={null}
+          related={null}
+        />
       </div>
     </div>
   );
@@ -146,77 +150,78 @@ function CoinPage({ asset, markets, portfolio }: { asset: string; markets: Marke
   const hasAbout = aboutFor(asset) !== null;
 
   return (
-    <>
-      <CoinBar
-        asset={asset}
-        name={name}
-        hasAbout={hasAbout}
-        star={market ? { on: favorites.isFavorite(market.symbol), toggle: () => favorites.toggle(market.symbol) } : null}
-      />
-      <div className="coin-titlerow">
-        <h1 data-testid="coin-title" className="coin-title">
-          {t('{name} price', { name: name ?? asset })}
-        </h1>
-        {market ? (
-          <span className="coin-pair" data-testid="pair">
+    <MonitorTemplate
+      title={t('{name} price', { name: name ?? asset })}
+      mode={layoutMode === 'pro' ? 'pro' : 'simple'}
+      bar={
+        <CoinBar
+          asset={asset}
+          name={name}
+          hasAbout={hasAbout}
+          star={market ? { on: favorites.isFavorite(market.symbol), toggle: () => favorites.toggle(market.symbol) } : null}
+        />
+      }
+      roomAction={
+        market ? (
+          <span className="lt-hint" data-testid="pair">
             {market.base}/{market.quote}
           </span>
-        ) : null}
-      </div>
-      <div data-testid="coin-grid" className="coin-grid">
-        <div className="coin-col">
-          {stable ? (
-            <DollarCard asset={asset} />
-          ) : market && quote ? (
-            <PriceCard
-              key={market.symbol}
-              asset={asset}
-              symbol={market.symbol}
-              tickSize={market.tickSize}
-              quotes={priced}
-              quote={quote}
-              onQuote={setChosen}
+        ) : undefined
+      }
+      state={READY}
+      figures={[]}
+      chart={
+        stable ? (
+          <DollarCard asset={asset} />
+        ) : market && quote ? (
+          <PriceCard
+            key={market.symbol}
+            asset={asset}
+            symbol={market.symbol}
+            tickSize={market.tickSize}
+            quotes={priced}
+            quote={quote}
+            onQuote={setChosen}
+          />
+        ) : (
+          <section data-testid="coin-nomarket" className="lt-stack">
+            {!stable && !priced.length && quotes.length > 1 && quote ? (
+              <QuotePicker quotes={quotes} quote={quote} onQuote={setChosen} />
+            ) : null}
+            <KitState
+              kind="empty"
+              title={
+                quote && quotes.length > 1 ? t('No pair market title', { pair: `${asset}/${quote}` }) : t('No market title', { asset })
+              }
+              body={t('No market body')}
+              action={{ label: t('Go to Markets'), href: '/trade' }}
             />
-          ) : (
-            <section data-testid="coin-nomarket" className="coin-card coin-nomarket">
-              {!stable && !priced.length && quotes.length > 1 && quote ? (
-                <div className="coin-nomarket__quote">
-                  <QuotePicker quotes={quotes} quote={quote} onQuote={setChosen} />
-                </div>
-              ) : null}
-              <StateBlock
-                kind="empty"
-                title={
-                  quote && quotes.length > 1 ? t('No pair market title', { pair: `${asset}/${quote}` }) : t('No market title', { asset })
-                }
-                body={t('No market body')}
-                action={{ label: t('Go to Markets'), href: '/trade' }}
-              />
-            </section>
-          )}
+          </section>
+        )
+      }
+      panels={
+        <div className="lt-stack">
           {holds ? <YourCoin asset={asset} holding={holds} /> : null}
           <AboutSection asset={asset} name={name ?? asset} />
           <RecentActivity asset={asset} />
         </div>
-        <div className="coin-col">
+      }
+      related={
+        <div className="lt-stack">
           {market && layoutMode !== 'pro' ? <BuyCard key={asset} initialAsset={asset} compact lockAsset /> : null}
           {market && layoutMode === 'pro' ? (
-            <Button
-              variant="primary"
-              size={40}
-              fullWidth
-              nativeButton={false}
-              render={<a href={coinHref(asset, 'pro', market.symbol)} data-testid="trade-button" />}
-            >
+            <LinkButton href={coinHref(asset, 'pro', market.symbol)} tone="primary" data-testid="trade-button">
               {t('Trade {pair}', { pair: `${market.base}/${market.quote}` })}
-            </Button>
+            </LinkButton>
           ) : null}
+          {/* A recurring buy of a basket, this coin first, on the person's own venue account (J-copy-bots-otc-16). */}
+          {!stable ? <RecurringBuyButton asset={asset} /> : null}
           {market || !holds ? (
             <KeyStats asset={asset} symbol={market?.symbol ?? null} tickSize={market?.tickSize ?? null} portfolio={portfolio} />
           ) : null}
         </div>
-      </div>
-    </>
+      }
+    />
   );
 }
 
@@ -224,9 +229,9 @@ function CoinPage({ asset, markets, portfolio }: { asset: string; markets: Marke
 function DollarCard({ asset }: { asset: string }) {
   const { t } = coinCopy.useCopy();
   return (
-    <section className="coin-card coin-dollar" aria-label={t('{name} price', { name: asset })}>
-      <p className="coin-dollar__price" data-testid="dollar-price">
-        <span className="coin-dollar__figure">{t('Dollar price')}</span> <span className="coin-dollar__rule">{t('Counted at 1 USD')}</span>
+    <section aria-label={t('{name} price', { name: asset })}>
+      <p className="lt-figure" data-testid="dollar-price">
+        <span>{t('Dollar price')}</span> <span className="lt-hint">{t('Counted at 1 USD')}</span>
       </p>
     </section>
   );

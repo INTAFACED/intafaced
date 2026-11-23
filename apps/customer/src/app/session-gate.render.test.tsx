@@ -14,6 +14,8 @@ vi.mock('../features/session/session', async (original) => {
       return new Promise(() => undefined);
     },
     mutate: () => new Promise(() => undefined),
+    // A call by its record is a read or a write like the two above.
+    call: (record: { kind: string }) => (record.kind === 'query' ? api.query() : api.mutate()),
     canWrite: () => false,
   };
   const value = () => ({
@@ -79,6 +81,9 @@ const BOTH = [
   '/dex',
   '/academy',
   '/quant/editor',
+  // The optimiser keeps the filter a person chose only while it is not redrawn: drawn before the session is known, it
+  // would be keyed signed out, then drawn again signed in without the filter.
+  '/quant/optimise',
   '/launch',
   '/ops',
   '/trade/bots/signals/publish',

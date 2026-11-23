@@ -20,6 +20,8 @@ export const ownMoveViewSchema = z.object({
   partnerFee: z.string().nullable(),
   deliveryTx: z.string().nullable(),
   depositTx: z.string().nullable(),
+  /** The deposit leg read on chain as this move's transfer to the venue; false while the hash is only the client's claim. */
+  depositConfirmed: z.boolean(),
   createdAt: z.string(),
   sentAt: z.string().nullable(),
   depositAt: z.string().nullable(),

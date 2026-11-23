@@ -70,6 +70,7 @@ test('the record call and look-alikes stay quiet; tests and services are out of 
     'const b = useBankCall(RECORD, {});',
     'open(bankAction(RECORD, spec));',
     'open({ title, procedure: tool.procedure });',
+    "const none = { toolId, procedure: '', edgePath: null };",
     "const copy = { 'menu.title': 'Cards', 'cards.list': 3 };",
     "const rows = await query('select 1', 'x');",
     "const c = founderCall(ctx, module, procedure, 'GET', {}, read);",

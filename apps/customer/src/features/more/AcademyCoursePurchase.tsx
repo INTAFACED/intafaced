@@ -3,11 +3,14 @@ import { academyCoursePurchaseViewSchema, type AcademyCoursePurchaseView } from 
 import { ServiceOffNotice as KitServiceOffNotice } from '@intafaced/ui/lit/templates';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Loading, Panel } from '../../shared/ui';
 import { useApi } from '../session';
 import { WALLET_SECTIONS, useWallet, WalletProvider } from '../protocol';
 import { academyPurchaseCopy as copy } from './academy-purchase-copy';
-import { AcademyRefusal, GuardedButton } from './AcademyLmsParts';
+import { AcademyRefusal } from './academy-refusal';
+import { KitGuardedButton as GuardedButton } from './academy-guarded';
+import { Section, Waiting } from './volt-parts';
+import { ACADEMY_COURSE_PURCHASE } from '@intafaced/contracts/academy-course-purchase-procedures';
+import { ACADEMY_ABANDON_COURSE_PURCHASE } from '@intafaced/contracts/academy-abandon-course-purchase-procedures';
 
 type Failure = Extract<ApiResult<never>, { ok: false }>;
 type View = AcademyCoursePurchaseView;
@@ -34,9 +37,9 @@ export function AcademyCoursePurchase({ slug, onSettled }: { slug: string; onSet
 function PurchasePanelFrame(props: { slug: string; onSettled?: (() => void) | undefined }) {
   const { t } = copy.useCopy();
   return (
-    <Panel title={t('title')}>
+    <Section title={t('title')}>
       <PurchasePanel {...props} />
-    </Panel>
+    </Section>
   );
 }
 
@@ -44,10 +47,7 @@ function PurchasePanel({ slug, onSettled }: { slug: string; onSettled?: (() => v
   const api = useApi();
   const wallet = useWallet();
   const { t } = copy.useCopy();
-  const read = useResource(
-    (signal) => api.query('academy', 'coursePurchase', { slug }, academyCoursePurchaseViewSchema, { signal }),
-    `course-purchase:${slug}`,
-  );
+  const read = useResource((signal) => api.call(ACADEMY_COURSE_PURCHASE, { slug }, { signal }), `course-purchase:${slug}`);
   const [last, setLast] = useState<View | null>(null);
   const ready = read.resource.status === 'ready' ? read.resource.data : null;
   useEffect(() => {
@@ -79,7 +79,7 @@ function PurchasePanel({ slug, onSettled }: { slug: string; onSettled?: (() => v
   const view = ready ?? last;
   if (!view) {
     if (read.resource.status === 'failed') return <AcademyRefusal failure={read.resource.failure} retry={read.reload} />;
-    return <Loading />;
+    return <Waiting />;
   }
 
   const connected = wallet.status === 'connected' && wallet.address !== null;
@@ -106,7 +106,7 @@ function PurchasePanel({ slug, onSettled }: { slug: string; onSettled?: (() => v
         const stored = await api.mutate('academy', 'submitCoursePayment', { key, txHash: signed.hash }, academyCoursePurchaseViewSchema);
         if (!stored.ok) setRefusal(stored);
       } else if (signed.status === 'rejected') {
-        await api.mutate('academy', 'abandonCoursePurchase', { key }, academyCoursePurchaseViewSchema);
+        await api.call(ACADEMY_ABANDON_COURSE_PURCHASE, { key });
         setNote(t('rejected'));
       } else {
         // Not known whether it went out: Academy reads the chain for it, and the wallet is not asked again.
@@ -125,7 +125,7 @@ function PurchasePanel({ slug, onSettled }: { slug: string; onSettled?: (() => v
     inFlight.current = true;
     setSending(true);
     try {
-      const answer = await api.mutate('academy', 'abandonCoursePurchase', { key }, academyCoursePurchaseViewSchema);
+      const answer = await api.call(ACADEMY_ABANDON_COURSE_PURCHASE, { key });
       if (!answer.ok) setRefusal(answer);
     } finally {
       inFlight.current = false;
@@ -148,17 +148,17 @@ function PurchasePanel({ slug, onSettled }: { slug: string; onSettled?: (() => v
             : null;
 
   return (
-    <section className="academy-lms-stack" aria-label={t('title')} data-academy-purchase={view.slug}>
+    <section className="lt-stack" aria-label={t('title')} data-academy-purchase={view.slug}>
       {view.price !== null && view.asset !== null ? (
         <p data-testid="academy-purchase-price">{t('price', { price: view.price, asset: view.asset })}</p>
       ) : (
         <p role="status">{t('noPrice')}</p>
       )}
-      <p className="muted">{t('tracksDifference')}</p>
-      <p className="muted">{t('custody')}</p>
+      <p className="lt-hint">{t('tracksDifference')}</p>
+      <p className="lt-hint">{t('custody')}</p>
       {purchase && <PurchaseState view={view} />}
       {purchase?.state === 'awaiting_signature' && (
-        <div className="academy-lms-stack" role="group" aria-label={t('signatureAsked')}>
+        <div className="lt-stack" role="group" aria-label={t('signatureAsked')}>
           <p role="status">{t('signatureAsked')}</p>
           <GuardedButton
             variant="secondary"
@@ -171,15 +171,17 @@ function PurchasePanel({ slug, onSettled }: { slug: string; onSettled?: (() => v
         </div>
       )}
       {open && (
-        <div className="academy-lms-stack" role="group" aria-label={t('walletTitle')}>
+        <div className="lt-stack" role="group" aria-label={t('walletTitle')}>
           <h4>{t('walletTitle')}</h4>
           {connected && wallet.address ? (
-            <p className="muted" data-testid="academy-purchase-wallet">
+            <p className="lt-hint" data-testid="academy-purchase-wallet">
               {t('walletAddress', { address: wallet.address.toLowerCase() })}
             </p>
           ) : (
-            <p className="muted">
-              <a href={WALLET_SECTIONS.overview}>{t('openWallet')}</a>
+            <p className="lt-hint">
+              <a className="lt-link lt-link-alone" href={WALLET_SECTIONS.overview}>
+                {t('openWallet')}
+              </a>
             </p>
           )}
           <GuardedButton reason={buyReason} reasonId={`academy-purchase-${view.slug}-buy`} onClick={buy}>
@@ -187,7 +189,7 @@ function PurchasePanel({ slug, onSettled }: { slug: string; onSettled?: (() => v
           </GuardedButton>
         </div>
       )}
-      <div className="academy-lms-stack" role="group" aria-label={t('cardTitle')}>
+      <div className="lt-stack" role="group" aria-label={t('cardTitle')}>
         <h4>{t('cardTitle')}</h4>
         <GuardedButton variant="secondary" reason={t('cardOff')} reasonId={`academy-purchase-${view.slug}-card`} onClick={() => undefined}>
           {t('card')}
@@ -203,8 +205,11 @@ function PurchasePanel({ slug, onSettled }: { slug: string; onSettled?: (() => v
 function Hash({ label, hash }: { label: string; hash: string | null }) {
   if (!hash) return null;
   return (
-    <p className="muted">
-      {label}: <code data-testid="academy-purchase-tx">{hash}</code>
+    <p className="lt-hint">
+      {label}:{' '}
+      <code className="lt-code lt-wrap" data-testid="academy-purchase-tx">
+        {hash}
+      </code>
     </p>
   );
 }
@@ -235,14 +240,9 @@ function PurchaseState({ view }: { view: View }) {
                 ? t('failed', { reason: failure })
                 : null;
   return (
-    <div
-      className="academy-lms-stack"
-      data-testid="academy-purchase-state"
-      data-state={purchase.state}
-      data-grant={purchase.grant ?? 'none'}
-    >
+    <div className="lt-stack" data-testid="academy-purchase-state" data-state={purchase.state} data-grant={purchase.grant ?? 'none'}>
       {words && <p role="status">{words}</p>}
-      <p className="muted">{t('purchaseKey', { key: purchase.key })}</p>
+      <p className="lt-hint">{t('purchaseKey', { key: purchase.key })}</p>
       <Hash label={t('transaction')} hash={purchase.txHash} />
       {purchase.refund && (
         <>

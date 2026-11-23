@@ -9,7 +9,7 @@
     reason = "a test: a failure is the point"
 )]
 
-mod authoring_kit;
+use crate::authoring_kit;
 
 use authoring_kit::{
     at, at_path, code, equals, is_null, len, matches, message, n, s, same, store, v,

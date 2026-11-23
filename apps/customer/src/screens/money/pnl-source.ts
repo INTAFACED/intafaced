@@ -15,7 +15,8 @@ import {
 } from '@intafaced/contracts/tax-procedures';
 import { LOT_METHODS, type LotBook, type LotMethod, type MissingBasis } from './pnl-model';
 import type { PnlOverTime } from './pnl-time-model';
-import { BANK_VALUE_HISTORY_UNAVAILABLE, VALUE_PRICES_DOWN, bankValueOverTimeSchema, type BankValueOverTime } from './value-time-model';
+import { BANK_VALUE_HISTORY_UNAVAILABLE, VALUE_PRICES_DOWN, type BankValueOverTime } from './value-time-model';
+import { BANK_PORTFOLIO_VALUE_OVER_TIME } from '@intafaced/contracts/bank-portfolio-procedures';
 
 const LOT_BOOK_INTERVAL = 60_000;
 
@@ -120,7 +121,7 @@ export function useValueOverTime(ask: { from: string; to?: string } | null): Loa
       return env.poller.source<BankValueOverTime>(
         `bank-value-over-time:${env.userId}:${from}:${to ?? 'now'}`,
         async (signal) => {
-          const result = await env.api.query('bank', 'portfolio.valueOverTime', input, bankValueOverTimeSchema, { signal });
+          const result = await env.api.call(BANK_PORTFOLIO_VALUE_OVER_TIME, input, { signal });
           if (result.ok) return result;
           const down = VALUE_DOWN.find((code) => result.code === code || result.message.includes(code));
           return down ? { ok: false, reason: result.reason, code: down, status: 409 } : result;
@@ -170,21 +171,21 @@ export function useBasisOverride(): {
 }
 
 export type LotChoice =
-  | { procedure: 'setLotMethod'; input: { assetId: string | null; method: LotMethod | null } }
-  | { procedure: 'setDayMethod'; input: { day: string; assetId: string | null; method: LotMethod | null } }
-  | { procedure: 'pickSaleLot'; input: { saleTxId: string; assetId: string; lotId: string | null } }
-  | { procedure: 'setIncludeTransfers'; input: { include: boolean | null } };
+  | { choice: 'lotMethod'; input: { assetId: string | null; method: LotMethod | null } }
+  | { choice: 'dayMethod'; input: { day: string; assetId: string | null; method: LotMethod | null } }
+  | { choice: 'saleLot'; input: { saleTxId: string; assetId: string; lotId: string | null } }
+  | { choice: 'includeTransfers'; input: { include: boolean | null } };
 
 /** Each choice through its own record. */
 function saveChoice(api: ReturnType<typeof useDataEnv>['api'], choice: LotChoice) {
-  switch (choice.procedure) {
-    case 'setLotMethod':
+  switch (choice.choice) {
+    case 'lotMethod':
       return api.call(TAX_SET_LOT_METHOD, choice.input);
-    case 'setDayMethod':
+    case 'dayMethod':
       return api.call(TAX_SET_DAY_METHOD, choice.input);
-    case 'pickSaleLot':
+    case 'saleLot':
       return api.call(TAX_PICK_SALE_LOT, choice.input);
-    case 'setIncludeTransfers':
+    case 'includeTransfers':
       return api.call(TAX_SET_INCLUDE_TRANSFERS, choice.input);
   }
 }
@@ -201,7 +202,7 @@ export function useSaveLotChoice(): (choice: LotChoice) => Promise<BasisOutcome>
       const result = await saveChoice(env.api, choice);
       const unsure = !result.ok && result.reason === 'uncertain';
       if ((result.ok || unsure) && env.userId) {
-        for (const each of choice.procedure === 'setIncludeTransfers' ? [...LOT_METHODS, 'saved' as const] : ['saved' as const]) {
+        for (const each of choice.choice === 'includeTransfers' ? [...LOT_METHODS, 'saved' as const] : ['saved' as const]) {
           env.poller.refresh(bookKey(env.userId, each));
           env.poller.refresh(missingKey(env.userId, each));
         }

@@ -7,16 +7,10 @@ import {
   type HttpLedgerOptions,
   type LedgerClient,
 } from '@intafaced/ledger-client';
-import {
-  assetsListOutputSchema,
-  ledgerHoldingsHistoryInputSchema,
-  ledgerHoldingsHistorySchema,
-  serviceCallSigner,
-  type LedgerHoldingsHistory,
-  type LedgerHoldingsHistoryInput,
-  type ServiceAuthMode,
-  type ServiceSigner,
-} from '@intafaced/contracts';
+import type { LedgerHoldingsHistory, LedgerHoldingsHistoryInput, ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { assetsListOutputSchema } from '@intafaced/contracts/asset-registry';
+import { ledgerHoldingsHistoryInputSchema, ledgerHoldingsHistorySchema } from '@intafaced/contracts/ledger-holdings-history';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import type { HistoryRange, LedgerEntryRecord, LedgerHistory } from './analytics/ledger-history.js';
 import type { LedgerHistoryPages, LedgerPageRequest } from './activity/activity-service.js';
 import type { WithdrawNetworkSource } from './ramps/withdraw-networks.js';

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { jsonValueSchema } from './procedure-strict-schema.js';
 
 // J-algo-dev-16: Monte Carlo on a finished backtest (RC-algo-dev-04), the market data lake (RC-algo-dev-02) and the
 // account's live approval policy (RC-algo-dev-01). Every figure is simulated or is the exchange's own public market data;
@@ -6,12 +7,6 @@ import { z } from 'zod';
 
 const decimalText = z.string().regex(/^-?\d+(\.\d{1,18})?$/);
 const percentiles = z.object({ p5: decimalText, p25: decimalText, p50: decimalText, p75: decimalText, p95: decimalText });
-
-export const quantMonteCarloInputSchema = z.object({
-  runId: z.string().min(1).max(128),
-  /** The seed the resampling draws from: the same run, count and seed always give the same distribution. */
-  seed: z.number().int().min(0).max(2_147_483_647),
-});
 
 export const quantMonteCarloSchema = z.object({
   runId: z.string(),
@@ -48,7 +43,7 @@ export const quantLakeDatasetSchema = z.object({
   /** Times nothing was captured between two captures, or a capture failed: shown as gaps, never filled. */
   gaps: z.array(range),
   /** The newest rows as stored, normalised. */
-  latest: z.array(z.object({ observedAt: z.string(), payload: z.record(z.string(), z.unknown()) })),
+  latest: z.array(z.object({ observedAt: z.string(), payload: z.record(z.string(), jsonValueSchema) })),
 });
 
 export const quantLakeCatalogueSchema = z.object({
@@ -83,11 +78,6 @@ export const quantApprovalPolicySchema = z.object({
   setAt: z.string().nullable(),
 });
 
-export const quantApprovalPolicySetInputSchema = z.object({
-  required: z.boolean(),
-  idempotencyKey: z.string().min(1).max(200),
-});
-
 export const quantApprovalRowSchema = z.object({
   approvalId: z.string(),
   strategyVersion: z.number().int().positive(),
@@ -116,15 +106,3 @@ export const quantApprovalStateSchema = z.object({
   canDecide: z.boolean(),
 });
 export type QuantApprovalState = z.infer<typeof quantApprovalStateSchema>;
-
-export const quantApprovalRequestInputSchema = z.object({
-  strategyId: z.string().min(1).max(128),
-  strategyVersion: z.number().int().positive(),
-});
-
-export const quantApprovalDecideInputSchema = z.object({
-  strategyId: z.string().min(1).max(128),
-  approvalId: z.string().min(1).max(64),
-  decision: z.enum(['approved', 'rejected']),
-  reason: z.string().trim().max(500),
-});

@@ -1,0 +1,2433 @@
+{
+  "requests": [
+    {
+      "file": "health",
+      "method": "GET",
+      "url": "/health",
+      "input": "valid",
+      "body": null
+    },
+    {
+      "file": "markets",
+      "method": "GET",
+      "url": "/markets",
+      "input": "valid",
+      "body": null
+    },
+    {
+      "file": "depth",
+      "method": "GET",
+      "url": "/markets/BTC-USDT/depth?limit=10",
+      "input": "limit-10",
+      "body": null
+    },
+    {
+      "file": "depth",
+      "method": "GET",
+      "url": "/markets/BTC-USDT/depth",
+      "input": "no-limit",
+      "body": null
+    },
+    {
+      "file": "depth",
+      "method": "GET",
+      "url": "/markets/BTC-USDT/depth?limit=0",
+      "input": "limit-0",
+      "body": null
+    },
+    {
+      "file": "depth",
+      "method": "GET",
+      "url": "/markets/BTC-USDT/depth?limit=501",
+      "input": "limit-501",
+      "body": null
+    },
+    {
+      "file": "depth",
+      "method": "GET",
+      "url": "/markets/BTC-USDT/depth?limit=ten",
+      "input": "limit-word",
+      "body": null
+    },
+    {
+      "file": "depth",
+      "method": "GET",
+      "url": "/markets/BTC-USDT/depth?limit=10&format=sbe",
+      "input": "format-sbe",
+      "body": null
+    },
+    {
+      "file": "depth",
+      "method": "GET",
+      "url": "/markets/BTC-USDT/depth?limit=10&format=l3",
+      "input": "format-l3",
+      "body": null
+    },
+    {
+      "file": "depth",
+      "method": "GET",
+      "url": "/markets/NOPE-USD/depth?limit=10",
+      "input": "unknown-market",
+      "body": null
+    },
+    {
+      "file": "depth-l3",
+      "method": "GET",
+      "url": "/markets/BTC-USDT/depth/l3?limit=10",
+      "input": "limit-10",
+      "body": null
+    },
+    {
+      "file": "depth-l3",
+      "method": "GET",
+      "url": "/markets/BTC-USDT/depth/l3",
+      "input": "no-limit",
+      "body": null
+    },
+    {
+      "file": "depth-l3",
+      "method": "GET",
+      "url": "/markets/BTC-USDT/depth/l3?limit=0",
+      "input": "limit-0",
+      "body": null
+    },
+    {
+      "file": "depth-l3",
+      "method": "GET",
+      "url": "/markets/BTC-USDT/depth/l3?limit=501",
+      "input": "limit-501",
+      "body": null
+    },
+    {
+      "file": "depth-l3",
+      "method": "GET",
+      "url": "/markets/BTC-USDT/depth/l3?limit=ten",
+      "input": "limit-word",
+      "body": null
+    },
+    {
+      "file": "depth-l3",
+      "method": "GET",
+      "url": "/markets/NOPE-USD/depth/l3?limit=10",
+      "input": "unknown-market",
+      "body": null
+    },
+    {
+      "file": "depth-sbe",
+      "method": "GET",
+      "url": "/markets/BTC-USDT/depth/sbe?limit=10",
+      "input": "limit-10",
+      "body": null
+    },
+    {
+      "file": "depth-sbe",
+      "method": "GET",
+      "url": "/markets/BTC-USDT/depth/sbe",
+      "input": "no-limit",
+      "body": null
+    },
+    {
+      "file": "depth-sbe",
+      "method": "GET",
+      "url": "/markets/BTC-USDT/depth/sbe?limit=0",
+      "input": "limit-0",
+      "body": null
+    },
+    {
+      "file": "depth-sbe",
+      "method": "GET",
+      "url": "/markets/BTC-USDT/depth/sbe?limit=501",
+      "input": "limit-501",
+      "body": null
+    },
+    {
+      "file": "depth-sbe",
+      "method": "GET",
+      "url": "/markets/BTC-USDT/depth/sbe?limit=ten",
+      "input": "limit-word",
+      "body": null
+    },
+    {
+      "file": "depth-sbe",
+      "method": "GET",
+      "url": "/markets/NOPE-USD/depth/sbe?limit=10",
+      "input": "unknown-market",
+      "body": null
+    },
+    {
+      "file": "orders-submit",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/orders",
+      "input": "valid",
+      "body": "{\"orderId\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb\",\"accountId\":\"acct-1\",\"type\":\"limit\",\"side\":\"buy\",\"qty\":\"1.5\",\"price\":\"30000\",\"tif\":\"GTC\",\"lifecycleProof\":{\"action\":\"PLACE\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}"
+    },
+    {
+      "file": "orders-submit",
+      "method": "POST",
+      "url": "/markets/NOPE-USD/orders",
+      "input": "market-mismatch",
+      "body": "{\"orderId\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb\",\"accountId\":\"acct-1\",\"type\":\"limit\",\"side\":\"buy\",\"qty\":\"1.5\",\"price\":\"30000\",\"tif\":\"GTC\",\"lifecycleProof\":{\"action\":\"PLACE\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}"
+    },
+    {
+      "file": "orders-submit",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/orders",
+      "input": "post-only-ioc",
+      "body": "{\"orderId\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb\",\"accountId\":\"acct-1\",\"type\":\"limit\",\"side\":\"buy\",\"qty\":\"1.5\",\"price\":\"30000\",\"tif\":\"IOC\",\"lifecycleProof\":{\"action\":\"PLACE\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}},\"postOnly\":true}"
+    },
+    {
+      "file": "orders-submit",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/orders",
+      "input": "post-only-wrong-proof",
+      "body": "{\"orderId\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb\",\"accountId\":\"acct-1\",\"type\":\"limit\",\"side\":\"buy\",\"qty\":\"1.5\",\"price\":\"30000\",\"tif\":\"GTC\",\"lifecycleProof\":{\"action\":\"PLACE\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}},\"postOnly\":true}"
+    },
+    {
+      "file": "orders-submit",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/orders",
+      "input": "number-qty",
+      "body": "{\"orderId\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb\",\"accountId\":\"acct-1\",\"type\":\"limit\",\"side\":\"buy\",\"qty\":1.5,\"price\":\"30000\",\"tif\":\"GTC\",\"lifecycleProof\":{\"action\":\"PLACE\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}"
+    },
+    {
+      "file": "orders-submit",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/orders",
+      "input": "too-precise",
+      "body": "{\"orderId\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb\",\"accountId\":\"acct-1\",\"type\":\"limit\",\"side\":\"buy\",\"qty\":\"1.0000000000000000001\",\"price\":\"30000\",\"tif\":\"GTC\",\"lifecycleProof\":{\"action\":\"PLACE\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}"
+    },
+    {
+      "file": "orders-submit",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/orders",
+      "input": "market-buy",
+      "body": "{\"orderId\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb\",\"accountId\":\"acct-1\",\"type\":\"market\",\"side\":\"buy\",\"qty\":\"1.5\",\"price\":null,\"tif\":\"IOC\",\"lifecycleProof\":{\"action\":\"PLACE\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}"
+    },
+    {
+      "file": "orders-submit",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/orders",
+      "input": "absent",
+      "body": null
+    },
+    {
+      "file": "orders-submit",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/orders",
+      "input": "null",
+      "body": "null"
+    },
+    {
+      "file": "orders-submit",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/orders",
+      "input": "wrong-type",
+      "body": "7"
+    },
+    {
+      "file": "orders-submit",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/orders",
+      "input": "empty",
+      "body": "{}"
+    },
+    {
+      "file": "orders-submit",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/orders",
+      "input": "extra-key",
+      "body": "{\"orderId\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb\",\"accountId\":\"acct-1\",\"type\":\"limit\",\"side\":\"buy\",\"qty\":\"1.5\",\"price\":\"30000\",\"tif\":\"GTC\",\"lifecycleProof\":{\"action\":\"PLACE\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}},\"extra\":1}"
+    },
+    {
+      "file": "orders-submit",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/orders",
+      "input": "all-null",
+      "body": "{\"orderId\":null,\"accountId\":null,\"type\":null,\"side\":null,\"qty\":null,\"price\":null,\"tif\":null,\"lifecycleProof\":null}"
+    },
+    {
+      "file": "orders-list",
+      "method": "GET",
+      "url": "/markets/BTC-USDT/orders?limit=10",
+      "input": "limit-10",
+      "body": null
+    },
+    {
+      "file": "orders-list",
+      "method": "GET",
+      "url": "/markets/BTC-USDT/orders",
+      "input": "no-limit",
+      "body": null
+    },
+    {
+      "file": "orders-list",
+      "method": "GET",
+      "url": "/markets/BTC-USDT/orders?limit=0",
+      "input": "limit-0",
+      "body": null
+    },
+    {
+      "file": "orders-list",
+      "method": "GET",
+      "url": "/markets/BTC-USDT/orders?limit=501",
+      "input": "limit-501",
+      "body": null
+    },
+    {
+      "file": "orders-list",
+      "method": "GET",
+      "url": "/markets/BTC-USDT/orders?limit=ten",
+      "input": "limit-word",
+      "body": null
+    },
+    {
+      "file": "orders-list",
+      "method": "GET",
+      "url": "/markets/NOPE-USD/orders?limit=10",
+      "input": "unknown-market",
+      "body": null
+    },
+    {
+      "file": "orders-amend",
+      "method": "PATCH",
+      "url": "/markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "input": "valid",
+      "body": "{\"expectedVersion\":1,\"qty\":\"1\",\"lifecycleProof\":{\"action\":\"AMEND\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}"
+    },
+    {
+      "file": "orders-amend",
+      "method": "PATCH",
+      "url": "/markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "input": "nothing-changed",
+      "body": "{\"expectedVersion\":1,\"lifecycleProof\":{\"action\":\"AMEND\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}"
+    },
+    {
+      "file": "orders-amend",
+      "method": "PATCH",
+      "url": "/markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "input": "place-proof",
+      "body": "{\"expectedVersion\":1,\"qty\":\"1\",\"lifecycleProof\":{\"action\":\"PLACE\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}"
+    },
+    {
+      "file": "orders-amend",
+      "method": "PATCH",
+      "url": "/markets/BTC-USDT/orders/dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+      "input": "unknown-order",
+      "body": "{\"expectedVersion\":1,\"qty\":\"1\",\"lifecycleProof\":{\"action\":\"AMEND\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}"
+    },
+    {
+      "file": "orders-amend",
+      "method": "PATCH",
+      "url": "/markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "input": "absent",
+      "body": null
+    },
+    {
+      "file": "orders-amend",
+      "method": "PATCH",
+      "url": "/markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "input": "null",
+      "body": "null"
+    },
+    {
+      "file": "orders-amend",
+      "method": "PATCH",
+      "url": "/markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "input": "wrong-type",
+      "body": "7"
+    },
+    {
+      "file": "orders-amend",
+      "method": "PATCH",
+      "url": "/markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "input": "empty",
+      "body": "{}"
+    },
+    {
+      "file": "orders-amend",
+      "method": "PATCH",
+      "url": "/markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "input": "extra-key",
+      "body": "{\"expectedVersion\":1,\"qty\":\"1\",\"lifecycleProof\":{\"action\":\"AMEND\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}},\"extra\":1}"
+    },
+    {
+      "file": "orders-amend",
+      "method": "PATCH",
+      "url": "/markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "input": "all-null",
+      "body": "{\"expectedVersion\":null,\"qty\":null,\"lifecycleProof\":null}"
+    },
+    {
+      "file": "mark",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/mark",
+      "input": "valid",
+      "body": "{\"mark\":\"30050\"}"
+    },
+    {
+      "file": "mark",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/mark",
+      "input": "negative",
+      "body": "{\"mark\":\"-1\"}"
+    },
+    {
+      "file": "mark",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/mark",
+      "input": "absent",
+      "body": null
+    },
+    {
+      "file": "mark",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/mark",
+      "input": "null",
+      "body": "null"
+    },
+    {
+      "file": "mark",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/mark",
+      "input": "wrong-type",
+      "body": "7"
+    },
+    {
+      "file": "mark",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/mark",
+      "input": "empty",
+      "body": "{}"
+    },
+    {
+      "file": "mark",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/mark",
+      "input": "extra-key",
+      "body": "{\"mark\":\"30050\",\"extra\":1}"
+    },
+    {
+      "file": "mark",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/mark",
+      "input": "all-null",
+      "body": "{\"mark\":null}"
+    },
+    {
+      "file": "positions-read",
+      "method": "GET",
+      "url": "/markets/BTC-USDT/positions/acct-1",
+      "input": "valid",
+      "body": null
+    },
+    {
+      "file": "positions-read",
+      "method": "GET",
+      "url": "/markets/NOPE-USD/positions/acct-1",
+      "input": "unknown-market",
+      "body": null
+    },
+    {
+      "file": "positions-read",
+      "method": "GET",
+      "url": "/markets/BTC-USDT/positions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "input": "long-account",
+      "body": null
+    },
+    {
+      "file": "positions-close",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/positions/close",
+      "input": "valid",
+      "body": "{\"orderId\":\"eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee\",\"accountId\":\"acct-1\",\"lifecycleProof\":{\"action\":\"PLACE\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}"
+    },
+    {
+      "file": "positions-close",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/positions/close",
+      "input": "amend-proof",
+      "body": "{\"orderId\":\"eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee\",\"accountId\":\"acct-1\",\"lifecycleProof\":{\"action\":\"AMEND\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}"
+    },
+    {
+      "file": "positions-close",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/positions/close",
+      "input": "absent",
+      "body": null
+    },
+    {
+      "file": "positions-close",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/positions/close",
+      "input": "null",
+      "body": "null"
+    },
+    {
+      "file": "positions-close",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/positions/close",
+      "input": "wrong-type",
+      "body": "7"
+    },
+    {
+      "file": "positions-close",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/positions/close",
+      "input": "empty",
+      "body": "{}"
+    },
+    {
+      "file": "positions-close",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/positions/close",
+      "input": "extra-key",
+      "body": "{\"orderId\":\"eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee\",\"accountId\":\"acct-1\",\"lifecycleProof\":{\"action\":\"PLACE\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}},\"extra\":1}"
+    },
+    {
+      "file": "positions-close",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/positions/close",
+      "input": "all-null",
+      "body": "{\"orderId\":null,\"accountId\":null,\"lifecycleProof\":null}"
+    },
+    {
+      "file": "mass-quote",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/mass-quote",
+      "input": "valid",
+      "body": "{\"setId\":\"set-1\",\"accountId\":\"mm-2\",\"bid\":{\"orderId\":\"f1111111-1111-4111-8111-111111111111\",\"type\":\"limit\",\"qty\":\"1\",\"price\":\"29000\",\"tif\":\"GTC\"},\"ask\":{\"orderId\":\"f2222222-2222-4222-8222-222222222222\",\"type\":\"limit\",\"qty\":\"1\",\"price\":\"31000\",\"tif\":\"GTC\"},\"lifecycleProof\":{\"action\":\"PLACE\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}"
+    },
+    {
+      "file": "mass-quote",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/mass-quote",
+      "input": "one-side-unflagged",
+      "body": "{\"setId\":\"set-2\",\"accountId\":\"mm-2\",\"bid\":{\"orderId\":\"f3333333-3333-4333-8333-333333333333\",\"type\":\"limit\",\"qty\":\"1\",\"price\":\"29000\",\"tif\":\"GTC\"},\"lifecycleProof\":{\"action\":\"PLACE\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}"
+    },
+    {
+      "file": "mass-quote",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/mass-quote",
+      "input": "blank-set",
+      "body": "{\"setId\":\"\",\"accountId\":\"mm-2\",\"oneSided\":true,\"bid\":{\"orderId\":\"f4444444-4444-4444-8444-444444444444\",\"type\":\"limit\",\"qty\":\"1\",\"price\":\"29000\",\"tif\":\"GTC\"},\"lifecycleProof\":{\"action\":\"PLACE\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}"
+    },
+    {
+      "file": "mass-quote",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/mass-quote",
+      "input": "mmp-blank",
+      "body": "{\"setId\":\"set-3\",\"accountId\":\"mm-2\",\"oneSided\":true,\"mmp\":true,\"mmpMaxQuote\":\"\",\"bid\":{\"orderId\":\"f5555555-5555-4555-8555-555555555555\",\"type\":\"limit\",\"qty\":\"1\",\"price\":\"29000\",\"tif\":\"GTC\"},\"lifecycleProof\":{\"action\":\"PLACE\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}"
+    },
+    {
+      "file": "mass-quote",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/mass-quote",
+      "input": "absent",
+      "body": null
+    },
+    {
+      "file": "mass-quote",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/mass-quote",
+      "input": "null",
+      "body": "null"
+    },
+    {
+      "file": "mass-quote",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/mass-quote",
+      "input": "wrong-type",
+      "body": "7"
+    },
+    {
+      "file": "mass-quote",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/mass-quote",
+      "input": "empty",
+      "body": "{}"
+    },
+    {
+      "file": "mass-quote",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/mass-quote",
+      "input": "extra-key",
+      "body": "{\"setId\":\"set-1\",\"accountId\":\"mm-2\",\"bid\":{\"orderId\":\"f1111111-1111-4111-8111-111111111111\",\"type\":\"limit\",\"qty\":\"1\",\"price\":\"29000\",\"tif\":\"GTC\"},\"ask\":{\"orderId\":\"f2222222-2222-4222-8222-222222222222\",\"type\":\"limit\",\"qty\":\"1\",\"price\":\"31000\",\"tif\":\"GTC\"},\"lifecycleProof\":{\"action\":\"PLACE\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:fab4ed57c7b12c25dac84b7aae0fdddd8aa61799c4d0de4af8d1da1161dcc24d\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-USDT\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-USDT\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}},\"extra\":1}"
+    },
+    {
+      "file": "mass-quote",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/mass-quote",
+      "input": "all-null",
+      "body": "{\"setId\":null,\"accountId\":null,\"bid\":null,\"ask\":null,\"lifecycleProof\":null}"
+    },
+    {
+      "file": "orders-cancel",
+      "method": "DELETE",
+      "url": "/markets/BTC-USDT/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "input": "valid",
+      "body": null
+    },
+    {
+      "file": "orders-cancel",
+      "method": "DELETE",
+      "url": "/markets/BTC-USDT/orders/dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+      "input": "unknown-order",
+      "body": null
+    },
+    {
+      "file": "orders-cancel",
+      "method": "DELETE",
+      "url": "/markets/NOPE-USD/orders/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "input": "unknown-market",
+      "body": null
+    },
+    {
+      "file": "mass-cancel",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/orders/mass-cancel",
+      "input": "valid",
+      "body": "{\"accountId\":\"mm-2\"}"
+    },
+    {
+      "file": "mass-cancel",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/orders/mass-cancel",
+      "input": "one-side",
+      "body": "{\"accountId\":\"mm\",\"side\":\"sell\"}"
+    },
+    {
+      "file": "mass-cancel",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/orders/mass-cancel",
+      "input": "session",
+      "body": "{\"accountId\":\"mm\",\"sessionId\":\"sess-1\"}"
+    },
+    {
+      "file": "mass-cancel",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/orders/mass-cancel",
+      "input": "absent",
+      "body": null
+    },
+    {
+      "file": "mass-cancel",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/orders/mass-cancel",
+      "input": "null",
+      "body": "null"
+    },
+    {
+      "file": "mass-cancel",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/orders/mass-cancel",
+      "input": "wrong-type",
+      "body": "7"
+    },
+    {
+      "file": "mass-cancel",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/orders/mass-cancel",
+      "input": "empty",
+      "body": "{}"
+    },
+    {
+      "file": "mass-cancel",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/orders/mass-cancel",
+      "input": "extra-key",
+      "body": "{\"accountId\":\"mm-2\",\"extra\":1}"
+    },
+    {
+      "file": "mass-cancel",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/orders/mass-cancel",
+      "input": "all-null",
+      "body": "{\"accountId\":null}"
+    },
+    {
+      "file": "session-dead",
+      "method": "POST",
+      "url": "/session/dead",
+      "input": "valid",
+      "body": "{\"sessionId\":\"sess-1\"}"
+    },
+    {
+      "file": "session-dead",
+      "method": "POST",
+      "url": "/session/dead",
+      "input": "blank",
+      "body": "{\"sessionId\":\"\"}"
+    },
+    {
+      "file": "session-dead",
+      "method": "POST",
+      "url": "/session/dead",
+      "input": "absent",
+      "body": null
+    },
+    {
+      "file": "session-dead",
+      "method": "POST",
+      "url": "/session/dead",
+      "input": "null",
+      "body": "null"
+    },
+    {
+      "file": "session-dead",
+      "method": "POST",
+      "url": "/session/dead",
+      "input": "wrong-type",
+      "body": "7"
+    },
+    {
+      "file": "session-dead",
+      "method": "POST",
+      "url": "/session/dead",
+      "input": "empty",
+      "body": "{}"
+    },
+    {
+      "file": "session-dead",
+      "method": "POST",
+      "url": "/session/dead",
+      "input": "extra-key",
+      "body": "{\"sessionId\":\"sess-1\",\"extra\":1}"
+    },
+    {
+      "file": "session-dead",
+      "method": "POST",
+      "url": "/session/dead",
+      "input": "all-null",
+      "body": "{\"sessionId\":null}"
+    },
+    {
+      "file": "reconcile",
+      "method": "POST",
+      "url": "/reconcile",
+      "input": "valid",
+      "body": "{\"orders\":[{\"orderId\":\"cccccccc-cccc-4ccc-8ccc-cccccccccccc\",\"marketId\":\"BTC-USDT\",\"state\":\"open\",\"remaining\":\"2\",\"funded\":true}]}"
+    },
+    {
+      "file": "reconcile",
+      "method": "POST",
+      "url": "/reconcile",
+      "input": "unknown-order",
+      "body": "{\"orders\":[{\"orderId\":\"ghost\",\"marketId\":\"BTC-USDT\",\"state\":\"open\",\"remaining\":\"1\",\"funded\":false}]}"
+    },
+    {
+      "file": "reconcile",
+      "method": "POST",
+      "url": "/reconcile",
+      "input": "none",
+      "body": "{\"orders\":[]}"
+    },
+    {
+      "file": "reconcile",
+      "method": "POST",
+      "url": "/reconcile",
+      "input": "absent",
+      "body": null
+    },
+    {
+      "file": "reconcile",
+      "method": "POST",
+      "url": "/reconcile",
+      "input": "null",
+      "body": "null"
+    },
+    {
+      "file": "reconcile",
+      "method": "POST",
+      "url": "/reconcile",
+      "input": "wrong-type",
+      "body": "7"
+    },
+    {
+      "file": "reconcile",
+      "method": "POST",
+      "url": "/reconcile",
+      "input": "empty",
+      "body": "{}"
+    },
+    {
+      "file": "reconcile",
+      "method": "POST",
+      "url": "/reconcile",
+      "input": "extra-key",
+      "body": "{\"orders\":[{\"orderId\":\"cccccccc-cccc-4ccc-8ccc-cccccccccccc\",\"marketId\":\"BTC-USDT\",\"state\":\"open\",\"remaining\":\"2\",\"funded\":true}],\"extra\":1}"
+    },
+    {
+      "file": "reconcile",
+      "method": "POST",
+      "url": "/reconcile",
+      "input": "all-null",
+      "body": "{\"orders\":null}"
+    },
+    {
+      "file": "spreads",
+      "method": "GET",
+      "url": "/spreads",
+      "input": "valid",
+      "body": null
+    },
+    {
+      "file": "spread-list",
+      "method": "POST",
+      "url": "/spreads/BTC-CAL-MAR-JUN/list",
+      "input": "valid",
+      "body": "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}"
+    },
+    {
+      "file": "spread-list",
+      "method": "POST",
+      "url": "/spreads/BTC-CAL-MAR-JUN/list",
+      "input": "blank-tick",
+      "body": "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}"
+    },
+    {
+      "file": "spread-list",
+      "method": "POST",
+      "url": "/spreads/BTC-CAL-MAR-JUN/list",
+      "input": "no-approval",
+      "body": "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\"}"
+    },
+    {
+      "file": "spread-list",
+      "method": "POST",
+      "url": "/spreads/BTC-CAL-MAR-JUN/list",
+      "input": "absent",
+      "body": null
+    },
+    {
+      "file": "spread-list",
+      "method": "POST",
+      "url": "/spreads/BTC-CAL-MAR-JUN/list",
+      "input": "null",
+      "body": "null"
+    },
+    {
+      "file": "spread-list",
+      "method": "POST",
+      "url": "/spreads/BTC-CAL-MAR-JUN/list",
+      "input": "wrong-type",
+      "body": "7"
+    },
+    {
+      "file": "spread-list",
+      "method": "POST",
+      "url": "/spreads/BTC-CAL-MAR-JUN/list",
+      "input": "empty",
+      "body": "{}"
+    },
+    {
+      "file": "spread-list",
+      "method": "POST",
+      "url": "/spreads/BTC-CAL-MAR-JUN/list",
+      "input": "extra-key",
+      "body": "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\",\"extra\":1}"
+    },
+    {
+      "file": "spread-list",
+      "method": "POST",
+      "url": "/spreads/BTC-CAL-MAR-JUN/list",
+      "input": "all-null",
+      "body": "{\"kind\":null,\"legs\":null,\"tick\":null,\"lot\":null,\"operatorId\":null,\"confirmOperatorId\":null,\"approvalId\":null,\"operationId\":null}"
+    },
+    {
+      "file": "spread-orders",
+      "method": "POST",
+      "url": "/spreads/BTC-CAL-MAR-JUN/orders",
+      "input": "valid",
+      "body": "{\"orderId\":\"dddddddd-dddd-4ddd-8ddd-dddddddddddd\",\"accountId\":\"mm\",\"side\":\"sell\",\"qty\":\"2\",\"price\":\"150\",\"tif\":\"GTC\",\"anchorReference\":\"60000\",\"lifecycleProof\":{\"action\":\"PLACE\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:0b864e828707b03ccaf658f0af584b68f570e2b1801d7e405102c700136e8472\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-CAL-MAR-JUN\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-CAL-MAR-JUN\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}"
+    },
+    {
+      "file": "spread-orders",
+      "method": "POST",
+      "url": "/spreads/BTC-CAL-MAR-JUN/orders",
+      "input": "no-anchor",
+      "body": "{\"orderId\":\"dddddddd-dddd-4ddd-8ddd-000000000001\",\"accountId\":\"mm\",\"side\":\"sell\",\"qty\":\"2\",\"price\":\"150\",\"tif\":\"GTC\",\"anchorReference\":null,\"lifecycleProof\":{\"action\":\"PLACE\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:0b864e828707b03ccaf658f0af584b68f570e2b1801d7e405102c700136e8472\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-CAL-MAR-JUN\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-CAL-MAR-JUN\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}"
+    },
+    {
+      "file": "spread-orders",
+      "method": "POST",
+      "url": "/spreads/BTC-CAL-MAR-JUN/orders",
+      "input": "negative-price",
+      "body": "{\"orderId\":\"dddddddd-dddd-4ddd-8ddd-000000000002\",\"accountId\":\"mm\",\"side\":\"sell\",\"qty\":\"2\",\"price\":\"-5\",\"tif\":\"GTC\",\"anchorReference\":\"60000\",\"lifecycleProof\":{\"action\":\"PLACE\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:0b864e828707b03ccaf658f0af584b68f570e2b1801d7e405102c700136e8472\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-CAL-MAR-JUN\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-CAL-MAR-JUN\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}"
+    },
+    {
+      "file": "spread-orders",
+      "method": "POST",
+      "url": "/spreads/NOPE-SPREAD/orders",
+      "input": "unlisted",
+      "body": "{\"orderId\":\"dddddddd-dddd-4ddd-8ddd-dddddddddddd\",\"accountId\":\"mm\",\"side\":\"sell\",\"qty\":\"2\",\"price\":\"150\",\"tif\":\"GTC\",\"anchorReference\":\"60000\",\"lifecycleProof\":{\"action\":\"PLACE\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:a9b3c1f411f4579fdb0e6197ad25e75defb2a4831241ac9d57c44bc1472dc25c\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"NOPE-SPREAD\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"NOPE-SPREAD\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}}}"
+    },
+    {
+      "file": "spread-orders",
+      "method": "POST",
+      "url": "/spreads/BTC-CAL-MAR-JUN/orders",
+      "input": "absent",
+      "body": null
+    },
+    {
+      "file": "spread-orders",
+      "method": "POST",
+      "url": "/spreads/BTC-CAL-MAR-JUN/orders",
+      "input": "null",
+      "body": "null"
+    },
+    {
+      "file": "spread-orders",
+      "method": "POST",
+      "url": "/spreads/BTC-CAL-MAR-JUN/orders",
+      "input": "wrong-type",
+      "body": "7"
+    },
+    {
+      "file": "spread-orders",
+      "method": "POST",
+      "url": "/spreads/BTC-CAL-MAR-JUN/orders",
+      "input": "empty",
+      "body": "{}"
+    },
+    {
+      "file": "spread-orders",
+      "method": "POST",
+      "url": "/spreads/BTC-CAL-MAR-JUN/orders",
+      "input": "extra-key",
+      "body": "{\"orderId\":\"dddddddd-dddd-4ddd-8ddd-dddddddddddd\",\"accountId\":\"mm\",\"side\":\"sell\",\"qty\":\"2\",\"price\":\"150\",\"tif\":\"GTC\",\"anchorReference\":\"60000\",\"lifecycleProof\":{\"action\":\"PLACE\",\"decision\":\"ELIGIBLE\",\"checkedAt\":\"2026-11-19T00:00:00.000Z\",\"snapshotId\":\"trade.lifecycle.snapshot:0b864e828707b03ccaf658f0af584b68f570e2b1801d7e405102c700136e8472\",\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"],\"snapshot\":{\"marketId\":\"BTC-CAL-MAR-JUN\",\"ruleVersion\":\"test.rules.v1\",\"instrumentId\":\"BTC-CAL-MAR-JUN\",\"instrumentVersion\":\"test.instrument.v1\",\"state\":\"OPEN\",\"reasonCategory\":\"NORMAL\",\"reasonCode\":\"trade.lifecycle.ready\",\"effectiveAt\":\"2026-11-19T00:00:00.000Z\",\"observedAt\":\"2026-11-19T00:00:00.000Z\",\"lastGoodState\":\"OPEN\",\"allowedActions\":[\"PLACE\",\"PLACE_POST_ONLY\",\"AMEND\"],\"transitionId\":\"test.transition\",\"evidenceRefs\":[\"test.evidence\"]}},\"extra\":1}"
+    },
+    {
+      "file": "spread-orders",
+      "method": "POST",
+      "url": "/spreads/BTC-CAL-MAR-JUN/orders",
+      "input": "all-null",
+      "body": "{\"orderId\":null,\"accountId\":null,\"side\":null,\"qty\":null,\"price\":null,\"tif\":null,\"anchorReference\":null,\"lifecycleProof\":null}"
+    },
+    {
+      "file": "spread-book",
+      "method": "GET",
+      "url": "/spreads/BTC-CAL-MAR-JUN/book?limit=10",
+      "input": "limit-10",
+      "body": null
+    },
+    {
+      "file": "spread-book",
+      "method": "GET",
+      "url": "/spreads/BTC-CAL-MAR-JUN/book",
+      "input": "no-limit",
+      "body": null
+    },
+    {
+      "file": "spread-book",
+      "method": "GET",
+      "url": "/spreads/BTC-CAL-MAR-JUN/book?limit=0",
+      "input": "limit-0",
+      "body": null
+    },
+    {
+      "file": "spread-book",
+      "method": "GET",
+      "url": "/spreads/BTC-CAL-MAR-JUN/book?limit=501",
+      "input": "limit-501",
+      "body": null
+    },
+    {
+      "file": "spread-book",
+      "method": "GET",
+      "url": "/spreads/BTC-CAL-MAR-JUN/book?limit=ten",
+      "input": "limit-word",
+      "body": null
+    },
+    {
+      "file": "spread-book",
+      "method": "GET",
+      "url": "/spreads/NOPE-SPREAD/book?limit=10",
+      "input": "unlisted",
+      "body": null
+    },
+    {
+      "file": "rulebook",
+      "method": "GET",
+      "url": "/rulebook",
+      "input": "valid",
+      "body": null
+    },
+    {
+      "file": "rulebook-versions",
+      "method": "GET",
+      "url": "/rulebook/versions",
+      "input": "valid",
+      "body": null
+    },
+    {
+      "file": "operator-rulebook-check",
+      "method": "POST",
+      "url": "/operator/rulebook/check",
+      "input": "valid",
+      "body": "{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"}}"
+    },
+    {
+      "file": "operator-rulebook-check",
+      "method": "POST",
+      "url": "/operator/rulebook/check",
+      "input": "section-unset",
+      "body": "{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"\",\"market_data\":\"TEST-v1 TEST market data.\"}}"
+    },
+    {
+      "file": "operator-rulebook-check",
+      "method": "POST",
+      "url": "/operator/rulebook/check",
+      "input": "no-version",
+      "body": "{\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"}}"
+    },
+    {
+      "file": "operator-rulebook-check",
+      "method": "POST",
+      "url": "/operator/rulebook/check",
+      "input": "absent",
+      "body": null
+    },
+    {
+      "file": "operator-rulebook-check",
+      "method": "POST",
+      "url": "/operator/rulebook/check",
+      "input": "null",
+      "body": "null"
+    },
+    {
+      "file": "operator-rulebook-check",
+      "method": "POST",
+      "url": "/operator/rulebook/check",
+      "input": "wrong-type",
+      "body": "7"
+    },
+    {
+      "file": "operator-rulebook-check",
+      "method": "POST",
+      "url": "/operator/rulebook/check",
+      "input": "empty",
+      "body": "{}"
+    },
+    {
+      "file": "operator-rulebook-check",
+      "method": "POST",
+      "url": "/operator/rulebook/check",
+      "input": "extra-key",
+      "body": "{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"},\"extra\":1}"
+    },
+    {
+      "file": "operator-rulebook-check",
+      "method": "POST",
+      "url": "/operator/rulebook/check",
+      "input": "all-null",
+      "body": "{\"version\":null,\"effectiveAt\":null,\"sections\":null}"
+    },
+    {
+      "file": "operator-rulebook-publish",
+      "method": "POST",
+      "url": "/operator/rulebook/publish",
+      "input": "valid",
+      "body": "{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"},\"approvalId\":\"appr-r1\",\"operationId\":\"op-r1\"}"
+    },
+    {
+      "file": "operator-rulebook-publish",
+      "method": "POST",
+      "url": "/operator/rulebook/publish",
+      "input": "same-again",
+      "body": "{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"},\"approvalId\":\"appr-r2\",\"operationId\":\"op-r2\"}"
+    },
+    {
+      "file": "operator-rulebook-publish",
+      "method": "POST",
+      "url": "/operator/rulebook/publish",
+      "input": "other-text",
+      "body": "{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST other fees.\",\"market_data\":\"TEST-v1 TEST market data.\"},\"approvalId\":\"appr-r3\",\"operationId\":\"op-r3\"}"
+    },
+    {
+      "file": "operator-rulebook-publish",
+      "method": "POST",
+      "url": "/operator/rulebook/publish",
+      "input": "absent",
+      "body": null
+    },
+    {
+      "file": "operator-rulebook-publish",
+      "method": "POST",
+      "url": "/operator/rulebook/publish",
+      "input": "null",
+      "body": "null"
+    },
+    {
+      "file": "operator-rulebook-publish",
+      "method": "POST",
+      "url": "/operator/rulebook/publish",
+      "input": "wrong-type",
+      "body": "7"
+    },
+    {
+      "file": "operator-rulebook-publish",
+      "method": "POST",
+      "url": "/operator/rulebook/publish",
+      "input": "empty",
+      "body": "{}"
+    },
+    {
+      "file": "operator-rulebook-publish",
+      "method": "POST",
+      "url": "/operator/rulebook/publish",
+      "input": "extra-key",
+      "body": "{\"version\":\"TEST-v1\",\"effectiveAt\":\"2026-11-20T00:00:00.000Z\",\"sections\":{\"participation\":\"TEST-v1 TEST participation.\",\"matching\":\"TEST-v1 TEST matching.\",\"cancellation\":\"TEST-v1 TEST cancellation.\",\"settlement\":\"TEST-v1 TEST settlement.\",\"liquidation\":\"TEST-v1 TEST liquidation.\",\"fees\":\"TEST-v1 TEST fees.\",\"market_data\":\"TEST-v1 TEST market data.\"},\"approvalId\":\"appr-r1\",\"operationId\":\"op-r1\",\"extra\":1}"
+    },
+    {
+      "file": "operator-rulebook-publish",
+      "method": "POST",
+      "url": "/operator/rulebook/publish",
+      "input": "all-null",
+      "body": "{\"version\":null,\"effectiveAt\":null,\"sections\":null,\"approvalId\":null,\"operationId\":null}"
+    },
+    {
+      "file": "rulebook-after",
+      "method": "GET",
+      "url": "/rulebook",
+      "input": "valid",
+      "body": null
+    },
+    {
+      "file": "rulebook-after",
+      "method": "GET",
+      "url": "/rulebook/versions",
+      "input": "versions",
+      "body": null
+    },
+    {
+      "file": "surveillance-cases",
+      "method": "GET",
+      "url": "/surveillance/cases?limit=10",
+      "input": "limit-10",
+      "body": null
+    },
+    {
+      "file": "surveillance-cases",
+      "method": "GET",
+      "url": "/surveillance/cases",
+      "input": "no-limit",
+      "body": null
+    },
+    {
+      "file": "surveillance-cases",
+      "method": "GET",
+      "url": "/surveillance/cases?limit=0",
+      "input": "limit-0",
+      "body": null
+    },
+    {
+      "file": "surveillance-cases",
+      "method": "GET",
+      "url": "/surveillance/cases?limit=501",
+      "input": "limit-501",
+      "body": null
+    },
+    {
+      "file": "surveillance-cases",
+      "method": "GET",
+      "url": "/surveillance/cases?limit=ten",
+      "input": "limit-word",
+      "body": null
+    },
+    {
+      "file": "surveillance-adjudicate",
+      "method": "POST",
+      "url": "/surveillance/adjudicate",
+      "input": "valid",
+      "body": "{\"reason\":\"TEST reviewed\"}"
+    },
+    {
+      "file": "surveillance-adjudicate",
+      "method": "POST",
+      "url": "/surveillance/adjudicate",
+      "input": "no-reason",
+      "body": "{}"
+    },
+    {
+      "file": "surveillance-adjudicate",
+      "method": "POST",
+      "url": "/surveillance/adjudicate",
+      "input": "absent",
+      "body": null
+    },
+    {
+      "file": "surveillance-adjudicate",
+      "method": "POST",
+      "url": "/surveillance/adjudicate",
+      "input": "null",
+      "body": "null"
+    },
+    {
+      "file": "surveillance-adjudicate",
+      "method": "POST",
+      "url": "/surveillance/adjudicate",
+      "input": "wrong-type",
+      "body": "7"
+    },
+    {
+      "file": "surveillance-adjudicate",
+      "method": "POST",
+      "url": "/surveillance/adjudicate",
+      "input": "empty",
+      "body": "{}"
+    },
+    {
+      "file": "surveillance-adjudicate",
+      "method": "POST",
+      "url": "/surveillance/adjudicate",
+      "input": "extra-key",
+      "body": "{\"reason\":\"TEST reviewed\",\"extra\":1}"
+    },
+    {
+      "file": "surveillance-adjudicate",
+      "method": "POST",
+      "url": "/surveillance/adjudicate",
+      "input": "all-null",
+      "body": "{\"reason\":null}"
+    },
+    {
+      "file": "surveillance-fine",
+      "method": "POST",
+      "url": "/surveillance/fine",
+      "input": "valid",
+      "body": "{\"amount\":\"10\"}"
+    },
+    {
+      "file": "surveillance-fine",
+      "method": "POST",
+      "url": "/surveillance/fine",
+      "input": "absent",
+      "body": null
+    },
+    {
+      "file": "surveillance-fine",
+      "method": "POST",
+      "url": "/surveillance/fine",
+      "input": "null",
+      "body": "null"
+    },
+    {
+      "file": "surveillance-fine",
+      "method": "POST",
+      "url": "/surveillance/fine",
+      "input": "wrong-type",
+      "body": "7"
+    },
+    {
+      "file": "surveillance-fine",
+      "method": "POST",
+      "url": "/surveillance/fine",
+      "input": "empty",
+      "body": "{}"
+    },
+    {
+      "file": "surveillance-fine",
+      "method": "POST",
+      "url": "/surveillance/fine",
+      "input": "extra-key",
+      "body": "{\"amount\":\"10\",\"extra\":1}"
+    },
+    {
+      "file": "surveillance-fine",
+      "method": "POST",
+      "url": "/surveillance/fine",
+      "input": "all-null",
+      "body": "{\"amount\":null}"
+    },
+    {
+      "file": "operator-in-flight",
+      "method": "GET",
+      "url": "/operator/in-flight",
+      "input": "valid",
+      "body": null
+    },
+    {
+      "file": "post-only",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/post-only",
+      "input": "valid",
+      "body": "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}"
+    },
+    {
+      "file": "post-only",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/post-only",
+      "input": "no-approval",
+      "body": "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\"}"
+    },
+    {
+      "file": "post-only",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/post-only",
+      "input": "not-operator",
+      "body": "{\"operatorId\":\"someone-else\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}"
+    },
+    {
+      "file": "post-only",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/post-only",
+      "input": "blank-operator",
+      "body": "{\"operatorId\":\"\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}"
+    },
+    {
+      "file": "post-only",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/post-only",
+      "input": "absent",
+      "body": null
+    },
+    {
+      "file": "post-only",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/post-only",
+      "input": "null",
+      "body": "null"
+    },
+    {
+      "file": "post-only",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/post-only",
+      "input": "wrong-type",
+      "body": "7"
+    },
+    {
+      "file": "post-only",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/post-only",
+      "input": "empty",
+      "body": "{}"
+    },
+    {
+      "file": "post-only",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/post-only",
+      "input": "extra-key",
+      "body": "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\",\"extra\":1}"
+    },
+    {
+      "file": "post-only",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/post-only",
+      "input": "all-null",
+      "body": "{\"operatorId\":null,\"confirmOperatorId\":null,\"approvalId\":null,\"operationId\":null}"
+    },
+    {
+      "file": "post-only-resume",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/post-only/resume",
+      "input": "valid",
+      "body": "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}"
+    },
+    {
+      "file": "post-only-resume",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/post-only/resume",
+      "input": "no-approval",
+      "body": "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\"}"
+    },
+    {
+      "file": "post-only-resume",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/post-only/resume",
+      "input": "not-operator",
+      "body": "{\"operatorId\":\"someone-else\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}"
+    },
+    {
+      "file": "post-only-resume",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/post-only/resume",
+      "input": "blank-operator",
+      "body": "{\"operatorId\":\"\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}"
+    },
+    {
+      "file": "post-only-resume",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/post-only/resume",
+      "input": "absent",
+      "body": null
+    },
+    {
+      "file": "post-only-resume",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/post-only/resume",
+      "input": "null",
+      "body": "null"
+    },
+    {
+      "file": "post-only-resume",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/post-only/resume",
+      "input": "wrong-type",
+      "body": "7"
+    },
+    {
+      "file": "post-only-resume",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/post-only/resume",
+      "input": "empty",
+      "body": "{}"
+    },
+    {
+      "file": "post-only-resume",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/post-only/resume",
+      "input": "extra-key",
+      "body": "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\",\"extra\":1}"
+    },
+    {
+      "file": "post-only-resume",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/post-only/resume",
+      "input": "all-null",
+      "body": "{\"operatorId\":null,\"confirmOperatorId\":null,\"approvalId\":null,\"operationId\":null}"
+    },
+    {
+      "file": "reduce-only",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/reduce-only",
+      "input": "valid",
+      "body": "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}"
+    },
+    {
+      "file": "reduce-only",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/reduce-only",
+      "input": "no-approval",
+      "body": "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\"}"
+    },
+    {
+      "file": "reduce-only",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/reduce-only",
+      "input": "not-operator",
+      "body": "{\"operatorId\":\"someone-else\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}"
+    },
+    {
+      "file": "reduce-only",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/reduce-only",
+      "input": "blank-operator",
+      "body": "{\"operatorId\":\"\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}"
+    },
+    {
+      "file": "reduce-only",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/reduce-only",
+      "input": "absent",
+      "body": null
+    },
+    {
+      "file": "reduce-only",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/reduce-only",
+      "input": "null",
+      "body": "null"
+    },
+    {
+      "file": "reduce-only",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/reduce-only",
+      "input": "wrong-type",
+      "body": "7"
+    },
+    {
+      "file": "reduce-only",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/reduce-only",
+      "input": "empty",
+      "body": "{}"
+    },
+    {
+      "file": "reduce-only",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/reduce-only",
+      "input": "extra-key",
+      "body": "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\",\"extra\":1}"
+    },
+    {
+      "file": "reduce-only",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/reduce-only",
+      "input": "all-null",
+      "body": "{\"operatorId\":null,\"confirmOperatorId\":null,\"approvalId\":null,\"operationId\":null}"
+    },
+    {
+      "file": "reduce-only-resume",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/reduce-only/resume",
+      "input": "valid",
+      "body": "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}"
+    },
+    {
+      "file": "reduce-only-resume",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/reduce-only/resume",
+      "input": "no-approval",
+      "body": "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\"}"
+    },
+    {
+      "file": "reduce-only-resume",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/reduce-only/resume",
+      "input": "not-operator",
+      "body": "{\"operatorId\":\"someone-else\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}"
+    },
+    {
+      "file": "reduce-only-resume",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/reduce-only/resume",
+      "input": "blank-operator",
+      "body": "{\"operatorId\":\"\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}"
+    },
+    {
+      "file": "reduce-only-resume",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/reduce-only/resume",
+      "input": "absent",
+      "body": null
+    },
+    {
+      "file": "reduce-only-resume",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/reduce-only/resume",
+      "input": "null",
+      "body": "null"
+    },
+    {
+      "file": "reduce-only-resume",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/reduce-only/resume",
+      "input": "wrong-type",
+      "body": "7"
+    },
+    {
+      "file": "reduce-only-resume",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/reduce-only/resume",
+      "input": "empty",
+      "body": "{}"
+    },
+    {
+      "file": "reduce-only-resume",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/reduce-only/resume",
+      "input": "extra-key",
+      "body": "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\",\"extra\":1}"
+    },
+    {
+      "file": "reduce-only-resume",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/reduce-only/resume",
+      "input": "all-null",
+      "body": "{\"operatorId\":null,\"confirmOperatorId\":null,\"approvalId\":null,\"operationId\":null}"
+    },
+    {
+      "file": "prelaunch",
+      "method": "POST",
+      "url": "/markets/ETH-USDT/prelaunch",
+      "input": "valid",
+      "body": "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}"
+    },
+    {
+      "file": "prelaunch",
+      "method": "POST",
+      "url": "/markets/ETH-USDT/prelaunch",
+      "input": "no-approval",
+      "body": "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\"}"
+    },
+    {
+      "file": "prelaunch",
+      "method": "POST",
+      "url": "/markets/ETH-USDT/prelaunch",
+      "input": "not-operator",
+      "body": "{\"operatorId\":\"someone-else\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}"
+    },
+    {
+      "file": "prelaunch",
+      "method": "POST",
+      "url": "/markets/ETH-USDT/prelaunch",
+      "input": "blank-operator",
+      "body": "{\"operatorId\":\"\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}"
+    },
+    {
+      "file": "prelaunch",
+      "method": "POST",
+      "url": "/markets/ETH-USDT/prelaunch",
+      "input": "absent",
+      "body": null
+    },
+    {
+      "file": "prelaunch",
+      "method": "POST",
+      "url": "/markets/ETH-USDT/prelaunch",
+      "input": "null",
+      "body": "null"
+    },
+    {
+      "file": "prelaunch",
+      "method": "POST",
+      "url": "/markets/ETH-USDT/prelaunch",
+      "input": "wrong-type",
+      "body": "7"
+    },
+    {
+      "file": "prelaunch",
+      "method": "POST",
+      "url": "/markets/ETH-USDT/prelaunch",
+      "input": "empty",
+      "body": "{}"
+    },
+    {
+      "file": "prelaunch",
+      "method": "POST",
+      "url": "/markets/ETH-USDT/prelaunch",
+      "input": "extra-key",
+      "body": "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\",\"extra\":1}"
+    },
+    {
+      "file": "prelaunch",
+      "method": "POST",
+      "url": "/markets/ETH-USDT/prelaunch",
+      "input": "all-null",
+      "body": "{\"operatorId\":null,\"confirmOperatorId\":null,\"approvalId\":null,\"operationId\":null}"
+    },
+    {
+      "file": "open",
+      "method": "POST",
+      "url": "/markets/ETH-USDT/open",
+      "input": "valid",
+      "body": "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}"
+    },
+    {
+      "file": "open",
+      "method": "POST",
+      "url": "/markets/ETH-USDT/open",
+      "input": "no-approval",
+      "body": "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\"}"
+    },
+    {
+      "file": "open",
+      "method": "POST",
+      "url": "/markets/ETH-USDT/open",
+      "input": "not-operator",
+      "body": "{\"operatorId\":\"someone-else\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}"
+    },
+    {
+      "file": "open",
+      "method": "POST",
+      "url": "/markets/ETH-USDT/open",
+      "input": "blank-operator",
+      "body": "{\"operatorId\":\"\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}"
+    },
+    {
+      "file": "open",
+      "method": "POST",
+      "url": "/markets/ETH-USDT/open",
+      "input": "absent",
+      "body": null
+    },
+    {
+      "file": "open",
+      "method": "POST",
+      "url": "/markets/ETH-USDT/open",
+      "input": "null",
+      "body": "null"
+    },
+    {
+      "file": "open",
+      "method": "POST",
+      "url": "/markets/ETH-USDT/open",
+      "input": "wrong-type",
+      "body": "7"
+    },
+    {
+      "file": "open",
+      "method": "POST",
+      "url": "/markets/ETH-USDT/open",
+      "input": "empty",
+      "body": "{}"
+    },
+    {
+      "file": "open",
+      "method": "POST",
+      "url": "/markets/ETH-USDT/open",
+      "input": "extra-key",
+      "body": "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\",\"extra\":1}"
+    },
+    {
+      "file": "open",
+      "method": "POST",
+      "url": "/markets/ETH-USDT/open",
+      "input": "all-null",
+      "body": "{\"operatorId\":null,\"confirmOperatorId\":null,\"approvalId\":null,\"operationId\":null}"
+    },
+    {
+      "file": "halt",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/halt",
+      "input": "valid",
+      "body": "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}"
+    },
+    {
+      "file": "halt",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/halt",
+      "input": "no-approval",
+      "body": "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\"}"
+    },
+    {
+      "file": "halt",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/halt",
+      "input": "not-operator",
+      "body": "{\"operatorId\":\"someone-else\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}"
+    },
+    {
+      "file": "halt",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/halt",
+      "input": "blank-operator",
+      "body": "{\"operatorId\":\"\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}"
+    },
+    {
+      "file": "halt",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/halt",
+      "input": "absent",
+      "body": null
+    },
+    {
+      "file": "halt",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/halt",
+      "input": "null",
+      "body": "null"
+    },
+    {
+      "file": "halt",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/halt",
+      "input": "wrong-type",
+      "body": "7"
+    },
+    {
+      "file": "halt",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/halt",
+      "input": "empty",
+      "body": "{}"
+    },
+    {
+      "file": "halt",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/halt",
+      "input": "extra-key",
+      "body": "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\",\"extra\":1}"
+    },
+    {
+      "file": "halt",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/halt",
+      "input": "all-null",
+      "body": "{\"operatorId\":null,\"confirmOperatorId\":null,\"approvalId\":null,\"operationId\":null}"
+    },
+    {
+      "file": "resume",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/resume",
+      "input": "valid",
+      "body": "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}"
+    },
+    {
+      "file": "resume",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/resume",
+      "input": "no-approval",
+      "body": "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\"}"
+    },
+    {
+      "file": "resume",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/resume",
+      "input": "not-operator",
+      "body": "{\"operatorId\":\"someone-else\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}"
+    },
+    {
+      "file": "resume",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/resume",
+      "input": "blank-operator",
+      "body": "{\"operatorId\":\"\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}"
+    },
+    {
+      "file": "resume",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/resume",
+      "input": "absent",
+      "body": null
+    },
+    {
+      "file": "resume",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/resume",
+      "input": "null",
+      "body": "null"
+    },
+    {
+      "file": "resume",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/resume",
+      "input": "wrong-type",
+      "body": "7"
+    },
+    {
+      "file": "resume",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/resume",
+      "input": "empty",
+      "body": "{}"
+    },
+    {
+      "file": "resume",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/resume",
+      "input": "extra-key",
+      "body": "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\",\"extra\":1}"
+    },
+    {
+      "file": "resume",
+      "method": "POST",
+      "url": "/markets/BTC-USDT/resume",
+      "input": "all-null",
+      "body": "{\"operatorId\":null,\"confirmOperatorId\":null,\"approvalId\":null,\"operationId\":null}"
+    },
+    {
+      "file": "operator-halt",
+      "method": "POST",
+      "url": "/operator/halt",
+      "input": "valid",
+      "body": "{\"marketId\":\"BTC-USDT\",\"approvalId\":\"appr-9\",\"operationId\":\"op-9\",\"idempotencyKey\":\"wire-replay-operator-halt\"}"
+    },
+    {
+      "file": "operator-halt",
+      "method": "POST",
+      "url": "/operator/halt",
+      "input": "replay-same-key",
+      "body": "{\"marketId\":\"BTC-USDT\",\"approvalId\":\"appr-9\",\"operationId\":\"op-9\",\"idempotencyKey\":\"wire-replay-operator-halt\"}"
+    },
+    {
+      "file": "operator-halt",
+      "method": "POST",
+      "url": "/operator/halt",
+      "input": "same-key-other-request",
+      "body": "{\"marketId\":\"BTC-USDT\",\"approvalId\":\"appr-9\",\"operationId\":\"op-other\",\"idempotencyKey\":\"wire-replay-operator-halt\"}"
+    },
+    {
+      "file": "operator-halt",
+      "method": "POST",
+      "url": "/operator/halt",
+      "input": "short-key",
+      "body": "{\"marketId\":\"BTC-USDT\",\"approvalId\":\"appr-9\",\"operationId\":\"op-9\",\"idempotencyKey\":\"short\"}"
+    },
+    {
+      "file": "operator-halt",
+      "method": "POST",
+      "url": "/operator/halt",
+      "input": "no-market",
+      "body": "{\"approvalId\":\"appr-8\",\"operationId\":\"op-8\",\"idempotencyKey\":\"wire-replay-operator-halt-no-market\"}"
+    },
+    {
+      "file": "operator-halt",
+      "method": "POST",
+      "url": "/operator/halt",
+      "input": "absent",
+      "body": null
+    },
+    {
+      "file": "operator-halt",
+      "method": "POST",
+      "url": "/operator/halt",
+      "input": "null",
+      "body": "null"
+    },
+    {
+      "file": "operator-halt",
+      "method": "POST",
+      "url": "/operator/halt",
+      "input": "wrong-type",
+      "body": "7"
+    },
+    {
+      "file": "operator-halt",
+      "method": "POST",
+      "url": "/operator/halt",
+      "input": "empty",
+      "body": "{}"
+    },
+    {
+      "file": "operator-halt",
+      "method": "POST",
+      "url": "/operator/halt",
+      "input": "extra-key",
+      "body": "{\"marketId\":\"BTC-USDT\",\"approvalId\":\"appr-9\",\"operationId\":\"op-9\",\"idempotencyKey\":\"wire-replay-operator-halt\",\"extra\":1}"
+    },
+    {
+      "file": "operator-halt",
+      "method": "POST",
+      "url": "/operator/halt",
+      "input": "all-null",
+      "body": "{\"marketId\":null,\"approvalId\":null,\"operationId\":null,\"idempotencyKey\":null}"
+    },
+    {
+      "file": "operator-resume",
+      "method": "POST",
+      "url": "/operator/resume",
+      "input": "valid",
+      "body": "{\"marketId\":\"BTC-USDT\",\"approvalId\":\"appr-9\",\"operationId\":\"op-9\",\"idempotencyKey\":\"wire-replay-operator-resume\"}"
+    },
+    {
+      "file": "operator-resume",
+      "method": "POST",
+      "url": "/operator/resume",
+      "input": "replay-same-key",
+      "body": "{\"marketId\":\"BTC-USDT\",\"approvalId\":\"appr-9\",\"operationId\":\"op-9\",\"idempotencyKey\":\"wire-replay-operator-resume\"}"
+    },
+    {
+      "file": "operator-resume",
+      "method": "POST",
+      "url": "/operator/resume",
+      "input": "same-key-other-request",
+      "body": "{\"marketId\":\"BTC-USDT\",\"approvalId\":\"appr-9\",\"operationId\":\"op-other\",\"idempotencyKey\":\"wire-replay-operator-resume\"}"
+    },
+    {
+      "file": "operator-resume",
+      "method": "POST",
+      "url": "/operator/resume",
+      "input": "short-key",
+      "body": "{\"marketId\":\"BTC-USDT\",\"approvalId\":\"appr-9\",\"operationId\":\"op-9\",\"idempotencyKey\":\"short\"}"
+    },
+    {
+      "file": "operator-resume",
+      "method": "POST",
+      "url": "/operator/resume",
+      "input": "no-market",
+      "body": "{\"approvalId\":\"appr-8\",\"operationId\":\"op-8\",\"idempotencyKey\":\"wire-replay-operator-resume-no-market\"}"
+    },
+    {
+      "file": "operator-resume",
+      "method": "POST",
+      "url": "/operator/resume",
+      "input": "absent",
+      "body": null
+    },
+    {
+      "file": "operator-resume",
+      "method": "POST",
+      "url": "/operator/resume",
+      "input": "null",
+      "body": "null"
+    },
+    {
+      "file": "operator-resume",
+      "method": "POST",
+      "url": "/operator/resume",
+      "input": "wrong-type",
+      "body": "7"
+    },
+    {
+      "file": "operator-resume",
+      "method": "POST",
+      "url": "/operator/resume",
+      "input": "empty",
+      "body": "{}"
+    },
+    {
+      "file": "operator-resume",
+      "method": "POST",
+      "url": "/operator/resume",
+      "input": "extra-key",
+      "body": "{\"marketId\":\"BTC-USDT\",\"approvalId\":\"appr-9\",\"operationId\":\"op-9\",\"idempotencyKey\":\"wire-replay-operator-resume\",\"extra\":1}"
+    },
+    {
+      "file": "operator-resume",
+      "method": "POST",
+      "url": "/operator/resume",
+      "input": "all-null",
+      "body": "{\"marketId\":null,\"approvalId\":null,\"operationId\":null,\"idempotencyKey\":null}"
+    },
+    {
+      "file": "halt-all",
+      "method": "POST",
+      "url": "/halt-all",
+      "input": "valid",
+      "body": "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}"
+    },
+    {
+      "file": "halt-all",
+      "method": "POST",
+      "url": "/halt-all",
+      "input": "no-approval",
+      "body": "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\"}"
+    },
+    {
+      "file": "halt-all",
+      "method": "POST",
+      "url": "/halt-all",
+      "input": "not-operator",
+      "body": "{\"operatorId\":\"someone-else\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}"
+    },
+    {
+      "file": "halt-all",
+      "method": "POST",
+      "url": "/halt-all",
+      "input": "blank-operator",
+      "body": "{\"operatorId\":\"\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}"
+    },
+    {
+      "file": "halt-all",
+      "method": "POST",
+      "url": "/halt-all",
+      "input": "absent",
+      "body": null
+    },
+    {
+      "file": "halt-all",
+      "method": "POST",
+      "url": "/halt-all",
+      "input": "null",
+      "body": "null"
+    },
+    {
+      "file": "halt-all",
+      "method": "POST",
+      "url": "/halt-all",
+      "input": "wrong-type",
+      "body": "7"
+    },
+    {
+      "file": "halt-all",
+      "method": "POST",
+      "url": "/halt-all",
+      "input": "empty",
+      "body": "{}"
+    },
+    {
+      "file": "halt-all",
+      "method": "POST",
+      "url": "/halt-all",
+      "input": "extra-key",
+      "body": "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\",\"extra\":1}"
+    },
+    {
+      "file": "halt-all",
+      "method": "POST",
+      "url": "/halt-all",
+      "input": "all-null",
+      "body": "{\"operatorId\":null,\"confirmOperatorId\":null,\"approvalId\":null,\"operationId\":null}"
+    },
+    {
+      "file": "resume-all",
+      "method": "POST",
+      "url": "/resume-all",
+      "input": "valid",
+      "body": "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}"
+    },
+    {
+      "file": "resume-all",
+      "method": "POST",
+      "url": "/resume-all",
+      "input": "no-approval",
+      "body": "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\"}"
+    },
+    {
+      "file": "resume-all",
+      "method": "POST",
+      "url": "/resume-all",
+      "input": "not-operator",
+      "body": "{\"operatorId\":\"someone-else\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}"
+    },
+    {
+      "file": "resume-all",
+      "method": "POST",
+      "url": "/resume-all",
+      "input": "blank-operator",
+      "body": "{\"operatorId\":\"\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}"
+    },
+    {
+      "file": "resume-all",
+      "method": "POST",
+      "url": "/resume-all",
+      "input": "absent",
+      "body": null
+    },
+    {
+      "file": "resume-all",
+      "method": "POST",
+      "url": "/resume-all",
+      "input": "null",
+      "body": "null"
+    },
+    {
+      "file": "resume-all",
+      "method": "POST",
+      "url": "/resume-all",
+      "input": "wrong-type",
+      "body": "7"
+    },
+    {
+      "file": "resume-all",
+      "method": "POST",
+      "url": "/resume-all",
+      "input": "empty",
+      "body": "{}"
+    },
+    {
+      "file": "resume-all",
+      "method": "POST",
+      "url": "/resume-all",
+      "input": "extra-key",
+      "body": "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\",\"extra\":1}"
+    },
+    {
+      "file": "resume-all",
+      "method": "POST",
+      "url": "/resume-all",
+      "input": "all-null",
+      "body": "{\"operatorId\":null,\"confirmOperatorId\":null,\"approvalId\":null,\"operationId\":null}"
+    },
+    {
+      "file": "operator-halt-all",
+      "method": "POST",
+      "url": "/operator/halt-all",
+      "input": "valid",
+      "body": "{\"approvalId\":\"appr-9\",\"operationId\":\"op-9\",\"idempotencyKey\":\"wire-replay-operator-halt-all\"}"
+    },
+    {
+      "file": "operator-halt-all",
+      "method": "POST",
+      "url": "/operator/halt-all",
+      "input": "replay-same-key",
+      "body": "{\"approvalId\":\"appr-9\",\"operationId\":\"op-9\",\"idempotencyKey\":\"wire-replay-operator-halt-all\"}"
+    },
+    {
+      "file": "operator-halt-all",
+      "method": "POST",
+      "url": "/operator/halt-all",
+      "input": "same-key-other-request",
+      "body": "{\"approvalId\":\"appr-9\",\"operationId\":\"op-other\",\"idempotencyKey\":\"wire-replay-operator-halt-all\"}"
+    },
+    {
+      "file": "operator-halt-all",
+      "method": "POST",
+      "url": "/operator/halt-all",
+      "input": "short-key",
+      "body": "{\"approvalId\":\"appr-9\",\"operationId\":\"op-9\",\"idempotencyKey\":\"short\"}"
+    },
+    {
+      "file": "operator-halt-all",
+      "method": "POST",
+      "url": "/operator/halt-all",
+      "input": "no-market",
+      "body": "{\"approvalId\":\"appr-8\",\"operationId\":\"op-8\",\"idempotencyKey\":\"wire-replay-operator-halt-all-no-market\"}"
+    },
+    {
+      "file": "operator-halt-all",
+      "method": "POST",
+      "url": "/operator/halt-all",
+      "input": "absent",
+      "body": null
+    },
+    {
+      "file": "operator-halt-all",
+      "method": "POST",
+      "url": "/operator/halt-all",
+      "input": "null",
+      "body": "null"
+    },
+    {
+      "file": "operator-halt-all",
+      "method": "POST",
+      "url": "/operator/halt-all",
+      "input": "wrong-type",
+      "body": "7"
+    },
+    {
+      "file": "operator-halt-all",
+      "method": "POST",
+      "url": "/operator/halt-all",
+      "input": "empty",
+      "body": "{}"
+    },
+    {
+      "file": "operator-halt-all",
+      "method": "POST",
+      "url": "/operator/halt-all",
+      "input": "extra-key",
+      "body": "{\"approvalId\":\"appr-9\",\"operationId\":\"op-9\",\"idempotencyKey\":\"wire-replay-operator-halt-all\",\"extra\":1}"
+    },
+    {
+      "file": "operator-halt-all",
+      "method": "POST",
+      "url": "/operator/halt-all",
+      "input": "all-null",
+      "body": "{\"approvalId\":null,\"operationId\":null,\"idempotencyKey\":null}"
+    },
+    {
+      "file": "operator-resume-all",
+      "method": "POST",
+      "url": "/operator/resume-all",
+      "input": "valid",
+      "body": "{\"approvalId\":\"appr-9\",\"operationId\":\"op-9\",\"idempotencyKey\":\"wire-replay-operator-resume-all\"}"
+    },
+    {
+      "file": "operator-resume-all",
+      "method": "POST",
+      "url": "/operator/resume-all",
+      "input": "replay-same-key",
+      "body": "{\"approvalId\":\"appr-9\",\"operationId\":\"op-9\",\"idempotencyKey\":\"wire-replay-operator-resume-all\"}"
+    },
+    {
+      "file": "operator-resume-all",
+      "method": "POST",
+      "url": "/operator/resume-all",
+      "input": "same-key-other-request",
+      "body": "{\"approvalId\":\"appr-9\",\"operationId\":\"op-other\",\"idempotencyKey\":\"wire-replay-operator-resume-all\"}"
+    },
+    {
+      "file": "operator-resume-all",
+      "method": "POST",
+      "url": "/operator/resume-all",
+      "input": "short-key",
+      "body": "{\"approvalId\":\"appr-9\",\"operationId\":\"op-9\",\"idempotencyKey\":\"short\"}"
+    },
+    {
+      "file": "operator-resume-all",
+      "method": "POST",
+      "url": "/operator/resume-all",
+      "input": "no-market",
+      "body": "{\"approvalId\":\"appr-8\",\"operationId\":\"op-8\",\"idempotencyKey\":\"wire-replay-operator-resume-all-no-market\"}"
+    },
+    {
+      "file": "operator-resume-all",
+      "method": "POST",
+      "url": "/operator/resume-all",
+      "input": "absent",
+      "body": null
+    },
+    {
+      "file": "operator-resume-all",
+      "method": "POST",
+      "url": "/operator/resume-all",
+      "input": "null",
+      "body": "null"
+    },
+    {
+      "file": "operator-resume-all",
+      "method": "POST",
+      "url": "/operator/resume-all",
+      "input": "wrong-type",
+      "body": "7"
+    },
+    {
+      "file": "operator-resume-all",
+      "method": "POST",
+      "url": "/operator/resume-all",
+      "input": "empty",
+      "body": "{}"
+    },
+    {
+      "file": "operator-resume-all",
+      "method": "POST",
+      "url": "/operator/resume-all",
+      "input": "extra-key",
+      "body": "{\"approvalId\":\"appr-9\",\"operationId\":\"op-9\",\"idempotencyKey\":\"wire-replay-operator-resume-all\",\"extra\":1}"
+    },
+    {
+      "file": "operator-resume-all",
+      "method": "POST",
+      "url": "/operator/resume-all",
+      "input": "all-null",
+      "body": "{\"approvalId\":null,\"operationId\":null,\"idempotencyKey\":null}"
+    },
+    {
+      "file": "expire",
+      "method": "POST",
+      "url": "/markets/ETH-USDT/expire",
+      "input": "valid",
+      "body": "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}"
+    },
+    {
+      "file": "expire",
+      "method": "POST",
+      "url": "/markets/ETH-USDT/expire",
+      "input": "no-approval",
+      "body": "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\"}"
+    },
+    {
+      "file": "expire",
+      "method": "POST",
+      "url": "/markets/ETH-USDT/expire",
+      "input": "not-operator",
+      "body": "{\"operatorId\":\"someone-else\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}"
+    },
+    {
+      "file": "expire",
+      "method": "POST",
+      "url": "/markets/ETH-USDT/expire",
+      "input": "blank-operator",
+      "body": "{\"operatorId\":\"\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}"
+    },
+    {
+      "file": "expire",
+      "method": "POST",
+      "url": "/markets/ETH-USDT/expire",
+      "input": "absent",
+      "body": null
+    },
+    {
+      "file": "expire",
+      "method": "POST",
+      "url": "/markets/ETH-USDT/expire",
+      "input": "null",
+      "body": "null"
+    },
+    {
+      "file": "expire",
+      "method": "POST",
+      "url": "/markets/ETH-USDT/expire",
+      "input": "wrong-type",
+      "body": "7"
+    },
+    {
+      "file": "expire",
+      "method": "POST",
+      "url": "/markets/ETH-USDT/expire",
+      "input": "empty",
+      "body": "{}"
+    },
+    {
+      "file": "expire",
+      "method": "POST",
+      "url": "/markets/ETH-USDT/expire",
+      "input": "extra-key",
+      "body": "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\",\"extra\":1}"
+    },
+    {
+      "file": "expire",
+      "method": "POST",
+      "url": "/markets/ETH-USDT/expire",
+      "input": "all-null",
+      "body": "{\"operatorId\":null,\"confirmOperatorId\":null,\"approvalId\":null,\"operationId\":null}"
+    },
+    {
+      "file": "delist",
+      "method": "POST",
+      "url": "/markets/ETH-USDT/delist",
+      "input": "valid",
+      "body": "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}"
+    },
+    {
+      "file": "delist",
+      "method": "POST",
+      "url": "/markets/ETH-USDT/delist",
+      "input": "no-approval",
+      "body": "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\"}"
+    },
+    {
+      "file": "delist",
+      "method": "POST",
+      "url": "/markets/ETH-USDT/delist",
+      "input": "not-operator",
+      "body": "{\"operatorId\":\"someone-else\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}"
+    },
+    {
+      "file": "delist",
+      "method": "POST",
+      "url": "/markets/ETH-USDT/delist",
+      "input": "blank-operator",
+      "body": "{\"operatorId\":\"\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}"
+    },
+    {
+      "file": "delist",
+      "method": "POST",
+      "url": "/markets/ETH-USDT/delist",
+      "input": "absent",
+      "body": null
+    },
+    {
+      "file": "delist",
+      "method": "POST",
+      "url": "/markets/ETH-USDT/delist",
+      "input": "null",
+      "body": "null"
+    },
+    {
+      "file": "delist",
+      "method": "POST",
+      "url": "/markets/ETH-USDT/delist",
+      "input": "wrong-type",
+      "body": "7"
+    },
+    {
+      "file": "delist",
+      "method": "POST",
+      "url": "/markets/ETH-USDT/delist",
+      "input": "empty",
+      "body": "{}"
+    },
+    {
+      "file": "delist",
+      "method": "POST",
+      "url": "/markets/ETH-USDT/delist",
+      "input": "extra-key",
+      "body": "{\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\",\"extra\":1}"
+    },
+    {
+      "file": "delist",
+      "method": "POST",
+      "url": "/markets/ETH-USDT/delist",
+      "input": "all-null",
+      "body": "{\"operatorId\":null,\"confirmOperatorId\":null,\"approvalId\":null,\"operationId\":null}"
+    },
+    {
+      "file": "after",
+      "method": "GET",
+      "url": "/markets",
+      "input": "markets",
+      "body": null
+    },
+    {
+      "file": "after",
+      "method": "GET",
+      "url": "/spreads",
+      "input": "spreads",
+      "body": null
+    },
+    {
+      "file": "after",
+      "method": "GET",
+      "url": "/health",
+      "input": "health",
+      "body": null
+    },
+    {
+      "file": "after",
+      "method": "GET",
+      "url": "/markets/BTC-USDT/depth?limit=10",
+      "input": "depth",
+      "body": null
+    },
+    {
+      "file": "after",
+      "method": "GET",
+      "url": "/operator/in-flight",
+      "input": "in-flight",
+      "body": null
+    }
+  ]
+}

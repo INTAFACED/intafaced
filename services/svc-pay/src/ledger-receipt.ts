@@ -1,5 +1,5 @@
 import { LedgerError, type LedgerClient, type LedgerTx, type PostRequest } from '@intafaced/ledger-client';
-import { canonicalIdentityOperationIntent } from '@intafaced/contracts';
+import { canonicalIdentityOperationIntent } from '@intafaced/contracts/operation-identity-client';
 
 /** Compact provider ACKs contain no entries. Rich receipts must prove every original leg. */
 export async function postPayLedger(ledger: LedgerClient, request: PostRequest): Promise<LedgerTx> {

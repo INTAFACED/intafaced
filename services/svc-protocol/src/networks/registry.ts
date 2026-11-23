@@ -2,14 +2,13 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
+import type { NetworkEntry, ProtocolDeploymentsOutput } from '@intafaced/contracts';
 import {
   FORBIDDEN_NETWORK_KINDS,
   NETWORK_KIND_FORBIDDEN,
   networkEntrySchema,
   routerIsSunset,
-  type NetworkEntry,
-  type ProtocolDeploymentsOutput,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/protocol-networks';
 import { isExplicitDevOrTest } from '@intafaced/config';
 import { parseDeploymentRegistry } from '../deployments/registry.js';
 

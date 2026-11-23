@@ -1,12 +1,9 @@
 import {
   QUANT_FEE_ROLES,
-  quantAccountRulesSchema,
   QUANT_FILL_TIMINGS,
   QUANT_SPLIT_PRESETS,
   QUANT_VERDICT_CRITERIA,
   quantOutOfSampleFrom,
-  quantBacktestFeeSchema,
-  quantBacktestResultSchema,
   quantStrategyHeadSchema,
   quantStrategyListOutputSchema,
   type QuantBacktestResult,
@@ -16,9 +13,11 @@ import {
   type QuantStrategyHead,
 } from '@intafaced/contracts/quant-algo';
 import { DATAFEED_INTERVAL_MS } from '@intafaced/contracts/datafeed';
+import { QUANT_BACKTEST_ACCOUNT_RULES, QUANT_BACKTEST_FEE, QUANT_BACKTEST_START } from '@intafaced/contracts/quant-backtest-procedures';
+import { QUANT_STUDIO_LIST } from '@intafaced/contracts/quant-studio-procedures';
 import { useState, type ReactNode } from 'react';
 import { z } from 'zod';
-import type { ApiResult } from '../../shared/api';
+import { parsesAs, type ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, EmptyState, Field, Loading, Panel, Tabs } from '../../shared/ui';
 import { QuotaAwareFailure } from './quota-refusal';
@@ -57,7 +56,7 @@ function namedRefusal(message: string): Refusal | null {
   if (timing) return { input: 'fillTiming', detail: timing[1]!.trim(), blank: blank(timing[1]!) };
   const split = /^quant\.backtest_window_invalid — (split — |out-of-sample start )(.*)$/.exec(message);
   if (split) return { input: split[1]!.startsWith('split') ? 'split' : 'oosFrom', detail: split[2]!.trim(), blank: false };
-  const account = /^quant\.account_rule_unset — (leverage|maximum leverage|margin call level|stop-out level) — (.*)$/.exec(message);
+  const account = /^quant\.account_rule_unset — (leverage|maximum leverage|maintenance level|margin call level) — (.*)$/.exec(message);
   if (account) {
     const own = account[1] === 'leverage';
     return {
@@ -80,7 +79,7 @@ export function BacktestRoom() {
   const api = useApi();
   const { t } = backtestCopy.useCopy();
   const list = useResource(
-    (signal) => api.query('quant', 'studio.list', { limit: STRATEGY_PAGE }, page, { signal }),
+    (signal) => api.call(QUANT_STUDIO_LIST, { limit: STRATEGY_PAGE }, { signal, accept: parsesAs(page) }),
     'quant-backtest-strategies',
   );
   const [strategyId, setStrategyId] = useState('');
@@ -138,24 +137,19 @@ export function BacktestRoom() {
     setBusy(true);
     setRefusal(null);
     setFailure(null);
-    const res = await api.mutate(
-      'quant',
-      'backtest.start',
-      {
-        strategyId: strategy.id,
-        strategyVersion: strategy.version,
-        cash,
-        // A field the browser cannot read as a UTC minute is sent as typed, and the service names it.
-        from: utcInput(from) ?? from,
-        to: utcInput(to) ?? to,
-        fillTiming,
-        costs: { feeRole, slippageBps: slippage, delayBars: delay },
-        ...(split ? { split: { preset: split, ...(split === 'custom' ? { outOfSampleFrom: utcInput(oosFrom) ?? oosFrom } : {}) } } : {}),
-        ...(enforceHoldout ? { enforceHoldout: true } : {}),
-        ...(onMargin ? { simulatedAccount: { leverage } } : {}),
-      },
-      quantBacktestResultSchema,
-    );
+    const res = await api.call(QUANT_BACKTEST_START, {
+      strategyId: strategy.id,
+      strategyVersion: strategy.version,
+      cash,
+      // A field the browser cannot read as a UTC minute is sent as typed, and the service names it.
+      from: utcInput(from) ?? from,
+      to: utcInput(to) ?? to,
+      fillTiming,
+      costs: { feeRole, slippageBps: slippage, delayBars: delay },
+      ...(split ? { split: { preset: split, ...(split === 'custom' ? { outOfSampleFrom: utcInput(oosFrom) ?? oosFrom } : {}) } } : {}),
+      ...(enforceHoldout ? { enforceHoldout: true } : {}),
+      ...(onMargin ? { simulatedAccount: { leverage } } : {}),
+    });
     setBusy(false);
     if (res.ok) {
       setResult(res.data);
@@ -170,14 +164,14 @@ export function BacktestRoom() {
     <>
       <Panel title={t('title')}>
         <div data-testid="quant-bar-backtest">
-          <p className="muted">{t('intro')}</p>
+          <p className="lt-muted">{t('intro')}</p>
           <Read resource={list.resource} retry={list.reload}>
             {(data) => {
               if (!data.strategies.length) {
                 return (
                   <EmptyState title={t('strategyNone')}>
                     {t('strategyNoneBody')}{' '}
-                    <a className="text-link" href="/quant/studio">
+                    <a className="lt-link" href="/quant/studio">
                       {t('openStudio')}
                     </a>
                   </EmptyState>
@@ -209,7 +203,7 @@ export function BacktestRoom() {
                     ]}
                   />
                   {strategy && (
-                    <p className="muted" data-testid="quant-backtest-rules">
+                    <p className="lt-muted" data-testid="quant-backtest-rules">
                       {strategy.modules
                         ? t('rulesOf', { version: strategy.version, symbol: strategy.modules.symbol, barSize: strategy.modules.barSize })
                         : t('blocksOnly', { version: strategy.version })}
@@ -293,11 +287,11 @@ export function BacktestRoom() {
                           maxLength={8}
                           error={errorFor('leverage')}
                         />
-                        <AccountRules />
+                        {strategy?.modules && <AccountRules symbol={strategy.modules.symbol} />}
                         {selectError('accountRule')}
                       </>
                     ) : (
-                      <p className="muted">{t('cashAccount')}</p>
+                      <p className="lt-muted">{t('cashAccount')}</p>
                     )}
                   </fieldset>
                   <Select
@@ -365,7 +359,7 @@ function SplitPreview(props: { from: string; to: string; preset: QuantSplitPrese
     Number.isFinite(fromMs) && Number.isFinite(toMs) && span ? quantOutOfSampleFrom({ fromMs, toMs }, props.preset, span, custom) : null;
   if (cut === null)
     return (
-      <p className="muted" data-testid="quant-split-preview">
+      <p className="lt-muted" data-testid="quant-split-preview">
         {t('splitShort')}
       </p>
     );
@@ -377,26 +371,36 @@ function SplitPreview(props: { from: string; to: string; preset: QuantSplitPrese
   );
 }
 
-/** The owner's published margin rules, read only; a blank one reads "not set" and a margin run refuses it by name. */
-function AccountRules() {
+/**
+ * The margin rules for the strategy's market, read only (J-algo-dev-02 #5): the venue's published maximum leverage and
+ * maintenance level, read from the venue, and our own margin-call warning, labelled as ours. A figure the venue does not
+ * publish reads "not published", our blank warning reads "not set"; a margin run refuses either by name.
+ */
+function AccountRules({ symbol }: { symbol: string }) {
   const api = useApi();
   const { t } = backtestCopy.useCopy();
-  const rules = useResource(
-    (signal) => api.query('quant', 'backtest.accountRules', undefined, quantAccountRulesSchema, { signal }),
-    'quant-account-rules',
-  );
+  const rules = useResource((signal) => api.call(QUANT_BACKTEST_ACCOUNT_RULES, { symbol }, { signal }), `quant-account-rules:${symbol}`);
   return (
     <Read resource={rules.resource} retry={rules.reload}>
       {(data) => (
-        <div data-testid="quant-account-rules">
-          <p className="muted">{t('accountRulesIntro')}</p>
+        <div data-testid="quant-account-rules" data-venue-market={data.venueMarket ?? ''}>
+          {data.test ? (
+            <p className="lt-muted" data-testid="quant-account-rules-test">
+              {t('venueRulesTest')}
+            </p>
+          ) : null}
+          <p className="lt-muted">{data.venueMarket ? t('venueRulesIntro', { market: data.venueMarket }) : t('venueRulesNoMarket')}</p>
           <dl className="quant-bar-totals">
-            {(['maxLeverage', 'marginCallPercent', 'stopOutPercent'] as const).map((name) => (
-              <div key={name} data-rule={name} data-value={data[name] ?? ''}>
+            {(['maxLeverage', 'maintenancePercent'] as const).map((name) => (
+              <div key={name} data-rule={name} data-value={data[name] ?? ''} data-source="venue">
                 <dt>{t(`rule_${name}`)}</dt>
-                <dd lang={data[name] === null ? undefined : 'zxx'}>{data[name] ?? t('notSet')}</dd>
+                <dd lang={data[name] === null ? undefined : 'zxx'}>{data[name] ?? t('notPublished')}</dd>
               </div>
             ))}
+            <div data-rule="marginCallPercent" data-value={data.marginCallPercent ?? ''} data-source="ours">
+              <dt>{t('rule_marginCallPercent')}</dt>
+              <dd lang={data.marginCallPercent === null ? undefined : 'zxx'}>{data.marginCallPercent ?? t('notSet')}</dd>
+            </div>
           </dl>
           <p>{t('accountMode')}</p>
         </div>
@@ -409,10 +413,7 @@ function AccountRules() {
 function FeeLedger({ symbol }: { symbol: string }) {
   const api = useApi();
   const { t } = backtestCopy.useCopy();
-  const fee = useResource(
-    (signal) => api.query('quant', 'backtest.fee', { symbol }, quantBacktestFeeSchema, { signal }),
-    `quant-fee:${symbol}`,
-  );
+  const fee = useResource((signal) => api.call(QUANT_BACKTEST_FEE, { symbol }, { signal }), `quant-fee:${symbol}`);
   return (
     <div data-testid="quant-fee-ledger">
       <Read resource={fee.resource} retry={fee.reload}>
@@ -435,7 +436,7 @@ function BacktestResult({ result }: { result: QuantBacktestResult }) {
   return (
     <section aria-label={t('resultTitle')} data-testid="quant-bar-result" data-run-id={result.runId}>
       <h3>{t('resultTitle')}</h3>
-      <p className="muted">{t('simulated')}</p>
+      <p className="lt-muted">{t('simulated')}</p>
       <VerdictCard result={result} />
       <Tabs
         items={RESULT_TABS}
@@ -493,7 +494,7 @@ function VerdictCard({ result }: { result: QuantBacktestResult }) {
       <p data-testid="quant-verdict-status">
         <strong>{t(`v_${verdict.status}`)}</strong>
       </p>
-      <p className="muted">{t('verdictComputed')}</p>
+      <p className="lt-muted">{t('verdictComputed')}</p>
       <ul data-testid="quant-verdict-reasons">
         {verdict.reasons.map((reason) => (
           <li key={reason} data-reason={reason}>
@@ -518,7 +519,7 @@ function VerdictCard({ result }: { result: QuantBacktestResult }) {
       <p data-testid="quant-variant-count" data-count={result.variantCount ?? ''}>
         {result.variantCount === null ? t('variantsNone') : t('variants', { count: result.variantCount })}
       </p>
-      <p className="muted">{t('variantsHelp')}</p>
+      <p className="lt-muted">{t('variantsHelp')}</p>
       <p data-testid="quant-holdout" data-enforced={String(result.holdout.enforced)}>
         {result.holdout.enforced && result.holdout.from ? t('holdoutOn', { from: utcText(result.holdout.from) }) : t('holdoutOff')}
       </p>
@@ -570,7 +571,8 @@ function ResultSummary({ result }: { result: QuantBacktestResult }) {
           ? t('marginAccount', {
               leverage: result.account.leverage,
               call: result.account.marginCallPercent ?? '',
-              stopOut: result.account.stopOutPercent ?? '',
+              maintenance: result.account.maintenancePercent ?? '',
+              market: result.account.venueMarket ?? '',
             })
           : t('cashAccount')}
       </p>
@@ -593,7 +595,7 @@ function ResultSummary({ result }: { result: QuantBacktestResult }) {
           ))}
         </ul>
       ) : (
-        <p className="muted" data-testid="quant-risk-events-none">
+        <p className="lt-muted" data-testid="quant-risk-events-none">
           {t(result.assumptions.includes('equity_stop_at_bar_low') ? 'riskEventsNone' : 'riskEventsUnset')}
         </p>
       )}
@@ -610,7 +612,7 @@ function ResultSummary({ result }: { result: QuantBacktestResult }) {
           ))}
         </DataTable>
       ) : (
-        <p className="muted">{t('gapsNone')}</p>
+        <p className="lt-muted">{t('gapsNone')}</p>
       )}
       <dl className="quant-bar-totals" data-testid="quant-bar-totals">
         {(
@@ -667,7 +669,7 @@ function ResultTrades({ result }: { result: QuantBacktestResult }) {
           ))}
         </DataTable>
       ) : (
-        <p className="muted">{t('tradesNone')}</p>
+        <p className="lt-muted">{t('tradesNone')}</p>
       )}
       {result.account && (
         <>
@@ -691,7 +693,7 @@ function ResultTrades({ result }: { result: QuantBacktestResult }) {
               ))}
             </DataTable>
           ) : (
-            <p className="muted" data-testid="quant-margin-events-none">
+            <p className="lt-muted" data-testid="quant-margin-events-none">
               {t('eventsNone')}
             </p>
           )}
@@ -756,11 +758,11 @@ function ResultCharts({ result }: { result: QuantBacktestResult }) {
               );
             })}
           </svg>
-          <figcaption className="muted">{t('chartCaption')}</figcaption>
+          <figcaption className="lt-muted">{t('chartCaption')}</figcaption>
           {geometry.unmatched > 0 && <p className="error-text">{t('chartUnmatched', { count: geometry.unmatched })}</p>}
         </figure>
       ) : (
-        <p className="muted">{t('chartTooFew')}</p>
+        <p className="lt-muted">{t('chartTooFew')}</p>
       )}
       <details>
         <summary>{t('equityTitle')}</summary>
@@ -805,7 +807,7 @@ function ResultLog({ result }: { result: QuantBacktestResult }) {
           ))}
         </ol>
       ) : (
-        <p className="muted">{t('logNone')}</p>
+        <p className="lt-muted">{t('logNone')}</p>
       )}
     </div>
   );

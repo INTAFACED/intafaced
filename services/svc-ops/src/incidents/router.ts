@@ -10,19 +10,17 @@ import {
   declaredSeverity,
   incidentDeclareInputSchema,
   incidentDetailSchema,
-  incidentGetInputSchema,
   incidentInviteInputSchema,
-  incidentListInputSchema,
-  incidentListOutputSchema,
-  incidentMetricsSchema,
   incidentNoteInputSchema,
   incidentResolveInputSchema,
   incidentTaskInputSchema,
-  router,
-  scopedProcedure,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/ops-incidents';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { OpsError } from '../codes.js';
 import type { IncidentChange, IncidentStore } from './store.js';
+import { OPS_INCIDENTS_LIST, OPS_INCIDENTS_METRICS, OPS_INCIDENTS_GET } from '@intafaced/contracts/ops-incidents-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { opsRefusal } from '../refusal.js';
 
 const guards = { module: 'core-ops' as const, plane: 'fiat' as const };
 
@@ -72,25 +70,25 @@ export function createIncidentsRouter(deps: IncidentsDeps) {
   const change = (viewerId: string, incidentId: string, requestKey: string, what: IncidentChange) =>
     refused(() => storeOf(deps).change(viewerId, incidentId, requestKey, what, deps.now()));
   return router({
-    list: scopedProcedure('admin:read', guards)
-      .input(incidentListInputSchema)
-      .output(incidentListOutputSchema)
-      .query(async ({ ctx, input }) => ({
+    list: mountRecord(
+      OPS_INCIDENTS_LIST,
+      async ({ ctx, input }) => ({
         incidents: await storeOf(deps).list(ctx.principal.userId, input),
         severities: deps.severities === null ? null : [...deps.severities],
         asOf: deps.now(),
-      })),
-    get: scopedProcedure('admin:read', guards)
-      .input(incidentGetInputSchema)
-      .output(incidentDetailSchema)
-      .query(async ({ ctx, input }) => {
+      }),
+      opsRefusal,
+    ),
+    get: mountRecord(
+      OPS_INCIDENTS_GET,
+      async ({ ctx, input }) => {
         const detail = await storeOf(deps).get(ctx.principal.userId, input.incidentId, deps.now());
         if (!detail) throw refusal(new OpsError(INCIDENT_NOT_FOUND, `no incident ${input.incidentId} that you can see`));
         return detail;
-      }),
-    metrics: scopedProcedure('admin:read', guards)
-      .output(incidentMetricsSchema)
-      .query(async ({ ctx }) => storeOf(deps).metrics(ctx.principal.userId, deps.now())),
+      },
+      opsRefusal,
+    ),
+    metrics: mountRecord(OPS_INCIDENTS_METRICS, async ({ ctx }) => storeOf(deps).metrics(ctx.principal.userId, deps.now()), opsRefusal),
     declare: scopedProcedure('admin:write', guards)
       .input(incidentDeclareInputSchema)
       .output(incidentDetailSchema)

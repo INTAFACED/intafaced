@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Button, DataTable, EmptyState, Panel } from '../../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { DataTable, EmptyState, Panel } from '../volt/parts';
 import { usePreferences } from '../../../shared/preferences';
 import type { ApiResult } from '../../../shared/api';
 import { useApi } from '../../session';
@@ -76,16 +77,16 @@ export function WalletGroupPanel({ groupId }: { groupId: string }) {
   return (
     <>
       <Panel title={group ? group.name : t('groupTitle')}>
-        <p className="muted">
+        <p className="lt-hint">
           <a href={WALLET_SECTIONS.addressBook}>{t('groupBack')}</a>
         </p>
-        {!address && <p className="muted">{t('needsWallet')}</p>}
+        {!address && <p className="lt-hint">{t('needsWallet')}</p>}
         {address && read.kind === 'opening' && <p role="status">{t('bookLoading')}</p>}
         {address && read.kind === 'closed' && (
           <>
             <p role="alert">{read.failure ? bookMessage(t, read.failure) : t('groupMissing')}</p>
             {valid && (
-              <Button variant="secondary" onClick={() => setAttempt((n) => n + 1)}>
+              <Button tone="secondary" onClick={() => setAttempt((n) => n + 1)}>
                 {t('bookSignIn')}
               </Button>
             )}
@@ -96,7 +97,7 @@ export function WalletGroupPanel({ groupId }: { groupId: string }) {
             group.members.map((member) => (
               <tr key={member.address}>
                 <td>{member.self ? t('groupThisWallet') : (member.label ?? '')}</td>
-                <td className="numeric">{member.address}</td>
+                <td className="lt-mono">{member.address}</td>
               </tr>
             ))
           ) : (
@@ -122,7 +123,7 @@ export function WalletGroupPanel({ groupId }: { groupId: string }) {
                 <td>{row.wallets.join(', ')}</td>
                 <td>{row.what}</td>
                 <td>{row.status === 'confirmed' ? t('groupActivityConfirmed') : t('groupActivityFailed')}</td>
-                <td className="numeric">
+                <td className="lt-mono">
                   <a href={`/chain/tx/${row.hash}`}>{shortAddress(row.hash)}</a>
                 </td>
               </tr>

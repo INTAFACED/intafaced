@@ -1,24 +1,17 @@
 import 'server-only';
+import type { ProcedureInput } from '@intafaced/contracts/procedure';
 import {
-  alertEnableInputSchema,
-  codeBatchResultSchema,
-  codeBatchSchema,
-  codeGenerateInputSchema,
-  codeImportInputSchema,
-  codePublishInputSchema,
-  exportDownloadInputSchema,
-  exportFileSchema,
-  exportRequestInputSchema,
-  exportRequestResultSchema,
-  voucherDeactivateInputSchema,
-  watchAlertSchema,
-  watchCampaignInputSchema,
-  watchCampaignSchema,
-  watchOverviewSchema,
-  watchVoucherSchema,
-  type ExportFile,
-} from '@intafaced/contracts/campaigns-watch';
-import { founderCall, parseWith, type FounderCallContext } from '@/lib/desk';
+  CAMPAIGNS_OPS_CAMPAIGNS_CODES_GENERATE,
+  CAMPAIGNS_OPS_CAMPAIGNS_CODES_IMPORT,
+  CAMPAIGNS_OPS_CAMPAIGNS_CODES_PUBLISH,
+  CAMPAIGNS_OPS_CAMPAIGNS_EXPORTS_DOWNLOAD,
+  CAMPAIGNS_OPS_CAMPAIGNS_EXPORTS_REQUEST,
+  CAMPAIGNS_OPS_CAMPAIGNS_VOUCHERS_DEACTIVATE,
+  CAMPAIGNS_OPS_CAMPAIGNS_WATCH_ALERT,
+  CAMPAIGNS_OPS_CAMPAIGNS_WATCH_CAMPAIGN,
+  CAMPAIGNS_OPS_CAMPAIGNS_WATCH_OVERVIEW,
+} from '@intafaced/contracts/campaigns-procedures';
+import { founderRecordCall, type FounderCallContext } from '@/lib/desk';
 import { check, ruleReply } from './builder-server';
 
 /**
@@ -27,62 +20,59 @@ import { check, ruleReply } from './builder-server';
  * batch passes through here once, in the generate's answer, and is never stored by the console.
  */
 
-export const checkWatchCampaign = check(watchCampaignInputSchema, 'Which campaign?');
-export const checkAlert = check(alertEnableInputSchema, 'Which alert, on or off?');
+export const checkWatchCampaign = check(CAMPAIGNS_OPS_CAMPAIGNS_WATCH_CAMPAIGN.input, 'Which campaign?');
+export const checkAlert = check(CAMPAIGNS_OPS_CAMPAIGNS_WATCH_ALERT.input, 'Which alert, on or off?');
 export const checkGenerate = check(
-  codeGenerateInputSchema,
+  CAMPAIGNS_OPS_CAMPAIGNS_CODES_GENERATE.input,
   'A batch needs a name (letters, digits, spaces and . _ : -, up to 80) and a whole number of codes.',
 );
 export const checkImport = check(
-  codeImportInputSchema,
+  CAMPAIGNS_OPS_CAMPAIGNS_CODES_IMPORT.input,
   'A batch needs a name and a CSV with one code (4 to 32 letters, digits or hyphens) per row.',
 );
-export const checkPublish = check(codePublishInputSchema, 'Which batch?');
-export const checkDeactivate = check(voucherDeactivateInputSchema, 'Which voucher?');
-export const checkExport = check(exportRequestInputSchema, 'Which campaign, which export and which of its fields?');
-export const checkDownload = check(exportDownloadInputSchema, 'Which export?');
+export const checkPublish = check(CAMPAIGNS_OPS_CAMPAIGNS_CODES_PUBLISH.input, 'Which batch?');
+export const checkDeactivate = check(CAMPAIGNS_OPS_CAMPAIGNS_VOUCHERS_DEACTIVATE.input, 'Which voucher?');
+export const checkExport = check(CAMPAIGNS_OPS_CAMPAIGNS_EXPORTS_REQUEST.input, 'Which campaign, which export and which of its fields?');
+export const checkDownload = check(CAMPAIGNS_OPS_CAMPAIGNS_EXPORTS_DOWNLOAD.input, 'Which export?');
 
 /** A batch of codes or an export can take longer than a read: up to 30 seconds. */
-const call = <T>(
-  ctx: FounderCallContext,
-  procedure: string,
-  method: 'GET' | 'POST',
-  input: unknown,
-  schema: { safeParse: (v: unknown) => { success: true; data: T } | { success: false } },
-) => founderCall(ctx, 'campaigns', procedure, method, input, parseWith(schema), { timeoutMs: 30_000 });
+const SLOW = { timeoutMs: 30_000 } as const;
 
 export async function loadOverview(ctx: FounderCallContext) {
-  return ruleReply(await call(ctx, 'ops.campaigns.watch.overview', 'GET', undefined, watchOverviewSchema));
+  return ruleReply(await founderRecordCall(ctx, CAMPAIGNS_OPS_CAMPAIGNS_WATCH_OVERVIEW, undefined, SLOW));
 }
 
-export async function loadWatchCampaign(ctx: FounderCallContext, input: unknown) {
-  return ruleReply(await call(ctx, 'ops.campaigns.watch.campaign', 'GET', input, watchCampaignSchema));
+export async function loadWatchCampaign(ctx: FounderCallContext, input: ProcedureInput<typeof CAMPAIGNS_OPS_CAMPAIGNS_WATCH_CAMPAIGN>) {
+  return ruleReply(await founderRecordCall(ctx, CAMPAIGNS_OPS_CAMPAIGNS_WATCH_CAMPAIGN, input, SLOW));
 }
 
-export async function setAlert(ctx: FounderCallContext, input: unknown) {
-  return ruleReply(await call(ctx, 'ops.campaigns.watch.alert', 'POST', input, watchAlertSchema));
+export async function setAlert(ctx: FounderCallContext, input: ProcedureInput<typeof CAMPAIGNS_OPS_CAMPAIGNS_WATCH_ALERT>) {
+  return ruleReply(await founderRecordCall(ctx, CAMPAIGNS_OPS_CAMPAIGNS_WATCH_ALERT, input, SLOW));
 }
 
-export async function generateCodes(ctx: FounderCallContext, input: unknown) {
-  return ruleReply(await call(ctx, 'ops.campaigns.codes.generate', 'POST', input, codeBatchResultSchema));
+export async function generateCodes(ctx: FounderCallContext, input: ProcedureInput<typeof CAMPAIGNS_OPS_CAMPAIGNS_CODES_GENERATE>) {
+  return ruleReply(await founderRecordCall(ctx, CAMPAIGNS_OPS_CAMPAIGNS_CODES_GENERATE, input, SLOW));
 }
 
-export async function importCodes(ctx: FounderCallContext, input: unknown) {
-  return ruleReply(await call(ctx, 'ops.campaigns.codes.import', 'POST', input, codeBatchResultSchema));
+export async function importCodes(ctx: FounderCallContext, input: ProcedureInput<typeof CAMPAIGNS_OPS_CAMPAIGNS_CODES_IMPORT>) {
+  return ruleReply(await founderRecordCall(ctx, CAMPAIGNS_OPS_CAMPAIGNS_CODES_IMPORT, input, SLOW));
 }
 
-export async function publishBatch(ctx: FounderCallContext, input: unknown) {
-  return ruleReply(await call(ctx, 'ops.campaigns.codes.publish', 'POST', input, codeBatchSchema));
+export async function publishBatch(ctx: FounderCallContext, input: ProcedureInput<typeof CAMPAIGNS_OPS_CAMPAIGNS_CODES_PUBLISH>) {
+  return ruleReply(await founderRecordCall(ctx, CAMPAIGNS_OPS_CAMPAIGNS_CODES_PUBLISH, input, SLOW));
 }
 
-export async function deactivateVoucher(ctx: FounderCallContext, input: unknown) {
-  return ruleReply(await call(ctx, 'ops.campaigns.vouchers.deactivate', 'POST', input, watchVoucherSchema));
+export async function deactivateVoucher(
+  ctx: FounderCallContext,
+  input: ProcedureInput<typeof CAMPAIGNS_OPS_CAMPAIGNS_VOUCHERS_DEACTIVATE>,
+) {
+  return ruleReply(await founderRecordCall(ctx, CAMPAIGNS_OPS_CAMPAIGNS_VOUCHERS_DEACTIVATE, input, SLOW));
 }
 
-export async function requestExport(ctx: FounderCallContext, input: unknown) {
-  return ruleReply(await call(ctx, 'ops.campaigns.exports.request', 'POST', input, exportRequestResultSchema));
+export async function requestExport(ctx: FounderCallContext, input: ProcedureInput<typeof CAMPAIGNS_OPS_CAMPAIGNS_EXPORTS_REQUEST>) {
+  return ruleReply(await founderRecordCall(ctx, CAMPAIGNS_OPS_CAMPAIGNS_EXPORTS_REQUEST, input, SLOW));
 }
 
-export async function downloadExport(ctx: FounderCallContext, input: unknown): Promise<ReturnType<typeof ruleReply<ExportFile>>> {
-  return ruleReply(await call(ctx, 'ops.campaigns.exports.download', 'GET', input, exportFileSchema));
+export async function downloadExport(ctx: FounderCallContext, input: ProcedureInput<typeof CAMPAIGNS_OPS_CAMPAIGNS_EXPORTS_DOWNLOAD>) {
+  return ruleReply(await founderRecordCall(ctx, CAMPAIGNS_OPS_CAMPAIGNS_EXPORTS_DOWNLOAD, input, SLOW));
 }

@@ -37,10 +37,11 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *   GET  /health, GET /venue                         descriptor, chain id, label TEST, and the deposit route (or null)
  *   POST /markets {account|null}, /preview {account,intent}, /prepare {account,signer,intent},
  *        /submit {prepared,signature}, /balances|/open-orders|/positions|/agents {account},
- *        /order-history {account}, /order-by-client-id {account,venueClientOrderId}, /fills {account,since}, /withdrawal {account,nonce}, /deposits {account},
+ *        /order-history {account}, /order-by-client-id {account,venueClientOrderId}, /fills {account,since}, /withdrawal {account,nonce}, /deposits {account}, /deposit-routes {},
  *        /builder-fee-approval {account,builder}, /builder-totals {builder}, /builder-claims {builder},
+ *        /builder-account-mode {builder}   the address's account mode and the mode required to accrue builder fees
  *        /leverage {account,symbol}, /leverage-change {account,symbol,leverageBps,marginMode},
- *        /isolated-margin {account,symbol}, /account-summary {account}, /book {symbol,depth},
+ *        /isolated-margin {account,symbol}, /account-summary {account}, /account-mode {account}, /vaults, /vault-holdings {account}, /book {symbol,depth},
  *        /fee-status {account?}   the published fee tiers, and with an account its tier, counted volume and rates
  *        /sub-accounts {account}, /transfer {account,nonce}   (UserVenueSubAccountReads, on the main account)
  *        /market-margin {account,symbol}                  the owner's balance in a market deployer's own margin account
@@ -50,12 +51,24 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *        /insurance-fund {}, /adl-rules {}, /liquidation-alerts {symbol|null,limit}   public, no account
  *   TEST controls (never part of UserVenue):
  *   POST /test/deposit {account,asset,amount,depositRef}   idempotent by depositRef
+ *   POST /test/deposit-route {asset, route: {network,how} | null}   the venue's route for an asset its bridge does not take
  *        /test/deficit {account,asset,amount,lossRef}     a loss past margin booked as a deficit: the balance may go below zero
  *        /test/stake {account,asset,amount,stakeRef}      a TEST stake: free into locked, reported in the balance's lockedBy.staked
- *        /test/switches {venueDown?,unlistPerpetuals?,declaredAgentPermissionReach?,amendsInPlace?,cancelsPerAction?,scheduledCancelMinLeadMs?,withdrawalFee?,networkFee?,withdrawalArrivalSeconds?,withdrawalsHeld?,depositExplorerTxUrl?,otherFeesUnpublished?}   each fee a MaybeKnown<Amount>
+ *        /test/switches {venueDown?,unlistPerpetuals?,declaredAgentPermissionReach?,amendsInPlace?,cancelsPerAction?,scheduledCancelMinLeadMs?,withdrawalFee?,networkFee?,withdrawalArrivalSeconds?,withdrawalsHeld?,depositExplorerTxUrl?,otherFeesUnpublished?,builderModeRequirementUnpublished?}   each fee a MaybeKnown<Amount>
+ *        /test/account-mode {account,mode?,actionsToday?,unreported?,refuseSwitch?}   the account's mode (J-derivatives-29),
+ *                                                         the day's action count, the mode withheld from reads, a mode
+ *                                                         switch the venue refuses with that reason (null: takes it)
+ *        /staking, /staking-account {account}             the venue's staking terms, and one account's staking (J-cex-spot-21)
+ *        /test/staking-published {rewardRate?,tiers?}     the venue withholds its staking reward rate or discount tiers, or publishes them again
+ *        /test/staking {account,passLockUp?,passQueue?,reward?,fillPending?}   one account's staking, moved as the venue's
+ *                                                         clock or the venue would (a lock-up passed, the queue arrived, a
+ *                                                         reward paid, withdrawals queued up to the venue's limit)
+ *        /test/vault-lockup {account,vault}               the venue's clock passes one account's lock-up in one vault
+ *                                                         (J-derivatives-31 #5); every other position keeps its own
  *        /test/account-switches {owner,down?,loseAnswers?,failAfterSend?,submitDelayMs?}   one owner's account only, so a journey can
  *                                                         take the venue away from its own person and no one else's:
- *                                                         `down` refuses every call on that owner's account venue_down;
+ *                                                         `down` refuses every call on that owner's account venue_down
+ *                                                         (and the read of its account mode as a builder);
  *                                                         `loseAnswers` applies the next N submits and answers each
  *                                                         `definite: false` (timeout); `failAfterSend` applies the next N
  *                                                         submits and answers each HTTP 500; `submitDelayMs` holds each submit
@@ -547,6 +560,60 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
         "into the venue's TEST insurance fund.",
     },
   },
+  {
+    // J-derivatives-14: a TEST perpetual of its own that a developer reads and trades through our API: its open interest
+    // and long/short count come from positions only this journey opens, its funding periods only it closes, and it
+    // publishes no margin tiers (the risk-limit ladder reads unset). Only J-derivatives-14 trades it, and it has no TEST
+    // makers' ladder, so every position on it is one the journey opened. Priced by its TEST oracle, so a fill never moves
+    // its mark.
+    symbol: 'XDEV-PERP',
+    kind: 'perpetual',
+    baseAsset: 'XDEV',
+    quoteAsset: 'USDC',
+    orderTypes: ['limit', 'market'],
+    timeInForce: ['GTC', 'IOC'],
+    marginModes: ['isolated'],
+    maxLeverageBps: 100_000,
+    tickSize: parseAmount('0.01'),
+    lotSize: parseAmount('0.1'),
+    makerFeeBps: { known: true, value: parseAmount('1.5') },
+    takerFeeBps: { known: true, value: parseAmount('4.5') },
+    builderFeeCapBps: { known: true, value: parseAmount('10') },
+    maintenanceMarginRate: parseAmount('0.02'),
+    markPrice: parseAmount('100'),
+    contractSize: parseAmount('1'),
+    // TEST: open interest reported, with no deployer cap.
+    openInterestCap: null,
+    // TEST: hourly funding as on XFND-PERP.
+    funding: {
+      rate: ZERO,
+      intervalSeconds: 3600,
+      settles: {
+        interestRate: parseAmount('0.0000125'),
+        rateCap: parseAmount('0.04'),
+        rule:
+          'TEST rule: each hour the rate is the premium, (mark − index) ÷ index, plus the interest component, held within the ' +
+          'cap either way; longs pay shorts on a positive rate and shorts pay longs on a negative one, on size × mark × rate.',
+      },
+    },
+    status: 'trading',
+    maxOrderQty: parseAmount('1000'),
+    maxOrderNotional: parseAmount('1000000'),
+    // TEST: a limit price more than 5% from the middle of its book is refused (the order price limit a developer reads).
+    priceBandBps: parseAmount('500'),
+    listedBy: VENUE_LISTED,
+    oracle: {},
+    // TEST: liquidated as XBIL-PERP is, so the venue publishes its liquidation and auto-deleveraging alerts here.
+    liquidation: {
+      feeRate: parseAmount('0.01'),
+      priceRule:
+        "TEST rule: when the mark price reaches a position's liquidation price, the venue closes half the position at the " +
+        'mark, and the rest at the next mark it sets; it takes no order, leverage or margin change on the position in between.',
+      feeRule:
+        "TEST rule: a liquidation fee of 1% of each part's value at the mark, capped at the margin that part leaves, paid " +
+        "into the venue's TEST insurance fund.",
+    },
+  },
 ];
 
 /** The markets `seed` rests a ladder on, each around its own price (SEED_LADDERS). */
@@ -617,6 +684,13 @@ function readLimit(body: Record<string, unknown>): number {
   if (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1 || limit > 500)
     throw new VenueWireError('limit is a whole number from 1 to 500');
   return limit;
+}
+
+/** A decoded wire amount (the request's `amount` fields arrive as bigints): required. */
+function amountIn(body: Record<string, unknown>): Amount {
+  const v = body.amount;
+  if (typeof v !== 'bigint') throw new VenueWireError('amount is required (a decimal string)');
+  return v;
 }
 
 function str(body: Record<string, unknown>, key: string): string {
@@ -863,7 +937,12 @@ export async function answerTestVenue(
     return [400, { error: (err as Error).message }];
   }
   try {
-    const owner = path.startsWith('/test/') ? null : ownerOf(body);
+    // A builder address's own mode read names it as `builder`, so its owner's `down` switch takes that read away too.
+    const owner = path.startsWith('/test/')
+      ? null
+      : path === '/builder-account-mode' && typeof body.builder === 'string'
+        ? body.builder.toLowerCase()
+        : ownerOf(body);
     const mine = owner ? switchesOf(sim, owner) : null;
     if (mine?.down) {
       throw new VenueRefusalError({
@@ -875,17 +954,17 @@ export async function answerTestVenue(
     if (path === '/submit' && mine && mine.submitDelayMs > 0) await new Promise((r) => setTimeout(r, mine.submitDelayMs));
     if (path === '/submit' && mine && mine.loseAnswers > 0) {
       // Applied, then the answer is lost, as a timeout after the bytes reached the venue.
-      await route(sim, path, body);
+      await route({ sim, deposit }, path, body);
       mine.loseAnswers -= 1;
       return [200, encodeVenueWire({ definite: false, reason: 'timeout' })];
     }
     if (path === '/submit' && mine && mine.failAfterSend > 0) {
       // Applied, then the venue answers a 5xx: an error after the bytes reached the venue.
-      await route(sim, path, body);
+      await route({ sim, deposit }, path, body);
       mine.failAfterSend -= 1;
       return [500, { error: 'TEST venue error after the submit was applied (TEST switch)' }];
     }
-    const value = await route(sim, path, body);
+    const value = await route({ sim, deposit }, path, body);
     return value === undefined ? [404, { error: `no route ${path}` }] : [200, encodeVenueWire(value)];
   } catch (err) {
     if (err instanceof VenueRefusalError) return [422, { refusal: err.refusal }];
@@ -894,7 +973,12 @@ export async function answerTestVenue(
   }
 }
 
-async function route(sim: TestVenueSimulator, path: string, body: Record<string, unknown>): Promise<unknown> {
+async function route(
+  at: { sim: TestVenueSimulator; deposit: UserVenueDepositRoute | null },
+  path: string,
+  body: Record<string, unknown>,
+): Promise<unknown> {
+  const { sim, deposit } = at;
   switch (path) {
     case '/markets':
       return sim.markets(body.account ? account(body) : null);
@@ -955,6 +1039,15 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       return sim.withdrawal(account(body), str(body, 'nonce'));
     case '/withdrawal-terms':
       return sim.withdrawalTerms(str(body, 'asset'));
+    case '/deposit-routes': {
+      // The bridge's own asset takes the route the server publishes (`deposit`); the rest are the simulator's.
+      const routes = await sim.depositRoutes();
+      if (!deposit) return routes;
+      const how = `The venue's deposit address on ${deposit.network ?? `chain ${deposit.chainId}`}`;
+      const rows = routes.value.filter((r) => r.asset !== deposit.asset);
+      rows.push({ asset: deposit.asset, network: deposit.network ?? `chain ${deposit.chainId}`, how });
+      return { ...routes, value: rows.sort((a, b) => (a.asset < b.asset ? -1 : a.asset > b.asset ? 1 : 0)) };
+    }
     case '/deposits':
       return sim.deposits(account(body));
     case '/arrivals':
@@ -967,6 +1060,8 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       return sim.builderTotals(str(body, 'builder'));
     case '/builder-claims':
       return sim.builderClaims(str(body, 'builder'));
+    case '/builder-account-mode':
+      return sim.builderAccountMode(str(body, 'builder'));
     case '/leverage':
       return sim.leverage(account(body), str(body, 'symbol'));
     case '/leverage-change': {
@@ -980,6 +1075,16 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       return sim.isolatedMargin(account(body), str(body, 'symbol'));
     case '/account-summary':
       return sim.accountSummary(account(body));
+    case '/account-mode':
+      return sim.accountMode(account(body));
+    case '/vaults':
+      return sim.vaults();
+    case '/vault-holdings':
+      return sim.vaultHoldings(account(body));
+    case '/staking':
+      return sim.staking();
+    case '/staking-account':
+      return sim.stakingAccount(account(body));
     case '/sub-accounts':
       return sim.subAccounts(account(body));
     case '/transfer':
@@ -1021,6 +1126,15 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       const amount = body.amount;
       if (typeof amount !== 'bigint') throw new VenueWireError('amount is required (a decimal string)');
       return { booked: sim.bookDeficit(account(body), str(body, 'asset'), amount as Amount, str(body, 'lossRef')), label: 'TEST' };
+    }
+    case '/test/deposit-route': {
+      // TEST: the venue's route for one asset its bridge does not take, in its own words; null withdraws it (J-wallet-24 #5).
+      const given: unknown = body.route;
+      if (given === null) sim.setAssetRoute(str(body, 'asset'), null);
+      else if (typeof given === 'object' && !Array.isArray(given))
+        sim.setAssetRoute(str(body, 'asset'), { network: str({ ...given }, 'network'), how: str({ ...given }, 'how') });
+      else throw new VenueWireError('route is required: { network, how } or null');
+      return { ok: true, label: 'TEST' };
     }
     case '/test/switches': {
       if (typeof body.venueDown === 'boolean') sim.switches.venueDown = body.venueDown;
@@ -1064,6 +1178,11 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
         if (typeof body.withdrawalsHeld !== 'boolean') throw new VenueWireError('withdrawalsHeld must be true or false');
         sim.switches.withdrawalsHeld = body.withdrawalsHeld;
       }
+      if (body.builderModeRequirementUnpublished !== undefined) {
+        if (typeof body.builderModeRequirementUnpublished !== 'boolean')
+          throw new VenueWireError('builderModeRequirementUnpublished must be true or false');
+        sim.switches.builderModeRequirementUnpublished = body.builderModeRequirementUnpublished;
+      }
       if (body.depositExplorerTxUrl === null || typeof body.depositExplorerTxUrl === 'string') {
         const url = body.depositExplorerTxUrl;
         if (url !== null && !/^(https:\/\/|\/(?!\/))/.test(url))
@@ -1084,8 +1203,75 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
         withdrawalsHeld: sim.switches.withdrawalsHeld,
         depositExplorerTxUrl: sim.switches.depositExplorerTxUrl,
         otherFeesUnpublished: sim.switches.otherFeesUnpublished,
+        builderModeRequirementUnpublished: sim.switches.builderModeRequirementUnpublished,
         label: 'TEST',
       };
+    }
+    case '/test/account-mode': {
+      // J-derivatives-29: the account's mode, its day's action count, a mode withheld from reads, a switch refused.
+      const set: Parameters<TestVenueSimulator['testAccountMode']>[1] = {};
+      if (body.mode !== undefined) {
+        if (body.mode !== 'standard' && body.mode !== 'unified' && body.mode !== 'portfolio_margin')
+          throw new VenueWireError("mode is 'standard', 'unified' or 'portfolio_margin'");
+        set.mode = body.mode;
+      }
+      if (body.actionsToday !== undefined) {
+        const n = body.actionsToday;
+        if (typeof n !== 'number' || !Number.isInteger(n) || n < 0 || n > 1_000_000)
+          throw new VenueWireError('actionsToday is a whole number 0 to 1000000');
+        set.actionsToday = n;
+      }
+      if (body.unreported !== undefined) {
+        if (typeof body.unreported !== 'boolean') throw new VenueWireError('unreported is true or false');
+        set.unreported = body.unreported;
+      }
+      if (body.refuseSwitch !== undefined) {
+        if (body.refuseSwitch !== null && (typeof body.refuseSwitch !== 'string' || body.refuseSwitch.trim() === ''))
+          throw new VenueWireError("refuseSwitch is the venue's reason, or null");
+        set.refuseSwitch = body.refuseSwitch;
+      }
+      sim.testAccountMode(account(body), set);
+      return { label: 'TEST', ...(await sim.accountMode(account(body))) };
+    }
+    case '/test/vault-lockup': {
+      // J-derivatives-31 #5: the venue's clock passes the lock-up of one account's position in one vault.
+      const vault = str(body, 'vault');
+      const endedAt = sim.testVaultLockUpPassed(account(body), vault);
+      return { label: 'TEST', lockUpEndsAt: endedAt.toISOString(), ...(await sim.vaultHoldings(account(body))) };
+    }
+    case '/test/staking-published': {
+      // J-cex-spot-21 #1: the venue withholds its reward rate or its discount tiers (false) or publishes them again (true).
+      const set: { rewardRate?: boolean; tiers?: boolean } = {};
+      for (const k of ['rewardRate', 'tiers'] as const) {
+        const v: unknown = body[k];
+        if (v === undefined) continue;
+        if (typeof v !== 'boolean') throw new VenueWireError(`${k} must be true or false`);
+        set[k] = v;
+      }
+      if (Object.keys(set).length === 0) throw new VenueWireError('rewardRate or tiers must be true or false');
+      sim.testStakingPublished(set);
+      return { label: 'TEST', ...(await sim.staking()) };
+    }
+    case '/test/staking': {
+      // J-cex-spot-21 #6 #7 #8 #9: one account's staking, as the venue's clock or the venue itself moves it.
+      const given: unknown = body.reward;
+      const reward: Record<string, unknown> | null =
+        given !== null && typeof given === 'object' ? Object.fromEntries(Object.entries(given)) : null;
+      sim.testStaking(account(body), {
+        ...(typeof body.passLockUp === 'string' ? { passLockUp: body.passLockUp } : {}),
+        ...(body.passQueue === true ? { passQueue: true } : {}),
+        ...(reward
+          ? {
+              reward: {
+                validator: str(reward, 'validator'),
+                amount: amountIn(reward),
+                rewardRef: str(reward, 'rewardRef'),
+              },
+            }
+          : {}),
+        ...(typeof body.fillPending === 'string' ? { fillPending: parseAmount(body.fillPending) } : {}),
+      });
+      return { label: 'TEST', ...(await sim.stakingAccount(account(body))) };
     }
     case '/test/account-switches':
       return { ...setAccountSwitches(sim, body), label: 'TEST' };
@@ -1365,6 +1551,8 @@ export async function startTestVenueServer(
     markets: TEST_VENUE_MARKETS,
     feeSchedule: TEST_VENUE_FEE_TIERS,
     chainId: opts.chainId,
+    // Each start names its claims apart: a restarted venue counts claims from one again, and our books key a claim by its id.
+    claimIdPrefix: `sim-builder-claim-${Date.now().toString(36)}`,
     ...(opts.id ? { id: opts.id } : {}),
     ...(opts.displayName ? { displayName: opts.displayName } : {}),
     ...(opts.ordersPerAction !== undefined ? { ordersPerAction: opts.ordersPerAction } : {}),

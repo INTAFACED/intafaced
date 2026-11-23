@@ -2,14 +2,15 @@ import { useMemo, useState } from 'react';
 import { z } from 'zod';
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
-import { Button, DataTable, Field, Panel } from '../../shared/ui';
+import { Button, Select } from '@intafaced/ui/lit';
+import { DataTable, Field, Panel } from './agent-room/parts';
 import type { ApiResult } from '../../shared/api';
 import { decimalSchema } from '../../shared/money';
 import { useVenueMode, preparedAnswerSchema, venueOrderSchema, walletTypedData, VenueFrame, WalletBar, useOwner } from '../trade';
 import { useWallet } from '../protocol';
-import { Select } from './common';
 import { agentAllowanceCopy } from './agent-allowance-copy';
-import { ownAgentAccessSchema, ownAgentOrderDraftSchema, type OwnAgent, type OwnAgentOrderDraft } from '@intafaced/contracts/agents-own';
+import { type OwnAgent, type OwnAgentOrderDraft } from '@intafaced/contracts/agents-own';
+import { AGENTS_OWN_ACCESS_GET, AGENTS_OWN_TRADE_DRAFT } from '@intafaced/contracts/agents-own-procedures';
 
 /**
  * An own agent's Allowance page (AG-spend-03, RC-agents-06; J-agents-08 #3 to #7). The person gives the agent an
@@ -112,15 +113,15 @@ export function AllowancePage({ agent }: { agent: OwnAgent }) {
   const mode = useVenueMode();
   return (
     <Panel title={t('title')} role="region" aria-label={t('title')}>
-      <p className="muted">{t('intro')}</p>
+      <p className="lt-muted">{t('intro')}</p>
       {mode.mode === 'on' ? (
         <VenueFrame mode={mode}>
           <AllowanceDesk agent={agent} />
         </VenueFrame>
       ) : mode.mode === 'checking' ? (
-        <p className="muted">{t('checking')}</p>
+        <p className="lt-muted">{t('checking')}</p>
       ) : (
-        <p className="muted">{t('venueOff')}</p>
+        <p className="lt-muted">{t('venueOff')}</p>
       )}
     </Panel>
   );
@@ -132,10 +133,7 @@ function AllowanceDesk({ agent }: { agent: OwnAgent }) {
   const wallet = useWallet();
   const owner = useOwner();
   const base = `/venue/own-agents/${encodeURIComponent(agent.id)}`;
-  const access = useResource(
-    (signal) => api.query('agents', 'own.access.get', { id: agent.id }, ownAgentAccessSchema, { signal }),
-    `own-access:${agent.id}`,
-  );
+  const access = useResource((signal) => api.call(AGENTS_OWN_ACCESS_GET, { id: agent.id }, { signal }), `own-access:${agent.id}`);
   const loaded = useResource((signal) => api.rest(`${base}/allowances`, allowancesSchema, { signal }), `own-allowances:${agent.id}`);
   const [allowances, setAllowances] = useState<Allowance[] | null>(null);
   const shown = allowances ?? (loaded.resource.status === 'ready' ? loaded.resource.data.allowances : null);
@@ -213,9 +211,9 @@ function AllowanceDesk({ agent }: { agent: OwnAgent }) {
     <>
       <WalletBar />
       {!owner ? (
-        <p className="muted">{t('connectFirst')}</p>
+        <p className="lt-muted">{t('connectFirst')}</p>
       ) : grants && !granted ? (
-        <p className="muted">{t('noAccess')}</p>
+        <p className="lt-muted">{t('noAccess')}</p>
       ) : granted ? (
         <form
           aria-label={t('formTitle')}
@@ -224,7 +222,7 @@ function AllowanceDesk({ agent }: { agent: OwnAgent }) {
             void grant();
           }}
         >
-          <p className="muted">{t('onSubAccount', { name: granted.name })}</p>
+          <p className="lt-muted">{t('onSubAccount', { name: granted.name })}</p>
           <Field
             label={t('amount')}
             hint={t('amountHint')}
@@ -239,7 +237,7 @@ function AllowanceDesk({ agent }: { agent: OwnAgent }) {
             onChange={(value) => setPeriod(value as typeof period)}
             options={(['day', 'week', 'month'] as const).map((value) => ({ value, label: t(`period_${value}`) }))}
           />
-          <Button type="submit" disabled={busy}>
+          <Button tone="primary" type="submit" disabled={busy}>
             {t('grant')}
           </Button>
           {refused ? <Refused refusal={refused} /> : null}
@@ -264,7 +262,7 @@ function AllowanceDesk({ agent }: { agent: OwnAgent }) {
               </td>
               <td>
                 {a.status === 'active' || (a.status === 'revoked' && a.next) ? (
-                  <Button type="button" disabled={busy} onClick={() => void revoke(a)}>
+                  <Button tone="primary" type="button" disabled={busy} onClick={() => void revoke(a)}>
                     {a.status === 'active' ? t('revoke') : t('signRevoke')}
                   </Button>
                 ) : null}
@@ -273,7 +271,7 @@ function AllowanceDesk({ agent }: { agent: OwnAgent }) {
           ))}
         </DataTable>
       ) : shown ? (
-        <p className="muted">{t('none')}</p>
+        <p className="lt-muted">{t('none')}</p>
       ) : null}
       <AskAgent agent={agent} base={base} />
     </>
@@ -307,7 +305,7 @@ function AskAgent({ agent, base }: { agent: OwnAgent; base: string }) {
     setPlaced(null);
     setDraft(null);
     try {
-      const drafted = await api.mutate('agents', 'own.trade.draft', { id: agent.id, ask }, ownAgentOrderDraftSchema);
+      const drafted = await api.call(AGENTS_OWN_TRADE_DRAFT, { id: agent.id, ask });
       if (!drafted.ok) return setRefused(refusalOf(drafted));
       const preview = await api.rest(`${base}/orders/preview`, previewSchema, { method: 'POST', body: body(drafted.data) });
       if (!preview.ok) return setRefused(refusalOf(preview));
@@ -346,7 +344,7 @@ function AskAgent({ agent, base }: { agent: OwnAgent; base: string }) {
         }}
       >
         <Field label={t('ask')} hint={t('askHint')} value={ask} disabled={busy} onChange={(event) => setAsk(event.target.value)} />
-        <Button type="submit" disabled={busy || ask.trim() === ''}>
+        <Button tone="primary" type="submit" disabled={busy || ask.trim() === ''}>
           {t('run')}
         </Button>
       </form>
@@ -357,7 +355,7 @@ function AskAgent({ agent, base }: { agent: OwnAgent; base: string }) {
           <h4>
             {t('previewTitle')} {p.test ? 'TEST' : ''}
           </h4>
-          <dl className="protocol-facts">
+          <dl className="lt-kv">
             <div>
               <dt>{t('side')}</dt>
               <dd>{t(`side_${p.side}`)}</dd>
@@ -372,25 +370,25 @@ function AskAgent({ agent, base }: { agent: OwnAgent; base: string }) {
             </div>
             <div>
               <dt>{t('size')}</dt>
-              <dd className="numeric">{p.size}</dd>
+              <dd className="lt-num">{p.size}</dd>
             </div>
             <div>
               <dt>{t(p.type === 'market' ? 'worstPrice' : 'price')}</dt>
-              <dd className="numeric">
+              <dd className="lt-num">
                 {p.price} {p.asset}
               </dd>
             </div>
             <div>
               <dt>{t('fee')}</dt>
-              <dd className="numeric">{p.fee ? `${p.fee.amount} ${p.fee.asset}` : t('feeUnknown')}</dd>
+              <dd className="lt-num">{p.fee ? `${p.fee.amount} ${p.fee.asset}` : t('feeUnknown')}</dd>
             </div>
             <div>
               <dt>{t('draws')}</dt>
-              <dd className="numeric">{t('drawsOf', { notional: p.notional, left: p.left, asset: p.asset })}</dd>
+              <dd className="lt-num">{t('drawsOf', { notional: p.notional, left: p.left, asset: p.asset })}</dd>
             </div>
           </dl>
-          <p className="muted">{t('nothingSent')}</p>
-          <Button type="button" disabled={busy} onClick={() => void approve()}>
+          <p className="lt-muted">{t('nothingSent')}</p>
+          <Button tone="primary" type="button" disabled={busy} onClick={() => void approve()}>
             {t('approve')}
           </Button>
         </section>
@@ -401,13 +399,13 @@ function AskAgent({ agent, base }: { agent: OwnAgent; base: string }) {
             <tr key={o.orderId}>
               <td>{o.symbol}</td>
               <td>{t(`side_${o.side}`)}</td>
-              <td className="numeric">{o.size}</td>
-              <td className="numeric">{o.price}</td>
+              <td className="lt-num">{o.size}</td>
+              <td className="lt-num">{o.price}</td>
               <td data-testid="agent-order-state">
                 {t(`state_${o.state}`)}
                 {o.order ? ` · ${o.order.status}` : ''}
               </td>
-              <td className="numeric" data-testid="agent-order-signer">
+              <td className="lt-num" data-testid="agent-order-signer">
                 {o.signedBy}
               </td>
             </tr>

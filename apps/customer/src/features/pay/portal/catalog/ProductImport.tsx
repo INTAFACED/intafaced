@@ -92,7 +92,7 @@ export function ProductImport({ portal }: { portal: PortalApi }) {
           </p>
         )}
         {file && !answer && (
-          <div className="pp-actions">
+          <div className="lt-actions">
             <Button variant="primary" disabled={busy !== null} onClick={() => void send(false)}>
               {busy === 'check' ? t('importChecking') : t('importCheck')}
             </Button>
@@ -113,9 +113,9 @@ export function ProductImport({ portal }: { portal: PortalApi }) {
 function ImportFormat() {
   const { t } = c.useCopy();
   return (
-    <div className="stack">
-      <p className="muted">{t('importFormat')}</p>
-      <p className="muted">{t('importEditedNote')}</p>
+    <div className="lt-stack">
+      <p className="lt-muted">{t('importFormat')}</p>
+      <p className="lt-muted">{t('importEditedNote')}</p>
       <EntityList
         label={t('importColumnsLabel')}
         rows={PRODUCT_IMPORT_COLUMNS}
@@ -135,20 +135,20 @@ function ImportAnswerView({ answer, busy, onImport }: { answer: ImportAnswer; bu
   const [mode] = useCatalogMode();
   if (answer.imported)
     return (
-      <div className="stack">
+      <div className="lt-stack">
         <p className="pp-confirmed" role="status">
           {answer.replayed
             ? t(answer.rows === 1 ? 'importReplayedOne' : 'importReplayed', { count: String(answer.rows) })
             : t(answer.rows === 1 ? 'importDoneOne' : 'importDone', { count: String(answer.rows) })}
         </p>
         {answer.importedAt && (
-          <p className="muted">
+          <p className="lt-muted">
             {t('importedAt')} <DateTime value={answer.importedAt} />
           </p>
         )}
-        {answer.products.length < answer.rows && <p className="muted">{t('importSomeDeleted')}</p>}
+        {answer.products.length < answer.rows && <p className="lt-muted">{t('importSomeDeleted')}</p>}
         <ImportedProducts products={answer.products} />
-        <div className="pp-actions">
+        <div className="lt-actions">
           <Button variant="secondary" nativeButton={false} role="link" render={<a href={inMode('/pay/products', mode)} />}>
             {t('importBack')}
           </Button>
@@ -157,22 +157,22 @@ function ImportAnswerView({ answer, busy, onImport }: { answer: ImportAnswer; bu
     );
   if (answer.problemCount > 0)
     return (
-      <div className="stack">
+      <div className="lt-stack">
         <p className="pp-callout" role="alert">
           {t(answer.problemCount === 1 ? 'importProblemsOne' : 'importProblems', { count: String(answer.problemCount) })}
         </p>
         <ProblemList problems={answer.problems} />
         {answer.problemCount > answer.problems.length && (
-          <p className="muted">{t('importProblemsMore', { shown: String(answer.problems.length) })}</p>
+          <p className="lt-muted">{t('importProblemsMore', { shown: String(answer.problems.length) })}</p>
         )}
       </div>
     );
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <p className="pp-confirmed" role="status">
         {t(answer.rows === 1 ? 'importReadyOne' : 'importReady', { count: String(answer.rows) })}
       </p>
-      <div className="pp-actions">
+      <div className="lt-actions">
         <Button variant="primary" disabled={busy !== null} onClick={onImport}>
           {busy === 'import'
             ? t('importImporting')

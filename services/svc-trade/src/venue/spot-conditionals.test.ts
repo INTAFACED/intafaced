@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type http from 'node:http';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { keccak256, toHex, type TypedDataDefinition } from 'viem';
@@ -327,6 +328,47 @@ describe('conditional spot orders on the venue (J-cex-spot-08)', { timeout: 60_0
     expect(await door.stored(person, spotKeys.fire(store.rows.get(made.conditional.id)!))).toBeNull();
   });
 
+  it('an engine pass that runs while the person’s OCO is being placed leaves its take profit to that request (#9113)', async () => {
+    await approveAgent();
+    // The engine's pass starts the moment the new OCO is stored, before the request sends its take profit. Any venue
+    // send the pass makes is held open, so a pass that took the take profit's key would still hold it when the request
+    // sends: the race the failing run hit, every time.
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    let passSending!: () => void;
+    const passSent = new Promise<void>((r) => (passSending = r));
+    let pass: Promise<unknown> = Promise.resolve();
+    const inPass = new AsyncLocalStorage<true>();
+    const venue = await door.venue();
+    const submit = venue.submit.bind(venue);
+    venue.submit = async (...x: Parameters<typeof submit>) => {
+      if (inPass.getStore()) {
+        passSending();
+        await held;
+      }
+      return submit(...x);
+    };
+    const createOnce = store.createOnce.bind(store);
+    store.createOnce = async (row) => {
+      const stored = await createOnce(row);
+      pass = inPass.run(true, () => s.tick());
+      await Promise.race([passSent, pass]);
+      return stored;
+    };
+    try {
+      const made = await s.create(person, req({ kind: 'oco', takeProfitPrice: '110', triggerPrice: '95' }), REGION);
+      if (made.restsOn !== 'engine') throw new Error('expected the engine');
+      expect(made.conditional).toMatchObject({ kind: 'oco', status: 'open' });
+      expect(made.conditional.legs[0]).toMatchObject({ role: 'take_profit', status: 'open', locked: '1' });
+    } finally {
+      release();
+      await pass;
+      venue.submit = submit;
+    }
+    expect((await sim.openOrders(account())).value.filter((o) => o.symbol === SYM)).toHaveLength(1);
+    expect((await balance(BASE)).locked).toBe(a('1'));
+  });
+
   it('a partial take-profit fill keeps the remaining lock for the remaining leg, and a cancel releases exactly that', async () => {
     await approveAgent();
     const made = await s.create(person, req({ kind: 'oco', takeProfitPrice: '110', triggerPrice: '95' }), REGION);
@@ -481,5 +523,92 @@ describe('conditional spot orders on the venue (J-cex-spot-08)', { timeout: 60_0
       code: 'trade.spot_conditional_wrong_side',
     });
     expect(store.rows.get(made.conditional.id)!.triggerPrice).toBe(a('96'));
+  });
+
+  // J-cex-spot-03 #7: the venue offers no good-till-date; the owner chose that we build it.
+  describe('good-till-date (J-cex-spot-03 #7)', () => {
+    let clock = Date.now();
+    const timed = () =>
+      new VenueSpotConditionals({ door, store, keySeed: SEED, liveTier: async () => 'basic', freeze, now: () => new Date(clock) });
+    beforeEach(() => {
+      clock = Date.now();
+    });
+
+    it('needs an expiry in the future: a missing or past one is refused in words, and nothing is stored or prepared', async () => {
+      await approveAgent();
+      const g = timed();
+      expect(await refused(g.create(person, req({ kind: 'gtd', side: 'buy', entryPrice: '98' }), REGION))).toMatchObject({
+        code: 'trade.gtd_expiry_missing',
+        status: 400,
+      });
+      const past = req({ kind: 'gtd', side: 'buy', entryPrice: '98', expireAt: new Date(clock - 60_000).toISOString() });
+      const err = await refused(g.create(person, past, REGION));
+      expect(err).toMatchObject({ code: 'trade.gtd_expiry_past', status: 400 });
+      expect(err.message).toMatch(/pick a time in the future/);
+      expect(store.rows.size).toBe(0);
+      expect(await door.stored(person, spotKeys.leg({ owner, clientKey: past.clientOrderId as string }, 'entry'))).toBeNull();
+      expect(
+        await refused(
+          g.create(
+            person,
+            req({ kind: 'oto', side: 'buy', entryPrice: '98', closePrice: '105', expireAt: new Date(clock + 60_000).toISOString() }),
+            REGION,
+          ),
+        ),
+      ).toMatchObject({ code: 'trade.spot_conditional_field_unsupported' });
+    });
+
+    it('rests as the person’s own limit, locking on the venue; at the expiry our engine cancels it once and the lock is released', async () => {
+      await approveAgent();
+      const g = timed();
+      const before = await balance('USDC');
+      const expireAt = new Date(clock + 60_000).toISOString();
+      const made = await g.create(person, req({ kind: 'gtd', side: 'buy', entryPrice: '98', expireAt }), REGION);
+      if (made.restsOn !== 'engine' || !made.entry) throw new Error('expected the person’s own order to sign');
+      expect(made.conditional).toMatchObject({ kind: 'gtd', status: 'entry', expireAt, entryTif: 'GTC' });
+      // The person's own wallet signs it: a good-till-cancelled limit on the venue, its lock the venue's.
+      expect((await signAndSend(made.entry)).outcome).toMatchObject({ accepted: true });
+      const row = store.rows.get(made.conditional.id)!;
+      const key = spotKeys.leg(row, 'entry');
+      expect(await order(key)).toMatchObject({ side: 'buy', type: 'limit', timeInForce: 'GTC', status: 'open' });
+      expect((await balance('USDC')).locked - before.locked).toBe(a('98'));
+
+      // Before the expiry it waits.
+      await g.tick();
+      expect(store.rows.get(row.id)!.status).toBe('entry');
+      expect(await order(key)).toMatchObject({ status: 'open' });
+
+      // At the expiry two workers pass at once: one claims it, the venue cancels it once, and it ends expired.
+      clock += 61_000;
+      await Promise.all([g.tick(), timed().tick()]);
+      expect(store.rows.get(row.id)).toMatchObject({ status: 'expired', cancelReason: 'expired' });
+      expect(await order(key)).toMatchObject({ status: 'canceled', filled: a('0') });
+      expect((await balance('USDC')).locked).toBe(before.locked);
+      expect((await balance('USDC')).free).toBe(before.free);
+      const [listed] = (await g.list(person, owner)).filter((x) => x.id === row.id);
+      expect(listed).toMatchObject({ status: 'expired', expireAt });
+      expect(listed!.legs.map((l) => [l.role, l.status, l.signedBy])).toEqual([['entry', 'cancelled', 'wallet']]);
+      // A later pass changes nothing: the order is final.
+      await g.tick();
+      expect(store.rows.get(row.id)!.status).toBe('expired');
+    });
+
+    it('one the venue fills before its expiry ends filled, and nothing is cancelled', async () => {
+      await approveAgent();
+      const g = timed();
+      await outside(seller, { symbol: SYM, side: 'sell', type: 'limit', amount: a('1'), price: a('100'), timeInForce: 'GTC' });
+      const made = await g.create(
+        person,
+        req({ kind: 'gtd', side: 'buy', entryPrice: '100', expireAt: new Date(clock + 60_000).toISOString() }),
+        REGION,
+      );
+      if (made.restsOn !== 'engine' || !made.entry) throw new Error('expected the person’s own order to sign');
+      await signAndSend(made.entry);
+      await g.tick();
+      const row = store.rows.get(made.conditional.id)!;
+      expect(row.status).toBe('filled');
+      expect(await order(spotKeys.leg(row, 'entry'))).toMatchObject({ status: 'filled' });
+      expect(await door.stored(person, `cancel:${spotKeys.leg(row, 'entry')}`)).toBeNull();
+    });
   });
 });

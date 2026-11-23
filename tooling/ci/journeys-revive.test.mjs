@@ -733,17 +733,19 @@ test('a pull request that conflicts with main is not sent to GitHub, and a 422 s
   assert.match((await heldTick({ repo: REPO, now: H_NOW, io: moved.io }))[0], /its head moved since it was read \(422\)/);
 });
 
-test("18 Nov replayed: a run's jobs come in pages of 50, so the attempt GitHub answers 502 at per_page=100 is read whole", async () => {
+test("18 Nov replayed: a run's jobs come in pages of 30, so the attempt GitHub answers 502 at per_page=100 is read whole", async () => {
   // Run 44350969050 attempt 2: 71 jobs; GitHub gave 502 on every try at per_page=100 and the jobs at 50, and that one
   // 502 stopped Main trust's revive for every pull request and main (factory red project-state#2548).
   const all = Array.from({ length: 71 }, (_, i) => ({ id: i + 1, name: `shard ${i + 1}` }));
   const asked = [];
   const realFetch = globalThis.fetch;
+  const realToken = process.env.GH_TOKEN;
+  process.env.GH_TOKEN = 'test-token'; // a token: githubFetch is plain fetch, which this test stands in for
   globalThis.fetch = async (url) => {
     const u = new URL(url);
     asked.push(u.pathname + u.search);
     const per = Number(u.searchParams.get('per_page'));
-    if (per >= 100) return new Response('{"message":"Server Error"}', { status: 502 });
+    if (per > 30) return new Response('{"message":"Server Error"}', { status: 502 });
     const page = Number(u.searchParams.get('page') ?? 1);
     const jobs = all.slice((page - 1) * per, page * per);
     return new Response(JSON.stringify({ total_count: all.length, jobs }), { status: 200 });
@@ -755,11 +757,14 @@ test("18 Nov replayed: a run's jobs come in pages of 50, so the attempt GitHub a
       all.map((j) => j.id),
     );
     assert.deepEqual(asked, [
-      '/repos/INTAFACED/intafaced/actions/runs/44350969050/attempts/2/jobs?per_page=50&page=1',
-      '/repos/INTAFACED/intafaced/actions/runs/44350969050/attempts/2/jobs?per_page=50&page=2',
+      '/repos/INTAFACED/intafaced/actions/runs/44350969050/attempts/2/jobs?per_page=30&page=1',
+      '/repos/INTAFACED/intafaced/actions/runs/44350969050/attempts/2/jobs?per_page=30&page=2',
+      '/repos/INTAFACED/intafaced/actions/runs/44350969050/attempts/2/jobs?per_page=30&page=3',
     ]);
   } finally {
     globalThis.fetch = realFetch;
+    if (realToken === undefined) delete process.env.GH_TOKEN;
+    else process.env.GH_TOKEN = realToken;
   }
 });
 
@@ -767,6 +772,8 @@ test('19 Nov replayed (#9093): a spent hourly budget stops the tick and opens no
   // Main trust run 44583025342: GET …/real-app-journeys.yml/runs got 403 "API rate limit exceeded for installation" with
   // x-ratelimit-remaining 0, resets 18:06:22Z, and the tick opened #9093, the third such issue (#8197, #8202).
   const realFetch = globalThis.fetch;
+  const realToken = process.env.GH_TOKEN;
+  process.env.GH_TOKEN = 'test-token'; // a token: githubFetch is plain fetch, which this test stands in for
   const answer = { headers: {}, message: '' };
   globalThis.fetch = async () => new Response(JSON.stringify({ message: answer.message }), { status: 403, headers: answer.headers });
   const spent = { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(Date.parse('2026-11-19T18:06:22Z') / 1000) };
@@ -802,5 +809,43 @@ test('19 Nov replayed (#9093): a spent hourly budget stops the tick and opens no
     assert.equal((await named(await stopOf())).length, 1, 'a missing permission is a refusal to read');
   } finally {
     globalThis.fetch = realFetch;
+    if (realToken === undefined) delete process.env.GH_TOKEN;
+    else process.env.GH_TOKEN = realToken;
+  }
+});
+
+test('22 Nov replayed (project-state #3718): the held pass reads on the job token and mints the App token only to update a branch', async () => {
+  // Main trust's held pass at 10:47 UTC on 22 Nov stopped on "API rate limit exceeded for installation" of the App every
+  // agent reads through: it had put the App's token in GH_TOKEN, so each of its reads spent the App's hourly budget.
+  const realFetch = globalThis.fetch;
+  const realToken = process.env.GH_TOKEN;
+  process.env.GH_TOKEN = 'job-token';
+  const asked = [];
+  globalThis.fetch = async (url, init) => {
+    asked.push(`${init.method} ${new URL(url).pathname} ${init.headers.authorization}`);
+    if (init.method === 'PUT') return new Response('{"message":"Updating pull request branch."}', { status: 202 });
+    if (new URL(url).pathname.endsWith('/logs')) return new Response('log', { status: 200 });
+    return new Response(JSON.stringify(new URL(url).pathname.endsWith('/pulls') ? [] : { workflow_runs: [] }), { status: 200 });
+  };
+  let mints = 0;
+  const io = githubIo(REPO, { writeToken: async () => (mints++, 'app-token') });
+  try {
+    await io.openPulls();
+    await io.headRuns('f20569a2d0000000000000000000000000000000');
+    await io.jobLog({ id: 7 });
+    assert.equal(mints, 0, 'a read minted the App token');
+    const r = await io.updateBranch({ number: 9700, head: { sha: 'a'.repeat(40) } });
+    assert.equal(r.ok, true);
+    assert.equal(mints, 1);
+    assert.deepEqual(asked, [
+      'GET /repos/INTAFACED/intafaced/pulls Bearer job-token',
+      'GET /repos/INTAFACED/intafaced/actions/workflows/real-app-journeys.yml/runs Bearer job-token',
+      'GET /repos/INTAFACED/intafaced/actions/jobs/7/logs Bearer job-token',
+      'PUT /repos/INTAFACED/intafaced/pulls/9700/update-branch Bearer app-token',
+    ]);
+  } finally {
+    globalThis.fetch = realFetch;
+    if (realToken === undefined) delete process.env.GH_TOKEN;
+    else process.env.GH_TOKEN = realToken;
   }
 });

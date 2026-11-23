@@ -1,7 +1,9 @@
-import { router, TRPCError } from '@intafaced/contracts';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import {
   PROTOCOL_ADDRESS_REPORTS_SUBMIT,
   PROTOCOL_ADDRESS_RISK_READ,
+  PROTOCOL_COMPLIANCE_BLOCKLIST_ADD,
+  PROTOCOL_COMPLIANCE_BLOCKLIST_LIST,
   PROTOCOL_COMPLIANCE_LABELS_APPROVE,
   PROTOCOL_COMPLIANCE_LABELS_ASK,
   PROTOCOL_COMPLIANCE_NAME_TAGS_APPROVE,
@@ -19,11 +21,13 @@ import {
 import { mountProtocolRecord } from '../record-mount.js';
 import { approveLabel, askLabel, ComplianceRefusedError, readQueue, type ComplianceStore } from './compliance.js';
 import {
+  addToBlocklist,
   approveChecklist,
   approveNameTag,
   approveTier,
   askTier,
   openChecklist,
+  readBlocklist,
   readChecklists,
   readNameTags,
   readTiers,
@@ -93,7 +97,7 @@ export function createAddressReportsRouter(deps: AddressRiskDeps) {
 export interface ComplianceDeps {
   chainId: () => number;
   store: ComplianceStore;
-  /** Token tiers, name tags and permissioned pool onboarding (J-dex-protocol-30 #4 #7 #9). */
+  /** Token tiers, the blocklist, name tags and permissioned pool onboarding (J-dex-protocol-30 #4 #6 #7 #9). */
   trustDesk: TrustDeskStore;
   now: () => Date;
 }
@@ -183,6 +187,22 @@ export function createComplianceRouter(deps: ComplianceDeps) {
       approve: mountProtocolRecord(PROTOCOL_COMPLIANCE_ONBOARDING_APPROVE, async ({ ctx, input }) => {
         try {
           return await approveChecklist(deps.trustDesk, { ...input, chainId: deps.chainId(), approverId: ctx.principal.userId });
+        } catch (err) {
+          throw complianceTrpc(err);
+        }
+      }),
+    }),
+    blocklist: router({
+      list: mountProtocolRecord(PROTOCOL_COMPLIANCE_BLOCKLIST_LIST, async () => {
+        try {
+          return await readBlocklist(deps.trustDesk, deps.chainId(), deps.now());
+        } catch (err) {
+          throw complianceTrpc(err);
+        }
+      }),
+      add: mountProtocolRecord(PROTOCOL_COMPLIANCE_BLOCKLIST_ADD, async ({ ctx, input }) => {
+        try {
+          return await addToBlocklist(deps.trustDesk, { ...input, chainId: deps.chainId(), actorId: ctx.principal.userId });
         } catch (err) {
           throw complianceTrpc(err);
         }
