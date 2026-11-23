@@ -77,6 +77,9 @@ export const TEST_NETWORK = {
   PROTOCOL_TOKEN_FACTORY_ADDRESS: '',
 };
 
+/** Deployment keys a staging boot requires and no file holds: made fresh on the runner like every dev-only secret. */
+export const DEPLOY_KEYS = ['API_KEY_SIGNING_ENC_KEY'];
+
 const LINE = /^([A-Z][A-Z0-9_]*)=(.*)$/;
 const DB_PASSWORD = /\$\{(SVC_([A-Z0-9_]+)_DB_PASSWORD):-/g;
 
@@ -97,6 +100,10 @@ export function rehearsalEnv({ example, compose, random = () => randomBytes(32).
     } else {
       env.set(name, value);
     }
+  }
+  for (const name of DEPLOY_KEYS) {
+    env.set(name, random());
+    generated.push(name);
   }
   const standIns = [];
   for (const [name, value] of Object.entries(TEST_STAND_INS)) {
