@@ -74,7 +74,9 @@ function candidates(schema, depth = 0, key = '') {
       return n === 0 ? [[], [item[0]]] : [Array.from({ length: n }, (_, i) => item[i % item.length])];
     }
     case 'string': {
-      if (schema.format === 'uuid') return ['11111111-1111-4111-8111-111111111111'];
+      // A uuid can't say it is a placeholder, so a credential-named one gets no sample: the secret scan would read the
+      // literal as a committed credential, and its call stays by name (no accepted input) rather than land one.
+      if (schema.format === 'uuid') return CREDENTIAL_KEY.test(key) ? [] : ['11111111-1111-4111-8111-111111111111'];
       if (schema.format === 'date-time') return ['2026-01-01T00:00:00.000Z'];
       if (schema.format === 'date') return ['2026-01-01'];
       if (schema.format === 'email') return ['a@example.com'];

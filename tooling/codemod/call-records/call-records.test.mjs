@@ -3097,3 +3097,15 @@ test("a run's new type error is owned by the moved call whose caller is in its f
   // A folder's index.tsx resolves its imports from its own folder.
   assert.deepEqual([...owners.get('apps/customer/src/screens/trade/terminal/index.tsx').keys()], ['copy.list']);
 });
+
+test('a credential-named uuid field gets no sample, since a uuid cannot say it is a placeholder: its record stays by name, and no token literal is written', async () => {
+  const { z } = await contractsZod();
+  assert.throws(
+    () => samplesFor({ name: 'identity.affiliates.redeem', path: 'p', input: z.object({ token: z.string().uuid() }) }),
+    /no accepted input found/,
+  );
+  assert.match(
+    samplesFor({ name: 'x.get', path: 'p', input: z.object({ id: z.string().uuid() }) }),
+    /"id":"11111111-1111-4111-8111-111111111111"/,
+  );
+});
