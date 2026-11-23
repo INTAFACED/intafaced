@@ -357,8 +357,8 @@ test(`${J} #5 closes the position: the venue's realised result; the ledger posts
   await page.getByTestId('venue-blotter').getByRole('button', { name: 'History' }).click();
   const closed = page.getByTestId('venue-history').locator(`tr[data-closed="${SYMBOL}"]`);
   await expect(closed).toBeVisible({ timeout: 15_000 });
-  expect(sameDecimal(await closed.locator('[data-cell="realised"]').innerText(), realised)).toBe(true);
-  expect(sameDecimal(await closed.locator('[data-cell="builder-fees"]').innerText(), builderFees)).toBe(true);
+  await expect.poll(async () => sameDecimal(await closed.locator('[data-cell="realised"]').innerText(), realised)).toBe(true);
+  await expect.poll(async () => sameDecimal(await closed.locator('[data-cell="builder-fees"]').innerText(), builderFees)).toBe(true);
 
   // Our ledger posts our builder fee once per fill, at the venue's amount (the poster's own cadence), and nothing of
   // the person's: the venue holds the margin and settles, so their ledger accounts read as before the close.

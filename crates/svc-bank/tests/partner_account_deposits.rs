@@ -31,9 +31,10 @@ const HOLDER: &str = "11111111-1111-4111-8111-111111111111";
 const OTHER: &str = "22222222-2222-4222-8222-222222222222";
 const PAIR: &str = r#""assetId":"USDT","networkId":"testnet""#;
 
-/// `NOW`: 2026-10-24T12:00:00.000Z.
+/// `NOW`: 2098-10-24T12:00:00.000Z, far ahead of the database's real `now()` (and before the session's 2099 expiry), so a 30-day address made at
+/// `NOW` stays active whenever the test runs.
 fn now() -> Instant {
-    Instant(1792843200000)
+    Instant(4064990400000)
 }
 
 #[derive(Default)]
@@ -354,7 +355,7 @@ fn lists_the_first_address_and_each_extra_one_with_its_label_and_expiry_numbered
     assert_eq!(field(&savings, "label"), Json::str("Savings"));
     assert_eq!(
         field(&savings, "expiresAt"),
-        Json::str("2026-11-23T12:00:00.000Z")
+        Json::str("2098-11-23T12:00:00.000Z")
     );
     assert_eq!(field(&savings, "state"), Json::str("active"));
     // Custody was asked for number 1 with the owner's window from now.
@@ -365,7 +366,7 @@ fn lists_the_first_address_and_each_extra_one_with_its_label_and_expiry_numbered
             asset_id: "USDT".into(),
             network_id: "testnet".into(),
             address_index: Some(1),
-            expires_at: Some("2026-11-23T12:00:00.000Z".into()),
+            expires_at: Some("2098-11-23T12:00:00.000Z".into()),
         }
     );
     data(create(&b, HOLDER, ""));
@@ -394,8 +395,8 @@ fn lists_the_first_address_and_each_extra_one_with_its_label_and_expiry_numbered
         rows,
         [
             r#"[0,null,null,"active"]"#,
-            r#"[2,null,"2026-11-23T12:00:00.000Z","active"]"#,
-            r#"[1,"Savings","2026-11-23T12:00:00.000Z","active"]"#,
+            r#"[2,null,"2098-11-23T12:00:00.000Z","active"]"#,
+            r#"[1,"Savings","2098-11-23T12:00:00.000Z","active"]"#,
         ]
     );
     // The first address door still returns the first address, never an extra one.

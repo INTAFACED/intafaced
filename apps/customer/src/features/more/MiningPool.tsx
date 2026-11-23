@@ -13,6 +13,7 @@ import { useResource } from '../../shared/resource';
 import { stamp } from '../../screens/money/time';
 import { Button, EmptyState, Failure, Field, Loading, Panel } from '../../shared/ui';
 import { miningPoolCopy } from './mining-pool-copy';
+import { isPlaceholderAddress, shortReference } from '../../shared/reference';
 import type { ApiResult } from '../../shared/api';
 import type { Resource } from '../../shared/resource';
 import type { MiningHealth } from './mining-journey';
@@ -117,14 +118,22 @@ export function PoolConnectView({ read }: { read: Read<PoolConnection> }) {
               label={t('poolAddress')}
               copyLabel={t('copyPoolAddress')}
               value={`${resource.data.host}:${resource.data.port}`}
+              shown={isPlaceholderAddress(resource.data.host) ? t('testAddress') : undefined}
             />
-            <CopyLine id="mining-account-id" label={t('accountId')} copyLabel={t('copyAccountId')} value={resource.data.accountId} />
+            <CopyLine
+              id="mining-account-id"
+              label={t('accountId')}
+              copyLabel={t('copyAccountId')}
+              value={resource.data.accountId}
+              shown={shortReference(resource.data.accountId)}
+            />
             {resource.data.secureUrl === null ? null : (
               <CopyLine
                 id="mining-secure-address"
                 label={t('secureAddress')}
                 copyLabel={t('copySecureAddress')}
                 value={resource.data.secureUrl}
+                shown={isPlaceholderAddress(resource.data.secureUrl) ? t('testAddress') : undefined}
               />
             )}
             <CopyLine
@@ -234,12 +243,16 @@ function CopyLine({
   label,
   copyLabel,
   value,
+  shown,
   empty,
 }: {
   id: string;
   label: string;
   copyLabel: string;
   value: string | null;
+  /** What the line reads when the value itself is no text for a person (a long id, a test machine's address); the copy
+   *  button still copies `value`. */
+  shown?: string;
   /** What shows in place of a missing value; "Not set" unless said. */
   empty?: string;
 }) {
@@ -249,8 +262,8 @@ function CopyLine({
     <div>
       <dt>{label}</dt>
       <dd>
-        <code data-testid={id} lang="und" dir="ltr">
-          {value ?? empty ?? t('notSet')}
+        <code data-testid={id} lang="und" dir="ltr" title={shown && value ? value : undefined}>
+          {value === null ? (empty ?? t('notSet')) : (shown ?? value)}
         </code>{' '}
         <Button variant="secondary" aria-label={copyLabel} disabled={value === null} onClick={() => void copy()}>
           {state === 'done' ? t('copied') : copyLabel}
