@@ -232,6 +232,23 @@ pub fn format_amount(value: Amount) -> String {
     format!("{sign}{whole}.{}", digits.trim_end_matches('0'))
 }
 
+/// `formatAmount(a - b)`, exact: two amounts inside `numeric(38,18)` differ by at most twice its largest,
+/// which `i128` may not hold but `u128` does, so the difference is never clamped.
+pub fn format_difference(a: Amount, b: Amount) -> String {
+    if let Some(d) = a.checked_sub(b) {
+        return format_amount(d);
+    }
+    // Only opposite signs overflow, so the magnitude is the two magnitudes summed.
+    let magnitude = a.0.unsigned_abs() + b.0.unsigned_abs();
+    let sign = if a < b { "-" } else { "" };
+    let (whole, frac) = (magnitude / SCALE, magnitude % SCALE);
+    if frac == 0 {
+        return format!("{sign}{whole}");
+    }
+    let digits = format!("{frac:0DECIMALS$}");
+    format!("{sign}{whole}.{}", digits.trim_end_matches('0'))
+}
+
 /// How a division that does not come out even is rounded (`Rounding`). `Trunc` is bigint `/`: toward zero.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Rounding {
@@ -441,6 +458,24 @@ mod tests {
     use super::*;
 
     const ONE: Amount = Amount::whole(1);
+
+    #[test]
+    fn formats_the_exact_difference_where_i128_would_overflow() {
+        let ninety = Amount::whole(90_000_000_000_000_000_000);
+        assert_eq!(format_difference(ninety, -ninety), "180000000000000000000");
+        assert_eq!(format_difference(-ninety, ninety), "-180000000000000000000");
+        let half = Amount::from_scaled(500_000_000_000_000_000);
+        assert_eq!(
+            format_difference(ninety + half, -ninety),
+            "180000000000000000000.5"
+        );
+        assert_eq!(
+            format_difference(Amount::MAX, Amount::MIN),
+            "340282366920938463463.374607431768211455"
+        );
+        assert_eq!(format_difference(10 * ONE, 3 * ONE), "7");
+        assert_eq!(format_difference(3 * ONE, 10 * ONE), "-7");
+    }
 
     #[test]
     fn multiplies_past_128_bits_as_bigint_does() {
