@@ -307,6 +307,7 @@
         "$TURBO_ROOT$/tooling/trade/inside.*",
         "$TURBO_ROOT$/tooling/trade/inside/**",
         "$TURBO_ROOT$/tooling/uiproof/playwright-browsers.*",
+        "$TURBO_ROOT$/tooling/vitest/budget.*",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
       ]
@@ -357,6 +358,7 @@
         "$TURBO_ROOT$/tooling/trade/inside.*",
         "$TURBO_ROOT$/tooling/trade/inside/**",
         "$TURBO_ROOT$/tooling/uiproof/playwright-browsers.*",
+        "$TURBO_ROOT$/tooling/vitest/budget.*",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
       ]
