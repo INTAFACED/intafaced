@@ -1,5 +1,6 @@
 // volt-room: /pay/reports
 // volt-room: portal:reports
+import { FinePrint } from '@intafaced/ui/lit';
 import { DateTime } from '../../ui/DateTime';
 import { EntityList, Gate, Section } from '../../volt/parts';
 import { RecordListRoom } from '../../volt/RecordListRoom';
@@ -70,7 +71,9 @@ export function ReportsView({ jobs, hasMore, role }: { jobs: readonly ExportJob[
             },
           ]}
         />
-        <p className="lt-muted">{t('catalogNote')}</p>
+        <p>
+          <FinePrint>{t('catalogNote')}</FinePrint>
+        </p>
       </Section>
     </div>
   );
