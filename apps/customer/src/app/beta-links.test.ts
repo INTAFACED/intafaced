@@ -6,8 +6,10 @@ import { cloneElement, type ReactElement } from 'react';
 import * as react from 'react/jsx-runtime';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { BetaDroppedLink, betaRuntime, type JsxRuntime } from './beta-links';
-import { betaHides, betaRoomList, type BetaRooms } from './beta-volt';
+import { BetaDroppedLink, betaDropsLink, betaRuntime, type JsxRuntime } from './beta-links';
+import { betaHides, betaRoomList, setBetaAccess, type BetaRooms } from './beta-volt';
+import { isHiddenPath } from './feature-registry';
+import { navigate } from './location';
 import { rooms } from './navigation';
 import { voltCount } from './volt-count';
 import { betaJsxSource, betaVolt } from '../../vite.config';
@@ -18,7 +20,10 @@ const shown = list.find(([route, volt]) => volt && !route.includes(':'))![0];
 const runtime = betaRuntime<JsxRuntime>(react);
 const jsx = runtime.jsx! as typeof react.jsx;
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  setBetaAccess({ business: false, venue: false });
+});
 
 describe("the beta's JSX runtime", () => {
   it('draws no link to a room the beta hides, with its query or hash, and keeps every other link', () => {
@@ -52,6 +57,74 @@ describe("the beta's JSX runtime", () => {
 
   it('changes nothing with the switch off', () => {
     expect(jsx('a', { href: hidden, children: 'room' }).type).toBe('a');
+  });
+});
+
+/**
+ * Rooms whose main area only says it is switched off, needs the venue door, or waits for an owner value. Many are
+ * in Volt, so only their feature row hides them; the beta's menus, its drawn links and its moves in code all pass them over.
+ */
+const PARKED = [
+  '/uc/trading-permissions',
+  '/trade/positions',
+  '/pay/scheduled',
+  '/pay/scan',
+  '/pay/cases',
+  '/blueprint',
+  '/token',
+  '/predict',
+  '/uc/withdraw',
+  '/bank/statements',
+  '/bank/salary',
+  '/bank/account',
+  '/bank/rules',
+  '/bank/ramps',
+  '/trade/account',
+  '/trade/staking',
+  '/trade/vaults',
+  '/trade/news',
+  '/trade/calendar',
+  '/pay/bills',
+  '/market/mine',
+  '/uc/innovation/myorders',
+  '/status',
+  '/partner',
+  '/developers/status',
+  '/lab',
+  '/fees',
+  '/rulebook',
+  '/support/chat',
+  '/market/strategy',
+  '/uc/recharge',
+];
+const VENUE = ['/uc/trading-permissions', '/trade/positions', '/trade/account', '/trade/staking', '/trade/vaults', '/fees'];
+
+describe("the beta's parked rooms", () => {
+  it('are left out of the menus, every drawn link and every move in code, for a personal account without the venue door', () => {
+    vi.stubGlobal('__BETA_VOLT_ROOMS__', list);
+    let at = '';
+    vi.stubGlobal('history', { pushState: (_s: unknown, _t: string, to: string) => void (at = to) });
+    vi.stubGlobal('window', { dispatchEvent: () => true, scrollTo: () => undefined });
+    vi.stubGlobal('PopStateEvent', class {});
+    // Most of them are in Volt: their feature row, not the count, keeps them out.
+    expect(PARKED.filter((path) => !betaHides(path, list)).length).toBeGreaterThan(20);
+    expect(PARKED.filter((path) => !isHiddenPath(path))).toEqual([]);
+    expect(PARKED.filter((path) => !betaDropsLink(`${path}?from=room`))).toEqual([]);
+    expect(PARKED.filter((path) => jsx('a', { href: path }).type !== BetaDroppedLink)).toEqual([]);
+    const landed = PARKED.flatMap((path) => {
+      navigate(path);
+      return PARKED.includes(at.split(/[?#]/)[0]!) ? [`${path} -> ${at}`] : [];
+    });
+    expect(landed).toEqual([]);
+  });
+
+  it('come back in links once the account has the venue door, and stay in every other build', () => {
+    vi.stubGlobal('__BETA_VOLT_ROOMS__', list);
+    setBetaAccess({ business: false, venue: true });
+    expect(VENUE.filter((path) => betaDropsLink(path))).toEqual([]);
+    vi.unstubAllGlobals();
+    setBetaAccess({ business: false, venue: false });
+    expect(PARKED.filter((path) => betaDropsLink(path) || isHiddenPath(path))).toEqual([]);
   });
 });
 
