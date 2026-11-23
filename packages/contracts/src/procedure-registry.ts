@@ -1131,6 +1131,8 @@ import {
 
 import { IDENTITY_SELF_FREEZE_MANAGE_LIFT } from './identity-self-freeze-manage-procedures.js';
 
+import { IDENTITY_SERVER_TIME } from './identity-server-time-procedures.js';
+
 import { IDENTITY_SESSION_SETTINGS } from './identity-session-settings-procedures.js';
 
 import { IDENTITY_SET_API_KEY_REQUEST_SIGNING } from './identity-set-api-key-request-signing-procedures.js';
@@ -3503,6 +3505,8 @@ const part_identity_security_lock_procedures: readonly ProcedureRecord[] = [
 
 const part_identity_self_freeze_manage_procedures: readonly ProcedureRecord[] = [IDENTITY_SELF_FREEZE_MANAGE_LIFT];
 
+const part_identity_server_time_procedures: readonly ProcedureRecord[] = [IDENTITY_SERVER_TIME];
+
 const part_identity_session_settings_procedures: readonly ProcedureRecord[] = [IDENTITY_SESSION_SETTINGS];
 
 const part_identity_set_api_key_request_signing_procedures: readonly ProcedureRecord[] = [IDENTITY_SET_API_KEY_REQUEST_SIGNING];
@@ -4931,6 +4935,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_identity_rotate_signing_secret_procedures,
   ...part_identity_security_lock_procedures,
   ...part_identity_self_freeze_manage_procedures,
+  ...part_identity_server_time_procedures,
   ...part_identity_session_settings_procedures,
   ...part_identity_set_api_key_request_signing_procedures,
   ...part_identity_set_idle_signout_procedures,
