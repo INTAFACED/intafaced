@@ -4,7 +4,7 @@ import { logOf } from './log.js';
 const at = (minute: number) => new Date(Date.UTC(2026, 9, 20, 0, minute)).toISOString();
 
 describe('backtest run log', () => {
-  it('puts gaps, margin events, fills and unfilled orders in time order, a stop-out before its fill, and marks warnings', () => {
+  it('puts gaps, margin events, fills and unfilled orders in time order, a venue close before its fill, and marks warnings', () => {
     const log = logOf({
       runKey: 'algo:bt:x',
       strategyId: 'x',
@@ -16,7 +16,7 @@ describe('backtest run log', () => {
       coverage: { barSize: '1m', bars: 8, expected: 10, first: at(0), last: at(9), gaps: [{ from: at(4), to: at(6) }], fraction: '0.8' },
       trades: [
         { ts: at(2), side: 'buy', reason: 'signal', qty: '1', barPrice: '1', price: '1', fee: '0', slippage: '0' },
-        { ts: at(7), side: 'sell', reason: 'stop_out', qty: '1', barPrice: '1', price: '1', fee: '0', slippage: '0' },
+        { ts: at(7), side: 'sell', reason: 'venue_close', qty: '1', barPrice: '1', price: '1', fee: '0', slippage: '0' },
       ],
       rejected: [{ ts: at(10), side: 'buy', reason: 'unfilled_at_window_end' }],
       equity: [],
@@ -27,7 +27,7 @@ describe('backtest run log', () => {
       holdout: { enforced: false, from: null },
       ignoredInputs: [],
       account: null,
-      marginEvents: [{ ts: at(7), kind: 'stop_out', price: '1', marginLevelPercent: '50' }],
+      marginEvents: [{ ts: at(7), kind: 'venue_close', price: '1', marginLevelPercent: '50' }],
       riskEvents: [],
       simulated: true,
       live: false,

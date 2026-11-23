@@ -20,7 +20,7 @@
  * fails, even when a removal elsewhere pays for it, as the test did.
  *
  * Usage:
- *   node tooling/ci/lint-ratchet.mjs                    merge base with main .. HEAD
+ *   node tooling/ci/lint-ratchet.mjs                    merge base with main .. HEAD (an automatic revert of X: X^ .. HEAD)
  *   node tooling/ci/lint-ratchet.mjs --base <ref> --head <ref> [--rules-ref <ref>] [--json]
  * Main is fetched fresh first (mainRef): on GitHub Actions from the repository's URL into refs/lint-ratchet/main, never
  * read from origin/main, which code the change ran earlier in the job could move; on the Mac from `origin`, so the push-time
@@ -30,6 +30,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { autoRevertOf } from './exact-revert.mjs';
 
 const ROOT = process.cwd();
 export const LINTABLE = /\.(?:[cm]?[jt]sx?)$/u;
@@ -61,6 +62,18 @@ export function changedFiles(base, head) {
     else files.push({ base: a, head: a });
   }
   return files.filter((f) => LINTABLE.test(f.head ?? f.base));
+}
+
+/** The touched files with each base side read at `from` (an automatic revert's X^) instead of the merge base: a file's
+ *  head path, when `from` holds it. `from` null: the files as they are. */
+export function restoredFrom(files, from, has = (ref, path) => show(ref, path) !== null) {
+  if (!from) return files;
+  return files
+    .map((f) => {
+      const path = f.head ?? f.base;
+      return { base: has(from, path) ? path : null, head: f.head };
+    })
+    .filter((f) => f.base || f.head);
 }
 
 /** `garden(no-double-cast)` → `garden/no-double-cast`; a diagnostic with no code is an unused suppression. A message that
@@ -212,7 +225,7 @@ export function table({ rows }, nFiles) {
  * one repository never share a ref); a repository with no `origin` remote has only its own origin/main. null: the fetch
  * failed, and nothing is judged with rules that may be old.
  */
-function mainRef() {
+export function mainRef() {
   if (process.env.GITHUB_ACTIONS && process.env.GITHUB_REPOSITORY) {
     const url = `${process.env.GITHUB_SERVER_URL ?? 'https://github.com'}/${process.env.GITHUB_REPOSITORY}`;
     if (gitOr(['fetch', '--no-tags', '--quiet', url, '+refs/heads/main:refs/lint-ratchet/main']) === null) return null;
@@ -244,7 +257,15 @@ export function run(argv = process.argv.slice(2)) {
     console.error('✖ lint-ratchet: node_modules/.bin/oxlint is missing; run pnpm install');
     return 1;
   }
-  const files = changedFiles(base, head);
+  // main-bisect's proven revert of X is judged against X^, the code it restores (exact-revert.mjs autoRevertOf), over
+  // the files it touches: a culprit that deleted code today's rules count can still be reverted (project-state#3635).
+  const restored = autoRevertOf(process.env, main, git);
+  const from = restored ? `${restored}^` : base;
+  if (restored)
+    console.log(
+      `lint-ratchet: main-bisect's automatic revert of ${restored.slice(0, 10)}, judged against ${restored.slice(0, 10)}^, the code it restores`,
+    );
+  const files = restoredFrom(changedFiles(base, head), from === base ? null : from);
   const dir = mkdtempSync(join(tmpdir(), 'lint-ratchet-'));
   try {
     const rules = rulesFrom(main, dir);
@@ -263,7 +284,7 @@ export function run(argv = process.argv.slice(2)) {
       );
     const started = Date.now();
     const found = {};
-    const baseCounts = lintSide(read(base, 'base'), rules.config, join(dir, 'base'), oxlint);
+    const baseCounts = lintSide(read(from, 'base'), rules.config, join(dir, 'base'), oxlint);
     const headCounts = lintSide(read(head, 'head'), rules.config, join(dir, 'head'), oxlint, found);
     const added = new Set(files.filter((f) => !f.base).map((f) => f.head));
     const verdict = compare(baseCounts, headCounts, rules.starts, added);

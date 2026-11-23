@@ -153,7 +153,7 @@ describe("the venue's maker rebate", () => {
     const fees = (await sim.feeStatus(null)).value.otherFees!;
     expect(fees[0]).toMatchObject({ kind: 'settlement', symbol: null, feeBps: a('0') });
     const liquidating = TEST_VENUE_MARKETS.filter((m) => m.liquidation).map((m) => m.symbol);
-    expect(liquidating).toEqual(['XLIQ-PERP', 'XBIL-PERP', 'XCRS-PERP']);
+    expect(liquidating).toEqual(['XLIQ-PERP', 'XBIL-PERP', 'XCRS-PERP', 'XDEV-PERP']);
     expect(fees.filter((f) => f.kind === 'liquidation').map((f) => [f.symbol, f.feeBps])).toEqual(liquidating.map((s) => [s, a('100')]));
     const [status] = await answerTestVenue(sim, 'POST', '/test/switches', JSON.stringify({ otherFeesUnpublished: true }));
     expect(status).toBe(200);

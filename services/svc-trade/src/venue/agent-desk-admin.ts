@@ -1,7 +1,21 @@
-import { z } from 'zod';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import { AgentAccountError } from './agent-account.js';
-import type { AgentDesk } from './agent-desk.js';
+import type { AgentDesk, AgentDeskConnections } from './agent-desk.js';
+import { answerKeys } from '../answer-keys.js';
+import {
+  deskConnectionsAnswer,
+  deskAuditAnswer,
+  deskConnectionAnswer,
+  deskQuarantineAnswer,
+} from '@intafaced/contracts/trade-call-schemas';
+import {
+  TRADE_ADMIN_AGENT_DESK_CONNECTIONS,
+  TRADE_ADMIN_AGENT_DESK_AUDIT,
+  TRADE_ADMIN_AGENT_DESK_CONNECTION,
+  TRADE_ADMIN_AGENT_DESK_QUARANTINE,
+} from '@intafaced/contracts/trade-admin-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { tradeRefusal } from '../record-refusal.js';
 
 const TRPC_CODE: Record<number, TRPCError['code']> = { 400: 'BAD_REQUEST', 404: 'NOT_FOUND', 409: 'CONFLICT' };
 
@@ -12,6 +26,14 @@ function fail(error: unknown): never {
   }
   throw error;
 }
+
+answerKeys<AgentDeskConnections>()(deskConnectionsAnswer);
+
+answerKeys<Awaited<ReturnType<AgentDesk['audit']>>>()(deskAuditAnswer);
+
+answerKeys<Awaited<ReturnType<AgentDesk['connection']>>>()(deskConnectionAnswer);
+
+answerKeys<Awaited<ReturnType<AgentDesk['quarantine']>>>()(deskQuarantineAnswer);
 
 /**
  * `admin.agentDesk.*` (J-agents-21 #15; agent-desk.ts): the founder's desk over every person's outside assistant
@@ -26,14 +48,14 @@ export function agentDeskAdminRouter(desk?: AgentDesk | null) {
   };
   return router({
     agentDesk: router({
-      connections: scopedProcedure('admin:read').query(() => ready().connections().catch(fail)),
-      audit: scopedProcedure('admin:read').query(() => ready().audit().catch(fail)),
-      connection: scopedProcedure('admin:read')
-        .input(z.object({ keyId: z.string().max(64) }).strict())
-        .query(({ input }) => ready().connection(input.keyId).catch(fail)),
-      quarantine: scopedProcedure('admin:write')
-        .input(z.object({ keyId: z.string().max(64), reason: z.string().max(600), requestId: z.string().max(256) }).strict())
-        .mutation(({ ctx, input }) => ready().quarantine(ctx.principal, input).catch(fail)),
+      connections: mountRecord(TRADE_ADMIN_AGENT_DESK_CONNECTIONS, () => ready().connections().catch(fail), tradeRefusal),
+      audit: mountRecord(TRADE_ADMIN_AGENT_DESK_AUDIT, () => ready().audit().catch(fail), tradeRefusal),
+      connection: mountRecord(TRADE_ADMIN_AGENT_DESK_CONNECTION, ({ input }) => ready().connection(input.keyId).catch(fail), tradeRefusal),
+      quarantine: mountRecord(
+        TRADE_ADMIN_AGENT_DESK_QUARANTINE,
+        ({ ctx, input }) => ready().quarantine(ctx.principal, input).catch(fail),
+        tradeRefusal,
+      ),
     }),
   });
 }

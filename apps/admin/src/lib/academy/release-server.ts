@@ -5,15 +5,20 @@ import {
   academySetSectionReleaseInputSchema,
 } from '@intafaced/contracts/academy-course-release';
 import {
-  founderCall,
   parseWith,
   type FounderCallContext,
   type FounderCallResult,
   partFrom,
   type PartLabels,
   explainRefusal,
+  founderRecordRead,
 } from '@/lib/desk';
 import type { AcademyCourseRelease, ReleaseDeskReply, ReleaseView } from './release-model';
+import {
+  ACADEMY_ADMIN_COURSE_RELEASE,
+  ACADEMY_ADMIN_SET_SECTION_RELEASE,
+  ACADEMY_ADMIN_SET_COURSE_PACING,
+} from '@intafaced/contracts/academy-admin-records';
 
 /**
  * A course's pacing and section release as the signed-in founder (AC-release-access-01). svc-academy records the founder
@@ -31,7 +36,7 @@ const ACADEMY: PartLabels = {
 const readRelease = parseWith(academyCourseReleaseSchema);
 
 export async function loadRelease(ctx: FounderCallContext, courseId: string): Promise<ReleaseView> {
-  const release = partFrom(await founderCall(ctx, 'academy', 'admin.courseRelease', 'GET', { courseId }, readRelease), (d) => d, ACADEMY);
+  const release = partFrom(await founderRecordRead(ctx, ACADEMY_ADMIN_COURSE_RELEASE, { courseId }, readRelease), (d) => d, ACADEMY);
   return { release, asOf: new Date().toISOString() };
 }
 
@@ -60,13 +65,13 @@ function reply(result: FounderCallResult<AcademyCourseRelease | null>, what: str
 const OPS = {
   setSectionRelease: {
     schema: academySetSectionReleaseInputSchema,
-    procedure: 'admin.setSectionRelease',
+    record: ACADEMY_ADMIN_SET_SECTION_RELEASE,
     what: 'section release saved',
     why: 'A section opens with the course, at a date and time, or 1 to 365 whole days after each learner enrols. Say why in up to 500 characters.',
   },
   setPacing: {
     schema: academySetCoursePacingInputSchema,
-    procedure: 'admin.setCoursePacing',
+    record: ACADEMY_ADMIN_SET_COURSE_PACING,
     what: 'pacing saved',
     why: 'Choose self-paced or instructor-paced, and say why in up to 500 characters.',
   },
@@ -84,5 +89,5 @@ export async function changeRelease(
   const { op: _op, ...input } = body;
   const parsed = spec.schema.safeParse(input);
   if (!parsed.success) return { why: spec.why };
-  return reply(await founderCall(ctx, 'academy', spec.procedure, 'POST', parsed.data, readRelease), spec.what);
+  return reply(await founderRecordRead(ctx, spec.record, parsed.data, readRelease), spec.what);
 }

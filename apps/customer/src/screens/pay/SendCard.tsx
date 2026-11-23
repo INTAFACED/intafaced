@@ -1004,7 +1004,7 @@ function SendForm({
           placeholder={personal.t('notePlaceholder')}
           onChange={(event) => setMemo(event.target.value)}
         />
-        <span className="pay-hint">{personal.t('noteHint')}</span>
+        <span className="lt-hint">{personal.t('noteHint')}</span>
       </div>
 
       {source && amountCheck.kind === 'ok' && typedAmount !== null ? (
@@ -1121,7 +1121,7 @@ function SendForm({
                   <h3 id="pay-step-up-title" className="pay-step-up__title">
                     {payCopy.t('Confirm it’s you')}
                   </h3>
-                  <p className="pay-hint">{payCopy.t('Step-up why')}</p>
+                  <p className="lt-hint">{payCopy.t('Step-up why')}</p>
                   <div className="pay-field">
                     <label className="pay-field__label" htmlFor="pay-step-up-code">
                       {payCopy.t('Authenticator code')}
@@ -1140,7 +1140,7 @@ function SendForm({
                         setStepUp((now) => (now ? { ...now, code } : now));
                       }}
                     />
-                    <p className="pay-hint">{payCopy.t('Code hint')}</p>
+                    <p className="lt-hint">{payCopy.t('Code hint')}</p>
                   </div>
                   {stepUp.problem ? (
                     <p className="pay-dialog__error" role="alert" data-testid="pay-step-up-problem">
@@ -1222,7 +1222,7 @@ function TermsLine({ verdict, asset, onRetry }: { verdict: TermsVerdict; asset: 
   if (verdict.kind === 'none') return null;
   if (verdict.kind === 'unavailable')
     return (
-      <p className="pay-hint" role="alert" data-testid="pay-terms" data-terms="unavailable">
+      <p className="lt-hint" role="alert" data-testid="pay-terms" data-terms="unavailable">
         {personal.t('termsUnavailable')}{' '}
         <button type="button" className="pay-chip" onClick={onRetry}>
           {personal.t('termsRetry')}
@@ -1243,7 +1243,7 @@ function TermsLine({ verdict, asset, onRetry }: { verdict: TermsVerdict; asset: 
               : `${parseAmount(verdict.fee) === 0n ? personal.t('termsNoFee') : personal.t('termsFee', { fee: amountOf(verdict.fee), asset })}.${verdict.networkFeeUnknown ? ` ${personal.t('termsNetworkFeeUnknown')}` : ''} ${personal.t('termsAllowance', { perTransfer: amountOf(verdict.perTransfer), left: amountOf(verdict.left), asset })}`;
   const blocked = verdict.kind !== 'ok' && verdict.kind !== 'checking';
   return (
-    <p className="pay-hint" role={blocked ? 'alert' : 'status'} data-testid="pay-terms" data-terms={verdict.kind}>
+    <p className="lt-hint" role={blocked ? 'alert' : 'status'} data-testid="pay-terms" data-terms={verdict.kind}>
       {text}
     </p>
   );

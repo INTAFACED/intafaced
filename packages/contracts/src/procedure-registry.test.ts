@@ -1,5 +1,7 @@
-import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { appendFileSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { describe, expect, it } from 'vitest';
@@ -8,17 +10,19 @@ import {
   defineProcedure,
   NO_INPUT,
   procedureJsonSchema,
-  procedureSchemaFile,
+  procedureSchemaFiles,
   replyAccepted,
   routePath,
   type ProcedureRecord,
 } from './procedure.js';
 import { CONTRACT_PROCEDURES } from './procedure-registry.js';
-import { sampleDisagreements } from './procedure-sides.js';
+import { jsonValueSchema } from './procedure-strict-schema.js';
+import { committedProcedureSchemas, procedureSchemaDrift, sampleDisagreements } from './procedure-sides.js';
 import { TAX_LOT_BOOK, TAX_SET_DAY_METHOD } from './tax-procedures.js';
 
 const PACKAGE = fileURLToPath(new URL('..', import.meta.url));
-const committedSchema = () => readFileSync(new URL('../procedures.schema.json', import.meta.url), 'utf8');
+const committedSchemas = () => committedProcedureSchemas(new URL('../procedures/', import.meta.url));
+const WRITE = 'pnpm --filter @intafaced/contracts procedures:write';
 
 /** A minimal record to plant faults in. */
 const plant = (over: Partial<ProcedureRecord>): ProcedureRecord =>
@@ -40,9 +44,31 @@ const plant = (over: Partial<ProcedureRecord>): ProcedureRecord =>
   }) as ProcedureRecord;
 
 describe('the written records of calls', () => {
-  it('procedures.schema.json is what the records say (run `pnpm --filter @intafaced/contracts procedures:write`)', () => {
-    const committed = readFileSync(new URL('../procedures.schema.json', import.meta.url), 'utf8');
-    expect(JSON.parse(committed)).toEqual(JSON.parse(procedureSchemaFile(CONTRACT_PROCEDURES)));
+  it('procedures/ is what the records say, one file per service', () => {
+    expect(procedureSchemaDrift(committedSchemas(), CONTRACT_PROCEDURES, WRITE)).toEqual([]);
+  });
+
+  it('each service has its own file, holding only its own records, so one change touches one service', () => {
+    const files = procedureSchemaFiles(CONTRACT_PROCEDURES);
+    expect(Object.keys(files)).toEqual([...new Set(CONTRACT_PROCEDURES.map((r) => `${r.service}.schema.json`))].sort());
+    for (const [name, text] of Object.entries(files)) {
+      const services = Object.values(JSON.parse(text).procedures as Record<string, { service: string }>).map((r) => r.service);
+      expect(new Set(services)).toEqual(new Set([name.replace(/\.schema\.json$/, '')]));
+    }
+  });
+
+  it('a missing file, a stale file and a drifted file are each named, with the command that fixes them', () => {
+    const { 'svc-tax.schema.json': tax, ...rest } = committedSchemas();
+    expect(procedureSchemaDrift(rest, CONTRACT_PROCEDURES, WRITE)).toEqual([`procedures/svc-tax.schema.json is missing: run \`${WRITE}\``]);
+    const stale = { ...committedSchemas(), 'svc-gone.schema.json': '{"procedures":{}}' };
+    expect(procedureSchemaDrift(stale, CONTRACT_PROCEDURES, WRITE)).toEqual([
+      `procedures/svc-gone.schema.json holds no service's records: run \`${WRITE}\`, which deletes it`,
+    ]);
+    const file = JSON.parse(tax ?? '');
+    delete file.procedures['tax.lotBook'];
+    expect(procedureSchemaDrift({ ...rest, 'svc-tax.schema.json': JSON.stringify(file) }, CONTRACT_PROCEDURES, WRITE)).toEqual([
+      `procedures/svc-tax.schema.json is not what its records say: run \`${WRITE}\``,
+    ]);
   });
 
   it('the registry is every `defineProcedure` in src/, written by code (run `procedures:write` when this fails)', () => {
@@ -57,7 +83,7 @@ describe('the written records of calls', () => {
   });
 
   it("every record's samples get the same verdict from its zod schema and from its committed JSON export", () => {
-    expect(sampleDisagreements(CONTRACT_PROCEDURES, committedSchema())).toEqual([]);
+    expect(sampleDisagreements(CONTRACT_PROCEDURES, committedSchemas())).toEqual([]);
   });
 
   it('a sample whose verdict the record does not reach is a disagreement', () => {
@@ -65,13 +91,13 @@ describe('the written records of calls', () => {
       ...TAX_SET_DAY_METHOD,
       samples: [{ verdict: 'accept', input: { day: '2026-02-30', assetId: null, method: null } }],
     } as ProcedureRecord;
-    expect(sampleDisagreements([wrong], committedSchema())).toEqual([expect.stringContaining('zod says refuse, the record says accept')]);
+    expect(sampleDisagreements([wrong], committedSchemas())).toEqual([expect.stringContaining('zod says refuse, the record says accept')]);
   });
 
   it('a JSON export that drifted from the record is a disagreement (here: the method enum widened)', () => {
-    const file = JSON.parse(committedSchema());
+    const file = JSON.parse(committedSchemas()['svc-tax.schema.json'] ?? '');
     file.procedures['tax.lotBook'].input.properties.method.enum.push('NEWEST');
-    expect(sampleDisagreements([TAX_LOT_BOOK], JSON.stringify(file))).toEqual([
+    expect(sampleDisagreements([TAX_LOT_BOOK], { 'svc-tax.schema.json': JSON.stringify(file) })).toEqual([
       expect.stringContaining('the JSON export says accept, it should refuse'),
     ]);
   });
@@ -87,9 +113,51 @@ describe('the written records of calls', () => {
         'input check gone names no refinement here',
       );
     });
+    it("an answer's refinement unless `outputChecks` names it where it sits, and a name that names none", () => {
+      const output = z.object({ cap: z.number().refine((v) => v >= 0) });
+      expect(() => procedureJsonSchema(plant({ output }))).toThrow('.output.cap (.refine/.superRefine');
+      const json = procedureJsonSchema(
+        plant({ output, outputChecks: { cap_holds: { at: 'output.cap', says: 'a cap is never negative' } } }),
+      );
+      expect(json.outputChecks).toEqual({ cap_holds: { at: 'output.cap', says: 'a cap is never negative' } });
+      expect(() => procedureJsonSchema(plant({ outputChecks: { gone: { at: 'output.a', says: 'was there' } } }))).toThrow(
+        'output check gone names no refinement here',
+      );
+    });
     it('an input or output that accepts anything', () => {
       expect(() => procedureJsonSchema(plant({ input: z.object({ a: z.unknown() }) }))).toThrow('z.unknown');
       expect(() => procedureJsonSchema(plant({ output: z.object({ a: z.any() }) }))).toThrow('z.any');
+    });
+    it('a declared JSON value (`jsonValueSchema`), written whole', () => {
+      const json = procedureJsonSchema(plant({ output: z.object({ a: jsonValueSchema }) }));
+      expect(JSON.stringify(json.output)).toContain('"anyOf":[{"type":"string"},{"type":"number"},{"type":"boolean"},{"type":"null"}');
+    });
+    it('a `z.lazy`, forward or recursive, written exactly (a cycle as `$ref`), and what it points to still checked', () => {
+      // svc-campaigns' shapes: a rule tree whose parts are trees, and a field named before its schema.
+      type Tree = { op: 'all' | 'any'; parts: Tree[] } | { fact: string };
+      const tree: z.ZodType<Tree> = z.lazy(() =>
+        z.union([z.object({ op: z.enum(['all', 'any']), parts: z.array(tree).max(8) }).strict(), z.object({ fact: z.string() }).strict()]),
+      );
+      const record = plant({
+        input: z.object({ tree }).strict(),
+        output: z.object({ limits: z.lazy(() => limits).nullish() }),
+        samples: [
+          { verdict: 'accept', input: { tree: { op: 'all', parts: [{ fact: 'kyc' }, { op: 'any', parts: [] }] } } },
+          { verdict: 'refuse', input: { tree: { op: 'all', parts: [{ fact: 1 }] } } },
+          { verdict: 'refuse', input: { tree: { op: 'all', parts: [{ op: 'none', parts: [] }] } } },
+        ],
+      });
+      const limits = z.object({ cap: z.string() });
+      const json = procedureJsonSchema(record);
+      expect(JSON.stringify(json.input)).toContain('"$ref"');
+      expect(json.output).toMatchObject({
+        properties: { limits: { anyOf: [{ properties: { cap: { type: 'string' } } }, { type: 'null' }] } },
+      });
+      const files = procedureSchemaFiles([record]);
+      expect(sampleDisagreements([record], files)).toEqual([]);
+      const hidden: z.ZodType = z.lazy(() => z.object({ next: hidden.optional(), at: z.string().refine((v) => v !== '') }));
+      expect(() => procedureJsonSchema(plant({ output: z.object({ a: z.lazy(() => z.unknown()) }) }))).toThrow('z.unknown');
+      expect(() => procedureJsonSchema(plant({ output: hidden }))).toThrow('output.at (.refine');
     });
     it('keeps an optional root as `inputOptional`, never as a required object', () => {
       expect(procedureJsonSchema(TAX_LOT_BOOK)).toMatchObject({ inputOptional: true, input: { type: 'object' } });
@@ -174,5 +242,53 @@ describe('the written records of calls', () => {
     const route = { transport: 'http', method: 'POST', path: '/markets/:marketId/orders' } as const;
     expect(routePath(route, { marketId: 'BTC/USDT' })).toBe('/markets/BTC%2FUSDT/orders');
     expect(() => routePath(route, {})).toThrow('needs :marketId');
+  });
+});
+
+describe('the registry under parallel changes', () => {
+  // Two changes off one base, each adding records, merged by git: what `procedures:write` writes must be what the merge
+  // leaves (else main goes stale with every PR green), or the merge must conflict.
+  const SCRIPT = join(PACKAGE, 'scripts', 'procedure-registry.mjs');
+  const record = (name: string) => `export const ${name} = defineProcedure({});\n`;
+  const repo = () => {
+    const dir = mkdtempSync(join(tmpdir(), 'registry-merge-'));
+    mkdirSync(join(dir, 'src'));
+    const git = (...args: string[]) =>
+      spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: dir, encoding: 'utf8' });
+    const write = () => execFileSync('node', [SCRIPT, '.', 'ALL', './procedure.js'], { cwd: dir, stdio: 'pipe' });
+    const fresh = () => spawnSync('node', [SCRIPT, '.', 'ALL', './procedure.js', '--check'], { cwd: dir }).status === 0;
+    // Each file a few records, the files many, so a fixed-size part would cross files.
+    for (const f of ['a', 'b', 'c', 'd', 'e', 'f'])
+      writeFileSync(join(dir, 'src', `${f}.ts`), [1, 2, 3].map((n) => record(`${f.toUpperCase()}${n}`)).join(''));
+    write();
+    git('init', '-q', '-b', 'base');
+    git('add', '-A');
+    git('commit', '-qm', 'base');
+    const change = (branch: string, file: string, name: string) => {
+      git('switch', '-q', '-c', branch, 'base');
+      appendFileSync(join(dir, 'src', `${file}.ts`), record(name));
+      write();
+      git('commit', '-qam', branch);
+    };
+    const merge = (into: string, from: string) => {
+      git('switch', '-q', into);
+      return git('merge', '-q', '--no-edit', from).status === 0;
+    };
+    return { change, merge, fresh };
+  };
+
+  it('two changes adding records to different files merge into what procedures:write writes', () => {
+    const r = repo();
+    r.change('x', 'a', 'A4');
+    r.change('y', 'b', 'B4');
+    expect(r.merge('y', 'x')).toBe(true);
+    expect(r.fresh()).toBe(true);
+  });
+
+  it('two changes adding records to one file conflict in git, never merge stale', () => {
+    const r = repo();
+    r.change('x', 'c', 'C4');
+    r.change('y', 'c', 'C5');
+    expect(r.merge('y', 'x')).toBe(false);
   });
 });

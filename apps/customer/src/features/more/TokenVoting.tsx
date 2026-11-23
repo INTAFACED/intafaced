@@ -4,11 +4,11 @@ import {
   tokenChoiceTallySchema,
   tokenPowerHistorySchema,
   tokenProposalPowerSchema,
-  tokenVoteMessageSchema,
   tokenVoteSchema,
   type TokenBallot,
   type TokenVotingType,
 } from '@intafaced/contracts/token-governance';
+import { TOKEN_CAST_VOTE, TOKEN_VOTE_MESSAGE, TOKEN_VOTING_POWER_HISTORY } from '@intafaced/contracts/token-procedures';
 import { signTextWithBrowserWallet, useApi, useSession } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
 import { decimalSchema, displayAmount } from '../../shared/money';
@@ -71,7 +71,7 @@ export async function signVote(
   api: ReturnType<typeof useApi>,
   vote: { proposalId: string; choice?: 'for' | 'against' | 'abstain'; ballot?: BallotWire },
 ): Promise<VoteSigned> {
-  const asked = await api.query('token', 'voteMessage', vote, tokenVoteMessageSchema.extend({ message: z.string().min(1) }));
+  const asked = await api.call(TOKEN_VOTE_MESSAGE, vote, { accept: (asked) => asked.message.length > 0 });
   if (!asked.ok) return { ok: false, failure: asked };
   const signed = await signTextWithBrowserWallet(asked.data.message);
   if (signed.status !== 'signed') return { ok: false, wallet: signed.status };
@@ -100,7 +100,7 @@ export function VotingPower({ power, version }: { power: PowerRead; version: num
     { hideBalances } = usePreferences();
   const [limit, setLimit] = useState(HISTORY_PAGE);
   const history = useResource(
-    (signal) => api.query('token', 'votingPower.history', { limit }, historySchema, { signal }),
+    (signal) => api.call(TOKEN_VOTING_POWER_HISTORY, { limit }, { signal, accept: (rows) => historySchema.safeParse(rows).success }),
     `voting-power-history:${userId}:${limit}:${version}`,
   );
   return (
@@ -132,7 +132,7 @@ export function VotingPower({ power, version }: { power: PowerRead; version: num
             <EmptyState title={t('historyEmpty')} />
           ) : (
             <>
-              <p className="muted">{t('historyNote')}</p>
+              <p className="lt-muted">{t('historyNote')}</p>
               <DataTable label={t('history')} headers={[t('hProposal'), t('hFixed'), t('hPower')]}>
                 {rows.map((row) => (
                   <tr key={row.proposalId} data-proposal-id={row.proposalId}>
@@ -265,11 +265,10 @@ export function ChoiceBallot({
       return;
     }
     setMessage(signed.message);
-    const result = await api.mutate(
-      'token',
-      'castVote',
+    const result = await api.call(
+      TOKEN_CAST_VOTE,
       { proposalId, ballot: wire, signature: signed.signature },
-      castSchema.refine((vote) => vote.proposalId === proposalId && vote.userId === userId),
+      { accept: (vote) => castSchema.safeParse(vote).success && vote.proposalId === proposalId && vote.userId === userId },
     );
     setBusy(false);
     onOutcome(result.ok ? { ok: true, weight: result.data.weight } : { ok: false, failure: result });
@@ -338,8 +337,8 @@ export function ChoiceBallot({
       )}
       <section className="token-ballot-sign" aria-label={t('message')}>
         <h4>{t('message')}</h4>
-        {message ? <pre lang="zxx">{message}</pre> : <p className="muted">{t('messagePending')}</p>}
-        <p className="muted">{t('messageNote')}</p>
+        {message ? <pre lang="zxx">{message}</pre> : <p className="lt-muted">{t('messagePending')}</p>}
+        <p className="lt-muted">{t('messageNote')}</p>
         <Read resource={power.resource} retry={power.reload}>
           {(p) =>
             p.signing.code ? (
@@ -350,7 +349,7 @@ export function ChoiceBallot({
           }
         </Read>
       </section>
-      <div className="actions">
+      <div className="lt-actions">
         <Button type="submit" disabled={!open || busy || !ballot}>
           {t('sign')}
         </Button>
@@ -402,7 +401,7 @@ export function ChoiceTallyView({
           [t('voters'), String(tally.voterCount)],
         ]}
       />
-      {tally.rounds && <p className="muted">{t('rounds', { count: String(tally.rounds.length) })}</p>}
+      {tally.rounds && <p className="lt-muted">{t('rounds', { count: String(tally.rounds.length) })}</p>}
       {closedRanked && <p role="status">{t('closedRanked')}</p>}
     </section>
   );

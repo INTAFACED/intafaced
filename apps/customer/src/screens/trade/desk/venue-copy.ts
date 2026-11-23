@@ -14,6 +14,15 @@ export const spotVenueCopy = defineCopy('trade.desk.venue', {
   'Worst price': 'Worst price (slippage limit)',
   Amount: 'Amount ({asset})',
   'Time in force': 'Time in force',
+  'Tif engine': 'run by INTAFACED',
+  Expires: 'Expires',
+  'Expiry past': 'Pick a time in the future.',
+  'Expires review': 'Expires',
+  'Expiry engine review':
+    'At the expiry INTAFACED cancels whatever is unfilled on the venue, under your agent permission; the venue then releases its lock.',
+  'Gtd permission':
+    'Good till date needs your agent permission on the venue, once: our engine uses it only to cancel this order at its expiry.',
+  'Gtd placed': 'Placed. Rests on the venue until {at}; then INTAFACED cancels what is unfilled.',
   'Review buy': 'Review buy',
   'Buy asset': 'Buy {asset}',
   'Sell asset': 'Sell {asset}',
@@ -213,6 +222,12 @@ export const spotVenueCopy = defineCopy('trade.desk.venue', {
   'Deposit no route': 'The venue names no deposit address, so no deposit can be made from here.',
   'Deposit wrong network': 'The venue takes deposits on network {chainId}; your wallet is on another one.',
   'Deposit amount bad': 'Enter an amount of {asset} with at most {places} decimals.',
+  'Decimal places': 'Decimal places',
+  'Listed unread': 'The list of supported assets and networks could not be read, so nothing can be sent from here. Try again shortly.',
+  'Listed loading': 'Reading the list of supported assets and networks…',
+  'Listed unlisted': '{asset} is not on the list of supported assets and networks, so it cannot be moved from here.',
+  'Listed closed deposit': 'The list of supported assets and networks takes no deposits of {asset} now.',
+  'Listed closed withdraw': 'The list of supported assets and networks takes no withdrawals of {asset} now.',
   'Deposit sent': 'Sent from your wallet: {amount} {asset}. The venue credits it when it sees the transfer.',
   'Deposit failed': 'Nothing was sent: {detail}',
   'Deposit rejected': 'You cancelled in your wallet. Nothing was sent.',
@@ -223,6 +238,7 @@ export const spotVenueCopy = defineCopy('trade.desk.venue', {
   'Withdraw to': 'To your wallet',
   'Withdraw send': 'Withdraw and sign in your wallet',
   'Withdraw amount bad': 'Enter an amount to withdraw.',
+  'Withdraw places bad': 'Enter an amount of {asset} with at most {places} decimals.',
 
   // Dead-man switch on the venue (J-cex-spot-07): the venue's own scheduled cancel
   'Dead man off': 'Auto-cancel: off',

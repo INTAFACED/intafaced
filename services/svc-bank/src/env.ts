@@ -335,6 +335,14 @@ const schema = serviceEnvSchema
        * `BANK_TEST_PARTNER=test`, the TEST partner gives each person a TEST pay-in address a venue can withdraw to, and
        * credits what arrives there once. Any blank: no pay-in, and every pay yourself write refuses `bank.pay_in_unset`.
        */
+      /**
+       * LOCAL TEST: the TEST partner's cash leg of a cash-through-a-coin convert (J-cex-spot-11 #11, `partner/cash-leg.ts`):
+       * its TEST rates (`EUR:USDC:1.08`, each the coins one unit of cash buys) and the TEST venue it pays the coin into.
+       * Both set, with `BANK_TEST_PARTNER=test`, the TEST partner offers the cash leg; either blank, nothing is offered and
+       * the Convert room says so. Set without the TEST partner, or outside dev or test, the service refuses to start.
+       */
+      BANK_TEST_CASH_LEG_RATES: z.string().optional(),
+      BANK_TEST_CASH_LEG_VENUE_URL: z.string().optional(),
       BANK_TEST_PAY_IN_RPC_URL: z.string().optional(),
       BANK_TEST_PAY_IN_CHAIN_ID: z.string().optional(),
       BANK_TEST_PAY_IN_TOKEN: z.string().optional(),

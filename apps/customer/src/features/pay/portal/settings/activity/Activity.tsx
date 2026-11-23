@@ -112,13 +112,13 @@ export function ActivityView(props: {
         </Fragment>
       ))
     ) : (
-      <span className="muted">{t('detailNone')}</span>
+      <span className="lt-muted">{t('detailNone')}</span>
     );
   };
   const shown = props.state.status === 'ready' ? props.state.items.length : undefined;
   const actorOptions = [...props.names.entries()].sort((a, b) => a[1].localeCompare(b[1]));
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <PaySection title={t('activityFeedTitle')} description={t('activityFeedBody')}>
         <div className="pp-filter-row">
           <SelectField
@@ -142,8 +142,8 @@ export function ActivityView(props: {
           shown={shown}
           hasMore={props.state.status === 'ready' ? props.state.hasMore : false}
         />
-        <p className="muted">{t('searchHint')}</p>
-        <p className="muted">{t('activityPayoutNote')}</p>
+        <p className="lt-muted">{t('searchHint')}</p>
+        <p className="lt-muted">{t('activityPayoutNote')}</p>
         <ListShell state={props.state} retry={props.reload} empty={{ title: t('activityEmpty'), body: t('activityEmptyBody') }}>
           {(rows) => (
             <>

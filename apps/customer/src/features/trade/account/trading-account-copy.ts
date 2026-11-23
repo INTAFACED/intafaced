@@ -66,6 +66,8 @@ export const tradingAccountCopy = defineCopy('trade.account', {
   hDepositLeg: 'Wallet to venue',
   legNotYet: 'Not sent',
   legSent: 'Sent',
+  legClaimed: 'Sent, unconfirmed on chain',
+  legConfirmed: 'Confirmed on chain',
   marginCall:
     'Margin call on your trading account at {venue}: its equity is below the maintenance requirement, as {venue} reports it. Only your trading account can be liquidated; your spending balances are never used.',
   marginCallAction: 'Move money into your trading account',

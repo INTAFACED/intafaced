@@ -1,4 +1,5 @@
 import { createHash, createHmac, randomUUID } from 'node:crypto';
+import { API_VERSION_HEADER, LATEST_API_VERSION } from '@intafaced/contracts/api-versions';
 import { expect } from './journey.mjs';
 import { EDGE, ORIGIN, journeyState, json, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
@@ -17,6 +18,12 @@ export async function keyHolder(browser, prefix) {
   await signIn(page, who);
   await addPasskey(page);
   return { page, who };
+}
+
+/** A signed-out visitor on a device of its own. */
+export async function signedOutVisitor(browser) {
+  const context = await browser.newContext({ baseURL: ORIGIN, viewport: { width: 1440, height: 900 } });
+  return context.newPage();
 }
 
 /** The same holder signed in again on a fresh page (no new passkey: reading keys needs no step-up). */
@@ -63,8 +70,15 @@ export async function makeKey(page, { name = 'bot-1', preset = 'Trade', ips = ''
   return key;
 }
 
-/** One call to Edge with the key, as a developer's client sends it: signed when the key was shown a signing secret. */
-export async function withKey(key, { method = 'GET', path, body, headers = {} }) {
+/** The API version header every key client we ship sends: the newest version, pinned at release (J-developer-16 #5). */
+export const VERSION_PIN = { [API_VERSION_HEADER]: LATEST_API_VERSION };
+
+/**
+ * One call to Edge with the key, as a developer's client sends it: signed when the key was shown a signing secret, and
+ * pinned to the newest API version (`intafaced-version`), as every key client we ship sends its release-time version.
+ * `version: null` sends no version header (J-developer-16 #5); any other value is sent as it is.
+ */
+export async function withKey(key, { method = 'GET', path, body, headers = {}, version = LATEST_API_VERSION }) {
   const raw = body === undefined ? undefined : JSON.stringify(body);
   const secret = secrets.read()[keyRef(key)];
   const signed = secret ? signedHeaders(secret, { method, path, body: raw ?? '' }) : {};
@@ -75,6 +89,7 @@ export async function withKey(key, { method = 'GET', path, body, headers = {} })
       authorization: `Bearer ${key}`,
       ...(raw ? { 'content-type': 'application/json' } : {}),
       ...signed,
+      ...(version === null ? {} : { [API_VERSION_HEADER]: version }),
       ...headers,
     },
     body: raw,
@@ -109,4 +124,11 @@ export function blankSigningWindow(blank) {
     if (before === undefined) delete process.env.LOCAL_STACK_IDENTITY_REQUEST_SIGN_WINDOW;
     else process.env.LOCAL_STACK_IDENTITY_REQUEST_SIGN_WINDOW = before;
   }
+}
+
+/** A prepared venue payload (svc-trade's `/api/v1/venue/prepare`), signed by one key: a program's own signing, no SDK. */
+export async function signPrepared(account, prepared) {
+  const t = prepared.typedData;
+  const signature = await account.signTypedData({ domain: t.domain, types: t.types, primaryType: t.primaryType, message: t.message });
+  return { digest: prepared.digest, signature, signedBy: account.address.toLowerCase() };
 }

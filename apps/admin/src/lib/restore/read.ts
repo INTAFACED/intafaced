@@ -1,5 +1,5 @@
 import 'server-only';
-import { founderCall, type FounderCallContext, partFrom, type Part } from '@/lib/desk';
+import { type FounderCallContext, partFrom, type Part, founderRecordRead } from '@/lib/desk';
 import {
   parseBackups,
   parseRunDetail,
@@ -10,6 +10,12 @@ import {
   type RunDetail,
   type StampRow,
 } from './model';
+import {
+  OPS_RESTORE_WATERMARKS,
+  OPS_RESTORE_BACKUPS,
+  OPS_RESTORE_RUNS,
+  OPS_RESTORE_RUN,
+} from '@intafaced/contracts/ops-restore-procedures';
 
 const labels = {
   service: 'svc-ops',
@@ -29,10 +35,10 @@ export interface RestoreRoom {
 /** Everything the room shows, each part read on its own so one failure never hides the others. */
 export async function readRestoreRoom(ctx: FounderCallContext, runNo: string | null): Promise<RestoreRoom> {
   const [backups, stamps, runs, run] = await Promise.all([
-    founderCall(ctx, 'ops', 'restore.backups', 'GET', undefined, parseBackups),
-    founderCall(ctx, 'ops', 'restore.watermarks', 'GET', undefined, parseStamps),
-    founderCall(ctx, 'ops', 'restore.runs', 'GET', undefined, parseRuns),
-    runNo ? founderCall(ctx, 'ops', 'restore.run', 'GET', { restoreNo: runNo }, parseRunDetail) : Promise.resolve(null),
+    founderRecordRead(ctx, OPS_RESTORE_BACKUPS, undefined, parseBackups),
+    founderRecordRead(ctx, OPS_RESTORE_WATERMARKS, undefined, parseStamps),
+    founderRecordRead(ctx, OPS_RESTORE_RUNS, undefined, parseRuns),
+    runNo ? founderRecordRead(ctx, OPS_RESTORE_RUN, { restoreNo: runNo }, parseRunDetail) : Promise.resolve(null),
   ]);
   return {
     asOf: new Date().toISOString(),

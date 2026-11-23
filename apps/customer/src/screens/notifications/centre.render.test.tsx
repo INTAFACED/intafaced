@@ -41,7 +41,7 @@ describe('channel card', () => {
     const channels = buildChannels(
       [{ channel: 'sms', configured: true, available: true }],
       [{ channel: 'sms', muted: false }],
-      [{ channel: 'sms', address: '+447700900000', verifiedAt: null }],
+      [{ channel: 'sms', address: '+447700900000', locale: 'en', verifiedAt: null }],
     );
     const page = html(<ChannelCard channel="sms" view={channels.sms} onMute={mute} onChanged={() => undefined} />);
     expect(page).toContain('Not confirmed');
@@ -97,6 +97,6 @@ describe('category grid', () => {
     expect(page).toContain('Not connected on this platform, so nothing can be sent here.');
     const switches = page.match(/<[a-z]+\b[^>]*role="switch"[^>]*>/g) ?? [];
     expect(switches.length).toBe(3);
-    expect(switches.filter((tag) => tag.includes('data-disabled=""')).length).toBe(2);
+    expect(switches.filter((tag) => tag.includes('disabled=""')).length).toBe(2);
   });
 });

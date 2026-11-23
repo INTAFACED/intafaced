@@ -44,6 +44,8 @@ const entry = {
   createdAt: '2026-10-17T02:00:00.000Z',
   timingKind: 'score_not_promise',
   sla: false,
+  // svc-support's answer always carries it (its queue entry schema, now the record's answer); null is no due time.
+  responseDue: null,
 };
 const get = (query = '') => GET(new Request(`http://admin.example/api/support${query}`));
 const post = (body: unknown) =>
@@ -883,11 +885,11 @@ describe('bulk change', () => {
   });
 
   it('sends one batch under its key and returns every request as svc-support answered it', async () => {
-    const fn = vi.fn(async (_url: string, _init?: RequestInit) => ok({ batchKey: 'batch-1', results: rows }));
+    const fn = vi.fn(async (_url: string, _init?: RequestInit) => ok({ batchKey: 'batch-0001', results: rows }));
     vi.stubGlobal('fetch', fn);
     const res = await post({
       action: 'bulk',
-      batchKey: 'batch-1',
+      batchKey: 'batch-0001',
       ticketIds: [T1, T2],
       change: { kind: 'status', status: 'resolved' },
       reason: ' noise ',
@@ -897,7 +899,7 @@ describe('bulk change', () => {
     expect(json.summary).toBe('svc-support changed 1, found 0 already there and refused 1 of 2 requests.');
     expect(sent(fn)[0]!.url).toContain('/bulkUpdate');
     expect(sent(fn)[0]!.body).toEqual({
-      batchKey: 'batch-1',
+      batchKey: 'batch-0001',
       ticketIds: [T1, T2],
       change: { kind: 'status', status: 'resolved' },
       reason: 'noise',
@@ -915,15 +917,15 @@ describe('bulk change', () => {
   ])('refuses %s before the network', async (_name, body) => {
     const fn = vi.fn();
     vi.stubGlobal('fetch', fn);
-    const res = await post({ action: 'bulk', batchKey: 'batch-1', ...body });
+    const res = await post({ action: 'bulk', batchKey: 'batch-0001', ...body });
     expect(res.status).toBe(400);
     expect(fn).not.toHaveBeenCalled();
   });
 
   it('clears a priority with null', async () => {
-    const fn = vi.fn(async (_url: string, _init?: RequestInit) => ok({ batchKey: 'b', results: [rows[0]] }));
+    const fn = vi.fn(async (_url: string, _init?: RequestInit) => ok({ batchKey: 'batch-0002', results: [rows[0]] }));
     vi.stubGlobal('fetch', fn);
-    await post({ action: 'bulk', batchKey: 'b', ticketIds: [T1], change: { kind: 'priority', priority: null } });
+    await post({ action: 'bulk', batchKey: 'batch-0002', ticketIds: [T1], change: { kind: 'priority', priority: null } });
     expect(sent(fn)[0]!.body.change).toEqual({ kind: 'priority', priority: null });
   });
 
@@ -932,7 +934,7 @@ describe('bulk change', () => {
       'fetch',
       vi.fn(async () => trpcErr(412, 'support.bulk_cap_unset: the bulk batch size is not set')),
     );
-    const res = await post({ action: 'bulk', batchKey: 'b', ticketIds: [T1], change: { kind: 'status', status: 'resolved' } });
+    const res = await post({ action: 'bulk', batchKey: 'batch-0002', ticketIds: [T1], change: { kind: 'status', status: 'resolved' } });
     const json = await res.json();
     expect(json.ok).toBe(false);
     expect(json.refusal).toMatchObject({ title: 'The batch size is not set', changed: 'no' });
@@ -946,9 +948,14 @@ describe('bulk change', () => {
     ]) {
       vi.stubGlobal(
         'fetch',
-        vi.fn(async () => ok({ batchKey: 'batch-1', results })),
+        vi.fn(async () => ok({ batchKey: 'batch-0001', results })),
       );
-      const res = await post({ action: 'bulk', batchKey: 'batch-1', ticketIds: [T1, T2], change: { kind: 'status', status: 'resolved' } });
+      const res = await post({
+        action: 'bulk',
+        batchKey: 'batch-0001',
+        ticketIds: [T1, T2],
+        change: { kind: 'status', status: 'resolved' },
+      });
       const json = await res.json();
       expect(json.ok).toBe(false);
       expect(json.refusal.changed).toBe('unknown');
@@ -957,16 +964,16 @@ describe('bulk change', () => {
       'fetch',
       vi.fn(async () => ok({ batchKey: 'someone-else', results: rows })),
     );
-    const res = await post({ action: 'bulk', batchKey: 'batch-1', ticketIds: [T1, T2], change: { kind: 'status', status: 'resolved' } });
+    const res = await post({ action: 'bulk', batchKey: 'batch-0001', ticketIds: [T1, T2], change: { kind: 'status', status: 'resolved' } });
     expect((await res.json()).ok).toBe(false);
   });
 
   it('an answer that is not a list of requests is an unknown outcome, not a success', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => ok({ batchKey: 'b', results: [{ ticketId: T1 }] })),
+      vi.fn(async () => ok({ batchKey: 'batch-0002', results: [{ ticketId: T1 }] })),
     );
-    const res = await post({ action: 'bulk', batchKey: 'b', ticketIds: [T1], change: { kind: 'status', status: 'resolved' } });
+    const res = await post({ action: 'bulk', batchKey: 'batch-0002', ticketIds: [T1], change: { kind: 'status', status: 'resolved' } });
     const json = await res.json();
     expect(json.ok).toBe(false);
     expect(json.refusal.changed).toBe('unknown');

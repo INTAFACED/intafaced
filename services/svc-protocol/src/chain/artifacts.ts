@@ -77,6 +77,7 @@ export type ArtifactName =
   | 'TestToken'
   | 'TestPlainToken'
   | 'TestWrappedNative'
+  | 'TestBridgeToken'
   | 'SovereignPermit'
   | 'SovereignRouterV2'
   | 'RwaRegistry'

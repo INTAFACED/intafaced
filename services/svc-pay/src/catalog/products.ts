@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { Sql, TransactionSql } from 'postgres';
-import { PRODUCT_IMAGE_TYPES, type MerchantProduct, type ProductCreateInput, type ProductImageRules } from '@intafaced/contracts';
+import type { MerchantProduct, ProductCreateInput, ProductImageRules } from '@intafaced/contracts';
+import { PRODUCT_IMAGE_TYPES } from '@intafaced/contracts/merchant-catalog';
 import { MerchantOpsError } from '../merchant-ops/errors.js';
 import { iso } from '../merchant-ops/money.js';
 import { decodeCursor, encodeCursor, requireLimit, toPage } from '../merchant-ops/pagination.js';

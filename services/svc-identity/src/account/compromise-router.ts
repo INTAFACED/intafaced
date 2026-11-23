@@ -3,21 +3,20 @@
  * Shapes and refusals: `@intafaced/contracts/identity-compromise`. Customer sessions only; an API key or sub-account
  * is refused. The case moves no money.
  */
-import { protectedProcedure, router, TRPCError } from '@intafaced/contracts';
-import {
-  compromiseMineOutputSchema,
-  compromiseReportInputSchema,
-  compromiseReportOutputSchema,
-  compromiseReviewInputSchema,
-  compromiseReviewOutputSchema,
-  compromiseStartInputSchema,
-  compromiseStartOutputSchema,
-} from '@intafaced/contracts/identity-compromise';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import { AuthError, type AuthService } from '../auth/auth-service.js';
 import { factorActor } from '../auth/factor-gate.js';
 import { toTrpcError } from '../router.js';
 import { userCopy } from '../user-copy.js';
 import { CompromiseError } from './compromise.js';
+import {
+  IDENTITY_ACCOUNT_COMPROMISED_MARK_REVIEWED,
+  IDENTITY_ACCOUNT_COMPROMISED_MINE,
+  IDENTITY_ACCOUNT_COMPROMISED_START,
+  IDENTITY_ACCOUNT_COMPROMISED_REPORT_STOLEN_FUNDS,
+} from '@intafaced/contracts/identity-account-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from '../record-refusal.js';
 
 function toTrpc(err: unknown): never {
   if (err instanceof CompromiseError) {
@@ -32,10 +31,9 @@ function toTrpc(err: unknown): never {
 export function createCompromiseRouter(auth: AuthService, privilegedUserIds: readonly string[]) {
   return router({
     /** Ends every session and key, freezes the account and opens one case; again while it is open, the same case. */
-    start: protectedProcedure
-      .input(compromiseStartInputSchema)
-      .output(compromiseStartOutputSchema)
-      .mutation(async ({ ctx, input }) => {
+    start: mountRecord(
+      IDENTITY_ACCOUNT_COMPROMISED_START,
+      async ({ ctx, input }) => {
         try {
           const opened = await auth.startCompromise({
             userId: ctx.principal.userId,
@@ -46,20 +44,25 @@ export function createCompromiseRouter(auth: AuthService, privilegedUserIds: rea
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      codedRefusal,
+    ),
 
-    mine: protectedProcedure.output(compromiseMineOutputSchema).query(async ({ ctx }) => {
-      try {
-        return { case: await auth.compromiseCase(ctx.principal.userId, factorActor(ctx.principal, privilegedUserIds)) };
-      } catch (err) {
-        toTrpc(err);
-      }
-    }),
+    mine: mountRecord(
+      IDENTITY_ACCOUNT_COMPROMISED_MINE,
+      async ({ ctx }) => {
+        try {
+          return { case: await auth.compromiseCase(ctx.principal.userId, factorActor(ctx.principal, privilegedUserIds)) };
+        } catch (err) {
+          toTrpc(err);
+        }
+      },
+      codedRefusal,
+    ),
 
-    reportStolenFunds: protectedProcedure
-      .input(compromiseReportInputSchema)
-      .output(compromiseReportOutputSchema)
-      .mutation(async ({ ctx, input }) => {
+    reportStolenFunds: mountRecord(
+      IDENTITY_ACCOUNT_COMPROMISED_REPORT_STOLEN_FUNDS,
+      async ({ ctx, input }) => {
         try {
           return await auth.reportStolenFunds({
             userId: ctx.principal.userId,
@@ -70,12 +73,13 @@ export function createCompromiseRouter(auth: AuthService, privilegedUserIds: rea
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      codedRefusal,
+    ),
 
-    markReviewed: protectedProcedure
-      .input(compromiseReviewInputSchema)
-      .output(compromiseReviewOutputSchema)
-      .mutation(async ({ ctx, input }) => {
+    markReviewed: mountRecord(
+      IDENTITY_ACCOUNT_COMPROMISED_MARK_REVIEWED,
+      async ({ ctx, input }) => {
         try {
           const done = await auth.markCompromiseReviewed({
             userId: ctx.principal.userId,
@@ -86,6 +90,8 @@ export function createCompromiseRouter(auth: AuthService, privilegedUserIds: rea
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      codedRefusal,
+    ),
   });
 }

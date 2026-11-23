@@ -15,7 +15,7 @@ export type InvoiceDisplayStatus = (typeof invoiceDisplayStatuses)[number];
 
 const signedDecimal = z.string().regex(/^-?\d+(\.\d{1,18})?$/);
 /** One line of an invoice. A credit is stored with a negative `amount`; quantity and unit price are positive. */
-export const invoiceLineSchema = z.object({
+const invoiceLineSchema = z.object({
   kind: z.enum(['charge', 'credit']),
   description: z.string(),
   quantity: amount,
@@ -49,7 +49,7 @@ export const invoiceSchema = z.object({
 export type Invoice = z.infer<typeof invoiceSchema>;
 
 /** What the payment link looks like after a send or a re-issue. The token is shown once, on the call that minted it. */
-export const invoiceLinkSchema = z.object({
+const invoiceLinkSchema = z.object({
   id: z.string(),
   prefix: z.string(),
   expiresAt: timestamp.nullable(),
@@ -99,7 +99,7 @@ export const evidenceFileSchema = shared.evidenceSchema.extend({ contentBase64: 
 export type EvidenceFile = z.infer<typeof evidenceFileSchema>;
 
 /** `merchantOps.customers.series` on main (#4833): captured count and volume per day and asset. */
-export const customerSeriesSchema = z.object({
+const customerSeriesSchema = z.object({
   customerRef: z.string(),
   bucket: z.string(),
   from: z.string(),

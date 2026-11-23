@@ -100,17 +100,17 @@ export function ScanPanel() {
   return (
     <Panel title={t('scanTitle')}>
       <section aria-label={t('scanTitle')} className="protocol-scan">
-        <p className="muted">{t('scanNote')}</p>
+        <p className="lt-muted">{t('scanNote')}</p>
         {Detector ? (
           <>
             <Button variant="secondary" onClick={() => setCamera(camera === 'on' ? 'off' : 'on')}>
               {camera === 'on' ? t('scanCameraStop') : t('scanCamera')}
             </Button>
             {camera === 'on' && <video ref={video} muted playsInline aria-label={t('scanCamera')} />}
-            {camera === 'denied' && <p className="muted">{t('scanCameraDenied')}</p>}
+            {camera === 'denied' && <p className="lt-muted">{t('scanCameraDenied')}</p>}
           </>
         ) : (
-          <p className="muted">{t('scanCameraNone')}</p>
+          <p className="lt-muted">{t('scanCameraNone')}</p>
         )}
         <form
           onSubmit={(event) => {
@@ -138,7 +138,7 @@ export function ScanPanel() {
       {outcome.kind === 'connect' && (
         <Dialog title={t('connectTitle2')} onClose={() => setOutcome({ kind: 'idle' })}>
           <p>{t('connectNote')}</p>
-          <p className="muted" role="note" data-code="owner.decision">
+          <p className="lt-muted" role="note" data-code="owner.decision">
             {relayProjectId ? t('remoteNotBuilt') : t('connectBlocked')}
           </p>
           <div className="protocol-actions">

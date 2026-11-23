@@ -15,8 +15,9 @@
  * (DISPATCH_FULL) is also deferred while DISPATCH_CAP other hand-dispatched full runs run, and each of those, when it
  * ends, lets the deferred ones go too.
  *
- *   GH_TOKEN=... REPO=owner/name [TARGETED=true] [DISPATCH_FULL=true RUN_ID=…] node tooling/ci/main-first.mjs   (writes deferred=true|false)
- *   GH_TOKEN=... REPO=owner/name node tooling/ci/main-first.mjs --release                          (re-runs deferred runs)
+ *   REPO=owner/name [TARGETED=true] [DISPATCH_FULL=true RUN_ID=…] node tooling/ci/main-first.mjs   (writes deferred=true|false)
+ *   REPO=owner/name node tooling/ci/main-first.mjs --release                                  (re-runs deferred runs)
+ *   CI sets GH_TOKEN; run by hand, it reads through the logged-in gh (github-fetch.mjs).
  *
  * Why it never gives up (project-state#1906, the guide's round 2, 9 Nov 2026): with a 30-minute limit, branch runs went
  * on while main waited, so at 09:33 UTC main's run 2866 had been queued since 08:34 behind 13 hand-dispatched full runs
@@ -34,8 +35,10 @@
  * only unstarted job is waiting for a runner reads `queued` (42542683115, its scoreboard job, at 03:13 UTC); and a job
  * waiting on `needs` is not listed until it is created (42542683115's jobs at 02:49 UTC listed no scoreboard job).
  */
+import { runJobs } from './run-jobs.mjs';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { githubFetch, githubToken } from './github-fetch.mjs';
 
 export const WORKFLOW = 'real-app-journeys.yml';
 /** The touch job's step that marks a deferred run (real-app-journeys.yml; workflow-concurrency.test.mjs holds the
@@ -146,7 +149,7 @@ export async function toRelease(runs, jobsOf, now = Date.now()) {
 }
 
 async function api(repo, path, token, method = 'GET') {
-  const res = await fetch(`https://api.github.com/repos/${repo}${path}`, {
+  const res = await githubFetch(`https://api.github.com/repos/${repo}${path}`, {
     method,
     headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28' },
     signal: AbortSignal.timeout(30_000),
@@ -181,9 +184,10 @@ export async function decide(read) {
 }
 
 async function main() {
-  const { GH_TOKEN, REPO, DISPATCH_FULL, RUN_ID, RUN_ATTEMPT, TARGETED, GITHUB_OUTPUT } = process.env;
-  if (!GH_TOKEN || !REPO) return console.log('::notice::main-first has no GH_TOKEN or REPO; going on');
-  const jobsOf = async (id) => (await get(REPO, `/actions/runs/${id}/jobs?filter=latest&per_page=100`, GH_TOKEN))?.jobs;
+  const GH_TOKEN = githubToken();
+  const { REPO, DISPATCH_FULL, RUN_ID, RUN_ATTEMPT, TARGETED, GITHUB_OUTPUT } = process.env;
+  if (!REPO) return console.log('::notice::main-first has no REPO; going on');
+  const jobsOf = (id) => runJobs(`/actions/runs/${id}/jobs?filter=latest`, (p) => get(REPO, p, GH_TOKEN));
   if (process.argv.includes('--release')) {
     const list = await get(REPO, `/actions/workflows/${WORKFLOW}/runs?per_page=100`, GH_TOKEN);
     const ids = await toRelease(list?.workflow_runs, jobsOf);

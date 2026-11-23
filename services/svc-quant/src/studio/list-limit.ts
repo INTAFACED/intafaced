@@ -6,8 +6,7 @@
  */
 
 import { QUANT_STUDIO_LIST_LIMIT_UNSET, QuantError } from '../errors.js';
-
-export const STUDIO_LIST_LIMIT_CAP = 50;
+import { STUDIO_LIST_LIMIT_CAP } from '@intafaced/contracts/quant-call-schemas';
 
 export { QUANT_STUDIO_LIST_LIMIT_UNSET };
 
@@ -22,3 +21,4 @@ export function assertStudioListLimit(limit: number | null | undefined): number 
   }
   return Math.min(STUDIO_LIST_LIMIT_CAP, n);
 }
+export { STUDIO_LIST_LIMIT_CAP };

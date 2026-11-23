@@ -19,6 +19,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { countCall } from './api-count.mjs';
 
 export const LABELS = { step: 'flaky', test: 'flaky-test' };
 const STEP = /^J-[a-z0-9]+(?:-[a-z0-9]+)*-\d+ #\d+$/;
@@ -67,6 +68,7 @@ export function flakyIssue({ steps = [], tests = [], sha, run, title, body }) {
 }
 
 function gh(args) {
+  countCall();
   return execFileSync('gh', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] }).trim();
 }
 

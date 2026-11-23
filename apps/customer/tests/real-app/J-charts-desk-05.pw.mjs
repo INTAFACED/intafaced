@@ -76,19 +76,23 @@ async function paneValueAt(page, point) {
 /**
  * How far, in pixels, a painted height `y` (chart pixels) sits from where the pane now reads `value`. The Volume pane
  * rescales as the live bar's volume grows, so a line at a fixed value moves on screen after it is placed; this reads the
- * pane's own scale at the painted height (the whole pixel there and one either side) rather than trusting the scale at
- * the click.
+ * pane's own scale now rather than trusting the scale at the click. The scale is read at a quarter and three quarters of
+ * the pane's height, never at the painted height itself: the chart's pane-resize handle covers the pixels next to each
+ * pane separator, and a pointer there reads nothing, so a line the rescale carried near the pane's edge could not
+ * be read at its own height. The Volume pane's scale is linear, so two reads place every value on it.
  */
 async function pixelsFromValue(page, x, y, value) {
   const box = await chartHost(page).boundingBox();
   if (!box) throw new Error('the chart has no box');
-  const cy = Math.round(y);
-  const above = await paneValueAt(page, { x, y: box.y + cy - 1 });
-  const below = await paneValueAt(page, { x, y: box.y + cy + 1 });
-  const at = await paneValueAt(page, { x, y: box.y + cy });
-  const perPixel = Math.abs(above.value - below.value) / 2;
-  if (!(perPixel > 0)) throw new Error(`the pane reads no scale at y ${cy}`);
-  return Math.abs(at.value - value) / perPixel + Math.abs(y - cy);
+  const pane = (await paneBoxes(page)).find((b) => b.index === 1);
+  if (!pane) throw new Error('the chart has no Volume pane');
+  const [ya, yb] = [0.25, 0.75].map((f) => Math.round(pane.top + pane.height * f));
+  const a = await paneValueAt(page, { x, y: box.y + ya });
+  const b = await paneValueAt(page, { x, y: box.y + yb });
+  if (a.pane !== 1 || b.pane !== 1) throw new Error(`the Volume pane's scale was read on panes ${a.pane} and ${b.pane}`);
+  const perPixel = (b.value - a.value) / (yb - ya);
+  if (!(perPixel < 0)) throw new Error(`the Volume pane reads no scale between y ${ya} and ${yb}`);
+  return Math.abs(y - (ya + (value - a.value) / perPixel));
 }
 
 test.describe.configure({ mode: 'serial' });
@@ -99,6 +103,17 @@ test.beforeAll(async ({ browser }) => {
   const context = await browser.newContext({ viewport: { width: 1440, height: 2200 } });
   page = await context.newPage();
   await openWorkbench(page);
+  // The steps read a pixel and then click it, so the chart must not move on the page between the two. A chart whose last
+  // trade is young reads Live; once it is past the market's 30 s boundary a Delayed notice appears above the chart and
+  // pushes it down (runs 44861238200 and 44950507363 placed points 35 px off that way, in #5 and in #2). On the test
+  // stack the tape goes quiet after start-up, so the steps begin once the chart has left Live; a tape that keeps trading
+  // keeps it Live, shows no notice, and the steps begin after the wait.
+  const status = page.getByTestId('chart-status').first();
+  await expect(status).toBeVisible();
+  await expect
+    .poll(async () => await status.getAttribute('data-status'), { timeout: 45_000 })
+    .not.toMatch(/^(live|loading)$/)
+    .catch(() => {});
 });
 test.afterAll(async () => {
   await page?.context().close();
@@ -232,6 +247,19 @@ test(`${J} #2 adds an info line, a horizontal line and a ray, each on the price 
       const off = await pixelsFromValue(page, level.x, y1, Number(storedLevel[0]));
       expect(off, `line at ${y1}, ${off} px from where the pane reads the stored ${storedLevel[0]}`).toBeLessThanOrEqual(1.5);
     }
+  }).toPass({ timeout: 15_000 });
+
+  // The measure above reads a painted height next to the pane's top edge too, where the chart's pane-resize handle
+  // takes the pointer and the crosshair reads nothing: a height a pixel under the separator is measured from the
+  // same value as the clicked height, by exactly the pixels between them.
+  await expect(async () => {
+    const hostBox = await chartHost(page).boundingBox();
+    const here = await paneValueAt(page, level);
+    const clickedY = level.y - hostBox.y;
+    expect(await pixelsFromValue(page, level.x, clickedY, here.value)).toBeLessThanOrEqual(1.5);
+    const edgeY = volume.top + 1;
+    const fromEdge = await pixelsFromValue(page, level.x, edgeY, here.value);
+    expect(Math.abs(fromEdge - (clickedY - edgeY)), `at y ${edgeY}, ${fromEdge} px from y ${clickedY}`).toBeLessThanOrEqual(1.5);
   }).toPass({ timeout: 15_000 });
 
   // A ray and an info line on the Volume pane: each point stored at the value the pane reads under it, and each painted
@@ -433,7 +461,13 @@ async function magnetSnapsToClose() {
   const x = await centred(page, await plot(page, 0.5, 0.3));
   const bar = await pointerAt(page, x);
   const host = page.getByTestId('cw').getByTestId('wc-host');
-  const box = await host.boundingBox();
+  // Where the chart sits on the page now: a notice above it (the delayed-feed line once the last trade is over 30 s old)
+  // can push it down between a read and a click.
+  const hostTop = async () => {
+    const box = await host.boundingBox();
+    expect(box, 'the chart has a box on the page').not.toBeNull();
+    return box.y;
+  };
   const actions = page.getByRole('group', { name: 'Drawing actions' });
   // The bar's open, high, low and close from Edge's candles: its own candle's, or the previous close four times when the
   // bucket had no trade (a filled bar).
@@ -449,26 +483,34 @@ async function magnetSnapsToClose() {
   // The shared stack trades on this book while the step runs: a trade can move this bar's prices, or rescale the price
   // axis, between the read of the close's height and the click (run 42723613808 stored 65193.56, a price no snap from
   // three pixels off a 64976.46 close can reach). A placement during which the bar or the axis moved is deleted and
-  // made again; the check below is only made on a placement both stayed still for.
+  // made again; the check below is only made on a placement both stayed still for. The chart's place on the page is read
+  // for each placement and must stay still too: run 44861238200 stored 65193.56 when the delayed-feed notice appeared
+  // above the chart between the read and the click, so the click landed 35 pixels higher on the chart than aimed.
   for (let attempt = 1; ; attempt += 1) {
     const ohlc = await barPricesNow();
     const close = ohlc[3];
+    const top = await hostTop();
     const closeY = await closeYOf(close);
     expect(closeY, 'the close is drawn on the price pane').not.toBeNull();
     // Three pixels off the close: the price there is not the close at the tick, so only the magnet can store the close.
-    const off = await pointerAt(page, { x: x.x, y: box.y + closeY + 3 });
+    const off = await pointerAt(page, { x: x.x, y: top + closeY + 3 });
     expect(atTick(close.toFixed(2), off.price), 'three pixels off the close reads another price').toBe(false);
     await pick(page, 'Horizontal line');
-    await page.mouse.click(x.x, box.y + closeY + 3);
+    const clickTop = await hostTop();
+    await page.mouse.click(x.x, clickTop + closeY + 3);
     const placed = page.locator('[data-drawing-id][data-selected]');
     await expect(placed).toHaveAttribute('data-kind', 'horizontal');
     const placedText = await pointText(placed).textContent();
-    const still = JSON.stringify(await barPricesNow()) === JSON.stringify(ohlc) && Math.abs((await closeYOf(close)) - closeY) < 0.5;
+    const still =
+      JSON.stringify(await barPricesNow()) === JSON.stringify(ohlc) &&
+      Math.abs((await closeYOf(close)) - closeY) < 0.5 &&
+      clickTop === top &&
+      (await hostTop()) === top;
     if (!still && attempt < 3) {
       await actions.getByRole('button', { name: 'Delete', exact: true }).click();
       continue;
     }
-    expect(still, `the bar and the price axis stayed still for one of ${attempt} placements`).toBe(true);
+    expect(still, `the bar, the price axis and the chart's place on the page stayed still for one of ${attempt} placements`).toBe(true);
     // Stored at one of the bar's four prices (the nearest within the magnet's reach), not at the pointer's own price.
     const [stored] = pricesOf(placedText);
     expect(timesOf(placedText)).toEqual([barTimeText(bar.time)]);

@@ -1,5 +1,6 @@
 import type { Sql } from 'postgres';
-import { QUANT_EQUITY_STOP_POLICIES, type QuantEquityStopPolicy } from '@intafaced/contracts';
+import type { QuantEquityStopPolicy } from '@intafaced/contracts';
+import { QUANT_EQUITY_STOP_POLICIES } from '@intafaced/contracts/quant-algo';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client/money';
 import { QuantError } from '../errors.js';
 import type { RiskRepository, StoredRisk } from './repository.js';

@@ -60,6 +60,8 @@ function bot(botId = BOT): GridBot {
       { index: 1, price: A('70000'), qty: A('0.00142'), hold: A('99.4') },
     ],
     reinitCount: 0,
+    exitBelow: null,
+    exitAbove: null,
     status: 'running',
     statusReason: null,
     placeGrant: { scopes: ['trade:write'], sid: 'sid-test', tier: 'full', mfa: false },
@@ -417,6 +419,28 @@ describe('SqlGridStore (shared test postgres)', () => {
         }),
       ).rejects.toThrow(/grid_bot_top_ups_free_ck/);
       expect((await store.findBot(BOT))!.investment).toBe(A('200'));
+    });
+  });
+  describe('price exits (CB-bots-03; J-copy-bots-otc-15 #3)', () => {
+    it('saves and clears both exits while live, and writes nothing once stopped', async () => {
+      await store.createWithReserve(bot(), reserve(), async () => {});
+      expect(await store.findBot(BOT)).toMatchObject({ exitBelow: null, exitAbove: null });
+      expect(
+        await store.setExits({ botId: BOT, exits: { exitBelow: A('61000.5'), exitAbove: A('69000') }, at: AT, from: ['running'] }),
+      ).toBe(true);
+      expect(await store.findBot(BOT)).toMatchObject({ exitBelow: A('61000.5'), exitAbove: A('69000') });
+      expect(await store.setExits({ botId: BOT, exits: { exitBelow: null, exitAbove: A('69000') }, at: AT, from: ['running'] })).toBe(true);
+      expect((await store.findBot(BOT))!.exitBelow).toBeNull();
+      await store.setStatus(BOT, 'stopped', 'price_exit', AT, ['running']);
+      expect(await store.setExits({ botId: BOT, exits: { exitBelow: A('1'), exitAbove: null }, at: AT, from: ['running'] })).toBe(false);
+      expect(await store.findBot(BOT)).toMatchObject({ exitBelow: null, exitAbove: A('69000'), statusReason: 'price_exit' });
+    });
+
+    it('the row refuses a falls-to price at or above the rises-to price', async () => {
+      await store.createWithReserve(bot(), reserve(), async () => {});
+      await expect(
+        store.setExits({ botId: BOT, exits: { exitBelow: A('70000'), exitAbove: A('69000') }, at: AT, from: ['running'] }),
+      ).rejects.toThrow(/grid_bots_exits_ck/);
     });
   });
 });

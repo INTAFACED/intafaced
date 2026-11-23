@@ -1,16 +1,17 @@
 import { StatusTag } from '@intafaced/ui';
 import {
   KYC_LADDER_LEVELS,
-  kycLevelsDescribeOutputSchema,
   type KycLadderFeatureState,
   type KycLadderLevel,
   type KycLadderRung,
 } from '@intafaced/contracts/identity-kyc-levels';
-import { payWithdrawalTierLimitsOutputSchema, type PayWithdrawalTierLimits } from '@intafaced/contracts/pay-withdrawal-tier-limits';
+import type { PayWithdrawalTierLimits } from '@intafaced/contracts/pay-withdrawal-tier-limits';
+import { PAY_WITHDRAWAL_TIER_LIMITS } from '@intafaced/contracts/pay-withdrawal-procedures';
 import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Loading } from '../../shared/ui';
 import { verificationLadderCopy as copy } from './verification-ladder-copy';
+import { IDENTITY_KYC_LEVELS_DESCRIBE } from '@intafaced/contracts/identity-kyc-procedures';
 
 const rank = (level: KycLadderLevel) => KYC_LADDER_LEVELS.indexOf(level);
 
@@ -43,12 +44,12 @@ export function VerificationLadder({
   const { api, userId } = useSession();
   const { t, Copy } = copy.useCopy();
   const { resource, reload } = useResource(
-    (signal) => api.query('identity', 'kyc.levels.describe', {}, kycLevelsDescribeOutputSchema, { signal }),
+    (signal) => api.call(IDENTITY_KYC_LEVELS_DESCRIBE, {}, { signal }),
     `verification-ladder:${userId}:${statusTier ?? 'reading'}`,
   );
   // The owner's figures are the same for every customer, so one read serves every level (svc-pay, D-148).
   const { resource: limits, reload: reloadLimits } = useResource(
-    (signal) => api.query('pay', 'withdrawal.tierLimits', {}, payWithdrawalTierLimitsOutputSchema, { signal }),
+    (signal) => api.call(PAY_WITHDRAWAL_TIER_LIMITS, {}, { signal }),
     `verification-ladder-limits:${userId}`,
   );
   const limitsByTier = new Map<string, PayWithdrawalTierLimits['limits']>();
@@ -95,7 +96,7 @@ export function VerificationLadder({
       <h2>
         <Copy k="title" />
       </h2>
-      <p className="muted">
+      <p className="lt-muted">
         <Copy k="intro" /> {ladder.regionResolved ? <Copy k="region" params={{ region: ladder.region }} /> : <Copy k="regionUnknown" />}
       </p>
       <ol className="verification__rungs">
@@ -150,13 +151,13 @@ export function VerificationLadder({
             </h4>
             <div className="verification__limits" data-level={rung.level}>
               {limits.status === 'loading' ? (
-                <p className="muted">
+                <p className="lt-muted">
                   <Copy k="limitsReading" />
                 </p>
               ) : limits.status === 'failed' ? (
-                <p className="muted" data-limits="failed" data-code={limits.failure.code ?? limits.failure.reason}>
+                <p className="lt-muted" data-limits="failed" data-code={limits.failure.code ?? limits.failure.reason}>
                   <Copy k="limitsFailed" />{' '}
-                  <button type="button" className="text-link" onClick={reloadLimits}>
+                  <button type="button" className="lt-link" onClick={reloadLimits}>
                     <Copy k="limitsRetry" />
                   </button>
                 </p>
@@ -169,7 +170,7 @@ export function VerificationLadder({
                       </li>
                     ))}
                   </ul>
-                  <p className="muted">
+                  <p className="lt-muted">
                     <Copy k={limits.data.enforced ? 'limitOthersRefused' : 'limitsNotApplied'} />
                   </p>
                 </>
@@ -178,7 +179,7 @@ export function VerificationLadder({
                   <p data-limits="unset">
                     <Copy k="limitUnset" />
                   </p>
-                  <p className="muted">
+                  <p className="lt-muted">
                     <Copy k={limits.data.enforced ? 'limitUnsetRefused' : 'limitsNotApplied'} />
                   </p>
                 </>

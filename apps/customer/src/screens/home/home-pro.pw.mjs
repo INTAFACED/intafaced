@@ -106,7 +106,25 @@ const heroText = (page) =>
     return figure.trim();
   });
 const expectHero = (page, text) => expect.poll(() => heroText(page).catch(() => null), { timeout: 7000 }).toBe(text);
-const ready = (page) => expect(page.getByTestId('hp-markets').locator('[role="row"][data-symbol]').first()).toBeVisible();
+const ready = (page) => expect(page.getByTestId('hp-markets').locator('tr[data-symbol]').first()).toBeVisible();
+/** A Volt kit size token as the room resolves it, in px ("--lit-control-h" is 48). */
+const token = (page, name) =>
+  page.evaluate((n) => parseFloat(getComputedStyle(document.querySelector('.lt-room')).getPropertyValue(n)), name);
+/** A colour token as the browser draws it, read back from a probe painted with it (as text, or as a background). */
+const tokenColour = (page, name, property = 'color') =>
+  page.evaluate(
+    ([n, p]) => {
+      const probe = document.createElement('span');
+      probe.style[p] = `var(${n})`;
+      document.querySelector('.lt-room').append(probe);
+      const colour = getComputedStyle(probe)[p];
+      probe.remove();
+      return colour;
+    },
+    [name, property],
+  );
+/** The market filters: the kit's section tabs, buttons in a named group. */
+const marketTab = (page, name) => page.getByRole('group', { name: 'Market filters' }).getByRole('button', { name, exact: true });
 /** Nothing in Home Pro reaches past the window, and the page itself does not scroll sideways. */
 const noOverflow = async (page, label) => {
   const wide = await page.evaluate(() =>
@@ -138,7 +156,7 @@ test('ready state at 1440x900: summary, assets, markets, words, numbers', async 
   const home = page.getByTestId('if-home-pro');
   await expect(page.getByTestId('if-home')).toHaveCount(0); // Simple Home is not drawn in Pro mode
 
-  // Summary strip: the total, today's change, Cash, Crypto, open orders, and the actions at the right end.
+  // Summary: the total and today's change; Cash, Crypto and open orders in the Performance row; the actions under the summary.
   await expectHero(page, '$12,481.29');
   const summary = page.getByTestId('hp-summary');
   await expect(summary).toContainText('Est. total value');
@@ -150,70 +168,84 @@ test('ready state at 1440x900: summary, assets, markets, words, numbers', async 
   await expect(page.getByTestId('hp-stat__link')).toHaveAttribute('href', '/money/activity?tab=orders');
   // Only live actions, Buy is the one primary.
   expect(await texts(page.locator('[data-testid="hp-actions"] > *'))).toEqual(['Buy', 'Sell', 'Convert', 'Send', 'Receive']);
-  expect(await page.getByTestId('hp-actions').locator('a[data-variant="primary"]').count()).toBe(1);
+  expect(await page.getByTestId('hp-actions').locator('a.lt-button-primary').count()).toBe(1);
   await expect(page.getByTestId('hp-actions').locator('a').nth(0)).toHaveAttribute('href', '/trade/spot/BTC-USDT');
   expect(
     await page
       .locator('[data-testid="hp-actions"] > *')
       .first()
       .evaluate((node) => getComputedStyle(node).color),
-  ).toBe('rgb(11, 11, 11)');
-  expect(Math.round((await box(page, '[data-testid="hp-actions"] a')).height)).toBe(32);
-  expect(Math.round((await box(page, '[data-testid="hp-summary"]')).height)).toBeGreaterThanOrEqual(96);
-  expect(Math.round((await box(page, '[data-testid="hp-summary"]')).height)).toBeLessThanOrEqual(112);
-  // Actions sit at the right end of the strip.
-  const strip = await box(page, '[data-testid="hp-summary"]');
+  ).toBe(await tokenColour(page, '--lit-primary-fg'));
+  expect(Math.round((await box(page, '[data-testid="hp-actions"] a')).height)).toBe(await token(page, '--lit-control-h'));
+  // The summary keeps the height the overview reserves for it (the label row, the figure's bar and two lines), loaded as
+  // while loading.
+  const reserved = Math.round(
+    (await token(page, '--lit-control-h')) +
+      (await token(page, '--lit-type-hero-size')) * 1.6 +
+      2 * (await token(page, '--lit-type-body-line')) +
+      3 * (await token(page, '--lit-gap-item')),
+  );
+  expect(Math.round((await box(page, '[data-testid="hp-summary"]')).height)).toBeGreaterThanOrEqual(reserved);
+  expect(Math.round((await box(page, '[data-testid="hp-summary"]')).height)).toBeLessThanOrEqual(reserved + 1);
+  // The actions are the overview's own row under the summary, starting where the summary's panel starts.
+  const strip = await box(page, '[data-region="hero"]');
   const actions = await box(page, '[data-testid="hp-actions"]');
-  expect(Math.round(strip.x + strip.width - 24 - (actions.x + actions.width))).toBe(0);
+  expect(Math.round(actions.x - strip.x)).toBe(0);
+  expect(actions.y).toBeGreaterThanOrEqual(strip.y + strip.height);
 
   // Assets: asset, amount (rounded down), value, today's change, link to the desk.
   const assets = page.getByTestId('hp-assets');
-  expect(await texts(assets.locator('[role="columnheader"]'))).toEqual(['Asset', 'Amount', 'Value', 'Today', 'Trade']);
-  const rows = assets.locator('[role="row"][data-asset]');
+  expect(await texts(assets.locator('th'))).toEqual(['Asset', 'Amount', 'Value', 'Today', 'Trade']);
+  const rows = assets.locator('tr[data-asset]');
   expect(await rows.evaluateAll((nodes) => nodes.map((node) => node.dataset.asset))).toEqual(['BTC', 'USDT', 'ETH']); // biggest value first;
-  const cells = async (asset) => texts(assets.locator(`[data-asset="${asset}"] [role="cell"]`));
+  const cells = async (asset) => texts(assets.locator(`[data-asset="${asset}"] td`));
   expect(await cells('BTC')).toEqual(['BTCBitcoin', '0.1', '$6,781.24', '+2.75%', 'Trade']);
   expect(await cells('ETH')).toEqual(['ETHEthereum', '0.5', '$1,600.05', '+1.59%', 'Trade']);
   expect((await cells('USDT'))[0]).toBe('USDTTether');
   expect((await cells('USDT'))[4]).toBe(''); // cash has no market to open
   // The asset name opens the desk for its market (the coin page is M3; critic H3).
   await expect(assets.locator('[data-asset="BTC"] a').first()).toHaveAttribute('href', '/trade/spot/BTC-USDT');
-  await expect(assets.locator('[data-asset="BTC"] [data-slot="button"]')).toHaveAttribute('href', '/trade/spot/BTC-USDT');
-  await expect(assets.locator('[data-asset="ETH"] [data-slot="button"]')).toHaveAttribute('href', '/trade/spot/ETH-USDT');
-  expect(Math.round((await box(page, '[data-testid="hp-assets__row"]')).height)).toBe(48);
+  await expect(assets.locator('[data-asset="BTC"] a.lt-button')).toHaveAttribute('href', '/trade/spot/BTC-USDT');
+  await expect(assets.locator('[data-asset="ETH"] a.lt-button')).toHaveAttribute('href', '/trade/spot/ETH-USDT');
+  expect(Math.round((await box(page, '[data-testid="hp-assets__row"]')).height)).toBe(await token(page, '--lit-row-h'));
   // Numbers line up on the right edge of their column.
   const rights = await assets
-    .locator('[role="cell"]:nth-child(3)')
+    .locator('td:nth-child(3)')
     .evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().right)));
   expect(new Set(rights).size).toBe(1);
 
   // Markets: the shared table in Pro form, columns from the OKX markets list, the action says "Trade".
-  const table = page.getByTestId('hp-markets').locator('[role="table"]');
-  expect(await texts(table.locator('[role="columnheader"]'))).toEqual(['Name', 'Price', '24h change', 'Last 24h', '24h range', 'Action']);
-  expect(await texts(page.getByTestId('hp-markets').locator('[role="tab"]'))).toEqual(['Favorites', 'All', 'Gainers', 'Losers']);
-  await expect(page.getByTestId('hp-markets').locator('[role="tab"][aria-selected="true"]')).toHaveText('All');
+  const table = page.getByTestId('hp-markets').locator('table');
+  expect(await texts(table.locator('th'))).toEqual(['Name', 'Price', '24h change', 'Last 24h', '24h range', 'Action']);
+  const filters = page.getByRole('group', { name: 'Market filters' });
+  expect(await texts(filters.locator('button.lt-tab'))).toEqual(['Favorites', 'All', 'Gainers', 'Losers']);
+  await expect(filters.locator('button.lt-tab[aria-pressed="true"]')).toHaveText('All');
   const symbols = await page
     .getByTestId('hp-markets')
-    .locator('[role="row"][data-symbol]')
+    .locator('tr[data-symbol]')
     .evaluateAll((nodes) => nodes.map((node) => node.dataset.symbol));
   expect(symbols.length).toBeGreaterThan(3);
   expect(symbols.length).toBeLessThanOrEqual(10);
-  await expect(page.getByTestId('hp-markets').locator('[role="row"][data-symbol]').first()).toContainText('Trade');
-  await expect(page.getByTestId('hp-markets').locator('[data-slot="sparkline"] polyline').first()).toBeVisible();
+  await expect(page.getByTestId('hp-markets').locator('tr[data-symbol]').first()).toContainText('Trade');
+  await expect(page.getByTestId('hp-markets').locator('.lt-spark .lt-chart-line').first()).toBeVisible();
   await expect(page.getByTestId('hp-markets').getByTestId('hp-link')).toHaveAttribute('href', '/trade');
   // The 24h-change column is signed; a star is on every row.
-  expect(await texts(page.getByTestId('hp-markets').locator('[data-slot="pct"]'))).toContain('▲+2.75%');
+  expect(await texts(page.getByTestId('hp-markets').locator('[data-slot="pct"]'))).toContain('+2.75%');
+  await expect(
+    page.getByTestId('hp-markets').locator('[data-slot="pct"]').filter({ hasText: '+2.75%' }).first().locator('.lt-arrow-up'),
+  ).toHaveCount(1);
 
   // Order on the page: summary -> assets -> markets.
   const ys = await page.evaluate(() =>
-    ['[data-testid="hp-summary"]', '[data-testid="hp-assets"]', '[data-testid="hp-markets"] [role="table"]'].map(
+    ['[data-testid="hp-summary"]', '[data-testid="hp-assets"]', '[data-testid="hp-markets"] table'].map(
       (selector) => document.querySelector(selector).getBoundingClientRect().top,
     ),
   );
   expect([...ys].sort((a, b) => a - b)).toEqual(ys);
-  // 24 px gutters at 1440 (the page is full width up to 1600).
-  const frame = await box(page, '[data-testid="if-home-pro"]');
-  expect([Math.round(frame.x), Math.round(frame.width)]).toEqual([24, 1392]);
+  // The room is the kit's content width (1224, as Simple), centred in the page.
+  const frame = await box(page, '.lt-room');
+  const page_ = await page.locator('main').evaluate((node) => node.clientWidth);
+  expect([Math.round(frame.x), Math.round(frame.width)]).toEqual([Math.round((page_ - 1224) / 2), 1224]);
 
   // Plain words only, and every money figure has the money shape.
   expect(await home.innerText()).not.toMatch(forbidden);
@@ -222,8 +254,10 @@ test('ready state at 1440x900: summary, assets, markets, words, numbers', async 
   ))
     expect(value, `money shape: ${value}`).toMatch(moneyShape);
 
-  // Keyboard: Tab from the top bar reaches eye -> info tips -> actions -> Open orders -> View all assets -> asset rows.
+  // Keyboard: Tab from the top bar reaches Customise -> eye -> info tips -> actions -> Open orders.
   await page.locator('[data-testid="tb-right"] button').last().focus();
+  // Every stop shows the kit's focus ring.
+  const ring = await tokenColour(page, '--lit-focus');
   const path = [];
   for (let step = 0; step < 40; step++) {
     await page.keyboard.press('Tab');
@@ -234,24 +268,28 @@ test('ready state at 1440x900: summary, assets, markets, words, numbers', async 
         name: node.getAttribute('aria-label') ?? node.textContent.trim().replace(/\s+/g, ' ').slice(0, 24),
         href: node.getAttribute('href'),
         outline: `${style.outlineStyle} ${style.outlineWidth} ${style.outlineColor}`,
-        inside: Boolean(node.closest('[data-testid="if-home-pro"]')),
+        inside: Boolean(node.closest('.lt-room')),
       };
     });
     if (!stop.inside) continue;
-    expect(stop.outline, `focus ring on ${stop.name}`).toBe('solid 2px rgb(200, 246, 74)');
+    expect(stop.outline, `focus ring on ${stop.name}`).toBe(`solid 2px ${ring}`);
     path.push(stop);
     if (path.length >= 12) break;
   }
-  expect(path.map((stop) => stop.name).slice(0, 9)).toEqual([
+  // The actions come before the Performance row's figures: Buy before "2 open orders".
+  expect(path.map((stop) => stop.name).slice(0, 12)).toEqual([
     'Customise Home',
     'Hide balances',
     'How the total is worked out',
     'Assets',
     'About this change',
     'Named spaces not included',
-    '2 open orders',
     'Buy',
     'Sell',
+    'Convert',
+    'Send',
+    'Receive',
+    '2 open orders',
   ]);
 
   await page.mouse.move(0, 0);
@@ -335,7 +373,7 @@ test('the Simple / Pro switch changes Home at once, is remembered, and says what
   await page.waitForTimeout(400); // the outline colour fades in
   const settled = await page.evaluate(() => getComputedStyle(document.activeElement).outlineColor);
   expect(ring.name).toBe('Pro');
-  expect(settled).toBe('rgb(200, 246, 74)');
+  expect(settled).toBe(await tokenColour(page, '--lit-focus'));
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('if-home-pro')).toBeVisible();
 });
@@ -400,7 +438,7 @@ test('hidden balances show bullets and prices stay', async ({ page }) => {
   await expect(page.getByTestId('hp-assets')).not.toContainText('6,781');
   await expect(page.getByTestId('hp-assets')).not.toContainText('0.5');
   await expect(page.getByTestId('hp-summary').locator('[data-slot="change-text"]')).not.toContainText('206');
-  await expect(page.getByTestId('hp-markets').locator('[role="row"][data-symbol]').first()).toContainText('$'); // prices still show
+  await expect(page.getByTestId('hp-markets').locator('tr[data-symbol]').first()).toContainText('$'); // prices still show
   for (const value of await texts(
     page.locator('[data-testid="if-home-pro"] [data-slot="money"], [data-testid="if-home-pro"] [data-slot="amount"]'),
   ))
@@ -412,28 +450,39 @@ test('hidden balances show bullets and prices stay', async ({ page }) => {
 test('loading shows final-size skeletons and nothing moves when data arrives', async ({ page }) => {
   const api = await mock(page, { balance: null, markets: null, tickers: null, ohlcv: null, 'orders/open': null });
   await openPro(page);
-  await expect(page.locator('[data-slot="skeleton"]').first()).toBeVisible();
-  const hero = await page.getByTestId('hp-total__figure').locator('[data-slot="skeleton"]').boundingBox();
-  expect([Math.round(hero.width), Math.round(hero.height)]).toEqual([200, 40]);
-  expect(await page.getByTestId('hp-assets').locator('[data-slot="skeleton"]').count()).toBeGreaterThan(5);
-  expect(await page.getByTestId('hp-markets').locator('[role="table"] [data-slot="skeleton"]').count()).toBeGreaterThan(8);
-  // A skeleton inside a panel is the field colour, not the panel's own (it would be invisible): summary, assets, markets.
-  const panelColour = await page
-    .locator(':is([data-testid="hp-assets-panel"], [data-testid="hp-markets"], [data-testid="hp-activity"], [data-testid="hp-work"])')
-    .first()
-    .evaluate((node) => getComputedStyle(node).backgroundColor);
-  for (const selector of ['[data-testid="hp-summary"]', '[data-testid="hp-assets"]', '[data-testid="hp-markets"] [role="table"]'])
-    expect(
-      await page
-        .locator(`${selector} [data-slot="skeleton"]`)
-        .first()
-        .evaluate((node) => getComputedStyle(node).backgroundColor),
-      selector,
-    ).not.toBe(panelColour);
+  await expect(page.locator('.lt-ghost[data-busy] .lt-ghost-item').first()).toBeVisible();
+  // The total's place holds the kit's figure ghost: 60% of its line, the hero type's height and a half.
+  const hero = await page.getByTestId('hp-total__figure').locator('.lt-ghost[data-ghost="figure"] .lt-ghost-item').boundingBox();
+  const heroLine = await box(page, '[data-testid="hp-total__figure"]');
+  expect([Math.round(hero.width), Math.round(hero.height)]).toEqual([
+    Math.round(heroLine.width * 0.6),
+    Math.round((await token(page, '--lit-type-hero-size')) * 1.6),
+  ]);
+  expect(await page.getByTestId('hp-assets').locator('.lt-ghost-item').count()).toBeGreaterThan(5);
+  expect(await page.getByTestId('hp-markets').locator('table[aria-busy="true"] .lt-ghost-item').count()).toBeGreaterThan(8);
+  // Every placeholder is drawn: the keys fill the actions' row, and the Performance figures and every text ghost have a width.
+  for (const width of await page
+    .locator('[data-testid="if-home-pro"] .lt-ghost-item, [data-region="actions"] .lt-ghost-item, [data-region="pro"] .lt-ghost-item')
+    .evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().width))))
+    expect(width).toBeGreaterThan(0);
+  // A skeleton inside a panel is the kit's raised ground, not the panel's own colour (it would be invisible): summary,
+  // assets, markets.
+  const panelColour = await page.locator('[data-region="sections"]').evaluate((node) => getComputedStyle(node).backgroundColor);
+  const raised = await tokenColour(page, '--lit-solid-bg-raised', 'backgroundColor');
+  for (const selector of ['[data-testid="hp-summary"]', '[data-testid="hp-assets"]', '[data-testid="hp-markets"] table']) {
+    const colour = await page
+      .locator(`${selector} .lt-ghost-item`)
+      .first()
+      .evaluate((node) => getComputedStyle(node).backgroundColor);
+    expect(colour, selector).not.toBe(panelColour);
+    expect(colour, selector).toBe(raised);
+  }
   const layout = () =>
     page.evaluate(() =>
       [
         '[data-testid="hp-summary"]',
+        '[data-testid="hp-actions"]',
+        '[data-region="pro"]',
         '[data-testid="hp-assets"]',
         '[data-testid="hp-markets"]',
         '[data-testid="hp-markets"] [data-testid="mkt-header"]',
@@ -506,7 +555,7 @@ test('a failed orders call just leaves the open orders count out', async ({ page
   await openPro(page);
   await expectHero(page, '$12,481.29');
   expect(await texts(page.getByTestId('hp-stat__label'))).toEqual(['Cash', 'Crypto']);
-  await expect(page.getByTestId('hp-assets').locator('[role="row"][data-asset="BTC"]')).toBeVisible();
+  await expect(page.getByTestId('hp-assets').locator('tr[data-asset="BTC"]')).toBeVisible();
   await ready(page);
 });
 
@@ -528,22 +577,22 @@ test('markets tabs filter the table; Favorites is empty until a star is added', 
   const symbolsOf = () =>
     page
       .getByTestId('hp-markets')
-      .locator('[role="row"][data-symbol]')
+      .locator('tr[data-symbol]')
       .evaluateAll((nodes) => nodes.map((node) => node.dataset.symbol));
   const all = await symbolsOf();
-  await page.getByRole('tab', { name: 'Favorites' }).click();
+  await marketTab(page, 'Favorites').click();
   await expect(page.getByTestId('hp-markets').locator('[data-slot="state-block"]')).toContainText('Star a market to keep it here.');
-  await page.getByRole('tab', { name: 'Gainers' }).click();
+  await marketTab(page, 'Gainers').click();
   const gainers = await symbolsOf();
   expect(gainers.length).toBeGreaterThan(0);
   expect(gainers.length).toBeLessThan(all.length);
   expect(gainers[0]).toBe('BTC-USDT'); // biggest gain first
-  await page.getByRole('tab', { name: 'Losers' }).click();
+  await marketTab(page, 'Losers').click();
   expect(await symbolsOf()).toEqual(['DOGE-USDT', 'IFC-USDT']);
-  await page.getByRole('tab', { name: 'All' }).click();
+  await marketTab(page, 'All').click();
   // A star puts the market into Favorites.
-  await page.getByTestId('hp-markets').locator('[role="row"][data-symbol="ETH-USDT"] [aria-label^="Add"]').click();
-  await page.getByRole('tab', { name: 'Favorites' }).click();
+  await page.getByTestId('hp-markets').locator('tr[data-symbol="ETH-USDT"] [aria-label^="Add"]').click();
+  await marketTab(page, 'Favorites').click();
   expect(await symbolsOf()).toEqual(['ETH-USDT']);
   await shotBoth(page, 'home-pro-favorites');
 });

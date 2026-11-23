@@ -97,422 +97,489 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div class="lt-room" data-template="overview" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<p class="eyebrow">Money / Bank</p>
-<h1>Bank</h1>
-<p class="muted">Your spaces and every bank service in one place.</p>
-</div>
-<div class="actions">
-<a class="button button--primary" href="/bank/spaces">
-<span lang="en" dir="ltr" data-i18n="customer.money.index.create.space">＋ Create space</span>
-</a>
-<a class="button button--secondary" href="/bank/transfers">
-<span lang="en" dir="ltr" data-i18n="customer.money.index.transfer">↔ Transfer</span>
-</a>
-<a class="button button--secondary" href="/uc/withdraw">
-<span lang="en" dir="ltr" data-i18n="customer.money.custody.withdraw">Withdraw</span>
-</a>
+<h1 class="lt-title">Bank</h1>
+<p class="lt-description">Your spaces and every bank service in one place.</p>
 </div>
 </header>
-<nav data-testid="money-bank-nav" class="money-bank-nav" aria-label="Bank rooms">
-<a href="/bank" aria-current="page">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.overview">Overview</span>
-</a>
-<a href="/bank/spaces">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.spaces">Spaces</span>
-</a>
-<a href="/bank/transfers">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.transfers">Transfers</span>
-</a>
-<a href="/bank/earn">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.earn">Earn</span>
-</a>
-<a href="/bank/loans">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.loans">Loans</span>
-</a>
-<a href="/bank/cards">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.cards">Cards</span>
-</a>
-<a href="/bank/ramps">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.ramps">Ramps</span>
-</a>
-<a href="/bank/analytics">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.analytics">Analytics</span>
-</a>
-<a href="/bank/business">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.business">Business</span>
-</a>
+<div class="lt-body">
+<section class="lt-region" data-region="rooms">
+<div data-testid="money-bank-nav">
+<p class="lt-hint">
+<span lang="en" dir="ltr" data-i18n="customer.money.rooms.money.bank">Money / Bank</span>
+</p>
+<nav class="lt-tabs" aria-label="Bank rooms">
+<a href="/bank" class="lt-tab" aria-current="page">Overview</a>
+<a href="/bank/spaces" class="lt-tab">Spaces</a>
+<a href="/bank/transfers" class="lt-tab">Transfers</a>
+<a href="/bank/earn" class="lt-tab">Earn</a>
+<a href="/bank/loans" class="lt-tab">Loans</a>
+<a href="/bank/cards" class="lt-tab">Cards</a>
+<a href="/bank/ramps" class="lt-tab">Ramps</a>
+<a href="/bank/analytics" class="lt-tab">Analytics</a>
+<a href="/bank/business" class="lt-tab">Business</a>
 </nav>
-<div class="money-overview-lane">
-<section class="money-section">
-<header>
+</div>
+</section>
+<div class="lt-grid lt-grid-main-side">
+<div class="lt-col-main">
+<section class="lt-region" data-region="hero" aria-label="Balance">
+<section>
+<header class="lt-title-row">
 <div>
 <h2>Holdings</h2>
 </div>
-<div class="actions">
-<button type="button" class="button button--ghost " aria-pressed="false">
+<div class="lt-actions">
+<button aria-pressed="false" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
 <span lang="en" dir="ltr" data-i18n="customer.money.index.hide.amounts">Hide amounts</span>
 </button>
-<button type="button" class="button button--ghost ">
+<button type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
 <span lang="en" dir="ltr" data-i18n="customer.money.rooms.refresh">Refresh</span>
 </button>
 </div>
 </header>
-<p class="money-response-time">
+<div class="lt-stack">
+<p class="lt-hint">
 <time datetime="2026-10-21T12:00:00.000Z" dir="auto">Balances reported 21 Oct, 12:00</time>
 </p>
-<a data-testid="money-holding" class="money-holding" href="/portfolio/USDT">
-<span class="money-asset-mark" aria-hidden="true">U</span>
-<span class="money-holding-name">
+<ul class="lt-rows">
+<li>
+<a data-testid="money-holding" class="lt-row-link" data-span="row" href="/portfolio/USDT">
+<span class="lt-person-face" aria-hidden="true">U</span>
+<span class="lt-lines">
 <strong lang="und">USDT</strong>
-<small>
+<small class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="customer.money.index.user.ledger.quantity">Account quantity</span>
 </small>
 </span>
-<span class="money-holding-values">
-<strong class="numeric" dir="ltr">
-<span class="money-quantity-value">4,100.00</span>
-<span class="money-quantity-unit" lang="und"> USDT</span>
+<span data-part="figures">
+<strong class="lt-figure" dir="ltr">
+<span>4,100.00</span>
+<span lang="und"> USDT</span>
 </strong>
-<dl class="money-quantity-restrictions">
+<dl class="lt-kv">
 <div>
 <dt>
 <span lang="en" dir="ltr" data-i18n="customer.money.index.available">Available</span>
 </dt>
-<dd class="numeric" dir="ltr">4,100.00 USDT</dd>
+<dd class="lt-mono" dir="ltr">4,100.00 USDT</dd>
 </div>
 <div>
 <dt>
 <span lang="en" dir="ltr" data-i18n="customer.money.index.held.restricted">Held &amp; restricted</span>
 </dt>
-<dd class="numeric" dir="ltr">0 USDT</dd>
+<dd class="lt-mono" dir="ltr">0 USDT</dd>
 </div>
 </dl>
 </span>
-<span class="money-chevron" aria-hidden="true">↗</span>
+<span class="lt-arrow lt-arrow-go" aria-hidden="true">
+</span>
 </a>
-<a data-testid="money-holding" class="money-holding" href="/portfolio/BTC">
-<span class="money-asset-mark" aria-hidden="true">B</span>
-<span class="money-holding-name">
+</li>
+<li>
+<a data-testid="money-holding" class="lt-row-link" data-span="row" href="/portfolio/BTC">
+<span class="lt-person-face" aria-hidden="true">B</span>
+<span class="lt-lines">
 <strong lang="und">BTC</strong>
-<small>
+<small class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="customer.money.index.user.ledger.quantity">Account quantity</span>
 </small>
 </span>
-<span class="money-holding-values">
-<strong class="numeric" dir="ltr">
-<span class="money-quantity-value">0.1</span>
-<span class="money-quantity-unit" lang="und"> BTC</span>
+<span data-part="figures">
+<strong class="lt-figure" dir="ltr">
+<span>0.1</span>
+<span lang="und"> BTC</span>
 </strong>
-<dl class="money-quantity-restrictions">
+<dl class="lt-kv">
 <div>
 <dt>
 <span lang="en" dir="ltr" data-i18n="customer.money.index.available">Available</span>
 </dt>
-<dd class="numeric" dir="ltr">0.1 BTC</dd>
+<dd class="lt-mono" dir="ltr">0.1 BTC</dd>
 </div>
 <div>
 <dt>
 <span lang="en" dir="ltr" data-i18n="customer.money.index.held.restricted">Held &amp; restricted</span>
 </dt>
-<dd class="numeric" dir="ltr">0 BTC</dd>
+<dd class="lt-mono" dir="ltr">0 BTC</dd>
 </div>
 </dl>
 </span>
-<span class="money-chevron" aria-hidden="true">↗</span>
+<span class="lt-arrow lt-arrow-go" aria-hidden="true">
+</span>
 </a>
-<a data-testid="money-holding" class="money-holding" href="/portfolio/ETH">
-<span class="money-asset-mark" aria-hidden="true">E</span>
-<span class="money-holding-name">
+</li>
+<li>
+<a data-testid="money-holding" class="lt-row-link" data-span="row" href="/portfolio/ETH">
+<span class="lt-person-face" aria-hidden="true">E</span>
+<span class="lt-lines">
 <strong lang="und">ETH</strong>
-<small>
+<small class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="customer.money.index.user.ledger.quantity">Account quantity</span>
 </small>
 </span>
-<span class="money-holding-values">
-<strong class="numeric" dir="ltr">
-<span class="money-quantity-value">0.5</span>
-<span class="money-quantity-unit" lang="und"> ETH</span>
+<span data-part="figures">
+<strong class="lt-figure" dir="ltr">
+<span>0.5</span>
+<span lang="und"> ETH</span>
 </strong>
-<dl class="money-quantity-restrictions">
+<dl class="lt-kv">
 <div>
 <dt>
 <span lang="en" dir="ltr" data-i18n="customer.money.index.available">Available</span>
 </dt>
-<dd class="numeric" dir="ltr">0.5 ETH</dd>
+<dd class="lt-mono" dir="ltr">0.5 ETH</dd>
 </div>
 <div>
 <dt>
 <span lang="en" dir="ltr" data-i18n="customer.money.index.held.restricted">Held &amp; restricted</span>
 </dt>
-<dd class="numeric" dir="ltr">0 ETH</dd>
+<dd class="lt-mono" dir="ltr">0 ETH</dd>
 </div>
 </dl>
 </span>
-<span class="money-chevron" aria-hidden="true">↗</span>
+<span class="lt-arrow lt-arrow-go" aria-hidden="true">
+</span>
 </a>
+</li>
+</ul>
+</div>
 </section>
-<section class="money-section">
-<header>
+</section>
+<section class="lt-region" data-region="actions" aria-label="Actions">
+<div class="lt-actions">
+<a class="lt-button lt-button-primary" href="/bank/spaces">
+<span lang="en" dir="ltr" data-i18n="customer.money.index.create.space">＋ Create space</span>
+</a>
+<a class="lt-button lt-button-secondary" href="/bank/transfers">
+<span lang="en" dir="ltr" data-i18n="customer.money.index.transfer">↔ Transfer</span>
+</a>
+<a class="lt-button lt-button-secondary" href="/uc/withdraw">
+<span lang="en" dir="ltr" data-i18n="customer.money.custody.withdraw">Withdraw</span>
+</a>
+</div>
+</section>
+<section class="lt-region" data-region="needs-you" aria-label="Needs you">
+</section>
+<section class="lt-region" data-region="sections" aria-label="Activity">
+<div class="lt-body">
+<section>
+<header class="lt-title-row">
 <div>
 <h2>Your spaces</h2>
 </div>
-<div class="actions">
-<a class="text-link" href="/bank/spaces">
+<div class="lt-actions">
+<a class="lt-link" href="/bank/spaces">
 <span lang="en" dir="ltr" data-i18n="customer.money.index.manage.spaces">Manage spaces ↗</span>
 </a>
 </div>
 </header>
-<div data-testid="failure" class="failure" role="status">
-<h3>
+<div data-testid="failure" class="lt-refusal" data-refusal="unreachable" role="status">
+<p class="lt-refusal-title">
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p lang="en">The service could not be reached. Try again when the connection returns.</p>
-<button type="button" class="button button--secondary ">
+</p>
+<p class="lt-refusal-body" lang="en">The service could not be reached. Try again when the connection returns.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
 </button>
 </div>
 </section>
-</div>
-<div class="bd-stack" data-testid="account-home">
-<section class="bd-panel" aria-labelledby="_r_3_">
+<div class="lt-stack" data-testid="account-home">
+<section class="lt-stack" aria-labelledby="_r_3_">
 <h3 id="_r_3_">Profile</h3>
-<p class="money-caption">Which account the bank is answering for. It checks the profile on every read.</p>
+<p class="lt-hint">Which account the bank is answering for. It checks the profile on every read.</p>
 <div data-testid="account-profile">
-<div data-testid="failure" class="failure" role="status">
-<h3>
+<div data-testid="failure" class="lt-refusal" data-refusal="unreachable" role="status">
+<p class="lt-refusal-title">
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p lang="en">The service could not be reached. Try again when the connection returns.</p>
-<button type="button" class="button button--secondary ">
+</p>
+<p class="lt-refusal-body" lang="en">The service could not be reached. Try again when the connection returns.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
 </button>
 </div>
 </div>
 </section>
-<section class="bd-panel" aria-labelledby="_r_4_">
+<section class="lt-stack" aria-labelledby="_r_4_">
 <h3 id="_r_4_">Your account</h3>
-<p class="money-caption">What your account costs and what comes with it, as the bank published it.</p>
-<div data-testid="failure" class="failure" role="status">
-<h3>
+<p class="lt-hint">What your account costs and what comes with it, as the bank published it.</p>
+<div data-testid="failure" class="lt-refusal" data-refusal="unreachable" role="status">
+<p class="lt-refusal-title">
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p lang="en">The service could not be reached. Try again when the connection returns.</p>
-<button type="button" class="button button--secondary ">
+</p>
+<p class="lt-refusal-body" lang="en">The service could not be reached. Try again when the connection returns.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
 </button>
 </div>
 </section>
-<section class="bd-panel" aria-labelledby="_r_5_">
+<section class="lt-stack" aria-labelledby="_r_5_">
 <h3 id="_r_5_">Currencies</h3>
-<p class="money-caption">The currencies your account holds. An empty currency can be removed.</p>
-<div data-testid="failure" class="failure" role="status">
-<h3>
+<p class="lt-hint">The currencies your account holds. An empty currency can be removed.</p>
+<div data-testid="failure" class="lt-refusal" data-refusal="unreachable" role="status">
+<p class="lt-refusal-title">
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p lang="en">The service could not be reached. Try again when the connection returns.</p>
-<button type="button" class="button button--secondary ">
+</p>
+<p class="lt-refusal-body" lang="en">The service could not be reached. Try again when the connection returns.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
 </button>
 </div>
 </section>
-<section class="bd-panel" aria-labelledby="_r_6_">
+<section class="lt-stack" aria-labelledby="_r_6_">
 <h3 id="_r_6_">Bank transfer details</h3>
-<p class="money-caption">The account numbers a bank transfer to you uses, one set for each currency.</p>
-<div data-testid="failure" class="failure" role="status">
-<h3>
+<p class="lt-hint">The account numbers a bank transfer to you uses, one set for each currency.</p>
+<div data-testid="failure" class="lt-refusal" data-refusal="unreachable" role="status">
+<p class="lt-refusal-title">
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p lang="en">The service could not be reached. Try again when the connection returns.</p>
-<button type="button" class="button button--secondary ">
+</p>
+<p class="lt-refusal-body" lang="en">The service could not be reached. Try again when the connection returns.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
 </button>
 </div>
 </section>
 </div>
-<section class="money-section">
-<header>
+<section>
+<header class="lt-title-row">
 <div>
 <h2>Bank services</h2>
 </div>
 </header>
-<nav class="money-destinations" aria-label="Bank services">
-<a class="link-row" href="/bank/spaces">
-<span>
+<nav aria-label="Bank services">
+<ul class="lt-rows">
+<li>
+<a class="lt-row-link" data-span="row" href="/bank/spaces">
+<span class="lt-lines">
 <strong>
 <span lang="en" dir="ltr" data-i18n="customer.money.nav.spaces">Spaces</span>
 </strong>
-<small>
+<small class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="customer.money.overview.spaces.note">Organise funds for your goals</span>
 </small>
 </span>
-<span aria-hidden="true">↗</span>
+<span class="lt-arrow lt-arrow-go" aria-hidden="true">
+</span>
 </a>
-<a class="link-row" href="/bank/transfers">
-<span>
+</li>
+<li>
+<a class="lt-row-link" data-span="row" href="/bank/transfers">
+<span class="lt-lines">
 <strong>
 <span lang="en" dir="ltr" data-i18n="customer.money.nav.transfers">Transfers</span>
 </strong>
-<small>
+<small class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="customer.money.overview.transfers.note">Move funds between your spaces</span>
 </small>
 </span>
-<span aria-hidden="true">↗</span>
+<span class="lt-arrow lt-arrow-go" aria-hidden="true">
+</span>
 </a>
-<a class="link-row" href="/bank/earn">
-<span>
+</li>
+<li>
+<a class="lt-row-link" data-span="row" href="/bank/earn">
+<span class="lt-lines">
 <strong>
 <span lang="en" dir="ltr" data-i18n="customer.money.nav.earn">Earn</span>
 </strong>
-<small>
+<small class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="customer.money.overview.earn.note">Available earning products</span>
 </small>
 </span>
-<span aria-hidden="true">↗</span>
+<span class="lt-arrow lt-arrow-go" aria-hidden="true">
+</span>
 </a>
-<a class="link-row" href="/bank/loans">
-<span>
+</li>
+<li>
+<a class="lt-row-link" data-span="row" href="/bank/loans">
+<span class="lt-lines">
 <strong>
 <span lang="en" dir="ltr" data-i18n="customer.money.nav.loans">Loans</span>
 </strong>
-<small>
+<small class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="customer.money.overview.loans.note">Borrow against your assets and repay</span>
 </small>
 </span>
-<span aria-hidden="true">↗</span>
+<span class="lt-arrow lt-arrow-go" aria-hidden="true">
+</span>
 </a>
-<a class="link-row" href="/bank/cards">
-<span>
+</li>
+<li>
+<a class="lt-row-link" data-span="row" href="/bank/cards">
+<span class="lt-lines">
 <strong>
 <span lang="en" dir="ltr" data-i18n="customer.money.nav.cards">Cards</span>
 </strong>
-<small>
+<small class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="customer.money.overview.cards.note">Your cards and card controls</span>
 </small>
 </span>
-<span aria-hidden="true">↗</span>
+<span class="lt-arrow lt-arrow-go" aria-hidden="true">
+</span>
 </a>
-<a class="link-row" href="/bank/ramps">
-<span>
+</li>
+<li>
+<a class="lt-row-link" data-span="row" href="/bank/ramps">
+<span class="lt-lines">
 <strong>
 <span lang="en" dir="ltr" data-i18n="customer.money.nav.ramps">Ramps</span>
 </strong>
-<small>
+<small class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="customer.money.overview.ramps.note">Move money in and out by bank or card</span>
 </small>
 </span>
-<span aria-hidden="true">↗</span>
+<span class="lt-arrow lt-arrow-go" aria-hidden="true">
+</span>
 </a>
-<a class="link-row" href="/bank/analytics">
-<span>
+</li>
+<li>
+<a class="lt-row-link" data-span="row" href="/bank/analytics">
+<span class="lt-lines">
 <strong>
 <span lang="en" dir="ltr" data-i18n="customer.money.nav.analytics">Analytics</span>
 </strong>
-<small>
+<small class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="customer.money.overview.analytics.note">Reads across your bank records</span>
 </small>
 </span>
-<span aria-hidden="true">↗</span>
+<span class="lt-arrow lt-arrow-go" aria-hidden="true">
+</span>
 </a>
-<a class="link-row" href="/bank/business">
-<span>
+</li>
+<li>
+<a class="lt-row-link" data-span="row" href="/bank/business">
+<span class="lt-lines">
 <strong>
 <span lang="en" dir="ltr" data-i18n="customer.money.nav.business">Business</span>
 </strong>
-<small>
+<small class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="customer.money.overview.business.note">Approval rules on your accounts</span>
 </small>
 </span>
-<span aria-hidden="true">↗</span>
+<span class="lt-arrow lt-arrow-go" aria-hidden="true">
+</span>
 </a>
-<a class="link-row" href="/uc/record">
-<span>
+</li>
+<li>
+<a class="lt-row-link" data-span="row" href="/uc/record">
+<span class="lt-lines">
 <strong>
 <span lang="en" dir="ltr" data-i18n="customer.money.index.money.activity">Money activity</span>
 </strong>
-<small>
+<small class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="customer.money.overview.activity.note">Schedules, executions and ramp outcomes</span>
 </small>
 </span>
-<span aria-hidden="true">↗</span>
+<span class="lt-arrow lt-arrow-go" aria-hidden="true">
+</span>
 </a>
-<a class="link-row" href="/bank/account">
-<span>
+</li>
+<li>
+<a class="lt-row-link" data-span="row" href="/bank/account">
+<span class="lt-lines">
 <strong>
 <span lang="en" dir="ltr" data-i18n="customer.money.nav.bank.account">Your bank account</span>
 </strong>
-<small>
+<small class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="customer.money.overview.bank.account.note">Onboarding, requests and reviews from the bank partner, closing the account and your data</span>
 </small>
 </span>
-<span aria-hidden="true">↗</span>
+<span class="lt-arrow lt-arrow-go" aria-hidden="true">
+</span>
 </a>
-<a class="link-row" href="/bank/salary">
-<span>
+</li>
+<li>
+<a class="lt-row-link" data-span="row" href="/bank/salary">
+<span class="lt-lines">
 <strong>
 <span lang="en" dir="ltr" data-i18n="customer.money.nav.salary">Salary</span>
 </strong>
-<small>
+<small class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="customer.money.overview.salary.note">Your salary paid in by direct deposit, and split into your spaces</span>
 </small>
 </span>
-<span aria-hidden="true">↗</span>
+<span class="lt-arrow lt-arrow-go" aria-hidden="true">
+</span>
 </a>
-<a class="link-row" href="/bank/safety/scam">
-<span>
+</li>
+<li>
+<a class="lt-row-link" data-span="row" href="/bank/safety/scam">
+<span class="lt-lines">
 <strong>
 <span lang="en" dir="ltr" data-i18n="customer.money.nav.scam">Report a scam</span>
 </strong>
-<small>
+<small class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="customer.money.overview.scam.note">Before or after sending money, with the transfer it went out on</span>
 </small>
 </span>
-<span aria-hidden="true">↗</span>
+<span class="lt-arrow lt-arrow-go" aria-hidden="true">
+</span>
 </a>
-<a class="link-row" href="/bank/safety/lost-phone">
-<span>
+</li>
+<li>
+<a class="lt-row-link" data-span="row" href="/bank/safety/lost-phone">
+<span class="lt-lines">
 <strong>
 <span lang="en" dir="ltr" data-i18n="customer.money.nav.lostPhone">Lost phone or compromised account</span>
 </strong>
-<small>
+<small class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="customer.money.overview.lostPhone.note">Secure the account, extra checks for large sends and your sign-in location</span>
 </small>
 </span>
-<span aria-hidden="true">↗</span>
+<span class="lt-arrow lt-arrow-go" aria-hidden="true">
+</span>
 </a>
-<a class="link-row" href="/bank/safety/complaint">
-<span>
+</li>
+<li>
+<a class="lt-row-link" data-span="row" href="/bank/safety/complaint">
+<span class="lt-lines">
 <strong>
 <span lang="en" dir="ltr" data-i18n="customer.money.nav.complaint">Make a complaint</span>
 </strong>
-<small>
+<small class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="customer.money.overview.complaint.note">Acknowledged once, with a reference and a response date</span>
 </small>
 </span>
-<span aria-hidden="true">↗</span>
+<span class="lt-arrow lt-arrow-go" aria-hidden="true">
+</span>
 </a>
-<a class="link-row" href="/bank/safety/bereavement">
-<span>
+</li>
+<li>
+<a class="lt-row-link" data-span="row" href="/bank/safety/bereavement">
+<span class="lt-lines">
 <strong>
 <span lang="en" dir="ltr" data-i18n="customer.money.nav.bereavement">Report a death</span>
 </strong>
-<small>
+<small class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="customer.money.overview.bereavement.note">Tell us that a customer has died</span>
 </small>
 </span>
-<span aria-hidden="true">↗</span>
-</a>
-<a class="link-row" href="/bank/recovery">
-<span>
-<strong>Recovery claim</strong>
-<small>Claim the balances of someone who named you</small>
+<span class="lt-arrow lt-arrow-go" aria-hidden="true">
 </span>
-<span aria-hidden="true">↗</span>
 </a>
+</li>
+<li>
+<a class="lt-row-link" data-span="row" href="/bank/recovery">
+<span class="lt-lines">
+<strong>Recovery claim</strong>
+<small class="lt-hint">Claim the balances of someone who named you</small>
+</span>
+<span class="lt-arrow lt-arrow-go" aria-hidden="true">
+</span>
+</a>
+</li>
+</ul>
 </nav>
 </section>
+</div>
+</section>
+</div>
+<div class="lt-col-side">
+</div>
+</div>
+</div>
 </div>
 </div>
 </div>

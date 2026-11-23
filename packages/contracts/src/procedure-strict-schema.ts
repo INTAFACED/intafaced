@@ -49,9 +49,16 @@ const REFUSED_TYPES: Readonly<Partial<Record<z.core.$ZodTypes['_zod']['def']['ty
   success: 'z.success',
   any: 'z.any (no shape: accepts anything)',
   unknown: 'z.unknown (no shape: accepts anything)',
-  lazy: 'z.lazy (recursive schema; not supported by the generators yet)',
   intersection: 'intersection (merge semantics differ by generator)',
 };
+
+/**
+ * Any JSON value, declared on purpose: a stored document whose shape the service does not fix (a proposal's body). zod's
+ * own `z.json()`, which the export writes whole (a recursive `anyOf` of the six JSON kinds), so nothing is erased.
+ * `z.unknown()` stays refused: it says nothing about the value at all.
+ */
+export const jsonValueSchema = z.json();
+export type JsonValue = z.infer<typeof jsonValueSchema>;
 
 /** Regex features the JSON Schema dialect (ECMA-262) has and Rust's `regex` crate does not. */
 const NON_PORTABLE_REGEX = /\(\?<?[=!]|\\[1-9]|\\k</;
@@ -66,6 +73,8 @@ interface Walk {
   readonly io: 'input' | 'output';
   readonly root: boolean;
   readonly out: PortabilityFinding[];
+  /** The `z.lazy` schemas the walk is inside: met again, it is recursion, which the export writes as a `$ref`. */
+  readonly inside: ReadonlySet<z.core.$ZodType>;
 }
 
 function walk(schema: z.core.$ZodType, w: Walk): void {
@@ -88,6 +97,11 @@ function walk(schema: z.core.$ZodType, w: Walk): void {
     return;
   }
   switch (def.type) {
+    case 'lazy':
+      // A forward reference or a recursive tree: the export writes the one it points to (a cycle as `$defs` and `$ref`),
+      // exactly, so the walk checks what it points to, once per cycle.
+      if (!w.inside.has(schema)) walk(def.getter(), { ...w, inside: new Set([...w.inside, schema]) });
+      return;
     case 'object': {
       for (const [key, value] of Object.entries(def.shape)) next(value, `${w.at}.${key}`);
       const catchall = def.catchall;
@@ -132,7 +146,7 @@ function walk(schema: z.core.$ZodType, w: Walk): void {
 /** Every construct in `schema` the language-neutral export would erase or cannot express. Empty when it is portable. */
 export function portabilityFindings(schema: z.core.$ZodType, io: 'input' | 'output', label: string = io): PortabilityFinding[] {
   const out: PortabilityFinding[] = [];
-  walk(schema, { at: label, io, root: true, out });
+  walk(schema, { at: label, io, root: true, out, inside: new Set() });
   return out;
 }
 

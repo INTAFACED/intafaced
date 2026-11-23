@@ -11,7 +11,11 @@
  */
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
-import { PREVIEW_REFUSAL_CODE, previewRefusal, scopedProcedure, type PreviewRefusal } from '@intafaced/contracts';
+import type { PreviewRefusal } from '@intafaced/contracts';
+import { PREVIEW_REFUSAL_CODE, previewRefusal } from '@intafaced/contracts/preview-refusal';
+import { previewRefusalOf, scopedProcedure } from '@intafaced/contracts/trpc';
+import { BANK_LOANS_CHANGE_REPAYMENT_DATE, BANK_LOANS_MISSED_PAYMENT_POLICY } from '@intafaced/contracts/bank-credit-preview-procedures';
+import { mountRecord, type RefusalOf } from '@intafaced/contracts/procedure-mount';
 
 export const LOAN_SCHEDULE_ENGINE = 'bank.loan_schedule' as const;
 export const LOAN_EXTERNAL_REPAY_ENGINE = 'bank.loan_external_repay' as const;
@@ -33,26 +37,20 @@ export function throwPreviewRefusal(engine: string, action: string): never {
   });
 }
 
-const loanIdInput = z.object({ loanId: z.string().guid() }).strict();
+/** A preview door's one refusal, for a door mounted from its record: the typed Preview refusal, read from its cause. */
+export const previewRefusalOnly: RefusalOf = (err) =>
+  err instanceof TRPCError && previewRefusalOf(err.cause) ? { code: PREVIEW_REFUSAL_CODE, error: err } : undefined;
 
-const policyOutput = z.union([
-  z.object({ status: z.literal('not_set') }).strict(),
-  z
-    .object({
-      status: z.literal('set'),
-      graceDays: z.number().int().nonnegative(),
-      catchUpDays: z.number().int().nonnegative(),
-      lateFee: z.string().regex(/^\d+(\.\d{1,18})?$/),
-    })
-    .strict(),
-]);
+const loanIdInput = z.object({ loanId: z.string().guid() }).strict();
 
 export function loanServicingPreviewProcedures(policy: LoanMissedPaymentPolicy | null | undefined) {
   return {
     /** Preview: change the repayment date. Always the typed Preview refusal. */
-    changeRepaymentDate: scopedProcedure('bank:write', { module: 'bank' })
-      .input(loanIdInput.extend({ date: z.string().date() }).strict())
-      .mutation((): never => throwPreviewRefusal(LOAN_SCHEDULE_ENGINE, 'change_repayment_date')),
+    changeRepaymentDate: mountRecord(
+      BANK_LOANS_CHANGE_REPAYMENT_DATE,
+      (): never => throwPreviewRefusal(LOAN_SCHEDULE_ENGINE, 'change_repayment_date'),
+      previewRefusalOnly,
+    ),
 
     /** Preview: pay extra or early. Always the typed Preview refusal. */
     payExtra: scopedProcedure('bank:write', { module: 'bank' })
@@ -65,12 +63,13 @@ export function loanServicingPreviewProcedures(policy: LoanMissedPaymentPolicy |
       .mutation((): never => throwPreviewRefusal(LOAN_EXTERNAL_REPAY_ENGINE, 'repay_from_external_bank')),
 
     /** Missed-payment policy: owner data; blank reads `not_set`. */
-    missedPaymentPolicy: scopedProcedure('bank:read', { module: 'bank' })
-      .output(policyOutput)
-      .query(() =>
+    missedPaymentPolicy: mountRecord(
+      BANK_LOANS_MISSED_PAYMENT_POLICY,
+      () =>
         policy
           ? { status: 'set' as const, graceDays: policy.graceDays, catchUpDays: policy.catchUpDays, lateFee: policy.lateFee }
           : { status: 'not_set' as const },
-      ),
+      previewRefusalOnly,
+    ),
   };
 }

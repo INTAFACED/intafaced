@@ -1,16 +1,23 @@
 import { QUANT_SIGNAL_RULES_SANDBOX, QUANT_VERSION_NOT_FOUND, QuantError } from '../errors.js';
-import { STUDIO_LIST_LIMIT_CAP, assertStudioListLimit } from '../studio/list-limit.js';
+import { assertStudioListLimit } from '../studio/list-limit.js';
 import { buildSavedStrategy } from '../studio/save.js';
 import { compileSignalRules } from '../studio/modules.js';
 import { draftOf } from '../studio/repository.js';
 import { idempotencyConflict, requireClientStrategyId, requireIdempotencyKey } from '../studio/keys.js';
+import { publicJurisdictionProcedure, router } from '@intafaced/contracts/trpc';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import {
-  publicJurisdictionProcedure,
-  quantCompileOutputSchema,
-  quantSignalRulesSchema,
-  quantVersionDiffSchema,
-  router,
-} from '@intafaced/contracts';
+  QUANT_STUDIO_COMPILE,
+  QUANT_STUDIO_DELETE,
+  QUANT_STUDIO_DIFF,
+  QUANT_STUDIO_GET,
+  QUANT_STUDIO_LIST,
+  QUANT_STUDIO_LIST_DELETED,
+  QUANT_STUDIO_ORGANISE,
+  QUANT_STUDIO_RESTORE,
+  QUANT_STUDIO_SAVE,
+  QUANT_STUDIO_UPDATE,
+} from '@intafaced/contracts/quant-studio-procedures';
 import { requireStudioOperator } from '../studio/scope.js';
 import { runSandbox } from '../sandbox/run.js';
 import { trackRun } from '../runs/track.js';
@@ -19,46 +26,27 @@ import { withQuantSpan } from '../tracing.js';
 import { z } from 'zod';
 import {
   environmentInput,
-  decimal,
   runOutput,
   organisationOf,
+  quantRefusal,
   toTrpc,
-  studioBlock,
-  studioRisk,
-  strategyHead,
   strategyDetail,
-  strategyDetailForLive,
   sandboxBody,
-  strategyMetadata,
   accountField,
   writeKeyField,
   clientIdField,
   missingStrategy,
   type QuantCore,
 } from './core.js';
+import { QUANT_STUDIO_OPERATOR_LIST } from '@intafaced/contracts/quant-studio-records';
 
 export function studioRoutes(core: QuantCore) {
   const { strategies, runs, approvals, approvedVersionsOf, runLimitsFor, runDeps, releaseNoteOf, replayOf, accountOf, refuseWhileLocked } =
     core;
   return router({
-    save: publicJurisdictionProcedure('quant', 'fiat')
-      .input(
-        z
-          .object({
-            name: z.string().min(1).max(128),
-            blocks: z.array(studioBlock),
-            modules: quantSignalRulesSchema.optional().nullable(),
-            risk: studioRisk,
-            cash: decimal.optional().nullable(),
-            ...accountField,
-            ...writeKeyField,
-            ...clientIdField,
-            releaseNote: z.string().max(2000).optional(),
-          })
-          .merge(environmentInput),
-      )
-      .output(strategyDetail)
-      .mutation(async ({ input, ctx }) =>
+    save: mountRecord(
+      QUANT_STUDIO_SAVE,
+      async ({ input, ctx }) =>
         withQuantSpan('quant.studio.save', { language: 'javascript' }, async () => {
           try {
             const accountId = accountOf(ctx, input.accountId);
@@ -77,17 +65,17 @@ export function studioRoutes(core: QuantCore) {
             toTrpc(err);
           }
         }),
-      ),
+      quantRefusal,
+    ),
 
     /**
      * The no-code builder's check: the source the signal rules generate and the inputs they declare. A blank
      * required input refuses by name (`quant.param_unset`, `quant.sizing_rule_unset`); nothing runs and nothing is
      * stored.
      */
-    compile: publicJurisdictionProcedure('quant', 'fiat')
-      .input(z.object({ modules: quantSignalRulesSchema, ...accountField }))
-      .output(quantCompileOutputSchema)
-      .query(({ input, ctx }) => {
+    compile: mountRecord(
+      QUANT_STUDIO_COMPILE,
+      ({ input, ctx }) => {
         try {
           accountOf(ctx, input.accountId);
           const compiled = compileSignalRules(input.modules);
@@ -95,26 +83,19 @@ export function studioRoutes(core: QuantCore) {
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
 
     /**
-     * Saved strategies for the caller's account. `limit` is optional so omit
+     * Saved strategies for the caller's account (`quant.studio.list`, mounted from its record). `limit` is optional so omit
      * reaches `quant.studio_list_limit_unset` instead of a Zod "Required".
      * Blank is not 50; pass 50 explicitly when that is the page you want.
      * A body accountId does not select another account. Deleted rows are absent.
      */
-    list: publicJurisdictionProcedure('quant', 'fiat')
-      .input(
-        z
-          .object({
-            limit: z.number().int().min(1).max(STUDIO_LIST_LIMIT_CAP).optional(),
-            cursor: z.string().optional().nullable(),
-            ...accountField,
-          })
-          .optional(),
-      )
-      .output(z.object({ strategies: z.array(strategyHead), nextCursor: z.string().nullable() }))
-      .query(async ({ input, ctx }) => {
+    list: mountRecord(
+      QUANT_STUDIO_LIST,
+      async ({ input, ctx }) => {
         try {
           const accountId = accountOf(ctx, input?.accountId);
           const limit = assertStudioListLimit(input?.limit);
@@ -123,12 +104,13 @@ export function studioRoutes(core: QuantCore) {
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
 
-    get: publicJurisdictionProcedure('quant', 'fiat')
-      .input(z.object({ id: z.string().min(1), ...accountField }))
-      .output(strategyDetailForLive)
-      .query(async ({ input, ctx }) => {
+    get: mountRecord(
+      QUANT_STUDIO_GET,
+      async ({ input, ctx }) => {
         try {
           const found = await strategies.get({ accountId: accountOf(ctx, input.accountId), id: input.id });
           if (!found) missingStrategy();
@@ -140,26 +122,13 @@ export function studioRoutes(core: QuantCore) {
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
 
-    update: publicJurisdictionProcedure('quant', 'fiat')
-      .input(
-        z
-          .object({
-            id: z.string().min(1),
-            name: z.string().min(1).max(128),
-            blocks: z.array(studioBlock),
-            modules: quantSignalRulesSchema.optional().nullable(),
-            risk: studioRisk,
-            cash: decimal.optional().nullable(),
-            ...accountField,
-            ...writeKeyField,
-            releaseNote: z.string().max(2000).optional(),
-          })
-          .merge(environmentInput),
-      )
-      .output(strategyDetail)
-      .mutation(async ({ input, ctx }) => {
+    update: mountRecord(
+      QUANT_STUDIO_UPDATE,
+      async ({ input, ctx }) => {
         try {
           const accountId = accountOf(ctx, input.accountId);
           const prior = await replayOf(accountId, input.idempotencyKey);
@@ -179,12 +148,13 @@ export function studioRoutes(core: QuantCore) {
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
 
-    delete: publicJurisdictionProcedure('quant', 'fiat')
-      .input(z.object({ id: z.string().min(1), ...accountField, ...writeKeyField }))
-      .output(z.object({ ok: z.literal(true) }))
-      .mutation(async ({ input, ctx }) => {
+    delete: mountRecord(
+      QUANT_STUDIO_DELETE,
+      async ({ input, ctx }) => {
         try {
           const accountId = accountOf(ctx, input.accountId);
           const prior = await replayOf(accountId, input.idempotencyKey);
@@ -192,7 +162,7 @@ export function studioRoutes(core: QuantCore) {
           if (prior) idempotencyConflict(prior.operation);
           const existing = await strategies.get({ accountId, id: input.id });
           if (!existing) missingStrategy();
-          return strategies.softDelete({
+          return await strategies.softDelete({
             accountId,
             id: input.id,
             idempotencyKey: requireIdempotencyKey(input.idempotencyKey),
@@ -200,16 +170,17 @@ export function studioRoutes(core: QuantCore) {
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
 
     /**
      * The line difference between two stored versions of one of the caller's strategies (AL-editor-01): the source,
      * the order blocks and the signal rules. Derived on read. A version the strategy does not have is not found.
      */
-    diff: publicJurisdictionProcedure('quant', 'fiat')
-      .input(z.object({ id: z.string().min(1), from: z.number().int().positive(), to: z.number().int().positive(), ...accountField }))
-      .output(quantVersionDiffSchema)
-      .query(async ({ input, ctx }) => {
+    diff: mountRecord(
+      QUANT_STUDIO_DIFF,
+      async ({ input, ctx }) => {
         try {
           const found = await strategies.get({ accountId: accountOf(ctx, input.accountId), id: input.id });
           if (!found) missingStrategy();
@@ -222,45 +193,38 @@ export function studioRoutes(core: QuantCore) {
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
 
     /**
      * Rename, move to a folder and describe one of the caller's strategies (AL-editor-01). The head changes and no
      * version is added. All three are sent each time; the screen keys the write `studio.organise:<id>:<organised>`.
      */
-    organise: publicJurisdictionProcedure('quant', 'fiat')
-      .input(
-        z.object({
-          id: z.string().min(1),
-          name: z.unknown().optional(),
-          folder: z.unknown().optional(),
-          description: z.unknown().optional(),
-          ...accountField,
-          ...writeKeyField,
-        }),
-      )
-      .output(strategyDetail)
-      .mutation(async ({ input, ctx }) => {
+    organise: mountRecord(
+      QUANT_STUDIO_ORGANISE,
+      async ({ input, ctx }) => {
         try {
           const accountId = accountOf(ctx, input.accountId);
           const prior = await replayOf(accountId, input.idempotencyKey);
           if (prior?.operation === 'organise') return prior.response;
           if (prior) idempotencyConflict(prior.operation);
           const head = organisationOf(input);
-          return strategies.organise({ accountId, id: input.id, idempotencyKey: requireIdempotencyKey(input.idempotencyKey), head });
+          return await strategies.organise({ accountId, id: input.id, idempotencyKey: requireIdempotencyKey(input.idempotencyKey), head });
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
 
     /**
      * Bring a deleted strategy back from the recycle bin with the versions it had (AL-editor-01). One that is not
      * deleted returns its head unchanged. The screen keys it `studio.restore:<id>:<deletedAt>`.
      */
-    restore: publicJurisdictionProcedure('quant', 'fiat')
-      .input(z.object({ id: z.string().min(1), ...accountField, ...writeKeyField }))
-      .output(strategyDetail)
-      .mutation(async ({ input, ctx }) => {
+    restore: mountRecord(
+      QUANT_STUDIO_RESTORE,
+      async ({ input, ctx }) => {
         try {
           const accountId = accountOf(ctx, input.accountId);
           const prior = await replayOf(accountId, input.idempotencyKey);
@@ -270,21 +234,14 @@ export function studioRoutes(core: QuantCore) {
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
 
     /** The recycle bin: the caller's deleted strategies, with the same page limit rule as the list. */
-    listDeleted: publicJurisdictionProcedure('quant', 'fiat')
-      .input(
-        z
-          .object({
-            limit: z.number().int().min(1).max(STUDIO_LIST_LIMIT_CAP).optional(),
-            cursor: z.string().optional().nullable(),
-            ...accountField,
-          })
-          .optional(),
-      )
-      .output(z.object({ strategies: z.array(strategyHead), nextCursor: z.string().nullable() }))
-      .query(async ({ input, ctx }) => {
+    listDeleted: mountRecord(
+      QUANT_STUDIO_LIST_DELETED,
+      async ({ input, ctx }) => {
         try {
           const accountId = accountOf(ctx, input?.accountId);
           const limit = assertStudioListLimit(input?.limit);
@@ -293,7 +250,9 @@ export function studioRoutes(core: QuantCore) {
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
 
     clone: publicJurisdictionProcedure('quant', 'fiat')
       .input(
@@ -396,17 +355,9 @@ export function studioRoutes(core: QuantCore) {
      * Every account's metadata. Admin scope required. No source and no blocks.
      * A body accountId is ignored — this is not a way to read one user's source.
      */
-    operatorList: publicJurisdictionProcedure('quant', 'fiat')
-      .input(
-        z
-          .object({
-            limit: z.number().int().min(1).max(STUDIO_LIST_LIMIT_CAP).optional(),
-            ...accountField,
-          })
-          .optional(),
-      )
-      .output(z.object({ strategies: z.array(strategyMetadata), quarantineCount: z.number().int().nonnegative() }))
-      .query(async ({ input, ctx }) => {
+    operatorList: mountRecord(
+      QUANT_STUDIO_OPERATOR_LIST,
+      async ({ input, ctx }) => {
         try {
           requireStudioOperator(ctx);
           const limit = assertStudioListLimit(input?.limit);
@@ -418,6 +369,8 @@ export function studioRoutes(core: QuantCore) {
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
   });
 }

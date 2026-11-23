@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { z } from 'zod';
-import type { ApiResult } from '../../shared/api';
+import { parsesAs, type ApiResult } from '../../shared/api';
 import { customerRoomHref } from '../../app/navigation';
 import { useResource } from '../../shared/resource';
 import { Button, Dialog, EmptyState, Failure, Field, Loading } from '../../shared/ui';
@@ -18,6 +18,12 @@ import {
 import { priceAlertsCopy as copy } from './price-alerts-copy';
 import { readMarker, storageKey, type Marker, type Stored } from './price-alert-marker';
 import './price-alerts.css';
+import {
+  NOTIFY_ALERTS,
+  NOTIFY_CREATE_ALERT,
+  NOTIFY_CANCEL_ALERT,
+  NOTIFY_EVALUATE_ALERT,
+} from '@intafaced/contracts/notify-notify-procedures';
 
 // Alert targets permit arbitrary decimal precision. The 18-place money parser
 // would silently change a threshold; prices never pass through a JS number.
@@ -91,7 +97,7 @@ export function PriceAlerts({ market }: { market: Listing }) {
                   <Copy k={market.paper ? 'simulation' : mode !== 'Personal' ? 'company' : 'signIn'} />
                 </p>
                 {!market.paper && !userId && (
-                  <a className="text-link" href={'/login?redirect=' + encodeURIComponent(location.pathname + location.search)}>
+                  <a className="lt-link" href={'/login?redirect=' + encodeURIComponent(location.pathname + location.search)}>
                     <Copy k="signIn" />
                   </a>
                 )}
@@ -115,14 +121,7 @@ function OwnerAlerts({ userId, market, onClose }: { userId: string; market: List
     .extend({ items: z.array(owned).max(100), evaluation })
     .refine(({ items }) => new Set(items.map((row) => row.id)).size === items.length);
   const read = useResource(
-    (signal) =>
-      api.query(
-        'notify',
-        'notify.alerts',
-        { limit },
-        listSchema.refine((data) => data.items.length <= limit),
-        { signal },
-      ),
+    (signal) => api.call(NOTIFY_ALERTS, { limit }, { signal, accept: parsesAs(listSchema.refine((data) => data.items.length <= limit)) }),
     userId + ':' + market.id + ':' + limit,
   );
   const [direction, setDirection] = useState<Alert['direction']>('above');
@@ -218,7 +217,7 @@ function OwnerAlerts({ userId, market, onClose }: { userId: string; market: List
         }
         const abort = new AbortController();
         controller.current = abort;
-        const fresh = await api.query('notify', 'notify.alerts', { limit: 100 }, listSchema, { signal: abort.signal });
+        const fresh = await api.call(NOTIFY_ALERTS, { limit: 100 }, { signal: abort.signal, accept: parsesAs(listSchema) });
         if (!alive.current || !api.canWrite()) return;
         if (!fresh.ok) {
           setFailure(fresh);
@@ -271,11 +270,10 @@ function OwnerAlerts({ userId, market, onClose }: { userId: string; market: List
             ),
             evaluation,
           });
-          const answer = await api.mutate(
-            'notify',
-            'notify.createAlert',
+          const answer = await api.call(
+            NOTIFY_CREATE_ALERT,
             { kind: 'price', marketId: market.id, direction: original.direction, targetPrice: original.targetPrice },
-            response,
+            { accept: parsesAs(response) },
           );
           outcome = answer;
           if (answer.ok) next = { key: 'saved', row: answer.data.alert, evaluation: answer.data.evaluation };
@@ -285,7 +283,7 @@ function OwnerAlerts({ userId, market, onClose }: { userId: string; market: List
             const response = cancelAlertReplySchema
               .extend({ alert: returned.nullable() })
               .refine((data) => data.cancelled === (data.alert?.status === 'cancelled'));
-            const answer = await api.mutate('notify', 'notify.cancelAlert', { id: original.row.id }, response);
+            const answer = await api.call(NOTIFY_CANCEL_ALERT, { id: original.row.id }, { accept: parsesAs(response) });
             outcome = answer;
             if (answer.ok)
               next = {
@@ -312,7 +310,7 @@ function OwnerAlerts({ userId, market, onClose }: { userId: string; market: List
                 const met = original.row.direction === 'above' ? comparison >= 0 : comparison <= 0;
                 return data.outcome.kind === (met ? 'fire' : 'hold');
               });
-            const answer = await api.mutate('notify', 'notify.evaluateAlert', { id: original.row.id }, response);
+            const answer = await api.call(NOTIFY_EVALUATE_ALERT, { id: original.row.id }, { accept: parsesAs(response) });
             outcome = answer;
             if (answer.ok) {
               const data = answer.data;
@@ -366,7 +364,7 @@ function OwnerAlerts({ userId, market, onClose }: { userId: string; market: List
       <strong>
         <Copy k={data.canFire ? 'connected' : 'dark'} />
       </strong>
-      <p className="muted">
+      <p className="lt-muted">
         <Copy k="availability" />
       </p>
       {data.code && (
@@ -396,7 +394,7 @@ function OwnerAlerts({ userId, market, onClose }: { userId: string; market: List
       }}
     >
       <div className="price-alerts" lang={languageFor('title')}>
-        <p className="muted">
+        <p className="lt-muted">
           <span lang="">{market.symbol}</span> · <Copy k="personal" />
         </p>
         {stored.failed && (
@@ -431,7 +429,7 @@ function OwnerAlerts({ userId, market, onClose }: { userId: string; market: List
             <p>
               <Copy k="browserAttempt" />: <code lang="">{stored.marker.requestId}</code>
             </p>
-            <p className="muted">
+            <p className="lt-muted">
               <Copy k="lookup" />
             </p>
           </section>
@@ -488,7 +486,7 @@ function OwnerAlerts({ userId, market, onClose }: { userId: string; market: List
               </p>
             )}
             <Availability data={review.evaluation} />
-            <p className="muted">
+            <p className="lt-muted">
               <Copy k={review.action === 'create' ? 'oneShot' : review.action === 'cancel' ? 'cancelMeaning' : 'checkMeaning'} />
             </p>
             {review.action === 'create' && !review.evaluation.canFire && (
@@ -520,7 +518,7 @@ function OwnerAlerts({ userId, market, onClose }: { userId: string; market: List
         ) : (
           !stored.marker && (
             <>
-              <p className="muted">
+              <p className="lt-muted">
                 <Copy k="scope" />
               </p>
               {currentEvaluation && <Availability data={currentEvaluation} />}
@@ -540,7 +538,7 @@ function OwnerAlerts({ userId, market, onClose }: { userId: string; market: List
                 <h3>
                   <Copy k="newAlert" />
                 </h3>
-                <label className="field">
+                <label className="lt-field">
                   <span>
                     <Copy k="direction" />
                   </span>
@@ -599,7 +597,7 @@ function OwnerAlerts({ userId, market, onClose }: { userId: string; market: List
                         <Copy k={row.status} />
                       </span>
                     </div>
-                    <p className="muted">
+                    <p className="lt-muted">
                       <Copy k="unit" params={{ quote: market.quote, base: market.base }} />
                     </p>
                     <Button variant="secondary" onClick={() => setSelectedId(row.id)}>
@@ -612,7 +610,7 @@ function OwnerAlerts({ userId, market, onClose }: { userId: string; market: List
                   <Copy k="emptyBody" />
                 </EmptyState>
               )}
-              <p className="muted">
+              <p className="lt-muted">
                 <Copy k="window" params={{ limit }} />
               </p>
               {limit < 100 && read.resource.data.items.length >= limit && (
@@ -675,17 +673,17 @@ function OwnerAlerts({ userId, market, onClose }: { userId: string; market: List
                 )}
               </>
             ) : (
-              <p className="muted">
+              <p className="lt-muted">
                 <Copy k="missing" />
               </p>
             )}
           </section>
         )}
         <nav className="price-alerts-exits">
-          <a className="text-link" href={customerRoomHref('/support')}>
+          <a className="lt-link" href={customerRoomHref('/support')}>
             <Copy k="support" />
           </a>
-          <a className="text-link" href="/notifications">
+          <a className="lt-link" href="/notifications">
             <Copy k="settings" />
           </a>
         </nav>

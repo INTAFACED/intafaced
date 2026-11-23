@@ -1,0 +1,139 @@
+# The look gate on a pull request (#9325): the rooms the change reaches, at the base and at the head, before and after.
+#
+# CI calls it (ci.yml, job `look`) on a pull request that changes a Customer room, the kit or the gate
+# (ci-affected.mjs reachesLook), and its seal needs it green then. By hand it replays any two commits (`before`, `after`).
+#
+# 1. `build`: the Customer app built at the base (the merge commit's first parent, or `before`) and at the head (the
+#    merge commit, or `after`).
+# 2. `look`: tooling/ci/look-gate/look-gate.mjs --pr, in three shards, in the pinned Playwright image the daily gate uses.
+#    Every room is shot on both sides; a room whose pictures differ (twice) is reached and gets every check of the daily
+#    gate on both sides (axe, worst-pixel contrast, 130% copy, obscured focus, font, targets, money on glass, CSP, the
+#    phone's right-to-left, 200% text and forced colours). The run fails when the head adds a finding on a new-look page
+#    (policy.mjs newFindings, prVerdict): what main already fails on blocks nobody here.
+# 3. The reached rooms' before, after and diff pictures stay in the `look-pr-<k>` artifacts (7 days), named in
+#    `pictures-<k>-of-3.json`, for the CI review.
+#
+# The rules come from main, as in look-gate.yml: main's copy of the gate runs once it has `--pr`, so a pull request can't
+# loosen the gate it is judged by. Read-only: no token is used, nothing is written but the artifacts.
+name: Look gate on a pull request
+
+on:
+  workflow_call:
+  workflow_dispatch:
+    inputs:
+      before:
+        description: The base commit (a SHA or ref)
+        required: true
+      after:
+        description: The head commit (a SHA or ref)
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  TURBO_TELEMETRY_DISABLED: 1
+
+jobs:
+  build:
+    name: Build (${{ matrix.side }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20 # healthy run: about 4 min
+    strategy:
+      fail-fast: true
+      matrix:
+        side: [before, after]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.after || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      # On a pull request the head is the merge commit and the base its first parent: main as this pull request merges into it.
+      - name: Check out the ${{ matrix.side }} side
+        if: matrix.side == 'before'
+        env:
+          BEFORE: ${{ inputs.before }}
+        run: git checkout --detach "${BEFORE:-HEAD^1}" && git log -1 --oneline
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build the Customer app
+        run: pnpm turbo run build --filter=@intafaced/customer
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: look-dist-${{ matrix.side }}
+          path: apps/customer/dist
+          retention-days: 1
+          if-no-files-found: error
+
+  look:
+    name: Look gate on the rooms it changes (${{ matrix.shard }}/3)
+    needs: [build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40 # healthy run: about 8 min with a few rooms reached; a kit change that reaches every room takes longer
+    container:
+      # mcr.microsoft.com/playwright:v1.65.0-noble, the version in the lockfile (as look-gate.yml).
+      image: mcr.microsoft.com/playwright@sha256:6e3fb709361521eb27161606e6da6d2674e5e89fa16516cb37d6fdd91372273d
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.after || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - name: Install
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          pnpm install --frozen-lockfile
+          pnpm turbo run build --filter=@intafaced/i18n
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: look-dist-before
+          path: ${{ runner.temp }}/before
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: look-dist-after
+          path: ${{ runner.temp }}/after
+
+      # Main's rules: its copy of tooling/ci/look-gate sits next to the pull request's, so relative imports still resolve.
+      # The pull request's own copy runs only while main's has no `--pr` (the pull request that adds it).
+      - name: Take the gate from main
+        run: |
+          git fetch --no-tags origin main
+          if git show origin/main:tooling/ci/look-gate/look-gate.mjs 2>/dev/null | grep -q "'--pr'"; then
+            mkdir -p tooling/ci/.look-gate-main
+            git archive origin/main tooling/ci/look-gate | tar -x --strip-components=3 -C tooling/ci/.look-gate-main
+            echo "GATE=tooling/ci/.look-gate-main/look-gate.mjs" >> "$GITHUB_ENV"
+          else
+            echo "::notice::main's look gate has no --pr yet; running this pull request's copy"
+            echo "GATE=tooling/ci/look-gate/look-gate.mjs" >> "$GITHUB_ENV"
+          fi
+
+      - name: Self-test
+        run: node "$GATE" --self-test
+
+      - name: Look gate on the rooms it changes
+        env:
+          LOOK_GATE_WORKERS: 4
+        run: node "$GATE" --pr --before "$RUNNER_TEMP/before" --after "$RUNNER_TEMP/after" --shard ${{ matrix.shard }}/3 --out look-pr-out
+
+      - name: Keep the pictures and the report
+        if: success() || failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: look-pr-${{ matrix.shard }}
+          path: look-pr-out
+          retention-days: 7
+          if-no-files-found: ignore

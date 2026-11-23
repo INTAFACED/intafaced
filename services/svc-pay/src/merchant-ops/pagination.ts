@@ -1,25 +1,5 @@
-import { z } from 'zod';
 import { MerchantOpsError } from './errors.js';
-
-/**
- * CURSOR PAGINATION for every merchant-operations list.
- *
- * Newest first, keyed on (timestamp, id) so equal timestamps never skip or
- * repeat a row. The cursor is opaque to the client. The timestamp travels as a
- * MICROSECOND string straight from Postgres: a JS `Date` has milliseconds and
- * would drop digits, and a page boundary that drops digits loses rows.
- *
- * WHEN BINDING THAT STRING, WRITE `(${ts}::text)::timestamptz`, NEVER
- * `${ts}::timestamptz`. postgres.js serialises a parameter typed timestamptz
- * through `new Date(...)`, which cuts it to milliseconds and silently skips the
- * rows between the cut and the real boundary (found by a flaky page walk).
- *
- * `limit` is accepted as optional in the input schema so that leaving it out
- * reaches a named refusal instead of a Zod "Required", and is never defaulted
- * (same rule as every svc-pay list: blank is not 50).
- */
-export const limitInput = z.number().int().min(1).max(200).optional();
-export const cursorInput = z.string().min(1).max(512).optional();
+import { limitInput, cursorInput } from '@intafaced/contracts/pay-founder-admin-procedures';
 
 export interface Page<T> {
   readonly items: T[];
@@ -65,3 +45,4 @@ export function toPage<R, T>(rows: R[], limit: number, map: (row: R) => T, curso
   const last = kept[kept.length - 1];
   return { items: kept.map(map), nextCursor: hasMore && last ? cursorOf(last) : null };
 }
+export { limitInput, cursorInput };

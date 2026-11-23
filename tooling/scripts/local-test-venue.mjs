@@ -93,10 +93,17 @@ export const TEST_VENUE_DEPOSIT_ASSET = 'USDC';
 const TEST_USD_DECIMALS = 6;
 /**
  * The TEST venue's published deposit terms (J-dex-protocol-05 #1 and #2), all TEST: a transfer under 5 TEST USDC is never
- * credited, and one is credited after 3 confirmations on the TEST chain. The stack's anvil mines a block per transaction
+ * credited, one is credited after 3 confirmations on the TEST chain, and its warning names the one chain and token. The stack's anvil mines a block per transaction
  * only, so a journey that waits for confirmations mines the blocks itself (`evm_mine`, the TEST chain's own control).
  */
-export const TEST_VENUE_DEPOSIT_TERMS = { minimum: '5', confirmations: 3, network: 'TEST chain' };
+export const TEST_VENUE_DEPOSIT_TERMS = {
+  minimum: '5',
+  confirmations: 3,
+  network: 'TEST chain',
+  // The venue's own warning for a transfer on any other chain (J-wallet-24 #1), as a real bridge publishes one. TEST.
+  warning:
+    'TEST: send only TEST USDC on TEST chain to this address. A transfer on any other chain, or of any other token, is not credited.',
+};
 /**
  * The TEST chain's explorer is the app's own (/chain/tx/<hash>, which reads the stack's TEST chain), so the TEST venue links
  * each deposit there. A journey switches it off (`/test/switches {depositExplorerTxUrl: null}`) for a network with none.

@@ -386,7 +386,7 @@ export function MerchantRefund({
               : t('title')}
         </h3>
         {(receipt || recovery) && (
-          <p className="muted">
+          <p className="lt-muted">
             {receipt
               ? t(receipt.kind === 'refunded' ? 'recordedBody' : 'reversedBody')
               : t(snapshot.status === 'unreadable' ? 'unreadableBody' : 'unknownBody')}
@@ -396,7 +396,7 @@ export function MerchantRefund({
       {(receipt || recovery) && references(receipt?.refundId ?? snapshot.reference)}
       {receipt && (
         <div className="merchant-refund-proof" role="status">
-          <p className="muted">
+          <p className="lt-muted">
             <Copy k="matched" />
           </p>
           <strong>{t(receipt.kind === 'refunded' ? 'recorded' : 'reversed')}</strong>
@@ -409,7 +409,7 @@ export function MerchantRefund({
             <h4>
               <Copy k="cleanup" />
             </h4>
-            <p className="muted">
+            <p className="lt-muted">
               <Copy k="cleanupBody" />
             </p>
           </div>
@@ -417,7 +417,7 @@ export function MerchantRefund({
             <Button onClick={() => void cleanup(receipt)} disabled={shown?.busy}>
               <Copy k="cleanupAction" />
             </Button>
-            <p className="muted">
+            <p className="lt-muted">
               <Copy k="cleanupOnly" />
             </p>
           </div>
@@ -430,7 +430,7 @@ export function MerchantRefund({
               <h4>
                 <Copy k="spent" />
               </h4>
-              <p className="muted">
+              <p className="lt-muted">
                 <Copy k="spentBody" />
               </p>
             </div>
@@ -447,7 +447,7 @@ export function MerchantRefund({
               <h4>
                 <Copy k="noSend" />
               </h4>
-              <p className="muted">{snapshot.problem === 'conflict' ? t('conflict') : t('retryBody')}</p>
+              <p className="lt-muted">{snapshot.problem === 'conflict' ? t('conflict') : t('retryBody')}</p>
               {snapshot.references.map((ref) => (
                 <p lang="zxx" key={ref} style={{ overflowWrap: 'anywhere' }}>
                   {ref}
@@ -463,7 +463,7 @@ export function MerchantRefund({
               <h4>
                 <Copy k="noMatch" />
               </h4>
-              <p className="muted">
+              <p className="lt-muted">
                 <Copy k={shown.count >= HISTORY_WINDOW ? 'historyWindow' : 'historyAll'} params={{ count: shown.count }} />
               </p>
               <p>
@@ -476,7 +476,7 @@ export function MerchantRefund({
               <Copy k="busy" />
             </p>
           )}
-          <p className="muted">
+          <p className="lt-muted">
             <Copy k="paused" />
           </p>
           <Button disabled={shown?.busy} onClick={() => (snapshot.status === 'unreadable' ? void loadPayment() : void check())}>
@@ -507,7 +507,7 @@ export function MerchantRefund({
                 }}
               />
               {pay.access('pay:refund') && (
-                <p role="note" className="muted">
+                <p role="note" className="lt-muted">
                   {moneyReason('refund', pay.authority?.scopes)}
                 </p>
               )}
@@ -544,10 +544,10 @@ export function MerchantRefund({
       {currentReview && (
         <Dialog closeLabel={t('back')} title={t('review')} onClose={() => dismiss(currentReview, false)}>
           <div className="merchant-refund merchant-refund-review">
-            <p className="muted">
+            <p className="lt-muted">
               <Copy k="reviewBody" />
             </p>
-            <p className="muted">
+            <p className="lt-muted">
               <Copy k="reviewAmount" />
             </p>
             <PayAmount value={currentReview.input.amount} unit={currentReview.assetId} label={t('reviewAmount')} />
@@ -556,7 +556,7 @@ export function MerchantRefund({
               <h4>
                 <Copy k="continuity" />
               </h4>
-              <p className="muted">
+              <p className="lt-muted">
                 <Copy k="continuityBody" />
               </p>
             </div>

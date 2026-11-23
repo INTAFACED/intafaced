@@ -1,18 +1,18 @@
 import {
-  quantLifecycleSchema,
-  quantPromoteOutputSchema,
   type QuantGateCheckResult,
   type QuantGateCriterion,
   type QuantLifecycle,
   type QuantStrategyDetail,
 } from '@intafaced/contracts/quant-algo';
+import { QUANT_LIFECYCLE_GET, QUANT_LIFECYCLE_PROMOTE } from '@intafaced/contracts/quant-strategy-settings-procedures';
 import { useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, DataTable, EmptyState, Failure, Loading } from '../../shared/ui';
-import { Read, Select } from '../more';
+import { EmptyNote, FailureNote, KitRead, ScrollTable, Waiting } from '../more';
 import { useApi } from '../session';
 import { lifecycleCopy } from './lifecycle-copy';
+import { Button } from '@intafaced/ui/lit';
+import { SelectField } from '@intafaced/ui/lit/templates';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 const utcText = (iso: string) => iso.slice(0, 16).replace('T', ' ');
@@ -28,8 +28,8 @@ export function StrategyLifecycle({ strategy }: { strategy: QuantStrategyDetail 
   return (
     <section aria-label={t('title')} data-testid="quant-lifecycle">
       <h3>{t('title')}</h3>
-      <p className="muted">{t('intro')}</p>
-      <Select
+      <p>{t('intro')}</p>
+      <SelectField
         label={t('version')}
         value={version}
         onChange={setVersion}
@@ -50,7 +50,7 @@ function VersionLifecycle({ strategyId, version }: { strategyId: string; version
   const [failure, setFailure] = useState<Failed | null>(null);
   const [outcome, setOutcome] = useState<'approved' | 'rejected' | null>(null);
   const read = useResource(
-    (signal) => api.query('quant', 'lifecycle.get', { strategyId, strategyVersion: version }, quantLifecycleSchema, { signal }),
+    (signal) => api.call(QUANT_LIFECYCLE_GET, { strategyId, strategyVersion: version }, { signal }),
     `quant-lifecycle:${strategyId}:${version}:${revision}`,
   );
   async function promote(seq: number) {
@@ -58,29 +58,29 @@ function VersionLifecycle({ strategyId, version }: { strategyId: string; version
     setBusy(true);
     setFailure(null);
     setOutcome(null);
-    const res = await api.mutate('quant', 'lifecycle.promote', { strategyId, strategyVersion: version, seq }, quantPromoteOutputSchema);
+    const res = await api.call(QUANT_LIFECYCLE_PROMOTE, { strategyId, strategyVersion: version, seq });
     setBusy(false);
     if (!res.ok) return setFailure(res);
     setOutcome(res.data.decision.decision);
     setRevision((n) => n + 1);
   }
   return (
-    <Read resource={read.resource} retry={read.reload}>
+    <KitRead resource={read.resource} retry={read.reload}>
       {(data) => (
         <div data-testid="quant-lifecycle-version" data-version={version} data-stage={data.stage}>
           <p data-testid="quant-stage" data-stage={data.stage}>
             <strong>{t('stage', { stage: t(data.stage) })}</strong>
           </p>
           <h4>{t('checks')}</h4>
-          <DataTable label={t('checks')} headers={[t('check'), t('status'), t('criterion'), t('observed')]}>
+          <ScrollTable label={t('checks')} headers={[t('check'), t('status'), t('criterion'), t('observed')]}>
             {data.gate.checks.map((check) => (
               <CheckRow key={check.check} check={check} />
             ))}
-          </DataTable>
-          <Button onClick={() => void promote(data.decisions.length)} disabled={busy}>
+          </ScrollTable>
+          <Button tone="primary" onClick={() => void promote(data.decisions.length)} disabled={busy}>
             {t('promote', { version })}
           </Button>
-          {busy && <Loading label={t('promoting')} />}
+          {busy && <Waiting label={t('promoting')} />}
           {outcome && (
             <p role="status" data-testid="quant-promote-decision" data-decision={outcome}>
               {t(outcome, { version })}
@@ -90,7 +90,7 @@ function VersionLifecycle({ strategyId, version }: { strategyId: string; version
           <Decisions data={data} />
         </div>
       )}
-    </Read>
+    </KitRead>
   );
 }
 
@@ -135,7 +135,7 @@ function PromoteRefusal({ failure, lifecycle }: { failure: Failed; lifecycle: Qu
   const text = failure.message ?? '';
   const unset = failure.code === 'quant.gate_criteria_unset' || text.startsWith('quant.gate_criteria_unset');
   const transition = failure.code === 'quant.stage_transition_invalid' || text.startsWith('quant.stage_transition_invalid');
-  if (!unset && !transition) return <Failure result={failure} />;
+  if (!unset && !transition) return <FailureNote result={failure} />;
   const named = (/quant\.gate_criteria_unset — ([a-zA-Z, ]+) — /.exec(text)?.[1] ?? lifecycle.gate.unset.join(', '))
     .split(',')
     .map((name) => name.trim())
@@ -145,11 +145,13 @@ function PromoteRefusal({ failure, lifecycle }: { failure: Failed; lifecycle: Qu
       data-testid="quant-promote-refusal"
       data-code={unset ? 'quant.gate_criteria_unset' : 'quant.stage_transition_invalid'}
       data-unset={named.join(',')}
-      className="failure"
+      className="lt-refusal"
       role="status"
     >
-      <h4>{t('refusedTitle')}</h4>
-      <p>{unset ? t('unset', { names: named.map((name) => t(UNSET_NAME[name])).join(', ') }) : t('transition')}</p>
+      <h4 className="lt-refusal-title">{t('refusedTitle')}</h4>
+      <p className="lt-refusal-body">
+        {unset ? t('unset', { names: named.map((name) => t(UNSET_NAME[name])).join(', ') }) : t('transition')}
+      </p>
     </div>
   );
 }
@@ -165,9 +167,9 @@ function Decisions({ data }: { data: QuantLifecycle }) {
     >
       <h4>{t('history')}</h4>
       {data.decisions.length === 0 ? (
-        <EmptyState title={t('noHistory')} />
+        <EmptyNote title={t('noHistory')} />
       ) : (
-        <DataTable label={t('history')} headers={[t('decisionAt'), t('decision'), t('move')]}>
+        <ScrollTable label={t('history')} headers={[t('decisionAt'), t('decision'), t('move')]}>
           {data.decisions.map((row) => {
             const move = data.stages.find((stage) => stage.at === row.at);
             return (
@@ -178,7 +180,7 @@ function Decisions({ data }: { data: QuantLifecycle }) {
               </tr>
             );
           })}
-        </DataTable>
+        </ScrollTable>
       )}
     </section>
   );

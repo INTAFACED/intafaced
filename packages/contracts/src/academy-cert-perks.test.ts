@@ -1,7 +1,6 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { createRequire } from 'node:module';
+import { describe, expect, expectTypeOf, it, vi } from 'vitest';
+import { z } from 'zod';
 import { BASE_PERKS, type IdentityContract } from './identity.js';
 import {
   CERT_PERK_BANNED_PAYLOAD_KEYS,
@@ -31,9 +30,9 @@ import {
   refuseInventPerkBalance,
   refuseInventPerkMoney,
   refuseUnpricedCertPerk,
+  type CertPerkIdentityDoors,
 } from './academy-cert-perks.js';
-
-const here = dirname(fileURLToPath(import.meta.url));
+import * as certPerkModule from './academy-cert-perks.js';
 
 describe('academy cert → identity perk law — refuse-closed, no invent amounts', () => {
   it('refuses every invent / cert→perk money kind closed', () => {
@@ -178,25 +177,85 @@ describe('academy cert → identity perk law — refuse-closed, no invent amount
   });
 });
 
-describe('academy cert perk law — source scan (no ledger / invent amounts)', () => {
-  it('academy-cert-perks.ts never posts ledger or seeds perk amounts', () => {
-    const src = readFileSync(join(here, 'academy-cert-perks.ts'), 'utf8');
-    const forbidden = [
-      { pattern: /\bcreateLedgerClient\b/, why: 'ledger client on cert perk contract' },
-      { pattern: /\bLEDGER_URL\b/, why: 'ledger env on cert perk contract' },
-      { pattern: /\bCERT_TO_PERK_MAP\b/, why: 'hard-coded cert→perk second opinion' },
-      { pattern: /\bperkAmount\s*[:=]/, why: 'invented perk amount field' },
-      { pattern: /\bifcGrant\s*[:=]/, why: 'invented IFC grant from cert' },
-      { pattern: /\bfeeDiscountBps\s*:\s*\d+/, why: 'invented fee discount amount' },
-      { pattern: /\bxpDelta\s*:\s*\d+/, why: 'invented XP amount in product law' },
-      { pattern: /\bperkPayout\s*[:=]/, why: 'invented perk payout' },
-    ] as const;
-    for (const rule of forbidden) {
-      expect(src, rule.why).not.toMatch(rule.pattern);
+/** Every value the module exports, and what each zero-argument function returns when called. */
+function exportedSurface(mod: Record<string, unknown>): unknown[] {
+  return Object.values(mod).flatMap((value) => (typeof value === 'function' && value.length === 0 ? [value, value()] : [value]));
+}
+
+/** Walks plain data (skipping zod schemas, which carry their own limits) and yields each key and leaf. */
+function* walk(value: unknown, seen = new Set<unknown>()): Generator<{ key: string | null; leaf: unknown }> {
+  if (value instanceof z.ZodType || seen.has(value)) return;
+  if (value !== null && typeof value === 'object') {
+    seen.add(value);
+    for (const [key, inner] of Object.entries(value)) {
+      yield { key, leaf: inner };
+      yield* walk(inner, seen);
     }
-    expect(src).toMatch(/refuse-closed/);
-    expect(src).toMatch(/svc-identity/);
-    expect(src).toMatch(/academyHoldsPerkMoney: false/);
-    expect(src).toMatch(/IdentityContract/);
+    return;
+  }
+  yield { key: null, leaf: value };
+}
+
+describe('academy cert perk law — no ledger, no invented amounts', () => {
+  it('the contracts package cannot reach a ledger client', () => {
+    const require = createRequire(import.meta.url);
+    const manifest = require('../package.json') as Record<string, Record<string, string> | undefined>;
+    for (const field of ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']) {
+      expect(Object.keys(manifest[field] ?? {}), `contracts ${field} must not name the ledger client`).not.toContain(
+        '@intafaced/ledger-client',
+      );
+    }
+    expect(Object.keys(certPerkModule)).not.toContain('createLedgerClient');
+  });
+
+  it('loading the law and calling every door reads no ledger environment', async () => {
+    const touched = new Set<string>();
+    const real = process.env;
+    process.env = new Proxy(real, {
+      get(target, key) {
+        if (typeof key === 'string') touched.add(key);
+        return Reflect.get(target, key);
+      },
+      has(target, key) {
+        if (typeof key === 'string') touched.add(key);
+        return Reflect.has(target, key);
+      },
+    });
+    try {
+      vi.resetModules();
+      exportedSurface(await import('./academy-cert-perks.js'));
+    } finally {
+      process.env = real;
+    }
+    expect([...touched].filter((key) => /LEDGER/.test(key))).toEqual([]);
+  });
+
+  it('nothing it exports or answers seeds a perk amount, a cert→perk map or a payout', () => {
+    expect(Object.keys(certPerkModule)).not.toContain('CERT_TO_PERK_MAP');
+    const forbiddenKeys = new Set(['perkAmount', 'ifcGrant', 'perkPayout', 'CERT_TO_PERK_MAP']);
+    const amountKeys = new Set(['feeDiscountBps', 'xpDelta']);
+    const seenKeys = new Set<string>();
+    for (const { key, leaf } of walk(exportedSurface(certPerkModule))) {
+      if (key !== null) seenKeys.add(key);
+      if (key !== null) expect(forbiddenKeys.has(key), `invented field ${key}`).toBe(false);
+      if (key !== null && amountKeys.has(key)) expect(typeof leaf, `invented amount ${key}`).not.toBe('number');
+      expect(typeof leaf === 'number' || typeof leaf === 'bigint', `the law carries an amount: ${String(leaf)}`).toBe(false);
+    }
+    // The walk reached the law's own answers (otherwise the checks above are vacuous).
+    expect([...seenKeys]).toEqual(expect.arrayContaining(['academyHoldsPerkMoney', 'residual', 'inventKindsRefuseClosed']));
+  });
+
+  it('says it is refuse-closed, reads perks from svc-identity, and holds no perk money', () => {
+    expect(CERT_PERK_RESIDUAL).toMatch(/refuse-closed/);
+    expect(CERT_PERK_RESIDUAL).toMatch(/svc-identity/);
+    expect(CERT_PERK_LAW.sot).toBe('svc-identity');
+    expect(CERT_PERK_LAW.academyHoldsPerkMoney).toBe(false);
+    expect(certPerkPlaneStatus().academyHoldsPerkMoney).toBe(false);
+  });
+
+  it('its identity doors are IdentityContract rank.awardXp and rank.perks, nothing else', () => {
+    expectTypeOf<keyof CertPerkIdentityDoors>().toEqualTypeOf<'awardXp' | 'perks'>();
+    expectTypeOf<CertPerkIdentityDoors['awardXp']>().toEqualTypeOf<IdentityContract['rank']['awardXp']>();
+    expectTypeOf<CertPerkIdentityDoors['perks']>().toEqualTypeOf<IdentityContract['rank']['perks']>();
   });
 });

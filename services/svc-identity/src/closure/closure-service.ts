@@ -6,7 +6,7 @@
  * Reopening is an operator decision outside this job.
  */
 import type { ActionApprovalConsumeInput } from '@intafaced/contracts';
-import { customerStepUpPayloadHash } from '@intafaced/contracts';
+import { customerStepUpPayloadHash } from '@intafaced/contracts/customer-step-up';
 import type { Sql } from 'postgres';
 import { ActionApprovalError } from '../auth/action-approval-service.js';
 import { userCopy } from '../user-copy.js';

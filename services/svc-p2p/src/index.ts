@@ -5,7 +5,7 @@ import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/a
 import { buildEdgeContext } from './edge-context.js';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
-import { s2sFromEnv } from '@intafaced/contracts';
+import { s2sFromEnv } from '@intafaced/contracts/s2s-env';
 import { installP2pS2sRawBody, p2pInternalServiceOf } from './s2s-auth.js';
 import { registerClosureCheck } from './closure/closure-check.js';
 import {

@@ -187,7 +187,11 @@ export function assertStackOwnership({ stateDir, marker, records, postgres, proc
     const preload = ['--import', pathToFileURL(path.join(marker.repo, 'tooling', 'scripts', 'service-reach.mjs')).href];
     const rest = record?.argv?.slice(1) ?? [];
     const args = name !== 'customer' && preload.every((value, i) => rest[i] === value) ? rest.slice(preload.length) : rest;
-    if (!record?.argv || args.length !== entry.length || !entry.every((value, i) => args[i] === value)) refuse(`${name} checkout differs`);
+    // A Rust service (local-stack-services/<name>.mjs says `rust: true`) runs this checkout's own release binary, alone.
+    const rustBinary = path.join(marker.repo, 'crates', `svc-${name}`, 'dist', `svc-${name}`);
+    const ownBinary = record?.argv?.length === 1 && record.argv[0] === rustBinary;
+    if (!ownBinary && (!record?.argv || args.length !== entry.length || !entry.every((value, i) => args[i] === value)))
+      refuse(`${name} checkout differs`);
     checks.push({
       name,
       pid: record.pid,

@@ -1,5 +1,6 @@
 import type { Sql, TransactionSql } from 'postgres';
-import { normaliseStaffHoldAmount, type StaffHoldState } from '@intafaced/contracts';
+import type { StaffHoldState } from '@intafaced/contracts';
+import { normaliseStaffHoldAmount } from '@intafaced/contracts/ops-staff-holds';
 
 /**
  * Staff hold rows and the ledger posts made for them (OPS-accounts-desk-01). The balance itself lives in the ledger

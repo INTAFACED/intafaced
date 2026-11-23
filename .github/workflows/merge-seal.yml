@@ -91,11 +91,18 @@ jobs:
     if: ${{ !cancelled() && (github.run_attempt != '1' || needs.now.result != 'success' || needs.now.outputs.now == 'true') }}
     runs-on: ubuntu-24.04
     # healthy run: seconds once its inputs have finished; up to 60 minutes waiting for them, checking every 5 (journey-seal.mjs WAIT_POLLS)
-    # and up to 20 more for the CI review (tooling/ci/review-marker.mjs)
-    timeout-minutes: 85
+    # and up to 20 more for the CI review (tooling/ci/review-marker.mjs), up to 15 for a spent API budget's reset, and up
+    # to 18 for a Doctrine gates job it re-runs itself on main's rules now (ci-jobs-seal.mjs judgeWaitingOnGates)
+    timeout-minutes: 120
+    # A read GitHub refuses because the workflow token's hourly budget is spent waits for the reset when it is at most
+    # this many minutes away, then asks once more (tooling/ci/api-budget.mjs resetWait). Past that, or still spent, the
+    # seal fails closed with the same words as before. Before this, an agent re-ran each such seal by hand (run
+    # 44981346475, #9601, 22 Nov 2026: stopped at 04:15 UTC, the budget back at 04:22).
+    env:
+      API_BUDGET_WAIT_MIN: 15
     permissions:
       contents: read # the default branch's scripts
-      actions: read # CI's, the CI review's and the journeys' runs and jobs on the head
+      actions: write # read CI's, the CI review's and the journeys' runs and jobs on the head; re-run a Doctrine gates job main's lint change made stale (ci-jobs-seal.mjs staleRulesRerun)
       pull-requests: read # the changed files, title and body
       issues: read # the regression issues the journeys baseline names
     steps:

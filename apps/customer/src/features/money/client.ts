@@ -1,10 +1,13 @@
 import { t as copyText } from './copy';
 import { BANK_SPACES_LIST, type BankSpace } from '@intafaced/contracts/bank-spaces-list';
+import { bankTransferReplySchema } from '@intafaced/contracts/bank-money-room';
+import { balanceEntrySchema, balancesSchema as exchangeBalancesSchema } from '@intafaced/exchange-contract/schemas';
 import { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { decimalSchema, parseAmount } from '../../shared/money';
 import { transferDepthCopy } from './transfer-depth-copy';
 import { cleanText, messageEchoed, noteProblem, referenceProblem } from './transfer-message';
+import { BANK_SPACES_UNNAMED } from '@intafaced/contracts/bank-spaces-procedures';
 
 /**
  * Money's check over each row of `bank` `spaces.list` (the record in `@intafaced/contracts/bank-spaces-list`): a ledger
@@ -21,18 +24,17 @@ export function readSpaces(api: ApiClient, limit: number, signal?: AbortSignal) 
 }
 export type Space = BankSpace;
 export type Holding = { assetId: string; available: string; held: string | null; quantity: string | null };
-const balanceEntry = z
-  .object({ free: decimalSchema, used: decimalSchema, total: decimalSchema })
+// `/account/balance`, the exchange contract's balance read: every figure an unsigned exact decimal, and available plus
+// restricted equal to the total. `serverTime` is not read here.
+const balanceEntry = balanceEntrySchema
+  .extend({ free: decimalSchema, used: decimalSchema, total: decimalSchema })
   .refine(
     (row) => parseAmount(row.free) + parseAmount(row.used) === parseAmount(row.total),
     copyText('client.available.and.restricted.must.match.the.scoped'),
   );
-const balancesSchema = z.object({
-  timestamp: z.number().int(),
-  datetime: z.string().datetime({ offset: true }),
-  balances: z.record(z.string(), balanceEntry),
-});
-const unnamedSchema = z.array(z.object({ assetId: z.string(), balance: decimalSchema }));
+const balancesSchema = exchangeBalancesSchema
+  .omit({ serverTime: true })
+  .extend({ timestamp: z.number().int(), balances: z.record(z.string(), balanceEntry) });
 export type TransferDraft = {
   transferId: string;
   fromSpaceId: string;
@@ -91,7 +93,7 @@ export function createMoneyClient(api: ApiClient) {
       const [balances, spaces, unnamed] = await Promise.all([
         this.balances(signal),
         this.spaces(limit, signal),
-        api.query('bank', 'spaces.unnamed', undefined, unnamedSchema, { signal }),
+        api.call(BANK_SPACES_UNNAMED, undefined, { signal }),
       ]);
       const projection = new Map<string, string>();
       const conflicts = new Set<string>();
@@ -138,22 +140,15 @@ export function createMoneyClient(api: ApiClient) {
         'bank',
         toPerson ? 'transfers.toUser' : 'transfers.create',
         body,
-        z
-          .object({
-            // A move the partner bank holds the money for (OWNER 226), between the person's own spaces or to another
-            // person (J-bank-04 #4), is one partner move and posts nothing to the ledger: its reply names the partner's
-            // move and no ledger transaction.
-            ledgerTxId: z.string().min(1).nullable(),
-            partnerMove: z
-              .object({ id: z.string().min(1), label: z.string().min(1), movedAt: z.string().optional() })
-              .nullable()
-              .optional(),
+        // A move the partner bank holds the money for (OWNER 226), between the person's own spaces or to another person
+        // (J-bank-04 #4), is one partner move and posts nothing to the ledger: its reply names the partner's move and no
+        // ledger transaction.
+        bankTransferReplySchema
+          .extend({
             amount: decimalSchema.refine(
               (amount) => parseAmount(amount) === parseAmount(input.amount),
               copyText('client.the.settled.amount.must.match.the.review'),
             ),
-            note: z.string().nullable().optional(),
-            reference: z.string().nullable().optional(),
           })
           // Exactly one book made the move: the ledger's transaction, or the partner's move.
           .refine((data) => (data.ledgerTxId === null) === (data.partnerMove != null), {

@@ -1,4 +1,4 @@
-import type { FounderCallFailure } from '@/lib/desk/founder-call';
+import type { FounderCallFailure } from '@/lib/desk';
 import { explainRefusal, type RefusalView } from '@/lib/refusal-copy';
 
 /**

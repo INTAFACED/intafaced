@@ -299,6 +299,8 @@ const SAVED_ENV = vi.hoisted(() => {
   return saved;
 });
 
+/** svc-trade calls with no `.output()`: the call-records codemod can't make their record. Lower it as each gains one; never raise it. */
+const ANSWERLESS_AT_MOST = 135;
 const GOLDEN = new URL('./wire-replay.golden/', import.meta.url);
 /** One recorded JSON file in the recording folder. */
 const goldenJson = (name: string) => new URL(`./wire-replay.golden/${name}.json`, import.meta.url);
@@ -1795,5 +1797,18 @@ describe('the wire replay: svc-trade answers every trade call as recorded', () =
       .filter(([key, a]) => is[key]?.status !== a.status || is[key]?.body !== a.body)
       .map(([key, a]) => `${key}: ${a.status} ${a.body.slice(0, 160)} != ${is[key]?.status} ${is[key]?.body.slice(0, 160)}`);
     expect(diffs).toEqual([]);
+  }, 600_000);
+  it('names an answer schema on every call but the ones still to do, and that count only falls', async () => {
+    const { app, router } = await serve([]);
+    try {
+      const anyRouter: AnyRouter = router;
+      const procedures: Record<string, { _def: { type: string; output?: unknown } }> = anyRouter._def.procedures;
+      const answerless = Object.keys(procedures)
+        .filter((path) => procedures[path]!._def.type !== 'subscription' && procedures[path]!._def.output === undefined)
+        .sort();
+      expect(answerless.length).toBeLessThanOrEqual(ANSWERLESS_AT_MOST);
+    } finally {
+      await app.close();
+    }
   }, 600_000);
 });

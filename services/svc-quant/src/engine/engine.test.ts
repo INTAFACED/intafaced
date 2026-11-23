@@ -211,7 +211,8 @@ describe('bar loop', () => {
 });
 
 describe('margin account (AL-backtest-02, ENGINE RK-5)', () => {
-  const ACCOUNT = { leverage: parseAmount('10'), marginCallPercent: parseAmount('80'), stopOutPercent: parseAmount('50') };
+  // 10x, our warning at 80 % of the margin used, and the venue's close at a 5 % maintenance level (50 % of margin at entry).
+  const ACCOUNT = { leverage: parseAmount('10'), marginCallPercent: parseAmount('80'), maintenanceRate: parseAmount('0.05') };
 
   it('buys more than the cash holds with leverage; a cash account refuses the same order', () => {
     const closes = ['100', '100', '101', '102'];
@@ -223,22 +224,23 @@ describe('margin account (AL-backtest-02, ENGINE RK-5)', () => {
     expect(margin.equity[0]!.marginLevelPercent).toBeNull();
   });
 
-  it('records the margin call, then the stop-out that closes the whole position at the price that reached its level', () => {
-    // Entry at 101; one bar falls to 85 and passes the margin call (80 %) at 89.181, then the stop-out (50 %) at 86.151.
+  it('records the margin call, then the venue close that closes the whole position at the price that reached its level', () => {
+    // Entry at 101 on 81.101 borrowed; one bar falls to 85 and passes our margin call (80 %) at 89.181, then the venue's
+    // close where equity is 5 % of the position's value: 81.101 / 0.95 = 85.369473684210526315, a margin level of 42.2621 %.
     const out = run(['100', '100', '101', '85', '90'], { cash: parseAmount('20'), account: ACCOUNT });
     expect(out.marginEvents).toEqual([
       { ts: new Date(T0 + 3 * HOUR).toISOString(), kind: 'margin_call', price: '89.181', marginLevelPercent: '80' },
-      { ts: new Date(T0 + 3 * HOUR).toISOString(), kind: 'stop_out', price: '86.151', marginLevelPercent: '50' },
+      { ts: new Date(T0 + 3 * HOUR).toISOString(), kind: 'venue_close', price: '85.369473684210526315', marginLevelPercent: '42.2621' },
     ]);
     expect(out.trades.map((t) => [t.side, t.reason, t.price])).toEqual([
       ['buy', 'signal', '101'],
-      ['sell', 'stop_out', '86.151'],
+      ['sell', 'venue_close', '85.369473684210526315'],
     ]);
     expect(out.totals.openQty).toBe('0');
     expect(out.assumptions).toContain('margin_level_at_bar_low');
   });
 
-  it('fills a stop-out at the open when the bar gaps through its level', () => {
+  it('fills a venue close at the open when the bar gaps through its level', () => {
     const bar = (i: number, open: string, close: string): Bar => {
       const o = parseAmount(open);
       const c = parseAmount(close);
@@ -248,9 +250,9 @@ describe('margin account (AL-backtest-02, ENGINE RK-5)', () => {
     const out = run([], { bars, cash: parseAmount('20'), account: ACCOUNT });
     expect(out.marginEvents.map((e) => [e.kind, e.price])).toEqual([
       ['margin_call', '70'],
-      ['stop_out', '70'],
+      ['venue_close', '70'],
     ]);
-    expect(out.trades.at(-1)).toMatchObject({ reason: 'stop_out', barPrice: '70' });
+    expect(out.trades.at(-1)).toMatchObject({ reason: 'venue_close', barPrice: '70' });
   });
 
   it('sizes a cash budget on margin so the margin and the fee fit inside it', () => {
@@ -263,25 +265,28 @@ describe('margin account (AL-backtest-02, ENGINE RK-5)', () => {
     expect(margin + parseAmount(buy!.fee) <= parseAmount('20')).toBe(true);
   });
 
-  it('fills a stop-out at the level less slippage, the event keeping the bar price that reached it', () => {
+  it('fills a venue close at the level less slippage, the event keeping the bar price that reached it', () => {
     const out = run(['100', '100', '101', '85', '90'], { cash: parseAmount('20'), account: ACCOUNT, slippageBps: parseAmount('10') });
-    const stop = out.marginEvents.find((event) => event.kind === 'stop_out')!;
-    const sell = out.trades.find((trade) => trade.reason === 'stop_out')!;
+    const stop = out.marginEvents.find((event) => event.kind === 'venue_close')!;
+    const sell = out.trades.find((trade) => trade.reason === 'venue_close')!;
     expect(sell.barPrice).toBe(stop.price);
     expect(parseAmount(sell.price) < parseAmount(stop.price)).toBe(true);
   });
 
-  it('drops a queued sell when a stop-out closes the position, so the strategy can enter again', () => {
-    // With a delay of one bar, the cross down on the 100 bar queues a sell due two bars on; the stop-out on the next bar
+  it('drops a queued sell when a venue close closes the position, so the strategy can enter again', () => {
+    // With a delay of one bar, the cross down on the 100 bar queues a sell due two bars on; the venue close on the next bar
     // closes first. The queued sell is dropped, not listed as an order with no size.
     const closes = ['100', '100', '101', '102', '100', '60', '40', '41', '45', '50'];
-    const out = run(closes, { cash: parseAmount('20'), account: ACCOUNT, delayBars: 1 });
-    expect(out.trades.some((trade) => trade.reason === 'stop_out')).toBe(true);
+    // The venue's close leaves only its maintenance share of the position's value, so at 20x and 3 % that share still
+    // posts the next entry's margin.
+    const account = { leverage: parseAmount('20'), marginCallPercent: parseAmount('80'), maintenanceRate: parseAmount('0.03') };
+    const out = run(closes, { cash: parseAmount('20'), account, delayBars: 1 });
+    expect(out.trades.some((trade) => trade.reason === 'venue_close')).toBe(true);
     expect(out.rejected.filter((row) => row.reason === 'no_size')).toEqual([]);
     expect(out.trades.filter((trade) => trade.side === 'buy').length).toBe(2);
   });
 
-  it('says so when a gap through the stop-out loses more than the margin posted', () => {
+  it('says so when a gap through the venue close loses more than the margin posted', () => {
     const bar = (i: number, open: string, close: string): Bar => {
       const o = parseAmount(open);
       const c = parseAmount(close);

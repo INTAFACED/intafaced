@@ -6,7 +6,25 @@ import { listAlertTriggers, type PriceAlert } from './notify-api';
 
 const USER = 'user-1';
 const ID = '11111111-1111-4111-8111-111111111111';
+// The fields svc-notify sends on every alert (`priceAlertOutput`), at what a plain one-shot alert holds; a test's own
+// fields override them.
+const SENT = {
+  condition: 'crossing',
+  name: null,
+  message: null,
+  expiresAt: null,
+  updatedAt: '2026-10-17T08:00:00.000Z',
+  extras: [],
+  frequency: 'once',
+  source: 'mark',
+  fireCount: 0,
+  stopReason: null,
+  lastFiredAt: null,
+  channels: null,
+  webhookUrl: null,
+} satisfies Partial<PriceAlert>;
 const row = (patch: Partial<PriceAlert> = {}): PriceAlert => ({
+  ...SENT,
   id: ID,
   userId: USER,
   marketId: 'm1',
@@ -157,12 +175,15 @@ describe('edit and delete', () => {
 describe('trigger history', () => {
   const trigger = {
     alertId: ID,
+    seq: 1,
     marketId: 'm1',
     condition: 'greater_than',
     targetPrice: '100',
     markPrice: '101.5',
     firedAt: '2026-10-20T12:00:00.000Z',
     notificationId: null,
+    deliveries: [],
+    webhook: null,
   };
   it('always sends a page size, reads prices as text, and gives the retention', async () => {
     const fetch = vi.fn(async () => trpc({ retentionDays: 30, items: [trigger] }));

@@ -533,6 +533,7 @@ jobs:
     environment: ci-review
     permissions:
       contents: read
+      actions: read # main's newest journeys run's report: steps back there open no revert (journeys-revert.mjs backOnMain)
       issues: write # the revert's link on the journey's break issue (OWNER 289 item 6); the App token keeps its own scope
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -546,6 +547,7 @@ jobs:
         env:
           FACTORY_APP_KEY: ${{ secrets.INTAFACED_APP_KEY }}
           ISSUES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CULPRIT: ${{ needs.revert-probe.outputs.culprit || needs.bisect.outputs.culprit }}
           CONTROL: ${{ needs.revert-control.outputs.passes == 'true' && inputs.good || '' }}
           KIND: ${{ inputs.journeys != '' && 'journeys' || 'ci' }}

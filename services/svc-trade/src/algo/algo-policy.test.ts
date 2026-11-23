@@ -2,14 +2,11 @@
  * Unit card — consolidated trade.algo policy honesty door
  * 1. Promise: TWAP product path, jobs default OFF, cancel_incomplete park, VWAP/POV immature refuse
  * 2. Break: describeAlgoPolicy omits capability or cancel / volume immature law
- * 3. Done bar: router mounts algo.policy → trade.algoPolicy(), with the service's own flags
+ * 3. Done bar: algo.policy answers trade.algoPolicy(), with the service's own flags
  * 4. Class N
  * 5. Paths: svc-trade/src/algo/algo-policy.ts, router.ts
  */
 
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
 import { MemoryLedger } from '@intafaced/ledger-client';
@@ -26,9 +23,6 @@ import {
   ALGO_VOLUME_IMMATURE_CODE,
   describeAlgoPolicy,
 } from './algo-policy.js';
-
-const here = dirname(fileURLToPath(import.meta.url));
-const routerSource = readFileSync(join(here, '..', 'router.ts'), 'utf8');
 
 describe('describeAlgoPolicy — trade.algo honesty door', () => {
   it('states TWAP schedule law with jobs default OFF and cancel_incomplete park', () => {
@@ -75,8 +69,10 @@ describe('algo.policy route (trade.algo honesty door)', () => {
       .createCaller({ principal: null } as never)
       .algo.policy();
 
-  it('router mounts the service policy on algo.policy', () => {
-    expect(routerSource).toMatch(/policy:\s*publicProcedure\.query\(\(\)\s*=>\s*trade\.algoPolicy\(\)\)/);
+  it('router mounts the service policy on algo.policy', async () => {
+    const trade = service({ algoJobsEnabled: true });
+    // Byte for byte: the answer is the service's own policy, key order included.
+    expect(JSON.stringify(await policyOf(trade))).toBe(JSON.stringify(trade.algoPolicy()));
   });
 
   it('reports the scheduler the service was started with, not the shipped default', async () => {

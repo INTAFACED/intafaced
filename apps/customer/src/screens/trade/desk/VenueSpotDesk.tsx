@@ -1,16 +1,9 @@
+import { ActionLimitWarning } from '../../../features/trade';
 import { useMemo, useRef, useState } from 'react';
 import { useResource } from '../../../shared/resource';
 import { usePreferences } from '../../../shared/preferences';
 import { usePolled } from '../../../features/protocol/wallet/use-polled';
-import {
-  draftId,
-  keys,
-  type OrderIntent,
-  type VenueMarket,
-  type VenueOrder,
-  type VenueTimeInForce,
-  type VenueUp,
-} from '../../../features/trade/venue-api';
+import { draftId, keys, type OrderIntent, type VenueMarket, type VenueOrder, type VenueUp } from '../../../features/trade/venue-api';
 import {
   FillsTable,
   OrdersTable,
@@ -50,11 +43,13 @@ import { VenueMarketRules } from './VenueMarketRules';
 import { VenueCancelMany, VenueEditOrder } from './VenueOrderChanges';
 import { VenueDeadMan } from './VenueDeadMan';
 import { VenueStatement } from './VenueStatement';
+import { expiryIsFuture, expiryOf } from './tif';
 import {
   OTHER_ORDER_TYPES,
   pendingOrders,
   slippageLimit,
   type DepositRoute,
+  type DeskTif,
   type PendingOrder,
   type VenueOrderType,
   type VenueSide,
@@ -85,7 +80,10 @@ export function VenueSpotDesk({
   const { run, resend, keptSignature } = useVenueActions(owner);
   const access = useTradeAccess();
   const [type, setType] = useState<VenueOrderType>('limit');
-  const [tif, setTif] = useState<VenueTimeInForce>('GTC');
+  const [tif, setTif] = useState<DeskTif>('GTC');
+  // Good till date (J-cex-spot-03 #7): the expiry the person picks, as the field holds it; a past time places nothing.
+  const [expiry, setExpiry] = useState('');
+  const expireAt = tif === 'GTD' && expiryIsFuture(expiry, Date.now()) ? expiryOf(expiry) : null;
   const [tab, setTab] = useState<'open' | 'history' | 'positions'>('open');
   const [lastResult, setLastResult] = useState<ActionResult | null>(null);
   const [cancelledKeys, setCancelledKeys] = useState<Array<{ key: string; clientOrderId: string }>>([]);
@@ -269,6 +267,7 @@ export function VenueSpotDesk({
   return (
     <div data-testid="if-desk" className="if-desk" data-market={market.symbol} data-venue="on">
       <VenueHeader status={status} title={t('Spot on venue', { symbol: market.symbol })} feeLine={feeLine} />
+      <ActionLimitWarning venueName={status.venue.displayName} />
       {/* The desk's two columns: the market, chart, DOM and ticket in the centre; the account and the rules beside. */}
       <div className="dk-venue-grid">
         <div className="dk-venue-col" data-testid="venue-centre">
@@ -365,6 +364,24 @@ export function VenueSpotDesk({
             </div>
             <div className="dk-order-opts">
               {type === 'limit' ? <VenueTifSelect market={market} tif={tif} onTif={setTif} /> : null}
+              {type === 'limit' && tif === 'GTD' ? (
+                <label className="dk-tif dk-expiry">
+                  <span className="dk-tif-label">{t('Expires')}</span>
+                  <input
+                    type="datetime-local"
+                    className="dk-expiry-input"
+                    value={expiry}
+                    onChange={(event) => setExpiry(event.target.value)}
+                    aria-label={t('Expires')}
+                    aria-invalid={expiry !== '' && expireAt === null}
+                  />
+                  {expiry !== '' && expireAt === null ? (
+                    <span className="dk-expiry-note" role="note">
+                      {t('Expiry past')}
+                    </span>
+                  ) : null}
+                </label>
+              ) : null}
               <VenueSelfTradeSelect market={market} />
             </div>
             <TabsPanel value={type} className="dk-order-body">
@@ -374,7 +391,8 @@ export function VenueSpotDesk({
                     key={`${side}:${owner ?? ''}`}
                     side={side}
                     type={type}
-                    tif={tif}
+                    tif={type === 'limit' ? tif : 'GTC'}
+                    expireAt={expireAt}
                     protectionBps={cap?.known ? cap.value : null}
                     market={market}
                     status={status}
@@ -424,12 +442,12 @@ export function VenueSpotDesk({
               {pending.map((entry) => (
                 <PendingCheck key={entry.clientOrderId} owner={owner} entry={entry} onFound={onFound} onSendAgain={sendAgain} />
               ))}
-              <p className="dk-note" role="status">
+              <p className="lt-hint" role="status">
                 {t('Pending wait')}
               </p>
             </section>
           ) : found ? (
-            <p className="dk-note" role="status" data-testid="venue-pending-found">
+            <p className="lt-hint" role="status" data-testid="venue-pending-found">
               {found}
             </p>
           ) : null}
@@ -443,7 +461,7 @@ export function VenueSpotDesk({
           <TabsTab value="positions">{v('Positions')}</TabsTab>
         </TabsList>
         <OutcomeLine result={lastResult} owner={owner} />
-        <a className="text-link" data-testid="venue-history-link" href="/trade/orders?product=venue">
+        <a className="lt-link" data-testid="venue-history-link" href="/trade/orders?product=venue">
           {orders('historyTitle')}
         </a>
         <VenueStatement status={status} owner={owner} />

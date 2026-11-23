@@ -2,7 +2,7 @@ import type { BankPartnerReserves, OpsCapitalReserve } from '@intafaced/contract
 import { BankError } from '../errors.js';
 import { partnerFiguresAsOf, type CardPartnerTerms } from '../cards/partner-terms.js';
 import { programmeReserve, type TestPartnerDoors } from './test-partner.js';
-import { asAssetId } from '@intafaced/contracts';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 
 /**
  * ANY RESERVE A PARTNER HOLDS OF OURS, as each partner adapter reports it (J-ops-console-24 #1), for svc-ops' capital

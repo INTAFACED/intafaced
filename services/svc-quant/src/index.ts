@@ -2,9 +2,18 @@ import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { edgeTrustFromEnv } from '@intafaced/config';
-import { createEdgeContext } from '@intafaced/contracts';
+import { createEdgeContext } from '@intafaced/contracts/edge';
 import { missingLake } from './backtest/lake.js';
-import { missingFees, missingHistory, tradeFeePort, tradeHistoryPort } from './engine/ports.js';
+import {
+  missingFees,
+  missingHistory,
+  missingMarginRules,
+  missingVenuePrices,
+  tradeFeePort,
+  tradeHistoryPort,
+  tradeMarginRulesPort,
+  tradeVenuePricePort,
+} from './engine/ports.js';
 import { openDisclosureRepository } from './disclosure/open.js';
 import { openShareRepository } from './share/open.js';
 import { openTemplateRepository } from './templates/open.js';
@@ -51,6 +60,8 @@ const isolateWired = true;
 const lake = missingLake();
 const history = env.TRADE_URL ? tradeHistoryPort({ tradeUrl: env.TRADE_URL, now: () => Date.now() }) : missingHistory();
 const fees = env.TRADE_URL ? tradeFeePort({ tradeUrl: env.TRADE_URL }) : missingFees();
+const venuePrices = env.TRADE_URL ? tradeVenuePricePort({ tradeUrl: env.TRADE_URL, now: () => Date.now() }) : missingVenuePrices();
+const marginRules = env.TRADE_URL ? tradeMarginRulesPort({ tradeUrl: env.TRADE_URL }) : missingMarginRules();
 const venueVaultSet = env.QUANT_VENUE_VAULT !== undefined;
 // Quotas by plan (AL-limits-01): the gate is checked inside every strategy and run write's own transaction.
 const quota = openQuota(
@@ -103,6 +114,7 @@ export const appRouter = createQuantRouter({
   lake,
   history,
   fees,
+  venuePrices,
   judgement: {
     criteria: {
       minTrades: env.QUANT_OOS_MIN_TRADES ?? null,
@@ -116,12 +128,7 @@ export const appRouter = createQuantRouter({
       maxVariants: env.QUANT_CHECK_MAX_VARIANTS ?? null,
       maxOffsetShiftPercent: env.QUANT_CHECK_MAX_OFFSET_SHIFT_PERCENT ?? null,
     },
-    account: {
-      mode: 'netting',
-      maxLeverage: env.QUANT_ACCOUNT_MAX_LEVERAGE ?? null,
-      marginCallPercent: env.QUANT_ACCOUNT_MARGIN_CALL_PERCENT ?? null,
-      stopOutPercent: env.QUANT_ACCOUNT_STOP_OUT_PERCENT ?? null,
-    },
+    account: { marginCallPercent: env.QUANT_ACCOUNT_MARGIN_CALL_PERCENT ?? null, venue: marginRules },
   },
   strategies: strategies.repository,
   runs: runs.repository,
@@ -221,7 +228,7 @@ const fillSweep = setInterval(() => {
     notify: notify.repository,
     runs: runs.repository,
     strategies: strategies.repository,
-    history,
+    prices: venuePrices,
     fees,
     sink: async () => {
       const connected = await connectBus();

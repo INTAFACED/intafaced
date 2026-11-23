@@ -211,7 +211,19 @@ export function rustPurpose(lib) {
   return (first[0].toUpperCase() + first.slice(1)).replace(/\|/g, '\\|');
 }
 
-const refusedWhenUnset = (src) => [...src.matchAll(/get\("([A-Z0-9_]+)"\)\s*\.map_or\(\s*Err\(/g)].map((m) => m[1]);
+// These shapes refuse an unset field: `get("X").map_or(Err(`, a blank or unset one read as `NaN` (`blank("X")` or
+// `get("X")` then `.unwrap_or("NaN")`, which no integer check passes), svc-ledger's `blank_int("X", None,` (no default),
+// svc-matching's unset read as empty text (`get("X").unwrap_or("")`) that the same source then refuses (`issue("X",`),
+// and svc-agents' required URL (`o.url("X")`) and its `None => o.issue("X", ...)` arm of a match on the field.
+const refusedWhenUnset = (src) =>
+  [
+    ...src.matchAll(/get\("([A-Z0-9_]+)"\)\s*\.map_or\(\s*Err\(/g),
+    ...src.matchAll(/(?:blank|get)\(\s*"([A-Z0-9_]+)"\s*\)\s*\.unwrap_or\(\s*"NaN"\s*\)/g),
+    ...src.matchAll(/\bo\.url\(\s*"([A-Z0-9_]+)"\s*\)/g),
+    ...src.matchAll(/None\s*=>\s*o\.issue\(\s*"([A-Z0-9_]+)"/g),
+    ...src.matchAll(/blank_int\(\s*"([A-Z0-9_]+)",\s*None,/g),
+    ...[...src.matchAll(/get\("([A-Z0-9_]+)"\)\s*\.unwrap_or\(\s*""\s*\)/g)].filter((m) => src.includes(`issue("${m[1]}",`)),
+  ].map((m) => m[1]);
 
 /**
  * Required env of a Rust service: each field `env.rs` refuses when unset (`get("X").map_or(Err(...`), and each one the

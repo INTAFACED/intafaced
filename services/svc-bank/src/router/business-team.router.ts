@@ -1,7 +1,5 @@
 import { z } from 'zod';
 import {
-  router,
-  scopedProcedure,
   BUSINESS_PAYMENT_TYPES,
   BUSINESS_TEAM_PERMISSIONS,
   BUSINESS_TEAM_ROLES,
@@ -16,7 +14,8 @@ import {
   businessTeamRoleSchema,
   businessTeamRuleSchema,
   businessTeamSpendSchema,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/bank-business-team';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { TeamAdvisor, TeamInvite, TeamPayment, TeamRole, TeamRule, TeamSpend } from '../business/business-team.js';
 import { createHash } from 'node:crypto';

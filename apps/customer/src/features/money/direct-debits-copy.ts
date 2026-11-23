@@ -1,6 +1,9 @@
 import { defineCopy } from '../../shared/i18n';
 
 const en = {
+  sectionsLabel: 'Direct debit sections',
+  explain:
+    'A mandate lets one company collect from your main balance. Blocking it refuses every collection it presents from then on, including the upcoming ones; a collection that was taken can be asked back once, inside the refund guarantee period.',
   title: 'Direct debits',
   description: 'Who may collect from your account, what they will collect next, and what they collected.',
   open: 'Direct debits',
@@ -85,6 +88,9 @@ const en = {
 } as const;
 
 const es: Record<keyof typeof en, string> = {
+  sectionsLabel: 'Secciones de domiciliaciones',
+  explain:
+    'Una orden de domiciliación permite a una empresa cobrar de tu saldo principal. Si la bloqueas, se rechaza cada cobro que presente a partir de entonces, incluidos los próximos; un cobro ya realizado puede reclamarse una vez dentro del periodo de garantía de reembolso.',
   title: 'Domiciliaciones',
   description: 'Quién puede cobrar de tu cuenta, qué cobrará a continuación y qué ha cobrado.',
   open: 'Domiciliaciones',
@@ -170,6 +176,9 @@ const es: Record<keyof typeof en, string> = {
 };
 
 const fr: Record<keyof typeof en, string> = {
+  sectionsLabel: 'Sections des prélèvements',
+  explain:
+    'Un mandat permet à une entreprise de prélever sur votre solde principal. Le bloquer refuse chaque prélèvement qu’elle présente ensuite, y compris ceux à venir ; un prélèvement effectué peut être réclamé une fois pendant la période de garantie de remboursement.',
   title: 'Prélèvements',
   description: 'Qui peut prélever sur votre compte, ce qui sera prélevé ensuite et ce qui a été prélevé.',
   open: 'Prélèvements',

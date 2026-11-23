@@ -10,8 +10,8 @@
     reason = "a test: a failure is the point"
 )]
 
-mod learner_courses;
-mod support;
+use crate::learner_courses;
+use crate::support;
 
 use learner_courses::{A, COURSE, L, LATER, NOW, NOW_ISO, code, draft_with_outline, published};
 use service_kit::json::{self, Json};

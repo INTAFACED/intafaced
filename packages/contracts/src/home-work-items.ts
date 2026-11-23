@@ -79,7 +79,7 @@ const roomLink = z
   .string()
   .min(1)
   .max(512)
-  .regex(/^\/(?!\/)[^\\\s]*$/, 'customer room path')
+  .regex(/^\/(?:[^\\\s/][^\\\s]*)?$/, 'customer room path')
   .refine((link) => {
     const path = link.split(/[?#]/)[0] ?? '';
     return !path.includes('%') && !path.split('/').some((segment) => segment === '.' || segment === '..');

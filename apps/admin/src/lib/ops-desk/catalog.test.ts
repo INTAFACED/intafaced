@@ -38,8 +38,12 @@ const ROUTER: Record<ReadSpec['module'], string | null> = {
   support: null,
   notify: null,
 };
-const personalPayRouter = () =>
-  readFileSync(fileURLToPath(new URL('../../../../../services/svc-bank/src/personal-pay/router.ts', import.meta.url)), 'utf8');
+/** svc-bank's calls as its wire replay records them from the live router (`procedureCallers`, checked by its own test). */
+const bankCalls = (): Map<string, string> => {
+  const file = fileURLToPath(new URL('../../../../../services/svc-bank/src/wire-replay.golden/callers.json', import.meta.url));
+  const rows = JSON.parse(readFileSync(file, 'utf8')) as { path: string; type: string }[];
+  return new Map(rows.map((row) => [row.path, row.type]));
+};
 // svc-bank's router.ts composes one router file per area from src/router/, and svc-quant's one `<area>Routes` factory
 // per area from src/routes/ (`health: healthRoutes(core)`); those files are read with it.
 const source = (service: string) => {
@@ -52,6 +56,14 @@ const source = (service: string) => {
           .map((name) => readFileSync(join(src, dir, name), 'utf8'))
       : [];
   return [...filesOf('router', '.router.ts'), ...filesOf('routes', '.ts'), readFileSync(join(src, 'router.ts'), 'utf8')].join('\n');
+};
+
+/** `crates/<service>/src/door/calls.rs` as path → kind (`Query` or `Mutation`), or null when the service is not Rust. */
+const rustCalls = (service: string): Map<string, string> | null => {
+  const file = fileURLToPath(new URL(`../../../../../crates/${service}/src/door/calls.rs`, import.meta.url));
+  if (!existsSync(file)) return null;
+  const text = readFileSync(file, 'utf8');
+  return new Map([...text.matchAll(/path: "([^"]+)",\s*kind: Kind::(Query|Mutation),/g)].map((m) => [m[1]!, m[2]!]));
 };
 
 // The transfer record is read on request, so it sits in no section; it is held to the same rules as every other read.
@@ -442,24 +454,37 @@ describe('a read whose call has a record takes its module and path from the reco
   });
 });
 
+// A read of a call with a record names it (`readOf`): only then does the server parse the answer by the record and its checks.
+describe('a read of a call that has a record names it', () => {
+  it.each(all.filter((a) => a.read.recordName === undefined).map((a) => [a.read.id, a.read] as const))('%s', (_id, read) => {
+    const record = CONTRACT_PROCEDURES.find((r) => r.transport === 'trpc' && r.module === read.module && r.path === read.procedure);
+    expect(record?.name, `${read.module}.${read.procedure} has a record: write \`...readOf(<its record>)\` in catalog.ts`).toBeUndefined();
+  });
+});
+
 // A read with a record is mounted from that record (`mountRecords`), so its query is checked there, not in router text.
 describe('every read names a QUERY that exists in the owning router (drift guard)', () => {
   it.each(all.filter((a) => a.read.recordName === undefined).map((a) => [a.read.id, a.read] as const))('%s', (_id, read) => {
     const service = ROUTER[read.module];
     expect(service, `${read.module} has a router mapping`).not.toBeNull();
-    // svc-bank mounts the bill and global send routers from personal-pay/router.ts (`bills.ops.*`, `global.ops.*`).
-    const nested = read.procedure.split('.').length === 3;
-    const text = nested ? personalPayRouter() : source(service!);
+    // A Rust service (svc-academy) lists every call its door serves, with its kind, in one table (`src/door/calls.rs`).
+    const calls = rustCalls(service!);
+    if (calls) {
+      expect(calls.get(read.procedure), `${service} has ${read.procedure}`).toBeDefined();
+      expect(calls.get(read.procedure), `${read.procedure} is a query`).toBe('Query');
+      return;
+    }
+    // svc-bank mounts the bill and global send routers from personal-pay/router.ts (`bills.ops.*`, `global.ops.*`): their
+    // kind is read from the calls svc-bank records it serves.
+    if (read.procedure.split('.').length === 3) {
+      expect(service).toBe('svc-bank');
+      expect(bankCalls().get(read.procedure), `${service} has ${read.procedure} as a query`).toBe('query');
+      return;
+    }
+    const text = source(service!);
     const parts = read.procedure.split('.');
     let from = 0;
-    if (nested) {
-      const factory = parts[0] === 'bills' ? 'createBillsRouter' : 'createGlobalRouter';
-      const start = text.indexOf(`export function ${factory}(`);
-      expect(start, `personal-pay router has ${factory}`).toBeGreaterThanOrEqual(0);
-      const ops = /\bops: router\(/.exec(text.slice(start));
-      expect(ops, `${factory} has an ops group`).not.toBeNull();
-      from = start + ops!.index;
-    } else if (parts.length === 2) {
+    if (parts.length === 2) {
       const group = new RegExp(
         `(\\b${parts[0]}: router\\(|const ${parts[0]} = router\\(|export function create${parts[0]![0]!.toUpperCase()}${parts[0]!.slice(1)}Router\\(|export function ${parts[0]}Routes\\()`,
       ).exec(text);

@@ -3,6 +3,7 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';
 import type { QuantRiskScreen, QuantStrategyDetail } from '@intafaced/contracts/quant-algo';
+import { QUANT_RISK_GET, QUANT_RISK_TRADING } from '@intafaced/contracts/quant-strategy-settings-procedures';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -17,9 +18,8 @@ const BLANK: QuantRiskScreen = {
   latestVersion: 1,
   updatedAt: '2026-11-15T00:00:00.000Z',
 };
-const query = vi.fn(async () => ({ ok: true as const, data: BLANK }));
-const mutate = vi.fn(async (_service: string, procedure: string) =>
-  procedure === 'risk.trading'
+const call = vi.fn(async (record: { name: string }, _input: unknown) =>
+  record.name === QUANT_RISK_TRADING.name
     ? { ok: false as const, reason: 'refused', message: 'quant.risk_cap_unset — trading stays off — still blank: Deposit-percentage cap' }
     : { ok: true as const, data: BLANK },
 );
@@ -28,7 +28,7 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 vi.mock('../session/session', () => {
-  const api = { query, mutate };
+  const api = { call };
   return { useApi: () => api, useSession: () => ({ userId: 'u-test' }) };
 });
 
@@ -47,10 +47,11 @@ describe('the risk screen trading switch', () => {
   it('starts off, and a refusal for a blank cap names it and leaves the switch off', async () => {
     const host = await mount();
     const toggle = host.querySelector<HTMLInputElement>('input[role="switch"]')!;
+    expect(call).toHaveBeenCalledWith(QUANT_RISK_GET, { strategyId: 's-test' }, expect.anything());
     expect(toggle.getAttribute('aria-checked')).toBe('false');
     expect(host.querySelector('[data-testid="quant-risk-unset"]')?.textContent).toBe('Still blank: Deposit-percentage cap.');
     await act(async () => toggle.click());
-    expect(mutate).toHaveBeenCalledWith('quant', 'risk.trading', { strategyId: 's-test', on: true }, expect.anything());
+    expect(call).toHaveBeenCalledWith(QUANT_RISK_TRADING, { strategyId: 's-test', on: true });
     expect(host.querySelector('[data-testid="quant-risk-refusal"]')?.textContent).toBe(
       'Trading stays off. Set every cap first; still blank: Deposit-percentage cap.',
     );

@@ -10,6 +10,7 @@ import { parseAmount } from '../../shared/money';
 import type { PayBusinessAuthority } from './pay-api';
 import * as s from './schemas';
 import { isTokenRefused } from './portal/access/step-up-store';
+import { PAY_PAYMENT_GET, PAY_PAYMENT_HISTORY, PAY_PAYMENT_REFUND } from '@intafaced/contracts/pay-payment-procedures';
 
 type Original = { status: 'uncertain'; reference?: string };
 export type RefundReceipt = Readonly<{ kind: 'refunded' | 'reversed'; refundId: string; eventId: string; ts: string }>;
@@ -61,7 +62,7 @@ export function createMerchantRefundApi({
   userId: string | null;
   authority: PayBusinessAuthority | null;
   access: (scope: string) => Extract<ApiResult<never>, { ok: false }> | null;
-  merchant: (signal?: AbortSignal) => Promise<ApiResult<z.infer<typeof s.merchantSchema>>>;
+  merchant: (signal?: AbortSignal) => Promise<ApiResult<s.Merchant>>;
   ports?: JournalPorts;
 }) {
   const identity = authority
@@ -148,7 +149,7 @@ export function createMerchantRefundApi({
     const checked = await merchant(signal);
     if (!current(isCurrent)) return refusal('context_changed', 'aborted');
     if (!checked.ok) return checked;
-    const result = await api.query('pay', 'payment.get', { paymentId }, s.paymentSchema, { signal });
+    const result = await api.call(PAY_PAYMENT_GET, { paymentId }, { signal });
     if (!current(isCurrent)) return refusal('context_changed', 'aborted');
     if (result.ok && (result.data.id !== paymentId || result.data.merchantId !== authority!.merchantId))
       return refusal('payment_mismatch', 'invalid_response');
@@ -159,7 +160,7 @@ export function createMerchantRefundApi({
     const payment = await readPayment(paymentId, isCurrent);
     if (!payment.ok) return payment;
     if (!current(isCurrent)) return refusal('context_changed', 'aborted');
-    const history = await api.query('pay', 'payment.history', { paymentId, limit: 200 }, z.array(s.paymentEventSchema).max(200));
+    const history = await api.call(PAY_PAYMENT_HISTORY, { paymentId, limit: 200 });
     if (!current(isCurrent)) return refusal('context_changed', 'aborted');
     if (!history.ok) return history;
     const matches = history.data.filter((event) => {
@@ -262,7 +263,7 @@ export function createMerchantRefundApi({
       // Even an aggregate 200 or typed 400 may follow a committed original refund.
       let sent: ApiResult<unknown> | null = null;
       try {
-        sent = await api.mutate('pay', 'payment.refund', input, s.paymentSchema);
+        sent = await api.call(PAY_PAYMENT_REFUND, input);
       } catch {
         /* Preserve original after a lost response. */
       }

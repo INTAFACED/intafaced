@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryLedger, parseAmount as amt, recipes } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -20,6 +20,7 @@ import { cardSimPartnerFor, type CardPartnerTerms } from './partner-terms.js';
 import { testPartnerCardHolds, type PartnerCardHolds } from './partner-card-holds.js';
 import { testPartner } from '../partner/test-partner.js';
 import type { PriceSource, QuotedMark } from '../loans/prices.js';
+import { DEFAULT_CARD_CONVERSION_POLICY } from './conversion.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -31,7 +32,7 @@ const migrations = readdirSync(drizzle)
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
   const envUrl = process.env.TEST_DATABASE_URL?.trim();
   if (envUrl) return { url: envUrl, stop: async () => undefined };
-  const container = await new PostgreSqlContainer('postgres:16-alpine').start();
+  const container = await testPostgres('postgres:16-alpine').start();
   return { url: container.getConnectionUri(), stop: async () => void (await container.stop()) };
 }
 
@@ -140,6 +141,20 @@ describe('Pay from (J-bank-29 #1 #2, PG-hard)', () => {
       quote: async ({ assetId }) => (assetId === 'BTC' ? { rate: '0', asOf: AT.toISOString() } : { rate: '1e3', asOf: AT.toISOString() }),
     };
     for (const row of (await quoted(QUOTING, odd).payFrom(user)).assets) expect(row.rate).toBeNull();
+  });
+
+  it('a partner quote older than the conversion policy’s window, or dated in the future, reads "not known"; a fresh one shows', async () => {
+    const maxAge = DEFAULT_CARD_CONVERSION_POLICY.maxAgeSeconds;
+    const at = (seconds: number) => new Date(AT.getTime() + seconds * 1_000).toISOString();
+    const base = testPartnerCardHolds({ terms: () => QUOTING, switches: () => testPartner().switches(user), clock: () => AT });
+    const agedBy = (seconds: number): PartnerCardHolds => ({
+      ...base,
+      quote: async ({ assetId }) => (assetId === 'BTC' ? { rate: '65000.5', asOf: at(-seconds) } : null),
+    });
+    const btc = async (holds: PartnerCardHolds) => (await quoted(QUOTING, holds).payFrom(user)).assets.find((a) => a.assetId === 'BTC');
+    expect(await btc(agedBy(maxAge + 1))).toMatchObject({ state: 'offered', partnerBalance: '0.01', rate: null, rateAsOf: null });
+    expect(await btc(agedBy(-120))).toMatchObject({ rate: null, rateAsOf: null });
+    expect(await btc(agedBy(maxAge))).toMatchObject({ rate: '65000.5', rateAsOf: at(-maxAge) });
   });
 
   it('a partner whose quote throws reads each rate "not known" and Pay from still opens with its balances', async () => {

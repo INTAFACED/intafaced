@@ -4,7 +4,7 @@
  * Consume GET /internal/account/:userId — no second store. Never invent active.
  */
 
-import { accountStateSchema } from '@intafaced/contracts';
+import { accountStateSchema } from '@intafaced/contracts/identity';
 import { identityCallHeaders, type EdgeS2s } from './s2s.js';
 import { assertUserNotFrozen, KeyUserStatusError, optionalUserStatus } from './api-key-user-status.js';
 

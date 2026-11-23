@@ -1,4 +1,5 @@
-//! The HTTP server (a TypeScript service's `index.ts` Fastify app): `GET /health`, `GET /ready`, and `/trpc/*` through
+//! The HTTP server (a TypeScript service's `index.ts` Fastify app): `GET /health`, `GET /ready`, `GET /metrics` when the
+//! door keeps metrics (`Door::metrics`; every reply is then observed), and `/trpc/*` through
 //! the service's door (any `Door`: svc-tax's is its `Wire`). Fastify answers HEAD for every GET route and gives every
 //! request the next request id, whatever its route; both are kept. A fixed set of worker threads takes requests; on
 //! SIGTERM or SIGINT the server stops taking new ones, lets those in flight finish, then the caller closes the pool and
@@ -9,6 +10,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant as Clock};
 
 use crate::json::Json;
+use crate::metrics::{self, GaugeSample, Labels, Metrics};
 use crate::telemetry::{Logger, Started, Telemetry};
 
 /// The header the server sets to the request's TCP peer address (never the caller's own header of that name).
@@ -42,6 +44,22 @@ pub trait Door: Sync {
     fn handle_from(&self, req: &Request<'_>, request_id: &str, peer: &str) -> Response {
         let _ = peer;
         self.handle_as(req, request_id)
+    }
+    /// `GET /health` and `GET /ready` (and their HEADs), when the door answers them from its own state. `None`, the
+    /// default, leaves the server's fixed answers: `{ ok, service }` and the app's `ready_body`.
+    fn status(&self, req: &Request<'_>) -> Option<Response> {
+        let _ = req;
+        None
+    }
+    /// The process's request metrics (a service's `registerMetrics`). `Some`: the server serves `GET /metrics` and
+    /// observes every reply it sends there. `None`, the default: no such route, nothing observed.
+    fn metrics(&self) -> Option<&Metrics> {
+        None
+    }
+    /// The gauges appended to each scrape (`registerMetrics`' `gauges`), read on every scrape. An `Err` leaves them out:
+    /// a scrape never fails because a read did.
+    fn gauges(&self) -> Result<Vec<GaugeSample>, String> {
+        Ok(Vec::new())
     }
 }
 
@@ -115,6 +133,33 @@ impl<D: Door> App<D> {
             content_type: FASTIFY_JSON,
             body,
         };
+        if matches!(method, "GET" | "HEAD")
+            && path == metrics::METRICS_PATH
+            && let Some(registry) = self.wire.metrics()
+        {
+            // `registerMetrics`' route: the gauges read first, then the registry, in the Prometheus content type.
+            let extra = self
+                .wire
+                .gauges()
+                .map(|g| metrics::render_gauges(&g, &self.service_name))
+                .unwrap_or_default();
+            return Answer {
+                status: 200,
+                content_type: metrics::PROMETHEUS_CONTENT_TYPE,
+                body: registry.render() + &extra,
+            };
+        }
+        if matches!(method, "GET" | "HEAD") && matches!(path, "/health" | "/ready") {
+            let req = Request {
+                method,
+                url,
+                headers,
+                body,
+            };
+            if let Some(res) = self.wire.status(&req) {
+                return json(res.status, res.body);
+            }
+        }
         if matches!(method, "GET" | "HEAD") {
             if path == "/health" {
                 let body = Json::obj([
@@ -145,6 +190,24 @@ impl<D: Door> App<D> {
                 FASTIFY_JSON
             },
             body: res.body,
+        }
+    }
+
+    /// The `onResponse` hook of a service's `metrics.ts`: one reply observed under the service's name, `module="_local"`
+    /// (the service is not a proxy, so no label comes from the URL) and `outcome="none"`. Nothing when the door has no
+    /// metrics.
+    pub fn observe(&self, method: &str, status: u16, elapsed: Duration) {
+        if let Some(registry) = self.wire.metrics() {
+            registry.observe(
+                &Labels {
+                    service: self.service_name.clone(),
+                    module: metrics::MODULE_LOCAL.to_owned(),
+                    method: metrics::method_label(method),
+                    status: metrics::status_class(status).to_owned(),
+                    outcome: "none".to_owned(),
+                },
+                elapsed.as_secs_f64(),
+            );
         }
     }
 }
@@ -244,6 +307,9 @@ fn answer<D: Door>(mut req: tiny_http::Request, app: &App<D>, log: &Logger, tele
     {
         response = response.with_header(h);
     }
+    // Observed once the answer is ready and before it is written, so a scrape that follows this reply sees it. Fastify's
+    // `onResponse` takes its time after the write; the difference is the socket write.
+    app.observe(&method, status, started.elapsed());
     if let Err(e) = req.respond(response) {
         log.warn(
             vec![
