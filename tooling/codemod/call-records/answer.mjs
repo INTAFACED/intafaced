@@ -25,7 +25,7 @@ function declarationOf(p, node, depth = 0) {
  * file declares or re-exports: the record writes that name and the closure follows it from there, as it does a named
  * import. Anything else is returned as it is.
  */
-export function throughNamespace(p, node) {
+function throughNamespace(p, node) {
   if (node?.type !== 'MemberExpression' || node.computed || node.object?.type !== 'Identifier' || node.property?.type !== 'Identifier')
     return { p, node };
   const b = bindingOf(p, node.object, node.object.name);
