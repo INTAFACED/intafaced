@@ -2154,6 +2154,7 @@ export const STREAM_REFERENCE: readonly Stream[] = [
   { door: 'private', channel: 'orders', product: 'spot', private: true },
   { door: 'private', channel: 'fills', product: 'spot', private: true },
   { door: 'private', channel: 'positions', product: 'derivatives', private: true },
+  { door: 'private', channel: 'balances', product: 'accounts', private: true },
   { door: 'drop-copy', channel: 'drop_copy', product: 'accounts', private: true },
 ];
 
