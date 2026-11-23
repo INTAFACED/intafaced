@@ -3,7 +3,7 @@
 // and parses tolerantly (unknown keys ignored, an array and a page both accepted).
 import { z } from 'zod';
 import { amount, asset, id, linkSchema } from '../../schemas';
-import { evidenceSchema } from '../schemas';
+import { evidenceFileSchema } from '@intafaced/contracts/pay-merchant-ops-procedures';
 
 const timestamp = z.string().datetime({ offset: true });
 
@@ -94,8 +94,6 @@ export const ownTierSchema = z.union([
 ]);
 export type OwnTier = z.infer<typeof ownTierSchema>;
 
-/** `merchantOps.disputes.getEvidence` on main: the evidence row plus its bytes, for a signed-in session only. */
-export const evidenceFileSchema = evidenceSchema.extend({ contentBase64: z.string() });
 export type EvidenceFile = z.infer<typeof evidenceFileSchema>;
 
 /** `merchantOps.customers.series` on main (#4833): captured count and volume per day and asset. */

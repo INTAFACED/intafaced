@@ -5,6 +5,7 @@ import { PAY_MERCHANT_METRICS_SNAPSHOT, PAY_MERCHANT_METRICS_SERIES } from '@int
 import { PAY_PAY_HALTS_STATUS } from '@intafaced/contracts/pay-pay-halts-procedures';
 import { PAY_MERCHANT_ME } from '@intafaced/contracts/pay-merchant-procedures';
 import { PAY_RAIL_HEALTH } from '@intafaced/contracts/pay-rail-health-procedures';
+import { PAY_MERCHANT_OPS_TEAM_ME } from '@intafaced/contracts/pay-merchant-ops-procedures';
 
 export const coreApi = ({ query, userId, queryRecord }: PortalTools) => ({
   userId,
@@ -16,6 +17,6 @@ export const coreApi = ({ query, userId, queryRecord }: PortalTools) => ({
     queryRecord(PAY_MERCHANT_METRICS_SNAPSHOT, { merchantId, window: { kind: 'preset', preset } }, signal),
   series: (merchantId: string, from: string, to: string, signal?: AbortSignal) =>
     queryRecord(PAY_MERCHANT_METRICS_SERIES, { merchantId, from, to, bucket: 'day' }, signal),
-  teamMe: (signal?: AbortSignal) => query('merchantOps.team.me', {}, p.teamMeSchema, signal),
+  teamMe: (signal?: AbortSignal) => queryRecord(PAY_MERCHANT_OPS_TEAM_ME, {}, signal),
   haltStatus: (merchantId: string, signal?: AbortSignal) => queryRecord(PAY_PAY_HALTS_STATUS, { merchantId }, signal),
 });
