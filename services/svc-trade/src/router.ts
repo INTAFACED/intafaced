@@ -3,6 +3,8 @@ import type { RecurringBuys } from './recurring/recurring-buys.js';
 import { recurringRouter } from './recurring/router.js';
 import { builderFeeAdminRouter, type BuilderFeeReconReader } from './builder-fee/builder-fee-admin.js';
 import { agentDeskAdminRouter } from './venue/agent-desk-admin.js';
+import { venueAccountAdminRouter } from './admin/venue-account-admin.js';
+import type { VenueAccountReadDeps } from './admin/venue-account-read.js';
 import { quantLiveAdminRouter } from './quant/live-run/halts-admin.js';
 import type { StrategyHaltDesk } from './quant/live-run/halts.js';
 import type { AgentDesk } from './venue/agent-desk.js';
@@ -792,6 +794,7 @@ export function createTradeRouter(
   quantHalts?: StrategyHaltDesk | null,
   venueGrid?: VenueGrid | null,
   recurring?: RecurringBuys | null,
+  venueAccounts?: VenueAccountReadDeps | null,
 ) {
   const placeAttempts = new PlaceAttemptBook();
   /** The lead desk's refusals carry their code at the end of the message, where the console reads it. */
@@ -842,6 +845,7 @@ export function createTradeRouter(
       insuranceAdminRouter(insuranceTopups),
       builderFeeAdminRouter(builderFees),
       agentDeskAdminRouter(agentDesk),
+      venueAccountAdminRouter(venueAccounts),
       quantLiveAdminRouter(quantHalts),
     ),
     /**

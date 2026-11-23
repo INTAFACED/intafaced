@@ -637,6 +637,211 @@
         }
       ]
     },
+    "trade.admin.venueAccounts.get": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "admin.venueAccounts.get",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:read"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["userId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "venueId": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "accounts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "owner": {
+                  "type": "string"
+                },
+                "subAccount": {
+                  "type": ["string", "null"]
+                },
+                "now": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "asOf": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                        },
+                        "asset": {
+                          "type": "string"
+                        },
+                        "equity": {
+                          "type": "string"
+                        },
+                        "maintenanceMargin": {
+                          "type": "string"
+                        },
+                        "marginRatio": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "known": {
+                                  "type": "boolean",
+                                  "const": true
+                                },
+                                "value": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": ["known", "value"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "known": {
+                                  "type": "boolean",
+                                  "const": false
+                                }
+                              },
+                              "required": ["known"],
+                              "additionalProperties": false
+                            }
+                          ]
+                        },
+                        "crossState": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": ["healthy", "margin_call"]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": ["asOf", "asset", "equity", "maintenanceMargin", "marginRatio", "crossState"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "history": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "asOf": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      "asset": {
+                        "type": "string"
+                      },
+                      "equity": {
+                        "type": "string"
+                      },
+                      "maintenanceMargin": {
+                        "type": "string"
+                      },
+                      "marginRatio": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "known": {
+                                "type": "boolean",
+                                "const": true
+                              },
+                              "value": {
+                                "type": "string"
+                              }
+                            },
+                            "required": ["known", "value"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "known": {
+                                "type": "boolean",
+                                "const": false
+                              }
+                            },
+                            "required": ["known"],
+                            "additionalProperties": false
+                          }
+                        ]
+                      },
+                      "crossState": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": ["healthy", "margin_call"]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": ["asOf", "asset", "equity", "maintenanceMargin", "marginRatio", "crossState"],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": ["owner", "subAccount", "now", "history"],
+              "additionalProperties": false
+            }
+          },
+          "auditId": {
+            "type": "string"
+          }
+        },
+        "required": ["userId", "venueId", "source", "accounts", "auditId"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "userId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "trade.algo.cancel": {
       "service": "svc-trade",
       "module": "trade",

@@ -85,8 +85,8 @@ impl Slice {
     }
 }
 
-/// The 530 calls.
-pub static CALLS: [Call; 530] = [
+/// The 531 calls.
+pub static CALLS: [Call; 531] = [
     Call {
         path: "accountDetails.get",
         kind: Kind::Query,
@@ -6198,6 +6198,19 @@ pub static CALLS: [Call; 530] = [
             own_session: None,
         }),
         slice: Slice::CardOps,
+        has_input: true,
+    },
+    Call {
+        path: "ops.customerPartnerBalances",
+        kind: Kind::Query,
+        access: Access::Scope(Scoped {
+            scope: "admin:read",
+            tier: None,
+            person: false,
+            region: None,
+            own_session: None,
+        }),
+        slice: Slice::OpsDesk,
         has_input: true,
     },
     Call {

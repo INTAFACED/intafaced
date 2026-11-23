@@ -38,6 +38,7 @@
     "ops.failedTransfers",
     "ops.transferDetail",
     "ops.customerBalances",
+    "ops.customerPartnerBalances",
     "ops.customerBalanceEntries",
     "ops.assetPauses",
     "ops.setAssetPause",

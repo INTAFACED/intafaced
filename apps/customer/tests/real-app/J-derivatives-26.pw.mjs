@@ -7,6 +7,7 @@ import { MINUTE, minuteStart, utcDay } from './clock.mjs';
 import { signUp, verify } from './desk.mjs';
 import { partnerBookMoves, partnerMainBalance, personDoor } from './person-door.mjs';
 import { staffDoors } from './bank-desk.mjs';
+import { ADMIN } from './admin.mjs';
 import { CHAIN_ID, connectWhenAsked } from './dex.mjs';
 import { installTestWallet, testWalletKey } from './test-wallet.mjs';
 import { otherTraderKey, sameDecimal, testDeposit, venueForThisFile, venueRecord } from './venue.mjs';
@@ -209,6 +210,8 @@ test(`${J} #1 waits while the TEST mark moves against the long, to below the acc
   await expect(cross.locator('[data-line="ratio"] dd')).toHaveText(venueSays.marginRatio.value);
   await expect(cross.locator('[data-line="equity"]')).toHaveAttribute('data-value', venueSays.equity);
   await expect(cross.locator('[data-line="maintenance"]')).toHaveAttribute('data-value', venueSays.maintenanceMargin);
+  // The venue's margin-call reading, for the founder's ratio history in #8.
+  run.write({ marginCall: { ratio: venueSays.marginRatio.value, equity: venueSays.equity, maintenance: venueSays.maintenanceMargin } });
   // Nothing moved: the venue holds what it held, and spending reads as before, from the partner.
   expect(await usdcOn(owner)).toEqual(usdcBefore);
   expect(await liquidationsOf(owner)).toEqual([]);
@@ -447,5 +450,80 @@ test(`${J} #7 opens the trading account statement: the venue's liquidation and f
     expect(sameDecimal(row.amount, part.size) && sameDecimal(row.price, part.price)).toBe(true);
   }
   // A statement moves nothing, and our ledger posted nothing for the liquidation.
+  expect(await (await one.door()).balances()).toEqual(ledger);
+});
+
+test(`${J} #8 a founder opens /trade-ops/accounts: the person's venue account with its ratio history and their partner balance side by side, read-only, each with its source and as-of time`, async ({
+  founders,
+  stepPicture,
+}) => {
+  test.setTimeout(300_000);
+  const { owner, userId, spaceId, ledger, marginCall } = run.read();
+  expect(marginCall, '#1 kept the venue’s margin-call reading').toBeTruthy();
+  const venue = await venueNow();
+  // What each source reports now: the venue's margin summary, and the partner's own book and label.
+  const summary = (await venueRecord(owner, '/account-summary')).value;
+  const partnerLabel = (await one.bankGet('spaces.list', { limit: 200 })).find((x) => x.kind === 'primary' && x.assetId === 'USDC').heldAt
+    .label;
+  const mainNow = await partnerMain(userId);
+  expect(sameDecimal(mainNow, AFTER_CARD)).toBe(true);
+
+  const { page } = await founders.console('a');
+  await page.goto(`${ADMIN}/trade-ops/accounts`);
+  await page.getByLabel('Person (user id)', { exact: true }).fill(userId);
+  await page.getByRole('button', { name: 'Look up', exact: true }).click();
+  const room = page.getByTestId('accounts-side-by-side');
+  await expect(room).toHaveAttribute('data-user', userId, { timeout: 30_000 });
+
+  // The venue side: the person's own venue account, its margin now as the venue reports it, with the venue as source.
+  const venueSide = room.getByTestId('venue-side');
+  await expect(venueSide.getByTestId('venue-source')).toHaveAttribute('data-source', venue.name);
+  const account = venueSide.locator(`[data-testid="venue-account"][data-owner="${owner}"]`);
+  await expect(venueSide.getByTestId('venue-account')).toHaveCount(1);
+  await expect(account).toHaveCount(1);
+  const now = account.getByTestId('venue-now');
+  await expect(now.locator('[data-cell="state"]')).toHaveText(
+    summary.cross ? (summary.cross.state === 'healthy' ? 'Healthy' : 'Margin call') : 'No cross position',
+  );
+  await expect
+    .poll(async () => sameDecimal((await now.locator('[data-cell="equity"]').innerText()).split(' ')[0], (summary.cross ?? summary).equity))
+    .toBe(true);
+  await expect(now.locator('[data-cell="as-of"]')).toHaveText(/^\d{4}-\d\d-\d\dT/);
+  // The ratio history, newest first, each reading the venue's with its time: it holds the margin call #1 saw, exact, and
+  // the healthy account before it.
+  const history = account.getByTestId('ratio-history').locator('tbody tr');
+  await expect(history.first()).toBeVisible();
+  const rows = await history.evaluateAll((trs) =>
+    trs.map((tr) =>
+      Object.fromEntries([...tr.querySelectorAll('[data-cell]')].map((td) => [td.getAttribute('data-cell'), td.textContent])),
+    ),
+  );
+  const times = rows.map((r) => Date.parse(r['as-of']));
+  expect(times.every((t) => Number.isFinite(t))).toBe(true);
+  expect([...times].sort((a, b) => b - a)).toEqual(times);
+  expect(rows.every((r) => r.source === venue.name)).toBe(true);
+  const called = rows.filter((r) => r.state === 'Margin call');
+  expect(called.some((r) => sameDecimal(r.ratio, marginCall.ratio) && sameDecimal(r.equity.split(' ')[0], marginCall.equity))).toBe(true);
+  const firstCall = Math.min(...called.map((r) => Date.parse(r['as-of'])));
+  expect(rows.some((r) => r.state === 'Healthy' && Date.parse(r['as-of']) < firstCall)).toBe(true);
+
+  // The partner side: the spending balances as the partner reports them, with the partner's label and time.
+  const partnerSide = room.getByTestId('partner-side');
+  const main = partnerSide.locator('tr[data-kind="primary"]').filter({ hasText: 'Main USDC' });
+  await expect(main.locator('[data-cell="balance"]')).toHaveText(/ USDC$/);
+  await expect.poll(async () => sameDecimal((await main.locator('[data-cell="balance"]').innerText()).split(' ')[0], mainNow)).toBe(true);
+  await expect(main.locator('[data-cell="source"]')).toHaveText(partnerLabel);
+  await expect(main.locator('[data-cell="as-of"]')).toHaveText(/^\d{4}-\d\d-\d\dT/);
+  const space = partnerSide.locator(`tr[data-space="${spaceId}"]`);
+  await expect(space.locator('[data-cell="balance"]')).toHaveText(/^100(\.0+)? USDC$/);
+  await expect(space.locator('[data-cell="source"]')).toHaveText(partnerLabel);
+  expect(await partnerSpace(userId, spaceId)).toBe(toUnits(TO_SPACE));
+
+  // Read-only: the room offers nothing to act with but the look-up itself.
+  await expect(room.getByRole('button')).toHaveCount(0);
+  await expect(room.getByRole('textbox')).toHaveCount(0);
+  await stepPicture(page);
+  // Nothing moved: the partner's figures and our ledger are as before the look.
+  expect(sameDecimal(await partnerMain(userId), mainNow)).toBe(true);
   expect(await (await one.door()).balances()).toEqual(ledger);
 });

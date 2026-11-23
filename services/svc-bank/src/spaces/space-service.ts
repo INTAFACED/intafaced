@@ -579,6 +579,34 @@ export class SpaceService {
   }
 
   /**
+   * J-derivatives-26 #8, for the founder console: the person's spaces with the figure the partner holding their money
+   * reports, each exactly as `overview` builds it (same label, as-of time, stale rule and refusal when not known).
+   * `null` when no partner holds this person's money: no ledger figure is ever read here. Writes nothing (no
+   * `ensureHeldPrimaries`), so a main balance whose label row the owner has not read into being yet is not listed.
+   */
+  async partnerHeldFigures(userId: string): Promise<Array<{
+    space: SpaceRecord;
+    label: string;
+    figure: ReportedFigureWire;
+  }> | null> {
+    const partner = this.custody.bankFor(userId);
+    if (!partner) return null;
+    // The owner list's cap: the console reads one page, the same most the owner can ask for.
+    const spaces = await this.list(userId, undefined, 200);
+    const reports = new Map<string, PartnerBalance>();
+    for (const b of await partner.balances(userId)) reports.set(`${b.account.assetId}|${b.account.spaceId ?? ''}`, b);
+    const out: Array<{ space: SpaceRecord; label: string; figure: ReportedFigureWire }> = [];
+    for (const space of spaces) {
+      const account = partnerAccountFor(space);
+      const reported = reports.get(`${account.assetId}|${account.spaceId ?? ''}`) ?? (await partner.balance(account));
+      const figure = partnerFigure(reported, partner.staleAfterMs, new Date());
+      if (figure.state === 'unknown') throw partnerBalanceNotKnown(reported.label);
+      out.push({ space, label: reported.label, figure: heldFigureWire(figure) });
+    }
+    return out;
+  }
+
+  /**
    * Every asset the user holds in their main account gets its primary row, so a
    * list of spaces always shows the account itself. Money that lands from
    * outside the bank (a deposit, a fill) is posted by other services that do not

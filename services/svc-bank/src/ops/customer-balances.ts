@@ -19,17 +19,16 @@ import { BALANCE_ENTRIES_DEFAULT_LIMIT, BALANCE_ENTRIES_MAX_LIMIT } from '../por
 const signedAmount = z.string().regex(/^-?\d+(\.\d{1,18})?$/);
 
 export function writeCustomerBalancesAudit(actorUserId: string, ownerUserId: string, what: 'breakdown' | 'entries'): void {
+  writeOpsReadAudit({ event: 'bank.ops.customer_balances_read', actorUserId, ownerUserId, what });
+}
+
+/**
+ * One operator read's audit line (this desk's and `ops.customerPartnerBalances`'), written before anything is read; a line
+ * that cannot be written refuses the read.
+ */
+export function writeOpsReadAudit(fields: { event: string; actorUserId: string; ownerUserId: string; what?: string }): void {
   try {
-    console.info(
-      JSON.stringify({
-        level: 'info',
-        service: 'svc-bank',
-        event: 'bank.ops.customer_balances_read',
-        actorUserId,
-        ownerUserId,
-        what,
-      }),
-    );
+    console.info(JSON.stringify({ level: 'info', service: 'svc-bank', ...fields }));
   } catch {
     throw new BankError('The read could not be recorded, so nothing was read', 'bank.ops_audit_unavailable');
   }

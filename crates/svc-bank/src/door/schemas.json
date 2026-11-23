@@ -5180,13 +5180,20 @@
     },
     { "t": "optional", "in": 1179 },
     { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
+    { "t": "object", "shape": [["userId", 1181]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
     {
       "t": "object",
       "shape": [
-        ["requestId", 1181],
-        ["decision", 1182],
-        ["granted", 1183],
-        ["note", 1184]
+        ["requestId", 1183],
+        ["decision", 1184],
+        ["granted", 1185],
+        ["note", 1186]
       ],
       "catchall": "strict"
     },
@@ -5202,15 +5209,15 @@
     {
       "t": "object",
       "shape": [
-        ["limit", 1186],
-        ["address", 1187],
-        ["historyFor", 1189],
-        ["historyLimit", 1193]
+        ["limit", 1188],
+        ["address", 1189],
+        ["historyFor", 1191],
+        ["historyLimit", 1195]
       ],
       "catchall": "strict"
     },
     { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 500, "incl": true }] },
-    { "t": "optional", "in": 1188 },
+    { "t": "optional", "in": 1190 },
     {
       "t": "string",
       "checks": [
@@ -5218,12 +5225,12 @@
         { "k": "max_length", "n": 256 }
       ]
     },
-    { "t": "optional", "in": 1190 },
+    { "t": "optional", "in": 1192 },
     {
       "t": "object",
       "shape": [
-        ["network", 1191],
-        ["address", 1192]
+        ["network", 1193],
+        ["address", 1194]
       ],
       "catchall": "strict"
     },
@@ -5241,31 +5248,31 @@
         { "k": "max_length", "n": 256 }
       ]
     },
-    { "t": "optional", "in": 1194 },
-    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
     { "t": "optional", "in": 1196 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
+    { "t": "optional", "in": 1198 },
     { "t": "object", "shape": [], "catchall": "strict" },
     {
       "t": "object",
       "shape": [
-        ["windowHours", 1198],
-        ["limit", 1200],
-        ["cursor", 1202]
+        ["windowHours", 1200],
+        ["limit", 1202],
+        ["cursor", 1204]
       ]
     },
-    { "t": "optional", "in": 1199 },
-    { "t": "number", "checks": [{ "k": "int" }] },
     { "t": "optional", "in": 1201 },
-    { "t": "number" },
+    { "t": "number", "checks": [{ "k": "int" }] },
     { "t": "optional", "in": 1203 },
+    { "t": "number" },
+    { "t": "optional", "in": 1205 },
     { "t": "string" },
-    { "t": "object", "shape": [["action", 1205]] },
+    { "t": "object", "shape": [["action", 1207]] },
     { "t": "enum", "values": ["run_check", "set_stance", "automatic_blocking", "model_feedback"] },
     {
       "t": "object",
       "shape": [
-        ["windowId", 1207],
-        ["assetId", 1208],
+        ["windowId", 1209],
+        ["assetId", 1210],
         ["amount", 97],
         ["confirmOperatorId", 954],
         ["approvalId", 957],
@@ -5289,8 +5296,8 @@
     {
       "t": "object",
       "shape": [
-        ["debtAssetId", 1210],
-        ["fundingId", 1211],
+        ["debtAssetId", 1212],
+        ["fundingId", 1213],
         ["amount", 97],
         ["confirmOperatorId", 954],
         ["approvalId", 957],
@@ -5314,8 +5321,8 @@
     {
       "t": "object",
       "shape": [
-        ["poolId", 1213],
-        ["fundingId", 1214],
+        ["poolId", 1215],
+        ["fundingId", 1216],
         ["amount", 97],
         ["confirmOperatorId", 954],
         ["approvalId", 957],
@@ -5335,30 +5342,30 @@
         { "k": "max_length", "n": 64 }
       ]
     },
-    { "t": "optional", "in": 1216 },
-    { "t": "object", "shape": [["limit", 1217]] },
     { "t": "optional", "in": 1218 },
+    { "t": "object", "shape": [["limit", 1219]] },
+    { "t": "optional", "in": 1220 },
     { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
-    { "t": "object", "shape": [["limit", 1220]], "catchall": "strict" },
-    { "t": "optional", "in": 1221 },
+    { "t": "object", "shape": [["limit", 1222]], "catchall": "strict" },
+    { "t": "optional", "in": 1223 },
     { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
-    { "t": "object", "shape": [["limit", 1223]], "catchall": "strict" },
-    { "t": "optional", "in": 1224 },
+    { "t": "object", "shape": [["limit", 1225]], "catchall": "strict" },
+    { "t": "optional", "in": 1226 },
     { "t": "number", "checks": [{ "k": "int" }] },
-    { "t": "object", "shape": [["limit", 1226]], "catchall": "strict" },
-    { "t": "optional", "in": 1227 },
+    { "t": "object", "shape": [["limit", 1228]], "catchall": "strict" },
+    { "t": "optional", "in": 1229 },
     { "t": "number", "checks": [{ "k": "int" }] },
-    { "t": "object", "shape": [["days", 1229]] },
+    { "t": "object", "shape": [["days", 1231]] },
     { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 90, "incl": true }] },
-    { "t": "optional", "in": 1231 },
+    { "t": "optional", "in": 1233 },
     {
       "t": "object",
       "shape": [
-        ["historyFor", 1232],
-        ["historyLimit", 1234]
+        ["historyFor", 1234],
+        ["historyLimit", 1236]
       ]
     },
-    { "t": "optional", "in": 1233 },
+    { "t": "optional", "in": 1235 },
     {
       "t": "string",
       "checks": [
@@ -5366,17 +5373,17 @@
         { "k": "max_length", "n": 64 }
       ]
     },
-    { "t": "optional", "in": 1235 },
+    { "t": "optional", "in": 1237 },
     { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
     {
       "t": "object",
       "shape": [
-        ["assetId", 1237],
-        ["perTransferLimit", 1238],
-        ["dailyLimit", 1238],
-        ["fee", 1238],
-        ["approvalId", 1239],
-        ["operationId", 1242]
+        ["assetId", 1239],
+        ["perTransferLimit", 1240],
+        ["dailyLimit", 1240],
+        ["fee", 1240],
+        ["approvalId", 1241],
+        ["operationId", 1244]
       ]
     },
     {
@@ -5387,18 +5394,18 @@
       "t": "string",
       "checks": [{ "k": "regex", "src": "/^\\d+(\\.\\d{1,18})?$/", "msg": "amount must be an unsigned decimal string (max 18dp)" }]
     },
-    { "t": "optional", "in": 1240 },
-    { "t": "nullable", "in": 1241 },
+    { "t": "optional", "in": 1242 },
+    { "t": "nullable", "in": 1243 },
     { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
-    { "t": "optional", "in": 1243 },
-    { "t": "nullable", "in": 1244 },
+    { "t": "optional", "in": 1245 },
+    { "t": "nullable", "in": 1246 },
     { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
-    { "t": "object", "shape": [["windowHours", 1246]] },
-    { "t": "optional", "in": 1247 },
-    { "t": "number", "checks": [{ "k": "int" }] },
+    { "t": "object", "shape": [["windowHours", 1248]] },
     { "t": "optional", "in": 1249 },
+    { "t": "number", "checks": [{ "k": "int" }] },
+    { "t": "optional", "in": 1251 },
     { "t": "object", "shape": [], "catchall": "strict" },
-    { "t": "object", "shape": [["debtAssetId", 1251]] },
+    { "t": "object", "shape": [["debtAssetId", 1253]] },
     {
       "t": "string",
       "checks": [
@@ -5406,7 +5413,7 @@
         { "k": "max_length", "n": 16 }
       ]
     },
-    { "t": "object", "shape": [["transferId", 1253]] },
+    { "t": "object", "shape": [["transferId", 1255]] },
     {
       "t": "string",
       "checks": [
@@ -5417,7 +5424,7 @@
     {
       "t": "object",
       "shape": [
-        ["transferId", 1255],
+        ["transferId", 1257],
         ["confirmOperatorId", 954],
         ["approvalId", 957],
         ["operationId", 960]
@@ -5433,21 +5440,21 @@
     {
       "t": "object",
       "shape": [
-        ["limit", 1257],
-        ["poolId", 1259],
-        ["after", 1261]
+        ["limit", 1259],
+        ["poolId", 1261],
+        ["after", 1263]
       ]
     },
-    { "t": "optional", "in": 1258 },
-    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 1000, "incl": true }] },
     { "t": "optional", "in": 1260 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 1000, "incl": true }] },
+    { "t": "optional", "in": 1262 },
     {
       "t": "string",
       "checks": [
         { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
       ]
     },
-    { "t": "optional", "in": 1262 },
+    { "t": "optional", "in": 1264 },
     {
       "t": "string",
       "checks": [
@@ -5457,21 +5464,21 @@
     {
       "t": "object",
       "shape": [
-        ["limit", 1264],
-        ["poolId", 1266],
-        ["at", 1268]
+        ["limit", 1266],
+        ["poolId", 1268],
+        ["at", 1270]
       ]
     },
-    { "t": "optional", "in": 1265 },
-    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 1000, "incl": true }] },
     { "t": "optional", "in": 1267 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 1000, "incl": true }] },
+    { "t": "optional", "in": 1269 },
     {
       "t": "string",
       "checks": [
         { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
       ]
     },
-    { "t": "optional", "in": 1269 },
+    { "t": "optional", "in": 1271 },
     {
       "t": "string",
       "checks": [
@@ -5485,41 +5492,41 @@
     {
       "t": "object",
       "shape": [
-        ["kind", 1271],
-        ["amount", 1272],
-        ["threshold", 1273],
-        ["reason", 1275],
-        ["approvalId", 1276],
-        ["operationId", 1279],
-        ["clientRequestId", 1282]
+        ["kind", 1273],
+        ["amount", 1274],
+        ["threshold", 1275],
+        ["reason", 1277],
+        ["approvalId", 1278],
+        ["operationId", 1281],
+        ["clientRequestId", 1284]
       ]
     },
     { "t": "enum", "values": ["fund", "defund", "auto_reload"] },
     { "t": "string" },
-    { "t": "nullable", "in": 1274 },
+    { "t": "nullable", "in": 1276 },
     { "t": "string" },
     { "t": "string" },
-    { "t": "optional", "in": 1277 },
-    { "t": "nullable", "in": 1278 },
+    { "t": "optional", "in": 1279 },
+    { "t": "nullable", "in": 1280 },
     { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
-    { "t": "optional", "in": 1280 },
-    { "t": "nullable", "in": 1281 },
+    { "t": "optional", "in": 1282 },
+    { "t": "nullable", "in": 1283 },
     { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
     { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
-    { "t": "object", "shape": [["limit", 1284]] },
-    { "t": "optional", "in": 1285 },
+    { "t": "object", "shape": [["limit", 1286]] },
+    { "t": "optional", "in": 1287 },
     { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 1000, "incl": true }] },
-    { "t": "object", "shape": [["limit", 1287]] },
-    { "t": "optional", "in": 1288 },
+    { "t": "object", "shape": [["limit", 1289]] },
+    { "t": "optional", "in": 1290 },
     { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 1000, "incl": true }] },
-    { "t": "object", "shape": [["limit", 1290]] },
-    { "t": "optional", "in": 1291 },
+    { "t": "object", "shape": [["limit", 1292]] },
+    { "t": "optional", "in": 1293 },
     { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 10000, "incl": true }] },
     {
       "t": "object",
       "shape": [
-        ["at", 1293],
-        ["userIds", 1294]
+        ["at", 1295],
+        ["userIds", 1296]
       ]
     },
     {
@@ -5534,7 +5541,7 @@
     },
     {
       "t": "array",
-      "el": 1295,
+      "el": 1297,
       "checks": [
         { "k": "min_length", "n": 1 },
         { "k": "max_length", "n": 500 }
@@ -5547,18 +5554,18 @@
         { "k": "max_length", "n": 64 }
       ]
     },
-    { "t": "object", "shape": [["limit", 1297]] },
-    { "t": "optional", "in": 1298 },
+    { "t": "object", "shape": [["limit", 1299]] },
+    { "t": "optional", "in": 1300 },
     { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 10000, "incl": true }] },
-    { "t": "object", "shape": [["limit", 1300]] },
-    { "t": "optional", "in": 1301 },
-    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 10000, "incl": true }] },
+    { "t": "object", "shape": [["limit", 1302]] },
     { "t": "optional", "in": 1303 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 10000, "incl": true }] },
+    { "t": "optional", "in": 1305 },
     { "t": "object", "shape": [], "catchall": "strict" },
     {
       "t": "object",
       "shape": [
-        ["loanId", 1305],
+        ["loanId", 1307],
         ["confirmOperatorId", 954],
         ["approvalId", 957],
         ["operationId", 960]
@@ -5573,13 +5580,13 @@
     {
       "t": "object",
       "shape": [
-        ["assetId", 1307],
-        ["borrowPaused", 1308],
-        ["supplyPaused", 1309],
-        ["expectedRevision", 1310],
-        ["reason", 1311],
-        ["approvalId", 1312],
-        ["operationId", 1315]
+        ["assetId", 1309],
+        ["borrowPaused", 1310],
+        ["supplyPaused", 1311],
+        ["expectedRevision", 1312],
+        ["reason", 1313],
+        ["approvalId", 1314],
+        ["operationId", 1317]
       ]
     },
     {
@@ -5593,21 +5600,21 @@
     { "t": "boolean" },
     { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }] },
     { "t": "string" },
-    { "t": "optional", "in": 1313 },
-    { "t": "nullable", "in": 1314 },
+    { "t": "optional", "in": 1315 },
+    { "t": "nullable", "in": 1316 },
     { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
-    { "t": "optional", "in": 1316 },
-    { "t": "nullable", "in": 1317 },
+    { "t": "optional", "in": 1318 },
+    { "t": "nullable", "in": 1319 },
     { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
     {
       "t": "object",
       "shape": [
-        ["cardId", 1319],
-        ["status", 1320],
-        ["reason", 1321],
-        ["approvalId", 1322],
-        ["operationId", 1325],
-        ["clientRequestId", 1328]
+        ["cardId", 1321],
+        ["status", 1322],
+        ["reason", 1323],
+        ["approvalId", 1324],
+        ["operationId", 1327],
+        ["clientRequestId", 1330]
       ]
     },
     {
@@ -5618,23 +5625,23 @@
     },
     { "t": "enum", "values": ["frozen", "active"] },
     { "t": "string" },
-    { "t": "optional", "in": 1323 },
-    { "t": "nullable", "in": 1324 },
+    { "t": "optional", "in": 1325 },
+    { "t": "nullable", "in": 1326 },
     { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
-    { "t": "optional", "in": 1326 },
-    { "t": "nullable", "in": 1327 },
+    { "t": "optional", "in": 1328 },
+    { "t": "nullable", "in": 1329 },
     { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
     { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
     {
       "t": "object",
       "shape": [
-        ["network", 1330],
-        ["address", 1331],
-        ["listed", 1332],
-        ["expectedRevision", 1333],
-        ["reason", 1334],
-        ["approvalId", 1335],
-        ["operationId", 1338]
+        ["network", 1332],
+        ["address", 1333],
+        ["listed", 1334],
+        ["expectedRevision", 1335],
+        ["reason", 1336],
+        ["approvalId", 1337],
+        ["operationId", 1340]
       ],
       "catchall": "strict"
     },
@@ -5655,18 +5662,18 @@
     { "t": "boolean" },
     { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }] },
     { "t": "string", "checks": [{ "k": "max_length", "n": 500 }] },
-    { "t": "optional", "in": 1336 },
-    { "t": "nullable", "in": 1337 },
+    { "t": "optional", "in": 1338 },
+    { "t": "nullable", "in": 1339 },
     { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
-    { "t": "optional", "in": 1339 },
-    { "t": "nullable", "in": 1340 },
+    { "t": "optional", "in": 1341 },
+    { "t": "nullable", "in": 1342 },
     { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
     {
       "t": "object",
       "shape": [
-        ["poolId", 1342],
+        ["poolId", 1344],
         ["rateBps", 1133],
-        ["reason", 1343],
+        ["reason", 1345],
         ["approvalId", 1140],
         ["operationId", 1143]
       ]
@@ -5681,10 +5688,10 @@
     {
       "t": "object",
       "shape": [
-        ["poolId", 1345],
-        ["status", 1346],
-        ["reason", 1347],
-        ["revision", 1348],
+        ["poolId", 1347],
+        ["status", 1348],
+        ["reason", 1349],
+        ["revision", 1350],
         ["approvalId", 1140],
         ["operationId", 1143]
       ]
@@ -5701,12 +5708,12 @@
     {
       "t": "object",
       "shape": [
-        ["productId", 1350],
+        ["productId", 1352],
         ["fromAprBps", 1152],
         ["aprBps", 1152],
-        ["reason", 1351],
-        ["approvalId", 1352],
-        ["operationId", 1355]
+        ["reason", 1353],
+        ["approvalId", 1354],
+        ["operationId", 1357]
       ]
     },
     {
@@ -5716,21 +5723,21 @@
       ]
     },
     { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 3 }, { "k": "max_length", "n": 300 }] },
-    { "t": "optional", "in": 1353 },
-    { "t": "nullable", "in": 1354 },
+    { "t": "optional", "in": 1355 },
+    { "t": "nullable", "in": 1356 },
     { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
-    { "t": "optional", "in": 1356 },
-    { "t": "nullable", "in": 1357 },
+    { "t": "optional", "in": 1358 },
+    { "t": "nullable", "in": 1359 },
     { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
     {
       "t": "object",
       "shape": [
-        ["partnerId", 1359],
-        ["stoppedKinds", 1360],
-        ["expectedRevision", 1362],
-        ["reason", 1363],
-        ["approvalId", 1364],
-        ["operationId", 1367]
+        ["partnerId", 1361],
+        ["stoppedKinds", 1362],
+        ["expectedRevision", 1364],
+        ["reason", 1365],
+        ["approvalId", 1366],
+        ["operationId", 1369]
       ]
     },
     {
@@ -5740,35 +5747,35 @@
         { "k": "max_length", "n": 64 }
       ]
     },
-    { "t": "array", "el": 1361, "checks": [{ "k": "max_length", "n": 5 }] },
+    { "t": "array", "el": 1363, "checks": [{ "k": "max_length", "n": 5 }] },
     { "t": "enum", "values": ["bank_move", "card_hold", "card_capture", "card_release", "card_refund"] },
     { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }] },
     { "t": "string" },
-    { "t": "optional", "in": 1365 },
-    { "t": "nullable", "in": 1366 },
+    { "t": "optional", "in": 1367 },
+    { "t": "nullable", "in": 1368 },
     { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
-    { "t": "optional", "in": 1368 },
-    { "t": "nullable", "in": 1369 },
+    { "t": "optional", "in": 1370 },
+    { "t": "nullable", "in": 1371 },
     { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
-    { "t": "object", "shape": [["id", 1371]] },
+    { "t": "object", "shape": [["id", 1373]] },
     { "t": "string" },
-    { "t": "object", "shape": [["windowHours", 1373]] },
-    { "t": "optional", "in": 1374 },
+    { "t": "object", "shape": [["windowHours", 1375]] },
+    { "t": "optional", "in": 1376 },
     { "t": "number", "checks": [{ "k": "int" }] },
-    { "t": "object", "shape": [["moveId", 1376]], "catchall": "strict" },
+    { "t": "object", "shape": [["moveId", 1378]], "catchall": "strict" },
     {
       "t": "string",
       "checks": [{ "k": "regex", "src": "/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/", "msg": "a lower-case uuid" }]
     },
-    { "t": "object", "shape": [["limit", 1378]], "catchall": "strict" },
+    { "t": "object", "shape": [["limit", 1380]], "catchall": "strict" },
     { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 100, "incl": true }] },
     {
       "t": "object",
       "shape": [
-        ["moveId", 1376],
-        ["assetId", 1380],
+        ["moveId", 1378],
+        ["assetId", 1382],
         ["amount", 97],
-        ["wallet", 1381]
+        ["wallet", 1383]
       ],
       "catchall": "strict"
     },
@@ -5777,8 +5784,8 @@
     {
       "t": "object",
       "shape": [
-        ["moveId", 1376],
-        ["depositTx", 1383]
+        ["moveId", 1378],
+        ["depositTx", 1385]
       ],
       "catchall": "strict"
     },
@@ -5786,11 +5793,11 @@
     {
       "t": "object",
       "shape": [
-        ["moveId", 1376],
-        ["assetId", 1380],
+        ["moveId", 1378],
+        ["assetId", 1382],
         ["amount", 97],
-        ["wallet", 1381],
-        ["walletSignature", 1385],
+        ["wallet", 1383],
+        ["walletSignature", 1387],
         ["stepUpApprovalId", 228]
       ],
       "catchall": "strict"
@@ -5799,9 +5806,9 @@
     {
       "t": "object",
       "shape": [
-        ["moveKey", 1387],
-        ["owner", 1388],
-        ["nonce", 1389],
+        ["moveKey", 1389],
+        ["owner", 1390],
+        ["nonce", 1391],
         ["amount", 97]
       ],
       "catchall": "strict"
@@ -5824,13 +5831,13 @@
     {
       "t": "object",
       "shape": [
-        ["weekday", 1391],
+        ["weekday", 1393],
         ["cap", 97]
       ],
       "catchall": "strict"
     },
     { "t": "enum", "values": ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] },
-    { "t": "object", "shape": [["requestId", 1393]] },
+    { "t": "object", "shape": [["requestId", 1395]] },
     {
       "t": "string",
       "checks": [
@@ -5840,12 +5847,12 @@
     {
       "t": "object",
       "shape": [
-        ["payerUserId", 1395],
-        ["assetId", 1396],
-        ["amount", 1397],
-        ["note", 1398],
-        ["expiresAt", 1400],
-        ["idempotencyKey", 1401]
+        ["payerUserId", 1397],
+        ["assetId", 1398],
+        ["amount", 1399],
+        ["note", 1400],
+        ["expiresAt", 1402],
+        ["idempotencyKey", 1403]
       ]
     },
     {
@@ -5862,7 +5869,7 @@
       ]
     },
     { "t": "string", "checks": [{ "k": "regex", "src": "/^\\d+(\\.\\d{1,18})?$/" }] },
-    { "t": "optional", "in": 1399 },
+    { "t": "optional", "in": 1401 },
     { "t": "string", "checks": [{ "k": "max_length", "n": 140 }] },
     {
       "t": "string",
@@ -5884,21 +5891,21 @@
     {
       "t": "object",
       "shape": [
-        ["direction", 1403],
-        ["status", 1404],
-        ["limit", 1406]
+        ["direction", 1405],
+        ["status", 1406],
+        ["limit", 1408]
       ]
     },
     { "t": "enum", "values": ["incoming", "outgoing"] },
-    { "t": "optional", "in": 1405 },
-    { "t": "enum", "values": ["open", "paid", "declined", "cancelled", "expired"] },
     { "t": "optional", "in": 1407 },
+    { "t": "enum", "values": ["open", "paid", "declined", "cancelled", "expired"] },
+    { "t": "optional", "in": 1409 },
     { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 100, "incl": true }] },
     {
       "t": "object",
       "shape": [
-        ["requestId", 1409],
-        ["idempotencyKey", 1401]
+        ["requestId", 1411],
+        ["idempotencyKey", 1403]
       ]
     },
     {
@@ -5910,9 +5917,9 @@
     {
       "t": "object",
       "shape": [
-        ["requestId", 1411],
-        ["reason", 1412],
-        ["block", 1413]
+        ["requestId", 1413],
+        ["reason", 1414],
+        ["block", 1415]
       ]
     },
     {
@@ -5923,20 +5930,20 @@
     },
     { "t": "enum", "values": ["scam", "spam", "harassment", "other"] },
     { "t": "boolean" },
-    { "t": "optional", "in": 1415 },
-    {
-      "t": "object",
-      "shape": [
-        ["scope", 1416],
-        ["accountId", 1418],
-        ["assetId", 1422]
-      ],
-      "catchall": "strict"
-    },
     { "t": "optional", "in": 1417 },
-    { "t": "enum", "values": ["all", "main"] },
+    {
+      "t": "object",
+      "shape": [
+        ["scope", 1418],
+        ["accountId", 1420],
+        ["assetId", 1424]
+      ],
+      "catchall": "strict"
+    },
     { "t": "optional", "in": 1419 },
-    { "t": "union", "options": [1420, 1421] },
+    { "t": "enum", "values": ["all", "main"] },
+    { "t": "optional", "in": 1421 },
+    { "t": "union", "options": [1422, 1423] },
     { "t": "literal", "values": ["main"] },
     {
       "t": "string",
@@ -5944,7 +5951,7 @@
         { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
       ]
     },
-    { "t": "optional", "in": 1423 },
+    { "t": "optional", "in": 1425 },
     {
       "t": "string",
       "checks": [
@@ -5955,10 +5962,10 @@
     {
       "t": "object",
       "shape": [
-        ["assetId", 1425],
-        ["accountId", 1426],
-        ["cursor", 1430],
-        ["limit", 1432]
+        ["assetId", 1427],
+        ["accountId", 1428],
+        ["cursor", 1432],
+        ["limit", 1434]
       ],
       "catchall": "strict"
     },
@@ -5969,8 +5976,8 @@
         { "k": "max_length", "n": 16 }
       ]
     },
-    { "t": "optional", "in": 1427 },
-    { "t": "union", "options": [1428, 1429] },
+    { "t": "optional", "in": 1429 },
+    { "t": "union", "options": [1430, 1431] },
     { "t": "literal", "values": ["main"] },
     {
       "t": "string",
@@ -5978,7 +5985,7 @@
         { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
       ]
     },
-    { "t": "optional", "in": 1431 },
+    { "t": "optional", "in": 1433 },
     {
       "t": "string",
       "checks": [
@@ -5986,13 +5993,13 @@
         { "k": "max_length", "n": 16 }
       ]
     },
-    { "t": "default", "in": 1433, "value": 50 },
+    { "t": "default", "in": 1435, "value": 50 },
     { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
     {
       "t": "object",
       "shape": [
-        ["from", 1435],
-        ["to", 1436]
+        ["from", 1437],
+        ["to", 1438]
       ],
       "catchall": "strict"
     },
@@ -6006,18 +6013,18 @@
         }
       ]
     },
-    { "t": "optional", "in": 1435 },
-    { "t": "optional", "in": 1438 },
+    { "t": "optional", "in": 1437 },
+    { "t": "optional", "in": 1440 },
     {
       "t": "object",
       "shape": [
-        ["assetId", 1439],
-        ["valueIn", 1441],
-        ["displayCurrency", 1443],
-        ["scope", 1445]
+        ["assetId", 1441],
+        ["valueIn", 1443],
+        ["displayCurrency", 1445],
+        ["scope", 1447]
       ]
     },
-    { "t": "optional", "in": 1440 },
+    { "t": "optional", "in": 1442 },
     {
       "t": "string",
       "checks": [
@@ -6025,9 +6032,9 @@
         { "k": "max_length", "n": 16 }
       ]
     },
-    { "t": "optional", "in": 1442 },
-    { "t": "enum", "values": ["usd", "btc"] },
     { "t": "optional", "in": 1444 },
+    { "t": "enum", "values": ["usd", "btc"] },
+    { "t": "optional", "in": 1446 },
     {
       "t": "string",
       "checks": [
@@ -6035,7 +6042,7 @@
         { "k": "max_length", "n": 8 }
       ]
     },
-    { "t": "optional", "in": 1446 },
+    { "t": "optional", "in": 1448 },
     {
       "t": "string",
       "checks": [
@@ -6046,27 +6053,27 @@
     {
       "t": "object",
       "shape": [
-        ["nickname", 1448],
-        ["country", 1449],
-        ["rail", 1450],
-        ["recipient", 1451]
+        ["nickname", 1450],
+        ["country", 1451],
+        ["rail", 1452],
+        ["recipient", 1453]
       ],
       "catchall": "strict"
     },
     { "t": "string", "checks": [{ "k": "max_length", "n": 120 }] },
     { "t": "string", "checks": [{ "k": "max_length", "n": 8 }] },
     { "t": "enum", "values": ["ach", "wire", "instant", "sepa", "proxy"] },
-    { "t": "record", "key": 1452, "value": 1453, "checks": [{ "k": "refine", "id": "at_most_eight_keys" }] },
+    { "t": "record", "key": 1454, "value": 1455, "checks": [{ "k": "refine", "id": "at_most_eight_keys" }] },
     { "t": "string", "checks": [{ "k": "max_length", "n": 64 }] },
     { "t": "string", "checks": [{ "k": "max_length", "n": 254 }] },
-    { "t": "union", "options": [1455, 1458] },
+    { "t": "union", "options": [1457, 1460] },
     {
       "t": "object",
       "shape": [
-        ["fromSpaceId", 1456],
-        ["amount", 1457],
-        ["rail", 1450],
-        ["recipient", 1451]
+        ["fromSpaceId", 1458],
+        ["amount", 1459],
+        ["rail", 1452],
+        ["recipient", 1453]
       ],
       "catchall": "strict"
     },
@@ -6080,9 +6087,9 @@
     {
       "t": "object",
       "shape": [
-        ["fromSpaceId", 1456],
-        ["amount", 1457],
-        ["payeeId", 1459]
+        ["fromSpaceId", 1458],
+        ["amount", 1459],
+        ["payeeId", 1461]
       ],
       "catchall": "strict"
     },
@@ -6092,19 +6099,12 @@
         { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
       ]
     },
-    { "t": "object", "shape": [["email", 1461]], "catchall": "strict" },
+    { "t": "object", "shape": [["email", 1463]], "catchall": "strict" },
     { "t": "string", "checks": [{ "k": "max_length", "n": 254 }] },
-    { "t": "object", "shape": [["limit", 1463]], "catchall": "strict" },
-    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 50, "incl": true }] },
     { "t": "object", "shape": [["limit", 1465]], "catchall": "strict" },
     { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 50, "incl": true }] },
-    { "t": "object", "shape": [["payeeId", 1467]], "catchall": "strict" },
-    {
-      "t": "string",
-      "checks": [
-        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
-      ]
-    },
+    { "t": "object", "shape": [["limit", 1467]], "catchall": "strict" },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 50, "incl": true }] },
     { "t": "object", "shape": [["payeeId", 1469]], "catchall": "strict" },
     {
       "t": "string",
@@ -6112,15 +6112,22 @@
         { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
       ]
     },
-    { "t": "union", "options": [1471, 1473] },
+    { "t": "object", "shape": [["payeeId", 1471]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "union", "options": [1473, 1475] },
     {
       "t": "object",
       "shape": [
-        ["requestId", 1472],
-        ["fromSpaceId", 1456],
-        ["amount", 1457],
-        ["rail", 1450],
-        ["recipient", 1451]
+        ["requestId", 1474],
+        ["fromSpaceId", 1458],
+        ["amount", 1459],
+        ["rail", 1452],
+        ["recipient", 1453]
       ],
       "catchall": "strict"
     },
@@ -6133,26 +6140,19 @@
     {
       "t": "object",
       "shape": [
-        ["requestId", 1472],
-        ["fromSpaceId", 1456],
-        ["amount", 1457],
-        ["payeeId", 1459]
+        ["requestId", 1474],
+        ["fromSpaceId", 1458],
+        ["amount", 1459],
+        ["payeeId", 1461]
       ],
       "catchall": "strict"
     },
-    { "t": "object", "shape": [["token", 1475]], "catchall": "strict" },
+    { "t": "object", "shape": [["token", 1477]], "catchall": "strict" },
     {
       "t": "string",
       "checks": [
         { "k": "min_length", "n": 1 },
         { "k": "max_length", "n": 256 }
-      ]
-    },
-    { "t": "object", "shape": [["destinationId", 1477]], "catchall": "strict" },
-    {
-      "t": "string",
-      "checks": [
-        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
       ]
     },
     { "t": "object", "shape": [["destinationId", 1479]], "catchall": "strict" },
@@ -6162,11 +6162,18 @@
         { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
       ]
     },
+    { "t": "object", "shape": [["destinationId", 1481]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
     {
       "t": "object",
       "shape": [
-        ["ref", 1481],
-        ["network", 1482]
+        ["ref", 1483],
+        ["network", 1484]
       ],
       "catchall": "strict"
     },
@@ -6177,7 +6184,7 @@
         { "k": "max_length", "n": 256 }
       ]
     },
-    { "t": "optional", "in": 1483 },
+    { "t": "optional", "in": 1485 },
     {
       "t": "string",
       "checks": [
@@ -6185,7 +6192,7 @@
         { "k": "max_length", "n": 32 }
       ]
     },
-    { "t": "object", "shape": [["destinationId", 1485]], "catchall": "strict" },
+    { "t": "object", "shape": [["destinationId", 1487]], "catchall": "strict" },
     {
       "t": "string",
       "checks": [
@@ -6195,8 +6202,8 @@
     {
       "t": "object",
       "shape": [
-        ["proofId", 1487],
-        ["signature", 1488]
+        ["proofId", 1489],
+        ["signature", 1490]
       ],
       "catchall": "strict"
     },
@@ -6213,7 +6220,7 @@
         { "k": "max_length", "n": 200 }
       ]
     },
-    { "t": "object", "shape": [["destinationId", 1490]], "catchall": "strict" },
+    { "t": "object", "shape": [["destinationId", 1492]], "catchall": "strict" },
     {
       "t": "string",
       "checks": [
@@ -6223,8 +6230,8 @@
     {
       "t": "object",
       "shape": [
-        ["destinationId", 1492],
-        ["idempotencyKey", 1493]
+        ["destinationId", 1494],
+        ["idempotencyKey", 1495]
       ]
     },
     {
@@ -6243,8 +6250,8 @@
     {
       "t": "object",
       "shape": [
-        ["destinationId", 1495],
-        ["label", 1496]
+        ["destinationId", 1497],
+        ["label", 1498]
       ],
       "catchall": "strict"
     },
@@ -6264,12 +6271,12 @@
     {
       "t": "object",
       "shape": [
-        ["assetId", 1498],
-        ["network", 1499],
-        ["ref", 1500],
-        ["tag", 1501],
-        ["label", 1503],
-        ["confirmLookalike", 1504]
+        ["assetId", 1500],
+        ["network", 1501],
+        ["ref", 1502],
+        ["tag", 1503],
+        ["label", 1505],
+        ["confirmLookalike", 1506]
       ],
       "catchall": "strict"
     },
@@ -6294,7 +6301,7 @@
         { "k": "max_length", "n": 256 }
       ]
     },
-    { "t": "optional", "in": 1502 },
+    { "t": "optional", "in": 1504 },
     {
       "t": "string",
       "checks": [
@@ -6309,15 +6316,15 @@
         { "k": "max_length", "n": 64 }
       ]
     },
-    { "t": "optional", "in": 1505 },
+    { "t": "optional", "in": 1507 },
     { "t": "boolean" },
     {
       "t": "object",
       "shape": [
-        ["userId", 1507],
-        ["assetId", 1508],
-        ["network", 1509],
-        ["ref", 1510]
+        ["userId", 1509],
+        ["assetId", 1510],
+        ["network", 1511],
+        ["ref", 1512]
       ],
       "catchall": "strict"
     },
@@ -6337,18 +6344,18 @@
         { "k": "max_length", "n": 256 }
       ]
     },
-    { "t": "optional", "in": 1512 },
-    { "t": "object", "shape": [["amount", 1513]] },
+    { "t": "optional", "in": 1514 },
+    { "t": "object", "shape": [["amount", 1515]] },
     { "t": "optional", "in": 97 },
     {
       "t": "object",
       "shape": [
-        ["offrampId", 1515],
-        ["assetId", 1516],
+        ["offrampId", 1517],
+        ["assetId", 1518],
         ["amount", 97],
-        ["kind", 1517],
-        ["destinationRef", 1519],
-        ["clientRef", 1521]
+        ["kind", 1519],
+        ["destinationRef", 1521],
+        ["clientRef", 1523]
       ]
     },
     {
@@ -6364,9 +6371,9 @@
         { "k": "max_length", "n": 16 }
       ]
     },
-    { "t": "default", "in": 1518, "value": "crypto" },
+    { "t": "default", "in": 1520, "value": "crypto" },
     { "t": "enum", "values": ["crypto", "fiat"] },
-    { "t": "optional", "in": 1520 },
+    { "t": "optional", "in": 1522 },
     {
       "t": "string",
       "checks": [
@@ -6384,10 +6391,10 @@
     {
       "t": "object",
       "shape": [
-        ["assetId", 1523],
+        ["assetId", 1525],
         ["amount", 97],
-        ["kind", 1524],
-        ["destinationRef", 1525]
+        ["kind", 1526],
+        ["destinationRef", 1527]
       ]
     },
     {
@@ -6405,16 +6412,16 @@
         { "k": "max_length", "n": 256 }
       ]
     },
-    { "t": "optional", "in": 1527 },
-    { "t": "object", "shape": [["limit", 1528]] },
     { "t": "optional", "in": 1529 },
+    { "t": "object", "shape": [["limit", 1530]] },
+    { "t": "optional", "in": 1531 },
     { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
     {
       "t": "object",
       "shape": [
-        ["onrampId", 1531],
-        ["quoteId", 1532],
-        ["method", 1533]
+        ["onrampId", 1533],
+        ["quoteId", 1534],
+        ["method", 1535]
       ]
     },
     {
@@ -6433,10 +6440,10 @@
     {
       "t": "object",
       "shape": [
-        ["assetId", 1535],
+        ["assetId", 1537],
         ["amount", 97],
-        ["method", 1536],
-        ["country", 1537]
+        ["method", 1538],
+        ["country", 1539]
       ]
     },
     {
@@ -6448,16 +6455,16 @@
     },
     { "t": "enum", "values": ["card", "bank_transfer", "pay_by_bank", "wallet_pay"] },
     { "t": "string", "checks": [{ "k": "regex", "src": "/^[A-Za-z]{2}$/" }] },
-    { "t": "optional", "in": 1539 },
-    { "t": "object", "shape": [["limit", 1540]] },
     { "t": "optional", "in": 1541 },
+    { "t": "object", "shape": [["limit", 1542]] },
+    { "t": "optional", "in": 1543 },
     { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
     {
       "t": "object",
       "shape": [
-        ["kind", 1543],
-        ["ref", 1544],
-        ["label", 1545]
+        ["kind", 1545],
+        ["ref", 1546],
+        ["label", 1547]
       ]
     },
     { "t": "enum", "values": ["crypto", "bank"] },
@@ -6468,7 +6475,7 @@
         { "k": "max_length", "n": 256 }
       ]
     },
-    { "t": "optional", "in": 1546 },
+    { "t": "optional", "in": 1548 },
     {
       "t": "string",
       "checks": [
@@ -6479,8 +6486,8 @@
     {
       "t": "object",
       "shape": [
-        ["claimId", 1548],
-        ["signatures", 1549]
+        ["claimId", 1550],
+        ["signatures", 1551]
       ]
     },
     {
@@ -6491,7 +6498,7 @@
     },
     {
       "t": "array",
-      "el": 1550,
+      "el": 1552,
       "checks": [
         { "k": "min_length", "n": 1 },
         { "k": "max_length", "n": 32 }
@@ -6500,18 +6507,18 @@
     {
       "t": "object",
       "shape": [
-        ["publicKey", 1551],
-        ["signature", 1555]
+        ["publicKey", 1553],
+        ["signature", 1557]
       ],
       "catchall": "strict"
     },
     {
       "t": "object",
       "shape": [
-        ["kty", 1552],
-        ["crv", 1553],
-        ["x", 1554],
-        ["y", 1554]
+        ["kty", 1554],
+        ["crv", 1555],
+        ["x", 1556],
+        ["y", 1556]
       ],
       "catchall": "strict"
     },
@@ -6519,7 +6526,7 @@
     { "t": "literal", "values": ["P-256"] },
     { "t": "string", "checks": [{ "k": "regex", "src": "/^[A-Za-z0-9_-]{43}$/" }] },
     { "t": "string", "checks": [{ "k": "regex", "src": "/^[A-Za-z0-9_-]{86}$/" }] },
-    { "t": "object", "shape": [["ownerUserId", 1557]] },
+    { "t": "object", "shape": [["ownerUserId", 1559]] },
     {
       "t": "string",
       "checks": [
@@ -6529,12 +6536,12 @@
     {
       "t": "object",
       "shape": [
-        ["name", 1559],
-        ["fromSpaceId", 1560],
-        ["toSpaceId", 1561],
-        ["trigger", 1562],
-        ["amount", 1568],
-        ["clientRequestId", 1569]
+        ["name", 1561],
+        ["fromSpaceId", 1562],
+        ["toSpaceId", 1563],
+        ["trigger", 1564],
+        ["amount", 1570],
+        ["clientRequestId", 1571]
       ],
       "catchall": "strict"
     },
@@ -6559,12 +6566,12 @@
         }
       ]
     },
-    { "t": "dunion", "disc": "kind", "options": [1563, 1566] },
+    { "t": "dunion", "disc": "kind", "options": [1565, 1568] },
     {
       "t": "object",
       "shape": [
-        ["kind", 1564],
-        ["cadence", 1565]
+        ["kind", 1566],
+        ["cadence", 1567]
       ],
       "catchall": "strict"
     },
@@ -6573,8 +6580,8 @@
     {
       "t": "object",
       "shape": [
-        ["kind", 1567],
-        ["above", 1568]
+        ["kind", 1569],
+        ["above", 1570]
       ],
       "catchall": "strict"
     },
@@ -6590,13 +6597,13 @@
     {
       "t": "object",
       "shape": [
-        ["leadHours", 1571],
-        ["expectedRevision", 1573],
-        ["clientRequestId", 1574]
+        ["leadHours", 1573],
+        ["expectedRevision", 1575],
+        ["clientRequestId", 1576]
       ],
       "catchall": "strict"
     },
-    { "t": "nullable", "in": 1572 },
+    { "t": "nullable", "in": 1574 },
     { "t": "literal", "values": [24, 48, 72, 168] },
     { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }] },
     {
@@ -6609,8 +6616,8 @@
     {
       "t": "object",
       "shape": [
-        ["userId", 1576],
-        ["transferId", 1577]
+        ["userId", 1578],
+        ["transferId", 1579]
       ],
       "catchall": "strict"
     },
@@ -6630,20 +6637,20 @@
         { "k": "regex", "src": "/^[A-Za-z0-9._:-]+$/" }
       ]
     },
-    { "t": "object", "shape": [["limit", 1579]], "catchall": "strict" },
+    { "t": "object", "shape": [["limit", 1581]], "catchall": "strict" },
     { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 100, "incl": true }] },
-    { "t": "optional", "in": 1581 },
+    { "t": "optional", "in": 1583 },
     { "t": "object", "shape": [["profile", 2]], "catchall": "strict" },
     {
       "t": "object",
       "shape": [
-        ["currency", 1583],
+        ["currency", 1585],
         ["profile", 2]
       ],
       "catchall": "strict"
     },
     { "t": "string", "checks": [{ "k": "trim" }, { "k": "length_equals", "n": 3 }] },
-    { "t": "object", "shape": [["inviteId", 1585]] },
+    { "t": "object", "shape": [["inviteId", 1587]] },
     {
       "t": "string",
       "checks": [
@@ -6653,9 +6660,9 @@
     {
       "t": "object",
       "shape": [
-        ["spaceId", 1587],
-        ["limit", 1588],
-        ["before", 1590]
+        ["spaceId", 1589],
+        ["limit", 1590],
+        ["before", 1592]
       ]
     },
     {
@@ -6664,17 +6671,10 @@
         { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
       ]
     },
-    { "t": "optional", "in": 1589 },
-    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
     { "t": "optional", "in": 1591 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
+    { "t": "optional", "in": 1593 },
     { "t": "string", "checks": [{ "k": "regex", "src": "/^[1-9][0-9]{0,17}$/" }] },
-    { "t": "object", "shape": [["inviteId", 1593]] },
-    {
-      "t": "string",
-      "checks": [
-        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
-      ]
-    },
     { "t": "object", "shape": [["inviteId", 1595]] },
     {
       "t": "string",
@@ -6682,7 +6682,14 @@
         { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
       ]
     },
-    { "t": "object", "shape": [["spaceId", 1597]] },
+    { "t": "object", "shape": [["inviteId", 1597]] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "object", "shape": [["spaceId", 1599]] },
     {
       "t": "string",
       "checks": [
@@ -6692,11 +6699,11 @@
     {
       "t": "object",
       "shape": [
-        ["inviteId", 1599],
-        ["spaceId", 1600],
-        ["handle", 1601],
-        ["email", 1603],
-        ["role", 1605]
+        ["inviteId", 1601],
+        ["spaceId", 1602],
+        ["handle", 1603],
+        ["email", 1605],
+        ["role", 1607]
       ]
     },
     {
@@ -6711,12 +6718,12 @@
         { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
       ]
     },
-    { "t": "optional", "in": 1602 },
-    { "t": "string", "checks": [{ "k": "max_length", "n": 64 }] },
     { "t": "optional", "in": 1604 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 64 }] },
+    { "t": "optional", "in": 1606 },
     { "t": "string", "checks": [{ "k": "max_length", "n": 320 }] },
     { "t": "enum", "values": ["contributor", "viewer"] },
-    { "t": "object", "shape": [["spaceId", 1607]] },
+    { "t": "object", "shape": [["spaceId", 1609]] },
     {
       "t": "string",
       "checks": [
@@ -6726,8 +6733,8 @@
     {
       "t": "object",
       "shape": [
-        ["spaceId", 1609],
-        ["cardId", 1610]
+        ["spaceId", 1611],
+        ["cardId", 1612]
       ]
     },
     {
@@ -6742,14 +6749,14 @@
         { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
       ]
     },
-    { "t": "object", "shape": [["limit", 1612]] },
-    { "t": "optional", "in": 1613 },
+    { "t": "object", "shape": [["limit", 1614]] },
+    { "t": "optional", "in": 1615 },
     { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
     {
       "t": "object",
       "shape": [
-        ["spaceId", 1615],
-        ["userId", 1616]
+        ["spaceId", 1617],
+        ["userId", 1618]
       ]
     },
     {
@@ -6765,14 +6772,14 @@
         { "k": "max_length", "n": 64 }
       ]
     },
-    { "t": "object", "shape": [["spaceId", 1618]] },
+    { "t": "object", "shape": [["spaceId", 1620]] },
     {
       "t": "string",
       "checks": [
         { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
       ]
     },
-    { "t": "object", "shape": [["sorterId", 1620]], "catchall": "strict" },
+    { "t": "object", "shape": [["sorterId", 1622]], "catchall": "strict" },
     {
       "t": "string",
       "checks": [
@@ -6782,9 +6789,9 @@
     {
       "t": "object",
       "shape": [
-        ["sorterId", 1622],
-        ["assetId", 1623],
-        ["legs", 1624]
+        ["sorterId", 1624],
+        ["assetId", 1625],
+        ["legs", 1626]
       ],
       "catchall": "strict"
     },
@@ -6797,7 +6804,7 @@
     { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 16 }] },
     {
       "t": "array",
-      "el": 1625,
+      "el": 1627,
       "checks": [
         { "k": "min_length", "n": 1 },
         { "k": "max_length", "n": 10 }
@@ -6806,8 +6813,8 @@
     {
       "t": "object",
       "shape": [
-        ["spaceId", 1626],
-        ["shareBp", 1627]
+        ["spaceId", 1628],
+        ["shareBp", 1629]
       ],
       "catchall": "strict"
     },
@@ -6821,8 +6828,8 @@
     {
       "t": "object",
       "shape": [
-        ["sorterId", 1629],
-        ["limit", 1630]
+        ["sorterId", 1631],
+        ["limit", 1632]
       ],
       "catchall": "strict"
     },
@@ -6833,13 +6840,6 @@
       ]
     },
     { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 50, "incl": true }] },
-    { "t": "object", "shape": [["spaceId", 1632]] },
-    {
-      "t": "string",
-      "checks": [
-        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
-      ]
-    },
     { "t": "object", "shape": [["spaceId", 1634]] },
     {
       "t": "string",
@@ -6854,13 +6854,20 @@
         { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
       ]
     },
+    { "t": "object", "shape": [["spaceId", 1638]] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
     {
       "t": "object",
       "shape": [
-        ["assetId", 1638],
-        ["name", 1639],
-        ["goalTarget", 1640],
-        ["lockedUntil", 1641]
+        ["assetId", 1640],
+        ["name", 1641],
+        ["goalTarget", 1642],
+        ["lockedUntil", 1643]
       ]
     },
     {
@@ -6878,7 +6885,7 @@
       ]
     },
     { "t": "optional", "in": 97 },
-    { "t": "optional", "in": 1642 },
+    { "t": "optional", "in": 1644 },
     {
       "t": "string",
       "checks": [
@@ -6892,11 +6899,11 @@
     {
       "t": "object",
       "shape": [
-        ["assetId", 1644],
-        ["limit", 1646]
+        ["assetId", 1646],
+        ["limit", 1648]
       ]
     },
-    { "t": "optional", "in": 1645 },
+    { "t": "optional", "in": 1647 },
     {
       "t": "string",
       "checks": [
@@ -6904,9 +6911,9 @@
         { "k": "max_length", "n": 16 }
       ]
     },
-    { "t": "optional", "in": 1647 },
+    { "t": "optional", "in": 1649 },
     { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
-    { "t": "object", "shape": [["userId", 1649]], "catchall": "strict" },
+    { "t": "object", "shape": [["userId", 1651]], "catchall": "strict" },
     {
       "t": "string",
       "checks": [
@@ -6914,7 +6921,7 @@
         { "k": "max_length", "n": 128 }
       ]
     },
-    { "t": "object", "shape": [["spaceId", 1651]] },
+    { "t": "object", "shape": [["spaceId", 1653]] },
     {
       "t": "string",
       "checks": [
@@ -6924,8 +6931,8 @@
     {
       "t": "object",
       "shape": [
-        ["spaceId", 1653],
-        ["fallback", 1654]
+        ["spaceId", 1655],
+        ["fallback", 1656]
       ]
     },
     {
@@ -6938,8 +6945,8 @@
     {
       "t": "object",
       "shape": [
-        ["spaceId", 1656],
-        ["goalTarget", 1657]
+        ["spaceId", 1658],
+        ["goalTarget", 1659]
       ]
     },
     {
@@ -6952,8 +6959,8 @@
     {
       "t": "object",
       "shape": [
-        ["spaceId", 1659],
-        ["lockedUntil", 1660]
+        ["spaceId", 1661],
+        ["lockedUntil", 1662]
       ]
     },
     {
@@ -6972,7 +6979,7 @@
         }
       ]
     },
-    { "t": "object", "shape": [["spaceId", 1662]] },
+    { "t": "object", "shape": [["spaceId", 1664]] },
     {
       "t": "string",
       "checks": [
@@ -6982,12 +6989,12 @@
     {
       "t": "object",
       "shape": [
-        ["from", 1664],
-        ["to", 1665],
-        ["assetId", 1666],
-        ["spaceId", 1668],
-        ["format", 1670],
-        ["report", 1671]
+        ["from", 1666],
+        ["to", 1667],
+        ["assetId", 1668],
+        ["spaceId", 1670],
+        ["format", 1672],
+        ["report", 1673]
       ],
       "catchall": "strict"
     },
@@ -7009,35 +7016,35 @@
           "format": "datetime",
           "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
         }
-      ]
-    },
-    { "t": "optional", "in": 1667 },
-    {
-      "t": "string",
-      "checks": [
-        { "k": "min_length", "n": 1 },
-        { "k": "max_length", "n": 16 }
       ]
     },
     { "t": "optional", "in": 1669 },
     {
       "t": "string",
       "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 16 }
+      ]
+    },
+    { "t": "optional", "in": 1671 },
+    {
+      "t": "string",
+      "checks": [
         { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
       ]
     },
     { "t": "enum", "values": ["csv", "pdf"] },
-    { "t": "optional", "in": 1672 },
+    { "t": "optional", "in": 1674 },
     { "t": "enum", "values": ["statement", "ledger", "trades", "balances"] },
     {
       "t": "object",
       "shape": [
-        ["from", 1674],
-        ["to", 1675],
-        ["assetId", 1676],
-        ["spaceId", 1678],
-        ["format", 1680],
-        ["report", 1681]
+        ["from", 1676],
+        ["to", 1677],
+        ["assetId", 1678],
+        ["spaceId", 1680],
+        ["format", 1682],
+        ["report", 1683]
       ],
       "catchall": "strict"
     },
@@ -7059,43 +7066,43 @@
           "format": "datetime",
           "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
         }
-      ]
-    },
-    { "t": "optional", "in": 1677 },
-    {
-      "t": "string",
-      "checks": [
-        { "k": "min_length", "n": 1 },
-        { "k": "max_length", "n": 16 }
       ]
     },
     { "t": "optional", "in": 1679 },
     {
       "t": "string",
       "checks": [
-        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 16 }
       ]
     },
-    { "t": "enum", "values": ["csv", "pdf"] },
-    { "t": "optional", "in": 1682 },
-    { "t": "enum", "values": ["statement", "ledger", "trades", "balances"] },
-    { "t": "object", "shape": [["id", 1684]], "catchall": "strict" },
+    { "t": "optional", "in": 1681 },
     {
       "t": "string",
       "checks": [
         { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
       ]
     },
-    { "t": "object", "shape": [["kind", 1686]], "catchall": "strict" },
+    { "t": "enum", "values": ["csv", "pdf"] },
+    { "t": "optional", "in": 1684 },
+    { "t": "enum", "values": ["statement", "ledger", "trades", "balances"] },
+    { "t": "object", "shape": [["id", 1686]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "object", "shape": [["kind", 1688]], "catchall": "strict" },
     { "t": "enum", "values": ["ownership", "balance"] },
-    { "t": "object", "shape": [["year", 1688]], "catchall": "strict" },
+    { "t": "object", "shape": [["year", 1690]], "catchall": "strict" },
     { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1970, "incl": true }, { "k": "lt", "v": 2200, "incl": true }] },
     {
       "t": "object",
       "shape": [
-        ["from", 1690],
-        ["to", 1691],
-        ["assetId", 1692]
+        ["from", 1692],
+        ["to", 1693],
+        ["assetId", 1694]
       ],
       "catchall": "strict"
     },
@@ -7119,7 +7126,7 @@
         }
       ]
     },
-    { "t": "optional", "in": 1693 },
+    { "t": "optional", "in": 1695 },
     {
       "t": "string",
       "checks": [
@@ -7130,9 +7137,9 @@
     {
       "t": "object",
       "shape": [
-        ["accountId", 1695],
-        ["from", 1696],
-        ["to", 1697]
+        ["accountId", 1697],
+        ["from", 1698],
+        ["to", 1699]
       ],
       "catchall": "strict"
     },
@@ -7165,8 +7172,8 @@
     {
       "t": "object",
       "shape": [
-        ["cardId", 1699],
-        ["authorizationRef", 1700],
+        ["cardId", 1701],
+        ["authorizationRef", 1702],
         ["amount", 97]
       ],
       "catchall": "strict"
@@ -7187,8 +7194,8 @@
     {
       "t": "object",
       "shape": [
-        ["fundId", 1702],
-        ["assetId", 1703],
+        ["fundId", 1704],
+        ["assetId", 1705],
         ["amount", 97]
       ],
       "catchall": "strict"
@@ -7204,8 +7211,8 @@
     {
       "t": "object",
       "shape": [
-        ["accountId", 1705],
-        ["fundId", 1706],
+        ["accountId", 1707],
+        ["fundId", 1708],
         ["amount", 97]
       ],
       "catchall": "strict"
@@ -7226,9 +7233,9 @@
     {
       "t": "object",
       "shape": [
-        ["kind", 1708],
-        ["id", 1709],
-        ["dueDays", 1710]
+        ["kind", 1710],
+        ["id", 1711],
+        ["dueDays", 1712]
       ],
       "catchall": "strict"
     },
@@ -7238,78 +7245,78 @@
     {
       "t": "object",
       "shape": [
-        ["notOffered", 1712],
-        ["fee", 1716],
-        ["reserve", 1718],
-        ["down", 1720],
-        ["figures", 1722],
-        ["rampQuote", 1724],
-        ["rampFee", 1726],
-        ["custody", 1728],
-        ["nextReply", 1730],
-        ["cardHold", 1732],
-        ["cardDecline", 1734],
-        ["accountDetails", 1736],
-        ["purchaseHolds", 1738],
-        ["purchaseHold", 1740],
-        ["legalHold", 1742],
-        ["identityCase", 1744],
-        ["bankRail", 1746],
-        ["holderName", 1748],
-        ["payIn", 1751],
-        ["openOrder", 1753],
-        ["calendarSource", 1756]
+        ["notOffered", 1714],
+        ["fee", 1718],
+        ["reserve", 1720],
+        ["down", 1722],
+        ["figures", 1724],
+        ["rampQuote", 1726],
+        ["rampFee", 1728],
+        ["custody", 1730],
+        ["nextReply", 1732],
+        ["cardHold", 1734],
+        ["cardDecline", 1736],
+        ["accountDetails", 1738],
+        ["purchaseHolds", 1740],
+        ["purchaseHold", 1742],
+        ["legalHold", 1744],
+        ["identityCase", 1746],
+        ["bankRail", 1748],
+        ["holderName", 1750],
+        ["payIn", 1753],
+        ["openOrder", 1755],
+        ["calendarSource", 1758]
       ],
       "catchall": "strict"
     },
-    { "t": "optional", "in": 1713 },
-    { "t": "readonly", "in": 1714 },
-    { "t": "array", "el": 1715, "checks": [{ "k": "max_length", "n": 6 }] },
+    { "t": "optional", "in": 1715 },
+    { "t": "readonly", "in": 1716 },
+    { "t": "array", "el": 1717, "checks": [{ "k": "max_length", "n": 6 }] },
     { "t": "enum", "values": ["currencies", "spaces", "pots", "joint", "phone_wallet", "cash_leg"] },
-    { "t": "optional", "in": 1717 },
-    { "t": "enum", "values": ["known", "unknown"] },
     { "t": "optional", "in": 1719 },
-    { "t": "enum", "values": ["none", "required"] },
-    { "t": "optional", "in": 1721 },
-    { "t": "boolean" },
-    { "t": "optional", "in": 1723 },
-    { "t": "enum", "values": ["live", "stale", "unknown"] },
-    { "t": "optional", "in": 1725 },
-    { "t": "enum", "values": ["live", "expired"] },
-    { "t": "optional", "in": 1727 },
     { "t": "enum", "values": ["known", "unknown"] },
+    { "t": "optional", "in": 1721 },
+    { "t": "enum", "values": ["none", "required"] },
+    { "t": "optional", "in": 1723 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 1725 },
+    { "t": "enum", "values": ["live", "stale", "unknown"] },
+    { "t": "optional", "in": 1727 },
+    { "t": "enum", "values": ["live", "expired"] },
     { "t": "optional", "in": 1729 },
-    { "t": "enum", "values": ["on", "off"] },
+    { "t": "enum", "values": ["known", "unknown"] },
     { "t": "optional", "in": 1731 },
-    { "t": "enum", "values": ["answered", "lost"] },
+    { "t": "enum", "values": ["on", "off"] },
     { "t": "optional", "in": 1733 },
-    { "t": "enum", "values": ["live", "expired"] },
+    { "t": "enum", "values": ["answered", "lost"] },
     { "t": "optional", "in": 1735 },
-    { "t": "enum", "values": ["none", "unlisted"] },
-    { "t": "optional", "in": 1737 },
-    { "t": "enum", "values": ["none", "issued"] },
-    { "t": "optional", "in": 1739 },
-    { "t": "enum", "values": ["reported", "not_reported"] },
-    { "t": "optional", "in": 1741 },
     { "t": "enum", "values": ["live", "expired"] },
+    { "t": "optional", "in": 1737 },
+    { "t": "enum", "values": ["none", "unlisted"] },
+    { "t": "optional", "in": 1739 },
+    { "t": "enum", "values": ["none", "issued"] },
+    { "t": "optional", "in": 1741 },
+    { "t": "enum", "values": ["reported", "not_reported"] },
     { "t": "optional", "in": 1743 },
-    { "t": "enum", "values": ["none", "held"] },
+    { "t": "enum", "values": ["live", "expired"] },
     { "t": "optional", "in": 1745 },
-    { "t": "enum", "values": ["accepted", "not_accepted"] },
+    { "t": "enum", "values": ["none", "held"] },
     { "t": "optional", "in": 1747 },
-    { "t": "enum", "values": ["none", "test"] },
+    { "t": "enum", "values": ["accepted", "not_accepted"] },
     { "t": "optional", "in": 1749 },
-    { "t": "nullable", "in": 1750 },
+    { "t": "enum", "values": ["none", "test"] },
+    { "t": "optional", "in": 1751 },
+    { "t": "nullable", "in": 1752 },
     { "t": "string", "checks": [{ "k": "trim" }, { "k": "regex", "src": "/^TEST \\P{Cc}{1,120}$/u" }] },
-    { "t": "optional", "in": 1752 },
-    { "t": "enum", "values": ["answered", "held"] },
     { "t": "optional", "in": 1754 },
-    { "t": "nullable", "in": 1755 },
+    { "t": "enum", "values": ["answered", "held"] },
+    { "t": "optional", "in": 1756 },
+    { "t": "nullable", "in": 1757 },
     { "t": "string", "checks": [{ "k": "regex", "src": "/^[A-Z0-9]{2,16}$/" }] },
-    { "t": "optional", "in": 1757 },
-    { "t": "nullable", "in": 1758 },
+    { "t": "optional", "in": 1759 },
+    { "t": "nullable", "in": 1760 },
     { "t": "enum", "values": ["standing_orders", "bills", "direct_debits", "loans", "earn"] },
-    { "t": "object", "shape": [["paymentId", 1760]], "catchall": "strict" },
+    { "t": "object", "shape": [["paymentId", 1762]], "catchall": "strict" },
     {
       "t": "string",
       "checks": [
@@ -7319,10 +7326,10 @@
     {
       "t": "object",
       "shape": [
-        ["spendId", 1762],
-        ["assetId", 1763],
+        ["spendId", 1764],
+        ["assetId", 1765],
         ["amount", 97],
-        ["kind", 1764]
+        ["kind", 1766]
       ],
       "catchall": "strict"
     },
@@ -7335,7 +7342,7 @@
     },
     { "t": "string", "checks": [{ "k": "regex", "src": "/^[A-Z0-9]{2,16}$/" }] },
     { "t": "enum", "values": ["payment", "payout", "fee"] },
-    { "t": "object", "shape": [["scheduleId", 1766]] },
+    { "t": "object", "shape": [["scheduleId", 1768]] },
     {
       "t": "string",
       "checks": [
@@ -7345,12 +7352,12 @@
     {
       "t": "object",
       "shape": [
-        ["transferId", 1768],
-        ["fromSpaceId", 1769],
-        ["toSpaceId", 1770],
+        ["transferId", 1770],
+        ["fromSpaceId", 1771],
+        ["toSpaceId", 1772],
         ["amount", 97],
-        ["note", 1771],
-        ["reference", 1773],
+        ["note", 1773],
+        ["reference", 1775],
         ["stepUpApprovalId", 228]
       ]
     },
@@ -7373,7 +7380,7 @@
         { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
       ]
     },
-    { "t": "optional", "in": 1772 },
+    { "t": "optional", "in": 1774 },
     {
       "t": "string",
       "checks": [
@@ -7382,7 +7389,7 @@
         { "k": "refine", "id": "no_control_characters", "msg": "note has a control character" }
       ]
     },
-    { "t": "optional", "in": 1774 },
+    { "t": "optional", "in": 1776 },
     {
       "t": "string",
       "checks": [
@@ -7394,8 +7401,8 @@
     {
       "t": "object",
       "shape": [
-        ["scheduleId", 1776],
-        ["limit", 1777]
+        ["scheduleId", 1778],
+        ["limit", 1779]
       ]
     },
     {
@@ -7404,9 +7411,9 @@
         { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
       ]
     },
-    { "t": "optional", "in": 1778 },
+    { "t": "optional", "in": 1780 },
     { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
-    { "t": "object", "shape": [["ledgerTxId", 1780]] },
+    { "t": "object", "shape": [["ledgerTxId", 1782]] },
     {
       "t": "string",
       "checks": [
@@ -7414,7 +7421,7 @@
         { "k": "max_length", "n": 128 }
       ]
     },
-    { "t": "object", "shape": [["transferId", 1782]] },
+    { "t": "object", "shape": [["transferId", 1784]] },
     {
       "t": "string",
       "checks": [
@@ -7422,21 +7429,21 @@
         { "k": "max_length", "n": 64 }
       ]
     },
-    { "t": "optional", "in": 1784 },
+    { "t": "optional", "in": 1786 },
     {
       "t": "object",
       "shape": [
-        ["limit", 1785],
-        ["cursor", 1787],
-        ["assetId", 1789],
-        ["from", 1791],
-        ["to", 1793]
+        ["limit", 1787],
+        ["cursor", 1789],
+        ["assetId", 1791],
+        ["from", 1793],
+        ["to", 1795]
       ],
       "catchall": "strict"
     },
-    { "t": "optional", "in": 1786 },
-    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
     { "t": "optional", "in": 1788 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
+    { "t": "optional", "in": 1790 },
     {
       "t": "string",
       "checks": [
@@ -7444,23 +7451,12 @@
         { "k": "max_length", "n": 16384 }
       ]
     },
-    { "t": "optional", "in": 1790 },
+    { "t": "optional", "in": 1792 },
     {
       "t": "string",
       "checks": [
         { "k": "min_length", "n": 1 },
         { "k": "max_length", "n": 16 }
-      ]
-    },
-    { "t": "optional", "in": 1792 },
-    {
-      "t": "string",
-      "checks": [
-        {
-          "k": "format",
-          "format": "datetime",
-          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
-        }
       ]
     },
     { "t": "optional", "in": 1794 },
@@ -7476,22 +7472,33 @@
     },
     { "t": "optional", "in": 1796 },
     {
-      "t": "object",
-      "shape": [
-        ["limit", 1797],
-        ["toSpaceId", 1799]
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
       ]
     },
     { "t": "optional", "in": 1798 },
-    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
+    {
+      "t": "object",
+      "shape": [
+        ["limit", 1799],
+        ["toSpaceId", 1801]
+      ]
+    },
     { "t": "optional", "in": 1800 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
+    { "t": "optional", "in": 1802 },
     {
       "t": "string",
       "checks": [
         { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
       ]
     },
-    { "t": "object", "shape": [["scheduleId", 1802]] },
+    { "t": "object", "shape": [["scheduleId", 1804]] },
     {
       "t": "string",
       "checks": [
@@ -7501,7 +7508,7 @@
     {
       "t": "object",
       "shape": [
-        ["assetId", 1804],
+        ["assetId", 1806],
         ["amount", 97]
       ]
     },
@@ -7512,7 +7519,7 @@
         { "k": "max_length", "n": 16 }
       ]
     },
-    { "t": "object", "shape": [["scheduleId", 1806]] },
+    { "t": "object", "shape": [["scheduleId", 1808]] },
     {
       "t": "string",
       "checks": [
@@ -7522,13 +7529,13 @@
     {
       "t": "object",
       "shape": [
-        ["fromSpaceId", 1808],
-        ["toSpaceId", 1809],
+        ["fromSpaceId", 1810],
+        ["toSpaceId", 1811],
         ["amount", 97],
-        ["cadence", 1810],
-        ["startsAt", 1811],
-        ["endsAt", 1812],
-        ["scheduleId", 1814],
+        ["cadence", 1812],
+        ["startsAt", 1813],
+        ["endsAt", 1814],
+        ["scheduleId", 1816],
         ["stepUpApprovalId", 228]
       ]
     },
@@ -7555,7 +7562,7 @@
         }
       ]
     },
-    { "t": "optional", "in": 1813 },
+    { "t": "optional", "in": 1815 },
     {
       "t": "string",
       "checks": [
@@ -7575,13 +7582,13 @@
     {
       "t": "object",
       "shape": [
-        ["fromSpaceId", 1816],
-        ["toUserId", 1817],
+        ["fromSpaceId", 1818],
+        ["toUserId", 1819],
         ["amount", 97],
-        ["cadence", 1818],
-        ["startsAt", 1819],
-        ["endsAt", 1820],
-        ["scheduleId", 1822],
+        ["cadence", 1820],
+        ["startsAt", 1821],
+        ["endsAt", 1822],
+        ["scheduleId", 1824],
         ["stepUpApprovalId", 228]
       ]
     },
@@ -7609,7 +7616,7 @@
         }
       ]
     },
-    { "t": "optional", "in": 1821 },
+    { "t": "optional", "in": 1823 },
     {
       "t": "string",
       "checks": [
@@ -7629,11 +7636,11 @@
     {
       "t": "object",
       "shape": [
-        ["transferId", 1824],
-        ["fromUserId", 1825],
-        ["toUserId", 1826],
-        ["assetId", 1827],
-        ["amount", 1828]
+        ["transferId", 1826],
+        ["fromUserId", 1827],
+        ["toUserId", 1828],
+        ["assetId", 1829],
+        ["amount", 1830]
       ],
       "catchall": "strict",
       "checks": [{ "k": "refine", "id": "two_different_users", "path": ["toUserId"], "msg": "an internal withdrawal names two people" }]
@@ -7664,13 +7671,13 @@
     {
       "t": "object",
       "shape": [
-        ["transferId", 1830],
-        ["fromSpaceId", 1831],
-        ["toUserId", 1832],
+        ["transferId", 1832],
+        ["fromSpaceId", 1833],
+        ["toUserId", 1834],
         ["amount", 97],
-        ["note", 1833],
-        ["reference", 1835],
-        ["requestId", 1837],
+        ["note", 1835],
+        ["reference", 1837],
+        ["requestId", 1839],
         ["stepUpApprovalId", 228]
       ]
     },
@@ -7694,11 +7701,11 @@
         { "k": "max_length", "n": 64 }
       ]
     },
-    { "t": "optional", "in": 1834 },
-    { "t": "string", "checks": [{ "k": "max_length", "n": 140 }] },
     { "t": "optional", "in": 1836 },
-    { "t": "string", "checks": [{ "k": "max_length", "n": 64 }] },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 140 }] },
     { "t": "optional", "in": 1838 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 64 }] },
+    { "t": "optional", "in": 1840 },
     {
       "t": "string",
       "checks": [
@@ -7708,10 +7715,10 @@
     {
       "t": "object",
       "shape": [
-        ["scheduleId", 1840],
-        ["revision", 1841],
+        ["scheduleId", 1842],
+        ["revision", 1843],
         ["amount", 97],
-        ["endsAt", 1842],
+        ["endsAt", 1844],
         ["stepUpApprovalId", 228]
       ],
       "catchall": "strict"
@@ -7723,7 +7730,7 @@
       ]
     },
     { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }] },
-    { "t": "nullable", "in": 1843 },
+    { "t": "nullable", "in": 1845 },
     {
       "t": "string",
       "checks": [
@@ -7737,8 +7744,8 @@
     {
       "t": "object",
       "shape": [
-        ["userId", 1845],
-        ["businessId", 1846]
+        ["userId", 1847],
+        ["businessId", 1848]
       ],
       "catchall": "strict"
     },
@@ -7762,14 +7769,14 @@
         }
       ]
     },
-    { "t": "dunion", "disc": "action", "options": [1848, 1854] },
+    { "t": "dunion", "disc": "action", "options": [1850, 1856] },
     {
       "t": "object",
       "shape": [
-        ["action", 1849],
-        ["userId", 1850],
-        ["assetId", 1851],
-        ["businessId", 1852]
+        ["action", 1851],
+        ["userId", 1852],
+        ["assetId", 1853],
+        ["businessId", 1854]
       ],
       "catchall": "strict"
     },
@@ -7785,7 +7792,7 @@
       ]
     },
     { "t": "string", "checks": [{ "k": "regex", "src": "/^[A-Z0-9]{2,16}$/" }] },
-    { "t": "optional", "in": 1853 },
+    { "t": "optional", "in": 1855 },
     {
       "t": "string",
       "checks": [
@@ -7799,12 +7806,12 @@
     {
       "t": "object",
       "shape": [
-        ["action", 1855],
-        ["userId", 1856],
-        ["assetId", 1851],
-        ["amount", 1857],
-        ["chargeKey", 1858],
-        ["businessId", 1859]
+        ["action", 1857],
+        ["userId", 1858],
+        ["assetId", 1853],
+        ["amount", 1859],
+        ["chargeKey", 1860],
+        ["businessId", 1861]
       ],
       "catchall": "strict"
     },
@@ -7821,7 +7828,7 @@
     },
     { "t": "string", "checks": [{ "k": "regex", "src": "/^\\d{1,30}(\\.\\d{1,18})?$/" }] },
     { "t": "string", "checks": [{ "k": "regex", "src": "/^agent\\.usage:[^\\s]{1,160}$/" }] },
-    { "t": "optional", "in": 1860 },
+    { "t": "optional", "in": 1862 },
     {
       "t": "string",
       "checks": [
@@ -7835,16 +7842,16 @@
     {
       "t": "object",
       "shape": [
-        ["type", 1862],
-        ["currencies", 1863],
-        ["fulfilment", 1865]
+        ["type", 1864],
+        ["currencies", 1865],
+        ["fulfilment", 1867]
       ],
       "catchall": "strict"
     },
     { "t": "enum", "values": ["consumer", "commercial"] },
     {
       "t": "array",
-      "el": 1864,
+      "el": 1866,
       "checks": [
         { "k": "min_length", "n": 1 },
         { "k": "max_length", "n": 20 }
@@ -7855,10 +7862,10 @@
     {
       "t": "object",
       "shape": [
-        ["name", 1867],
-        ["cardType", 1868],
-        ["assetId", 1864],
-        ["perAuthorizationLimit", 1869]
+        ["name", 1869],
+        ["cardType", 1870],
+        ["assetId", 1866],
+        ["perAuthorizationLimit", 1871]
       ],
       "catchall": "strict"
     },
@@ -7874,9 +7881,9 @@
     {
       "t": "object",
       "shape": [
-        ["bin", 1871],
-        ["network", 1872],
-        ["range", 1873]
+        ["bin", 1873],
+        ["network", 1874],
+        ["range", 1875]
       ],
       "catchall": "strict"
     },
@@ -7886,27 +7893,27 @@
     {
       "t": "object",
       "shape": [
-        ["assetId", 1864],
-        ["issuance", 1875],
-        ["replacement", 1877],
-        ["monthly", 1878]
+        ["assetId", 1866],
+        ["issuance", 1877],
+        ["replacement", 1879],
+        ["monthly", 1880]
       ],
       "catchall": "strict"
     },
-    { "t": "nullable", "in": 1876 },
+    { "t": "nullable", "in": 1878 },
     { "t": "string", "checks": [{ "k": "regex", "src": "/^\\d+(\\.\\d{1,18})?$/" }] },
-    { "t": "nullable", "in": 1876 },
-    { "t": "nullable", "in": 1876 },
+    { "t": "nullable", "in": 1878 },
+    { "t": "nullable", "in": 1878 },
     {
       "t": "object",
       "shape": [
-        ["mode", 1880],
-        ["lowValueExemption", 1881]
+        ["mode", 1882],
+        ["lowValueExemption", 1883]
       ],
       "catchall": "strict"
     },
     { "t": "enum", "values": ["challenge_all", "frictionless"] },
-    { "t": "nullable", "in": 1882 },
+    { "t": "nullable", "in": 1884 },
     {
       "t": "object",
       "shape": [
@@ -8235,164 +8242,165 @@
     "ops.customerBalanceEntries": 1167,
     "ops.customerBalances": 1174,
     "ops.customerCards": 1176,
-    "ops.decideLimitRequest": 1180,
-    "ops.destinationFraudList": 1185,
-    "ops.directDebitMandates": 1195,
-    "ops.failedTransfers": 1197,
-    "ops.fraudPreviewAction": 1204,
-    "ops.fundCashbackPot": 1206,
-    "ops.fundLoanReserve": 1209,
-    "ops.fundPool": 1212,
-    "ops.heldSends": 1215,
-    "ops.limitRequests": 1219,
-    "ops.onrampFeesNotKnown": 1222,
-    "ops.onrampQuotes": 1225,
-    "ops.partnerRefusals": 1228,
-    "ops.partnerStops": 1230,
-    "ops.publishTransferTerms": 1236,
-    "ops.rampHealth": 1245,
-    "ops.rampMetrics": 1248,
-    "ops.reconcileLoanReserve": 1250,
-    "ops.rejectHeldSend": 1252,
-    "ops.releaseHeldSend": 1254,
-    "ops.releaseUnbondedEarn": 1256,
-    "ops.renewEarnTerms": 1263,
-    "ops.requestCardProgrammeFunding": 1270,
-    "ops.resumePendingEarn": 1283,
-    "ops.resumePendingLoans": 1286,
-    "ops.runAutoInvest": 1289,
-    "ops.runDormancy": 1292,
-    "ops.runDueTransfers": 1296,
-    "ops.runRiskSweep": 1299,
-    "ops.salaryRails": 1302,
-    "ops.seizeLoan": 1304,
-    "ops.setAssetPause": 1306,
-    "ops.setCardStatus": 1318,
-    "ops.setDestinationFraudListing": 1329,
-    "ops.setEarnPoolRate": 1341,
-    "ops.setEarnPoolStatus": 1344,
-    "ops.setLoanProductRate": 1349,
-    "ops.setPartnerStop": 1358,
-    "ops.transferDetail": 1370,
-    "ops.transferHealth": 1372,
-    "ownMoves.get": 1375,
-    "ownMoves.list": 1377,
-    "ownMoves.message": 1379,
-    "ownMoves.recordDeposit": 1382,
-    "ownMoves.toWallet": 1384,
-    "payYourself.record": 1386,
-    "payYourself.setRule": 1390,
-    "personalRequest.cancel": 1392,
-    "personalRequest.create": 1394,
-    "personalRequest.decline": 1392,
-    "personalRequest.get": 1392,
-    "personalRequest.list": 1402,
-    "personalRequest.remind": 1408,
-    "personalRequest.reminders": 1392,
-    "personalRequest.report": 1410,
-    "personalRequest.safety": 1392,
-    "portfolio.balanceBreakdown": 1414,
-    "portfolio.balanceEntries": 1424,
-    "portfolio.holdingsChange": 1434,
-    "portfolio.summary": 1437,
-    "portfolio.valueOverTime": 1434,
-    "railSends.addPayee": 1447,
-    "railSends.check": 1454,
-    "railSends.checkPayee": 1447,
-    "railSends.invitePayee": 1460,
-    "railSends.list": 1462,
-    "railSends.payees": 1464,
-    "railSends.readPayeeWarning": 1466,
-    "railSends.removePayee": 1468,
-    "railSends.send": 1470,
-    "ramps.destinations.approval.confirmLink": 1474,
-    "ramps.destinations.approval.onDevice": 1476,
-    "ramps.destinations.approval.requestMail": 1478,
-    "ramps.destinations.check": 1480,
-    "ramps.destinations.ownership.start": 1484,
-    "ramps.destinations.ownership.verify": 1486,
-    "ramps.destinations.readiness": 1489,
-    "ramps.destinations.remove": 1491,
-    "ramps.destinations.rename": 1494,
-    "ramps.destinations.save": 1497,
-    "ramps.destinations.sendable": 1506,
-    "ramps.live": 1511,
-    "ramps.offramp": 1514,
-    "ramps.offrampQuote": 1522,
-    "ramps.offramps": 1526,
-    "ramps.onrampCreate": 1530,
-    "ramps.onrampQuote": 1534,
-    "ramps.onramps": 1538,
-    "ramps.setWithdrawDestination": 1542,
-    "recovery.claims.execute": 1547,
-    "recovery.claims.open": 1556,
-    "rules.createMoneyRule": 1558,
-    "rules.setReminder": 1570,
-    "safety.transferSent": 1575,
-    "salary.credits": 1578,
-    "salary.details": 1580,
-    "salary.form": 1582,
-    "sharedPots.accept": 1584,
-    "sharedPots.activity": 1586,
-    "sharedPots.cancelInvite": 1592,
-    "sharedPots.decline": 1594,
-    "sharedPots.freezeCard": 1596,
-    "sharedPots.invite": 1598,
-    "sharedPots.leave": 1606,
-    "sharedPots.linkCard": 1608,
-    "sharedPots.list": 1611,
-    "sharedPots.remove": 1614,
-    "sharedPots.unlinkCard": 1617,
-    "sorter.cancel": 1619,
-    "sorter.create": 1621,
-    "sorter.runs": 1628,
-    "spaces.archive": 1631,
-    "spaces.cancelUnlock": 1633,
-    "spaces.clearBillsPot": 1635,
-    "spaces.create": 1637,
-    "spaces.list": 1643,
-    "spaces.ownedAccounts": 1648,
-    "spaces.requestUnlock": 1650,
-    "spaces.setBillsPot": 1652,
-    "spaces.setGoal": 1655,
-    "spaces.setLock": 1658,
-    "spaces.unarchive": 1661,
-    "statements.export": 1663,
-    "statements.jobs.create": 1673,
-    "statements.jobs.download": 1683,
-    "statements.letters.request": 1685,
-    "statements.tax.list": 1687,
-    "statements.totals": 1689,
-    "testPartner.businessStatement": 1694,
-    "testPartner.cardRefund": 1698,
-    "testPartner.fund": 1701,
-    "testPartner.fundBusiness": 1704,
-    "testPartner.openCompliance": 1707,
-    "testPartner.set": 1711,
-    "testPartner.settlePayment": 1759,
-    "testPartner.spend": 1761,
-    "transfers.cancel": 1765,
-    "transfers.create": 1767,
-    "transfers.executions": 1775,
-    "transfers.get": 1779,
-    "transfers.held": 1781,
-    "transfers.list": 1783,
-    "transfers.listSchedules": 1795,
-    "transfers.pause": 1801,
-    "transfers.quote": 1803,
-    "transfers.resume": 1805,
-    "transfers.schedule": 1807,
-    "transfers.scheduleToUser": 1815,
-    "transfers.settleWithdrawal": 1823,
-    "transfers.toUser": 1829,
-    "transfers.updateSchedule": 1839,
-    "POST /internal/agents/team-membership": 1844,
-    "POST /internal/agents/usage-payment": 1847,
-    "ops.cardProgrammeConfigure#programme": 1861,
-    "ops.cardProgrammeConfigure#product": 1866,
-    "ops.cardProgrammeConfigure#bin": 1870,
-    "ops.cardProgrammeConfigure#fees": 1874,
-    "ops.cardProgrammeConfigure#threeds": 1879,
+    "ops.customerPartnerBalances": 1180,
+    "ops.decideLimitRequest": 1182,
+    "ops.destinationFraudList": 1187,
+    "ops.directDebitMandates": 1197,
+    "ops.failedTransfers": 1199,
+    "ops.fraudPreviewAction": 1206,
+    "ops.fundCashbackPot": 1208,
+    "ops.fundLoanReserve": 1211,
+    "ops.fundPool": 1214,
+    "ops.heldSends": 1217,
+    "ops.limitRequests": 1221,
+    "ops.onrampFeesNotKnown": 1224,
+    "ops.onrampQuotes": 1227,
+    "ops.partnerRefusals": 1230,
+    "ops.partnerStops": 1232,
+    "ops.publishTransferTerms": 1238,
+    "ops.rampHealth": 1247,
+    "ops.rampMetrics": 1250,
+    "ops.reconcileLoanReserve": 1252,
+    "ops.rejectHeldSend": 1254,
+    "ops.releaseHeldSend": 1256,
+    "ops.releaseUnbondedEarn": 1258,
+    "ops.renewEarnTerms": 1265,
+    "ops.requestCardProgrammeFunding": 1272,
+    "ops.resumePendingEarn": 1285,
+    "ops.resumePendingLoans": 1288,
+    "ops.runAutoInvest": 1291,
+    "ops.runDormancy": 1294,
+    "ops.runDueTransfers": 1298,
+    "ops.runRiskSweep": 1301,
+    "ops.salaryRails": 1304,
+    "ops.seizeLoan": 1306,
+    "ops.setAssetPause": 1308,
+    "ops.setCardStatus": 1320,
+    "ops.setDestinationFraudListing": 1331,
+    "ops.setEarnPoolRate": 1343,
+    "ops.setEarnPoolStatus": 1346,
+    "ops.setLoanProductRate": 1351,
+    "ops.setPartnerStop": 1360,
+    "ops.transferDetail": 1372,
+    "ops.transferHealth": 1374,
+    "ownMoves.get": 1377,
+    "ownMoves.list": 1379,
+    "ownMoves.message": 1381,
+    "ownMoves.recordDeposit": 1384,
+    "ownMoves.toWallet": 1386,
+    "payYourself.record": 1388,
+    "payYourself.setRule": 1392,
+    "personalRequest.cancel": 1394,
+    "personalRequest.create": 1396,
+    "personalRequest.decline": 1394,
+    "personalRequest.get": 1394,
+    "personalRequest.list": 1404,
+    "personalRequest.remind": 1410,
+    "personalRequest.reminders": 1394,
+    "personalRequest.report": 1412,
+    "personalRequest.safety": 1394,
+    "portfolio.balanceBreakdown": 1416,
+    "portfolio.balanceEntries": 1426,
+    "portfolio.holdingsChange": 1436,
+    "portfolio.summary": 1439,
+    "portfolio.valueOverTime": 1436,
+    "railSends.addPayee": 1449,
+    "railSends.check": 1456,
+    "railSends.checkPayee": 1449,
+    "railSends.invitePayee": 1462,
+    "railSends.list": 1464,
+    "railSends.payees": 1466,
+    "railSends.readPayeeWarning": 1468,
+    "railSends.removePayee": 1470,
+    "railSends.send": 1472,
+    "ramps.destinations.approval.confirmLink": 1476,
+    "ramps.destinations.approval.onDevice": 1478,
+    "ramps.destinations.approval.requestMail": 1480,
+    "ramps.destinations.check": 1482,
+    "ramps.destinations.ownership.start": 1486,
+    "ramps.destinations.ownership.verify": 1488,
+    "ramps.destinations.readiness": 1491,
+    "ramps.destinations.remove": 1493,
+    "ramps.destinations.rename": 1496,
+    "ramps.destinations.save": 1499,
+    "ramps.destinations.sendable": 1508,
+    "ramps.live": 1513,
+    "ramps.offramp": 1516,
+    "ramps.offrampQuote": 1524,
+    "ramps.offramps": 1528,
+    "ramps.onrampCreate": 1532,
+    "ramps.onrampQuote": 1536,
+    "ramps.onramps": 1540,
+    "ramps.setWithdrawDestination": 1544,
+    "recovery.claims.execute": 1549,
+    "recovery.claims.open": 1558,
+    "rules.createMoneyRule": 1560,
+    "rules.setReminder": 1572,
+    "safety.transferSent": 1577,
+    "salary.credits": 1580,
+    "salary.details": 1582,
+    "salary.form": 1584,
+    "sharedPots.accept": 1586,
+    "sharedPots.activity": 1588,
+    "sharedPots.cancelInvite": 1594,
+    "sharedPots.decline": 1596,
+    "sharedPots.freezeCard": 1598,
+    "sharedPots.invite": 1600,
+    "sharedPots.leave": 1608,
+    "sharedPots.linkCard": 1610,
+    "sharedPots.list": 1613,
+    "sharedPots.remove": 1616,
+    "sharedPots.unlinkCard": 1619,
+    "sorter.cancel": 1621,
+    "sorter.create": 1623,
+    "sorter.runs": 1630,
+    "spaces.archive": 1633,
+    "spaces.cancelUnlock": 1635,
+    "spaces.clearBillsPot": 1637,
+    "spaces.create": 1639,
+    "spaces.list": 1645,
+    "spaces.ownedAccounts": 1650,
+    "spaces.requestUnlock": 1652,
+    "spaces.setBillsPot": 1654,
+    "spaces.setGoal": 1657,
+    "spaces.setLock": 1660,
+    "spaces.unarchive": 1663,
+    "statements.export": 1665,
+    "statements.jobs.create": 1675,
+    "statements.jobs.download": 1685,
+    "statements.letters.request": 1687,
+    "statements.tax.list": 1689,
+    "statements.totals": 1691,
+    "testPartner.businessStatement": 1696,
+    "testPartner.cardRefund": 1700,
+    "testPartner.fund": 1703,
+    "testPartner.fundBusiness": 1706,
+    "testPartner.openCompliance": 1709,
+    "testPartner.set": 1713,
+    "testPartner.settlePayment": 1761,
+    "testPartner.spend": 1763,
+    "transfers.cancel": 1767,
+    "transfers.create": 1769,
+    "transfers.executions": 1777,
+    "transfers.get": 1781,
+    "transfers.held": 1783,
+    "transfers.list": 1785,
+    "transfers.listSchedules": 1797,
+    "transfers.pause": 1803,
+    "transfers.quote": 1805,
+    "transfers.resume": 1807,
+    "transfers.schedule": 1809,
+    "transfers.scheduleToUser": 1817,
+    "transfers.settleWithdrawal": 1825,
+    "transfers.toUser": 1831,
+    "transfers.updateSchedule": 1841,
+    "POST /internal/agents/team-membership": 1846,
+    "POST /internal/agents/usage-payment": 1849,
+    "ops.cardProgrammeConfigure#programme": 1863,
+    "ops.cardProgrammeConfigure#product": 1868,
+    "ops.cardProgrammeConfigure#bin": 1872,
+    "ops.cardProgrammeConfigure#fees": 1876,
+    "ops.cardProgrammeConfigure#threeds": 1881,
     "ops.cardProgrammeRuleCreate#params": 1074
   }
 }

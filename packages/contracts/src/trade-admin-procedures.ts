@@ -60,3 +60,46 @@ export const TRADE_ADMIN_AGENT_DESK_QUARANTINE = defineProcedure({
     { verdict: 'refuse', input: 42 },
   ],
 });
+
+/** One reading of a venue account's margin, every figure the venue's own at its as-of time (J-derivatives-26 #8). */
+const venueMarginSample = z.object({
+  asOf: z.string().datetime(),
+  asset: z.string(),
+  equity: z.string(),
+  maintenanceMargin: z.string(),
+  marginRatio: z.union([z.object({ known: z.literal(true), value: z.string() }), z.object({ known: z.literal(false) })]),
+  crossState: z.enum(['healthy', 'margin_call']).nullable(),
+});
+
+/**
+ * A founder's read of one person's venue accounts (J-derivatives-26 #8; svc-trade admin/venue-account-read.ts): each
+ * account their own signed actions named, its margin now and its ratio history, as the venue reported them. Audited
+ * (`venue_accounts.get`) before the venue is asked; read-only.
+ */
+export const TRADE_ADMIN_VENUE_ACCOUNTS_GET = defineProcedure({
+  ...base,
+  name: 'trade.admin.venueAccounts.get',
+  kind: 'query',
+  path: 'admin.venueAccounts.get',
+  access: { caller: 'scope', scope: 'admin:read' },
+  refusals: {},
+  input: z.object({ userId: z.string().guid() }).strict(),
+  output: z.object({
+    userId: z.string(),
+    venueId: z.string(),
+    source: z.string(),
+    accounts: z.array(
+      z.object({
+        owner: z.string(),
+        subAccount: z.string().nullable(),
+        now: venueMarginSample.nullable(),
+        history: z.array(venueMarginSample),
+      }),
+    ),
+    auditId: z.string(),
+  }),
+  samples: [
+    { verdict: 'accept', input: { userId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
