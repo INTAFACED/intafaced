@@ -50,7 +50,7 @@ export async function askReversal(page, txId, { reason, caseRef }) {
   const desk = (await openTx(page, txId)).getByTestId('tx-reversal');
   const form = desk.getByTestId('tx-reverse');
   await form.getByLabel(/^Reason \(12 to 500/).fill(reason);
-  await form.getByLabel('Case reference').fill(caseRef);
+  await form.getByLabel('Case reference', { exact: true }).fill(caseRef);
   await form.getByTestId('tx-reverse-submit').click();
   const asked = desk.getByTestId('reversal-asked');
   await expect(asked).toBeVisible({ timeout: 30_000 });
@@ -61,18 +61,18 @@ export async function askReversal(page, txId, { reason, caseRef }) {
 export async function proposeReversal(desk, requestNo) {
   const row = requestRow(desk, requestNo);
   await row.getByLabel(/to confirm$/).fill(reversePhrase(requestNo));
-  await row.getByRole('button', { name: 'Ask a second founder to approve the reversal' }).click();
+  await row.getByRole('button', { name: 'Ask a second founder to approve the reversal', exact: true }).click();
   await expect(row.getByTestId('packet-made')).toBeVisible({ timeout: 60_000 });
-  return (await row.getByLabel('Request packet').inputValue()).trim();
+  return (await row.getByLabel('Request packet', { exact: true }).inputValue()).trim();
 }
 
 /** A different founder pastes the packet on their own console's view of the original and approves it. */
 export async function approveReversal(page, txId, requestNo, packetText) {
   const row = requestRow((await openTx(page, txId)).getByTestId('tx-reversal'), requestNo);
-  await row.getByLabel('Request packet').fill(packetText);
+  await row.getByLabel('Request packet', { exact: true }).fill(packetText);
   await expect(row.getByTestId('packet-summary')).toContainText(`Reverse ledger transaction ${txId.toLowerCase()}`);
   await row.getByLabel(/to approve or run it$/).fill(reversePhrase(requestNo));
-  await row.getByRole('button', { name: 'Approve this request' }).click();
+  await row.getByRole('button', { name: 'Approve this request', exact: true }).click();
   await expect(row.getByTestId('step-reply')).toContainText('Approved.', { timeout: 30_000 });
 }
 
@@ -82,9 +82,9 @@ export async function approveReversal(page, txId, requestNo, packetText) {
  */
 export async function runReversal(page, txId, requestNo, packetText) {
   const row = requestRow((await openTx(page, txId)).getByTestId('tx-reversal'), requestNo);
-  await row.getByLabel('Request packet').fill(packetText);
+  await row.getByLabel('Request packet', { exact: true }).fill(packetText);
   await row.getByLabel(/to approve or run it$/).fill(reversePhrase(requestNo));
-  await row.getByRole('button', { name: 'Run the approved request' }).click();
+  await row.getByRole('button', { name: 'Run the approved request', exact: true }).click();
   await expect(row, `reversal request ${requestNo} is posted, as svc-ops stores it`).toHaveAttribute('data-state', 'posted', {
     timeout: 60_000,
   });

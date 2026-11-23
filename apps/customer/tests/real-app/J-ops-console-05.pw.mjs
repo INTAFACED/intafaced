@@ -2,7 +2,7 @@
 import { expect, test } from './journey.mjs';
 import { randomUUID } from 'node:crypto';
 import { founderSignIn } from './admin.mjs';
-import { fund } from './stack.mjs';
+import { fund, toUnits } from './stack.mjs';
 import {
   approveReversal,
   askReversal,
@@ -60,18 +60,11 @@ async function founders(browser) {
   return { a: state.a, b: state.b };
 }
 
-/** A decimal string as a bigint scaled by 10^18, so amounts are compared exactly. */
-function scaled(text) {
-  const [whole, frac = ''] = text.replace(/^-/, '').split('.');
-  const value = BigInt(whole) * 10n ** 18n + BigInt((frac + '0'.repeat(18)).slice(0, 18));
-  return text.startsWith('-') ? -value : value;
-}
-
 /** Sums legs per key, a debit counted up and a credit down. */
 function netBy(legs, keyOf) {
   const net = new Map();
   for (const leg of legs) {
-    const signed = leg.direction === 'debit' ? scaled(leg.amount) : -scaled(leg.amount);
+    const signed = leg.direction === 'debit' ? toUnits(leg.amount) : -toUnits(leg.amount);
     net.set(keyOf(leg), (net.get(keyOf(leg)) ?? 0n) + signed);
   }
   return Object.fromEntries([...net].map(([k, v]) => [k, v.toString()]));
@@ -96,10 +89,10 @@ test.describe.serial('J-ops-console-05 correct the books', () => {
     // A reason under 12 characters or no case reference holds the Reverse button.
     const form = original.getByTestId('tx-reverse');
     await form.getByLabel(/^Reason \(12 to 500/).fill('too short');
-    await form.getByLabel('Case reference').fill(ask.caseRef);
+    await form.getByLabel('Case reference', { exact: true }).fill(ask.caseRef);
     await expect(form.getByTestId('tx-reverse-submit')).toBeDisabled();
     await form.getByLabel(/^Reason \(12 to 500/).fill(ask.reason);
-    await form.getByLabel('Case reference').fill('');
+    await form.getByLabel('Case reference', { exact: true }).fill('');
     await expect(form.getByTestId('tx-reverse-submit')).toBeDisabled();
 
     // Reverse, with a reason and a case reference: svc-ops stores the request at "intent".
@@ -116,7 +109,7 @@ test.describe.serial('J-ops-console-05 correct the books', () => {
 
     // The requester asks a different founder to approve: the packet is made, and the requester cannot approve it.
     state.packetText = await proposeReversal(desk, requestNo);
-    await expect(row.getByRole('button', { name: 'Approve this request' })).toBeDisabled();
+    await expect(row.getByRole('button', { name: 'Approve this request', exact: true })).toBeDisabled();
     const alone = await reversalStep(a, state.packetText, 'approve', reversePhrase(requestNo));
     expect(alone.body?.ok, JSON.stringify(alone)).toBe(false);
     expect(alone.body?.refusal?.code, JSON.stringify(alone)).toBe('action_approval.same_person');
@@ -167,8 +160,8 @@ test.describe.serial('J-ops-console-05 correct the books', () => {
     expect(originalLegs.length, 'the original has legs').toBeGreaterThan(0);
 
     // Each leg of the original, flipped, the same amount, on the same account; nothing else.
-    const flip = (leg) => ({ ...leg, direction: leg.direction === 'debit' ? 'credit' : 'debit', amount: scaled(leg.amount).toString() });
-    const same = (leg) => ({ ...leg, amount: scaled(leg.amount).toString() });
+    const flip = (leg) => ({ ...leg, direction: leg.direction === 'debit' ? 'credit' : 'debit', amount: toUnits(leg.amount).toString() });
+    const same = (leg) => ({ ...leg, amount: toUnits(leg.amount).toString() });
     const order = (x, y) => (x.account + x.asset + x.direction).localeCompare(y.account + y.asset + y.direction);
     expect(reversingLegs.map(same).sort(order), 'the reversing legs are the original legs flipped').toEqual(
       originalLegs.map(flip).sort(order),
@@ -206,7 +199,7 @@ test.describe.serial('J-ops-console-05 correct the books', () => {
     const desk = (await openTx(a, state.originalTxId)).getByTestId('tx-reversal');
     const form = desk.getByTestId('tx-reverse');
     await form.getByLabel(/^Reason \(12 to 500/).fill(`${ask.reason} again`);
-    await form.getByLabel('Case reference').fill(`${ask.caseRef}-2`);
+    await form.getByLabel('Case reference', { exact: true }).fill(`${ask.caseRef}-2`);
     await form.getByTestId('tx-reverse-submit').click();
     const refused = desk.getByTestId('reversal-refused');
     await expect(refused.getByTestId('reversal-refused-code')).toHaveText('ops.reversal_already_reversed', { timeout: 30_000 });
