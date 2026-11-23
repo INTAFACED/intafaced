@@ -91,13 +91,13 @@ jobs:
             -H 'content-type: application/json' -H 'origin: https://localhost:8090' \
             -d '{"identifier":"rehearsal-nobody@example.invalid","password":"not-the-password"}')
           status=$(printf '%s' "$body" | tail -n1)
-          code=$(printf '%s' "$body" | grep -o '"intafacedCode":"[^"]*"' | head -n1 || true)
+          code=$(printf '%s' "$body" | grep -oE '"(intafacedCode|code)":"(auth|identity)\.[a-z_]+"' | head -n1 | cut -d'"' -f4 || true)
           echo "sign-in with an unknown name answered $status $code"
           # A refusal to a made-up sign-in carries no secret; its first lines say which layer answered.
           printf '%s' "$body" | sed '$d' | cut -c1-600
           # Identity answered through the site and the edge, with its own typed refusal for a wrong sign-in.
           case "$code" in
-            '"intafacedCode":"auth.invalid_credentials"'|'"intafacedCode":"auth.challenge_required"') ;;
+            auth.invalid_credentials) ;;
             *) echo "::error::sign-in did not reach identity's typed refusal"; exit 1 ;;
           esac
 
