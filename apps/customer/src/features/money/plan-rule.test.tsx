@@ -42,17 +42,18 @@ describe('the plan rule for paying more than you hold', () => {
     expect(html).toContain('allows a negative balance at an overdraft fee of 0 USDT');
     expect(html).toContain('the overdraft is switched off in this build');
     expect(html).toContain('refused and nothing moves');
-    expect(html).toContain('Reference: bank.overdraft_switched_off');
+    expect(html).toContain('data-code="bank.overdraft_switched_off"');
+    expect(html).not.toContain('Reference: bank.overdraft_switched_off');
     expect(html).not.toContain('shows the negative balance');
   });
 
-  it('the review of a payment above the balance names the shortfall, then the plan rule with its reference', () => {
+  it('the review of a payment above the balance names the shortfall, then the plan rule in plain words', () => {
     const overdraft = ready(terms({ tier: 'TEST plan', overdraftFee: '1', overdraftBlocker: 'bank.overdraft_switched_off' }));
     const from = { balance: '50', assetId: asAssetId('USDT') };
     expect(overBalanceProblem(overdraft, from, '60')).toBe(
       `This is 10 USDT more than this space holds (50 USDT). ${planRuleLine(overdraft)}`,
     );
-    expect(planRuleLine(overdraft)).toContain('Reference: bank.overdraft_switched_off');
+    expect(planRuleLine(overdraft)).not.toContain('bank.overdraft_switched_off');
     // Exact to the last unit: 50.000001 is 0.000001 over.
     expect(overBalanceProblem(overdraft, from, '50.000001')).toContain('This is 0.000001 USDT more');
     // Within the balance, or not a readable amount, is not this check's to answer.

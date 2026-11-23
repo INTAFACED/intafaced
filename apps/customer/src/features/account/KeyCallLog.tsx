@@ -8,7 +8,7 @@ import { Button, Field, Select } from '@intafaced/ui/lit';
 import { useSession } from '../session';
 import { Failure, Loading } from './kit-parts';
 
-export const keyCallLogCopy = defineCopy('api-key-call-log', {
+const keyCallLogCopy = defineCopy('api-key-call-log', {
   title: 'Call log',
   lead: 'Each call this key made, as the server answered it. A body or a header value is never kept, and neither is the key.',
   colAt: 'Time',

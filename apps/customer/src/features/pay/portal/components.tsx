@@ -5,7 +5,7 @@ import { Button, StateBlock } from '@intafaced/ui';
 import { EmptyState } from '../ui-kit';
 import { DateTime } from './ui/DateTime';
 import type { ListState } from './hooks';
-import { activeHalts, spanParts, type PayoutState } from './model';
+import { activeHalts, type PayoutState } from './model';
 import { portalCopy } from './copy';
 import { StatusChip } from './ui/StatusChip';
 import { CopyReference } from './ui/CopyReference';
@@ -142,47 +142,6 @@ export function MoreFooter<T>({ state, onMore }: { state: Extract<ListState<T>, 
   );
 }
 
-export function Kpi({
-  label,
-  period,
-  value,
-  note,
-  href,
-  tone,
-}: {
-  label: string;
-  period?: string;
-  value: ReactNode;
-  note?: ReactNode;
-  href?: string;
-  tone?: 'attention';
-}) {
-  const body = (
-    <>
-      <span className="pp-kpi-label">
-        {label}
-        {period && <em>{period}</em>}
-      </span>
-      <strong className="pp-kpi-value numeric">{value}</strong>
-      {note && <small className="pp-kpi-note">{note}</small>}
-    </>
-  );
-  return href ? (
-    <a className={`pp-kpi pp-kpi--link${tone ? ` pp-kpi--${tone}` : ''}`} href={href}>
-      {body}
-    </a>
-  ) : (
-    <div className={`pp-kpi${tone ? ` pp-kpi--${tone}` : ''}`}>{body}</div>
-  );
-}
-export function KpiGrid({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="pp-kpis" role="group" aria-label={label}>
-      {children}
-    </div>
-  );
-}
-
 /** One line per asset. Two assets are never added together; an empty list is "nothing yet", not zero. */
 export function MoneyLines({ items, emptyLabel }: { items: readonly AssetAmount[]; emptyLabel?: string }) {
   const { t } = portalCopy.useCopy();
@@ -288,17 +247,6 @@ export function Gate<T>({
 
 // ---- W3b -------------------------------------------------------------------------------------------------
 
-/** "As of" for a list the page read straight from the account's records (B12): there is no projection, so no lag. */
-export function ReadAt({ at }: { at: string | null }) {
-  const { t } = portalCopy.useCopy();
-  if (!at) return null;
-  return (
-    <p className="pp-asof" role="status">
-      {t('readAt')} <DateTime value={at} />
-    </p>
-  );
-}
-
 /** A figure or setting nobody has configured. It is never a zero and never a default. */
 export function NotConfigured({ children }: { children?: ReactNode }) {
   const { t } = portalCopy.useCopy();
@@ -310,22 +258,6 @@ export function TestTag() {
     <span className="pp-test" title={t('testValueTip')}>
       {t('testValue')}
     </span>
-  );
-}
-
-/** A length of time in words ("3 h", "just now"). Used for the age and the time left on a request. */
-export function SpanText({ ms }: { ms: number }) {
-  const { t } = portalCopy.useCopy();
-  const span = spanParts(ms);
-  if (span.unit === 'minutes' && span.n === 0) return <>{t('spanNow')}</>;
-  return (
-    <>
-      {span.unit === 'minutes'
-        ? t('spanMinutes', { n: span.n })
-        : span.unit === 'hours'
-          ? t('spanHours', { n: span.n })
-          : t('spanDays', { n: span.n })}
-    </>
   );
 }
 
@@ -402,15 +334,4 @@ export function Steps({
   );
 }
 
-/** A used-against-limit bar. The numbers beside it are exact; the bar is only a picture of them. */
-export function UsageBar({ pct, label }: { pct: number; label: string }) {
-  const { t } = portalCopy.useCopy();
-  const full = pct >= 100;
-  return (
-    <div className="pp-usage" role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct)}>
-      <span className={`pp-usage-fill${full ? ' pp-usage-fill--full' : ''}`} style={{ width: `${pct}%` }} />
-      <span className="lt-sr">{full ? t('usageFull') : t('usagePct', { pct: Math.round(pct) })}</span>
-    </div>
-  );
-}
 export type { PayoutState };

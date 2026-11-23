@@ -17,6 +17,7 @@ import type { ProcedureOutput } from '@intafaced/contracts/procedure';
 import { type cardSchema } from '../contracts';
 import { cardOrderCopy } from '../card-order-copy';
 import { StepUpInline } from '../bank-settings/StepUpInline';
+import { shownCode } from '../../../shared/reference';
 
 /**
  * Each card's own panels on /bank/cards for getting a card (J-bank-13): its status in words, how many payments a
@@ -39,7 +40,7 @@ export function Refusal({ failure }: { failure: Failed }) {
   const said = SAY[code]?.(t) ?? failure.message;
   return (
     <p role="alert" data-code={code}>
-      {said} {code.includes('.') ? t('reference', { code }) : null}
+      {said} {code.includes('.') && shownCode(code) ? t('reference', { code }) : null}
     </p>
   );
 }

@@ -1,15 +1,11 @@
-import {
-  opsAlertAcknowledgeInputSchema,
-  opsAlertDetailSchema,
-  opsAlertResolveInputSchema,
-  opsAlertSnoozeInputSchema,
-  opsAlertUnsnoozeInputSchema,
-} from '@intafaced/contracts/ops-reconciliation-alerts';
+import { opsAlertResolveInputSchema } from '@intafaced/contracts/ops-reconciliation-alerts';
 import { moduleDisabledResponse } from '@/lib/modules';
 import { adminBffSession } from '@/lib/admin-bff-gate';
 import { readAdminJson } from '@/lib/admin-json';
 import { AdminSessionError, adminSessionErrorResponse } from '@/lib/founder-session';
-import { founderCall, parseWith } from '@/lib/desk/founder-call';
+import { founderRecordCall, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
+import type { ProcedureOutput } from '@intafaced/contracts/procedure';
+import { OPS_ALERTS_ACKNOWLEDGE, OPS_ALERTS_SNOOZE, OPS_ALERTS_UNSNOOZE } from '@intafaced/contracts/ops-alerts-procedures';
 import { UUID, alertKey, refusalWords, txIdsFrom, type AlertAction } from '@/lib/recon-alerts/model';
 import { alertWritesParked, resolveAlert } from '@/lib/recon-alerts/treasury';
 
@@ -27,12 +23,8 @@ export const dynamic = 'force-dynamic';
 const NO_STORE = { 'cache-control': 'no-store' } as const;
 const answer = (payload: Record<string, unknown>, status: number): Response => Response.json(payload, { status, headers: NO_STORE });
 
-const PROCEDURE: Readonly<Record<AlertAction, string>> = {
-  acknowledge: 'alerts.acknowledge',
-  snooze: 'alerts.snooze',
-  unsnooze: 'alerts.unsnooze',
-  resolve: 'alerts.resolve',
-};
+/** A non-resolve change, sent through its record; `resolve` goes through treasury (`resolveAlert`). */
+type Send = (ctx: FounderCallContext) => Promise<FounderCallResult<ProcedureOutput<typeof OPS_ALERTS_ACKNOWLEDGE>>>;
 
 /** A typed time with no offset is read as UTC, as the form says, never in the server's own zone. */
 function utcIso(raw: unknown): string {
@@ -42,7 +34,7 @@ function utcIso(raw: unknown): string {
   return Number.isNaN(at) ? '' : new Date(at).toISOString();
 }
 
-function parseBody(raw: Record<string, unknown>, userId: string): { action: AlertAction; input: unknown } | null {
+function parseBody(raw: Record<string, unknown>, userId: string): { action: AlertAction; input: unknown; send?: Send } | null {
   const action = raw.action;
   if (action !== 'acknowledge' && action !== 'snooze' && action !== 'unsnooze' && action !== 'resolve') return null;
   if (typeof raw.alertId !== 'string' || !UUID.test(raw.alertId)) return null;
@@ -59,25 +51,23 @@ function parseBody(raw: Record<string, unknown>, userId: string): { action: Aler
     });
     return parsed.success ? { action, input: parsed.data } : null;
   }
-  const schema =
-    action === 'acknowledge'
-      ? opsAlertAcknowledgeInputSchema
-      : action === 'snooze'
-        ? opsAlertSnoozeInputSchema
-        : opsAlertUnsnoozeInputSchema;
-  const input =
-    action === 'acknowledge'
-      ? { alertId, note: typeof raw.note === 'string' ? raw.note : '', idempotencyKey }
-      : action === 'snooze'
-        ? {
-            alertId,
-            endsAt: utcIso(raw.endsAt),
-            ...(typeof raw.reason === 'string' && raw.reason.trim() ? { reason: raw.reason.trim() } : {}),
-            idempotencyKey,
-          }
-        : { alertId, idempotencyKey };
-  const parsed = schema.safeParse(input);
-  return parsed.success ? { action, input: parsed.data } : null;
+  if (action === 'acknowledge') {
+    const parsed = OPS_ALERTS_ACKNOWLEDGE.input.safeParse({ alertId, note: typeof raw.note === 'string' ? raw.note : '', idempotencyKey });
+    return parsed.success
+      ? { action, input: parsed.data, send: (ctx) => founderRecordCall(ctx, OPS_ALERTS_ACKNOWLEDGE, parsed.data) }
+      : null;
+  }
+  if (action === 'snooze') {
+    const parsed = OPS_ALERTS_SNOOZE.input.safeParse({
+      alertId,
+      endsAt: utcIso(raw.endsAt),
+      ...(typeof raw.reason === 'string' && raw.reason.trim() ? { reason: raw.reason.trim() } : {}),
+      idempotencyKey,
+    });
+    return parsed.success ? { action, input: parsed.data, send: (ctx) => founderRecordCall(ctx, OPS_ALERTS_SNOOZE, parsed.data) } : null;
+  }
+  const parsed = OPS_ALERTS_UNSNOOZE.input.safeParse({ alertId, idempotencyKey });
+  return parsed.success ? { action, input: parsed.data, send: (ctx) => founderRecordCall(ctx, OPS_ALERTS_UNSNOOZE, parsed.data) } : null;
 }
 
 export async function POST(request: Request) {
@@ -110,10 +100,7 @@ export async function POST(request: Request) {
     const parked = alertWritesParked(session);
     if (parked) return answer({ ok: false, code: parked.code, message: parked.title, detail: parked.body }, 409);
   }
-  const result =
-    body.action === 'resolve'
-      ? await resolveAlert(opsAlertResolveInputSchema.parse(body.input))
-      : await founderCall(session, 'ops', PROCEDURE[body.action], 'POST', body.input, parseWith(opsAlertDetailSchema));
+  const result = body.send ? await body.send(session) : await resolveAlert(opsAlertResolveInputSchema.parse(body.input));
   switch (result.kind) {
     case 'ok':
       if (result.data.alert.id !== (body.input as { alertId: string }).alertId)

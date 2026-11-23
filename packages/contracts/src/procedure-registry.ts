@@ -917,6 +917,9 @@ import {
   IDENTITY_ACCOUNT_CONTROLS_ARCHIVE_STATE,
   IDENTITY_ACCOUNT_CONTROLS_LIMITS_HISTORY,
   IDENTITY_ACCOUNT_CONTROLS_LIMITS,
+  IDENTITY_ACCOUNT_CONTROLS_GET_STATE,
+  IDENTITY_ACCOUNT_CONTROLS_HISTORY,
+  IDENTITY_ACCOUNT_CONTROLS_CHANGE,
 } from './identity-account-controls-procedures.js';
 
 import { IDENTITY_ACCOUNT_DIRECTORY_HANDLES } from './identity-account-directory-procedures.js';
@@ -1127,6 +1130,8 @@ import {
 } from './identity-security-lock-procedures.js';
 
 import { IDENTITY_SELF_FREEZE_MANAGE_LIFT } from './identity-self-freeze-manage-procedures.js';
+
+import { IDENTITY_SERVER_TIME } from './identity-server-time-procedures.js';
 
 import { IDENTITY_SESSION_SETTINGS } from './identity-session-settings-procedures.js';
 
@@ -1340,7 +1345,15 @@ import {
 
 import { OPS_ALERT_RULES_STATES } from './ops-alert-rules-procedures.js';
 
-import { OPS_ALERTS_LIST, OPS_ALERTS_PERIODS, OPS_ALERTS_PLATFORM_INCIDENTS, OPS_ALERTS_GET } from './ops-alerts-procedures.js';
+import {
+  OPS_ALERTS_LIST,
+  OPS_ALERTS_PERIODS,
+  OPS_ALERTS_PLATFORM_INCIDENTS,
+  OPS_ALERTS_GET,
+  OPS_ALERTS_ACKNOWLEDGE,
+  OPS_ALERTS_SNOOZE,
+  OPS_ALERTS_UNSNOOZE,
+} from './ops-alerts-procedures.js';
 
 import { OPS_ANNOUNCEMENTS_ACTIVE, OPS_ANNOUNCEMENTS_LIST, OPS_ANNOUNCEMENTS_CHANGE } from './ops-announcements-procedures.js';
 
@@ -1376,7 +1389,25 @@ import {
   OPS_LEDGER_REVERSALS_LIST,
 } from './ops-ledger-reversals-procedures.js';
 
-import { OPS_OUTREACH_PRIVACY_RETENTION_STATUS, OPS_OUTREACH_OWNERS, OPS_OUTREACH_LIST_WORKFLOW_AUDIT } from './ops-outreach-procedures.js';
+import {
+  OPS_OUTREACH_PRIVACY_RETENTION_STATUS,
+  OPS_OUTREACH_OWNERS,
+  OPS_OUTREACH_LIST_WORKFLOW_AUDIT,
+  OPS_OUTREACH_LIST_CAMPAIGNS,
+  OPS_OUTREACH_LIST_SOURCE_MAPPINGS,
+  OPS_OUTREACH_LIST_TASKS,
+  OPS_OUTREACH_LIST_MESSAGES,
+  OPS_OUTREACH_DOCUMENT_PROVIDER_STATUS,
+  OPS_OUTREACH_UPSERT_CAMPAIGN,
+  OPS_OUTREACH_UPSERT_SOURCE_MAPPING,
+  OPS_OUTREACH_CREATE_TASK,
+  OPS_OUTREACH_TRANSITION_TASK,
+  OPS_OUTREACH_RECORD_INTERACTION,
+  OPS_OUTREACH_QUEUE_MESSAGE,
+  OPS_OUTREACH_ASSIGN,
+  OPS_OUTREACH_UPDATE_NEXT_ACTION,
+  OPS_OUTREACH_ADD_NOTE,
+} from './ops-outreach-procedures.js';
 
 import { OPS_PREFERENCES_GET, OPS_PREFERENCES_SET } from './ops-preferences-procedures.js';
 
@@ -1506,6 +1537,12 @@ import {
   P2P_INSTRUMENTS_REVEAL_MASKED,
   P2P_INSTRUMENTS_ACCESS_LOG,
 } from './p2p-procedures.js';
+
+import {
+  PAY_ACCOUNT_CONTROLS_GET_STATE,
+  PAY_ACCOUNT_CONTROLS_HISTORY,
+  PAY_ACCOUNT_CONTROLS_CHANGE,
+} from './pay-account-controls-procedures.js';
 
 import {
   PAY_ALLOWLIST_MODE,
@@ -1734,6 +1771,8 @@ import {
   PAY_SUBMERCHANT_PERMISSION_AREAS,
   PAY_SUBMERCHANT_PERMISSION_LIST,
   PAY_SUBMERCHANT_PERMISSION_HISTORY,
+  PAY_SUBMERCHANT_PERMISSION_GRANT,
+  PAY_SUBMERCHANT_PERMISSION_REVOKE,
 } from './pay-submerchant-permission-procedures.js';
 
 import {
@@ -2194,7 +2233,7 @@ import {
   TOKEN_GOVERNANCE_SET_ROLE,
 } from './token-procedures.js';
 
-import { TRADE_ACCOUNT_CONTROLS_HISTORY } from './trade-account-controls-procedures.js';
+import { TRADE_ACCOUNT_CONTROLS_HISTORY, TRADE_ACCOUNT_CONTROLS_GET_STATE } from './trade-account-controls-procedures.js';
 
 import {
   TRADE_ADMIN_AGENT_DESK_CONNECTIONS,
@@ -3244,6 +3283,9 @@ const part_identity_account_controls_procedures: readonly ProcedureRecord[] = [
   IDENTITY_ACCOUNT_CONTROLS_ARCHIVE_STATE,
   IDENTITY_ACCOUNT_CONTROLS_LIMITS_HISTORY,
   IDENTITY_ACCOUNT_CONTROLS_LIMITS,
+  IDENTITY_ACCOUNT_CONTROLS_GET_STATE,
+  IDENTITY_ACCOUNT_CONTROLS_HISTORY,
+  IDENTITY_ACCOUNT_CONTROLS_CHANGE,
 ];
 
 const part_identity_account_directory_procedures: readonly ProcedureRecord[] = [IDENTITY_ACCOUNT_DIRECTORY_HANDLES];
@@ -3474,6 +3516,8 @@ const part_identity_security_lock_procedures: readonly ProcedureRecord[] = [
 
 const part_identity_self_freeze_manage_procedures: readonly ProcedureRecord[] = [IDENTITY_SELF_FREEZE_MANAGE_LIFT];
 
+const part_identity_server_time_procedures: readonly ProcedureRecord[] = [IDENTITY_SERVER_TIME];
+
 const part_identity_session_settings_procedures: readonly ProcedureRecord[] = [IDENTITY_SESSION_SETTINGS];
 
 const part_identity_set_api_key_request_signing_procedures: readonly ProcedureRecord[] = [IDENTITY_SET_API_KEY_REQUEST_SIGNING];
@@ -3699,6 +3743,9 @@ const part_ops_alerts_procedures: readonly ProcedureRecord[] = [
   OPS_ALERTS_PERIODS,
   OPS_ALERTS_PLATFORM_INCIDENTS,
   OPS_ALERTS_GET,
+  OPS_ALERTS_ACKNOWLEDGE,
+  OPS_ALERTS_SNOOZE,
+  OPS_ALERTS_UNSNOOZE,
 ];
 
 const part_ops_announcements_procedures: readonly ProcedureRecord[] = [
@@ -3743,6 +3790,20 @@ const part_ops_outreach_procedures: readonly ProcedureRecord[] = [
   OPS_OUTREACH_PRIVACY_RETENTION_STATUS,
   OPS_OUTREACH_OWNERS,
   OPS_OUTREACH_LIST_WORKFLOW_AUDIT,
+  OPS_OUTREACH_LIST_CAMPAIGNS,
+  OPS_OUTREACH_LIST_SOURCE_MAPPINGS,
+  OPS_OUTREACH_LIST_TASKS,
+  OPS_OUTREACH_LIST_MESSAGES,
+  OPS_OUTREACH_DOCUMENT_PROVIDER_STATUS,
+  OPS_OUTREACH_UPSERT_CAMPAIGN,
+  OPS_OUTREACH_UPSERT_SOURCE_MAPPING,
+  OPS_OUTREACH_CREATE_TASK,
+  OPS_OUTREACH_TRANSITION_TASK,
+  OPS_OUTREACH_RECORD_INTERACTION,
+  OPS_OUTREACH_QUEUE_MESSAGE,
+  OPS_OUTREACH_ASSIGN,
+  OPS_OUTREACH_UPDATE_NEXT_ACTION,
+  OPS_OUTREACH_ADD_NOTE,
 ];
 
 const part_ops_preferences_procedures: readonly ProcedureRecord[] = [OPS_PREFERENCES_GET, OPS_PREFERENCES_SET];
@@ -3883,6 +3944,12 @@ const part_p2p_procedures: readonly ProcedureRecord[] = [
   P2P_INSTRUMENTS_REVEAL,
   P2P_INSTRUMENTS_REVEAL_MASKED,
   P2P_INSTRUMENTS_ACCESS_LOG,
+];
+
+const part_pay_account_controls_procedures: readonly ProcedureRecord[] = [
+  PAY_ACCOUNT_CONTROLS_GET_STATE,
+  PAY_ACCOUNT_CONTROLS_HISTORY,
+  PAY_ACCOUNT_CONTROLS_CHANGE,
 ];
 
 const part_pay_allowlist_procedures: readonly ProcedureRecord[] = [
@@ -4126,6 +4193,8 @@ const part_pay_submerchant_permission_procedures: readonly ProcedureRecord[] = [
   PAY_SUBMERCHANT_PERMISSION_AREAS,
   PAY_SUBMERCHANT_PERMISSION_LIST,
   PAY_SUBMERCHANT_PERMISSION_HISTORY,
+  PAY_SUBMERCHANT_PERMISSION_GRANT,
+  PAY_SUBMERCHANT_PERMISSION_REVOKE,
 ];
 
 const part_pay_submerchant_procedures: readonly ProcedureRecord[] = [
@@ -4586,7 +4655,10 @@ const part_token_procedures: readonly ProcedureRecord[] = [
   TOKEN_GOVERNANCE_SET_ROLE,
 ];
 
-const part_trade_account_controls_procedures: readonly ProcedureRecord[] = [TRADE_ACCOUNT_CONTROLS_HISTORY];
+const part_trade_account_controls_procedures: readonly ProcedureRecord[] = [
+  TRADE_ACCOUNT_CONTROLS_HISTORY,
+  TRADE_ACCOUNT_CONTROLS_GET_STATE,
+];
 
 const part_trade_admin_procedures: readonly ProcedureRecord[] = [
   TRADE_ADMIN_AGENT_DESK_CONNECTIONS,
@@ -4885,6 +4957,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_identity_rotate_signing_secret_procedures,
   ...part_identity_security_lock_procedures,
   ...part_identity_self_freeze_manage_procedures,
+  ...part_identity_server_time_procedures,
   ...part_identity_session_settings_procedures,
   ...part_identity_set_api_key_request_signing_procedures,
   ...part_identity_set_idle_signout_procedures,
@@ -4930,6 +5003,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_p2p_disputes_procedures,
   ...part_p2p_ops_procedures,
   ...part_p2p_procedures,
+  ...part_pay_account_controls_procedures,
   ...part_pay_allowlist_procedures,
   ...part_pay_checkout_procedures,
   ...part_pay_conversion_procedures,
