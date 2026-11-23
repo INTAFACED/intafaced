@@ -3,8 +3,8 @@ import { type CampaignView, type PoolBoard } from '@intafaced/contracts/campaign
 import { CAMPAIGNS_POOL_BOARD } from '@intafaced/contracts/campaigns-procedures';
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
-import { DataTable, Failure, Loading, Panel } from '../../shared/ui';
-import { StatRow } from './depth-kit';
+import { KeyValue } from '@intafaced/ui/lit/templates';
+import { FailureNote, ScrollTable, Section, Waiting } from './volt-parts';
 import { campaignPoolCopy } from './campaign-pool-copy';
 
 /**
@@ -33,25 +33,25 @@ export function CampaignPool({ campaign, version }: { campaign: CampaignView; ve
   }, [renderedLocale]);
   if (board.resource.status === 'loading') {
     return (
-      <Panel title={t('title')}>
-        <Loading label={t('loading')} />
-      </Panel>
+      <Section title={t('title')}>
+        <Waiting label={t('loading')} />
+      </Section>
     );
   }
   if (board.resource.status === 'failed') {
     return (
-      <Panel title={t('title')}>
-        <Failure result={board.resource.failure} retry={board.reload} />
-      </Panel>
+      <Section title={t('title')}>
+        <FailureNote result={board.resource.failure} retry={board.reload} />
+      </Section>
     );
   }
   const b: PoolBoard = board.resource.data;
   const money = (amount: string) => t('amountValue', { amount, asset: b.asset });
   return (
     <div data-testid="pool" data-joined={String(b.joined)}>
-      <Panel title={t('title')}>
-        <StatRow
-          items={[
+      <Section title={t('title')}>
+        <KeyValue
+          rows={[
             {
               label: t('pool'),
               value: (
@@ -91,15 +91,15 @@ export function CampaignPool({ campaign, version }: { campaign: CampaignView; ve
           ]}
         />
         <h3>{t('howTitle')}</h3>
-        <p className="muted">{t('how', { asset: b.activityAsset })}</p>
-      </Panel>
-      <Panel title={t('todayTitle')}>
+        <p className="lt-hint">{t('how', { asset: b.activityAsset })}</p>
+      </Section>
+      <Section title={t('todayTitle')}>
         {!b.joined ? (
-          <p className="muted" data-testid="pool-today-none">
+          <p className="lt-hint" data-testid="pool-today-none">
             {t('todayNotJoined')}
           </p>
         ) : b.today === null ? null : b.today.unread || b.today.balance === null || b.today.balanceAsOf === null ? (
-          <p role="status" className="muted" data-testid="pool-today" data-unread={b.today.unread ?? ''}>
+          <p role="status" className="lt-hint" data-testid="pool-today" data-unread={b.today.unread ?? ''}>
             {t('todayUnread', { code: b.today.unread ?? '' })}
           </p>
         ) : (
@@ -127,12 +127,12 @@ export function CampaignPool({ campaign, version }: { campaign: CampaignView; ve
                 })}
           </p>
         )}
-      </Panel>
-      <Panel title={t('daysTitle')}>
+      </Section>
+      <Section title={t('daysTitle')}>
         {b.days.length === 0 ? (
-          <p className="muted">{t('noDays')}</p>
+          <p className="lt-hint">{t('noDays')}</p>
         ) : (
-          <DataTable label={t('daysLabel')} headers={[t('colDay'), t('colActivity'), t('colShare'), t('colPaid')]}>
+          <ScrollTable label={t('daysLabel')} headers={[t('colDay'), t('colActivity'), t('colShare'), t('colPaid')]}>
             {b.days.map((d) => {
               const m = d.mine;
               return (
@@ -164,7 +164,7 @@ export function CampaignPool({ campaign, version }: { campaign: CampaignView; ve
                     {d.settledAt !== null && d.sharesTotal !== null && d.remainder !== null ? (
                       <>
                         <br />
-                        <span className="muted" data-testid="pool-day-remainder" data-remainder={d.remainder}>
+                        <span className="lt-hint" data-testid="pool-day-remainder" data-remainder={d.remainder}>
                           {t('remainder', { shares: d.sharesTotal, slice: d.slice, asset: b.asset, remainder: d.remainder })}
                         </span>
                       </>
@@ -187,9 +187,9 @@ export function CampaignPool({ campaign, version }: { campaign: CampaignView; ve
                 </tr>
               );
             })}
-          </DataTable>
+          </ScrollTable>
         )}
-      </Panel>
+      </Section>
     </div>
   );
 }

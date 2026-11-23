@@ -118,7 +118,9 @@ test(`${J} #1 opens the statement and export centre: account statement, trades, 
   await expect(page).toHaveURL((url) => url.pathname === '/bank/statements');
   await expect(centre(page)).toBeVisible();
   const kinds = centre(page).getByRole('radiogroup', { name: 'What to export' });
-  expect(await kinds.locator('label strong').allInnerTexts()).toEqual(['Account statement', 'Ledger', 'Trades', 'Balances']);
+  await expect
+    .poll(async () => await kinds.locator('label strong').allInnerTexts())
+    .toEqual(['Account statement', 'Ledger', 'Trades', 'Balances']);
   await expect(kinds.getByRole('radio', { name: /Account statement/ })).toBeChecked();
   for (const name of [/Ledger/, /Trades/, /Balances/]) await expect(kinds.getByRole('radio', { name })).toBeEnabled();
   await expect(page.getByText(NOT_TAX_FORM)).toBeVisible();

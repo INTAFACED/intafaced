@@ -74,6 +74,15 @@ const NOT_OFFERED_INTENTS: { readonly [K in keyof typeof NOT_OFFERED]: Extract<V
   spot_perps_transfer: { kind: 'spot_perps_transfer', direction: 'perps_to_spot', asset: 'USDC', amount: a('1'), moveKey: 'move:owner:3' },
   set_account_mode: { kind: 'set_account_mode', mode: 'unified', changeKey: 'change:owner:2' },
   vault_transfer: { kind: 'vault_transfer', vault: SUB, direction: 'deposit', asset: 'USDC', amount: a('1'), moveKey: 'move:owner:4' },
+  staking_transfer: { kind: 'staking_transfer', direction: 'to_staking', asset: 'HYPE', amount: a('1'), moveKey: 'move:owner:5' },
+  staking_delegate: {
+    kind: 'staking_delegate',
+    validator: SUB,
+    direction: 'delegate',
+    asset: 'HYPE',
+    amount: a('1'),
+    moveKey: 'move:owner:6',
+  },
 };
 
 /** The info answers `markets` reads: a perp listing, a spot listing and the account's fee rates. */

@@ -50,7 +50,7 @@ export function ReviewForm({
   const self = task.kind === 'self';
   return (
     <form
-      className="academy-lms-stack"
+      className="lt-stack"
       data-testid={self ? 'review-self' : 'review-work'}
       onSubmit={(event) => {
         event.preventDefault();
@@ -78,7 +78,7 @@ export function ReviewForm({
         </p>
       )}
       {task.criteria.map((criterion, i) => (
-        <fieldset key={criterion.name} className="academy-lms-stack">
+        <fieldset key={criterion.name} className="lt-stack">
           <legend lang="und">{criterion.name}</legend>
           <span data-testid="academy-lms-meta" className="academy-lms-meta">
             {criterion.levels.map((level) => (
@@ -98,7 +98,7 @@ export function ReviewForm({
         </fieldset>
       ))}
       {missing && (
-        <p role="status" data-testid="failure" className="failure">
+        <p role="status" data-testid="failure" className="lt-refusal">
           {t('rvMissingLevel', { criterion: missing })}
         </p>
       )}
@@ -170,14 +170,14 @@ export function AcademyPeerReview({ itemId, handedIn }: { itemId: string; handed
   };
 
   return (
-    <section className="academy-lms-stack" data-testid="assignment-review" aria-label={t('rvTitle')}>
+    <section className="lt-stack" data-testid="assignment-review" aria-label={t('rvTitle')}>
       <h3>{t('rvTitle')}</h3>
       <p role="status" data-testid="review-count">
         {reviewCountLine(state, t)}
       </p>
-      {state.stage === 'hand_in_first' && <p className="muted">{t('rvHandInFirst')}</p>}
+      {state.stage === 'hand_in_first' && <p className="lt-muted">{t('rvHandInFirst')}</p>}
       {state.stage === 'waiting' && (
-        <p className="muted" data-testid="review-waiting">
+        <p className="lt-muted" data-testid="review-waiting">
           {t('rvWaiting')}
         </p>
       )}
@@ -192,7 +192,7 @@ export function AcademyPeerReview({ itemId, handedIn }: { itemId: string; handed
         />
       )}
       {uncertain && (
-        <p role="status" data-testid="failure" className="failure">
+        <p role="status" data-testid="failure" className="lt-refusal">
           {t('rvUncertain')}
         </p>
       )}

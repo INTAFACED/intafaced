@@ -1,6 +1,7 @@
 import type { SettingsBTools } from '../b-client';
-import { seriesSchema } from '../../schemas';
 import * as s from './schemas';
+import { PAY_MERCHANT_METRICS_SERIES } from '@intafaced/contracts/pay-merchant-metrics-procedures';
+import { PAY_MERCHANT_ANALYTICS_FEES, PAY_MERCHANT_ANALYTICS_VOLUME } from '@intafaced/contracts/pay-merchant-analytics-procedures';
 
 export type AnalyticsQuery = { merchantId: string; from: string; to: string; bucket: 'day' | 'week'; assetId?: string };
 const input = (q: AnalyticsQuery, cursor?: string) => ({
@@ -13,11 +14,11 @@ const input = (q: AnalyticsQuery, cursor?: string) => ({
   ...(cursor ? { cursor } : {}),
 });
 
-export const analyticsApi = ({ query }: SettingsBTools) => ({
+export const analyticsApi = ({ query, queryRecord }: SettingsBTools) => ({
   analyticsVolume: (q: AnalyticsQuery, cursor?: string, signal?: AbortSignal) =>
-    query('merchantAnalytics.volume', input(q, cursor), s.volumeSchema, signal),
+    queryRecord(PAY_MERCHANT_ANALYTICS_VOLUME, input(q, cursor), signal),
   analyticsFees: (q: AnalyticsQuery, cursor?: string, signal?: AbortSignal) =>
-    query('merchantAnalytics.fees', input(q, cursor), s.feesSchema, signal),
+    queryRecord(PAY_MERCHANT_ANALYTICS_FEES, input(q, cursor), signal),
   analyticsDeclines: (q: { merchantId: string; from: string; to: string; assetId?: string }, signal?: AbortSignal) =>
     query(
       'merchantAnalytics.declines',
@@ -27,5 +28,5 @@ export const analyticsApi = ({ query }: SettingsBTools) => ({
     ),
   /** Used only where merchantAnalytics.volume is not available: the daily capture totals the account already reads. */
   analyticsDailySeries: (merchantId: string, from: string, to: string, signal?: AbortSignal) =>
-    query('merchantMetrics.series', { merchantId, from, to, bucket: 'day' }, seriesSchema, signal),
+    queryRecord(PAY_MERCHANT_METRICS_SERIES, { merchantId, from, to, bucket: 'day' }, signal),
 });

@@ -73,8 +73,10 @@
  * `intafacedCode: trade.venue.<code>` and the venue's `refusal` (503 for `venue_down`); a step-up refusal 403.
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { VenueMarginSamples } from './venue-margin-samples.js';
 import { requireScope, type Principal, type Scope } from '@intafaced/auth';
-import { EDGE_PRINCIPAL_HEADER, EDGE_SIGNATURE_HEADER, StepUpCheckError } from '@intafaced/contracts';
+import { EDGE_PRINCIPAL_HEADER, EDGE_SIGNATURE_HEADER } from '@intafaced/contracts/edge';
+import { StepUpCheckError } from '@intafaced/contracts/step-up-check';
 import {
   VenueRefusalError,
   hasSubAccountReads,
@@ -130,6 +132,8 @@ export interface UserVenueRestDeps {
   agentKeyConfined?: (principal: Principal) => Promise<boolean>;
   /** The statement export on the venue's own records (J-cex-spot-07 #5); absent, its routes answer 503 `trade.statements_unmounted`. */
   venueStatements?: VenueStatements | null;
+  /** Keeps each margin summary the venue reports, for a founder's ratio history (J-derivatives-26 #8); null: none kept. `keep` never fails the read. */
+  marginSamples?: VenueMarginSamples | null;
   /**
    * Each person's acknowledged version of a venue's auto-deleveraging rules (J-derivatives-07 #5); absent, the
    * acknowledgement routes answer 503 `trade.venue_adl_acks_unmounted`.
@@ -485,6 +489,25 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     );
   });
 
+  // J-cex-spot-21 #1: the venue's staking terms, signed in or not: its validators with their commission, stake and status,
+  // its reward rate, discount tiers, lock-up, queue and limit as it publishes them (null: not published).
+  app.get<{ Querystring: Query }>('/api/v1/venue/staking', publicRead, async (req, reply) => {
+    return answer(
+      reply,
+      async (d) => {
+        const venue = await d.venue();
+        if (!venue.staking)
+          throw new VenueRefusalError({
+            venueId: venue.venue.id,
+            code: 'not_offered',
+            detail: `${venue.venue.displayName} lists no staking`,
+          });
+        return venue.staking();
+      },
+      req.query.venueId,
+    );
+  });
+
   // J-derivatives-07 #4: the venue's own insurance fund or vault and where to read it, signed in or not. A venue that
   // publishes none answers `known: false`, read as "not published by this venue", never a zero. INTAFACED runs no fund.
   app.get<{ Querystring: Query }>('/api/v1/venue/insurance-fund', publicRead, async (req, reply) => {
@@ -736,7 +759,11 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
           code: 'not_offered',
           detail: `${venue.venue.displayName} reports no account margin summary`,
         });
-      return venue.accountSummary(a);
+      const read = await venue.accountSummary(a);
+      // The venue keeps no history of the margin: our door keeps this reading for a founder's ratio history (J-derivatives-26
+      // #8). A reading that cannot be kept never fails the person's own read; it is logged.
+      await deps.marginSamples?.keep(a, read);
+      return read;
     },
     // J-derivatives-29 #1 #9 #11: the account's mode, its spot and perps balances in standard mode, and the day's action
     // count, as the venue reports them; a venue that reads none refuses not_offered, and the app says "not known".
@@ -761,6 +788,18 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
           detail: `${venue.venue.displayName} reports no vault positions`,
         });
       return venue.vaultHoldings(a);
+    },
+    // J-cex-spot-21 #2 #3 #6 #7 #8: the account's staking balance, delegations with their lock-up ends, queued and arrived
+    // withdrawals and rewards; a venue that reads none refuses not_offered.
+    '/api/v1/venue/staking-account': async (d, _q, a) => {
+      const venue = await d.venue();
+      if (!venue.stakingAccount)
+        throw new VenueRefusalError({
+          venueId: venue.venue.id,
+          code: 'not_offered',
+          detail: `${venue.venue.displayName} reports no staking`,
+        });
+      return venue.stakingAccount(a);
     },
     // J-derivatives-07 #1 #3: the position's liquidation state on one market and the venue's price and fee rules, in its
     // own words; a venue that reads none refuses not_offered.
@@ -883,6 +922,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     '/api/v1/venue/account-summary',
     '/api/v1/venue/account-mode',
     '/api/v1/venue/vault-holdings',
+    '/api/v1/venue/staking-account',
     '/api/v1/venue/liquidation',
     '/api/v1/venue/liquidations',
     '/api/v1/venue/deleverages',

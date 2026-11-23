@@ -28,7 +28,7 @@
     reason = "a test: a failure is the point"
 )]
 
-mod support;
+use crate::support;
 
 use std::sync::LazyLock;
 
@@ -1029,4 +1029,92 @@ fn a_chain_tip_whose_hash_matches_but_whose_sequence_does_not_name_the_last_row_
         .batch_execute("UPDATE ledger.chain_tip SET seq = seq - 1 WHERE id = true")
         .unwrap();
     assert!(b.chain().ok());
+}
+
+#[test]
+fn ledger_reads_keep_database_order_when_serializing_columns_as_text() {
+    use service_kit::schema::Value;
+    use svc_ledger::{desk, status};
+
+    let Some(b) = book() else { return };
+    let mut req = request("pl.neg.deposit");
+    for n in 1..=4 {
+        req.idempotency_key = format!("deposit:test:order-{n}");
+        b.post_req(&req).unwrap();
+    }
+    req.idempotency_key = "deposit:test:order-5".to_owned();
+    let booked = b.post_req(&req).unwrap();
+    let replay = b.post_req(&req).unwrap();
+    let account = &booked.entries[1].account_id;
+
+    for revision in 0..10 {
+        desk::set_account_metadata(
+            &b.store,
+            "founder-a",
+            Value::from_json(&Json::obj([
+                ("accountId", Json::str(account.clone())),
+                ("key", Json::str("desk.label")),
+                ("value", Json::str(format!("label {revision}"))),
+                ("reason", Json::str("TEST ledger ordering")),
+                ("revision", Json::int(revision)),
+            ])),
+        )
+        .unwrap();
+    }
+
+    b.sql()
+        .batch_execute(
+            "INSERT INTO ledger.reconcile_runs (started_at, outcome, through_seq)
+             VALUES (now(), 'ok', 9), (now(), 'ok', 10)",
+        )
+        .unwrap();
+    b.sql()
+        .execute(
+            "INSERT INTO ledger.accounts (owner_type, owner_id, asset_id, kind, purpose)
+             VALUES ('user', $1, 'USDT', 'hold', 'order:test'),
+                    ('user', $1, 'USDT', 'escrow', 'escrow:test')",
+            &[&PL_USER],
+        )
+        .unwrap();
+
+    let (lookup_ids, kinds) = with_client(b.store.pool().unwrap(), |c| {
+        let found = balances::tx_by_id(c, &booked.id).unwrap().unwrap();
+        let ids = found.entries.into_iter().map(|e| e.id).collect::<Vec<_>>();
+        let kinds = balances::balances(c, "user", PL_USER)
+            .unwrap()
+            .into_iter()
+            .map(|h| h.kind)
+            .collect::<Vec<_>>();
+        Ok((ids.join(","), kinds.join(",")))
+    })
+    .unwrap();
+    let replay_ids = replay.entries.into_iter().map(|e| e.id).collect::<Vec<_>>();
+    let health = status::last_verified(&b.store).unwrap().unwrap().1;
+    let verified = reconcile::read_last_verified(&b.store)
+        .unwrap()
+        .seq
+        .unwrap();
+    let metadata = desk::read_account_metadata(&b.store, account).unwrap();
+    let Some(Json::Array(changes)) = metadata.get("changes") else {
+        panic!("missing metadata change history");
+    };
+
+    assert_eq!(
+        (
+            replay_ids.join(",").as_str(),
+            lookup_ids.as_str(),
+            health.as_str(),
+            verified.as_str(),
+            changes[0].get("seq"),
+            kinds.as_str(),
+        ),
+        (
+            "9,10",
+            "9,10",
+            "10",
+            "10",
+            Some(&Json::str("10")),
+            "available,hold,escrow",
+        )
+    );
 }

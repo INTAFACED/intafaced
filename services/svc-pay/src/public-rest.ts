@@ -3,7 +3,8 @@ import { credentialAuthority, restPaymentCreationId } from './payment-authority.
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import swagger from '@fastify/swagger';
 import { requireScope, type Principal, type Scope } from '@intafaced/auth';
-import { createEdgeContext, type EdgeContextOptions, type EdgeRequest } from '@intafaced/contracts';
+import type { EdgeContextOptions, EdgeRequest } from '@intafaced/contracts';
+import { createEdgeContext } from '@intafaced/contracts/edge';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { assertMerchantAreaAccess, refuseAsMissing, type MerchantAreaFence } from './merchant-ownership.js';
 import { allowMerchantRead } from './merchant-read-access.js';

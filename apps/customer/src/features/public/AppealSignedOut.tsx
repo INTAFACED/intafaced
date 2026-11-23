@@ -1,12 +1,14 @@
+// volt-room: /appeal
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import type { Refusal, RoomState } from '@intafaced/ui/lit/templates';
-import { appealSchema, APPEAL_TEXT_MAX, type Appeal } from '@intafaced/contracts/identity-appeals';
+import { APPEAL_TEXT_MAX, type Appeal } from '@intafaced/contracts/identity-appeals';
 import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { Button } from '../../shared/ui';
 import { appealSignedOutCopy } from './appeal-signed-out-copy';
 import '../../shared/public-pages.css';
+import { IDENTITY_ACCOUNT_APPEAL_SUBMIT_SIGNED_OUT } from '@intafaced/contracts/identity-account-appeal-procedures';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 const APPEAL_REFUSALS = new Set([
@@ -56,12 +58,12 @@ export function AppealSignedOut() {
     setFailed(null);
     const passwordField = event.currentTarget.elements.namedItem('appeal-password');
     if (passwordField instanceof HTMLInputElement) passwordField.value = '';
-    const answer = await api.mutate(
-      'identity',
-      'accountAppeal.submitSignedOut',
-      { identifier, password, text, clientRequestId: requestKey.current },
-      appealSchema,
-    );
+    const answer = await api.call(IDENTITY_ACCOUNT_APPEAL_SUBMIT_SIGNED_OUT, {
+      identifier,
+      password,
+      text,
+      clientRequestId: requestKey.current,
+    });
     if (!mounted.current) return;
     setBusy(false);
     if (answer.ok) setDone(answer.data);
@@ -94,12 +96,12 @@ export function AppealSignedOut() {
             <p>
               <strong>{t(`status_${done.status}`)}</strong> {t('sentBody')}
             </p>
-            <a className="text-link" href="/login">
+            <a className="lt-link" href="/login">
               {t('signIn')}
             </a>
           </div>
         ) : (
-          <form className="stack" onSubmit={(e) => void send(e)} data-testid="appeal-signed-out__form" noValidate>
+          <form className="lt-stack" onSubmit={(e) => void send(e)} data-testid="appeal-signed-out__form" noValidate>
             <p>{t('intro')}</p>
             <label htmlFor="appeal-identifier">{t('identifier')}</label>
             <input id="appeal-identifier" name="appeal-identifier" autoComplete="username" />
@@ -124,7 +126,7 @@ export function AppealSignedOut() {
       }
       help={
         <p>
-          <a className="text-link" href="/help">
+          <a className="lt-link" href="/help">
             {t('help')}
           </a>
         </p>

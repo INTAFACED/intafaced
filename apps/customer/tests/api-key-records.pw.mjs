@@ -20,8 +20,8 @@ const record = {
 const securityKey = `intafaced.customer.security.v1:${ownerA}`;
 const original = ` [ ${JSON.stringify({ requestId: '33333333-3333-4333-8333-333333333333', owner: ownerA, kind: 'logout', state: 'sent', createdAt: '2026-10-10T08:00:00.000Z' })} ] `;
 const section = (page) => page.locator('.api-key-records');
-const readButton = (page) => section(page).locator('.api-key-records__controls').getByRole('button');
-const rows = (page) => section(page).locator('.api-key-records__row');
+const readButton = (page) => section(page).locator('[data-testid="api-key-records__controls"]').getByRole('button');
+const rows = (page) => section(page).locator('[data-testid="api-key-records__row"]');
 const pause = () => {
   let release;
   const promise = new Promise((resolve) => {
@@ -83,7 +83,7 @@ async function network(context) {
 }
 async function login(page, destination = '/uc/safe', newDocument = true) {
   if (newDocument) await page.goto('/login?redirect=' + encodeURIComponent(destination));
-  else await page.locator('a.button[href^="/login?redirect="]').click();
+  else await page.locator(':is(a.button, a.lt-button)[href^="/login?redirect="]').click();
   await page.locator('input[name="identifier"]').fill('isolated-owner');
   await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
   await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
@@ -106,8 +106,10 @@ test('deliberate owner GET windows and refresh preserve an unresolved Security o
   await login(page);
   expect(state.keyReads).toEqual([]);
   await expect(section(page)).toBeVisible();
-  await expect(page.locator('.security__session-inspection')).toHaveAttribute('disabled', '');
-  await expect(page.locator('.security__session-inspection').getByRole('button', { name: 'Refresh sessions', exact: true })).toBeDisabled();
+  await expect(page.locator('[data-testid="security__session-inspection"]')).toHaveAttribute('disabled', '');
+  await expect(
+    page.locator('[data-testid="security__session-inspection"]').getByRole('button', { name: 'Refresh sessions', exact: true }),
+  ).toBeDisabled();
   await expect(page.getByRole('button', { name: 'Sign out everywhere', exact: true })).toBeDisabled();
   for (const limit of [50, 100, 150, 200]) {
     if (limit !== 50) await section(page).getByRole('combobox').selectOption(String(limit));
@@ -138,7 +140,7 @@ test('failed and invalid whole reads hide prior metadata and current retry succe
     state.respond = async () => failure;
     await readButton(page).click();
     await expect(rows(page)).toHaveCount(0);
-    await expect(section(page).locator('.api-key-records__failure')).toBeVisible();
+    await expect(section(page).locator('[data-testid="api-key-records__failure"]')).toBeVisible();
     await expect(section(page).getByText(record.id, { exact: true })).toHaveCount(0);
     state.respond = async () => ({ status: 200, data: [record] });
     await readButton(page).click();
@@ -162,7 +164,7 @@ test('held refresh retires rows at admission before a failed reply and local rea
   await expect(rows(page)).toHaveCount(0);
   await expect(readButton(page)).toBeDisabled();
   held.release();
-  await expect(section(page).locator('.api-key-records__failure')).toBeVisible();
+  await expect(section(page).locator('[data-testid="api-key-records__failure"]')).toBeVisible();
   state.respond = async () => ({ status: 200, data: [record] });
   await readButton(page).click();
   await expect(rows(page)).toHaveCount(1);
@@ -278,14 +280,14 @@ test('401 retires private rows and actual Login/Register preserves complete quer
   state.respond = async () => ({ status: 401 });
   await readButton(page).click();
   await expect(section(page)).toHaveCount(0);
-  const signIn = page.locator('a.button[href^="/login?redirect="]');
+  const signIn = page.locator(':is(a.button, a.lt-button)[href^="/login?redirect="]');
   await expect(signIn).toHaveAttribute('href', '/login?redirect=' + encodeURIComponent(destination));
   await signIn.click();
-  const register = page.locator('a.text-link[href^="/register?redirect="]');
+  const register = page.locator(':is(a.text-link, a.lt-link)[href^="/register?redirect="]');
   await expect(register).toBeVisible();
   await register.click();
   expect(new URL(page.url()).searchParams.get('redirect')).toBe(destination);
-  await page.locator('a.text-link[href^="/login?redirect="]').click();
+  await page.locator(':is(a.text-link, a.lt-link)[href^="/login?redirect="]').click();
   expect(new URL(page.url()).searchParams.get('redirect')).toBe(destination);
   await page.locator('input[name="identifier"]').fill('isolated-owner');
   await page.locator('input[autocomplete="current-password"]').fill('isolated-password');

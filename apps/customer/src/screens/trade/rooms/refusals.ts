@@ -30,8 +30,11 @@ const KNOWN: Readonly<Record<string, { title: string; body: string }>> = {
     body: 'The desk has no size range for conversions at its price, so none can be priced. Nothing was priced or held.',
   },
   'trade.otc_quote_expired': { title: 'That quote has expired', body: 'Ask for a new price. An expired quote holds nothing.' },
-  'trade.otc_quote_missing': { title: "We couldn't find that quote", body: 'Check the quote id. You can only open your own quotes.' },
-  'trade.otc_not_owner': { title: "We couldn't find that quote", body: 'Check the quote id. You can only open your own quotes.' },
+  'trade.otc_quote_missing': {
+    title: "We couldn't find that quote",
+    body: 'Check the quote reference. You can only open your own quotes.',
+  },
+  'trade.otc_not_owner': { title: "We couldn't find that quote", body: 'Check the quote reference. You can only open your own quotes.' },
   'trade.otc_last_look_forbidden': {
     title: 'The price must match the quote',
     body: 'The desk fills at the quoted price only. Nothing was accepted.',

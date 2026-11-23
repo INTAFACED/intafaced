@@ -1,5 +1,6 @@
 // garden/no-source-text-test: a test checks what code does, never what its source text says. A test that reads a file under
-// services/*/src, apps/*/src or packages/*/src as text (`readFileSync(join(ROOT, 'services/svc-x/src/router.ts'), 'utf8')`)
+// services/*/src, apps/*/src, packages/*/src or tooling/ (a script the tooling tests pin: weed project-state#3684, where
+// local-test-stack.test.mjs's regex over local-test-stack.mjs cost #9456 a push) as text (`readFileSync(join(ROOT, 'services/svc-x/src/router.ts'), 'utf8')`)
 // and asserts on its words breaks on every move of that code and stays green when the behaviour it meant breaks. Call the
 // code and assert on its answer, its records or its events; a rule about imports belongs in a lint (this plugin) or
 // tooling/ci/boundary-scan.mjs.
@@ -17,6 +18,10 @@ import { posix } from 'node:path';
 
 const TEST_FILE = /(\.(test|spec|testkit)\.[cm]?[jt]sx?$)|(\.pw\.[cm]?[jt]s$)|(\/(test|tests|__tests__|__fixtures__)\/)/u;
 const SRC_TREE = /(?:^|\/)(?:services|apps|packages)\/[^/]+\/src(?:\/|$)/u;
+// Tooling counts only a code file read, never a folder: a tooling test's unresolved ROOT-joined path (`join(ROOT,
+// '.github/workflows')`) lands in its own folder.
+const TOOLING_TREE = /(?:^|\/)tooling\//u;
+const FIXTURE = /\/(?:fixtures|__fixtures__)\//u; // a test's planted input, not code it pins
 const CODE_EXT = /\.(?:[cm]?[jt]sx?)$/u;
 const ANY_EXT = /\.[A-Za-z0-9]+$/u;
 const GENERATED = /\.generated\.[cm]?[jt]sx?$/u;
@@ -96,9 +101,17 @@ const noSourceTextTest = {
           const path = parts.join('/').replace(/\/+/gu, '/');
           if (!path) continue;
           // A path through a src tree as written (`join(ROOT, 'services/svc-x/src/a.ts')`), else as read from this test's folder.
-          const where = SRC_TREE.test(path) ? path : posix.join(posix.dirname(file), path);
+          const asWritten = SRC_TREE.test(path) || TOOLING_TREE.test(path);
+          const where = asWritten ? path : posix.join(posix.dirname(file), path);
+          // From the test's own folder, tooling counts only a plainly relative path (`./a.mjs`, `../x/a.mjs`, `a.mjs`): a
+          // path under an unresolved root (`join(pkg, 'src', 'a.ts')`) is not this folder's.
+          const nearTooling = asWritten || /^(?:\.\.?\/|[^/]+$)/u.test(path);
           const name = where.split('/').pop() ?? '';
-          const source = SRC_TREE.test(where) && !GENERATED.test(name) && (CODE_EXT.test(name) || !ANY_EXT.test(name));
+          const code = !FIXTURE.test(where) && !GENERATED.test(name);
+          const source =
+            code &&
+            ((SRC_TREE.test(where) && (CODE_EXT.test(name) || !ANY_EXT.test(name))) ||
+              (TOOLING_TREE.test(where) && nearTooling && CODE_EXT.test(name)));
           if (source) context.report({ node, message: `this test reads source text (\`${path}\`): ${FIX}` });
         }
       },

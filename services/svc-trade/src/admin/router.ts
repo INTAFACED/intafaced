@@ -5,7 +5,7 @@
  */
 import { FEED_GAP_WINDOW_MAX_MINUTES } from './feed-health.js';
 import { z } from 'zod';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { AuthError } from '@intafaced/auth';
 import { TradeOpsError } from './common.js';
 import { SETTABLE_MARKET_MODES } from './market-mode.js';
@@ -744,6 +744,11 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
         .query(({ ctx, input }) => ready().copyBotsOtc.lookup(ctx.principal, input).catch(fail)),
       quoteDesk: operator.query(({ ctx }) => ready().copyBotsOtc.quoteDesk(ctx.principal).catch(fail)),
     }),
+    // One customer's orders for the customer record's trade tab (J-ops-console-02 #3). The desk read scope at the door; the
+    // lookup scope (support:lookup) is checked in the service, before any read. Audited; the page size is never defaulted.
+    customerOrders: operator
+      .input(z.object({ userId: id, limit }).strict())
+      .query(({ ctx, input }) => ready().customerOrders.read(ctx.principal, input).catch(fail)),
     markets: router({
       statusHistory: operator
         .input(z.object({ market: id, cursor: z.string().nullish(), limit }))

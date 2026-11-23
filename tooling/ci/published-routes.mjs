@@ -11,7 +11,7 @@
  * It also names a served route ROUTE_WORDS gives no words, and words for a route no longer served: a route's name,
  * product and summary are prose the change writes, so the push is told before the customer tests are.
  *
- * The check runs from .githooks/pre-push (gates.mjs --before-push) and in CI. Before it, the same list was kept by
+ * The check runs in CI (gates.mjs: the Doctrine gates job). Before it, the same list was kept by
  * hand three times: in the registrations, in svc-trade's published-routes.txt and in REST_REFERENCE's rows, and a
  * correct route change lost its push until the second and third were edited (#8079, #8102, #8142, #8146, #8480,
  * #8518, #8571).

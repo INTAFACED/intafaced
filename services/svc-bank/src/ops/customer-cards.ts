@@ -11,20 +11,24 @@
  * The page size is the caller's and is not defaulted: blank refuses `bank.cards_list_limit_unset`, as on the owner's list,
  * checked once, before the audit line, and capped at the owner list's 200. Nothing is inserted and there is no export.
  */
-import { scopedProcedure } from '@intafaced/contracts';
+import { scopedProcedure } from '@intafaced/contracts/trpc';
 import { z } from 'zod';
 import type { BankServices } from '../bank-service.js';
 import { cardOutput, presentCard } from '../cards/card-view.js';
 import { BankError } from '../errors.js';
 import { assertCardsListLimit } from '../owner-list-limit.js';
 
-export function writeCustomerCardsAudit(actorUserId: string, ownerUserId: string): void {
+/**
+ * The one structured log line an operator read of one customer's records writes BEFORE it reads (`event` names the read).
+ * If the line cannot be written the read refuses `bank.ops_audit_unavailable` and reads nothing.
+ */
+export function writeCustomerReadAudit(event: string, actorUserId: string, ownerUserId: string): void {
   try {
     console.info(
       JSON.stringify({
         level: 'info',
         service: 'svc-bank',
-        event: 'bank.ops.customer_cards_read',
+        event,
         actorUserId,
         ownerUserId,
       }),
@@ -32,6 +36,10 @@ export function writeCustomerCardsAudit(actorUserId: string, ownerUserId: string
   } catch {
     throw new BankError('The read could not be recorded, so nothing was read', 'bank.ops_audit_unavailable');
   }
+}
+
+export function writeCustomerCardsAudit(actorUserId: string, ownerUserId: string): void {
+  writeCustomerReadAudit('bank.ops.customer_cards_read', actorUserId, ownerUserId);
 }
 
 /** The owner's card view without the shipping address. */

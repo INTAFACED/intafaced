@@ -17,7 +17,7 @@
     reason = "a test: a failure is the point"
 )]
 
-mod support;
+use crate::support;
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Condvar, Mutex};
@@ -163,7 +163,7 @@ impl FakeLedger {
             .accounts
             .get(account)
             .copied()
-            .unwrap_or(0)
+            .unwrap_or(Amount::ZERO)
     }
     /// \`balanceOf(userId)\`.
     fn available(&self, user: &str) -> String {
@@ -200,16 +200,16 @@ impl Ledger for FakeLedger {
             });
         };
         let from = format!("user:{user_id}:available:{asset_id}");
-        if b.accounts.get(&from).copied().unwrap_or(0) < *amount {
+        if b.accounts.get(&from).copied().unwrap_or(Amount::ZERO) < *amount {
             return Err(LedgerError {
                 code: Some("ledger.insufficient_funds".to_owned()),
                 message: format!("Insufficient funds: requested {}", format_amount(*amount)),
             });
         }
-        *b.accounts.entry(from).or_default() -= amount;
+        *b.accounts.entry(from).or_default() -= *amount;
         *b.accounts
             .entry(format!("house:fees:{module}:{asset_id}"))
-            .or_default() += amount;
+            .or_default() += *amount;
         let tx = format!("tx-{}", b.by_key.len() + 1);
         b.by_key.insert(key, tx.clone());
         Ok(tx)
@@ -824,7 +824,7 @@ fn a_charge_that_lands_exactly_on_the_ceiling_commits_its_real_cost() {
     let w = world_or_skip!();
     let (r, usage) = expected_usage("quick", Some(1));
     let expected = cost_of(&r, usage);
-    assert!(expected > 0);
+    assert!(expected > Amount::ZERO);
     w.register(&guardrail(
         "exact-cap",
         1,
@@ -848,7 +848,7 @@ fn overlapping_thinks_that_each_fit_alone_do_not_both_commit_past_the_ceiling() 
     let w = world_or_skip!();
     let (r, usage) = expected_usage("quick", Some(1));
     let expected = cost_of(&r, usage);
-    assert!(expected > 0);
+    assert!(expected > Amount::ZERO);
     w.register(&guardrail(
         "pair-cap",
         1,
@@ -1096,25 +1096,25 @@ fn an_unmetered_run_commits_the_real_cost_so_the_user_cap_accumulates() {
     let worst = worst_of("plan", None);
     let (r, usage) = expected_usage("plan", None);
     let cost = cost_of(&r, usage);
-    assert!(cost > 0);
+    assert!(cost > Amount::ZERO);
     assert!(cost < worst);
     w.cap(USER_A, &format_amount(worst), "unmetered-accum");
     let session = w.open();
     let x = w.rt(&w.gated, &w.gateway, &w.unbilled);
     let result = think(&x, &session.id, "unmetered-cost", "plan").unwrap();
     assert!(!result.metered);
-    assert_eq!(result.cost, 0);
+    assert_eq!(result.cost, Amount::ZERO);
     let rows = w.holds_of(USER_A);
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].1, "committed");
     assert_eq!(rows[0].3, Some(cost));
-    assert_ne!(rows[0].3, Some(0));
+    assert_ne!(rows[0].3, Some(Amount::ZERO));
     let log = audit::for_session(w.pool(), &session.id, 50).unwrap();
     let executed = log
         .iter()
         .find(|a| a.kind == "completion" && a.status == "executed")
         .unwrap();
-    assert_eq!(executed.cost, 0);
+    assert_eq!(executed.cost, Amount::ZERO);
     assert_eq!(w.usage_rows(&session.id), 0);
     let before = w.provider.call_count();
     assert_eq!(
@@ -1136,7 +1136,7 @@ fn metering_off_does_not_call_the_provider_again_on_a_committed_hold_that_no_lon
     let before = w.provider.call_count();
     let first = think(&x, &session.id, "off-committed", "plan").unwrap();
     assert!(!first.metered);
-    assert_eq!(first.cost, 0);
+    assert_eq!(first.cost, Amount::ZERO);
     assert_eq!(
         refusal(think(&x, &session.id, "off-committed", "plan")).code,
         "agents.spend_limit"
@@ -1166,8 +1166,8 @@ fn metering_off_repeats_a_request_id_only_after_a_new_hold_that_fits_the_committ
     let second = think(&x, &session.id, "off-fits", "plan").unwrap();
     assert!(!first.metered);
     assert!(!second.metered);
-    assert_eq!(first.cost, 0);
-    assert_eq!(second.cost, 0);
+    assert_eq!(first.cost, Amount::ZERO);
+    assert_eq!(second.cost, Amount::ZERO);
     assert_eq!(w.provider.call_count(), before + 2);
     let (r, usage) = expected_usage("plan", None);
     let cost = cost_of(&r, usage);

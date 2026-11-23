@@ -1,5 +1,6 @@
+// volt-room: /wallet/venue
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import type { Refusal, RoomState } from '@intafaced/ui/lit/templates';
 import type { VenueWalletAction } from '@intafaced/contracts/protocol-venue-wallet';
@@ -699,7 +700,12 @@ export function VenueWalletRoom() {
               <p>{t('pickWallet')}</p>
               {wallet.wallets.length === 0 ? <p>{t('noWallet')}</p> : null}
               {wallet.wallets.map((entry) => (
-                <Button key={entry.info.uuid} disabled={wallet.status === 'connecting'} onClick={() => void wallet.connect(entry)}>
+                <Button
+                  tone="primary"
+                  key={entry.info.uuid}
+                  disabled={wallet.status === 'connecting'}
+                  onClick={() => void wallet.connect(entry)}
+                >
                   {t('connectWallet', { name: entry.info.name })}
                 </Button>
               ))}
@@ -741,12 +747,12 @@ export function VenueWalletRoom() {
         address ? (
           <div>
             {!blocked && (!connection || expired) ? (
-              <Button variant="primary" loading={busy} disabled={busy} onClick={() => void connect()}>
+              <Button tone="primary" aria-busy={busy || undefined} disabled={busy} onClick={() => void connect()}>
                 {connection ? t('signAgain') : t('connect')}
               </Button>
             ) : null}{' '}
             {connection ? (
-              <Button variant="secondary" disabled={busy} onClick={() => void disconnect()}>
+              <Button tone="secondary" disabled={busy} onClick={() => void disconnect()}>
                 {t('disconnect')}
               </Button>
             ) : null}
@@ -783,7 +789,7 @@ export function VenueWalletRoom() {
                   disabled={busy}
                   onChange={(event) => setAmount(event.target.value)}
                 />
-                <Button disabled={busy} onClick={() => void deposit()}>
+                <Button tone="primary" disabled={busy} onClick={() => void deposit()}>
                   {t('deposit')}
                 </Button>{' '}
                 <div data-testid="withdraw-destination" role="group" aria-label={t('destinationGroup')}>
@@ -798,7 +804,7 @@ export function VenueWalletRoom() {
                     disabled={busy}
                     onChange={(event) => setDestinationText(event.target.value)}
                   />
-                  <label className="field">
+                  <label className="lt-field">
                     <span>{t('network')}</span>
                     <select
                       name="venue-network"
@@ -813,7 +819,7 @@ export function VenueWalletRoom() {
                   </label>
                   {!editing ? (
                     <Button
-                      variant="secondary"
+                      tone="secondary"
                       disabled={busy || withdrawAsk !== null}
                       onClick={() => {
                         setDestinationText(owner ?? '');
@@ -841,7 +847,11 @@ export function VenueWalletRoom() {
                     </div>
                   ) : null}
                 </div>
-                <Button disabled={busy || withdrawAsk !== null || unsettled || !destinationReady} onClick={() => void withdraw()}>
+                <Button
+                  tone="primary"
+                  disabled={busy || withdrawAsk !== null || unsettled || !destinationReady}
+                  onClick={() => void withdraw()}
+                >
                   {t('withdraw')}
                 </Button>
                 {depositNote ? (
@@ -872,7 +882,7 @@ export function VenueWalletRoom() {
                       disabled={busy}
                       onApproved={(id) => void confirmedWithdraw(id)}
                     />
-                    <Button variant="secondary" disabled={busy} onClick={() => setWithdrawAsk(null)}>
+                    <Button tone="secondary" disabled={busy} onClick={() => setWithdrawAsk(null)}>
                       {t('cancelStepUp')}
                     </Button>
                   </div>

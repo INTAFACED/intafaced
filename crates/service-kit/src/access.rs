@@ -1,6 +1,8 @@
-//! Who may call: the scope check (`requireScope`, `requireMfa` in `packages/auth/src/guards.ts`, with the scope lists
-//! of `scopes.ts`) and the jurisdiction check (`packages/config/src/jurisdiction.ts` `checkAccess`, `screening.ts`) for a
-//! module the matrix keeps open everywhere with no verification tier (`tax`, `academy`), on the fiat plane.
+//! Who may call: the scope and tier checks (`requireScope`, `requireMfa`, `requireTier` in
+//! `packages/auth/src/guards.ts`, with the scope lists of `scopes.ts`) and the jurisdiction check
+//! (`packages/config/src/jurisdiction.ts` `checkAccess`, `screening.ts`) on the fiat plane, for a module the matrix
+//! keeps open everywhere: with no verification tier (`tax`, `academy`: `check_open`), or at one tier (`bank`:
+//! `check_module`).
 //!
 //! The TypeScript reads the process environment on each call; this reads the same variables once, when the service is
 //! put together, from the map it is given.
@@ -103,6 +105,29 @@ pub fn require_mfa(p: &Principal) -> Result<(), Refused> {
             message: "This action requires two-factor authentication".to_owned(),
             code: "mfa.required".to_owned(),
         })
+    }
+}
+
+/// `TIER_ORDER` (`packages/auth/src/guards.ts`, the same in `packages/config/src/jurisdiction.ts`): `None` for a tier it
+/// does not list, which JavaScript reads as `undefined` and compares false either way.
+pub fn tier_rank(tier: &str) -> Option<u8> {
+    match tier {
+        "none" => Some(0),
+        "basic" => Some(1),
+        "full" => Some(2),
+        "institutional" => Some(3),
+        _ => None,
+    }
+}
+
+/// `requireTier(principal, tier)`: refused (`tier.insufficient`) only when the held tier ranks below the one asked.
+pub fn require_tier(p: &Principal, tier: &str) -> Result<(), Refused> {
+    match (tier_rank(&p.tier), tier_rank(tier)) {
+        (Some(held), Some(need)) if held < need => Err(Refused {
+            message: format!("Verification tier \"{tier}\" is required"),
+            code: "tier.insufficient".to_owned(),
+        }),
+        _ => Ok(()),
     }
 }
 
@@ -506,6 +531,41 @@ impl Jurisdiction {
         // be reached for this module.
         Ok(())
     }
+
+    /// `AccessDecision.blockedBy`: which authority refuses the region, `screening` winning when both name it; none for a
+    /// region neither names (so none for any refusal but `denied.region_blocked`).
+    pub fn blocked_by(&self, region: &str) -> Option<&'static str> {
+        if Self::hit(&self.screening.regions, region).is_some() {
+            Some("screening")
+        } else if Self::hit(&self.business, region).is_some() {
+            Some("business")
+        } else {
+            None
+        }
+    }
+
+    /// `checkAccess({ module, plane: 'fiat', region, kycTier })` for a fiat module whose rule is open everywhere at
+    /// `min_tier` (no region of the matrix names the module: `ruleFor` is its default rule): the checks of
+    /// [`Jurisdiction::check_open`], then `denied.kyc_required` when the caller's tier does not satisfy it
+    /// (`tierSatisfies`: a tier the order does not list never does).
+    pub fn check_module(
+        &self,
+        region: &str,
+        tier: &str,
+        module: &str,
+        min_tier: &str,
+    ) -> Result<(), Refused> {
+        self.check_open(region)?;
+        let satisfied =
+            matches!((tier_rank(tier), tier_rank(min_tier)), (Some(h), Some(n)) if h >= n);
+        if satisfied {
+            return Ok(());
+        }
+        Err(Refused {
+            code: "denied.kyc_required".to_owned(),
+            message: format!("Verification tier \"{min_tier}\" required for {module} in {region}"),
+        })
+    }
 }
 
 #[cfg(test)]
@@ -536,6 +596,9 @@ mod tests {
             "denied.region_blocked"
         );
         assert_eq!(test.check_open("CA-QC"), Ok(()));
+        assert_eq!(test.blocked_by("US"), Some("business"));
+        assert_eq!(test.blocked_by("IR"), Some("screening"));
+        assert_eq!(test.blocked_by("DE"), None);
         assert!(
             test.check_open("UA-43")
                 .unwrap_err()

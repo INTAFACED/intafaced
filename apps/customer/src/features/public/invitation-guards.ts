@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 
 const uuid = z.string().guid();
-export const invitationInstant = z
+const invitationInstant = z
   .string()
   .datetime({ offset: true })
   .refine((value) => {
@@ -35,7 +35,7 @@ export type ReferralRefusal = (typeof REFERRAL_REFUSALS)[number];
 export const referralRefusal = (code: string | undefined): ReferralRefusal | null =>
   (REFERRAL_REFUSALS as readonly string[]).includes(code ?? '') ? (code as ReferralRefusal) : null;
 
-export const attachWindowSchema = z.object({
+const attachWindowSchema = z.object({
   state: z.enum(['unset', 'open', 'closed']),
   accountCreatedAt: invitationInstant,
   windowSeconds: z.number().int().positive().nullable(),

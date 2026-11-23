@@ -3,8 +3,8 @@
 //! never a second one. A request waits until its expiry and then reads expired; a decision on a request that is not
 //! waiting refuses with its state's code, so nothing decided is decided again and an expired request is never approved.
 //!
-//! These are the store's parts the tool call and its run need, with the person's reject and edit; the calls that
-//! decide (`own.approval.*`, `own.inbox`, `own.approvals`) are `own-runs`'.
+//! The tool call and its run hold and approve; the person's calls (`own.approval.*`, `own.inbox`, `own.approvals`,
+//! the held calls of `own.runs`) read, reject and edit (`super::runs`).
 
 use postgres::GenericClient;
 use postgres::IsolationLevel;
@@ -549,6 +549,53 @@ pub fn list(
             &format!(
                 "SELECT {} FROM agents.own_agent_approval_requests
                   WHERE owner_id = $1::text AND agent_id = $2::text::uuid
+                  ORDER BY created_at DESC, id
+                  LIMIT $3",
+                columns()
+            ),
+            &[&owner_id, &agent_id, &limit],
+        )?)
+    })?;
+    Ok(rows.iter().map(request_of).collect::<Result<_, _>>()?)
+}
+
+/// `inbox`: the person's requests across all their own agents, the ones still waiting first, then newest first, each
+/// with its agent's name.
+pub fn inbox(pool: &Pool, owner_id: &str, limit: i64) -> Result<Vec<(Request, String)>, OwnError> {
+    let rows = db::with_client(pool, |c| {
+        Ok(c.query(
+            &format!(
+                "SELECT {}, agent_name FROM (
+                   SELECT q.*, a.name AS agent_name
+                     FROM agents.own_agent_approval_requests q
+                     JOIN agents.own_agents a ON a.id = q.agent_id AND a.owner_id = $1::text
+                    WHERE q.owner_id = $1::text) x
+                  ORDER BY (CASE WHEN status = 'waiting' AND expires_at <= now() THEN 'expired' ELSE status END = 'waiting') DESC,
+                           created_at DESC, id
+                  LIMIT $2",
+                columns()
+            ),
+            &[&owner_id, &limit],
+        )?)
+    })?;
+    Ok(rows
+        .iter()
+        .map(|r| Ok((request_of(r)?, r.try_get::<_, String>(15)?)))
+        .collect::<Result<_, StoreError>>()?)
+}
+
+/// `waiting`: one agent's requests still waiting for the person (not expired), newest first.
+pub fn waiting(
+    pool: &Pool,
+    owner_id: &str,
+    agent_id: &str,
+    limit: i64,
+) -> Result<Vec<Request>, OwnError> {
+    let rows = db::with_client(pool, |c| {
+        Ok(c.query(
+            &format!(
+                "SELECT {} FROM agents.own_agent_approval_requests
+                  WHERE owner_id = $1::text AND agent_id = $2::text::uuid AND status = 'waiting' AND expires_at > now()
                   ORDER BY created_at DESC, id
                   LIMIT $3",
                 columns()

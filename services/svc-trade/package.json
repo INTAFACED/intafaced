@@ -37,8 +37,8 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@intafaced/venue-hyperliquid": "workspace:*",
     "@intafaced/venue-sim": "workspace:*",
-    "@testcontainers/postgresql": "11.14.0",
     "@types/node": "^22.20.5",
     "fast-check": "^4.10.2",
     "rimraf": "^6.1.4",

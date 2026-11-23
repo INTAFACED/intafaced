@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { edgeTrustFromEnv } from '@intafaced/config';
-import { createEdgeContext } from '@intafaced/contracts';
+import { createEdgeContext } from '@intafaced/contracts/edge';
 import { missingLake } from './backtest/lake.js';
 import {
   missingFees,

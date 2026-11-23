@@ -1,13 +1,13 @@
 // node --test tooling/scripts/service-reach.test.mjs
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { appendFileSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { makeCodeReader, makeRecorder, settleCode } from './journey-reach.mjs';
-import { CODE_REACH_ENV, codeReachDir, nodeServiceReach, ranFiles, sourceOf } from './service-reach.mjs';
+import { lastStart, makeCodeReader, makeRecorder, settleCode } from './journey-reach.mjs';
+import { CODE_REACH_ENV, STACK_CODE_REACH_ENV, codeReachDir, nodeServiceReach, ranFiles, sourceOf } from './service-reach.mjs';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const PRELOAD = fileURLToPath(new URL('./service-reach.mjs', import.meta.url));
@@ -120,6 +120,9 @@ test('the stack starts a Node service with the preload, which writes nothing a r
   assert.equal(node.env.A, '1');
   assert.equal(node.env[CODE_REACH_ENV], path.join(code, 'bank.jsonl'));
   assert.throws(() => nodeServiceReach(code, '../bank', {}), /not a service name/);
+  // A stack no journey runs on starts its services without the preload.
+  assert.deepEqual(nodeServiceReach(code, 'bank', { A: '1' }, { [STACK_CODE_REACH_ENV]: 'off' }), { flags: [], env: { A: '1' } });
+  assert.deepEqual(nodeServiceReach(code, 'bank', { A: '1' }, { [STACK_CODE_REACH_ENV]: 'on' }).flags, node.flags);
   const script = path.join(dir, 'svc.mjs');
   writeFileSync(script, 'setTimeout(() => {}, 150);\n');
   const r = spawnSync(process.execPath, [...node.flags, script], { env: { ...process.env, ...node.env }, encoding: 'utf8' });
@@ -186,4 +189,35 @@ test('with no service recording, a record carries no code fields', () => {
   const r = rec.take('J-a-01.pw.mjs');
   assert.equal('codeServices' in r, false);
   assert.equal('code' in r, false);
+});
+
+test("the reader starts at each file's last process: an earlier process's history is never read", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'svc-reach-'));
+  const bank = path.join(dir, 'bank.jsonl');
+  const w = (o) => appendFileSync(bank, `${JSON.stringify(o)}\n`);
+  // Over 2 MiB of an earlier process, ended, then the live one: the start line sits past the first 1 MiB step back.
+  w({ pid: 1, start: 0 });
+  const many = Array.from({ length: 400 }, (_, i) => `services/svc-bank/src/a/f${i}.ts`);
+  for (let t = 0; t < 200; t++) w({ pid: 1, from: t, to: t + 1, files: many });
+  w({ pid: 1, end: 200 });
+  const at = statSync(bank).size;
+  assert.ok(at > 2 * 2 ** 20);
+  w({ pid: 2, start: 300 });
+  w({ pid: 2, from: 300, to: 350 });
+  assert.equal(lastStart(bank), at, 'the offset of the last start line');
+  const reader = makeCodeReader(dir);
+  assert.deepEqual(reader.lag(350), [], 'pid 2 is the live process and has written up to 350');
+  assert.deepEqual(reader.lag(400), ['bank']);
+  assert.deepEqual(reader.read(), [], 'nothing written before the reader started is returned');
+  const one = path.join(dir, 'pay.jsonl');
+  appendFileSync(one, `${JSON.stringify({ pid: 7, start: 0 })}\n`);
+  assert.equal(lastStart(one), 0, 'a file that is one process from its first line');
+  // Every boundary of a 1 MiB step: a start line split across two steps is still found.
+  for (const pad of [2 ** 20 - 30, 2 ** 20 - 5, 2 ** 20, 2 ** 20 + 3]) {
+    const f = path.join(dir, `ledger.jsonl`);
+    writeFileSync(f, `${'x'.repeat(pad - 1)}\n`);
+    const start = statSync(f).size;
+    appendFileSync(f, `${JSON.stringify({ pid: 3, start: 1 })}\n${'y'.repeat(2 ** 20)}\n`);
+    assert.equal(lastStart(f), start, `pad ${pad}`);
+  }
 });

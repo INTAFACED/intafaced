@@ -212,7 +212,15 @@ export const venueStatementJobSchema = z.object({
   from: isoTime,
   to: isoTime,
   status: z.enum(['pending', 'finished', 'failed']),
-  rows: z.object({ orders: z.number().int(), trades: z.number().int(), movements: z.number().int() }).nullable(),
+  rows: z
+    .object({
+      orders: z.number().int(),
+      trades: z.number().int(),
+      movements: z.number().int(),
+      /** Liquidation parts the file lists (J-derivatives-26 #7); null for a job built before they were listed. */
+      liquidations: z.number().int().nullable(),
+    })
+    .nullable(),
   sha256: z.string().nullable(),
   error: z.string().nullable(),
   createdAt: isoTime,
@@ -296,7 +304,16 @@ export const venueBalanceSchema = z.object({
   locked: decimalSchema,
   total: decimalSchema,
   /** What holds `locked`, as the venue splits it (J-portfolio-01 #4); absent when the venue reports no split. */
-  lockedBy: z.object({ inOrders: decimalSchema, margin: decimalSchema, staked: decimalSchema }).optional(),
+  // J-cex-spot-21 #8: delegated and unstaking are named apart where the account holds any.
+  lockedBy: z
+    .object({
+      inOrders: decimalSchema,
+      margin: decimalSchema,
+      staked: decimalSchema,
+      delegated: decimalSchema.optional(),
+      unstaking: decimalSchema.optional(),
+    })
+    .optional(),
 });
 export type VenueBalance = z.infer<typeof venueBalanceSchema>;
 
@@ -328,7 +345,7 @@ export const venueOrderSchema = z.object({
     })
     .nullable()
     .optional(),
-  /** Why the venue cancelled it, where it says (`position_closed`, `linked`). */
+  /** Why the venue cancelled it, where it says (`position_closed`, `linked`, `scheduled_cancel`, `self_trade`). */
   cancelReason: z.string().nullable().optional(),
 });
 export type VenueOrder = z.infer<typeof venueOrderSchema>;
@@ -512,6 +529,48 @@ export const venueVaultHoldingsSchema = z.object({
 });
 export type VenueVaultHoldings = z.infer<typeof venueVaultHoldingsSchema>;
 
+// ── J-cex-spot-21: staking on the venue, each figure the venue's own ──────────────────────────────────────────────
+
+/**
+ * The venue's staking terms (J-cex-spot-21 #1): its validators with their commission (basis points), stake and status, its
+ * yearly reward rate (basis points), discount tiers, delegation lock-up, unstaking queue and pending limit; each `null`
+ * where the venue does not publish it.
+ */
+export const venueStakingSchema = z.object({
+  asset: z.string(),
+  validators: z.array(
+    z.object({
+      address: z.string(),
+      name: z.string(),
+      commissionBps: z.number().int().nonnegative().max(10_000).nullable(),
+      totalStake: decimalSchema.nullable(),
+      status: z.enum(['active', 'jailed', 'inactive']),
+    }),
+  ),
+  rewardRateBps: z.number().int().nonnegative().nullable(),
+  discountTiers: z
+    .array(z.object({ name: z.string(), fromStaked: decimalSchema, discountBps: z.number().int().nonnegative().max(10_000) }))
+    .nullable(),
+  delegationLockUpSeconds: z.number().int().nonnegative().nullable(),
+  unstakingQueueSeconds: z.number().int().nonnegative().nullable(),
+  maxPendingWithdrawals: z.number().int().positive().nullable(),
+});
+export type VenueStaking = z.infer<typeof venueStakingSchema>;
+
+/** The account's staking (J-cex-spot-21 #2 #3 #6 #7 #8): balance, delegations, queued and arrived withdrawals, rewards. */
+export const venueStakingAccountSchema = z.object({
+  asset: z.string(),
+  staked: decimalSchema,
+  delegations: z.array(z.object({ validator: z.string(), name: z.string(), amount: decimalSchema, lockUpEndsAt: isoTime })),
+  pending: z.array(z.object({ amount: decimalSchema, requestedAt: isoTime, arrivesAt: isoTime, nonce: z.string() })),
+  arrived: z.array(z.object({ amount: decimalSchema, requestedAt: isoTime, arrivedAt: isoTime, nonce: z.string() })),
+  rewards: z.object({
+    total: decimalSchema,
+    recent: z.array(z.object({ validator: z.string(), amount: decimalSchema, rewardedAt: isoTime })),
+  }),
+});
+export type VenueStakingAccount = z.infer<typeof venueStakingAccountSchema>;
+
 // ── J-derivatives-07: a liquidation and its aftermath, each the venue's own figure ────────────────────────────────
 
 /** One part of a liquidation the venue carried out, with its own id, size, price and fee. */
@@ -647,6 +706,19 @@ export const venueFeeTierSchema = asOf(
         spot: feeRatesSchema,
         perpetual: feeRatesSchema,
         tierUpdatedAt: isoTime.nullable(),
+        // J-cex-spot-21 #4: the venue's staking discount on its own fee, with each market's venue rates before and after.
+        stakingDiscount: z
+          .object({
+            asset: z.string(),
+            countedStake: decimalSchema,
+            tierName: z.string().nullable(),
+            discountBps: z.number().int().nonnegative().max(10_000),
+            markets: z.array(
+              z.object({ symbol: z.string(), kind: z.enum(['spot', 'perpetual']), before: feeRatesSchema, after: feeRatesSchema }),
+            ),
+          })
+          .nullable()
+          .optional(),
       })
       .nullable(),
   }),
@@ -1144,3 +1216,74 @@ export const venueConversionSchema = z.object({
 
 /** `/venue/convert/history`. */
 export const venueConvertHistorySchema = z.object({ conversions: z.array(venueConversionSchema), asOf: isoTime.nullable() });
+
+// ── The person's agent accounts and their assistant's connection (`/venue/agent-accounts/*`, J-agents-21) ───────────
+// These follow `services/svc-trade/src/venue/agent-account.ts`, `agent-orders.ts` and `agent-order-calls.ts`.
+
+/** The person's own caps on the assistant's orders on one agent account (#16); null is not set. */
+export const venueAgentLimitsSchema = z.object({
+  maxOrderNotional: decimalSchema.nullable(),
+  /** A whole number of times, as a string (`"2"` is 2x). */
+  maxLeverage: z.string().nullable(),
+  maxDailyLoss: decimalSchema.nullable(),
+});
+
+/** A connected key's end date as identity holds it (#19): null is none; not known when identity could not be asked. */
+export const venueAgentKeyExpirySchema = z.union([
+  z.object({ known: z.literal(true), expiresAt: isoTime.nullable() }),
+  z.object({ known: z.literal(false) }),
+]);
+
+/** One call made with the assistant's key (#11): the tool it used or the route it called, and how it was answered. */
+export const venueAgentActivityRowSchema = z.object({
+  at: isoTime,
+  tool: z.string(),
+  outcome: z.enum(['accepted', 'refused', 'failed']),
+  /** The status the edge answered the call with. */
+  status: z.number().int(),
+  /** The refusal code svc-trade answered, when svc-trade answered the call and refused it. */
+  code: z.string().nullable(),
+  /** The assistant's id for the order the call named, and the venue's, when the call named an order. */
+  order: z.object({ clientOrderId: z.string(), venueOrderId: z.string().nullable() }).nullable(),
+  requestId: z.string(),
+});
+export type VenueAgentActivityRow = z.infer<typeof venueAgentActivityRowSchema>;
+
+/** `/venue/agent-accounts/connections/:keyId/activity`: newest first. */
+export const venueAgentActivitySchema = z.object({
+  keyId: z.string(),
+  accountId: z.string(),
+  asOf: isoTime,
+  rows: z.array(venueAgentActivityRowSchema),
+});
+export type VenueAgentActivity = z.infer<typeof venueAgentActivitySchema>;
+
+/** `/venue/agent-accounts/connections/:keyId/revoke` (#12): the assistant revoked, and the venue's revoke for the wallet. */
+export const venueAgentRevokeSchema = z.object({
+  keyId: z.string(),
+  accountId: z.string(),
+  endedAt: isoTime,
+  /** The assistant's orders resting when it was revoked, each cancelled once on the venue, as the venue answered. */
+  cancels: z.array(
+    z.object({
+      orderKey: z.string(),
+      venueClientOrderId: z.string().nullable(),
+      symbol: z.string(),
+      state: z.enum(['cancelled', 'refused', 'unknown']),
+    }),
+  ),
+  /** True once our copy of the account's venue agent key is dropped. */
+  agentKeyDropped: z.boolean(),
+  /** The venue agent behind the key, and whether the venue still lists it on the agent account. */
+  agent: z.object({ address: z.string(), onVenue: z.boolean() }),
+  /** The venue's revoke of that agent, for the person's wallet to sign, until the venue no longer lists it. */
+  next: z
+    .object({
+      actionKey: z.string(),
+      step: z.string(),
+      signed: z.boolean(),
+      prepared: z.object({ typedData: typedDataSchema, digest: z.string() }),
+    })
+    .nullable(),
+});
+export type VenueAgentRevoke = z.infer<typeof venueAgentRevokeSchema>;

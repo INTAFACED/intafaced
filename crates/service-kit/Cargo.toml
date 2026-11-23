@@ -5,6 +5,7 @@ description = "service-kit: the generic server-side parts every Rust service sha
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
+autotests = false
 
 [lints]
 workspace = true
@@ -20,3 +21,7 @@ postgres = "0.19"
 tiny_http = { path = "../vendor/tiny_http" }
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 url = "2"
+
+[[test]]
+name = "it"
+path = "tests/it.rs"

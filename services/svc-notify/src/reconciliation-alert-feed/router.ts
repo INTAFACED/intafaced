@@ -1,4 +1,4 @@
-import { router } from '@intafaced/contracts';
+import { router } from '@intafaced/contracts/trpc';
 import type { ReconAlertFeedStore } from './feed.js';
 import { NOTIFY_RECONCILIATION_ALERT_FEED_LIST } from '@intafaced/contracts/notify-reconciliation-alert-feed-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';

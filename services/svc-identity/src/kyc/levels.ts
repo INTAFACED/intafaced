@@ -1,13 +1,12 @@
 import { KYC_TIERS, checkAccess, tierSatisfies, type KycTier, type ModuleId } from '@intafaced/config';
-import {
-  KYC_LADDER_FEATURES,
-  kycRequirementKeySchema,
-  type KycLadderFeature,
-  type KycLadderFeatureState,
-  type KycLevelRequirements,
-  type KycLevelsDescribeOutput,
-  type KycRequirementKey,
+import type {
+  KycLadderFeature,
+  KycLadderFeatureState,
+  KycLevelRequirements,
+  KycLevelsDescribeOutput,
+  KycRequirementKey,
 } from '@intafaced/contracts';
+import { KYC_LADDER_FEATURES, kycRequirementKeySchema } from '@intafaced/contracts/identity-kyc-levels';
 
 /**
  * I-kyc-compliance-04/05: the verification ladder (`kyc.levels.describe`).

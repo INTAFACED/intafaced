@@ -2,13 +2,15 @@
  * A customer's balances for the finance-treasury desk (PF-balances-01, portfolio-balances-001 and -002).
  *
  * Read only, ledger reads only: the same `balanceBreakdown` and `balanceEntries` the customer sees, asked for the customer a
- * desk names. The operator needs `admin:treasury`; a customer's own session never reaches these. Who may hold that scope is
- * decided where scopes are granted (identity), so widening or narrowing the desk is a scope change and not a code change.
+ * desk names. The balances (`ops.customerBalances`) are open to the operator read scope `admin:read` or to `admin:treasury`
+ * (owner decision of 2026-11-06, docs/adr/2026-10-22-service-access-calls.md section 3.9's amendment); the entries behind them
+ * (`ops.customerBalanceEntries`) stay on `admin:treasury`. A customer's own session never reaches these. Who may hold a
+ * scope is decided where scopes are granted (identity), so widening or narrowing the desk is a scope change, not code.
  * No audit table is merged for operator reads (the same as `ops.transferDetail`), so every read writes one structured log
  * line with the operator and the customer BEFORE any figure is read; if that line cannot be written the read refuses.
  * Nothing is inserted and there is no export.
  */
-import { scopedProcedure } from '@intafaced/contracts';
+import { anyScopeProcedure, scopedProcedure } from '@intafaced/contracts/trpc';
 import { z } from 'zod';
 import type { BankServices } from '../bank-service.js';
 import { activityFailure } from '../activity/activity.router.js';
@@ -19,17 +21,16 @@ import { BALANCE_ENTRIES_DEFAULT_LIMIT, BALANCE_ENTRIES_MAX_LIMIT } from '../por
 const signedAmount = z.string().regex(/^-?\d+(\.\d{1,18})?$/);
 
 export function writeCustomerBalancesAudit(actorUserId: string, ownerUserId: string, what: 'breakdown' | 'entries'): void {
+  writeOpsReadAudit({ event: 'bank.ops.customer_balances_read', actorUserId, ownerUserId, what });
+}
+
+/**
+ * One operator read's audit line (this desk's and `ops.customerPartnerBalances`'), written before anything is read; a line
+ * that cannot be written refuses the read.
+ */
+export function writeOpsReadAudit(fields: { event: string; actorUserId: string; ownerUserId: string; what?: string }): void {
   try {
-    console.info(
-      JSON.stringify({
-        level: 'info',
-        service: 'svc-bank',
-        event: 'bank.ops.customer_balances_read',
-        actorUserId,
-        ownerUserId,
-        what,
-      }),
-    );
+    console.info(JSON.stringify({ level: 'info', service: 'svc-bank', ...fields }));
   } catch {
     throw new BankError('The read could not be recorded, so nothing was read', 'bank.ops_audit_unavailable');
   }
@@ -66,7 +67,7 @@ export function flattenBreakdown(
 }
 
 export function customerBalancesProcedure(bank: BankServices, guard: Guard) {
-  return scopedProcedure('admin:treasury')
+  return anyScopeProcedure(['admin:read', 'admin:treasury'])
     .input(z.object({ userId: z.string().guid() }).strict())
     .output(
       z.object({

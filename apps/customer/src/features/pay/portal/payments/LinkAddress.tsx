@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { Button } from '@intafaced/ui';
-import { encodeQr, qrPath } from '../../../../shared/qr';
+import { encodeQr, qrPath } from '@intafaced/ui/lit/templates';
 import { CopyReference } from '../ui/CopyReference';
 import { paymentsCopy as c } from './copy';
 
@@ -17,7 +17,7 @@ export function AddressQr({ value }: { value: string }) {
       return null;
     }
   }, [value]);
-  if (!drawn) return <p className="muted">{t('lk_qrFailed')}</p>;
+  if (!drawn) return <p className="lt-muted">{t('lk_qrFailed')}</p>;
   return (
     <svg
       viewBox={`0 0 ${drawn.size} ${drawn.size}`}
@@ -37,9 +37,9 @@ export function AddressQr({ value }: { value: string }) {
 export function LinkAddress({ url }: { url: string }) {
   const { t } = c.useCopy();
   return (
-    <div className="stack" data-testid="link-address">
+    <div className="lt-stack" data-testid="link-address">
       <CopyReference value={url} what={t('lk_addressWhat')} />
-      <div className="pp-actions">
+      <div className="lt-actions">
         {isWebAddress(url) && (
           <Button variant="secondary" nativeButton={false} role="link" render={<a href={url} target="_blank" rel="noopener noreferrer" />}>
             {t('lk_open')}

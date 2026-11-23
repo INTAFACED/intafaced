@@ -111,7 +111,7 @@ export function CopiedPositions({ follow, api, guard }: { follow: Follow; api: R
         const closeOff = busy || (isZero(r.open) && r.status !== 'closing');
         const partOff = busy || isZero(r.open);
         return (
-          <span className="cb-action-row">
+          <span className="lt-actions">
             <Button variant="secondary" size={32} disabled={closeOff} onClick={() => setClosing(r)}>
               {t('Close')}
             </Button>

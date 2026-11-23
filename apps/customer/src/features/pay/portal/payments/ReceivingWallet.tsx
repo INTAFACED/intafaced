@@ -1,13 +1,11 @@
 import { useState } from 'react';
 import type { ReceivingWallet as Wallet } from '@intafaced/contracts/merchant-receiving-wallet';
-import { Button } from '@intafaced/ui';
+import { Button, Field } from '@intafaced/ui/lit';
 import { useResource } from '../../../../shared/resource';
-import { Field } from '../../ui-kit';
-import { PaySection } from '../../components';
 import type { PortalApi } from '../api';
 import { imageRequestId } from '../catalog/model';
-import { Gate } from '../components';
 import { DateTime } from '../ui/DateTime';
+import { Gate, Section } from '../volt/parts';
 import { useMayChangeLook } from './CheckoutLook';
 import { walletCopy as c } from './wallet-copy';
 
@@ -17,16 +15,16 @@ import { walletCopy as c } from './wallet-copy';
  * through INTAFACED. The first address is shown so the owner can check it against their wallet. A private key is refused
  * by the service before anything is stored.
  */
-export function ReceivingWallet({ portal }: { portal: PortalApi }) {
+export function ReceivingWallet({ portal, id }: { portal: PortalApi; id?: string }) {
   const { resource, reload } = useResource((s) => portal.receivingWallet(s), 'portal:receiving-wallet');
   // Kept here, not in the form: a save reloads the wallet and draws a fresh form, and its answer must stay on screen.
   const [note, setNote] = useState<Note | null>(null);
   return (
-    <PaySection title={c.t('title')} description={c.t('purpose')}>
+    <Section id={id} title={c.t('title')} description={c.t('purpose')}>
       <Gate resource={resource} retry={reload} rows={3}>
         {(wallet) => <WalletForm key={wallet.version} wallet={wallet} portal={portal} onSaved={reload} note={note} setNote={setNote} />}
       </Gate>
-    </PaySection>
+    </Section>
   );
 }
 
@@ -78,8 +76,8 @@ function WalletForm({
   }
 
   return (
-    <div data-testid="form-stack" className="form-stack pp-form">
-      <p className="muted" role="status" data-testid="receiving-wallet-state">
+    <div data-testid="form-stack">
+      <p className="lt-hint" role="status" data-testid="receiving-wallet-state">
         {wallet.set && wallet.savedAt ? (
           <>
             {c.t('savedOn')} <DateTime value={wallet.savedAt} />
@@ -89,7 +87,7 @@ function WalletForm({
         )}
       </p>
       {!may.allowed && (
-        <p className="muted pp-note" role="note">
+        <p className="lt-hint" role="note">
           {c.t(may.unverified ? 'unverified' : 'noWrite')}
         </p>
       )}
@@ -104,19 +102,21 @@ function WalletForm({
         onChange={(e) => setKey(e.target.value)}
       />
       {wallet.firstAddress && (
-        <div className="field">
-          <span>{c.t('firstAddress')}</span>
-          <code data-testid="receiving-wallet-first-address">{wallet.firstAddress}</code>
-          <small className="muted">{c.t('firstAddressHint')}</small>
+        <div>
+          <p>{c.t('firstAddress')}</p>
+          <code data-testid="receiving-wallet-first-address" className="lt-mono">
+            {wallet.firstAddress}
+          </code>
+          <p className="lt-hint">{c.t('firstAddressHint')}</p>
         </div>
       )}
       {note && (
-        <p className={note.ok ? 'pp-confirmed' : 'pp-callout'} role={note.ok ? 'status' : 'alert'}>
+        <p className="lt-hint" role={note.ok ? 'status' : 'alert'}>
           {note.text}
         </p>
       )}
-      <div className="pp-actions">
-        <Button disabled={!may.allowed || !changed || busy} onClick={() => void save()}>
+      <div className="lt-actions">
+        <Button tone="primary" disabled={!may.allowed || !changed || busy} onClick={() => void save()}>
           {busy ? c.t('saving') : c.t('save')}
         </Button>
       </div>

@@ -56,11 +56,11 @@ export default function Screen(_props: ScreenProps) {
   );
 
   return (
-    <RoomFrame mode="Options" title={t('Options')} description={t('Options description')} meta={chips}>
-      <div className="flex flex-col gap-3">
+    <RoomFrame title={t('Options')} description={t('Options description')} meta={chips}>
+      <div className="lt-stack">
         <WriteNotice writer={writer} onCheck={(id) => void check(id)} done={t('Request done')} />
         {note ? (
-          <p role="status" className="m-0 text-sm text-fg-2">
+          <p role="status" className="lt-hint">
             {note}
           </p>
         ) : null}

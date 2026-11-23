@@ -86,6 +86,7 @@ import { problemText } from './problem-text';
 import { draftOf } from './draft-of';
 import { reviewIdFor } from './review-id';
 import { expiryIsFuture, expiryOf, outcomeOf, tifLabelKey, tifOfDraft, tifFor, TYPE_TAB_KEY, type Tif } from './tif';
+import { DateInput } from '@intafaced/ui/lit';
 
 const PERCENTS = [25, 50, 75, 100] as const;
 
@@ -940,10 +941,10 @@ function SideForm({
         </a>
       )}
       <div className="dk-reason" id={`dk-reason-${side}`} aria-live="polite">
-        {hint ? <p className="dk-note">{hint}</p> : null}
-        {signedIn && !market.open ? <p className="dk-note">{t('Market is closed')}</p> : null}
+        {hint ? <p className="lt-hint">{hint}</p> : null}
+        {signedIn && !market.open ? <p className="lt-hint">{t('Market is closed')}</p> : null}
         {signedIn && market.open && exitOff ? (
-          <p className="dk-note">{t(type === 'oto' ? 'Oto sell off' : 'Bracket sell off', { asset: market.base })}</p>
+          <p className="lt-hint">{t(type === 'oto' ? 'Oto sell off' : 'Bracket sell off', { asset: market.base })}</p>
         ) : null}
         {market.open && type === 'oto' && !exitOff ? <p className="dk-note-small">{t('Exit note oto', { asset: market.base })}</p> : null}
         {market.open && type === 'stop_market' ? (
@@ -971,9 +972,9 @@ function SideForm({
           </div>
         ) : null}
         {gate.reason === 'short' ? <RefusalNote failure={refusalFailure('ledger.insufficient_funds', context)} /> : null}
-        {tradable && showProblem && !checked.ok ? <p className="dk-note">{problemText(checked.problem, market, t)}</p> : null}
+        {tradable && showProblem && !checked.ok ? <p className="lt-hint">{problemText(checked.problem, market, t)}</p> : null}
         {tradable && checked.ok && live.state === 'checking' && !failure && !status ? (
-          <p className="dk-note">{t('Checking the order')}</p>
+          <p className="lt-hint">{t('Checking the order')}</p>
         ) : null}
         {tradable && checked.ok && live.state === 'blocked' ? <RefusalNote failure={live.failure} /> : null}
         {tradable && checked.ok && live.state === 'error' ? <RefusalNote failure={{ kind: 'network' }} onRetry={retry} /> : null}
@@ -1512,7 +1513,7 @@ export const OrderPanel = memo(function OrderPanel({
         {market.open && tif === 'GTD' ? (
           <label className="dk-tif dk-expiry">
             <span className="dk-tif-label">{t('Order expires')}</span>
-            <input
+            <DateInput
               type="datetime-local"
               className="dk-expiry-input"
               value={expiry}
@@ -1551,7 +1552,7 @@ export const OrderPanel = memo(function OrderPanel({
               <p className="dk-note-title">{t('Checking your order')}</p>
               <p>{t('Checking your order body')}</p>
               {pending.value.kind === 'place' ? (
-                <div className="dk-note-actions">
+                <div className="lt-actions">
                   <button type="button" className="dk-link" disabled={checking || resending} onClick={() => void check()}>
                     {t('Check order')}
                   </button>

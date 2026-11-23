@@ -1,6 +1,6 @@
 import Fastify from 'fastify';
 import { createDb } from '@intafaced/db';
-import { createEdgeContext } from '@intafaced/contracts';
+import { createEdgeContext } from '@intafaced/contracts/edge';
 import { checkAccess, edgeTrustFromEnv, urlForLog } from '@intafaced/config';
 import { env } from './env.js';
 import { NullChainSource } from './chain/memory-source.js';

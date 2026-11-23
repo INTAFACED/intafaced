@@ -1,4 +1,4 @@
-import { ContactSupport } from './ContactSupport';
+import { ContactSupport } from './help/ContactSupport';
 import { supportRecoveryCopy } from './support-recovery-copy';
 import '../../shared/public-pages.css';
 
@@ -15,7 +15,7 @@ export function CannotSignIn() {
         <p className="eyebrow">{t('eyebrow')}</p>
         <h1>{t('title')}</h1>
       </header>
-      <p className="muted">{t('intro')}</p>
+      <p className="lt-muted">{t('intro')}</p>
       <h2>{t('stepsHeading')}</h2>
       <ol>
         <li>{t('stepCase')}</li>
@@ -28,7 +28,7 @@ export function CannotSignIn() {
       </p>
       <p>
         {t('tryReset')}{' '}
-        <a className="text-link" href="/login">
+        <a className="lt-link" href="/login">
           {t('toSignIn')}
         </a>
       </p>

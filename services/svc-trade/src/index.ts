@@ -3,14 +3,12 @@ import { createRiskStopService } from './futures/risk-stop.js';
 import { registerRiskStopRest } from './futures/risk-stop-rest.js';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import {
-  createEdgeContext,
-  createIdentityApprovalClient,
-  createIdentityOperationDecisionClient,
-  createStepUpCheck,
-  retainRawBody,
-  s2sFromEnv,
-} from '@intafaced/contracts';
+import { createIdentityApprovalClient } from '@intafaced/contracts/action-approval-client';
+import { createEdgeContext } from '@intafaced/contracts/edge';
+import { createIdentityOperationDecisionClient } from '@intafaced/contracts/operation-identity-client';
+import { retainRawBody } from '@intafaced/contracts/raw-body';
+import { s2sFromEnv } from '@intafaced/contracts/s2s-env';
+import { createStepUpCheck } from '@intafaced/contracts/step-up-check';
 import { loadBotVerificationPolicy } from './algo/bots-verification.js';
 import { TradingControls, TradingControlError } from './controls/trading-controls.js';
 import { createLiveTradingOperator } from './controls/identity-port.js';
@@ -37,6 +35,7 @@ import { createEmailProofClient } from './spot/email-proof.js';
 import { createLedgerClient } from './ledger-client.js';
 import { createLedgerPages } from './statements/ledger-history.js';
 import { VenueStatements } from './venue/venue-statements.js';
+import { VenueMarginSamples } from './venue/venue-margin-samples.js';
 import { StatementExports } from './statements/statement-export.js';
 import { registerClosureCheck } from './closure/closure-check.js';
 import { registerTrackRecord } from './signals/track-record.js';
@@ -130,6 +129,8 @@ import { createIdentityFreezeRead, createQuantStrategySource } from './quant/liv
 import { SqlLiveRunStore } from './quant/live-run/sql-store.js';
 import { VenueProtections } from './venue/protections.js';
 import { SqlEngineProtectionStore } from './venue/protection-store.js';
+import { VenueAutoTopUp } from './venue/auto-top-up.js';
+import { SqlAutoTopUpStore } from './venue/auto-top-up-store.js';
 import { VenueSpotConditionals } from './venue/spot-conditionals.js';
 import { SqlSpotConditionalStore } from './venue/spot-conditional-store.js';
 import { routingReport } from './venue/routing-report.js';
@@ -534,6 +535,18 @@ const venueSpotConditionals = userVenue
       now: () => new Date(),
     })
   : null;
+// Auto top-up of an isolated position's margin on the person's own venue account (J-derivatives-06 #4): one agent-signed
+// margin change per crossing of the person's level, within the position's cap and the permission's own cap, ticked with
+// the protections. Off with the door.
+const venueAutoTopUp = userVenue
+  ? new VenueAutoTopUp({
+      door: userVenue,
+      store: new SqlAutoTopUpStore(sql),
+      keySeed: env.TRADE_AGENT_KEY_SEED,
+      freeze: createIdentityFreezeRead(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
+      now: () => new Date(),
+    })
+  : null;
 const protectionEngineMs = /^\d+$/.test(env.TRADE_PROTECTION_ENGINE_INTERVAL_MS.trim())
   ? Number(env.TRADE_PROTECTION_ENGINE_INTERVAL_MS.trim())
   : 0;
@@ -542,7 +555,7 @@ if (venueProtections && protectionEngineMs > 0) {
   setInterval(() => {
     if (busy) return;
     busy = true;
-    Promise.all([venueProtections.tick(), venueSpotConditionals?.tick()])
+    Promise.all([venueProtections.tick(), venueSpotConditionals?.tick(), venueAutoTopUp?.tick()])
       .catch((err: unknown) =>
         process.stderr.write(`${JSON.stringify({ level: 'warn', msg: 'trade.protection_engine.tick_failed', message: String(err) })}\n`),
       )
@@ -867,6 +880,8 @@ const leadDesk = new LeadDesk({
   },
   ownerDay: copyOwnerDay,
 });
+/** The venue's margin readings our door keeps, for a founder's ratio history (J-derivatives-26 #8). */
+const venueMarginSamples = new VenueMarginSamples(sql, (err) => app.log.warn({ err }, 'venue margin sample not kept'));
 export const appRouter = createTradeRouter(
   trade,
   otc,
@@ -925,6 +940,15 @@ export const appRouter = createTradeRouter(
   quantHalts,
   venueGrid,
   recurringBuys,
+  venueAutoTopUp,
+  // A founder's read of one person's venue accounts and ratio history (J-derivatives-26 #8); off: the door is off.
+  {
+    audit: (row, at) => writeOperatorAudit(sql, row, at),
+    venue: userVenue ? () => userVenue.venue() : null,
+    store: new SqlPreparedActionStore(sql),
+    samples: venueMarginSamples,
+    now: () => new Date(),
+  },
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({
@@ -1967,6 +1991,7 @@ registerPrivateRest(app, {
   venueConverts,
   // J-cex-spot-07 #5: the statement export on the venue's own records, when the user-venue door is on.
   venueStatements: userVenueRouter ? new VenueStatements(sql) : null,
+  venueMarginSamples: userVenueRouter ? venueMarginSamples : null,
   venueAdlAcks: userVenueRouter ? sqlVenueAdlAcks(sql) : null,
   venueBuilderFees: userVenueRouter ? builderFees.ofUser : null,
   algo: trade,

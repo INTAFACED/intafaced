@@ -2,22 +2,19 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, Failure, Field, Loading } from '../../shared/ui';
+import { Button, Field } from '@intafaced/ui/lit';
+import { Failure, Loading } from './kit-parts';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import { closeAccountCopy as copy } from './close-account-copy';
-import {
-  BLOCKER_KEYS,
-  CLOSE_REFUSAL_KEYS,
-  closeStepUp,
-  closureCheck,
-  closureStatus,
-  closureView,
-  daysLeft,
-  isSixDigits,
-  type ClosureView,
-} from './close-account';
+import { BLOCKER_KEYS, CLOSE_REFUSAL_KEYS, closeStepUp, daysLeft, isSixDigits, type ClosureView } from './close-account';
 import { confirmWithStepUp, type StepUpMethod } from './security-step-up';
+import {
+  IDENTITY_ACCOUNT_CLOSURE_STATUS,
+  IDENTITY_ACCOUNT_CLOSURE_CHECK,
+  IDENTITY_ACCOUNT_CLOSURE_REQUEST,
+  IDENTITY_ACCOUNT_CLOSURE_CANCEL,
+} from '@intafaced/contracts/identity-account-closure-procedures';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -45,16 +42,14 @@ export function CloseAccount() {
   }, []);
   const status = useResource(
     (signal) =>
-      userId
-        ? api.query('identity', 'accountClosure.status', undefined, closureStatus, { signal })
-        : Promise.resolve({ ok: true as const, data: null }),
+      userId ? api.call(IDENTITY_ACCOUNT_CLOSURE_STATUS, undefined, { signal }) : Promise.resolve({ ok: true as const, data: null }),
     `closure-status:${userId}`,
   );
   const open = status.resource.status === 'ready' && status.resource.data?.closure?.status === 'requested';
   const check = useResource(
     (signal) =>
       userId && status.resource.status === 'ready' && !open
-        ? api.query('identity', 'accountClosure.check', undefined, closureCheck, { signal })
+        ? api.call(IDENTITY_ACCOUNT_CLOSURE_CHECK, undefined, { signal })
         : Promise.resolve({ ok: true as const, data: null }),
     `closure-check:${userId}:${status.resource.status}:${open}`,
   );
@@ -71,13 +66,11 @@ export function CloseAccount() {
       if (!approved.ok) return setFailure(approved);
       const answer =
         intent === 'request'
-          ? await api.mutate(
-              'identity',
-              'accountClosure.request',
-              { stepUpApprovalId: approved.data.stepUpApprovalId, clientRequestId: requestId },
-              closureView,
-            )
-          : await api.mutate('identity', 'accountClosure.cancel', { stepUpApprovalId: approved.data.stepUpApprovalId }, closureView);
+          ? await api.call(IDENTITY_ACCOUNT_CLOSURE_REQUEST, {
+              stepUpApprovalId: approved.data.stepUpApprovalId,
+              clientRequestId: requestId,
+            })
+          : await api.call(IDENTITY_ACCOUNT_CLOSURE_CANCEL, { stepUpApprovalId: approved.data.stepUpApprovalId });
       if (!mounted.current) return;
       // The service spends the approval first, so after any refusal the next try starts a new confirmation.
       if (!answer.ok) return setFailure(answer);
@@ -104,18 +97,10 @@ export function CloseAccount() {
   const closure = status.resource.data.closure;
 
   const refusal = failure && failure.code ? CLOSE_REFUSAL_KEYS[failure.code] : undefined;
-  const failureView = failure ? (
-    refusal ? (
-      <p className="notice" role="alert">
-        {t(refusal as 'refusedBlocked')}
-      </p>
-    ) : (
-      <Failure result={failure} />
-    )
-  ) : null;
+  const failureView = failure ? refusal ? <p role="alert">{t(refusal as 'refusedBlocked')}</p> : <Failure result={failure} /> : null;
 
   const confirmForm = (intent: 'request' | 'cancel') => (
-    <form ref={form} method="post" className="stack" onSubmit={(event) => submit(event, intent, closure)} noValidate>
+    <form ref={form} method="post" onSubmit={(event) => submit(event, intent, closure)} noValidate>
       <h3>{t('confirmTitle')}</h3>
       <p>{t('confirmBody')}</p>
       <Field
@@ -129,11 +114,11 @@ export function CloseAccount() {
         error={problem ? t('invalidCode') : undefined}
         data-security-sensitive="true"
       />
-      <div className="actions">
-        <Button type="submit" variant={intent === 'request' ? 'danger' : 'primary'} disabled={busy}>
+      <div className="lt-actions">
+        <Button tone="primary" type="submit" disabled={busy}>
           {busy ? t('working') : intent === 'request' ? t('askClose') : t('cancelAsk')}
         </Button>
-        <Button type="button" variant="secondary" disabled={busy} onClick={() => void confirmAndRun(intent, { passkey: true }, closure)}>
+        <Button type="button" tone="secondary" disabled={busy} onClick={() => void confirmAndRun(intent, { passkey: true }, closure)}>
           {t('usePasskey')}
         </Button>
       </div>
@@ -144,7 +129,7 @@ export function CloseAccount() {
     return (
       <section
         data-testid="security__card"
-        className="security__close security__card"
+
         aria-label={t('closedTitle')}
         lang={languageFor('closedTitle')}
       >
@@ -155,14 +140,10 @@ export function CloseAccount() {
   }
 
   return (
-    <section data-testid="security__card" className="security__close security__card" aria-label={t('title')} lang={languageFor('title')}>
+    <section data-testid="security__card" aria-label={t('title')} lang={languageFor('title')}>
       <h2>{t('title')}</h2>
       <p>{t('body')}</p>
-      {note && (
-        <p className="notice" role="status">
-          {note}
-        </p>
-      )}
+      {note && <p role="status">{note}</p>}
       {failureView}
       {open && closure ? (
         <>
@@ -175,8 +156,8 @@ export function CloseAccount() {
           {asking === 'cancel' ? (
             confirmForm('cancel')
           ) : (
-            <div className="actions">
-              <Button variant="primary" onClick={() => setAsking('cancel')}>
+            <div className="lt-actions">
+              <Button tone="primary" onClick={() => setAsking('cancel')}>
                 {t('cancelAsk')}
               </Button>
             </div>
@@ -185,18 +166,16 @@ export function CloseAccount() {
       ) : (
         <>
           {closure?.status === 'blocked' && (
-            <div data-testid="failure" className="failure" role="status">
+            <div data-testid="failure" className="lt-refusal" role="status">
               <h3>{t('blockedTitle')}</h3>
               <p>{t('blockedBody')}</p>
             </div>
           )}
           <h3>{t('checkTitle')}</h3>
-          {check.resource.status === 'loading' && <p className="muted">{t('checking')}</p>}
+          {check.resource.status === 'loading' && <p className="lt-hint">{t('checking')}</p>}
           {check.resource.status === 'failed' &&
             (check.resource.failure.code && CLOSE_REFUSAL_KEYS[check.resource.failure.code] ? (
-              <p className="notice" role="status">
-                {t(CLOSE_REFUSAL_KEYS[check.resource.failure.code] as 'refusedCheck')}
-              </p>
+              <p role="status">{t(CLOSE_REFUSAL_KEYS[check.resource.failure.code] as 'refusedCheck')}</p>
             ) : (
               <Failure result={check.resource.failure} retry={check.reload} />
             ))}
@@ -207,9 +186,9 @@ export function CloseAccount() {
               ) : (
                 <>
                   <p>{t('stillOpen')}</p>
-                  <ul data-testid="security__rows" className="security__rows">
+                  <ul data-testid="security__rows">
                     {check.resource.data.blockers.map((blocker) => (
-                      <li key={blocker.code} data-testid="security__row" className="security__row">
+                      <li key={blocker.code} data-testid="security__row">
                         {t((BLOCKER_KEYS[blocker.code] ?? 'blockOther') as 'blockOrder', { count: blocker.count })}
                       </li>
                     ))}
@@ -219,9 +198,9 @@ export function CloseAccount() {
               {check.resource.data.balances.length > 0 && (
                 <>
                   <h3>{t('balancesTitle')}</h3>
-                  <ul data-testid="security__rows" className="security__rows">
+                  <ul data-testid="security__rows">
                     {check.resource.data.balances.map((balance) => (
-                      <li key={balance.assetId} data-testid="security__row" className="security__row">
+                      <li key={balance.assetId} data-testid="security__row">
                         {balance.amount} {balance.assetId}
                       </li>
                     ))}
@@ -231,11 +210,11 @@ export function CloseAccount() {
               {asking === 'request' && check.resource.data.blockers.length === 0 ? (
                 confirmForm('request')
               ) : (
-                <div className="actions">
-                  <Button variant="danger" disabled={check.resource.data.blockers.length > 0} onClick={() => setAsking('request')}>
+                <div className="lt-actions">
+                  <Button tone="primary" disabled={check.resource.data.blockers.length > 0} onClick={() => setAsking('request')}>
                     {t('askClose')}
                   </Button>
-                  <Button variant="ghost" onClick={check.reload}>
+                  <Button tone="quiet" onClick={check.reload}>
                     {t('recheck')}
                   </Button>
                 </div>

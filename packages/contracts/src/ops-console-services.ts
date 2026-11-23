@@ -25,10 +25,15 @@ export const SERVICE_RECORD_STALE = 'ops.service_record_stale' as const;
 export const SERVICE_STORAGE_UNCONFIGURED = 'ops.service_storage_unconfigured' as const;
 
 /**
- * A runbook in the repository: `docs/runbooks/<name>.md`, or under a folder there. Each part starts with a letter or digit,
- * so there is no `..`, no empty part, no leading slash and no scheme. At most 200 characters.
+ * A runbook in the repository: `docs/runbooks/<name>.md`, or under a folder there. Each part starts with a letter or digit
+ * and no dot follows a dot, so there is no `..`, no empty part, no leading slash and no scheme. At most
+ * `SERVICE_RUNBOOK_MAX` characters (`isServiceRunbook` checks both). Written without lookaround, so every implementation
+ * of the record (JSON Schema, Rust's regex) reads it alike.
  */
-export const SERVICE_RUNBOOK = /^(?=.{1,200}$)(?!.*\.\.)docs\/runbooks\/(?:[A-Za-z0-9][A-Za-z0-9._-]*\/)*[A-Za-z0-9][A-Za-z0-9._-]*\.md$/;
+export const SERVICE_RUNBOOK =
+  /^docs\/runbooks\/(?:[A-Za-z0-9](?:[A-Za-z0-9_-]|\.[A-Za-z0-9_-])*\.?\/)*[A-Za-z0-9](?:[A-Za-z0-9_-]|\.[A-Za-z0-9_-])*\.md$/;
+export const SERVICE_RUNBOOK_MAX = 200;
+export const isServiceRunbook = (text: string): boolean => text.length <= SERVICE_RUNBOOK_MAX && SERVICE_RUNBOOK.test(text);
 
 export const SERVICE_OWNER_TEAM_MAX = 80;
 
@@ -38,7 +43,7 @@ export const serviceRecordSchema = z.object({
   module: moduleIdSchema,
   ownerTeam: z.string().min(1).max(SERVICE_OWNER_TEAM_MAX).nullable(),
   dependencies: z.array(moduleIdSchema),
-  runbook: z.string().regex(SERVICE_RUNBOOK).nullable(),
+  runbook: z.string().max(SERVICE_RUNBOOK_MAX).regex(SERVICE_RUNBOOK).nullable(),
   /** 0 with `updatedAt` null: nobody has set this module's record. */
   revision: z.number().int().min(0),
   updatedBy: z.string().nullable(),
@@ -91,7 +96,7 @@ export function serviceRecordValues(
   const owner = input.ownerTeam?.trim() ?? '';
   if (owner.length > SERVICE_OWNER_TEAM_MAX) invalid.push('ownerTeam');
   const runbook = input.runbook?.trim() ?? '';
-  if (runbook !== '' && !SERVICE_RUNBOOK.test(runbook)) invalid.push('runbook');
+  if (runbook !== '' && !isServiceRunbook(runbook)) invalid.push('runbook');
   const deps = input.dependencies;
   if (deps.some((d) => !isModuleId(d) || d === module) || new Set(deps).size !== deps.length) invalid.push('dependencies');
   if (invalid.length > 0) return { ok: false, invalid };

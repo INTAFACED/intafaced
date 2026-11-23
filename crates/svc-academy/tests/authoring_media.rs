@@ -9,7 +9,7 @@
     reason = "a test: a failure is the point"
 )]
 
-mod authoring_kit;
+use crate::authoring_kit;
 
 use std::sync::Mutex;
 

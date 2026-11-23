@@ -1,3 +1,7 @@
+// volt-room: /bank/business/team
+// volt-room: /bank/business/spend
+// volt-room: /bank/business/payment
+// volt-room: /bank/business/join
 import { useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { z, type ZodType } from 'zod';
 import { Button } from '@intafaced/ui/lit';
@@ -166,7 +170,9 @@ const copy = defineCopy('money.business-team', {
   joinBody: 'You were invited to join a business bank team.',
   join: 'Join',
   joined: 'You joined {name}.',
-  joinNoLink: 'This page needs the link from your invitation.',
+  joinNoLink:
+    'This page opens from the link in your invitation. A business adds you to its bank team from its Business room and sends you that link; open it to join.',
+  joinBack: 'Go to Business',
   goToTeam: 'Open the team',
 });
 type T = ReturnType<typeof copy.useCopy>['t'];
@@ -1108,7 +1114,16 @@ export function BusinessJoinRoom() {
   const [joined, setJoined] = useState<string | null>(null);
   let state: RoomState = { kind: 'ready' };
   if (!userId) state = signedOutState(t, `/bank/business/join${typeof window === 'undefined' ? '' : window.location.hash}`);
-  else if (!token) state = { kind: 'refused', refusal: { variant: 'refused', title: t('joinTitle'), body: t('joinNoLink') } };
+  else if (!token)
+    state = {
+      kind: 'refused',
+      refusal: {
+        variant: 'refused',
+        title: t('joinTitle'),
+        body: t('joinNoLink'),
+        action: { label: t('joinBack'), href: '/bank/business' },
+      },
+    };
   return (
     <FlowTemplate
       title={t('joinTitle')}

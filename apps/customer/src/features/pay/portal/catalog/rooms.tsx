@@ -3,7 +3,7 @@ import { WithAccount } from '../access/WithAccount';
 import type { RoomDef, RoomTable } from '../rooms-model';
 import { catalogCopy } from './copy';
 import { Products } from './Products';
-import { Stores } from './Stores';
+import { StoresRoom } from './Stores';
 
 const t = catalogCopy.t;
 
@@ -33,15 +33,8 @@ const products: RoomDef = {
 const stores: RoomDef = {
   header: () => ({ title: t('storesTitle'), purpose: t('storesPurpose') }),
   here: '/pay/settings/stores',
-  render: (_route, { portal }) => (
-    <WithAccount>
-      {() => (
-        <Requires need="products.read">
-          <Stores portal={portal} />
-        </Requires>
-      )}
-    </WithAccount>
-  ),
+  ownTitle: true,
+  render: (_route, { portal }) => <StoresRoom portal={portal} />,
 };
 
 export const catalogRooms: RoomTable = {

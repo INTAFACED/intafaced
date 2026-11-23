@@ -1,18 +1,9 @@
 import type { z } from 'zod';
-import {
-  signInConfirmedSchema,
-  trustedDeviceApprovedSchema,
-  trustedDeviceRemovedSchema,
-  trustedDevicesSchema,
-} from '@intafaced/contracts/identity-account-room';
+import type { trustedDevicesSchema } from '@intafaced/contracts/identity-account-room';
 import type { StepUpBegin } from './security-step-up';
 
 /** `trustedDevices.list`: whether the check is on, the account's trusted devices, and the sign-ins waiting for approval. */
-export { trustedDevicesSchema, signInConfirmedSchema };
 export type TrustedDevices = z.infer<typeof trustedDevicesSchema>;
-
-export const deviceRemovedSchema = trustedDeviceRemovedSchema;
-export const deviceApprovedSchema = trustedDeviceApprovedSchema;
 
 /** The step-up for removing one device: bound to the device and this request. */
 export function removeStepUp(deviceId: string, clientRequestId: string): StepUpBegin {

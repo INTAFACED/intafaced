@@ -1,13 +1,11 @@
 import {
-  router,
-  serviceProcedure,
-  TRPCError,
   guestNotificationSendInputSchema,
   guestNotificationGetInputSchema,
   guestNotificationReceiptSchema,
   guestNotificationEraseInputSchema,
   guestNotificationEraseReceiptSchema,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/guest-notifications';
+import { router, serviceProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { GuestNotificationError, type GuestNotificationService } from './service.js';
 
 export function guestNotificationsRouter(service?: GuestNotificationService) {

@@ -50,6 +50,7 @@
  *   (back)    GH_TOKEN GITHUB_REPOSITORY STEPS BAD BACK RUN_URL;  (confirm-files) STEPS BAD   (writes GITHUB_OUTPUT)
  *   (spent)   GH_TOKEN GITHUB_REPOSITORY RUN_ID
  */
+import { runJobs } from './run-jobs.mjs';
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -62,6 +63,7 @@ import { gateFilesTouched } from '../scripts/gate-files.mjs';
 import { parseJobs, parseTests } from './bisect-main.mjs';
 import { AUTO_REVERT_AUTHOR, AUTO_REVERT_BRANCH } from './exact-revert.mjs';
 import { moneyGuardAt } from './journey-verdict.mjs';
+import { countCall } from './api-count.mjs';
 
 const SHA = /^[0-9a-f]{40}$/;
 const STEP = /^J-[a-z0-9-]+-\d+#\d+$/;
@@ -225,9 +227,9 @@ export function revertBody({ repo, sha, subject, prNumber, redRun, steps, base, 
       ? [`- Control: \`${control.slice(0, 10)}\`, the last commit where these steps passed, passes again on the same kind of runner`]
       : []),
     '',
-    `The commit was found between the last run where these steps passed and the run where they failed. This pull request is \`git revert ${sha.slice(0, 10)}\` and nothing else; it goes through the CI merge seal like any other. To keep the change instead, fix it forward and close this.`,
+    `The commit was found between the last run where these steps passed and the run where they failed. This pull request is \`git revert ${sha.slice(0, 10)}\` and nothing else; it goes through the CI merge seal like any other and merges by itself. Don't close it to keep the change: main is green again only once it merges, and the change comes back in a new pull request with its fix.`,
     '',
-    `Revert: close this pull request; the culprit stays on \`${base}\`.`,
+    `Revert: once merged, the change returns in a new pull request with its fix (or \`git revert\` of this one).`,
   ].join('\n');
 }
 
@@ -250,6 +252,7 @@ function client(token) {
       },
       body: body ? JSON.stringify(body) : undefined,
     });
+    countCall(res);
     const text = await res.text();
     // AGENTS.md: a 403 or 429 from GitHub is a stop. No retry, no loop.
     if (res.status === 403 || res.status === 429)
@@ -878,7 +881,7 @@ async function openRevert(env, revoke) {
       armed = q.json?.errors?.length ? `not armed: ${String(q.json.errors[0].message).slice(0, 200)}` : 'armed (squash)';
     }
     await comment(
-      `The ${what} [run ${env.RED_RUN}](${runUrl}) on \`${env.BASE}\` failed ${stepText}, and the revert on main found this pull request's commit \`${sha.slice(0, 10)}\` as the cause. Its revert is #${number ?? '(dry run)'}, with auto-merge ${armed.startsWith('armed') ? 'on' : 'off'}. To keep this change, fix it forward and close the revert.\n\n_Posted by tooling/ci/journeys-revert.mjs._`,
+      `The ${what} [run ${env.RED_RUN}](${runUrl}) on \`${env.BASE}\` failed ${stepText}, and the revert on main found this pull request's commit \`${sha.slice(0, 10)}\` as the cause. Its revert is #${number ?? '(dry run)'}, with auto-merge ${armed.startsWith('armed') ? 'on' : 'off'}. Let it merge; to keep this change, open it again in a new pull request with its fix.\n\n_Posted by tooling/ci/journeys-revert.mjs._`,
     );
     summary([
       `### Journeys revert`,
@@ -1146,8 +1149,8 @@ async function early(env, { sleep = (ms) => new Promise((r) => setTimeout(r, ms)
   const lines = ['### Journeys revert, as each shard ends', ''];
   const start = now();
   for (;;) {
-    const { json } = await gh('GET', `/repos/${repo}/actions/runs/${env.RUN_ID}/jobs?filter=latest&per_page=100`);
-    const jobs = json?.jobs ?? [];
+    const jobs =
+      (await runJobs(`/repos/${repo}/actions/runs/${env.RUN_ID}/jobs?filter=latest`, async (p) => (await gh('GET', p)).json)) ?? [];
     for (const { shard } of endedShards(jobs, seen)) {
       seen.add(shard);
       const report = await runReport(gh, repo, env.RUN_ID, env.GH_TOKEN, { shards: [shard] });

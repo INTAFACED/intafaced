@@ -1,4 +1,4 @@
-import { router, TRPCError } from '@intafaced/contracts';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import type { FounderAuthority } from '../../founder-authority.js';

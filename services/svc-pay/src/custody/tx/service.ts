@@ -1,7 +1,13 @@
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { failureReason, listFailureReasons, type FailureReason } from '../../withdrawals/reasons.js';
-import { customerStatus, storedStatusesFor, WITHDRAWAL_CANCELED_CODE, type WithdrawalStatus } from '../../withdrawals/status.js';
+import {
+  shownFilterFor,
+  shownStatus,
+  WITHDRAWAL_CANCELED_CODE,
+  type DispatchJournal,
+  type WithdrawalStatus,
+} from '../../withdrawals/status.js';
 import { CustodyTxError } from './errors.js';
 import type { ConfirmationRequestView, CustodyTxState, TimelineEntry, TxDetail, TxItem, TxListInput } from './schemas.js';
 import { CUSTODY_TX_STATES } from './schemas.js';
@@ -77,6 +83,8 @@ interface TxRow {
   rail_ref: string | null;
   failure_code: string | null;
   status: string;
+  /** The current attempt's journal outcome, the one expression every withdrawal read selects (`shownStatus`). */
+  journal: DispatchJournal;
   created_at: string;
   updated_at: string;
   tr_status: string | null;
@@ -125,7 +133,7 @@ export class CustodyTxService {
   }
 
   private item(r: TxRow, timeouts: Map<string, number>): TxItem {
-    const status = customerStatus(r.status, r.failure_code);
+    const status = shownStatus(r.status, r.failure_code, r.journal);
     const state = custodyState(status, r.tr_status);
     const reason = this.reasonFor(status, state, r);
     const seconds = timeouts.get(state);
@@ -164,9 +172,11 @@ export class CustodyTxService {
     return this.sql`
       SELECT w.id, w.user_id, w.asset_id, w.amount::text AS amount, w.rail, w.destination, w.client_ref, w.rail_ref,
              w.failure_code, w.status::text AS status,
+             CASE WHEN a.outcome = 'accepted' AND a.confirmations > 0 THEN 'confirming' ELSE a.outcome END AS journal,
              ${this.sql.unsafe(TS('w.created_at'))} AS created_at, ${this.sql.unsafe(TS('w.updated_at'))} AS updated_at,
              tr.to_status AS tr_status, tr.rule_seq::text AS tr_rule_seq, tr.actor AS tr_actor
         FROM pay.withdrawals w
+        LEFT JOIN pay.withdrawal_rail_attempts a ON a.withdrawal_id = w.id AND a.attempt = w.attempts
         LEFT JOIN LATERAL (
           SELECT t.to_status, x.rule_seq, t.actor
             FROM pay.travel_rule_transfers x
@@ -176,7 +186,10 @@ export class CustodyTxService {
   }
 
   async list(input: TxListInput): Promise<{ items: TxItem[]; next: string | null }> {
-    const stored = input.status ? storedStatusesFor(input.status) : null;
+    // The same split the page draws (`shownStatus`): a held row is matched by its current attempt's journal outcome.
+    const shown = input.status ? shownFilterFor(input.status) : null;
+    const stored = shown?.stored ?? null;
+    const journal = shown?.journal ?? null;
     if (stored !== null && stored.length === 0) return { items: [], next: null };
     const canceledOnly = input.status === 'canceled' ? true : input.status === 'failed' ? false : null;
     const cursor = input.after ? decodeCursor(input.after) : null;
@@ -185,6 +198,7 @@ export class CustodyTxService {
        WHERE (${input.userId ?? null}::text IS NULL OR w.user_id = ${input.userId ?? null})
          AND (${input.assetId ?? null}::text IS NULL OR w.asset_id = ${input.assetId ?? null})
          AND (${stored}::text[] IS NULL OR w.status::text = ANY(${stored}::text[]))
+         AND (${journal}::text[] IS NULL OR coalesce(CASE WHEN a.outcome = 'accepted' AND a.confirmations > 0 THEN 'confirming' ELSE a.outcome END, 'none') = ANY(${journal}::text[]))
          AND (${canceledOnly}::boolean IS NULL OR (w.failure_code IS NOT DISTINCT FROM ${WITHDRAWAL_CANCELED_CODE}) = ${canceledOnly})
          AND (${input.since ?? null}::text IS NULL OR w.created_at >= ${input.since ?? null}::text::timestamptz)
          AND (${input.until ?? null}::text IS NULL OR w.created_at < ${input.until ?? null}::text::timestamptz)
@@ -250,7 +264,7 @@ export class CustodyTxService {
     const notes = await this.sql<Array<{ at: string; note: string; author: string }>>`
       SELECT ${this.sql.unsafe(TS('at'))} AS at, note, author FROM pay.custody_tx_notes
        WHERE withdrawal_id = ${withdrawalId}::uuid ORDER BY seq`;
-    const status = customerStatus(row.status, row.failure_code);
+    const status = shownStatus(row.status, row.failure_code, row.journal);
     const entries: TimelineEntry[] = [
       { at: row.created_at, kind: 'created', detail: 'requested', actor: null },
       ...travel.map((t): TimelineEntry => ({

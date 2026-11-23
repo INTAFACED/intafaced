@@ -352,6 +352,7 @@ test(`${J} #2 leaves the trigger blank: refused with a typed reason in words; no
 
 test(`${J} #3 places a stop-market and looks at the pending list: pending orders listed with trigger, reference price and a way to modify or cancel each`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(300_000);
   const s = state();
@@ -377,6 +378,15 @@ test(`${J} #3 places a stop-market and looks at the pending list: pending orders
     }
     const head = pending(page).locator('thead th');
     await expect(head).toHaveText(['Kind', 'Side', 'Size', 'Trigger', 'Reference price', 'Status', 'Run by', 'Legs', 'Actions']);
+    // Each row's Modify and Cancel sit wholly inside the pending list's box: none is cut off at its edge.
+    const box = await pending(page).boundingBox();
+    for (const id of [market, limit])
+      for (const name of [`Modify ${id}`, `Cancel ${id}`]) {
+        const b = await row(page, id).getByRole('button', { name, exact: true }).boundingBox();
+        expect(b && box && b.x >= box.x && b.x + b.width <= box.x + box.width, `${name} is cut off at the list's edge`).toBe(true);
+      }
+    // The step's picture: the pending list with both orders, each with its trigger, reference price, Modify and Cancel.
+    await stepPicture(page);
     const shown = await conditional(s, market);
     expect(shown).toMatchObject({ kind: 'stop_market', triggerPrice: '95', referencePrice: '100', triggerSource: 'last', status: 'armed' });
 
@@ -405,6 +415,13 @@ test(`${J} #3 places a stop-market and looks at the pending list: pending orders
     const cloid = cloidOf(venueId, fireKey(s, market));
     expect(fired.legs[0]).toMatchObject({ venueClientOrderId: cloid, status: 'filled' });
     expect(await venueOrder(s, cloid)).toMatchObject({ side: 'sell', type: 'market', status: 'filled' });
+    // The list says what became of it on the venue, and stays inside the page: nothing of the desk scrolls off sideways.
+    await expect(cell(page, market, 'status')).toHaveText('Sent · filled', { timeout: 15_000 });
+    await expect(cell(page, market, 'reference')).toHaveText('');
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
+      'the pending list widens the page',
+    ).toBe(true);
     // oxlint-disable-next-line garden/no-real-clock-wait-in-tests -- proving nothing more happens over a few passes of our engine (one a second)
     await new Promise((r) => setTimeout(r, 3_000));
     const fills = await fillsOf(s, cloid);

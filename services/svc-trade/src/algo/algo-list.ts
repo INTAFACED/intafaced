@@ -34,7 +34,7 @@ export interface AlgoListRow {
   readonly id: string;
   readonly kind: string;
   readonly market: string;
-  readonly side: string;
+  readonly side: 'buy' | 'sell';
   readonly totalQty: string;
   readonly filledQty: string;
   readonly status: AlgoStatus;
@@ -52,7 +52,8 @@ interface ParentListRow {
   id: string;
   kind: string;
   symbol: string;
-  side: string;
+  /** `trade.order_side`, a Postgres enum of the two. */
+  side: 'buy' | 'sell';
   total_qty: string;
   status: AlgoStatus;
   created_at: Date;

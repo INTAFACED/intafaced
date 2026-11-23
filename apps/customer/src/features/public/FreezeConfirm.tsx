@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { freezeLinkRedeemSchema } from '@intafaced/contracts/identity';
 import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { Button, Failure } from '../../shared/ui';
 import { freezeConfirmCopy } from './freeze-confirm-copy';
 import '../../shared/public-pages.css';
+import { IDENTITY_FREEZE_LINK_REDEEM } from '@intafaced/contracts/identity-freeze-link-procedures';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 type Done = { since: string; firstUse: boolean; frozenNow: boolean };
@@ -37,7 +37,7 @@ export function FreezeConfirm() {
     if (busy) return;
     setBusy(true);
     setRefusal(null);
-    const answer = await api.mutate('identity', 'freezeLink.redeem', { token }, freezeLinkRedeemSchema);
+    const answer = await api.call(IDENTITY_FREEZE_LINK_REDEEM, { token });
     if (!mounted.current) return;
     setBusy(false);
     if (answer.ok) setDone({ since: answer.data.since, firstUse: answer.data.firstUse, frozenNow: answer.data.frozenNow });
@@ -55,20 +55,20 @@ export function FreezeConfirm() {
         <p role="status" data-testid="freeze-link-result" data-first-use={String(done.firstUse)} data-frozen-now={String(done.frozenNow)}>
           {done.firstUse ? t('doneBody') : t('usedBody')} <time dateTime={done.since}>{new Date(done.since).toUTCString()}</time>.{' '}
           {done.frozenNow ? null : <>{t('liftedNow')} </>}
-          <a className="text-link" href="/login">
+          <a className="lt-link" href="/login">
             {t('signIn')}
           </a>
         </p>
       ) : dead ? (
         <div className="pub-notice" role="alert">
           <p>{t('deadBody')}</p>
-          <a className="text-link" href="/cannot-sign-in">
+          <a className="lt-link" href="/cannot-sign-in">
             {t('help')}
           </a>
         </div>
       ) : (
         <>
-          <p className="muted">{t('intro')}</p>
+          <p className="lt-muted">{t('intro')}</p>
           <Button onClick={() => void freeze()} disabled={busy}>
             {busy ? t('freezing') : t('freeze')}
           </Button>

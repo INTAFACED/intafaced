@@ -1,5 +1,7 @@
 import { z } from 'zod';
-import { router, publicProcedure, scopedProcedure, StepUpCheckError, TRPCError, type StepUpCheck } from '@intafaced/contracts';
+import type { StepUpCheck } from '@intafaced/contracts';
+import { StepUpCheckError } from '@intafaced/contracts/step-up-check';
+import { router, publicProcedure, scopedProcedure, serviceProcedureFor, TRPCError } from '@intafaced/contracts/trpc';
 import {
   tokenAmountSchema as amountString,
   tokenBallotSchema as ballotWire,
@@ -39,7 +41,7 @@ import {
   type YieldRunResult,
 } from './token-service.js';
 import { publishedStakeTiers, stakingAssetPublication } from './terms.js';
-import { requireTokenJobService } from './job-hmac.js';
+import { JOB_CALLER, JOB_FORBIDDEN } from './job-hmac.js';
 import { refuseDelegation, unavailableDelegation } from './delegation.js';
 import { userCopy } from './user-copy.js';
 import type { ChoiceTally } from './ballot-tally.js';
@@ -82,6 +84,11 @@ import {
 } from '@intafaced/contracts/token-procedures';
 import { createLaunchRouter, type LaunchRouterOptions } from './launch/router.js';
 import type { LaunchService } from './launch/launch-service.js';
+import { TOKEN_DISTRIBUTE_REVENUE } from '@intafaced/contracts/token-distribute-revenue-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { tokenRefusal } from './refusal.js';
+import { TOKEN_NEXT_EMISSION_EPOCH } from '@intafaced/contracts/token-next-emission-epoch-procedures';
+import { TOKEN_MINT_EPOCH } from '@intafaced/contracts/token-mint-epoch-procedures';
 
 /** The founders' approval that publishes the fee-decay schedule; the router binds the ladder and the version it replaces. */
 export const FEE_DISCOUNT_PUBLISH_ACTION = 'token.fee_discount.publish';
@@ -400,10 +407,7 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
   const stepUp = options.stepUp ?? null;
 
   /** HTTP job twin: HMAC as svc-token. Session admin:treasury is 401 unsigned. */
-  const jobProcedure = publicProcedure.use(({ ctx, next }) => {
-    requireTokenJobService(ctx.service);
-    return next({ ctx });
-  });
+  const jobProcedure = serviceProcedureFor([JOB_CALLER], { forbidden: JOB_FORBIDDEN });
 
   return router({
     health: publicProcedure
@@ -570,10 +574,9 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
 
     // ── Emissions ──────────────────────────────────────────────────────────
 
-    mintEpoch: jobProcedure
-      .input(z.object({ epoch: z.number().int().nonnegative().optional() }).default({}))
-      .output(z.object({ epoch: z.number().int(), minted: amountString }))
-      .mutation(async ({ input }) =>
+    mintEpoch: mountRecord(
+      TOKEN_MINT_EPOCH,
+      async ({ input }) =>
         guard(async () => {
           if (!emissionsEnabled) {
             throw new TRPCError({
@@ -584,11 +587,14 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
           const result = input.epoch === undefined ? await token.mintNextEpoch() : await token.mintEpoch(input.epoch);
           return { epoch: result.epoch, minted: formatAmount(result.minted) };
         }),
-      ),
+      tokenRefusal,
+    ),
 
-    nextEmissionEpoch: scopedProcedure('token:read')
-      .output(z.object({ epoch: z.number().int().nonnegative() }))
-      .query(async () => guard(async () => ({ epoch: await token.nextEmissionEpoch() }))),
+    nextEmissionEpoch: mountRecord(
+      TOKEN_NEXT_EMISSION_EPOCH,
+      async () => guard(async () => ({ epoch: await token.nextEmissionEpoch() })),
+      tokenRefusal,
+    ),
 
     emissionSchedule: mountTokenRecord(TOKEN_EMISSION_SCHEDULE, ({ input }) => guard(async () => token.emissionSchedule(input.count))),
 
@@ -720,44 +726,9 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
         ),
     }),
 
-    distributeRevenue: scopedProcedure('admin:treasury')
-      .input(
-        z.object({
-          windowId: z.string().min(1).max(128),
-          sources: z
-            .array(
-              z.object({
-                module: z.string().min(1).max(64),
-                amount: amountString,
-              }),
-            )
-            .min(1),
-          /**
-           * Typed-in second name is not approval. Nullish so MFA runs first;
-           * missing/blank refuse `action_approval.missing`, not a schema dump.
-           */
-          confirmOperatorId: z.string().max(128).nullish(),
-          approvalId: z.string().max(128).nullish(),
-          operationId: z.string().max(128).nullish(),
-        }),
-      )
-      .output(
-        z.object({
-          windowId: z.string(),
-          /** Value moved BY THIS CALL. A re-run that posts nothing reports 0. */
-          distributed: amountString,
-          recipients: z.number().int().nonnegative(),
-          skipped: z.number().int().nonnegative(),
-          /**
-           * Planned payouts this call found already posted — the operator's only
-           * way to tell "this window was already settled" from "this window has
-           * just paid out again", which the previous shape could not express.
-           */
-          alreadyPaid: z.number().int().nonnegative(),
-          confirmOperatorId: z.string(),
-        }),
-      )
-      .mutation(async ({ ctx, input }) =>
+    distributeRevenue: mountRecord(
+      TOKEN_DISTRIBUTE_REVENUE,
+      async ({ ctx, input }) =>
         guard(async () => {
           const consumed = await consumeTokenApproval(
             approvals,
@@ -783,7 +754,8 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
             confirmOperatorId,
           };
         }),
-      ),
+      tokenRefusal,
+    ),
 
     /**
      * The published fee-decay schedule (§4.3): stake thresholds to fee discount bps, the ladder `accessOf` reads.

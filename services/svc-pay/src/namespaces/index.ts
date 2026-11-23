@@ -1,4 +1,5 @@
-import { mergeRouters, type MerchantPartnerTerms } from '@intafaced/contracts';
+import type { MerchantPartnerTerms } from '@intafaced/contracts';
+import { mergeRouters } from '@intafaced/contracts/trpc';
 import type { LedgerClient } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import type { ConversionService } from '../conversion/service.js';

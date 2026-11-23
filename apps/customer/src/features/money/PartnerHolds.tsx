@@ -1,8 +1,9 @@
 import { defineCopy } from '../../shared/i18n';
-import { date, funds, useBankRead } from './components';
+import { date, funds, useBankRecord } from './components';
 import type { PartnerHolds as Holds } from './contracts';
 import { DepthPanel, Fact } from './DepthParts';
 import './bank-depth.css';
+import { BANK_PARTNER_HOLDS } from '@intafaced/contracts/bank-partner-holds-procedures';
 
 /** Words for what the partner holds back on Withdraw (J-wallet-01 #3). Every figure here is the partner's own. */
 export const partnerHoldsCopy = defineCopy('partner-holds', {
@@ -28,12 +29,12 @@ export const partnerHoldsCopy = defineCopy('partner-holds', {
  */
 export function PartnerHolds() {
   const { t } = partnerHoldsCopy.useCopy();
-  const read = useBankRead('partnerHolds', undefined);
+  const read = useBankRecord(BANK_PARTNER_HOLDS, undefined);
   if (read.resource.status === 'loading') return null;
   // A read that failed says so in one line, and leaves the rest of Withdraw as it is.
   if (read.resource.status === 'failed') {
     return (
-      <p role="status" className="money-caption" data-testid="partner-holds-unread" data-code={read.resource.failure.code ?? ''}>
+      <p role="status" className="lt-muted" data-testid="partner-holds-unread" data-code={read.resource.failure.code ?? ''}>
         {t('unread')}
       </p>
     );
@@ -61,7 +62,7 @@ export function HeldView({ data }: { data: Extract<Holds, { held: true }> }) {
           >
             <Fact label={t('balance', { partner })}>
               <span data-cell="balance">{b.balance === null ? t('notKnown') : funds(b.balance, b.assetId)}</span>{' '}
-              {b.balanceAsOf && <small className="muted">{t('asOf', { time: date(b.balanceAsOf, true) })}</small>}
+              {b.balanceAsOf && <small className="lt-muted">{t('asOf', { time: date(b.balanceAsOf, true) })}</small>}
             </Fact>
             <Fact label={t('heldBack', { partner })}>
               <span data-cell="held-back">{b.heldBack === null ? t('notReported') : funds(b.heldBack, b.assetId)}</span>
@@ -73,9 +74,7 @@ export function HeldView({ data }: { data: Extract<Holds, { held: true }> }) {
             </Fact>
           </dl>
         ))}
-        {data.reported && data.holds.length === 0 && data.released.length === 0 && (
-          <p className="money-caption">{t('noHolds', { partner })}</p>
-        )}
+        {data.reported && data.holds.length === 0 && data.released.length === 0 && <p className="lt-muted">{t('noHolds', { partner })}</p>}
         {data.holds.length > 0 && (
           <ul data-testid="partner-hold-list">
             {data.holds.map((h) => (

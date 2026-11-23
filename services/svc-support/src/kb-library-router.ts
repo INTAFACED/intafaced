@@ -1,10 +1,9 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import type { Principal } from '@intafaced/auth';
+import type { SupportKbArticle, SupportKbLibrary } from '@intafaced/contracts';
+import { supportKbArticleSchema } from '@intafaced/contracts/support';
 import {
-  publicProcedure,
-  scopedProcedure,
-  supportKbArticleSchema,
   supportKbLibraryNameProblem,
   supportKbPublishTextInputSchema,
   supportKbSaveCategoryInputSchema,
@@ -13,9 +12,8 @@ import {
   SUPPORT_KB_CATEGORY_UNKNOWN,
   SUPPORT_KB_LIBRARY_INVALID,
   SUPPORT_KB_SECTION_UNKNOWN,
-  type SupportKbArticle,
-  type SupportKbLibrary,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/support-kb-library';
+import { publicProcedure, scopedProcedure } from '@intafaced/contracts/trpc';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { SUPPORT_KB_LIBRARY } from '@intafaced/contracts/support-desk-settings-procedures';
 import { supportRefusal } from './record-refusal.js';

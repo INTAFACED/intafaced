@@ -1,6 +1,8 @@
+// volt-room: /bank/business/bills
+// volt-room: /bank/business/bill
 import { useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { z, type ZodType } from 'zod';
-import { Button } from '@intafaced/ui/lit';
+import { Button, DateInput } from '@intafaced/ui/lit';
 import { FlowTemplate, type RoomState } from '@intafaced/ui/lit/templates';
 import {
   businessBillLimitsSchema,
@@ -725,7 +727,7 @@ function BillParts({
           >
             <label className="lt-field">
               <span>{t('payOn')}</span>
-              <input name="payOn" type="date" value={payOn} onChange={(e) => setPayOn(e.target.value)} />
+              <DateInput name="payOn" type="date" value={payOn} onChange={(e) => setPayOn(e.target.value)} />
             </label>
             {lines.map((l, i) => (
               <fieldset key={i} data-testid="bill-split-line">

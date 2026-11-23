@@ -42,7 +42,7 @@ export function QuantHistoricalRecord({ snapshot, view }: { snapshot: Historical
               </p>
             </header>
             <div className="quant-history-identity">
-              <span className="muted">
+              <span className="lt-muted">
                 <Copy k="original" />
               </span>
               <span className="quant-history-reference" lang="zxx">
@@ -80,7 +80,7 @@ export function QuantHistoricalRecord({ snapshot, view }: { snapshot: Historical
                       {displayAmount(record.data[part].notional)}
                     </strong>
                   </div>
-                  <p className="muted">
+                  <p className="lt-muted">
                     <Copy k="quote" />
                   </p>
                 </section>
@@ -116,7 +116,7 @@ export function QuantHistoricalRecord({ snapshot, view }: { snapshot: Historical
                 <p className="quant-history-reference" lang="zxx">
                   {record.data.runId}
                 </p>
-                <p className="muted">
+                <p className="lt-muted">
                   <Copy k="repeating" />
                 </p>
               </section>
@@ -127,7 +127,7 @@ export function QuantHistoricalRecord({ snapshot, view }: { snapshot: Historical
             <h3>
               <Copy k="empty" />
             </h3>
-            <p className="muted">
+            <p className="lt-muted">
               <Copy k="emptyBody" />
             </p>
           </>

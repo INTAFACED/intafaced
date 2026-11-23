@@ -2,6 +2,9 @@ import { isExplicitDevOrTest } from '@intafaced/config';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import {
+  isPartnerCardMove,
+  partnerCardHoldsAccount,
+  partnerCardNetworkAccount,
   PARTNER_PAY_INS_OWNER,
   partnerPayInsAccount,
   PARTNER_PAYOUTS_OWNER,
@@ -115,8 +118,34 @@ export interface TestPartnerRecord {
   readonly moves: readonly PartnerMove[];
 }
 
+/** One step of a card payment at the partner, as the TEST card partner instructs it. */
+export type TestPartnerCardStep = 'hold' | 'release' | 'capture' | 'refund';
+
+/**
+ * THE TEST PARTNER'S CARD FUNDS: the TEST card draws on the person's own main account at the TEST partner in the
+ * card's asset, as a partner's card does, so a card payment lowers the partner balance the person reads.
+ */
+export interface TestPartnerCardFunds {
+  /** What the person's main account in `assetId` holds now, or null when the partner holds no such account for them. */
+  available(userId: string, assetId: string): Amount | null;
+  /**
+   * One card step as one move on the partner's book under `key`: a hold from the main balance into the partner's card
+   * holds account, a release back, a capture on to its card network account, a refund back into the main balance. A key
+   * the book already holds moves nothing more.
+   */
+  move(input: {
+    readonly key: string;
+    readonly step: TestPartnerCardStep;
+    readonly userId: string;
+    readonly assetId: string;
+    readonly amount: Amount;
+  }): void;
+}
+
 export interface TestPartner {
   readonly label: string;
+  /** The TEST partner's card funds: what the TEST card partner holds from and gives back to. */
+  readonly cardFunds: TestPartnerCardFunds;
   switches(userId: string): TestPartnerSwitches;
   /** Sets some switches for one person and returns them all. Unnamed switches keep their value. */
   set(userId: string, change: Partial<TestPartnerSwitches>): TestPartnerSwitches;
@@ -211,6 +240,13 @@ export function testPartner(): TestPartner {
     label: TEST_PARTNER_LABEL,
     staleAfterMs: TEST_PARTNER_STALE_AFTER_MS,
     balance: async (account) => report(account),
+    async openCurrency(userId, assetId) {
+      if (switches(userId).down) throw partnerDown();
+      const account: PartnerAccountRef = { userId, assetId, spaceId: null };
+      // An account it already holds is the same account: adding 0 opens it once and changes no figure.
+      book.add(account, 0n);
+      return report(account);
+    },
     async balances(userId) {
       const out: PartnerBalance[] = [];
       for (const key of held.keys()) {
@@ -308,6 +344,8 @@ export function testPartner(): TestPartner {
         }
         const payIn = move.from.userId === PARTNER_PAY_INS_OWNER || move.to.userId === PARTNER_PAY_INS_OWNER;
         if (payIn && query.payIns !== true) continue;
+        // A card payment is read on the card's own list, never as a bank move (its statement still counts it).
+        if (isPartnerCardMove(move)) continue;
         if (query.assetId === undefined || move.from.assetId === query.assetId) out.push(move);
       }
       return out;
@@ -352,10 +390,11 @@ export function testPartner(): TestPartner {
       const dayStart = new Date(new Date().toISOString().slice(0, 10)).getTime();
       let used = 0n;
       for (const move of byPerson.get(userId) ?? []) {
-        // What the person sent today: money that left them, not a move between their own spaces.
+        // What the person sent today: money that left them, not a move between their own spaces, nor a card payment.
         if (
           move.from.userId === userId &&
           move.to.userId !== userId &&
+          !isPartnerCardMove(move) &&
           move.from.assetId === assetId &&
           move.movedAt.getTime() >= dayStart
         ) {
@@ -470,8 +509,22 @@ export function testPartner(): TestPartner {
     legalHold: (userId) => switches(userId).legalHold === 'held',
   });
 
+  const cardFunds: TestPartnerCardFunds = {
+    available: (userId, assetId) => held.get(accountKey({ userId, assetId, spaceId: null })) ?? null,
+    move({ key, step, userId, assetId, amount }) {
+      if (amount <= 0n || byKey.has(key)) return;
+      const main: PartnerAccountRef = { userId, assetId, spaceId: null };
+      const holds = partnerCardHoldsAccount(assetId);
+      const network = partnerCardNetworkAccount(assetId);
+      const [from, to] =
+        step === 'hold' ? [main, holds] : step === 'release' ? [holds, main] : step === 'capture' ? [holds, network] : [network, main];
+      book.transfer(key, from, to, amount);
+    },
+  };
+
   return {
     label: TEST_PARTNER_LABEL,
+    cardFunds,
     switches,
     set,
     bank,
@@ -686,13 +739,9 @@ export function assertRampFeeKnown(partner: TestPartnerDoors | null | undefined,
   }
 }
 
-/**
- * The TEST partner's account details for one person, or none: with `accountDetails: 'issued'` the TEST partner answers
- * as a banking partner would, with one set per currency labelled TEST (its bank is the TEST partner bank, and every value
- * says TEST, so nothing reads as a real account); otherwise there is no partner and the service answers `rail.bank`.
- */
-export function testPartnerAccountDetails(partner: TestPartnerDoors): (userId: string) => AccountDetailsPartner | undefined {
-  const details = (userId: string, currency: string): AccountDetailSet => ({
+/** The one set of TEST account details the TEST partner issues one person in one currency, as its own book keeps it. */
+export function testPartnerDetailSet(partner: TestPartnerDoors, userId: string, currency: string): AccountDetailSet {
+  return {
     id: `test-partner:${userId}:${currency}`,
     accountNumber: `TEST-${currency}-${userId.replace(/-/g, '').toUpperCase()}`,
     sortCode: null,
@@ -702,7 +751,16 @@ export function testPartnerAccountDetails(partner: TestPartnerDoors): (userId: s
     bic: null,
     partnerBank: partner.label,
     restrictions: ['TEST details: no real account exists and nothing can be received'],
-  });
+  };
+}
+
+/**
+ * The TEST partner's account details for one person, or none: with `accountDetails: 'issued'` the TEST partner answers
+ * as a banking partner would, with one set per currency labelled TEST (its bank is the TEST partner bank, and every value
+ * says TEST, so nothing reads as a real account); otherwise there is no partner and the service answers `rail.bank`.
+ */
+export function testPartnerAccountDetails(partner: TestPartnerDoors): (userId: string) => AccountDetailsPartner | undefined {
+  const details = (userId: string, currency: string) => testPartnerDetailSet(partner, userId, currency);
   const issued = { state: 'done' as const };
   // The partner down answers nothing, as at every other partner-held door.
   const answer = async (userId: string, currency: string) => {

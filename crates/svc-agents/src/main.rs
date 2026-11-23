@@ -1,10 +1,8 @@
 //! The svc-agents process: `svc-agents` serves; `svc-agents migrate [--down]` applies (or reverses) the agents schema's
 //! migrations.
 //!
-//! Serving starts as `services/svc-agents/src/index.ts` does, as far as the ported slices reach: the pool, the schema
-//! check, the bus, the boot upsert of the agents' guardrails, the door, then the port, then the timers. The TypeScript
-//! service stays the one that runs until the switch; until each slice is ported its calls answer "not ported" (500),
-//! and a timer whose work is not ported does not run.
+//! Serving starts as the TypeScript service's `index.ts` did: the pool, the schema check, the bus, the boot upsert of
+//! the agents' guardrails, the door, then the port, then the timers.
 
 use std::collections::BTreeMap;
 use std::process::ExitCode;
@@ -16,7 +14,9 @@ use service_kit::edge::{EdgeKey, MIN_SECRET_LENGTH};
 use service_kit::http::{Fetch, UreqFetch};
 use service_kit::json::Json;
 use service_kit::money::parse_amount;
-use service_kit::nats::{JetStream, stream_config};
+use service_kit::nats::{
+    Consumed, ConsumerSpec, Envelope, JetStream, NatsError, consume, stream_config,
+};
 use service_kit::s2s::{CallSigner, parse_keyring, s2s_from_env, system_seconds};
 use service_kit::s2s_verify::ServiceVerifier;
 use service_kit::server::{self, App};
@@ -27,9 +27,15 @@ use svc_agents::advisors::grounding::AcademyCurriculum;
 use svc_agents::advisors::portfolio::{self, LedgerBalancesHttp, TradeTickerPrices};
 use svc_agents::background;
 use svc_agents::boot;
+use svc_agents::bus::{SELF_FREEZE_APPLIED, TAKEN, on_fill_settled, on_self_freeze};
 use svc_agents::db::{self, Store};
 use svc_agents::door::{AgentsDoor, DoorConfig, ServiceAuth, system_now};
 use svc_agents::env::{self, AgentsEnv, DEFAULT_PORT};
+use svc_agents::factories::Factories;
+use svc_agents::factories::copy_intel::{LeaderFixtures, LeaderFixturesHttp, LivePlane};
+use svc_agents::factories::merchant::{PayMetrics, PayMetricsHttp};
+use svc_agents::factories::scanner::{SpotTickers, SpotTickersHttp};
+use svc_agents::factories::support::{Desk, DeskHttp};
 use svc_agents::gateway::Gateway;
 use svc_agents::gateway::desk::GatewaySlice;
 use svc_agents::gateway::providers::{
@@ -50,16 +56,21 @@ use svc_agents::navigator::ports::{IdentitySessionHttp, TradeHttp};
 use svc_agents::navigator::research::{Research, parse_uncertainty_scale, research_environment};
 use svc_agents::ops::{Ops, alerts, log as oplog};
 use svc_agents::own::Own;
+use svc_agents::own::automation::{AutoRuns, Cadence, tick_schedules};
+use svc_agents::own::background::{self as own_background, Settings as OwnBackground};
 use svc_agents::own::catalog::parse_own_templates;
+use svc_agents::own::controls::memory::Retention;
 use svc_agents::own::desk::{SupportDesk, SupportDeskHttp};
 use svc_agents::own::gates::parse_policy_baseline;
+use svc_agents::runtime::chain_balance::{ChainBalance, PaymentToken, RpcChainBalance};
 use svc_agents::runtime::eligibility::parse_tier_laws;
-use svc_agents::runtime::funds::{BalancesHttp, PersonFunds};
+use svc_agents::runtime::funds::{BalancesHttp, FUNDS_READ_DEADLINE_MS, PersonFunds};
 use svc_agents::runtime::{Rt, Runtime};
 use svc_agents::self_freeze::IdentitySelfFreezeRead;
 use svc_agents::team::Team;
 use svc_agents::team::membership::TeamMembershipHttp;
 use svc_agents::timers::{self, Timer};
+use svc_agents::webhooks::RunWebhooks;
 
 fn process_env() -> BTreeMap<String, String> {
     std::env::vars_os()
@@ -88,12 +99,71 @@ fn main() -> ExitCode {
     }
 }
 
+/// The bus's lines (`jetstream-bus.ts`): `bus.delivered` for each message handed to its work, a failure that
+/// JetStream delivers again, and `bus.message_abandoned` once `max_deliver` is spent.
+fn bus_report(log: &Logger, spec: &ConsumerSpec, c: Consumed<'_>) {
+    let at = |attempt: u64| {
+        vec![
+            ("subject", Json::str(spec.filter_subject.clone())),
+            ("durable", Json::str(spec.durable.clone())),
+            (
+                "attempt",
+                Json::int(i64::try_from(attempt).unwrap_or(i64::MAX)),
+            ),
+        ]
+    };
+    match c {
+        Consumed::Delivered { attempt } => {
+            let mut fields = vec![("event", Json::str("bus.delivered"))];
+            fields.extend(at(attempt));
+            log.info(fields, "bus delivered");
+        }
+        Consumed::Failed {
+            attempt,
+            reason,
+            abandoned: false,
+        } => {
+            let mut fields = at(attempt);
+            fields.push(("reason", Json::str(reason)));
+            log.warn(
+                fields,
+                "svc-agents bus delivery failed; JetStream delivers it again",
+            );
+        }
+        Consumed::Failed {
+            attempt,
+            reason,
+            abandoned: true,
+        } => {
+            let mut fields = vec![("event", Json::str("bus.message_abandoned"))];
+            fields.extend(at(attempt));
+            fields.push(("reason", Json::str(reason)));
+            log.error(
+                fields,
+                "event bus gave up on this message: max_deliver is spent and JetStream will not redeliver it; the \
+                 stream retains it for 90 days, to be replayed by resetting this durable consumer once the cause is fixed",
+            );
+        }
+        Consumed::Bus(e) => log.warn(
+            vec![
+                ("durable", Json::str(spec.durable.clone())),
+                ("err", Json::str(e)),
+            ],
+            "svc-agents bus pull failed; the next pull dials again",
+        ),
+    }
+}
+
 /// One timer's work, handed in by the slice that ports it.
 type Job<'a> = Box<dyn Fn() -> Result<(), String> + Sync + 'a>;
 
 /// The work each timer runs. Each comes with its slice (`timers::timers` names it); until then the timer does not run,
 /// as it would not in a process without that work.
-fn jobs<'a>(door: &'a AgentsDoor, _env: &'a AgentsEnv) -> Vec<(&'static str, Job<'a>)> {
+fn jobs<'a>(
+    door: &'a AgentsDoor,
+    env: &'a AgentsEnv,
+    log: &'a Logger,
+) -> Vec<(&'static str, Job<'a>)> {
     vec![
         (
             "route table sync",
@@ -146,9 +216,57 @@ fn jobs<'a>(door: &'a AgentsDoor, _env: &'a AgentsEnv) -> Vec<(&'static str, Job
                 advanced
             }),
         ),
+        // `runWebhooks.drain()`: every ended run's delivery, posted; one a crash left leased is posted when its lease ends.
+        (
+            "run webhooks",
+            Box::new(move || {
+                let Some(hooks) = door.webhooks() else {
+                    return Ok(());
+                };
+                let pool = door.store().pool().map_err(|e| e.to_string())?;
+                hooks
+                    .drain(pool, svc_agents::webhooks::DRAIN_BATCH)
+                    .map(|_| ())
+                    .map_err(|e| format!("run webhooks not delivered: {e}"))
+            }),
+        ),
         (
             "unpublished sweep",
             Box::new(move || svc_agents::own::notices::sweep_unpublished(door)),
+        ),
+        // `advanceBackgroundRuns(sql)`: each running background test run re-reads its agent's switches, then steps.
+        (
+            "own background test runs",
+            Box::new(move || {
+                let pool = door.store().pool().map_err(|e| e.to_string())?;
+                own_background::advance(pool, 100)
+                    .map(|_| ())
+                    .map_err(|e| format!("background test runs did not advance: {}", e.message))
+            }),
+        ),
+        // `tickSchedules(autoRuns, AGENTS_SCHEDULE_WORKERS ?? 1)`: the due-run workers.
+        (
+            "schedule workers",
+            Box::new(move || {
+                let pool = door.store().pool().map_err(|e| e.to_string())?;
+                let warn =
+                    |msg: &str, detail: &str| log.warn(vec![("detail", Json::str(detail))], msg);
+                let runs = AutoRuns {
+                    x: Rt {
+                        rt: door.runtime(),
+                        pool,
+                        gateway: &door.gateway().gateway,
+                        m: door.metering(),
+                        now: system_now(),
+                    },
+                    cadence: door.own().cadence,
+                    log: Some(&warn),
+                    pause: None,
+                };
+                tick_schedules(&runs, timers::schedule_workers(env))
+                    .map(|_| ())
+                    .map_err(|e| format!("own agent schedules did not tick: {e:?}"))
+            }),
         ),
     ]
 }
@@ -320,8 +438,8 @@ fn metering(
 }
 
 /// The runtime as `index.ts` builds it: a spend gate, the funds read as `teamFunds` over `paymentMethodFunds` (how
-/// each person pays from svc-bank while `BANK_URL` is set, else the ledger's balance; a wallet payment method is the
-/// own-controls slice's and reads unread), the transcript's retention, the overage grace and the tier laws.
+/// each person pays from svc-bank while `BANK_URL` is set, else the ledger's balance; a wallet payment method is read from
+/// the chain under one deadline), the transcript's retention, the overage grace and the tier laws.
 fn runtime(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Runtime, String> {
     let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
     let s2s = s2s_from_env(
@@ -360,6 +478,20 @@ fn runtime(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Runtime, String> {
                 signer("svc-ledger"),
                 fetch.clone(),
             )),
+            // Identity's list of a person's linked wallets; unset IDENTITY_URL reads unread.
+            wallets: env
+                .str("IDENTITY_URL")
+                .filter(|u| !u.is_empty())
+                .map(|url| {
+                    Arc::new(LinkedWalletsHttp::new(
+                        url,
+                        signer("svc-identity"),
+                        fetch.clone(),
+                    ))
+                        as Arc<dyn svc_agents::navigator::onchain::ports::LinkedWallets>
+                }),
+            chain: payment_chain(env, fetch),
+            deadline_ms: FUNDS_READ_DEADLINE_MS,
         })),
         transcript_retention_days: env.int("AGENTS_TRANSCRIPT_RETENTION_DAYS").unwrap_or(0),
         overage_grace: grace,
@@ -377,6 +509,74 @@ fn runtime(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Runtime, String> {
                 )) as Box<dyn svc_agents::self_freeze::SelfFreezeRead>
             }),
     })
+}
+
+/// The factories' live ports as \`index.ts\` builds them, each outside call signed as svc-agents (with its own key when
+/// S2S is on): svc-trade's tickers and copy leaders while \`TRADE_URL\` is set (with the owner's live leader plane), svc-pay's merchant metrics while \`PAY_URL\` is, and svc-support's desk while \`SUPPORT_URL\` is.
+fn factories(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Factories, String> {
+    let url = |k: &str| env.str(k).filter(|u| !u.is_empty());
+    let s2s = s2s_from_env(
+        env.str("S2S_AUTH_MODE").unwrap_or("off"),
+        env.str("S2S_KEYRING"),
+        env.str("S2S_SIGNING_KID"),
+        env.str("S2S_SIGNING_KEY"),
+        "svc-agents",
+    )?;
+    let keyed = match (s2s.signer, s2s.mode) {
+        (Some(signer), Some(mode)) => Some((signer, mode)),
+        _ => None,
+    };
+    let secret = env
+        .str("INTERNAL_SERVICE_SECRET")
+        .unwrap_or_default()
+        .to_owned();
+    let signer = |audience: &str| CallSigner::new("svc-agents", audience, &secret, keyed.clone());
+    Ok(Factories {
+        spot_tickers: url("TRADE_URL")
+            .map(|u| Box::new(SpotTickersHttp::new(u, fetch.clone())) as Box<dyn SpotTickers>),
+        copy_leaders: url("TRADE_URL").map(|u| {
+            Box::new(LeaderFixturesHttp::new(
+                u,
+                signer("svc-trade"),
+                fetch.clone(),
+            )) as Box<dyn LeaderFixtures>
+        }),
+        copy_leader_plane: LivePlane::from_lookup(|k| env.raw.get(k).cloned()),
+        pay_metrics: url("PAY_URL").map(|u| {
+            Box::new(PayMetricsHttp::new(u, signer("svc-pay"), fetch.clone()))
+                as Box<dyn PayMetrics>
+        }),
+        support_desk: url("SUPPORT_URL").map(|u| {
+            Box::new(DeskHttp::new(
+                u,
+                url("IDENTITY_URL"),
+                signer("svc-identity"),
+                fetch.clone(),
+            )) as Box<dyn Desk>
+        }),
+    })
+}
+
+/// The payment token's chain reader (`index.ts` `paymentChain`): all four owner values, or none, and a wallet payment
+/// method then refuses `payment_token_unset`.
+fn payment_chain(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Option<Arc<dyn ChainBalance>> {
+    let rpc_url = env
+        .str("AGENTS_PAYMENT_RPC_URL")
+        .filter(|u| !u.is_empty())?;
+    let chain_id = env.int("AGENTS_PAYMENT_CHAIN_ID")?;
+    let token_address = env
+        .str("AGENTS_PAYMENT_TOKEN_ADDRESS")
+        .filter(|a| !a.is_empty())?;
+    let token_decimals = u32::try_from(env.int("AGENTS_PAYMENT_TOKEN_DECIMALS")?).ok()?;
+    Some(Arc::new(RpcChainBalance::new(
+        PaymentToken {
+            rpc_url: rpc_url.to_owned(),
+            chain_id,
+            token_address: token_address.to_owned(),
+            token_decimals,
+        },
+        fetch.clone(),
+    )))
 }
 
 /// The navigator as `index.ts` builds it: svc-trade's public REST while `TRADE_URL` is set, svc-identity's session
@@ -519,6 +719,23 @@ fn own(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Own, String> {
         reviewer_model: env.str("AGENTS_REVIEWER_MODEL").map(str::to_owned),
         approval_ttl_seconds: env.int("AGENTS_APPROVAL_TTL_SECONDS"),
         support_desk,
+        token_lifetime_minutes: env.int("AGENTS_OWN_TOKEN_LIFETIME_MINUTES"),
+        cadence: Cadence {
+            min_interval_minutes: env.int("AGENTS_SCHEDULE_MIN_INTERVAL_MINUTES"),
+            daily_limit: env.int("AGENTS_SCHEDULE_DAILY_LIMIT"),
+        },
+        background: OwnBackground {
+            steps: env.int("AGENTS_BACKGROUND_TEST_STEPS"),
+            step_ms: env.int("AGENTS_BACKGROUND_STEP_MS"),
+        },
+        retention: Retention::from_env(|k| env.int(k)),
+        linked_wallets: identity.map(|url| {
+            Arc::new(LinkedWalletsHttp::new(
+                url,
+                signer("svc-identity"),
+                fetch.clone(),
+            )) as Arc<dyn svc_agents::navigator::onchain::ports::LinkedWallets>
+        }),
     })
 }
 
@@ -648,6 +865,22 @@ fn serve(
     })
     .map_err(|e| e.0)?;
     let bus = Arc::new(bus);
+    // `subscribeSelfFreezeApplied` and the `fillSettled` trigger consumer: each durable is made, or reconciled, before
+    // the port opens, as `subscribe` awaits it; each pulls on its own connection, so a pull never holds up a publish.
+    let consumers = TAKEN
+        .iter()
+        .map(|taken| {
+            let spec = taken.spec(&str_of("NATS_STREAM_PREFIX"));
+            let js = JetStream::connect(
+                &str_of("NATS_URL"),
+                &str_of("SERVICE_NAME"),
+                Duration::from_secs(5),
+            )?;
+            js.ensure_consumer(&spec)?;
+            Ok((*taken, spec, js))
+        })
+        .collect::<Result<Vec<_>, NatsError>>()
+        .map_err(|e| e.0)?;
     // Before the listener opens: `openSession` binds from `agent_definitions`, so a process with no rows 404s every run.
     let boot_agents = boot::boot_agents()?;
     // The founders' confirmed changes over the configured table (J-agents-20), read before the port opens.
@@ -675,7 +908,13 @@ fn serve(
         runtime,
         (advisors, team),
         &fetch,
-    )?;
+    )?
+    .with_factories(factories(env, &fetch)?)
+    // The run webhooks (J-agents-12 #5). Loopback over http is the URL guard's dev/test hatch only.
+    .with_webhooks(RunWebhooks::new(
+        matches!(env.str("APP_ENV"), Some("dev" | "test"))
+            && env.str("NODE_ENV") != Some("production"),
+    ));
 
     let app = App {
         wire: door,
@@ -709,7 +948,7 @@ fn serve(
         signal_hook::flag::register(signal, stop.clone()).map_err(|e| e.to_string())?;
     }
     let table = timers::timers(env);
-    let jobs = jobs(&app.wire, env);
+    let jobs = jobs(&app.wire, env, log);
     for t in table.iter().filter(|t| t.every.is_some()) {
         if !jobs.iter().any(|(name, _)| *name == t.name) {
             log.warn(
@@ -741,8 +980,44 @@ fn serve(
                 });
             });
         }
+        // The bus consumers: the owner's own freeze (J-wallet-13 #1), applied once under the freeze's id, and the own
+        // agents' fill triggers, run once under the fill's id. Each delivery is acked only once its work committed.
+        for (taken, spec, js) in &consumers {
+            let stop = &stop;
+            let door = &app.wire;
+            scope.spawn(move || {
+                let work = |env: &Envelope| -> Result<(), String> {
+                    let pool = door.store().pool().map_err(|e| e.to_string())?;
+                    if *taken == SELF_FREEZE_APPLIED {
+                        return on_self_freeze(pool, env);
+                    }
+                    let warn = |msg: &str, detail: &str| {
+                        log.warn(vec![("detail", Json::str(detail))], msg)
+                    };
+                    let runs = AutoRuns {
+                        x: Rt {
+                            rt: door.runtime(),
+                            pool,
+                            gateway: &door.gateway().gateway,
+                            m: door.metering(),
+                            now: system_now(),
+                        },
+                        cadence: door.own().cadence,
+                        log: Some(&warn),
+                        pause: None,
+                    };
+                    on_fill_settled(&runs, env)
+                };
+                consume(js, spec, Duration::from_secs(2), stop, &work, &|c| {
+                    bus_report(log, spec, c);
+                });
+            });
+        }
         server::serve(&server, &app, log, telemetry, &stop);
     });
+    for (_, _, js) in &consumers {
+        js.close();
+    }
     // Draining, not dropping: in-flight requests and timer runs finish before the bus and the pool close.
     drop(server);
     bus.close();

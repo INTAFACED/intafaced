@@ -1,21 +1,27 @@
 import { useState } from 'react';
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
-import { Button, DataTable, Dialog, Failure, Field, Panel } from '../../shared/ui';
-import { Read } from './common';
+import { Button } from '@intafaced/ui/lit';
+import { DataTable, Dialog, Failure, Field, Panel, Read } from './agent-room/parts';
 import { agentMemoryCopy } from './agent-memory-copy';
 import type { Failed } from './AgentGuardrails';
 import {
-  ownAgentMemorySchema,
-  ownAgentPrivacySchema,
-  ownAgentShareCheckSchema,
-  ownAgentShareSchema,
   type OwnAgent,
   type OwnAgentMemory,
   type OwnAgentPrivacy,
   type OwnAgentShare,
   type OwnAgentShareCheck,
 } from '@intafaced/contracts/agents-own';
+import {
+  AGENTS_OWN_MEMORY_GET,
+  AGENTS_OWN_MEMORY_SET_ENABLED,
+  AGENTS_OWN_MEMORY_CLEAR,
+  AGENTS_OWN_PRIVACY_GET,
+  AGENTS_OWN_PRIVACY_KEEP_TRANSCRIPTS,
+  AGENTS_OWN_SHARE_GET,
+  AGENTS_OWN_SHARE_CHECK,
+  AGENTS_OWN_SHARE_SET,
+} from '@intafaced/contracts/agents-own-procedures';
 
 /**
  * An own agent's Memory and Privacy pages and the privacy check before sharing it (AG-builder-02, AG-guardrails-04;
@@ -50,12 +56,12 @@ export function MemoryPage({ agent, onOpenRun }: { agent: OwnAgent; onOpenRun: (
   const api = useApi();
   const { t } = agentMemoryCopy.useCopy();
   const loaded = useResource(
-    (signal) => api.query('agents', 'own.memory.get', { id: agent.id, limit: 200 }, ownAgentMemorySchema, { signal }),
+    (signal) => api.call(AGENTS_OWN_MEMORY_GET, { id: agent.id, limit: 200 }, { signal }),
     `own-memory:${agent.id}`,
   );
   return (
     <Panel title={t('memoryTitle')} role="region" aria-label={t('memoryTitle')}>
-      <p className="muted">{t('memoryIntro')}</p>
+      <p className="lt-muted">{t('memoryIntro')}</p>
       <Read resource={loaded.resource} retry={loaded.reload}>
         {(stored) => <Memory agent={agent} stored={stored} onOpenRun={onOpenRun} />}
       </Read>
@@ -78,7 +84,7 @@ function Memory({ agent, stored, onOpenRun }: { agent: OwnAgent; stored: OwnAgen
     setCleared(false);
     // The switch follows the press at once; a refusal puts it back as svc-agents has it.
     setMemory({ ...memory, enabled });
-    const res = await api.mutate('agents', 'own.memory.setEnabled', { id: agent.id, enabled }, ownAgentMemorySchema);
+    const res = await api.call(AGENTS_OWN_MEMORY_SET_ENABLED, { id: agent.id, enabled });
     setBusy(false);
     if (!res.ok) {
       setMemory(before);
@@ -91,10 +97,10 @@ function Memory({ agent, stored, onOpenRun }: { agent: OwnAgent; stored: OwnAgen
     setBusy(true);
     setRefused(null);
     setCleared(false);
-    const res = await api.mutate('agents', 'own.memory.clear', { id: agent.id, itemId }, ownAgentMemorySchema);
+    const res = await api.call(AGENTS_OWN_MEMORY_CLEAR, { id: agent.id, itemId });
     if (!res.ok) {
       // Gone already (a lost reply, or another tab): read what is stored rather than act again.
-      const again = await api.query('agents', 'own.memory.get', { id: agent.id, limit: 200 }, ownAgentMemorySchema);
+      const again = await api.call(AGENTS_OWN_MEMORY_GET, { id: agent.id, limit: 200 });
       if (again.ok) setMemory(again.data);
       setBusy(false);
       return setRefused(res);
@@ -116,7 +122,7 @@ function Memory({ agent, stored, onOpenRun }: { agent: OwnAgent; stored: OwnAgen
         disabled={busy}
         onChange={(event) => void setEnabled(event.target.checked)}
       />
-      <p className="muted" data-testid="memory-state">
+      <p className="lt-muted" data-testid="memory-state">
         {t(memory.enabled ? 'memoryState_on' : 'memoryState_off')}
       </p>
       <DataTable label={t('itemsTable')} headers={[t('colItem'), t('colSource'), t('colWhen'), t('colClear')]}>
@@ -125,7 +131,7 @@ function Memory({ agent, stored, onOpenRun }: { agent: OwnAgent; stored: OwnAgen
             <td>{item.text}</td>
             <td>
               <a
-                className="text-link"
+                className="lt-link"
                 href={`#test-run-${item.sourceRunId}`}
                 data-run-id={item.sourceRunId}
                 onClick={(event) => {
@@ -138,14 +144,14 @@ function Memory({ agent, stored, onOpenRun }: { agent: OwnAgent; stored: OwnAgen
             </td>
             <td>{new Date(item.createdAt).toLocaleString()}</td>
             <td>
-              <Button variant="ghost" disabled={busy} onClick={() => void clear(item.id)}>
+              <Button tone="quiet" disabled={busy} onClick={() => void clear(item.id)}>
                 {t('clear')}
               </Button>
             </td>
           </tr>
         ))}
       </DataTable>
-      {memory.items.length === 0 ? <p className="muted">{t('noItems')}</p> : null}
+      {memory.items.length === 0 ? <p className="lt-muted">{t('noItems')}</p> : null}
       {cleared ? <p role="status">{t('cleared')}</p> : null}
       {refused ? <Refused failed={refused} /> : null}
     </>
@@ -156,13 +162,10 @@ function Memory({ agent, stored, onOpenRun }: { agent: OwnAgent; stored: OwnAgen
 export function PrivacyPage({ agent }: { agent: OwnAgent }) {
   const api = useApi();
   const { t } = agentMemoryCopy.useCopy();
-  const loaded = useResource(
-    (signal) => api.query('agents', 'own.privacy.get', { id: agent.id }, ownAgentPrivacySchema, { signal }),
-    `own-privacy:${agent.id}`,
-  );
+  const loaded = useResource((signal) => api.call(AGENTS_OWN_PRIVACY_GET, { id: agent.id }, { signal }), `own-privacy:${agent.id}`);
   return (
     <Panel title={t('privacyTitle')} role="region" aria-label={t('privacyTitle')}>
-      <p className="muted">{t('privacyIntro')}</p>
+      <p className="lt-muted">{t('privacyIntro')}</p>
       <Read resource={loaded.resource} retry={loaded.reload}>
         {(stored) => <Privacy agent={agent} stored={stored} />}
       </Read>
@@ -180,7 +183,7 @@ function Privacy({ agent, stored }: { agent: OwnAgent; stored: OwnAgentPrivacy }
   async function keepTranscripts(keep: boolean) {
     setBusy(true);
     setRefused(null);
-    const res = await api.mutate('agents', 'own.privacy.keepTranscripts', { id: agent.id, keep }, ownAgentPrivacySchema);
+    const res = await api.call(AGENTS_OWN_PRIVACY_KEEP_TRANSCRIPTS, { id: agent.id, keep });
     setBusy(false);
     if (!res.ok) return setRefused(res);
     setPrivacy(res.data);
@@ -196,7 +199,7 @@ function Privacy({ agent, stored }: { agent: OwnAgent; stored: OwnAgentPrivacy }
           </tr>
         ))}
       </DataTable>
-      <p className="muted">{t(privacy.memoryEnabled ? 'memoryState_on' : 'memoryState_off')}</p>
+      <p className="lt-muted">{t(privacy.memoryEnabled ? 'memoryState_on' : 'memoryState_off')}</p>
       <Field
         type="checkbox"
         role="switch"
@@ -219,13 +222,10 @@ function Privacy({ agent, stored }: { agent: OwnAgent; stored: OwnAgentPrivacy }
 export function ShareWithCoOwners({ agent }: { agent: OwnAgent }) {
   const api = useApi();
   const { t } = agentMemoryCopy.useCopy();
-  const loaded = useResource(
-    (signal) => api.query('agents', 'own.share.get', { id: agent.id }, ownAgentShareSchema, { signal }),
-    `own-share:${agent.id}`,
-  );
+  const loaded = useResource((signal) => api.call(AGENTS_OWN_SHARE_GET, { id: agent.id }, { signal }), `own-share:${agent.id}`);
   return (
     <Panel title={t('shareTitle')} role="region" aria-label={t('shareTitle')}>
-      <p className="muted">{t('shareIntro')}</p>
+      <p className="lt-muted">{t('shareIntro')}</p>
       <Read resource={loaded.resource} retry={loaded.reload}>
         {(stored) => <Share agent={agent} stored={stored} />}
       </Read>
@@ -246,12 +246,7 @@ function Share({ agent, stored }: { agent: OwnAgent; stored: OwnAgentShare }) {
   async function runCheck() {
     setBusy(true);
     setRefused(null);
-    const res = await api.query(
-      'agents',
-      'own.share.check',
-      { id: agent.id, includeTranscripts: transcripts, includeMemory: memory },
-      ownAgentShareCheckSchema,
-    );
+    const res = await api.call(AGENTS_OWN_SHARE_CHECK, { id: agent.id, includeTranscripts: transcripts, includeMemory: memory });
     setBusy(false);
     if (!res.ok) return setRefused(res);
     setCheck(res.data);
@@ -260,12 +255,12 @@ function Share({ agent, stored }: { agent: OwnAgent; stored: OwnAgentShare }) {
   async function confirm() {
     setBusy(true);
     setRefused(null);
-    const res = await api.mutate(
-      'agents',
-      'own.share.set',
-      { id: agent.id, includeTranscripts: transcripts, includeMemory: memory, confirmed: true },
-      ownAgentShareSchema,
-    );
+    const res = await api.call(AGENTS_OWN_SHARE_SET, {
+      id: agent.id,
+      includeTranscripts: transcripts,
+      includeMemory: memory,
+      confirmed: true,
+    });
     setBusy(false);
     setCheck(null);
     if (!res.ok) return setRefused(res);
@@ -279,13 +274,13 @@ function Share({ agent, stored }: { agent: OwnAgent; stored: OwnAgentShare }) {
         <span data-testid="share-state">{t(state)}</span>
       </p>
       {/* The page's reset gives a checkbox no size; the builder's choice class gives it one a person can tick. */}
-      <label className="agent-surface-choice">
+      <label className="lt-field">
         <input type="checkbox" checked={transcripts} onChange={(event) => setTranscripts(event.target.checked)} /> {t('includeTranscripts')}
       </label>
-      <label className="agent-surface-choice">
+      <label className="lt-field">
         <input type="checkbox" checked={memory} onChange={(event) => setMemory(event.target.checked)} /> {t('includeMemory')}
       </label>
-      <Button disabled={busy} onClick={() => void runCheck()}>
+      <Button tone="primary" disabled={busy} onClick={() => void runCheck()}>
         {t('share')}
       </Button>
       {refused ? <Refused failed={refused} /> : null}
@@ -303,10 +298,10 @@ function Share({ agent, stored }: { agent: OwnAgent; stored: OwnAgentShare }) {
           ) : (
             <p>{t('checkNothing')}</p>
           )}
-          <Button disabled={busy} onClick={() => void confirm()}>
+          <Button tone="primary" disabled={busy} onClick={() => void confirm()}>
             {t('confirmShare')}
           </Button>
-          <Button variant="secondary" onClick={() => setCheck(null)}>
+          <Button tone="secondary" onClick={() => setCheck(null)}>
             {t('cancel')}
           </Button>
         </Dialog>

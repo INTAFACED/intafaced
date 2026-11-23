@@ -6,7 +6,7 @@ import {
   INCIDENT_SEVERITY_UNKNOWN,
   INCIDENT_SEVERITIES_UNSET,
   INCIDENT_STORAGE_UNCONFIGURED,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/ops-incidents';
 import {
   OPS_ALERT_NOT_FOUND,
   OPS_ALERT_NOTE_REQUIRED,
@@ -19,44 +19,54 @@ import {
   OPS_RESOLVE_TRANSACTION_NOT_FOUND,
 } from '@intafaced/contracts/ops-reconciliation-alerts';
 import {
-  COMPLIANCE_CASE_NOT_FOUND,
-  COMPLIANCE_CASES_LIST_LIMIT_UNSET,
-  COMPLIANCE_INBOX_FORBIDDEN,
-  COMPLIANCE_QUEUE_ENTITY_UNKNOWN,
-  COMPLIANCE_QUEUE_NAME_TAKEN,
   OPS_ALERT_FORBIDDEN,
   OPS_ALERT_HISTORY_RETENTION_UNSET,
   OPS_ALERT_INTERVAL_UNSET,
   OPS_ALERT_LABELS_DUPLICATE,
   OPS_ALERT_SIGNAL_UNKNOWN,
   OPS_ALERT_THRESHOLD_UNSET,
-  OPS_COST_AMOUNT_INVALID,
-  OPS_COST_CATEGORY_INVALID,
-  OPS_COST_PERIOD_INVALID,
-  OPS_COST_STORAGE_UNCONFIGURED,
-  OPS_RESTORE_STEP_OUT_OF_ORDER,
-  OPS_RESTORE_TARGET_UNSET,
-  OPS_RESTORE_WATERMARKS_DISAGREE,
-  CONSOLE_MODE_STORAGE_UNCONFIGURED,
+} from '@intafaced/contracts/ops-alert-rules';
+import {
   OPS_CAPITAL_THRESHOLD_UNSET,
   OPS_CAPITAL_SOURCE_UNAVAILABLE,
   OPS_CAPITAL_SCENARIO_INPUT_MISSING,
   OPS_CAPITAL_VENUE_NOT_CONNECTED,
   OPS_CAPITAL_THRESHOLD_INVALID,
   OPS_CAPITAL_STORAGE_UNCONFIGURED,
+} from '@intafaced/contracts/ops-capital';
+import {
+  COMPLIANCE_CASE_NOT_FOUND,
+  COMPLIANCE_CASES_LIST_LIMIT_UNSET,
+  COMPLIANCE_INBOX_FORBIDDEN,
+  COMPLIANCE_QUEUE_ENTITY_UNKNOWN,
+  COMPLIANCE_QUEUE_NAME_TAKEN,
+} from '@intafaced/contracts/ops-compliance-cases';
+import {
   ANNOUNCEMENT_NOT_FOUND,
   ANNOUNCEMENT_STORAGE_UNCONFIGURED,
   ANNOUNCEMENT_WITHDRAWN,
   BANNER_CONFLICT,
   BANNER_WINDOW_INVALID,
+} from '@intafaced/contracts/ops-console-announcements';
+import { CONSOLE_MODE_STORAGE_UNCONFIGURED } from '@intafaced/contracts/ops-console-mode';
+import {
   PREFERENCE_INVALID,
   PREFERENCES_STORAGE_UNCONFIGURED,
   PREFERENCES_TEAM_UNASSIGNED,
   PREFERENCES_STALE,
+} from '@intafaced/contracts/ops-console-preferences';
+import {
   SERVICE_NOT_FOUND,
   SERVICE_RECORD_INVALID,
   SERVICE_RECORD_STALE,
   SERVICE_STORAGE_UNCONFIGURED,
+} from '@intafaced/contracts/ops-console-services';
+import {
+  OPS_RESTORE_STEP_OUT_OF_ORDER,
+  OPS_RESTORE_TARGET_UNSET,
+  OPS_RESTORE_WATERMARKS_DISAGREE,
+} from '@intafaced/contracts/ops-restore-watermarks';
+import {
   STAFF_HOLD_STORAGE_UNCONFIGURED,
   STAFF_HOLD_LEDGER_UNCONFIGURED,
   STAFF_HOLD_STATE_ILLEGAL,
@@ -65,7 +75,13 @@ import {
   STAFF_HOLD_EXPIRY_TOO_LONG,
   STAFF_HOLD_CONFIRM_ACCOUNT_UNSET,
   STAFF_HOLD_NOT_FOUND,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/ops-staff-holds';
+import {
+  OPS_COST_AMOUNT_INVALID,
+  OPS_COST_CATEGORY_INVALID,
+  OPS_COST_PERIOD_INVALID,
+  OPS_COST_STORAGE_UNCONFIGURED,
+} from '@intafaced/contracts/ops-venue-economics';
 
 export {
   STAFF_HOLD_STORAGE_UNCONFIGURED,
@@ -137,7 +153,12 @@ import {
   OPS_SILENCE_END_UNSET,
   OPS_SILENCE_ID_TAKEN,
   OPS_SILENCE_NOT_FOUND,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/ops-alert-notify';
+import {
+  OPS_RESTORE_ARCHIVE_UNCONFIGURED,
+  OPS_RESTORE_ARCHIVE_UNPROBED,
+  OPS_RESTORE_STORAGE_UNCONFIGURED,
+} from '@intafaced/contracts/ops-call-schemas';
 
 export {
   OPS_ALERT_CHANNEL_KEY_UNSET,
@@ -203,9 +224,6 @@ export const OPS_STRUCTURED_LIST_LIMIT_UNSET = 'ops.structured_list_limit_unset'
 export const OPS_CUSTODY_LIST_LIMIT_UNSET = 'ops.custody_list_limit_unset' as const;
 export const OPS_CUSTODY_LEDGER_UNWIRED = 'ops.custody_ledger_unwired' as const;
 export const OPS_CUSTODY_KEYS_UNPUBLISHED = 'ops.custody_keys_unpublished' as const;
-export const OPS_RESTORE_ARCHIVE_UNCONFIGURED = 'ops.restore_archive_unconfigured' as const;
-export const OPS_RESTORE_ARCHIVE_UNPROBED = 'ops.restore_archive_unprobed' as const;
-export const OPS_RESTORE_STORAGE_UNCONFIGURED = 'ops.restore_storage_unconfigured' as const;
 export const OPS_RESTORE_WATERMARK_REQUIRED = 'ops.restore_watermark_required' as const;
 /** Not in the spec's list: a service's watermark could not be read (no URL, a refusal, a timeout or a body that is not the contract). */
 export const OPS_RESTORE_WATERMARK_UNAVAILABLE = 'ops.restore_watermark_unavailable' as const;
@@ -432,3 +450,4 @@ export class OpsError extends Error {
     this.code = code;
   }
 }
+export { OPS_RESTORE_ARCHIVE_UNCONFIGURED, OPS_RESTORE_ARCHIVE_UNPROBED, OPS_RESTORE_STORAGE_UNCONFIGURED };

@@ -97,56 +97,49 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div class="lt-room" data-template="settings" data-state="refused" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<p class="eyebrow">Money / Bank</p>
-<h1>Rules and notifications</h1>
-<p class="muted">Reminders before your standing orders run, failure notices, and rules that move money by themselves.</p>
+<h1 class="lt-title">Rules and notifications</h1>
+<p class="lt-description">Reminders before your standing orders run, failure notices, and rules that move money by themselves.</p>
 </div>
-<div class="actions">
-<a class="button button--secondary" href="/bank">
-<span lang="en" dir="ltr" data-i18n="customer.money.rooms.bank.overview">Bank overview</span>
-</a>
+<div class="lt-room-action">
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </header>
-<nav data-testid="money-bank-nav" class="money-bank-nav" aria-label="Bank rooms">
-<a href="/bank">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.overview">Overview</span>
-</a>
-<a href="/bank/spaces">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.spaces">Spaces</span>
-</a>
-<a href="/bank/transfers" aria-current="page">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.transfers">Transfers</span>
-</a>
-<a href="/bank/earn">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.earn">Earn</span>
-</a>
-<a href="/bank/loans">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.loans">Loans</span>
-</a>
-<a href="/bank/cards">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.cards">Cards</span>
-</a>
-<a href="/bank/ramps">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.ramps">Ramps</span>
-</a>
-<a href="/bank/analytics">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.analytics">Analytics</span>
-</a>
-<a href="/bank/business">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.business">Business</span>
-</a>
+<div class="lt-room-section">
+<div data-testid="money-bank-nav">
+<p class="lt-hint">
+<span lang="en" dir="ltr" data-i18n="customer.money.rooms.money.bank">Money / Bank</span>
+</p>
+<nav class="lt-tabs" aria-label="Bank rooms" data-region="section-tabs">
+<a href="/bank" class="lt-tab">Overview</a>
+<a href="/bank/spaces" class="lt-tab">Spaces</a>
+<a href="/bank/transfers" class="lt-tab">Transfers</a>
+<a href="/bank/earn" class="lt-tab">Earn</a>
+<a href="/bank/loans" class="lt-tab">Loans</a>
+<a href="/bank/cards" class="lt-tab">Cards</a>
+<a href="/bank/ramps" class="lt-tab">Ramps</a>
+<a href="/bank/analytics" class="lt-tab">Analytics</a>
+<a href="/bank/business" class="lt-tab">Business</a>
 </nav>
-<div data-testid="failure" class="failure" role="status">
-<h3>
-<span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
-<span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
-</button>
+</div>
+</div>
+<div class="lt-body">
+<div class="lt-grid lt-grid-settings">
+<section class="lt-region" data-region="index" aria-label="Sections">
+<a class="lt-link" href="/bank/transfers">Back to transfers</a>
+</section>
+<section class="lt-region" data-region="sections" aria-label="Settings" data-holds-state="">
+<div class="lt-refusal" data-refusal="unreachable" role="alert">
+<p class="lt-refusal-title">Can’t connect right now</p>
+<p class="lt-refusal-body">No services run in the look gate.</p>
+</div>
+</section>
+<section class="lt-region" data-region="explain" aria-label="What this means">
+<p>A reminder rule says how long before each standing order runs you hear about it; a run that fails is always noticed, with no rule. Both are sent on the channels your notification choices allow. A rule that moves money by itself is refused: the bank has not published its terms.</p>
+</section>
+</div>
 </div>
 </div>
 </div>
