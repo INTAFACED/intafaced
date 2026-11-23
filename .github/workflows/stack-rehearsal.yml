@@ -71,6 +71,16 @@ jobs:
       - name: Every container is healthy
         run: tooling/infra/compose-health.sh 90 -f docker-compose.apps.yml
 
+      # The edge keeps its operator kill-switch in a state file, and a missing file halts every module (fail-closed,
+      # services/svc-edge/src/kill-switch.ts). `{ "killed": [] }` is the recorded all-on state an operator writes on a
+      # new host; the rehearsal writes it the same way, restarts the edge to read it, and waits for it again.
+      - name: The operator records every module on
+        run: |
+          set -euo pipefail
+          $COMPOSE exec -T svc-edge sh -c 'p="${EDGE_KILL_STATE_PATH}"; mkdir -p "$(dirname "$p")" && printf "%s" "{\"killed\":[]}" > "$p"'
+          $COMPOSE restart svc-edge
+          tooling/infra/compose-health.sh 30 -f docker-compose.apps.yml
+
       - name: Sign-in smoke through the customer site
         run: |
           set -euo pipefail
