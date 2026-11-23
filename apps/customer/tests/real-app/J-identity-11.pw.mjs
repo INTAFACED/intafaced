@@ -38,7 +38,7 @@ async function ownVenueAccount() {
  * The USDC the desk shows for the person's connected wallet, read on a device of its own, and the TEST venue's own record
  * of the same account: they must agree. Returns the venue's figure.
  */
-async function deskAgreesWithVenue(browser, who, venueAcct) {
+async function deskAgreesWithVenue(browser, who, own) {
   const context = await browser.newContext();
   try {
     const page = await context.newPage();
@@ -52,7 +52,7 @@ async function deskAgreesWithVenue(browser, who, venueAcct) {
 }
 
 /** The account as the TEST venue itself records it: still exactly what the person put in, with no order resting on it. */
-async function venueUntouched(venueAcct) {
+async function venueUntouched(own) {
   const venue = await venueBalance(own.owner, 'USDC');
   expect(sameDecimal(venue.total, HELD), JSON.stringify(venue)).toBe(true);
   expect(sameDecimal(venue.locked, '0'), JSON.stringify(venue)).toBe(true);
