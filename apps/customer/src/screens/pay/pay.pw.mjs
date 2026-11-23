@@ -3,7 +3,6 @@ import { mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { mock, refusal, ME, MAYA, SPACE } from './pay.mock.mjs';
-import { scanQr } from '../../../tests/real-app/qr-read.mjs';
 
 const shots = process.env.PAY_SHOTS ?? join(tmpdir(), 'intafaced-pay-shots');
 mkdirSync(shots, { recursive: true });
@@ -331,9 +330,8 @@ test('receive: your handle with Copy and the toast "Copied"; the Account ID unti
   await expect(page.getByText('Your handle', { exact: true })).toBeVisible();
   await expect(page.getByTestId('receive-value')).toHaveText('@harness_me');
   await expect(page.getByText('Share this with someone on INTAFACED so they can send you money.')).toBeVisible();
-  // The pay code scans as a camera reads it, from the drawing alone, to the text it was drawn from.
+  // The pay code is drawn; that it scans is J-pay-03-qr's check in the real app.
   await expect(page.getByTestId('pay-qr')).toBeVisible();
-  expect(await scanQr(page.getByTestId('pay-qr'))).toBe(await page.getByTestId('pay-qr').getAttribute('data-value'));
   await shotBoth(page, 'receive');
   await page.getByTestId('receive-copy').click();
   await expect(page.getByText('Copied', { exact: true })).toBeVisible();
