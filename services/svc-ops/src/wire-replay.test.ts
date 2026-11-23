@@ -19,6 +19,9 @@ import { SqlConsoleModeStore } from './console-mode/store.js';
 import { StaffHoldDesk } from './staff-holds/desk.js';
 import { createStaffHoldLedger } from './staff-holds/ledger.js';
 import { SqlStaffHoldStore } from './staff-holds/store.js';
+import { LedgerReversalDesk } from './ledger-reversals/desk.js';
+import { createReversalLedger } from './ledger-reversals/ledger.js';
+import { SqlReversalStore } from './ledger-reversals/store.js';
 import { SqlAnnouncementStore } from './console-announcements/store.js';
 import { SqlPreferenceStore } from './console-preferences/store.js';
 import { SqlServiceRecordStore } from './service-records/store.js';
@@ -195,6 +198,13 @@ async function composeAsIndex(env: OpsEnv, sqlUrl: string | null) {
     now: () => new Date(),
     onWorkerError: () => undefined,
   });
+  const ledgerReversals = new LedgerReversalDesk({
+    store: crmSql ? new SqlReversalStore(crmSql) : undefined,
+    ledger: createReversalLedger({ ledgerUrl: env.LEDGER_URL, secret: env.INTERNAL_SERVICE_SECRET, ...(s2sKey ? { s2s: s2sKey } : {}) }),
+    approvals: approvalConsumer,
+    now: () => new Date(),
+    onWorkerError: () => undefined,
+  });
   const protocolReasonCodes = env.OPS_PROTOCOL_REASON_CODES
     ? env.OPS_PROTOCOL_REASON_CODES.split(',')
         .map((code) => code.trim())
@@ -263,6 +273,7 @@ async function composeAsIndex(env: OpsEnv, sqlUrl: string | null) {
       incidents: crmSql ? new SqlIncidentStore(crmSql) : undefined,
       incidentSeverities: parseIncidentSeverities(env.OPS_INCIDENT_SEVERITIES),
       staffHolds,
+      ledgerReversals,
       homeConfig: homeConfigFromEnv(env),
       valuationPrices: valuationPricesFromEnv(env.OPS_VALUATION_TEST_PRICES, {
         APP_ENV: process.env.APP_ENV,

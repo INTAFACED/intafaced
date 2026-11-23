@@ -148,7 +148,7 @@ export function StrategyTab({
     <div className="lt-stack">
       <p className="lt-hint">{t('Strategy intro')}</p>
 
-      <section aria-label={t('Presets')} className="flex flex-wrap items-end gap-3">
+      <section aria-label={t('Presets')} className="lt-field-row">
         <Field density="dense" label={t('Preset')}>
           <Select
             items={Object.fromEntries(PRESET_IDS.map((id) => [id, t(`Preset ${id}`)]))}
@@ -185,7 +185,7 @@ export function StrategyTab({
       </section>
 
       {legs.length === 0 ? <p className="lt-hint">{t('No legs')}</p> : null}
-      <ul className="m-0 flex list-none flex-col gap-2 p-0">
+      <ul className="lt-list">
         {legs.map((leg, i) => {
           const g = greeks?.[i];
           return (
@@ -288,7 +288,7 @@ export function StrategyTab({
       <section aria-label={t('Greeks')} className="lt-stack">
         <h3 className="m-0 text-md font-medium text-fg">{t('Greeks')}</h3>
         <p className="lt-hint">{t('Greeks intro')}</p>
-        <div className="flex flex-wrap items-end gap-3">
+        <div className="lt-field-row">
           <Field density="dense" label={t('Contract size')} hint={t('Contract size hint')}>
             <Input kind="decimal" precision={8} value={multiplier} onValueChange={setMultiplier} className="w-24" />
           </Field>

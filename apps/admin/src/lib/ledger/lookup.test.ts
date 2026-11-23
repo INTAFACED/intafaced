@@ -40,6 +40,8 @@ const tx = {
       balanceAfter: '25.5',
     },
   ],
+  reversedBy: null,
+  reverses: null,
 };
 
 describe('lookupQuery', () => {
@@ -93,6 +95,24 @@ describe('parseLookupAnswer', () => {
     ).toBeNull();
     // No event record and no booking time are honest absences, shown as such.
     expect(parseLookupAnswer({ txId: TX }, { ...tx, booking: { seq: '42', bookedAt: null, reference: null, event: null } })).not.toBeNull();
+  });
+});
+
+describe('the reversal links (OPS-ledger-desk-02)', () => {
+  const REV = '55555555-5555-4555-8555-555555555555';
+  it('reads who reversed a transaction and what a reversal reverses, lower-cased; absent from an older ledger is no link', () => {
+    const reversed = parseLookupAnswer({ txId: TX }, { ...tx, reversedBy: REV.toUpperCase() });
+    expect(reversed?.found && reversed.transaction.reversedBy).toBe(REV);
+    const reversal = parseLookupAnswer({ txId: TX }, { ...tx, reverses: REV });
+    expect(reversal?.found && reversal.transaction.reverses).toBe(REV);
+    const { reversedBy: _r, reverses: _s, ...older } = tx;
+    const plain = parseLookupAnswer({ txId: TX }, older);
+    expect(plain?.found && [plain.transaction.reversedBy, plain.transaction.reverses]).toEqual([null, null]);
+  });
+
+  it('refuses a link that is not a transaction id', () => {
+    expect(parseLookupAnswer({ txId: TX }, { ...tx, reversedBy: 'tx-1' })).toBeNull();
+    expect(parseLookupAnswer({ txId: TX }, { ...tx, reverses: 7 })).toBeNull();
   });
 });
 

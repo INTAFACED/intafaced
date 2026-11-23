@@ -102,7 +102,7 @@ export function AlgoTab({
       <div className="lt-stack">
         {capability && !capability.createEnabled ? <Why>{t('Create off banner')}</Why> : null}
         {capability && !capability.jobsEnabled ? <Why>{t('Scheduler off banner')}</Why> : null}
-        <div className="flex flex-wrap items-end gap-2">
+        <div className="lt-field-row">
           <Field label={t('Open by id')} hint={t('Any schedule id you have, for example from another device')} className="min-w-64 flex-1">
             <Input
               aria-label={t('Open by id')}

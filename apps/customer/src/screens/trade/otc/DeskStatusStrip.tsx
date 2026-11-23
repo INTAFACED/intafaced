@@ -73,7 +73,7 @@ export function DeskStatusStrip({ desk }: { desk: Loadable<DeskStatus> }) {
         why={level ? t('Level on reason') : t('Level off reason')}
       />
       <section aria-label={t('Assets on the desk')} className="flex min-w-0 flex-col gap-0.5">
-        <div className="text-sm text-fg-2">{t('Assets on the desk')}</div>
+        <div className="lt-hint">{t('Assets on the desk')}</div>
         {assets?.length ? (
           <ul className="m-0 flex list-none flex-wrap gap-1.5 p-0">
             {assets.map((asset) => (
