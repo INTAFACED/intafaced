@@ -19,8 +19,8 @@ vi.mock('./pnl-source', async (original) => ({
   },
 }));
 
-import { ValueOverTimeCards } from './ValueOverTime';
-import { PnlOverTimeCards } from './PnlOverTime';
+import { ValueOverTimeCards } from './pnl/ValueOverTime';
+import { PnlOverTimeCards } from './pnl/PnlOverTime';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let host: HTMLDivElement;

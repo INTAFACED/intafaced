@@ -26,15 +26,15 @@ export function OfferSettlement({ offer, label }: { offer: Offer; label: (method
   const slow = offer.nonInstantMethods ?? [];
   if (slow.length === 0) return null;
   return (
-    <span className="stack" data-testid="offer-settlement">
+    <span className="lt-stack" data-testid="offer-settlement">
       {slow.map((entry) => (
-        <span key={entry.methodId} className="muted">
+        <span key={entry.methodId} className="lt-hint">
           {entry.windowSeconds === null
             ? t('nonInstantBlank', { method: label(entry.methodId) })
             : t('nonInstant', { method: label(entry.methodId), window: windowText(entry.windowSeconds) })}
         </span>
       ))}
-      {offer.acceptsNonInstant ? <span className="muted">{t('consent')}</span> : null}
+      {offer.acceptsNonInstant ? <span className="lt-hint">{t('consent')}</span> : null}
     </span>
   );
 }
@@ -46,7 +46,7 @@ export function TakeSettlementNotice({ offer, method }: { offer: Offer; method: 
   const entry = (offer.nonInstantMethods ?? []).find((item) => item.methodId === method.toLowerCase());
   if (!entry) return null;
   return (
-    <p className="muted" role="note" data-testid="take-settlement">
+    <p className="lt-hint" role="note" data-testid="take-settlement">
       {entry.windowSeconds === null ? t('takeNoticeBlank') : t('takeNotice', { window: windowText(entry.windowSeconds) })}
     </p>
   );
@@ -59,7 +59,7 @@ export function OrderSettlement({ trade }: { trade: Trade }) {
   const settlement = trade.settlement;
   if (!settlement || settlement.instant) return null;
   return (
-    <p className="muted" data-testid="order-settlement">
+    <p className="lt-hint" data-testid="order-settlement">
       {settlement.windowSeconds === null ? t('orderBlank') : t('order', { window: windowText(settlement.windowSeconds) })}
     </p>
   );

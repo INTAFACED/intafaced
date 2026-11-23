@@ -3,28 +3,13 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { Button } from './index.js';
-import { FormField, Input, Stat } from './controls.js';
+import { Button, Segmented } from './index.js';
+import { Stat, type MenuItemSpec } from './controls.js';
 
 const html = (el: React.ReactElement) => renderToStaticMarkup(el);
 const css = readFileSync(join(fileURLToPath(new URL('.', import.meta.url)), '../templates/templates.css'), 'utf8');
 
-describe('the desk form parts', () => {
-  it('ties the label, hint and error to the input inside a FormField', () => {
-    const out = html(
-      <FormField label="Margin amount" hint="Free 10 USDT" error="Too much">
-        <Input kind="decimal" value="1.5" onValueChange={() => {}} precision={8} trailing="USDT" />
-      </FormField>,
-    );
-    expect(out).toContain('Margin amount');
-    expect(out).toMatch(/aria-invalid="true"/);
-    expect(out).toMatch(/aria-describedby="[^"]*-hint [^"]*-error"/);
-    expect(out).toContain('inputMode="decimal"');
-    expect(out).toContain('value="1.5"');
-    expect(out).toContain('USDT');
-    expect(out).toContain('role="alert"');
-  });
-
+describe('the desk overlay parts', () => {
   it('a busy button says so and stays focusable', () => {
     const out = html(<Button busy>Save</Button>);
     expect(out).toContain('aria-busy="true"');
@@ -33,7 +18,9 @@ describe('the desk form parts', () => {
   });
 
   it('their styles read only lit roles and logical sides', () => {
-    const block = css.slice(css.indexOf('/* ---- form and overlay parts'));
+    const at = css.indexOf('/* ---- overlay parts (components/controls.tsx');
+    expect(at).toBeGreaterThan(0);
+    const block = css.slice(at);
     expect(block).not.toMatch(/#[0-9a-f]{3,8}\b|rgb\(|\bpx\b/i);
     expect(block).not.toMatch(/\b(left|right|top|bottom)\s*:/);
   });
@@ -62,5 +49,41 @@ describe('the headline figure', () => {
     expect(money).toContain('<span dir="ltr" data-ltr="">4,100 USDT</span>');
     expect(html(<Stat label="Margin posted" value={null} money />)).toContain('data-slot="money"');
     expect(html(<Stat label="Open positions" value="3" />)).not.toContain('data-slot="money"');
+  });
+});
+
+describe('choices listed but not open now', () => {
+  it('a Segmented option can be listed and disabled, and the others stay pressable', () => {
+    const out = html(
+      <Segmented
+        label="Order type"
+        value="market"
+        onChange={() => undefined}
+        options={[
+          { value: 'market', label: 'Market' },
+          { value: 'limit', label: 'Limit', disabled: true },
+        ]}
+      />,
+    );
+    expect(out).toContain('role="group" aria-label="Order type"');
+    expect(out).toContain('<button type="button" aria-pressed="true">Market</button>');
+    expect(out).toContain('<button type="button" aria-pressed="false" disabled="">Limit</button>');
+  });
+
+  it('a Menu item may carry its reason on a second line', () => {
+    const item: MenuItemSpec = {
+      key: 'twap',
+      disabled: true,
+      onSelect: () => undefined,
+      label: (
+        <span className="lt-stack-tight">
+          <span>TWAP</span>
+          <span className="lt-note">Not offered on this book</span>
+        </span>
+      ),
+    };
+    expect(html(<>{item.label}</>)).toBe(
+      '<span class="lt-stack-tight"><span>TWAP</span><span class="lt-note">Not offered on this book</span></span>',
+    );
   });
 });

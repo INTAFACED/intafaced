@@ -1,12 +1,15 @@
 import type { Sql } from 'postgres';
 import { z } from 'zod';
-import { payAmountStringSchema } from '@intafaced/contracts/merchant-control';
 import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { PERMISSION_AREAS, SubMerchantError, refuseSubMerchantWithoutConsent, type SubMerchantService } from './submerchants.js';
 import { readSubMerchantSummary } from './merchant-portal/summary.js';
-import { MAX_FEE_BPS } from './fee-bps-bound.js';
-import { subMerchantView, areaSchema, permissionEventView } from '@intafaced/contracts/pay-call-schemas';
-import { PAY_SUBMERCHANT_LIST, PAY_SUBMERCHANT_GET } from '@intafaced/contracts/pay-submerchant-procedures';
+import { areaSchema, permissionEventView } from '@intafaced/contracts/pay-call-schemas';
+import {
+  PAY_SUBMERCHANT_LIST,
+  PAY_SUBMERCHANT_GET,
+  PAY_SUBMERCHANT_CREATE,
+  PAY_SUBMERCHANT_SUMMARY,
+} from '@intafaced/contracts/pay-submerchant-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { payRefusal } from './record-refusal.js';
 import {
@@ -14,60 +17,6 @@ import {
   PAY_SUBMERCHANT_PERMISSION_LIST,
   PAY_SUBMERCHANT_PERMISSION_HISTORY,
 } from '@intafaced/contracts/pay-submerchant-permission-procedures';
-
-const summaryPayment = z
-  .object({
-    id: z.string().guid(),
-    status: z.string(),
-    amount: payAmountStringSchema,
-    assetId: z.string(),
-    createdAt: z.string().datetime({ offset: true }),
-  })
-  .strict();
-
-const subMerchantSummaryView = subMerchantView
-  .extend({
-    displayName: z.string().nullable(),
-    legalName: z.string().nullable(),
-    /** Null when the caller does not hold `payment`. Empty items means none in the window. */
-    volume: z
-      .object({
-        window: z.object({ kind: z.literal('preset'), preset: z.literal('rolling_30d') }).strict(),
-        items: z.array(
-          z
-            .object({
-              assetCode: z.string(),
-              volume: payAmountStringSchema,
-              count: z.number().int().min(0),
-            })
-            .strict(),
-        ),
-      })
-      .strict()
-      .nullable(),
-    recentPayments: z
-      .object({
-        items: z.array(summaryPayment),
-        nextCursor: z.string().nullable(),
-      })
-      .strict()
-      .nullable(),
-    /** Null when the caller does not hold `permission`. Implicit root authority is not listed. */
-    grants: z
-      .object({
-        items: z.array(
-          z
-            .object({
-              area: z.string(),
-              granteeMerchantId: z.string().guid(),
-            })
-            .strict(),
-        ),
-      })
-      .strict()
-      .nullable(),
-  })
-  .strict();
 
 /**
  * The narrow slice of `PayService` this router needs: the principal's own
@@ -171,24 +120,9 @@ export function createSubMerchantRouter(subMerchants: SubMerchantService, mercha
        * construction, and letting a caller choose would let them create a
        * sub-merchant that claims to be a standalone gateway merchant.
        */
-      create: scopedProcedure('pay:write', { module: 'pay' })
-        .input(
-          z.object({
-            parentMerchantId: z.string().guid(),
-            userId: z.string().min(1).max(128),
-            pricing: z.object({ feeBps: z.number().int().min(0).max(MAX_FEE_BPS) }),
-            /**
-             * Optional, and `'self'` is the only accepted value today. It is on
-             * the wire rather than hidden so a caller that needs a sponsor gets
-             * the honest refusal by name instead of silently being settled to
-             * themselves. See `SETTLING_PARTY_SELF`.
-             */
-            settlingParty: z.string().min(1).max(64).optional(),
-            settlementPrefs: z.record(z.string(), z.unknown()).optional(),
-          }),
-        )
-        .output(subMerchantView)
-        .mutation(({ ctx, input }) =>
+      create: mountRecord(
+        PAY_SUBMERCHANT_CREATE,
+        ({ ctx, input }) =>
           wrap(async () => {
             refuseSubMerchantWithoutConsent();
             const actorMerchantId = await actor(ctx.principal?.userId);
@@ -206,7 +140,8 @@ export function createSubMerchantRouter(subMerchants: SubMerchantService, mercha
             });
             return { ...record, createdAt: record.createdAt.toISOString() };
           }),
-        ),
+        payRefusal,
+      ),
 
       /** Direct children of a node the caller can reach. Requires `submerchant`. */
       list: mountRecord(
@@ -237,19 +172,9 @@ export function createSubMerchantRouter(subMerchants: SubMerchantService, mercha
        * Volume and recent payments are present only with `payment`. Grants are
        * present only with `permission`. A missing area is null.
        */
-      summary: scopedProcedure('pay:read', { module: 'pay' })
-        .input(
-          z
-            .object({
-              merchantId: z.string().guid(),
-              recentPaymentsLimit: z.number().int().min(1).max(200).optional(),
-              grantsLimit: z.number().int().min(1).max(200).optional(),
-              recentPaymentsCursor: z.string().min(1).max(300).optional(),
-            })
-            .strict(),
-        )
-        .output(subMerchantSummaryView)
-        .query(({ ctx, input }) =>
+      summary: mountRecord(
+        PAY_SUBMERCHANT_SUMMARY,
+        ({ ctx, input }) =>
           wrap(async () => {
             if (!sql) {
               throw new SubMerchantError('Sub-merchant summary has no database', 'pay.submerchant_summary_unavailable');
@@ -257,7 +182,8 @@ export function createSubMerchantRouter(subMerchants: SubMerchantService, mercha
             const actorMerchantId = await actor(ctx.principal?.userId);
             return readSubMerchantSummary(sql, subMerchants, actorMerchantId, input);
           }),
-        ),
+        payRefusal,
+      ),
     }),
 
     submerchantPermission: router({

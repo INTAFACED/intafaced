@@ -87,7 +87,7 @@ export function LeadDesk({ api }: { api: RoomApi }) {
           }
         />
         <form
-          className="cb-action-row"
+          className="lt-actions"
           onSubmit={(event) => {
             event.preventDefault();
             void askShare();
@@ -113,9 +113,9 @@ export function LeadDesk({ api }: { api: RoomApi }) {
             { label: t('Listing'), value: level.data ? (level.data.leaderRef ?? t('You are not a listed leader')) : null },
           ]}
         />
-        <p className="muted">{t('Maximum ratio: not set by the platform')}</p>
+        <p className="lt-muted">{t('Maximum ratio: not set by the platform')}</p>
         <form
-          className="cb-action-row"
+          className="lt-actions"
           onSubmit={(event) => {
             event.preventDefault();
             void askRatio();

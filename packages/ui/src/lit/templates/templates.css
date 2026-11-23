@@ -153,6 +153,16 @@
   display: none;
 }
 
+/* A room with nothing in its side column gives the main column the whole width, never an empty third. */
+.lt-grid-main-side:has(> .lt-col-side:empty) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* A region whose part drew nothing (a banner with nothing to say) draws no empty box. */
+.lt-region:empty {
+  display: none;
+}
+
 .lt-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -231,6 +241,13 @@
 
 /* ---- the desk: explicit areas for every panel ---- */
 
+/* A desk screen sits straight in the app's main, with no page around it: its own gutter keeps the title and the panels
+   off the window's edge. A desk inside a page (a feature room) already has the page's. */
+.lt-room[data-template='desk']:not(.page .lt-room) {
+  padding-inline: var(--lit-gap-item);
+  padding-block-end: var(--lit-gap-section);
+}
+
 .lt-desk {
   display: grid;
   gap: var(--lit-gap-item);
@@ -286,6 +303,14 @@
       'chart ticket'
       'orders orders';
   }
+  /* A desk whose main area has nothing to show (margin before sign-in): its ticket and orders share the width side by
+     side, never a wide empty column beside a narrow one. */
+  .lt-desk[data-desk='pro']:not(:has(> [data-region='pairs'], > [data-region='book'], > [data-region='tape'], > [data-region='chart'])) {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas:
+      'instrument instrument'
+      'ticket orders';
+  }
   /* A chart desk (the charts workbench): the charts and the markets list beside them, no book, trades or ticket. */
   .lt-desk[data-desk='pro']:has(> [data-region='pairs']):not(
       :has(> [data-region='book'], > [data-region='tape'], > [data-region='ticket'])
@@ -301,6 +326,45 @@
     grid-template-areas:
       'instrument instrument'
       'chart ticket';
+  }
+}
+
+/* A chart desk (the charts workbench) on a computer is a working surface, as it was before Volt: drawn at the pro
+   density whatever the person's mode, each field's label beside its control, and its plot at the workbench's working
+   height (260 px), so the plot opens on the first screen and a study pane never squeezes the price pane to a sliver. On
+   a phone it keeps the kit's stacked fields. */
+@container room (min-width: 1024px) {
+  .lt-desk[data-desk='pro']:has(> [data-region='pairs']):not(
+      :has(> :is([data-region='book'], [data-region='tape'], [data-region='ticket']))
+    ) {
+    --lit-gap-section: 1rem;
+    --lit-gap-item: 0.5rem;
+    --lit-pad-panel: 0.875rem;
+    --lit-row-h: 2.5rem;
+    --lit-control-h: 2.25rem;
+  }
+  .lt-desk[data-desk='pro']:has(> [data-region='pairs']):not(
+      :has(> :is([data-region='book'], [data-region='tape'], [data-region='ticket']))
+    )
+    :is(.lt-toolbar, .lt-row)
+    > .lt-field:not(:has(> input:is([type='checkbox'], [type='radio']))) {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--lit-gap-item);
+  }
+  .lt-desk[data-desk='pro']:has(> [data-region='pairs']):not(
+      :has(> :is([data-region='book'], [data-region='tape'], [data-region='ticket']))
+    )
+    > [data-region='chart']
+    .lt-button {
+    min-block-size: var(--lit-control-h);
+  }
+  .lt-desk[data-desk='pro']:has(> [data-region='pairs']):not(
+      :has(> :is([data-region='book'], [data-region='tape'], [data-region='ticket']))
+    )
+    > [data-region='chart']
+    .lt-chart-stage {
+    min-block-size: 18.75rem;
   }
 }
 
@@ -366,6 +430,12 @@
 }
 .lt-ghost[data-ghost='text'] .lt-ghost-item {
   block-size: 1em;
+  /* A line of words has a width even where nothing around it gives one (a row's end, a figure beside its label). */
+  min-inline-size: 5em;
+}
+/* A figure still on its way is one figure line tall, so the figure takes its place without moving what is below. */
+.lt-figure > .lt-ghost[data-ghost='text'] .lt-ghost-item {
+  block-size: var(--lit-type-figure-line);
 }
 .lt-ghost[data-ghost='text'] .lt-ghost-item:last-child {
   inline-size: 70%;
@@ -382,7 +452,43 @@
 }
 .lt-ghost[data-ghost='keys'] .lt-ghost-item {
   flex: 1;
-  block-size: 3.5rem;
+  /* The keys' own height, so the keys take the placeholders' place without moving what is below. */
+  block-size: var(--lit-control-h);
+}
+
+/* A row of equal tiles, loading or loaded (Home's market cards): a fixed number of columns, two in a narrow room and
+   four from a mid-size one, each row at least one market tile tall (its name line, its trend line, its price line, the
+   change that falls under the price on a narrow tile, and its key), so the grid placeholders and the tiles take one
+   shape and nothing below moves when the data arrives. The placeholders are the kit's grid ghost, laid straight into
+   the row. */
+.lt-tiles {
+  display: grid;
+  gap: var(--lit-gap-item);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: minmax(
+    calc(var(--lit-type-body-line) * 2 + 3.5rem + var(--lit-type-figure-line) + var(--lit-control-h) + var(--lit-gap-item) * 2),
+    auto
+  );
+}
+.lt-tiles > .lt-ghost {
+  display: contents;
+}
+.lt-tiles > .lt-ghost[data-ghost] .lt-ghost-item {
+  block-size: auto;
+}
+@container room (min-width: 640px) {
+  .lt-tiles {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* A hero region that reserves its height (Region's `reserve`): its content, the loading ghost or the loaded figure,
+   keeps room for the label row, the figure's ghost and the given hint lines, so nothing below it moves. */
+.lt-region[data-reserve] > * {
+  min-block-size: calc(
+    var(--lit-control-h) + var(--lit-type-hero-size) * 1.6 + var(--lt-reserve) * var(--lit-type-body-line) + (var(--lt-reserve) + 1) *
+      var(--lit-gap-item)
+  );
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -430,11 +536,9 @@
   min-block-size: 2.25rem;
 }
 @container room (min-width: 1024px) {
-  /* On a computer the index is a column beside the sections, so a row of tabs stands as a column, never cut off. */
+  /* On a computer the index is a column beside the sections, so a row of tabs stands as a column. */
   .lt-grid-settings > [data-region='index'] .lt-tabs {
     flex-direction: column;
-    overflow-x: visible;
-    animation: none;
   }
   .lt-grid-settings > .lt-gate-area {
     grid-column: 2 / -1;
@@ -626,6 +730,19 @@
 }
 .lt-arrow-out {
   --lt-arrow-shape: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M7 5h12v12h-2V8.4L6.4 19 5 17.6 15.6 7H7z'/%3E%3C/svg%3E");
+}
+/* Up and down, beside a change: a triangle that points the way the figure moved (never colour alone). */
+.lt-arrow-up {
+  --lt-arrow-shape: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 5l8 13H4z'/%3E%3C/svg%3E");
+  inline-size: 0.7em;
+  block-size: 0.7em;
+  vertical-align: 0;
+}
+.lt-arrow-down {
+  --lt-arrow-shape: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 19L4 6h16z'/%3E%3C/svg%3E");
+  inline-size: 0.7em;
+  block-size: 0.7em;
+  vertical-align: 0;
 }
 .lt-arrow-go:dir(rtl),
 .lt-arrow-back:dir(rtl) {
@@ -1018,16 +1135,16 @@
   font-weight: 400;
 }
 
+/* A row of tabs wraps onto a second line rather than scrolling, so on a phone or at large text every tab stays in view
+   and whole: none sits under a fade or past the edge. */
 .lt-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: calc(var(--lit-gap-item) / 2);
-  overflow-x: auto;
-  scrollbar-width: none;
 }
-/* A row that scrolls (tabs, a room's section index: add lt-scroll-row) fades at its far end until it is scrolled
-   there, so a cut tab reads as "more", not as broken. The timeline is inactive when nothing overflows, so a row
-   that fits never fades. */
-.lt-tabs,
+/* A row that scrolls (a room's section index: add lt-scroll-row) fades at its far end until it is scrolled there, so a
+   cut link reads as "more", not as broken. The timeline is inactive when nothing overflows, so a row that fits never
+   fades. */
 .lt-scroll-row {
   animation: lt-tabs-more linear both;
   animation-timeline: scroll(self inline);
@@ -1041,7 +1158,6 @@
     mask-image: none;
   }
 }
-[dir='rtl'] .lt-tabs,
 [dir='rtl'] .lt-scroll-row {
   animation-name: lt-tabs-more-rtl;
 }
@@ -1066,8 +1182,12 @@
   border-radius: 999px; /* look-drift-allow: a full pill at any height; no radius role is fully round */
   color: var(--lit-text-2);
   text-decoration: none;
-  white-space: nowrap;
   border: 1px solid var(--lit-line);
+  /* A tab keeps its width and never squeezes over its neighbour: the row wraps instead (.lt-tabs). One line while it
+     fits; a label longer than the whole row (long copy, large text) wraps inside its pill. */
+  flex-shrink: 0;
+  max-inline-size: 100%;
+  text-align: center;
 }
 
 .lt-tab[aria-current='page'],
@@ -1215,6 +1335,28 @@ button.lt-tab:focus-visible {
   margin-block-start: var(--lit-gap-item);
 }
 
+.lt-dialog {
+  background: var(--lit-solid-bg-raised);
+  color: var(--lit-text-1);
+  border: 1px solid var(--lit-line-strong);
+  border-radius: var(--lit-radius-panel);
+  padding: var(--lit-pad-panel);
+  inline-size: min(100vw - 1rem, 34rem);
+  max-block-size: calc(100dvh - 2rem);
+  overflow-y: auto;
+}
+
+.lt-dialog::backdrop {
+  background: var(--lit-scrim);
+}
+
+.lt-dialog .lt-sheet-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-item);
+  padding-block-start: var(--lit-gap-item);
+}
+
 .lt-table {
   inline-size: 100%;
   border-collapse: collapse;
@@ -1255,6 +1397,40 @@ button.lt-tab:focus-visible {
   outline-offset: -2px;
 }
 
+/* A table's naming cell: an icon beside a name with, under it, a hint, kept to one row's height (never wraps the icon
+   under the name). */
+.lt-cell-name {
+  display: flex;
+  align-items: center;
+  gap: var(--lit-gap-item);
+  min-inline-size: 0;
+}
+.lt-cell-name > :last-child {
+  display: flex;
+  flex-direction: column;
+  min-inline-size: 0;
+  line-height: 1.25;
+}
+
+/* A table wider than its region (Pro's extra columns) scrolls inside its own region, keyboard-reachable, rather than wrap
+   its rows onto two lines or widen the room. On a phone the table stacks, so nothing scrolls. */
+.lt-table-scroll {
+  max-inline-size: 100%;
+  overflow-x: auto;
+}
+.lt-table-scroll:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+@container room (min-width: 600px) {
+  .lt-table-scroll .lt-table :is(th, td) {
+    white-space: nowrap;
+  }
+  .lt-table-scroll .lt-table .lt-actions {
+    flex-wrap: nowrap;
+  }
+}
+
 .lt-row-link {
   display: inline-flex;
   align-items: center;
@@ -1266,6 +1442,52 @@ button.lt-tab:focus-visible {
 .lt-row-link:focus-visible {
   outline: 2px solid var(--lit-focus);
   outline-offset: 2px;
+}
+
+/*
+ * A record row that is one link across its whole row (a holding, a space, a service): `data-span="row"` on the link. A
+ * leading mark (a lettered `.lt-person-face`), then the record's `.lt-lines` taking the room, then its figures
+ * (`data-part="figures"`) at the end, then the arrow. On a phone the figures drop to their own line under the name.
+ */
+.lt-row-link[data-span='row'] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--lit-gap-item);
+  inline-size: 100%;
+  min-block-size: var(--lit-row-h);
+}
+
+.lt-row-link[data-span='row'] > * {
+  flex: none;
+}
+
+.lt-row-link[data-span='row'] > .lt-lines {
+  flex: 1 1 10rem;
+}
+
+.lt-row-link[data-span='row'] > [data-part='figures'] {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: calc(var(--lit-gap-item) / 4);
+  min-inline-size: min(100%, 16rem);
+  text-align: end;
+}
+
+.lt-row-link[data-span='row'] > [data-part='figures'] > .lt-kv {
+  align-self: stretch;
+}
+
+.lt-row-link[data-span='row'] > .lt-arrow {
+  align-self: center;
+  color: var(--lit-text-2);
+}
+
+@container room (max-width: 599px) {
+  .lt-row-link[data-span='row'] > [data-part='figures'] {
+    order: 1;
+    flex-basis: 100%;
+  }
 }
 
 /* Table: a sortable header. */
@@ -1309,6 +1531,14 @@ button.lt-tab:focus-visible {
     block-size: 1px;
     overflow: hidden;
     clip-path: inset(50%);
+  }
+  /* The hidden header's names one under another, each as wide as its own words, so its row never reaches past a
+     phone's width and no name spills out of its own box. */
+  .lt-table thead tr {
+    display: block;
+  }
+  .lt-table thead th {
+    display: inline-block;
   }
   .lt-table,
   .lt-table tbody,
@@ -1371,6 +1601,63 @@ button.lt-tab:focus-visible {
   block-size: 2rem;
 }
 
+/* QrCode: a scanner needs dark on light in every theme, so the ground and the modules are the kit's one fixed pair. */
+.lt-qr {
+  margin: 0;
+  inline-size: 100%;
+  max-inline-size: 13rem;
+  display: grid;
+  gap: var(--lit-gap-item);
+}
+.lt-qr[data-size='sm'] {
+  max-inline-size: 11rem;
+}
+.lt-qr svg {
+  display: block;
+  inline-size: 100%;
+  block-size: auto;
+  border-radius: var(--lit-radius-tile);
+  forced-color-adjust: none;
+}
+.lt-qr-ground {
+  fill: white; /* look-drift-allow: a QR code needs a fixed light ground for scanners in every theme; no role token stays light in both schemes */
+}
+.lt-qr-modules {
+  fill: black; /* look-drift-allow: a QR code needs fixed dark modules for scanners in every theme; no role token stays dark in both schemes */
+}
+.lt-qr-value {
+  font-family: var(--lit-font-mono);
+  font-size: var(--lit-type-label-size);
+  color: var(--lit-text-2);
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.lt-qr-failed {
+  margin: 0;
+  color: var(--lit-warn-text);
+}
+
+/* Candles: rise in the up role, fall in the down role; the wick keeps its width however the chart stretches. */
+.lt-candle line {
+  stroke-width: 1;
+}
+.lt-candle[data-rising='true'] {
+  stroke: var(--lit-up);
+  fill: var(--lit-up);
+}
+.lt-candle[data-rising='false'] {
+  stroke: var(--lit-down);
+  fill: var(--lit-down);
+}
+.lt-candle rect {
+  stroke: none;
+}
+.lt-candles figcaption,
+.lt-candles-empty {
+  margin: 0;
+  color: var(--lit-text-2);
+}
+
 .lt-chart-area {
   fill: var(--lit-accent-deep);
   opacity: 0.6;
@@ -1406,6 +1693,98 @@ button.lt-tab:focus-visible {
   position: absolute;
   inset-block: 0;
   background: var(--lit-accent);
+}
+
+/* TimeLine: a line placed by time; the zero line dashed, the cursor and the readout over the plot. */
+.lt-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--lit-gap-item) / 2);
+}
+
+.lt-timeline-plot {
+  position: relative;
+  border-radius: var(--lit-radius-control);
+}
+
+.lt-timeline-plot:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+
+.lt-timeline svg {
+  block-size: 15rem;
+  touch-action: pan-y;
+  stroke-linejoin: round;
+}
+
+.lt-timeline-dot {
+  stroke-width: 8;
+  stroke-linecap: round;
+}
+
+.lt-timeline-zero {
+  stroke: var(--lit-line-strong);
+  stroke-dasharray: 6 6;
+}
+
+.lt-timeline-cursor {
+  stroke: var(--lit-line-strong);
+}
+
+.lt-timeline-readout {
+  position: absolute;
+  inset-block-start: calc(var(--lit-gap-item) / 2);
+  inset-inline-start: calc(var(--lit-gap-item) / 2);
+  margin: 0;
+  padding: calc(var(--lit-gap-item) / 4) calc(var(--lit-gap-item) / 2);
+  border: 1px solid var(--lit-line);
+  border-radius: calc(var(--lit-radius-control) / 2);
+  background: var(--lit-solid-bg-raised);
+  color: var(--lit-text-1);
+  font-size: var(--lit-type-label-size);
+  pointer-events: none;
+}
+
+.lt-timeline-readout:empty {
+  display: none;
+}
+
+.lt-timeline figcaption {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: calc(var(--lit-gap-item) / 2);
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+}
+
+.lt-timeline-empty {
+  margin: 0;
+  color: var(--lit-text-2);
+}
+
+/* ChartBox: a definite size for a library that draws into an element (the coin page's chart); whatever it holds fills it.
+   ChartCanvas's colour is the accent role, for a library that reads its line colour from the element. */
+.lt-chart-box {
+  position: relative;
+  display: grid;
+  inline-size: 100%;
+  min-inline-size: 0;
+  block-size: 22.5rem;
+}
+
+.lt-chart-canvas {
+  position: relative;
+  min-inline-size: 0;
+  color: var(--lit-accent);
+  border-radius: var(--lit-radius-control);
+  overflow: hidden;
+}
+
+.lt-chart-canvas-host {
+  position: absolute;
+  inset: 0;
 }
 
 .lt-bar {
@@ -1556,11 +1935,22 @@ button.lt-tab:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
+  min-inline-size: 0;
 }
 
+/* A field that gives way in a narrow row wraps its words instead of running past its edge (/uc/recharge's filters, at
+   130% text on a phone). */
+.lt-field > span {
+  overflow-wrap: anywhere;
+}
+
+/* The control fills its field and gives way when the row it sits in is narrower than its own width, so a row of fields
+   on a phone, or at twice the text size, never runs past the screen. */
 .lt-field input:not([type='checkbox'], [type='radio']),
 .lt-field select,
 .lt-field textarea {
+  inline-size: 100%;
+  min-inline-size: 0;
   min-block-size: var(--lit-control-h);
   padding-inline: var(--lit-gap-item);
   border: 1px solid var(--lit-line-strong);
@@ -1622,6 +2012,17 @@ button.lt-tab:focus-visible {
    text alternative (an aria-label that says it is sample data). */
 .lt-blurred {
   filter: blur(0.125rem);
+}
+
+/* Secondary words at the size around them: the colour only. */
+.lt-muted {
+  color: var(--lit-text-2);
+}
+
+/* Figures that line up in a column: tabular digits, breaking anywhere rather than spilling out of their box. */
+.lt-num {
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 
 /* Direction: a credit and a bid read up, a debit and an ask read down, with a sign as well as colour. Only inside a
@@ -1770,6 +2171,11 @@ button.lt-tab:focus-visible {
 }
 .lt-scroll {
   max-block-size: 24rem;
+  overflow: auto;
+}
+/* A short scroller under a working surface (a chart's drawings dock): it keeps the surface above it on the screen. */
+.lt-scroll-short {
+  max-block-size: 14rem;
   overflow: auto;
 }
 .lt-scroll-tall {
@@ -2212,7 +2618,7 @@ button.lt-tab:focus-visible {
   cursor: not-allowed;
 }
 
-/* ---- form and overlay parts (components/controls.tsx; the dialog is the Sheet) and small generic layout ---- */
+/* ---- overlay parts (components/controls.tsx; the dialog is the Sheet) and small generic layout ---- */
 
 /* A tight column: a control with its words, a short list of lines (half the item gap; lt-stack is the item gap). */
 .lt-stack-tight {
@@ -2229,74 +2635,6 @@ button.lt-tab:focus-visible {
 
 .lt-error {
   color: var(--lit-error-text);
-}
-
-.lt-field-label {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--lit-gap-item);
-  color: var(--lit-text-2);
-  font-size: var(--lit-type-label-size);
-}
-
-.lt-field-error {
-  color: var(--lit-error-text);
-  font-size: var(--lit-type-label-size);
-}
-
-.lt-field-error:empty {
-  display: none;
-}
-
-.lt-input {
-  display: flex;
-  align-items: center;
-  gap: var(--lit-gap-item);
-  min-block-size: var(--lit-control-h);
-  padding-inline: var(--lit-gap-item);
-  border: 1px solid var(--lit-line-strong);
-  border-radius: var(--lit-radius-control);
-  background: var(--lit-solid-bg-raised);
-  color: var(--lit-text-1);
-}
-
-.lt-input:has(input:focus-visible) {
-  outline: 2px solid var(--lit-focus);
-  outline-offset: 2px;
-}
-
-.lt-input[data-invalid] {
-  border-color: var(--lit-down);
-}
-
-.lt-input[data-disabled] {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.lt-input input {
-  flex: 1 1 auto;
-  min-inline-size: 0;
-  border: 0;
-  padding: 0;
-  background: none;
-  color: inherit;
-  font: inherit;
-  outline: none;
-}
-
-.lt-input[data-kind='decimal'] input {
-  font-variant-numeric: tabular-nums;
-}
-
-.lt-input[data-align='end'] input {
-  text-align: end;
-}
-
-.lt-input [data-part='trailing'] {
-  flex: none;
-  color: var(--lit-text-2);
 }
 
 /* A sheet's buttons, at its end. */
@@ -2471,6 +2809,60 @@ button.lt-tab:focus-visible {
 }
 .lt-uptime > :is([data-state='partial_outage'], [data-state='major_outage']) {
   background: var(--lit-down);
+}
+
+/* ---- sections that fold ---- */
+
+.lt-disclosure {
+  display: flex;
+  flex-direction: column;
+  border-block-start: 1px solid var(--lit-line);
+}
+
+.lt-disclosure-item {
+  border-block-end: 1px solid var(--lit-line);
+}
+
+.lt-disclosure-head {
+  margin: 0;
+  font-size: var(--lit-type-body-size);
+  font-weight: var(--lit-type-heading-weight);
+}
+
+.lt-disclosure-head > button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  inline-size: 100%;
+  min-block-size: var(--lit-control-h);
+  padding-inline: 0;
+  border: 0;
+  background: none;
+  color: var(--lit-text-1);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.lt-disclosure-head > button::after {
+  content: '+';
+  color: var(--lit-text-2);
+}
+
+.lt-disclosure-head > button[aria-expanded='true']::after {
+  content: '−';
+}
+
+.lt-disclosure-head > button:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+
+.lt-disclosure-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-item);
+  padding-block-end: var(--lit-gap-item);
 }
 
 /* ---- a limit's use, and a sample of someone else's brand ---- */

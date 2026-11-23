@@ -1,5 +1,5 @@
 import type { Position } from '@intafaced/exchange-contract/schemas';
-import type { StatusKind } from '@intafaced/ui';
+import type { StatusKind } from '@intafaced/ui/lit';
 import { fmtAmount, fmtPrice } from '../../../data/format';
 import type { ConditionalOrder } from './api';
 import { failedOutcome } from './protection-logic';

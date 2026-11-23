@@ -67,7 +67,7 @@ function DrawingsTools({
 }) {
   const api = useDrawings(host, bars, { userId, workbench, symbol, tickSize, limits });
   return (
-    <div className="lt-cols-2 lt-scroll">
+    <div className="lt-cols-2 lt-scroll-short">
       <DrawingToolbar api={api} />
       <ObjectTree api={api} onIndicatorsSlot={onIndicatorsSlot} />
     </div>

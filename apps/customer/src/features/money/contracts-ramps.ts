@@ -1,13 +1,7 @@
 /** Ramps and saved withdrawal destinations: on and off ramps, the address book, wallet proofs and readiness. */
 import { z } from 'zod';
 import { decimalSchema as money } from '../../shared/money';
-import { programmeSchema } from './contracts-cards';
 
-const rampProgrammeSchema = programmeSchema.extend({
-  cryptoRail: z.string().nullable(),
-  fiatLeg: z.literal('socket.psp-partners'),
-  fiatVia: z.literal('svc-pay.RailAdapter'),
-});
 const rampBase = z.object({
   id: z.string(),
   assetId: z.string(),
@@ -87,7 +81,6 @@ export type DestinationCheck = z.infer<typeof destinationCheckSchema>;
 
 /** This area's reads of svc-bank `bank.*`, composed into `bankReads` in contracts.ts. */
 export const rampsReads = {
-  'ramps.programme': rampProgrammeSchema,
   'ramps.onramps': z.array(onrampSchema),
   'ramps.offramps': z.array(offrampSchema),
 } as const;
@@ -95,5 +88,4 @@ export const rampsReads = {
 /** This area's writes to svc-bank `bank.*`, composed into `bankWrites` in contracts.ts. */
 export const rampsWrites = {
   'ramps.destinations.rename': destinationSchema,
-  'ramps.offramp': offrampSchema,
 } as const;

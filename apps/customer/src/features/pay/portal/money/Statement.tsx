@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import { Field } from '../../ui-kit';
 import { SelectField } from '../components';
 import type { PortalApi } from '../api';
@@ -13,16 +13,11 @@ import { MoneyText } from '../ui/MoneyText';
 import { useServerList } from '../ui/useServerList';
 import { ListBody, MoneyFailure, TestBanner, useTestMode } from './common';
 import { mc } from './copy';
+import { accountWords, kindWords } from './statement-columns';
 import { defaultStatementRange, runningView, STATEMENT_MAX_DAYS, statementRangeTooWide, tieView, lineSign } from './model';
 import type { PayStatementLine as StatementLine, PayStatementPage as StatementPage } from '@intafaced/contracts/pay-portal-reads';
 
 type Words = ReturnType<typeof mc.useCopy>['t'];
-const KNOWN_KINDS = ['payment_captured', 'fee', 'refund', 'chargeback', 'settlement', 'payout', 'reserve'] as const;
-const KNOWN_ACCOUNTS = ['clearing', 'proceeds', 'userAvailable', 'houseFees', 'payoutHold'] as const;
-export const kindWords = (t: Words, kind: string) =>
-  (KNOWN_KINDS as readonly string[]).includes(kind) ? t(`stmKind_${kind}` as 'stmKind_fee') : t('stmKind_other');
-export const accountWords = (t: Words, account: string) =>
-  (KNOWN_ACCOUNTS as readonly string[]).includes(account) ? t(`stmAccount_${account}` as 'stmAccount_clearing') : t('stmAccount_other');
 const runningOf = (l: StatementLine) =>
   l.account === 'clearing' ? l.runningClearing : l.account === 'proceeds' ? l.runningProceeds : null;
 
@@ -52,15 +47,15 @@ export function statementColumns(t: Words, test: boolean, showRunning: boolean) 
         <>
           {kindWords(t, l.kind)}
           {l.paymentId && (
-            <small className="pay-cell-note">
-              <a className="text-link" href={`/pay/payments/${encodeURIComponent(l.paymentId)}`}>
+            <small className="lt-hint">
+              <a className="lt-link" href={`/pay/payments/${encodeURIComponent(l.paymentId)}`}>
                 {t('stmOpenPayment')}
               </a>
             </small>
           )}
           {l.settlementId && (
-            <small className="pay-cell-note">
-              <a className="text-link" href={`/pay/settlements/${encodeURIComponent(l.settlementId)}`}>
+            <small className="lt-hint">
+              <a className="lt-link" href={`/pay/settlements/${encodeURIComponent(l.settlementId)}`}>
                 {t('stmOpenSettlement')}
               </a>
             </small>
@@ -83,11 +78,11 @@ export function statementColumns(t: Words, test: boolean, showRunning: boolean) 
       : []),
   ];
 }
-export const statementCard = (t: Words, test: boolean) => (l: StatementLine) => ({
+const statementCard = (t: Words, test: boolean) => (l: StatementLine) => ({
   title: kindWords(t, l.kind),
   time: <DateTime value={l.at} />,
   amount: <SignedAmount line={l} test={test} />,
-  status: <span className="muted">{accountWords(t, l.account)}</span>,
+  status: <span className="lt-muted">{accountWords(t, l.account)}</span>,
 });
 
 /** `/pay/money/activity`: every credit and debit on your balance, newest first, with whether it matches your balance. */
@@ -131,7 +126,7 @@ export function Statement({ portal, merchantId }: { portal: PortalApi; merchantI
   const here = `/pay/money/activity${filters.asset ? `?asset=${encodeURIComponent(filters.asset)}` : ''}`;
   const rangeLabel = t(preset === 'today' ? 'stmToday' : preset === '7d' ? 'stmLast7' : preset === 'custom' ? 'stmCustom' : 'stmLast30');
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <TestBanner />
       <Freshness asOf={list.state.status === 'ready' ? (meta?.at ?? null) : null} />
       <KpiStrip
@@ -220,9 +215,9 @@ export function Statement({ portal, merchantId }: { portal: PortalApi; merchantI
           card={statementCard(t, test)}
         />
       )}
-      <div className="pp-actions">
+      <div className="lt-actions">
         <Button
-          variant="secondary"
+          tone="secondary"
           disabled={items.length === 0}
           onClick={() =>
             downloadText(
@@ -237,7 +232,7 @@ export function Statement({ portal, merchantId }: { portal: PortalApi; merchantI
         >
           {t('stmDownloadShown')}
         </Button>
-        <small className="muted">{t('stmDownloadShownNote')}</small>
+        <small className="lt-muted">{t('stmDownloadShownNote')}</small>
       </div>
       {meta && (
         <p className="muted pp-note">

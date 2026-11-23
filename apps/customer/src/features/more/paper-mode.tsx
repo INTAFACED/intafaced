@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { Tag } from '@intafaced/ui/lit';
 import { moreRoomRoutesCopy } from './more-room-routes-copy';
 import { PaperMode } from './paper-context';
 
@@ -9,9 +10,7 @@ export function PaperRoom({ paper, liveHref, children }: { paper: boolean; liveH
   return (
     <PaperMode.Provider value={true}>
       <section className="lt-callout" role="note" data-paper="simulated" aria-labelledby="more-paper-title">
-        <span className="lt-badge" lang={languageFor('paperLabel')}>
-          {t('paperLabel')}
-        </span>
+        <Tag lang={languageFor('paperLabel')}>{t('paperLabel')}</Tag>
         <h2 id="more-paper-title" lang={languageFor('paperTitle')}>
           {t('paperTitle')}
         </h2>

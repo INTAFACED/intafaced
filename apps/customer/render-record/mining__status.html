@@ -97,116 +97,101 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div class="more-feature">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div class="lt-room" data-template="monitor" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<p class="eyebrow">More</p>
-<h1>Mining status</h1>
-<p class="muted">
-<span lang="en" dir="ltr" data-i18n="more.mining.availability.scope">Your workers, shares and mining credits</span>
-</p>
+<h1 class="lt-title">Mining status</h1>
+<p class="lt-description">Your workers, shares and mining credits</p>
 </div>
 </header>
-<div class="more-grid">
-<div class="tabs" role="group" aria-label="Mining sections">
-<button type="button" class="" aria-pressed="false">Overview</button>
-<button type="button" class="" aria-pressed="false">Workers</button>
-<button type="button" class="" aria-pressed="false">Shares</button>
-<button type="button" class="" aria-pressed="false">Rewards</button>
-<button type="button" class="selected" aria-pressed="true">Pool status</button>
+<div class="lt-body">
+<section class="lt-region" data-region="figures" aria-label="Key figures">
+<div class="lt-figures" data-count="1">
+<div class="lt-figure-cell">
+<div aria-label="Live check">
+<span>Live check</span> <strong data-testid="mining-pool-status" data-state="silent">Not answering</strong>
 </div>
-<div class="more-columns">
-<div>
-<section class="if-panel" data-live="false" aria-label="Live check">
-<header class="if-panel__header">
-<h2 class="if-panel__title">Live check</h2>
-</header>
-<div class="if-panel__body">
-<p data-testid="mining-pool-status" data-state="silent">Not answering</p>
-<p class="muted">Answering means the pool process replied when this room last checked. It is not proof that shares are being paid.</p>
+</div>
 </div>
 </section>
+<section class="lt-region" data-region="actions" aria-label="Actions">
+<div class="lt-tabs" role="group" aria-label="Mining sections">
+<button type="button" class="lt-tab" aria-pressed="false">Overview</button>
+<button type="button" class="lt-tab" aria-pressed="false">Workers</button>
+<button type="button" class="lt-tab" aria-pressed="false">Shares</button>
+<button type="button" class="lt-tab" aria-pressed="false">Rewards</button>
+<button type="button" class="lt-tab" aria-pressed="true">Pool status</button>
 </div>
-<div>
-<section class="if-panel" data-live="false" aria-label="Reachability">
-<header class="if-panel__header">
-<h2 class="if-panel__title">Reachability</h2>
-</header>
-<div class="if-panel__body">
+</section>
+<div class="lt-grid lt-grid-main-side">
+<div class="lt-col-main">
+<section class="lt-region" data-region="panels" aria-label="Details">
+<div class="lt-grid">
+<section aria-label="Reachability">
+<h2>Reachability</h2>
 <p data-testid="mining-reachability" data-result="none">No test run</p>
-<button type="button" class="button button--secondary ">Test the connection</button>
-</div>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Test the connection</button>
 </section>
-</div>
-</div>
-<div class="mining-room" lang="en" dir="ltr">
-<section class="mining-room-primary">
-<div class="mining-room-status">
+<section lang="en" dir="ltr">
 <h2>
 <span lang="en" dir="ltr" data-i18n="more.mining.availability.unavailableTitle">Pool status</span>
 </h2>
-<p class="muted">
+<p class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="more.mining.availability.unavailableBody">This tab shows whether the pool is running. Your workers, shares and credits are in their own tabs, and each one says so plainly when it can’t be read.</span>
 </p>
-</div>
-<a class="button button--primary mining-room-support" href="/support">
+<a class="lt-button lt-button-primary" href="/support">
 <span lang="en" dir="ltr" data-i18n="more.mining.availability.support">Ask about mining access</span>
 </a>
-<section>
-<h3 class="mining-room-required">
+<h3>
 <span lang="en" dir="ltr" data-i18n="more.mining.availability.required">Where your records are</span>
 </h3>
-<dl class="mining-room-requirements">
-<div>
-<dt>
-<span>
-<span lang="en" dir="ltr" data-i18n="more.mining.availability.workers">Workers</span>
-</span>
-<span class="mining-room-state">
-<span lang="en" dir="ltr" data-i18n="more.mining.availability.unavailable">Read-only</span>
-</span>
-</dt>
+<dl class="lt-kv">
+<div data-slot="key-value-row">
+<dt>Workers</dt>
 <dd>
-<span lang="en" dir="ltr" data-i18n="more.mining.availability.workersBody">The workers the pool lists for you, with their accepted share weight. Registering a worker isn’t open to customers.</span>
+<bdi>
+<span class="lit-tag" data-tone="neutral">
+<span lang="en" dir="ltr" data-i18n="more.mining.availability.unavailable">Read-only</span>
+</span> <span lang="en" dir="ltr" data-i18n="more.mining.availability.workersBody">The workers the pool lists for you, with their accepted share weight. Registering a worker isn’t open to customers.</span>
+</bdi>
 </dd>
 </div>
-<div>
-<dt>
-<span>
-<span lang="en" dir="ltr" data-i18n="more.mining.availability.shares">Accepted shares</span>
-</span>
-<span class="mining-room-state">
-<span lang="en" dir="ltr" data-i18n="more.mining.availability.unavailable">Read-only</span>
-</span>
-</dt>
+<div data-slot="key-value-row">
+<dt>Accepted shares</dt>
 <dd>
-<span lang="en" dir="ltr" data-i18n="more.mining.availability.sharesBody">Your accepted and rejected shares and their weight, by payout window.</span>
+<bdi>
+<span class="lit-tag" data-tone="neutral">
+<span lang="en" dir="ltr" data-i18n="more.mining.availability.unavailable">Read-only</span>
+</span> <span lang="en" dir="ltr" data-i18n="more.mining.availability.sharesBody">Your accepted and rejected shares and their weight, by payout window.</span>
+</bdi>
 </dd>
 </div>
-<div>
-<dt>
-<span>
-<span lang="en" dir="ltr" data-i18n="more.mining.availability.credits">Credits and payouts</span>
-</span>
-<span class="mining-room-state">
-<span lang="en" dir="ltr" data-i18n="more.mining.availability.unavailable">Read-only</span>
-</span>
-</dt>
+<div data-slot="key-value-row">
+<dt>Credits and payouts</dt>
 <dd>
-<span lang="en" dir="ltr" data-i18n="more.mining.availability.creditsBody">Estimates for open windows and the credits already paid to you.</span>
+<bdi>
+<span class="lit-tag" data-tone="neutral">
+<span lang="en" dir="ltr" data-i18n="more.mining.availability.unavailable">Read-only</span>
+</span> <span lang="en" dir="ltr" data-i18n="more.mining.availability.creditsBody">Estimates for open windows and the credits already paid to you.</span>
+</bdi>
 </dd>
 </div>
 </dl>
 </section>
+</div>
 </section>
-<aside class="mining-room-aside">
-<details class="mining-room-health">
+</div>
+<div class="lt-col-side">
+<section class="lt-region" data-region="explain" aria-label="What this means">
+<p>Answering means the pool process replied when this room last checked. It is not proof that shares are being paid.</p>
+</section>
+<section class="lt-region" data-region="related" aria-label="Related">
+<div lang="en" dir="ltr">
+<details>
 <summary>
 <span lang="en" dir="ltr" data-i18n="more.mining.availability.publicStatus">Public service status</span>
 </summary>
-<div class="mining-room-health-body">
-<p class="muted">
+<p class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="more.mining.availability.readScope">These results only show whether the pool is running. They do not identify your workers or prove accepted shares, credits or a payout.</span>
 </p>
 <div lang="und">
@@ -216,15 +201,15 @@
 <button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Try again</button>
 </div>
 </div>
-<p class="muted">
+<p class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="more.mining.availability.boundaries">Connections that are set up have not been tested. A registered job does not prove a successful run or a payment. Nothing is submitted from this room.</span>
 </p>
-</div>
 </details>
-<a class="text-link mining-room-link" href="/more">
+<a class="lt-link lt-link-alone" href="/more">
 <span lang="en" dir="ltr" data-i18n="more.mining.availability.more">Explore More →</span>
 </a>
-</aside>
+</div>
+</section>
 </div>
 </div>
 </div>

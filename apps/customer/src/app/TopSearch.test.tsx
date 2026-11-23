@@ -239,6 +239,21 @@ describe('header search: where a page lives and the Help group', () => {
     expect(host.textContent).not.toContain('Payments');
   });
 
+  it('closes its results when keyboard focus moves on past the search, and keeps them while focus stays inside', async () => {
+    const next = document.createElement('button');
+    document.body.append(next);
+    await mount();
+    await act(async () => input().focus());
+    expect(panel()).not.toBeNull();
+    const list = host.querySelector<HTMLElement>('[role="listbox"]')!;
+    list.tabIndex = -1;
+    await act(async () => list.focus());
+    expect(panel()).not.toBeNull();
+    await act(async () => next.focus());
+    expect(panel()).toBeNull();
+    next.remove();
+  });
+
   it('opens on "/" outside a field, but a "/" typed into a field stays a character', async () => {
     await mount();
     expect(panel()).toBeNull();

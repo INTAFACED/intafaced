@@ -324,7 +324,7 @@ fn claims(p: &Json) -> Option<Principal> {
         .unwrap_or_else(|| "none".to_owned());
     bool_of("trd")?;
     let mfa = bool_of("mfa")?.unwrap_or(false);
-    guid_of("sid")??;
+    let sid = guid_of("sid")??;
     guid_of("fam")?;
     guid_of("dev")?;
     strings("stp")?;
@@ -356,6 +356,7 @@ fn claims(p: &Json) -> Option<Principal> {
         mfa,
         kid,
         sub_account,
+        sid,
     })
 }
 

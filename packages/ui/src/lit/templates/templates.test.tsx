@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { templates, type TemplateId } from '../contracts.js';
 import { Bars, Coverage, Parts } from '../components/b2-charts.js';
-import { BrandSample, Meter } from '../components/b2-basics.js';
+import { BrandSample, Dialog, Disclosure, Meter } from '../components/b2-basics.js';
 import { LegalSlotsSwitch, Region, Review, RoomFrame } from './frame.js';
 import { LEGAL_MOMENTS, resolveLegal } from './legal/registry.js';
 import { RegistryLegalSlot as LegalSlot } from './legal/LegalSlot.js';
@@ -568,6 +568,40 @@ describe('gallery fixtures are shaped as the API sends them', () => {
   });
 });
 
+describe('the desk on a computer leaves no empty slot beside a panel', () => {
+  const css = readFileSync(fileURLToPath(new URL('./templates.css', import.meta.url)), 'utf8');
+  const wide = css.slice(css.indexOf('@container room (min-width: 1024px) {\n  .lt-desk'));
+  // Each pro desk rule in the computer layout: the regions whose absence it needs, and its areas.
+  const rules = [...wide.matchAll(/\.lt-desk\[data-desk='pro'\](:not\(:has\(([^{]*)\)\))? \{([^}]*)\}/g)]
+    .filter((m) => !m[0].includes('[data-arranged]'))
+    .map((m) => ({
+      absent: [...(m[2] ?? '').matchAll(/data-region='([a-z]+)'/g)].map((r) => r[1]!),
+      rows: [...(m[3]!.match(/grid-template-areas:([^;]*);/)?.[1] ?? '').matchAll(/'([^']*)'/g)].map((r) => r[1]!.split(/\s+/)),
+    }));
+  const layoutFor = (present: string[]) => rules.filter((r) => r.absent.every((a) => !present.includes(a))).at(-1)!;
+
+  it.each([
+    ['spot', ['instrument', 'pairs', 'chart', 'book', 'tape', 'ticket', 'orders']],
+    ['a tool desk', ['instrument', 'chart', 'book', 'tape', 'ticket', 'orders']],
+    ['options', ['instrument', 'chart', 'ticket', 'orders']],
+    ['margin signed in', ['instrument', 'chart', 'ticket', 'orders']],
+    ['margin signed out', ['ticket', 'orders']],
+  ])('%s: a row that draws a panel has no empty slot beside it', (_, present) => {
+    expect(rules.length).toBeGreaterThanOrEqual(3);
+    for (const row of layoutFor(present).rows) {
+      if (!row.some((area) => present.includes(area))) continue; // a row of absent regions collapses
+      expect(
+        row.filter((area) => !present.includes(area)),
+        row.join(' '),
+      ).toEqual([]);
+    }
+  });
+
+  it('a desk screen keeps its title and panels off the window edge', () => {
+    expect(css).toMatch(/\.lt-room\[data-template='desk'\]:not\(\.page \.lt-room\) \{\s*padding-inline: var\(--lit-gap-item\);/);
+  });
+});
+
 describe('the room title', () => {
   it('takes a language of its own and is focusable only when the room holds its ref', async () => {
     const { ReadingTemplate } = await import('./templates.js');
@@ -609,5 +643,43 @@ describe("a limit's use and a brand sample", () => {
     );
     expect(bad).not.toContain('url(x)');
     expect(bad).not.toContain('--lt-brand:');
+  });
+});
+
+describe('sections that fold', () => {
+  const items = [
+    { value: 'a', title: 'Volume', body: <p>TEST volume body</p> },
+    { value: 'b', title: 'More insights', body: <p>TEST insights body</p> },
+  ];
+  it('draws each heading as a button, and only the open body, as a region named by its heading', () => {
+    const out = html(<Disclosure items={items} defaultOpen={['a']} />);
+    expect(out.match(/<button type="button"/g)).toHaveLength(2);
+    expect(out).toContain('aria-expanded="true"');
+    expect(out).toContain('aria-expanded="false"');
+    expect(out).toContain('role="region"');
+    expect(out).toContain('TEST volume body');
+    expect(out).not.toContain('TEST insights body');
+    const head = /<button type="button" id="([^"]+)" aria-expanded="true"/.exec(out)![1]!;
+    expect(out).toContain(`aria-labelledby="${head}"`);
+  });
+  it('draws nothing open when no section is named', () => {
+    const out = html(<Disclosure items={items} />);
+    expect(out).not.toContain('role="region"');
+    expect(out).not.toContain('aria-expanded="true"');
+  });
+});
+
+describe('a dialog', () => {
+  it('is a native dialog named by its title, with a labelled close button and its body', () => {
+    const out = html(
+      <Dialog title="Review the order" closeLabel="Close dialog" onClose={() => undefined}>
+        <p>TEST body</p>
+      </Dialog>,
+    );
+    expect(out).toMatch(/^<dialog class="lt-dialog" aria-labelledby="([^"]+)">/);
+    const id = /aria-labelledby="([^"]+)"/.exec(out)![1]!;
+    expect(out).toContain(`<h2 id="${id}" class="lt-sheet-title">Review the order</h2>`);
+    expect(out).toContain('aria-label="Close dialog"');
+    expect(out).toContain('TEST body');
   });
 });

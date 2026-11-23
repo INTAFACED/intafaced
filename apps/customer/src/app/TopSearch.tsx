@@ -106,12 +106,11 @@ export function TopSearch({ compact, helpCap }: { compact?: boolean; helpCap?: n
     <div
       className={`tb-search ${compact ? 'tb-search--compact' : ''}`}
       ref={boxRef}
-      // Tab out of the search closes its list, which would otherwise lie over the page the focus moved to (WCAG 2.4.11).
-      // Only when the focus lands on a control outside: a press on a result is not a focus move, and an outside press
-      // closes it on its own (above).
+      // Keyboard focus that moves on past the search closes its results, or they stay open over the page under the next
+      // control (WCAG 2.4.11; look gate on /kit at phone). A pointer press elsewhere closes them through `outside`.
       onBlur={(event) => {
         const next = event.relatedTarget;
-        if (next instanceof Node && !event.currentTarget.contains(next)) setOpen(false);
+        if (next instanceof Node && !boxRef.current?.contains(next)) setOpen(false);
       }}
     >
       <ShellIcon name="search" size={16} />

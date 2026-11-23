@@ -5,8 +5,8 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 import { BlockerWords, QuoteView, RequestRows } from './CashOut';
-import { bankReads, type CashOutQuote, type CashOutRequest } from './contracts';
-import { BANK_CASH_OUT_REQUESTS } from '@intafaced/contracts/bank-cash-out-procedures';
+import { type CashOutQuote, type CashOutRequest } from './contracts';
+import { BANK_CASH_OUT_QUOTE, BANK_CASH_OUT_REQUESTS } from '@intafaced/contracts/bank-cash-out-procedures';
 
 /** BK-ord-01 screen half (J-bank-03 #1-#3): the cash-out quote with what stands in the way, and the kept requests. */
 
@@ -85,7 +85,7 @@ describe('cash out to a linked bank account', () => {
     expect(words('bank.offramp_cooling_active', '2026-10-24T03:00:00.000Z')).toMatch(/from .+, when its cooling-off ends/);
     expect(words('bank.fiat_ramp_socket')).toContain('No banking partner pays out to bank accounts: rail.bank is switched off');
     expect(words('bank.something_new')).toContain(
-      'This cash-out cannot go ahead. <small class="muted">Reference: bank.something_new</small>',
+      'This cash-out cannot go ahead. <small class="lt-muted">Reference: bank.something_new</small>',
     );
   });
 
@@ -249,8 +249,8 @@ describe('cash out to a linked bank account', () => {
   });
 
   it('parses the bank’s answers, and refuses a fee that is not a decimal string', () => {
-    expect(bankReads['cashOut.quote'].parse(quote())).toMatchObject({ fee: null, receiveAmount: null });
-    expect(bankReads['cashOut.quote'].safeParse({ ...quote(), fee: 1.5 }).success).toBe(false);
+    expect(BANK_CASH_OUT_QUOTE.output.parse(quote())).toMatchObject({ fee: null, receiveAmount: null });
+    expect(BANK_CASH_OUT_QUOTE.output.safeParse({ ...quote(), fee: 1.5 }).success).toBe(false);
     expect(BANK_CASH_OUT_REQUESTS.output.safeParse([{ ...request(), status: 'held' }]).success).toBe(false);
     // The requests list is read by its record, which is the bank's own strict answer: it always carries the payout
     // fields (null when there is none), so an answer without them is refused, never read as blank.

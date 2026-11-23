@@ -1,4 +1,3 @@
-import { DataTable } from '../../../shared/ui';
 import { displayAmount, formatAmount, parseAmount } from '../../../shared/money';
 import type { AsOf, VenueBalance, VenueMarket } from '../../../features/trade/venue-api';
 import { TestMark } from '../../../features/trade/venue/VenueKit';
@@ -10,32 +9,41 @@ export function VenueTiers({ market, venueName, test }: { market: VenueMarket; v
   const { t } = venueRiskCopy.useCopy();
   const tiers = market.marginTiers?.known ? market.marginTiers.value : null;
   return (
-    <section className="dk-panel" aria-label={t('Tiers title', { venue: venueName })} data-testid="venue-tiers">
-      <h2 className="dk-tab-title">
+    <section className="lt-panel" aria-label={t('Tiers title', { venue: venueName })} data-testid="venue-tiers">
+      <h2 className="lt-panel-title">
         {t('Tiers title', { venue: venueName })} <TestMark test={test} />
       </h2>
       {tiers && tiers.length > 0 ? (
         <>
-          <DataTable
-            label={t('Tiers table', { symbol: market.symbol })}
-            headers={[t('Tier'), t('From notional'), t('Most leverage'), t('Maintenance rate')]}
-          >
-            {tiers.map((tier, i) => (
-              <tr key={tier.fromNotional} data-tier={i + 1}>
-                <td>{i + 1}</td>
-                <td className="numeric" data-cell="from">
-                  {displayAmount(tier.fromNotional)} {market.quoteAsset}
-                </td>
-                <td className="numeric" data-cell="leverage">
-                  {tier.maxLeverageBps / 10_000}x
-                </td>
-                <td className="numeric" data-cell="maintenance">
-                  {percentOf(tier.maintenanceRate)}%
-                </td>
-              </tr>
-            ))}
-          </DataTable>
-          <p className="muted">{t('Tiers note', { venue: venueName })}</p>
+          <div className="lt-table-scroll" tabIndex={0} role="region" aria-label={t('Tiers table', { symbol: market.symbol })}>
+            <table className="lt-table lt-table-dense">
+              <thead>
+                <tr>
+                  <th scope="col">{t('Tier')}</th>
+                  <th scope="col">{t('From notional')}</th>
+                  <th scope="col">{t('Most leverage')}</th>
+                  <th scope="col">{t('Maintenance rate')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tiers.map((tier, i) => (
+                  <tr key={tier.fromNotional} data-tier={i + 1}>
+                    <td>{i + 1}</td>
+                    <td className="lt-num" data-cell="from">
+                      {displayAmount(tier.fromNotional)} {market.quoteAsset}
+                    </td>
+                    <td className="lt-num" data-cell="leverage">
+                      {tier.maxLeverageBps / 10_000}x
+                    </td>
+                    <td className="lt-num" data-cell="maintenance">
+                      {percentOf(tier.maintenanceRate)}%
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="lt-quiet">{t('Tiers note', { venue: venueName })}</p>
         </>
       ) : (
         <p data-testid="venue-tiers-unpublished">{t('Tiers not published', { venue: venueName })}</p>
@@ -66,47 +74,61 @@ export function VenueCollateral({
   const power = taken ? buyingPower(taken, freeOf) : null;
   const others = taken ? held.filter((b) => !taken.some((c) => c.asset === b.asset) && parseAmount(b.total) > 0n) : [];
   return (
-    <section className="dk-panel" aria-label={t('Collateral title', { venue: venueName })} data-testid="venue-collateral">
-      <h2 className="dk-tab-title">
+    <section className="lt-panel" aria-label={t('Collateral title', { venue: venueName })} data-testid="venue-collateral">
+      <h2 className="lt-panel-title">
         {t('Collateral title', { venue: venueName })} <TestMark test={test} />
       </h2>
       {taken ? (
         <>
-          <DataTable
-            label={t('Collateral table', { venue: venueName, symbol: market.symbol })}
-            headers={[t('Asset'), t('Haircut'), t('Free on venue'), t('Counts toward buying power')]}
+          <div
+            className="lt-table-scroll"
+            tabIndex={0}
+            role="region"
+            aria-label={t('Collateral table', { venue: venueName, symbol: market.symbol })}
           >
-            {taken.map((c) => {
-              const free = freeOf(c.asset);
-              return (
-                <tr key={c.asset} data-asset={c.asset}>
-                  <td>{c.asset}</td>
-                  <td className="numeric" data-cell="haircut">
-                    {c.haircut.known ? `${percentOf(c.haircut.value)}%` : t('Haircut not published', { venue: venueName })}
-                  </td>
-                  <td className="numeric" data-cell="free">
-                    {displayAmount(free)}
-                  </td>
-                  <td className="numeric" data-cell="counts">
-                    {c.haircut.known
-                      ? displayAmount(
-                          formatAmount((parseAmount(free) * (parseAmount('1') - parseAmount(c.haircut.value))) / parseAmount('1')),
-                        )
-                      : t('Haircut not published', { venue: venueName })}
-                  </td>
+            <table className="lt-table lt-table-dense">
+              <thead>
+                <tr>
+                  <th scope="col">{t('Asset')}</th>
+                  <th scope="col">{t('Haircut')}</th>
+                  <th scope="col">{t('Free on venue')}</th>
+                  <th scope="col">{t('Counts toward buying power')}</th>
                 </tr>
-              );
-            })}
-          </DataTable>
+              </thead>
+              <tbody>
+                {taken.map((c) => {
+                  const free = freeOf(c.asset);
+                  return (
+                    <tr key={c.asset} data-asset={c.asset}>
+                      <td>{c.asset}</td>
+                      <td className="lt-num" data-cell="haircut">
+                        {c.haircut.known ? `${percentOf(c.haircut.value)}%` : t('Haircut not published', { venue: venueName })}
+                      </td>
+                      <td className="lt-num" data-cell="free">
+                        {displayAmount(free)}
+                      </td>
+                      <td className="lt-num" data-cell="counts">
+                        {c.haircut.known
+                          ? displayAmount(
+                              formatAmount((parseAmount(free) * (parseAmount('1') - parseAmount(c.haircut.value))) / parseAmount('1')),
+                            )
+                          : t('Haircut not published', { venue: venueName })}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
           <p data-testid="venue-buying-power">
             {t('Buying power', { symbol: market.symbol })}:{' '}
-            <span className="numeric" data-testid="venue-buying-power-value" data-value={power?.known ? power.value : undefined}>
+            <span className="lt-num" data-testid="venue-buying-power-value" data-value={power?.known ? power.value : undefined}>
               {power?.known
                 ? t('Buying power value', { amount: displayAmount(power.value), asset: market.quoteAsset })
                 : t('Buying power unknown', { venue: venueName, asset: power?.asset ?? '' })}
             </span>
           </p>
-          <p className="muted">{t('Buying power note', { venue: venueName })}</p>
+          <p className="lt-quiet">{t('Buying power note', { venue: venueName })}</p>
           {others.length > 0 ? (
             <>
               <h3>{t('Not taken title', { venue: venueName })}</h3>

@@ -284,6 +284,25 @@ export const authenticationOptions = z.object({
   userVerification: z.enum(['required', 'preferred', 'discouraged']).optional(),
 });
 
+/** svc-identity `webauthn.registerOptions`: what `navigator.credentials.create()` is given, ids base64url. */
+export const registrationOptions = z.object({
+  challenge: z.string(),
+  rp: z.object({ id: z.string().optional(), name: z.string() }),
+  user: z.object({ id: z.string(), name: z.string(), displayName: z.string() }),
+  pubKeyCredParams: z.array(z.object({ type: z.literal('public-key'), alg: z.number().int() })),
+  timeout: z.number().optional(),
+  excludeCredentials: z.array(credentialDescriptor).optional(),
+  authenticatorSelection: z
+    .object({
+      authenticatorAttachment: z.enum(['platform', 'cross-platform']).optional(),
+      residentKey: z.enum(['discouraged', 'preferred', 'required']).optional(),
+      requireResidentKey: z.boolean().optional(),
+      userVerification: z.enum(['required', 'preferred', 'discouraged']).optional(),
+    })
+    .optional(),
+  attestation: z.enum(['none', 'indirect', 'direct', 'enterprise']).optional(),
+});
+
 export const stateOut = z.object({
   activeKeyId: z.string(),
   previousKeyIds: z.array(z.string()),

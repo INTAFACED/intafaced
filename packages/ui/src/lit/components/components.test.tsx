@@ -26,6 +26,7 @@ import {
 } from './index.js';
 import * as B2 from './b2-basics.js';
 import { Table, gridKey } from './b2-table.js';
+import { StateBlock } from './b2-values.js';
 import { ChartMark } from './b2-controls.js';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
@@ -61,10 +62,10 @@ describe('the component sheet reads only lit roles', () => {
 });
 
 describe('components', () => {
-  it('a tab never shrinks below its words, so longer copy stays inside it (the tab row scrolls instead)', () => {
+  it('a tab never shrinks below its words, so longer copy stays inside it (the tab row wraps instead, #9930)', () => {
     const templates = readFileSync(join(here, '../templates/templates.css'), 'utf8');
-    expect(templates).toMatch(/\n\.lt-tabs \{[^}]*overflow-x: auto;/);
-    expect(templates).toMatch(/\n\.lt-tab \{[^}]*flex: none;[^}]*white-space: nowrap;/);
+    expect(templates).toMatch(/\n\.lt-tabs \{[^}]*flex-wrap: wrap;/);
+    expect(templates).toMatch(/\n\.lt-tab \{[^}]*flex: none;[^}]*flex-shrink: 0;[^}]*max-inline-size: 100%;/);
   });
 
   it('Surface is solid on the content layer by default, and glass only on nav or sheet', () => {
@@ -162,7 +163,10 @@ describe('components', () => {
 
   it('Select is a labelled native select whose change hands back the value', () => {
     const out = html(<Select label="Role" value="b" options={['a', { value: 'b', label: 'Bee' }]} hint="Pick one" />);
-    expect(out).toMatch(/^<label class="lt-field"><span>Role<\/span><select>/);
+    // Named by its words alone, not by its words and the chosen option (J-developer-08 #3 finds "Status" exactly).
+    const named = out.match(/^<label class="lt-field"><span id="([^"]+)">Role<\/span><select aria-labelledby="([^"]+)">/);
+    expect(named?.[1]).toBeTruthy();
+    expect(named?.[2]).toBe(named?.[1]);
     expect(out).toContain('<option value="a">a</option><option value="b" selected="">Bee</option>');
     expect(out).toContain('<small>Pick one</small>');
   });
@@ -544,6 +548,30 @@ describe('b2 controls the desk rooms use', () => {
     expect(unknown).toContain('<span class="lt-sr">Could not be read</span>');
     expect(html(<B2.FreshnessChip asOf={at} now={at + 500} staleAfterMs={10_000} refused />)).toContain('>Refused<');
   });
+
+  it('FreshnessChip takes a fixed kind and the room\'s own words for each kind and for "as of"', () => {
+    const at = Date.UTC(2026, 10, 22, 10, 0, 0);
+    // A lifecycle state drawn in the chip's shapes: the kind is the room's, not the read's age.
+    const closing = html(<B2.FreshnessChip asOf={null} staleAfterMs={0} kind="stale" labels={{ stale: 'Closing' }} reason="Liquidation" />);
+    expect(closing).toContain('data-freshness="stale"');
+    expect(closing).toContain('<span data-part="word">Closing</span>');
+    expect(closing).toContain('<span class="lt-sr">Liquidation</span>');
+    const asOf = html(
+      <B2.FreshnessChip
+        asOf={at}
+        now={at + 500}
+        staleAfterMs={10_000}
+        showAsOf
+        asOfLabel="read at"
+        timeZone="UTC"
+        labels={{ live: 'Positions live' }}
+      />,
+    );
+    expect(asOf).toContain('>Positions live<');
+    expect(asOf).toContain(' · read at <time');
+    // Without them the chip reads as it always has.
+    expect(html(<B2.FreshnessChip asOf={at} now={at + 500} staleAfterMs={10_000} showAsOf />)).toContain(' · as of <time');
+  });
 });
 
 describe('b2 parts carry what the spot desk needs, so it uses them and no second kit', () => {
@@ -653,6 +681,72 @@ describe('b2 parts carry what the spot desk needs, so it uses them and no second
     );
     expect(out).toContain('<tr data-asset="BTC" data-row="">');
     expect(out).toContain('<td data-cell="free" data-label="Free" data-align="end">');
+  });
+});
+
+describe('kit parts that take copy keep the language of the words they are given', () => {
+  // A German page whose room copy has no German yet for these keys: the words fall back to English, and say so.
+  const onGermanPage = (el: React.ReactElement) => html(<div lang="de">{el}</div>);
+
+  it('a Sheet title that fell back is read in its own language, and names the sheet from that heading', () => {
+    const out = onGermanPage(
+      <B2.Sheet open={false} title="Close this position?" titleLang="en" onClose={() => undefined}>
+        <p>Body</p>
+      </B2.Sheet>,
+    );
+    const id = out.match(/<h2 class="lt-sheet-title" id="([^"]+)" lang="en">Close this position\?<\/h2>/)?.[1];
+    expect(id).toBeTruthy();
+    expect(out).toContain(`aria-labelledby="${id}"`);
+    expect(out).not.toContain('aria-label="Close this position?"');
+  });
+
+  it('a Sheet whose title is in the page language keeps its name as before, with no lang of its own', () => {
+    const out = onGermanPage(
+      <B2.Sheet open={false} title="Position schließen?" onClose={() => undefined}>
+        <p>Body</p>
+      </B2.Sheet>,
+    );
+    expect(out).toContain('aria-label="Position schließen?"');
+    expect(out).toContain('<h2 class="lt-sheet-title">Position schließen?</h2>');
+  });
+
+  it('a failure note says its title and its Try again words in their own languages', () => {
+    const out = onGermanPage(
+      <StateBlock
+        kind="error"
+        title="Couldn’t load trades"
+        titleLang="en"
+        onRetry={() => undefined}
+        retryLabel="Try again"
+        retryLang="en"
+      />,
+    );
+    expect(out).toContain('<p class="lt-state-title" lang="en">Couldn’t load trades</p>');
+    expect(out).toMatch(/<button type="button" class="lit-button"[^>]* lang="en">Try again<\/button>/);
+  });
+
+  it('a failure note with only the kit’s own words claims no language for them', () => {
+    const out = onGermanPage(<StateBlock kind="error" thing="trades" titleLang="en" onRetry={() => undefined} retryLang="en" />);
+    expect(out).not.toMatch(/lt-state-title" lang=/);
+    expect(out).toContain('Couldn&#x27;t load trades.');
+    expect(out).not.toContain(' lang="en">Try again');
+  });
+
+  it('an empty or refused note, and its action, keep their languages', () => {
+    expect(onGermanPage(<StateBlock kind="empty" title="No trades" titleLang="en" />)).toContain(
+      '<h3 class="lt-state-title" lang="en">No trades</h3>',
+    );
+    const refused = onGermanPage(
+      <StateBlock
+        kind="refused"
+        title="Market closed"
+        titleLang="en"
+        body="Opens at 09:00."
+        action={{ label: 'Sign in', href: '/sign-in', lang: 'en' }}
+      />,
+    );
+    expect(refused).toContain('<p class="lt-state-title" lang="en">Market closed</p>');
+    expect(refused).toMatch(/<a class="lit-button"[^>]* href="\/sign-in" lang="en">Sign in<\/a>/);
   });
 });
 

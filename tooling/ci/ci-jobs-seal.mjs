@@ -12,6 +12,8 @@
  * - A run still going fails this verdict with a wait line; CI's last job (START_JOB) starts the seal when it finishes.
  * - Every test shard (`Tests (…)`) must succeed, and there must be one when the change needs tests; when the default
  *   branch says the change needs the full suite, every one of its SHARD_COUNT shards (`Tests (1/16)` …) must be there.
+ * - The Look gate (`Look / …`, look-pr.yml) must succeed when the change draws a Customer room (reachesLook), and any
+ *   job of the run that finished red fails, whether or not sealNeeded names it (#9920 merged with its Look gate red).
  * - A pull request's own ci.yml may differ from main's: a change to it is a gate file, so the seal's CI review step
  *   holds it to the independent review. This script never runs or reads the pull request's code.
  *
@@ -20,7 +22,7 @@
  */
 import { fileURLToPath } from 'node:url';
 import { runJobs } from './run-jobs.mjs';
-import { SHARD_COUNT, classify, narrowCandidates, sealNeeded, shardMatrix } from './ci-affected.mjs';
+import { SHARD_COUNT, classify, narrowCandidates, reachesLook, sealNeeded, shardMatrix } from './ci-affected.mjs';
 import { MODEL_JOB, START_JOB, isModelDown, pullFiles } from './journey-seal.mjs';
 import { httpMessage, titleFor } from './api-budget.mjs';
 import { githubFetch, githubToken } from './github-fetch.mjs';
@@ -31,6 +33,14 @@ export const CI_WORKFLOW_PATH = '.github/workflows/ci.yml';
 export const CI_JOBS = { changes: 'Affected tests', gates: 'Doctrine gates', format: 'Format', build: 'Typecheck & build', rust: 'Rust' };
 /** The test matrix's jobs: `Tests (1/16)` … or `Tests (changed)`. */
 export const TEST_JOB = /^Tests \(.+\)$/;
+/** ci.yml's Look job (look-pr.yml, #9325): a reusable workflow, so its jobs are named `Look / Build (before)`,
+ *  `Look / Look gate on the rooms it changes (1/3)` …, and only a Look job skipped by its `if:` is named `Look`. */
+export const LOOK_JOB = /^Look( \/ .+)?$/;
+/** ci.yml's jobs that are not CI's verdict on the head: its own seal job (`CI jobs` on a pull request, which runs the pull
+ *  request's copy and which a factory pause turns red until merge-seal.yml's seal is re-run) and START_JOB. */
+const SEAL_JOBS = ['CI merge seal', 'CI jobs'];
+/** A finished job's conclusions that are not red. */
+const NOT_RED = ['success', 'skipped', 'neutral'];
 
 /** The ci.yml run that decides on `sha` for `event`: the newest by id. null when CI hasn't run there. */
 export function ciRunFor(runs, { sha, event }) {
@@ -50,12 +60,33 @@ export function jobResults(jobs) {
   const result = (j) => (j ? (j.status === 'completed' ? j.conclusion || 'missing' : j.status) : undefined);
   const out = {};
   for (const [key, name] of Object.entries(CI_JOBS)) out[key] = result(newest.get(name));
-  const tests = [...newest.values()].filter((j) => TEST_JOB.test(j?.name ?? ''));
-  // A red shard outranks a skipped one, so a failure beside skipped shards is never read as skipped.
-  const results = tests.map(result);
-  const bad = results.find((r) => r !== 'success' && r !== 'skipped') ?? results.find((r) => r !== 'success');
-  out['tests-full'] = tests.length ? (bad ?? 'success') : undefined;
+  // A matrix or reusable workflow is one result: a red job outranks a skipped one, so a failure beside skipped jobs is
+  // never read as skipped.
+  const oneResult = (pattern) => {
+    const results = [...newest.values()].filter((j) => pattern.test(j?.name ?? '')).map(result);
+    const bad = results.find((r) => r !== 'success' && r !== 'skipped') ?? results.find((r) => r !== 'success');
+    return results.length ? (bad ?? 'success') : undefined;
+  };
+  out['tests-full'] = oneResult(TEST_JOB);
+  out.look = oneResult(LOOK_JOB);
   return out;
+}
+
+/** Whether `name` is a job jobResults reads (so sealNeeded judges it). */
+const sealRead = (name) => Object.values(CI_JOBS).includes(name) || TEST_JOB.test(name) || LOOK_JOB.test(name);
+
+/**
+ * Every other job of the run that finished red, newest attempt of each name (#9920: a job the seal did not read let a
+ * red through). A job ci.yml adds later is held this way before anyone teaches sealNeeded its name; the seal jobs and
+ * START_JOB are not CI's verdict. Returns lines.
+ */
+export function otherRedJobs(jobs) {
+  const newest = new Map();
+  for (const j of [...(jobs ?? [])].sort((a, b) => a.id - b.id)) newest.set(j?.name, j);
+  return [...newest.values()]
+    .filter((j) => j?.name && !sealRead(j.name) && !SEAL_JOBS.includes(j.name) && j.name !== START_JOB)
+    .filter((j) => j.status === 'completed' && !NOT_RED.includes(j.conclusion))
+    .map((j) => `${j.name} was ${j.conclusion || 'missing'} (a job that ran red stays red)`);
 }
 
 /**
@@ -71,13 +102,15 @@ export function judgeCiJobs({ run, jobs, files, forceFull = false, tree = null }
   // A run is judged once every job but ci.yml's own seal has finished: a re-run of that seal alone puts the run back in
   // progress, and must not turn this seal red (the CI review on 7a7eb9a0, 8 Nov 2026). Its last job, START_JOB, is
   // what starts this seal, so it is still going while this reads.
-  const pending = (jobs ?? []).filter(
-    (j) => j?.name !== 'CI merge seal' && j?.name !== 'CI jobs' && j?.name !== START_JOB && j?.status !== 'completed',
-  );
+  const pending = (jobs ?? []).filter((j) => !SEAL_JOBS.includes(j?.name) && j?.name !== START_JOB && j?.status !== 'completed');
   if (run.status !== 'completed' && (pending.length || !(jobs ?? []).length))
     return { ok: false, wait: true, lines: [`${id} on this head is ${run.status}; the seal re-runs when it finishes`] };
   const flags = files === null ? { full: true, affected: false } : classify(files, tree ? { forceFull, tree } : { forceFull, reach: null });
-  const problems = sealNeeded(flags, jobResults(jobs));
+  // The look gate, as ci.yml's changes job decides it (ci-affected.mjs main): a pull request's change that draws a
+  // Customer room or the kit; files unreadable whole count as drawing one. Never a merge queue's commit (main's look
+  // gate is the daily one). classify() leaves it out, so until #9920 this seal never asked for it.
+  flags.look = !forceFull && (files === null || reachesLook(files));
+  const problems = [...sealNeeded(flags, jobResults(jobs)), ...otherRedJobs(jobs)];
   // The full suite is the whole matrix: a pull request's own ci.yml can't narrow it to one passing shard.
   if (flags.full) {
     const names = new Set((jobs ?? []).map((j) => j?.name));

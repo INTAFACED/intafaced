@@ -104,7 +104,11 @@ test.describe('one TEST merchant', () => {
     const available = portal.getByRole('region', { name: 'Available to pay out' }).getByTestId('plo-balance-amount');
     await expect(available).toBeVisible();
     expect(figure(await available.innerText())).toBe(founder.available);
-    const pending = portal.locator('section').filter({ has: portal.getByRole('heading', { name: 'Pending settlement', level: 2 }) });
+    // The room's Activity region is itself a section around the merchant's sections: the pending figure is read in the
+    // innermost section under its own heading.
+    const pending = portal
+      .locator('section')
+      .filter({ has: portal.getByRole('heading', { name: 'Pending settlement', level: 2 }), hasNot: portal.locator('section') });
     await expect(pending).toContainText('USDT');
     expect(figure(await pending.innerText())).toBe(founder.clearing);
   });

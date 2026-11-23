@@ -211,6 +211,13 @@ export function testPartner(): TestPartner {
     label: TEST_PARTNER_LABEL,
     staleAfterMs: TEST_PARTNER_STALE_AFTER_MS,
     balance: async (account) => report(account),
+    async openCurrency(userId, assetId) {
+      if (switches(userId).down) throw partnerDown();
+      const account: PartnerAccountRef = { userId, assetId, spaceId: null };
+      // An account it already holds is the same account: adding 0 opens it once and changes no figure.
+      book.add(account, 0n);
+      return report(account);
+    },
     async balances(userId) {
       const out: PartnerBalance[] = [];
       for (const key of held.keys()) {
@@ -686,13 +693,9 @@ export function assertRampFeeKnown(partner: TestPartnerDoors | null | undefined,
   }
 }
 
-/**
- * The TEST partner's account details for one person, or none: with `accountDetails: 'issued'` the TEST partner answers
- * as a banking partner would, with one set per currency labelled TEST (its bank is the TEST partner bank, and every value
- * says TEST, so nothing reads as a real account); otherwise there is no partner and the service answers `rail.bank`.
- */
-export function testPartnerAccountDetails(partner: TestPartnerDoors): (userId: string) => AccountDetailsPartner | undefined {
-  const details = (userId: string, currency: string): AccountDetailSet => ({
+/** The one set of TEST account details the TEST partner issues one person in one currency, as its own book keeps it. */
+export function testPartnerDetailSet(partner: TestPartnerDoors, userId: string, currency: string): AccountDetailSet {
+  return {
     id: `test-partner:${userId}:${currency}`,
     accountNumber: `TEST-${currency}-${userId.replace(/-/g, '').toUpperCase()}`,
     sortCode: null,
@@ -702,7 +705,16 @@ export function testPartnerAccountDetails(partner: TestPartnerDoors): (userId: s
     bic: null,
     partnerBank: partner.label,
     restrictions: ['TEST details: no real account exists and nothing can be received'],
-  });
+  };
+}
+
+/**
+ * The TEST partner's account details for one person, or none: with `accountDetails: 'issued'` the TEST partner answers
+ * as a banking partner would, with one set per currency labelled TEST (its bank is the TEST partner bank, and every value
+ * says TEST, so nothing reads as a real account); otherwise there is no partner and the service answers `rail.bank`.
+ */
+export function testPartnerAccountDetails(partner: TestPartnerDoors): (userId: string) => AccountDetailsPartner | undefined {
+  const details = (userId: string, currency: string) => testPartnerDetailSet(partner, userId, currency);
   const issued = { state: 'done' as const };
   // The partner down answers nothing, as at every other partner-held door.
   const answer = async (userId: string, currency: string) => {
