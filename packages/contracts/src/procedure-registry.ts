@@ -504,6 +504,9 @@ import {
   BANK_BUSINESS_SET_MEMBER_ROLE,
   BANK_BUSINESS_REMOVE_MEMBER,
   BANK_BUSINESS_ADD_MEMBER,
+  BANK_BUSINESS_APPROVE,
+  BANK_BUSINESS_REJECT,
+  BANK_BUSINESS_CANCEL,
 } from './bank-business-procedures.js';
 
 import { BANK_CARDS_ISSUE, BANK_CARDS_SET_LIMITS, BANK_CARDS_SET_CHANNELS } from './bank-cards-2-procedures.js';
@@ -806,6 +809,8 @@ import {
   BANK_TRANSFERS_HELD,
   BANK_TRANSFERS_TO_USER,
   BANK_TRANSFERS_CANCEL,
+  BANK_TRANSFERS_RESUME,
+  BANK_TRANSFERS_PAUSE,
 } from './bank-transfers-procedures.js';
 
 import {
@@ -2845,6 +2850,9 @@ const part_bank_business_procedures: readonly ProcedureRecord[] = [
   BANK_BUSINESS_SET_MEMBER_ROLE,
   BANK_BUSINESS_REMOVE_MEMBER,
   BANK_BUSINESS_ADD_MEMBER,
+  BANK_BUSINESS_APPROVE,
+  BANK_BUSINESS_REJECT,
+  BANK_BUSINESS_CANCEL,
 ];
 
 const part_bank_cards_2_procedures: readonly ProcedureRecord[] = [BANK_CARDS_ISSUE, BANK_CARDS_SET_LIMITS, BANK_CARDS_SET_CHANNELS];
@@ -3166,6 +3174,8 @@ const part_bank_transfers_procedures: readonly ProcedureRecord[] = [
   BANK_TRANSFERS_HELD,
   BANK_TRANSFERS_TO_USER,
   BANK_TRANSFERS_CANCEL,
+  BANK_TRANSFERS_RESUME,
+  BANK_TRANSFERS_PAUSE,
 ];
 
 const part_blueprint_procedures: readonly ProcedureRecord[] = [
