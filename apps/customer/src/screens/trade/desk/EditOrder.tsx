@@ -10,15 +10,12 @@ import type { DeskMarket } from './market';
 import { checkOrder, padDecimals, scaled } from './order-math';
 import { asReplacement, failureOf, previewFailure, previewIsOrderable } from './preview';
 import { problemText } from './problem-text';
-import { canEdit } from './order-kind';
 import { outcomeOf, orderTag, tifFields, type Tif } from './tif';
 import { placesOf } from './text';
 import { replaceKey } from './replace-key';
 
 type Note = { tone: 'good' | 'bad'; text: string } | null;
 const NOTE_CLASS = { good: 'lt-callout lt-callout-good', bad: 'lt-callout lt-callout-bad' } as const;
-
-export { canEdit };
 
 /**
  * Change an open limit order. A smaller (or larger) amount at the same price goes through the service's native amend,

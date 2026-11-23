@@ -1,9 +1,7 @@
-import { type ReactNode } from 'react';
 import { Button, Tag } from '@intafaced/ui/lit';
 import { FreshnessChip, Select } from '@intafaced/ui/lit/templates';
 import { roomCopy } from './copy';
-import { roomRefusal } from './refusals';
-import type { Failure, WriteGuard } from './guard';
+import type { WriteGuard } from './guard';
 import type { Live } from './live';
 import { isDevBuild } from '../../../app/feature-registry';
 
@@ -31,29 +29,8 @@ export function AccountBadge({ paper }: { paper: boolean }) {
   return paper ? <Tag tone="accent">{t('Paper: no money moves')}</Tag> : <Tag tone="neutral">{t('Live account: real orders')}</Tag>;
 }
 
-/** A refusal in customer words. The raw code is only a small support reference; a service sentence is never shown. */
-export function RefusalNote({ failure, retry }: { failure: Failure; retry?: () => void }) {
-  const { t } = roomCopy.useCopy();
-  const words = roomRefusal(failure);
-  return (
-    <div className="lt-refusal" role="alert" data-refusal="refused">
-      <div>
-        <p className="lt-refusal-title">{words.title}</p>
-        <p className="lt-refusal-body">{words.body}</p>
-        {words.code ? <p className="lt-ref">{t('Reference {code}', { code: words.code })}</p> : null}
-      </div>
-      {retry ? <Button onClick={retry}>{t('Try again')}</Button> : null}
-    </div>
-  );
-}
-
-export function InfoNote({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'neutral' | 'warn' }) {
-  return (
-    <p className="lt-hint" role="note" data-tone={tone}>
-      <span>{children}</span>
-    </p>
-  );
-}
+// The two notes are drawn from the Volt kit in ./notes, shared with the recurring buy on a coin page.
+export { InfoNote, RefusalNote } from './notes';
 
 /**
  * Shown while an earlier write has no confirmed outcome. New writes stay locked. "Check" asks the service what

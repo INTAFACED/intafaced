@@ -34,6 +34,7 @@ import {
   CRATE,
   PR_MAX_FILES,
   pullPick,
+  roomReach,
   DISPATCH_GROUP_MAX,
   dispatchGroup,
 } from './journey-touch.mjs';
@@ -1947,6 +1948,39 @@ test('pullPick: a pick past PR_MAX_FILES runs the bounded set, and keeps the jou
   assert.match(pick.bounded, /101 journey files, past a pull request's 100/);
   const at = touch.files.slice(0, PR_MAX_FILES);
   assert.deepEqual(pullPick(['x'], { ...touch, files: at }).files, at, 'exactly at the bound: as it is');
+});
+
+test('pullPick: a change that draws a Customer room runs every journey the map records reaching what it changes, past the bound (#9960)', () => {
+  // Planted, the past mistake: #9960 changed a shared order table and a render record. The record is a path the map
+  // can't narrow, so the change was full and ran its bounded set, which left out J-home-ia-05, a journey the map records
+  // reaching the table; it broke on main (revert #10027).
+  const head = new Set([...BOUND_HEAD, 'J-home-ia-05.pw.mjs', 'J-other-01.pw.mjs']);
+  const journeys = [...BOUND_MAP.journeys, 'J-home-ia-05.pw.mjs', 'J-other-01.pw.mjs'];
+  const table = 'apps/customer/src/screens/trade/desk/OrderTables.tsx';
+  const map = { ...BOUND_MAP, journeys, customer: { [table]: [journeys.indexOf('J-home-ia-05.pw.mjs')] } };
+  const reach = { ...boundReach, map, journeyFiles: head };
+  const paths = [table, 'apps/customer/render-record/trade__orders.html'];
+  const touch = journeyTouch(paths, () => true, reach);
+  assert.equal(touch.mode, 'full', 'the render record still makes it full');
+  const pick = pullPick(paths, touch, { reach });
+  assert.ok(pick.files.includes('J-home-ia-05.pw.mjs'), 'the journey the map records reaching the table runs');
+  assert.ok(!pick.files.includes('J-other-01.pw.mjs'), 'a journey nothing it changes reaches does not');
+  for (const f of CANARY) assert.ok(pick.files.includes(f), f);
+  assert.match(
+    pick.bounded,
+    /the 1 journey file\(s\) the map records reaching the 1 path\(s\) it can narrow \(it draws a Customer room or kit part/,
+  );
+  // Main's rule before this change (a planted fault): the bounded set alone, without the table's journeys.
+  assert.ok(!pullPick(paths, touch, { reach: { ...reach, map: { ...map, customer: {} } } }).files.includes('J-home-ia-05.pw.mjs'));
+  // Past the bound: a room change runs every file its paths reach; a service change keeps the bounded set.
+  const many = Array.from({ length: PR_MAX_FILES + 1 }, (_, i) => `J-many-${String(i).padStart(3, '0')}.pw.mjs`);
+  const wide = { ...reach, map: { ...map, journeys: [...journeys, ...many] }, journeyFiles: new Set([...head, ...many]) };
+  const over = { mode: 'files', full: [], files: many, reach: [] };
+  assert.equal(pullPick([table], over, { reach: wide }).files.length, many.length);
+  assert.match(pullPick([table], over, { reach: wide }).room, /draws a Customer room or kit part .*all 101 journey files/);
+  assert.ok(pullPick(['services/svc-bank/src/a.ts'], over, { reach: wide }).files.length <= PR_MAX_FILES);
+  // A test of the room draws nothing: a journey test or a unit test beside a full path keeps the bounded set.
+  assert.equal(roomReach(['apps/customer/src/app/volt-count.test.ts', 'Cargo.lock'], reach), null);
 });
 
 test("the lint config, the lint plugins and the agents' files run no journeys; a crate is its service (project-state#3377 item 3)", () => {

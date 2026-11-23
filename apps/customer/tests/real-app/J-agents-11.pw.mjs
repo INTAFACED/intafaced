@@ -412,10 +412,24 @@ test(`${J} #7 opens usage analytics by member and task: only members of the busi
   browser,
 }) => {
   test.setTimeout(180_000);
+  // The usage panel loads after the Members table. Its reply is held until the page stands with the panel still
+  // loading, so a read that does not wait for the panel's rows always finds none.
+  const isUsage = (url) => new URL(url).pathname.startsWith('/api/agents/trpc/') && new URL(url).pathname.includes('team.usage');
+  let release;
+  const released = new Promise((resolve) => (release = resolve));
+  const asked = page.waitForRequest((req) => isUsage(req.url()));
+  await page.route(isUsage, async (route) => {
+    await released;
+    await route.continue();
+  });
   await openTeam(page);
   const usagePanel = main(page).getByRole('region', { name: 'Usage by member', exact: true });
   const usage = tableIn(usagePanel, 'Usage by member');
+  await asked;
+  expect(await usage.getByRole('rowheader').count(), 'the usage panel is still loading').toBe(0);
+  release();
   // Only the business's members, each once.
+  await expect(usage.getByRole('rowheader')).toHaveCount(KEYS.length);
   const heads = await usage.getByRole('rowheader').allInnerTexts();
   expect(heads.length).toBe(KEYS.length);
   for (const key of KEYS) expect(heads.filter((h) => h.includes(person(key).userId))).toHaveLength(1);

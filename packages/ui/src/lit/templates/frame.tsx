@@ -476,6 +476,7 @@ export function RoomFrame(props: RoomFrameProps) {
             ))}
           </div>
         ) : null}
+        {props.bar}
         <header className="lt-title-row">
           <div>
             <h1 className="lt-title" lang={props.titleLang} ref={props.titleRef} tabIndex={props.titleRef ? -1 : undefined}>

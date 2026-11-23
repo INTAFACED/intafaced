@@ -1,6 +1,6 @@
 /**
  * Owner: lane B2 (templates). Components the templates need first: EqualChoice, Stepper, Skeleton, KeyValue,
- * StatusChip, FreshnessChip, Tabs, SectionTabs, Disclosure, Checkbox, Dialog, Sheet, Select, DecimalInput. They read only `--lit-*` roles (styles in `../templates/templates.css`).
+ * StatusChip, FreshnessChip, Tabs, SectionTabs, TabList, Disclosure, Checkbox, Dialog, Sheet, Select, DecimalInput. They read only `--lit-*` roles (styles in `../templates/templates.css`).
  */
 import * as React from 'react';
 import type { MoneyStatus } from '../contracts.js';
@@ -8,6 +8,8 @@ import { asOfIso, formatAsOf, freshnessOf, type AsOf, type Freshness } from '../
 import { useFreshnessClock } from '../../components/use-freshness-clock.js';
 import { blurDecimalValue, nextDecimalValue, pastedDecimalValue, stepValueForKey } from '../../components/input-logic.js';
 import { stepDecimal } from '../../components/amount-input-logic.js';
+import { moveFocusByArrow } from './arrow-focus.js';
+import type { DataMarks } from './b2-table.js';
 
 /**
  * Two or more choices of the same size, style and level (COBS 4.12A.18R(2); Directive 2023/2673 Art 16e(1)(a)).
@@ -301,7 +303,8 @@ export function TabPanel({
 
 /**
  * A room's own sections, one button each, the open one pressed: the same row as Tabs, for sections a room switches
- * itself (it navigates in `onChange`) rather than by link. Wraps onto a second line when it overflows, as Tabs do.
+ * itself (it navigates in `onChange`) rather than by link. Wraps onto a second line when it overflows, as Tabs do. The
+ * arrow keys move focus between the sections (`arrow-focus.ts`).
  */
 export function SectionTabs<T extends string>({
   items,
@@ -315,12 +318,88 @@ export function SectionTabs<T extends string>({
   label: string;
 }) {
   return (
-    <div className="lt-tabs" role="group" aria-label={label}>
+    <div className="lt-tabs" role="group" aria-label={label} onKeyDown={moveFocusByArrow}>
       {items.map((t) => (
         <button key={t.value} type="button" className="lt-tab" aria-pressed={t.value === value} onClick={() => onChange(t.value)}>
           {t.label}
         </button>
       ))}
+    </div>
+  );
+}
+
+/**
+ * Tabs that switch a panel in place (Send, Receive and Request on one card): a WAI-ARIA tab list drawn like Tabs. The
+ * chosen tab is selected and is the only one in the Tab order; arrow keys, Home and End move between the tabs and choose
+ * the one they reach, and `onChange` is called with it (a room that keeps each tab at its own address navigates there).
+ * `panelOf` names the id of the panel each tab shows, when the panel is drawn.
+ */
+export function TabList<T extends string>({
+  items,
+  value,
+  onChange,
+  label,
+  panelOf,
+}: {
+  items: readonly { value: T; label: string }[];
+  value: T;
+  onChange: (value: T) => void;
+  label: string;
+  panelOf?: (value: T) => string | undefined;
+}) {
+  const refs = React.useRef(new Map<T, HTMLButtonElement>());
+  const go = (index: number) => {
+    const next = items[(index + items.length) % items.length];
+    if (!next) return;
+    refs.current.get(next.value)?.focus();
+    onChange(next.value);
+  };
+  const keys = (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
+    const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
+    const rtl = event.currentTarget.closest('[dir="rtl"]') !== null;
+    if (step !== undefined) go(index + (rtl && (event.key === 'ArrowRight' || event.key === 'ArrowLeft') ? -step : step));
+    else if (event.key === 'Home') go(0);
+    else if (event.key === 'End') go(items.length - 1);
+    else return;
+    event.preventDefault();
+  };
+  return (
+    <div className="lt-tabs" role="tablist" aria-label={label}>
+      {items.map((t, i) => (
+        <button
+          key={t.value}
+          ref={(node) => {
+            if (node) refs.current.set(t.value, node);
+            else refs.current.delete(t.value);
+          }}
+          type="button"
+          role="tab"
+          className="lt-tab"
+          aria-selected={t.value === value}
+          aria-controls={panelOf?.(t.value)}
+          tabIndex={t.value === value ? 0 : -1}
+          onClick={() => t.value !== value && onChange(t.value)}
+          onKeyDown={(event) => keys(event, i)}
+        >
+          {t.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * A room's own bar (an asset page's name, price and sections), given to the room as its `bar`: the frame draws it
+ * first, and it stays right under the app's top bar (and under the legal band when that is on) while the page scrolls.
+ * Its place is the top bar's real bottom edge as measured (`--a11y-obscured-top`, from `trackObscuringBars`), so a
+ * banner above the top bar or a top bar of another height moves it too; before the first measure it is the
+ * `--lit-topbar-h` token. Its children sit in a row, the first at the start and the last at the end. `marks` are the
+ * bar's own (`data-testid`), where a room's tests find it.
+ */
+export function RoomBar({ marks, children }: { marks?: DataMarks; children: React.ReactNode }) {
+  return (
+    <div className="lt-room-bar" data-region="room-bar" {...marks}>
+      {children}
     </div>
   );
 }
@@ -389,17 +468,23 @@ export function Checkbox({ label, ...input }: Omit<React.InputHTMLAttributes<HTM
  * A modal dialog in the middle of the screen: a review before a step that cannot be undone, or one short task. It is
  * open while it is drawn (the caller decides when it shows and owns its own submission), keeps focus inside, and closes
  * on Escape or its Close button by calling `onClose`. Built on the native <dialog> element, named by its title.
+ * `alert` marks a confirmation that interrupts (send money, delete): it is announced as an alert dialog.
  */
 export function Dialog({
   title,
   onClose,
   closeLabel,
+  alert = false,
   children,
+  'data-testid': testId,
 }: {
   title: React.ReactNode;
   onClose: () => void;
   closeLabel: string;
+  /** A confirmation before a step that cannot be undone: role `alertdialog`. */
+  alert?: boolean;
   children: React.ReactNode;
+  'data-testid'?: string;
 }) {
   const ref = React.useRef<HTMLDialogElement>(null);
   const titleId = React.useId();
@@ -414,6 +499,9 @@ export function Dialog({
     <dialog
       ref={ref}
       className="lt-dialog"
+      role={alert ? 'alertdialog' : undefined}
+      aria-modal={alert ? true : undefined}
+      data-testid={testId}
       aria-labelledby={titleId}
       onCancel={(event) => {
         event.preventDefault();

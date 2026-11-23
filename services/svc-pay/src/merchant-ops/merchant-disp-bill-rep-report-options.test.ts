@@ -74,6 +74,15 @@ describe('M-rep-01 zoned report periods', () => {
       code(() => zonedFilters({ from: '2026-12-01T00:00:00Z' }, { fromDay: '2026-12-01', toDay: '2026-12-01', timeZone: 'UTC' }, NOW)),
     ).toBe('pay.export_filter_invalid');
   });
+
+  it('refuses an impossible report end day rather than rolling it into the next month', () => {
+    expect(
+      code(() => zonedFilters({}, { fromDay: '2026-02-01', toDay: '2026-02-30', timeZone: 'UTC' }, new Date('2026-03-10T00:00:00Z'))),
+    ).toBe('pay.export_filter_invalid');
+    expect(code(() => zonedFilters({}, { fromDay: '2026-04-01', toDay: '2026-04-31', timeZone: 'Asia/Makassar' }, NOW))).toBe(
+      'pay.export_filter_invalid',
+    );
+  });
 });
 
 describe('M-rep-01 report options', () => {

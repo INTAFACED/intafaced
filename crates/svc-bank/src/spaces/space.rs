@@ -865,7 +865,7 @@ fn rows_of(
 }
 
 /// `fundedArchived`: archived named spaces whose balance is still above zero.
-fn funded_archived(
+pub fn funded_archived(
     pool: &Store,
     money: &Money<'_>,
     user_id: &str,

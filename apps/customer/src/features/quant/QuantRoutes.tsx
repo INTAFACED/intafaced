@@ -67,6 +67,7 @@ export function quantRoute(pathname: string, paper: boolean, userId: string | nu
       title: teamCopy.t('sharedTitle'),
       description: teamCopy.t('sharedIntro'),
       content: <SharedRoom key={userId ?? 'anonymous'} paper={paper} />,
+      bare: true,
     };
   }
   const shared = /^\/quant\/shared\/([^/]+)$/.exec(pathname);
@@ -90,6 +91,7 @@ export function quantRoute(pathname: string, paper: boolean, userId: string | nu
       title: libraryCopy.t('libraryTitle'),
       description: libraryCopy.t('libraryIntro'),
       content: <LibraryRoom key={userId ?? 'anonymous'} paper={paper} />,
+      bare: true,
     };
   }
   const listing = /^\/quant\/library\/([^/]+)$/.exec(pathname);

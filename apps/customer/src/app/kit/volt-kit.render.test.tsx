@@ -104,6 +104,7 @@ const BLOCKS = [
   'balance',
   'object',
   'money-parts',
+  'pay-parts',
   'buttons',
   'inputs',
   'controls',
@@ -117,6 +118,7 @@ const BLOCKS = [
   'chart',
   'time-line',
   'chart-box',
+  'room-bar',
   'candles',
   'book',
   'people',
@@ -126,6 +128,34 @@ const BLOCKS = [
 ];
 
 describe('the Volt kit page (intafaced issue 9302), with Volt the only look (issue 9315)', () => {
+  it('/kit: the arrow keys move focus between the range pills, wrapping, Home and End to the ends, without pressing one', async () => {
+    await open('/kit');
+    const ranges = host.querySelector('[data-testid="kit-ranges"]')!;
+    const pill = (label: string) => [...ranges.querySelectorAll('button')].find((b) => b.textContent === label)!;
+    const press = (key: string) =>
+      act(() => {
+        (document.activeElement as HTMLElement).dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+      });
+    act(() => pill('6M').focus());
+    press('ArrowRight');
+    expect(document.activeElement).toBe(pill('1Y'));
+    press('ArrowLeft');
+    expect(document.activeElement).toBe(pill('6M'));
+    press('End');
+    expect(document.activeElement).toBe(pill('All'));
+    press('ArrowRight');
+    expect(document.activeElement, 'wraps to the first').toBe(pill('1D'));
+    press('Home');
+    expect(document.activeElement).toBe(pill('1D'));
+    expect(pill('1D').getAttribute('aria-pressed'), 'moving focus presses nothing').toBe('true');
+    expect(ranges.querySelectorAll('button[aria-pressed="true"]')).toHaveLength(1);
+    // The bar's sections answer the arrows the same way.
+    const tabs = [...host.querySelectorAll('[data-testid="kit-room-bar"] [role="group"] button')] as HTMLElement[];
+    act(() => tabs[0]!.focus());
+    press('ArrowRight');
+    expect(document.activeElement).toBe(tabs[1]);
+  });
+
   it('/kit draws every block the issue lists, each from the shipped parts, with no switch on the root', async () => {
     expect(html.dataset.look).toBeUndefined();
     expect(html.dataset.direction).toBeUndefined();
@@ -186,7 +216,7 @@ describe('the Volt kit page (intafaced issue 9302), with Volt the only look (iss
     const boxes = block('chart-box').querySelectorAll('.lt-chart-box');
     expect(boxes, 'the chart box, drawn and holding a state').toHaveLength(2);
     expect(
-      boxes[0]!.querySelector('[role="img"][aria-label] > [data-testid="kit-chart-host"]'),
+      boxes[0]!.querySelector('[role="figure"][aria-label] > [data-testid="kit-chart-host"]'),
       'the named picture and its drawing element',
     ).not.toBeNull();
     expect(
@@ -194,6 +224,15 @@ describe('the Volt kit page (intafaced issue 9302), with Volt the only look (iss
       'the library was handed the element and drew into it',
     ).not.toBeNull();
     expect(boxes[1]!.querySelector('[role="status"]')?.textContent, 'the state in its place').toMatch(/^No trades yet/);
+    const bar = block('room-bar').querySelector('.lt-room-bar[data-region="room-bar"][data-testid="kit-room-bar"]');
+    expect(bar, 'the room bar, with its marks').not.toBeNull();
+    expect(bar!.querySelector('[role="group"][aria-label="TEST coin sections"] button[aria-pressed="true"]')?.textContent).toBe('Overview');
+    const ranges = block('room-bar').querySelector('[data-testid="kit-ranges"][role="group"]');
+    expect(
+      [...ranges!.querySelectorAll('button')].map((b) => b.textContent),
+      'the range pills, in order',
+    ).toEqual(['1D', '1W', '1M', '6M', '1Y', 'All']);
+    expect(ranges!.querySelectorAll('button[aria-pressed="true"]'), 'one pressed').toHaveLength(1);
     expect(block('book').querySelector('[data-widget], [role="table"], table, [data-testid]'), 'the order book').not.toBeNull();
     const lines = block('time-line').querySelectorAll('figure.lt-timeline');
     expect(lines, 'the line over time, drawn and empty').toHaveLength(2);
@@ -282,5 +321,105 @@ describe('the Volt kit page (intafaced issue 9302), with Volt the only look (iss
     const hero = block.querySelector('[data-slot="hero-figure"][data-hidden]');
     expect(hero?.getAttribute('aria-label'), 'hidden, the figure is masked and said so').toBe('Balance hidden');
     expect(hero?.textContent).not.toContain('12,468');
+  });
+  it('/kit shows the pay parts issue 9563 adds: the money box keeps a decimal string, Max fills it, and a confirmation is announced and closes', async () => {
+    await open('/kit');
+    const block = host.querySelector('[data-testid="volt-kit"] [data-block="pay-parts"]')!;
+    const box = block.querySelector<HTMLElement>('[data-testid="kit-amount"]')!;
+    const input = box.querySelector<HTMLInputElement>('input')!;
+    expect(input.getAttribute('inputmode'), 'a decimal keyboard, never type=number').toBe('decimal');
+    expect(input.type).toBe('text');
+    expect(box.querySelector('[data-part="unit"]')?.textContent?.trim(), 'its unit beside it').toBe('USDT');
+    expect(document.getElementById(input.getAttribute('aria-describedby')!)?.textContent, 'what is available describes it').toMatch(
+      /^Available 9,218\.50 USDT/,
+    );
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+    const type = (text: string) =>
+      act(async () => {
+        setValue.call(input, text);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    await type('12.3');
+    expect(input.value).toBe('12.3');
+    await type('12.345');
+    expect(input.value, 'a decimal past the asset’s is refused').toBe('12.3');
+    await type('12.3.');
+    expect(input.value, 'a second mark is refused').toBe('12.3');
+    await type('7.');
+    await act(async () => {
+      input.focus();
+      input.blur();
+    });
+    expect(input.value, 'an unfinished mark is dropped on leaving').toBe('7');
+    const paste = new Event('paste', { bubbles: true, cancelable: true }) as Event & { clipboardData: { getData: () => string } };
+    paste.clipboardData = { getData: () => '1,234.567 USDT' };
+    await act(async () => input.dispatchEvent(paste));
+    expect(input.value, 'a paste drops separators and words, cut down to two decimals').toBe('1234.56');
+    await act(async () => box.querySelector<HTMLButtonElement>('[data-part="max"]')!.click());
+    expect(input.value, 'Max fills in what is available').toBe('9218.50');
+
+    const refused = block.querySelectorAll('.lit-amount')[1]!;
+    expect(refused.querySelector('input')?.getAttribute('aria-invalid'), 'a refused amount is marked invalid').toBe('true');
+    expect(refused.querySelector('[role="alert"]')?.textContent).toMatch(/^More than your/);
+
+    const handle = block.querySelector('.lit-field-control [data-part="box"]')!;
+    expect(handle.querySelector('[data-part="before"][aria-hidden="true"]')?.textContent, 'the handle box shows its @').toBe('@');
+    expect(handle.querySelector('button')?.textContent, 'and its Paste key inside it').toBe('Paste');
+
+    const tabs = [...block.querySelectorAll<HTMLButtonElement>('[role="tablist"] [role="tab"]')];
+    expect(
+      tabs.map((tab) => tab.getAttribute('aria-selected')),
+      'one tab chosen',
+    ).toEqual(['true', 'false', 'false']);
+    await act(async () => tabs[0]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })));
+    expect(
+      [...block.querySelectorAll('[role="tab"]')].map((tab) => tab.getAttribute('aria-selected')),
+      'an arrow key chooses the next tab',
+    ).toEqual(['false', 'true', 'false']);
+    expect(document.activeElement?.textContent, 'and moves focus to it').toBe('Receive');
+
+    const payee = block.querySelector('[data-testid="kit-payee"]')!;
+    expect(payee.querySelector('[data-part="face"]')?.textContent).toBe('M');
+    expect(payee.querySelector('[data-part="tick"]'), 'confirmed').not.toBeNull();
+    expect(
+      [...block.querySelectorAll('.lit-note')].map((n) => n.getAttribute('role')),
+      'polite unless it failed',
+    ).toEqual(['status', 'status', 'alert']);
+
+    const region = document.querySelector('[data-slot="toast-region"]')!;
+    expect(region.getAttribute('aria-live'), 'the polite region is in the page before any toast').toBe('polite');
+    expect(region.children).toHaveLength(0);
+    await act(async () => block.querySelector<HTMLButtonElement>('[data-kit="show-volt-toast"]')!.click());
+    expect(region.querySelector('[data-part="title"]')?.textContent, 'a confirmation arrives in it').toBe('Link copied');
+    await act(async () => region.querySelector<HTMLButtonElement>('[data-part="close"]')!.click());
+    expect(region.children, 'and its close key closes it').toHaveLength(0);
+  });
+
+  it('a confirmation closes by itself after its time', async () => {
+    vi.useFakeTimers();
+    try {
+      const { ToastProvider, useToast } = await import('@intafaced/ui/lit');
+      let raise: ReturnType<typeof useToast>['add'] = () => '';
+      function Raiser() {
+        raise = useToast().add;
+        return null;
+      }
+      await act(async () =>
+        root.render(
+          <ToastProvider closeLabel="Dismiss">
+            <Raiser />
+          </ToastProvider>,
+        ),
+      );
+      const region = host.querySelector('[data-slot="toast-region"]')!;
+      await act(async () => void raise({ title: 'Copied', timeout: 2000 }));
+      expect(region.textContent).toContain('Copied');
+      await act(async () => void vi.advanceTimersByTime(1999));
+      expect(region.textContent, 'still there just before its time').toContain('Copied');
+      await act(async () => void vi.advanceTimersByTime(1));
+      expect(region.children, 'gone at its time').toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

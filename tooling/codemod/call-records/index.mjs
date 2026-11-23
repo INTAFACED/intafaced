@@ -32,7 +32,7 @@ import { answerFromCallers } from './answer.mjs';
 import { brandAssetIds, unbranded } from './asset-id.mjs';
 import { chainOf, procedures } from './router.mjs';
 import { asWritten, closureOf, contractsExports, declaresSame, usedOutside } from './closure.mjs';
-import { doorOf } from './door.mjs';
+import { accessText, doorOf } from './door.mjs';
 import { founderPartsFor } from './founder-guard.mjs';
 import { partsFor } from './guard-check.mjs';
 import { fanBranch, fanIn } from './fan.mjs';
@@ -173,7 +173,7 @@ function plan(opts) {
     byPath.get(s.path).push(s);
   }
   const readers = opts.door ? [] : refusalReaders(serviceDir);
-  const door = opts.door ? doorOf(join(REPO, opts.door)) : undefined;
+  const door = opts.door ? doorOf(join(REPO, opts.door), opts.module) : undefined;
   const exportsIndex = contractsExports(REPO);
   const records = [];
   const existing = [];
@@ -223,8 +223,9 @@ function plan(opts) {
       chain.problems = chain.problems.filter((x) => !/^guard |^scopedProcedure /.test(x));
       if (!row) chain.problems.push(`${opts.door} serves no call ${path}`);
       else if (row.kind !== chain.kind) chain.problems.push(`${opts.door} serves ${path} as a ${row.kind}, the router as a ${chain.kind}`);
+      else if (!row.access) chain.problems.push(`${opts.door} serves ${path} to ${row.why}`);
       else {
-        chain.guard = { text: row.scope ? `{ caller: 'scope', scope: '${row.scope}', module: '${opts.module}' }` : "{ caller: 'public' }" };
+        chain.guard = { text: accessText(row.access) };
         try {
           reader = { refusals: door.refusals(path) };
         } catch (e) {
@@ -280,7 +281,8 @@ function recordOfPath(file, name, path) {
 /** The input argument of a site, and whether it is no input at all (`undefined`, `{}`, or absent). */
 const INPUT_AT = { founderCall: 4, founderEdgeCall: 4, payCall: 3, useBankRead: 1, payQuery: 1, payMutate: 1 };
 const inputArg = (s) =>
-  s.shape === 'desk-read'
+  s.fan?.input ??
+  (s.shape === 'desk-read'
     ? s.inputProp?.value
     : s.shape === 'ops-entry'
       ? s.dispatchers[0].arguments[4]
@@ -288,7 +290,7 @@ const inputArg = (s) =>
         ? undefined // the spec's `input` builds it from the form; the record's input type holds it at the typecheck
         : toolShape(s)
           ? toolInput(s)
-          : s.node.arguments[INPUT_AT[s.shape] ?? 2];
+          : s.node.arguments[INPUT_AT[s.shape] ?? 2]);
 function noInput(s) {
   // A wrapper sends the input it sent before: its record only names the call.
   if (s.shape === 'wrapper') return true;
@@ -354,6 +356,8 @@ function takenIn(file, src, decls, imports) {
 }
 
 function build(opts, planned) {
+  // The router is read, never edited: mid-port (callers only), or a door's, read from the commit before its deletion.
+  const routerKept = Boolean(opts.callersOnly || opts.door);
   const changes = new Changes();
   const created = new Map();
   const groups = new Map();
@@ -394,12 +398,13 @@ function build(opts, planned) {
     // one file. Keep the records whose helpers agree; the rest go to their own sub-area's file in this same run
     // (`founderAdmin.depositFreezes.*` to pay-founder-admin-deposit-freezes-procedures.ts), where the name is free. A
     // record already in its sub-area's file that still clashes stays by name, named.
-    // Mid-port the router is never edited, so two of its files declaring one helper the same way (svc-agents' `idInput`
-    // in own/routes.ts and own/automation-routes.ts) give contracts one copy; elsewhere each declaration is its file's.
+    // Mid-port, and for a door (its router read from the commit before its deletion), the router is never edited, so two
+    // of its files declaring one helper the same way (svc-agents' `idInput` in own/routes.ts and own/automation-routes.ts)
+    // give contracts one copy; elsewhere each declaration is its file's.
     const keyOfMoved = (m) =>
       !m.q
         ? `inline#${m.name}`
-        : opts.callersOnly && serviceFiles([m.q.file]).length
+        : routerKept && serviceFiles([m.q.file]).length
           ? `as written#${m.name}#${asWritten(m.text)}`
           : `${m.q.file}#${m.name}`;
     const clashing = (moved, seen = new Map()) =>
@@ -456,9 +461,9 @@ function build(opts, planned) {
       );
     const taken = schemaNames.get(shared);
     const keyOf = keyOfMoved;
-    // Mid-port, an earlier run already copied the router's helper into the shared file: the router still declares it, so
-    // the same text there is that copy. The record imports it; declaring it again beside the record would clash.
-    if (opts.callersOnly)
+    // Mid-port or for a door, an earlier run already copied the router's helper into the shared file: the router still
+    // declares it, so the same text there is that copy. The record imports it; declaring it again beside it would clash.
+    if (routerKept)
       for (const m of closure.moved) {
         const k = keyOf(m);
         if (!m.q || movedTo.has(k) || taken.get(m.name) !== 'existing' || !declaresSame(shared, m.name, m.text)) continue;
@@ -544,8 +549,8 @@ function build(opts, planned) {
     // Moved declarations: their old home imports them from contracts.
     for (const m of [...fresh, ...reused]) {
       if (m.inline || !m.q) continue;
-      // Mid-port, the service's own declaration stays where it is: contracts gets a copy, and the router reads its own.
-      if (opts.callersOnly && serviceFiles([m.q.file]).length) continue;
+      // Mid-port or for a door, the service's own declaration stays where it is: contracts gets a copy.
+      if (routerKept && serviceFiles([m.q.file]).length) continue;
       const b = m.binding;
       const stmt = b.statement;
       if (b.kind === 'var' && b.declaration.declarations.length > 1) {

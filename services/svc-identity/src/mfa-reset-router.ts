@@ -1,12 +1,15 @@
-import { z } from 'zod';
-import { publicProcedure, router, TRPCError } from '@intafaced/contracts/trpc';
-import { mfaResetViewSchema } from '@intafaced/contracts/identity';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import type { AuthService } from './auth/auth-service.js';
 import { MfaResetError } from './auth/mfa-reset.js';
 import { SecurityStepUpError, toSecurityStepUpTrpc } from './auth/security-step-up.js';
 import { toTrpcError } from './router.js';
 import { userCopy } from './user-copy.js';
-import { IDENTITY_MFA_RESET_STATUS, IDENTITY_MFA_RESET_CANCEL } from '@intafaced/contracts/identity-mfa-reset-procedures';
+import {
+  IDENTITY_MFA_RESET_STATUS,
+  IDENTITY_MFA_RESET_CANCEL,
+  IDENTITY_MFA_RESET_CONFIRM,
+  IDENTITY_MFA_RESET_START,
+} from '@intafaced/contracts/identity-mfa-reset-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { codedRefusal } from './record-refusal.js';
 
@@ -42,26 +45,28 @@ function refuseDelegated(principal: { kid?: string | null | undefined; sub_accou
 export function createMfaResetRouter(auth: AuthService) {
   return router({
     mfaReset: router({
-      start: publicProcedure
-        .input(z.object({ identifier: z.string().min(1).max(320), password: z.string().min(1).max(200) }).strict())
-        .output(mfaResetViewSchema)
-        .mutation(async ({ input }) => {
+      start: mountRecord(
+        IDENTITY_MFA_RESET_START,
+        async ({ input }) => {
           try {
             return await auth.mfaResetStart(input);
           } catch (err) {
             return mapError(err);
           }
-        }),
-      confirm: publicProcedure
-        .input(z.object({ resetId: z.string().guid(), code: z.string().min(1).max(16) }).strict())
-        .output(mfaResetViewSchema)
-        .mutation(async ({ input }) => {
+        },
+        codedRefusal,
+      ),
+      confirm: mountRecord(
+        IDENTITY_MFA_RESET_CONFIRM,
+        async ({ input }) => {
           try {
             return await auth.mfaResetConfirm(input);
           } catch (err) {
             return mapError(err);
           }
-        }),
+        },
+        codedRefusal,
+      ),
       status: mountRecord(
         IDENTITY_MFA_RESET_STATUS,
         async ({ ctx }) => {

@@ -48,8 +48,8 @@ pub const JOB_DOORS: [JobDoor; 27] = [
     job("/internal/jobs/payout-sim/failed", Slice::PartnerAccount),
     job("/internal/jobs/payout-sim/cancelled", Slice::PartnerAccount),
     job("/internal/jobs/payout-sim/returned", Slice::PartnerAccount),
-    job("/internal/jobs/bill-pay/run-due", Slice::Bills),
-    job("/internal/jobs/bill-pay/returned", Slice::Bills),
+    job("/internal/jobs/bill-pay/run-due", Slice::BusinessSpend),
+    job("/internal/jobs/bill-pay/returned", Slice::BusinessSpend),
     job("/internal/jobs/payin-sim/paid", Slice::Ramps),
     job("/internal/jobs/payin-sim/returned", Slice::Ramps),
     job("/internal/jobs/card-sim/shipment", Slice::Cards),
@@ -94,7 +94,7 @@ fn not_ported(slice: Slice) -> Response {
 const RUN_DUE_TRANSFERS: &str = "/internal/jobs/run-due-transfers";
 
 /// A thrown error that is no `BankError`: Fastify's 500 with its message.
-fn thrown(message: &str) -> Response {
+pub(crate) fn thrown(message: &str) -> Response {
     Response {
         status: 500,
         body: Json::obj([
@@ -141,7 +141,7 @@ const RESUME_PENDING_EARN: &str = "/internal/jobs/resume-pending-earn";
 
 /// A job's work failed as Fastify answers a throw: a `BankError` with its code (Fastify's 500 carries an error's
 /// `code`), anything else with its message alone.
-fn thrown_refusal(r: crate::errors::Refusal) -> Response {
+pub(crate) fn thrown_refusal(r: crate::errors::Refusal) -> Response {
     match r {
         crate::errors::Refusal::Bank(e) => {
             fastify_error(500, e.row.code, "Internal Server Error", &e.message)
@@ -173,7 +173,7 @@ fn accrue_interest(door: &BankDoor) -> Response {
 }
 
 /// `bodyLimit`: the body's `limit` when it is a number, else none.
-fn body_limit(body: &Value) -> Option<f64> {
+pub(crate) fn body_limit(body: &Value) -> Option<f64> {
     body.get("limit").as_number()
 }
 
@@ -198,12 +198,32 @@ fn resume_pending_earn(door: &BankDoor, body: &Value) -> Response {
     }
 }
 
+const CARD_SHIPMENT: &str = "/internal/jobs/card-sim/shipment";
+
+/// `POST /internal/jobs/card-sim/shipment`: the stand-in printer's word (`cardShipmentJobBody`, strict), then
+/// `recordShipment`; a body not in shape is 400 `bank.validation_failed`, a `BankError` `sendBankJobRefuse`'s 400.
+fn card_shipment(door: &BankDoor, body: &Value) -> Response {
+    let Some(shipment) = crate::cards::orders::shipment_body(body) else {
+        return reply(400, "body not in shape", "bank.validation_failed");
+    };
+    match door.cards_deps(door.now(), |d| {
+        crate::cards::orders::record_shipment(d, &shipment)
+    }) {
+        Ok(delivery) => Response {
+            status: 200,
+            body: delivery.compact(),
+        },
+        Err(crate::errors::Refusal::Bank(e)) => job_refuse(&e),
+        Err(r) => thrown_refusal(r),
+    }
+}
+
 const ACCRUE_LOAN_INTEREST: &str = "/internal/jobs/accrue-loan-interest";
 const RUN_RISK_SWEEP: &str = "/internal/jobs/run-risk-sweep";
 const RESUME_PENDING_LOANS: &str = "/internal/jobs/resume-pending-loans";
 const RECOVER_LOAN_REPAYMENTS: &str = "/internal/jobs/recover-loan-repayments";
 
-fn ok(body: &Json) -> Response {
+pub(crate) fn ok(body: &Json) -> Response {
     Response {
         status: 200,
         body: body.compact(),
@@ -211,7 +231,7 @@ fn ok(body: &Json) -> Response {
 }
 
 /// A job's work that `sendBankJobRefuse` wraps: a `BankError` is its 400, anything else Fastify's 500.
-fn job_failed(r: crate::errors::Refusal) -> Response {
+pub(crate) fn job_failed(r: crate::errors::Refusal) -> Response {
     match r {
         crate::errors::Refusal::Bank(e) => job_refuse(&e),
         r => thrown_refusal(r),
@@ -352,8 +372,28 @@ pub fn answer(door: &BankDoor, req: &Request<'_>) -> Option<Response> {
         if j.path == RESUME_PENDING_EARN {
             return Some(resume_pending_earn(door, &body));
         }
+        if j.path == CARD_SHIPMENT {
+            return Some(card_shipment(door, &body));
+        }
         if j.slice == Slice::Loans {
             return Some(loan_job(door, j.path, &body));
+        }
+        if j.slice == Slice::Ramps {
+            return Some(crate::ramps::onramp::job(door, j.path, &body));
+        }
+        if j.slice == Slice::Automations {
+            return Some(
+                door.automations_deps(door.now(), |d| {
+                    crate::automations::router::job(d, j.path, &body)
+                })
+                .unwrap_or_else(|| not_ported(Slice::Automations)),
+            );
+        }
+        if j.slice == Slice::Bills {
+            return Some(
+                door.bills_deps(door.now(), |d| crate::bills::router::job(d, j.path, &body))
+                    .unwrap_or_else(|| not_ported(Slice::Bills)),
+            );
         }
         return Some(not_ported(j.slice));
     }
@@ -361,7 +401,7 @@ pub fn answer(door: &BankDoor, req: &Request<'_>) -> Option<Response> {
         return Some(reply(403, "caller not allowed", "bank.caller_forbidden"));
     }
     if path == PARTNER_RESERVES {
-        return Some(not_ported(Slice::CardOps));
+        return Some(crate::card_ops_desk::reserves::door(door));
     }
     Some(
         match restore_watermark::read(door.store(), door.now(), BANK_SCHEMA) {

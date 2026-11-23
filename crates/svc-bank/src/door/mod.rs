@@ -23,6 +23,7 @@
 //! (`scripts/record-door.mjs`). `tests/wire_replay.rs` holds the door to the TypeScript's recorded answers.
 
 pub mod calls;
+mod card_moves;
 pub mod inputs;
 pub mod jobs;
 pub mod rest;
@@ -237,8 +238,22 @@ pub struct BankDoor {
     transfers: crate::transfers::Wiring,
     /// Slice `earn`'s owner values (`earn::Settings`); identity and the ledger are the slices' above.
     earn: crate::earn::Settings,
+    /// Slice `cards`' issuer, rank door and owner values (`cards::Wiring`); no card programme until handed in.
+    cards: crate::cards::Wiring,
     /// Slice `loans`'s marks, venue, affiliates and owner values (`loans::Wiring`).
     loans: crate::loans::Wiring,
+    /// Slice `ramps`' owner values, identity ports, programme and partner (`ramps::Wiring`).
+    ramps: crate::ramps::Wiring,
+    /// Slice `automations`' wiring, one part each (`automations::Wiring`); nothing until handed in.
+    pub(crate) automations: crate::automations::Wiring,
+    /// Slice `bills`' wiring, one part each (`bills::Wiring`); nothing until handed in.
+    pub(crate) bills: crate::bills::Wiring,
+    /// Slice `activity`'s history reads, cursor secret and owner values (`activity::Wiring`).
+    activity: crate::activity::Wiring,
+    /// Slice `global`'s ports and owner values (`global::Wiring`); every port unset until handed in.
+    global: crate::global::Wiring,
+    /// Slice `bank-api`'s webhook wire and its loopback hatch (`bank_api::Wiring`); production posture until handed in.
+    bank_api: crate::bank_api::Wiring,
     /// `TEST_AGE_DOOR`: whether `POST /internal/test/age` ages a record.
     test_age_open: bool,
 }
@@ -286,7 +301,14 @@ impl BankDoor {
             spaces: crate::spaces::Wiring::none(),
             transfers: crate::transfers::Wiring::none(),
             earn: crate::earn::Settings::default(),
+            cards: crate::cards::Wiring::none(),
             loans: crate::loans::Wiring::none(),
+            ramps: crate::ramps::Wiring::none(),
+            automations: crate::automations::Wiring::none(),
+            bills: crate::bills::Wiring::none(),
+            activity: crate::activity::Wiring::none(),
+            global: crate::global::Wiring::none(),
+            bank_api: crate::bank_api::Wiring::none(),
             test_age_open: false,
         })
     }
@@ -369,10 +391,182 @@ impl BankDoor {
         self
     }
 
+    /// Slice `global`'s wiring, built by the binary from the environment.
+    pub fn with_global(mut self, wiring: crate::global::Wiring) -> BankDoor {
+        self.global = wiring;
+        self
+    }
+
+    /// Slice `bank-api`'s wiring, built by the binary from the environment.
+    pub fn with_bank_api(mut self, wiring: crate::bank_api::Wiring) -> BankDoor {
+        self.bank_api = wiring;
+        self
+    }
+
+    /// Slice `bank-api`'s wiring.
+    pub fn bank_api(&self) -> &crate::bank_api::Wiring {
+        &self.bank_api
+    }
+
+    /// `f` given slice `bank-api`'s dependencies at `now`: what a call, the recovery job or the webhook worker hands
+    /// the slice.
+    pub fn bank_api_deps<T>(
+        &self,
+        now: Instant,
+        f: impl FnOnce(&crate::bank_api::Deps<'_>) -> T,
+    ) -> T {
+        let custody = self.partner.custody(&self.store);
+        f(&crate::bank_api::Deps {
+            store: &self.store,
+            ledger: self.spaces.ledger.as_ref(),
+            custody: &custody,
+            test_partner: self.partner.partner.as_ref(),
+            w: &self.bank_api,
+            now,
+            clock: self.now,
+        })
+    }
+
+    /// Slice `ramps`' wiring, built by the binary from the environment.
+    pub fn with_ramps(mut self, wiring: crate::ramps::Wiring) -> BankDoor {
+        self.ramps = wiring;
+        self
+    }
+
+    /// Slice `ramps`' wiring.
+    pub fn ramps(&self) -> &crate::ramps::Wiring {
+        &self.ramps
+    }
+
+    /// `f` given slice `ramps`' dependencies at `now`: what a call, a job door or a TEST page hands the slice.
+    pub fn ramps_deps<T>(&self, now: Instant, f: impl FnOnce(&crate::ramps::Deps<'_>) -> T) -> T {
+        f(&crate::ramps::Deps {
+            store: &self.store,
+            ledger: self.spaces.ledger.as_ref(),
+            partner: &self.partner,
+            transfers: &self.transfers,
+            w: &self.ramps,
+            now,
+            clock: self.now,
+        })
+    }
+
+    /// Slice `activity`'s wiring, built by the binary from the environment.
+    pub fn with_activity(mut self, wiring: crate::activity::Wiring) -> BankDoor {
+        self.activity = wiring;
+        self
+    }
+
+    /// `f` given slice `activity`'s dependencies at `now`: what a call or the statement worker hands the slice.
+    pub fn activity_deps<T>(
+        &self,
+        now: Instant,
+        f: impl FnOnce(&crate::activity::Deps<'_>) -> T,
+    ) -> T {
+        f(&crate::activity::Deps {
+            door: self,
+            w: &self.activity,
+            now,
+        })
+    }
+
+    /// Slice `spaces`'s wiring.
+    pub fn spaces(&self) -> &crate::spaces::Wiring {
+        &self.spaces
+    }
+
+    /// Slice `transfers`'s wiring.
+    pub fn transfers(&self) -> &crate::transfers::Wiring {
+        &self.transfers
+    }
+
     /// Slice `earn`'s owner values, built by the binary from the environment.
     pub fn with_earn(mut self, settings: crate::earn::Settings) -> BankDoor {
         self.earn = settings;
         self
+    }
+
+    /// Slice `cards`' wiring, built by the binary from the environment.
+    pub fn with_cards(mut self, wiring: crate::cards::Wiring) -> BankDoor {
+        self.cards = wiring;
+        self
+    }
+
+    /// Slice `cards`' wiring.
+    pub fn cards(&self) -> &crate::cards::Wiring {
+        &self.cards
+    }
+
+    /// `f` given slice `cards`' dependencies at `now`: what a job door or another slice's call hands the slice.
+    pub fn cards_deps<T>(&self, now: Instant, f: impl FnOnce(&crate::cards::Deps<'_>) -> T) -> T {
+        let custody = self.partner.custody(&self.store);
+        let t = crate::transfers::Deps {
+            store: &self.store,
+            ledger: self.spaces.ledger.as_ref(),
+            custody: &custody,
+            partner: &self.partner,
+            spaces: &self.spaces,
+            w: &self.transfers,
+            now,
+        };
+        f(&crate::cards::Deps {
+            t: &t,
+            w: &self.cards,
+            rates: self.loans.prices.as_ref(),
+        })
+    }
+
+    /// Slice `automations`' wiring, built by the binary from the environment.
+    pub fn with_automations(mut self, wiring: crate::automations::Wiring) -> BankDoor {
+        self.automations = wiring;
+        self
+    }
+
+    /// `f` given slice `automations`' dependencies at `now`: what a call, a job door or another slice hands the slice.
+    pub fn automations_deps<T>(
+        &self,
+        now: Instant,
+        f: impl FnOnce(&crate::automations::Deps<'_>) -> T,
+    ) -> T {
+        let custody = self.partner.custody(&self.store);
+        let t = crate::transfers::Deps {
+            store: &self.store,
+            ledger: self.spaces.ledger.as_ref(),
+            custody: &custody,
+            partner: &self.partner,
+            spaces: &self.spaces,
+            w: &self.transfers,
+            now,
+        };
+        f(&crate::automations::Deps {
+            t: &t,
+            w: &self.automations,
+            earn: &self.earn,
+        })
+    }
+
+    /// Slice `bills`' wiring, built by the binary from the environment.
+    pub fn with_bills(mut self, wiring: crate::bills::Wiring) -> BankDoor {
+        self.bills = wiring;
+        self
+    }
+
+    /// `f` given slice `bills`' dependencies at `now`: what a call, a job door or another slice hands the slice.
+    pub fn bills_deps<T>(&self, now: Instant, f: impl FnOnce(&crate::bills::Deps<'_>) -> T) -> T {
+        let custody = self.partner.custody(&self.store);
+        let t = crate::transfers::Deps {
+            store: &self.store,
+            ledger: self.spaces.ledger.as_ref(),
+            custody: &custody,
+            partner: &self.partner,
+            spaces: &self.spaces,
+            w: &self.transfers,
+            now,
+        };
+        f(&crate::bills::Deps {
+            t: &t,
+            w: &self.bills,
+        })
     }
 
     /// Slice `partner`'s wiring, built by the binary from the environment.
@@ -418,12 +612,41 @@ impl BankDoor {
             ]))),
             Slice::CreditPreviews => crate::credit_previews::answer(ctx)
                 .unwrap_or_else(|| Err(not_ported(Slice::CreditPreviews))),
+            // The TEST partner's settle records a bank API payment's state change (`test-partner.router.ts`).
+            Slice::Partner if ctx.call.path == "testPartner.settlePayment" => self
+                .bank_api_deps(ctx.now, |d| crate::bank_api::router::answer(d, ctx))
+                .unwrap_or_else(|| Err(not_ported(Slice::Partner))),
+            Slice::BankApi => self
+                .bank_api_deps(ctx.now, |d| crate::bank_api::router::answer(d, ctx))
+                .unwrap_or_else(|| Err(not_ported(Slice::BankApi))),
+            // The TEST merchant's refund of a partner-held card capture is a card move (`card_moves`); with the TEST
+            // partner off it is the partner slice's refusal.
+            Slice::Partner
+                if ctx.call.path == "testPartner.cardRefund" && self.partner.partner.is_some() =>
+            {
+                self.card_refund(ctx)
+            }
             Slice::Partner => crate::partner::router::answer(&self.partner, &self.store, ctx)
                 .unwrap_or_else(|| Err(not_ported(Slice::Partner))),
             Slice::Spaces => {
-                crate::spaces::router::answer(&self.spaces, &self.partner, &self.store, ctx)
-                    .unwrap_or_else(|| Err(not_ported(Slice::Spaces)))
+                let freeze = |card_id: &str, user: &str| {
+                    self.cards_deps(ctx.now, |d| {
+                        crate::cards::core::freeze_for_holder(d, card_id, user)
+                    })
+                };
+                crate::spaces::router::answer(
+                    &self.spaces,
+                    &self.partner,
+                    &self.store,
+                    ctx,
+                    &freeze,
+                )
+                .unwrap_or_else(|| Err(not_ported(Slice::Spaces)))
             }
+            // `transfers.list` is the activity feed narrowed to transfers (`router/transfers.router.ts`).
+            Slice::Transfers if ctx.call.path == "transfers.list" => self
+                .activity_deps(ctx.now, |d| crate::activity::feed::transfers_list(d, ctx))
+                .map(Some),
             Slice::Transfers => crate::transfers::router::answer(
                 &self.transfers,
                 &self.spaces,
@@ -432,6 +655,15 @@ impl BankDoor {
                 ctx,
             )
             .unwrap_or_else(|| Err(not_ported(Slice::Transfers))),
+            Slice::Global => crate::global::router::answer(
+                &self.global,
+                &self.transfers,
+                &self.spaces,
+                &self.partner,
+                &self.store,
+                ctx,
+            )
+            .unwrap_or_else(|| Err(not_ported(Slice::Global))),
             Slice::OpsDesk => crate::ops_desk::answer(
                 &self.transfers,
                 &self.spaces,
@@ -457,6 +689,20 @@ impl BankDoor {
                 })
                 .unwrap_or_else(|| Err(not_ported(Slice::Earn)))
             }
+            Slice::Cards => crate::cards::router::answer(
+                &self.cards,
+                &self.transfers,
+                &self.spaces,
+                &self.partner,
+                &self.store,
+                self.loans.prices.as_ref(),
+                ctx,
+            )
+            .unwrap_or_else(|| Err(not_ported(Slice::Cards))),
+            Slice::CardOps => self
+                .card_moves(ctx)
+                .or_else(|| self.cards_deps(ctx.now, |d| crate::card_ops_desk::answer(d, ctx)))
+                .unwrap_or_else(|| Err(not_ported(Slice::CardOps))),
             Slice::Loans => {
                 let user = ctx
                     .principal
@@ -474,6 +720,18 @@ impl BankDoor {
                 })
                 .unwrap_or_else(|| Err(not_ported(Slice::Loans)))
             }
+            Slice::Ramps => self
+                .ramps_deps(ctx.now, |d| crate::ramps::answer(d, ctx))
+                .unwrap_or_else(|| Err(not_ported(Slice::Ramps))),
+            Slice::Automations => self
+                .automations_deps(ctx.now, |d| crate::automations::router::answer(d, ctx))
+                .unwrap_or_else(|| Err(not_ported(Slice::Automations))),
+            Slice::Bills => self
+                .bills_deps(ctx.now, |d| crate::bills::router::answer(d, ctx))
+                .unwrap_or_else(|| Err(not_ported(Slice::Bills))),
+            Slice::Activity => self
+                .activity_deps(ctx.now, |d| crate::activity::answer(d, ctx))
+                .unwrap_or_else(|| Err(not_ported(Slice::Activity))),
             other => Err(not_ported(other)),
         }
     }
@@ -507,6 +765,12 @@ impl BankDoor {
             ) {
                 return res;
             }
+        }
+        if let Some(res) = crate::ramps::onramp::doors(self, req, peer) {
+            return res;
+        }
+        if let Some(res) = crate::card_ops_desk::record::door(self, req, peer) {
+            return res;
         }
         if let Some(res) = rest::answer(self, req) {
             return res;

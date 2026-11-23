@@ -46,19 +46,19 @@ pub struct RequestPaid {
     pub ledger_tx_id: String,
 }
 
-fn units(s: &str) -> usize {
+pub(crate) fn units(s: &str) -> usize {
     s.encode_utf16().count()
 }
 
 /// `amountSchema`.
-fn amount_ok(s: &str) -> bool {
+pub(crate) fn amount_ok(s: &str) -> bool {
     let (int, frac) = s.split_once('.').map_or((s, None), |(i, f)| (i, Some(f)));
     !int.is_empty()
         && int.bytes().all(|b| b.is_ascii_digit())
         && frac.is_none_or(|f| (1..=18).contains(&f.len()) && f.bytes().all(|b| b.is_ascii_digit()))
 }
 
-fn asset_ok(s: &str) -> bool {
+pub(crate) fn asset_ok(s: &str) -> bool {
     (1..=16).contains(&units(s))
 }
 
@@ -78,7 +78,9 @@ pub struct Notices<'a> {
 }
 
 impl Notices<'_> {
-    fn publish(
+    /// One event in its envelope under its business key; `valid` is its payload's catalogue check. Also the automations
+    /// slice's standing-order notices (`automations::rules`).
+    pub(crate) fn publish(
         &self,
         event: &str,
         subject: &str,
