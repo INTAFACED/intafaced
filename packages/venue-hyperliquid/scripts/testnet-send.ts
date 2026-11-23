@@ -59,7 +59,9 @@ export function readInputs(env: Readonly<Record<string, string | undefined>>): {
   amount: Amount;
   amountText: string;
 } {
-  const key = env.HL_TESTNET_FUNDER_KEY;
+  // MetaMask exports a private key as 64 hex characters with no 0x; the secret holds it as pasted.
+  const raw = (env.HL_TESTNET_FUNDER_KEY ?? '').trim();
+  const key = /^[0-9a-fA-F]{64}$/.test(raw) ? `0x${raw}` : raw;
   if (!key) throw new Refusal("HL_TESTNET_FUNDER_KEY is not set: the funded TESTNET account's key (the HL_TESTNET_TRADER_KEY secret).");
   if (!isHexKey(key)) throw new Refusal('HL_TESTNET_FUNDER_KEY is not a 32-byte hex key (its value is not shown).');
   const to = (env.HL_SEND_TO ?? '').trim();
