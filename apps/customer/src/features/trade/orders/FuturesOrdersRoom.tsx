@@ -6,7 +6,7 @@ import { fmtAmount, fmtPrice } from '../../../data/format';
 import { useDataEnv } from '../../../data/hooks';
 import type { ApiResult } from '../../../shared/api';
 import { usePreferences } from '../../../shared/preferences';
-import { FailureNote } from '../../more/volt-parts';
+import { FailureNote } from '../../../shared/failure-note';
 import { dayTime } from '../../../screens/trade/desk/time';
 import {
   FUTURES_EXECUTION_KINDS,

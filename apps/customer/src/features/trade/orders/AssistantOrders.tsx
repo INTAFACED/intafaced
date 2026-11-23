@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { ApiResult } from '../../../shared/api';
 import { displayAmount } from '../../../shared/money';
 import { EmptyState } from '@intafaced/ui/lit';
-import { FailureNote } from '../../more/volt-parts';
+import { FailureNote } from '../../../shared/failure-note';
 import { WaitingRows } from './orders-parts';
 import { useSession } from '../../session';
 import { venueApi, type VenueKeptOrder } from '../venue-api';

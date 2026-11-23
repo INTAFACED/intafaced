@@ -4,7 +4,7 @@ import { Button, EmptyState } from '@intafaced/ui/lit';
 import { navigate } from '../../../app/location';
 import { useDataEnv } from '../../../data/hooks';
 import type { ApiResult } from '../../../shared/api';
-import { FailureNote } from '../../more/volt-parts';
+import { FailureNote } from '../../../shared/failure-note';
 import { useDeskMarkets } from '../../../screens/trade/desk/data';
 import { OrdersTable, precisionOf } from '../../../screens/trade/desk/OrderTables';
 import { useSession } from '../../session';

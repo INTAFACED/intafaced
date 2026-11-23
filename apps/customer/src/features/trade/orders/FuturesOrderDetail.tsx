@@ -3,7 +3,7 @@ import { EmptyState } from '@intafaced/ui/lit';
 import { fmtAmount, fmtPrice } from '../../../data/format';
 import type { ApiResult } from '../../../shared/api';
 import { usePreferences } from '../../../shared/preferences';
-import { FailureNote } from '../../more/volt-parts';
+import { FailureNote } from '../../../shared/failure-note';
 import { dayTime } from '../../../screens/trade/desk/time';
 import type { FuturesExecution, FuturesOrder } from '../../../screens/trade/futures/api';
 import { useFuturesApi } from '../../../screens/trade/futures/data';

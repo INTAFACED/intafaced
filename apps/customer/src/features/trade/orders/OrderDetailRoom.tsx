@@ -8,7 +8,7 @@ import { useDataEnv } from '../../../data/hooks';
 import { refusalCopy } from '../../../data/refusals';
 import type { ApiResult } from '../../../shared/api';
 import { usePreferences } from '../../../shared/preferences';
-import { FailureNote } from '../../more/volt-parts';
+import { FailureNote } from '../../../shared/failure-note';
 import { deskCopy } from '../../../screens/trade/desk/copy';
 import { useDeskMarkets } from '../../../screens/trade/desk/data';
 import { fillFeeRate, fillRole } from '../../../screens/trade/desk/fill-detail';
