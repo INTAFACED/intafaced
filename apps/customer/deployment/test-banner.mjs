@@ -9,12 +9,12 @@ export const BANNER_TEXT = 'LOCAL TEST STACK — TEST PRICES · TEST FUNDS · no
 /** The banner's element id (src/shared/test-build.ts, TEST_BUILD_BANNER_ID). */
 export const BANNER_ID = 'local-test-stack-banner';
 
-// The banner as the local stack's proxy drew it, unchanged, so no picture moves.
+// The banner as the local stack's proxy drew it, in the kit's interface face (the look gate judges every page it is on).
 export const BANNER_HTML =
   `<style>body{padding-top:28px !important}</style>` + // look-drift-allow: room for the TEST banner's fixed strip, moved unchanged
   `<div id="${BANNER_ID}" role="status" style="position:fixed;top:0;left:0;right:0;height:28px;z-index:2147483647;` + // look-drift-allow: the TEST banner's fixed warning strip, moved unchanged from the local stack
   `display:flex;align-items:center;justify-content:center;background:#F5A915;color:#0b0b0b;` + // look-drift-allow: the TEST banner's own warning colours
-  `font:600 12px/1 ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;letter-spacing:.04em;text-align:center;` + // look-drift-allow: the TEST banner's own type
+  `font:600 12px/1 var(--lit-font-ui);letter-spacing:.04em;text-align:center;` + // look-drift-allow: the TEST banner's size, in the kit's interface face
   `pointer-events:none;user-select:none">${BANNER_TEXT}</div>`;
 
 /** The money a build is for. Blank or `test`: test money. `real`: real money. Anything else is refused. */
