@@ -468,18 +468,18 @@ test('check 7: the reader tries a GitHub server error again, and never a refusal
     return { calls, fetchImpl: async (url) => (calls.push(url), reply(statuses[calls.length - 1])) };
   };
   const waited = [];
-  const sleep = async (ms) => void waited.push(ms);
+  const pause = async (ms) => void waited.push(ms);
 
   // A 502, then a 200: the read succeeds after one wait.
   let s = scripted([502, 200]);
-  assert.deepEqual(await restReader('t', { fetchImpl: s.fetchImpl, waits: [5, 7], sleep }).api('/x'), { status: 200 });
+  assert.deepEqual(await restReader('t', { fetchImpl: s.fetchImpl, waits: [5, 7], sleep: pause }).api('/x'), { status: 200 });
   assert.equal(s.calls.length, 2);
   assert.deepEqual(waited, [5]);
 
   // Three 5xx in a row: it throws with the last status, after both waits.
   waited.length = 0;
   s = scripted([502, 503, 504]);
-  await assert.rejects(restReader('t', { fetchImpl: s.fetchImpl, waits: [5, 7], sleep }).api('/x'), /GitHub 504 504 on \/x/);
+  await assert.rejects(restReader('t', { fetchImpl: s.fetchImpl, waits: [5, 7], sleep: pause }).api('/x'), /GitHub 504 504 on \/x/);
   assert.equal(s.calls.length, 3);
   assert.deepEqual(waited, [5, 7]);
 
@@ -487,7 +487,10 @@ test('check 7: the reader tries a GitHub server error again, and never a refusal
   for (const status of [403, 429, 404]) {
     waited.length = 0;
     s = scripted([status, 200]);
-    await assert.rejects(restReader('t', { fetchImpl: s.fetchImpl, waits: [5, 7], sleep }).api('/x'), new RegExp(`GitHub ${status}`));
+    await assert.rejects(
+      restReader('t', { fetchImpl: s.fetchImpl, waits: [5, 7], sleep: pause }).api('/x'),
+      new RegExp(`GitHub ${status}`),
+    );
     assert.equal(s.calls.length, 1);
     assert.deepEqual(waited, []);
   }
