@@ -71,6 +71,11 @@
   gap: var(--lit-gap-item);
 }
 
+/* A room's action keeps its words on one line; the title column gives way, never the button's label. */
+.lt-room-action .lt-button {
+  white-space: nowrap;
+}
+
 .lt-title {
   margin: 0;
   font-size: var(--lit-type-title-size);
@@ -1327,6 +1332,11 @@ button.lt-tab {
     content: attr(data-label);
     color: var(--lit-text-2);
   }
+  /* An empty table's one message is not a labelled value: it reads as one block across the phone, never split in two. */
+  .lt-table tr[data-empty] td {
+    display: block;
+    text-align: center;
+  }
 }
 
 .lt-chart {
@@ -1864,6 +1874,24 @@ button.lt-tab {
   flex-direction: column;
   gap: var(--lit-gap-item);
   min-inline-size: 0;
+}
+
+/* A panel holding several sections: each its own block, with a section's gap and a line between them, never one run of
+   text where the next heading is the only break. */
+.lt-sections {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-section);
+  min-inline-size: 0;
+}
+.lt-sections > * + * {
+  border-block-start: 1px solid var(--lit-line);
+  padding-block-start: var(--lit-gap-section);
+}
+.lt-sections > section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-item);
 }
 
 /* An outline row set in by its owner-set depth (a course item under a sub-heading): 0 to 2 steps. */
