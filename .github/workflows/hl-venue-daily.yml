@@ -196,7 +196,7 @@ jobs:
       - name: Open or update the pull request
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
-          APP_TOKEN: ${{ steps.app-token.outputs.token != '' }}
+          APP_MINTED: ${{ steps.app-token.outputs.token != '' }}
           FILES: ${{ needs.live.outputs.files }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
@@ -219,7 +219,7 @@ jobs:
             echo "Each pull request's journeys replay them strictly (\`hl-recorded\`): a request with no recorded answer fails its file. The recordings hold the trader as \`<trader>\` and no signature or key."
             echo
             echo "Part of #9049."
-            if [ "$APP_TOKEN" != true ]; then
+            if [ "$APP_MINTED" != true ]; then
               echo
               echo "Opened with the run's own token (the App could not mint one), so no checks start until someone pushes to this branch."
             fi
