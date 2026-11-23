@@ -3,7 +3,7 @@ import { test, expect } from './journey.mjs';
 import { ADMIN } from './admin.mjs';
 import { api, fund, journeyState, stepAccount } from './stack.mjs';
 import { trpcError } from './answers.mjs';
-import { pictureFromTop, signIn, signUp, verify } from './desk.mjs';
+import { signIn, signUp, verify } from './desk.mjs';
 
 // J-bank-12, in the running app (docs/roadmap/journeys.json): I look at overdraft, personal loans and the credit card
 // (labelled previews). One test per step, titled "J-bank-12 #<n>", run in order on one fresh, verified TEST account that
@@ -200,7 +200,7 @@ test(`${J} #3 opens the unsecured loan schedule and changes the repayment date: 
   await expect(button, 'no date chosen, nothing to send').toBeDisabled();
   await page.getByLabel('New repayment date', { exact: true }).fill('2027-01-15');
   await refused(page, button, { procedure: 'loans.changeRepaymentDate', engine: 'bank.loan_schedule', action: 'change_repayment_date' });
-  await pictureFromTop(page, stepPicture);
+  await stepPicture(page);
   expect(await holdings(), 'nothing stored and no balance changed').toEqual(before);
 });
 
@@ -260,7 +260,7 @@ test(`${J} #5 opens the revolving credit page over test data: a labelled preview
     engine: 'bank.revolving_credit',
     action: 'borrow',
   });
-  await pictureFromTop(page, stepPicture);
+  await stepPicture(page);
   expect(await holdings(), 'no credit line and no balance changed').toEqual(before);
 
   // The ops side: the card fraud risk page is the same labelled preview over TEST rows.
