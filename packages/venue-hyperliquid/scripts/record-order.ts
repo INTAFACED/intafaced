@@ -9,7 +9,8 @@
  * need a funded test account, which the TEST key here never is: they are written to the venue's documented shape
  * (`source: documented-shape`), the fill at the best ask the captured book showed. The spot listing is cut to the
  * pairs whose tokens have the lowest indexes, keeping each entry whole: the adapter reads a spot pair's and a token's
- * own `index` field, never its position, so the kept pairs read the same.
+ * own `index` field, never its position, so the kept pairs read the same. Each token's `tokenId`, which the adapter never
+ * reads, is left out.
  */
 import fs from 'node:fs';
 import { HL_TESTNET_API_URL } from '../src/signing.js';
@@ -104,10 +105,12 @@ const fetchImpl: FetchLike = async (input, init) => {
 };
 
 function trimSpot(answer: unknown): unknown {
-  const spot = answer as { tokens: { index: number }[]; universe: { tokens: number[]; index: number }[] };
+  const spot = answer as { tokens: { index: number; tokenId?: string }[]; universe: { tokens: number[]; index: number }[] };
   const universe = [...spot.universe].sort((x, y) => x.index - y.index).slice(0, SPOT_PAIRS_KEPT);
   const keep = new Set(universe.flatMap((p) => p.tokens));
-  return { ...spot, universe, tokens: spot.tokens.filter((t) => keep.has(t.index)) };
+  // Each token's `tokenId` is dropped: the adapter never reads it, and a 32-hex id reads to a secret scanner as a key.
+  const tokens = spot.tokens.filter((t) => keep.has(t.index)).map(({ tokenId: _tokenId, ...t }) => t);
+  return { ...spot, universe, tokens };
 }
 
 const venue = new HyperliquidTestnetUserVenue({
@@ -123,7 +126,7 @@ if (!run.outcome.definite || !run.outcome.accepted)
   throw new Error(`record-order: the order was not accepted: ${JSON.stringify(run.outcome)}`);
 const recording: HlRecording = {
   label: 'TEST',
-  note: "TEST answers of the Hyperliquid test network for one TEST order (packages/venue-hyperliquid/src/recorded-order.ts). source testnet: captured live by scripts/record-order.ts; source documented-shape: written to the venue's documented answer, as an order needs a funded test account. The spot listing is cut to its first pairs.",
+  note: "TEST answers of the Hyperliquid test network for one TEST order (packages/venue-hyperliquid/src/recorded-order.ts). source testnet: captured live by scripts/record-order.ts; source documented-shape: written to the venue's documented answer, as an order needs a funded test account. The spot listing is cut to its first pairs, without each token's tokenId (which the adapter does not read).",
   calls: calls.map((c) =>
     c.path === '/info' && (c.request as { type?: string }).type === 'spotMeta' ? { ...c, answer: trimSpot(c.answer) } : c,
   ),
