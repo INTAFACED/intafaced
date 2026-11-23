@@ -252,6 +252,8 @@ pub struct BankDoor {
     activity: crate::activity::Wiring,
     /// Slice `global`'s ports and owner values (`global::Wiring`); every port unset until handed in.
     global: crate::global::Wiring,
+    /// Slice `bank-api`'s webhook wire and its loopback hatch (`bank_api::Wiring`); production posture until handed in.
+    bank_api: crate::bank_api::Wiring,
     /// `TEST_AGE_DOOR`: whether `POST /internal/test/age` ages a record.
     test_age_open: bool,
 }
@@ -306,6 +308,7 @@ impl BankDoor {
             bills: crate::bills::Wiring::none(),
             activity: crate::activity::Wiring::none(),
             global: crate::global::Wiring::none(),
+            bank_api: crate::bank_api::Wiring::none(),
             test_age_open: false,
         })
     }
@@ -392,6 +395,36 @@ impl BankDoor {
     pub fn with_global(mut self, wiring: crate::global::Wiring) -> BankDoor {
         self.global = wiring;
         self
+    }
+
+    /// Slice `bank-api`'s wiring, built by the binary from the environment.
+    pub fn with_bank_api(mut self, wiring: crate::bank_api::Wiring) -> BankDoor {
+        self.bank_api = wiring;
+        self
+    }
+
+    /// Slice `bank-api`'s wiring.
+    pub fn bank_api(&self) -> &crate::bank_api::Wiring {
+        &self.bank_api
+    }
+
+    /// `f` given slice `bank-api`'s dependencies at `now`: what a call, the recovery job or the webhook worker hands
+    /// the slice.
+    pub fn bank_api_deps<T>(
+        &self,
+        now: Instant,
+        f: impl FnOnce(&crate::bank_api::Deps<'_>) -> T,
+    ) -> T {
+        let custody = self.partner.custody(&self.store);
+        f(&crate::bank_api::Deps {
+            store: &self.store,
+            ledger: self.spaces.ledger.as_ref(),
+            custody: &custody,
+            test_partner: self.partner.partner.as_ref(),
+            w: &self.bank_api,
+            now,
+            clock: self.now,
+        })
     }
 
     /// Slice `ramps`' wiring, built by the binary from the environment.
@@ -579,6 +612,13 @@ impl BankDoor {
             ]))),
             Slice::CreditPreviews => crate::credit_previews::answer(ctx)
                 .unwrap_or_else(|| Err(not_ported(Slice::CreditPreviews))),
+            // The TEST partner's settle records a bank API payment's state change (`test-partner.router.ts`).
+            Slice::Partner if ctx.call.path == "testPartner.settlePayment" => self
+                .bank_api_deps(ctx.now, |d| crate::bank_api::router::answer(d, ctx))
+                .unwrap_or_else(|| Err(not_ported(Slice::Partner))),
+            Slice::BankApi => self
+                .bank_api_deps(ctx.now, |d| crate::bank_api::router::answer(d, ctx))
+                .unwrap_or_else(|| Err(not_ported(Slice::BankApi))),
             // The TEST merchant's refund of a partner-held card capture is a card move (`card_moves`); with the TEST
             // partner off it is the partner slice's refusal.
             Slice::Partner
