@@ -1141,9 +1141,12 @@ fn a_quote_names_the_network_fee_the_partner_holding_the_money_reports_and_null_
     let set = |input: &str| call(&b, ADA, RW, "testPartner.set", input).ok();
     set(r#"{"custody":"off"}"#);
     let held = quote(&b);
+    // The partner's own stated send fee, as a figure: the TEST partner takes nothing for a send between its account
+    // holders and says so ("0"), which is not the null of a fee it does not give.
+    assert_eq!(svc_bank::partner::SEND_FEE, "0");
     assert_eq!(
         held.get("networkFee"),
-        Some(&Json::str("0.5")),
+        Some(&Json::str(svc_bank::partner::SEND_FEE)),
         "{}",
         held.compact()
     );
