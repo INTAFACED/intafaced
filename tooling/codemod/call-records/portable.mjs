@@ -25,6 +25,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { applyEdits, bindingOf, forget, keyOf, literal, load, resolveRelative, text, walk } from './ast.mjs';
+import { lazyBody } from './lazy.mjs';
 
 const REPO = resolve(new URL('../../..', import.meta.url).pathname);
 const CONTRACTS = join(REPO, 'packages/contracts/src');
@@ -147,6 +148,11 @@ function down(q, n, step) {
     return base && base !== n ? down(q, base, step) : undefined;
   }
   const a = base.arguments;
+  // `z.lazy(() => X)` stands for X (lazy.mjs): the step is taken in X.
+  if (factory === 'lazy') {
+    const inner = lazyBody(base);
+    return inner ? down(q, inner, step) : undefined;
+  }
   if (step.prop && (factory === 'object' || factory === 'strictObject' || factory === 'looseObject')) return propIn(q, a[0], step.prop);
   if (step.elem && factory === 'array') return { q, n: a[0] };
   if (step.option !== undefined && (factory === 'union' || factory === 'discriminatedUnion')) {
@@ -224,7 +230,14 @@ const WRAPPERS = ['optional', 'nullable', 'nullish', 'describe', 'meta'];
 
 function fix(target, construct) {
   // A name for the schema (`domain` for `z.string().regex(...)`): the edit lands where it is written.
-  const found = follow(target.q, target.n);
+  let found = follow(target.q, target.n);
+  // A place written `z.lazy(() => X)` under nothing but wrappers holds X (lazy.mjs): the edit lands in X.
+  for (let depth = 0; found && depth < 10; depth++) {
+    const chain = chainOf(found.n);
+    const inner = chain.factory === 'lazy' && chain.methods.every((m) => WRAPPERS.includes(m.name)) ? lazyBody(chain.base) : undefined;
+    if (!inner) break;
+    found = follow(found.q, inner);
+  }
   if (!found) return { why: 'the codemod cannot follow the schema to it' };
   const { q } = found;
   const node = unwrap(found.n);
@@ -262,29 +275,39 @@ function fix(target, construct) {
  * schema's own name when it has one, else the key it sits under). A `.superRefine` says what its issues' messages say.
  */
 function refinementOf(target) {
-  const found = follow(target.q, target.n);
+  let found = follow(target.q, target.n);
   if (!found) return { why: 'the codemod cannot follow the schema to it' };
   const says = [];
-  for (const m of chainOf(found.n).methods) {
-    if (m.name === 'superRefine') {
-      const r = superRefineWords(found.q, m.call.arguments[0]);
-      if (r.why) return r;
-      says.push(...r.says);
-      continue;
+  // The schema's own name, where the place names one: directly, or as what a `z.lazy(() => X)` there stands for.
+  let named = unwrap(target.n)?.type === 'Identifier' ? unwrap(target.n) : undefined;
+  for (let depth = 0; ; depth++) {
+    const chain = chainOf(found.n);
+    for (const m of chain.methods) {
+      if (m.name === 'superRefine') {
+        const r = superRefineWords(found.q, m.call.arguments[0]);
+        if (r.why) return r;
+        says.push(...r.says);
+        continue;
+      }
+      if (m.name !== 'refine') continue;
+      const msg = m.call.arguments[1];
+      const words =
+        literal(msg) ??
+        (msg?.type === 'ObjectExpression'
+          ? literal(msg.properties.find((pr) => pr.type === 'Property' && keyOf(pr) === 'message')?.value)
+          : undefined);
+      if (!words) return { why: 'its .refine has no message to name the rule by' };
+      says.push(words);
     }
-    if (m.name !== 'refine') continue;
-    const msg = m.call.arguments[1];
-    const words =
-      literal(msg) ??
-      (msg?.type === 'ObjectExpression'
-        ? literal(msg.properties.find((pr) => pr.type === 'Property' && keyOf(pr) === 'message')?.value)
-        : undefined);
-    if (!words) return { why: 'its .refine has no message to name the rule by' };
-    says.push(words);
+    // A refinement reported at a `z.lazy(() => X)` with none in its own chain is the one X carries (lazy.mjs).
+    const inner = says.length || chain.factory !== 'lazy' || depth > 10 ? undefined : lazyBody(chain.base);
+    const next = inner && follow(found.q, inner);
+    if (!next) break;
+    named ??= unwrap(inner)?.type === 'Identifier' ? unwrap(inner) : undefined;
+    found = next;
   }
   if (!says.length) return { why: "its refinement is not a .refine written in the schema's chain" };
-  const own =
-    unwrap(target.n)?.type === 'Identifier' ? unwrap(target.n).name.replace(/Schema$/, '') : target.prop ? keyOf(target.prop) : 'answer';
+  const own = named ? named.name.replace(/Schema$/, '') : target.prop ? keyOf(target.prop) : 'answer';
   const name = `${own.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()}_holds`;
   return { key: `${found.q.file}:${found.n.start}`, name, says: says.join('; ') };
 }

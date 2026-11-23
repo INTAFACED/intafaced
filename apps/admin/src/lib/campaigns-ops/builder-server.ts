@@ -30,8 +30,14 @@ import {
   type Part,
   type PartLabels,
   explainRefusal,
+  founderRecordRead,
 } from '@/lib/desk';
 import type { CampaignDeskReply, CampaignDetailView, CampaignsDeskView } from './builder-model';
+import {
+  CAMPAIGNS_OPS_RULES_TEST,
+  CAMPAIGNS_OPS_RULES_LIBRARY_SAVE,
+  CAMPAIGNS_OPS_RULES_LIBRARY_LIST,
+} from '@intafaced/contracts/campaigns-ops-procedures';
 
 /**
  * The campaigns desk as the signed-in founder. svc-campaigns holds every campaign (`ops.campaigns.*`: `campaigns:ops` and
@@ -176,15 +182,15 @@ export function ruleReply<T>(result: FounderCallResult<T>): { status: number; re
 }
 
 export async function testRule(ctx: FounderCallContext, input: unknown) {
-  return ruleReply(await founderCall(ctx, 'campaigns', 'ops.rules.test', 'GET', input, readRuleTest));
+  return ruleReply(await founderRecordRead(ctx, CAMPAIGNS_OPS_RULES_TEST, input, readRuleTest));
 }
 
 export async function saveRule(ctx: FounderCallContext, input: unknown) {
-  return ruleReply(await founderCall(ctx, 'campaigns', 'ops.rules.library.save', 'POST', input, readRuleEntry));
+  return ruleReply(await founderRecordRead(ctx, CAMPAIGNS_OPS_RULES_LIBRARY_SAVE, input, readRuleEntry));
 }
 
 export async function listRules(ctx: FounderCallContext) {
-  return ruleReply(await founderCall(ctx, 'campaigns', 'ops.rules.library.list', 'GET', undefined, readRuleList));
+  return ruleReply(await founderRecordRead(ctx, CAMPAIGNS_OPS_RULES_LIBRARY_LIST, undefined, readRuleList));
 }
 
 // ── Vouchers (CM-vouchers-coupons-01, CM-campaign-types-01 T-3; J-campaigns-16 #9) ────────────────────────────────

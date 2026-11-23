@@ -101,6 +101,4 @@ export const cardsReads = {} as const;
 
 /** This area's writes to svc-bank `bank.*`, composed into `bankWrites` in contracts.ts. */
 export const cardsWrites = {
-  'cards.controls.block': cardControlsSchema,
-  'cards.controls.lift': cardControlsSchema,
 } as const;
