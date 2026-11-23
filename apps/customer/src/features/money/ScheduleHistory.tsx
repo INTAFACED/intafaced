@@ -159,7 +159,7 @@ function ExecutionRead({ id, asset, refreshInstructions }: { id: string; asset: 
                             <Copy k="occurrence" params={{ occurrence: row.occurrence }} />
                           </h4>
                           <dl className="money-execution-status">
-                            <dt className="money-execution-label">
+                            <dt className="lt-sr">
                               <Copy k="status" />
                             </dt>
                             <dd lang="und" dir="auto">
@@ -168,7 +168,7 @@ function ExecutionRead({ id, asset, refreshInstructions }: { id: string; asset: 
                           </dl>
                         </header>
                         <dl className="money-execution-quantity">
-                          <dt className="money-execution-label">
+                          <dt className="lt-sr">
                             <Copy k="quantity" />
                           </dt>
                           <dd className="lt-num" lang="zxx" dir="ltr">
@@ -177,7 +177,7 @@ function ExecutionRead({ id, asset, refreshInstructions }: { id: string; asset: 
                         </dl>
                         {row.rejectionCode !== null && (
                           <dl className="money-execution-refusal">
-                            <dt className="money-visually-hidden">
+                            <dt className="lt-sr">
                               <Copy k="refusal" />
                             </dt>
                             <dd className="lt-muted" lang="zxx" dir="ltr">

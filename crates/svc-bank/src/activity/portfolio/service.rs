@@ -72,8 +72,9 @@ const ENTRY_MAX_PAGES: usize = 50;
 pub const BALANCE_ENTRIES_DEFAULT_LIMIT: usize = 50;
 pub const BALANCE_ENTRIES_MAX_LIMIT: usize = 200;
 
-const BTC_DP: Amount = 100_000_000;
-const BTC_SCALE_UP: Amount = 10_000_000_000;
+const BTC_DP: Amount = Amount::from_scaled(100_000_000);
+/// 10^-8 units up to the ledger's 18 places: a count.
+const BTC_SCALE_UP: i128 = 10_000_000_000;
 
 /// `inBatches`: `each` over `items`, `VALUE_READ_PARALLEL` at a time, results in order.
 fn in_batches<T: Sync, R: Send>(items: &[T], each: impl Fn(&T) -> R + Sync) -> Vec<R> {
@@ -315,13 +316,13 @@ impl Service<'_> {
         for asset in assets {
             let mine: Vec<&LedgerBalance> = rows
                 .iter()
-                .filter(|r| r.asset_id == *asset && r.amount != 0)
+                .filter(|r| r.asset_id == *asset && r.amount != Amount::ZERO)
                 .collect();
             if mine.is_empty() {
                 continue;
             }
             let mut locked = Vec::new();
-            let mut locked_sum: Amount = 0;
+            let mut locked_sum: Amount = Amount::ZERO;
             for kind in LOCK_KINDS {
                 let of_kind: Vec<&&LedgerBalance> =
                     mine.iter().filter(|r| r.kind == kind).collect();
@@ -336,7 +337,7 @@ impl Service<'_> {
                         None => by_purpose.push((purpose, r.amount)),
                     }
                 }
-                by_purpose.retain(|(_, a)| *a != 0);
+                by_purpose.retain(|(_, a)| *a != Amount::ZERO);
                 by_purpose.sort_by(|a, b| a.0.encode_utf16().cmp(b.0.encode_utf16()));
                 let amount: Amount = of_kind.iter().map(|r| r.amount).sum();
                 if !by_purpose.is_empty() {
@@ -548,7 +549,7 @@ impl Service<'_> {
         }
 
         let mut all: Vec<(PageEntry, String)> = Vec::new();
-        let mut balance: Amount = 0;
+        let mut balance: Amount = Amount::ZERO;
         for (account, owner_type, owner_id) in &owners {
             for r in ledger_read(self.ledger.balances(owner_type, owner_id))? {
                 if r.kind == "available" && r.asset_id.to_uppercase() == asset_id {
@@ -706,7 +707,7 @@ fn btc_valuation(summary: &Summary, prices: &PriceBook) -> Json {
             .tickers
             .get(&format!("BTC/{q}"))
             .and_then(|t| t.last)
-            .filter(|l| *l > 0)
+            .filter(|l| *l > Amount::ZERO)
     });
     let Some(price) = price else {
         return out(None, None, Some("no_price_published"));

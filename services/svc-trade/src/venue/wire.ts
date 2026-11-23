@@ -86,6 +86,7 @@ export function wireUserVenue(deps: {
         },
         listings: new StoreVenueRoutingGate(venueListings),
         appEnv: process.env.APP_ENV,
+        betaPosture: process.env.INTAFACED_BETA_POSTURE,
         store: userVenueStore,
         stepUp,
         builder: parseBuilderFee(env.TRADE_USER_VENUE_BUILDER_ADDRESS, env.TRADE_USER_VENUE_BUILDER_FEE_BPS),

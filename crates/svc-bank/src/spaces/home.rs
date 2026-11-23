@@ -350,7 +350,7 @@ pub fn plans_list(raw: Option<&str>) -> Result<Json, Refusal> {
         .iter()
         .map(|p| {
             let mut f = p.fields();
-            let paid = parse_amount(&p.price).is_ok_and(|a| a > 0);
+            let paid = parse_amount(&p.price).is_ok_and(|a| a > Amount::ZERO);
             f.push((
                 "blocker".to_owned(),
                 if paid {
@@ -478,7 +478,7 @@ pub fn currencies_list(
         main.iter()
             .rev()
             .find(|(a, _)| a == asset)
-            .map_or(0, |(_, v)| *v)
+            .map_or(Amount::ZERO, |(_, v)| *v)
     };
     let currencies: Vec<(String, String)> = rows.iter().map(|r| (r.get(1), r.get(0))).collect();
     let list = Json::Array(
@@ -545,19 +545,30 @@ fn in_use(asset: &str) -> Refusal {
     )
 }
 
-/// `partnerCommits`: whether the partner reports anything else held in this asset. Card holds are the card partner's
-/// (slice `cards`): until that slice keeps them, this crate has made none to read.
+/// Slice `cards`' partner figure of what is held on a person's card in one asset (`cardHolds.figures(...).held`), by
+/// person and asset; `None` when the card partner gives none.
+pub type CardHeld<'a> = dyn Fn(&str, &str) -> Result<Option<String>, Refusal> + 'a;
+
+/// `partnerCommits`: whether the partner reports anything else held in this asset: a card hold still open (slice
+/// `cards`' figure, `card_held`; a figure the card partner does not give is an asset it cannot hold in), a purchase
+/// hold not yet released, or an open order.
 fn partner_commits(
     p: &Held<'_>,
+    card_held: &CardHeld<'_>,
     user_id: &str,
     asset: &str,
     now: Instant,
 ) -> Result<bool, Refusal> {
+    if let Some(held) = card_held(user_id, asset)?
+        && parse_amount(&held).map_err(Refusal::Other)? != Amount::ZERO
+    {
+        return Ok(true);
+    }
     if let Some(holds) = p.purchase_holds(user_id, now)?
         && holds
             .holds
             .iter()
-            .any(|h| h.asset_id == asset && h.amount != 0)
+            .any(|h| h.asset_id == asset && h.amount != Amount::ZERO)
     {
         return Ok(true);
     }
@@ -568,6 +579,7 @@ fn partner_commits(
 pub fn currencies_remove(
     pool: &Store,
     money: &Money<'_>,
+    card_held: &CardHeld<'_>,
     user_id: &str,
     asset: &str,
 ) -> Result<Json, Refusal> {
@@ -592,11 +604,11 @@ pub fn currencies_remove(
                 }
             }
         }
-        if amounts.iter().any(|a| *a != 0) {
+        if amounts.iter().any(|a| *a != Amount::ZERO) {
             return Err(in_use(&id));
         }
         if let Some(p) = &partner
-            && partner_commits(p, user_id, &id, money.now)?
+            && partner_commits(p, card_held, user_id, &id, money.now)?
         {
             return Err(in_use(&id));
         }
@@ -622,7 +634,7 @@ pub fn currencies_remove(
                 unlocks_at: None,
                 archived_at: None,
             };
-            if money.balance_of(&s)? != 0 {
+            if money.balance_of(&s)? != Amount::ZERO {
                 return Err(in_use(&id));
             }
         }
@@ -740,7 +752,7 @@ pub fn partner_limits(money: &Money<'_>, user_id: &str, asset: &str) -> Result<J
     let remaining = if l.daily_send > l.used_today {
         l.daily_send - l.used_today
     } else {
-        0
+        Amount::ZERO
     };
     Ok(Json::obj([
         ("held", Json::Bool(true)),
@@ -792,7 +804,9 @@ pub fn partner_holds(money: &Money<'_>, user_id: &str) -> Result<Json, Refusal> 
                     .sum()
             });
             let withdrawable = match (known, back) {
-                (Some(k), Some(bk)) => Json::str(format_amount(if k > bk { k - bk } else { 0 })),
+                (Some(k), Some(bk)) => {
+                    Json::str(format_amount(if k > bk { k - bk } else { Amount::ZERO }))
+                }
                 _ => Json::Null,
             };
             Json::obj([
@@ -895,7 +909,7 @@ pub fn parse_dormancy_rules(raw: Option<&str>) -> Option<Vec<Rule>> {
         let Some(Json::String(fee)) = r.get("fee") else {
             return None;
         };
-        if !is_decimal(fee) || parse_amount(fee).ok()? <= 0 {
+        if !is_decimal(fee) || parse_amount(fee).ok()? <= Amount::ZERO {
             return None;
         }
         let inactive = int(r.get("inactiveDays"))?;
@@ -1167,7 +1181,7 @@ fn settle(
             let Some(balance) = main_balance(p, user_id, asset, money.now) else {
                 return Ok(None);
             };
-            if balance == 0 {
+            if balance == Amount::ZERO {
                 ("skipped_zero", None)
             } else if moved_between(p, user_id, asset, noticed_at, at_ms)? {
                 ("cancelled", None)

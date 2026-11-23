@@ -449,14 +449,13 @@ fn crosses_multiple_levels_at_each_level_price_and_the_weighted_average_is_exact
     assert_eq!(fill_prices(&result), strs(&["100", "101", "102"]));
     assert_eq!(fill_qtys(&result), strs(&["1", "2", "2"]));
 
-    let notional: Amount = result
-        .fills
-        .iter()
-        .fold(0, |t, x| t.checked_add(mul(x.price, x.qty)).unwrap());
+    let notional: Amount = result.fills.iter().fold(Amount::ZERO, |t, x| {
+        t.checked_add(mul(x.price, x.qty)).unwrap()
+    });
     let quantity: Amount = result
         .fills
         .iter()
-        .fold(0, |t, x| t.checked_add(x.qty).unwrap());
+        .fold(Amount::ZERO, |t, x| t.checked_add(x.qty).unwrap());
     assert_eq!(f(notional), "506");
     assert_eq!(f(quantity), "5");
     // `div(notional, quantity)`: divideScaled(a * SCALE, b, 'half-up').

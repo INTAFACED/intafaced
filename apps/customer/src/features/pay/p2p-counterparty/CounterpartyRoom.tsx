@@ -1,10 +1,11 @@
 // volt-room: /checkuser
 import { Fragment } from 'react';
 import { Button, EmptyState } from '@intafaced/ui/lit';
-import { MonitorTemplate, Tabs } from '@intafaced/ui/lit/templates';
+import { MonitorTemplate } from '@intafaced/ui/lit/templates';
 import { navigate } from '../../../app/location';
 import { useResource } from '../../../shared/resource';
 import { payCopy } from '../copy';
+import { P2PTabs } from '../p2p-tabs';
 import type { PersonalPayApi } from '../pay-api';
 import { counterpartyCopy } from '../p2p-counterparty-copy';
 import { ordinaryClick, p2pReturn, useCurrentNavigation } from '../p2p-return';
@@ -13,15 +14,6 @@ import { CompletionRatesByPeriod } from '../personal/completion-rates-view';
 import { ContactActions } from '../personal/ContactActions';
 import { MethodsLoad } from '../personal/methods-parts';
 import { p2pDepth } from '../personal/p2p-depth-copy';
-
-/** The P2P rooms, in the order the other P2P pages list them. */
-const P2P_ROOMS = [
-  ['/p2p', 'offers'],
-  ['/uc/order', 'yourOrders'],
-  ['/uc/ad', 'yourOffers'],
-  ['/p2p/methods', 'paymentMethods'],
-  ['/p2p/access', 'tradingAccess'],
-] as const;
 
 /**
  * `/checkuser` on the monitor template (J-p2p-12): one member's P2P record as the service computed it from trades, their
@@ -52,9 +44,7 @@ export function CounterpartyRoom({
       title={payCopy.t('counterparty')}
       state={{ kind: 'ready' }}
       figures={[]}
-      actions={
-        <Tabs label={payCopy.t('p2pRooms')} current={current} items={P2P_ROOMS.map(([href, key]) => ({ href, label: payCopy.t(key) }))} />
-      }
+      section={<P2PTabs current={current} />}
       panels={
         known ? (
           <P2PCounterparty pay={pay} userId={counterparty} returnTo={returnTo} />

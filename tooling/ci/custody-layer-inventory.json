@@ -84,6 +84,12 @@
   ],
   "sites": {
     "crates/svc-agents/src/metering/meter.rs": ["feeCharge"],
+    "crates/svc-bank/src/business/service.rs": [
+      "businessApprovalHold",
+      "businessApprovalRelease",
+      "businessApprovalSettle",
+      "businessPayroll"
+    ],
     "crates/svc-bank/src/cards/moves/cashback.rs": ["rewardPay"],
     "crates/svc-bank/src/cards/moves/decide.rs": ["withdrawHold"],
     "crates/svc-bank/src/cards/moves/settle.rs": ["withdrawHold", "withdrawReverse", "withdrawSettle"],

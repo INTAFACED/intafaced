@@ -63,7 +63,7 @@ struct NoBook {
 
 impl Ledger for NoBook {
     fn balance(&self, _: &LedgerAccount) -> Result<Amount, String> {
-        Ok(0)
+        Ok(Amount::ZERO)
     }
     fn balances(&self, _: &str, _: &str) -> Result<Vec<LedgerBalance>, String> {
         Ok(Vec::new())

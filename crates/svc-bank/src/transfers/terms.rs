@@ -117,7 +117,7 @@ pub fn assert_within_terms(
     now: Instant,
 ) -> Result<(), Refusal> {
     let terms = terms_row(c, asset_id)?.ok_or_else(|| terms_unset(asset_id))?;
-    if terms.fee > 0 {
+    if terms.fee > Amount::ZERO {
         return Err(refuse(
             FEE_UNWIRED,
             format!(
@@ -229,9 +229,13 @@ pub fn quote(
         per_transfer_limit: per,
         daily_limit: daily,
         spent_today: spent,
-        remaining_today: if daily > spent { daily - spent } else { 0 },
+        remaining_today: if daily > spent {
+            daily - spent
+        } else {
+            Amount::ZERO
+        },
         fee: terms.fee,
-        fee_blocker: (terms.fee > 0).then_some(FEE_UNWIRED),
+        fee_blocker: (terms.fee > Amount::ZERO).then_some(FEE_UNWIRED),
         within_per_transfer: amount <= per,
         within_daily: spent + amount <= daily,
     })
@@ -256,10 +260,10 @@ pub fn fee_schedule(c: &mut impl GenericClient) -> Result<Json, Refusal> {
         entries.push(Json::obj([
             ("assetId", Json::str(asset)),
             ("fee", Json::str(format_amount(fee))),
-            ("free", Json::Bool(fee == 0)),
+            ("free", Json::Bool(fee == Amount::ZERO)),
             (
                 "feeBlocker",
-                if fee > 0 {
+                if fee > Amount::ZERO {
                     Json::str(FEE_UNWIRED)
                 } else {
                     Json::Null
@@ -276,7 +280,7 @@ pub fn fee_schedule(c: &mut impl GenericClient) -> Result<Json, Refusal> {
 
 /// `assertTransferTerms`: refuses figures the send path could not honour, before any approval is spent.
 pub fn assert_transfer_terms(per: Amount, daily: Amount) -> Result<(), Refusal> {
-    if per <= 0 || daily <= 0 {
+    if per <= Amount::ZERO || daily <= Amount::ZERO {
         return Err(refuse(
             "bank.personal_transfer_terms_invalid",
             "Per-transfer and daily limits must be above zero (bank.personal_transfer_terms_invalid)",
