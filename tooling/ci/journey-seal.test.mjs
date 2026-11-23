@@ -11,6 +11,8 @@ import { readReport, rootInputs } from './journey-verdict.mjs';
 import { CANARY } from './journey-touch.mjs';
 import {
   currentReportArtifact,
+  earlierReportArtifacts,
+  flakyWay,
   fileSteps,
   fullVerdict,
   journeyFilesAt,
@@ -267,22 +269,61 @@ test('a run on this head not finished (first attempt or re-run) holds the seal',
   }
 });
 
-test('the newest finished run that reports a step decides: a newer failure outranks an older pass, a newer pass an older failure', async () => {
+test('a failure in any finished run on the head stands: a newer failure outranks an older pass, and an older failure a newer pass (#9827)', async () => {
   const fail = { states: { 'J-bank-13#1': 'passed', 'J-bank-13#2': 'failed' } };
   const older = { run_started_at: '2026-11-06T01:00:00Z' };
   const newer = { run_started_at: '2026-11-06T02:00:00Z' };
   assert.equal((await judge({ runs: [run(1, older), run(2, newer)], reportOf: reports({ 1: green, 2: fail }) })).ok, false);
-  assert.equal((await judge({ runs: [run(1, newer), run(2, older)], reportOf: reports({ 1: green, 2: fail }) })).ok, true);
+  // Planted (#9827 on 822aec16bd: run 45030979813 failed J-cex-spot-21 #4, run 45031001317 passed it 14 seconds later,
+  // and the seal read the newest alone): the older failure holds it, named, with the way forward.
+  const hidden = await judge({ runs: [run(1, newer), run(2, older)], reportOf: reports({ 1: green, 2: fail }) });
+  assert.equal(hidden.ok, false, hidden.lines.join('\n'));
+  assert.match(
+    hidden.lines.join('\n'),
+    /J-bank-13#2: passed in run 1 \(attempt 1\), but failed in run 2 \(attempt 1\) on this same head: a step that fails then passes on one commit is flaky and never counts as passing/,
+  );
+  assert.match(
+    hidden.lines.join('\n'),
+    /open-flaky\.mjs --step "J-bank-13 #2" --sha a{40} --run https:\/\/github\.com\/INTAFACED\/intafaced\/actions\/runs\/2 /,
+  );
+  assert.deepEqual(hidden.kinds, ['yours']);
+  // Known good: two runs on the head that both pass every named step seal it.
+  assert.equal((await judge({ runs: [run(1, newer), run(2, older)], reportOf: reports({ 1: green, 2: green }) })).ok, true);
   // A targeted run of another journey file is newer but doesn't list these steps: the older run still decides.
   const other = { states: { 'J-wallet-05#1': 'passed' } };
   assert.equal((await judge({ runs: [run(1, older), run(2, newer)], reportOf: reports({ 1: green, 2: other }) })).ok, true);
 });
 
-test('a re-run attempt is ordered by its own start, so it outranks a run started between its attempts', async () => {
+test('a re-run attempt is ordered by its own start, and a run started between its attempts that failed a step still stands', async () => {
   const fail = { states: { 'J-bank-13#1': 'failed', 'J-bank-13#2': 'failed' } };
   const rerun = run(1, { run_attempt: 2, created_at: '2026-11-06T01:00:00Z', run_started_at: '2026-11-06T03:00:00Z' });
   const between = run(2, { run_started_at: '2026-11-06T02:00:00Z' });
-  assert.equal((await judge({ runs: [rerun, between], reportOf: reports({ 1: green, 2: fail }) })).ok, true);
+  const v = await judge({ runs: [rerun, between], reportOf: reports({ 1: green, 2: fail }) });
+  assert.equal(v.ok, false);
+  assert.match(v.lines.join('\n'), /J-bank-13#1: passed in run 1 \(attempt 2\), but failed in run 2 \(attempt 1\)/);
+});
+
+test("an earlier attempt's failure stands against its re-run's pass (#9856, run 45032927669); one it passed, or one with no report, does not", async () => {
+  const rerun = run(1, { run_attempt: 2 });
+  const earlier = (states) => ({ ...green, earlier: [{ attempt: 1, states }] });
+  const flaky = await judge({ runs: [rerun], reportOf: reports({ 1: earlier({ 'J-bank-13#1': 'passed', 'J-bank-13#2': 'failed' }) }) });
+  assert.equal(flaky.ok, false, flaky.lines.join('\n'));
+  assert.match(
+    flaky.lines.join('\n'),
+    /J-bank-13#2: passed in run 1 \(attempt 2\), but failed in run 1 \(attempt 1\) on this same head: a step that fails then passes/,
+  );
+  assert.equal(
+    (await judge({ runs: [rerun], reportOf: reports({ 1: earlier({ 'J-bank-13#1': 'passed', 'J-bank-13#2': 'passed' }) }) })).ok,
+    true,
+  );
+  assert.equal(
+    (await judge({ runs: [rerun], reportOf: reports({ 1: { ...green, earlier: [] } }) })).ok,
+    true,
+    'an attempt with no report is left out',
+  );
+  const unread = await judge({ runs: [rerun], reportOf: reports({ 1: { ...green, earlier: [{ attempt: 1, error: 'HTTP 500' }] } }) });
+  assert.equal(unread.ok, false, 'an earlier report that cannot be read fails closed');
+  assert.deepEqual(unread.kinds, ['runner']);
 });
 
 test('cancelled and skipped runs are passed over', async () => {
@@ -293,7 +334,7 @@ test('cancelled and skipped runs are passed over', async () => {
   assert.equal((await judge({ runs, reportOf: reports({ 1: green, 2: new Error('must not read') }) })).ok, true);
 });
 
-test('an unreadable report fails closed unless a newer run decides', async () => {
+test('an unreadable report fails closed, whichever run is newer', async () => {
   const older = { run_started_at: '2026-11-06T01:00:00Z' };
   const newer = { run_started_at: '2026-11-06T02:00:00Z' };
   const v = await judge({
@@ -302,7 +343,10 @@ test('an unreadable report fails closed unless a newer run decides', async () =>
   });
   assert.equal(v.ok, false);
   assert.match(v.lines.join('\n'), /couldn't be read/);
-  assert.equal((await judge({ runs: [run(1, older), run(2, newer)], reportOf: reports({ 1: new Error('boom'), 2: green }) })).ok, true);
+  // An older run whose report can't be read may hold a failure the newer pass would hide (#9827): it fails closed too.
+  const olderUnread = await judge({ runs: [run(1, older), run(2, newer)], reportOf: reports({ 1: new Error('boom'), 2: green }) });
+  assert.equal(olderUnread.ok, false);
+  assert.match(olderUnread.lines.join('\n'), /run 1 \(attempt 1\)'s report couldn't be read \(boom\)/);
 });
 
 test('#9253: a finished run that started no job is passed over and named; one with jobs and no report still fails closed', async () => {
@@ -2561,6 +2605,98 @@ test("an automatic revert's seal fails once main's newest journeys run passes it
   const needed = await seal({ step: 'failed' });
   assert.doesNotMatch(needed.lines.join('\n'), /main no longer needs this revert/);
   assert.equal(needed.ok, true, needed.lines.join('\n'));
+});
+
+// ---- Every run on the head is read: a red is never hidden behind a pass on the same head (#9827) ----
+
+test('touched journeys: a red in an older run on the head holds it although a newer run ran every file clean (#9827)', async () => {
+  // The #9827 shape on 822aec16bd: run 45030979813 (older) failed J-cex-spot-21 #4, run 45031001317 (newer, 14 seconds
+  // later) ran the same files clean, and the seal stopped reading once the newer run covered every file.
+  const older = run(2, { run_started_at: '2026-11-22T14:06:14Z' });
+  const newer = run(3, { run_started_at: '2026-11-22T14:06:28Z' });
+  const rep = (st) => ({ states: { 'J-cex-spot-21#4': st }, files: {}, ran: ['J-cex-spot-21.pw.mjs'] });
+  const red = { red: [{ step: 'J-cex-spot-21#4', why: 'failing, not in the baseline', money: false }], failing: 1, missing: [] };
+  const touched = (byRun) =>
+    judgeTouchedRun({
+      sha: HEAD,
+      repo: REPO,
+      files: ['J-cex-spot-21.pw.mjs'],
+      runs: [older, newer],
+      reportOf: reports(byRun),
+      verdictOf: async (r) => (r.states['J-cex-spot-21#4'] === 'failed' ? red : clean),
+    });
+  const held = await touched({ 2: rep('failed'), 3: rep('passed') });
+  assert.equal(held.ok, false, held.lines.join('\n'));
+  assert.match(
+    held.lines.join('\n'),
+    /run 2 \(attempt 1\) has 1 step\(s\) outside the list or against its rules: J-cex-spot-21#4: failing, not in the baseline; it passed in run 3 \(attempt 1\): a step that fails then passes on one commit is flaky/,
+  );
+  assert.match(held.lines.join('\n'), /open-flaky\.mjs --step "J-cex-spot-21 #4"/);
+  assert.deepEqual(held.kinds, ['yours']);
+  // Known good: both runs clean seal it, and both are read.
+  const ok = await touched({ 2: rep('passed'), 3: rep('passed') });
+  assert.equal(ok.ok, true, ok.lines.join('\n'));
+  assert.match(ok.lines.join('\n'), /run 3 \(attempt 1\) ran J-cex-spot-21\.pw\.mjs clean/);
+  // An older run's unreadable report fails closed, as a newer one's does.
+  assert.equal((await touched({ 2: { error: 'no report' }, 3: rep('passed') })).ok, false);
+});
+
+test("touched journeys: an earlier attempt's failed step that a run on the head now passes holds it (#9856); an excused one does not", async () => {
+  const rerun = run(1, { run_attempt: 2 });
+  const failedThen = { states: { 'J-a-01#1': 'failed' }, files: {}, ran: ['J-a-01.pw.mjs'] };
+  const now = (earlier) => ({ states: { 'J-a-01#1': 'passed' }, files: {}, ran: ['J-a-01.pw.mjs'], earlier });
+  const red = { red: [{ step: 'J-a-01#1', why: 'failing, not in the baseline', money: false }], failing: 1, missing: [] };
+  const touched = (rep, verdictOf) =>
+    judgeTouchedRun({ sha: HEAD, repo: REPO, files: ['J-a-01.pw.mjs'], runs: [rerun], reportOf: reports({ 1: rep }), verdictOf });
+  const byState = async (r) => (r.states['J-a-01#1'] === 'failed' ? red : clean);
+  const held = await touched(now([{ attempt: 1, ...failedThen }]), byState);
+  assert.equal(held.ok, false, held.lines.join('\n'));
+  assert.match(
+    held.lines.join('\n'),
+    /run 1 \(attempt 1\) failed 1 step\(s\) a run on this head now passes: J-a-01#1: failing, not in the baseline; it passed in run 1 \(attempt 2\): a step that fails then passes/,
+  );
+  // The verdict excuses it there (a step not built yet, listed in the baseline): not this rule's to hold.
+  assert.equal((await touched(now([{ attempt: 1, ...failedThen }]), async () => clean)).ok, true);
+  // No earlier report (the attempt ran nothing), or an earlier pass: sealed.
+  assert.equal((await touched(now([]), byState)).ok, true);
+  assert.equal((await touched(now([{ attempt: 1, ...now(undefined) }]), byState)).ok, true);
+  // An earlier report that can't be read fails closed.
+  const unread = await touched(now([{ attempt: 1, error: 'HTTP 500' }]), byState);
+  assert.equal(unread.ok, false);
+  assert.deepEqual(unread.kinds, ['runner']);
+});
+
+test("earlierReportArtifacts: each earlier attempt's newest report from its own window; none is left out; an unknown start fails closed", () => {
+  const art = (id, at) => ({ id, name: 'real-app-journeys', created_at: at, expired: false });
+  const r = { id: 9, run_attempt: 3, run_started_at: '2026-11-22T15:00:00Z' };
+  const starts = new Map([
+    [1, '2026-11-22T13:00:00Z'],
+    [2, '2026-11-22T14:00:00Z'],
+  ]);
+  const arts = [
+    art(1, '2026-11-22T13:30:00Z'),
+    art(2, '2026-11-22T13:40:00Z'),
+    art(4, '2026-11-22T15:10:00Z'),
+    { ...art(5, '2026-11-22T13:50:00Z'), name: 'real-app-journeys-pick' },
+  ];
+  assert.deepEqual(earlierReportArtifacts(r, arts, starts), [{ attempt: 1, artifact: arts[1] }], 'attempt 2 made no report');
+  assert.deepEqual(earlierReportArtifacts({ ...r, run_attempt: 1 }, arts, starts), []);
+  assert.deepEqual(earlierReportArtifacts(r, arts, new Map([[2, '2026-11-22T14:00:00Z']]))[0], {
+    attempt: 1,
+    error: "attempt 1's start couldn't be read",
+  });
+  // #9856's run 45032927669: attempt 1 started 14:27:38 and its report 14759445439 was made 14:44:00; attempt 2 began 14:46:15.
+  const live = { id: 45032927669, run_attempt: 2, run_started_at: '2026-11-22T14:46:15Z' };
+  const liveArts = [art(14759445439, '2026-11-22T14:44:00Z'), art(14758953776, '2026-11-22T14:52:02Z')];
+  assert.deepEqual(earlierReportArtifacts(live, liveArts, new Map([[1, '2026-11-22T14:27:38Z']])), [{ attempt: 1, artifact: liveArts[0] }]);
+  assert.equal(currentReportArtifact(live, liveArts).id, 14758953776);
+});
+
+test('flakyWay names the step as open-flaky.mjs reads it, the head, and the failing run', () => {
+  const w = flakyWay('J-cex-spot-21#4', 'c'.repeat(40), REPO, 45030979813);
+  assert.match(w, /never counts as passing \(project-state AGENTS\.md "How work flows" 4\)/);
+  assert.match(w, /a re-run that passes does not clear it/);
+  assert.ok(w.includes(`--step "J-cex-spot-21 #4" --sha ${'c'.repeat(40)} --run https://github.com/${REPO}/actions/runs/45030979813 `));
 });
 
 // ---- A red names its kind in its title (OWNER 289; 10-D-one-verdict.md item 8) ----
