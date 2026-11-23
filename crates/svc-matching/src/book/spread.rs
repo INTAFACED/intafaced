@@ -23,7 +23,7 @@ use super::types::{
     Reject, Side, SpreadInstrument, SpreadKind, SpreadLegDefinition, SpreadLegFill,
 };
 
-const SCALE: Amount = 1_000_000_000_000_000_000;
+const SCALE: Amount = Amount::whole(1);
 
 /// Exactly two legs: one anchor and one residual.
 pub const SPREAD_LEG_COUNT: usize = 2;
@@ -66,7 +66,7 @@ fn read_positive(raw: Option<&String>) -> Option<Amount> {
     if t.is_empty() {
         return None;
     }
-    parse_amount(t).ok().filter(|v| *v > 0)
+    parse_amount(t).ok().filter(|v| *v > Amount::ZERO)
 }
 
 fn fits(v: Amount) -> Option<Amount> {
@@ -75,7 +75,7 @@ fn fits(v: Amount) -> Option<Amount> {
 
 /// `a * b / d` when it is exact; none when it is not, or `d` is zero, or it does not fit.
 fn exact(a: Amount, b: Amount, d: Amount) -> Option<Amount> {
-    if d == 0 {
+    if d == Amount::ZERO {
         return None;
     }
     let lo = mul_div(a, b, d, Rounding::Floor);
@@ -96,7 +96,8 @@ pub fn div_exact(a: Amount, b: Amount) -> Option<Amount> {
     exact(a, SCALE, b)
 }
 
-fn sign(side: Side) -> Amount {
+/// A leg's sign, `1` or `-1`: a plain factor, not money.
+fn sign(side: Side) -> i128 {
     match side {
         Side::Buy => 1,
         Side::Sell => -1,
@@ -239,7 +240,7 @@ pub fn spread_reference_refuse(
             "a spread order needs an anchor leg reference price; the engine does not invent a mark",
         )
     };
-    let Some(reference) = reference.filter(|r| *r > 0) else {
+    let Some(reference) = reference.filter(|r| *r > Amount::ZERO) else {
         return Some(missing());
     };
     let [anchor, residual] = &instrument.legs;
@@ -281,7 +282,7 @@ pub fn spread_leg_prices(
         .ok_or_else(residual_inexact)?;
     let residual_price =
         div_exact(numerator, sign(residual.side) * residual.ratio).ok_or_else(residual_inexact)?;
-    if residual_price <= 0 {
+    if residual_price <= Amount::ZERO {
         return Err(unfillable(format!(
             "residual leg {} would print at {} for spread {}; the whole spread refuses",
             residual.symbol,
@@ -313,7 +314,7 @@ pub fn spread_leg_fills(
     let mut legs = Vec::new();
     for (leg, price) in instrument.legs.iter().zip(prices) {
         let leg_qty = mul_exact(qty, leg.ratio)
-            .filter(|q| *q > 0)
+            .filter(|q| *q > Amount::ZERO)
             .ok_or_else(|| {
                 unfillable(format!(
                     "leg {} qty is not exact at 18 decimals",
@@ -352,6 +353,6 @@ mod tests {
         assert_eq!(mul_exact(a("0.000000001"), a("0.0000000001")), None);
         assert_eq!(div_exact(a("1"), a("3")), None);
         assert_eq!(div_exact(a("-5"), a("2")), Some(a("-2.5")));
-        assert_eq!(div_exact(a("1"), 0), None);
+        assert_eq!(div_exact(a("1"), Amount::ZERO), None);
     }
 }

@@ -305,7 +305,7 @@ impl PersonFunds {
     ) -> Result<Reading, Unread> {
         match self.payment.read_available(user_id, asset_id, business) {
             Err(_) => Err(unread()),
-            Ok((HeldBy::None, _)) => Ok(Reading::Ledger(0)),
+            Ok((HeldBy::None, _)) => Ok(Reading::Ledger(Amount::ZERO)),
             Ok((HeldBy::Partner, None)) => Err(unread()),
             Ok((HeldBy::Partner, Some(a))) => {
                 parse_amount(&a).map(Reading::Ledger).map_err(|_| unread())

@@ -23,7 +23,7 @@ const MAX_POINTS: i64 = 400;
 /// svc-trade answers a window only whole, at most 720 candles to now; one candle back from the start and one spare.
 const MAX_CANDLES_TO_NOW: i64 = 718;
 const DAY_SECONDS: i64 = 86_400;
-const ONE: Amount = 1_000_000_000_000_000_000;
+const ONE: Amount = Amount::whole(1);
 
 /// `LEDGER_HOLDINGS_HISTORY_BUCKETS`.
 const BUCKETS: [i64; 5] = [60, 300, 3_600, 14_400, 86_400];
@@ -347,7 +347,7 @@ fn replay(input: &ValueInputs) -> Replay<'_> {
     let mut rows = Vec::new();
     for h in &input.histories {
         for (a, amount) in &h.holdings {
-            *now.entry(a.to_uppercase()).or_insert(0) += amount;
+            *now.entry(a.to_uppercase()).or_insert(Amount::ZERO) += *amount;
         }
         for m in &h.movements {
             rows.push(Row {
@@ -375,7 +375,7 @@ fn replay(input: &ValueInputs) -> Replay<'_> {
         let live_end = input.live && i + 1 == n;
         while !live_end && next.peek().is_some_and(|r| r.bucket_start >= *t) {
             if let Some(row) = next.next() {
-                *held.entry(row.asset_id.clone()).or_insert(0) -= row.net;
+                *held.entry(row.asset_id.clone()).or_insert(Amount::ZERO) -= row.net;
             }
         }
         slot.clone_from(&held);
@@ -453,9 +453,9 @@ pub fn holdings_change(input: &ValueInputs) -> HoldingsChange {
     let rows = coins
         .into_iter()
         .filter_map(|asset| {
-            let before = start.get(asset).copied().unwrap_or(0);
-            let after = end.get(asset).copied().unwrap_or(0);
-            if before == 0 && after == 0 {
+            let before = start.get(asset).copied().unwrap_or(Amount::ZERO);
+            let after = end.get(asset).copied().unwrap_or(Amount::ZERO);
+            if before == Amount::ZERO && after == Amount::ZERO {
                 return None;
             }
             Some(ChangeRow {
@@ -565,10 +565,10 @@ pub fn value_over_time(input: &ValueInputs) -> ValueOverTime {
     let value_of = |holdings: &HashMap<String, Amount>, at: i64, live_end: bool| {
         let mut sorted: Vec<(&String, &Amount)> = holdings.iter().collect();
         sorted.sort_by(|a, b| locale_compare(a.0, b.0));
-        let mut total: Amount = 0;
+        let mut total: Amount = Amount::ZERO;
         let mut missing = Vec::new();
         for (asset, qty) in sorted {
-            if *qty == 0 {
+            if *qty == Amount::ZERO {
                 continue;
             }
             match r.price_at(asset, at, live_end) {
@@ -597,10 +597,10 @@ pub fn value_over_time(input: &ValueInputs) -> ValueOverTime {
     let opening = points.first().unwrap_or(&empty);
     let closing = points.last().unwrap_or(&empty);
 
-    let mut deposits: Amount = 0;
-    let mut withdrawals: Amount = 0;
-    let mut fees: Amount = 0;
-    let mut other: Amount = 0;
+    let mut deposits: Amount = Amount::ZERO;
+    let mut withdrawals: Amount = Amount::ZERO;
+    let mut fees: Amount = Amount::ZERO;
+    let mut other: Amount = Amount::ZERO;
     let mut missing: Vec<String> = Vec::new();
     let mut note = |a: &String| {
         if !missing.contains(a) {
@@ -615,7 +615,7 @@ pub fn value_over_time(input: &ValueInputs) -> ValueOverTime {
         .iter()
         .filter(|row| input.live || row.bucket_start < end)
     {
-        if row.leg.is_none() && row.fee == 0 {
+        if row.leg.is_none() && row.fee == Amount::ZERO {
             continue;
         }
         let bucket_end = row.bucket_start + bucket;
@@ -642,7 +642,7 @@ pub fn value_over_time(input: &ValueInputs) -> ValueOverTime {
     let usd = |v: Amount| known.then_some(v);
     let market_move = match (opening.value, closing.value) {
         (Some(o), Some(c)) if known => c - o - deposits + withdrawals + fees - other,
-        _ => 0,
+        _ => Amount::ZERO,
     };
     let bridge = Bridge {
         opening: opening.value,

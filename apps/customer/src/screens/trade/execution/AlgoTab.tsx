@@ -99,7 +99,7 @@ export function AlgoTab({
         onCreated={setSelected}
         onCheck={(id) => void check(id)}
       />
-      <div className="flex min-w-0 flex-col gap-3">
+      <div className="lt-stack">
         {capability && !capability.createEnabled ? <Why>{t('Create off banner')}</Why> : null}
         {capability && !capability.jobsEnabled ? <Why>{t('Scheduler off banner')}</Why> : null}
         <div className="flex flex-wrap items-end gap-2">

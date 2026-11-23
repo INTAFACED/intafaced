@@ -103,7 +103,7 @@ export function RecipientPicker({ value, onChange }: { value: Payee | null; onCh
   const shown = filterPayees(saved, text);
   if (moved)
     return (
-      <div className="bd-recipient" role="alert">
+      <div className="lt-stack" role="alert">
         <h4 className="bd-subhead">
           <Copy k="changedTitle" />
         </h4>
@@ -128,7 +128,7 @@ export function RecipientPicker({ value, onChange }: { value: Payee | null; onCh
       </div>
     );
   return (
-    <div className="bd-recipient">
+    <div className="lt-stack">
       <form
         className="bd-recipient__search"
         onSubmit={(event) => {

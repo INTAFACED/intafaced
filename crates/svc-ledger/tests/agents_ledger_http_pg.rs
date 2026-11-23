@@ -83,7 +83,7 @@ fn wired(custody_on: bool) -> Option<(TestDb, Arc<Kit>, LedgerHttp)> {
     Some((db, kit, ledger))
 }
 
-fn amt(s: &str) -> i128 {
+fn amt(s: &str) -> service_kit::money::Amount {
     parse_amount(s).unwrap()
 }
 

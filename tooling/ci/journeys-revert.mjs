@@ -227,9 +227,9 @@ export function revertBody({ repo, sha, subject, prNumber, redRun, steps, base, 
       ? [`- Control: \`${control.slice(0, 10)}\`, the last commit where these steps passed, passes again on the same kind of runner`]
       : []),
     '',
-    `The commit was found between the last run where these steps passed and the run where they failed. This pull request is \`git revert ${sha.slice(0, 10)}\` and nothing else; it goes through the CI merge seal like any other. To keep the change instead, fix it forward and close this.`,
+    `The commit was found between the last run where these steps passed and the run where they failed. This pull request is \`git revert ${sha.slice(0, 10)}\` and nothing else; it goes through the CI merge seal like any other and merges by itself. Don't close it to keep the change: main is green again only once it merges, and the change comes back in a new pull request with its fix.`,
     '',
-    `Revert: close this pull request; the culprit stays on \`${base}\`.`,
+    `Revert: once merged, the change returns in a new pull request with its fix (or \`git revert\` of this one).`,
   ].join('\n');
 }
 
@@ -881,7 +881,7 @@ async function openRevert(env, revoke) {
       armed = q.json?.errors?.length ? `not armed: ${String(q.json.errors[0].message).slice(0, 200)}` : 'armed (squash)';
     }
     await comment(
-      `The ${what} [run ${env.RED_RUN}](${runUrl}) on \`${env.BASE}\` failed ${stepText}, and the revert on main found this pull request's commit \`${sha.slice(0, 10)}\` as the cause. Its revert is #${number ?? '(dry run)'}, with auto-merge ${armed.startsWith('armed') ? 'on' : 'off'}. To keep this change, fix it forward and close the revert.\n\n_Posted by tooling/ci/journeys-revert.mjs._`,
+      `The ${what} [run ${env.RED_RUN}](${runUrl}) on \`${env.BASE}\` failed ${stepText}, and the revert on main found this pull request's commit \`${sha.slice(0, 10)}\` as the cause. Its revert is #${number ?? '(dry run)'}, with auto-merge ${armed.startsWith('armed') ? 'on' : 'off'}. Let it merge; to keep this change, open it again in a new pull request with its fix.\n\n_Posted by tooling/ci/journeys-revert.mjs._`,
     );
     summary([
       `### Journeys revert`,

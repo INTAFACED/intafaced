@@ -125,7 +125,7 @@ fn collect(w: &Wiring, store: &Store, body: &Value, now: Instant) -> Result<Json
         return Ok(refused("not_partner_held"));
     };
     let amount: Amount = parse_amount(body.get("amount").as_str().unwrap_or_default())?;
-    if amount <= 0 {
+    if amount <= Amount::ZERO {
         return Err("A usage payment needs an amount above zero.".to_owned());
     }
     let asset = body.get("assetId").as_str().unwrap_or_default();

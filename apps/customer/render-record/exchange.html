@@ -95,41 +95,47 @@
 </div>
 </header>
 <main id="main" tabindex="-1">
-<div data-testid="if-markets" class="if-markets">
-<header class="mkt-page__head">
-<h1>Markets</h1>
-<span role="status" data-slot="status-chip" data-freshness="live" data-density="comfortable" class="inline-flex items-center gap-1.5 whitespace-nowrap text-xs text-accent-text">
-<svg data-shape="dot" aria-hidden="true" viewBox="0 0 12 12" class="size-3 shrink-0" fill="none" stroke="currentColor" stroke-width="1.5">
-<circle cx="6" cy="6" r="3.5" fill="currentColor" stroke="none">
-</circle>
-</svg>
-<span>
-<span data-part="word">Live</span>
-<span class="text-fg-2"> · as of <time datetime="2026-10-21T12:00:00.000Z" class="if-num tabular-nums">12:00:00</time>
-</span>
-</span>
-</span>
-</header>
-<div data-testid="trade-access" data-state="verified" data-level="basic" class="mkt-access">
-<strong>Verified to trade</strong>
-<span class="mkt-muted">Your level: Basic</span>
+<div data-testid="if-markets">
+<div class="lt-room" data-template="catalogue" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
+<div>
+<h1 class="lt-title">Markets</h1>
 </div>
-<section data-testid="mkt-cards" class="mkt-cards" aria-label="Markets" style="--mkt-card-count: 2;">
-<article data-testid="mkt-card" class="mkt-card" data-card="popular">
-<header data-testid="mkt-card__head" class="mkt-card__head">
-<h2>Popular</h2>
-<button type="button" class="mkt-card__more" aria-label="See all Popular">
+<div class="lt-room-action">
+<span role="status" class="lit-tag" data-tone="up" data-freshness="live">
+<span data-part="word">Live</span>
+<span>as of <time datetime="2026-10-21T12:00:00.000Z" class="lt-num">12:00:00</time>
+</span>
+</span>
+</div>
+</header>
+<div class="lt-body">
+<section class="lt-region" data-region="filters">
+<div data-testid="trade-access" data-state="verified" data-level="basic" class="lt-toolbar">
+<strong>Verified to trade</strong>
+<span class="lt-hint">Your level: Basic</span>
+</div>
+</section>
+<section class="lt-region" data-region="featured" aria-label="Featured">
+<section data-testid="mkt-cards" aria-label="Markets" class="lt-grid" style="grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: var(--lit-gap-item);">
+<div data-testid="mkt-card" data-card="popular" class="lit-surface" data-layer="content" data-material="raised" style="--lit-light-angle: 0deg; --lit-corner-x: 0%; --lit-corner-y: 0%;">
+<article class="lt-stack">
+<header data-testid="mkt-card__head" class="lt-kv">
+<div>
+<h2 class="lt-empty-title">Popular</h2>
+<button aria-label="See all Popular" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-right" aria-hidden="true">
 <path d="m9 18 6-6-6-6">
 </path>
 </svg>
 </button>
+</div>
 </header>
-<ul class="mkt-card__list">
-<li>
-<a data-testid="mkt-card__row" class="mkt-card__row" href="/coin/BTC">
-<span data-slot="coin-icon" data-asset="BTC" style="width: 24px; height: 24px;" class="inline-block shrink-0 overflow-hidden rounded-pill bg-raised">
-<span aria-hidden="true" class="block size-full [&amp;>svg]:block [&amp;>svg]:size-full">
+<div class="lt-kv" role="list">
+<div role="listitem">
+<a data-testid="mkt-card__row" class="lt-row-link" data-span="row" href="/coin/BTC">
+<span aria-hidden="true" class="lit-asset" data-slot="asset-icon" data-asset="BTC" data-size="sm">
+<span class="lit-asset__art">
 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
 <path d="M24 0H0V24H24V0Z" fill="#F7931A">
 </path>
@@ -138,16 +144,22 @@
 </svg>
 </span>
 </span>
-<span data-testid="mkt-card__name" class="mkt-card__name" title="Bitcoin">BTC<span class="mkt-muted">/USDT</span>
+<span class="lt-lines">
+<span data-testid="mkt-card__name" title="Bitcoin">BTC<span class="lt-muted">/USDT</span>
 </span>
-<span class="mkt-card__price" data-money="true">$67,812.40</span>
-<span data-slot="pct" data-direction="up" class="if-num inline-flex items-center gap-1 whitespace-nowrap tabular-nums text-up-text mkt-card__pct" dir="ltr" data-ltr="">+2.75%</span>
+</span>
+<span data-part="figures">
+<span class="lt-num" data-money="true" dir="ltr">$67,812.40</span>
+<span data-slot="pct" data-direction="up" data-dir="up" dir="ltr" data-ltr="" class="lt-num">
+<span class="lt-arrow lt-arrow-up" aria-hidden="true" data-arrow="up">
+</span> +2.75%</span>
+</span>
 </a>
-</li>
-<li>
-<a data-testid="mkt-card__row" class="mkt-card__row" href="/coin/ETH">
-<span data-slot="coin-icon" data-asset="ETH" style="width: 24px; height: 24px;" class="inline-block shrink-0 overflow-hidden rounded-pill bg-raised">
-<span aria-hidden="true" class="block size-full [&amp;>svg]:block [&amp;>svg]:size-full">
+</div>
+<div role="listitem">
+<a data-testid="mkt-card__row" class="lt-row-link" data-span="row" href="/coin/ETH">
+<span aria-hidden="true" class="lit-asset" data-slot="asset-icon" data-asset="ETH" data-size="sm">
+<span class="lit-asset__art">
 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
 <path d="M24 0H0V24H24V0Z" fill="black">
 </path>
@@ -170,38 +182,54 @@
 </svg>
 </span>
 </span>
-<span data-testid="mkt-card__name" class="mkt-card__name" title="Ethereum">ETH<span class="mkt-muted">/USDT</span>
+<span class="lt-lines">
+<span data-testid="mkt-card__name" title="Ethereum">ETH<span class="lt-muted">/USDT</span>
 </span>
-<span class="mkt-card__price" data-money="true">$3,200.10</span>
-<span data-slot="pct" data-direction="up" class="if-num inline-flex items-center gap-1 whitespace-nowrap tabular-nums text-up-text mkt-card__pct" dir="ltr" data-ltr="">+1.59%</span>
-</a>
-</li>
-<li>
-<a data-testid="mkt-card__row" class="mkt-card__row" href="/coin/IFC">
-<span data-slot="coin-icon" data-asset="IFC" data-fallback="lettered" aria-hidden="true" style="width: 24px; height: 24px; font-size: 10px;" class="inline-flex shrink-0 select-none items-center justify-center rounded-pill font-semibold leading-none bg-lime-soft text-accent-text">I</span>
-<span data-testid="mkt-card__name" class="mkt-card__name">IFC<span class="mkt-muted">/USDT</span>
 </span>
-<span class="mkt-card__price" data-money="true">$0.4120</span>
-<span data-slot="pct" data-direction="down" class="if-num inline-flex items-center gap-1 whitespace-nowrap tabular-nums text-down-text mkt-card__pct" dir="ltr" data-ltr="">−2.14%</span>
+<span data-part="figures">
+<span class="lt-num" data-money="true" dir="ltr">$3,200.10</span>
+<span data-slot="pct" data-direction="up" data-dir="up" dir="ltr" data-ltr="" class="lt-num">
+<span class="lt-arrow lt-arrow-up" aria-hidden="true" data-arrow="up">
+</span> +1.59%</span>
+</span>
 </a>
-</li>
-</ul>
+</div>
+<div role="listitem">
+<a data-testid="mkt-card__row" class="lt-row-link" data-span="row" href="/coin/IFC">
+<span aria-hidden="true" class="lit-asset" data-slot="asset-icon" data-asset="IFC" data-size="sm" data-fallback="lettered">I</span>
+<span class="lt-lines">
+<span data-testid="mkt-card__name">IFC<span class="lt-muted">/USDT</span>
+</span>
+</span>
+<span data-part="figures">
+<span class="lt-num" data-money="true" dir="ltr">$0.4120</span>
+<span data-slot="pct" data-direction="down" data-dir="down" dir="ltr" data-ltr="" class="lt-num">
+<span class="lt-arrow lt-arrow-down" aria-hidden="true" data-arrow="down">
+</span> −2.14%</span>
+</span>
+</a>
+</div>
+</div>
 </article>
-<article data-testid="mkt-card" class="mkt-card" data-card="gainers">
-<header data-testid="mkt-card__head" class="mkt-card__head">
-<h2>Top gainers</h2>
-<button type="button" class="mkt-card__more" aria-label="See all Top gainers">
+</div>
+<div data-testid="mkt-card" data-card="gainers" class="lit-surface" data-layer="content" data-material="raised" style="--lit-light-angle: 0deg; --lit-corner-x: 0%; --lit-corner-y: 0%;">
+<article class="lt-stack">
+<header data-testid="mkt-card__head" class="lt-kv">
+<div>
+<h2 class="lt-empty-title">Top gainers</h2>
+<button aria-label="See all Top gainers" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-right" aria-hidden="true">
 <path d="m9 18 6-6-6-6">
 </path>
 </svg>
 </button>
+</div>
 </header>
-<ul class="mkt-card__list">
-<li>
-<a data-testid="mkt-card__row" class="mkt-card__row" href="/coin/BTC">
-<span data-slot="coin-icon" data-asset="BTC" style="width: 24px; height: 24px;" class="inline-block shrink-0 overflow-hidden rounded-pill bg-raised">
-<span aria-hidden="true" class="block size-full [&amp;>svg]:block [&amp;>svg]:size-full">
+<div class="lt-kv" role="list">
+<div role="listitem">
+<a data-testid="mkt-card__row" class="lt-row-link" data-span="row" href="/coin/BTC">
+<span aria-hidden="true" class="lit-asset" data-slot="asset-icon" data-asset="BTC" data-size="sm">
+<span class="lit-asset__art">
 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
 <path d="M24 0H0V24H24V0Z" fill="#F7931A">
 </path>
@@ -210,44 +238,65 @@
 </svg>
 </span>
 </span>
-<span data-testid="mkt-card__name" class="mkt-card__name" title="Bitcoin">BTC<span class="mkt-muted">/USDT</span>
+<span class="lt-lines">
+<span data-testid="mkt-card__name" title="Bitcoin">BTC<span class="lt-muted">/USDT</span>
 </span>
-<span class="mkt-card__price" data-money="true">$67,812.40</span>
-<span data-slot="pct" data-direction="up" class="if-num inline-flex items-center gap-1 whitespace-nowrap tabular-nums text-up-text mkt-card__pct" dir="ltr" data-ltr="">+2.75%</span>
-</a>
-</li>
-<li>
-<a data-testid="mkt-card__row" class="mkt-card__row" href="/coin/XRP">
-<span data-slot="coin-icon" data-asset="XRP" data-fallback="lettered" aria-hidden="true" style="width: 24px; height: 24px; font-size: 10px;" class="inline-flex shrink-0 select-none items-center justify-center rounded-pill font-semibold leading-none bg-raised text-fg">X</span>
-<span data-testid="mkt-card__name" class="mkt-card__name">XRP<span class="mkt-muted">/USDT</span>
 </span>
-<span class="mkt-card__price" data-money="true">$0.5230</span>
-<span data-slot="pct" data-direction="up" class="if-num inline-flex items-center gap-1 whitespace-nowrap tabular-nums text-up-text mkt-card__pct" dir="ltr" data-ltr="">+2.15%</span>
-</a>
-</li>
-<li>
-<a data-testid="mkt-card__row" class="mkt-card__row" href="/coin/SOL">
-<span data-slot="coin-icon" data-asset="SOL" data-fallback="lettered" aria-hidden="true" style="width: 24px; height: 24px; font-size: 10px;" class="inline-flex shrink-0 select-none items-center justify-center rounded-pill font-semibold leading-none bg-raised text-fg">S</span>
-<span data-testid="mkt-card__name" class="mkt-card__name">SOL<span class="mkt-muted">/USDT</span>
+<span data-part="figures">
+<span class="lt-num" data-money="true" dir="ltr">$67,812.40</span>
+<span data-slot="pct" data-direction="up" data-dir="up" dir="ltr" data-ltr="" class="lt-num">
+<span class="lt-arrow lt-arrow-up" aria-hidden="true" data-arrow="up">
+</span> +2.75%</span>
 </span>
-<span class="mkt-card__price" data-money="true">$142.55</span>
-<span data-slot="pct" data-direction="up" class="if-num inline-flex items-center gap-1 whitespace-nowrap tabular-nums text-up-text mkt-card__pct" dir="ltr" data-ltr="">+1.75%</span>
 </a>
-</li>
-</ul>
+</div>
+<div role="listitem">
+<a data-testid="mkt-card__row" class="lt-row-link" data-span="row" href="/coin/XRP">
+<span aria-hidden="true" class="lit-asset" data-slot="asset-icon" data-asset="XRP" data-size="sm" data-fallback="lettered">X</span>
+<span class="lt-lines">
+<span data-testid="mkt-card__name">XRP<span class="lt-muted">/USDT</span>
+</span>
+</span>
+<span data-part="figures">
+<span class="lt-num" data-money="true" dir="ltr">$0.5230</span>
+<span data-slot="pct" data-direction="up" data-dir="up" dir="ltr" data-ltr="" class="lt-num">
+<span class="lt-arrow lt-arrow-up" aria-hidden="true" data-arrow="up">
+</span> +2.15%</span>
+</span>
+</a>
+</div>
+<div role="listitem">
+<a data-testid="mkt-card__row" class="lt-row-link" data-span="row" href="/coin/SOL">
+<span aria-hidden="true" class="lit-asset" data-slot="asset-icon" data-asset="SOL" data-size="sm" data-fallback="lettered">S</span>
+<span class="lt-lines">
+<span data-testid="mkt-card__name">SOL<span class="lt-muted">/USDT</span>
+</span>
+</span>
+<span data-part="figures">
+<span class="lt-num" data-money="true" dir="ltr">$142.55</span>
+<span data-slot="pct" data-direction="up" data-dir="up" dir="ltr" data-ltr="" class="lt-num">
+<span class="lt-arrow lt-arrow-up" aria-hidden="true" data-arrow="up">
+</span> +1.75%</span>
+</span>
+</a>
+</div>
+</div>
 </article>
+</div>
 </section>
-<div data-testid="mkt-tabs" class="mkt-tabs">
-<div data-orientation="horizontal" data-activation-direction="none" data-slot="tabs" class="flex flex-col">
-<div data-orientation="horizontal" data-activation-direction="none" role="tablist" data-slot="tabs-list" class="relative flex items-stretch gap-6 mkt-tabs__list">
-<button type="button" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="-1" role="tab" aria-selected="false" id="base-ui-_r_3_" data-slot="tabs-tab" class="relative inline-flex h-11 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus mkt-tab">Favorites</button>
-<button type="button" data-active="" data-orientation="horizontal" data-activation-direction="none" aria-disabled="false" tabindex="0" role="tab" aria-selected="true" id="base-ui-_r_4_" data-composite-item-active="" data-slot="tabs-tab" class="relative inline-flex h-11 items-center justify-center whitespace-nowrap text-base font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-active:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus mkt-tab">Spot</button>
-<span data-orientation="horizontal" data-activation-direction="none" role="presentation" hidden="" data-slot="tabs-indicator" class="pointer-events-none absolute bottom-0 left-(--active-tab-left) h-0.5 w-(--active-tab-width) transition-[left,width] duration-(--if-t-tab) ease-if bg-fg" style="--active-tab-left: 0px; --active-tab-right: 0px; --active-tab-top: 0px; --active-tab-bottom: 0px; --active-tab-width: 0px; --active-tab-height: 0px;">
-</span>
+</section>
+<section class="lt-region" data-region="items" aria-label="Products">
+<div class="lt-stack">
+<div class="lt-stack">
+<div data-testid="mkt-tabs" class="lt-toolbar">
+<div class="lt-tabs" role="tablist" aria-label="Markets">
+<button type="button" role="tab" class="lt-tab" aria-selected="false" tabindex="-1">Favorites</button>
+<button type="button" role="tab" class="lt-tab" aria-selected="true" tabindex="0">Spot</button>
 </div>
-</div>
-<div data-slot="input" data-kind="text" data-density="comfortable" class="flex w-full min-w-0 items-center gap-2 rounded-sm border bg-field text-fg transition-colors duration-(--if-t-fast) ease-if h-(--if-ctl-h) text-base px-3 border-transparent hover:bg-raised has-[input:focus-visible]:outline-solid has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-focus mkt-search">
-<span data-slot="input-leading" class="flex shrink-0 items-center text-fg-2 [&amp;_svg]:shrink-0">
+<div class="lit-field-control">
+<label for="_r_3_" class="lt-sr">Search markets</label>
+<div data-part="box">
+<span data-part="before" aria-hidden="true">
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-search" aria-hidden="true">
 <path d="m21 21-4.34-4.34">
 </path>
@@ -255,122 +304,67 @@
 </circle>
 </svg>
 </span>
-<input id="base-ui-_r_5_" placeholder="Search by coin or name" aria-label="Search markets" data-slot="input-control" class="min-w-0 flex-1 bg-transparent text-fg outline-none placeholder:text-fg-3 disabled:cursor-not-allowed text-start" type="text" value="">
-</div>
-</div>
-<div data-testid="mkt-chips" class="mkt-chips">
-<div data-orientation="horizontal" role="group" data-slot="toggle-group" aria-label="Filter by change" class="flex items-center gap-1">
-<button type="button" data-pressed="" aria-disabled="false" tabindex="0" aria-pressed="true" data-slot="toggle-group-item" class="inline-flex shrink-0 select-none items-center justify-center whitespace-nowrap font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-pressed:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 h-8 rounded-sm px-3 text-sm data-pressed:bg-field outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">All</button>
-<button type="button" aria-disabled="false" tabindex="-1" aria-pressed="false" data-slot="toggle-group-item" class="inline-flex shrink-0 select-none items-center justify-center whitespace-nowrap font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-pressed:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 h-8 rounded-sm px-3 text-sm data-pressed:bg-field outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Gainers</button>
-<button type="button" aria-disabled="false" tabindex="-1" aria-pressed="false" data-slot="toggle-group-item" class="inline-flex shrink-0 select-none items-center justify-center whitespace-nowrap font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-pressed:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 h-8 rounded-sm px-3 text-sm data-pressed:bg-field outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Losers</button>
-</div>
-<span class="mkt-chips__divider" aria-hidden="true">
-</span>
-<div data-orientation="horizontal" role="group" data-slot="toggle-group" aria-label="Filter by currency" class="flex items-center gap-1">
-<button type="button" aria-disabled="false" tabindex="0" aria-pressed="false" data-slot="toggle-group-item" class="inline-flex shrink-0 select-none items-center justify-center whitespace-nowrap font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-pressed:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 h-8 rounded-sm px-3 text-sm data-pressed:bg-field outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">USDT</button>
-<button type="button" aria-disabled="false" tabindex="-1" aria-pressed="false" data-slot="toggle-group-item" class="inline-flex shrink-0 select-none items-center justify-center whitespace-nowrap font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-pressed:text-fg data-disabled:pointer-events-none data-disabled:opacity-40 h-8 rounded-sm px-3 text-sm data-pressed:bg-field outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">USDC</button>
-</div>
-<div class="mkt-chips__end">
-<div data-orientation="horizontal" role="group" data-slot="segmented-control" aria-label="Row size" class="relative grid items-stretch rounded-pill bg-field p-0.5 w-fit h-7 text-sm" style="grid-template-columns: repeat(2, minmax(0, 1fr));">
-<span aria-hidden="true" style="width: calc((100% - 4px) / 2); transform: translateX(0%);" class="pointer-events-none absolute inset-y-0.5 left-0.5 rounded-pill transition-[transform,background-color] duration-(--if-t-tab) ease-if bg-raised">
-</span>
-<button type="button" data-pressed="" aria-disabled="false" tabindex="0" aria-pressed="true" class="relative z-10 inline-flex items-center justify-center whitespace-nowrap rounded-pill px-3 font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-pressed:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Comfortable</button>
-<button type="button" aria-disabled="false" tabindex="-1" aria-pressed="false" class="relative z-10 inline-flex items-center justify-center whitespace-nowrap rounded-pill px-3 font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:text-fg data-pressed:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Compact</button>
+<input placeholder="Search by coin or name" id="_r_3_" type="text" value="">
 </div>
 </div>
 </div>
-<div data-slot="table" data-density="comfortable" data-status="ready" class="relative w-full">
-<div data-slot="table-scroll" role="region" aria-label="Markets" class="w-full overflow-x-auto">
-<table role="grid" style="min-width: 918px;" class="w-full table-fixed border-separate border-spacing-0 text-fg">
-<caption class="sr-only">Markets</caption>
-<colgroup>
-<col style="width: 280px;">
-<col style="width: 120px;">
-<col style="width: 132px;">
-<col style="width: 104px;">
-<col style="width: 132px;">
-<col style="width: 150px;">
-</colgroup>
+<div data-testid="mkt-chips" class="lt-toolbar">
+<div class="lit-chips" role="group" aria-label="Filter by change">
+<button type="button" aria-pressed="true">All</button>
+<button type="button" aria-pressed="false">Gainers</button>
+<button type="button" aria-pressed="false">Losers</button>
+</div>
+<div class="lit-chips" role="group" aria-label="Filter by currency">
+<button type="button" aria-pressed="false">USDT</button>
+<button type="button" aria-pressed="false">USDC</button>
+</div>
+<div class="lit-segmented" role="group" aria-label="Row size">
+<button type="button" aria-pressed="true">Comfortable</button>
+<button type="button" aria-pressed="false">Compact</button>
+</div>
+</div>
+<div class="lt-table-scroll" tabindex="0">
+<table class="lt-table" role="grid" aria-label="Markets" data-mode="simple">
 <thead>
-<tr class="h-(--if-table-head-h)">
-<th scope="col" data-align="start" aria-sort="none" class="border-b border-line bg-bg text-xs font-normal text-fg-2 px-3 text-left overflow-hidden text-ellipsis whitespace-nowrap sticky top-0 left-0 z-20">
-<button type="button" data-slot="table-sort" class="inline-flex max-w-full items-center gap-1 rounded-xs text-xs font-normal transition-colors duration-(--if-t-fast) ease-if hover:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">
-<span class="overflow-hidden text-ellipsis">Name</span>
-<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-up-down shrink-0 text-fg-3" aria-hidden="true">
-<path d="m21 16-4 4-4-4">
-</path>
-<path d="M17 20V4">
-</path>
-<path d="m3 8 4-4 4 4">
-</path>
-<path d="M7 4v16">
-</path>
-</svg>
+<tr data-testid="mkt-header">
+<th style="position: sticky; inset-inline-start: 0; z-index: 1; background: var(--lit-solid-bg);" data-col="name" scope="col" data-align="start" aria-sort="none">
+<button type="button" class="lt-sort" aria-label="Sort by Name">Name<span class="lt-sort-mark" aria-hidden="true">
+</span>
 </button>
 </th>
-<th scope="col" data-align="end" aria-sort="none" class="border-b border-line bg-bg text-xs font-normal text-fg-2 px-3 text-right overflow-hidden text-ellipsis whitespace-nowrap sticky top-0 z-10">
-<button type="button" data-slot="table-sort" class="inline-flex max-w-full items-center gap-1 rounded-xs text-xs font-normal transition-colors duration-(--if-t-fast) ease-if hover:text-fg flex-row-reverse outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">
-<span class="overflow-hidden text-ellipsis">Last</span>
-<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-up-down shrink-0 text-fg-3" aria-hidden="true">
-<path d="m21 16-4 4-4-4">
-</path>
-<path d="M17 20V4">
-</path>
-<path d="m3 8 4-4 4 4">
-</path>
-<path d="M7 4v16">
-</path>
-</svg>
+<th data-col="last" scope="col" data-align="end" aria-sort="none">
+<button type="button" class="lt-sort" aria-label="Sort by Last">Last<span class="lt-sort-mark" aria-hidden="true">
+</span>
 </button>
 </th>
-<th scope="col" data-align="end" aria-sort="none" class="border-b border-line bg-bg text-xs font-normal text-fg-2 px-3 text-right overflow-hidden text-ellipsis whitespace-nowrap sticky top-0 z-10">
-<button type="button" data-slot="table-sort" class="inline-flex max-w-full items-center gap-1 rounded-xs text-xs font-normal transition-colors duration-(--if-t-fast) ease-if hover:text-fg flex-row-reverse outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">
-<span class="overflow-hidden text-ellipsis">24h change</span>
-<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-up-down shrink-0 text-fg-3" aria-hidden="true">
-<path d="m21 16-4 4-4-4">
-</path>
-<path d="M17 20V4">
-</path>
-<path d="m3 8 4-4 4 4">
-</path>
-<path d="M7 4v16">
-</path>
-</svg>
+<th data-col="change" scope="col" data-align="end" aria-sort="none">
+<button type="button" class="lt-sort" aria-label="Sort by 24h change">24h change<span class="lt-sort-mark" aria-hidden="true">
+</span>
 </button>
 </th>
-<th scope="col" data-align="start" class="border-b border-line bg-bg text-xs font-normal text-fg-2 px-3 text-left overflow-hidden text-ellipsis whitespace-nowrap sticky top-0 z-10">Last 24h</th>
-<th scope="col" data-align="end" aria-sort="none" class="border-b border-line bg-bg text-xs font-normal text-fg-2 px-3 text-right overflow-hidden text-ellipsis whitespace-nowrap sticky top-0 z-10">
-<button type="button" data-slot="table-sort" class="inline-flex max-w-full items-center gap-1 rounded-xs text-xs font-normal transition-colors duration-(--if-t-fast) ease-if hover:text-fg flex-row-reverse outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">
-<span class="overflow-hidden text-ellipsis">24h volume</span>
-<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-up-down shrink-0 text-fg-3" aria-hidden="true">
-<path d="m21 16-4 4-4-4">
-</path>
-<path d="M17 20V4">
-</path>
-<path d="m3 8 4-4 4 4">
-</path>
-<path d="M7 4v16">
-</path>
-</svg>
+<th data-col="chart" scope="col" data-align="start">Last 24h</th>
+<th data-col="volume" scope="col" data-align="end" aria-sort="none">
+<button type="button" class="lt-sort" aria-label="Sort by 24h volume">24h volume<span class="lt-sort-mark" aria-hidden="true">
+</span>
 </button>
 </th>
-<th scope="col" data-align="end" class="border-b border-line bg-bg text-xs font-normal text-fg-2 px-3 text-right overflow-hidden text-ellipsis whitespace-nowrap sticky top-0 z-10">
-<span class="sr-only">Action</span>
+<th data-col="action" scope="col" data-align="end">
+<span class="lt-sr">Action</span>
 </th>
 </tr>
 </thead>
 <tbody>
-<tr data-slot="table-row" data-row-index="0" tabindex="0" class="h-(--if-table-row-h) group/row transition-colors duration-(--if-t-fast) ease-if hover:bg-hover aria-selected:bg-hover cursor-default outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-solid focus-visible:outline-focus">
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg sticky left-0 z-5 bg-bg group-hover/row:bg-hover group-aria-selected/row:bg-hover">
-<span class="mkt-namecell">
-<button type="button" tabindex="0" data-slot="button" data-variant="ghost" aria-pressed="false" aria-label="Add BTC to favorites" class="inline-flex select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-transparent text-fg-2 hover:bg-hover hover:text-fg active:bg-field h-7 text-sm rounded-pill w-7 shrink-0 px-0">
+<tr data-testid="mkt-row" data-symbol="BTC-USDT" data-row="">
+<td data-col="name" data-cell="name" style="position: sticky; inset-inline-start: 0; z-index: 1; background: var(--lit-solid-bg);" data-label="Name" data-align="start">
+<span class="lt-cell-name">
+<button aria-pressed="false" aria-label="Add BTC to favorites" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-star" aria-hidden="true">
 <path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z">
 </path>
 </svg>
 </button>
-<span data-slot="coin-icon" data-asset="BTC" style="width: 32px; height: 32px;" class="inline-block shrink-0 overflow-hidden rounded-pill bg-raised">
-<span aria-hidden="true" class="block size-full [&amp;>svg]:block [&amp;>svg]:size-full">
+<span aria-hidden="true" class="lit-asset" data-slot="asset-icon" data-asset="BTC" data-size="md">
+<span class="lit-asset__art">
 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
 <path d="M24 0H0V24H24V0Z" fill="#F7931A">
 </path>
@@ -379,62 +373,60 @@
 </svg>
 </span>
 </span>
-<span class="mkt-name">
-<span data-testid="mkt-name__ticker" class="mkt-name__ticker">BTC<span data-testid="mkt-name__quote" class="mkt-muted mkt-name__quote">/USDT</span>
+<span class="lt-lines">
+<a class="lt-row-link" data-row-link="" href="/coin/BTC">
+<span class="lt-lines">
+<span data-testid="mkt-name__ticker">BTC<span data-testid="mkt-name__quote" class="lt-muted">/USDT</span>
 </span>
-<span data-testid="mkt-name__full" class="mkt-name__full">Bitcoin</span>
+<span data-testid="mkt-name__full" class="lt-hint">Bitcoin</span>
 </span>
+</a>
 </span>
-</td>
-<td data-align="end" class="px-3 text-base text-right overflow-hidden text-ellipsis whitespace-nowrap text-fg if-num tabular-nums">
-<span data-slot="price" class="if-num whitespace-nowrap tabular-nums mkt-price" dir="ltr" data-ltr="">$67,812.40</span>
-</td>
-<td data-align="end" class="px-3 text-base text-right overflow-hidden text-ellipsis whitespace-nowrap text-fg if-num tabular-nums">
-<span class="mkt-stack">
-<span data-slot="pct" data-direction="up" class="if-num inline-flex items-center gap-1 whitespace-nowrap tabular-nums text-up-text" dir="ltr" data-ltr="">
-<span aria-hidden="true" class="text-[0.7em] leading-none">▲</span>+2.75%</span>
 </span>
 </td>
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
-<svg data-slot="sparkline" width="96" height="32" viewBox="0 0 96 32" aria-hidden="true" class="block shrink-0 overflow-visible">
-<line x1="0" x2="96" y1="25.33" y2="25.33" stroke-width="1" stroke-dasharray="1 3" class="stroke-fg-3">
-</line>
-<polyline points="3,25.33 6.91,24.73 10.83,26.39 14.74,28.58 18.65,29 22.57,26.44 26.48,21.76 30.39,17.27 34.3,15.08 38.22,15.57 42.13,17.2 46.04,17.73 49.96,15.98 53.87,12.71 57.78,10.02 61.7,9.7 65.61,11.83 69.52,14.56 73.43,15.51 77.35,13.45 81.26,9.21 85.17,5.05 89.09,3 93,3.35" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="stroke-up-text">
-</polyline>
+<td data-col="last" data-cell="last" data-label="Last" data-align="end">
+<span data-slot="price" class="lt-num" dir="ltr">$67,812.40</span>
+</td>
+<td data-col="change" data-cell="change" data-label="24h change" data-align="end">
+<span class="lt-lines">
+<span data-slot="pct" data-direction="up" data-dir="up" dir="ltr" data-ltr="" class="lt-num">
+<span class="lt-arrow lt-arrow-up" aria-hidden="true" data-arrow="up">
+</span> +2.75%</span>
+</span>
+</td>
+<td data-col="chart" data-cell="chart" data-label="Last 24h" data-align="start">
+<figure class="lt-chart lt-spark" data-size="row" data-tone="up">
+<svg viewBox="0 0 600 200" preserveAspectRatio="none" role="img" aria-label="BTC/USDT Last 24h">
+<path class="lt-chart-line" d="M8.0,166.0 L33.4,161.8 L58.8,173.5 L84.2,189.1 L109.6,192.0 L135.0,173.9 L160.3,140.7 L185.7,109.0 L211.1,93.5 L236.5,97.0 L261.9,108.5 L287.3,112.3 L312.7,99.9 L338.1,76.7 L363.5,57.7 L388.9,55.4 L414.3,70.5 L439.7,89.8 L465.0,96.6 L490.4,81.9 L515.8,51.9 L541.2,22.5 L566.6,8.0 L592.0,10.5" vector-effect="non-scaling-stroke">
+</path>
 </svg>
+</figure>
 </td>
-<td data-align="end" class="px-3 text-base text-right overflow-hidden text-ellipsis whitespace-nowrap text-fg if-num tabular-nums">
-<span class="mkt-stack">
-<span class="mkt-volume" data-slot="volume">—</span>
+<td data-col="volume" data-cell="volume" data-label="24h volume" data-align="end">
+<span class="lt-lines">
+<span class="lt-num" data-slot="volume" dir="ltr">—</span>
 </span>
 </td>
-<td data-align="end" class="px-3 text-base text-right overflow-hidden text-ellipsis whitespace-nowrap text-fg">
-<span class="mkt-actions">
-<a href="/coin/BTC" role="button" tabindex="0" data-slot="button" data-variant="secondary" aria-label="Buy BTC" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-8 px-4 text-sm rounded-pill">Buy</a>
-<button type="button" tabindex="0" data-slot="menu-trigger" data-variant="ghost" aria-label="More actions for BTC/USDT" aria-haspopup="menu" aria-expanded="false" id="base-ui-_r_6_" class="inline-flex select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-transparent text-fg-2 hover:bg-hover hover:text-fg active:bg-field h-8 text-sm rounded-pill w-7 shrink-0 px-0">
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-ellipsis lucide-more-horizontal" aria-hidden="true">
-<circle cx="12" cy="12" r="1">
-</circle>
-<circle cx="19" cy="12" r="1">
-</circle>
-<circle cx="5" cy="12" r="1">
-</circle>
-</svg>
-</button>
+<td data-col="action" data-cell="action" data-label="Action" data-align="end">
+<span class="lt-actions">
+<a class="lt-button lt-button-secondary" role="button" href="/coin/BTC" aria-label="Buy BTC">Buy</a>
+<a class="lt-row-link" href="/trade/convert?from=USDT&amp;to=BTC" aria-label="Convert BTC/USDT">
+<span class="lt-link">Convert</span>
+</a>
 </span>
 </td>
 </tr>
-<tr data-slot="table-row" data-row-index="1" tabindex="-1" class="h-(--if-table-row-h) group/row transition-colors duration-(--if-t-fast) ease-if hover:bg-hover aria-selected:bg-hover cursor-default outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-solid focus-visible:outline-focus">
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg sticky left-0 z-5 bg-bg group-hover/row:bg-hover group-aria-selected/row:bg-hover">
-<span class="mkt-namecell">
-<button type="button" tabindex="0" data-slot="button" data-variant="ghost" aria-pressed="false" aria-label="Add ETH to favorites" class="inline-flex select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-transparent text-fg-2 hover:bg-hover hover:text-fg active:bg-field h-7 text-sm rounded-pill w-7 shrink-0 px-0">
+<tr data-testid="mkt-row" data-symbol="ETH-USDT" data-row="">
+<td data-col="name" data-cell="name" style="position: sticky; inset-inline-start: 0; z-index: 1; background: var(--lit-solid-bg);" data-label="Name" data-align="start">
+<span class="lt-cell-name">
+<button aria-pressed="false" aria-label="Add ETH to favorites" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-star" aria-hidden="true">
 <path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z">
 </path>
 </svg>
 </button>
-<span data-slot="coin-icon" data-asset="ETH" style="width: 32px; height: 32px;" class="inline-block shrink-0 overflow-hidden rounded-pill bg-raised">
-<span aria-hidden="true" class="block size-full [&amp;>svg]:block [&amp;>svg]:size-full">
+<span aria-hidden="true" class="lit-asset" data-slot="asset-icon" data-asset="ETH" data-size="md">
+<span class="lit-asset__art">
 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
 <path d="M24 0H0V24H24V0Z" fill="black">
 </path>
@@ -457,170 +449,164 @@
 </svg>
 </span>
 </span>
-<span class="mkt-name">
-<span data-testid="mkt-name__ticker" class="mkt-name__ticker">ETH<span data-testid="mkt-name__quote" class="mkt-muted mkt-name__quote">/USDT</span>
+<span class="lt-lines">
+<a class="lt-row-link" data-row-link="" href="/coin/ETH">
+<span class="lt-lines">
+<span data-testid="mkt-name__ticker">ETH<span data-testid="mkt-name__quote" class="lt-muted">/USDT</span>
 </span>
-<span data-testid="mkt-name__full" class="mkt-name__full">Ethereum</span>
+<span data-testid="mkt-name__full" class="lt-hint">Ethereum</span>
 </span>
+</a>
 </span>
-</td>
-<td data-align="end" class="px-3 text-base text-right overflow-hidden text-ellipsis whitespace-nowrap text-fg if-num tabular-nums">
-<span data-slot="price" class="if-num whitespace-nowrap tabular-nums mkt-price" dir="ltr" data-ltr="">$3,200.10</span>
-</td>
-<td data-align="end" class="px-3 text-base text-right overflow-hidden text-ellipsis whitespace-nowrap text-fg if-num tabular-nums">
-<span class="mkt-stack">
-<span data-slot="pct" data-direction="up" class="if-num inline-flex items-center gap-1 whitespace-nowrap tabular-nums text-up-text" dir="ltr" data-ltr="">
-<span aria-hidden="true" class="text-[0.7em] leading-none">▲</span>+1.59%</span>
 </span>
 </td>
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
-<svg data-slot="sparkline" width="96" height="32" viewBox="0 0 96 32" aria-hidden="true" class="block shrink-0 overflow-visible">
-<line x1="0" x2="96" y1="27.34" y2="27.34" stroke-width="1" stroke-dasharray="1 3" class="stroke-fg-3">
-</line>
-<polyline points="3,27.34 6.91,27.91 10.83,29 14.74,28.49 18.65,25.49 22.57,21.1 26.48,17.63 30.39,16.93 34.3,18.96 38.22,21.81 42.13,23.08 46.04,21.64 49.96,18.35 53.87,15.38 57.78,14.46 61.7,15.56 65.61,16.91 69.52,16.34 73.43,13.04 77.35,8.19 81.26,4.22 85.17,3 89.09,4.51 93,6.89" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="stroke-up-text">
-</polyline>
+<td data-col="last" data-cell="last" data-label="Last" data-align="end">
+<span data-slot="price" class="lt-num" dir="ltr">$3,200.10</span>
+</td>
+<td data-col="change" data-cell="change" data-label="24h change" data-align="end">
+<span class="lt-lines">
+<span data-slot="pct" data-direction="up" data-dir="up" dir="ltr" data-ltr="" class="lt-num">
+<span class="lt-arrow lt-arrow-up" aria-hidden="true" data-arrow="up">
+</span> +1.59%</span>
+</span>
+</td>
+<td data-col="chart" data-cell="chart" data-label="Last 24h" data-align="start">
+<figure class="lt-chart lt-spark" data-size="row" data-tone="up">
+<svg viewBox="0 0 600 200" preserveAspectRatio="none" role="img" aria-label="ETH/USDT Last 24h">
+<path class="lt-chart-line" d="M8.0,180.2 L33.4,184.3 L58.8,192.0 L84.2,188.4 L109.6,167.2 L135.0,136.1 L160.3,111.5 L185.7,106.6 L211.1,120.9 L236.5,141.1 L261.9,150.1 L287.3,139.9 L312.7,116.6 L338.1,95.6 L363.5,89.1 L388.9,96.9 L414.3,106.4 L439.7,102.4 L465.0,79.0 L490.4,44.8 L515.8,16.7 L541.2,8.0 L566.6,18.7 L592.0,35.5" vector-effect="non-scaling-stroke">
+</path>
 </svg>
+</figure>
 </td>
-<td data-align="end" class="px-3 text-base text-right overflow-hidden text-ellipsis whitespace-nowrap text-fg if-num tabular-nums">
-<span class="mkt-stack">
-<span class="mkt-volume" data-slot="volume">—</span>
+<td data-col="volume" data-cell="volume" data-label="24h volume" data-align="end">
+<span class="lt-lines">
+<span class="lt-num" data-slot="volume" dir="ltr">—</span>
 </span>
 </td>
-<td data-align="end" class="px-3 text-base text-right overflow-hidden text-ellipsis whitespace-nowrap text-fg">
-<span class="mkt-actions">
-<a href="/coin/ETH" role="button" tabindex="0" data-slot="button" data-variant="secondary" aria-label="Buy ETH" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-8 px-4 text-sm rounded-pill">Buy</a>
-<button type="button" tabindex="0" data-slot="menu-trigger" data-variant="ghost" aria-label="More actions for ETH/USDT" aria-haspopup="menu" aria-expanded="false" id="base-ui-_r_7_" class="inline-flex select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-transparent text-fg-2 hover:bg-hover hover:text-fg active:bg-field h-8 text-sm rounded-pill w-7 shrink-0 px-0">
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-ellipsis lucide-more-horizontal" aria-hidden="true">
-<circle cx="12" cy="12" r="1">
-</circle>
-<circle cx="19" cy="12" r="1">
-</circle>
-<circle cx="5" cy="12" r="1">
-</circle>
-</svg>
-</button>
+<td data-col="action" data-cell="action" data-label="Action" data-align="end">
+<span class="lt-actions">
+<a class="lt-button lt-button-secondary" role="button" href="/coin/ETH" aria-label="Buy ETH">Buy</a>
+<a class="lt-row-link" href="/trade/convert?from=USDT&amp;to=ETH" aria-label="Convert ETH/USDT">
+<span class="lt-link">Convert</span>
+</a>
 </span>
 </td>
 </tr>
-<tr data-slot="table-row" data-row-index="2" tabindex="-1" class="h-(--if-table-row-h) group/row transition-colors duration-(--if-t-fast) ease-if hover:bg-hover aria-selected:bg-hover cursor-default outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-solid focus-visible:outline-focus">
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg sticky left-0 z-5 bg-bg group-hover/row:bg-hover group-aria-selected/row:bg-hover">
-<span class="mkt-namecell">
-<button type="button" tabindex="0" data-slot="button" data-variant="ghost" aria-pressed="false" aria-label="Add IFC to favorites" class="inline-flex select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-transparent text-fg-2 hover:bg-hover hover:text-fg active:bg-field h-7 text-sm rounded-pill w-7 shrink-0 px-0">
+<tr data-testid="mkt-row" data-symbol="IFC-USDT" data-row="">
+<td data-col="name" data-cell="name" style="position: sticky; inset-inline-start: 0; z-index: 1; background: var(--lit-solid-bg);" data-label="Name" data-align="start">
+<span class="lt-cell-name">
+<button aria-pressed="false" aria-label="Add IFC to favorites" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-star" aria-hidden="true">
 <path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z">
 </path>
 </svg>
 </button>
-<span data-slot="coin-icon" data-asset="IFC" data-fallback="lettered" aria-hidden="true" style="width: 32px; height: 32px; font-size: 13px;" class="inline-flex shrink-0 select-none items-center justify-center rounded-pill font-semibold leading-none bg-lime-soft text-accent-text">I</span>
-<span class="mkt-name">
-<span data-testid="mkt-name__ticker" class="mkt-name__ticker">IFC<span data-testid="mkt-name__quote" class="mkt-muted mkt-name__quote">/USDT</span>
+<span aria-hidden="true" class="lit-asset" data-slot="asset-icon" data-asset="IFC" data-size="md" data-fallback="lettered">I</span>
+<span class="lt-lines">
+<a class="lt-row-link" data-row-link="" href="/coin/IFC">
+<span class="lt-lines">
+<span data-testid="mkt-name__ticker">IFC<span data-testid="mkt-name__quote" class="lt-muted">/USDT</span>
 </span>
+</span>
+</a>
 </span>
 </span>
 </td>
-<td data-align="end" class="px-3 text-base text-right overflow-hidden text-ellipsis whitespace-nowrap text-fg if-num tabular-nums">
-<span data-slot="price" class="if-num whitespace-nowrap tabular-nums mkt-price" dir="ltr" data-ltr="">$0.4120</span>
+<td data-col="last" data-cell="last" data-label="Last" data-align="end">
+<span data-slot="price" class="lt-num" dir="ltr">$0.4120</span>
 </td>
-<td data-align="end" class="px-3 text-base text-right overflow-hidden text-ellipsis whitespace-nowrap text-fg if-num tabular-nums">
-<span class="mkt-stack">
-<span data-slot="pct" data-direction="down" class="if-num inline-flex items-center gap-1 whitespace-nowrap tabular-nums text-down-text" dir="ltr" data-ltr="">
-<span aria-hidden="true" class="text-[0.7em] leading-none">▼</span>−2.14%</span>
+<td data-col="change" data-cell="change" data-label="24h change" data-align="end">
+<span class="lt-lines">
+<span data-slot="pct" data-direction="down" data-dir="down" dir="ltr" data-ltr="" class="lt-num">
+<span class="lt-arrow lt-arrow-down" aria-hidden="true" data-arrow="down">
+</span> −2.14%</span>
 </span>
 </td>
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
-<svg data-slot="sparkline" width="96" height="32" viewBox="0 0 96 32" aria-hidden="true" class="block shrink-0 overflow-visible">
-<line x1="0" x2="96" y1="3" y2="3" stroke-width="1" stroke-dasharray="1 3" class="stroke-fg-3">
-</line>
-<polyline points="3,3 6.91,6.23 10.83,8.21 14.74,8.23 18.65,7.2 22.57,6.95 26.48,8.77 30.39,12.34 34.3,15.95 38.22,17.67 42.13,16.84 46.04,14.55 49.96,12.81 53.87,13.14 57.78,15.44 61.7,18.16 65.61,19.54 69.52,18.99 73.43,17.57 77.35,17.18 81.26,19.09 85.17,22.91 89.09,26.87 93,29" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="stroke-down-text">
-</polyline>
+<td data-col="chart" data-cell="chart" data-label="Last 24h" data-align="start">
+<figure class="lt-chart lt-spark" data-size="row" data-tone="down">
+<svg viewBox="0 0 600 200" preserveAspectRatio="none" role="img" aria-label="IFC/USDT Last 24h">
+<path class="lt-chart-line" d="M8.0,8.0 L33.4,30.8 L58.8,44.9 L84.2,45.0 L109.6,37.7 L135.0,36.0 L160.3,48.8 L185.7,74.1 L211.1,99.6 L236.5,111.8 L261.9,106.0 L287.3,89.7 L312.7,77.5 L338.1,79.8 L363.5,96.0 L388.9,115.3 L414.3,125.0 L439.7,121.2 L465.0,111.1 L490.4,108.4 L515.8,121.8 L541.2,148.9 L566.6,176.9 L592.0,192.0" vector-effect="non-scaling-stroke">
+</path>
 </svg>
+</figure>
 </td>
-<td data-align="end" class="px-3 text-base text-right overflow-hidden text-ellipsis whitespace-nowrap text-fg if-num tabular-nums">
-<span class="mkt-stack">
-<span class="mkt-volume" data-slot="volume">—</span>
+<td data-col="volume" data-cell="volume" data-label="24h volume" data-align="end">
+<span class="lt-lines">
+<span class="lt-num" data-slot="volume" dir="ltr">—</span>
 </span>
 </td>
-<td data-align="end" class="px-3 text-base text-right overflow-hidden text-ellipsis whitespace-nowrap text-fg">
-<span class="mkt-actions">
-<a href="/coin/IFC" role="button" tabindex="0" data-slot="button" data-variant="secondary" aria-label="Buy IFC" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-8 px-4 text-sm rounded-pill">Buy</a>
-<button type="button" tabindex="0" data-slot="menu-trigger" data-variant="ghost" aria-label="More actions for IFC/USDT" aria-haspopup="menu" aria-expanded="false" id="base-ui-_r_8_" class="inline-flex select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-transparent text-fg-2 hover:bg-hover hover:text-fg active:bg-field h-8 text-sm rounded-pill w-7 shrink-0 px-0">
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-ellipsis lucide-more-horizontal" aria-hidden="true">
-<circle cx="12" cy="12" r="1">
-</circle>
-<circle cx="19" cy="12" r="1">
-</circle>
-<circle cx="5" cy="12" r="1">
-</circle>
-</svg>
-</button>
+<td data-col="action" data-cell="action" data-label="Action" data-align="end">
+<span class="lt-actions">
+<a class="lt-button lt-button-secondary" role="button" href="/coin/IFC" aria-label="Buy IFC">Buy</a>
+<a class="lt-row-link" href="/trade/convert?from=USDT&amp;to=IFC" aria-label="Convert IFC/USDT">
+<span class="lt-link">Convert</span>
+</a>
 </span>
 </td>
 </tr>
-<tr data-slot="table-row" data-row-index="3" tabindex="-1" class="h-(--if-table-row-h) group/row transition-colors duration-(--if-t-fast) ease-if hover:bg-hover aria-selected:bg-hover cursor-default outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-solid focus-visible:outline-focus">
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg sticky left-0 z-5 bg-bg group-hover/row:bg-hover group-aria-selected/row:bg-hover">
-<span class="mkt-namecell">
-<button type="button" tabindex="0" data-slot="button" data-variant="ghost" aria-pressed="false" aria-label="Add SOL to favorites" class="inline-flex select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-transparent text-fg-2 hover:bg-hover hover:text-fg active:bg-field h-7 text-sm rounded-pill w-7 shrink-0 px-0">
+<tr data-testid="mkt-row" data-symbol="SOL-USDT" data-row="">
+<td data-col="name" data-cell="name" style="position: sticky; inset-inline-start: 0; z-index: 1; background: var(--lit-solid-bg);" data-label="Name" data-align="start">
+<span class="lt-cell-name">
+<button aria-pressed="false" aria-label="Add SOL to favorites" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-star" aria-hidden="true">
 <path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z">
 </path>
 </svg>
 </button>
-<span data-slot="coin-icon" data-asset="SOL" data-fallback="lettered" aria-hidden="true" style="width: 32px; height: 32px; font-size: 13px;" class="inline-flex shrink-0 select-none items-center justify-center rounded-pill font-semibold leading-none bg-raised text-fg">S</span>
-<span class="mkt-name">
-<span data-testid="mkt-name__ticker" class="mkt-name__ticker">SOL<span data-testid="mkt-name__quote" class="mkt-muted mkt-name__quote">/USDT</span>
+<span aria-hidden="true" class="lit-asset" data-slot="asset-icon" data-asset="SOL" data-size="md" data-fallback="lettered">S</span>
+<span class="lt-lines">
+<a class="lt-row-link" data-row-link="" href="/coin/SOL">
+<span class="lt-lines">
+<span data-testid="mkt-name__ticker">SOL<span data-testid="mkt-name__quote" class="lt-muted">/USDT</span>
 </span>
+</span>
+</a>
 </span>
 </span>
 </td>
-<td data-align="end" class="px-3 text-base text-right overflow-hidden text-ellipsis whitespace-nowrap text-fg if-num tabular-nums">
-<span data-slot="price" class="if-num whitespace-nowrap tabular-nums mkt-price" dir="ltr" data-ltr="">$142.55</span>
+<td data-col="last" data-cell="last" data-label="Last" data-align="end">
+<span data-slot="price" class="lt-num" dir="ltr">$142.55</span>
 </td>
-<td data-align="end" class="px-3 text-base text-right overflow-hidden text-ellipsis whitespace-nowrap text-fg if-num tabular-nums">
-<span class="mkt-stack">
-<span data-slot="pct" data-direction="up" class="if-num inline-flex items-center gap-1 whitespace-nowrap tabular-nums text-up-text" dir="ltr" data-ltr="">
-<span aria-hidden="true" class="text-[0.7em] leading-none">▲</span>+1.75%</span>
+<td data-col="change" data-cell="change" data-label="24h change" data-align="end">
+<span class="lt-lines">
+<span data-slot="pct" data-direction="up" data-dir="up" dir="ltr" data-ltr="" class="lt-num">
+<span class="lt-arrow lt-arrow-up" aria-hidden="true" data-arrow="up">
+</span> +1.75%</span>
 </span>
 </td>
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
-<svg data-slot="sparkline" width="96" height="32" viewBox="0 0 96 32" aria-hidden="true" class="block shrink-0 overflow-visible">
-<line x1="0" x2="96" y1="28.26" y2="28.26" stroke-width="1" stroke-dasharray="1 3" class="stroke-fg-3">
-</line>
-<polyline points="3,28.26 6.91,29 10.83,26.76 14.74,22.88 18.65,19.77 22.57,19 26.48,20.16 30.39,21.17 34.3,19.94 38.22,16.01 42.13,11.05 46.04,7.6 49.96,7.28 53.87,9.57 57.78,12.2 61.7,12.83 65.61,10.76 69.52,7.36 73.43,4.95 77.35,4.96 81.26,6.76 85.17,8.17 89.09,7.05 93,3" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="stroke-up-text">
-</polyline>
+<td data-col="chart" data-cell="chart" data-label="Last 24h" data-align="start">
+<figure class="lt-chart lt-spark" data-size="row" data-tone="up">
+<svg viewBox="0 0 600 200" preserveAspectRatio="none" role="img" aria-label="SOL/USDT Last 24h">
+<path class="lt-chart-line" d="M8.0,186.8 L33.4,192.0 L58.8,176.1 L84.2,148.7 L109.6,126.7 L135.0,121.3 L160.3,129.5 L185.7,136.6 L211.1,127.9 L236.5,100.1 L261.9,64.9 L287.3,40.5 L312.7,38.3 L338.1,54.5 L363.5,73.1 L388.9,77.6 L414.3,62.9 L439.7,38.9 L465.0,21.8 L490.4,21.8 L515.8,34.6 L541.2,44.6 L566.6,36.6 L592.0,8.0" vector-effect="non-scaling-stroke">
+</path>
 </svg>
+</figure>
 </td>
-<td data-align="end" class="px-3 text-base text-right overflow-hidden text-ellipsis whitespace-nowrap text-fg if-num tabular-nums">
-<span class="mkt-stack">
-<span class="mkt-volume" data-slot="volume">—</span>
+<td data-col="volume" data-cell="volume" data-label="24h volume" data-align="end">
+<span class="lt-lines">
+<span class="lt-num" data-slot="volume" dir="ltr">—</span>
 </span>
 </td>
-<td data-align="end" class="px-3 text-base text-right overflow-hidden text-ellipsis whitespace-nowrap text-fg">
-<span class="mkt-actions">
-<a href="/coin/SOL" role="button" tabindex="0" data-slot="button" data-variant="secondary" aria-label="Buy SOL" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-8 px-4 text-sm rounded-pill">Buy</a>
-<button type="button" tabindex="0" data-slot="menu-trigger" data-variant="ghost" aria-label="More actions for SOL/USDT" aria-haspopup="menu" aria-expanded="false" id="base-ui-_r_9_" class="inline-flex select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-transparent text-fg-2 hover:bg-hover hover:text-fg active:bg-field h-8 text-sm rounded-pill w-7 shrink-0 px-0">
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-ellipsis lucide-more-horizontal" aria-hidden="true">
-<circle cx="12" cy="12" r="1">
-</circle>
-<circle cx="19" cy="12" r="1">
-</circle>
-<circle cx="5" cy="12" r="1">
-</circle>
-</svg>
-</button>
+<td data-col="action" data-cell="action" data-label="Action" data-align="end">
+<span class="lt-actions">
+<a class="lt-button lt-button-secondary" role="button" href="/coin/SOL" aria-label="Buy SOL">Buy</a>
+<a class="lt-row-link" href="/trade/convert?from=USDT&amp;to=SOL" aria-label="Convert SOL/USDT">
+<span class="lt-link">Convert</span>
+</a>
 </span>
 </td>
 </tr>
-<tr data-slot="table-row" data-row-index="4" tabindex="-1" class="h-(--if-table-row-h) group/row transition-colors duration-(--if-t-fast) ease-if hover:bg-hover aria-selected:bg-hover cursor-default outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-solid focus-visible:outline-focus">
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg sticky left-0 z-5 bg-bg group-hover/row:bg-hover group-aria-selected/row:bg-hover">
-<span class="mkt-namecell">
-<button type="button" tabindex="0" data-slot="button" data-variant="ghost" aria-pressed="false" aria-label="Add BTC to favorites" class="inline-flex select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-transparent text-fg-2 hover:bg-hover hover:text-fg active:bg-field h-7 text-sm rounded-pill w-7 shrink-0 px-0">
+<tr data-testid="mkt-row" data-symbol="BTC-USDC" data-row="">
+<td data-col="name" data-cell="name" style="position: sticky; inset-inline-start: 0; z-index: 1; background: var(--lit-solid-bg);" data-label="Name" data-align="start">
+<span class="lt-cell-name">
+<button aria-pressed="false" aria-label="Add BTC to favorites" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-star" aria-hidden="true">
 <path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z">
 </path>
 </svg>
 </button>
-<span data-slot="coin-icon" data-asset="BTC" style="width: 32px; height: 32px;" class="inline-block shrink-0 overflow-hidden rounded-pill bg-raised">
-<span aria-hidden="true" class="block size-full [&amp;>svg]:block [&amp;>svg]:size-full">
+<span aria-hidden="true" class="lit-asset" data-slot="asset-icon" data-asset="BTC" data-size="md">
+<span class="lit-asset__art">
 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
 <path d="M24 0H0V24H24V0Z" fill="#F7931A">
 </path>
@@ -629,170 +615,165 @@
 </svg>
 </span>
 </span>
-<span class="mkt-name">
-<span data-testid="mkt-name__ticker" class="mkt-name__ticker">BTC<span data-testid="mkt-name__quote" class="mkt-muted mkt-name__quote">/USDC</span>
+<span class="lt-lines">
+<a class="lt-row-link" data-row-link="" href="/coin/BTC">
+<span class="lt-lines">
+<span data-testid="mkt-name__ticker">BTC<span data-testid="mkt-name__quote" class="lt-muted">/USDC</span>
 </span>
-<span data-testid="mkt-name__full" class="mkt-name__full">Bitcoin</span>
+<span data-testid="mkt-name__full" class="lt-hint">Bitcoin</span>
 </span>
+</a>
 </span>
-</td>
-<td data-align="end" class="px-3 text-base text-right overflow-hidden text-ellipsis whitespace-nowrap text-fg if-num tabular-nums">
-<span data-slot="price" class="if-num whitespace-nowrap tabular-nums mkt-price" dir="ltr" data-ltr="">—</span>
-</td>
-<td data-align="end" class="px-3 text-base text-right overflow-hidden text-ellipsis whitespace-nowrap text-fg if-num tabular-nums">
-<span class="mkt-stack">
-<span data-slot="pct" data-direction="flat" class="if-num inline-flex items-center gap-1 whitespace-nowrap tabular-nums text-fg-2" dir="ltr" data-ltr="">—</span>
 </span>
 </td>
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
-<svg data-slot="sparkline" width="96" height="32" viewBox="0 0 96 32" aria-hidden="true" class="block shrink-0 overflow-visible">
-</svg>
+<td data-col="last" data-cell="last" data-label="Last" data-align="end">
+<span data-slot="price" class="lt-num" dir="ltr">—</span>
 </td>
-<td data-align="end" class="px-3 text-base text-right overflow-hidden text-ellipsis whitespace-nowrap text-fg if-num tabular-nums">
-<span class="mkt-stack">
-<span class="mkt-volume" data-slot="volume">—</span>
+<td data-col="change" data-cell="change" data-label="24h change" data-align="end">
+<span class="lt-lines">
+<span data-slot="pct" data-direction="flat" dir="ltr" data-ltr="" class="lt-num">—</span>
 </span>
 </td>
-<td data-align="end" class="px-3 text-base text-right overflow-hidden text-ellipsis whitespace-nowrap text-fg">
-<span class="mkt-actions">
-<a href="/coin/BTC" role="button" tabindex="0" data-slot="button" data-variant="secondary" aria-label="Buy BTC" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-8 px-4 text-sm rounded-pill">Buy</a>
-<button type="button" tabindex="0" data-slot="menu-trigger" data-variant="ghost" aria-label="More actions for BTC/USDC" aria-haspopup="menu" aria-expanded="false" id="base-ui-_r_10_" class="inline-flex select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-transparent text-fg-2 hover:bg-hover hover:text-fg active:bg-field h-8 text-sm rounded-pill w-7 shrink-0 px-0">
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-ellipsis lucide-more-horizontal" aria-hidden="true">
-<circle cx="12" cy="12" r="1">
-</circle>
-<circle cx="19" cy="12" r="1">
-</circle>
-<circle cx="5" cy="12" r="1">
-</circle>
-</svg>
-</button>
+<td data-col="chart" data-cell="chart" data-label="Last 24h" data-align="start">
+</td>
+<td data-col="volume" data-cell="volume" data-label="24h volume" data-align="end">
+<span class="lt-lines">
+<span class="lt-num" data-slot="volume" dir="ltr">—</span>
+</span>
+</td>
+<td data-col="action" data-cell="action" data-label="Action" data-align="end">
+<span class="lt-actions">
+<a class="lt-button lt-button-secondary" role="button" href="/coin/BTC" aria-label="Buy BTC">Buy</a>
+<a class="lt-row-link" href="/trade/convert?from=USDC&amp;to=BTC" aria-label="Convert BTC/USDC">
+<span class="lt-link">Convert</span>
+</a>
 </span>
 </td>
 </tr>
-<tr data-slot="table-row" data-row-index="5" tabindex="-1" class="h-(--if-table-row-h) group/row transition-colors duration-(--if-t-fast) ease-if hover:bg-hover aria-selected:bg-hover cursor-default outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-solid focus-visible:outline-focus">
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg sticky left-0 z-5 bg-bg group-hover/row:bg-hover group-aria-selected/row:bg-hover">
-<span class="mkt-namecell">
-<button type="button" tabindex="0" data-slot="button" data-variant="ghost" aria-pressed="false" aria-label="Add XRP to favorites" class="inline-flex select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-transparent text-fg-2 hover:bg-hover hover:text-fg active:bg-field h-7 text-sm rounded-pill w-7 shrink-0 px-0">
+<tr data-testid="mkt-row" data-symbol="XRP-USDT" data-row="">
+<td data-col="name" data-cell="name" style="position: sticky; inset-inline-start: 0; z-index: 1; background: var(--lit-solid-bg);" data-label="Name" data-align="start">
+<span class="lt-cell-name">
+<button aria-pressed="false" aria-label="Add XRP to favorites" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-star" aria-hidden="true">
 <path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z">
 </path>
 </svg>
 </button>
-<span data-slot="coin-icon" data-asset="XRP" data-fallback="lettered" aria-hidden="true" style="width: 32px; height: 32px; font-size: 13px;" class="inline-flex shrink-0 select-none items-center justify-center rounded-pill font-semibold leading-none bg-raised text-fg">X</span>
-<span class="mkt-name">
-<span data-testid="mkt-name__ticker" class="mkt-name__ticker">XRP<span data-testid="mkt-name__quote" class="mkt-muted mkt-name__quote">/USDT</span>
+<span aria-hidden="true" class="lit-asset" data-slot="asset-icon" data-asset="XRP" data-size="md" data-fallback="lettered">X</span>
+<span class="lt-lines">
+<a class="lt-row-link" data-row-link="" href="/coin/XRP">
+<span class="lt-lines">
+<span data-testid="mkt-name__ticker">XRP<span data-testid="mkt-name__quote" class="lt-muted">/USDT</span>
 </span>
+</span>
+</a>
 </span>
 </span>
 </td>
-<td data-align="end" class="px-3 text-base text-right overflow-hidden text-ellipsis whitespace-nowrap text-fg if-num tabular-nums">
-<span data-slot="price" class="if-num whitespace-nowrap tabular-nums mkt-price" dir="ltr" data-ltr="">$0.5230</span>
+<td data-col="last" data-cell="last" data-label="Last" data-align="end">
+<span data-slot="price" class="lt-num" dir="ltr">$0.5230</span>
 </td>
-<td data-align="end" class="px-3 text-base text-right overflow-hidden text-ellipsis whitespace-nowrap text-fg if-num tabular-nums">
-<span class="mkt-stack">
-<span data-slot="pct" data-direction="up" class="if-num inline-flex items-center gap-1 whitespace-nowrap tabular-nums text-up-text" dir="ltr" data-ltr="">
-<span aria-hidden="true" class="text-[0.7em] leading-none">▲</span>+2.15%</span>
+<td data-col="change" data-cell="change" data-label="24h change" data-align="end">
+<span class="lt-lines">
+<span data-slot="pct" data-direction="up" data-dir="up" dir="ltr" data-ltr="" class="lt-num">
+<span class="lt-arrow lt-arrow-up" aria-hidden="true" data-arrow="up">
+</span> +2.15%</span>
 </span>
 </td>
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
-<svg data-slot="sparkline" width="96" height="32" viewBox="0 0 96 32" aria-hidden="true" class="block shrink-0 overflow-visible">
-<line x1="0" x2="96" y1="29" y2="29" stroke-width="1" stroke-dasharray="1 3" class="stroke-fg-3">
-</line>
-<polyline points="3,29 6.91,26 10.83,22.01 14.74,19.04 18.65,18.27 22.57,19.27 26.48,20.36 30.39,19.95 34.3,17.77 38.22,15.05 42.13,13.59 46.04,14.31 49.96,16.53 53.87,18.37 57.78,18.12 61.7,15.52 65.61,11.88 69.52,9.15 73.43,8.43 77.35,9.23 81.26,9.89 85.17,8.91 89.09,6.16 93,3" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="stroke-up-text">
-</polyline>
+<td data-col="chart" data-cell="chart" data-label="Last 24h" data-align="start">
+<figure class="lt-chart lt-spark" data-size="row" data-tone="up">
+<svg viewBox="0 0 600 200" preserveAspectRatio="none" role="img" aria-label="XRP/USDT Last 24h">
+<path class="lt-chart-line" d="M8.0,192.0 L33.4,170.7 L58.8,142.5 L84.2,121.5 L109.6,116.1 L135.0,123.1 L160.3,130.8 L185.7,128.0 L211.1,112.5 L236.5,93.2 L261.9,82.9 L287.3,88.1 L312.7,103.8 L338.1,116.7 L363.5,115.0 L388.9,96.6 L414.3,70.8 L439.7,51.5 L465.0,46.4 L490.4,52.1 L515.8,56.7 L541.2,49.8 L566.6,30.4 L592.0,8.0" vector-effect="non-scaling-stroke">
+</path>
 </svg>
+</figure>
 </td>
-<td data-align="end" class="px-3 text-base text-right overflow-hidden text-ellipsis whitespace-nowrap text-fg if-num tabular-nums">
-<span class="mkt-stack">
-<span class="mkt-volume" data-slot="volume">—</span>
+<td data-col="volume" data-cell="volume" data-label="24h volume" data-align="end">
+<span class="lt-lines">
+<span class="lt-num" data-slot="volume" dir="ltr">—</span>
 </span>
 </td>
-<td data-align="end" class="px-3 text-base text-right overflow-hidden text-ellipsis whitespace-nowrap text-fg">
-<span class="mkt-actions">
-<a href="/coin/XRP" role="button" tabindex="0" data-slot="button" data-variant="secondary" aria-label="Buy XRP" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-8 px-4 text-sm rounded-pill">Buy</a>
-<button type="button" tabindex="0" data-slot="menu-trigger" data-variant="ghost" aria-label="More actions for XRP/USDT" aria-haspopup="menu" aria-expanded="false" id="base-ui-_r_11_" class="inline-flex select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-transparent text-fg-2 hover:bg-hover hover:text-fg active:bg-field h-8 text-sm rounded-pill w-7 shrink-0 px-0">
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-ellipsis lucide-more-horizontal" aria-hidden="true">
-<circle cx="12" cy="12" r="1">
-</circle>
-<circle cx="19" cy="12" r="1">
-</circle>
-<circle cx="5" cy="12" r="1">
-</circle>
-</svg>
-</button>
+<td data-col="action" data-cell="action" data-label="Action" data-align="end">
+<span class="lt-actions">
+<a class="lt-button lt-button-secondary" role="button" href="/coin/XRP" aria-label="Buy XRP">Buy</a>
+<a class="lt-row-link" href="/trade/convert?from=USDT&amp;to=XRP" aria-label="Convert XRP/USDT">
+<span class="lt-link">Convert</span>
+</a>
 </span>
 </td>
 </tr>
-<tr data-slot="table-row" data-row-index="6" tabindex="-1" class="h-(--if-table-row-h) group/row transition-colors duration-(--if-t-fast) ease-if hover:bg-hover aria-selected:bg-hover cursor-default outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-solid focus-visible:outline-focus">
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg sticky left-0 z-5 bg-bg group-hover/row:bg-hover group-aria-selected/row:bg-hover">
-<span class="mkt-namecell">
-<button type="button" tabindex="0" data-slot="button" data-variant="ghost" aria-pressed="false" aria-label="Add DOGE to favorites" class="inline-flex select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-transparent text-fg-2 hover:bg-hover hover:text-fg active:bg-field h-7 text-sm rounded-pill w-7 shrink-0 px-0">
+<tr data-testid="mkt-row" data-symbol="DOGE-USDT" data-row="">
+<td data-col="name" data-cell="name" style="position: sticky; inset-inline-start: 0; z-index: 1; background: var(--lit-solid-bg);" data-label="Name" data-align="start">
+<span class="lt-cell-name">
+<button aria-pressed="false" aria-label="Add DOGE to favorites" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-star" aria-hidden="true">
 <path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z">
 </path>
 </svg>
 </button>
-<span data-slot="coin-icon" data-asset="DOGE" data-fallback="lettered" aria-hidden="true" style="width: 32px; height: 32px; font-size: 13px;" class="inline-flex shrink-0 select-none items-center justify-center rounded-pill font-semibold leading-none bg-raised text-fg">D</span>
-<span class="mkt-name">
-<span data-testid="mkt-name__ticker" class="mkt-name__ticker">DOGE<span data-testid="mkt-name__quote" class="mkt-muted mkt-name__quote">/USDT</span>
+<span aria-hidden="true" class="lit-asset" data-slot="asset-icon" data-asset="DOGE" data-size="md" data-fallback="lettered">D</span>
+<span class="lt-lines">
+<a class="lt-row-link" data-row-link="" href="/coin/DOGE">
+<span class="lt-lines">
+<span data-testid="mkt-name__ticker">DOGE<span data-testid="mkt-name__quote" class="lt-muted">/USDT</span>
 </span>
+</span>
+</a>
 </span>
 </span>
 </td>
-<td data-align="end" class="px-3 text-base text-right overflow-hidden text-ellipsis whitespace-nowrap text-fg if-num tabular-nums">
-<span data-slot="price" class="if-num whitespace-nowrap tabular-nums mkt-price" dir="ltr" data-ltr="">$0.12345</span>
+<td data-col="last" data-cell="last" data-label="Last" data-align="end">
+<span data-slot="price" class="lt-num" dir="ltr">$0.12345</span>
 </td>
-<td data-align="end" class="px-3 text-base text-right overflow-hidden text-ellipsis whitespace-nowrap text-fg if-num tabular-nums">
-<span class="mkt-stack">
-<span data-slot="pct" data-direction="down" class="if-num inline-flex items-center gap-1 whitespace-nowrap tabular-nums text-down-text" dir="ltr" data-ltr="">
-<span aria-hidden="true" class="text-[0.7em] leading-none">▼</span>−4.94%</span>
+<td data-col="change" data-cell="change" data-label="24h change" data-align="end">
+<span class="lt-lines">
+<span data-slot="pct" data-direction="down" data-dir="down" dir="ltr" data-ltr="" class="lt-num">
+<span class="lt-arrow lt-arrow-down" aria-hidden="true" data-arrow="down">
+</span> −4.94%</span>
 </span>
 </td>
-<td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
-<svg data-slot="sparkline" width="96" height="32" viewBox="0 0 96 32" aria-hidden="true" class="block shrink-0 overflow-visible">
-<line x1="0" x2="96" y1="5.89" y2="5.89" stroke-width="1" stroke-dasharray="1 3" class="stroke-fg-3">
-</line>
-<polyline points="3,5.89 6.91,3.48 10.83,3 14.74,5.59 18.65,10.27 22.57,14.67 26.48,16.75 30.39,16.25 34.3,14.8 38.22,14.62 42.13,16.78 46.04,20.32 49.96,23.07 53.87,23.24 57.78,20.92 61.7,18.04 65.61,17.06 69.52,19.11 73.43,23.26 77.35,27.2 81.26,29 85.17,28.5 89.09,27.39 93,27.82" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="stroke-down-text">
-</polyline>
+<td data-col="chart" data-cell="chart" data-label="Last 24h" data-align="start">
+<figure class="lt-chart lt-spark" data-size="row" data-tone="down">
+<svg viewBox="0 0 600 200" preserveAspectRatio="none" role="img" aria-label="DOGE/USDT Last 24h">
+<path class="lt-chart-line" d="M8.0,28.4 L33.4,11.4 L58.8,8.0 L84.2,26.3 L109.6,59.5 L135.0,90.6 L160.3,105.3 L185.7,101.7 L211.1,91.5 L236.5,90.3 L261.9,105.5 L287.3,130.6 L312.7,150.0 L338.1,151.2 L363.5,134.8 L388.9,114.5 L414.3,107.5 L439.7,122.0 L465.0,151.4 L490.4,179.3 L515.8,192.0 L541.2,188.5 L566.6,180.6 L592.0,183.6" vector-effect="non-scaling-stroke">
+</path>
 </svg>
+</figure>
 </td>
-<td data-align="end" class="px-3 text-base text-right overflow-hidden text-ellipsis whitespace-nowrap text-fg if-num tabular-nums">
-<span class="mkt-stack">
-<span class="mkt-volume" data-slot="volume">—</span>
+<td data-col="volume" data-cell="volume" data-label="24h volume" data-align="end">
+<span class="lt-lines">
+<span class="lt-num" data-slot="volume" dir="ltr">—</span>
 </span>
 </td>
-<td data-align="end" class="px-3 text-base text-right overflow-hidden text-ellipsis whitespace-nowrap text-fg">
-<span class="mkt-actions">
-<a href="/coin/DOGE" role="button" tabindex="0" data-slot="button" data-variant="secondary" aria-label="Buy DOGE" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-8 px-4 text-sm rounded-pill">Buy</a>
-<button type="button" tabindex="0" data-slot="menu-trigger" data-variant="ghost" aria-label="More actions for DOGE/USDT" aria-haspopup="menu" aria-expanded="false" id="base-ui-_r_12_" class="inline-flex select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-transparent text-fg-2 hover:bg-hover hover:text-fg active:bg-field h-8 text-sm rounded-pill w-7 shrink-0 px-0">
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-ellipsis lucide-more-horizontal" aria-hidden="true">
-<circle cx="12" cy="12" r="1">
-</circle>
-<circle cx="19" cy="12" r="1">
-</circle>
-<circle cx="5" cy="12" r="1">
-</circle>
-</svg>
-</button>
+<td data-col="action" data-cell="action" data-label="Action" data-align="end">
+<span class="lt-actions">
+<a class="lt-button lt-button-secondary" role="button" href="/coin/DOGE" aria-label="Buy DOGE">Buy</a>
+<a class="lt-row-link" href="/trade/convert?from=USDT&amp;to=DOGE" aria-label="Convert DOGE/USDT">
+<span class="lt-link">Convert</span>
+</a>
 </span>
 </td>
 </tr>
 </tbody>
 </table>
 </div>
+<span id="_r_4_" class="lt-sr">Orders are paused on this market</span>
 </div>
-<span id="_r_13_" class="lt-sr">Orders are paused on this market</span>
-<section data-testid="mkt-not-offered" aria-labelledby="mkt-not-offered" class="mkt-not-offered">
-<h2 id="mkt-not-offered">Not offered here</h2>
-<ul>
+<section data-testid="mkt-not-offered" aria-labelledby="mkt-not-offered" class="lt-stack">
+<h2 id="mkt-not-offered" class="lt-empty-title">Not offered here</h2>
+<ul class="lt-rows">
 <li data-testid="mkt-not-offered-equity">
-<strong>Tokenized equities</strong> <span class="mkt-muted">Not available: licence not named</span>
+<strong>Tokenized equities</strong> <span class="lt-hint">Not available: licence not named</span>
 </li>
 <li data-testid="mkt-not-offered-rpi">
-<strong>Retail price improvement</strong> <span class="mkt-muted">Not available: priority class not specified</span>
+<strong>Retail price improvement</strong> <span class="lt-hint">Not available: priority class not specified</span>
 </li>
 </ul>
 </section>
+</div>
+</section>
+</div>
+</div>
 </div>
 </main>
 <nav class="mobile-doors" data-obscures="bottom" aria-label="Customer doors on phone">

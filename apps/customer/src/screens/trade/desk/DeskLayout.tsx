@@ -342,7 +342,7 @@ export function DeskLayoutMenu({
                     <li key={layout.id} className="dk-saved-row" data-layout-id={layout.id}>
                       <span className="dk-saved-name">{layout.name}</span>{' '}
                       {layout.id === saved.value.active ? <span className="dk-saved-tag">{l('In use')}</span> : null}{' '}
-                      <span className="dk-saved-facts">{l('Layout facts', { symbol: layout.symbol, interval: layout.interval })}</span>{' '}
+                      <span className="lt-muted">{l('Layout facts', { symbol: layout.symbol, interval: layout.interval })}</span>{' '}
                       <span className="dk-saved-actions">
                         <button
                           type="button"
@@ -446,7 +446,7 @@ export function DeskLayoutMenu({
                     {saved.value.deleted.map((layout) => (
                       <li key={layout.id} className="dk-saved-row" data-deleted-id={layout.id}>
                         <span className="dk-saved-name">{layout.name}</span>{' '}
-                        <span className="dk-saved-facts">{l('Layout facts', { symbol: layout.symbol, interval: layout.interval })}</span>{' '}
+                        <span className="lt-muted">{l('Layout facts', { symbol: layout.symbol, interval: layout.interval })}</span>{' '}
                         <span className="dk-saved-actions">
                           <button
                             type="button"

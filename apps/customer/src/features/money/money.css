@@ -1124,24 +1124,6 @@
   font-size: var(--if-text-base);
   line-height: 22px;
 }
-.money-bank-nav {
-  display: flex;
-  gap: var(--if-space-6);
-  overflow-x: auto;
-  padding-bottom: var(--if-space-3);
-  margin: -8px 0 var(--if-space-8);
-  border-bottom: 1px solid var(--color-divider);
-}
-.money-bank-nav a {
-  flex: 0 0 auto;
-  min-height: 44px;
-  padding-block: var(--if-space-3);
-  color: var(--color-muted);
-}
-.money-bank-nav a[aria-current='page'] {
-  color: var(--if-accent-text);
-  box-shadow: 0 2px 0 var(--if-lime);
-}
 .money-record {
   padding: var(--if-space-6) 0;
   border-top: 1px solid var(--color-divider);
@@ -1641,9 +1623,6 @@
   }
 }
 @media (max-width: 767px) {
-  .money-bank-nav:has(+ .money-selected-space) {
-    margin-bottom: var(--if-space-4);
-  }
   .money-selected-space {
     display: flex;
     flex-direction: column;

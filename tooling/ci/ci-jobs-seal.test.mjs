@@ -38,7 +38,6 @@ const job = (id, name, conclusion = 'success', status = 'completed') => ({ id, n
 const green = (tests = ['Tests (changed)']) => [
   job(1, 'Affected tests'),
   job(2, 'Doctrine gates'),
-  job(3, 'Format'),
   job(4, 'Typecheck & build'),
   ...tests.map((t, i) => job(10 + i, t)),
 ];
@@ -75,10 +74,21 @@ test('a run still going waits (red) and says the seal re-runs; none says to merg
 
 test('planted: a red or missing required job fails', () => {
   assert.equal(
-    judgeCiJobs({ run: run(1), jobs: green().map((j) => (j.name === 'Format' ? { ...j, conclusion: 'failure' } : j)), files: product }).ok,
+    judgeCiJobs({
+      run: run(1),
+      jobs: green().map((j) => (j.name === 'Typecheck & build' ? { ...j, conclusion: 'failure' } : j)),
+      files: product,
+    }).ok,
     false,
   );
   assert.equal(judgeCiJobs({ run: run(1), jobs: green().filter((j) => j.name !== 'Doctrine gates'), files: product }).ok, false);
+});
+
+test('the Format job is no longer required: a run without it passes, and a red one, like any job that ran red, still fails', () => {
+  assert.equal(judgeCiJobs({ run: run(1), jobs: green(), files: product }).ok, true);
+  const red = judgeCiJobs({ run: run(1), jobs: [...green(), job(3, 'Format', 'failure')], files: product });
+  assert.equal(red.ok, false);
+  assert.match(red.lines.join('\n'), /Format was failure/);
 });
 
 test('planted: a pull request whose own ci.yml skips the tests its change needs fails (the base classifies)', () => {
@@ -106,8 +116,8 @@ test('files unreadable whole (null) or a merge queue commit need the full suite'
 });
 
 test('jobResults counts a repeated name by its newest job', () => {
-  const r = jobResults([job(1, 'Format', 'failure'), job(2, 'Format', 'success')]);
-  assert.equal(r.format, 'success');
+  const r = jobResults([job(1, 'Doctrine gates', 'failure'), job(2, 'Doctrine gates', 'success')]);
+  assert.equal(r.gates, 'success');
 });
 
 test('planted: a full-suite change whose own ci.yml ran one shard fails; the whole matrix passes', () => {
@@ -144,7 +154,7 @@ test('a CI run back in progress only because its own seal job is being re-run is
   const jobs = [...green(), { id: 99, name: 'CI merge seal', status: 'in_progress', conclusion: null }];
   assert.equal(judgeCiJobs({ run: run(1, { status: 'in_progress', run_attempt: 2 }), jobs, files: product }).ok, true);
   // Planted: a required job still running keeps it waiting.
-  const running = jobs.map((j) => (j.name === 'Format' ? { ...j, status: 'in_progress', conclusion: null } : j));
+  const running = jobs.map((j) => (j.name === 'Typecheck & build' ? { ...j, status: 'in_progress', conclusion: null } : j));
   assert.equal(judgeCiJobs({ run: run(1, { status: 'in_progress' }), jobs: running, files: product }).wait, true);
   assert.equal(judgeCiJobs({ run: run(1, { status: 'in_progress' }), jobs: [], files: product }).wait, true, 'no jobs read yet');
 });

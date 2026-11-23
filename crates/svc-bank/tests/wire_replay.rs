@@ -179,6 +179,11 @@ fn serve() -> BankDoor {
         cursor_secret: Some(INTERNAL.to_owned()),
         ..svc_bank::activity::Wiring::none()
     })
+    // The TypeScript replay's `receiptSecret`: the card programme's exports are signed under it.
+    .with_card_programme(svc_bank::card_programme::Wiring {
+        export_secret: Some(INTERNAL.to_owned()),
+        ..svc_bank::card_programme::Wiring::none()
+    })
 }
 
 /// `encodePrincipal` of the replay's principal, signed for the caller's region.

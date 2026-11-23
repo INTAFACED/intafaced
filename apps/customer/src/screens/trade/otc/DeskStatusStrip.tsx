@@ -39,7 +39,7 @@ export function DeskStatusStrip({ desk }: { desk: Loadable<DeskStatus> }) {
         </Button>
       </div>
     );
-  if (desk.status === 'empty') return <p className="m-0 text-sm text-fg-2">{t('Desk status empty')}</p>;
+  if (desk.status === 'empty') return <p className="lt-hint">{t('Desk status empty')}</p>;
   const { published, makerRouting, midFeed, assets, minTier } = desk.data;
   const level = minTier === 'basic' || minTier === 'full' || minTier === 'institutional' ? minTier : null;
   return (

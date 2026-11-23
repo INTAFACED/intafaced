@@ -103,7 +103,7 @@ impl Book {
                 .balances
                 .get(&(owner.to_owned(), "USDT".to_owned(), place.to_owned()))
                 .copied()
-                .unwrap_or(0),
+                .unwrap_or(Amount::ZERO),
         )
     }
     fn available(&self, user: &str) -> String {
@@ -135,7 +135,7 @@ impl Ledger for Book {
                 "available".to_owned(),
             ))
             .copied()
-            .unwrap_or(0))
+            .unwrap_or(Amount::ZERO))
     }
     fn balances(&self, _owner_type: &str, _owner_id: &str) -> Result<Vec<LedgerBalance>, String> {
         Ok(Vec::new())
@@ -180,7 +180,7 @@ impl Ledger for Book {
         if st.journal.iter().any(|(_, k)| k == key) {
             return Ok(tx);
         }
-        let have = st.balances.get(&from).copied().unwrap_or(0);
+        let have = st.balances.get(&from).copied().unwrap_or(Amount::ZERO);
         if have < amount {
             return Err(PostFailure::Coded {
                 code: "ledger.insufficient_funds".to_owned(),

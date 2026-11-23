@@ -7,6 +7,7 @@
 )]
 
 use crate::common;
+use service_kit::money::Amount;
 
 use std::sync::Arc;
 
@@ -48,7 +49,7 @@ fn buy() -> Fill {
         posted_at: at(1),
         received: leg("BTC", "1"),
         paid: Some(leg("USDT", "100")),
-        fee: Some(0),
+        fee: Some(Amount::ZERO),
         fee_asset_id: None,
     }
 }
@@ -492,7 +493,7 @@ fn a_fee_in_the_coin_bought_is_worth_what_the_fill_paid_for_it() {
 
 // outsideWithdrawals
 
-fn kept(holds: &[WithdrawalHold]) -> Vec<(String, i128)> {
+fn kept(holds: &[WithdrawalHold]) -> Vec<(String, Amount)> {
     outside_withdrawals(holds)
         .into_iter()
         .map(|l| (l.tx_id, l.amount))
