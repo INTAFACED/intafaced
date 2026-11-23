@@ -54,6 +54,11 @@ interface Colors {
   accent: string;
   ma: [string, string, string];
 }
+const hasEmptyColour = (c: Colors) =>
+  Object.values(c)
+    .flat()
+    .some((value) => value === '');
+
 function readColors(): Colors {
   const css = getComputedStyle(document.documentElement);
   const v = (name: string) => css.getPropertyValue(name).trim();
@@ -164,8 +169,9 @@ export function PriceChart({ candles, mode, interval, resetKey, tickSize, orderL
       const lib = engineOf();
       if (closed || !host.current || !lib) return;
       const c = readColors();
-      // Without the kit's stylesheet the colour tokens are empty and the engine refuses an empty colour: draw nothing.
-      if (!c.bg) return;
+      // A colour token that reads empty (the page's styles not applied, as under a test DOM) would make the library throw
+      // "Failed to parse color" outside any caller; with no colours there is nothing honest to draw, so the frame stays empty.
+      if (hasEmptyColour(c)) return;
       api = lib.createChart(host.current, {
         autoSize: true,
         layout: {

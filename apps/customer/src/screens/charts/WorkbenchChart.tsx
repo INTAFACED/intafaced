@@ -37,6 +37,9 @@ import {
 type Engine = ChartLib & { createChart(host: HTMLElement, options: Record<string, unknown>): ChartApi } & Record<string, unknown>;
 const engineOf = (): Engine | undefined => (window as unknown as { LightweightCharts?: Engine }).LightweightCharts;
 
+const hasEmptyColour = (c: ReturnType<typeof readColors>) =>
+  [c.bg, c.text, c.grid, c.border, ...Object.values(c.series)].some((value) => value === '');
+
 function readColors(scheme: ColourScheme) {
   const css = getComputedStyle(document.documentElement);
   const v = (name: string) => css.getPropertyValue(name).trim();
@@ -168,10 +171,11 @@ export function WorkbenchChart({
   // One chart per mount; the main series follows the style, scheme and percent mode, made again only when one of them
   // changes, and the host handed out with it is told to `onHost` (null when the chart goes).
   const stage = useChartStage<Engine, ChartApi, ChartSeries, ChartHost>(element, {
-    // Without the kit's stylesheet the colour tokens are empty and the engine refuses an empty colour: draw nothing.
+    // A colour token that reads empty (the page's styles not applied, as under a test DOM) would make the library throw
+    // "Failed to parse color" outside any caller; with no colours there is nothing honest to draw, so no engine is handed over.
     load: () =>
       import('../../features/trade/vendor/lightweight-charts.standalone.production.js').then(() =>
-        readColors('standard').bg ? engineOf() : undefined,
+        hasEmptyColour(readColors('standard')) ? undefined : engineOf(),
       ),
     create: (lib, el) => {
       const c = readColors('standard');

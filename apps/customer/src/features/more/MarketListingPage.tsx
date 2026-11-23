@@ -123,7 +123,9 @@ function ListingBody({ detail }: { detail: MarketListingDetail }) {
         <section aria-labelledby="market-listing-reviews">
           <h3 id="market-listing-reviews">{t('reviews')}</h3>
           {reviews.count === '0' || reviews.mean === null ? (
-            <p role="status">{t('reviewsNone')}</p>
+            <p role="status" data-testid="market-review-summary">
+              {t('reviewsNone')}
+            </p>
           ) : (
             <>
               <p role="status" data-testid="market-review-summary">
