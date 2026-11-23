@@ -556,22 +556,32 @@ function build(opts, planned) {
           }),
       });
     }
-    const target = sharedTaken ? file : shared;
     // Each import the group adds between two contracts files. One back to a file that already reaches the importer is a
     // cycle, and a schema read at the top of either file is then read before it is declared (svc-bank's shared file
-    // importing `signed` from bank-ops-procedures, which imports `figures` from it): the group stays by name, named.
-    const homeOf = (m) => (fresh.includes(m) ? target : (movedTo.get(keyOf(m)) ?? target));
-    const edges = [
-      ...[...closure.fromContracts.values()].map((c) => [file, c.file]),
-      ...closure.moved.map((m) => [file, homeOf(m)]),
-      ...(target === shared && fresh.length
-        ? [
-            ...[...closure.fromContracts.values()].map((c) => [shared, c.file]),
-            ...closure.moved.filter((m) => !fresh.includes(m)).map((m) => [shared, homeOf(m)]),
-          ]
-        : []),
-    ].filter(([a, b]) => a !== b && !importsOf(textOf(a)).has(b));
-    const cycle = edges.find(([a, b]) => reaches(b, a, textOf, edges));
+    // importing `signed` from bank-ops-procedures, which imports `figures` from it).
+    const edgesFor = (target) => {
+      const homeOf = (m) => (fresh.includes(m) ? target : (movedTo.get(keyOf(m)) ?? target));
+      return [
+        ...[...closure.fromContracts.values()].map((c) => [file, c.file]),
+        ...closure.moved.map((m) => [file, homeOf(m)]),
+        ...(target === shared && fresh.length
+          ? [
+              ...[...closure.fromContracts.values()].map((c) => [shared, c.file]),
+              ...closure.moved.filter((m) => !fresh.includes(m)).map((m) => [shared, homeOf(m)]),
+            ]
+          : []),
+      ].filter(([a, b]) => a !== b && !importsOf(textOf(a)).has(b));
+    };
+    const cycleIn = (edges) => edges.find(([a, b]) => reaches(b, a, textOf, edges));
+    // A group whose new helpers would close a cycle through the shared file (svc-pay's deposit-freeze inputs read the
+    // `userIdSchema` an earlier run left in pay-founder-admin-procedures) keeps them beside its records instead, when
+    // their names are free there; only a cycle that way too leaves the group by name, named.
+    let target = sharedTaken ? file : shared;
+    let cycle = cycleIn(edgesFor(target));
+    if (cycle && target === shared && !takenIn(file, textOf(file), names, [...fromContracts, ...fromHomes(file)])) {
+      const beside = cycleIn(edgesFor(file));
+      if (!beside) [target, cycle] = [file, undefined];
+    }
     if (cycle) {
       const [a, b] = cycle.map((f) => basename(f));
       for (const r of recs)
@@ -583,7 +593,11 @@ function build(opts, planned) {
       movedTo.set(keyOf(m), target);
       if (target === shared) taken.set(m.name, keyOf(m));
     }
-    const placed = closure.moved.map((m) => ({ name: m.name, file: movedTo.get(keyOf(m)) }));
+    // A type is imported as one (`import { type X }`): contracts builds with verbatimModuleSyntax, which refuses a bare one.
+    const placed = closure.moved.map((m) => ({
+      name: m.binding?.kind === 'type' ? `type ${m.name}` : m.name,
+      file: movedTo.get(keyOf(m)),
+    }));
     created.set(file, writeRecords(opts, file, recs, { ...closure, moved: target === file ? fresh : [] }, placed, created.get(file)));
     if (target === shared && fresh.length) {
       // A helper this group sends to the shared file may read one an earlier group kept beside its own record (a name
@@ -591,7 +605,7 @@ function build(opts, planned) {
       const fromRecords = new Map();
       for (const m of closure.moved) {
         const home = movedTo.get(keyOf(m));
-        if (home && home !== shared && !fresh.includes(m)) fromRecords.set(m.name, home);
+        if (home && home !== shared && !fresh.includes(m)) fromRecords.set(m.binding?.kind === 'type' ? `type ${m.name}` : m.name, home);
       }
       created.set(shared, writeSchemas(opts, shared, { ...closure, moved: fresh, fromRecords }, created.get(shared)));
     }

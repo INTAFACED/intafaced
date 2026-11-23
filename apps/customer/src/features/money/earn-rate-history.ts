@@ -14,7 +14,7 @@ export interface StepChart {
   points: string;
   /** One mark per record, where its step starts. */
   marks: Array<{ x: number; y: number; rateBps: number; effectiveAt: string }>;
-  /** The highest rate drawn, which the top of the chart stands for. */
+  /** The highest rate drawn; the top of the chart stands for a quarter above it. */
   topBps: number;
 }
 
@@ -32,7 +32,9 @@ export function stepChart(changes: readonly RecordedRate[], now: number, width: 
   const end = Math.max(now, dated[dated.length - 1]!.at + 1);
   const topBps = Math.max(...dated.map((change) => change.rateBps), 1);
   const x = (at: number) => Math.round(((at - start) / (end - start)) * width * 100) / 100;
-  const y = (bps: number) => Math.round((height - (bps / topBps) * height) * 100) / 100;
+  // The top of the scale sits a quarter above the highest rate, so the highest step is drawn inside the box, never on its edge.
+  const scaleBps = topBps * 1.25;
+  const y = (bps: number) => Math.round((height - (bps / scaleBps) * height) * 100) / 100;
   const points: string[] = [];
   dated.forEach((change, index) => {
     if (index > 0) points.push(`${x(change.at)},${y(dated[index - 1]!.rateBps)}`);

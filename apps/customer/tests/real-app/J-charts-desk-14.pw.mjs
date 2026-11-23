@@ -3,7 +3,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { api, fromUnits, journeyState, otherTrader, toUnits } from './stack.mjs';
-import { awayBid as engineAwayBid, pictureFromTop, reviewSheet, signUp, verify } from './desk.mjs';
+import { awayBid as engineAwayBid, reviewSheet, signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import { approverSessions, makeContext, twoPerson } from '../../../../tooling/scripts/local-test-gates.mjs';
 import {
@@ -880,7 +880,7 @@ test(`${J} #5 uses Buy and Sell buttons on the chart; each shows the live spread
   // The step's picture: the chart's Buy and Sell with the spread and the Stop refusal, from the top, so the bar that stays
   // at the top of a scrolled page is not drawn over the chart's trade row.
   await expect(note).toHaveText('Stop: not offered by this venue');
-  await pictureFromTop(page, stepPicture);
+  await stepPicture(page);
 });
 
 test(`${J} #6 turns instant placement on: a click sends after the settings summary; off, it always reviews`, async ({ page }) => {
