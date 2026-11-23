@@ -291,6 +291,11 @@ export type DeskRequest =
    */
   | { readonly kind: 'identity.kyc_selfie.decide'; readonly selfieId: string; readonly decision: SelfieDecision }
   /**
+   * Approve one pending verification at the level it asks for (svc-identity `kyc.approve`, I-kyc-compliance-07). Identity binds the
+   * record to the approval; neither founder may be the person.
+   */
+  | { readonly kind: 'identity.kyc.approve'; readonly recordId: string }
+  /**
    * The joint restore desk (svc-ops `restore.record` and `restore.finalize`, OPS-ledger-desk-05). A stamp binds the service, what
    * its position counts and the watermark the operator read; finalize binds the run and its cut-off. svc-ops spends each once.
    */
@@ -532,6 +537,11 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
     if (keys !== 'documentId,kind') return null;
     if (typeof raw.documentId !== 'string' || !UUID.test(raw.documentId)) return null;
     return { kind: 'identity.kyc_document.open', documentId: raw.documentId };
+  }
+  if (raw.kind === 'identity.kyc.approve') {
+    if (keys !== 'kind,recordId') return null;
+    if (typeof raw.recordId !== 'string' || !UUID.test(raw.recordId)) return null;
+    return { kind: 'identity.kyc.approve', recordId: raw.recordId };
   }
   if (raw.kind === 'identity.kyc_selfie.decide') {
     if (keys !== 'decision,kind,selfieId') return null;
@@ -954,6 +964,8 @@ export function confirmPhrase(request: DeskRequest): string {
       return `OPEN DOCUMENT ${request.documentId.slice(0, 8)}`;
     case 'identity.kyc_selfie.decide':
       return `${request.decision === 'accepted' ? 'ACCEPT' : 'REJECT'} SELFIE ${request.selfieId.slice(0, 8)}`;
+    case 'identity.kyc.approve':
+      return `APPROVE VERIFICATION ${request.recordId.slice(0, 8)}`;
     case 'ops.restore.record':
       return `STAMP ${request.service.toUpperCase()} ${request.watermark.slice(0, 16)}`;
     case 'ops.restore.finalize':
@@ -1091,6 +1103,8 @@ export function describeRequest(request: DeskRequest): string {
       return request.decision === 'accepted'
         ? `Accept selfie ${request.selfieId}: the operator compared it with the account's ID photo and they match. Identity marks the selfie accepted and records when.`
         : `Reject selfie ${request.selfieId}: it does not match the account's ID photo or cannot be compared. Identity marks the selfie rejected and records when; the person can take a new one.`;
+    case 'identity.kyc.approve':
+      return `Approve verification ${request.recordId} at the level it asks for. Identity marks it approved, and the capabilities the owner maps to that level go active at once; with no mapping set it grants none. No money moves.`;
     case 'ops.restore.record':
       return `Record a joint-restore stamp for svc-${request.service}: its ${request.stampKind} position is ${request.watermark}. The stamp is what the restore compares that service's live position with; a later stamp for the same service takes its place, and the earlier one stays listed. Nothing is restored and no money moves.`;
     case 'ops.restore.finalize':
@@ -1114,6 +1128,7 @@ export function requestReason(request: DeskRequest): string | null {
     case 'ops.console_mode.off':
     case 'identity.kyc_document.open':
     case 'identity.kyc_selfie.decide':
+    case 'identity.kyc.approve':
     case 'token.launch.issuer.set':
     case 'token.launch.event.create':
     case 'token.launch.event.move':

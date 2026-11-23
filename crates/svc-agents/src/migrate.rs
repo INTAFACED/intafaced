@@ -9,7 +9,7 @@ use std::io::Write;
 use service_kit::migrate::Migrations;
 
 /// Every migration file, by name, as built into the binary.
-pub const FILES: [(&str, &str); 88] = [
+pub const FILES: [(&str, &str); 90] = [
     (
         "0000_agents_init.down.sql",
         include_str!("../migrations/0000_agents_init.down.sql"),
@@ -362,6 +362,14 @@ pub const FILES: [(&str, &str); 88] = [
         "20261121224407_run_webhooks.sql",
         include_str!("../migrations/20261121224407_run_webhooks.sql"),
     ),
+    (
+        "20261123053307_event_outbox.down.sql",
+        include_str!("../migrations/20261123053307_event_outbox.down.sql"),
+    ),
+    (
+        "20261123053307_event_outbox.sql",
+        include_str!("../migrations/20261123053307_event_outbox.sql"),
+    ),
 ];
 
 /// The runner's default target when `DATABASE_URL` is unset, as the TypeScript runner's.
@@ -390,7 +398,7 @@ mod tests {
             let down = format!("{}.down.sql", up.strip_suffix(".sql").unwrap_or(up));
             assert!(MIGRATIONS.file(&down).is_ok(), "{up} has no {down}");
         }
-        assert_eq!(MIGRATIONS.ups().len(), 44);
+        assert_eq!(MIGRATIONS.ups().len(), 45);
         assert_eq!(MIGRATIONS.ups().len() * 2, FILES.len());
     }
 

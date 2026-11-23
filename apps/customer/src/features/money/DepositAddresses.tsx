@@ -68,7 +68,7 @@ export function DepositAddressesView({
 
   if (list.status !== 'ready') {
     return (
-      <section className="bd-addresses" aria-label={t('title', { network: network.label })} data-testid="deposit-addresses">
+      <section aria-label={t('title', { network: network.label })} data-testid="deposit-addresses">
         <h4>{t('title', { network: network.label })}</h4>
         {list.status === 'loading' ? (
           <p role="status">{t('loading')}</p>
@@ -112,7 +112,7 @@ export function DepositAddressesView({
   }
 
   return (
-    <section className="bd-addresses" aria-label={t('title', { network: network.label })} data-testid="deposit-addresses">
+    <section aria-label={t('title', { network: network.label })} data-testid="deposit-addresses">
       <h4>{t('title', { network: network.label })}</h4>
       <p>{t('lead')}</p>
       <ul className="bd-address-list">

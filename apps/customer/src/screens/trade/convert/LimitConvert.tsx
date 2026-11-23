@@ -117,10 +117,10 @@ export function LimitConvert({
     });
 
   return (
-    <div className="cvt-limit" data-testid="cvt-limit">
+    <div className="lt-stack" data-testid="cvt-limit">
       <div className="cvt-fields">
         <div className="cvt-field" data-testid="limit-from-field">
-          <span className="cvt-field__label">{t('From')}</span>
+          <span className="lt-hint">{t('From')}</span>
           <div className="cvt-field__main">
             <span className="cvt-asset">
               <CoinIcon asset={from} size={28} />
@@ -145,7 +145,7 @@ export function LimitConvert({
           </div>
         </div>
         <div className="cvt-field" data-testid="limit-target-field">
-          <span className="cvt-field__label">{t('Target rate')}</span>
+          <span className="lt-hint">{t('Target rate')}</span>
           <div className="cvt-field__main">
             <span className="cvt-asset">
               <CoinIcon asset={market.quote} size={28} />

@@ -195,7 +195,7 @@ const en = {
   programmeListTitle: 'Course programmes',
   programmeListIntro:
     'A programme is a set of courses in a recommended order. You can start any of its courses, and finishing all of them earns the programme certificate.',
-  programmeListNone: 'Academy has published no course programmes.',
+  programmeListNone: 'Academy publishes no programme of whole courses. The learning programmes below are open to enrol in now.',
   programmeCounts: '{completed} completed · {enrolled} enrolled · {notEnrolled} not enrolled',
   programmeEmpty: 'This programme has no published courses, so there is nothing to start.',
   programmeOpen: 'Open programme',
@@ -554,7 +554,7 @@ const en = {
   myNothingInProgress: 'No course in progress.',
   myNothingCompleted: 'No course completed.',
   myNothingFuture: 'No course with a later start date.',
-  myNoCourses: 'You are not enrolled in any course. Pick one under Courses.',
+  myNoCourses: 'You are not enrolled in any course. Open a path under Learning paths below to start one.',
   myProgress: '{completed} of {items} items done',
   myContinue: 'Continue',
   myStartCourse: 'Start course',
@@ -629,7 +629,7 @@ const en = {
   videoCompleted: 'You watched past the course threshold, so this item is complete.',
   videoKeys: 'Keys: Space or K plays and pauses, the arrow keys skip 5 seconds, F is full screen, C turns captions on or off, M mutes.',
   videoLoadFailed: 'The video file did not load.',
-  videoGate: 'The service decides who may watch, based on account tier and stake. If you are not allowed, it says why above.',
+  videoGate: 'Some recordings are for certain account tiers or stakes. If you cannot watch one, the reason shows above.',
   // rooms
   roomNotesLabel: 'Joining and hosting',
   roomSessions: '{live} live now, {scheduled} scheduled',
@@ -885,7 +885,8 @@ const es: Record<keyof typeof en, string> = {
   programmeListTitle: 'Programas de cursos',
   programmeListIntro:
     'Un programa es un conjunto de cursos en un orden recomendado. Puedes empezar cualquiera de sus cursos y, al terminarlos todos, obtienes el certificado del programa.',
-  programmeListNone: 'Academy no ha publicado programas de cursos.',
+  programmeListNone:
+    'Academy no publica ningún programa de cursos completos. Los programas de aprendizaje de abajo ya están abiertos a inscripción.',
   programmeCounts: '{completed} completados · {enrolled} inscritos · {notEnrolled} sin inscripción',
   programmeEmpty: 'Este programa no tiene cursos publicados, así que no hay nada que empezar.',
   programmeOpen: 'Abrir programa',
@@ -1250,7 +1251,7 @@ const es: Record<keyof typeof en, string> = {
   myNothingInProgress: 'Ningún curso en curso.',
   myNothingCompleted: 'Ningún curso completado.',
   myNothingFuture: 'Ningún curso con fecha de inicio posterior.',
-  myNoCourses: 'No estás inscrito en ningún curso. Elige uno en Cursos.',
+  myNoCourses: 'No estás inscrito en ningún curso. Abre una ruta en Rutas de aprendizaje, más abajo, para empezar uno.',
   myProgress: '{completed} de {items} elementos hechos',
   myContinue: 'Continuar',
   myStartCourse: 'Empezar el curso',
@@ -1325,8 +1326,7 @@ const es: Record<keyof typeof en, string> = {
   videoKeys:
     'Teclas: Espacio o K reproduce y pausa, las flechas saltan 5 segundos, F es pantalla completa, C activa o desactiva los subtítulos, M silencia.',
   videoLoadFailed: 'El archivo de vídeo no se cargó.',
-  videoGate:
-    'El servicio decide quién puede verlo según el nivel y el stake de la cuenta. Si no tienes permiso, arriba se explica el motivo.',
+  videoGate: 'Algunas grabaciones son para ciertos niveles de cuenta o stakes. Si no puedes ver una, el motivo aparece arriba.',
   roomNotesLabel: 'Unirse y organizar',
   roomSessions: '{live} en directo ahora, {scheduled} programadas',
   roomFree: 'Cualquier persona con sesión iniciada puede unirse a una sesión en directo aquí, hasta {capacity} plazas.',
@@ -1583,7 +1583,8 @@ const fr: Record<keyof typeof en, string> = {
   programmeListTitle: 'Programmes de cours',
   programmeListIntro:
     'Un programme est un ensemble de cours dans un ordre recommandé. Vous pouvez commencer n’importe lequel de ses cours, et les terminer tous vous donne le certificat du programme.',
-  programmeListNone: 'Academy n’a publié aucun programme de cours.',
+  programmeListNone:
+    'Academy ne publie aucun programme de cours complets. Les programmes d’apprentissage ci-dessous sont déjà ouverts à l’inscription.',
   programmeCounts: '{completed} terminés · {enrolled} inscrits · {notEnrolled} non inscrits',
   programmeEmpty: 'Ce programme n’a aucun cours publié, il n’y a donc rien à commencer.',
   programmeOpen: 'Ouvrir le programme',
@@ -1947,7 +1948,7 @@ const fr: Record<keyof typeof en, string> = {
   myNothingInProgress: 'Aucun cours en cours.',
   myNothingCompleted: 'Aucun cours terminé.',
   myNothingFuture: 'Aucun cours avec une date de début ultérieure.',
-  myNoCourses: 'Vous n’êtes inscrit à aucun cours. Choisissez-en un dans Cours.',
+  myNoCourses: 'Vous n’êtes inscrit à aucun cours. Ouvrez un parcours sous Parcours d’apprentissage, plus bas, pour en commencer un.',
   myProgress: '{completed} sur {items} éléments faits',
   myContinue: 'Continuer',
   myStartCourse: 'Commencer le cours',
@@ -2025,7 +2026,7 @@ const fr: Record<keyof typeof en, string> = {
     'Touches : Espace ou K lance et met en pause, les flèches sautent 5 secondes, F passe en plein écran, C active ou coupe les sous-titres, M coupe le son.',
   videoLoadFailed: 'Le fichier vidéo ne s’est pas chargé.',
   videoGate:
-    'Le service décide qui peut regarder, selon le niveau et le stake du compte. Si vous n’y êtes pas autorisé, il en donne la raison ci-dessus.',
+    'Certains enregistrements sont réservés à certains niveaux de compte ou stakes. Si vous ne pouvez pas en regarder un, la raison s’affiche ci-dessus.',
   roomNotesLabel: 'Rejoindre et animer',
   roomSessions: '{live} en direct maintenant, {scheduled} programmées',
   roomFree: 'Toute personne connectée peut rejoindre une session en direct ici, dans la limite de {capacity} places.',

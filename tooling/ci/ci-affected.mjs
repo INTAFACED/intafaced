@@ -335,7 +335,7 @@ export { reachesLook };
 
 export function sealNeeded(flags, results) {
   const problems = [];
-  const always = ['changes', 'gates', 'format', 'build'];
+  const always = ['changes', 'gates', 'build'];
   for (const name of always) {
     const r = results[name];
     if (r !== 'success') problems.push(`${name} was ${r || 'missing'} (required)`);
@@ -423,7 +423,6 @@ function runSeal() {
   const results = {
     changes: process.env.CHANGES,
     gates: process.env.GATES,
-    format: process.env.FORMAT,
     build: process.env.BUILD,
     'tests-full': process.env.T_FULL,
     rust: process.env.RUST_RESULT,

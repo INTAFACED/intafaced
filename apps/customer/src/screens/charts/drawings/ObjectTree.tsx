@@ -101,8 +101,8 @@ function DrawingRow({
       </label>
       <button type="button" className="dw-row-name" aria-pressed={selected} onClick={() => api.select(selected ? null : drawing.id)}>
         {name}
-        {drawing.locked ? <span className="dw-badge"> {t('Locked')}</span> : null}
-        {!visible ? <span className="dw-badge"> {t('Hidden')}</span> : null}
+        {drawing.locked ? <span className="lt-muted"> {t('Locked')}</span> : null}
+        {!visible ? <span className="lt-muted"> {t('Hidden')}</span> : null}
       </button>
       <span className="dw-note" data-testid="drawing-pane">
         {drawing.pane ? t('On pane', { n: String(drawing.pane) }) : t('On price pane')}

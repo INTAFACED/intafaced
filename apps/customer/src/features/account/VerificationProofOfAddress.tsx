@@ -4,7 +4,8 @@ import type { ApiResult } from '../../shared/api';
 import { base64Of, kib, localToday } from '../../shared/file-base64';
 import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
-import { Button, Failure, Field, Loading } from '../../shared/ui';
+import { Button, Field } from '@intafaced/ui/lit';
+import { Failure, Loading } from './kit-parts';
 import { verificationPoaCopy as copy } from './verification-poa-copy';
 import { IDENTITY_KYC_PROOF_OF_ADDRESS_READ, IDENTITY_KYC_PROOF_OF_ADDRESS_SUBMIT } from '@intafaced/contracts/identity-kyc-procedures';
 
@@ -261,6 +262,7 @@ export function VerificationProofOfAddress({ recordsKey, disabled }: { recordsKe
             </p>
           )}
           <Button
+            tone="primary"
             type="submit"
             disabled={disabled || busy || reading || !file || !uploadCaps || !documents.accepted.some((row) => row.type === type)}
           >
@@ -284,7 +286,7 @@ export function VerificationProofOfAddress({ recordsKey, disabled }: { recordsKe
   };
 
   return (
-    <section className="verification__cases" aria-labelledby="verification-poa-title" data-testid="verification__poa">
+    <section className="lt-stack" aria-labelledby="verification-poa-title" data-testid="verification__poa">
       <h2 id="verification-poa-title">
         <Copy k="title" />
       </h2>

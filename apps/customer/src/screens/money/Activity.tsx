@@ -75,6 +75,7 @@ import { stamp } from './time';
 import { currentPreferences, usePreferences } from '../../shared/preferences';
 import { useVenueMode } from '../../features/trade/use-venue-mode';
 import { SourceActivity } from './SourceActivity';
+import { DateInput } from '@intafaced/ui/lit';
 
 type Copy = ReturnType<typeof moneyCopy.useCopy>;
 
@@ -164,11 +165,11 @@ function FilterBar({ filters, onChange, copy }: { filters: ActivityFilters; onCh
       </label>
       <label className="money-bar__field">
         <span>{t('From date')}</span>
-        <input type="date" value={filters.from} onChange={(event) => onChange({ ...filters, from: event.target.value })} />
+        <DateInput type="date" value={filters.from} onChange={(event) => onChange({ ...filters, from: event.target.value })} />
       </label>
       <label className="money-bar__field">
         <span>{t('To date')}</span>
-        <input type="date" value={filters.to} onChange={(event) => onChange({ ...filters, to: event.target.value })} />
+        <DateInput type="date" value={filters.to} onChange={(event) => onChange({ ...filters, to: event.target.value })} />
       </label>
       <label className="money-bar__field">
         <span>{t('Order')}</span>

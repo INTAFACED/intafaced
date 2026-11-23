@@ -31,7 +31,7 @@ const profileFields = {
   statementDescriptor: z.string().nullable(),
   industry: z.string().nullable(),
 };
-export const profileSchema = z.object({
+const profileSchema = z.object({
   merchantId: z.string(),
   version: z.string(),
   ...profileFields,
@@ -45,7 +45,7 @@ export const SENSITIVE_KEYS = ['legalName', 'address', 'statementDescriptor', 'i
 export type SensitiveKey = (typeof SENSITIVE_KEYS)[number];
 
 export const profileChangeStatuses = ['applied', 'applied_pre_kyb', 'pending', 'pending_review', 'rejected', 'conflict'] as const;
-export const profileChangeSchema = z.object({
+const profileChangeSchema = z.object({
   requestId: z.string(),
   seq: z.string(),
   status: z.string(),
@@ -70,16 +70,9 @@ export const profileSubmitResultSchema = z.object({
   changeHash: z.string().nullable(),
   profile: profileSchema,
 });
-export const profileDecideResultSchema = z.object({
-  requestId: z.string(),
-  outcome: z.enum(['applied', 'rejected', 'pending_review']),
-  version: z.string(),
-  profile: profileSchema,
-});
-export const secondApprovalResultSchema = z.object({ merchantId: z.string(), enabled: z.boolean() });
 
 // ---- onboarding progress ---------------------------------------------------------------------------------
-export const progressSchema = z.object({
+const progressSchema = z.object({
   merchantId: z.string(),
   business: z.object({ done: z.boolean(), missing: z.array(z.string()) }),
   documents: z.object({ state: z.string() }),
@@ -99,12 +92,11 @@ export const progressSchema = z.object({
 });
 export type Progress = z.infer<typeof progressSchema>;
 export type TermsState = Progress['terms'];
-export const termsAcceptedSchema = z.object({ merchantId: z.string(), version: z.string(), acceptedAt: z.string() });
 
 // ---- activity ----------------------------------------------------------------------------------------------
 export const ACTIVITY_TYPES = ['payment', 'team', 'kyb', 'dispute', 'export', 'approval', 'webhook'] as const;
 export type ActivityType = (typeof ACTIVITY_TYPES)[number];
-export const activityItemSchema = z.object({
+const activityItemSchema = z.object({
   id: z.string(),
   occurredAt: timestamp,
   actorId: z.string(),

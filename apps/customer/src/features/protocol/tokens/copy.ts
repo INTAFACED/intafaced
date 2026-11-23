@@ -44,6 +44,7 @@ const en = {
   trendingNone: 'No token has a price over this window, so none is ranked.',
   listNone: 'No token is listed: the pool factory has no pools.',
   howTrending: 'How trending is worked out',
+  howTrendingTitle: 'The growth formula',
   howTrendingBody:
     'Growth = (price now − price at the start of the window) ÷ price at the start of the window. A price is the quote token per token from the reserves of the deepest pool that pairs it with the quote token, or through one other token that does; the same pool is used at both ends. Tokens with no such pool have no price and are not ranked. Trending lists the rest from the highest growth down.',
   noBrief: 'No brief today.',

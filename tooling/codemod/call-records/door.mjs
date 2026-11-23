@@ -162,16 +162,22 @@ function callBodies(src) {
  * Who may call, as a record's `access` names it (`packages/contracts/src/procedure.ts`), or why no record can: the
  * row's `access` and its `pre`. `Access::Scope("x")` is a scope checked in the module's region (svc-academy);
  * `Access::Scope(Scoped { scope, person, module })` names each (svc-agents); `Pre::PersonOnly(code)` is the record's
- * `ownSession`. Anything else (svc-agents' `Settle` and `Pre::CoachRun`, svc-bank's tier and region) is named, not guessed.
+ * `ownSession`; any other unit `Pre` (`Pre::CoachRun`) is the record's `check` (`coachRun`). Anything else (svc-agents'
+ * `Settle`, svc-bank's tier and region) is named, not guessed.
  */
 function accessOf(body, module) {
-  const pre = body.match(/pre: Pre::(None|PersonOnly\("([^"]+)"\)|\w+)/);
-  if (pre && !/^(None|PersonOnly)/.test(pre[1])) return { why: `its own middleware Pre::${pre[1]}, which a record cannot name` };
-  const ownSession = pre?.[2];
+  const pre = body.match(/pre: (Pre::[^\n]*?),?\n/)?.[1].trim();
+  const ownSession = pre?.match(/^Pre::PersonOnly\("([^"]+)"\)$/)?.[1];
+  // Any other unit middleware of the door's own (`Pre::CoachRun`) is the service's own check, named in the record's
+  // `access.check` by its variant (`coachRun`): the door runs it, the record names it, as a mounted service's does.
+  const unit = pre && pre !== 'Pre::None' && !ownSession ? pre.match(/^Pre::([A-Z]\w*)$/)?.[1] : undefined;
+  if (pre && pre !== 'Pre::None' && !ownSession && !unit) return { why: `its own middleware ${pre}, which a record cannot name` };
+  const check = unit ? unit[0].toLowerCase() + unit.slice(1) : undefined;
   if (/access: Access::Public\b/.test(body))
-    return ownSession ? { why: 'a public call with Pre::PersonOnly' } : { access: { caller: 'public' } };
+    return ownSession || check ? { why: `a public call with ${pre}` } : { access: { caller: 'public' } };
   const flat = body.match(/access: Access::Scope\("([^"]+)"\)/);
-  if (flat) return { access: { caller: 'scope', scope: flat[1], module, ...(ownSession ? { ownSession } : {}) } };
+  if (flat)
+    return { access: { caller: 'scope', scope: flat[1], module, ...(ownSession ? { ownSession } : {}), ...(check ? { check } : {}) } };
   const scoped = body.match(/access: Access::Scope\(Scoped \{([^}]*)\}\)/);
   if (scoped) {
     const fields = Object.fromEntries([...scoped[1].matchAll(/(\w+): ([^,\n]+)/g)].map((f) => [f[1], f[2].trim()]));
@@ -186,6 +192,7 @@ function accessOf(body, module) {
         ...(fields.module === 'true' ? { module } : {}),
         ...(fields.person === 'true' ? { person: true } : {}),
         ...(ownSession ? { ownSession } : {}),
+        ...(check ? { check } : {}),
       },
     };
   }

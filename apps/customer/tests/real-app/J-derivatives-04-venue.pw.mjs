@@ -480,6 +480,7 @@ test(`${J} #5 arms cancel-on-disconnect: armed on the venue's scheduled cancel w
 
 test(`${J} #6 with a take-profit and a stop-loss for the whole position resting, places another order that would close the whole position: refused; partial ones don't count`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(480_000);
   const s = state();
@@ -554,6 +555,9 @@ test(`${J} #6 with a take-profit and a stop-loss for the whole position resting,
     await expect(page.getByRole('dialog', { name: 'Check before you sign', exact: true })).toHaveCount(0);
   }
   expect(await triggers()).toEqual(before);
+  // The step's picture: the refusal in the exit orders dialog, over the desk, with the whole take profit and stop loss
+  // and the part one listed under it, taken from the top so the bar that stays at the top covers nothing.
+  await stepPicture(page);
 
   // A part one still rests: parts don't count toward the one of each.
   await armOnVenue('Stop loss', '0.05', '2750');

@@ -22,7 +22,7 @@ pub const CLASSES: [&str; 6] = [
     "unclassified",
 ];
 
-const SCALE: Amount = 1_000_000_000_000_000_000;
+const SCALE: Amount = Amount::whole(1);
 
 /// `classOf`: the class of an asset outside its earn part.
 pub fn class_of(asset: &str, kinds: &HashMap<String, String>) -> &'static str {
@@ -152,11 +152,15 @@ pub fn allocate(
             let value = parse_amount(&row.value_usd).unwrap_or_default();
             let price = parse_amount(&row.price_usd).unwrap_or_default();
             let holding = by_asset.get(row.asset.as_str());
-            let used = holding.map_or(0, |h| h.used);
-            let locked = if used > 0 { mul(used, price) } else { 0 };
-            let earn_raw = holding.and_then(|h| h.earn).unwrap_or(0);
-            let earn = if earn_raw <= 0 {
-                0
+            let used = holding.map_or(Amount::ZERO, |h| h.used);
+            let locked = if used > Amount::ZERO {
+                mul(used, price)
+            } else {
+                Amount::ZERO
+            };
+            let earn_raw = holding.and_then(|h| h.earn).unwrap_or(Amount::ZERO);
+            let earn = if earn_raw <= Amount::ZERO {
+                Amount::ZERO
             } else if earn_raw >= used {
                 locked
             } else {
@@ -174,7 +178,7 @@ pub fn allocate(
         .collect();
     let total: Amount = lines.iter().map(|l| l.value).sum();
     let share = |value: Amount| -> String {
-        if total > 0 {
+        if total > Amount::ZERO {
             format_amount(mul_div(value, SCALE, total, Rounding::HalfUp))
         } else {
             "0".to_owned()
@@ -194,7 +198,7 @@ pub fn allocate(
         for class in CLASSES {
             let mut members: Vec<&(&str, Option<&'static str>, Amount)> = parts
                 .iter()
-                .filter(|p| p.1 == Some(class) && p.2 > 0)
+                .filter(|p| p.1 == Some(class) && p.2 > Amount::ZERO)
                 .collect();
             if members.is_empty() {
                 continue;

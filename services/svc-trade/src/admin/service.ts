@@ -92,6 +92,7 @@ import { VipReviewAdmin } from './vip-review.js';
 import { readMarketStatusHistory } from './status-history.js';
 import { FundingDesk } from './funding-desk.js';
 import { CopyBotsOtcAdmin } from './copy-bots-otc.js';
+import { CustomerOrdersAdmin } from './customer-orders.js';
 import type { OtcDeskLaw } from '../otc/desk-law.js';
 import { FeesConvertDesk, type ConvertOwnerValues } from './fees-convert-desk.js';
 
@@ -222,6 +223,8 @@ export class TradeOpsAdmin {
   readonly vipApplications: VipReviewAdmin;
   /** Copy, bots and OTC counts, customer lookup and quote desk (CB-ops-05, CB-ops-04). */
   readonly copyBotsOtc: CopyBotsOtcAdmin;
+  /** One customer's orders for the console's customer record, audited (J-ops-console-02 #3). */
+  readonly customerOrders: CustomerOrdersAdmin;
   /** Fee tier snapshot runs, Convert's owner values and its quotes, read only (J-cex-spot-17). */
   readonly feesConvert: FeesConvertDesk;
   /** Market feed health and the feed event journal, read only (C-ops-01, J-charts-desk-18 #1 #2). */
@@ -230,6 +233,7 @@ export class TradeOpsAdmin {
   constructor(private readonly deps: TradeOpsDeps) {
     this.feedHealth = new FeedHealthDesk({ sql: deps.sql, now: () => nowOf(deps) });
     this.feesConvert = new FeesConvertDesk({ sql: deps.sql, ...(deps.convert ? { convert: deps.convert } : {}) });
+    this.customerOrders = new CustomerOrdersAdmin({ sql: deps.sql, now: () => nowOf(deps) });
     this.copyBotsOtc = new CopyBotsOtcAdmin({
       sql: deps.sql,
       otcLaw: deps.otcLaw ?? { published: false },

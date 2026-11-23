@@ -7,7 +7,7 @@
 
 use postgres::GenericClient;
 use service_kit::json::Json;
-use service_kit::money::{Amount, Rounding, format_amount, mul_div, parse_amount};
+use service_kit::money::{Amount, Rounding, format_amount, mul_div, mul_ratio, parse_amount};
 use service_kit::time::Instant;
 
 use super::apply::quote_value;
@@ -64,8 +64,8 @@ pub fn mark_user(d: &Deps<'_>, user_id: &str) -> Result<PortfolioMark, Refusal> 
     })?;
     let Some(first) = loans.first() else {
         return Ok(PortfolioMark {
-            debt_value: 0,
-            collateral_value: 0,
+            debt_value: Amount::ZERO,
+            collateral_value: Amount::ZERO,
             portfolio_ltv_bps: 0,
             loans: Vec::new(),
         });
@@ -239,7 +239,7 @@ fn mark_and_act(d: &Deps<'_>, l: &Loan, now: Instant) -> Result<Outcome, Refusal
     cover_open_shortfalls(d, l)?;
     let debt = with(d.store, |c| outstanding(c, &l.id))?;
     let collateral = collateral_of(d, l)?;
-    if debt.total <= 0 {
+    if debt.total <= Amount::ZERO {
         let sold = with(d.store, |c| {
             let r = c
                 .query_one(
@@ -251,7 +251,7 @@ fn mark_and_act(d: &Deps<'_>, l: &Loan, now: Instant) -> Result<Outcome, Refusal
         })?;
         if sold > 0 {
             let held = collateral_of(d, l)?;
-            if held > 0 {
+            if held > Amount::ZERO {
                 release_all(d, l, held)?;
             }
             with(d.store, |c| {
@@ -329,7 +329,7 @@ fn mark_and_act(d: &Deps<'_>, l: &Loan, now: Instant) -> Result<Outcome, Refusal
                 ltv,
                 grace_waived,
                 collateral_to_sell: amount_text(&sold)?,
-                closes_position: collateral <= 0,
+                closes_position: collateral <= Amount::ZERO,
                 collateral_at_plan: collateral,
                 collateral_mark: &collateral_mark,
                 debt,
@@ -356,8 +356,8 @@ fn mark_and_act(d: &Deps<'_>, l: &Loan, now: Instant) -> Result<Outcome, Refusal
                 return Ok(Outcome::Cleared);
             }
             // A residual claim with no collateral left stays non-active.
-            if debt.total > 0
-                && collateral <= 0
+            if debt.total > Amount::ZERO
+                && collateral <= Amount::ZERO
                 && l.status != "margin_call"
                 && l.status != "liquidating"
             {
@@ -438,14 +438,22 @@ fn raise_margin_call(
     now: Instant,
 ) -> Result<(), Refusal> {
     let debt_value = quote_value(debt, debt_mark.mark.price, Round::Ceil);
-    let target = Amount::from(p.policy.target_ltv_bps);
     // Wide intermediates, as the TypeScript's bigint: `short * ONE` alone passes i128 at a few thousand units.
-    let needed = mul_div(debt_value, 10_000, target, Rounding::Ceil);
+    let needed = mul_ratio(
+        debt_value,
+        10_000,
+        i128::from(p.policy.target_ltv_bps),
+        Rounding::Ceil,
+    );
     let have = quote_value(collateral, collateral_mark.mark.price, Round::Floor);
-    let short = if needed > have { needed - have } else { 0 };
+    let short = if needed > have {
+        needed - have
+    } else {
+        Amount::ZERO
+    };
     let price = collateral_mark.mark.price;
-    let cure = if short == 0 {
-        0
+    let cure = if short == Amount::ZERO {
+        Amount::ZERO
     } else {
         mul_div(short, ONE, price, Rounding::Ceil)
     };
@@ -611,7 +619,7 @@ fn liquidate_tranche(d: &Deps<'_>, r: &Rung<'_>) -> Result<(), Refusal> {
         return with_money_lock(d, &l.id, || liquidate_locked(d, r, None));
     }
     let quoted = venue_quote(d, l, r.collateral_to_sell, r.collateral_mark.mark.price)?;
-    let Some(q) = quoted.filter(|q| q.proceeds > 0) else {
+    let Some(q) = quoted.filter(|q| q.proceeds > Amount::ZERO) else {
         return Err(no_counterparty(r.collateral_to_sell, l));
     };
     with_money_lock(d, &l.id, || liquidate_locked(d, r, Some(q)))
@@ -720,7 +728,7 @@ fn liquidate_locked(
         },
     };
     let posted_already = pending.as_ref().is_some_and(|p| p.ledger_tx_id.is_some());
-    if !posted_already && !quoted.as_ref().is_some_and(|q| q.proceeds > 0) {
+    if !posted_already && !quoted.as_ref().is_some_and(|q| q.proceeds > Amount::ZERO) {
         return Err(no_counterparty(
             pending
                 .as_ref()
@@ -805,7 +813,7 @@ fn sell(
     let proceeds = match (stored, quoted) {
         (Some(s), _) => s.proceeds,
         (None, Some(q)) => q.proceeds,
-        (None, None) => 0,
+        (None, None) => Amount::ZERO,
     };
     let sold = stored.map_or(r.collateral_to_sell, |s| s.collateral_sold);
     let mark_price = stored.map_or(r.collateral_mark.mark.price, |s| s.mark_price);
@@ -818,20 +826,24 @@ fn sell(
     // A stored sale's shortfall is worked out after its post: only then does "no collateral left" mean it closed.
     let debt_principal = r.debt.principal;
     let before: Option<Box<dyn Fn() -> Result<(), Refusal> + '_>> = match stored {
-        Some(s) if s.shortfall > 0 => None,
+        Some(s) if s.shortfall > Amount::ZERO => None,
         Some(s) => {
             let repaid = s.principal_repaid;
             Some(Box::new(move || {
                 let held = collateral_of(d, l)?;
-                let gap = (debt_principal - repaid).max(0);
-                let shortfall = if held <= 0 { gap } else { 0 };
-                if shortfall > 0 {
+                let gap = (debt_principal - repaid).max(Amount::ZERO);
+                let shortfall = if held <= Amount::ZERO {
+                    gap
+                } else {
+                    Amount::ZERO
+                };
+                if shortfall > Amount::ZERO {
                     cover_shortfall(d, l, tranche, shortfall)?;
                 }
                 Ok(())
             }))
         }
-        None if split_shortfall > 0 => Some(Box::new(move || {
+        None if split_shortfall > Amount::ZERO => Some(Box::new(move || {
             cover_shortfall(d, l, tranche, split_shortfall)
         })),
         None => None,
@@ -944,17 +956,17 @@ fn sell(
     let held = collateral_of(d, l)?;
     // A stored sale already moved its collateral: whether it closed the position is what is left.
     let closes = if posted(stored) {
-        held <= 0
+        held <= Amount::ZERO
     } else {
         r.closes_position
     };
-    if remaining.total <= 0 || closes {
+    if remaining.total <= Amount::ZERO || closes {
         // Surviving collateral on a cleared debt is the borrower's: the difference between a liquidation and a
         // confiscation.
-        if remaining.total <= 0 && held > 0 {
+        if remaining.total <= Amount::ZERO && held > Amount::ZERO {
             release_all(d, l, held)?;
         }
-        let cleared = remaining.total <= 0;
+        let cleared = remaining.total <= Amount::ZERO;
         let status = if cleared { "liquidated" } else { "margin_call" };
         let closed_at: Option<f64> = cleared.then(|| instant_f64(r.now));
         with(d.store, |c| {
@@ -1092,7 +1104,7 @@ pub fn seize(d: &Deps<'_>, loan_id: &str, now: Instant) -> Result<Seized, Refusa
     let debt_mark = get_mark(&marks, &l.debt_asset_id)?;
     let debt = with(d.store, |c| outstanding(c, &l.id))?;
     let collateral = collateral_of(d, &l)?;
-    if debt.total <= 0 {
+    if debt.total <= Amount::ZERO {
         return Err(refuse(
             "bank.loan_closed",
             format!(

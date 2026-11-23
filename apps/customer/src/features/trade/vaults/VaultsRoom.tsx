@@ -29,9 +29,7 @@ export function VaultsRoom() {
   const { t } = vaultsCopy.useCopy();
   const mode = useVenueMode();
   const { userId } = useSession();
-  const off = (state: RoomState) => (
-    <MonitorTemplate title={t('title')} state={state} mode="pro" figures={[]} explain={<p className="lt-hint">{t('eyebrow')}</p>} />
-  );
+  const off = (state: RoomState) => <MonitorTemplate title={t('title')} state={state} mode="pro" figures={[]} />;
   if (!userId)
     return off({
       kind: 'empty',
@@ -62,12 +60,7 @@ export function VaultsRoom() {
             <Room status={status} />
           </div>
         }
-        explain={
-          <div className="lt-stack">
-            <p className="lt-hint">{t('eyebrow')}</p>
-            <p className="lt-hint">{t('ledgerNote')}</p>
-          </div>
-        }
+        explain={<p className="lt-hint">{t('ledgerNote')}</p>}
       />
     </VenueFrame>
   );

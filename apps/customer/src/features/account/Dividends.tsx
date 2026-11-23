@@ -124,7 +124,7 @@ export function DividendsView({
                     {records.status === 'ready' && records.data.records.length > 0 ? (
                       records.data.records.map((r) => <RecordRow key={r.campaignId} r={r} when={when} />)
                     ) : (
-                      <tr data-testid="dividends-empty" data-kind={kind}>
+                      <tr data-testid="dividends-empty" data-kind={kind} data-empty="">
                         <td colSpan={headers.length}>
                           <strong>{kind === 'dividend' ? <Copy k="dividendEmpty" /> : <Copy k="emptyTitle" />}</strong>
                           {kind === 'airdrop' ? (
