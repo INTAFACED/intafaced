@@ -13,6 +13,11 @@ import {
   PAY_SUBMERCHANT_PERMISSION_LIST,
   PAY_SUBMERCHANT_PERMISSION_HISTORY,
 } from '@intafaced/contracts/pay-submerchant-permission-procedures';
+import {
+  PAY_MERCHANT_BUSINESS_PROFILE_GET,
+  PAY_MERCHANT_TERMS_ACCEPT,
+  PAY_MERCHANT_ONBOARDING_PROGRESS,
+} from '@intafaced/contracts/pay-merchant-procedures';
 
 const cursorPart = (cursor: string | undefined) => (cursor ? { cursor } : {});
 
@@ -23,7 +28,7 @@ const cursorPart = (cursor: string | undefined) => (cursor ? { cursor } : {});
  */
 export const accountApi = ({ query, mutate, list, mutateRecord, queryRecord }: PortalTools) => ({
   // ---- business profile (merchant.businessProfile.*) ----
-  profileGet: (merchantId: string, signal?: AbortSignal) => query('merchant.businessProfile.get', { merchantId }, s.profileSchema, signal),
+  profileGet: (merchantId: string, signal?: AbortSignal) => queryRecord(PAY_MERCHANT_BUSINESS_PROFILE_GET, { merchantId }, signal),
   profileHistory: (merchantId: string, cursor: string | undefined, signal?: AbortSignal) =>
     query('merchant.businessProfile.history', { merchantId, limit: 25, ...cursorPart(cursor) }, p.page(s.profileChangeSchema), signal),
   profileSubmit: (input: { merchantId: string; expectedVersion: string; reason: string } & Partial<s.ProfileFields>) =>
@@ -35,11 +40,10 @@ export const accountApi = ({ query, mutate, list, mutateRecord, queryRecord }: P
     expectedChangeHash: string;
     reason: string;
   }) => mutate('merchant.businessProfile.confirm', input, s.profileDecideResultSchema),
-  termsAccept: (merchantId: string, version: string) => mutate('merchant.terms.accept', { merchantId, version }, s.termsAcceptedSchema),
+  termsAccept: (merchantId: string, version: string) => mutateRecord(PAY_MERCHANT_TERMS_ACCEPT, { merchantId, version }),
   profileSecondApproval: (merchantId: string, enabled: boolean) =>
     mutate('merchant.businessProfile.setSecondApproval', { merchantId, enabled }, s.secondApprovalResultSchema),
-  onboardingProgress: (merchantId: string, signal?: AbortSignal) =>
-    query('merchant.onboarding.progress', { merchantId }, s.progressSchema, signal),
+  onboardingProgress: (merchantId: string, signal?: AbortSignal) => queryRecord(PAY_MERCHANT_ONBOARDING_PROGRESS, { merchantId }, signal),
 
   // ---- team, with the filters the service now applies ----
   teamPage: (cursor: string | undefined, filters: { status?: string; role?: string; search?: string }, signal?: AbortSignal) =>

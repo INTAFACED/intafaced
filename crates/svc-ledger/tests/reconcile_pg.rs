@@ -1975,3 +1975,20 @@ fn a_reconcile_submitted_by_the_approver_names_the_proposer_as_the_confirming_op
         Some(&Json::str("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"))
     );
 }
+
+/// A drift between opposite-sign balances near the top of `numeric(38,18)` reports its true difference, never a clamped one.
+#[test]
+fn balance_drift_reports_exact_difference_across_opposite_sign_bounds() {
+    let Some(b) = book() else { return };
+    let ninety = service_kit::money::Amount::whole(90_000_000_000_000_000_000);
+    b.deposit_to(USER, ninety).unwrap();
+    b.sql(
+        "UPDATE ledger.accounts SET balance = 90000000000000000000 WHERE owner_type = 'treasury'",
+    );
+    let balances = reconcile::reconcile_balances(&mut b.session()).unwrap();
+    assert!(!balances.ok);
+    assert_eq!(balances.drift.len(), 1);
+    assert_eq!(balances.drift[0].cached, "90000000000000000000");
+    assert_eq!(balances.drift[0].replayed, "-90000000000000000000");
+    assert_eq!(balances.drift[0].difference, "180000000000000000000");
+}
