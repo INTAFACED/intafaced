@@ -12,6 +12,10 @@ mod migrate_db;
 mod nats_consume;
 #[path = "nats_live.rs"]
 mod nats_live;
+#[path = "one_outbox.rs"]
+mod one_outbox;
+#[path = "outbox_db.rs"]
+mod outbox_db;
 #[path = "server_connections.rs"]
 mod server_connections;
 
