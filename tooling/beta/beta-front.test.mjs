@@ -34,25 +34,33 @@ test('a Location on the loopback origin points at the public origin; others stay
 
 test("the mailbox's viewer comes from the Access token's email; without a token there is no viewer", () => {
   const jwt = (claims) => `h.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.s`;
-  assert.equal(viewerToken('Alice@Gmail.com'), 'alice-gmail-com');
-  assert.equal(viewerFromAccess({ 'cf-access-jwt-assertion': jwt({ email: 'alice@gmail.com' }) }), 'alice-gmail-com');
-  assert.equal(viewerFromAccess({ cookie: `x=1; CF_Authorization=${jwt({ email: 'bob@x.io' })}` }), 'bob-x-io');
+  assert.equal(viewerToken('Alice@Gmail.com'), viewerToken('alice@gmail.com'));
+  assert.match(viewerToken('alice@gmail.com'), /^alice-gmail-com-[0-9a-f]{10}$/);
+  assert.equal(viewerToken('no at sign'), null);
+  assert.equal(viewerFromAccess({ 'cf-access-jwt-assertion': jwt({ email: 'alice@gmail.com' }) }), viewerToken('alice@gmail.com'));
+  assert.equal(viewerFromAccess({ cookie: `x=1; CF_Authorization=${jwt({ email: 'bob@x.io' })}` }), viewerToken('bob@x.io'));
   assert.equal(viewerFromAccess({}), null);
   assert.equal(viewerFromAccess({ 'cf-access-jwt-assertion': 'not-a-jwt' }), null);
   assert.equal(viewerFromAccess({ 'cf-access-jwt-assertion': jwt({ sub: 'no email' }) }), null);
   assert.equal(VIEWER_HEADER, 'x-beta-viewer');
 });
 
-test("each viewer sees only the mail of the TEST addresses they created; one token never reaches another's", () => {
-  const rows = [
-    { email: 'alice-gmail-com@local-test.invalid', code: '111111' },
-    { email: 'alice-gmail-com.2@local-test.invalid', code: '222222' },
-    { email: 'alice-gmail-com-au.1@local-test.invalid', code: '333333' },
-    { email: 'nino1@local-test.invalid', code: '444444' },
-  ];
-  const codes = (token) => viewerRows(rows, token).map((r) => r.code);
-  assert.deepEqual(codes(viewerToken('alice@gmail.com')), ['111111', '222222']);
-  assert.deepEqual(codes(viewerToken('alice@gmail.com.au')), ['333333']);
-  assert.deepEqual(codes(''), []);
-  assert.deepEqual(codes(null), []);
+test("each viewer sees only the mail of the TEST addresses they created; no token reaches another viewer's", () => {
+  const people = ['alice@gmail.com', 'alice@gmail.com.au', 'john.smith@outlook.com', 'john_smith@outlook.com', 'a.b@x.io', 'a@b.x.io'];
+  const tokens = people.map(viewerToken);
+  assert.equal(new Set(tokens).size, people.length, 'one token per email');
+  const rows = tokens.flatMap((t, i) => [
+    { email: `${t}@local-test.invalid`, code: `${i}a` },
+    { email: `${t}.2@local-test.invalid`, code: `${i}b` },
+  ]);
+  rows.push({ email: 'nino1@local-test.invalid', code: 'old' });
+  tokens.forEach((t, i) =>
+    assert.deepEqual(
+      viewerRows(rows, t).map((r) => r.code),
+      [`${i}a`, `${i}b`],
+      people[i],
+    ),
+  );
+  assert.deepEqual(viewerRows(rows, ''), []);
+  assert.deepEqual(viewerRows(rows, null), []);
 });

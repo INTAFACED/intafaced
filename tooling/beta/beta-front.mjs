@@ -22,6 +22,7 @@
  * Only the public name and this front's own loopback names are served (DNS rebinding stays closed).
  */
 import http from 'node:http';
+import { createHash } from 'node:crypto';
 import net from 'node:net';
 import { pathToFileURL } from 'node:url';
 
@@ -38,13 +39,18 @@ const MAIL_HOSTS = servedHosts(MAIL_PUBLIC_HOST, MAIL.listen);
 
 export const VIEWER_HEADER = 'x-beta-viewer';
 
-/** The token a viewer's TEST addresses start with: their Access email, lowercased, every other character a dash. */
+/**
+ * The token a viewer's TEST addresses start with: their Access email, lowercased, every other character a dash, then a
+ * dash and the first 10 hex characters of the SHA-256 of the lowercased email. The readable part alone can fold two
+ * emails into one (`a.b@x.io`, `a_b@x.io`); the hash keeps one token per email.
+ */
 export function viewerToken(email) {
-  const t = String(email ?? '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  return t.includes('-') ? t : null;
+  const e = String(email ?? '')
+    .trim()
+    .toLowerCase();
+  if (!e.includes('@')) return null;
+  const readable = e.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return `${readable}-${createHash('sha256').update(e).digest('hex').slice(0, 10)}`;
 }
 
 /** The Access-verified viewer's token, from Cf-Access-Jwt-Assertion or the CF_Authorization cookie; null without one. */
