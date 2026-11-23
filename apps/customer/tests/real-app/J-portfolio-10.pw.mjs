@@ -70,6 +70,7 @@ test.beforeAll(async ({ browser }) => {
 
 test(`${J} #1 opens /coin/BTC: price chart, range pills, stats, holding, about and activity, with the coin bar staying under the top bar`, async ({
   page,
+  stepPicture,
 }) => {
   await signIn(page, who);
   // The price chart draws the default range's candles (1D: 5-minute candles), as the page asked the stack for them.
@@ -114,6 +115,9 @@ test(`${J} #1 opens /coin/BTC: price chart, range pills, stats, holding, about a
   // The activity is this person's own: the two BTC buys from the start.
   await expect(page.getByTestId('recent').locator('tbody tr[data-fill]')).toHaveCount(2);
 
+  // The step's picture: the room as it opens, its coin bar under the top bar, before the scroll below (a whole-page
+  // picture of a scrolled page draws the fixed top bar part-way down it).
+  await stepPicture();
   // The coin bar sits right under the top bar while the page scrolls.
   const topBar = await page.locator('header').first().boundingBox();
   await page.mouse.wheel(0, 900);
@@ -343,6 +347,7 @@ test(`${J} #5 reads recent activity for the coin: this person's BTC fills, newes
 
 test(`${J} #6 presses Buy (Simple) or Trade (Pro): the Buy card with the coin chosen, or the spot desk for the pair`, async ({
   browser,
+  stepPicture,
 }) => {
   // Simple: the Buy card on the page has BTC chosen and locked; pressing its Buy reaches the review of a BTC buy.
   const simple = await browser.newContext({ baseURL: ORIGIN });
@@ -363,6 +368,8 @@ test(`${J} #6 presses Buy (Simple) or Trade (Pro): the Buy card with the coin ch
     await expect(review).toContainText('Review your buy');
     await expect(review.getByTestId('review-get')).toContainText(/BTC/);
     await expect(review).toContainText(/per BTC/);
+    // The step's picture: the coin room's own Buy card, BTC chosen, at its review (the Pro half below ends on the desk).
+    await stepPicture(page);
     // Leaving the review places nothing.
     await review.getByRole('button', { name: 'Cancel' }).click();
     await expect(review).toHaveCount(0);
