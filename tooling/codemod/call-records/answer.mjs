@@ -7,7 +7,7 @@
 // A portal `list` caller parses one row (`list('x.y', item, input)`, a page of `item` on the wire): the record's answer is
 // that page, `{ items: item[], nextCursor }`, the very shape the tool parsed with (`page` in the portal's schemas).
 import { relative } from 'node:path';
-import { bindingOf, load, resolveRelative } from './ast.mjs';
+import { bindingOf, keyedEntry, load, resolveRelative } from './ast.mjs';
 
 const at = (repo, s) => `${relative(repo, s.file)}:${s.line}`;
 
@@ -52,6 +52,18 @@ function throughNamespace(p, node) {
 }
 
 /**
+ * A schema read from a map by its call name (`bankReads['autoInvest.policy']`), as the map's entry: the same schema
+ * `useBankRead('autoInvest.policy')` parses with, so two callers reading it the two ways parse with one schema.
+ * Anything else is returned as it is.
+ */
+function throughKeyedRead(p, node) {
+  if (node?.type !== 'MemberExpression' || !node.computed || node.object?.type !== 'Identifier') return { p, node };
+  const key = node.property?.type === 'Literal' && typeof node.property.value === 'string' ? node.property.value : undefined;
+  if (!key) return { p, node };
+  return keyedEntry(p, bindingOf(p, node.object, node.object.name), node.object.name, key) ?? { p, node };
+}
+
+/**
  * The output a record takes from its callers, `{ output: { p, node } }`, or `{ why }` naming the caller that keeps the
  * call by name. `schemaOf(s)` is the caller's answer schema node in its own file (undefined when it parses with none);
  * `itemOf(s)` is a portal list caller's row schema, its answer a page of that row (`{ output: { p, node, page: true } }`);
@@ -63,7 +75,8 @@ export function answerFromCallers(repo, sites, { schemaOf, checksOf, itemOf = ()
   for (const s of sites) {
     const item = s.schema || schemaOf(s) ? undefined : itemOf(s);
     const written = s.schema ?? (schemaOf(s) ? { p: load(s.file), node: schemaOf(s) } : item ? { p: load(s.file), node: item } : undefined);
-    const own = written && { ...throughNamespace(written.p, written.node), ...(item ? { page: true } : {}) };
+    const named = written && throughNamespace(written.p, written.node);
+    const own = named && { ...throughKeyedRead(named.p, named.node), ...(item ? { page: true } : {}) };
     if (!own)
       return {
         why: `${at(repo, s)} reads the answer ${s.reader ? 'with its own reader function' : 'unparsed'}, not a zod schema a record can take`,

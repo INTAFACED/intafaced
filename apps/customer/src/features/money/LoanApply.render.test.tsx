@@ -146,7 +146,7 @@ describe('LoanApply', () => {
     await act(async () => button('Review and open').click());
     expect(opened).toHaveLength(1);
     const spec = opened[0]!;
-    expect(spec.procedure).toBe('loans.open');
+    expect(spec.record?.path).toBe('loans.open');
     expect(spec.initial).toEqual({ principal: '1000', collateralAmount: '0.033333333333333334' });
     expect(spec.input({ principal: '1000', collateralAmount: '0.033333333333333334' }, 'req-1')).toEqual({
       loanId: 'req-1',
