@@ -616,6 +616,7 @@ impl BankDoor {
             .unwrap_or_else(|| Err(not_ported(Slice::Cards))),
             Slice::CardOps => self
                 .card_moves(ctx)
+                .or_else(|| self.cards_deps(ctx.now, |d| crate::card_ops_desk::answer(d, ctx)))
                 .unwrap_or_else(|| Err(not_ported(Slice::CardOps))),
             Slice::Loans => {
                 let user = ctx
@@ -678,6 +679,9 @@ impl BankDoor {
             }
         }
         if let Some(res) = crate::ramps::onramp::doors(self, req, peer) {
+            return res;
+        }
+        if let Some(res) = crate::card_ops_desk::record::door(self, req, peer) {
             return res;
         }
         if let Some(res) = rest::answer(self, req) {

@@ -11,6 +11,7 @@
 
 pub mod activity;
 pub mod automations;
+pub mod card_ops_desk;
 pub mod cards;
 pub mod credit_previews;
 pub mod db;

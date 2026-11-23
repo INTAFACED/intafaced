@@ -395,7 +395,7 @@ pub fn answer(door: &BankDoor, req: &Request<'_>) -> Option<Response> {
         return Some(reply(403, "caller not allowed", "bank.caller_forbidden"));
     }
     if path == PARTNER_RESERVES {
-        return Some(not_ported(Slice::CardOps));
+        return Some(crate::card_ops_desk::reserves::door(door));
     }
     Some(
         match restore_watermark::read(door.store(), door.now(), BANK_SCHEMA) {

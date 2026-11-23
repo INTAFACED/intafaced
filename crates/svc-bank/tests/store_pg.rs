@@ -239,17 +239,15 @@ fn the_watermark_is_svc_ops_alone_and_counts_every_bank_row() {
     // A read changes nothing.
     assert_eq!(db.count("SELECT count(*) FROM bank.spaces"), 2);
 
-    // The capital read is svc-ops' too, and the card-ops slice's past that.
+    // The capital read is svc-ops' too, and the card-ops slice's past that: a deployment with no partner adapter lists
+    // none (`card_ops_desk_programme_db.rs` holds the partners' rows).
     assert_eq!(
         post(&d, "/internal/capital/partner-reserves", Some("svc-pay")).0,
         403
     );
     let (status, body) = post(&d, "/internal/capital/partner-reserves", Some("svc-ops"));
-    assert_eq!(status, 500);
-    assert_eq!(
-        body.compact(),
-        r#"{"error":"svc-bank in Rust: the card-ops slice is not ported"}"#
-    );
+    assert_eq!(status, 200, "{}", body.compact());
+    assert_eq!(body.get("partners"), Some(&Json::Array(vec![])));
     d.end();
 }
 

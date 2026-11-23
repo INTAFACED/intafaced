@@ -715,7 +715,7 @@ fn opt_amount_text(s: Option<String>) -> Result<Json, Refusal> {
 }
 
 /// `parseChannel`.
-fn channel(v: &str) -> &str {
+pub(crate) fn channel(v: &str) -> &str {
     match v {
         "online" | "contactless" | "atm" | "foreign" | "card-present" => v,
         _ => "card-present",

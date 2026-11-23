@@ -24,6 +24,14 @@ mod automations_pay_yourself_db;
 mod automations_rules_db;
 #[path = "automations_sorter_db.rs"]
 mod automations_sorter_db;
+#[path = "card_ops_desk_disputes_db.rs"]
+mod card_ops_desk_disputes_db;
+#[path = "card_ops_desk_programme_db.rs"]
+mod card_ops_desk_programme_db;
+#[path = "card_ops_desk_reads_db.rs"]
+mod card_ops_desk_reads_db;
+#[path = "card_ops_desk_record_db.rs"]
+mod card_ops_desk_record_db;
 #[path = "card_ops_ledger_db.rs"]
 mod card_ops_ledger_db;
 #[path = "card_ops_partner_db.rs"]
@@ -94,6 +102,7 @@ mod transfers_withdrawal_db;
 mod wire_replay;
 
 // The helpers the files share: `use crate::<helper>;`, never a `mod` of their own.
+mod card_ops_desk_kit;
 mod card_ops_kit;
 mod loans_kit;
 mod support;
