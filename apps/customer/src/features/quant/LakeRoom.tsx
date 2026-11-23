@@ -30,7 +30,7 @@ export function LakeRoom({ paper }: { paper: boolean }) {
       title={t('dataTitle')}
       description={t('dataIntro')}
       state={{ kind: 'ready' }}
-      filters={<QuantRooms active="data" paper={paper} />}
+      section={<QuantRooms paper={paper} />}
       list={
         <section>
           <h2>{t('dataTitle')}</h2>
