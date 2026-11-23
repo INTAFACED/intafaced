@@ -400,6 +400,14 @@ async function sendFromWallet(page, wallet, to, amount, { prefilled = false } = 
   await form.getByRole('button', { name: 'Review', exact: true }).click();
   const summary = page.getByRole('dialog', { name: 'Review the send', exact: true });
   await expect(summary).toContainText(`${amount} ${TOKEN_USD.name}`);
+  // The amount the review shows the customer, read from the page: kept for #8 against the chain.
+  const amountLine = summary
+    .locator('dl > div')
+    .filter({ has: page.locator('dt', { hasText: /^Amount$/ }) })
+    .locator('dd');
+  const amountText = (await amountLine.innerText()).trim();
+  expect(amountText.endsWith(` ${TOKEN_USD.name}`), `the review names the token: ${amountText}`).toBe(true);
+  const shownAmount = amountText.slice(0, -` ${TOKEN_USD.name}`.length).replace(/,/g, '');
   await summary.getByRole('textbox', { name: /^Last four characters/ }).fill(to.slice(-4));
   const sendsBefore = wallet.sends.length;
   await summary.getByRole('button', { name: 'Send', exact: true }).click();
@@ -421,7 +429,7 @@ async function sendFromWallet(page, wallet, to, amount, { prefilled = false } = 
   // One send, signed in the wallet.
   expect(wallet.sends.length - sendsBefore, 'the wallet sends once').toBe(1);
   expect(wallet.sends.at(-1).method).toBe('eth_sendTransaction');
-  return { hash, feeLine: page.getByTestId('send-network-fee') };
+  return { hash, shownAmount, feeLine: page.getByTestId('send-network-fee') };
 }
 
 /** The send's network fee as the page shows it, equal to what the chain's receipt says it paid; kept for #8. */
@@ -657,7 +665,7 @@ test(`${J} #5 pays a person: one send signed by the customer's wallet to the rec
   await signInNow(page);
   await page.goto('/wallet/send');
   await connectWhenAsked(page, page.getByRole('button', { name: 'Disconnect', exact: true }));
-  const { hash, feeLine } = await sendFromWallet(page, wallet, recipient, PAY);
+  const { hash, shownAmount, feeLine } = await sendFromWallet(page, wallet, recipient, PAY);
   await paidFee(hash);
   // Both wallets, read back from the chain: moved by exactly the amount.
   const raw = toUnits(PAY) / 10n ** 12n;
@@ -668,7 +676,12 @@ test(`${J} #5 pays a person: one send signed by the customer's wallet to the rec
   // One send: the only transaction from the wallet since the step began is this one.
   const head = await chain().getBlockNumber();
   expect(await sentSince(owner, fromBlock, head), 'the wallet sent one transaction').toEqual([hash.toLowerCase()]);
-  keepShown(5, 'amount sent, from the chain', PAY, usd(before.from - (await chainBalance(TOKEN_USD.address, owner))));
+  keepShown(
+    5,
+    'amount sent, shown on the review, from the chain',
+    shownAmount,
+    usd(before.from - (await chainBalance(TOKEN_USD.address, owner))),
+  );
   await ledgerHoldsNothing('after the send');
 });
 
