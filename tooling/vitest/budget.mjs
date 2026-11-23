@@ -10,7 +10,9 @@
 //
 // Every vitest config spreads it (`test: { ...TEST_BUDGET, ... }`); tooling/vitest/budget.test.mjs fails a package whose
 // tests run on vitest without it. A package that needs longer says so after the spread, as tooling/pay-sim does.
+import { fileURLToPath } from 'node:url';
 import { localWorkers } from '../scripts/local-jobs.mjs';
+import { RESULTS_ENV } from '../ci/test-results-reporter.mjs';
 
 /**
  * Node's own Web Storage off in the test workers on Node 25 and later, where it is on by default: with no
@@ -24,4 +26,23 @@ export function nodeStorageOff(version = process.versions.node) {
   return Number(version.split('.')[0]) >= 25 ? { execArgv: ['--no-experimental-webstorage'] } : {};
 }
 
-export const TEST_BUDGET = Object.freeze({ testTimeout: 30_000, hookTimeout: 30_000, ...localWorkers(), ...nodeStorageOff() });
+const RESULTS_REPORTER = fileURLToPath(new URL('../ci/test-results-reporter.mjs', import.meta.url));
+
+/**
+ * When CI's Tests job asks for them (INTAFACED_TEST_RESULTS, a folder), vitest's own reporters plus the one that writes
+ * what the run failed as data (tooling/ci/test-results-reporter.mjs; the Tests job's verdict, tooling/ci/base-failures.mjs,
+ * reads it). Naming any reporter replaces vitest's defaults, so they are named too, as vitest picks them: `default`, and
+ * `github-actions` on GitHub's runners. Unset, nothing: vitest picks its own.
+ */
+export function testResults(env = process.env) {
+  if (!env[RESULTS_ENV]) return {};
+  return { reporters: ['default', ...(env.GITHUB_ACTIONS === 'true' ? ['github-actions'] : []), RESULTS_REPORTER] };
+}
+
+export const TEST_BUDGET = Object.freeze({
+  testTimeout: 30_000,
+  hookTimeout: 30_000,
+  ...localWorkers(),
+  ...nodeStorageOff(),
+  ...testResults(),
+});
