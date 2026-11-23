@@ -96,7 +96,11 @@
 </header>
 <main id="main" tabindex="-1">
 <div class="flex min-w-0 flex-col" data-screen="margin">
-<div class="mx-auto w-full max-w-(--if-w-content,1224px) px-(--if-gutter) pt-4">
+<div class="mx-auto flex w-full max-w-(--if-w-content,1224px) flex-col gap-8 px-(--if-gutter) py-6">
+<header class="lt-stack">
+<h1 class="text-xl font-semibold text-fg">Margin account</h1>
+<p class="max-w-3xl text-base text-fg-2">Futures margin is isolated: each position carries its own margin and can lose only that. This page shows how much you have at risk and how close each position is.</p>
+</header>
 <nav class="lt-tabs" aria-label="Trading rooms" data-region="section-tabs">
 <a href="/trade/spot/BTC-USDT" class="lt-tab">Spot</a>
 <a href="/trade/margin" class="lt-tab" aria-current="page">Margin</a>
@@ -108,12 +112,6 @@
 <a href="/execution" class="lt-tab">Execution</a>
 <a href="/otc" class="lt-tab">Quote desk</a>
 </nav>
-</div>
-<div class="mx-auto flex w-full max-w-(--if-w-content,1224px) flex-col gap-8 px-(--if-gutter) py-6">
-<header class="lt-stack">
-<h1 class="text-xl font-semibold text-fg">Margin account</h1>
-<p class="max-w-3xl text-base text-fg-2">Futures margin is isolated: each position carries its own margin and can lose only that. This page shows how much you have at risk and how close each position is.</p>
-</header>
 <section aria-label="Margin account" class="grid grid-cols-2 gap-6 md:grid-cols-5">
 <div role="group" aria-labelledby="_r_3_-label" aria-describedby="_r_3_-hint" data-slot="stat" data-density="comfortable" data-size="md" class="flex min-w-0 flex-col gap-1 items-start" data-freshness="live">
 <span id="_r_3_-label" class="text-fg-2 text-xs">Free balance</span>

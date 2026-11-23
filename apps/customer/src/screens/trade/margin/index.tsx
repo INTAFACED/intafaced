@@ -151,12 +151,13 @@ export default function MarginScreen(_props: ScreenProps) {
 
   return (
     <div className="flex min-w-0 flex-col" data-screen="margin">
-      <ModeStrip />
+      {/* The Trade bar sits in the content column below, under the title, so it lines up with the room. */}
       <div className="mx-auto flex w-full max-w-(--if-w-content,1224px) flex-col gap-8 px-(--if-gutter) py-6">
         <header className="lt-stack">
           <h1 className="text-xl font-semibold text-fg">{t('Margin account')}</h1>
           <p className="max-w-3xl text-base text-fg-2">{t('Margin intro')}</p>
         </header>
+        <ModeStrip />
 
         {!userId ? (
           <EmptyState
