@@ -47,8 +47,8 @@ const GLOB_CHARS = /[*?[\]{}()!+@\s\\]/;
 // shards at 10, so run 45031535392's shard 1 took 17.9 minutes against a median shard of 9.8, 1.82 times, and the
 // run ended no sooner for its extra shards.)
 export const SETUP_SPREAD_MINUTES = 2;
-// When the TEST tape first holds the 8 closed one-minute bars a backtest journey waits for (apps/customer/tests/real-app/
-// tape.mjs tapeWindow), counted from the start of a shard's journeys: the market maker starts trading just before them
+// When the TEST tape first holds the 8 closed one-minute bars a backtest journey waits for (the journeys'
+// tapeWindow), counted from the start of a shard's journeys: the market maker starts trading just before them
 // on a fresh tape, so the window fills about 8 to 9 minutes later, whatever runs. A file that reads the tape (tapeFiles)
 // waits until then unless the files before it in its shard already took that long, so the plan counts the wait where it
 // falls (shardEnd), and a step's own time leaves its recorded wait out (TAPE_WAIT). (Failure it prevents: pull request
@@ -57,9 +57,9 @@ export const SETUP_SPREAD_MINUTES = 2;
 // the shard ran 21.3 and 20.4 minutes against a median shard of 15.4 and 14.9, 1.39 and 1.37 times. Shard 17 of run
 // 45141928928 waited the same way in J-algo-dev-06, 1.48 times.)
 export const TAPE_READY_MINUTES = 8.5;
-// The annotation tapeWindow (tape.mjs) gives a step with the milliseconds it waited on the tape.
+// The annotation the journeys' tapeWindow gives a step with the milliseconds it waited on the tape.
 export const TAPE_WAIT = 'tape-wait';
-// A journey file reads the TEST tape when it calls tapeWindow (tape.mjs, the one way a journey waits on it).
+// A journey file reads the TEST tape when it calls tapeWindow (the one way a journey waits on it).
 const READS_TAPE = /\btapeWindow\(/;
 // Never below this, so a shard's setup (about 8 minutes) stays under half of its job.
 export const MIN_TARGET_MINUTES = 10;

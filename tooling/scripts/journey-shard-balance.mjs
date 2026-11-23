@@ -7,6 +7,7 @@
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runJobsSync } from '../ci/run-jobs.mjs';
 
 const BAR = { runs: 20, minRunMinutes: 5, medianRunMinutes: 17, shardRatio: 1.3 };
 const SHARD_JOB = /^Journeys \(shard \d+ of \d+\)$/;
@@ -74,7 +75,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const readings = [];
   for (const run of runs) {
     if (minutes(run.createdAt, run.updatedAt) < BAR.minRunMinutes) continue;
-    const { jobs } = gh(['api', `repos/${repo}/actions/runs/${run.databaseId}/jobs?per_page=100`]);
+    const jobs = runJobsSync(`repos/${repo}/actions/runs/${run.databaseId}/jobs`, (page) => gh(['api', page])) ?? [];
     readings.push(readRun(run, jobs));
     if (readings.length >= want) break;
   }
