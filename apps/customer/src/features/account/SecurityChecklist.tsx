@@ -43,7 +43,7 @@ export function SecurityChecklist({ revision = 0 }: { revision?: number } = {}) 
       <h2>{t('title')}</h2>
       <p>{t('body')}</p>
       <ScamGuidesLink />
-      <ul data-testid="security__rows">
+      <ul className="lt-rows" data-testid="security__rows">
         {status.checklist.map((item) => {
           const more = detail(status, item.key, t);
           return (
@@ -60,7 +60,7 @@ export function SecurityChecklist({ revision = 0 }: { revision?: number } = {}) 
       {/* With no second step on yet, the service lets the password alone change sign-in methods; say so plainly. */}
       <h3>{hasSecondStep ? t('requiredTitle') : t('requiredTitleNoFactor')}</h3>
       {!hasSecondStep && <p className="lt-hint">{t('noFactorYet')}</p>}
-      <ul data-testid="security__rows">
+      <ul className="lt-rows" data-testid="security__rows">
         {status.secondStepRequired.floor.map((action) => (
           <li key={action} data-testid="security__row">
             <span>{t(action)}</span> <Tag>{t('required')}</Tag>
