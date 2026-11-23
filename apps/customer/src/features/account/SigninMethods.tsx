@@ -17,6 +17,7 @@ import { IDENTITY_LINK_SIGNIN_METHOD } from '@intafaced/contracts/identity-link-
 import { IDENTITY_WALLET_LINK_CHALLENGE } from '@intafaced/contracts/identity-wallet-link-challenge-procedures';
 import { IDENTITY_LINK_PROVIDER_START } from '@intafaced/contracts/identity-link-provider-start-procedures';
 import { IDENTITY_UNLINK_SIGNIN_METHOD } from '@intafaced/contracts/identity-unlink-signin-method-procedures';
+import { leaveTo } from '../../app/location';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 /** One change on its way: sent once without a confirmation, so a refusal costs none, then again with one. */
@@ -180,7 +181,7 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
       const answer = await api.call(IDENTITY_LINK_PROVIDER_START, { provider: 'social' });
       if (!mounted.current) return;
       const target = answer.ok ? new URL(answer.data.authorizationUrl) : null;
-      if (target?.protocol === 'https:') return location.assign(target.href);
+      if (target?.protocol === 'https:') return leaveTo(target.href);
       if (!answer.ok && answer.code === 'idp.social') return setOff({ code: 'idp.social', action: t('socialSignIn') });
       if (!answer.ok) setFailure(answer);
     } finally {

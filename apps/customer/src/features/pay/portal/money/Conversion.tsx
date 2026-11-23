@@ -22,6 +22,7 @@ import { useMoneyReason } from '../access/MoneyAction';
 import type { ConversionOrder, ConversionQuote } from '@intafaced/contracts/conversion';
 import { settlementName } from './Settlements';
 import { isConversionOff } from './refusals';
+import { leaveTo } from '../../../../app/location';
 
 // The list and each order's own page are on the record-list template (`./ConversionOrders`); this file keeps the
 // quote-and-convert flow, which is on its own template.
@@ -217,7 +218,7 @@ export function ConversionNew({ portal, merchantId }: { portal: PortalApi; merch
                   if (sent.ok || sent.reason === 'error' || sent.reason === 'forbidden') request.renew();
                   return sent;
                 }}
-                onConfirmed={(o) => window.location.assign(orderHref(o.conversionId))}
+                onConfirmed={(o) => leaveTo(orderHref(o.conversionId))}
               />
             </PaySection>
           )}

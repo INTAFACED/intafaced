@@ -1355,6 +1355,8 @@ function ensureBuilt(rebuild, { admin = true } = {}) {
     runPnpm(['--filter', '@intafaced/customer...', 'build'], 'build-customer', {
       VITE_TEAM_URL: TEAM_TLS_ORIGIN,
       INTAFACED_SOURCEMAP: 'hidden',
+      // The beta's switch (tooling/beta/beta-host.mjs): only rooms finished in Volt show. Unset on every other stack.
+      ...(process.env.INTAFACED_BETA_VOLT_ONLY === '1' ? { INTAFACED_BETA_VOLT_ONLY: '1' } : {}),
     });
     // Each map becomes positions only (source paths and line positions, no source text) and the .map is deleted, before
     // the build is served or packed: the journeys run's build artifact is public (journey-reach.mjs reduceMaps).

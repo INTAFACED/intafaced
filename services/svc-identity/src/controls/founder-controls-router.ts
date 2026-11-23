@@ -3,10 +3,6 @@ import type { IdentityAccountControlInput, Context } from '@intafaced/contracts'
 import {
   accountControlInputSchema,
   identityAccountControlInputSchema,
-  accountControlLookupInputSchema,
-  accountControlHistoryInputSchema,
-  accountControlStateSchema,
-  accountControlResultSchema,
   accountOperatorEntitlementSchema,
   accountClosureInputSchema,
   accountClosureHistoryInputSchema,
@@ -50,6 +46,9 @@ import {
   IDENTITY_ACCOUNT_CONTROLS_ARCHIVE_STATE,
   IDENTITY_ACCOUNT_CONTROLS_LIMITS_HISTORY,
   IDENTITY_ACCOUNT_CONTROLS_LIMITS,
+  IDENTITY_ACCOUNT_CONTROLS_GET_STATE,
+  IDENTITY_ACCOUNT_CONTROLS_HISTORY,
+  IDENTITY_ACCOUNT_CONTROLS_CHANGE,
 } from '@intafaced/contracts/identity-account-controls-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { codedRefusal } from '../record-refusal.js';
@@ -152,23 +151,17 @@ function limitsDesk(limits: AccountLimitsPort | undefined): AccountLimitsPort {
 export function createFounderControlsRouter(controls: FounderControlsPort, details?: CustomerDetailsPort, limits?: AccountLimitsPort) {
   return router({
     accountControls: router({
-      change: protectedProcedure
-        .input(
-          identityAccountControlInputSchema.refine(
-            (input) => input.target.area === 'identity' || input.target.area === 'trading',
-            'Identity or trading target required',
-          ),
-        )
-        .output(accountControlResultSchema)
-        .mutation(({ ctx, input }) => callFounderControl(controls, ctx, input)),
-      history: protectedProcedure
-        .input(accountControlHistoryInputSchema.refine((input) => input.target.area === 'identity', 'Identity target required'))
-        .output(z.array(accountControlResultSchema))
-        .query(({ ctx, input }) => controlCall(() => controls.history(ctx, input))),
-      getState: protectedProcedure
-        .input(accountControlLookupInputSchema.refine((input) => input.target.area === 'identity', 'Identity target required'))
-        .output(accountControlStateSchema.nullable())
-        .query(({ ctx, input }) => controlCall(() => controls.getState(ctx, input))),
+      change: mountRecord(IDENTITY_ACCOUNT_CONTROLS_CHANGE, ({ ctx, input }) => callFounderControl(controls, ctx, input), codedRefusal),
+      history: mountRecord(
+        IDENTITY_ACCOUNT_CONTROLS_HISTORY,
+        ({ ctx, input }) => controlCall(() => controls.history(ctx, input)),
+        codedRefusal,
+      ),
+      getState: mountRecord(
+        IDENTITY_ACCOUNT_CONTROLS_GET_STATE,
+        ({ ctx, input }) => controlCall(() => controls.getState(ctx, input)),
+        codedRefusal,
+      ),
       // Staff close and reopen (J-ops-console-04 #7): a live founder with a second person's approval, spent here.
       closure: protectedProcedure
         .input(accountClosureInputSchema)

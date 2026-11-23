@@ -58,34 +58,12 @@ export function Compromised() {
   const last = useRef<{ case: CompromiseCase | null } | null>(null);
   if (resource.status === 'ready') last.current = { case: resource.data?.case ?? null };
   const shown = resource.status === 'ready' || resource.status === 'loading' ? last.current : null;
-  const sections: readonly (readonly [
-    'compromised-what' | 'compromised-case' | 'compromised-stolen',
-    'whatTitle' | 'caseTitle' | 'stolenTitle',
-  ])[] = shown?.case
-    ? [
-        ['compromised-case', 'caseTitle'],
-        ['compromised-stolen', 'stolenTitle'],
-      ]
-    : [['compromised-what', 'whatTitle']];
   return (
     <div data-testid="compromised" lang={languageFor('title')}>
       <SettingsTemplate
         title={t('title')}
         description={t('intro')}
         state={{ kind: 'ready' }}
-        index={
-          <nav aria-label={t('sectionsLabel')}>
-            <ul>
-              {sections.map(([id, key]) => (
-                <li key={id}>
-                  <a className="lt-link" href={`#${id}`}>
-                    {t(key)}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </nav>
-        }
         sections={
           <>
             {resource.status === 'loading' && !shown && <Loading />}
