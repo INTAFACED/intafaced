@@ -80,6 +80,8 @@ export const TRPC = {
     );
     return { ...page, items: input.limit ? items.slice(0, input.limit) : items };
   },
+  // protocol: the one TEST wallet the account connected; the venue account it owns is its trading account (row d115).
+  'protocol:venueWallet.status': () => ({ connections: [venueConnection()] }),
 };
 
 export const REST = {
@@ -90,4 +92,23 @@ export const REST = {
   'account/trades': () => fills(),
   'orders/open': () => openOrders(),
   'orders/closed': () => closedOrders(),
+  // TEST: what the venue reports in that trading account, so Home's Get started has its money step done.
+  'venue/balances': () => ({
+    venueId: 'test-venue',
+    asOf: new Date(Date.now()).toISOString(),
+    value: [{ asset: 'USDC', free: '25', locked: '0', total: '25' }],
+  }),
 };
+
+/** The TEST wallet's connection, as svc-protocol records it: live for a month from the frozen time, never holding a key. */
+function venueConnection() {
+  const now = Date.now();
+  return {
+    address: '0x00000000000000000000000000000000000000a1',
+    chainId: 84532,
+    connectedAt: new Date(now - 86_400_000).toISOString(),
+    expiresAt: new Date(now + 30 * 86_400_000).toISOString(),
+    status: 'live',
+    holdsKey: false,
+  };
+}

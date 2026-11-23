@@ -5,6 +5,7 @@ import { Dialog, FlowTemplate, StatusChip } from '@intafaced/ui/lit/templates';
 import { useSession } from '../session';
 import { Empty, Failure, Loading } from './kit-parts';
 import { uiCopy } from '../../shared/ui-copy';
+import { ShortReference } from '../../shared/ShortReference';
 import type { ApiClient } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { verificationCopy as copy } from './verification-copy';
@@ -411,8 +412,8 @@ export function Verification() {
             <p>
               <Copy k="reference" />
             </p>
-            <p className="lt-ref" lang="zxx">
-              {local.requestId}
+            <p className="lt-ref">
+              <ShortReference id={local.requestId} />
             </p>
             <p>
               <Copy k="paused" />
@@ -463,8 +464,8 @@ export function Verification() {
               <p>
                 <Copy k="reference" />
               </p>
-              <p className="lt-ref" lang="zxx">
-                {receipt.local.requestId}
+              <p className="lt-ref">
+                <ShortReference id={receipt.local.requestId} />
               </p>
               <Button tone="secondary" disabled={busy} onClick={() => void finalize(receipt)}>
                 <Copy k="finish" />
@@ -732,8 +733,8 @@ export function Verification() {
           <p>
             <Copy k="owner" />
           </p>
-          <p className="lt-ref" lang="zxx">
-            {review.owner}
+          <p className="lt-ref">
+            <ShortReference id={review.owner} />
           </p>
           <h3>
             <Copy k={review.tier} /> · <span lang="zxx">{review.country}</span>

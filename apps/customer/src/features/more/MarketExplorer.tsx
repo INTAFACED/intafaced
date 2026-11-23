@@ -10,7 +10,7 @@ import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import { displayAmount } from '../../shared/money';
 import { usePreferences } from '../../shared/preferences';
-import { Button, Field, Radio, Select } from '@intafaced/ui/lit';
+import { Button, Field, Radio, Select, Surface } from '@intafaced/ui/lit';
 import { Details } from './catalogue-parts';
 import { KitRead, Section } from './volt-parts';
 import { assetsOf, isFiltered, NO_FILTER, periodUnit, type ListingFilter, type ListingRow } from './market-explorer';
@@ -34,13 +34,15 @@ export function MarketDoors() {
   return (
     <nav aria-label={t('doorsTitle')}>
       <p className="lt-hint">{t('doorsNote')}</p>
-      <ul className="lt-stack">
+      <ul className="lt-doors">
         {MARKET_DOORS.map((door) => (
-          <li key={door.key} className="lt-stack">
-            <a className="lt-link" href={door.href}>
-              {t(door.key)}
-            </a>
-            <small className="lt-hint">{t(door.note)}</small>
+          <li key={door.key}>
+            <Surface material="raised" className="lt-stack">
+              <a className="lt-link" href={door.href}>
+                {t(door.key)}
+              </a>
+              <small className="lt-hint">{t(door.note)}</small>
+            </Surface>
           </li>
         ))}
       </ul>

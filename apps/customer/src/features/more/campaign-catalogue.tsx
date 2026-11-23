@@ -123,14 +123,17 @@ export function CampaignCatalogue() {
       <section>
         <h2>{t('typesTitle')}</h2>
         {catalogue.resource.status === 'ready' ? (
-          <ul className="lt-rows" aria-label={t('typesLabel')} data-testid="campaign-types">
+          <dl className="lt-kv" aria-label={t('typesLabel')} data-testid="campaign-types">
             {catalogue.resource.data.types.map((row) => (
-              <li key={row.type} data-testid="campaign-type" data-type={row.type} data-code={row.blocker ?? undefined}>
-                <strong>{t(`type_${row.type}`)}</strong>: {row.blocker ? t('typeParked') : t('typeOpen')}
-                {row.blocker ? <p className="lt-hint">{t(`owner.decision.${row.type as 'gift_card' | 'points'}`)}</p> : null}
-              </li>
+              <div key={row.type} data-testid="campaign-type" data-type={row.type} data-code={row.blocker ?? undefined}>
+                <dt>{t(`type_${row.type}`)}</dt>
+                <dd>
+                  {row.blocker ? t('typeParked') : t('typeOpen')}
+                  {row.blocker ? <span className="lt-kv-note">{t(`owner.decision.${row.type as 'gift_card' | 'points'}`)}</span> : null}
+                </dd>
+              </div>
             ))}
-          </ul>
+          </dl>
         ) : (
           <LoadingLine label={t('catalogueLoading')} />
         )}
