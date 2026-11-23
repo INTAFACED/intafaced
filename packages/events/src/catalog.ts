@@ -2524,7 +2524,7 @@ export const WIRING_SOCKETS = [
   // `bankMarginCalled` was here, and was the reason this section existed: a
   // complete event with a complete svc-notify consumer that parked on a stream
   // no service had ever created. svc-bank now owns `INTAFACED_BANK` and publishes
-  // the call — see services/svc-bank/src/loans/margin-call-publisher.ts. That
+  // the call — see crates/svc-bank/src/loans/ports.rs. That
   // entry left by being wired, not by being reworded.
   //
   // `buybackExecuted` is the current occupant. The catalog event stays; emitting

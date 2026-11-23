@@ -33,6 +33,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { HOME_NOTICE_DAYS, applyHome, homeStatus } from './local-test-home.mjs';
 import { custodyLayerOf, custodyOffRefusal, localStackState } from './local-test-state.mjs';
 import { GATE_URL, stackUrl } from './local-test-facts.mjs';
@@ -77,9 +78,9 @@ export const TEST_EARN = [
 
 /**
  * Policy numbers are copied from a passing loan fixture, not invented here:
- * `DEFAULT_LIQUIDATION_POLICY` in services/svc-bank/src/loans/risk.ts and
- * `aprBps` / `maxLtvBps` in services/svc-bank/src/loans/originate-public-door.test.ts
- * (`seedProduct`). The service's own policy check is the judge.
+ * `DEFAULT_LIQUIDATION_POLICY` in crates/svc-bank/src/loans/risk.rs and the
+ * loan product the bank's own tests open (`aprBps` 1000, `maxLtvBps` 5000).
+ * The service's own policy check is the judge.
  */
 export const TEST_LOAN_POLICY = {
   marginCallLtvBps: 7500,
@@ -744,7 +745,7 @@ async function signedCall(plan, contracts, route, body) {
  * A script under `tooling/scripts/` cannot resolve that dependency itself.
  */
 export function resolvePostgres(repo) {
-  const pkg = path.join(repo, 'services', 'svc-bank', 'package.json');
+  const pkg = path.join(repo, 'services', 'svc-p2p', 'package.json');
   try {
     const loaded = createRequire(pkg)('postgres');
     return loaded?.default ?? loaded;
@@ -908,20 +909,60 @@ function homeDeps(plan) {
     })());
 }
 
+/** svc-bank's Rust binary, as the stack builds it (`rustBin('bank')` in local-test-stack.mjs). */
+export const BANK_BIN = path.join(REPO, 'crates', 'svc-bank', 'dist', 'svc-bank');
+
+/**
+ * The TEST earn pool's id, made from its name, so a seed run that crashed after making it makes the same pool again
+ * rather than a second one.
+ */
+export function earnPoolId(name) {
+  const h = createHash('sha256').update(`local-test-seed earn pool: ${name}`).digest('hex');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-8${h.slice(17, 20)}-${h.slice(20, 32)}`;
+}
+
+/**
+ * One `svc-bank test-seed <op>` run on the stack's bank schema: svc-bank's own code lists and opens the TEST pools and
+ * products. Amounts go as decimal strings; a refusal throws with its code, as the service's own error does.
+ */
+export function bankSeed(plan, formatAmount, run = execFileSync) {
+  return (op, input) => {
+    const wire = JSON.stringify(input, (_k, v) => (typeof v === 'bigint' ? formatAmount(v) : v));
+    let out;
+    try {
+      out = run(BANK_BIN, ['test-seed', op], {
+        input: wire,
+        encoding: 'utf8',
+        env: { PATH: process.env.PATH, DATABASE_URL: plan.bankUrl, APP_ENV: 'test' },
+        stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: 60_000,
+      });
+    } catch (err) {
+      const refused = (() => {
+        try {
+          return JSON.parse(String(err.stdout ?? '')).refused;
+        } catch {
+          return undefined;
+        }
+      })();
+      if (refused) throw Object.assign(new Error(refused.message || refused.code), { code: refused.code || undefined });
+      if (err.code === 'ENOENT') throw new Error(`svc-bank is not built (${BANK_BIN}). Run: pnpm local:stack --rebuild`);
+      throw new Error(`svc-bank test-seed ${op} failed: ${String(err.stderr ?? err.message).trim()}`);
+    }
+    return JSON.parse(out);
+  };
+}
+
 export async function openLocal(plan) {
   const postgres = resolvePostgres(REPO);
   let ledgerClient;
   let contracts;
-  let EarnService;
-  let LoanService;
   let InstrumentService;
   try {
     [ledgerClient, contracts] = await Promise.all([
       importFromRepo('packages/ledger-client/dist/index.js'),
       importFromRepo('packages/contracts/dist/index.js'),
     ]);
-    EarnService = (await importFromRepo('services/svc-bank/dist/earn/earn-service.js')).EarnService;
-    LoanService = (await importFromRepo('services/svc-bank/dist/loans/loan-service.js')).LoanService;
     InstrumentService = (await importFromRepo('services/svc-p2p/dist/instrument-service.js')).InstrumentService;
   } catch (err) {
     throw new Error(`packages are not built (${err.message}). Run: pnpm local:stack --rebuild`);
@@ -934,15 +975,15 @@ export async function openLocal(plan) {
   });
   const bankSql = postgres(plan.bankUrl, sqlOpts('bank'));
   const p2pSql = postgres(plan.p2pUrl, sqlOpts('p2p'));
-  const unusedLedger = {};
-  const earn = new EarnService(bankSql, unusedLedger);
-  const loans = new LoanService(bankSql, unusedLedger, {
-    priceSource: {
-      async price() {
-        throw new Error('local-test-seed does not invent price marks');
-      },
-    },
-  });
+  const bank = bankSeed(plan, ledgerClient.formatAmount);
+  const earn = {
+    listPools: (_assetId, limit) => bank('list-pools', { limit }),
+    createPool: (input) => bank('create-pool', { ...input, poolId: earnPoolId(input.name) }),
+  };
+  const loans = {
+    listProducts: (_assetId, limit) => bank('list-products', { limit }),
+    createProduct: (input) => bank('create-product', input),
+  };
   const instruments = new InstrumentService(p2pSql);
   const namesIn = (sql, names) => sql(names);
 

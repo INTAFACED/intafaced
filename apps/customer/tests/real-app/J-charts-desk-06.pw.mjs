@@ -364,7 +364,14 @@ test(`${J} #4 draws a pattern and a shape, and uses the brush: each is stored an
   }
 });
 
-test(`${J} #5 places a long position box with entry, stop and target: the risk to reward and the distances, and no order`, async () => {
+test(`${J} #5 places a long position box with entry, stop and target: the risk to reward and the distances, and no order`, async ({
+  stepPicture,
+}) => {
+  // The person clears the chart first (Clear all, confirmed), so the box's own labels are the ones on it: steps 1 to 4's
+  // levels drawn over it hid its target and ratio in the step's picture.
+  await pick(page, 'Clear all');
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Clear all', exact: true }).click();
+  await expect(rows(page)).toHaveCount(0);
   expect(await openOrders(who), 'the fresh account has no open order before the box').toEqual([]);
   const orderWrites = [];
   const watch = (req) => {
@@ -395,6 +402,12 @@ test(`${J} #5 places a long position box with entry, stop and target: the risk t
   // No order exists: the page sent nothing to an order route, and the account's open orders on Edge are still none.
   expect(orderWrites, 'requests to an order route while the box was placed').toEqual([]);
   expect(await openOrders(who), "the account's open orders after the position box").toEqual([]);
+  // The step's picture: the whole page, so the box on the chart and its row with every figure are both in it. The row sits
+  // in the drawing dock, which scrolls on its own under the chart: it is scrolled to the row's top first (the picture
+  // takes the window to the top, and leaves the dock where it is).
+  await expect(rows(page)).toHaveCount(1);
+  await box.evaluate((el) => el.scrollIntoView({ block: 'start', inline: 'nearest', behavior: 'instant' }));
+  await stepPicture(page);
 });
 
 test(`${J} #6 measures between two bars and two prices: the bars, the price difference at the tick and the time span`, async () => {

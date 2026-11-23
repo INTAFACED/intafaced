@@ -67,7 +67,10 @@ test(`${J} #1 /status shows each component's state with an as-of time and an emp
   await page.context().close();
 });
 
-test(`${J} #2 the machine feed lists components, incidents with impact and updates, and uptime history`, async () => {
+test(`${J} #2 the machine feed lists components, incidents with impact and updates, and uptime history`, async ({
+  browser,
+  stepPicture,
+}) => {
   test.setTimeout(300_000);
   if (!emptyBoard) throw new Error('#1 left no status page of this journey to read');
   try {
@@ -125,6 +128,18 @@ test(`${J} #2 the machine feed lists components, incidents with impact and updat
       ['TEST investigating slow answers', 'minor'],
       ['TEST fix deployed, watching', 'major'],
     ]);
+
+    // The feed as the developer reads it in a browser: the same JSON, with the incident, its updates and the uptime days.
+    const page = await signedOutVisitor(browser);
+    await page.goto(`${EDGE}/api/notify/v1/status`);
+    const shown = JSON.parse(await page.locator('pre').first().innerText());
+    expect(shown.components.map((c) => [c.id, c.uptime.length])).toEqual([
+      ['rest-api', TEST_VALUES.uptimeDays],
+      ['webhooks', TEST_VALUES.uptimeDays],
+    ]);
+    expect(shown.incidents.map((i) => [i.id, i.impact, i.updates.length])).toEqual([[root.id, 'major', 2]]);
+    await stepPicture(page);
+    await page.context().close();
   } finally {
     await useEmptyBoard(false);
   }
@@ -268,7 +283,7 @@ test(`${J} #5 the version header applies and is echoed; without one the account 
   }
 });
 
-test(`${J} #6 a call with a deprecated field carries the advisory header and entry`, async () => {
+test(`${J} #6 a call with a deprecated field carries the advisory header and entry`, async ({ stepPicture }) => {
   if (!key) throw new Error('#5 left no key to call with');
   const order = { symbol: 'BTC/USDT', type: 'stop_limit', side: 'buy', amount: '0.0001', price: '1' };
   const deprecated = await withKey(key, {
@@ -297,5 +312,14 @@ test(`${J} #6 a call with a deprecated field carries the advisory header and ent
   expect(echo(current)).toEqual([LATEST_API_VERSION, 'header']);
   expect(current.headers.get('deprecation')).toBeNull();
   expect(current.headers.get('intafaced-advisories')).toBeNull();
-  await holder?.page.context().close();
+
+  // The advisory's entry as the developer finds it on the keys page: the deprecated field and its replacement.
+  const { page } = holder;
+  await page.goto('/uc/safe/api-keys');
+  const deprecations = page.getByTestId('api-version').getByTestId('api-version__deprecations');
+  await expect(deprecations).toContainText(`${advisories[0].method} ${advisories[0].path} ${advisories[0].field}`);
+  await expect(deprecations).toContainText(advisories[0].replacement);
+  await expect(deprecations).toContainText('removal date not set');
+  await stepPicture(page);
+  await page.context().close();
 });

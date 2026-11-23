@@ -1514,7 +1514,20 @@ pub fn answer(d: &Deps<'_>, ctx: &crate::door::Ctx<'_>) -> Option<Result<Json, R
             let q = with(d.store, |c| {
                 super::terms::quote(c, user, asset, amount, d.now)
             })?;
-            Ok(q.json((!partner_fee_known(d, user)).then_some(Json::Null)))
+            // The network fee: what the partner holding the sender's money says a send costs (null when it gives
+            // none), "0" on our own book, which crosses no network; null whenever the partner's fee is not known.
+            let network_fee = match d.custody.bank_for(user) {
+                Some(p) => p
+                    .limits(user, asset, d.now)?
+                    .send_fee
+                    .map_or(Json::Null, |f| Json::str(format_amount(f))),
+                None => Json::str("0"),
+            };
+            Ok(q.json(Some(if partner_fee_known(d, user) {
+                network_fee
+            } else {
+                Json::Null
+            })))
         })(),
         "transfers.toUser" => to_user(d, ctx),
         "transfers.settleWithdrawal" => (|| {
