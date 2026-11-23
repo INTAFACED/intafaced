@@ -1,10 +1,17 @@
 import { z } from 'zod';
 import type { Context } from './trpc.js';
 
+/** A guid in lower case: exactly what lower-casing a guid gives, so the piped check below refuses nothing. */
+const LOWER_GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+/**
+ * Any guid in, the same guid in lower case out. The pipe says what comes out in a form a record's export can carry (a
+ * transform alone it cannot): it parses and answers exactly as the transform alone did.
+ */
 const id = z
   .string()
   .guid()
-  .transform((value) => value.toLowerCase());
+  .transform((value) => value.toLowerCase())
+  .pipe(z.string().regex(LOWER_GUID));
 const revision = z.number().int().positive();
 const timestamp = z.string().datetime({ offset: true });
 const count = z.number().int().safe().nonnegative();

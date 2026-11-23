@@ -9,6 +9,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
+import { fromPattern } from './pattern-sample.mjs';
 
 const REPO = resolve(new URL('../../..', import.meta.url).pathname);
 // The records' own zod: the one @intafaced/contracts resolves.
@@ -84,10 +85,13 @@ function candidates(schema, depth = 0, key = '') {
       let list = STRINGS.filter((s) => s.length >= min && s.length <= max);
       if (schema.pattern) {
         const re = new RegExp(schema.pattern, 'u');
+        // After the stock strings, one written from the pattern itself (a key with its own prefix, `announcement:<hex>`).
+        const written = fromPattern(schema.pattern);
         list = [
           ...STRINGS,
           ...Array.from({ length: 6 }, (_, i) => 'a'.repeat(Math.max(1, min + i))),
           ...Array.from({ length: 6 }, (_, i) => '1'.repeat(Math.max(1, min + i))),
+          ...(written === undefined ? [] : [written]),
         ].filter((s) => re.test(s) && s.length >= min && s.length <= max);
       }
       if (list.length === 0) list = ['x'.repeat(Math.max(1, min))];
@@ -142,13 +146,33 @@ function setAt(v, steps, value) {
   return out;
 }
 
+/** The value at `steps` in `v`, or undefined when the path is not there. */
+function getAt(v, steps) {
+  for (const step of steps) {
+    if (step === '[]') v = Array.isArray(v) ? v[0] : undefined;
+    else v = typeof v === 'object' && v !== null && !Array.isArray(v) ? v[step] : undefined;
+    if (v === undefined) return undefined;
+  }
+  return v;
+}
+
+/**
+ * The list a check sits on with its first item twice: what a rule against duplicates alone refuses (`codes` unique), each
+ * item still one the schema allows. Undefined when the base holds no list with an item there.
+ */
+function doubled(base, steps) {
+  const list = getAt(base, steps);
+  return Array.isArray(list) && list.length > 0 ? setAt(base, steps, [list[0], ...list]) : undefined;
+}
+
 /** `input.items[].reason` after the root as steps: `['items', '[]', 'reason']`. */
 const stepsOf = (at) => [...at.replace(/^input/, '').matchAll(/\.([\w$]+)|\[\]/g)].map((m) => m[1] ?? '[]');
 
 /**
  * For each input check the record names, an input refused by that check alone: every issue zod raises is its own words
  * (a custom issue whose message is one of the check's), so the export, which carries the check only by name, accepts it.
- * Tried from every candidate the schema allows, with the value where the check sits replaced.
+ * Tried from every candidate the schema allows, with the value where the check sits replaced, and last with the list
+ * there holding its first item twice.
  */
 function checkRefusals(record, bases) {
   const out = [];
@@ -161,7 +185,7 @@ function checkRefusals(record, bases) {
     let found;
     for (const at of typeof check.at === 'string' ? [check.at] : check.at) {
       const steps = stepsOf(at);
-      const tries = bases.flatMap((b) => (steps.length ? CHECK_TRIES.map((t) => setAt(b, steps, t)) : [b]));
+      const tries = bases.flatMap((b) => (steps.length ? [...CHECK_TRIES.map((t) => setAt(b, steps, t)), doubled(b, steps)] : [b]));
       found = tries.find((v) => v !== undefined && alone(v));
       if (found !== undefined) break;
     }

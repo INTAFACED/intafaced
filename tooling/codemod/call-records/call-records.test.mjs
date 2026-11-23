@@ -2510,3 +2510,106 @@ test('an assetId field the codemod appends to contracts starts from assetIdSchem
   const own = "import { z } from 'zod';\nconst assetIdSchema = z.string();\nexport const a = z.object({ assetId: z.string() });\n";
   assert.equal(brandAssetIds(own), own);
 });
+
+test('portable: a refinement in what a helper returns is named after the helper, once, at every place the helper made a schema; a helper that does more than return stays', async () => {
+  const { plan } = await import('./portable.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-portable-'));
+  writeFileSync(
+    join(dir, 'lists.ts'),
+    [
+      "import { z } from 'zod';",
+      'export function unique<T extends z.ZodTypeAny>(schema: T, max: number) {',
+      "  return z.array(schema).min(1).max(max).refine((v) => new Set(v).size === v.length, 'Duplicate selections are not allowed');",
+      '}',
+      '',
+    ].join('\n'),
+  );
+  writeFileSync(
+    join(dir, 'contact.ts'),
+    [
+      "import { z } from 'zod';",
+      "import { unique } from './lists.js';",
+      "const sorted = (schema: z.ZodTypeAny) => z.array(schema).refine((v) => String(v) === String([...v].sort()), 'Keep the list in order');",
+      'function capped(schema: z.ZodTypeAny) {',
+      '  const max = 3;',
+      "  return z.array(schema).max(max).refine((v) => v.length !== 2, 'Never two');",
+      '}',
+      'export const contactSchema = z.object({',
+      "  interests: unique(z.enum(['a', 'b']), 5),",
+      '  markets: unique(z.string(), 3),',
+      '  ranks: sorted(z.number()),',
+      '  caps: capped(z.number()),',
+      '});',
+      '',
+    ].join('\n'),
+  );
+  const record = join(dir, 'contact-procedures.ts');
+  writeFileSync(
+    record,
+    [
+      "import { contactSchema } from './contact.js';",
+      "export const R = defineProcedure({ name: 'x.contact', input: NO_INPUT, output: contactSchema, samples: [] });",
+      '',
+    ].join('\n'),
+  );
+  const refine = '(.refine/.superRefine (a TypeScript predicate the export drops))';
+  const at = (key) => `x.contact.output.${key} ${refine}`;
+  const why = `x.contact.output cannot be exported without losing meaning: ${['interests', 'markets', 'ranks', 'caps'].map(at).join('; ')}`;
+  const { edits, left } = plan({ contact: why }, [record]);
+  // `capped` computes before it returns: what it returns is not read, so its rule is left, named.
+  assert.deepEqual(left, [
+    { record: 'x.contact', at: 'x.contact.output.caps', why: "its refinement is not a .refine written in the schema's chain" },
+  ]);
+  assert.deepEqual(
+    [...edits.get(record).edits.values()].map((e) => e.text),
+    [
+      ', outputChecks: { unique_holds: { at: ["output.interests", "output.markets"], says: "Duplicate selections are not allowed" }, sorted_holds: { at: "output.ranks", says: "Keep the list in order" } }',
+    ],
+  );
+});
+
+test('samples: a key no stock string matches is written from its own pattern, and a rule against duplicates is refused by the list with its first item twice', async () => {
+  const { z } = await contractsZod();
+  const { fromPattern } = await import('./pattern-sample.mjs');
+  // Each string is one the pattern itself accepts; what the reader does not read gives none, never a guess.
+  for (const source of [
+    '^announcement:[0-9a-f]{16,64}$',
+    '^[a-z][a-z0-9_]{1,63}$',
+    '^(?:https:\\/\\/[^\\s"\'<>]{1,2000}|\\/(?:[^\\s"\'<>/\\\\][^\\s"\'<>]{0,499})?)$',
+    '^\\d{4}-\\d{2}$',
+    '^(a|b)+c?$',
+    '^[A-Z]{3}(?:-[0-9]+)*$',
+  ])
+    assert.match(fromPattern(source), new RegExp(source, 'u'), source);
+  assert.equal(fromPattern('^(?!x)[a-z]+$'), undefined);
+  assert.equal(fromPattern('^(a)\\1$'), undefined);
+  assert.equal(fromPattern('^(?<n>a)$'), undefined);
+
+  const save = z.object({ key: z.string().regex(/^announcement:[0-9a-f]{16,64}$/), publish: z.boolean() });
+  const accepted = Function(`return ${samplesFor({ name: 'x.save', path: 'p', input: save })}`)().find((s) => s.verdict === 'accept');
+  assert.equal(save.safeParse(accepted.input).success, true);
+  assert.match(accepted.input.key, /^announcement:0{16}$/);
+
+  const code = z.string().regex(/^[a-z][a-z0-9_]{1,63}$/);
+  const set = z
+    .object({
+      codes: z
+        .array(code)
+        .min(1)
+        .max(50)
+        .refine((codes) => new Set(codes).size === codes.length, 'reason codes must be unique'),
+    })
+    .strict();
+  const checks = { codes_holds: { at: 'input.codes', says: 'reason codes must be unique' } };
+  const samples = Function(`return ${samplesFor({ name: 'x.set', path: 'p', input: set, checks })}`)();
+  const refused = samples.find((s) => s.by === 'codes_holds');
+  assert.equal(refused.input.codes.length, 2);
+  assert.equal(refused.input.codes[0], refused.input.codes[1]);
+  const r = set.safeParse(refused.input);
+  assert.equal(r.success, false);
+  // Refused by the duplicates rule alone: each code is one the schema allows, so the JSON export accepts the list.
+  assert.deepEqual(
+    r.error.issues.map((i) => `${i.code} ${i.message}`),
+    ['custom reason codes must be unique'],
+  );
+});

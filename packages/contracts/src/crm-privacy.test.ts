@@ -1,11 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import {
   crmErasureBeginInputSchema,
   crmErasurePreviewInputSchema,
+  crmErasurePreviewSchema,
   crmErasureStatusInputSchema,
   crmErasureStatusSchema,
 } from './crm-privacy.js';
+import { strictJsonSchema } from './procedure-strict-schema.js';
 
 describe('strict founder cluster erasure contracts', () => {
   it('recovers saved intents by exactly one internal identifier, without contact details', () => {
@@ -58,5 +61,23 @@ describe('strict founder cluster erasure contracts', () => {
       { ...complete, code: 'ops.crm.notification_erasure_unknown' },
     ])
       expect(crmErasureStatusSchema.safeParse(changed).success).toBe(false);
+  });
+  it('reads an id as lower-casing a guid alone did, and says what it answers in a form the export carries', () => {
+    // The oracle is the schema as it was written before the pipe: a guid, lower-cased.
+    const before = z
+      .string()
+      .guid()
+      .transform((value) => value.toLowerCase());
+    const id = randomUUID();
+    const mixed = id.replace(/[a-f]/g, (c, at: number) => (at % 2 ? c.toUpperCase() : c));
+    for (const value of [id, id.toUpperCase(), mixed, '', 'not-a-guid', `${id} `, id.replace(/-/g, ''), `{${id}}`, 42, null]) {
+      const was = before.safeParse(value);
+      const now = crmErasurePreviewInputSchema.safeParse({ canonicalContactId: value });
+      expect(now.success).toBe(was.success);
+      if (was.success && now.success) expect(now.data.canonicalContactId).toBe(was.data);
+    }
+    expect(strictJsonSchema('preview', crmErasurePreviewSchema, 'output')).toMatchObject({
+      properties: { canonicalContactId: { type: 'string', pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' } },
+    });
   });
 });

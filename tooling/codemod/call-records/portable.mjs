@@ -18,6 +18,8 @@
 //     `outputChecks`, an input's in `checks` with a placeholder sample per check, which samples.mjs replaces with an input
 //     that check alone refuses. A `.superRefine` is named the same way, in the words of each issue it raises
 //     (`ctx.addIssue({ message })`); one that raises an issue with no message written, or a refine with none, is left.
+//     One a helper makes (`interests: unique(audience, 5)`, the `.refine` in what `unique` returns) is named after the
+//     helper, once, at every place the helper made a schema (helper-schema.mjs).
 //
 // Any other construct, or a path the walk can't follow, is left as it is and printed by name.
 //
@@ -25,6 +27,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { applyEdits, bindingOf, forget, keyOf, literal, load, resolveRelative, text, walk } from './ast.mjs';
+import { returnedBy } from './helper-schema.mjs';
 
 const REPO = resolve(new URL('../../..', import.meta.url).pathname);
 const CONTRACTS = join(REPO, 'packages/contracts/src');
@@ -70,9 +73,17 @@ const unwrap = (n) => {
 
 /** An identifier to the expression it names: a local const, or a top-level const of the file it is imported from. */
 function follow(q, n) {
+  let via;
   for (let i = 0; i < 20; i++) {
     n = unwrap(n);
-    if (n?.type !== 'Identifier') return { q, n };
+    // A schema made by a helper (`unique(schema, 5)`) is what the helper returns, where the helper is written.
+    const made = returnedBy(q, n);
+    if (made) {
+      ({ q, n } = made);
+      via = made.helper;
+      continue;
+    }
+    if (n?.type !== 'Identifier') return { q, n, via };
     const b = bindingOf(q, n, n.name);
     if (b.kind === 'var' && b.declarator.init) {
       n = b.declarator.init;
@@ -283,8 +294,11 @@ function refinementOf(target) {
     says.push(words);
   }
   if (!says.length) return { why: "its refinement is not a .refine written in the schema's chain" };
+  // A helper's rule is named after the helper: it sits at every place the helper made a schema, whatever key each is under.
   const own =
-    unwrap(target.n)?.type === 'Identifier' ? unwrap(target.n).name.replace(/Schema$/, '') : target.prop ? keyOf(target.prop) : 'answer';
+    unwrap(target.n)?.type === 'Identifier'
+      ? unwrap(target.n).name.replace(/Schema$/, '')
+      : (found.via ?? (target.prop ? keyOf(target.prop) : 'answer'));
   const name = `${own.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()}_holds`;
   return { key: `${found.q.file}:${found.n.start}`, name, says: says.join('; ') };
 }
