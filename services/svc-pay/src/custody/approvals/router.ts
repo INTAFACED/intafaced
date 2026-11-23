@@ -13,7 +13,6 @@ import {
   revokeApproverInputSchema,
   setQuorumInputSchema,
   settleResultSchema,
-  taskIdInputSchema,
   taskViewSchema,
 } from './schemas.js';
 import type { CustodyApprovalService } from './service.js';
@@ -22,6 +21,7 @@ import {
   PAY_FOUNDER_ADMIN_CUSTODY_TASKS_LIST,
   PAY_FOUNDER_ADMIN_CUSTODY_APPROVERS_LIST,
   PAY_FOUNDER_ADMIN_CUSTODY_TASKS_GET,
+  PAY_FOUNDER_ADMIN_CUSTODY_TASKS_CANCEL,
 } from '@intafaced/contracts/pay-founder-admin-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { payRefusal } from '../../record-refusal.js';
@@ -58,10 +58,11 @@ export function createCustodyApprovalRouters(
         .input(decideInputSchema)
         .output(taskViewSchema)
         .mutation(({ ctx, input }) => wrap(() => service.reject(actorOf(ctx), input.taskId, input.payloadHash))),
-      cancel: founder
-        .input(taskIdInputSchema)
-        .output(taskViewSchema)
-        .mutation(({ ctx, input }) => wrap(() => service.cancel(actorOf(ctx), input.taskId))),
+      cancel: mountRecord(
+        PAY_FOUNDER_ADMIN_CUSTODY_TASKS_CANCEL,
+        ({ ctx, input }) => wrap(() => service.cancel(actorOf(ctx), input.taskId)),
+        { refusalOf: payRefusal, founder },
+      ),
       get: mountRecord(PAY_FOUNDER_ADMIN_CUSTODY_TASKS_GET, ({ ctx, input }) => wrap(() => service.get(actorOf(ctx), input.taskId)), {
         refusalOf: payRefusal,
         founder,

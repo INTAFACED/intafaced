@@ -197,7 +197,7 @@ test('Money activity retains selected original ID through loading failed empty a
   await expect(details).not.toContainText('0.000000000000000001');
   await expect(details).toContainText('Current details are unavailable');
   await held.fulfill({ status: 503, json: { error: 'Unavailable', message: 'The service is offline.' } });
-  await expect(page.locator('.money-activity .failure')).toBeVisible();
+  await expect(page.locator('.money-activity :is(.failure, .lt-refusal)')).toBeVisible();
   await expect(details).toContainText(activityId);
   mode = 'empty';
   await page.getByRole('button', { name: 'Try again', exact: true }).click();
@@ -310,7 +310,7 @@ test('Money activity for all assets retains explicit units and rejects numeric m
     reply(route, [{ ...activityRecord, amount: 0.1, railRef: 'invalid', ledgerTxId: null }]),
   );
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
-  await expect(page.locator('.money-activity .failure')).toBeVisible();
+  await expect(page.locator('.money-activity :is(.failure, .lt-refusal)')).toBeVisible();
   await expect(page.locator('.money-activity-row')).toHaveCount(0);
 });
 

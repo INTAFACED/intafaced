@@ -1,15 +1,11 @@
 import { z } from 'zod';
 import {
   priceChoicesSchema,
-  pricedProductSchema,
   priceQuoteSchema,
   priceReplaceSchema,
   priceSchema,
-  priceUsageSchema,
   catalogCopySchema,
   productDeletedSchema,
-  productImageFileSchema,
-  productImageRulesSchema,
   productImageSchema,
   productImportSchema,
   productSchema,
@@ -22,6 +18,15 @@ import { productAvailabilitySchema, storeSchema, type SaleChannel, type StoreCre
 import type { ApiResult } from '../../../../shared/api';
 import type { PortalTools } from '../api-tools';
 import './refusals';
+import {
+  PAY_MERCHANT_CATALOG_PRODUCTS_GET,
+  PAY_MERCHANT_CATALOG_IMAGES_RULES,
+  PAY_MERCHANT_CATALOG_IMAGES_GET,
+  PAY_MERCHANT_CATALOG_PRICES_LIST,
+  PAY_MERCHANT_CATALOG_PRICES_USAGE,
+  PAY_MERCHANT_CATALOG_PRICES_GET,
+  PAY_MERCHANT_CATALOG_AVAILABILITY_GET,
+} from '@intafaced/contracts/pay-merchant-catalog-procedures';
 
 // The product catalogue and its prices (J-merchant-03 steps 1 to 6, M-catalogue-01 and -02, M-adv-payments-core-20 and -21): svc-pay `merchantCatalog.*`, parsed with the
 // service's own schemas. The business is the signed-in person's own; the service resolves it and checks the role.
@@ -35,7 +40,7 @@ const created = z.object({ product: productSchema, replayed: z.boolean() }).stri
 const priceCreated = z.object({ price: priceSchema, replayed: z.boolean() }).strict();
 const storeCreated = z.object({ store: storeSchema, replayed: z.boolean() }).strict();
 
-export const catalogApi = ({ query, mutate, list }: PortalTools) => ({
+export const catalogApi = ({ query, mutate, list, queryRecord, listRecord }: PortalTools) => ({
   /** One catalogue's products: live, or test when `mode` says so. */
   products: (status: string, cursor: string | undefined, signal?: AbortSignal, mode: CatalogMode = 'live') =>
     list(
@@ -44,14 +49,14 @@ export const catalogApi = ({ query, mutate, list }: PortalTools) => ({
       { ...(mode === 'test' ? { mode } : {}), ...(status ? { status } : {}), ...(cursor ? { cursor } : {}) },
       signal,
     ),
-  product: (productId: string, signal?: AbortSignal) => query('merchantCatalog.products.get', { productId }, productSchema, signal),
+  product: (productId: string, signal?: AbortSignal) => queryRecord(PAY_MERCHANT_CATALOG_PRODUCTS_GET, { productId }, signal),
   createProduct: (input: ProductCreateInput) => mutate('merchantCatalog.products.create', input, created),
-  productImageRules: (signal?: AbortSignal) => query('merchantCatalog.images.rules', {}, productImageRulesSchema, signal),
+  productImageRules: (signal?: AbortSignal) => queryRecord(PAY_MERCHANT_CATALOG_IMAGES_RULES, {}, signal),
   uploadProductImage: (input: { requestId: string; contentType: string; dataBase64: string }) =>
     mutate('merchantCatalog.images.upload', input, productImageSchema),
-  productImage: (imageId: string, signal?: AbortSignal) => query('merchantCatalog.images.get', { imageId }, productImageFileSchema, signal),
+  productImage: (imageId: string, signal?: AbortSignal) => queryRecord(PAY_MERCHANT_CATALOG_IMAGES_GET, { imageId }, signal),
   prices: (productId: string, cursor: string | undefined, signal?: AbortSignal) =>
-    list('merchantCatalog.prices.list', priceSchema, { productId, ...(cursor ? { cursor } : {}) }, signal),
+    listRecord(PAY_MERCHANT_CATALOG_PRICES_LIST, { productId, ...(cursor ? { cursor } : {}) }, signal),
   createPrice: (input: PriceCreateInput) => mutate('merchantCatalog.prices.create', input, priceCreated),
   setDefaultPrice: (input: { productId: string; priceId: string }) => mutate('merchantCatalog.prices.setDefault', input, priceSchema),
   quotePrice: (input: { priceId: string; amount?: string; storeId?: string; channel?: SaleChannel }, signal?: AbortSignal) =>
@@ -60,8 +65,8 @@ export const catalogApi = ({ query, mutate, list }: PortalTools) => ({
   unarchiveProduct: (productId: string) => mutate('merchantCatalog.products.unarchive', { productId }, productSchema),
   deleteProduct: (productId: string) => mutate('merchantCatalog.products.delete', { productId }, productDeletedSchema),
   replacePrice: (input: PriceReplaceInput) => mutate('merchantCatalog.prices.replace', input, priceReplaceSchema),
-  priceUsage: (priceId: string, signal?: AbortSignal) => query('merchantCatalog.prices.usage', { priceId }, priceUsageSchema, signal),
-  pricedProduct: (priceId: string, signal?: AbortSignal) => query('merchantCatalog.prices.get', { priceId }, pricedProductSchema, signal),
+  priceUsage: (priceId: string, signal?: AbortSignal) => queryRecord(PAY_MERCHANT_CATALOG_PRICES_USAGE, { priceId }, signal),
+  pricedProduct: (priceId: string, signal?: AbortSignal) => queryRecord(PAY_MERCHANT_CATALOG_PRICES_GET, { priceId }, signal),
   /** A dry run (`commit: false`) checks the file and writes nothing; a commit writes all of it or none. */
   importProducts: (input: { csv: string; commit: boolean; mode?: CatalogMode }) =>
     mutate('merchantCatalog.products.import', input, productImportSchema),
@@ -98,8 +103,7 @@ export const catalogApi = ({ query, mutate, list }: PortalTools) => ({
   archiveStore: (storeId: string) => mutate('merchantStores.archive', { storeId }, storeSchema),
   reopenStore: (storeId: string) => mutate('merchantStores.reopen', { storeId }, storeSchema),
   /** Where one product is sold: every store of the business, each channel on or off. */
-  availability: (productId: string, signal?: AbortSignal) =>
-    query('merchantCatalog.availability.get', { productId }, productAvailabilitySchema, signal),
+  availability: (productId: string, signal?: AbortSignal) => queryRecord(PAY_MERCHANT_CATALOG_AVAILABILITY_GET, { productId }, signal),
   setAvailability: (input: { productId: string; storeId: string; channel: SaleChannel; sold: boolean }) =>
     mutate('merchantCatalog.availability.set', input, productAvailabilitySchema),
 });

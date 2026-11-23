@@ -133,7 +133,7 @@ fn check(j: &Json, where_: &str) -> Result<Line, RailRecordError> {
         && (direction == "in" || direction == "out")
         && is_asset(&asset_id)
         && is_decimal(&amount)
-        && parse_amount(&amount).is_ok_and(|a| a > 0)
+        && parse_amount(&amount).is_ok_and(Amount::is_positive)
         && js_date(&at).is_some();
     if !ok {
         return Err(refused());
@@ -211,7 +211,7 @@ impl RailRecorder {
 
     /// Records one movement, unless the rail already recorded its key with the same facts.
     pub fn record(&self, m: &Movement) -> Result<(), RailRecordError> {
-        if m.amount <= 0 {
+        if !m.amount.is_positive() {
             return Err(fail(format!(
                 "{} {}: only an amount above zero is a movement",
                 self.rail, m.key
@@ -399,7 +399,7 @@ mod tests {
         r.record(&m).unwrap();
         r.record(&m).unwrap();
         let other = Movement {
-            amount: 1,
+            amount: Amount::UNIT,
             ..m.clone()
         };
         let refused = r.record(&other).unwrap_err();

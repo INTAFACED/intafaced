@@ -317,7 +317,7 @@ function CopyLine({
 }
 
 /** The reachability test: one connect from the pool's own network to its published address; the last answer stays shown. */
-function ProbeView({ state, onPress }: { state: ProbeState; onPress: () => void }) {
+export function ProbeView({ state, onPress }: { state: ProbeState; onPress: () => void }) {
   const { t } = miningPoolCopy.useCopy();
   const code = state.status === 'failed' ? state.failure.code : undefined;
   const refusal = code !== undefined && Object.hasOwn(PROBE_REFUSALS, code) ? PROBE_REFUSALS[code] : undefined;

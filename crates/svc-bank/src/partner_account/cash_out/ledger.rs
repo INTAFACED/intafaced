@@ -138,7 +138,7 @@ mod tests {
         let w = Withdrawal {
             user_id: "u".into(),
             asset_id: "USDT".into(),
-            amount: 1,
+            amount: Amount::UNIT,
             rail: "payout-sim".into(),
             withdrawal_id: "cash-out:x".into(),
         };
@@ -157,7 +157,7 @@ mod tests {
         let d = Recipe::Deposit {
             user_id: "u".into(),
             asset_id: "USDT".into(),
-            amount: 1,
+            amount: Amount::UNIT,
             rail: "payout-sim".into(),
             rail_ref: "cash-out-return:x".into(),
         };

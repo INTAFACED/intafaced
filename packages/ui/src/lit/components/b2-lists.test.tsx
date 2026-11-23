@@ -75,6 +75,23 @@ describe('table: sort, marks and virtual rows', () => {
     expect(out).toContain('<a data-row-link="" href="/coin/C0/USDT">');
   });
 
+  it("keeps the header row's and each header's own marks, and says when its rows are placeholders", () => {
+    const marked = columns.map((c) => ({ ...c, headMarks: { 'data-col': c.key } }));
+    const out = html(
+      <Table
+        caption="Markets"
+        columns={marked}
+        rows={markets.slice(0, 1)}
+        rowKey={(m) => m.symbol}
+        headMarks={{ 'data-testid': 'mkt-header' }}
+        busy
+      />,
+    );
+    expect(out).toContain('<table class="lt-table" data-mode="simple" aria-busy="true">');
+    expect(out).toContain('<tr data-testid="mkt-header"><th data-col="name" scope="col" data-align="start">Name</th>');
+    expect(html(<Table caption="Markets" columns={columns} rows={[]} rowKey={(m) => m.symbol} />)).not.toContain('aria-busy');
+  });
+
   it('draws an honest empty line in place of no rows', () => {
     const out = html(<Table caption="Markets" columns={columns} rows={[]} rowKey={(m) => m.symbol} empty="No markets match" />);
     expect(out).toContain('<tr data-empty=""><td colSpan="3">No markets match</td></tr>');

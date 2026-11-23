@@ -96,7 +96,7 @@ export function VerificationLadder({
       <h2>
         <Copy k="title" />
       </h2>
-      <p className="muted">
+      <p className="lt-muted">
         <Copy k="intro" /> {ladder.regionResolved ? <Copy k="region" params={{ region: ladder.region }} /> : <Copy k="regionUnknown" />}
       </p>
       <ol className="verification__rungs">
@@ -151,13 +151,13 @@ export function VerificationLadder({
             </h4>
             <div className="verification__limits" data-level={rung.level}>
               {limits.status === 'loading' ? (
-                <p className="muted">
+                <p className="lt-muted">
                   <Copy k="limitsReading" />
                 </p>
               ) : limits.status === 'failed' ? (
-                <p className="muted" data-limits="failed" data-code={limits.failure.code ?? limits.failure.reason}>
+                <p className="lt-muted" data-limits="failed" data-code={limits.failure.code ?? limits.failure.reason}>
                   <Copy k="limitsFailed" />{' '}
-                  <button type="button" className="text-link" onClick={reloadLimits}>
+                  <button type="button" className="lt-link" onClick={reloadLimits}>
                     <Copy k="limitsRetry" />
                   </button>
                 </p>
@@ -170,7 +170,7 @@ export function VerificationLadder({
                       </li>
                     ))}
                   </ul>
-                  <p className="muted">
+                  <p className="lt-muted">
                     <Copy k={limits.data.enforced ? 'limitOthersRefused' : 'limitsNotApplied'} />
                   </p>
                 </>
@@ -179,7 +179,7 @@ export function VerificationLadder({
                   <p data-limits="unset">
                     <Copy k="limitUnset" />
                   </p>
-                  <p className="muted">
+                  <p className="lt-muted">
                     <Copy k={limits.data.enforced ? 'limitUnsetRefused' : 'limitsNotApplied'} />
                   </p>
                 </>

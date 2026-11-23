@@ -20,13 +20,13 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use icu_normalizer::ComposingNormalizerBorrowed;
 use postgres::{GenericClient, IsolationLevel};
 use service_kit::json::Json;
 use service_kit::money::{Amount, format_amount, is_js_whitespace, js_trim, parse_amount};
 use service_kit::schema::Value;
 use service_kit::server::Response;
 use service_kit::time::Instant;
-use unicode_normalization::UnicodeNormalization as _;
 
 use super::rail_records::{self, Movement, RailRecorder};
 use super::{Deps, account_details, refuse};
@@ -41,7 +41,7 @@ use crate::partner::{AccountRef, LABEL, Move, MoveRequest, TestPartner, payouts_
 pub const PAYROLL_SIM_RAIL: &str = "payroll-sim";
 pub const PAYROLL_SIM_LABEL: &str = "TEST payroll network (payroll-sim)";
 /// `FULL_BP`: a whole credit in basis points.
-const FULL_BP: Amount = 10_000;
+const FULL_BP: i128 = 10_000;
 const DAY_MS: i64 = 86_400_000;
 
 /// The payroll network on the stack (`PayrollPartner`): the TEST stand-in, whose credits land in the TEST partner
@@ -153,7 +153,9 @@ pub fn reverse_key(network_id: &str) -> String {
 
 /// `holderNameKey`: a name as a bank compares it; case, spacing and surrounding blanks do not count.
 pub fn holder_name_key(name: &str) -> String {
-    let normal: String = name.nfkc().collect();
+    let normal: String = ComposingNormalizerBorrowed::new_nfkc()
+        .normalize(name)
+        .into_owned();
     let mut out = String::new();
     let mut blank = false;
     for c in js_trim(&normal).chars() {
@@ -562,7 +564,7 @@ pub fn reverse_body(body: &Value) -> Option<String> {
 fn credit(d: &Deps<'_>, input: &PayrollCredit) -> Step<(Credit, bool)> {
     let (payroll, partner) = payroll(d)?;
     let amount = parse_amount(&input.amount).map_err(Refusal::Other)?;
-    if amount <= 0 {
+    if !amount.is_positive() {
         return Err(refuse(
             "bank.partner_amount_invalid",
             "A salary credit needs an amount above zero.",
@@ -714,8 +716,8 @@ fn fix_split(
             continue;
         }
         // `legShare`: bigint division, rounded toward zero.
-        let share = amount.saturating_mul(Amount::from(share_bp)) / FULL_BP;
-        if share <= 0 {
+        let share = amount.saturating_times(i128::from(share_bp)) / FULL_BP;
+        if !share.is_positive() {
             continue;
         }
         let position = i16::try_from(position).map_err(|e| StoreError::new(e.to_string(), None))?;
@@ -930,7 +932,9 @@ fn rails(d: &Deps<'_>) -> Step<Json> {
     };
     let mut network: BTreeMap<String, (Amount, Amount)> = BTreeMap::new();
     for m in movements.iter().flatten() {
-        let sums = network.entry(m.asset_id.clone()).or_insert((0, 0));
+        let sums = network
+            .entry(m.asset_id.clone())
+            .or_insert((Amount::ZERO, Amount::ZERO));
         if m.direction == "in" && m.key.starts_with("salary:credit:") {
             sums.0 = sums.0.saturating_add(m.amount);
         }
@@ -955,10 +959,13 @@ fn rails(d: &Deps<'_>) -> Step<Json> {
             let shown = app
                 .iter()
                 .find(|(a, _, _)| a == currency)
-                .map_or((0, 0), |(_, c, r)| (*c, *r));
-            let said = movements
-                .as_ref()
-                .map(|_| network.get(currency).copied().unwrap_or((0, 0)));
+                .map_or((Amount::ZERO, Amount::ZERO), |(_, c, r)| (*c, *r));
+            let said = movements.as_ref().map(|_| {
+                network
+                    .get(currency)
+                    .copied()
+                    .unwrap_or((Amount::ZERO, Amount::ZERO))
+            });
             let difference = said.map(|s| (s.0 - s.1) - (shown.0 - shown.1));
             Json::obj([
                 ("currency", Json::str(currency)),
@@ -966,7 +973,7 @@ fn rails(d: &Deps<'_>) -> Step<Json> {
                 ("app", pair(shown.0, shown.1)),
                 (
                     "matches",
-                    difference.map_or(Json::Null, |x| Json::Bool(x == 0)),
+                    difference.map_or(Json::Null, |x| Json::Bool(x.is_zero())),
                 ),
                 (
                     "difference",

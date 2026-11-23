@@ -521,7 +521,7 @@ test('unknown original survives current passed tally duplicate403 failed read re
     .click();
   await expect(detailBody(page)).toHaveCount(0);
   expect(await stored(page, markerKey)).toBe(marker);
-  await expect(selected(page).locator('.failure')).toContainText(provider);
+  await expect(selected(page).locator(':is(.failure, .lt-refusal)')).toContainText(provider);
   state.detailMode = 'failed';
   await selected(page).getByRole('button', { name: 'Try again', exact: true }).click();
   await expect(selected(page)).toContainText(provider);
@@ -545,7 +545,7 @@ for (const mode of ['wrong-id', 'bad-time', 'bad-tally', 'bad-total', 'bad-body'
       .getByRole('button', { name: text('refresh'), exact: true })
       .click();
     await expect(detailBody(page)).toHaveCount(0);
-    await expect(selected(page).locator('.failure')).toBeVisible();
+    await expect(selected(page).locator(':is(.failure, .lt-refusal)')).toBeVisible();
     await expect(selected(page)).toContainText(first);
     expect(calls.writes).toEqual([]);
     state.detailMode = 'valid';

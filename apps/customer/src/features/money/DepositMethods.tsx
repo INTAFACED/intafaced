@@ -31,12 +31,12 @@ export function DepositMethods() {
             {method.href ? (
               <a className="bd-method" href={method.href}>
                 <strong>{t(method.label)}</strong>
-                <span className="money-caption">{t(method.note as 'methodPartnerNote' | 'methodP2pNote' | 'methodUserNote')}</span>
+                <span className="lt-muted">{t(method.note as 'methodPartnerNote' | 'methodP2pNote' | 'methodUserNote')}</span>
               </a>
             ) : (
               <div className="bd-method bd-method--here" aria-current="page">
                 <strong>{t(method.label)}</strong>
-                <span className="money-caption">{t(method.note as 'methodCryptoNote')}</span>
+                <span className="lt-muted">{t(method.note as 'methodCryptoNote')}</span>
                 <span className="bd-method__here">{t('methodHere')}</span>
               </div>
             )}

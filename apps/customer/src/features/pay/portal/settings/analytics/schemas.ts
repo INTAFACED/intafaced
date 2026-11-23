@@ -7,9 +7,9 @@ import { effectiveRateSchema } from '../../money/fee-rate-schema';
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const freshness = z.object({ asOf: z.string().nullable(), lagSeconds: z.number().int().min(0).nullable() });
 
-export const volumePointSchema = z.object({ period: day, assetCode: z.string(), count: z.number().int().min(0), volume: decimalSchema });
+const volumePointSchema = z.object({ period: day, assetCode: z.string(), count: z.number().int().min(0), volume: decimalSchema });
 export type VolumePoint = z.infer<typeof volumePointSchema>;
-export const volumeSchema = z.object({
+const volumeSchema = z.object({
   bucket: z.enum(['day', 'week']),
   from: day,
   to: day,
@@ -19,7 +19,7 @@ export const volumeSchema = z.object({
 });
 export type VolumePage = z.infer<typeof volumeSchema>;
 
-export const feePointSchema = z.object({
+const feePointSchema = z.object({
   period: day,
   assetCode: z.string(),
   gross: decimalSchema,
@@ -28,7 +28,7 @@ export const feePointSchema = z.object({
   refunded: decimalSchema,
 });
 export type FeePoint = z.infer<typeof feePointSchema>;
-export const feesSchema = z.object({
+const feesSchema = z.object({
   bucket: z.enum(['day', 'week']),
   from: day,
   to: day,

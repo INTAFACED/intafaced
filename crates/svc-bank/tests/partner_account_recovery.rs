@@ -12,7 +12,7 @@
     reason = "a test: a failure is the point"
 )]
 
-mod support;
+use crate::support;
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -100,11 +100,11 @@ impl BookState {
         let row = self
             .accounts
             .entry(a.key())
-            .or_insert_with(|| (a.clone(), 0));
+            .or_insert_with(|| (a.clone(), Amount::ZERO));
         row.1 += n;
     }
     fn balance(&self, a: &AccountRef) -> Amount {
-        self.accounts.get(&a.key()).map_or(0, |r| r.1)
+        self.accounts.get(&a.key()).map_or(Amount::ZERO, |r| r.1)
     }
     fn shift(&mut self, from: &AccountRef, to: &AccountRef, n: Amount) {
         self.add(from, -n);

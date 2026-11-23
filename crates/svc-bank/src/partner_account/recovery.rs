@@ -200,9 +200,9 @@ pub fn split_holdings(all: &[Holding]) -> Holdings {
     sorted.sort_by_key(|h| h.account.key());
     let pick = |f: &dyn Fn(&Holding) -> bool| sorted.iter().filter(|h| f(h)).cloned().collect();
     Holdings {
-        sweepable: pick(&|h| is_free(&h.account) && h.amount > 0),
-        held: pick(&|h| !is_free(&h.account) && h.amount > 0),
-        blockers: pick(&|h| h.amount < 0),
+        sweepable: pick(&|h| is_free(&h.account) && h.amount.is_positive()),
+        held: pick(&|h| !is_free(&h.account) && h.amount.is_positive()),
+        blockers: pick(&|h| h.amount.is_negative()),
     }
 }
 
@@ -275,7 +275,7 @@ fn holdings(d: &Deps<'_>, owner: &str) -> Result<Holdings, Refusal> {
     let named = all_named_spaces(d.store, owner)?;
     let mut all = Vec::new();
     let mut add = |balances: Vec<ledger::Balance>, space: Option<&Space>| {
-        for b in balances.into_iter().filter(|b| b.amount != 0) {
+        for b in balances.into_iter().filter(|b| !b.amount.is_zero()) {
             all.push(Holding {
                 account: b.account,
                 space_id: space.map(|s| s.id.clone()),
@@ -873,6 +873,9 @@ mod tests {
             mfa: true,
             kid: kid.map(str::to_owned),
             sub_account: None,
+            sid: "s".to_owned(),
+            fam: None,
+            dev: None,
         }
     }
 
@@ -924,11 +927,11 @@ mod tests {
             amount,
         };
         let split = split_holdings(&[
-            h("available", None, "USDC", 5),
-            h("available", None, "BTC", 2),
-            h("hold", Some("order:1"), "BTC", 1),
-            h("available", Some("x"), "EUR", 3),
-            h("available", None, "ETH", -4),
+            h("available", None, "USDC", Amount::from_scaled(5)),
+            h("available", None, "BTC", Amount::from_scaled(2)),
+            h("hold", Some("order:1"), "BTC", Amount::from_scaled(1)),
+            h("available", Some("x"), "EUR", Amount::from_scaled(3)),
+            h("available", None, "ETH", Amount::from_scaled(-4)),
         ]);
         let assets = |l: &[Holding]| {
             l.iter()

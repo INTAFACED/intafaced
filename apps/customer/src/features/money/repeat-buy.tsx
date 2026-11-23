@@ -24,7 +24,13 @@ import {
   type ActionSpec,
   useBankRecord,
 } from './components';
-import { BANK_AUTO_INVEST_LIST } from '@intafaced/contracts/bank-auto-invest-procedures';
+import {
+  BANK_AUTO_INVEST_LIST,
+  BANK_AUTO_INVEST_PAUSE,
+  BANK_AUTO_INVEST_RESUME,
+  BANK_AUTO_INVEST_CANCEL,
+} from '@intafaced/contracts/bank-auto-invest-procedures';
+import { BANK_AUTO_INVEST_CREATE_DCA } from '@intafaced/contracts/bank-auto-invest-2-procedures';
 
 type Rule = z.infer<typeof ruleSchema>;
 const validAsset = (asset: string) => asset.trim().length > 0 && asset === asset.trim() && asset.length <= 16;
@@ -56,7 +62,7 @@ export function useAutoInvestRules() {
     facts.push([t('nextRun'), date(rule.nextRunAt)]);
     return {
       title: t(action === 'pause' ? 'pauseTitle' : action === 'resume' ? 'resumeTitle' : 'cancelTitle'),
-      procedure: `autoInvest.${action}`,
+      record: action === 'pause' ? BANK_AUTO_INVEST_PAUSE : action === 'resume' ? BANK_AUTO_INVEST_RESUME : BANK_AUTO_INVEST_CANCEL,
       facts,
       notes: [t(action === 'pause' ? 'pauseNote' : action === 'resume' ? 'pausedNote' : 'cancelNote')],
       input: () => ({ ruleId: rule.id }),
@@ -112,7 +118,7 @@ function SpendingSource({ asset, open }: { asset: string; open: (spec: ActionSpe
         function setup(): ActionSpec {
           return {
             title: t('title', { asset }),
-            procedure: 'autoInvest.createDca',
+            record: BANK_AUTO_INVEST_CREATE_DCA,
             fields: [positiveMoney(spendAsset, 'amount', t('budget')), cadenceField, startsField],
             facts: [
               [t('buy'), asset],
@@ -147,7 +153,7 @@ function SpendingSource({ asset, open }: { asset: string; open: (spec: ActionSpe
         }
         return (
           <div className="money-repeat-setup">
-            <label className="field">
+            <label className="lt-field">
               <span>{t('spendSource')}</span>
               <select value={spendAsset} onChange={(event) => setSelected(event.target.value)} aria-label={t('spendSource')}>
                 <option value="">{t('choose')}</option>
@@ -158,12 +164,12 @@ function SpendingSource({ asset, open }: { asset: string; open: (spec: ActionSpe
                 ))}
               </select>
             </label>
-            {source && <p className="muted numeric">{t('available', { amount: funds(source[1].free, spendAsset) })}</p>}
-            <p className="muted">{t('unreserved')}</p>
+            {source && <p className="lt-muted lt-num">{t('available', { amount: funds(source[1].free, spendAsset) })}</p>}
+            <p className="lt-muted">{t('unreserved')}</p>
             <Button disabled={!source} onClick={() => open(setup())}>
               {t('setup')}
             </Button>
-            {source && <p className="muted">{t('setupHint', { asset: spendAsset })}</p>}
+            {source && <p className="lt-muted">{t('setupHint', { asset: spendAsset })}</p>}
           </div>
         );
       }}
@@ -179,7 +185,7 @@ function PersonalRepeatBuy({ asset, open }: { asset: string; open: (spec: Action
       title={t('title', { asset })}
       description={t('description')}
       actions={
-        <a className="button button--secondary" href={`/portfolio/${encodeURIComponent(asset)}`}>
+        <a className="lt-button lt-button-secondary" href={`/portfolio/${encodeURIComponent(asset)}`}>
           {t('back', { asset })}
         </a>
       }

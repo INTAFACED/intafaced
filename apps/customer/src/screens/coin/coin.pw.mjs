@@ -57,8 +57,8 @@ test('Simple, loaded, 1440x900: grid, header, chart, range pills, stats, holding
   await open(page);
   await ready(page);
 
-  // Coin bar: 64 high, name over ticker, star, About anchor.
-  expect(Math.round((await box(page.getByTestId('coin-bar'))).height)).toBe(64);
+  // Coin bar: the kit's room bar, at least one row high (--lit-row-h, 60), name over ticker, star, About anchor.
+  expect(Math.round((await box(page.getByTestId('coin-bar'))).height)).toBe(60);
   await expect(page.getByTestId('coin-name')).toHaveText('Bitcoin');
   await expect(page.getByTestId('coin-bar__ticker')).toHaveText('BTC');
   expect(await texts(page.getByTestId('coin-bar__tabs').locator('button'))).toEqual(['Overview', 'About']);
@@ -221,9 +221,19 @@ test('the coin bar stays under the top bar when the page scrolls, and About scro
   await ready(page);
   await page.mouse.wheel(0, 700);
   await page.waitForTimeout(300);
-  expect(Math.round((await box(page.getByTestId('coin-bar'))).y)).toBe(48);
+  // The room bar sticks at the top bar's measured bottom (--a11y-obscured-top); this bare harness does not measure the
+  // top bar, so the bar sits at the kit's top-bar token, read from the page rather than typed.
+  const topBar = await page.evaluate(() => {
+    const probe = document.createElement('div');
+    probe.style.blockSize = 'var(--a11y-obscured-top, var(--lit-topbar-h))';
+    document.querySelector('[data-look]')?.append(probe);
+    const height = probe.getBoundingClientRect().height;
+    probe.remove();
+    return height;
+  });
+  expect(Math.round((await box(page.getByTestId('coin-bar'))).y)).toBe(Math.round(topBar));
   await page.getByTestId('coin-bar__tabs').locator('button', { hasText: 'About' }).click();
-  await expect(page.getByTestId('coin-bar__tabs').locator('button', { hasText: 'About' })).toHaveAttribute('aria-current', 'true');
+  await expect(page.getByTestId('coin-bar__tabs').locator('button', { hasText: 'About' })).toHaveAttribute('aria-pressed', 'true');
   await shot(page, 'simple-scrolled-about');
   await page.getByTestId('coin-bar__tabs').locator('button', { hasText: 'Overview' }).click();
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBeLessThan(5);

@@ -92,10 +92,10 @@ fn run(d: &Deps<'_>, check: &Check) -> Result<Json, String> {
     let mut totals: BTreeMap<String, Amount> = BTreeMap::new();
     for (owner_type, owner_id) in owners {
         for row in ledger.balances(owner_type, owner_id)? {
-            if row.amount == 0 {
+            if row.amount.is_zero() {
                 continue;
             }
-            let total = totals.entry(row.account.asset_id).or_insert(0);
+            let total = totals.entry(row.account.asset_id).or_insert(Amount::ZERO);
             *total = total
                 .checked_add(row.amount)
                 .ok_or_else(|| "a total does not fit".to_owned())?;
@@ -103,7 +103,7 @@ fn run(d: &Deps<'_>, check: &Check) -> Result<Json, String> {
     }
     let balances: Vec<Json> = totals
         .iter()
-        .filter(|(_, amount)| **amount != 0)
+        .filter(|(_, amount)| !amount.is_zero())
         .map(|(asset, amount)| {
             Json::obj([
                 ("assetId", Json::str(asset.clone())),

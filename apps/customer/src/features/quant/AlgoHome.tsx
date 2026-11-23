@@ -23,7 +23,7 @@ export function AlgoHome({ paper = false }: { paper?: boolean }) {
           <EmptyState
             title={t('signedOutTitle')}
             action={
-              <a className="button" href={`/login?redirect=${encodeURIComponent('/quant')}`}>
+              <a className="lt-button" href={`/login?redirect=${encodeURIComponent('/quant')}`}>
                 {t('signIn')}
               </a>
             }
@@ -59,14 +59,14 @@ function SignedIn({ paper, userId }: { paper: boolean; userId: string }) {
                   {steps.map((step) => (
                     <li key={step.href} data-done={step.done}>
                       <strong>{step.title}</strong> · <span>{step.done ? t('stepDone') : t('stepOpen')}</span>
-                      <p className="muted">{step.body}</p>
-                      <a className="text-link" href={preservePaperHref(step.href, paper)}>
+                      <p className="lt-muted">{step.body}</p>
+                      <a className="lt-link" href={preservePaperHref(step.href, paper)}>
                         {step.open}
                       </a>
                     </li>
                   ))}
                 </ol>
-                <a className="text-link" href="/academy">
+                <a className="lt-link" href="/academy">
                   {t('learn')}
                 </a>
               </>
@@ -82,7 +82,7 @@ function SignedIn({ paper, userId }: { paper: boolean; userId: string }) {
             <EmptyState
               title={t('strategiesNone')}
               action={
-                <a className="text-link" href={preservePaperHref('/quant/studio', paper)}>
+                <a className="lt-link" href={preservePaperHref('/quant/studio', paper)}>
                   {t('openStudio')}
                 </a>
               }

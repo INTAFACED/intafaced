@@ -89,19 +89,9 @@ export const earnReads = {
 
 /** This area's writes to svc-bank `bank.*`, composed into `bankWrites` in contracts.ts. */
 export const earnWrites = {
-  'earn.deposit': z.object({ positionId: z.string(), maturesAt: z.string().nullable() }),
-  'earn.withdraw': z.object({
-    positionId: z.string(),
-    principal: money,
-    /** `closed`: paid back to the main balance. `unbonding`: a staking-style saving's period began; back at `unbondsAt`. */
-    status: z.enum(['closed', 'unbonding']),
-    unbondsAt: z.string().datetime({ offset: true }).nullable(),
-  }),
-  'earn.setAutoRenew': z.object({ positionId: z.string(), autoRenew: z.boolean(), maturesAt: z.string().nullable() }),
   'autoInvest.createDca': ruleSchema,
   'autoInvest.createThresholdSweep': ruleSchema,
   'autoInvest.createRoundUp': ruleSchema,
   'autoInvest.pause': ruleSchema,
   'autoInvest.resume': ruleSchema,
-  'autoInvest.cancel': z.object({ ok: z.literal(true) }),
 } as const;

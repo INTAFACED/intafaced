@@ -11,6 +11,9 @@ import { analyticsReads, analyticsWrites } from './contracts-analytics';
 import { businessReads, businessWrites } from './contracts-business';
 import type { ruleSchema } from './contracts-earn';
 import type { sharedPotCardSchema, sorterSchema } from './contracts-spaces';
+import { BANK_EARN_SET_AUTO_RENEW } from '@intafaced/contracts/bank-earn-procedures';
+import { BANK_TRANSFERS_UPDATE_SCHEDULE } from '@intafaced/contracts/bank-transfers-2-procedures';
+import { BANK_SPACES_CLEAR_BILLS_POT, BANK_SPACES_SET_BILLS_POT } from '@intafaced/contracts/bank-spaces-procedures';
 
 /**
  * The bank's wire shapes, one file per area (contracts-<area>.ts). This file only composes each area's reads and writes
@@ -83,7 +86,7 @@ export function bankWriteForReview(
       case 'earn.withdraw':
         return (data as { positionId: string }).positionId === input.positionId;
       case 'earn.setAutoRenew': {
-        const row = data as z.infer<(typeof bankWrites)['earn.setAutoRenew']>;
+        const row = data as z.infer<(typeof BANK_EARN_SET_AUTO_RENEW)['output']>;
         return row.positionId === input.positionId && row.autoRenew === input.on && row.maturesAt !== null;
       }
       case 'autoInvest.createDca': {
@@ -133,11 +136,11 @@ export function bankWriteForReview(
         );
       }
       case 'spaces.setBillsPot': {
-        const row = data as z.infer<(typeof bankWrites)['spaces.setBillsPot']>;
+        const row = data as z.infer<(typeof BANK_SPACES_SET_BILLS_POT)['output']>;
         return row.spaceId === input.spaceId && row.fallback === input.fallback;
       }
       case 'spaces.clearBillsPot':
-        return (data as z.infer<(typeof bankWrites)['spaces.clearBillsPot']>).spaceId === input.spaceId;
+        return (data as z.infer<(typeof BANK_SPACES_CLEAR_BILLS_POT)['output']>).spaceId === input.spaceId;
       case 'sharedPots.linkCard':
         return (data as z.infer<typeof sharedPotCardSchema>).cardId === input.cardId;
       case 'sharedPots.freezeCard':
@@ -182,7 +185,7 @@ export function bankWriteForReview(
         );
       }
       case 'transfers.updateSchedule': {
-        const row = data as z.infer<(typeof bankWrites)['transfers.updateSchedule']>;
+        const row = data as z.infer<(typeof BANK_TRANSFERS_UPDATE_SCHEDULE)['output']>;
         return (
           row.id === input.scheduleId &&
           typeof input.revision === 'number' &&

@@ -6,6 +6,7 @@ import { bindingOf, calleeName, keyOf, literal, load, resolveRelative, walk } fr
 import { fanOut } from './fan.mjs';
 import { handSchemas } from './dead-hand-schemas.mjs';
 import { businessSite } from './pay-business.mjs';
+import { toolSite } from './tool-forms.mjs';
 import { wrapperOut } from './wrapper.mjs';
 
 const TEST_FILE = /(\.(test|spec|testkit)\.[cm]?[jt]sx?$)|(\.pw\.[cm]?[jt]s$)|(\/(test|tests|__tests__|__fixtures__)\/)/u;
@@ -31,6 +32,12 @@ export function findSites(repo) {
     const line = (n) => p.src.slice(0, n.start).split('\n').length;
     walk(p.program, (n) => {
       if (n.type === 'CallExpression') {
+        // A portal tool called bare, by name: its record form is beside it (tool-forms.mjs).
+        const tool = toolSite(p, n);
+        if (tool) {
+          out.push({ file, line: line(n), node: n, ...tool });
+          return;
+        }
         const name = calleeName(n);
         if (!name || !Object.hasOwn(NAMED_AT, name)) return;
         if ((name === 'query' || name === 'mutate') && n.callee.type !== 'MemberExpression') return;
@@ -82,7 +89,11 @@ export function findSites(repo) {
           }
         }
         if (name === 'founderCall' && a[2]?.type === 'MemberExpression' && !a[2].computed && a[2].property.name === 'procedure')
-          Object.assign(site, { shape: 'ops-dispatch', problem: 'sends the call its table entry names: it moves with the table' });
+          Object.assign(site, {
+            shape: 'ops-dispatch',
+            problem:
+              "sends the call its table entry names: it moves with the table once the table sits in this file, read as `const spec = TABLE[key]; founderCall(ctx, '<service>', spec.procedure, ...)`",
+          });
         // A call named by its wrapper's parameter or spec: a site per caller's string, or the wrapper named with why (wrapper.mjs).
         const w = !site.problem && site.module && !site.path ? wrapperOut(p, site, files, wrappers) : undefined;
         if (Array.isArray(w)) out.push(...w);

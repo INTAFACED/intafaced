@@ -510,7 +510,7 @@ fn entry(asset_id: &str, amount: &str) -> Result<(String, Amount), Refusal> {
             "Enter an amount with up to 18 decimals",
         )
     })?;
-    if a <= 0 {
+    if !a.is_positive() {
         return Err(refuse(
             "bank.ramp_invalid_amount",
             "The amount to cash out must be above zero",
@@ -723,7 +723,7 @@ fn decimal_or_null(v: Option<&str>) -> Json {
 
 /// `view` (`CashOutRequestView`).
 pub fn view(r: &Req) -> Json {
-    let amount = parse_amount(&r.amount).unwrap_or(0);
+    let amount = parse_amount(&r.amount).unwrap_or(Amount::ZERO);
     let remains = match r.status.as_str() {
         "completed" => Json::str(format_amount(amount)),
         "returned" => Json::str(format_amount(
@@ -731,7 +731,7 @@ pub fn view(r: &Req) -> Json {
                 - r.returned_amount
                     .as_deref()
                     .and_then(|t| parse_amount(t).ok())
-                    .unwrap_or(0),
+                    .unwrap_or(Amount::ZERO),
         )),
         _ => Json::Null,
     };
@@ -1003,7 +1003,7 @@ pub fn returned(
                 ),
             ));
         }
-        if back <= 0 || back > amount_of(&row.amount)? {
+        if !back.is_positive() || back > amount_of(&row.amount)? {
             return Err(refuse(
                 "bank.ramp_invalid_amount",
                 "What came back must be above zero and no more than was paid out",

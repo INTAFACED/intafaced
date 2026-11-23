@@ -14,7 +14,7 @@
     reason = "a test: a failure is the point"
 )]
 
-mod support;
+use crate::support;
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -87,7 +87,7 @@ impl FakeLedger {
                 .unwrap()
                 .get(account)
                 .copied()
-                .unwrap_or(0),
+                .unwrap_or(Amount::ZERO),
         )
     }
     fn house(&self) -> String {
@@ -123,15 +123,15 @@ impl Ledger for FakeLedger {
         };
         let mut acc = self.accounts.lock().unwrap();
         let from = format!("user:{user_id}:available:{asset_id}");
-        if acc.get(&from).copied().unwrap_or(0) < *amount {
+        if acc.get(&from).copied().unwrap_or(Amount::ZERO) < *amount {
             return Err(LedgerError {
                 code: Some("ledger.insufficient_funds".to_owned()),
                 message: "Insufficient funds".to_owned(),
             });
         }
-        *acc.entry(from).or_default() -= amount;
+        *acc.entry(from).or_default() -= *amount;
         *acc.entry(format!("house:fees:{module}:{asset_id}"))
-            .or_default() += amount;
+            .or_default() += *amount;
         let tx = format!("tx-{}", by_key.len() + 1);
         by_key.insert(key, tx.clone());
         Ok(tx)
@@ -293,7 +293,7 @@ fn answers_once_charges_its_window_once_and_a_retry_returns_the_stored_answer() 
         panic!("answered");
     };
     assert!(!replayed);
-    assert!(amt(&paid) > 0);
+    assert!(amt(&paid) > Amount::ZERO);
     assert_eq!(w.ledger.house(), paid);
     assert_eq!(w.ledger.available(), format_amount(amt("100") - amt(&paid)));
 
@@ -361,7 +361,7 @@ fn a_crash_after_the_engine_ran_neither_double_bills_nor_drops_the_charge() {
 
     assert_eq!(w.later(), CoachResult::Refused("agents.request_id_replay"));
     let charged = w.ledger.house();
-    assert!(amt(&charged) > 0);
+    assert!(amt(&charged) > Amount::ZERO);
     assert_eq!(w.later(), CoachResult::Refused("agents.request_id_replay"));
     assert_eq!(w.ledger.house(), charged);
 
@@ -396,7 +396,7 @@ fn during_a_posting_freeze_the_charge_keeps_its_row_and_settles_once_after() {
     w.ledger.frozen.store(false, Ordering::SeqCst);
     let again = w.ask();
     let charged = w.ledger.house();
-    assert!(amt(&charged) > 0);
+    assert!(amt(&charged) > Amount::ZERO);
     assert_eq!(billed(&again), charged);
     w.ask();
     assert_eq!(w.ledger.house(), charged);

@@ -204,7 +204,7 @@ async function mount(node: React.ReactNode, ready: string) {
 }
 const button = (host: HTMLElement, name: string) => [...host.querySelectorAll('button')].find((b) => b.textContent === name)!;
 const field = (host: HTMLElement, label: string) =>
-  [...host.querySelectorAll('label')].find((l) => l.querySelector('span')?.textContent === label)!.querySelector('input')!;
+  [...host.querySelectorAll('label')].find((l) => (l.querySelector('span') ?? l).textContent === label)!.control as HTMLInputElement;
 async function type(input: HTMLInputElement, value: string) {
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);

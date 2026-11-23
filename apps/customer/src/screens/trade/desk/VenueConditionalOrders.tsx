@@ -32,7 +32,7 @@ export function VenueConditionalOrders({ market, owner, venueName }: { market: V
   return (
     <section className="dk-panel form-stack" aria-label={t('Title')} data-testid="spot-conditional">
       <h2 className="dk-tab-title">{t('Title')}</h2>
-      <p className="muted">{t('Note')}</p>
+      <p className="lt-muted">{t('Note')}</p>
       <ConditionalForm market={market} owner={owner} venueName={venueName} />
     </section>
   );
@@ -53,9 +53,9 @@ function RefusalAlert({ refusal }: { refusal: Refusal | null }) {
   const { t } = spotConditionalCopy.useCopy();
   if (!refusal) return null;
   return (
-    <div className="failure" role="alert" data-testid="spot-conditional-refusal">
+    <div className="lt-refusal" role="alert" data-testid="spot-conditional-refusal">
       <p>{refusal.message}</p>
-      {refusal.code ? <p className="muted">{t('Code', { code: refusal.code })}</p> : null}
+      {refusal.code ? <p className="lt-muted">{t('Code', { code: refusal.code })}</p> : null}
     </div>
   );
 }
@@ -165,7 +165,7 @@ function ConditionalForm({ market, owner, venueName }: { market: VenueMarket; ow
   }
 
   return (
-    <div className="form-stack" data-testid="spot-conditional-form" data-client-order-id={clientId}>
+    <div className="lt-stack" data-testid="spot-conditional-form" data-client-order-id={clientId}>
       <div role="group" aria-label={t('Kind')} className="dk-order-opts">
         {SPOT_CONDITIONAL_KINDS.map((k) => (
           <Button
@@ -202,7 +202,7 @@ function ConditionalForm({ market, owner, venueName }: { market: VenueMarket; ow
       <p data-testid="spot-conditional-where" data-where={engine}>
         {engine === 'engine' ? t('where_engine') : t('where_venue')}
       </p>
-      {engine === 'engine' ? <p className="muted">{t('where_engine_note', { venue: venueName })}</p> : null}
+      {engine === 'engine' ? <p className="lt-muted">{t('where_engine_note', { venue: venueName })}</p> : null}
       {engine === 'engine' ? <AgentPermission owner={owner} /> : null}
       <NumberField
         label={t('Size', { base: market.baseAsset })}
@@ -253,7 +253,7 @@ function ConditionalForm({ market, owner, venueName }: { market: VenueMarket; ow
 function ReviewRows({ legs }: { legs: SpotFeeLeg[] }) {
   const { t } = spotConditionalCopy.useCopy();
   return (
-    <section aria-label={t('Review title')} data-testid="spot-conditional-review" className="form-stack">
+    <section aria-label={t('Review title')} data-testid="spot-conditional-review" className="lt-stack">
       <h3 className="dk-tab-title">{t('Review title')}</h3>
       <ul>
         {legs.map((leg) => {
@@ -285,7 +285,7 @@ function ReviewRows({ legs }: { legs: SpotFeeLeg[] }) {
 
 function NumberField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
   return (
-    <label className="field">
+    <label className="lt-field">
       <span>{label}</span>
       <input inputMode="decimal" aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} />
     </label>
@@ -322,7 +322,7 @@ export function AgentPermission({ owner }: { owner: string }) {
 
   const approved = agent.data?.approved === true || accepted;
   return (
-    <section className="form-stack" aria-label={t('Agent permission')} data-testid="spot-agent">
+    <section className="lt-stack" aria-label={t('Agent permission')} data-testid="spot-agent">
       <h3 className="dk-tab-title">{t('Agent permission')}</h3>
       <p>{t('Agent note')}</p>
       {approved ? (
@@ -332,7 +332,7 @@ export function AgentPermission({ owner }: { owner: string }) {
       ) : agent.data ? (
         <Button onClick={() => void approve()}>{t('Agent approve')}</Button>
       ) : (
-        <p className="muted">{t('Agent checking')}</p>
+        <p className="lt-muted">{t('Agent checking')}</p>
       )}
       <RefusalAlert refusal={refusal} />
     </section>
@@ -352,13 +352,13 @@ function PendingList({
 }) {
   const { t } = spotConditionalCopy.useCopy();
   return (
-    <section aria-label={t('Pending title')} data-testid="spot-conditional-pending" className="form-stack">
+    <section aria-label={t('Pending title')} data-testid="spot-conditional-pending" className="lt-stack">
       <h3 className="dk-tab-title">{t('Pending title')}</h3>
       {failure ? (
-        <p className="failure">{failure}</p>
+        <p className="lt-refusal">{failure}</p>
       ) : orders.length === 0 ? (
         loaded ? (
-          <p className="muted">{t('Pending empty')}</p>
+          <p className="lt-muted">{t('Pending empty')}</p>
         ) : null
       ) : (
         <table className="dk-table">
@@ -441,7 +441,7 @@ function PendingRow({ order: o, onChanged }: { order: SpotConditionalView; onCha
       </td>
       <td data-cell="status">
         {t(`status_${o.status}`)}
-        {o.failure ? <span className="failure"> · {t('Failure', { failure: o.failure })}</span> : null}
+        {o.failure ? <span className="lt-refusal"> · {t('Failure', { failure: o.failure })}</span> : null}
         {o.status === 'cancelled' && isReason(o.cancelReason) ? <span> · {t(`Cancel reason ${o.cancelReason}`)}</span> : null}
         {o.expireAt ? (
           <span data-expire-at={o.expireAt}>
@@ -467,7 +467,7 @@ function PendingRow({ order: o, onChanged }: { order: SpotConditionalView; onCha
           </Button>
         ) : null}
         {editing ? (
-          <span className="form-stack">
+          <span className="lt-stack">
             <NumberField label={t('Modify trigger')} value={trigger} onChange={setTrigger} />
             {o.kind === 'stop_limit' || o.limitPrice !== null ? (
               <NumberField label={t('Modify limit')} value={limit} onChange={setLimit} />

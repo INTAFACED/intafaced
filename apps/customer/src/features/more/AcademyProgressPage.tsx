@@ -13,17 +13,27 @@ import type { ApiResult } from '../../shared/api';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
 import { ServiceOffNotice } from '../../shared/service-off';
-import { Button, EmptyState, Loading, Panel } from '../../shared/ui';
+import { Button, Checkbox, Field, Tag } from '@intafaced/ui/lit';
+import { Meter } from '@intafaced/ui/lit/templates';
 import { useApi, useSession } from '../session';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { formatDay } from './academy-lms';
-import { AcademyRefusal, GuardedButton, ProgressBar, pathLabel } from './AcademyLmsParts';
+import { pathLabel } from './academy-labels';
+import { AcademyRefusal } from './academy-refusal';
+import { KitGuardedButton as GuardedButton } from './academy-guarded';
+import { EmptyNote as EmptyState, Section as Panel, Waiting as Loading } from './volt-parts';
 
 type Failure = Extract<ApiResult<never>, { ok: false }>;
 
 /** A decimal-string percentage with one decimal place, in the reader's number format (33,3 in French). */
 export const localPercent = (value: string, language: string, fixed = true) =>
   new Intl.NumberFormat(language, { minimumFractionDigits: fixed ? 1 : 0, maximumFractionDigits: fixed ? 1 : 2 }).format(Number(value));
+
+/** A share done, 0 to 100, as the kit's meter with its percent as words. */
+function ProgressMeter({ percent, label }: { percent: number; label: string }) {
+  const value = Math.max(0, Math.min(100, Math.round(percent)));
+  return <Meter label={label} value={value} text={`${value}%`} />;
+}
 
 /**
  * The grades table of each authored course (AC-progress-02): one row per assignment in outline order. A grade reads
@@ -34,10 +44,10 @@ export function CourseGradesView({ courses }: { courses: AcademyProgressPage['co
   const { language } = usePreferences();
   if (courses.length === 0) return <EmptyState title={t('cgEmpty')} />;
   return (
-    <div className="academy-lms-stack">
+    <div className="lt-stack">
       {courses.map((course) => (
-        <div key={course.slug} className="academy-lms-card" data-course-grades={course.slug}>
-          <table>
+        <div key={course.slug} data-course-grades={course.slug}>
+          <table className="lt-table">
             <caption lang="und">{course.title}</caption>
             <thead>
               <tr>
@@ -66,7 +76,7 @@ export function CourseGradesView({ courses }: { courses: AcademyProgressPage['co
             </tbody>
           </table>
           {course.averages.length === 0 ? (
-            <p className="muted">{t('cgNoAverage')}</p>
+            <p className="lt-hint">{t('cgNoAverage')}</p>
           ) : (
             course.averages.map((average) => (
               <p key={average.type} data-testid={`type-average-${average.type}`}>
@@ -126,9 +136,9 @@ export function ProgressPageView({ page }: { page: AcademyProgressPage }) {
         {page.courses.length === 0 ? (
           <EmptyState title={t('progressNoCourses')} />
         ) : (
-          <ul className="academy-lms-stack" data-course-progress-list="true">
+          <ul className="lt-rows" data-course-progress-list="true">
             {page.courses.map((course) => (
-              <li key={course.slug} className="academy-lms-card" data-course-progress={course.slug} data-percent={course.percent}>
+              <li key={course.slug} data-course-progress={course.slug} data-percent={course.percent}>
                 <strong>{pathLabel(t, course.slug)}</strong>
                 <p>
                   {t('progressPercent', {
@@ -137,13 +147,13 @@ export function ProgressPageView({ page }: { page: AcademyProgressPage }) {
                     visible: course.visible,
                   })}
                 </p>
-                <ProgressBar percent={Number(course.percent)} label={t('progressCourseLabel', { course: pathLabel(t, course.slug) })} />
-                <ul className="academy-lms-rows">
+                <ProgressMeter percent={Number(course.percent)} label={t('progressCourseLabel', { course: pathLabel(t, course.slug) })} />
+                <ul className="lt-rows">
                   {course.items.map((item) => (
                     <li key={item.slug} data-progress-item={item.slug} data-completed={item.completedAt !== null}>
                       <span aria-hidden="true">{item.completedAt ? '✓' : '○'}</span>
                       <span lang="und">{item.title}</span>
-                      <span className="muted">
+                      <span className="lt-hint">
                         {item.completedAt ? (
                           <>
                             {t('progressItemDone')} <time dateTime={item.completedAt}>{formatDay(item.completedAt, language)}</time>
@@ -167,9 +177,9 @@ export function ProgressPageView({ page }: { page: AcademyProgressPage }) {
         {page.grades.rows.length === 0 ? (
           <EmptyState title={t('gradesEmpty')} />
         ) : (
-          <div className="academy-lms-stack">
+          <div className="lt-stack">
             {pending.length > 0 && (
-              <p className="academy-lms-result" role="status" data-grades-pending={pending.length}>
+              <p role="status" data-grades-pending={pending.length}>
                 {pending.length === 1 ? t('gradesPendingOne') : t('gradesPending', { count: pending.length })}
               </p>
             )}
@@ -180,26 +190,28 @@ export function ProgressPageView({ page }: { page: AcademyProgressPage }) {
                   : t('gradesAverageQuiz', { percent: localPercent(average.percent, language), count: average.count })}
               </p>
             ))}
-            <ul className="academy-lms-rows" data-grade-chart="true" aria-label={t('gradesChartLabel')}>
+            <ul className="lt-rows" data-grade-chart="true" aria-label={t('gradesChartLabel')}>
               {page.grades.rows.map((row) => (
                 <li key={row.slug} data-grade-row={row.slug} data-grade-state={row.pending ? 'pending' : row.passed ? 'passed' : 'failed'}>
                   <span lang="und">{row.title}</span>
                   {row.pending ? (
-                    <span className="muted">
+                    <span className="lt-hint">
                       {t('gradesRowPending')} <time dateTime={row.hiddenUntil}>{formatDay(row.hiddenUntil, language)}</time>
                     </span>
                   ) : (
                     <>
-                      <ProgressBar percent={Number(row.percent)} label={t('gradesBarLabel', { title: row.title })} />
+                      <ProgressMeter percent={Number(row.percent)} label={t('gradesBarLabel', { title: row.title })} />
                       <span>
                         {t('gradesRowScore', { score: row.score, possible: row.possible, percent: localPercent(row.percent, language) })}
                       </span>
-                      <span className="academy-lms-chip" data-status={row.passed ? 'passed' : 'failed'}>
+                      <Tag tone={row.passed ? 'up' : 'neutral'} data-status={row.passed ? 'passed' : 'failed'}>
                         {row.passed ? t('resultPassed') : t('resultNotPassed')}
-                      </span>
+                      </Tag>
                     </>
                   )}
-                  <span className="muted">{row.attempts === 1 ? t('attemptsCountOne') : t('attemptsCount', { count: row.attempts })}</span>
+                  <span className="lt-hint">
+                    {row.attempts === 1 ? t('attemptsCountOne') : t('attemptsCount', { count: row.attempts })}
+                  </span>
                 </li>
               ))}
             </ul>
@@ -247,25 +259,19 @@ export function PlannerView(props: PlannerViewProps) {
     !Number.isInteger(goalNumber) || goalNumber < 1 || goalNumber > 100 ? t('goalRange') : props.busy ? t('plannerBusy') : null;
   const reminderReason = !planner.goal?.reminder ? t('goalReminderOff') : props.busy ? t('plannerBusy') : null;
   return (
-    <div className="academy-lms-stack" data-planner="true">
-      <section className="academy-lms-stack" aria-label={t('plannerTodoTitle')}>
+    <div className="lt-stack" data-planner="true">
+      <section className="lt-stack" aria-label={t('plannerTodoTitle')}>
         <h4>{t('plannerTodoTitle')}</h4>
         {planner.todos.length === 0 ? (
-          <p className="muted">{t('plannerTodoEmpty')}</p>
+          <p className="lt-hint">{t('plannerTodoEmpty')}</p>
         ) : (
-          <ul className="academy-lms-rows" data-todo-list="true">
+          <ul className="lt-rows" data-todo-list="true">
             {planner.todos.map((todo) => (
               <li key={todo.id} data-todo={todo.id} data-todo-done={todo.doneAt !== null}>
-                <label className="academy-lms-choice">
-                  <input
-                    type="checkbox"
-                    checked={todo.doneAt !== null}
-                    disabled={props.busy}
-                    onChange={(event) => props.onDone(todo.id, event.target.checked)}
-                  />
+                <Checkbox checked={todo.doneAt !== null} disabled={props.busy} onCheckedChange={(done) => props.onDone(todo.id, done)}>
                   <span lang="und">{todo.text}</span>
-                </label>
-                <Button type="button" variant="secondary" disabled={props.busy} onClick={() => props.onRemove(todo.id)}>
+                </Checkbox>
+                <Button type="button" tone="secondary" disabled={props.busy} onClick={() => props.onRemove(todo.id)}>
                   {t('plannerRemove')}
                 </Button>
               </li>
@@ -273,20 +279,25 @@ export function PlannerView(props: PlannerViewProps) {
           </ul>
         )}
         <form
-          className="academy-lms-form"
+          className="lt-stack"
           onSubmit={(event) => {
             event.preventDefault();
             if (addReason === null) props.onAdd();
           }}
         >
-          <label htmlFor={`${id}-todo`}>{t('plannerTodoLabel')}</label>
-          <input id={`${id}-todo`} maxLength={200} value={props.draft} onChange={(event) => props.onDraft(event.target.value)} />
+          <Field
+            id={`${id}-todo`}
+            label={t('plannerTodoLabel')}
+            maxLength={200}
+            value={props.draft}
+            onChange={(event) => props.onDraft(event.target.value)}
+          />
           <GuardedButton type="submit" reason={addReason} reasonId={`${id}-add-reason`}>
             {t('plannerAdd')}
           </GuardedButton>
         </form>
       </section>
-      <section className="academy-lms-stack" aria-label={t('goalTitle')}>
+      <section className="lt-stack" aria-label={t('goalTitle')}>
         <h4>{t('goalTitle')}</h4>
         {planner.goal ? (
           <p data-goal={planner.goal.itemsPerWeek}>
@@ -294,18 +305,18 @@ export function PlannerView(props: PlannerViewProps) {
             {planner.goal.reminder ? t('goalReminderOn') : t('goalReminderNone')}
           </p>
         ) : (
-          <p className="muted">{t('goalNone')}</p>
+          <p className="lt-hint">{t('goalNone')}</p>
         )}
         <form
-          className="academy-lms-form"
+          className="lt-stack"
           onSubmit={(event) => {
             event.preventDefault();
             if (goalReason === null) props.onSaveGoal();
           }}
         >
-          <label htmlFor={`${id}-goal`}>{t('goalItemsLabel')}</label>
-          <input
+          <Field
             id={`${id}-goal`}
+            label={t('goalItemsLabel')}
             type="number"
             min={1}
             max={100}
@@ -313,14 +324,9 @@ export function PlannerView(props: PlannerViewProps) {
             value={props.goalDraft.itemsPerWeek}
             onChange={(event) => props.onGoalDraft({ ...props.goalDraft, itemsPerWeek: event.target.value })}
           />
-          <label className="academy-lms-choice">
-            <input
-              type="checkbox"
-              checked={props.goalDraft.reminder}
-              onChange={(event) => props.onGoalDraft({ ...props.goalDraft, reminder: event.target.checked })}
-            />
-            <span>{t('goalReminderLabel')}</span>
-          </label>
+          <Checkbox checked={props.goalDraft.reminder} onCheckedChange={(reminder) => props.onGoalDraft({ ...props.goalDraft, reminder })}>
+            {t('goalReminderLabel')}
+          </Checkbox>
           <GuardedButton type="submit" reason={goalReason} reasonId={`${id}-goal-reason`}>
             {t('goalSave')}
           </GuardedButton>

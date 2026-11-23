@@ -192,7 +192,12 @@ async function withPublishedNetworks(body) {
   }
 }
 
-const networkCard = (page) => page.locator('main section').filter({ has: page.getByRole('heading', { name: 'Network', exact: true }) });
+// The card itself, not the page's Details region that holds it: the innermost section with the heading.
+const networkCard = (page) =>
+  page
+    .locator('main section')
+    .filter({ has: page.getByRole('heading', { name: 'Network', exact: true }) })
+    .filter({ hasNot: page.locator('section') });
 const fact = (page, label) =>
   networkCard(page)
     .locator('dl div')

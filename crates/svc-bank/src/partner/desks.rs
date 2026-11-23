@@ -100,14 +100,16 @@ impl PurchaseDesk {
     /// `heldBack`: what the partner holds back of a main balance now.
     pub fn held_back(&mut self, account: &AccountRef, expired: bool, now: Instant) -> Amount {
         if account.space_id.is_some() {
-            return 0;
+            return Amount::ZERO;
         }
         self.release_due(&account.user_id, expired, now);
-        self.open.get(&account.user_id).map_or(0, |list| {
-            list.iter()
-                .filter(|h| h.asset_id == account.asset_id)
-                .fold(0, |sum: Amount, h| sum.saturating_add(h.amount))
-        })
+        self.open
+            .get(&account.user_id)
+            .map_or(Amount::ZERO, |list| {
+                list.iter()
+                    .filter(|h| h.asset_id == account.asset_id)
+                    .fold(Amount::ZERO, |sum: Amount, h| sum.saturating_add(h.amount))
+            })
     }
 }
 
@@ -126,6 +128,8 @@ pub struct DebitReport {
     pub mandates: Vec<(String, String, Option<Instant>, Instant)>,
     /// (owner, mandate, collection, code), in the order refused.
     pub failures: Vec<(String, String, String, String)>,
+    /// When each of `failures` was refused, in the same order (`PartnerDirectDebitFailure.at`).
+    pub failed_at: Vec<Instant>,
     pub refunds: Vec<Refund>,
 }
 
@@ -163,6 +167,7 @@ pub struct DirectDebitDesk {
     known: Vec<(String, String, Instant)>,
     known_at: HashMap<String, usize>,
     failures: Vec<(String, String, String, String)>,
+    failed_at: Vec<Instant>,
     failure_keys: HashMap<String, usize>,
     refunds: Vec<Refund>,
     refund_at: HashMap<String, usize>,
@@ -196,6 +201,7 @@ impl DirectDebitDesk {
                 collection_id.to_owned(),
                 code.to_owned(),
             ));
+            self.failed_at.push(now);
         }
     }
 
@@ -238,7 +244,7 @@ impl State {
         if self.board.read(user_id, |s| s.down) {
             return Err(partner_down());
         }
-        if p.amount <= 0 {
+        if p.amount <= Amount::ZERO {
             return Err(refuse(
                 "bank.partner_amount_invalid",
                 "A purchase needs an amount above zero.",
@@ -452,6 +458,7 @@ impl State {
                 })
                 .collect(),
             failures: self.debits.failures.clone(),
+            failed_at: self.debits.failed_at.clone(),
             refunds: self.debits.refunds.clone(),
         }
     }

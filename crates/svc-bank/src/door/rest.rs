@@ -90,7 +90,7 @@ impl RestDoor {
     }
 }
 
-pub(super) fn reply(status: u16, error: &str, code: &str) -> Response {
+pub(crate) fn reply(status: u16, error: &str, code: &str) -> Response {
     Response {
         status,
         body: Json::obj([("error", Json::str(error)), ("code", Json::str(code))]).compact(),
@@ -321,6 +321,13 @@ pub fn answer(door: &BankDoor, req: &Request<'_>) -> Option<Response> {
                 .and_then(Result::ok)
                 .unwrap_or(Value::Undefined);
             crate::partner::usage_payment::answer(door.partner(), door.store(), &parsed, door.now())
+        }
+        Ok(true) if rest.slice == Slice::Business => {
+            let parsed = inputs::parse_named(&rest.name(), body)
+                .ok()
+                .and_then(Result::ok)
+                .unwrap_or(Value::Undefined);
+            crate::business::team::answer(door.store(), &parsed)
         }
         Ok(true) if rest.slice == Slice::PartnerAccount => {
             crate::partner_account::closure_check(&door.partner_account(), &body)

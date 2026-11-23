@@ -17,14 +17,10 @@
     reason = "a test: a failure is the point"
 )]
 
-mod support;
-
-#[path = "support/partner_account.rs"]
-mod harness;
-
-use harness::*;
+use crate::partner_account_kit::*;
+use crate::support;
 use service_kit::json::{self, Json};
-use service_kit::money::format_amount;
+use service_kit::money::{Amount, format_amount};
 use service_kit::time::Instant;
 use support::TestDb;
 use svc_bank::door::BankDoor;
@@ -600,7 +596,7 @@ fn while_the_owners_self_freeze_is_open_the_re_drive_holds_nothing_new_and_pays_
     );
     s.lock.set(OPEN);
     assert_eq!(s.ledger.posts(), posts);
-    assert_eq!(s.ledger.held(ADA, &unheld), 0);
+    assert_eq!(s.ledger.held(ADA, &unheld), Amount::ZERO);
     assert_eq!(s.ledger.available(ADA), amount("50"));
     matches(
         &requests(&d, 1)[0],
@@ -640,7 +636,7 @@ fn a_failed_payout_gives_back_a_hold_the_ledger_booked_but_the_request_never_rec
         &job_ok(failed(&d, &request, "bank.payout_rejected")),
         &[("status", "failed")],
     );
-    assert_eq!(s.ledger.held(ADA, &request), 0);
+    assert_eq!(s.ledger.held(ADA, &request), Amount::ZERO);
     assert_eq!(s.ledger.available(ADA), amount("50"));
 }
 
@@ -659,7 +655,7 @@ fn with_nothing_held_and_no_partner_here_nothing_is_held_and_it_stays_processing
         &requests(&d, 1)[0],
         &[("status", "processing"), ("payoutRef", "null")],
     );
-    assert_eq!(s.ledger.held(ADA, &request), 0);
+    assert_eq!(s.ledger.held(ADA, &request), Amount::ZERO);
     assert_eq!(s.ledger.available(ADA), amount("50"));
     // The hold lands late: the next drive with the partner back finds it and posts none again.
     s.ledger.post_ok(&hold(&request));
@@ -688,9 +684,9 @@ fn paid_the_hold_settles_to_the_payout_rail_once_and_the_receipt_is_signed_and_n
     let tx = f(&done_, "ledgerTxId");
     assert_ne!(tx, "null");
     assert_eq!(job_ok(paid(&d, &request)), done_);
-    assert_eq!(s.ledger.held(ADA, &request), 0);
+    assert_eq!(s.ledger.held(ADA, &request), Amount::ZERO);
     assert_eq!(s.ledger.available(ADA), amount("30"));
-    assert_ne!(s.ledger.rail(), 0);
+    assert_ne!(s.ledger.rail(), Amount::ZERO);
     // Nothing else can close it now.
     assert_eq!(
         job_refused(failed(&d, &request, "bank.payout_rejected")),
@@ -905,7 +901,7 @@ fn with_its_records_folder_the_stand_ins_own_word_on_its_rail_matches_the_payout
         ]
     );
     // The rail's own total, in the ledger's signed form for its boundary (out positive, in negative), against the ledger.
-    let said: i128 = lines
+    let said: Amount = lines
         .iter()
         .map(|r| {
             if f(r, "direction") == "in" {

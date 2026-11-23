@@ -1,7 +1,8 @@
-// World: book
+// World: book, market
 import { test, expect } from './journey.mjs';
-import { api, journeyState, toUnits, fromUnits } from './stack.mjs';
+import { api, bestPrices, journeyState, tool, toUnits, fromUnits } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
+import { HOLD_MAX_MS } from '../../../../tooling/scripts/local-test-market.mjs';
 
 // J-derivatives-06, in the running app (docs/roadmap/journeys.json): watch and top up the margin on an isolated position.
 // One test per step, titled "J-derivatives-06 #<n>", run in order on one TEST account funded with TEST USDT. The contract
@@ -35,29 +36,49 @@ async function until(read, ok, what, ms = 30_000) {
   throw new Error(`${what}: still ${JSON.stringify(last)}`);
 }
 
+/**
+ * A TEST isolated long at market, held from the preview to the fill. The margin tier is rated on the book's depth, and the
+ * TEST maker puts its new ladder up before it takes the old one down, so a re-quote between the preview and the order can
+ * rate the order a tier above the one the preview named, which svc-trade refuses trade.risk_limit_confirm_required. Held,
+ * both ladders rest as the maker's last cycle left them, so the preview and the order read one depth and one mark. Asked
+ * for once each book has both sides, and timed from before the ask.
+ */
 async function openLong(me) {
   const { body } = await me.get('/api/v1/positions');
   const open = body.find((p) => p.symbol === SYMBOL && p.side === 'long' && p.status === 'open');
   if (open) return open;
-  const preview = await me.post('/api/v1/positions/preview', { symbol: SYMBOL, side: 'long', size: SIZE, leverage: LEVERAGE });
-  expect(preview.status, JSON.stringify(preview.body)).toBe(200);
-  const placed = await me.post('/api/v1/futures/orders', {
-    symbol: SYMBOL,
-    side: 'buy',
-    type: 'market',
-    amount: SIZE,
-    leverage: LEVERAGE,
-    marginMode: 'isolated',
-    confirmTier: preview.body.riskTier?.projected,
-    clientOrderId: `${J}-open-${Date.now()}`,
-  });
-  expect(placed.status, JSON.stringify(placed.body)).toBeLessThan(300);
-  const positions = await until(
-    async () => (await me.get('/api/v1/positions')).body,
-    (list) => list.some((p) => p.symbol === SYMBOL && p.side === 'long' && p.status === 'open' && p.contracts === SIZE),
-    'the TEST long',
-  );
-  return positions.find((p) => p.symbol === SYMBOL && p.side === 'long');
+  await bestPrices('BTC/USDT', 50, 60_000);
+  await bestPrices(SYMBOL, 50, 60_000);
+  const heldAt = Date.now();
+  tool('local-test-market.mjs', 'hold', 'BTC/USDT');
+  tool('local-test-market.mjs', 'hold', SYMBOL);
+  try {
+    await bestPrices('BTC/USDT', 50, 60_000);
+    await bestPrices(SYMBOL, 50, 60_000);
+    const preview = await me.post('/api/v1/positions/preview', { symbol: SYMBOL, side: 'long', size: SIZE, leverage: LEVERAGE });
+    expect(preview.status, JSON.stringify(preview.body)).toBe(200);
+    const placed = await me.post('/api/v1/futures/orders', {
+      symbol: SYMBOL,
+      side: 'buy',
+      type: 'market',
+      amount: SIZE,
+      leverage: LEVERAGE,
+      marginMode: 'isolated',
+      confirmTier: preview.body.riskTier?.projected,
+      clientOrderId: `${J}-open-${Date.now()}`,
+    });
+    expect(placed.status, JSON.stringify(placed.body)).toBeLessThan(300);
+    const positions = await until(
+      async () => (await me.get('/api/v1/positions')).body,
+      (list) => list.some((p) => p.symbol === SYMBOL && p.side === 'long' && p.status === 'open' && p.contracts === SIZE),
+      'the TEST long',
+    );
+    expect(Date.now() - heldAt, 'the hold lapsed before the TEST long opened').toBeLessThan(HOLD_MAX_MS);
+    return positions.find((p) => p.symbol === SYMBOL && p.side === 'long');
+  } finally {
+    tool('local-test-market.mjs', 'release', SYMBOL);
+    tool('local-test-market.mjs', 'release', 'BTC/USDT');
+  }
 }
 
 /** An exact decimal as the room draws it to its last digit: thousands grouped, nothing rounded, a true minus sign. */

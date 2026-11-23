@@ -302,7 +302,10 @@ mod tests {
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].account.key(), "user:u1:EUR:hold:order:1");
         assert_eq!(rows[1].account.purpose, None);
-        assert_eq!(rows[1].amount, -1_000_000_000_000_000_000);
+        assert_eq!(
+            rows[1].amount,
+            Amount::from_scaled(-1_000_000_000_000_000_000)
+        );
         let seen = seen.0.lock().unwrap();
         assert_eq!(seen[0].url, "http://ledger:4001/trpc/balances");
         assert_eq!(

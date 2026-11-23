@@ -8,9 +8,9 @@ import { Button, DataTable, ChoiceGroup as Tabs } from '@intafaced/ui';
 import { Field } from './ui-kit';
 import type { BusinessPayApi } from './pay-api';
 import { PayDetails, PayNotice, PayPagination, PaySection, PayState, ReviewedAction, Status } from './components';
-import { validatedMutation } from './BusinessPay';
+import { validatedMutation, validatedRecordMutation } from './BusinessPay';
 import * as s from './schemas';
-import { PAY_SUBMERCHANT_LIST, PAY_SUBMERCHANT_GET } from '@intafaced/contracts/pay-submerchant-procedures';
+import { PAY_SUBMERCHANT_LIST, PAY_SUBMERCHANT_GET, PAY_SUBMERCHANT_CREATE } from '@intafaced/contracts/pay-submerchant-procedures';
 import {
   PAY_SUBMERCHANT_PERMISSION_AREAS,
   PAY_SUBMERCHANT_PERMISSION_LIST,
@@ -33,7 +33,7 @@ export function MerchantNetwork({ pay }: { pay: BusinessPayApi }) {
     `pay:network-node:${merchantId}:${opened || node}`,
   );
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <PaySection
         title={payCopy.t('subMerchantNetwork')}
         description={payCopy.t('theServiceResolvesYourOwnMerchantNode')}
@@ -70,7 +70,7 @@ export function MerchantNetwork({ pay }: { pay: BusinessPayApi }) {
                   <tr key={child.id}>
                     <td>
                       {child.id}
-                      <small className="pay-cell-note">{child.userId}</small>
+                      <small className="lt-hint">{child.userId}</small>
                     </td>
                     <td>{child.kybStatus}</td>
                     <td>{child.feeBps === null ? payCopy.t('notPublished') : payCopy.t('bps', { feeBps: child.feeBps })}</td>
@@ -79,7 +79,7 @@ export function MerchantNetwork({ pay }: { pay: BusinessPayApi }) {
                       <Status value={child.status} />
                     </td>
                     <td>
-                      <div className="actions">
+                      <div className="lt-actions">
                         <Button variant="ghost" onClick={() => setOpened(child.id)}>
                           <PayCopy k="details" />
                         </Button>
@@ -148,9 +148,9 @@ export function MerchantNetwork({ pay }: { pay: BusinessPayApi }) {
               />
             }
             perform={() =>
-              validatedMutation(
+              validatedRecordMutation(
                 pay,
-                'submerchant.create',
+                PAY_SUBMERCHANT_CREATE,
                 {
                   parentMerchantId: node,
                   userId: user,
@@ -163,7 +163,6 @@ export function MerchantNetwork({ pay }: { pay: BusinessPayApi }) {
                   pricing: z.object({ feeBps: z.number().int().min(0).max(10_000) }),
                   settlingParty: z.literal('self'),
                 }),
-                s.submerchantSchema,
                 'pay:write',
                 'submerchant-create',
               )
@@ -207,7 +206,7 @@ export function MerchantPermissions({ pay }: { pay: BusinessPayApi }) {
   const input = { granteeMerchantId: grantee, subjectMerchantId: subject, area, reason: reason.trim() };
   const allowedArea = areas.resource.status === 'ready' && areas.resource.data.some((known) => known === area);
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <PaySection title={payCopy.t('permissionSubject')} description={payCopy.t('authorityOverASubjectMerchantIsChecked')}>
         <form
           data-testid="pay-filters"
@@ -247,7 +246,7 @@ export function MerchantPermissions({ pay }: { pay: BusinessPayApi }) {
                     <td>{grant.reason}</td>
                     <td>
                       {grant.actorId}
-                      <small className="pay-cell-note">{grant.grantedAt}</small>
+                      <small className="lt-hint">{grant.grantedAt}</small>
                     </td>
                   </tr>
                 ))}
@@ -260,7 +259,7 @@ export function MerchantPermissions({ pay }: { pay: BusinessPayApi }) {
       <PaySection title={payCopy.t('changeADelegatedPermission')}>
         <div className="form-stack pay-form">
           <Field label={payCopy.t('granteeMerchantId')} value={grantee} onChange={(event) => setGrantee(event.target.value)} />
-          <label className="field">
+          <label className="lt-field">
             <PayCopy k="permissionArea" />
             <select value={area} onChange={(event) => setArea(event.target.value)}>
               <option value="">{payCopy.t('chooseAnAreaReturnedByTheService')}</option>
@@ -282,7 +281,7 @@ export function MerchantPermissions({ pay }: { pay: BusinessPayApi }) {
             minLength={3}
             maxLength={500}
           />
-          <div className="actions">
+          <div className="lt-actions">
             {(['grant', 'revoke'] as const).map((action) => (
               <ReviewedAction
                 key={action}
@@ -336,12 +335,12 @@ export function MerchantPermissions({ pay }: { pay: BusinessPayApi }) {
                     </td>
                     <td>
                       {event.granteeMerchantId}
-                      <small className="pay-cell-note">{event.area}</small>
+                      <small className="lt-hint">{event.area}</small>
                     </td>
                     <td>{event.reason}</td>
                     <td>
                       {event.actorId}
-                      <small className="pay-cell-note">{event.createdAt}</small>
+                      <small className="lt-hint">{event.createdAt}</small>
                     </td>
                   </tr>
                 ))}
@@ -357,7 +356,7 @@ export function MerchantPermissions({ pay }: { pay: BusinessPayApi }) {
 export function MerchantDeveloper({ pay }: { pay: BusinessPayApi }) {
   const [tab, setTab] = useState('Sandbox keys');
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <Tabs
         label={payCopy.t('developerSettings')}
         items={['Sandbox keys', 'Merchant webhooks']}
@@ -377,7 +376,7 @@ export function SandboxKeys({ pay, formOnly = false }: { pay: BusinessPayApi; fo
   const keys = useResource((signal) => pay.keys(signal), `pay:sandbox-keys:${pay.authority!.userId}`);
   const permitted = ['pay:read', 'pay:write', 'pay:refund'].filter((scope) => pay.authority!.scopes.includes(scope));
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <PayNotice title={payCopy.t('sandboxCredentialsOnly')}>
         <PayCopy k="thisViewCreatesKeysWithAnExplicit" />
       </PayNotice>
@@ -446,11 +445,11 @@ export function SandboxKeys({ pay, formOnly = false }: { pay: BusinessPayApi; fo
                         <tr key={key.id}>
                           <td>
                             {key.name}
-                            <small className="pay-cell-note">{key.prefix}</small>
+                            <small className="lt-hint">{key.prefix}</small>
                           </td>
                           <td>
                             <PayCopy k="sandbox2" />
-                            <small className="pay-cell-note">{key.scopes.join(', ')}</small>
+                            <small className="lt-hint">{key.scopes.join(', ')}</small>
                           </td>
                           <td>{key.lastUsedAt ?? payCopy.t('notUsed')}</td>
                           <td>{key.revoked ? payCopy.t('revoked') : payCopy.t('active')}</td>
@@ -468,7 +467,7 @@ export function SandboxKeys({ pay, formOnly = false }: { pay: BusinessPayApi; fo
                       ))}
                     </DataTable>
                   ) : (
-                    <p className="muted">
+                    <p className="lt-muted">
                       <PayCopy k="noSandboxPayKeysInTheReturned" />
                     </p>
                   )}
@@ -486,7 +485,7 @@ function MerchantWebhooks({ pay }: { pay: BusinessPayApi }) {
   const endpoints = useResource((signal) => pay.webhookEndpoints(signal), `pay:webhook-endpoints:${pay.authority!.merchantId}`);
   const deliveries = useResource((signal) => pay.webhookDeliveries(signal), `pay:webhook-deliveries:${pay.authority!.merchantId}`);
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <PayNotice title={payCopy.t('merchantWebhookEnvironment')}>
         <PayCopy k="theWebhookContractHasNoSandboxEndpoint" />
       </PayNotice>
@@ -504,7 +503,7 @@ function MerchantWebhooks({ pay }: { pay: BusinessPayApi }) {
                     <td>{endpoint.url}</td>
                     <td>
                       {endpoint.status}
-                      <small className="pay-cell-note">{endpoint.disabledReason ?? ''}</small>
+                      <small className="lt-hint">{endpoint.disabledReason ?? ''}</small>
                     </td>
                     <td>{endpoint.consecutiveFailures}</td>
                     <td>{endpoint.updatedAt}</td>
@@ -537,13 +536,13 @@ function MerchantWebhooks({ pay }: { pay: BusinessPayApi }) {
                   <tr key={delivery.id}>
                     <td>
                       {delivery.eventType}
-                      <small className="pay-cell-note">{delivery.endpointId}</small>
+                      <small className="lt-hint">{delivery.endpointId}</small>
                     </td>
                     <td>{delivery.status}</td>
                     <td>{delivery.attempts}</td>
                     <td>
                       {delivery.lastStatusCode ?? payCopy.t('noResponse')}
-                      <small className="pay-cell-note">{delivery.lastError ?? ''}</small>
+                      <small className="lt-hint">{delivery.lastError ?? ''}</small>
                     </td>
                     <td>{delivery.nextAttemptAt}</td>
                   </tr>

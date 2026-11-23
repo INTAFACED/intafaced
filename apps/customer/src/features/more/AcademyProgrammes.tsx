@@ -3,10 +3,12 @@ import { useState } from 'react';
 import { z } from 'zod';
 import { useApi, useSession } from '../session';
 import { useResource } from '../../shared/resource';
-import { Button, DataTable, Field, Panel } from '../../shared/ui';
-import { Details, Limit, Read, TextArea } from './common';
+import { Button } from '@intafaced/ui/lit';
+import { TextAreaField, TextField } from '@intafaced/ui/lit/templates';
+import { KitDetails } from './volt-action';
+import { KitLimit, KitRead, ScrollTable, Section } from './volt-parts';
 import { AcademyProgrammeOverview, type ProgrammeAction } from './AcademyProgrammeOverview';
-import { AcademyCourseProgrammes } from './AcademyCourseProgrammes';
+import { AcademyCourseProgrammes } from './AcademyProgrammesList';
 import { ACADEMY_SEASONS } from '@intafaced/contracts/academy-seasons-procedures';
 import { ACADEMY_STANDINGS } from '@intafaced/contracts/academy-standings-procedures';
 import { ACADEMY_WITHDRAW_RESIDENCY } from '@intafaced/contracts/academy-withdraw-residency-procedures';
@@ -57,15 +59,15 @@ export function AcademyProgrammes({ action }: { action: ProgrammeAction }) {
       `standings:${userId}:${selected}:${limit}`,
     );
   return (
-    <div className="more-columns">
-      <div>
+    <div className="lt-stack">
+      <div className="lt-stack">
         <AcademyCourseProgrammes />
         <AcademyProgrammeOverview action={action} />
-        <Panel title={copyText('academyprogrammes.your.residency.applications')}>
-          <Read resource={mine.resource} retry={mine.reload} empty={copyText('academyprogrammes.you.have.no.residency.applications')}>
+        <Section title={copyText('academyprogrammes.your.residency.applications')} className="lt-stack">
+          <KitRead resource={mine.resource} retry={mine.reload} empty={copyText('academyprogrammes.you.have.no.residency.applications')}>
             {(rows) => (
               <>
-                <DataTable
+                <ScrollTable
                   headers={[
                     copyText('academyprogrammes.cohort'),
                     copyText('academyprogrammes.status'),
@@ -81,7 +83,7 @@ export function AcademyProgrammes({ action }: { action: ProgrammeAction }) {
                       <td>{r.decisionNote ?? copyText('academyprogrammes.no.decision.recorded')}</td>
                       <td>
                         <Button
-                          variant="secondary"
+                          tone="secondary"
                           disabled={action.disabled || r.status !== 'applied'}
                           onClick={() =>
                             action.stage({
@@ -104,14 +106,14 @@ export function AcademyProgrammes({ action }: { action: ProgrammeAction }) {
                       </td>
                     </tr>
                   ))}
-                </DataTable>
-                <Limit count={rows.length} limit={limit} cap={200} onChange={setLimit} />
+                </ScrollTable>
+                <KitLimit count={rows.length} limit={limit} cap={200} onChange={setLimit} />
               </>
             )}
-          </Read>
-        </Panel>
-        <Panel title={copyText('academyprogrammes.tournament.seasons')}>
-          <Read
+          </KitRead>
+        </Section>
+        <Section title={copyText('academyprogrammes.tournament.seasons')} className="lt-stack">
+          <KitRead
             resource={seasons.resource}
             retry={seasons.reload}
             empty={copyText('academyprogrammes.no.tournament.seasons.are.published')}
@@ -119,29 +121,29 @@ export function AcademyProgrammes({ action }: { action: ProgrammeAction }) {
             {(rows) => (
               <>
                 {rows.map((s) => (
-                  <article key={s.id}>
+                  <article key={s.id} className="lt-stack">
                     <h3>{s.title}</h3>
                     <p>{s.rulesSummary}</p>
                     <small>
                       {s.status} · {s.startsAt} → {s.endsAt ?? copyText('academyprogrammes.end.not.supplied')}
                     </small>
-                    <Button variant="secondary" onClick={() => setSelected(s.id)}>
+                    <Button tone="secondary" onClick={() => setSelected(s.id)}>
                       <Text k="academyprogrammes.read.standings" />
                     </Button>
                   </article>
                 ))}
-                <Limit count={rows.length} limit={limit} cap={200} onChange={setLimit} />
+                <KitLimit count={rows.length} limit={limit} cap={200} onChange={setLimit} />
               </>
             )}
-          </Read>
+          </KitRead>
           {selected && (
-            <Read
+            <KitRead
               resource={standings.resource}
               retry={standings.reload}
               empty={copyText('academyprogrammes.no.standings.have.been.recorded')}
             >
               {(rows) => (
-                <DataTable
+                <ScrollTable
                   headers={[
                     copyText('academyprogrammes.rank'),
                     copyText('academyprogrammes.participant'),
@@ -156,20 +158,21 @@ export function AcademyProgrammes({ action }: { action: ProgrammeAction }) {
                       <td>{s.score}</td>
                     </tr>
                   ))}
-                </DataTable>
+                </ScrollTable>
               )}
-            </Read>
+            </KitRead>
           )}
-          <p className="muted">
+          <p className="lt-hint">
             <Text k="academyprogrammes.scores.are.published.records.season.control.and" />
           </p>
-        </Panel>
+        </Section>
       </div>
-      <Panel title={copyText('academyprogrammes.apply.for.a.residency')}>
-        <p className="muted">
+      <Section title={copyText('academyprogrammes.apply.for.a.residency')} className="lt-stack">
+        <p className="lt-hint">
           <Text k="academyprogrammes.use.a.cohort.slug.supplied.by.the" />
         </p>
         <form
+          className="lt-stack"
           onSubmit={(e) => {
             e.preventDefault();
             action.stage({
@@ -177,7 +180,7 @@ export function AcademyProgrammes({ action }: { action: ProgrammeAction }) {
               confirm: copyText('academyprogrammes.submit.application'),
               success: copyText('academyprogrammes.residency.application.received'),
               content: (
-                <Details
+                <KitDetails
                   items={[
                     [copyText('academyprogrammes.cohort'), cohort],
                     [copyText('academyprogrammes.statement'), statement],
@@ -189,23 +192,18 @@ export function AcademyProgrammes({ action }: { action: ProgrammeAction }) {
             });
           }}
         >
-          <Field
-            label={copyText('academyprogrammes.programme.cohort.slug')}
-            value={cohort}
-            onChange={(e) => setCohort(e.target.value)}
-            maxLength={48}
-          />
-          <TextArea
+          <TextField label={copyText('academyprogrammes.programme.cohort.slug')} value={cohort} onChange={setCohort} maxLength={48} />
+          <TextAreaField
             label={copyText('academyprogrammes.application.statement')}
             value={statement}
             onChange={setStatement}
             maxLength={2000}
           />
-          <Button type="submit" disabled={action.disabled || cohort.length < 3 || statement.trim().length < 20}>
+          <Button tone="primary" type="submit" disabled={action.disabled || cohort.length < 3 || statement.trim().length < 20}>
             <Text k="academyprogrammes.review.residency.application" />
           </Button>
         </form>
-      </Panel>
+      </Section>
     </div>
   );
 }

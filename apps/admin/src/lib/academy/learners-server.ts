@@ -1,6 +1,5 @@
 import 'server-only';
 import {
-  academyLearnerChangeSchema,
   academyLearnerPageSchema,
   academyLearnerProgressSchema,
   academyLearnersSchema,
@@ -8,7 +7,7 @@ import {
 } from '@intafaced/contracts/academy-learner-desk';
 import { identityLearnerCardResultSchema } from '@intafaced/contracts/identity-learner-card';
 import {
-  founderCall,
+  founderAskedCall,
   parseWith,
   type FounderCallContext,
   type FounderCallResult,
@@ -20,8 +19,19 @@ import {
 } from '@/lib/desk';
 import type { LearnerDeskReply, LearnersView, LearnerView } from './learners-model';
 import { isLearnerOp, learnerChange, type LearnerOp } from './learners-ops';
-import { ACADEMY_ADMIN_LEARNER, ACADEMY_ADMIN_LEARNER_PROGRESS, ACADEMY_ADMIN_LEARNERS } from '@intafaced/contracts/academy-admin-records';
-import { ACADEMY_ADMIN_LEARNER_TAGS } from '@intafaced/contracts/academy-admin-procedures';
+import {
+  ACADEMY_ADMIN_LEARNER,
+  ACADEMY_ADMIN_LEARNER_PROGRESS,
+  ACADEMY_ADMIN_LEARNERS,
+  ACADEMY_ADMIN_ADD_LEARNER_NOTE,
+  ACADEMY_ADMIN_MARK_COMPLETE_FOR,
+  ACADEMY_ADMIN_VOID_QUIZ_ATTEMPT,
+  ACADEMY_ADMIN_GRANT_LEARNER_EXTENSION,
+  ACADEMY_ADMIN_GRANT_ACCESS,
+  ACADEMY_ADMIN_REINSTATE_ACCESS,
+  ACADEMY_ADMIN_UNTAG_LEARNER,
+} from '@intafaced/contracts/academy-admin-records';
+import { ACADEMY_ADMIN_LEARNER_TAGS, ACADEMY_ADMIN_TAG_LEARNERS } from '@intafaced/contracts/academy-admin-procedures';
 import { IDENTITY_LEARNER_CARD_LOOKUP } from '@intafaced/contracts/identity-learner-card-procedures';
 
 /**
@@ -65,12 +75,6 @@ const readProgress = parseWith(academyLearnerProgressSchema);
 const readCard = parseWith(identityLearnerCardResultSchema);
 const readReport = parseWith(academyLearnersSchema);
 const readTags = parseWith(academyLearnerTagsSchema);
-const readChange = parseWith(academyLearnerChangeSchema);
-/** `admin.tagLearners` answers how many learners took the tag. */
-const readAdded = (raw: unknown): { added: number } | null =>
-  raw !== null && typeof raw === 'object' && Number.isInteger((raw as { added?: unknown }).added)
-    ? { added: (raw as { added: number }).added }
-    : null;
 
 export async function loadLearner(ctx: FounderCallContext, userId: string): Promise<LearnerView> {
   const [card, page, progress] = await Promise.all([
@@ -125,6 +129,18 @@ function reply(result: FounderCallResult<unknown>, what: string): { status: numb
   }
 }
 
+/** The svc-academy call each learner change is sent as. */
+const LEARNER_CALLS = {
+  addNote: { record: ACADEMY_ADMIN_ADD_LEARNER_NOTE },
+  markComplete: { record: ACADEMY_ADMIN_MARK_COMPLETE_FOR },
+  voidAttempt: { record: ACADEMY_ADMIN_VOID_QUIZ_ATTEMPT },
+  extension: { record: ACADEMY_ADMIN_GRANT_LEARNER_EXTENSION },
+  grantAccess: { record: ACADEMY_ADMIN_GRANT_ACCESS },
+  reinstate: { record: ACADEMY_ADMIN_REINSTATE_ACCESS },
+  tag: { record: ACADEMY_ADMIN_TAG_LEARNERS },
+  untag: { record: ACADEMY_ADMIN_UNTAG_LEARNER },
+} as const satisfies Record<LearnerOp, object>;
+
 export async function changeLearner(
   ctx: FounderCallContext,
   op: LearnerOp,
@@ -132,8 +148,9 @@ export async function changeLearner(
 ): Promise<{ status: number; reply: LearnerDeskReply } | { why: string }> {
   const change = learnerChange(op, body);
   if ('why' in change) return change;
-  const parse = op === 'tag' ? readAdded : readChange;
-  return reply(await founderCall(ctx, 'academy', change.procedure, 'POST', change.input, parse as (raw: unknown) => unknown), change.what);
+  const spec = LEARNER_CALLS[op];
+  // The record checks the input and parses svc-academy's answer: a change's or, for a tag, how many took it.
+  return reply(await founderAskedCall(ctx, spec.record, change.input), change.what);
 }
 
 export { isLearnerOp };

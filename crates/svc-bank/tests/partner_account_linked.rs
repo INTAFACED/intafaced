@@ -9,12 +9,8 @@
     reason = "a test: a failure is the point"
 )]
 
-mod support;
-
-#[path = "support/partner_account.rs"]
-mod harness;
-
-use harness::*;
+use crate::partner_account_kit::*;
+use crate::support;
 use service_kit::json::Json;
 use support::TestDb;
 use svc_bank::door::BankDoor;

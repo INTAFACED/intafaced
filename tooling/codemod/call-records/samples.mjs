@@ -5,7 +5,7 @@
 // Run after `pnpm --filter @intafaced/contracts build`; it rewrites the placeholder in the record's source file.
 //
 //   node tooling/codemod/call-records/samples.mjs <record file.ts> ...
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
@@ -24,6 +24,9 @@ const STRINGS = [
   'a',
   '1',
   '0',
+  // A self-declaring placeholder ahead of 'abc': a `key` or `token` field sampled 'abc' reads as a committed credential to
+  // the secret scan (tooling/ci/secret-scan.mjs PLACEHOLDER_VALUES), 'sample' says what it is.
+  'sample',
   'abc',
   'ethereum',
   '11111111-1111-4111-8111-111111111111',
@@ -170,14 +173,29 @@ function checkRefusals(record, bases) {
 }
 
 /**
- * A Rust door's own accepted input for each call: the `valid` request its wire replay sends (`tests/fixtures/
- * wire-replay.golden.json`), when the operator's answer to it, with the store down, is not a 400. A handler may check
- * its input past the schema (a date range, a slug), so only a request the door itself let through is an accepted sample.
+ * A Rust door's own accepted input for each call: the `valid` request its wire replay sends, when the door let it through.
+ * A handler may check its input past the schema (a date range, a slug), so only a request the door itself let through is
+ * an accepted sample. Two recordings: svc-academy's one file (`tests/fixtures/wire-replay.golden.json`), read by the
+ * operator's answer with the store down, not a 400; and svc-agents' directory of parts (`tests/fixtures/
+ * wire-replay.golden/*.json`), where some caller's answer to it is past the door's checks: not a 400, 401 or 403.
  */
-function doorAccepts(crateDir) {
-  const golden = JSON.parse(readFileSync(join(REPO, crateDir, 'tests/fixtures/wire-replay.golden.json'), 'utf8'));
-  const operator = 3; // the answers' callers: anon, read, write, operator (record-door.mjs), the last holding every scope
+export function doorAccepts(crateDir) {
+  const dir = join(REPO, crateDir, 'tests/fixtures/wire-replay.golden');
   const out = new Map();
+  if (existsSync(dir)) {
+    for (const f of readdirSync(dir)
+      .filter((x) => x.endsWith('.json'))
+      .sort()) {
+      const part = JSON.parse(readFileSync(join(dir, f), 'utf8'));
+      for (const [path, valid] of Object.entries(part.inputs ?? {})) {
+        const answers = Object.entries(part.answers ?? {}).filter(([k]) => k.startsWith(`${path} valid `));
+        if (answers.some(([, a]) => ![400, 401, 403].includes(a.status))) out.set(path, valid);
+      }
+    }
+    return out;
+  }
+  const golden = JSON.parse(readFileSync(`${dir}.json`, 'utf8'));
+  const operator = 3; // the answers' callers: anon, read, write, operator (record-door.mjs), the last holding every scope
   for (const c of golden.calls) {
     const answer = golden.answers[c.path]?.['store-down valid'];
     const body = answer === undefined ? undefined : golden.bodies[answer[operator]];

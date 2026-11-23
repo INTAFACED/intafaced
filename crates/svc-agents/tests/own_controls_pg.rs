@@ -23,7 +23,7 @@
     reason = "a test: a failure is the point"
 )]
 
-mod support;
+use crate::support;
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -87,7 +87,7 @@ fn msgs() -> Vec<ChatMessage> {
 /// The worst case of one run: its instructions and the ask, at the route's output ceiling, priced 1 and 5 a million.
 fn worst() -> Amount {
     let input = runtime::estimate_input_tokens(Some(INSTRUCTIONS), &msgs());
-    amt("0.000001") * Amount::from(input) + amt("0.000005") * 2048
+    amt("0.000001") * i128::from(input) + amt("0.000005") * 2048
 }
 
 // ── The fakes ───────────────────────────────────────────────────────────────
@@ -271,7 +271,7 @@ impl World {
             freeze: Freeze::default(),
             wallets: Wallets::usable(),
             chain: Chain {
-                answer: Arc::new(Mutex::new(Ok(0))),
+                answer: Arc::new(Mutex::new(Ok(Amount::ZERO))),
                 reads: Arc::new(Mutex::new(Vec::new())),
                 hangs: Arc::new(AtomicBool::new(false)),
             },
@@ -838,7 +838,7 @@ fn the_alert_is_recorded_once_and_a_bus_fault_is_caught_up_on_the_next_read() {
     w.bus.down.store(true, Ordering::SeqCst);
     let first = run(&w, &rt, &session, "usage-alert-1").unwrap();
     let second = run(&w, &rt, &session, "usage-alert-2").unwrap();
-    assert!(first.cost > 0);
+    assert!(first.cost > Amount::ZERO);
     let key = format!("agents.usage_alert:{id}:{}", month());
     assert_eq!(
         alert_rows(&w),
@@ -904,7 +904,7 @@ fn the_hard_limit_room_counts_held_runs_and_a_run_that_does_not_fit_is_refused()
     let (id, session) = ready(&w, &door, &rt);
     data(&usage_limits(&door, &id, None, Some("1"), false));
     let first = run(&w, &rt, &session, "usage-hard-1").unwrap();
-    let short = format_amount(first.cost + worst() - 1);
+    let short = format_amount(first.cost + worst() - Amount::from_scaled(1));
     data(&usage_limits(&door, &id, None, Some(&short), false));
     let view = data(&query(
         &door,
@@ -913,7 +913,10 @@ fn the_hard_limit_room_counts_held_runs_and_a_run_that_does_not_fit_is_refused()
         &person(USER),
     ));
     assert_eq!(view.get("hardLimitReached"), Some(&Json::Bool(false)));
-    assert_eq!(text(&view, "hardLimitRoom"), format_amount(worst() - 1));
+    assert_eq!(
+        text(&view, "hardLimitRoom"),
+        format_amount(worst() - Amount::from_scaled(1))
+    );
     assert_eq!(text(&view, "spent"), format_amount(first.cost));
     let err = run(&w, &rt, &session, "usage-hard-2");
     assert_eq!(refusal_code(&err), "agents.usage.hard_limit_reached");
@@ -1079,7 +1082,7 @@ fn a_wallet_below_the_worst_case_refuses_naming_the_wallet_and_its_figure_with_n
         let w = world_or_skip!();
         let door = w.door();
         let rt = w.runtime(w.wallet_funds(true), spend);
-        *w.chain.answer.lock().unwrap() = Ok(worst() - 1);
+        *w.chain.answer.lock().unwrap() = Ok(worst() - Amount::from_scaled(1));
         let session = with_wallet(&w, &door, &rt);
         let err = run(&w, &rt, &session, "pm-poor-run");
         assert_eq!(refusal_code(&err), "agents.funds_insufficient");
@@ -1092,7 +1095,7 @@ fn a_wallet_below_the_worst_case_refuses_naming_the_wallet_and_its_figure_with_n
             canon_str(&format!(
                 r#"{{"worstCase":"{}","asset":"USDT","method":"wallet","address":"{LINKED}","available":"{}","token":"TESTUSD","source":"chain","chainId":84532,"block":"777","asOf":"{AS_OF}"}}"#,
                 format_amount(worst()),
-                format_amount(worst() - 1)
+                format_amount(worst() - Amount::from_scaled(1))
             ))
         );
     }
@@ -1117,7 +1120,7 @@ fn a_covering_wallet_with_a_platform_balance_that_cannot_pay_refuses_as_today() 
         let door = w.door();
         let rt = w.runtime(w.wallet_funds(true), spend);
         *w.chain.answer.lock().unwrap() = Ok(worst() * 10);
-        *w.platform.balance.lock().unwrap() = 0;
+        *w.platform.balance.lock().unwrap() = Amount::ZERO;
         let session = with_wallet(&w, &door, &rt);
         let err = run(&w, &rt, &session, "pm-unbilled-run");
         assert_eq!(refusal_code(&err), "agents.funds_insufficient");
@@ -1195,7 +1198,7 @@ fn with_no_method_chosen_the_platform_balance_is_read_as_before() {
     let w = world_or_skip!();
     let door = w.door();
     let rt = w.runtime(w.wallet_funds(true), true);
-    *w.platform.balance.lock().unwrap() = worst() - 1;
+    *w.platform.balance.lock().unwrap() = worst() - Amount::from_scaled(1);
     let id = own_agent(&door, USER, Some("1"));
     data(&set_limits(&door, USER, &id, "0.012", "0.02", "5"));
     let session = open(&w, &rt, USER, &id);

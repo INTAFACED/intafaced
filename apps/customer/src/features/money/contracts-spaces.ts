@@ -123,24 +123,5 @@ export const spacesReads = {} as const;
 
 /** This area's writes to svc-bank `bank.*`, composed into `bankWrites` in contracts.ts. */
 export const spacesWrites = {
-  'spaces.create': z.object({ id: z.string(), name: z.string() }),
-  'spaces.archive': z.object({ archived: z.literal(true) }),
-  'spaces.setGoal': spaceLockStateSchema,
-  'spaces.setLock': spaceLockStateSchema,
-  'spaces.requestUnlock': spaceLockStateSchema,
-  'spaces.cancelUnlock': spaceLockStateSchema,
-  // The bills pot (BK-pots-03): the space that pays bills, and whether a standing order from it tops it up from the account.
-  'spaces.setBillsPot': z.object({ spaceId: z.string(), assetId: z.string(), fallback: z.boolean() }),
-  'spaces.clearBillsPot': z.object({ spaceId: z.string(), billsPot: z.null() }),
-  'sorter.create': sorterSchema,
-  'sorter.cancel': sorterSchema,
   'sharedPots.invite': sharedPotInviteSchema.extend({ invitee: sharedPotPersonSchema }),
-  'sharedPots.cancelInvite': z.object({ cancelled: z.literal(true) }),
-  'sharedPots.accept': z.object({ spaceId: z.string(), role: sharedPotRoleSchema }),
-  'sharedPots.decline': z.object({ declined: z.literal(true) }),
-  'sharedPots.leave': z.object({ left: z.literal(true) }),
-  'sharedPots.remove': z.object({ removed: z.literal(true) }),
-  'sharedPots.linkCard': sharedPotCardSchema,
-  'sharedPots.unlinkCard': z.object({ unlinked: z.literal(true) }),
-  'sharedPots.freezeCard': sharedPotCardSchema,
 } as const;

@@ -19,14 +19,11 @@ import type { DeskMarket } from './market';
 import { checkOrder, padDecimals, scaled } from './order-math';
 import { asReplacement, failureOf, previewFailure, previewIsOrderable } from './preview';
 import { problemText } from './problem-text';
-import { canEdit } from './order-kind';
 import { outcomeOf, orderTag, tifFields, type Tif } from './tif';
 import { placesOf } from './text';
 import { replaceKey } from './replace-key';
 
 type Note = { tone: 'good' | 'bad'; text: string } | null;
-
-export { canEdit };
 
 /**
  * Change an open limit order. A smaller (or larger) amount at the same price goes through the service's native amend,
@@ -327,9 +324,9 @@ export function EditOrder({
             {t('Edit replace explain')}
           </p>
         ) : null}
-        {problem && !review && !finished ? <p className="dk-note">{problem}</p> : null}
-        {amountUp && !review && !finished ? <p className="dk-note">{t('Edit amount too big')}</p> : null}
-        {unchanged && !finished ? <p className="dk-note">{t('Edit nothing changed')}</p> : null}
+        {problem && !review && !finished ? <p className="lt-hint">{problem}</p> : null}
+        {amountUp && !review && !finished ? <p className="lt-hint">{t('Edit amount too big')}</p> : null}
+        {unchanged && !finished ? <p className="lt-hint">{t('Edit nothing changed')}</p> : null}
         {note ? (
           <p
             data-testid={note.tone === 'good' ? undefined : 'dk-note--bad'}

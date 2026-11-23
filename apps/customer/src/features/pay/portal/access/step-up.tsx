@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from 'react';
-import { Button, ReviewDialog as Dialog } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
+import { Dialog } from '@intafaced/ui/lit/templates';
 import { uiCopy } from '../../../../shared/ui-copy';
 import { requestPasskeyAssertion, useSession } from '../../../session';
-import { Field } from '../../ui-kit';
+import { Field } from '../../volt/parts';
 import { useNow } from '../hooks';
 import type { MoneyKind } from './money-step';
 import { mintPayStepUp, payStepUp, type FactorProof } from './step-up-store';
@@ -89,18 +90,18 @@ function ConfirmItsYou({ kind, expired, merchantId }: { kind: MoneyKind; expired
         if (!busy) payStepUp.declined();
       }}
     >
-      <div data-testid="form-stack" className="form-stack pp-stepup">
-        <p className="muted">{kind === 'refund' ? t('suWhyRefund') : t('suWhyPayout')}</p>
+      <div data-testid="form-stack" className="lt-stack">
+        <p className="lt-hint">{kind === 'refund' ? t('suWhyRefund') : t('suWhyPayout')}</p>
         {expired && (
-          <p className="pp-callout" role="status">
+          <p className="lt-held" role="status">
             {t('suExpired')}
           </p>
         )}
-        <Button variant="secondary" disabled={busy !== null} onClick={() => void withPasskey()}>
+        <Button tone="secondary" disabled={busy !== null} onClick={() => void withPasskey()}>
           {busy === 'passkey' ? t('suPasskeyWaiting') : t('suPasskey')}
         </Button>
-        <p className="muted pp-note">{t('suOr')}</p>
-        <form data-testid="form-stack" className="form-stack" onSubmit={withCode} noValidate>
+        <p className="lt-hint">{t('suOr')}</p>
+        <form data-testid="form-stack" className="lt-stack" onSubmit={withCode} noValidate>
           <Field
             label={t('suCode')}
             name="stepup-code"
@@ -111,16 +112,16 @@ function ConfirmItsYou({ kind, expired, merchantId }: { kind: MoneyKind; expired
             disabled={busy !== null}
             onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
           />
-          <Button type="submit" variant="primary" disabled={busy !== null || code.length !== 6}>
+          <Button type="submit" tone="primary" disabled={busy !== null || code.length !== 6}>
             {busy === 'code' ? t('suChecking') : t('suConfirm')}
           </Button>
         </form>
         {problem && (
-          <p className="pp-callout pp-callout--warn" role="alert">
+          <p className="lt-refusal" data-refusal="refused" role="alert">
             {problem}
           </p>
         )}
-        <Button variant="ghost" disabled={busy !== null} onClick={() => payStepUp.declined()}>
+        <Button tone="quiet" disabled={busy !== null} onClick={() => payStepUp.declined()}>
           {t('suCancel')}
         </Button>
       </div>
@@ -136,7 +137,7 @@ export function StepUpNote({ kind }: { kind: MoneyKind }) {
   const minutes = payStepUp.minutesLeft(kind);
   if (minutes === null) return null;
   return (
-    <p className="muted pp-note" role="status">
+    <p className="lt-hint" role="status">
       {minutes === 1 ? t('suNoteOne') : t('suNoteMany', { n: minutes })}
     </p>
   );

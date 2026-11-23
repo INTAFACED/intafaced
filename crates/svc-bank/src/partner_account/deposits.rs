@@ -207,7 +207,7 @@ fn validate_network(
             n.id
         ))
     })?;
-    if minimum <= 0 {
+    if !minimum.is_positive() {
         return Err(invalid(format!(
             "Deposit minimum for {asset_id}/{} must be positive",
             n.id
@@ -820,7 +820,7 @@ fn validate_pending(row: &pay::Pending) -> Result<Json, Refusal> {
     }
     let amount = parse_amount(&row.amount)
         .map_err(|_| invalid("Custody pending deposit amount is not an exact decimal"))?;
-    if amount <= 0 {
+    if !amount.is_positive() {
         return Err(invalid("Custody pending deposit amount must be positive"));
     }
     if row.confirmations < 0 {

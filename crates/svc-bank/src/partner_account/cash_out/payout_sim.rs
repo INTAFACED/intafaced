@@ -65,7 +65,7 @@ impl Partner {
         let rate = parse_amount(&line.rate).ok()?;
         let fee = parse_amount(&line.fee).ok()?;
         let receive = mul_rounded(amount, rate, Rounding::Floor).checked_sub(fee)?;
-        if receive <= 0 {
+        if !receive.is_positive() {
             return None;
         }
         let text = format_amount(receive);
@@ -166,7 +166,7 @@ pub fn parse_catalogue(text: Option<&str>) -> Option<(String, Vec<Line>)> {
     // Both must fit the ledger's numeric(38,18), so a catalogue that cannot price refuses at boot.
     for l in &lines {
         match (parse_amount(&l.rate), parse_amount(&l.fee)) {
-            (Ok(r), Ok(f)) if r > 0 && f >= 0 => {}
+            (Ok(r), Ok(f)) if r.is_positive() && !f.is_negative() => {}
             _ => return None,
         }
     }

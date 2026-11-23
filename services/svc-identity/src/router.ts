@@ -32,7 +32,6 @@ import { router, publicProcedure, protectedProcedure, scopedProcedure, servicePr
 import { staffTestStatusSchema } from '@intafaced/contracts/identity-staff';
 import { accountControlResultSchema } from '@intafaced/contracts/account-controls';
 import { rankPerksSchema, rankStateSchema } from '@intafaced/contracts/identity';
-import { signInChallengeProofSchema } from '@intafaced/contracts/identity-signin-challenge';
 import {
   callFounderControl,
   identityFreezeInputSchema,
@@ -182,6 +181,8 @@ import {
   IDENTITY_AUTH_SUB_ACCOUNT_SESSION,
   IDENTITY_AUTH_STEP_UP_OPTIONS,
   IDENTITY_AUTH_LOGOUT_ALL,
+  IDENTITY_AUTH_LOGIN,
+  IDENTITY_AUTH_REGISTER,
 } from '@intafaced/contracts/identity-auth-procedures';
 import {
   IDENTITY_WAITLIST_WAVES_LIST,
@@ -230,9 +231,17 @@ import {
   IDENTITY_AFFILIATES_WITHDRAW_REBIND,
   IDENTITY_AFFILIATES_SHARE_TAG_HIT,
 } from '@intafaced/contracts/identity-affiliates-procedures';
-import { IDENTITY_WEBAUTHN_REMOVE } from '@intafaced/contracts/identity-webauthn-procedures';
+import {
+  IDENTITY_WEBAUTHN_REMOVE,
+  IDENTITY_WEBAUTHN_AUTH_OPTIONS,
+  IDENTITY_WEBAUTHN_REGISTER_OPTIONS,
+} from '@intafaced/contracts/identity-webauthn-procedures';
 import { IDENTITY_TOTP_ENROL } from '@intafaced/contracts/identity-totp-procedures';
-import { IDENTITY_API_KEYS_REVOKE, IDENTITY_API_KEYS_CREATE } from '@intafaced/contracts/identity-api-keys-procedures';
+import {
+  IDENTITY_API_KEYS_REVOKE,
+  IDENTITY_API_KEYS_CREATE,
+  IDENTITY_API_KEYS_LIST,
+} from '@intafaced/contracts/identity-api-keys-procedures';
 
 /**
  * svc-identity's API (§4.1).
@@ -1463,26 +1472,9 @@ export function createIdentityRouter(
     }),
 
     auth: router({
-      register: publicProcedure
-        .input(
-          z.object({
-            handle: z.string().regex(/^[a-zA-Z0-9_]{3,32}$/, 'handle must be 3-32 letters, numbers or underscores'),
-            email: z.string().email(),
-            password: z.string().min(12).max(200),
-            region: z.string().length(2).optional(),
-            /** A native or API client's own device key, trusted with the new account (a browser's comes in `ifc_dk`). */
-            deviceKey: z.string().min(16).max(128).optional(),
-            /**
-             * Optional referrer at signup. Same law as `affiliates.attribute`
-             * (self/cycle/depth/unknown refuse loud). Blank = no edge.
-             * Account is created first; a failed attribute still leaves the user
-             * (they can fix referrer via attribute later if product allows once).
-             */
-            referrerId: z.string().guid().optional(),
-          }),
-        )
-        .output(sessionOutput)
-        .mutation(async ({ input, ctx }) => {
+      register: mountRecord(
+        IDENTITY_AUTH_REGISTER,
+        async ({ input, ctx }) => {
           assertRegistrationOpen();
           if (options.directRegister !== true) {
             throw new TRPCError({
@@ -1505,7 +1497,9 @@ export function createIdentityRouter(
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /**
        * What the sign-up page tells a person before they type a password (J-identity-01 #2): whether the owner's
@@ -1653,19 +1647,9 @@ export function createIdentityRouter(
         kycProfileRefusal,
       ),
 
-      login: publicProcedure
-        .input(
-          z.object({
-            identifier: z.string().min(1),
-            password: z.string().min(1),
-            totpCode: z.string().optional(),
-            deviceKey: z.string().min(16).max(128).optional(),
-            /** A solved `auth.challenge`, needed once this address reached the owner's count of failed sign-ins. */
-            challenge: signInChallengeProofSchema.optional(),
-          }),
-        )
-        .output(sessionOutput)
-        .mutation(async ({ input, ctx }) => {
+      login: mountRecord(
+        IDENTITY_AUTH_LOGIN,
+        async ({ input, ctx }) => {
           const address = requestIpAls.getStore();
           let admission: SignInAdmission | undefined;
           let wrongPassword = false;
@@ -1685,7 +1669,9 @@ export function createIdentityRouter(
               console.error('[svc-identity] sign-in challenge count not settled', err instanceof Error ? err.message : err);
             });
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /**
        * The second step by passkey (I-signin-sessions-10). `login` answered `auth.mfa_required` with a passkey challenge
@@ -2354,14 +2340,18 @@ export function createIdentityRouter(
      * the same session tokens as password login, with `mfa: true`.
      */
     webauthn: router({
-      registerOptions: protectedProcedure.mutation(async ({ ctx }) => {
-        if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
-        try {
-          return await auth.startWebauthnRegistration(ctx.principal.userId, factorActor(ctx.principal, privilegedUserIds));
-        } catch (err) {
-          throw toFactorError(err);
-        }
-      }),
+      registerOptions: mountRecord(
+        IDENTITY_WEBAUTHN_REGISTER_OPTIONS,
+        async ({ ctx }) => {
+          if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
+          try {
+            return await auth.startWebauthnRegistration(ctx.principal.userId, factorActor(ctx.principal, privilegedUserIds));
+          } catch (err) {
+            throw toFactorError(err);
+          }
+        },
+        kycProfileRefusal,
+      ),
 
       registerVerify: protectedProcedure
         .input(
@@ -2387,14 +2377,18 @@ export function createIdentityRouter(
           }
         }),
 
-      authOptions: publicProcedure.input(z.object({ identifier: z.string().min(1) })).mutation(async ({ input }) => {
-        if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
-        try {
-          return await auth.startWebauthnAuthentication(input.identifier);
-        } catch (err) {
-          throw toTrpcError(err);
-        }
-      }),
+      authOptions: mountRecord(
+        IDENTITY_WEBAUTHN_AUTH_OPTIONS,
+        async ({ input }) => {
+          if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
+          try {
+            return await auth.startWebauthnAuthentication(input.identifier);
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        },
+        kycProfileRefusal,
+      ),
 
       authVerify: publicProcedure
         .input(
@@ -3389,25 +3383,9 @@ export function createIdentityRouter(
       ),
 
       /** Limit required — omit never dumps API keys. */
-      list: scopedProcedure('identity:read')
-        .input(z.object({ limit: z.number().int().min(1).max(200) }))
-        .output(
-          z.array(
-            z.object({
-              id: z.string(),
-              name: z.string(),
-              prefix: z.string(),
-              scopes: z.array(z.string()),
-              lastUsedAt: z.string().nullable(),
-              revoked: z.boolean(),
-              mode: z.enum(['live', 'sandbox']),
-              requireSignature: z.boolean(),
-              requireNonEmptyIpAllowlist: z.boolean(),
-              ipAllowlist: z.array(z.string()),
-            }),
-          ),
-        )
-        .query(async ({ ctx, input }) => {
+      list: mountRecord(
+        IDENTITY_API_KEYS_LIST,
+        async ({ ctx, input }) => {
           try {
             const keys = await auth.listApiKeys(ctx.principal.userId, input.limit);
             return keys.map((k) => ({
@@ -3425,7 +3403,9 @@ export function createIdentityRouter(
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       revoke: mountRecord(
         IDENTITY_API_KEYS_REVOKE,

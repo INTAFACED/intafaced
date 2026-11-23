@@ -41,7 +41,7 @@ export function VerificationCapabilities({ recordsKey }: { recordsKey: string })
     const { mapped, capabilities } = resource.data;
     return (
       <>
-        <p className="muted">
+        <p className="lt-muted">
           <Copy k={mapped ? 'intro' : 'unmapped'} />
         </p>
         <ul className="verification__capabilities-list" data-testid="verification__capabilities" data-mapped={mapped}>
@@ -58,14 +58,16 @@ export function VerificationCapabilities({ recordsKey }: { recordsKey: string })
                   <Copy k={c.capability} />
                 </span>
                 {c.state === 'unrequested' ? (
-                  <span className="muted">
+                  <span className="lt-muted">
                     <Copy k="unrequested" />
                   </span>
                 ) : (
                   <StatusTag status={tagOf[c.state]} label={t(c.state)} />
                 )}
               </div>
-              <p className="muted">{c.grantedAt ? <Copy k="grantedAt" params={{ level: t(c.grantedAt) }} /> : <Copy k="notGranted" />}</p>
+              <p className="lt-muted">
+                {c.grantedAt ? <Copy k="grantedAt" params={{ level: t(c.grantedAt) }} /> : <Copy k="notGranted" />}
+              </p>
               {c.state === 'inactive' && (
                 <div data-testid="verification__capability-reason" data-reason={c.reasonCode ?? ''}>
                   {c.reasonText && (
@@ -73,7 +75,7 @@ export function VerificationCapabilities({ recordsKey }: { recordsKey: string })
                       <Copy k="reason" params={{ text: c.reasonText }} />
                     </p>
                   )}
-                  <p className="muted">
+                  <p className="lt-muted">
                     <Copy k="inactiveHelp" />
                   </p>
                 </div>
