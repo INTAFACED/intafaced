@@ -34,7 +34,7 @@ export function isPlaceholderAddress(value: string): boolean {
 }
 
 /** What no customer reads: each kind with the pattern that finds it in a room's text. */
-export const RAW_TEXT: readonly { kind: string; pattern: RegExp }[] = [
+const RAW_TEXT: readonly { kind: string; pattern: RegExp }[] = [
   { kind: 'a raw id (a UUID)', pattern: /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi },
   { kind: 'an internal code (service.reason_code)', pattern: /\b[a-z][a-z0-9]*\.[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b/g },
   { kind: 'a placeholder host', pattern: /[a-z0-9-]+(?:\.[a-z0-9-]+)*\.invalid\b/gi },
