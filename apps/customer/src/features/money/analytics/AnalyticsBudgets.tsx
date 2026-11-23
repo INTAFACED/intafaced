@@ -16,8 +16,7 @@ import {
 /** Words for budgets and month comparison in Analytics (BK-acct-08, J-bank-16 #4, #5). */
 const budgetsCopy = defineCopy('analytics-budgets', {
   budgetsTitle: 'Budgets',
-  budgetsLead:
-    'A monthly target for a kind of spending, and the share of it at which you want an alert. Spend is read from your ledger lines.',
+  budgetsLead: 'A monthly target for a kind of spending, and the share of it at which you want an alert.',
   category: 'Category',
   target: 'Monthly target ({asset})',
   alertAt: 'Alert at (percent of target)',

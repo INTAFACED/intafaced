@@ -231,18 +231,16 @@ export function Fact({ label, children }: { label: ReactNode; children: ReactNod
 
 /** How many records a list read, what the limit means, and the way to read more where the service allows it. */
 export function Continuation({ count, limit, onMore }: { count: number; limit: number; onMore: () => void }) {
+  // A list shorter than its limit is the whole list, and is seen whole: no count line under it.
+  if (count < limit) return null;
   return (
     <div className="lt-toolbar">
       <span className="lt-hint">
         {count}
         {copyText('components.records.returned.requested.limit')}.{' '}
-        {count >= limit
-          ? limit < 200
-            ? copyText('components.more.records.may.exist')
-            : copyText('components.this.service.has.no.continuation.beyond.200')
-          : copyText('components.this.list.has.no.total.count.or')}
+        {limit < 200 ? copyText('components.more.records.may.exist') : copyText('components.this.service.has.no.continuation.beyond.200')}
       </span>
-      {count >= limit && limit < 200 && (
+      {limit < 200 && (
         <Button tone="secondary" onClick={onMore}>
           {copyText('components.load.up.to')}
           {Math.min(200, limit + 50)}

@@ -3,7 +3,7 @@ import { defineCopy } from '../../shared/i18n';
 const en = {
   sectionsLabel: 'Loan sections',
   explain:
-    'Every figure here is the bank’s own answer for this loan: the terms written when it opened, what it would take to clear it now, a projection of interest that is not a schedule, each day’s interest with any correction, the bank’s check against the ledger, and the monthly statement.',
+    'Everything here comes from the bank for this loan: the terms you agreed when it opened, what it costs to pay it off today, an estimate of future interest (not a payment plan), each day’s interest with any correction, the bank’s own check that the figures add up, and the monthly statement.',
   readFailedTitle: 'Your loans could not be read',
   notYoursTitle: 'Loan not found',
   title: 'Loan details',
@@ -120,7 +120,7 @@ const en = {
 const es: Record<keyof typeof en, string> = {
   sectionsLabel: 'Secciones del préstamo',
   explain:
-    'Cada cifra aquí es la respuesta del banco para este préstamo: las condiciones fijadas al abrirlo, lo que costaría cancelarlo ahora, una proyección de intereses que no es un calendario, los intereses de cada día con cualquier corrección, la comprobación del banco frente al libro mayor y el extracto mensual.',
+    'Todo lo que ves aquí lo da el banco para este préstamo: las condiciones que aceptaste al abrirlo, lo que cuesta cancelarlo hoy, una estimación de los intereses futuros (no un plan de pagos), los intereses de cada día con cualquier corrección, la comprobación del propio banco de que las cifras cuadran y el extracto mensual.',
   readFailedTitle: 'No se pudieron leer tus préstamos',
   notYoursTitle: 'Préstamo no encontrado',
   title: 'Detalles del préstamo',
@@ -240,7 +240,7 @@ const es: Record<keyof typeof en, string> = {
 const fr: Record<keyof typeof en, string> = {
   sectionsLabel: 'Sections du prêt',
   explain:
-    'Chaque chiffre ici est la réponse de la banque pour ce prêt : les conditions fixées à l’ouverture, ce qu’il faudrait pour le solder maintenant, une projection des intérêts qui n’est pas un échéancier, les intérêts de chaque jour avec toute correction, le contrôle de la banque face au grand livre et le relevé mensuel.',
+    'Tout ce qui est ici vient de la banque pour ce prêt : les conditions acceptées à l’ouverture, ce que coûte son remboursement aujourd’hui, une estimation des intérêts à venir (pas un échéancier), les intérêts de chaque jour avec toute correction, le contrôle de la banque que les chiffres concordent et le relevé mensuel.',
   readFailedTitle: 'Vos prêts n’ont pas pu être lus',
   notYoursTitle: 'Prêt introuvable',
   title: 'Détails du prêt',

@@ -124,18 +124,16 @@ export function Section({
   );
 }
 export function Continuation({ count, limit, onMore }: { count: number; limit: number; onMore: () => void }) {
+  // A list shorter than its limit is the whole list, and is seen whole: no count line under it.
+  if (count < limit) return null;
   return (
     <div className="money-continuation">
       <span>
         {count}
         <Text k="components.records.returned.requested.limit" />.{' '}
-        {count >= limit
-          ? limit < 200
-            ? copyText('components.more.records.may.exist')
-            : copyText('components.this.service.has.no.continuation.beyond.200')
-          : copyText('components.this.list.has.no.total.count.or')}
+        {limit < 200 ? copyText('components.more.records.may.exist') : copyText('components.this.service.has.no.continuation.beyond.200')}
       </span>
-      {count >= limit && limit < 200 && (
+      {limit < 200 && (
         <Button variant="secondary" onClick={onMore}>
           <Text k="components.load.up.to" />
           {Math.min(200, limit + 50)}

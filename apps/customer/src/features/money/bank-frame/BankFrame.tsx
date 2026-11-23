@@ -82,18 +82,16 @@ export function NoRows({ title, children }: { title: string; children?: ReactNod
 
 /** How many records came back, what that means for the rest, and Load up to the next 50 while the service allows it. */
 export function Continuation({ count, limit, onMore }: { count: number; limit: number; onMore: () => void }) {
+  // A list shorter than its limit is the whole list, and is seen whole: no count line under it.
+  if (count < limit) return null;
   return (
     <div className="lt-actions">
       <p className="lt-hint">
         {count}
         <Text k="components.records.returned.requested.limit" />.{' '}
-        {count >= limit
-          ? limit < 200
-            ? copyText('components.more.records.may.exist')
-            : copyText('components.this.service.has.no.continuation.beyond.200')
-          : copyText('components.this.list.has.no.total.count.or')}
+        {limit < 200 ? copyText('components.more.records.may.exist') : copyText('components.this.service.has.no.continuation.beyond.200')}
       </p>
-      {count >= limit && limit < 200 && (
+      {limit < 200 && (
         <Button tone="secondary" onClick={onMore}>
           <Text k="components.load.up.to" />
           {Math.min(200, limit + 50)}
