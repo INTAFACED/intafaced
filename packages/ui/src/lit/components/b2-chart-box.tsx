@@ -20,8 +20,9 @@ export function ChartBox({ marks, children }: { marks?: DataMarks; children: Rea
 }
 
 /**
- * The drawn chart inside a `ChartBox`: a picture named by `label`, and inside it the element the library draws into
- * (`host`, the ref the room hands the library), which fills the box exactly. `marks` are the picture's, `hostMarks`
+ * The drawn chart inside a `ChartBox`: a figure named by `label`, and inside it the element the library draws into
+ * (`host`, the ref the room hands the library), which fills the box exactly. A figure, not an image: the library may
+ * draw controls a person can reach (a crosshair, a scale to drag), and an image's content can hold none. `marks` are the picture's, `hostMarks`
  * the drawing element's, so a room's tests find both as before.
  */
 export function ChartCanvas({
@@ -36,7 +37,7 @@ export function ChartCanvas({
   hostMarks?: DataMarks;
 }) {
   return (
-    <div className="lt-chart-canvas" role="img" aria-label={label} {...marks}>
+    <div className="lt-chart-canvas" role="figure" aria-label={label} {...marks}>
       <div ref={host} className="lt-chart-canvas-host" {...hostMarks} />
     </div>
   );
