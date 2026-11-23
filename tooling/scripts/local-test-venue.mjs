@@ -160,8 +160,10 @@ export async function serveTestVenue({
   second = false,
   id = null,
   kind = 'sim',
+  hl = { recording: null, trader: null },
 }) {
-  if (!second && (kind === 'hl-recorded' || kind === 'hl-testnet')) return serveHyperliquidVenue({ host, port, appEnv, betaPosture, kind });
+  if (!second && (kind === 'hl-recorded' || kind === 'hl-testnet'))
+    return serveHyperliquidVenue({ host, port, appEnv, betaPosture, kind, ...hl });
   if (!fs.existsSync(VENUE_SIM_DIST)) {
     throw new Error(`${path.relative(REPO, VENUE_SIM_DIST)} is not built: pnpm --filter @intafaced/venue-sim... build`);
   }
@@ -203,17 +205,66 @@ export function testVenueKind(raw) {
  * gets the recorded answer of its kind, and a read it has no kind for is the venue down. `hl-testnet` reaches the live
  * test network (api.hyperliquid-testnet.xyz); the customer's own wallet signs, so the venue holds no key.
  */
-async function serveHyperliquidVenue({ host, port, appEnv, betaPosture, kind }) {
+async function serveHyperliquidVenue({ host, port, appEnv, betaPosture, kind, recording = null, trader = null }) {
   if (!fs.existsSync(VENUE_HL_DIST)) {
     throw new Error(`${path.relative(REPO, VENUE_HL_DIST)} is not built: pnpm --filter @intafaced/venue-hyperliquid... build`);
   }
   const hl = await import(pathToFileURL(VENUE_HL_DIST).href);
-  const fetch = kind === 'hl-recorded' ? hl.replayRecording(hl.loadOrderRecording()) : undefined;
-  const started = await hl.startHyperliquidVenueServer({ host, port, appEnv, betaPosture, ...(fetch ? { fetch } : {}) });
+  const file = recording ? hlRecordingPath(recording) : null;
+  let fetch;
+  let misses = () => [];
+  if (kind === 'hl-recorded') {
+    // A journey's own recording, replayed for the run's TEST wallet; without one, the package's recorded TEST order.
+    const replay = file
+      ? hl.replayRecording(hl.parseRecording(JSON.parse(fs.readFileSync(file, 'utf8'))), { trader })
+      : hl.replayRecording(hl.loadOrderRecording());
+    fetch = replay;
+    misses = () => replay.misses;
+  } else if (file) {
+    // hl-testnet with a recording named: every call the live test network answers is kept, the file rewritten after
+    // each, so a run cut short still leaves what it saw. The trader is the run's address, never its key.
+    const calls = [];
+    const live = hl.recordingFetch((url, init) => globalThis.fetch(url, init), calls);
+    fetch = async (url, init) => {
+      const res = await live(url, init);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      const note = `TEST answers of the Hyperliquid test network, recorded live by LOCAL_STACK_USER_VENUE=hl-testnet for ${recording}.`;
+      fs.writeFileSync(`${file}.tmp`, `${JSON.stringify(hl.traderRecording(calls, trader, note), null, 2)}\n`);
+      fs.renameSync(`${file}.tmp`, file);
+      return res;
+    };
+  }
+  const source = { kind, recording, trader, misses: () => misses() };
+  const started = await hl.startHyperliquidVenueServer({ host, port, appEnv, betaPosture, source, ...(fetch ? { fetch } : {}) });
   process.stdout.write(
-    `${JSON.stringify({ msg: 'test-venue.listening', label: 'TEST', url: started.url, venue: started.venue.venue.id, kind })}\n`,
+    `${JSON.stringify({ msg: 'test-venue.listening', label: 'TEST', url: started.url, venue: started.venue.venue.id, kind, recording, trader })}\n`,
   );
   return started;
+}
+
+/** Where the Hyperliquid recordings live: one per journey file, `<name>.json`. */
+const HL_RECORDINGS_DIR = path.join(REPO, 'packages', 'venue-hyperliquid', 'recordings');
+
+/** A recording's file from its name (letters, digits, `.`, `_`, `-`); anything else throws. */
+export function hlRecordingPath(name) {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$/.test(name) || name.includes('..'))
+    throw new Error(`a Hyperliquid recording's name is letters, digits, . _ and -, got ${JSON.stringify(name)}`);
+  return path.join(HL_RECORDINGS_DIR, `${name}.json`);
+}
+
+/**
+ * The Hyperliquid source a stack start asks for, from LOCAL_STACK_HL_RECORDING (a recording's name) and
+ * LOCAL_STACK_HL_TRADER (the run's wallet address): null names none. A recording named needs the trader; a replayed one
+ * must exist. Throws, naming the setting, when either is wrong.
+ */
+export function hlSource(env) {
+  const recording = (env.LOCAL_STACK_HL_RECORDING ?? '').trim() || null;
+  const trader = (env.LOCAL_STACK_HL_TRADER ?? '').trim().toLowerCase() || null;
+  if (!recording) return { recording: null, trader: null };
+  hlRecordingPath(recording);
+  if (!trader || !/^0x[0-9a-f]{40}$/.test(trader))
+    throw new Error('LOCAL_STACK_HL_RECORDING needs LOCAL_STACK_HL_TRADER, the address the run signs as (never a key)');
+  return { recording, trader };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -229,6 +280,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     depositToken: process.env.TEST_VENUE_DEPOSIT_TOKEN,
     id: testVenueId(process.env.TEST_VENUE_ID),
     kind: testVenueKind(process.env.TEST_VENUE_KIND),
+    hl: hlSource(process.env),
   }).catch((err) => {
     process.stderr.write(`test-venue: ${err instanceof Error ? err.message : String(err)}\n`);
     process.exit(1);

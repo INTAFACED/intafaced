@@ -1975,6 +1975,33 @@ console.log('local-test-stack: customer folder override checks passed');
   console.log('local-test-stack: LOCAL_STACK_USER_VENUE reads the same in the stack and in trade env');
 }
 
+// A Hyperliquid start names its recording and the address it is for, never a key; a running venue that
+// answers for another source (the simulator where Hyperliquid is wanted, another recording or trader) is not kept.
+{
+  const { venueAnswersFor } = await import('./local-test-stack.mjs');
+  const { hlSource, hlRecordingPath } = await import('./local-test-venue.mjs');
+  const trader = `0x${'ab'.repeat(20)}`;
+  assert.deepEqual(hlSource({}), { recording: null, trader: null });
+  assert.deepEqual(hlSource({ LOCAL_STACK_HL_RECORDING: 'J-x', LOCAL_STACK_HL_TRADER: trader.toUpperCase().replace('0X', '0x') }), {
+    recording: 'J-x',
+    trader,
+  });
+  assert.throws(() => hlSource({ LOCAL_STACK_HL_RECORDING: 'J-x' }), /needs LOCAL_STACK_HL_TRADER/);
+  assert.throws(() => hlSource({ LOCAL_STACK_HL_RECORDING: 'J-x', LOCAL_STACK_HL_TRADER: 'ab'.repeat(32) }), /needs LOCAL_STACK_HL_TRADER/);
+  assert.throws(() => hlRecordingPath('../x'), /letters, digits/);
+  const hl = { recording: 'J-x', trader };
+  const health = (source) => JSON.stringify({ ok: true, label: 'TEST', ...(source ? { source } : {}) });
+  assert.equal(venueAnswersFor(health(null), 'sim', hl), true);
+  assert.equal(venueAnswersFor(health(null), 'hl-recorded', hl), false, 'the simulator is not kept where Hyperliquid is wanted');
+  assert.equal(venueAnswersFor(health({ kind: 'hl-recorded', ...hl }), 'sim', hl), false, 'Hyperliquid is not kept where the simulator is');
+  assert.equal(venueAnswersFor(health({ kind: 'hl-recorded', ...hl }), 'hl-recorded', hl), true);
+  assert.equal(venueAnswersFor(health({ kind: 'hl-testnet', ...hl }), 'hl-recorded', hl), false);
+  assert.equal(venueAnswersFor(health({ kind: 'hl-recorded', ...hl, recording: 'J-y' }), 'hl-recorded', hl), false);
+  assert.equal(venueAnswersFor(health({ kind: 'hl-recorded', ...hl, trader: `0x${'cd'.repeat(20)}` }), 'hl-recorded', hl), false);
+  assert.equal(venueAnswersFor('not json', 'sim', hl), true);
+  console.log('local-test-stack: a Hyperliquid start names its recording and trader, and a venue answering for another is not kept');
+}
+
 // No stack service listens on a port the test chain uses: the TEST venue first took 14533, the chain's second gate, and
 // every restart that started it refused with "in use by a process this script did not start" (journeys run 42524275189).
 // Nor does one slot's stack take another slot's port (LOCAL_STACK_SLOT 0 to 3), its second workers' included.

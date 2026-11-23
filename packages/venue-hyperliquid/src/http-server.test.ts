@@ -87,3 +87,23 @@ describe('the venue protocol over HTTP (answerUserVenue)', () => {
     });
   });
 });
+
+describe('a running venue names its source and lists its replay misses', () => {
+  it('/health names the recording and trader; /replay/misses lists each request the recording had no answer for', async () => {
+    const fetch = replayRecording({ label: 'TEST', note: '', calls: [] });
+    const source = { kind: 'hl-recorded' as const, recording: 'J-x', trader: `0x${'ab'.repeat(20)}`, misses: () => fetch.misses };
+    const venue = new HyperliquidTestnetUserVenue({ appEnv: 'test', fetch });
+    const at = { ...info, source };
+    const [, health] = await answerUserVenue(venue, at, { method: 'GET', path: '/health', rawBody: '' });
+    expect(health).toMatchObject({ source: { kind: 'hl-recorded', recording: 'J-x', trader: source.trader } });
+    expect(await answerUserVenue(venue, at, { method: 'GET', path: '/replay/misses', rawBody: '' })).toEqual([200, { misses: [] }]);
+    await answerUserVenue(venue, at, { method: 'POST', path: '/markets', rawBody: '{}' });
+    const [status, body] = await answerUserVenue(venue, at, { method: 'GET', path: '/replay/misses', rawBody: '' });
+    expect(status).toBe(200);
+    // The market list reads the perpetual and spot listings: both are listed, each by its key.
+    expect((body as { misses: { key: string }[] }).misses.map((m) => m.key).sort()).toEqual([
+      '/info {"type":"meta"}',
+      '/info {"type":"spotMeta"}',
+    ]);
+  });
+});
