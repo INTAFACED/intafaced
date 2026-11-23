@@ -120,7 +120,15 @@ describe('components', () => {
 
   it('Change says the direction in words, not only colour', () => {
     expect(html(<Change text="£84.10" dir="up" spoken="en hausse" />)).toContain('<span class="lit-sr">en hausse </span>');
-    expect(html(<Change text="£6.40" dir="down" spoken="down" />)).toContain('▼');
+    // The arrow is drawn, pointing the way it moved; a flat change has none.
+    expect(html(<Change text="£6.40" dir="down" spoken="down" />)).toContain(
+      '<span class="lt-arrow lt-arrow-down" aria-hidden="true" data-arrow="down"></span>',
+    );
+    expect(html(<Change text="£84.10" dir="up" spoken="up" />)).toContain(
+      '<span class="lt-arrow lt-arrow-up" aria-hidden="true" data-arrow="up"></span>',
+    );
+    expect(html(<Change text="£0.00" dir="flat" spoken="no change" />)).not.toContain('lt-arrow');
+    expect(html(<Change text="£6.40" dir="down" spoken="down" />)).not.toMatch(/[▲▼]/);
   });
 
   it('RefusalBox names the blocker, keeps the code small, and draws hold and pause apart', () => {
