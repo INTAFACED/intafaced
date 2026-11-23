@@ -31,7 +31,7 @@ const profileFields = {
   statementDescriptor: z.string().nullable(),
   industry: z.string().nullable(),
 };
-export const profileSchema = z.object({
+const profileSchema = z.object({
   merchantId: z.string(),
   version: z.string(),
   ...profileFields,
@@ -79,7 +79,7 @@ export const profileDecideResultSchema = z.object({
 export const secondApprovalResultSchema = z.object({ merchantId: z.string(), enabled: z.boolean() });
 
 // ---- onboarding progress ---------------------------------------------------------------------------------
-export const progressSchema = z.object({
+const progressSchema = z.object({
   merchantId: z.string(),
   business: z.object({ done: z.boolean(), missing: z.array(z.string()) }),
   documents: z.object({ state: z.string() }),
@@ -99,7 +99,6 @@ export const progressSchema = z.object({
 });
 export type Progress = z.infer<typeof progressSchema>;
 export type TermsState = Progress['terms'];
-export const termsAcceptedSchema = z.object({ merchantId: z.string(), version: z.string(), acceptedAt: z.string() });
 
 // ---- activity ----------------------------------------------------------------------------------------------
 export const ACTIVITY_TYPES = ['payment', 'team', 'kyb', 'dispute', 'export', 'approval', 'webhook'] as const;

@@ -1,0 +1,33 @@
+diff --git a/bin/tsc b/bin/tsc
+index 34638f82f78ad0641bd169a41a598ed3a73b63d5..fa1c58852008af0f344b9a37a62db9bd58ea69e6 100755
+--- a/bin/tsc
++++ b/bin/tsc
+@@ -1,2 +1,27 @@
+ #!/usr/bin/env node
+-import "../lib/tsc.js";
++// intafaced: every `tsc` in the repo runs tooling/scripts/tsc.mjs (incremental, seeded, one at a time, tsrs off CI).
++// This file is what each node_modules/.bin/tsc, `npx tsc` and `pnpm exec tsc` runs, and pnpm applies this patch on
++// every install (patches/, pnpm-workspace.yaml patchedDependencies), --ignore-scripts and CI=1 included.
++// The wrapper runs lib/tsc.js itself; INTAFACED_TSC_WRAPPED stops a loop with a wrapper that runs this file.
++import { spawn } from 'node:child_process';
++import { existsSync } from 'node:fs';
++import { dirname, join } from 'node:path';
++import { fileURLToPath } from 'node:url';
++
++let wrapper = null;
++for (let dir = dirname(fileURLToPath(import.meta.url)); !process.env.INTAFACED_TSC_WRAPPED; dir = dirname(dir)) {
++  if (existsSync(join(dir, 'tooling', 'scripts', 'tsc.mjs')) && existsSync(join(dir, 'pnpm-workspace.yaml'))) {
++    wrapper = join(dir, 'tooling', 'scripts', 'tsc.mjs');
++    break;
++  }
++  if (dirname(dir) === dir) break;
++}
++if (wrapper) {
++  const child = spawn(process.execPath, [wrapper, ...process.argv.slice(2)], {
++    stdio: 'inherit',
++    env: { ...process.env, INTAFACED_TSC_WRAPPED: '1' },
++  });
++  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => child.kill(sig));
++  child.on('error', () => process.exit(1));
++  child.on('close', (code, sig) => process.exit(code ?? (sig ? 1 : 0)));
++} else await import('../lib/tsc.js');
