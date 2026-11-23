@@ -8,21 +8,22 @@ import {
   INCIDENT_SEVERITIES_UNSET,
   INCIDENT_STORAGE_UNCONFIGURED,
   declaredSeverity,
-  incidentDeclareInputSchema,
-  incidentDetailSchema,
-  incidentInviteInputSchema,
-  incidentNoteInputSchema,
-  incidentResolveInputSchema,
-  incidentTaskInputSchema,
 } from '@intafaced/contracts/ops-incidents';
-import { router, scopedProcedure } from '@intafaced/contracts/trpc';
+import { router } from '@intafaced/contracts/trpc';
 import { OpsError } from '../codes.js';
 import type { IncidentChange, IncidentStore } from './store.js';
-import { OPS_INCIDENTS_LIST, OPS_INCIDENTS_METRICS, OPS_INCIDENTS_GET } from '@intafaced/contracts/ops-incidents-procedures';
+import {
+  OPS_INCIDENTS_LIST,
+  OPS_INCIDENTS_METRICS,
+  OPS_INCIDENTS_GET,
+  OPS_INCIDENTS_DECLARE,
+  OPS_INCIDENTS_NOTE,
+  OPS_INCIDENTS_INVITE,
+  OPS_INCIDENTS_TASK,
+  OPS_INCIDENTS_RESOLVE,
+} from '@intafaced/contracts/ops-incidents-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { opsRefusal } from '../refusal.js';
-
-const guards = { module: 'core-ops' as const, plane: 'fiat' as const };
 
 export interface IncidentsDeps {
   readonly store: IncidentStore | undefined;
@@ -89,10 +90,9 @@ export function createIncidentsRouter(deps: IncidentsDeps) {
       opsRefusal,
     ),
     metrics: mountRecord(OPS_INCIDENTS_METRICS, async ({ ctx }) => storeOf(deps).metrics(ctx.principal.userId, deps.now()), opsRefusal),
-    declare: scopedProcedure('admin:write', guards)
-      .input(incidentDeclareInputSchema)
-      .output(incidentDetailSchema)
-      .mutation(async ({ ctx, input }) => {
+    declare: mountRecord(
+      OPS_INCIDENTS_DECLARE,
+      async ({ ctx, input }) => {
         const checked = declaredSeverity(input.severity, deps.severities);
         if (!checked.ok)
           throw refusal(
@@ -112,30 +112,33 @@ export function createIncidentsRouter(deps: IncidentsDeps) {
           private: input.private === true,
         };
         return refused(() => storeOf(deps).declare(values, ctx.principal.userId, deps.now()));
-      }),
-    note: scopedProcedure('admin:write', guards)
-      .input(incidentNoteInputSchema)
-      .output(incidentDetailSchema)
-      .mutation(({ ctx, input }) => change(ctx.principal.userId, input.incidentId, input.requestKey, { kind: 'note', body: input.body })),
-    invite: scopedProcedure('admin:write', guards)
-      .input(incidentInviteInputSchema)
-      .output(incidentDetailSchema)
-      .mutation(({ ctx, input }) =>
-        change(ctx.principal.userId, input.incidentId, input.requestKey, { kind: 'participant', userId: input.userId }),
-      ),
-    task: scopedProcedure('admin:write', guards)
-      .input(incidentTaskInputSchema)
-      .output(incidentDetailSchema)
-      .mutation(({ ctx, input }) =>
+      },
+      opsRefusal,
+    ),
+    note: mountRecord(
+      OPS_INCIDENTS_NOTE,
+      ({ ctx, input }) => change(ctx.principal.userId, input.incidentId, input.requestKey, { kind: 'note', body: input.body }),
+      opsRefusal,
+    ),
+    invite: mountRecord(
+      OPS_INCIDENTS_INVITE,
+      ({ ctx, input }) => change(ctx.principal.userId, input.incidentId, input.requestKey, { kind: 'participant', userId: input.userId }),
+      opsRefusal,
+    ),
+    task: mountRecord(
+      OPS_INCIDENTS_TASK,
+      ({ ctx, input }) =>
         change(ctx.principal.userId, input.incidentId, input.requestKey, {
           kind: 'task',
           title: input.title,
           assigneeId: input.assigneeId,
         }),
-      ),
-    resolve: scopedProcedure('admin:write', guards)
-      .input(incidentResolveInputSchema)
-      .output(incidentDetailSchema)
-      .mutation(({ ctx, input }) => change(ctx.principal.userId, input.incidentId, input.requestKey, { kind: 'resolved' })),
+      opsRefusal,
+    ),
+    resolve: mountRecord(
+      OPS_INCIDENTS_RESOLVE,
+      ({ ctx, input }) => change(ctx.principal.userId, input.incidentId, input.requestKey, { kind: 'resolved' }),
+      opsRefusal,
+    ),
   });
 }

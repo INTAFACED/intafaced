@@ -292,4 +292,22 @@ describe('svc-trade ticker-stats (H8a PG-hard)', () => {
     const cold = (await read([btc.id], NOW + 3000)).get(btc.id)!;
     expect(formatAmount(cold.high!)).toBe('200'); // TTL passed: refreshed
   });
+
+  it('a market that printed after its stats were cached is read again inside the TTL (J-cex-spot-14 #8)', async () => {
+    const read = createTickerStatsReader(sql, { ttlMs: 3000 });
+    // Cached while the market has no print in the window: no volume.
+    const before = (await read([eth.id], NOW, new Map())).get(eth.id)!;
+    expect(before.baseVolume).toBeNull();
+
+    // A print lands 1 s later; the caller, having just read it as the market's last price, names its time.
+    const printedAt = NOW + 1000;
+    await trade_(eth, '7', '2', printedAt);
+    const after = (await read([eth.id], NOW + 1500, new Map([[eth.id, printedAt]]))).get(eth.id)!;
+    expect(formatAmount(after.baseVolume!), 'the volume includes the print the row shows as its last').toBe('2');
+
+    // A print older than the cached entry leaves the entry warm: no query runs.
+    await trade_(eth, '8', '5', NOW + 1200);
+    const warm = (await read([eth.id], NOW + 2000, new Map([[eth.id, printedAt]]))).get(eth.id)!;
+    expect(warm).toBe(after);
+  });
 });

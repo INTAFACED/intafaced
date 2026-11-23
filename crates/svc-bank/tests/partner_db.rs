@@ -484,3 +484,78 @@ fn open_ages_the_named_invite_once_unsigned_a_v1_signature_edited_after_signing_
         )
     );
 }
+
+const SCHEDULE: &str = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+
+fn schedule(db: &TestDb, status: &str) {
+    db.client()
+        .batch_execute(&format!(
+            "INSERT INTO bank.spaces (id, user_id, asset_id, kind, name) VALUES \
+             ('11111111-1111-4111-8111-11111111111a', '{ADA}', 'EUR', 'primary', 'Main'), \
+             ('11111111-1111-4111-8111-11111111111b', '{ADA}', 'EUR', 'named', 'Rent'); \
+             INSERT INTO bank.scheduled_transfers \
+               (id, user_id, asset_id, from_space_id, to_space_id, amount, cadence, starts_at, ends_at, next_run_at, status) \
+             VALUES \
+               ('{SCHEDULE}', '{ADA}', 'EUR', \
+                '11111111-1111-4111-8111-11111111111a', '11111111-1111-4111-8111-11111111111b', \
+                10, 'daily', '2026-11-22T10:00:00Z', '2026-11-29T10:00:00Z', '2026-11-23T10:00:00Z', '{status}');"
+        ))
+        .unwrap();
+}
+
+fn schedule_times(db: &TestDb) -> (String, String, String) {
+    let r = db
+        .client()
+        .query_one(
+            "SELECT to_char(starts_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'), \
+                    to_char(ends_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'), \
+                    to_char(next_run_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') \
+               FROM bank.scheduled_transfers WHERE id = $1::text::uuid",
+            &[&SCHEDULE],
+        )
+        .unwrap();
+    (r.get(0), r.get(1), r.get(2))
+}
+
+#[test]
+fn open_ages_an_active_scheduled_transfer_its_start_end_and_next_run_together() {
+    let Some(db) = db() else { return };
+    schedule(&db, "active");
+    let b = bank(&db, true);
+    let body = format!(r#"{{"subject":"scheduled-transfer","id":"{SCHEDULE}","ms":125000}}"#);
+    let (status, answer) = age(&b, &body, signed("local-test-stack", &body));
+    assert_eq!(status, 200, "{}", answer.compact());
+    let want = format!(
+        r#"{{"ok":true,"subject":"scheduled-transfer","id":"{SCHEDULE}","agedMs":125000,"startsAt":"2026-11-22T09:57:55.000Z","nextRunAt":"2026-11-23T09:57:55.000Z"}}"#
+    );
+    assert_eq!(answer.compact(), want);
+    assert_eq!(
+        schedule_times(&db),
+        (
+            "2026-11-22T09:57:55.000Z".to_owned(),
+            "2026-11-29T09:57:55.000Z".to_owned(),
+            "2026-11-23T09:57:55.000Z".to_owned()
+        )
+    );
+}
+
+#[test]
+fn open_ages_no_scheduled_transfer_that_is_not_active() {
+    let Some(db) = db() else { return };
+    schedule(&db, "paused");
+    let b = bank(&db, true);
+    let body = format!(r#"{{"subject":"scheduled-transfer","id":"{SCHEDULE}","ms":125000}}"#);
+    let (status, answer) = age(&b, &body, signed("local-test-stack", &body));
+    assert_eq!(
+        (status, answer.get("error")),
+        (404, Some(&Json::str("test_age.not_found")))
+    );
+    assert_eq!(
+        schedule_times(&db),
+        (
+            "2026-11-22T10:00:00.000Z".to_owned(),
+            "2026-11-29T10:00:00.000Z".to_owned(),
+            "2026-11-23T10:00:00.000Z".to_owned()
+        )
+    );
+}

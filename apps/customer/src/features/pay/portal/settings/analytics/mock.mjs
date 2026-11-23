@@ -78,6 +78,29 @@ export function createAnalyticsMock(ctx) {
       reasons: [...reasons.values()].sort((a, b) => b.count - a.count || a.code.localeCompare(b.code)),
     };
   };
+  /** The service's own rate per asset over the whole window: fees ÷ gross, rounded down to 6 places. */
+  const rates = (grouped) => {
+    const by = new Map();
+    for (const g of grouped) {
+      const cur = by.get(g.assetCode) ?? { gross: 0n, fees: 0n };
+      by.set(g.assetCode, { gross: cur.gross + g.volume, fees: cur.fees + g.fees });
+    }
+    return [...by.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([assetCode, { gross, fees }]) => {
+        if (gross === 0n) return { assetCode, fees: fromU(fees), gross: '0', rate: null, rateStatus: 'no_volume' };
+        const q = (fees * 1_000_000n) / gross;
+        const exact = (fees * 1_000_000n) % gross === 0n;
+        const fraction = (q % 1_000_000n).toString().padStart(6, '0').replace(/0+$/, '');
+        return {
+          assetCode,
+          fees: fromU(fees),
+          gross: fromU(gross),
+          rate: fraction ? `${q / 1_000_000n}.${fraction}` : `${q / 1_000_000n}`,
+          rateStatus: exact ? 'exact' : 'rounded',
+        };
+      });
+  };
   return {
     async handle(procedure, input, route) {
       if (procedure === 'merchantAnalytics.declines') return ok(route, declines(input));
@@ -103,6 +126,7 @@ export function createAnalyticsMock(ctx) {
         })),
         effectiveRate: null,
         effectiveRateReason: 'not_aggregated',
+        rates: rates(grouped),
         conversionCost: null,
         byRule: [],
       });

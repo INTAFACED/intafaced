@@ -120,7 +120,7 @@ function ParkedBotRoom({ title, reason }: { title: string; reason: string }) {
   const { t } = roomCopy.useCopy();
   return (
     <Page width="full" className="cb-page" landmark={false}>
-      <ModeNav active="bots" />
+      <ModeNav />
       <PageHeader title={t(title as 'Spot grid')} description={t('This bot can’t be set up here.')} />
       <EmptyState
         variant="refused"
@@ -371,13 +371,13 @@ function BotsHub({ path }: { path: string }) {
       value: nameOf,
       cell: (r) => <a href={`/trade/bots?${tab === 'catalogue' ? '' : `tab=${tab}&`}bot=${encodeURIComponent(r.id)}`}>{nameOf(r)}</a>,
       pin: 'start',
-      width: 200,
     },
-    { id: 'side', header: t('Side'), value: (r) => (r.side === 'buy' ? t('Buy') : t('Sell')) },
+    { id: 'side', header: t('Side'), value: (r) => (r.side === 'buy' ? t('Buy') : t('Sell')), width: 88 },
     {
       id: 'status',
       header: t('State'),
       cell: (r) => <Badge tone={BOT_TONE[r.status] ?? 'neutral'}>{t((BOT_WORD[r.status] ?? 'Unknown state') as 'Running')}</Badge>,
+      width: 140,
     },
     {
       id: 'progress',
@@ -385,13 +385,15 @@ function BotsHub({ path }: { path: string }) {
       value: (r) => percentFilled(r.filledQty, r.totalQty)?.replace('%', '') ?? null,
       numeric: true,
       cell: (r) => percentFilled(r.filledQty, r.totalQty) ?? '—',
+      width: 112,
     },
-    { id: 'total', header: t('Total'), value: (r) => r.totalQty, numeric: true, cell: (r) => displayAmount(r.totalQty) },
+    { id: 'total', header: t('Total'), value: (r) => r.totalQty, numeric: true, cell: (r) => displayAmount(r.totalQty), width: 140 },
     { id: 'created', header: t('Started'), value: (r) => new Date(r.created).toLocaleString(), width: 200 },
     {
       id: 'open',
       header: t('Manage'),
       headerLabel: t('Manage'),
+      width: 120,
       cell: (r) => (
         <Button variant="secondary" size={28} onClick={() => setOpenId(r.id)}>
           {t('Manage')}
@@ -463,7 +465,7 @@ function BotsHub({ path }: { path: string }) {
   const schedulerOff = policy.data !== null && !policy.data.capability.jobsEnabled;
   return (
     <Page width="full" className="cb-page" landmark={false}>
-      <ModeNav active="bots" />
+      <ModeNav />
       <PageHeader
         title={t('Bots')}
         description={t('Pick a bot, set its size and limits, see what it will cost before it starts, and stop it any time.')}

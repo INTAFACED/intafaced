@@ -273,7 +273,7 @@ test(`${J} #4 takes a snapshot, copies a share link and prints, with no account 
   await expect(page.getByTestId('compare-note')).toContainText('/charts/BTC-USDT?interval=1h&style=candles');
   // The link is the one on the clipboard, as copied, and the note shows that same link.
   const link = await page.evaluate(() => navigator.clipboard.readText());
-  expect((await page.getByTestId('compare-note').textContent()).replace(/^.*?(http\S+)$/, '$1')).toBe(link);
+  await expect.poll(async () => (await page.getByTestId('compare-note').textContent()).replace(/^.*?(http\S+)$/, '$1')).toBe(link);
   for (const detail of details) expect(link).not.toContain(detail);
   expect(link).not.toMatch(/user|account|email|token|session/i);
   // Nothing of the signed-in account: not its handle, its email or its id.

@@ -39,9 +39,28 @@ export const JOURNEY_DIR = 'apps/customer/tests/real-app';
 export const JOURNEY_FILE = /\.pw\.mjs$/;
 // The shard hands the names to Playwright's testMatch as globs, so a name must match only itself.
 const GLOB_CHARS = /[*?[\]{}()!+@\s\\]/;
-// A shard's journeys aim at the longest file's time less this, the spread of a shard's setup (7.6 minutes at the median,
-// 18.4 at most in the runs above), so a shard with a slow setup still ends before the longest file's shard.
-export const SETUP_SPREAD_MINUTES = 10;
+// A shard's journeys aim at the longest file's time less this, the spread of a shard's setup, so a shard with a slow
+// setup still ends before the longest file's shard. Measured again 23 Nov 2026 (project-state#3917), now that the stack
+// is built and seeded once for every shard: 136 shard jobs of the 15 newest successful pull request runs spent 1.7 to 3.1
+// minutes before their journeys (median 2.1), a spread of 1.4. (Failure it prevents: at the old 10, from 7.6 and 18.4
+// minutes of setup in 6 Nov's runs, a pull request's run holding J-campaigns-18, 14.7 minutes, still aimed its other
+// shards at 10, so run 45031535392's shard 1 took 17.9 minutes against a median shard of 9.8, 1.82 times, and the
+// run ended no sooner for its extra shards.)
+export const SETUP_SPREAD_MINUTES = 2;
+// When the TEST tape first holds the 8 closed one-minute bars a backtest journey waits for (the journeys'
+// tapeWindow), counted from the start of a shard's journeys: the market maker starts trading just before them
+// on a fresh tape, so the window fills about 8 to 9 minutes later, whatever runs. A file that reads the tape (tapeFiles)
+// waits until then unless the files before it in its shard already took that long, so the plan counts the wait where it
+// falls (shardEnd), and a step's own time leaves its recorded wait out (TAPE_WAIT). (Failure it prevents: pull request
+// runs 45138504039 and 45138453266, 23 Nov 2026, put J-algo-dev-14 second in shard 17, after 1.5 minutes of
+// J-academy-02; its first step took 6.0 and 6.5 minutes against 2.5 on main, almost all of it waiting on the tape, and
+// the shard ran 21.3 and 20.4 minutes against a median shard of 15.4 and 14.9, 1.39 and 1.37 times. Shard 17 of run
+// 45141928928 waited the same way in J-algo-dev-06, 1.48 times.)
+export const TAPE_READY_MINUTES = 8.5;
+// The annotation the journeys' tapeWindow gives a step with the milliseconds it waited on the tape.
+export const TAPE_WAIT = 'tape-wait';
+// A journey file reads the TEST tape when it calls tapeWindow (the one way a journey waits on it).
+const READS_TAPE = /\btapeWindow\(/;
 // Never below this, so a shard's setup (about 8 minutes) stays under half of its job.
 export const MIN_TARGET_MINUTES = 10;
 // Never above this, so setup plus the journeys stays well inside the job's limit.
@@ -136,6 +155,14 @@ export function targetFiles(asked, files) {
   return [...new Set(wanted)].sort();
 }
 
+/** A result's own time: its duration less any time it waited on the TEST tape (TAPE_WAIT), which the plan counts itself. */
+export function ownDuration(result) {
+  const waited = (result?.annotations ?? [])
+    .filter((a) => a?.type === TAPE_WAIT)
+    .reduce((ms, a) => ms + (Number(a.description) > 0 ? Number(a.description) : 0), 0);
+  return Math.max(0, (result?.duration ?? 0) - waited);
+}
+
 /** Milliseconds per journey file in a Playwright JSON report: every result of every test in the file, retries included. */
 export function fileDurations(report) {
   const out = new Map();
@@ -143,7 +170,7 @@ export function fileDurations(report) {
     if (suite.file && Array.isArray(suite.specs)) {
       let ms = out.get(suite.file) ?? 0;
       for (const spec of suite.specs)
-        for (const test of spec.tests ?? []) for (const result of test.results ?? []) ms += result.duration ?? 0;
+        for (const test of spec.tests ?? []) for (const result of test.results ?? []) ms += ownDuration(result);
       out.set(suite.file, ms);
     }
     for (const child of suite.suites ?? []) visit(child);
@@ -178,7 +205,7 @@ export function titleDurations(report) {
     for (const spec of suite.specs ?? [])
       for (const test of spec.tests ?? [])
         for (const result of test.results ?? [])
-          if (TIMED.has(result.status)) out.set(spec.title, (out.get(spec.title) ?? 0) + (result.duration ?? 0));
+          if (TIMED.has(result.status)) out.set(spec.title, (out.get(spec.title) ?? 0) + ownDuration(result));
     for (const child of suite.suites ?? []) visit(child);
   };
   for (const suite of report?.suites ?? []) visit(suite);
@@ -231,6 +258,24 @@ export function longestDurations(runs) {
 /** The journey files under `dir` that need a fresh stack (world-line.mjs `stackFresh`, a `// Stack: fresh` line). */
 export function freshFiles(dir, files) {
   return new Set(files.filter((f) => stackFresh(fs.readFileSync(path.join(dir, f), 'utf8'))));
+}
+
+/** The journey files under `dir` that read the TEST tape (READS_TAPE), so their shard waits for it (TAPE_READY_MINUTES). */
+export function tapeFiles(dir, files) {
+  return new Set(files.filter((f) => READS_TAPE.test(fs.readFileSync(path.join(dir, f), 'utf8'))));
+}
+
+/**
+ * When a shard holding `files` ends its journeys: its files in name order, the order Playwright runs them, each after the
+ * one before, and the first that reads the tape not before `readyMs`. Pure, for the tests.
+ */
+export function shardEnd(files, durations, tape = new Set(), readyMs = TAPE_READY_MINUTES * 60_000) {
+  let ms = 0;
+  for (const f of tape.size ? [...files].sort() : files) {
+    if (tape.has(f)) ms = Math.max(ms, readyMs);
+    ms += durations.get(f) ?? 0;
+  }
+  return ms;
 }
 
 /** Whether `a` runs before `b` in one shard: Playwright runs a shard's files in name order, the order `sort()` gives. */
@@ -360,9 +405,11 @@ export function targetedShards(
  * Longest file first onto the shard with the least time so far. Ties go to the lower shard and files of equal time
  * keep name order, so the same inputs always give the same split. Every shard gets a file when there are enough files.
  * A file in `fresh` (it needs a fresh stack) gets a shard of its own to start, and only files that run after it in name
- * order join it, so it runs first there; a plan that can't keep that throws, naming why.
+ * order join it, so it runs first there; a plan that can't keep that throws, naming why. A file in `tape` (it reads the
+ * TEST tape) is placed before the other files, and every file goes where its shard ends soonest counting the wait for
+ * the tape (shardEnd), so the files around it fill the wait or run after it, and the shards still end together.
  */
-export function planShards(files, durations, shards, fresh = new Set()) {
+export function planShards(files, durations, shards, fresh = new Set(), tape = new Set()) {
   if (!Number.isInteger(shards) || shards < 1) throw new Error(`shards must be a whole number of 1 or more, got ${shards}`);
   if (files.length < shards) throw new Error(`${files.length} journey files cannot fill ${shards} shards`);
   const odd = files.find((f) => GLOB_CHARS.test(f));
@@ -376,23 +423,33 @@ export function planShards(files, durations, shards, fresh = new Set()) {
     .sort()
     .map((file) => ({ file, ms: durations.get(file) > 0 ? durations.get(file) : middle }))
     .sort((a, b) => b.ms - a.ms);
+  const own = new Map(weighted.map(({ file, ms }) => [file, ms]));
   const bins = Array.from({ length: shards }, () => ({ ms: 0, files: [], fresh: null }));
+  /** The eligible shard that ends soonest with `file` in it (the lower one on a tie), with `file` added. */
+  const place = (file, eligible) => {
+    let target = null;
+    let end = 0;
+    for (const bin of bins) {
+      if (!eligible(bin)) continue;
+      const ends = shardEnd([...bin.files, file], own, tape);
+      if (target === null || ends < end) [target, end] = [bin, ends];
+    }
+    if (target === null) return null;
+    target.ms = end;
+    target.files.push(file);
+    return target;
+  };
   const needing = weighted.filter(({ file }) => fresh.has(file));
   if (needing.length > shards) throw new Error(`${needing.length} journey files need a fresh stack and there are ${shards} shards`);
-  for (const { file, ms } of needing) {
-    let target = null;
-    for (const bin of bins) if (bin.fresh === null && (target === null || bin.ms < target.ms)) target = bin;
-    target.ms += ms;
-    target.files.push(file);
-    target.fresh = file;
-  }
-  for (const { file, ms } of weighted) {
+  for (const { file } of needing) place(file, (bin) => bin.fresh === null).fresh = file;
+  // The files that read the tape next, before the shards fill: their wait is known before any other file is placed, so
+  // the longest-first fill balances every shard around it. Placed last, a file that reads the tape found every shard
+  // full and waited ahead of a whole shard's journeys (run 45138504039's replay: 16.4 minutes against a median of 10.8).
+  const ordered = [...weighted.filter(({ file }) => tape.has(file)), ...weighted.filter(({ file }) => !tape.has(file))];
+  for (const { file } of ordered) {
     if (fresh.has(file)) continue;
-    let target = null;
-    for (const bin of bins) if ((bin.fresh === null || runsFirst(bin.fresh, file)) && (target === null || bin.ms < target.ms)) target = bin;
-    if (target === null) throw new Error(`${file} runs before every file that needs a fresh stack, and every shard has one`);
-    target.ms += ms;
-    target.files.push(file);
+    if (place(file, (bin) => bin.fresh === null || runsFirst(bin.fresh, file)) === null)
+      throw new Error(`${file} runs before every file that needs a fresh stack, and every shard has one`);
   }
   return bins.map((bin) => ({ ms: bin.ms, files: bin.files.sort() }));
 }
@@ -465,11 +522,12 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
         ? Math.min(files.length, shardCount(totalMs, target, MIN_SHARDS, max))
         : targetedShards(files, durations, target, undefined, pull);
   const fresh = freshFiles(JOURNEY_DIR, files);
+  const tape = tapeFiles(JOURNEY_DIR, files);
   // A targeted run too small to give each file that needs a fresh stack a shard it runs first in takes one more shard.
   let plan = null;
   for (let n = shards; plan === null; n += 1) {
     try {
-      plan = planShards(files, durations, n, fresh);
+      plan = planShards(files, durations, n, fresh, tape);
     } catch (err) {
       if (n >= files.length || n >= max || !/fresh stack/.test(err.message)) throw err;
     }

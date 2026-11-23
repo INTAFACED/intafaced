@@ -2,6 +2,7 @@
 //! a lot with no cost, or a manual position held apart from balances. A blank price is not zero, and a removal is a
 //! tombstone: the ledger figure is unchanged and the unknown it replaced shows again.
 
+use service_kit::money::Amount;
 use std::sync::Mutex;
 
 use crate::json::Json;
@@ -80,7 +81,7 @@ pub fn parse_basis_set(input: &BasisSet<'_>) -> Result<BasisWrite, Failure> {
         )
     };
     let price = parse_amount(js_trim(input.price_per_unit)).map_err(|_| invalid_price())?;
-    if price <= 0 {
+    if price <= Amount::ZERO {
         return Err(invalid_price());
     }
     if blank(Some(input.date)) {
@@ -124,7 +125,7 @@ pub fn parse_basis_set(input: &BasisSet<'_>) -> Result<BasisWrite, Failure> {
             )
         };
         let qty = parse_amount(js_trim(input.qty.unwrap_or(""))).map_err(|_| bad_qty())?;
-        if qty <= 0 {
+        if qty <= Amount::ZERO {
             return Err(bad_qty());
         }
         return Ok(BasisWrite {
@@ -190,7 +191,7 @@ impl MissingBasisItem {
 pub fn list_missing_basis(book: &LotBook) -> Vec<MissingBasisItem> {
     let mut items = Vec::new();
     for lot in &book.lots {
-        if lot.remaining == 0 {
+        if lot.remaining == Amount::ZERO {
             continue;
         }
         if lot.cost_usd.is_some() && lot.remaining_cost_usd.is_some() {
@@ -219,7 +220,7 @@ pub fn list_missing_basis(book: &LotBook) -> Vec<MissingBasisItem> {
                 sale_tx_id: Some(sale.tx_id.clone()),
             });
         }
-        if sale.unmatched_qty != 0 {
+        if sale.unmatched_qty != Amount::ZERO {
             items.push(MissingBasisItem {
                 lot_id: None,
                 asset_id: sale.asset_id.clone(),

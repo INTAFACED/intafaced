@@ -648,8 +648,8 @@ pub fn hide_destination_detail(r: Refusal) -> Refusal {
 /// when that read fails). None when the balances cannot be read.
 pub fn spend_figures(d: &Deps<'_>, user_id: &str, asset_id: &str) -> Option<SpendFigures> {
     let rows = d.ledger.balances("user", user_id).ok()?;
-    let mut available: Amount = 0;
-    let mut on_hold: Amount = 0;
+    let mut available: Amount = Amount::ZERO;
+    let mut on_hold: Amount = Amount::ZERO;
     for r in rows.iter().filter(|r| r.asset_id == asset_id) {
         match r.kind.as_str() {
             "available" => available += r.amount,
@@ -664,7 +664,7 @@ pub fn spend_figures(d: &Deps<'_>, user_id: &str, asset_id: &str) -> Option<Spen
                 &[&user_id, &asset_id],
             )
             .map_err(|e| pg(&e))?;
-        let mut total: Amount = 0;
+        let mut total: Amount = Amount::ZERO;
         for r in &rows {
             total += parse_amount(&r.get::<_, String>(0)).map_err(Refusal::Other)?;
         }

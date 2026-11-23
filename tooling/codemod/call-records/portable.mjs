@@ -262,7 +262,15 @@ function fix(target, construct) {
  * schema's own name when it has one, else the key it sits under). A `.superRefine` says what its issues' messages say.
  */
 function refinementOf(target) {
-  const found = follow(target.q, target.n);
+  let found = follow(target.q, target.n);
+  let named = unwrap(target.n)?.type === 'Identifier' ? unwrap(target.n).name : undefined;
+  // `accountArchiveStateSchema.nullable()`: a wrapper that adds no check carries the refinement of the schema it wraps.
+  for (let i = 0; found && i < 10; i++) {
+    const { base, factory, methods } = chainOf(found.n);
+    if (factory || !methods.length || !methods.every((m) => WRAPPERS.includes(m.name))) break;
+    if (unwrap(base)?.type === 'Identifier') named = unwrap(base).name;
+    found = follow(found.q, base);
+  }
   if (!found) return { why: 'the codemod cannot follow the schema to it' };
   const says = [];
   for (const m of chainOf(found.n).methods) {
@@ -283,8 +291,7 @@ function refinementOf(target) {
     says.push(words);
   }
   if (!says.length) return { why: "its refinement is not a .refine written in the schema's chain" };
-  const own =
-    unwrap(target.n)?.type === 'Identifier' ? unwrap(target.n).name.replace(/Schema$/, '') : target.prop ? keyOf(target.prop) : 'answer';
+  const own = named ? named.replace(/Schema$/, '') : target.prop ? keyOf(target.prop) : 'answer';
   const name = `${own.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()}_holds`;
   return { key: `${found.q.file}:${found.n.start}`, name, says: says.join('; ') };
 }
@@ -377,7 +384,7 @@ export function plan(skipped, recordFiles, { door = false } = {}) {
         else {
           const at = `${side}${f.at.slice(root.length)}`;
           if (!named.has(r.key)) named.set(r.key, { name: r.name, says: r.says, at: [] });
-          named.get(r.key).at.push(at);
+          if (!named.get(r.key).at.includes(at)) named.get(r.key).at.push(at);
         }
         continue;
       }

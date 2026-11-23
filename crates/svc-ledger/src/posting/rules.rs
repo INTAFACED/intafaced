@@ -38,12 +38,12 @@ impl Wide {
     }
 
     pub fn of(a: Amount) -> Wide {
-        Wide::norm(0, a)
+        Wide::norm(0, a.scaled())
     }
 
     #[must_use]
     pub fn plus_amount(self, a: Amount) -> Wide {
-        Wide::norm(self.hi, self.lo + a)
+        Wide::norm(self.hi, self.lo + a.scaled())
     }
 
     #[must_use]
@@ -74,13 +74,14 @@ impl Wide {
     /// The amount, when it fits `numeric(38,18)`.
     pub fn amount(self) -> Option<Amount> {
         let v = self.hi.checked_mul(BASE)?.checked_add(self.lo)?;
+        let v = Amount::from_scaled(v);
         (-MAX_AMOUNT..=MAX_AMOUNT).contains(&v).then_some(v)
     }
 
     /// `formatAmount` of the exact value.
     pub fn format(self) -> String {
         if self.hi == 0 {
-            return format_amount(self.lo);
+            return format_amount(Amount::from_scaled(self.lo));
         }
         let sign = if self.signum() < 0 { "-" } else { "" };
         let digits = format!("{}{:036}", self.hi.unsigned_abs(), self.lo.unsigned_abs());
@@ -336,14 +337,14 @@ pub fn assert_balanced(entries: &[Entry]) -> Result<(), Failure> {
     }
     let mut per_asset: Vec<(&str, Wide)> = Vec::new();
     for e in entries {
-        if e.amount < 0 {
+        if e.amount < Amount::ZERO {
             return Err(invalid(format!(
                 "Entry amounts are unsigned; direction carries the sign. Got {} on {}",
                 format_amount(e.amount),
                 e.account.key()
             )));
         }
-        if e.amount == 0 {
+        if e.amount == Amount::ZERO {
             return Err(invalid(format!(
                 "Zero-amount entry on {} — a movement of nothing is not a movement",
                 e.account.key()
@@ -391,11 +392,11 @@ fn assert_paired_locks(entries: &[Entry]) -> Result<(), Failure> {
         let key = format!("{}:{}:{}", a.owner_type, a.owner_id, a.asset_id);
         let delta = e.delta();
         if LOCK_KINDS.contains(&a.kind.as_str()) {
-            if delta > 0 {
+            if delta > Amount::ZERO {
                 bump(&mut gain, key, delta);
             }
         } else if a.kind == "available" {
-            if delta < 0 {
+            if delta < Amount::ZERO {
                 bump(&mut given, key, -delta);
             }
         } else {
@@ -506,7 +507,8 @@ pub fn post_fingerprint(module: &str, reason: &str, entries: &[Entry]) -> String
                 Json::str(e.account.kind.clone()),
                 Json::str(e.account.purpose()),
                 Json::str(e.direction.as_str()),
-                Json::str(e.amount.to_string()),
+                // The scaled integer's digits, as bigint's `toString` gives them: the encoding is permanent.
+                Json::str(e.amount.scaled().to_string()),
             ])
             .compact()
         })

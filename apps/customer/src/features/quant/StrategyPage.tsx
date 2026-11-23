@@ -47,9 +47,9 @@ export function StrategyPage({ strategyId, paper }: { strategyId: string; paper:
       title={t('roomTitle')}
       description={t('description')}
       state={{ kind: 'ready' }}
+      section={<QuantRooms paper={paper} />}
       meta={
         <>
-          <QuantRooms active="strategies" paper={paper} />
           <p>
             <a className="lt-link" href={preservePaperHref('/quant/strategies', paper)}>
               {t('back')}

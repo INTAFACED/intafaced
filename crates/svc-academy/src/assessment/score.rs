@@ -9,7 +9,7 @@
 use std::collections::BTreeSet;
 
 use service_kit::json::Json;
-use service_kit::money::parse_amount;
+use service_kit::money::{Amount, parse_amount};
 use service_kit::schema::js_trim;
 
 use super::{array, field, field_bool, field_int, field_str};
@@ -41,7 +41,7 @@ pub fn is_choice_id(id: &str) -> bool {
 pub fn scaled_decimal(value: &str) -> Option<i128> {
     let text = js_trim(value);
     if is_quiz_decimal(text) {
-        parse_amount(text).ok()
+        parse_amount(text).ok().map(Amount::scaled)
     } else {
         None
     }

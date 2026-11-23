@@ -232,11 +232,11 @@ impl Lobbies<'_> {
             ));
         }
         let min_stake = if input.access == Access::Staked {
-            input.min_stake.unwrap_or(0)
+            input.min_stake.unwrap_or(Amount::ZERO)
         } else {
-            0
+            Amount::ZERO
         };
-        if input.access == Access::Staked && min_stake <= 0 {
+        if input.access == Access::Staked && min_stake <= Amount::ZERO {
             return Err(academy(
                 "A staked lobby needs a stake threshold above zero",
                 "academy.stake_required",
@@ -555,7 +555,7 @@ impl Lobbies<'_> {
         let stake = if seat::needs_stake_check(room.access, is_host) {
             self.ports.stake.stake_of(user_id)?
         } else {
-            0
+            Amount::ZERO
         };
         let invited = if room.access == Access::Invite && !is_host {
             seat::invite_is_live(self.live_invite(&room.id, user_id)?, now)

@@ -2,7 +2,7 @@
 import { z } from 'zod';
 import { decimalSchema as money } from '../../shared/money';
 import { linkedAccountSchema } from './contracts-accounts';
-import { BANK_TRANSFERS_LIST_SCHEDULES, BANK_TRANSFERS_TO_USER } from '@intafaced/contracts/bank-transfers-procedures';
+import { BANK_TRANSFERS_TO_USER } from '@intafaced/contracts/bank-transfers-procedures';
 
 export const scheduleSchema = z.object({
   id: z.string(),
@@ -254,8 +254,6 @@ export const railPayeeCheckSchema = z.object({
 /** This area's reads of svc-bank `bank.*`, composed into `bankReads` in contracts.ts. */
 export const paymentsReads = {
   'calendar.window': calendarViewSchema,
-  // Read by name through Activity's source table; its schema is the record's own, so it cannot drift from the bank's.
-  'transfers.listSchedules': BANK_TRANSFERS_LIST_SCHEDULES.output,
 } as const;
 
 /** This area's writes to svc-bank `bank.*`, composed into `bankWrites` in contracts.ts. */

@@ -347,7 +347,9 @@ pub fn resolve_route<'a>(table: &'a RoutingTable, task: &str) -> Result<&'a Rout
 /// `routeIsMetered`: billed unless metering is known to be off, the rate is blank, or both rates are zero.
 pub fn route_is_metered(metering_enabled: Option<bool>, price: Option<&Price>) -> bool {
     metering_enabled != Some(false)
-        && price.is_some_and(|p| !(p.input_per_million == 0 && p.output_per_million == 0))
+        && price.is_some_and(|p| {
+            !(p.input_per_million == Amount::ZERO && p.output_per_million == Amount::ZERO)
+        })
 }
 
 /// `engineForTasks`: one engine for an agent when every allowed task resolves to the same one, else unknown; metered
@@ -392,7 +394,7 @@ mod tests {
     #![allow(clippy::unwrap_used, reason = "a test: a failure is the point")]
     use super::*;
 
-    const ONE: Amount = 1_000_000_000_000_000_000;
+    const ONE: Amount = Amount::whole(1);
 
     #[test]
     fn a_table_is_parsed_with_its_rates_as_amounts_and_complete_by_default() {
@@ -443,11 +445,11 @@ mod tests {
     fn metered_follows_the_switch_and_the_rate_never_the_engine() {
         let p = Price {
             input_per_million: ONE,
-            output_per_million: 0,
+            output_per_million: Amount::ZERO,
         };
         let zero = Price {
-            input_per_million: 0,
-            output_per_million: 0,
+            input_per_million: Amount::ZERO,
+            output_per_million: Amount::ZERO,
         };
         assert!(route_is_metered(None, Some(&p)));
         assert!(route_is_metered(Some(true), Some(&p)));

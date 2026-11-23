@@ -1,7 +1,6 @@
 // TEST DATA ONLY. Nothing here is a real merchant, customer, amount or id.
 import { NOT_MINE, DAY, MERCHANT_ID, TEAM, USER_ID, hex, iso, ok, page, refuse, startOfDay } from '../mock/shared.mjs';
 import { RULE, fromU, toU } from '../mock/world.mjs';
-import { createAnalyticsMock } from '../settings/analytics/mock.mjs';
 
 /** Settlements, approvals, pricing and limits. */
 export function createMoneyMock(ctx) {
@@ -16,7 +15,6 @@ export function createMoneyMock(ctx) {
   /** A US dollar payout goes to the bank account, a USDT payout to the wallet: never a dollar payout to a crypto address. */
   const destFor = (assetId) => (assetId === 'USD' && world.destinations[1] ? asDest(world.destinations[1]) : DEST);
   // The fee-rate read is the fees page's own answer with the service's per-asset rate added (#4919).
-  const analytics = createAnalyticsMock(ctx);
   const settlementNo = (short) => settlements.find((x) => x.short === short);
   // Every approval is placed on its own settlement's timeline: a request is made after the statement is finalised, and a
   // payout is sent only after the approval that let it go. [id, settlement, status, maker, checker, created, decided or
@@ -559,33 +557,6 @@ export function createMoneyMock(ctx) {
           removedDestinations.add(d.id);
           if (defaultDestinationId === d.id) defaultDestinationId = null; // another one is never promoted
           return ok(route, { removed: true });
-        }
-        case 'merchantAnalytics.fees': {
-          let answer = null;
-          await analytics.handle(procedure, input, { fulfill: (r) => (answer = JSON.parse(r.body).result.data) });
-          if (!answer) return NOT_MINE;
-          // The service's own rate per asset over the whole window: fees ÷ gross, rounded down to 6 places.
-          const by = new Map();
-          for (const row of answer.items) {
-            const cur = by.get(row.assetCode) ?? { gross: 0n, fees: 0n };
-            by.set(row.assetCode, { gross: cur.gross + toU(row.gross), fees: cur.fees + toU(row.fees) });
-          }
-          const rates = [...by.entries()]
-            .sort(([a], [b]) => a.localeCompare(b))
-            .map(([assetCode, { gross, fees }]) => {
-              if (gross === 0n) return { assetCode, fees: fromU(fees), gross: '0', rate: null, rateStatus: 'no_volume' };
-              const q = (fees * 1_000_000n) / gross;
-              const exact = (fees * 1_000_000n) % gross === 0n;
-              const fraction = (q % 1_000_000n).toString().padStart(6, '0').replace(/0+$/, '');
-              return {
-                assetCode,
-                fees: fromU(fees),
-                gross: fromU(gross),
-                rate: fraction ? `${q / 1_000_000n}.${fraction}` : `${q / 1_000_000n}`,
-                rateStatus: exact ? 'exact' : 'rounded',
-              };
-            });
-          return ok(route, { ...answer, rates });
         }
         case 'merchantControl.tiers.list': {
           // The ladder: every tier INTAFACED shows merchants (TEST names and figures), the merchant's own marked by id.

@@ -8,6 +8,7 @@
 //! the sender's balance. A send of an asset at or over its TEST `reviewFrom` amount is screened (put on hold before
 //! anything posts).
 
+use service_kit::money::Amount;
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 
@@ -263,7 +264,7 @@ fn shape(v: &Json) -> Option<Catalogue> {
 pub fn parse(raw: Option<&str>) -> Option<Catalogue> {
     let raw = raw.filter(|r| !js_trim(r).is_empty())?;
     let c = shape(&json::parse(raw).ok()?)?;
-    let positive = |s: &str| parse_amount(s).is_ok_and(|a| a > 0);
+    let positive = |s: &str| parse_amount(s).is_ok_and(|a| a > Amount::ZERO);
     if !c.rates.iter().all(|r| positive(&r.rate)) {
         return None;
     }
@@ -376,7 +377,7 @@ impl GlobalPorts for SimPorts {
         let gross = parse_amount(&format_amount(gross))?;
         let fee = row.fee.clone().unwrap_or_else(|| "0".to_owned());
         let net = gross - parse_amount(&fee)?;
-        if net <= 0 {
+        if net <= Amount::ZERO {
             return Err(format!(
                 "a TEST fee of {fee} {to_currency} leaves nothing to arrive"
             ));
