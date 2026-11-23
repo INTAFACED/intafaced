@@ -418,10 +418,22 @@ test(`${J} #3 places a stop-market and looks at the pending list: pending orders
     // The list says what became of it on the venue, and stays inside the page: nothing of the desk scrolls off sideways.
     await expect(cell(page, market, 'status')).toHaveText('Sent · filled', { timeout: 15_000 });
     await expect(cell(page, market, 'reference')).toHaveText('');
-    expect(
-      await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
-      'the pending list widens the page',
-    ).toBe(true);
+    // When the page is wider than the window, the message names each element that reaches past it.
+    const width = await page.evaluate(() => {
+      const view = document.documentElement.clientWidth;
+      const past = [...document.querySelectorAll('body *')]
+        .filter((el) => {
+          const r = el.getBoundingClientRect();
+          return r.width > 0 && r.right > view + 0.5;
+        })
+        .slice(0, 8)
+        .map(
+          (el) =>
+            `${el.tagName.toLowerCase()}.${[...el.classList].join('.')}[${el.getAttribute('data-testid') ?? ''}] to ${Math.round(el.getBoundingClientRect().right)}`,
+        );
+      return { scroll: document.documentElement.scrollWidth, view, past };
+    });
+    expect(width.scroll <= width.view, `the pending list widens the page: ${JSON.stringify(width)}`).toBe(true);
     // oxlint-disable-next-line garden/no-real-clock-wait-in-tests -- proving nothing more happens over a few passes of our engine (one a second)
     await new Promise((r) => setTimeout(r, 3_000));
     const fills = await fillsOf(s, cloid);
