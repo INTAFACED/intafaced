@@ -17,7 +17,7 @@ import {
   merchantProfileSecondApprovalResultSchema,
 } from '@intafaced/contracts/merchant-portal';
 import { merchantRoomAccessSchema } from '@intafaced/contracts/merchant-room-access';
-import { anyScopeProcedure, router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
+import { anyScopeProcedure, router, scopedProcedure, TRPCError, type OwnerPayGrantRecheck } from '@intafaced/contracts/trpc';
 import { consumePayApproval, unwiredApprovalConsumer, type ActionApprovalConsumer } from '../action-approval-consume.js';
 import { merchantProfileReviewFields } from '../approval-bindings.js';
 import { createMerchantCustomerEmails } from '../customer-emails/router.js';
@@ -91,9 +91,14 @@ export function merchantPortalExtensions(deps: {
    * service can let the owner of a business that is not verified yet fill in its details (J-merchant-02 #1)
    * and an admin of a verified one change them (`ProfileWriter`).
    */
-  const profileWrite = anyScopeProcedure(['pay:write', 'pay:onboard'], { module: 'pay' }).use(async ({ ctx, next }) => {
+  const profileWrite = anyScopeProcedure(['pay:write', 'pay:onboard'], { module: 'pay' });
+  /** The scope the session still holds is read in the handler, not by a `.use()` on the guard: it refuses nothing. */
+  const writer = async (ctx: {
+    principal: Principal | null | undefined;
+    ownerPayGrant?: OwnerPayGrantRecheck | undefined;
+  }): Promise<ProfileWriter> => {
     let scope: ProfileWriter['scope'] = 'pay:onboard';
-    if (hasScope(ctx.principal.scopes, 'pay:write')) {
+    if (ctx.principal && hasScope(ctx.principal.scopes, 'pay:write')) {
       // A second live lookup: anyScopeProcedure does not say which scope it accepted.
       try {
         requireScope(ctx.principal, 'pay:write');
@@ -105,12 +110,8 @@ export function merchantPortalExtensions(deps: {
         if (!(err instanceof AuthError) && !(err instanceof TRPCError && err.message === 'pay.owner_grant_withdrawn')) throw err;
       }
     }
-    return next({ ctx: { ...ctx, profileScope: scope } });
-  });
-  const writer = (ctx: { principal: Principal | null | undefined; profileScope: ProfileWriter['scope'] }): ProfileWriter => ({
-    userId: interactive(ctx.principal),
-    scope: ctx.profileScope,
-  });
+    return { userId: interactive(ctx.principal), scope };
+  };
   const compliance = scopedProcedure('admin:compliance', { module: 'pay' });
 
   const userIdOf = (principal: { userId?: string } | null | undefined): string => {
@@ -145,15 +146,15 @@ export function merchantPortalExtensions(deps: {
       submit: profileWrite
         .input(merchantBusinessProfileSubmitInputSchema)
         .output(merchantBusinessProfileSubmitResultSchema)
-        .mutation(({ ctx, input }) => wrapPortal(async () => profile.submit(writer(ctx), input))),
+        .mutation(({ ctx, input }) => wrapPortal(async () => profile.submit(await writer(ctx), input))),
       confirm: profileWrite
         .input(merchantBusinessProfileConfirmInputSchema)
         .output(merchantBusinessProfileDecideResultSchema)
-        .mutation(({ ctx, input }) => wrapPortal(async () => profile.decide(writer(ctx), input))),
+        .mutation(({ ctx, input }) => wrapPortal(async () => profile.decide(await writer(ctx), input))),
       setSecondApproval: profileWrite
         .input(merchantProfileSecondApprovalInputSchema)
         .output(merchantProfileSecondApprovalResultSchema)
-        .mutation(({ ctx, input }) => wrapPortal(async () => profile.setSecondApproval(writer(ctx), input))),
+        .mutation(({ ctx, input }) => wrapPortal(async () => profile.setSecondApproval(await writer(ctx), input))),
       /**
        * Compliance decide. `admin:compliance`, MFA, and an identity approval,
        * matching `merchant.decideKyb`. A merchant session cannot apply a
