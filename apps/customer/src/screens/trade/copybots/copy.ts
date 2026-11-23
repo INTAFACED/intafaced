@@ -878,6 +878,8 @@ const messages = {
   'Within {percent}% of the market price': 'Within {percent}% of the market price',
   'Write and save a strategy in Quant Studio and it appears here.': 'Write and save a strategy in Quant Studio and it appears here.',
   'Yearly return (APR)': 'Yearly return (APR)',
+  'You asked to close {qty} of {market}; {open} is open. Nothing was sent.':
+    'You asked to close {qty} of {market}; {open} is open. Nothing was sent.',
   'You are not a listed leader': 'You are not a listed leader',
   'You are signed out': 'You are signed out',
   'You aren’t following anyone': 'You aren’t following anyone',

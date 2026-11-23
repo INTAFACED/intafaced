@@ -720,7 +720,18 @@ test(`${J} #3 opens Positions and closes one order, then a part larger than open
   await part.getByRole('button', { name: 'Close' }).click();
   expect((await partSent).postData() ?? '', 'the screen sent the part for another position').toContain(still.positionId);
   expect(refusalCode({ body: await (await oversize).json() })).toBe('trade.copy_close_qty_exceeds');
-  await expect(page.getByText('That is more than is open.')).toBeVisible();
+  const refusal = detail.getByRole('note').filter({ hasText: 'That is more than is open.' });
+  await expect(refusal).toBeVisible();
+  // It names what was refused: the part asked for, the position's market and what is open on it.
+  await expect(refusal).toContainText(`You asked to close 1 of ${still.market}; ${still.open} is open. Nothing was sent.`);
+  // Every cell of the positions and their fills reads whole, none cut short.
+  for (const name of ['Copied positions', 'Copied fills']) {
+    const cut = await detail
+      .getByRole('table', { name })
+      .locator('td')
+      .evaluateAll((cells) => cells.filter((c) => c.scrollWidth > c.clientWidth).map((c) => c.textContent));
+    expect(cut, `${name}: cells cut short`).toEqual([]);
+  }
   const stillFill = await leaderFillOfVenuePosition(still.positionId);
   expect(
     await onVenue('/order-by-client-id', owner, subAccount, { venueClientOrderId: await cloidOf(`copy.close:${followId}:${stillFill}:1`) }),

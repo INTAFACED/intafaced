@@ -833,6 +833,11 @@
   background: var(--lit-solid-bg-raised);
   border-radius: var(--lit-radius-control);
 }
+/* A block of code is a tile, not a control: the control's pill radius drew a tall block as an ellipse that cut off the
+   first and last characters of its lines (the API explorer's request, J-developer-15 #7). */
+pre.lt-code {
+  border-radius: var(--lit-radius-tile);
+}
 .lt-code [data-op='removed'] {
   color: var(--lit-down-text);
 }
@@ -2423,6 +2428,36 @@ button.lt-tab {
   border-block-start: 1px solid var(--lit-line);
 }
 
+/* A settings room's sections (issue 10307): each group the room passes (a plain section, form, article or unclassed
+   div) is its own panel, a section gap apart, never one long panel of everything. The slot then draws no panel of its
+   own; a kit part beside them (a refusal, an action row) keeps its own look. A slot with no such group, or one that is
+   held, loading or locked, keeps its one panel. An empty block (a polite live line with nothing to say yet) stays in
+   place, unboxed, so it can still speak. */
+.lt-grid-settings
+  .lt-region[data-region='sections']:not([data-held], [data-holds-state]):has(
+    > :is(section, form, article, div:not([class])):not(:empty)
+  ):not(:has(> .lt-ghost, > .lt-locked)) {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-section);
+  background: none;
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+}
+.lt-grid-settings .lt-region[data-region='sections']:not([data-held], [data-holds-state]):not(:has(> .lt-ghost, > .lt-locked)) > * {
+  margin: 0;
+}
+.lt-grid-settings
+  .lt-region[data-region='sections']:not([data-held], [data-holds-state]):not(:has(> .lt-ghost, > .lt-locked))
+  > :is(section, form, article, div:not([class])):not(:empty) {
+  padding: var(--lit-pad-panel);
+  border: 1px solid var(--lit-line);
+  border-radius: var(--lit-radius-panel);
+  background: var(--lit-solid-bg);
+  box-shadow: var(--lit-solid-lip), var(--lit-solid-shadow);
+}
+
 /* A plain list's items in a slot sit apart, each one its own line. */
 .lt-region :is(ul, ol):not([class]) > li + li {
   margin-block-start: calc(var(--lit-gap-item) / 2);
@@ -2444,6 +2479,42 @@ button.lt-tab {
   gap: calc(var(--lit-gap-item) / 2);
   padding-block: var(--lit-gap-item);
   border-block-end: 1px solid var(--lit-line);
+}
+
+/* ---- a printable sheet: one document the reader prints on its own (a certificate) ---- */
+
+/* Centred and framed on screen; when the page is printed, only the sheet shows, as ink on paper. */
+.lt-print-sheet {
+  display: grid;
+  gap: var(--lit-gap-item);
+  justify-items: center;
+  text-align: center;
+  padding: var(--lit-gap-section) var(--lit-pad-panel);
+  border: 2px solid var(--lit-line-strong);
+  border-radius: var(--lit-radius-panel);
+  overflow-wrap: anywhere;
+}
+
+.lt-print-sheet :is(h2, h3, p) {
+  margin: 0;
+}
+
+@media print {
+  body:has(.lt-print-sheet) * {
+    visibility: hidden !important;
+  }
+  .lt-print-sheet,
+  .lt-print-sheet * {
+    visibility: visible !important;
+  }
+  .lt-print-sheet {
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline: 0;
+    border-color: CanvasText; /* look-drift-allow: print is ink on paper, the system's text colour whatever the scheme */
+    background: Canvas; /* look-drift-allow: print is ink on paper, the system's page colour whatever the scheme */
+    color: CanvasText; /* look-drift-allow: print is ink on paper, the system's text colour whatever the scheme */
+  }
 }
 
 /* One record on one line: a leading mark, the record's lines taking the room, and its end part (a time, a mark) kept

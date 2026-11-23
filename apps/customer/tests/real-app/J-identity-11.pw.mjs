@@ -3,13 +3,25 @@ import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
-import { ROOT, api, mailedLines, signOutBrowser, signUpInBrowser, staffFreeze, staffRestore, tool } from './stack.mjs';
+import { ROOT, api, mailedLines, signOutBrowser, signUpInBrowser, staffFreeze, staffRestore, toUnits, tool } from './stack.mjs';
 import { keyHolder, makeKey, withKey } from './developer.mjs';
 import { signIn, verify } from './desk.mjs';
 import { OWN_AGENT, createOwnAgent } from './agents.mjs';
 import { body200 } from './answers.mjs';
 import { installTestWallet, testWalletKey } from './test-wallet.mjs';
-import { openVenueDesk, sameDecimal, venueInfo, shownBalance, testDeposit, venueBalance, venueForThisFile, venueRecord } from './venue.mjs';
+import {
+  TEST_VENUE,
+  openVenueDesk,
+  sameDecimal,
+  venueInfo,
+  shownBalance,
+  testDeposit,
+  testVenue,
+  venueAccount,
+  venueBalance,
+  venueForThisFile,
+  venueRecord,
+} from './venue.mjs';
 import { privateKeyToAccount } from 'viem/accounts';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 
@@ -193,6 +205,112 @@ async function mailedFreezeLink(email) {
   return `/${link}`;
 }
 
+// The person's agent that trades: a live strategy run on a sub-account of their own TEST wallet, through an agent
+// permission the wallet signs (svc-trade quant/live-run), as J-wallet-13 #1 sets it up. Its orders are agent orders.
+const LIVE = '/api/v1/quant/live-runs';
+const SYMBOL = 'BTC-PERP';
+const BLOCK = '0.001';
+/** What the wallet moves into the agent's sub-account; deposited on top of HELD first, so the main account still holds HELD. */
+const RUN_CASH = '200';
+const walletOf = (own) => privateKeyToAccount(own.walletKey);
+const subRecord = async (own, sub, route, extra = {}) => (await venueRecord(own.owner, route, extra, TEST_VENUE, sub)).value;
+const openPositions = async (own, sub) => (await subRecord(own, sub, '/positions')).filter((p) => toUnits(p.size) > 0n);
+
+/** The wallet signs one action on its own venue account (main or a sub-account) on the TEST venue directly. */
+async function ownVenueAction(own, intent, subAccount = null) {
+  const account = { ...(await venueAccount(own.owner)), subAccount };
+  const prepared = await testVenue('/prepare', { account, signer: { role: 'owner', address: own.owner }, intent });
+  expect(prepared.status, JSON.stringify(prepared.body)).toBe(200);
+  const p = prepared.body.typedData;
+  const signature = await walletOf(own).signTypedData({ domain: p.domain, types: p.types, primaryType: p.primaryType, message: p.message });
+  const sent = await testVenue('/submit', {
+    prepared: prepared.body,
+    signature: { digest: prepared.body.digest, signature, signedBy: own.owner },
+  });
+  expect(sent.status, JSON.stringify(sent.body)).toBe(200);
+  expect(sent.body.accepted, JSON.stringify(sent.body)).toBe(true);
+}
+
+/**
+ * The person's trading agent: a strategy saved and run live on a funded sub-account of their own wallet, the wallet
+ * signing the agent's permission, with the agent's own limit order resting on the venue. Returns the run and its sub-account.
+ */
+async function tradingAgent(session, own) {
+  await testDeposit(own.owner, 'USDC', RUN_CASH, `deposit:${J}:${own.owner}:agent`);
+  const name = `${J}-agent`;
+  await ownVenueAction(own, { kind: 'create_sub_account', name, subAccountKey: `own:${J}:${name}:${own.owner}` });
+  const sub = (await venueRecord(own.owner, '/sub-accounts')).value.find((x) => x.name === name)?.subAccount;
+  expect(sub, `the venue lists no sub-account named ${name}`).toBeTruthy();
+  await ownVenueAction(own, {
+    kind: 'sub_account_transfer',
+    subAccount: sub,
+    direction: 'into_sub_account',
+    asset: 'USDC',
+    amount: RUN_CASH,
+    moveKey: `own:${J}:${name}:fund:${own.owner}`,
+  });
+  const status = body200(await session.get('/api/v1/venue/status'));
+  await ownVenueAction(own, { kind: 'approve_builder_fee', builder: status.builder.address, maxFeeBps: status.builder.feeBps }, sub);
+  await ownVenueAction(own, { kind: 'update_leverage', symbol: SYMBOL, leverageBps: 10_000, marginMode: 'isolated' }, sub);
+  const strategy = body200(
+    await session.post('/api/quant/trpc/studio.save', {
+      name: 'TEST freeze agent',
+      blocks: [{ side: 'buy', symbol: SYMBOL, qty: BLOCK }],
+      risk: { maxDrawdown: '100', maxNotional: '500', kill: '50' },
+      cash: '1000',
+      environment: 'paper',
+      presentedAs: 'paper',
+      clientStrategyId: `${J}:${own.owner}:strategy`,
+      idempotencyKey: `${J}:${own.owner}:save`,
+    }),
+  ).result.data;
+  const runId = crypto.randomUUID();
+  let view = body200(
+    await session.post(LIVE, {
+      runId,
+      strategyId: strategy.id,
+      strategyVersion: 1,
+      owner: own.owner,
+      subAccount: sub,
+      cap: '150',
+      restartAttempts: '1',
+      statePolicy: 'keep',
+      liveControl: true,
+    }),
+  );
+  expect(view.state).toBe('signing');
+  const p = view.next.prepared;
+  const signature = await walletOf(own).signTypedData({
+    domain: p.typedData.domain,
+    types: p.typedData.types,
+    primaryType: p.typedData.primaryType,
+    message: p.typedData.message,
+  });
+  view = body200(
+    await session.post(`${LIVE}/${runId}/submit`, {
+      actionKey: view.next.actionKey,
+      signature: { digest: p.digest, signature, signedBy: own.owner },
+    }),
+  );
+  expect(view.state).toBe('running');
+  await expect.poll(async () => (await openPositions(own, sub)).map((x) => x.size), { timeout: 20_000 }).toEqual([BLOCK]);
+  // The agent's own order, resting on the venue under the permission the wallet signed.
+  const detail = body200(await session.get(`${LIVE}/${runId}`));
+  expect(detail).toMatchObject({ state: 'running', permission: 'active' });
+  body200(
+    await session.post(`${LIVE}/${runId}/orders`, {
+      seq: detail.nextSeq,
+      side: 'buy',
+      type: 'limit',
+      symbol: SYMBOL,
+      size: BLOCK,
+      price: '50000',
+    }),
+  );
+  expect(await subRecord(own, sub, '/open-orders')).toHaveLength(1);
+  return { runId, sub };
+}
+
 /** The bank's withdrawal guard, asked as the address form asks it before any code: may this person add this address? */
 const WITHDRAW_TO = '0x52908400098527886E0F7030069857D2E4169EE7';
 const withdrawalCheck = (session) =>
@@ -210,8 +328,9 @@ const sessionsOf = async (session) =>
 const keyNamed = async (session, name) =>
   (await session.get(query('/api/identity/trpc/apiKeys.list', { limit: 200 }))).body.result.data.filter((record) => record.name === name);
 
-test(`${J} #2 Freeze my account from the mailed link: no session and no key remain, the link used twice shows the stored result, a withdrawal is refused`, async ({
+test(`${J} #2 Freeze my account from the mailed link: no session and no key remain, every agent permission is revoked and an agent order refused, the link used twice shows the stored result, a withdrawal is refused`, async ({
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(240_000);
   // A verified person with a passkey (only such an account holds an API key) and a live key. Adding the passkey is a
@@ -228,6 +347,8 @@ test(`${J} #2 Freeze my account from the mailed link: no session and no key rema
   const agentId = agents.result.data.find((row) => row.name === OWN_AGENT).id;
   body200(await session.post('/api/agents/trpc/own.consents.grant', { id: agentId, dataClass: 'own_data' }));
   expect((await consentsOf(who, agentId)).map((c) => c.state)).toEqual(['granted']);
+  // An agent permission the person's wallet signed: their trading agent, with its own order resting on the venue.
+  const agent = await tradingAgent(session, venueAcct);
   const STATUS = '/api/identity/trpc/accountStatus.mine';
   expect((await session.get(STATUS)).status).toBe(200);
   expect((await withKey(key, { path: STATUS })).status).toBe(200);
@@ -307,14 +428,42 @@ test(`${J} #2 Freeze my account from the mailed link: no session and no key rema
   expect(refused.status).toBe(412);
   expect(refusalOf(refused)).toBe('bank.account_frozen_self');
 
-  // Every agent permission stored for the person is revoked, and an agent order is refused with the freeze.
+  // Every agent permission stored for the person is revoked: the own agent's in svc-agents, and the trading agent's in
+  // svc-trade's record of its run, which the freeze stopped, cancelling the agent's resting order on the venue.
   await expect
     .poll(async () => (await consentsOf(who, agentId)).map((c) => c.state), { timeout: 10_000, message: 'the agent kept its permission' })
     .toEqual(['withdrawn']);
-  const agentOrder = await again.post('/api/v1/quant/live-runs', { runId: crypto.randomUUID(), owner: venueAcct.owner });
-  expect(agentOrder.status, JSON.stringify(agentOrder.body).slice(0, 300)).toBe(423);
+  await expect
+    .poll(async () => (await subRecord(venueAcct, agent.sub, '/open-orders')).length, {
+      timeout: 10_000,
+      message: 'the agent left an order open',
+    })
+    .toBe(0);
+  await expect
+    .poll(
+      async () => {
+        const r = body200(await again.get(`${LIVE}/${agent.runId}`));
+        return { state: r.state, endReason: r.endReason, permission: r.permission };
+      },
+      { timeout: 10_000, message: 'the freeze did not stop the trading agent' },
+    )
+    .toEqual({ state: 'stopped', endReason: 'account_frozen', permission: 'revoked' });
+  // An agent order: the trading agent's next order, sent on its run, is refused with the freeze.
+  const run = body200(await again.get(`${LIVE}/${agent.runId}`));
+  const agentOrder = await again.post(`${LIVE}/${agent.runId}/orders`, {
+    seq: run.nextSeq,
+    side: 'buy',
+    type: 'limit',
+    symbol: SYMBOL,
+    size: BLOCK,
+    price: '50000',
+  });
   expect(agentOrder.body?.intafacedCode ?? codeOn(agentOrder), JSON.stringify(agentOrder.body)).toBe('quant.account_frozen');
-  // Nothing reached the venue: the person's own account holds what it held, with no order on it.
+  // Nothing reached the venue: the agent's sub-account has no order and no fill since the freeze and keeps its position,
+  // and the person's own main account holds what it held, with no order on it.
+  expect(await subRecord(venueAcct, agent.sub, '/open-orders')).toEqual([]);
+  expect(await subRecord(venueAcct, agent.sub, '/fills', { since: first })).toEqual([]);
+  expect((await openPositions(venueAcct, agent.sub)).map((x) => x.size)).toEqual([BLOCK]);
   await venueUntouched(venueAcct);
 
   // Signed in again to the freeze, the wallet room tells the person their funds stay in their own wallet and venue account.
@@ -323,6 +472,7 @@ test(`${J} #2 Freeze my account from the mailed link: no session and no key rema
   await wallet.goto('/wallet/venue');
   const notice = wallet.getByTestId('own-freeze-notice');
   await expect(notice).toContainText(FUNDS);
+  await stepPicture(wallet);
 });
 
 /** The person's own agent's consents, as svc-agents holds them, read on a sign-in of its own. */
@@ -333,6 +483,7 @@ async function consentsOf(who, agentId) {
 test(`${J} #3 Signing in again after freezing lands on a typed "frozen by you" page with the lift path, not a generic error`, async ({
   page,
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(180_000);
   const who = person('jg');
@@ -370,6 +521,8 @@ test(`${J} #3 Signing in again after freezing lands on a typed "frozen by you" p
   // Frozen and signed in again, the person's own venue account holds what the desk showed before the freeze.
   await venueUntouched(venueAcct);
 
+  // The step's screen, before the person follows its lift path.
+  await stepPicture(page);
   // The lift path: Security holds the reactivation for this freeze.
   await frozen.getByRole('button', { name: 'Reactivate in Security' }).click();
   await expect(page).toHaveURL(/\/uc\/safe$/);
@@ -380,6 +533,7 @@ test(`${J} #3 Signing in again after freezing lands on a typed "frozen by you" p
 test(`${J} #4 Asking to reactivate before the wait is over is refused with the seconds left; after it, step-up lifts the freeze`, async ({
   page,
   browser,
+  stepPicture,
 }) => {
   // The stack's waiting time is the TEST owner value IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS=20; a blank one refuses
   // (svc-identity self-freeze-lift tests). The lift needs a second factor, so the person adds an authenticator app.
@@ -430,6 +584,7 @@ test(`${J} #4 Asking to reactivate before the wait is over is refused with the s
   await expect(page.getByText('Your account is active again.')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Freeze your account' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'You froze this account' })).toHaveCount(0);
+  await stepPicture(page);
 
   // Account status agrees: nothing is restricted any more.
   await page.goto('/uc/account');

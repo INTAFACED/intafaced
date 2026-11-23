@@ -1019,7 +1019,18 @@
     "issues [{\"code\":\"unrecognized_keys\",\"keys\":[\"fee\"],\"path\":[\"input\"],\"message\":\"Unrecognized key: \\\"fee\\\"\"}]",
     "issues [{\"origin\":\"string\",\"code\":\"invalid_format\",\"format\":\"regex\",\"pattern\":\"/^[A-Za-z0-9._-]+(:[A-Za-z0-9._-]+)*$/\",\"path\":[\"input\",\"rail\"],\"message\":\"Invalid string: must match pattern /^[A-Za-z0-9._-]+(:[A-Za-z0-9._-]+)*$/\"}]",
     "issues [{\"origin\":\"string\",\"code\":\"invalid_format\",\"format\":\"regex\",\"pattern\":\"/^[a-z0-9][a-z0-9._-]*$/\",\"path\":[\"input\",\"reason\"],\"message\":\"Invalid string: must match pattern /^[a-z0-9][a-z0-9._-]*$/\"}]",
-    "issues [{\"code\":\"invalid_value\",\"values\":[\"bank\"],\"path\":[\"input\",\"sourceModule\"],\"message\":\"Invalid input: expected \\\"bank\\\"\"}]"
+    "issues [{\"code\":\"invalid_value\",\"values\":[\"bank\"],\"path\":[\"input\",\"sourceModule\"],\"message\":\"Invalid input: expected \\\"bank\\\"\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"invalid_format\",\"format\":\"regex\",\"pattern\":\"/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/\",\"path\":[\"originalTxId\"],\"message\":\"Invalid string: must match pattern /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"invalid_format\",\"format\":\"regex\",\"pattern\":\"/^[1-9][0-9]{0,18}$/\",\"path\":[\"ordinal\"],\"message\":\"Invalid string: must match pattern /^[1-9][0-9]{0,18}$/\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"invalid_format\",\"format\":\"regex\",\"pattern\":\"/\\\\S/\",\"path\":[\"reason\"],\"message\":\"Invalid string: must match pattern /\\\\S/\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"too_small\",\"minimum\":1,\"inclusive\":true,\"path\":[\"caseRef\"],\"message\":\"Too small: expected string to have >=1 characters\"},{\"origin\":\"string\",\"code\":\"invalid_format\",\"format\":\"regex\",\"pattern\":\"/\\\\S/\",\"path\":[\"caseRef\"],\"message\":\"Invalid string: must match pattern /\\\\S/\"}]",
+    "issues [{\"code\":\"unrecognized_keys\",\"keys\":[\"entries\"],\"path\":[],\"message\":\"Unrecognized key: \\\"entries\\\"\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"originalTxId\"],\"message\":\"Invalid input: expected string, received undefined\"},{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"ordinal\"],\"message\":\"Invalid input: expected string, received undefined\"},{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"reason\"],\"message\":\"Invalid input: expected string, received undefined\"},{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"caseRef\"],\"message\":\"Invalid input: expected string, received undefined\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"ordinal\"],\"message\":\"Invalid input: expected string, received number\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"too_big\",\"maximum\":128,\"inclusive\":true,\"path\":[\"caseRef\"],\"message\":\"Too big: expected string to have <=128 characters\"}]",
+    "ok {\"txId\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb\",\"idempotencyKey\":\"ops:reversal:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa:1\",\"postedAt\":\"2026-11-24T00:00:00.000Z\",\"reverses\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\"}",
+    "issues [{\"origin\":\"string\",\"code\":\"invalid_format\",\"format\":\"regex\",\"pattern\":\"/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/\",\"path\":[\"txId\"],\"message\":\"Invalid string: must match pattern /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"invalid_format\",\"format\":\"regex\",\"pattern\":\"/^ops:reversal:[0-9a-f-]{36}:[1-9][0-9]{0,18}$/\",\"path\":[\"idempotencyKey\"],\"message\":\"Invalid string: must match pattern /^ops:reversal:[0-9a-f-]{36}:[1-9][0-9]{0,18}$/\"}]"
   ],
   "cases": [
     ["post", null, 0],
@@ -9998,6 +10009,94 @@
       "postRecipe",
       "{\"recipe\":\"tradeFill\",\"input\":{\"course\":\"perps-101\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"n\":\"1\",\"assetId\":\"USDC\",\"amount\":\"2.5\",\"to\":{\"kind\":\"treasury-wallet\",\"walletId\":\"0x00000000000000000000000000000000000000aa\"},\"paymentId\":\"0xabababababababababababababababababababababababababababababababab\"}}",
       563
+    ],
+    [
+      "operatorReverse",
+      "{\"originalTxId\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"ordinal\":\"1\",\"reason\":\"LOCAL TEST wrong account\",\"caseRef\":\"case-1\"}",
+      6
+    ],
+    [
+      "operatorReverse",
+      "{\"originalTxId\":\"AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA\",\"ordinal\":\"1234567890123456789\",\"reason\":\"x\",\"caseRef\":\"c\"}",
+      6
+    ],
+    ["operatorReverse", "{\"originalTxId\":\"not-a-uuid\",\"ordinal\":\"1\",\"reason\":\"r\",\"caseRef\":\"c\"}", 1020],
+    [
+      "operatorReverse",
+      "{\"originalTxId\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"ordinal\":\"0\",\"reason\":\"r\",\"caseRef\":\"c\"}",
+      1021
+    ],
+    [
+      "operatorReverse",
+      "{\"originalTxId\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"ordinal\":\"1.5\",\"reason\":\"r\",\"caseRef\":\"c\"}",
+      1021
+    ],
+    [
+      "operatorReverse",
+      "{\"originalTxId\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"ordinal\":\"1\",\"reason\":\"   \",\"caseRef\":\"c\"}",
+      1022
+    ],
+    [
+      "operatorReverse",
+      "{\"originalTxId\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"ordinal\":\"1\",\"reason\":\"r\",\"caseRef\":\"\"}",
+      1023
+    ],
+    [
+      "operatorReverse",
+      "{\"originalTxId\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"ordinal\":\"1\",\"reason\":\"r\",\"caseRef\":\"c\",\"entries\":[]}",
+      1024
+    ],
+    ["operatorReverse", "null", 1],
+    ["operatorReverse", "{}", 1025],
+    [
+      "operatorReverse",
+      "{\"originalTxId\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"ordinal\":\"12345678901234567890\",\"reason\":\"LOCAL TEST\",\"caseRef\":\"case-1\"}",
+      1021
+    ],
+    [
+      "operatorReverse",
+      "{\"originalTxId\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"ordinal\":1,\"reason\":\"LOCAL TEST\",\"caseRef\":\"case-1\"}",
+      1026
+    ],
+    [
+      "operatorReverse",
+      "{\"originalTxId\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"ordinal\":\"1\",\"reason\":\"rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"caseRef\":\"case-1\"}",
+      6
+    ],
+    [
+      "operatorReverse",
+      "{\"originalTxId\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"ordinal\":\"1\",\"reason\":\"rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\",\"caseRef\":\"case-1\"}",
+      148
+    ],
+    [
+      "operatorReverse",
+      "{\"originalTxId\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"ordinal\":\"1\",\"reason\":\"LOCAL TEST\",\"caseRef\":\"ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\"}",
+      1027
+    ],
+    [
+      "operatorReverse",
+      "{\"originalTxId\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa0\",\"ordinal\":\"1\",\"reason\":\"LOCAL TEST\",\"caseRef\":\"case-1\"}",
+      1020
+    ],
+    [
+      "operatorReverseReply",
+      "{\"txId\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb\",\"idempotencyKey\":\"ops:reversal:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa:1\",\"postedAt\":\"2026-11-24T00:00:00.000Z\",\"reverses\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\"}",
+      6
+    ],
+    [
+      "operatorReverseReply",
+      "{\"txId\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb\",\"idempotencyKey\":\"ops:reversal:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa:1\",\"postedAt\":\"2026-11-24T00:00:00.000Z\",\"reverses\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"extra\":1}",
+      1028
+    ],
+    [
+      "operatorReverseReply",
+      "{\"txId\":\"BBBBBBBB-BBBB-4BBB-8BBB-BBBBBBBBBBBB\",\"idempotencyKey\":\"ops:reversal:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa:1\",\"postedAt\":\"2026-11-24T00:00:00.000Z\",\"reverses\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\"}",
+      1029
+    ],
+    [
+      "operatorReverseReply",
+      "{\"txId\":\"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb\",\"idempotencyKey\":\"deposit:x:1\",\"postedAt\":\"2026-11-24T00:00:00.000Z\",\"reverses\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\"}",
+      1030
     ]
   ]
 }

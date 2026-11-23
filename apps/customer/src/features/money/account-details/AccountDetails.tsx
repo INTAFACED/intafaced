@@ -7,6 +7,7 @@ import { useBankRead } from '../components';
 import type { AccountDetailSet, AccountDetailsRow } from '../contracts';
 import { accountDetailsCopy } from '../account-details-copy';
 import { CopyValue, DisabledAction, Panel } from './parts';
+import { RefusalCode } from '../../../shared/RefusalCode';
 
 /**
  * The account numbers a bank transfer to the customer uses, one block per currency (BK-acct-03). Every value is the banking
@@ -67,7 +68,8 @@ export function AccountDetailsList({ rows, heading: Heading = 'h3' }: { rows: re
         <section key={row.currency} aria-label={row.currency} data-testid={`account-details-${row.currency}`}>
           <Heading>{row.currency}</Heading>
           <p role="status">
-            {t(stateKey[row.state])} {row.blocker && <small className="lt-ref">{t('blocker', { code: row.blocker })}</small>}
+            {t(stateKey[row.state])}{' '}
+            {row.blocker && <RefusalCode className="lt-ref" code={row.blocker} line={(code) => t('blocker', { code })} />}
           </p>
           {row.sets.map((set) => (
             <SetView key={set.id} set={set} />
@@ -85,7 +87,7 @@ export function AccountDetailsBody({ resource, reload }: { resource: Resource<{ 
   if (resource.status === 'failed' && resource.failure.code === 'bank.company_account_unwired') {
     return (
       <p role="status" data-testid="account-details-company">
-        {t('companyUnwired')} <small className="lt-ref">{t('blocker', { code: resource.failure.code })}</small>
+        {t('companyUnwired')} <RefusalCode className="lt-ref" code={resource.failure.code} line={(code) => t('blocker', { code })} />
       </p>
     );
   }

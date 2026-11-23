@@ -419,6 +419,18 @@ pub const ROUTES: [Route; 44] = [
     ),
 ];
 
+/// The routes born in Rust, after the TypeScript service was recorded and deleted: the wire recording holds none of
+/// them (`tests/wire_replay.rs` holds [`ROUTES`] to it), so each is proved by its own Postgres suite.
+pub const RUST_ROUTES: [Route; 1] = [
+    // An operator's corrective reversal, built by the ledger from the stored original (`crate::reversal`).
+    s2s(
+        "operatorReverse",
+        "/trpc/operatorReverse",
+        Input::Body("operatorReverse"),
+        Posting,
+    ),
+];
+
 /// The door's answer: decided here, or the named slice's to give.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
@@ -613,6 +625,7 @@ fn find(method: &str, path: &str) -> Option<(&'static Route, Vec<(&'static str, 
     let segments: Vec<&str> = path.split('/').collect();
     ROUTES
         .iter()
+        .chain(RUST_ROUTES.iter())
         .filter(|r| r.method == method || (method == "HEAD" && r.method == "GET"))
         .find_map(|r| {
             let pattern: Vec<&str> = r.path.split('/').collect();
@@ -848,6 +861,11 @@ impl LedgerDoor {
             return answer(errors::http_error(&crate::history::page_socket(f).into()));
         }
         match parse(name, body_value(body)) {
+            Ok(Parsed::Ok(input)) if door == "operatorReverse" => answer(crate::reversal::answer(
+                &self.cfg.store,
+                &self.cfg.posting,
+                &input,
+            )),
             Ok(Parsed::Ok(input)) if route.slice == Slice::Posting => {
                 let parsed = input.to_json().unwrap_or(Json::Null);
                 match crate::posting::post(

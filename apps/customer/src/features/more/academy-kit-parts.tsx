@@ -1,10 +1,12 @@
+import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import { Button } from '@intafaced/ui/lit';
 import { safeReturnTo } from '../../app/navigation';
-import type { LessonStatus } from './academy-lms';
+import type { CertificateState, LessonStatus } from './academy-lms';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 
 /**
  * The Academy catalogue rooms' small parts drawn with the kit (intafaced issue 9566): the share of a course or path
- * recorded, a lesson's status, and Sign in back to this page. The words and marks are the old parts' (AcademyLmsParts.tsx).
+ * recorded, a lesson's or a certificate's status, a button that says why it is off, and Sign in back to this page. The words and marks are the old parts' (AcademyLmsParts.tsx).
  */
 
 /**
@@ -39,6 +41,55 @@ export function LessonStatusChip({ status }: { status: LessonStatus }) {
       <span className="lt-chip-mark" aria-hidden="true" />
       <Copy k={statusKeys[status]} />
     </span>
+  );
+}
+
+const stateKeys = {
+  earned: 'stateEarned',
+  ready: 'stateReady',
+  issuing: 'stateIssuing',
+  revoked: 'stateRevoked',
+  'in-progress': 'stateInProgress',
+  'not-started': 'stateNotStarted',
+} as const;
+
+/** Where a certificate stands (earned, ready, issuing, revoked, in progress, not started), in words with the kit chip's mark. */
+export function CertificateChip({ state }: { state: CertificateState }) {
+  const { Copy } = copy.useCopy();
+  return (
+    <span className="lt-chip" data-status={state}>
+      <span className="lt-chip-mark" aria-hidden="true" />
+      <Copy k={stateKeys[state]} />
+    </span>
+  );
+}
+
+/**
+ * A button that states why it is off. The reason sits next to the button, not in a tooltip, and the button points at it,
+ * so a screen reader hears it with the button. When the button is on, no reason is shown.
+ */
+export function GuardedButton({
+  reason,
+  reasonId,
+  children,
+  tone = 'primary',
+  ...props
+}: Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'disabled'> & {
+  reason: ReactNode | null;
+  reasonId: string;
+  tone?: 'primary' | 'secondary';
+}) {
+  return (
+    <div className="lt-actions">
+      <Button {...props} tone={tone} disabled={reason !== null} aria-describedby={reason !== null ? reasonId : undefined}>
+        {children}
+      </Button>
+      {reason !== null && (
+        <small id={reasonId} className="lt-muted">
+          {reason}
+        </small>
+      )}
+    </div>
   );
 }
 

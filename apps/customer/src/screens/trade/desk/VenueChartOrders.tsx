@@ -479,7 +479,7 @@ export function VenueChartOrders({ host, market, venueName, owner, openOrders, r
       : null;
 
   return (
-    <div className="ct-bar" data-testid="chart-trading" data-locked={locked ? 'true' : 'false'}>
+    <div className="lt-toolbar" data-testid="chart-trading" data-locked={locked ? 'true' : 'false'}>
       {overlay}
       {refusal !== null ? (
         <p className="lt-hint" role="status" data-testid="chart-trading-refusal" data-code={ORDER_ENTRY_REFUSED}>
@@ -543,7 +543,7 @@ export function VenueChartOrders({ host, market, venueName, owner, openOrders, r
         </form>
       )}
       {review && (
-        <Surface material="raised" className="ct-review" role="dialog" aria-label={t('Review order')} data-testid="chart-order-review">
+        <Surface material="raised" className="lt-toolbar" role="dialog" aria-label={t('Review order')} data-testid="chart-order-review">
           <p>
             {t('Review line', {
               side: sideWord(review.intent.side),
@@ -576,7 +576,7 @@ export function VenueChartOrders({ host, market, venueName, owner, openOrders, r
       {move?.stage === 'protect' && (
         <Surface
           material="raised"
-          className="ct-review"
+          className="lt-toolbar"
           role="alertdialog"
           aria-label={t('Protection title')}
           data-testid="chart-protection"
@@ -591,7 +591,7 @@ export function VenueChartOrders({ host, market, venueName, owner, openOrders, r
         </Surface>
       )}
       {move?.stage === 'review' && (
-        <Surface material="raised" className="ct-review" role="dialog" aria-label={t('Review move')} data-testid="chart-move-review">
+        <Surface material="raised" className="lt-toolbar" role="dialog" aria-label={t('Review move')} data-testid="chart-move-review">
           <p>
             {t('Move line', {
               side: sideWord(move.order.side),
