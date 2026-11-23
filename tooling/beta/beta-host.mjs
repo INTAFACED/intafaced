@@ -196,12 +196,44 @@ export const environEntries = (text) =>
       return i < 0 ? [kv, ''] : [kv.slice(0, i), kv.slice(i + 1)];
     });
 
+/** A /proc/net/tcp or tcp6 address (hex, the kernel's byte order) as text: `0.0.0.0`, `127.0.0.1`, `::`, `::ffff:…`. */
+export function procHost(hex) {
+  const words = hex.match(/.{8}/g).map((w) => w.match(/../g).reverse().join(''));
+  if (words.length === 1)
+    return words[0]
+      .match(/../g)
+      .map((b) => parseInt(b, 16))
+      .join('.');
+  const all = words.join('').toLowerCase();
+  if (/^0{32}$/.test(all)) return '::';
+  if (/^0{31}1$/.test(all)) return '::1';
+  if (/^0{20}ffff/.test(all)) return `::ffff:${procHost(hex.slice(24))}`;
+  return all.match(/.{4}/g).join(':');
+}
+
+/** One /proc/net/tcp or tcp6 table's listening sockets (state 0A), as `{ inode, host, port }`. */
+export function listeningSockets(text) {
+  const out = [];
+  for (const line of String(text).split('\n').slice(1)) {
+    const f = line.trim().split(/\s+/);
+    if (f.length < 10 || f[3] !== '0A') continue;
+    const [hex, port] = f[1].split(':');
+    out.push({ inode: f[9], host: procHost(hex), port: parseInt(port, 16) });
+  }
+  return out;
+}
+
+/** Is a listen address this machine only? */
+const loopbackListen = (host) => host.startsWith('127.') || host === '::1' || host.startsWith('::ffff:127.');
+
 /**
  * The TEST funds check on one stack. `records` are the stack's processes ({ name: { pid } }, run/processes.json);
- * `readEnviron(pid)` gives a process's environ text or null; `page` is the Customer page's HTML or null. Returns
- * `{ ok, lines }`, one line per finding or pass, naming keys and hosts, never a value.
+ * `readEnviron(pid)` gives a process's environ text or null; `readListeners(pid)` its listening sockets
+ * (`{ host, port }`) or null; `page` is the Customer page's HTML or null. A listener on any address but loopback is a
+ * finding: the home network could reach it (#10244). Returns `{ ok, lines }`, one line per finding or pass, naming
+ * keys and hosts, never a value.
  */
-export function fundsCheck({ records, readEnviron, page, allow = NO_HOSTS }) {
+export function fundsCheck({ records, readEnviron, readListeners = () => null, page, allow = NO_HOSTS }) {
   const findings = [];
   const passes = [];
   const named = Object.entries(records ?? {}).filter(([, r]) => Number.isInteger(r?.pid));
@@ -216,6 +248,9 @@ export function fundsCheck({ records, readEnviron, page, allow = NO_HOSTS }) {
     if (outside.length === 0) clean++;
     const off = allow.size ? 'off this machine and the hosted allow list' : 'off this machine';
     for (const a of outside) findings.push(`${name} (pid ${r.pid}): ${a.key} names ${a.scheme}://${a.host}, ${off}`);
+    for (const l of readListeners(r.pid) ?? []) {
+      if (!loopbackListen(l.host)) findings.push(`${name} (pid ${r.pid}): listens on ${l.host} port ${l.port}, reachable off this machine`);
+    }
   }
   if (named.length && read === 0) findings.push('no running process could be read');
   const where = allow.size ? 'this machine, a reserved name or the hosted allow list' : 'this machine or a reserved name';
@@ -240,6 +275,34 @@ const readEnviron = (pid) => {
     return null;
   }
 };
+/** One process's listening TCP sockets, from its socket fds and the kernel's tables, or null once it has ended. */
+export const readListeners = (pid) => {
+  let inodes;
+  try {
+    inodes = new Set(
+      fs
+        .readdirSync(`/proc/${pid}/fd`)
+        .map((fd) => {
+          try {
+            return /^socket:\[(\d+)\]$/.exec(fs.readlinkSync(`/proc/${pid}/fd/${fd}`))?.[1];
+          } catch {
+            return undefined; // an fd closed while it was read
+          }
+        })
+        .filter(Boolean),
+    );
+  } catch {
+    return null;
+  }
+  const tables = ['tcp', 'tcp6'].map((t) => {
+    try {
+      return fs.readFileSync(`/proc/${pid}/net/${t}`, 'utf8');
+    } catch {
+      return '';
+    }
+  });
+  return tables.flatMap(listeningSockets).filter((l) => inodes.has(l.inode));
+};
 function getText(url) {
   return new Promise((resolve) => {
     const req = http.get(url, { timeout: 10_000 }, (res) => {
@@ -255,7 +318,7 @@ function getText(url) {
 
 async function checkStack(state, link, allow = NO_HOSTS) {
   const records = readJson(path.join(state, 'run', 'processes.json'), {});
-  return fundsCheck({ records, readEnviron, page: await getText(link), allow });
+  return fundsCheck({ records, readEnviron, readListeners, page: await getText(link), allow });
 }
 
 // ── Readied: what a tester sees first ───────────────────────────────────────
