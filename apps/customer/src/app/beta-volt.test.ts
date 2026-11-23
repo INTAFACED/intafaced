@@ -1,8 +1,8 @@
 // The beta shows only rooms finished in Volt (owner decision, 23 Nov 2026): with the beta's list, built from the count as
 // vite.config.ts builds it, no door or menu row opens a room volt-count.ts doesn't count; without it, every door and row shows.
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { betaHides, betaRoomList, betaRooms } from './beta-volt';
-import { isHiddenPath } from './feature-registry';
+import { betaHides, betaRoomList, betaRooms, setBetaAccess } from './beta-volt';
+import { betaOffFeatureFor, isHiddenPath } from './feature-registry';
 import { tabSpecs } from './menus';
 import { findRoom } from './navigation';
 import { voltCount } from './volt-count';
@@ -18,7 +18,10 @@ const links = () =>
 /** The account menu's rows (AccountMenu.tsx): Settings, Account, Security, Verification, Developers, and opening a business. */
 const ACCOUNT_ROWS = ['/view', '/uc/account', '/uc/safe', '/verification', '/developers', '/pay/onboarding'];
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  setBetaAccess({ business: false, venue: false });
+});
 
 describe("the beta's menus", () => {
   it('open only rooms the Volt count counts, with the switch on', () => {
@@ -32,7 +35,8 @@ describe("the beta's menus", () => {
     expect(off).toEqual([]);
     for (const href of ACCOUNT_ROWS) {
       const visible = !isHiddenPath(pathOf(href));
-      expect({ href, visible }).toEqual({ href, visible: state.get(href) === 'volt' || findRoom(href)?.area === 'public' });
+      const open = (state.get(href) === 'volt' || findRoom(href)?.area === 'public') && !betaOffFeatureFor(href);
+      expect({ href, visible }).toEqual({ href, visible: open });
     }
   });
 
@@ -41,6 +45,8 @@ describe("the beta's menus", () => {
     expect(tabSpecs('simple', true).map((tab) => tab.door)).toEqual(['Home', 'Money', 'Trade', 'Pay', 'More']);
     expect(links().filter((href) => isHiddenPath(pathOf(href)))).toEqual([]);
     expect(ACCOUNT_ROWS.filter((href) => isHiddenPath(href))).toEqual([]);
+    // Switched-off, venue and business rooms all stay too, for any account.
+    expect(['/pay/scheduled', '/trade/news', '/trade/positions', '/pay/team', '/pay/merchant'].filter(isHiddenPath)).toEqual([]);
   });
 
   it('a door whose own room is hidden opens its first shown row, and one with none is dropped', () => {
@@ -68,6 +74,43 @@ describe("the beta's menus", () => {
     const pay = tabs.find((tab) => tab.door === 'Pay')!;
     expect(pay.href).toBe('/pay/receive');
     expect(pay.items.map((item) => item.href)).not.toContain('/pay/send');
+  });
+});
+
+describe("the beta's menus, by what the build switches on and the account can use (#10300, #10301)", () => {
+  const on = () => vi.stubGlobal('__BETA_VOLT_ROOMS__', betaRoomList(count.rooms));
+
+  it('leave out a room in Volt whose feature this build switches off (#10300: Scheduled payments, News)', () => {
+    on();
+    expect(state.get('/pay/scheduled')).toBe('volt');
+    expect(isHiddenPath('/pay/scheduled')).toBe(true);
+    expect(isHiddenPath('/trade/news')).toBe(true);
+    expect(betaOffFeatureFor('/pay/scheduled')?.status).toBe('blocked');
+  });
+
+  it('leave out the venue rooms while the venue door is off, and bring them back when it is on (#10300: Positions)', () => {
+    on();
+    expect(state.get('/trade/positions')).toBe('volt');
+    expect(isHiddenPath('/trade/positions')).toBe(true);
+    setBetaAccess({ business: false, venue: true });
+    expect(isHiddenPath('/trade/positions')).toBe(false);
+  });
+
+  it('give a personal account no business room, and a business account its rooms in Volt (#10301: Team and roles)', () => {
+    on();
+    expect(state.get('/pay/team')).toBe('volt');
+    const businessRows = () => links().filter((href) => betaOffFeatureFor(pathOf(href))?.needs === 'business');
+    expect(isHiddenPath('/pay/team')).toBe(true);
+    expect(isHiddenPath('/pay/merchant')).toBe(true);
+    expect(links().map(pathOf)).not.toContain('/pay/merchant');
+    expect(businessRows()).toEqual([]);
+    setBetaAccess({ business: true, venue: false });
+    expect(isHiddenPath('/pay/team')).toBe(false);
+  });
+
+  it('never treat opening a business account as a business room', () => {
+    on();
+    expect(betaOffFeatureFor('/pay/onboarding')).toBeUndefined();
   });
 });
 

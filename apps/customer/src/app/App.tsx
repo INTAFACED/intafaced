@@ -13,6 +13,7 @@ import { useCustomerRoomArrival } from './room-arrival';
 import { hiddenFeatureFor, isDevBuild, type Feature } from './feature-registry';
 import { betaHides } from './beta-volt';
 import { BetaNotInVolt } from './BetaNotInVolt';
+import { useBetaAccess } from './BetaAccess';
 import { LegacyRoom, preloadAccountRoutes, type LegacyArea } from './LegacyRoom';
 import { matchPath } from './path-match';
 import { preloadScreen, screens } from './screens';
@@ -100,6 +101,8 @@ export function App() {
   const search = current.slice(path.length);
   const room = findRoom(path);
   const { session, restoring, restoreFailed, retryRestore } = useSession();
+  // The beta's build reads what the account can use and draws the menus again when it changes (beta-volt.ts).
+  useBetaAccess();
   const dev = isDevBuild();
   const devFeatures = dev && path === '/dev/features';
   const voltKit = !room && path === '/kit';

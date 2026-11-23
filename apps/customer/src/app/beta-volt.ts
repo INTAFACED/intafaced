@@ -28,3 +28,20 @@ export function betaHides(path: string, list: BetaRooms | undefined = betaRooms(
   const row = list.find(([route]) => route === path) ?? list.find(([route]) => hasPattern(route) && matchPath(route, path) !== undefined);
   return row !== undefined && !row[1];
 }
+
+/**
+ * What the signed-in account can use, for the beta's menus: `business`, the session reads a business account the person
+ * belongs to (use-profiles.ts); `venue`, svc-trade says the user-venue door is on (use-venue-mode.ts). Unknown counts as
+ * no, so a menu never shows a room before the answer comes. App sets it on each of its renders (BetaAccess.ts), before
+ * the shell and its menus draw; it stays at no in every other build.
+ */
+export type BetaNeed = 'business' | 'venue';
+export type BetaAccess = Readonly<Record<BetaNeed, boolean>>;
+let access: BetaAccess = { business: false, venue: false };
+
+export function betaAccess(): BetaAccess {
+  return access;
+}
+export function setBetaAccess(next: BetaAccess): void {
+  access = next;
+}
