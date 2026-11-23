@@ -18,7 +18,7 @@ export function CalendarRoom() {
       state={{ kind: 'ready' }}
       mode="pro"
       figures={[]}
-      actions={<BankTabs current="Transfers" />}
+      section={<BankTabs />}
       panels={<MoneyCalendar />}
     />
   );
@@ -116,14 +116,13 @@ function roomOf(item: CalendarItem): string | null {
 function Status({ item }: { item: CalendarItem }) {
   const { t } = calendarCopy.useCopy();
   return (
-    <span data-status={item.status}>
+    // The reason's code is the item's attribute, never words a customer reads.
+    <span data-status={item.status} data-code={item.reasonCode ?? undefined}>
       {t(`status_${item.status}`)}
       {item.reasonCode && (
         <>
           {' '}
-          <small className="lt-hint">
-            {reasonOf(t, item.reasonCode)} {t('reference', { code: item.reasonCode })}
-          </small>
+          <small className="lt-hint">{reasonOf(t, item.reasonCode)}</small>
         </>
       )}
     </span>
@@ -247,8 +246,15 @@ export function Sources({ view, items = view.items }: { view: CalendarView; item
         if (!s.complete && s.state !== 'refused' && s.state !== 'unavailable')
           words = `${words} ${t('sourcePartial', { limit: String(PAGE) })}`;
         return (
-          <li key={s.source} data-testid={`cal-source-${s.source}`} data-state={s.state} role={s.state === 'ok' ? undefined : 'note'}>
-            {words} {s.code && <small className="lt-hint">{t('reference', { code: s.code })}</small>}
+          // The source's code is the row's attribute, never words a customer reads.
+          <li
+            key={s.source}
+            data-testid={`cal-source-${s.source}`}
+            data-state={s.state}
+            data-code={s.code ?? undefined}
+            role={s.state === 'ok' ? undefined : 'note'}
+          >
+            {words}
           </li>
         );
       })}

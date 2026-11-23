@@ -109,23 +109,15 @@
 </div>
 </header>
 <div data-slot="page-body" data-density="comfortable" class="flex min-w-0 flex-col gap-8 pt-4">
-<nav class="pay-room-tabs pay-order-tabs" aria-label="P2P rooms">
-<a href="/p2p">
-<span lang="en" dir="ltr" data-i18n="pay.surface.offers">Offers</span>
-</a>
-<a href="/uc/order" aria-current="page">
-<span lang="en" dir="ltr" data-i18n="pay.surface.yourOrders">Your orders</span>
-</a>
-<a href="/uc/ad">
-<span lang="en" dir="ltr" data-i18n="pay.surface.yourOffers">Your offers</span>
-</a>
-<a href="/p2p/methods">
-<span lang="en" dir="ltr" data-i18n="pay.surface.paymentMethods">Payment methods</span>
-</a>
-<a href="/p2p/access">
-<span lang="en" dir="ltr" data-i18n="pay.surface.tradingAccess">Trading access</span>
-</a>
+<div data-testid="p2p-rooms" data-order="true">
+<nav class="lt-tabs" aria-label="P2P rooms" data-region="section-tabs">
+<a href="/p2p" class="lt-tab">Offers</a>
+<a href="/uc/order" class="lt-tab" aria-current="page">Your orders</a>
+<a href="/uc/ad" class="lt-tab">Your offers</a>
+<a href="/p2p/methods" class="lt-tab">Payment methods</a>
+<a href="/p2p/access" class="lt-tab">Trading access</a>
 </nav>
+</div>
 <div data-slot="empty-state">
 <div data-slot="state-block" data-kind="empty" class="flex flex-col items-center justify-center gap-1 px-4 py-8 text-center">
 <h3 class="text-md font-medium text-fg">Choose an order</h3>

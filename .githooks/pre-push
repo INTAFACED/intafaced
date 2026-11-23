@@ -6,16 +6,15 @@
 # Volt count, the recorded calls, the ui tokens, the ops-desk catalog and the render record of the parts the change most
 # likely redraws); the wire replay of each changed service; when the push changes a journey file, the tooling tests that
 # read every journey file and the merge seal's title rule; and the CI review's size count. Formatting is also checked by
-# .githooks/pre-commit on every commit and by CI's Format job.
+# .githooks/pre-commit on every commit (CI has none since project-state#3912).
 #
 # The changed-file checks are t3code's `check:changed` ("Before you push, run `vp run check:changed`. It runs CI's fast
 # checks for changed files", pingdotgg/t3code@e414cfd AGENTS.md:103), on Nino's word of 23 Nov 2026 (project-state#3859):
 # after #9599 took the pre-push checks out, non-Volt first pushes passing CI fell from 81% to 59%, most of the fall stale
 # generated files and dead code (weed project-state#3754).
 #
-# Everything heavier runs on GitHub only: the Doctrine gates (CI's Fast gates job names a red one about two minutes after
-# the push; the Doctrine gates job runs them all again and blocks the merge), the cross-package read scan (both gate
-# jobs), the typecheck (Typecheck & build), the unit tests (Tests) and rust:check (Rust, which runs format, clippy and the
+# Everything heavier runs on GitHub only: the Doctrine gates (CI's Doctrine gates job, which blocks the merge), the
+# cross-package read scan (the same job), the typecheck (Typecheck & build), the unit tests (Tests) and rust:check (Rust, which runs format, clippy and the
 # unit tests first). Until 22 Nov the hook ran those here too: the box ran a typical push's checks in 7 min 15 s at load
 # 111, most of its CPU spent repeating CI (project-state #3676).
 #
