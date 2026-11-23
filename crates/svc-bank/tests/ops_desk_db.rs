@@ -1698,39 +1698,185 @@ fn shows_the_same_split_as_the_customer_one_column_per_lock_kind() {
     );
 }
 
+/// The operator scopes that grant neither `admin:read` nor `admin:treasury` (`admin:compliance` grants `admin:read`).
+const NO_READ: [&str; 3] = ["support:ops", "support:lookup", "market:ops"];
+
 #[test]
-fn refuses_a_customer_session_and_an_operator_without_the_treasury_scope_and_reads_nothing() {
+fn refuses_a_customer_session_and_an_operator_holding_neither_read_nor_treasury_with_scope_denied_and_reads_nothing()
+ {
     let Some(b) = bank() else { return };
     b.ledger.balance("user", BOB, "USDT", "available", "", "5");
     let who = obj(&[("userId", Json::str(BOB))]);
-    assert_eq!(
-        call(&b, BOB, &["bank:read"], "ops.customerBalances", &who).trpc(),
-        "FORBIDDEN"
+    for (user, scopes) in [(BOB, &["bank:read"][..]), (OPERATOR, &NO_READ[..])] {
+        let refused = call(&b, user, scopes, "ops.customerBalances", &who);
+        assert_eq!(
+            (refused.trpc(), refused.message()),
+            (
+                "FORBIDDEN".to_owned(),
+                "One of admin:read, admin:treasury is required".to_owned()
+            )
+        );
+        assert_eq!(refused.cause(), "scope.denied");
+    }
+    let entries = obj(&[("userId", Json::str(BOB)), ("assetId", Json::str("USDT"))]);
+    let refused = call(
+        &b,
+        BOB,
+        &["bank:read"],
+        "ops.customerBalanceEntries",
+        &entries,
     );
+    assert_eq!(
+        (refused.trpc(), refused.message()),
+        (
+            "FORBIDDEN".to_owned(),
+            "Scope \"admin:treasury\" is required".to_owned()
+        )
+    );
+    assert!(b.ledger.asked().is_empty());
+}
+
+#[test]
+fn the_operator_read_scope_reads_the_balances_and_a_session_with_neither_scope_is_refused_scope_denied()
+ {
+    let Some(b) = bank() else { return };
+    b.ledger.balance("user", BOB, "USDT", "available", "", "5");
+    let who = obj(&[("userId", Json::str(BOB))]);
+    // `admin:compliance` grants `admin:read`, so it reads them too.
+    for scope in ["admin:read", "admin:compliance"] {
+        let read = call(&b, OPERATOR, &[scope], "ops.customerBalances", &who).ok();
+        assert_eq!(
+            read.compact(),
+            format!(
+                r#"{{"userId":"{BOB}","assets":[{{"assetId":"USDT","total":"5","available":"5","hold":"0","escrow":"0","stake":"0","collateral":"0"}}]}}"#
+            )
+        );
+    }
+    let refused = call(&b, OPERATOR, &NO_READ, "ops.customerBalances", &who);
+    assert_eq!(
+        (refused.trpc(), refused.message()),
+        (
+            "FORBIDDEN".to_owned(),
+            "One of admin:read, admin:treasury is required".to_owned()
+        )
+    );
+    assert_eq!(refused.cause(), "scope.denied");
+    assert_eq!(
+        refused.data("intafacedCode"),
+        Some(Json::str("scope.denied"))
+    );
+    // The entries behind the balances stay on the treasury scope.
+    let entries = obj(&[("userId", Json::str(BOB)), ("assetId", Json::str("USDT"))]);
+    for scope in ["admin:read", "admin:compliance"] {
+        let refused = call(
+            &b,
+            OPERATOR,
+            &[scope],
+            "ops.customerBalanceEntries",
+            &entries,
+        );
+        assert_eq!(
+            (refused.trpc(), refused.message()),
+            (
+                "FORBIDDEN".to_owned(),
+                "Scope \"admin:treasury\" is required".to_owned()
+            )
+        );
+    }
+}
+
+#[test]
+fn lists_one_customers_sends_to_and_from_other_people_newest_first_with_the_page_cut_and_refuses_without_the_read_scope()
+ {
+    let Some(b) = bank() else { return };
+    let ada_from = b.space(ADA, "Ada from");
+    let bob_from = b.space(BOB, "Bob from");
+    let cara_from = b.space(CARA, "Cara from");
+    let at = |hours: i64| Instant(now_ms() - hours * HOUR).iso();
+    let (three, two, one) = (at(3), at(2), at(1));
+    for (id, ledger, from, space, to, amount, status, when) in [
+        (
+            "xfer-c-1", "'tx-c-1'", ADA, &ada_from, BOB, "3.50", "posted", &three,
+        ),
+        (
+            "xfer-c-2", "NULL", BOB, &bob_from, ADA, "1.25", "reserved", &two,
+        ),
+        (
+            "xfer-c-3", "'tx-c-3'", ADA, &ada_from, CARA, "10.00", "posted", &one,
+        ),
+        (
+            "xfer-c-other",
+            "'tx-c-o'",
+            CARA,
+            &cara_from,
+            BOB,
+            "7.00",
+            "posted",
+            &one,
+        ),
+    ] {
+        b.sql(&format!(
+            "INSERT INTO bank.personal_transfers (transfer_id, ledger_tx_id, from_user_id, from_space_id, to_user_id, \
+               asset_id, amount, status, created_at) \
+             VALUES ('{id}', {ledger}, '{from}', '{space}', '{to}', 'USDT', '{amount}', '{status}', '{when}')"
+        ));
+    }
+    let read = |limit: i64| {
+        call(
+            &b,
+            OPERATOR,
+            &["admin:read"],
+            "ops.customerTransfers",
+            &obj(&[("userId", Json::str(ADA)), ("limit", Json::int(limit))]),
+        )
+    };
+    let all = read(200).ok();
+    assert_eq!(
+        all.compact(),
+        format!(
+            r#"{{"userId":"{ADA}","transfers":[{{"id":"xfer-c-3","direction":"sent","counterpartyUserId":"{CARA}","amount":"10","assetId":"USDT","status":"posted","ledgerTxId":"tx-c-3","createdAt":"{}"}},{{"id":"xfer-c-2","direction":"received","counterpartyUserId":"{BOB}","amount":"1.25","assetId":"USDT","status":"reserved","ledgerTxId":null,"createdAt":"{}"}},{{"id":"xfer-c-1","direction":"sent","counterpartyUserId":"{BOB}","amount":"3.5","assetId":"USDT","status":"posted","ledgerTxId":"tx-c-1","createdAt":"{}"}}],"truncated":false}}"#,
+            one, two, three
+        )
+    );
+    let page = read(2).ok();
+    let ids: Vec<String> = arr(&page.get("transfers").cloned().unwrap_or(Json::Null))
+        .iter()
+        .map(|t| s(t, "id"))
+        .collect();
+    assert_eq!(ids, ["xfer-c-3", "xfer-c-2"]);
+    assert_eq!(s(&page, "truncated"), "true");
+    let q = obj(&[("userId", Json::str(ADA)), ("limit", Json::int(10))]);
+    // `admin:treasury` and `admin:compliance` grant `admin:read`, so each reads them too.
+    for scope in ["admin:treasury", "admin:compliance"] {
+        assert_eq!(
+            call(&b, OPERATOR, &[scope], "ops.customerTransfers", &q)
+                .ok()
+                .compact(),
+            read(10).ok().compact()
+        );
+    }
+    for (user, scopes) in [(ADA, &["bank:read"][..]), (OPERATOR, &NO_READ[..])] {
+        let refused = call(&b, user, scopes, "ops.customerTransfers", &q);
+        assert_eq!(
+            (refused.trpc(), refused.message()),
+            (
+                "FORBIDDEN".to_owned(),
+                "Scope \"admin:read\" is required".to_owned()
+            )
+        );
+    }
+    // The page size is the caller's, never defaulted.
     assert_eq!(
         call(
             &b,
             OPERATOR,
-            &["admin:compliance"],
-            "ops.customerBalances",
-            &who
+            &["admin:read"],
+            "ops.customerTransfers",
+            &obj(&[("userId", Json::str(ADA))])
         )
         .trpc(),
-        "FORBIDDEN"
+        "BAD_REQUEST"
     );
-    let entries = obj(&[("userId", Json::str(BOB)), ("assetId", Json::str("USDT"))]);
-    assert_eq!(
-        call(
-            &b,
-            BOB,
-            &["bank:read"],
-            "ops.customerBalanceEntries",
-            &entries
-        )
-        .trpc(),
-        "FORBIDDEN"
-    );
-    assert!(b.ledger.asked().is_empty());
 }
 
 #[test]
