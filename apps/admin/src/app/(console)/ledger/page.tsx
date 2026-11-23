@@ -42,7 +42,7 @@ export default async function LedgerOpsPage({ searchParams }: { searchParams: Pr
     <div className="adm-stack">
       <LedgerOps treasury={status.treasury} initialFreeze={initialFreeze} initialReadAt={initialReadAt} userId={founder.session.userId} />
       <LedgerDesk userId={founder.session.userId} />
-      <LedgerLookup key={initial ? JSON.stringify(initial) : ''} initial={initial} />
+      <LedgerLookup key={initial ? JSON.stringify(initial) : ''} initial={initial} userId={founder.session.userId} />
       <ReconciliationControls treasuryParked={treasuryParked()} userId={founder.session.userId} />
       <PayHaltsDesk initial={halts} userId={founder.session.userId} />
       <p>
