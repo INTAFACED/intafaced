@@ -1918,7 +1918,7 @@ console.log('local-test-stack: customer folder override checks passed');
 // and points trade at it (never one without the other), and a bad value is refused by both.
 {
   const { userVenueOn, localTestServiceEnvs } = await import('./local-test-stack.mjs');
-  const { userVenueSwitchOn } = await import('./local-test-venue.mjs');
+  const { userVenueKind, userVenueSwitchOn } = await import('./local-test-venue.mjs');
   const saved = process.env.LOCAL_STACK_USER_VENUE;
   try {
     for (const [raw, on, second] of [
@@ -1929,6 +1929,9 @@ console.log('local-test-stack: customer folder override checks passed');
       [' on ', true, false],
       // J-derivatives-28: `two` is the first venue and the second TEST venue beside it.
       ['two', true, true],
+      // #10203: the Hyperliquid test network, recorded or live, as the one venue.
+      ['hl-recorded', true, false],
+      ['hl-testnet', true, false],
     ]) {
       if (raw === undefined) delete process.env.LOCAL_STACK_USER_VENUE;
       else process.env.LOCAL_STACK_USER_VENUE = raw;
@@ -1938,7 +1941,20 @@ console.log('local-test-stack: customer folder override checks passed');
       assert.equal('TRADE_USER_VENUE_URLS' in trade, second, `trade env, second venue: ${JSON.stringify(raw)}`);
       if (second) assert.match(trade.TRADE_USER_VENUE_URLS, /:14562$/);
     }
-    assert.throws(() => userVenueSwitchOn('yes'), /must be unset, off, on or two/);
+    assert.throws(() => userVenueSwitchOn('yes'), /must be unset, off, on, two, hl-recorded or hl-testnet/);
+    // Which venue it is; the bank's TEST cash leg runs on the simulator only.
+    for (const [raw, kind] of [
+      ['off', null],
+      ['on', 'sim'],
+      ['two', 'sim'],
+      ['hl-recorded', 'hl-recorded'],
+      ['hl-testnet', 'hl-testnet'],
+    ]) {
+      assert.equal(userVenueKind(raw), kind, `kind: ${raw}`);
+      process.env.LOCAL_STACK_USER_VENUE = raw;
+      const bank = localTestServiceEnvs().find((d) => d.name === 'bank').env;
+      assert.equal('BANK_TEST_CASH_LEG_VENUE_URL' in bank, kind === 'sim', `bank env: ${raw}`);
+    }
   } finally {
     if (saved === undefined) delete process.env.LOCAL_STACK_USER_VENUE;
     else process.env.LOCAL_STACK_USER_VENUE = saved;

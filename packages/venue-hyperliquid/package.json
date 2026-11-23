@@ -20,9 +20,11 @@
     "testnet:setup": "tsx scripts/testnet-setup.ts",
     "live:steps": "tsx scripts/live-steps.ts",
     "clean": "rimraf dist .turbo",
-    "testnet:send": "tsx scripts/testnet-send.ts"
+    "testnet:send": "tsx scripts/testnet-send.ts",
+    "record:order": "tsx scripts/record-order.ts"
   },
   "dependencies": {
+    "@intafaced/contracts": "workspace:*",
     "@intafaced/ledger-client": "workspace:*",
     "@intafaced/venue-contracts": "workspace:*",
     "@nktkas/hyperliquid": "0.33.3",
