@@ -303,7 +303,7 @@ test('a re-run attempt is ordered by its own start, and a run started between it
   assert.match(v.lines.join('\n'), /J-bank-13#1: passed in run 1 \(attempt 2\), but failed in run 2 \(attempt 1\)/);
 });
 
-test("an earlier attempt's failure stands against its re-run's pass (#9856, run 45032927669); one it passed, or one with no report, does not", async () => {
+test("an earlier attempt's failure stands against its re-run's pass; one it passed, or one with no report, does not", async () => {
   const rerun = run(1, { run_attempt: 2 });
   const earlier = (states) => ({ ...green, earlier: [{ attempt: 1, states }] });
   const flaky = await judge({ runs: [rerun], reportOf: reports({ 1: earlier({ 'J-bank-13#1': 'passed', 'J-bank-13#2': 'failed' }) }) });
@@ -2641,7 +2641,7 @@ test('touched journeys: a red in an older run on the head holds it although a ne
   assert.equal((await touched({ 2: { error: 'no report' }, 3: rep('passed') })).ok, false);
 });
 
-test("touched journeys: an earlier attempt's failed step that a run on the head now passes holds it (#9856); an excused one does not", async () => {
+test("touched journeys: an earlier attempt's failed step that a run on the head now passes holds it; an excused one does not", async () => {
   const rerun = run(1, { run_attempt: 2 });
   const failedThen = { states: { 'J-a-01#1': 'failed' }, files: {}, ran: ['J-a-01.pw.mjs'] };
   const now = (earlier) => ({ states: { 'J-a-01#1': 'passed' }, files: {}, ran: ['J-a-01.pw.mjs'], earlier });
@@ -2685,7 +2685,7 @@ test("earlierReportArtifacts: each earlier attempt's newest report from its own 
     attempt: 1,
     error: "attempt 1's start couldn't be read",
   });
-  // #9856's run 45032927669: attempt 1 started 14:27:38 and its report 14759445439 was made 14:44:00; attempt 2 began 14:46:15.
+  // A real re-run, #9856's run 45032927669 (the same steps failed in both attempts, so its seal rightly passes): attempt 1 started 14:27:38 and its report 14759445439 was made 14:44:00; attempt 2 began 14:46:15.
   const live = { id: 45032927669, run_attempt: 2, run_started_at: '2026-11-22T14:46:15Z' };
   const liveArts = [art(14759445439, '2026-11-22T14:44:00Z'), art(14758953776, '2026-11-22T14:52:02Z')];
   assert.deepEqual(earlierReportArtifacts(live, liveArts, new Map([[1, '2026-11-22T14:27:38Z']])), [{ attempt: 1, artifact: liveArts[0] }]);

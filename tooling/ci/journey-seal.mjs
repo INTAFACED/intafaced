@@ -23,7 +23,8 @@
  *     and never counts as passing (project-state AGENTS.md "How work flows" 4; flakyWay). (Failure it prevents: #9827
  *     merged on 822aec16bd although run 45030979813 there failed J-cex-spot-21 #4, because run 45031001317, started 14
  *     seconds later on the same head, passed it and only the newest run was read; the step went flaky on main about 90
- *     minutes later, #9893. And #9856 merged on run 45032927669's second attempt after its first had failed.);
+ *     minutes later, #9893. An earlier attempt counts too, so a re-run that passes, the first thing AGENTS.md "How work
+ *     flows" 8 says to try on a red, can't hide a failed step the same way.);
  *   - a run's report is the `real-app-journeys` artifact uploaded during its current attempt (created at or after the
  *     attempt started), so a re-run's verdict is never read from an earlier attempt's report; an earlier attempt's report
  *     (earlierReportArtifacts) counts only for a step it failed. A finished run with no such report, or one that can't
@@ -476,8 +477,8 @@ export async function countJobs(runs, jobsOf) {
  * verdict on the files it has (`verdictOf`, the default branch's baseline): any red step in any of them fails the seal,
  * so a red run is never hidden behind a clean one, newer or older (#9827: run 45030979813's red J-cex-spot-21 #4 sat
  * behind run 45031001317's pass on the same head, and the seal stopped reading once the newer run covered every file).
- * An earlier attempt of a run counts the same way for each step it failed that a run on the head now passes (flakyWay;
- * #9856's run 45032927669). A touched file no finished run on the head ran fails the seal and is named, with the runs by hand on `branch`
+ * An earlier attempt of a run counts the same way for each step it failed that a run on the head now passes (flakyWay).
+ * A touched file no finished run on the head ran fails the seal and is named, with the runs by hand on `branch`
  * (the pull request's head branch) that run just those and each start (dispatchCommands). A run still going holds it, a
  * cancelled or skipped run says nothing, and a report or verdict that can't be read fails closed.
  */
