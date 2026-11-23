@@ -2817,6 +2817,41 @@ test("a bank write spec's `procedure: 'x.y'` becomes `record: RECORD`, its hand 
   );
 });
 
+test("a bank write spec's `procedure:` picked by a `? :` chain is one site per call, written back as one `record: t ? A : B`", async () => {
+  const { fanIn } = await import('./fan.mjs');
+  const { callText } = await import('./index.mjs');
+  const money = 'apps/customer/src/features/money';
+  const repo = plantRepo('call-records-spec-fan-', {
+    [`${money}/contracts-business.ts`]: [
+      "import { z } from 'zod';",
+      "export const businessWrites = { 'business.approve': z.object({ a: z.string() }), 'business.reject': z.object({ ok: z.literal(true) }), 'business.cancel': z.object({ ok: z.literal(true) }) };",
+    ],
+    [`${money}/components.tsx`]: ['export type ActionSpec = { title: string; procedure: string; notes: string[]; input: () => object };'],
+    [`${money}/Approvals.tsx`]: [
+      "import { type ActionSpec } from './components';",
+      "export const act = (open: (s: ActionSpec) => void, action: string) => open({ title: 'Act', procedure: action === 'approve' ? 'business.approve' : action === 'reject' ? 'business.reject' : 'business.cancel', notes: [], input: () => ({}) });",
+    ],
+  });
+  const sites = findSites(repo).filter((s) => s.shape === 'write-spec');
+  assert.deepEqual(
+    sites.map((s) => `${s.path} ${s.fan.at}/${s.fan.size} ${s.fan.test ?? '-'} ${s.problem ?? 'moves'}`),
+    ["business.approve 0/3 action === 'approve' moves", "business.reject 1/3 action === 'reject' moves", 'business.cancel 2/3 - moves'],
+  );
+  assert.ok(
+    sites.every((s) => s.schema),
+    'each call keeps its hand schema in view',
+  );
+  const changes = new Changes();
+  for (const s of sites)
+    rewriteSite(changes, s, `BANK_${s.path.split('.')[1].toUpperCase()}`, '@intafaced/contracts/bank-business-procedures', false);
+  const planned = { hand: [], existing: [] };
+  fanIn(changes, planned, [], callText);
+  const file = join(repo, `${money}/Approvals.tsx`);
+  const code = applyEdits(load(file).src, changes.of(file).edits);
+  assert.match(code, /record: action === 'approve' \? BANK_APPROVE : action === 'reject' \? BANK_REJECT : BANK_CANCEL, notes/);
+  assert.deepEqual(planned.hand, []);
+});
+
 test('dead-hand-schemas deletes only the bank hand schemas no caller spells, each with its own comment', async () => {
   const { deadHandSchemas, deleteDead } = await import('./dead-hand-schemas.mjs');
   const money = 'apps/customer/src/features/money';

@@ -274,6 +274,4 @@ export const paymentsWrites = {
   // the money client's transfer, which checks the reply against the review).
   'transfers.toUser': BANK_TRANSFERS_TO_USER.output,
   'transfers.scheduleToUser': z.object({ id: z.string(), nextRunAt: z.string() }),
-  'transfers.pause': z.object({ status: z.string(), nextRunAt: z.string() }),
-  'transfers.resume': z.object({ status: z.string(), nextRunAt: z.string(), skipped: z.array(z.number().int()) }),
 } as const;
