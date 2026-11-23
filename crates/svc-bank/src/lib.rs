@@ -40,5 +40,6 @@ pub mod refines;
 pub mod restore_watermark;
 pub mod spaces;
 pub mod test_age;
+pub mod test_seed;
 pub mod timers;
 pub mod transfers;
