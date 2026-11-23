@@ -46,6 +46,10 @@ export const TEST_STAND_INS = {
   LOAN_SWEEP_BATCH_SIZE: '1',
   TRANSFER_BATCH_SIZE: '1',
   IDENTITY_SIGNUP_CLOSED_COUNTRIES: 'AQ',
+  // The sign-in challenge (identity.challenge_unconfigured while blank), so the smoke reaches the password check.
+  IDENTITY_SIGNIN_CHALLENGE_AFTER_FAILURES: '500',
+  IDENTITY_SIGNIN_CHALLENGE_BITS: '12',
+  IDENTITY_SIGNIN_CHALLENGE_TTL_SECONDS: '120',
   P2P_FEE_BPS: '0',
   P2P_ESCROW_DEADLINE_SECONDS: '120',
   P2P_PAYMENT_DEADLINE_SECONDS: '180',
@@ -85,7 +89,7 @@ export const TEST_NETWORK = {
 };
 
 /** Deployment keys a staging boot requires and no file holds: made fresh on the runner like every dev-only secret. */
-export const DEPLOY_KEYS = ['API_KEY_SIGNING_ENC_KEY', 'IDENTITY_MAIL_GATEWAY_KEY'];
+export const DEPLOY_KEYS = ['API_KEY_SIGNING_ENC_KEY', 'IDENTITY_MAIL_GATEWAY_KEY', 'IDENTITY_SIGNIN_CHALLENGE_KEY'];
 
 const LINE = /^([A-Z][A-Z0-9_]*)=(.*)$/;
 const DB_PASSWORD = /\$\{(SVC_([A-Z0-9_]+)_DB_PASSWORD):-/g;
