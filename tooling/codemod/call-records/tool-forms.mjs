@@ -139,6 +139,8 @@ export function toolSite(p, n) {
 export const toolInput = (s) => s.node.arguments[s.tool.input];
 /** The schema the caller parsed the answer with (undefined for `list`, whose item schema is one row, not the answer). */
 export const toolSchema = (s) => (s.tool.schema === undefined ? undefined : s.node.arguments[s.tool.schema]);
+/** A `list` caller's row schema, its answer a page of it (undefined for every other tool). */
+export const toolItem = (s) => (s.tool.item === undefined ? undefined : s.node.arguments[s.tool.item]);
 /** The schema whose checks a record would drop: the answer's, or a list's item. */
 export const toolChecked = (s) => s.node.arguments[s.tool.schema ?? s.tool.item];
 

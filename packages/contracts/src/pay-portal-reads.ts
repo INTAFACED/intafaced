@@ -148,6 +148,28 @@ export const payExportJobSchema = z.object({
 });
 export type PayExportJob = z.infer<typeof payExportJobSchema>;
 
+/** The stored file of a ready export job, as `merchantOps.exports.download` answers it. */
+export const payExportDownloadSchema = z.object({
+  fileName: z.string(),
+  contentType: z.string(),
+  content: z.string(),
+  sha256: z.string(),
+  rowCount: z.number().int(),
+});
+export type PayExportDownload = z.infer<typeof payExportDownloadSchema>;
+
+/** One row of the merchant's activity feed, as `merchantOps.activity.list` answers it. Details are an allowlist of short labels and amounts. */
+export const payActivityItemSchema = z.object({
+  id: z.string(),
+  occurredAt: z.string(),
+  actorId: z.string(),
+  action: z.string(),
+  objectType: z.string(),
+  objectId: z.string(),
+  detail: z.record(z.string(), z.string()),
+});
+export type PayActivityItem = z.infer<typeof payActivityItemSchema>;
+
 export const payPayoutDestinationListInputSchema = z
   .object({
     merchantId: payMerchantIdSchema,

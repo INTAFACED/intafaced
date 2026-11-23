@@ -1,7 +1,13 @@
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import { payPageSchema } from '@intafaced/contracts/pay-merchant-reads';
-import { PAY_EXPORT_KINDS, payExportJobSchema, payPayoutListItemSchema } from '@intafaced/contracts/pay-portal-reads';
+import {
+  PAY_EXPORT_KINDS,
+  payActivityItemSchema,
+  payExportDownloadSchema,
+  payExportJobSchema,
+  payPayoutListItemSchema,
+} from '@intafaced/contracts/pay-portal-reads';
 import { router, TRPCError } from '@intafaced/contracts/trpc';
 import { defaultDisputeCaseStore, type DisputeCaseStore } from '../fraud/dispute-case.js';
 import type { FounderAuthority } from '../founder-authority.js';
@@ -514,6 +520,7 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
           .query(({ ctx, input }) => wrapOps(async () => need().exports.get(await callerOf(ctx), input.jobId))),
         download: read
           .input(z.object({ jobId: id }))
+          .output(payExportDownloadSchema)
           .query(({ ctx, input }) => wrapOps(async () => need().exports.download(await callerOf(ctx), input.jobId))),
       }),
 
@@ -531,6 +538,7 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
               search: z.string().trim().min(1).max(200).optional(),
             }),
           )
+          .output(payPageSchema(payActivityItemSchema))
           .query(({ ctx, input }) => wrapOps(async () => need().activity.list(await callerOf(ctx), input))),
       }),
 

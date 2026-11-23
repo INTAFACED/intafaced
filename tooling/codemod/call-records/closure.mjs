@@ -3,7 +3,7 @@
 // contracts already exports is imported from its file there; zod is zod. Anything else is a problem the run names.
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { bindingOf, freeNames, load, resolveRelative, text, walk } from './ast.mjs';
+import { applyEdits, bindingOf, freeNames, load, resolveRelative, text, walk } from './ast.mjs';
 import { packageRefusal, typeParametersIn } from './outside.mjs';
 
 const GLOBALS = new Set([
@@ -91,9 +91,26 @@ function nodeOnly(file, seen = new Set()) {
 
 /**
  * The closure of the given nodes (each `{ p, node }`): `moved` (declarations to move, in an order that declares each
- * before its use), `fromContracts` (`name -> { file, imported }`), `fromPackages` (`spec -> Set(names)`), and `problems`.
+ * before its use), `fromContracts` (`name -> { file, imported }`), `fromPackages` (`spec -> Set(names)`), `problems`, and
+ * `textOf(p, node)`, a node's text as contracts writes it: a member read through `import * as ns` (`ns.memberSchema`)
+ * is the name it is (`memberSchema`), followed like any import.
  */
 export function closureOf(repo, roots) {
+  const renames = new Map();
+  const rename = (p, start, end, to) => {
+    if (!renames.has(p.file)) renames.set(p.file, new Map());
+    renames.get(p.file).set(start, { start, end, text: to });
+  };
+  const textOf = (p, node) => {
+    const edits = [...(renames.get(p.file)?.values() ?? [])].filter((e) => e.start >= node.start && e.end <= node.end);
+    const src = text(p, node);
+    return edits.length
+      ? applyEdits(
+          src,
+          edits.map((e) => ({ ...e, start: e.start - node.start, end: e.end - node.start })),
+        )
+      : src;
+  };
   const moved = new Map();
   const order = [];
   const fromContracts = new Map();
@@ -123,12 +140,33 @@ export function closureOf(repo, roots) {
         problems.push(`${where}: ${name} is a function parameter, so the schema is built per call`);
         continue;
       }
+      if (b.kind === 'import' && b.imported === '*') {
+        viaNamespace(p, node, name, b, where);
+        continue;
+      }
       if (b.kind === 'import') {
         viaImport(p, name, b, where);
         continue;
       }
       take(p, name, b);
     }
+  };
+  // `ns`, bound by `import * as ns`, read in `node` only as `ns.member`: each member is the import it stands for, and its
+  // read is written bare. A namespace read any other way (passed whole, `ns[key]`) refuses.
+  const viaNamespace = (p, node, ns, b, where) => {
+    walk(node, (n, parent) => {
+      if (n.type !== 'Identifier' || n.name !== ns) return;
+      if (parent?.type === 'MemberExpression' && parent.property === n && !parent.computed) return;
+      if ((parent?.type === 'Property' || parent?.type === 'ObjectProperty') && parent.key === n && !parent.shorthand) return;
+      if (bindingOf(p, n, ns).specifier !== b.specifier) return;
+      if (parent?.type !== 'MemberExpression' || parent.object !== n || parent.computed || parent.property.type !== 'Identifier') {
+        problems.push(`${where}: ${ns} (import * as ${ns}) is read whole, not as one member`);
+        return;
+      }
+      const member = parent.property.name;
+      rename(p, parent.start, parent.end, member);
+      viaImport(p, member, { ...b, imported: member }, where);
+    });
   };
   // `name`, read in `p` and bound there by the import `b`: followed through each file that re-exports it (`export { x }`,
   // `export { x as y }`, with or without `from`) to the contracts name, package or declaration it is.
@@ -194,7 +232,7 @@ export function closureOf(repo, roots) {
     const node = b.kind === 'var' ? b.declarator : b.declaration;
     visit(q, node, `${relative(repo, q.file)}#${name}`);
     visiting.delete(key);
-    moved.set(key, { name, q, binding: b, text: declText(q, b) });
+    moved.set(key, { name, q, binding: b, text: declText(q, b, textOf) });
     order.push(key);
   };
   for (const { p, node, where } of roots) if (node) visit(p, node, where);
@@ -205,7 +243,7 @@ export function closureOf(repo, roots) {
       problems.push(`two declarations named ${m.name} move (${names.get(m.name)} and ${key})`);
     names.set(m.name, key);
   }
-  return { moved: order.map((k) => moved.get(k)), fromContracts, fromPackages, problems };
+  return { moved: order.map((k) => moved.get(k)), fromContracts, fromPackages, problems, textOf };
 }
 
 /**
@@ -252,8 +290,8 @@ function topLevel(q, name) {
   return undefined;
 }
 
-/** A moved declaration as the record file writes it: exported, with its JSDoc. */
-function declText(q, b) {
+/** A moved declaration as the record file writes it: exported, with its JSDoc (`textOf` writes a namespace read bare). */
+function declText(q, b, textOf = text) {
   const doc = (() => {
     const before = q.src.slice(
       0,
@@ -262,8 +300,8 @@ function declText(q, b) {
     const m = /(\/\*\*(?:(?!\*\/)[\s\S])*\*\/)\s*$/.exec(before);
     return m ? `${m[1]}\n` : '';
   })();
-  if (b.kind === 'var') return `${doc}export ${b.declaration.kind} ${text(q, b.declarator)};`;
-  return `${doc}export ${text(q, b.declaration)}`;
+  if (b.kind === 'var') return `${doc}export ${b.declaration.kind} ${textOf(q, b.declarator)};`;
+  return `${doc}export ${textOf(q, b.declaration)}`;
 }
 
 /**
