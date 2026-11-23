@@ -138,6 +138,8 @@ mod ramps_onramp_db;
 mod spaces_db;
 #[path = "store_pg.rs"]
 mod store_pg;
+#[path = "test_seed_db.rs"]
+mod test_seed_db;
 #[path = "transfers_guards_db.rs"]
 mod transfers_guards_db;
 #[path = "transfers_schedules_db.rs"]
