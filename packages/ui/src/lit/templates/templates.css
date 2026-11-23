@@ -721,10 +721,10 @@
   font: inherit;
   text-decoration: underline;
   cursor: pointer;
-  /* An inline box ignores a minimum height, so a link (an <a>, inline by default) is an inline block, 24 px tall to touch
-     (WCAG 2.5.8): in CSS pixels, as the rule counts them, since a rem is smaller than 16 px at the desk's root. */
+  /* A link is a whole 24 CSS pixel target at any root size (WCAG 2.5.8): an inline box ignores a minimum height, so it is
+     an inline block, and 1.5rem alone drew 21px under Pro's smaller root (summary.lt-link 88x21, look gate run 45057109047). */
   display: inline-block;
-  min-block-size: 24px; /* look-drift-allow: WCAG 2.5.8 counts 24 CSS pixels; a rem is smaller at the root here */
+  min-block-size: max(1.5rem, 24px); /* look-drift-allow: WCAG 2.5.8 sets the minimum target in CSS pixels */
 }
 
 /*

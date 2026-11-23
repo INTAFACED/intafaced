@@ -68,6 +68,16 @@ describe('testnet:send', () => {
     expect(r.text).toContain('after: funder 499 spot USDC free, destination 500');
   });
 
+  it('takes the key as MetaMask exports it, 64 hex characters with no 0x, and signs as that account', async () => {
+    const r = await run({ HL_TESTNET_FUNDER_KEY: `${FUNDER.slice(2)}\n` });
+    expect(r.code).toBe(0);
+    expect(r.sent).toHaveLength(1);
+    const body = r.sent[0] as { nonce: number; signature: { r: string; s: string; v: number } };
+    const { typedData } = spotSendAction(TO, `USDC:${TOKEN_ID}`, '500', BigInt(body.nonce));
+    const joined = `${body.signature.r}${body.signature.s.slice(2)}${body.signature.v.toString(16)}`;
+    expect(await recoverTypedDataSigner(typedData, joined)).toBe(FUNDER_ADDR);
+  });
+
   it('never prints the key', async () => {
     const r = await run({});
     expect(r.text).not.toContain(FUNDER.slice(2));

@@ -50,7 +50,7 @@ export const roles = {
   'text-1': 'Primary text and money figures',
   'text-2': 'Secondary text and labels',
   'text-3': 'Tertiary text; still 4.5:1 on solid surfaces',
-  'text-disabled': 'Disabled text only; exempt from contrast',
+  'text-disabled': 'Disabled text only; still 4.5:1 on every solid surface, quieter than text-3',
   line: 'Hairline dividers',
   'line-strong': 'Outlines of fields and tables',
 

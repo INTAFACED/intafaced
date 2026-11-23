@@ -425,7 +425,7 @@ describe('states never contradict themselves', () => {
     const css = readFileSync(fileURLToPath(new URL('./templates.css', import.meta.url)), 'utf8');
     const rule = css.match(/\n\.lt-link \{([^}]*)\}/)?.[1] ?? '';
     expect(rule).toMatch(/display: inline-block;/);
-    expect(rule).toMatch(/min-block-size: 24px;/);
+    expect(rule).toMatch(/min-block-size: max\(1\.5rem, 24px\);/);
   });
 
   it('the line key colours each line by the chart role the chart draws it with, and no raw colour', () => {
