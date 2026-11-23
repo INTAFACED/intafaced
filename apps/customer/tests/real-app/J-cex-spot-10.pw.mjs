@@ -38,7 +38,9 @@ import { ADMIN, founderSignIn } from './admin.mjs';
 // (maker 0.08%, taker 0.10%), so every other journey on the stack trades at the rates it always did. TEST groups hold
 // markets no other journey trades: ETH/USDC at zero fee, and IFC/USDT, which #3 leaves blank for a moment. #5-#6 add a
 // TEST tier programme only for as long as they run, and #11 once more. #9 adds TEST terms for paying fees in IFC and a
-// TEST stake-discount ladder, and takes the terms away again. Step 7 joins this file with the slice that builds it.
+// TEST stake-discount ladder, and takes the terms away again. #7 is four tests, one for each part its slices built
+// (the benefits table, the application, the approval with no trial published, the founder console): the step passes
+// when all four do.
 // At launch the person trades on their own venue account: #1 #2 #3 #4 #6 #9 are proven there, in
 // J-cex-spot-10-venue.pw.mjs. Their checks here, of today's custodial desk, are kept and titled "part of", so they count
 // for no step.
@@ -459,9 +461,9 @@ test(`${J}, part of #4, checked on today's custodial desk: fills on a zero-fee p
   }
 });
 
-// Held for #4 only, passed or not: the next step's IFC/USDT book is quoted again.
+// Held for the custodial check of #4 only, passed or not: the next step's IFC/USDT book is quoted again.
 test.afterEach(() => {
-  if (test.info().title.startsWith(`${J} #4 `)) tool('local-test-market.mjs', 'release', 'IFC/USDT');
+  if (test.info().title.startsWith(`${J}, part of #4,`)) tool('local-test-market.mjs', 'release', 'IFC/USDT');
 });
 
 test(`${J} #5 opens My tier: the tier, the volume counted and from what, what is excluded, and the next threshold`, async ({ page }) => {
@@ -623,8 +625,9 @@ const TEST_BENEFITS = [
   },
 ];
 
-test(`${J} part of #7 opens VIP benefits: each tier's published benefits, the person's own tier marked, a blank cell "not set"`, async ({
+test(`${J} #7 opens VIP benefits: each tier's published benefits, the person's own tier marked, a blank cell "not set"`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(150_000);
   const who = account();
@@ -647,6 +650,8 @@ test(`${J} part of #7 opens VIP benefits: each tier's published benefits, the pe
     await expect(regular.locator('td')).toHaveText(['not set', 'not set', 'not set', 'not set', 'not set']);
     const vip = table.locator('tr[data-benefits=test-vip-1]');
     await expect(vip.locator('td')).toHaveText(['Yes', 'No', 'not set', '20', 'up to 250000 USDT']);
+    // The step's picture: the benefits listed, before the table is taken away again below.
+    await stepPicture();
   } finally {
     await publish(SCHEDULE, 'benefits table off');
   }
@@ -660,7 +665,7 @@ const TEST_APPLICATION = { proofTypes: ['application/pdf', 'image/png'], maxByte
 /** A TEST proof: the smallest well-formed PDF header and a line naming it TEST. */
 const TEST_PDF = Buffer.from('%PDF-1.4\n% TEST proof of VIP status elsewhere, not a real statement\n%%EOF\n');
 
-test(`${J} part of #7 applies with a proof file: a type not accepted is refused naming the accepted ones, a PDF waits for review`, async ({
+test(`${J} #7 applies with a proof file: a type not accepted is refused naming the accepted ones, a PDF waits for review`, async ({
   page,
 }) => {
   test.setTimeout(240_000);
@@ -734,7 +739,7 @@ test(`${J} part of #7 applies with a proof file: a type not accepted is refused 
   await expect(card.locator('tr[data-vip-application=pending]')).toHaveCount(1);
 });
 
-test(`${J} part of #7 compliance approves with no trial published: the grant is refused vip.trial_unset, then granted once one is`, async ({
+test(`${J} #7 compliance approves with no trial published: the grant is refused vip.trial_unset, then granted once one is`, async ({
   page,
 }) => {
   test.setTimeout(240_000);
@@ -799,7 +804,7 @@ test(`${J} part of #7 compliance approves with no trial published: the grant is 
   }
 });
 
-test(`${J} part of #7 compliance decides in the founder console: the proof saved for a reason, a second founder approves, the trial starts`, async ({
+test(`${J} #7 compliance decides in the founder console: the proof saved for a reason, a second founder approves, the trial starts`, async ({
   page,
   browser,
 }) => {
