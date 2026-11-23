@@ -1,7 +1,7 @@
 /**
  * "Get started" checklist for a new account (ROADMAP M8): which steps there are, whether each is done, and whether
- * the person has put the list away. Pure logic: the screen reads the real answers (identity, security, balances,
- * activity, alerts) and hands them in; nothing here calls a service.
+ * the person has put the list away. Pure logic: the screen reads the real answers (identity, security, the venue's
+ * figures for the person's trading account, activity, alerts) and hands them in; nothing here calls a service.
  */
 import { HOME_LINKS } from './links';
 
@@ -39,18 +39,42 @@ export const alertStatus = (alerts: ReadonlyArray<{ kind: string; status: string
   alerts.some((alert) => alert.kind === 'price' && alert.status !== 'cancelled') ? 'done' : 'todo';
 
 /**
+ * What the venue reports for the person's trading accounts: the venue account each wallet they connected to their
+ * INTAFACED account owns (row d115, 17 Nov 2026). INTAFACED's own ledger is never read for this step: the person's money
+ * sits at the venue, and only the venue can say a deposit is there (docs/adr/2026-11-10-launch-money-model.md).
+ *
+ * loading  the answers have not all arrived yet
+ * unread   the person's connected wallets could not be read, so no trading account is known
+ * read     one entry per connected wallet: the venue's balances for the account it owns, or null where the venue gave
+ *          no answer for it (no venue is connected on this deployment, the venue is down, or it refused the read)
+ */
+export type VenueAccounts =
+  | { state: 'loading' }
+  | { state: 'unread' }
+  | { state: 'read'; accounts: ReadonlyArray<{ balances: ReadonlyArray<{ total: string }> } | null> };
+
+/** A decimal string above zero, read without a float: "0", "0.00", a negative figure and anything malformed hold nothing. */
+const holdsMoney = (total: string): boolean => /^[0-9]+(\.[0-9]+)?$/.test(total) && /[1-9]/.test(total);
+
+/**
+ * Add money: done once the venue reports a balance in one of the person's trading accounts. With no connected wallet the
+ * person has no trading account yet, and with every account read and empty nothing is deposited: both are "to do". An
+ * account the venue gave no answer for may hold a deposit, so with no balance read elsewhere the step is unknown, never
+ * done and never "to do".
+ */
+export function depositStatus(venue: VenueAccounts): StepStatus {
+  if (venue.state === 'loading') return 'checking';
+  if (venue.state === 'unread') return 'unknown';
+  if (venue.accounts.some((account) => account?.balances.some((balance) => holdsMoney(balance.total)))) return 'done';
+  return venue.accounts.some((account) => account === null) ? 'unknown' : 'todo';
+}
+
+/**
  * Whether the money history holds at least one line of a kind, from a kind-filtered read of one line (so an old
- * deposit counts however long the history is). `none` also covers a bank that will not read the history of an account
+ * trade counts however long the history is). `none` also covers a bank that will not read the history of an account
  * that is not verified yet: no money can have moved there.
  */
 export type EverRead = 'loading' | 'failed' | 'found' | 'none';
-
-export function depositStatus(balance: 'loading' | 'failed' | 'held' | 'none', history: EverRead): StepStatus {
-  if (balance === 'held' || history === 'found') return 'done';
-  if (balance === 'loading' || (balance === 'none' && history === 'loading')) return 'checking';
-  if (balance === 'none' && history === 'none') return 'todo';
-  return 'unknown';
-}
 
 /** First trade: one trade line anywhere in the history. */
 export function tradeStatus(history: EverRead): StepStatus {

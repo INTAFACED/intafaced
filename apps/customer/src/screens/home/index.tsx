@@ -249,7 +249,7 @@ function HomeSimple() {
   const home = useHomeLayout();
   const main = shownTiles(home.layout, 'simple', 'main');
   const side = shownTiles(home.layout, 'simple', 'side');
-  const started = useStartedTile(portfolio, side.includes('started'));
+  const started = useStartedTile(side.includes('started'));
   // What "Needs you" shows, so the inbox row is never a notice it already carries.
   const [needsYou, setNeedsYou] = useState<NeedsYouShown | null>(null);
   // The total and its label: the template's hero, one stack the template keeps at one height (heroReserve). The actions
