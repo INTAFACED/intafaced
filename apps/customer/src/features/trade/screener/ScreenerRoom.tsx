@@ -1,4 +1,5 @@
 // volt-room: /trade/screener
+import { TradeSubNav } from '../../../screens/trade/TradeSubNav';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { z } from 'zod';
 import { ohlcvSchema } from '@intafaced/exchange-contract/schemas';
@@ -503,6 +504,7 @@ export function ScreenerRoom() {
   return (
     <div data-testid="screener-room" data-status={status}>
       <RecordListTemplate
+        section={<TradeSubNav />}
         title={t('title')}
         description={t('description')}
         mode="pro"

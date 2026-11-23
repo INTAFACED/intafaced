@@ -35,14 +35,16 @@
  *   node tooling/ci/look-gate/look-gate.mjs [--shard 1/4] [--out <dir>] [--only gallery|customer|admin] [--routes /a,/b]
  *        [--update-baselines] [--changed-from origin/main]
  *   node tooling/ci/look-gate/look-gate.mjs --pr --before <base's apps/customer/dist> [--after <dist>] [--shard 1/3]
- *        [--out <dir>] [--routes /a,/b]
+ *        [--out <dir>] [--routes /a,/b] [--parent <the culprit's parent's dist, on main-bisect's revert>]
  *   node tooling/ci/look-gate/look-gate.mjs --self-test
  *
  * `--pr` is a pull request's run (#9325): every Customer room is shot at the phone and the computer from the base's
  * build and from the head's, one after the other on the same port. The rooms whose pictures differ are the rooms the
  * change reaches; only those get every check above, at the base and at the head, and the run fails when the head adds a
  * finding on a new-look page (policy.mjs newFindings, prVerdict). It keeps each reached room's before, after and diff
- * pictures in `<out>/pictures/<room>/` with `pictures-<k>-of-<n>.json` naming them, for the CI review.
+ * pictures in `<out>/pictures/<room>/` with `pictures-<k>-of-<n>.json` naming them, for the CI review. On main-bisect's
+ * proven revert of X (revert.mjs revertParent), `--parent` is X^'s build: a new finding X^ already had is restored, not
+ * added, and blocks nobody (policy.mjs restoredFindings; project-state#3697).
  */
 import { execFileSync } from 'node:child_process';
 import { createDecipheriv } from 'node:crypto';
@@ -53,6 +55,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { securityHeaders } from '../../../apps/customer/deployment/render-security-headers.mjs';
 import { crop, decodePng, encodePng } from './png.mjs';
 import * as policy from './policy.mjs';
+import { revertParent } from './revert.mjs';
 import * as gpu from './gpu-budget.mjs';
 import { sweepRoutes } from '../../../apps/customer/tests/real-app/routes.mjs';
 import * as world from '../../../apps/customer/tests/real-app/look-fixtures.mjs';
@@ -106,6 +109,7 @@ function args(argv) {
     else if (a === '--pr') out.pr = true;
     else if (a === '--before') out.before = resolve(argv[++i]);
     else if (a === '--after') out.after = resolve(argv[++i]);
+    else if (a === '--parent') out.parent = resolve(argv[++i]);
     else throw new Error(`unknown argument ${a}`);
   }
   if (out.pr && !out.before) throw new Error('--pr needs --before <the base build of apps/customer/dist>');
@@ -1177,6 +1181,9 @@ async function prMain(opts) {
   const sides = { before: opts.before, after: opts.after ?? join(ROOT, 'apps/customer/dist') };
   for (const [side, dir] of Object.entries(sides))
     if (!existsSync(join(dir, 'index.html'))) throw new Error(`no Customer build for the ${side} side in ${dir}`);
+  // X^'s build, on main-bisect's revert (look-pr.yml): read only once revertParent has proven it is X^'s.
+  if (opts.parent) sides.parent = opts.parent;
+  const git = (args) => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   if (!existsSync(join(ROOT, I18N_FIXTURES)))
     throw new Error(`no @intafaced/i18n build for the 130% copy pass (${I18N_FIXTURES}): pnpm --filter @intafaced/i18n build`);
   const [k, n] = opts.shard;
@@ -1261,11 +1268,10 @@ async function prMain(opts) {
   });
 
   // 3. Every check on the reached rooms, at the base and at the head.
-  const rows = {};
-  for (const side of ['before', 'after'])
-    rows[side] = (
+  const checkSide = async (side, rooms) =>
+    (
       await onSide(side, (origin) =>
-        pool(reached, async (t) => {
+        pool(rooms, async (t) => {
           const out = [];
           for (const [vpName, viewport] of Object.entries(VIEWPORTS)) {
             const context = await browser.newContext({
@@ -1283,11 +1289,23 @@ async function prMain(opts) {
         }),
       )
     ).flat();
-  await browser.close();
+  const rows = {};
+  for (const side of ['before', 'after']) rows[side] = await checkSide(side, reached);
 
-  // 4. The verdict: what the head adds on the rooms it reaches.
+  // 4. The verdict: what the head adds on the rooms it reaches. On main-bisect's proven revert of X, what X^ already had
+  // there is restored, not added: X^'s build is checked on the rooms with a new finding on a new-look page, and only
+  // what it lacked is judged.
   const litTargets = new Set(rows.after.filter((r) => r.lit).map((r) => r.target));
-  const fresh = policy.newFindings(rows.before, rows.after);
+  let fresh = policy.newFindings(rows.before, rows.after);
+  let restored = [];
+  const revert = opts.parent ? revertParent({ env: process.env, base: 'origin/main', read: git, dir: opts.parent }) : null;
+  if (revert?.why) console.log(`::notice::${revert.why}`);
+  if (revert?.culprit) {
+    const rooms = reached.filter((t) => fresh.some((f) => f.target === t.name && litTargets.has(f.target)));
+    rows.parent = rooms.length ? await checkSide('parent', rooms) : [];
+    ({ kept: fresh, restored } = policy.restoredFindings(fresh, rows.parent));
+  }
+  await browser.close();
   const v = policy.prVerdict({ fresh, litTargets, today: new Date().toISOString().slice(0, 10) });
   const minutes = (ms) => (ms / 60_000).toFixed(1);
   const tag = opts.shard.join('-of-');
@@ -1311,6 +1329,22 @@ async function prMain(opts) {
           '',
         ]
       : []),
+    ...(revert?.culprit
+      ? [
+          `main-bisect's proven revert of ${revert.culprit.slice(0, 10)}: ${restored.reduce((n, f) => n + f.items.length, 0)} new finding(s) its parent ${revert.parent.slice(0, 10)} already had are restored, not added, and block nobody.`,
+          '',
+          ...(restored.length
+            ? [
+                '| Page | Viewport | Restored finding |',
+                '| --- | --- | --- |',
+                ...restored.map(
+                  (f) => `| ${f.target} | ${f.viewport} | **${f.kind}**: ${f.items.slice(0, 3).join('; ').replace(/\|/g, '/')} |`,
+                ),
+                '',
+              ]
+            : []),
+        ]
+      : []),
     "Findings the base already has on these rooms are main's, in the daily run's report; they block nobody here.",
     '',
   ];
@@ -1321,7 +1355,7 @@ async function prMain(opts) {
     JSON.stringify({ shard: opts.shard, rooms: targets.length, reached: manifest }, null, 2) + '\n',
   );
   writeFileSync(join(opts.out, `report-pr-${tag}.md`), md + '\n');
-  writeFileSync(join(opts.out, `report-pr-${tag}.json`), JSON.stringify({ verdict: v, fresh, rows }, null, 2) + '\n');
+  writeFileSync(join(opts.out, `report-pr-${tag}.json`), JSON.stringify({ verdict: v, fresh, restored, revert, rows }, null, 2) + '\n');
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, md.slice(0, 900_000) + '\n');
   console.log(md);
   if (v.mode === 'block') process.exit(1);
@@ -1765,6 +1799,17 @@ async function selfTest() {
     policy.prVerdict({ fresh, litTargets: new Set(['/pay']), today: '2026-11-01' }).mode,
     'report',
     'pr: report-only before BLOCKING_FROM',
+  );
+  eq(
+    policy.restoredFindings(fresh, [
+      {
+        target: '/pay',
+        viewport: 'phone',
+        findings: { contrast: ['span.label "Fee" 2.10 < 4.5 (worst pixel under it rgb(9,9,9), box at 4,9)'] },
+      },
+    ]),
+    { kept: fresh.slice(1), restored: fresh.slice(0, 1) },
+    "pr: on main-bisect's revert, a new finding the culprit's parent already had is restored; one it lacked, or on a page it never drew, is kept",
   );
   const h = securityHeaders({ reportUri: REPORT_PATH })['Content-Security-Policy'];
   ok(/script-src 'self';/.test(h) && /font-src 'self';/.test(h), 'the gate serves the production policy');

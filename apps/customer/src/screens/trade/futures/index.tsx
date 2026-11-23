@@ -156,7 +156,10 @@ function TodayFuturesScreen({ search }: ScreenProps) {
 
   return (
     <div className="flex min-w-0 flex-col" data-screen="futures">
-      <ModeStrip active="Futures" />
+      {/* In the desk's own inset, as its panel tabs below are. */}
+      <div className="px-4">
+        <ModeStrip />
+      </div>
       {!userId ? (
         <EmptyState
           variant="refused"
