@@ -126,7 +126,7 @@ fn assert_owner(store: &Store, account_id: &str, user_id: &str) -> Result<String
 }
 
 /// `businessPartnerAccount`.
-fn business_account(account_id: &str, asset_id: &str) -> AccountRef {
+pub fn business_account(account_id: &str, asset_id: &str) -> AccountRef {
     AccountRef::main(&format!("business:{account_id}"), asset_id)
 }
 
