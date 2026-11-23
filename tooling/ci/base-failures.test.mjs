@@ -100,6 +100,13 @@ const REGISTRY = [
   "AssertionError: expected [Function] to not throw an error but 'Error: Command failed: node scripts/p…' was thrown",
 ];
 const [pkg, dir, file, name, reason] = REGISTRY;
+const MANIFESTS = new Map([
+  [dir, { name: pkg, dependencies: { '@intafaced/dep': 'workspace:*' } }],
+  ['packages/dep', { name: '@intafaced/dep', dependencies: { '@intafaced/deeper': 'workspace:*' } }],
+  ['packages/deeper', { name: '@intafaced/deeper' }],
+  ['apps/elsewhere', { name: '@intafaced/elsewhere' }],
+  ['services/svc-other', { name: '@intafaced/svc-other' }],
+]);
 
 test('(a) a failure main recorded the same way on the base, in a test of nothing protected, is excused', () => {
   const v = compare({ pr: prRecord(pkg, dir, [[file, name, reason]]), main: mainState(mainWith([REGISTRY])), moneyDirs });
@@ -603,16 +610,45 @@ test('(ancestor c) a recorded commit before the base that passed the test, or ma
   );
   // the same failure on the record, but a commit of main after it changed the package's folder
   const same = await nearestRecord({ base: BASE, line, readAt: reader(line, { 2: (sha) => recorded(sha, [REGISTRY]) }).readAt });
-  const git = (args) => {
-    if (args[0] === 'diff' && args.at(-1) === dir) throw new Error('exit 1');
-    return '';
-  };
-  same.changed = changedDirs(same.sha, BASE, [dir, 'packages/other'], git);
+  const diffOf = (files) => (args) => (args[0] === 'diff' ? files.join('\n') : '');
+  same.changed = changedDirs(same.sha, BASE, [dir], diffOf([`${dir}/src/x.ts`]), MANIFESTS);
   assert.deepEqual([...same.changed], [dir]);
   const w = compare({ pr, main: same, moneyDirs });
   assert.equal(w.pass, false);
   assert.match(w.held[0].why, new RegExp(`^main changed ${dir} after the record it has \\(${line[2]}\\)`));
-  assert.equal(changedDirs(BASE, BASE, [dir], git).size, 0, "the base's own record has nothing after it");
+  assert.equal(
+    changedDirs(BASE, BASE, [dir], diffOf([`${dir}/src/x.ts`]), MANIFESTS).size,
+    0,
+    "the base's own record has nothing after it",
+  );
+});
+
+test('(ancestor e) a change on main after the record to a package the test depends on, or to a shared file, holds it', () => {
+  const diffOf = (files) => (args) => (args[0] === 'diff' ? files.join('\n') : '');
+  const at = 'a'.repeat(40);
+  const held = (files) => changedDirs(at, BASE, [dir], diffOf(files), MANIFESTS).has(dir);
+  assert.equal(held(['packages/dep/src/index.ts']), true, 'a direct workspace dependency');
+  assert.equal(held(['packages/deeper/src/index.ts']), true, 'a dependency of a dependency');
+  for (const f of [
+    'pnpm-lock.yaml',
+    'vitest.workspace.ts',
+    'tsconfig.base.json',
+    'turbo.json',
+    'tooling/vitest/budget.mjs',
+    '.github/workflows/ci.yml',
+  ])
+    assert.equal(held([f]), true, `a shared file: ${f}`);
+  assert.equal(held(['apps/elsewhere/src/page.tsx', 'services/svc-other/src/a.ts']), false, 'packages it does not depend on');
+  assert.equal(held([]), false, 'no change');
+  const broken = () => {
+    throw new Error('bad object');
+  };
+  assert.equal(changedDirs(at, BASE, [dir], broken, MANIFESTS).has(dir), true, 'a diff git cannot read');
+  assert.equal(
+    changedDirs(at, BASE, ['apps/unknown'], diffOf(['apps/elsewhere/a.ts']), MANIFESTS).has('apps/unknown'),
+    true,
+    'a folder with no manifest',
+  );
 });
 
 test('(ancestor d) a protected test is never excused by a record before the base', async () => {

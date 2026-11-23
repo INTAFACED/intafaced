@@ -459,16 +459,68 @@ export function mainLine(base, git = defaultGit) {
     .filter(Boolean);
 }
 
-/** Which of `dirs` a commit after `from`, up to `to`, changed; a folder git can't compare counts as changed. */
-export function changedDirs(from, to, dirs, git = defaultGit) {
+/** The workspace folder a path sits in (`apps/x`, `services/x`, `packages/x`), or null for anything else. */
+const WORKSPACE = /^((?:apps|services|packages)\/[^/]+)\//;
+
+/**
+ * The folders of `dirs` whose tests a commit after `from`, up to `to`, may have changed. A folder counts as changed when
+ * the diff touches it, a workspace package it depends on (directly or not, read from the manifests at `to`), or any
+ * path outside apps/, services/ and packages/ (root config, the lockfile, tooling/, .github/), which every test may
+ * read. A diff git can't read marks every folder changed.
+ */
+export function changedDirs(from, to, dirs, git = defaultGit, manifests = null) {
   const out = new Set();
   if (from === to) return out;
-  for (const d of new Set(dirs)) {
-    try {
-      git(['diff', '--quiet', from, to, '--', d]);
-    } catch {
-      out.add(d);
+  let files;
+  try {
+    files = git(['diff', '--name-only', from, to]).split('\n').filter(Boolean);
+  } catch {
+    for (const d of dirs) out.add(d);
+    return out;
+  }
+  if (!files.length) return out;
+  const touched = new Set();
+  let shared = false;
+  for (const f of files) {
+    const m = WORKSPACE.exec(f);
+    if (m) touched.add(m[1]);
+    else shared = true;
+  }
+  if (shared) {
+    for (const d of dirs) out.add(d);
+    return out;
+  }
+  let byName;
+  try {
+    const man = manifests ?? manifestsAtRev(to, git);
+    byName = new Map([...man].map(([dir, j]) => [j.name, { dir, j }]));
+    manifests = man;
+  } catch {
+    for (const d of dirs) out.add(d);
+    return out;
+  }
+  const closure = (d) => {
+    const seen = new Set([d]);
+    const todo = [d];
+    while (todo.length) {
+      const j = manifests.get(todo.pop());
+      if (!j) continue;
+      for (const n of Object.keys({ ...j.dependencies, ...j.devDependencies, ...j.peerDependencies })) {
+        const dep = byName.get(n);
+        if (dep && !seen.has(dep.dir)) {
+          seen.add(dep.dir);
+          todo.push(dep.dir);
+        }
+      }
     }
+    return seen;
+  };
+  for (const d of new Set(dirs)) {
+    if (!manifests.has(d)) {
+      out.add(d);
+      continue;
+    }
+    for (const t of closure(d)) if (touched.has(t)) out.add(d);
   }
   return out;
 }
