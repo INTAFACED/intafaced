@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { betaHides, betaRoomList, betaRooms, setBetaAccess } from './beta-volt';
 import { betaOffFeatureFor, isHiddenPath } from './feature-registry';
 import { tabSpecs } from './menus';
-import { findRoom } from './navigation';
+import { findRoom, rooms } from './navigation';
 import { voltCount } from './volt-count';
 import { shownBankRooms } from '../features/money/bank-frame/bank-rooms';
 
@@ -26,7 +26,7 @@ afterEach(() => {
 
 describe("the beta's menus", () => {
   it('open only rooms the Volt count counts, with the switch on', () => {
-    vi.stubGlobal('__BETA_VOLT_ROOMS__', betaRoomList(count.rooms));
+    vi.stubGlobal('__BETA_VOLT_ROOMS__', betaRoomList(count.rooms, rooms));
     const shown = links();
     expect(shown.length).toBeGreaterThan(0);
     const off = shown.filter((href) => {
@@ -79,7 +79,7 @@ describe("the beta's menus", () => {
 });
 
 describe("the beta's menus, by what the build switches on and the account can use (#10300, #10301)", () => {
-  const on = () => vi.stubGlobal('__BETA_VOLT_ROOMS__', betaRoomList(count.rooms));
+  const on = () => vi.stubGlobal('__BETA_VOLT_ROOMS__', betaRoomList(count.rooms, rooms));
 
   it('leave out a room in Volt whose feature this build switches off (#10300: Scheduled payments, News)', () => {
     on();
@@ -135,7 +135,7 @@ describe('betaHides', () => {
   });
 
   it('never hides sign-in, the public pages or the merchant portal pages', () => {
-    const list = betaRoomList(count.rooms);
+    const list = betaRoomList(count.rooms, rooms);
     expect(betaHides('/login', list)).toBe(false);
     expect(betaHides('/register', list)).toBe(false);
     expect(list.some(([route]) => route.startsWith('portal:'))).toBe(false);

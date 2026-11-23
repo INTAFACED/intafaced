@@ -7,11 +7,12 @@ import * as react from 'react/jsx-runtime';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BetaDroppedLink, betaRuntime, type JsxRuntime } from './beta-links';
-import { betaRoomList, type BetaRooms } from './beta-volt';
+import { betaHides, betaRoomList, type BetaRooms } from './beta-volt';
+import { rooms } from './navigation';
 import { voltCount } from './volt-count';
 import { betaJsxSource, betaVolt } from '../../vite.config';
 
-const list: BetaRooms = betaRoomList(voltCount().rooms);
+const list: BetaRooms = betaRoomList(voltCount().rooms, rooms);
 const hidden = list.find(([route, volt]) => !volt && !route.includes(':'))![0];
 const shown = list.find(([route, volt]) => volt && !route.includes(':'))![0];
 const runtime = betaRuntime<JsxRuntime>(react);
@@ -41,6 +42,12 @@ describe("the beta's JSX runtime", () => {
     expect(link.type).toBe(BetaDroppedLink);
     const Button = ({ render }: { render: ReactElement<{ children?: string }> }) => cloneElement(render, { children: 'Receive' });
     expect(renderToStaticMarkup(jsx(Button, { render: link }))).toBe('');
+  });
+
+  it('draws no link to an alias row whose room the beta hides (/uc/record, /exchange)', () => {
+    const aliases = rooms.filter((room) => room.alias && betaHides(room.alias.split('?')[0]!, list));
+    expect(aliases.length).toBeGreaterThan(0);
+    expect(aliases.filter((room) => !betaHides(room.path, list)).map((room) => room.path)).toEqual([]);
   });
 
   it('changes nothing with the switch off', () => {

@@ -12,9 +12,20 @@ declare const __BETA_VOLT_ROOMS__: BetaRooms | undefined;
 /** The areas whose rooms the beta hides when they are not in Volt: sign-in, the public pages and the merchant portal's own pages stay. */
 const HIDDEN_AREAS = new Set(['home', 'money', 'trade', 'pay', 'more', 'person', 'web3']);
 
-/** The beta's list from the count's rooms (vite.config.ts calls this at build time). */
-export function betaRoomList(rooms: readonly { key: string; area: string; state: string }[]): BetaRooms {
-  return rooms.filter((room) => HIDDEN_AREAS.has(room.area)).map((room) => [room.key, room.state === 'volt'] as const);
+/**
+ * The beta's list from the count's rooms (vite.config.ts calls this at build time), then each alias row of the route table
+ * (`/uc/record`, `/exchange`) with the state of the room it sends to, so a link to an alias is hidden with its room.
+ */
+export function betaRoomList(
+  rooms: readonly { key: string; area: string; state: string }[],
+  aliases: readonly { path: string; alias?: string }[] = [],
+): BetaRooms {
+  const list = rooms.filter((room) => HIDDEN_AREAS.has(room.area)).map((room) => [room.key, room.state === 'volt'] as const);
+  const known = new Set(list.map(([route]) => route));
+  const aliased = aliases.flatMap((room) =>
+    room.alias && !known.has(room.path) && betaHides(room.alias.split('?')[0]!, list) ? [[room.path, false] as const] : [],
+  );
+  return [...list, ...aliased];
 }
 
 /** The list this build was given, or undefined when the switch is off. */

@@ -8,6 +8,7 @@ import { execFileSync } from 'node:child_process';
 import { describe, expect, it, vi } from 'vitest';
 import { appPath, type JsxRuntime } from '../beta-links';
 import { betaHides, betaRoomList, type BetaRooms } from '../beta-volt';
+import { rooms } from '../navigation';
 import { voltCount } from '../volt-count';
 import { renderPart } from './harness';
 
@@ -17,7 +18,7 @@ vi.mock('react/jsx-dev-runtime', async (original) => (await import('../beta-link
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 vi.useFakeTimers({ toFake: ['Date'] });
 
-const list: BetaRooms = betaRoomList(voltCount().rooms);
+const list: BetaRooms = betaRoomList(voltCount().rooms, rooms);
 const routes: string[] = JSON.parse(
   execFileSync(
     process.execPath,

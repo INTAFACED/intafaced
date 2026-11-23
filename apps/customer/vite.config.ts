@@ -106,6 +106,7 @@ export function developerDocs(): Plugin {
 
 const VOLT_COUNT = fileURLToPath(new URL('./src/app/volt-count.ts', import.meta.url));
 const BETA_VOLT = fileURLToPath(new URL('./src/app/beta-volt.ts', import.meta.url));
+const NAVIGATION = fileURLToPath(new URL('./src/app/navigation.ts', import.meta.url));
 
 /**
  * The beta's switch (`INTAFACED_BETA_VOLT_ONLY=1`, set only by tooling/beta/beta-host.mjs): the build reads the Volt count
@@ -143,7 +144,8 @@ export async function betaVoltDefine(env: Record<string, string | undefined> = p
     runnerImport<T>(file, { configFile: false, root: fileURLToPath(new URL('.', import.meta.url)), logLevel: 'error' });
   const { module: count } = await load<typeof import('./src/app/volt-count')>(VOLT_COUNT);
   const { module: beta } = await load<typeof import('./src/app/beta-volt')>(BETA_VOLT);
-  return { __BETA_VOLT_ROOMS__: JSON.stringify(beta.betaRoomList(count.voltCount().rooms)) };
+  const { module: navigation } = await load<typeof import('./src/app/navigation')>(NAVIGATION);
+  return { __BETA_VOLT_ROOMS__: JSON.stringify(beta.betaRoomList(count.voltCount().rooms, navigation.rooms)) };
 }
 
 export default defineConfig(({ mode }) => {
