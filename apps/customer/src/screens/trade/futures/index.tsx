@@ -156,7 +156,7 @@ function TodayFuturesScreen({ search }: ScreenProps) {
 
   return (
     <div className="flex min-w-0 flex-col" data-screen="futures">
-      <ModeStrip active="Futures" />
+      <ModeStrip />
       {!userId ? (
         <EmptyState
           variant="refused"

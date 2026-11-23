@@ -164,7 +164,7 @@ export function GridRoom({ path }: { path: string }) {
 
   return (
     <Page width="full" className="cb-page" landmark={false}>
-      <ModeNav active="bots" />
+      <ModeNav />
       <PageHeader
         title={t('Spot grid')}
         description={t('Buys at each level below the price and sells one level up, inside a range you set.')}
