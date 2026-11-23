@@ -365,7 +365,7 @@ pub fn assert_loan_params(p: &NewProduct) -> Result<(), Refusal> {
     let Some(floor) = p.min_principal else {
         return Err(params_invalid("minPrincipal is blank"));
     };
-    if floor < 0 {
+    if floor < Amount::ZERO {
         return Err(params_invalid("minPrincipal cannot be negative"));
     }
     assert_policy_coherent(&p.policy, p.max_ltv_bps).map_err(|e| params_invalid(&e.message))

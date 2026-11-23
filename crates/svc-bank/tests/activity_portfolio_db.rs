@@ -135,7 +135,7 @@ impl Ledger for Book {
                 a.kind.to_owned(),
             ))
             .copied()
-            .unwrap_or(0))
+            .unwrap_or(Amount::ZERO))
     }
     fn balances(&self, owner_type: &str, owner: &str) -> Result<Vec<LedgerBalance>, String> {
         Ok(self

@@ -747,8 +747,8 @@ fn authorization_of(c: &mut impl GenericClient, id: &str) -> Result<Json, Refusa
     let authorised = parse_amount(&a.get::<_, String>(5)).map_err(Refusal::Other)?;
     let decision: String = a.get(8);
     let status: String = a.get(10);
-    let mut captured: Amount = 0;
-    let mut returned: Amount = 0;
+    let mut captured: Amount = Amount::ZERO;
+    let mut returned: Amount = Amount::ZERO;
     let mut lifecycle = vec![Json::obj([
         (
             "event",
@@ -803,7 +803,7 @@ fn authorization_of(c: &mut impl GenericClient, id: &str) -> Result<Json, Refusa
     let open = if decision == "approved" && status == "settled" {
         authorised - captured - returned
     } else {
-        0
+        Amount::ZERO
     };
     let variance = if decision == "approved" {
         Json::obj([

@@ -10,17 +10,220 @@
 use std::cmp::Ordering;
 
 /// Money is a scaled integer: 18 decimal places (`packages/ledger-client/src/money.ts`).
-pub type Amount = i128;
+///
+/// A newtype, not an alias, so a count, a raw integer or a price at another scale is a compile error where money is
+/// expected. It carries only what money does: add, subtract, negate, compare, sum, and multiply or divide by a plain
+/// count. Two amounts multiply or divide only through `mul`, `mul_rounded`, `mul_div` and `share`, which hold the
+/// 18-place scale. A raw scaled integer comes in through `Amount::from_scaled` and leaves through `Amount::scaled`,
+/// named at the line that does it.
+///
+/// A count passed as money does not compile (the mistake the alias let through):
+///
+/// ```compile_fail
+/// fn fee(_: service_kit::money::Amount) {}
+/// let tokens: i128 = 1_000;
+/// fee(tokens);
+/// ```
+///
+/// Nor does a product of two amounts, which would carry 36 places, not 18:
+///
+/// ```compile_fail
+/// use service_kit::money::Amount;
+/// let _ = Amount::whole(2) * Amount::whole(3);
+/// ```
+///
+/// Through `mul` it keeps the scale:
+///
+/// ```
+/// use service_kit::money::{Amount, mul};
+/// assert_eq!(mul(Amount::whole(2), Amount::whole(3)), Amount::whole(6));
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct Amount(i128);
+
+impl Amount {
+    /// Nothing.
+    pub const ZERO: Amount = Amount(0);
+    /// One whole unit: `1` at 18 places.
+    pub const ONE: Amount = Amount(SCALE_I128);
+    /// The smallest step: `0.000000000000000001`.
+    pub const UNIT: Amount = Amount(1);
+    /// The largest amount an i128 holds (a saturated result).
+    pub const MAX: Amount = Amount(i128::MAX);
+    /// The smallest amount an i128 holds (a saturated result).
+    pub const MIN: Amount = Amount(i128::MIN);
+
+    /// An amount from its scaled integer (`1` is `0.000000000000000001`).
+    pub const fn from_scaled(scaled: i128) -> Amount {
+        Amount(scaled)
+    }
+
+    /// The scaled integer (`0.000000000000000001` is `1`).
+    pub const fn scaled(self) -> i128 {
+        self.0
+    }
+
+    /// `whole` whole units: `Amount::whole(5)` is `5`.
+    pub const fn whole(whole: i128) -> Amount {
+        Amount(whole * SCALE_I128)
+    }
+
+    pub const fn is_zero(self) -> bool {
+        self.0 == 0
+    }
+
+    pub const fn is_negative(self) -> bool {
+        self.0 < 0
+    }
+
+    pub const fn is_positive(self) -> bool {
+        self.0 > 0
+    }
+
+    pub const fn abs(self) -> Amount {
+        Amount(self.0.abs())
+    }
+
+    /// `-1`, `0` or `1`.
+    pub const fn signum(self) -> i128 {
+        self.0.signum()
+    }
+
+    pub fn checked_add(self, other: Amount) -> Option<Amount> {
+        self.0.checked_add(other.0).map(Amount)
+    }
+
+    pub fn checked_sub(self, other: Amount) -> Option<Amount> {
+        self.0.checked_sub(other.0).map(Amount)
+    }
+
+    pub fn saturating_add(self, other: Amount) -> Amount {
+        Amount(self.0.saturating_add(other.0))
+    }
+
+    pub fn saturating_sub(self, other: Amount) -> Amount {
+        Amount(self.0.saturating_sub(other.0))
+    }
+
+    /// `|self|`, `None` for `Amount::MIN`.
+    pub fn checked_abs(self) -> Option<Amount> {
+        self.0.checked_abs().map(Amount)
+    }
+
+    /// `|self|`, `Amount::MAX` for `Amount::MIN`.
+    pub fn saturating_abs(self) -> Amount {
+        Amount(self.0.saturating_abs())
+    }
+
+    /// `self * count`, `None` past i128.
+    pub fn checked_times(self, count: i128) -> Option<Amount> {
+        self.0.checked_mul(count).map(Amount)
+    }
+
+    /// `self * count`, saturating past i128.
+    pub fn saturating_times(self, count: i128) -> Amount {
+        Amount(self.0.saturating_mul(count))
+    }
+
+    /// `self / count`, `None` for a zero count.
+    pub fn checked_div_count(self, count: i128) -> Option<Amount> {
+        self.0.checked_div(count).map(Amount)
+    }
+
+    /// `self % count` on the scaled integer.
+    pub fn rem_count(self, count: i128) -> Amount {
+        Amount(self.0 % count)
+    }
+}
+
+impl std::ops::Add for Amount {
+    type Output = Amount;
+    fn add(self, other: Amount) -> Amount {
+        Amount(self.0 + other.0)
+    }
+}
+
+impl std::ops::Sub for Amount {
+    type Output = Amount;
+    fn sub(self, other: Amount) -> Amount {
+        Amount(self.0 - other.0)
+    }
+}
+
+impl std::ops::Neg for Amount {
+    type Output = Amount;
+    fn neg(self) -> Amount {
+        Amount(-self.0)
+    }
+}
+
+impl std::ops::AddAssign for Amount {
+    fn add_assign(&mut self, other: Amount) {
+        self.0 += other.0;
+    }
+}
+
+impl std::ops::SubAssign for Amount {
+    fn sub_assign(&mut self, other: Amount) {
+        self.0 -= other.0;
+    }
+}
+
+/// An amount times a plain count (a number of units, seats, days) is still money at the same scale.
+impl std::ops::Mul<i128> for Amount {
+    type Output = Amount;
+    fn mul(self, count: i128) -> Amount {
+        Amount(self.0 * count)
+    }
+}
+
+/// An amount split by a plain count, toward zero as bigint `/` is.
+impl std::ops::Div<i128> for Amount {
+    type Output = Amount;
+    fn div(self, count: i128) -> Amount {
+        Amount(self.0 / count)
+    }
+}
+
+/// What is left of an amount after whole steps of another (a price off its tick).
+impl std::ops::Rem for Amount {
+    type Output = Amount;
+    fn rem(self, step: Amount) -> Amount {
+        Amount(self.0 % step.0)
+    }
+}
+
+/// A plain count times an amount: `3 * price`.
+impl std::ops::Mul<Amount> for i128 {
+    type Output = Amount;
+    fn mul(self, amount: Amount) -> Amount {
+        Amount(self * amount.0)
+    }
+}
+
+impl std::iter::Sum for Amount {
+    fn sum<I: Iterator<Item = Amount>>(iter: I) -> Amount {
+        iter.fold(Amount::ZERO, |a, b| a + b)
+    }
+}
+
+impl<'a> std::iter::Sum<&'a Amount> for Amount {
+    fn sum<I: Iterator<Item = &'a Amount>>(iter: I) -> Amount {
+        iter.fold(Amount::ZERO, |a, b| a + *b)
+    }
+}
+
+const SCALE_I128: i128 = 1_000_000_000_000_000_000;
 
 const DECIMALS: usize = 18;
 const SCALE: u128 = 1_000_000_000_000_000_000;
 /// `MAX_AMOUNT`: `10n ** 38n - 1n`, what `numeric(38,18)` holds.
-pub const MAX_AMOUNT: Amount = 99_999_999_999_999_999_999_999_999_999_999_999_999;
+pub const MAX_AMOUNT: Amount = Amount(99_999_999_999_999_999_999_999_999_999_999_999_999);
 
 /// `formatAmount`: the shortest decimal string, no trailing zeros.
 pub fn format_amount(value: Amount) -> String {
-    let sign = if value < 0 { "-" } else { "" };
-    let abs = value.unsigned_abs();
+    let sign = if value.0 < 0 { "-" } else { "" };
+    let abs = value.0.unsigned_abs();
     let (whole, frac) = (abs / SCALE, abs % SCALE);
     if frac == 0 {
         return format!("{sign}{whole}");
@@ -86,18 +289,19 @@ fn div_wide(n: U256, d: u128) -> (U256, u128) {
 
 fn saturate(negative: bool, q: U256) -> Amount {
     let fits = q.0 == 0 && q.1 <= i128::MAX.unsigned_abs();
-    match (fits, negative) {
+    Amount(match (fits, negative) {
         (true, false) => i128::try_from(q.1).unwrap_or(i128::MAX),
         (true, true) => 0i128.saturating_sub_unsigned(q.1),
         (false, false) => i128::MAX,
         (false, true) => i128::MIN,
-    }
+    })
 }
 
 /// `a * b / d`, rounded as `divideScaled` rounds (a zero `d` gives 0; no caller divides by zero).
 pub fn mul_div(a: Amount, b: Amount, d: Amount, rounding: Rounding) -> Amount {
+    let (a, b, d) = (a.0, b.0, d.0);
     if d == 0 {
-        return 0;
+        return Amount::ZERO;
     }
     let negative = ((a < 0) != (b < 0)) != (d < 0) && a != 0 && b != 0;
     let n = mul_wide(a.unsigned_abs(), b.unsigned_abs());
@@ -128,7 +332,7 @@ pub fn mul_rounded(a: Amount, b: Amount, rounding: Rounding) -> Amount {
     mul_div(a, b, SCALE_AMOUNT, rounding)
 }
 
-const SCALE_AMOUNT: Amount = 1_000_000_000_000_000_000;
+const SCALE_AMOUNT: Amount = Amount::ONE;
 
 /// `total * take / qty` as bigint does it (toward zero); the whole when all is taken.
 pub fn share(total: Amount, qty: Amount, take: Amount) -> Amount {
@@ -141,7 +345,8 @@ pub fn share(total: Amount, qty: Amount, take: Amount) -> Amount {
 
 /// Compares `a * b` with `c * d` exactly.
 pub fn cmp_products(a: Amount, b: Amount, c: Amount, d: Amount) -> Ordering {
-    let sign = |x: Amount, y: Amount| -> i8 {
+    let (a, b, c, d) = (a.0, b.0, c.0, d.0);
+    let sign = |x: i128, y: i128| -> i8 {
         if x == 0 || y == 0 {
             0
         } else if (x < 0) == (y < 0) {
@@ -205,10 +410,10 @@ pub fn parse_amount(input: &str) -> Result<Amount, String> {
         .and_then(|v| v.checked_add(frac_value))
         .ok_or_else(too_big)?;
     let value = i128::try_from(value).map_err(|_| too_big())?;
-    if value > MAX_AMOUNT {
+    if value > MAX_AMOUNT.0 {
         return Err(too_big());
     }
-    Ok(if negative { -value } else { value })
+    Ok(Amount(if negative { -value } else { value }))
 }
 
 /// `String.prototype.trim`'s whitespace: ECMAScript WhiteSpace and LineTerminator.
@@ -235,19 +440,49 @@ pub fn js_trim(s: &str) -> &str {
 mod tests {
     use super::*;
 
-    const ONE: Amount = 1_000_000_000_000_000_000;
+    const ONE: Amount = Amount::whole(1);
 
     #[test]
     fn multiplies_past_128_bits_as_bigint_does() {
         // 10 BTC at 50,000: the raw product is 5e41, past i128.
         assert_eq!(mul(10 * ONE, 50_000 * ONE), 500_000 * ONE);
-        assert_eq!(mul(1, 1), 0);
-        assert_eq!(mul(ONE / 2, 1), 1); // 0.5e-18 rounds half up
-        assert_eq!(mul(-(ONE / 2), 1), -1);
-        assert_eq!(mul_rounded(3, ONE / 2, Rounding::Ceil), 2);
-        assert_eq!(share(7, 3, 1), 2);
-        assert_eq!(share(-7, 3, 1), -2);
-        assert_eq!(share(5, 5, 5), 5);
+        assert_eq!(
+            mul(Amount::from_scaled(1), Amount::from_scaled(1)),
+            Amount::ZERO
+        );
+        assert_eq!(mul(ONE / 2, Amount::from_scaled(1)), Amount::from_scaled(1)); // 0.5e-18 rounds half up
+        assert_eq!(
+            mul(-(ONE / 2), Amount::from_scaled(1)),
+            -Amount::from_scaled(1)
+        );
+        assert_eq!(
+            mul_rounded(Amount::from_scaled(3), ONE / 2, Rounding::Ceil),
+            Amount::from_scaled(2)
+        );
+        assert_eq!(
+            share(
+                Amount::from_scaled(7),
+                Amount::from_scaled(3),
+                Amount::from_scaled(1)
+            ),
+            Amount::from_scaled(2)
+        );
+        assert_eq!(
+            share(
+                -Amount::from_scaled(7),
+                Amount::from_scaled(3),
+                Amount::from_scaled(1)
+            ),
+            -Amount::from_scaled(2)
+        );
+        assert_eq!(
+            share(
+                Amount::from_scaled(5),
+                Amount::from_scaled(5),
+                Amount::from_scaled(5)
+            ),
+            Amount::from_scaled(5)
+        );
         assert_eq!(
             share(123_456 * ONE, 7 * ONE, 3 * ONE),
             (123_456 * ONE) * 3 / 7
@@ -255,25 +490,78 @@ mod tests {
     }
 
     #[test]
+    fn adds_sums_and_counts_at_one_scale() {
+        let two = Amount::whole(2);
+        assert_eq!(two + ONE, Amount::whole(3));
+        assert_eq!(two - Amount::whole(5), -Amount::whole(3));
+        assert_eq!(two * 3, Amount::whole(6));
+        assert_eq!(3 * two, Amount::whole(6));
+        assert_eq!(
+            Amount::whole(7) / 2,
+            Amount::from_scaled(3_500_000_000_000_000_000)
+        );
+        assert_eq!(
+            Amount::from_scaled(7) % Amount::from_scaled(3),
+            Amount::UNIT
+        );
+        assert_eq!([ONE, two].iter().sum::<Amount>(), Amount::whole(3));
+        assert_eq!([ONE, two].into_iter().sum::<Amount>(), Amount::whole(3));
+        assert_eq!(Amount::MIN.checked_abs(), None);
+        assert_eq!(Amount::MIN.saturating_abs(), Amount::MAX);
+        assert_eq!(Amount::from_scaled(-5).scaled(), -5);
+        assert!(Amount::ZERO.is_zero() && two.is_positive() && (-two).is_negative());
+    }
+
+    #[test]
     fn formats_amounts_as_the_ledger_client_does() {
-        assert_eq!(format_amount(0), "0");
-        assert_eq!(format_amount(1_500_000_000_000_000_000), "1.5");
-        assert_eq!(format_amount(-1), "-0.000000000000000001");
+        assert_eq!(format_amount(Amount::ZERO), "0");
+        assert_eq!(
+            format_amount(Amount::from_scaled(1_500_000_000_000_000_000)),
+            "1.5"
+        );
+        assert_eq!(
+            format_amount(-Amount::from_scaled(1)),
+            "-0.000000000000000001"
+        );
         assert_eq!(format_amount(-2 * SCALE_AMOUNT), "-2");
     }
 
     #[test]
     fn compares_products_exactly() {
-        assert_eq!(cmp_products(i128::MAX, 3, i128::MAX, 2), Ordering::Greater);
-        assert_eq!(cmp_products(-1, 5, 1, 1), Ordering::Less);
-        assert_eq!(cmp_products(0, 5, 0, 1), Ordering::Equal);
+        assert_eq!(
+            cmp_products(
+                Amount::MAX,
+                Amount::from_scaled(3),
+                Amount::MAX,
+                Amount::from_scaled(2)
+            ),
+            Ordering::Greater
+        );
+        assert_eq!(
+            cmp_products(
+                -Amount::from_scaled(1),
+                Amount::from_scaled(5),
+                Amount::from_scaled(1),
+                Amount::from_scaled(1)
+            ),
+            Ordering::Less
+        );
+        assert_eq!(
+            cmp_products(
+                Amount::ZERO,
+                Amount::from_scaled(5),
+                Amount::ZERO,
+                Amount::from_scaled(1)
+            ),
+            Ordering::Equal
+        );
     }
 
     #[test]
     fn parses_as_the_ledger_client_does() {
         assert_eq!(parse_amount("1.5"), Ok(ONE + ONE / 2));
         assert_eq!(parse_amount(" -2 "), Ok(-2 * ONE));
-        assert_eq!(parse_amount("0.000000000000000001"), Ok(1));
+        assert_eq!(parse_amount("0.000000000000000001"), Ok(Amount::UNIT));
         assert!(parse_amount("1e5").is_err());
         assert!(parse_amount(".5").is_err());
         assert!(parse_amount("+1").is_err());
@@ -282,7 +570,7 @@ mod tests {
         assert!(parse_amount("100000000000000000000").is_err());
         assert_eq!(
             parse_amount("99999999999999999999"),
-            Ok(MAX_AMOUNT / ONE * ONE)
+            Ok(Amount::whole(MAX_AMOUNT.scaled() / ONE.scaled()))
         );
     }
 }

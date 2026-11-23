@@ -304,14 +304,14 @@ fn compose(input: &Value, lots: &Value) -> Result<Json, Failure> {
         ));
     }
 
-    let mut realized: Amount = 0;
+    let mut realized: Amount = Amount::ZERO;
     for lot in closed {
         let proceeds = amount(string(lot, "proceeds").unwrap_or_default())?;
         let basis = amount(string(lot, "costBasis").unwrap_or_default())?;
         realized = add(realized, sub(proceeds, basis)?)?;
     }
-    let mut unrealized: Amount = 0;
-    let mut marked_open: Amount = 0;
+    let mut unrealized: Amount = Amount::ZERO;
+    let mut marked_open: Amount = Amount::ZERO;
     for lot in open {
         let qty = amount(string(lot, "qtyRemaining").unwrap_or_default())?;
         let price = match mark(
@@ -584,7 +584,7 @@ fn difference(adapter: Amount, book: Amount) -> String {
         return format_amount(d);
     }
     // Only opposite signs overflow, so the magnitude is the two magnitudes summed.
-    let magnitude = adapter.unsigned_abs() + book.unsigned_abs();
+    let magnitude = adapter.scaled().unsigned_abs() + book.scaled().unsigned_abs();
     let scale = 1_000_000_000_000_000_000_u128;
     let (whole, frac) = (magnitude / scale, magnitude % scale);
     let sign = if adapter < book { "-" } else { "" };

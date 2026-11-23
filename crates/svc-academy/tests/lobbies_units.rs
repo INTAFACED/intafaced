@@ -19,7 +19,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use hmac::{Hmac, Mac};
 use service_kit::http::{Fetch, FetchError, HttpRequest, HttpResponse};
 use service_kit::json::{self, Json};
-use service_kit::money::parse_amount;
+use service_kit::money::{Amount, parse_amount};
 use service_kit::s2s::{CallSigner, KeyringEntry, Mode, ServiceSigner};
 use service_kit::s2s_verify::{self, BodyBind, Incoming, ServiceVerifier};
 use service_kit::schema::Value;
@@ -34,7 +34,7 @@ use svc_academy::lobbies::store::{Lobbies, NewRoom, list_limit, published_max_ro
 use svc_academy::lobbies::stream::{self, LiveKit, LiveKitOptions, stream_from_env};
 use svc_academy::ports::{self, BaseHostRights, HostRights, NullStream, Ports, Stake, Stream};
 
-fn amt(s: &str) -> i128 {
+fn amt(s: &str) -> Amount {
     parse_amount(s).unwrap()
 }
 
@@ -56,7 +56,7 @@ fn message(r: &Refusal) -> &str {
 
 // ── access/room-access.test.ts ───────────────────────────────────────────────────────────────────────────────────
 
-fn room(access: Access, min_stake: i128, capacity: i64) -> RoomTerms {
+fn room(access: Access, min_stake: Amount, capacity: i64) -> RoomTerms {
     RoomTerms {
         access,
         min_stake,
@@ -64,7 +64,7 @@ fn room(access: Access, min_stake: i128, capacity: i64) -> RoomTerms {
     }
 }
 
-fn ask(occupancy: i64, stake: i128, invited: bool, is_host: bool) -> SeatRequest {
+fn ask(occupancy: i64, stake: Amount, invited: bool, is_host: bool) -> SeatRequest {
     SeatRequest {
         occupancy,
         stake,
@@ -83,21 +83,24 @@ fn refused_code(s: Seat) -> Option<&'static str> {
 #[test]
 fn a_free_room_admits_while_there_is_room_and_refuses_at_or_over_capacity() {
     assert_eq!(
-        seat::decide_seat(room(Access::Free, 0, 10), ask(0, 0, false, false)),
+        seat::decide_seat(
+            room(Access::Free, Amount::ZERO, 10),
+            ask(0, Amount::ZERO, false, false)
+        ),
         Seat::Allowed
     );
     assert_eq!(
         refused_code(seat::decide_seat(
-            room(Access::Free, 0, 2),
-            ask(2, 0, false, false)
+            room(Access::Free, Amount::ZERO, 2),
+            ask(2, Amount::ZERO, false, false)
         )),
         Some("academy.room_full")
     );
     // Occupancy above capacity is a room that shrank, not a room with space.
     assert_eq!(
         refused_code(seat::decide_seat(
-            room(Access::Free, 0, 2),
-            ask(5, 0, false, false)
+            room(Access::Free, Amount::ZERO, 2),
+            ask(5, Amount::ZERO, false, false)
         )),
         Some("academy.room_full")
     );
@@ -124,7 +127,7 @@ fn a_staked_room_gates_on_an_inclusive_threshold_before_the_seat_count() {
     assert_eq!(
         refused_code(seat::decide_seat(
             room(Access::Staked, amt("1000"), 1),
-            ask(1, 0, false, false)
+            ask(1, Amount::ZERO, false, false)
         )),
         Some("academy.stake_required")
     );
@@ -132,19 +135,22 @@ fn a_staked_room_gates_on_an_inclusive_threshold_before_the_seat_count() {
 
 #[test]
 fn an_invite_room_needs_an_invitation_and_still_counts_seats() {
-    let invite = room(Access::Invite, 0, 10);
+    let invite = room(Access::Invite, Amount::ZERO, 10);
     assert_eq!(
-        refused_code(seat::decide_seat(invite, ask(0, 0, false, false))),
+        refused_code(seat::decide_seat(
+            invite,
+            ask(0, Amount::ZERO, false, false)
+        )),
         Some("academy.invite_required")
     );
     assert_eq!(
-        seat::decide_seat(invite, ask(0, 0, true, false)),
+        seat::decide_seat(invite, ask(0, Amount::ZERO, true, false)),
         Seat::Allowed
     );
     assert_eq!(
         refused_code(seat::decide_seat(
-            room(Access::Invite, 0, 1),
-            ask(1, 0, true, false)
+            room(Access::Invite, Amount::ZERO, 1),
+            ask(1, Amount::ZERO, true, false)
         )),
         Some("academy.room_full")
     );
@@ -153,18 +159,24 @@ fn an_invite_room_needs_an_invitation_and_still_counts_seats() {
 #[test]
 fn the_host_is_admitted_to_a_full_staked_or_invite_room() {
     assert_eq!(
-        seat::decide_seat(room(Access::Free, 0, 1), ask(1, 0, false, true)),
+        seat::decide_seat(
+            room(Access::Free, Amount::ZERO, 1),
+            ask(1, Amount::ZERO, false, true)
+        ),
         Seat::Allowed
     );
     assert_eq!(
         seat::decide_seat(
             room(Access::Staked, amt("100000"), 10),
-            ask(0, 0, false, true)
+            ask(0, Amount::ZERO, false, true)
         ),
         Seat::Allowed
     );
     assert_eq!(
-        seat::decide_seat(room(Access::Invite, 0, 10), ask(0, 0, false, true)),
+        seat::decide_seat(
+            room(Access::Invite, Amount::ZERO, 10),
+            ask(0, Amount::ZERO, false, true)
+        ),
         Seat::Allowed
     );
 }
@@ -195,7 +207,10 @@ fn only_a_staked_room_asks_for_a_stake_and_never_for_its_host() {
 
 #[test]
 fn the_seat_cards_stay_consistent() {
-    let ok = seat::decide_seat(room(Access::Free, 0, 10), ask(0, 0, false, false));
+    let ok = seat::decide_seat(
+        room(Access::Free, Amount::ZERO, 10),
+        ask(0, Amount::ZERO, false, false),
+    );
     assert!(ok.allowed());
     assert!(seat::board_card(ok).0);
     assert!(seat::status_line_matches(ok));
@@ -205,7 +220,7 @@ fn the_seat_cards_stay_consistent() {
     assert_eq!(seat::export_line(ok), "1,,0");
     let refuse = seat::decide_seat(
         room(Access::Staked, amt("100"), 10),
-        ask(0, 0, false, false),
+        ask(0, Amount::ZERO, false, false),
     );
     assert!(!refuse.allowed());
     assert_eq!(seat::board_card(refuse).1, Some("academy.stake_required"));
@@ -322,7 +337,7 @@ fn a_published_ceiling_is_an_integer_from_1_to_100000_and_is_never_clamped() {
             "A lobby cannot seat more than 20 — presence fans out over the gateway"
         )
     );
-    for min_stake in [None, Some(0)] {
+    for min_stake in [None, Some(Amount::ZERO)] {
         let staked = l
             .create_room(&NewRoom {
                 access: Access::Staked,
@@ -1378,7 +1393,7 @@ fn the_read_fingerprint_is_the_token_the_write_checks() {
 #[allow(dead_code, reason = "kept to show the port's shape in one place")]
 struct NoStake;
 impl Stake for NoStake {
-    fn stake_of(&self, _: &str) -> Result<i128, Refusal> {
+    fn stake_of(&self, _: &str) -> Result<Amount, Refusal> {
         panic!("not asked")
     }
 }

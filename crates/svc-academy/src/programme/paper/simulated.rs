@@ -107,7 +107,7 @@ fn published_amount(raw: &Value, field: &str, fill_id: &str) -> Result<Amount, R
             "Fill {fill_id} has an unreadable published {field} \"{trimmed}\""
         ))
     })?;
-    if parsed < 0 {
+    if parsed < Amount::ZERO {
         return Err(refuse_price(&format!(
             "Fill {fill_id} has a negative published {field}"
         )));

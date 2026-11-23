@@ -298,7 +298,9 @@ impl Http {
                 } else {
                     format!("-{amount}")
                 };
-                if text(item, "signedAmount") != signed || parse_amount(&amount).ok()? <= 0 {
+                if text(item, "signedAmount") != signed
+                    || parse_amount(&amount).ok()? <= Amount::ZERO
+                {
                     return None;
                 }
                 let named = parsed(
@@ -360,17 +362,21 @@ fn add(into: &mut Vec<(String, Amount)>, key: &str, amount: Amount) {
 
 /// `tally`: one kind's amount under `key` and its count under `#key`, skipping a sum that is zero in both.
 fn tally(into: &mut Vec<(String, Amount)>, key: &str, amount: Amount, count: i128) {
-    if amount == 0 && count == 0 {
+    if amount == Amount::ZERO && count == 0 {
         return;
     }
     add(into, key, amount);
-    add(into, &format!("#{key}"), count);
+    // The count rides in the same figures as the amounts, as the TypeScript's one bigint map holds both; it is a
+    // count, not money, so it goes in as its raw integer on both sides of `same`.
+    add(into, &format!("#{key}"), Amount::from_scaled(count));
 }
 
 /// Every key of either side holds the same figure on both, a missing one read as zero.
 fn same(a: &[(String, Amount)], b: &[(String, Amount)]) -> bool {
     let of = |side: &[(String, Amount)], k: &str| {
-        side.iter().find(|(key, _)| key == k).map_or(0, |(_, v)| *v)
+        side.iter()
+            .find(|(key, _)| key == k)
+            .map_or(Amount::ZERO, |(_, v)| *v)
     };
     a.iter().chain(b).all(|(k, _)| of(a, k) == of(b, k))
 }

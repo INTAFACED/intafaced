@@ -138,7 +138,7 @@ impl Book {
                 .balances
                 .get(&key)
                 .copied()
-                .unwrap_or(0),
+                .unwrap_or(Amount::ZERO),
         )
     }
     /// `userAvailable(user, 'USDT')`.
@@ -207,7 +207,7 @@ impl Ledger for Book {
             .balances
             .get(&acct(a))
             .copied()
-            .unwrap_or(0))
+            .unwrap_or(Amount::ZERO))
     }
     fn balances(&self, owner_type: &str, owner: &str) -> Result<Vec<LedgerBalance>, String> {
         Ok(self
@@ -276,7 +276,7 @@ impl Ledger for Book {
             Some(Json::String(a)) => amt(a),
             other => panic!("amount: {other:?}"),
         };
-        let held = st.balances.get(&from).copied().unwrap_or(0);
+        let held = st.balances.get(&from).copied().unwrap_or(Amount::ZERO);
         if held < amount {
             // The memory ledger's refusal carries no single-attempt stamp: it proves nothing on its own.
             return Err(PostFailure::Coded {

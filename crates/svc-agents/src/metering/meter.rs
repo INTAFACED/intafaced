@@ -159,11 +159,11 @@ fn amount_of(text: &str) -> Result<Amount, MeterError> {
 fn groups_of(rows: &[postgres::Row]) -> Result<Vec<UsageGroup>, MeterError> {
     rows.iter()
         .map(|r| {
-            let count = |i: usize| -> Result<Amount, MeterError> {
+            let count = |i: usize| -> Result<i128, MeterError> {
                 // `BigInt(r.input_tokens ?? '0')`: SUM of a bigint column, an integer.
                 let t: Option<String> = r.try_get(i)?;
                 t.map_or(Ok(0), |t| {
-                    t.parse::<Amount>()
+                    t.parse::<i128>()
                         .map_err(|e| MeterError::Pricing(e.to_string()))
                 })
             };
@@ -369,7 +369,7 @@ pub fn settle(
         let amount = pricing::window_cost(&groups).map_err(|e| Fail::Meter(e.into()))?;
         // Nothing billable: sealed and closed now. The ledger refuses a zero entry, and an open zero window could be
         // "settled" twice.
-        let tx_id = (amount <= 0).then(|| NO_CHARGE.to_owned());
+        let tx_id = (amount <= Amount::ZERO).then(|| NO_CHARGE.to_owned());
         tx.execute(
             "UPDATE agents.usage_windows
                 SET sealed_at = now(), charged_amount = $3::text::numeric, charged_asset = $4::text,
@@ -549,7 +549,7 @@ fn earn_and_collect(
 /// `fireAffiliateAccrue` then `fireAffiliatePayout`: a zero fee has nothing to share; a failure never unwinds the
 /// charge already posted.
 fn notify_affiliates(m: &Metering, fee_event_id: &str, user_id: &str, fee: Amount) {
-    if fee <= 0 {
+    if fee <= Amount::ZERO {
         return;
     }
     let _accrued = m

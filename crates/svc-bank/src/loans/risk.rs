@@ -25,7 +25,7 @@ pub const DAYS_PER_YEAR: i64 = 365;
 /// `Number.MAX_SAFE_INTEGER`: the LTV of debt against no collateral.
 pub const MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
 
-const SCALE: Amount = 1_000_000_000_000_000_000;
+const SCALE: Amount = Amount::whole(1);
 const DAY_MS: i64 = 86_400_000;
 
 /// `RiskError(message, code)`.
@@ -103,12 +103,18 @@ pub(crate) fn mul_bps(amount: Amount, bps: i64, rounding: Rounding) -> Result<Am
             "bps must be a non-negative integer, got {bps}"
         )));
     }
-    Ok(mul_div(amount, Amount::from(bps), 10_000, rounding))
+    // `amount * bps / BPS`: both are counts of basis points, carried as scaled factors.
+    Ok(mul_div(
+        amount,
+        Amount::from_scaled(i128::from(bps)),
+        Amount::from_scaled(i128::from(BPS)),
+        rounding,
+    ))
 }
 
 /// `div(a, b, rounding)`: `a * SCALE / b`.
 pub(crate) fn div(a: Amount, b: Amount, rounding: Rounding) -> Result<Amount, RiskError> {
-    if b == 0 {
+    if b == Amount::ZERO {
         return Err(RiskError::money("Division by zero"));
     }
     Ok(mul_div(a, SCALE, b, rounding))
@@ -121,7 +127,7 @@ pub fn value_at<M: AsRef<Mark>>(
     marks: &BTreeMap<String, M>,
     rounding: Round,
 ) -> Result<Amount, RiskError> {
-    let mut total: Amount = 0;
+    let mut total: Amount = Amount::ZERO;
     for h in holdings {
         let Some(mark) = marks.get(&h.asset_id) else {
             return Err(RiskError::new(
@@ -143,30 +149,33 @@ pub fn value_at<M: AsRef<Mark>>(
 /// as over it. Zero collateral against real debt is unsecured: `MAX_SAFE_INTEGER`, past every threshold. Deliberately
 /// not `div` then a whole-bps floor, which silently undoes the ceil.
 pub fn ltv_bps(debt_value: Amount, collateral_value: Amount) -> Result<i64, RiskError> {
-    if debt_value < 0 {
+    if debt_value < Amount::ZERO {
         return Err(RiskError::new(
             "Debt value cannot be negative",
             "bank.risk_invalid",
         ));
     }
-    if collateral_value < 0 {
+    if collateral_value < Amount::ZERO {
         return Err(RiskError::new(
             "Collateral value cannot be negative",
             "bank.risk_invalid",
         ));
     }
-    if debt_value == 0 {
+    if debt_value == Amount::ZERO {
         return Ok(0);
     }
-    if collateral_value == 0 {
+    if collateral_value == Amount::ZERO {
         return Ok(MAX_SAFE_INTEGER);
     }
+    // debt / collateral in basis points: a ratio of two amounts times a count, so the quotient's scaled integer is the
+    // count of basis points itself.
     let bps = mul_div(
         debt_value,
-        Amount::from(BPS),
+        Amount::from_scaled(i128::from(BPS)),
         collateral_value,
         Rounding::Ceil,
-    );
+    )
+    .scaled();
     Ok(i64::try_from(bps)
         .unwrap_or(MAX_SAFE_INTEGER)
         .min(MAX_SAFE_INTEGER))
@@ -233,10 +242,10 @@ pub fn mark_portfolio<M: AsRef<Mark>>(
     }
     let debt_value = loans
         .iter()
-        .fold(0, |s: Amount, l| s.saturating_add(l.debt_value));
-    let collateral_value = loans
-        .iter()
-        .fold(0, |s: Amount, l| s.saturating_add(l.collateral_value));
+        .fold(Amount::ZERO, |s: Amount, l| s.saturating_add(l.debt_value));
+    let collateral_value = loans.iter().fold(Amount::ZERO, |s: Amount, l| {
+        s.saturating_add(l.collateral_value)
+    });
     Ok(PortfolioMark {
         debt_value,
         collateral_value,
@@ -256,8 +265,8 @@ pub fn daily_loan_interest(
     apr_bps: i64,
     days_per_year: i64,
 ) -> Result<Amount, RiskError> {
-    if debt <= 0 {
-        return Ok(0);
+    if debt <= Amount::ZERO {
+        return Ok(Amount::ZERO);
     }
     if apr_bps < 0 {
         return Err(RiskError::new(
@@ -266,7 +275,7 @@ pub fn daily_loan_interest(
         ));
     }
     if apr_bps == 0 {
-        return Ok(0);
+        return Ok(Amount::ZERO);
     }
     let annual = mul_bps(debt, apr_bps, Rounding::Floor)?;
     let per_day = parse_amount(&days_per_year.to_string()).map_err(RiskError::money)?;
@@ -476,7 +485,7 @@ pub fn plan_liquidation(input: &LadderInput) -> Result<LadderRung, RiskError> {
     let policy = &input.policy;
     let (debt, collateral) = (input.debt, input.collateral);
 
-    if input.collateral_mark.price <= 0 || input.debt_mark.price <= 0 {
+    if input.collateral_mark.price <= Amount::ZERO || input.debt_mark.price <= Amount::ZERO {
         // A zero or negative mark is a broken feed, not a cheap asset. `prices.rs` refuses these at the source; this
         // is the second door.
         return Err(RiskError::new(
@@ -517,7 +526,7 @@ pub fn plan_liquidation(input: &LadderInput) -> Result<LadderRung, RiskError> {
         }
     }
 
-    if collateral <= 0 {
+    if collateral <= Amount::ZERO {
         // Nothing left to sell: the shortfall is bad debt (`loanBadDebt`). The same `none` as a healthy loan but with
         // an unsecured LTV; it is NOT a cure (`is_margin_call_cured`).
         return Ok(LadderRung::None { ltv_bps: ltv });
@@ -525,15 +534,15 @@ pub fn plan_liquidation(input: &LadderInput) -> Result<LadderRung, RiskError> {
 
     let target_scaled = parse_amount(&policy.target_ltv_bps.to_string())
         .map_err(RiskError::money)?
-        / Amount::from(BPS);
+        / i128::from(BPS);
     let one = SCALE;
 
     let numerator =
         debt_value.saturating_sub(mul_rounded(collateral_value, target_scaled, Rounding::Ceil));
     let denominator = one - target_scaled;
 
-    let mut value_to_retire = if numerator <= 0 {
-        0
+    let mut value_to_retire = if numerator <= Amount::ZERO {
+        Amount::ZERO
     } else {
         div(numerator, denominator, Rounding::Floor)?
     };
@@ -556,7 +565,7 @@ pub fn plan_liquidation(input: &LadderInput) -> Result<LadderRung, RiskError> {
         collateral_to_sell = collateral;
     }
 
-    if collateral_to_sell <= 0 {
+    if collateral_to_sell <= Amount::ZERO {
         // A rung that sells nothing is not a rung (a dust position's cap floors to zero): a margin call, so it stays
         // visible instead of looping on a liquidation that never moves.
         return Ok(LadderRung::MarginCall { ltv_bps: ltv });
@@ -591,7 +600,7 @@ pub fn is_margin_call_cured(
         return false;
     }
     // Exhausted collateral with residual debt is NOT a cure.
-    if debt > 0 && collateral <= 0 {
+    if debt > Amount::ZERO && collateral <= Amount::ZERO {
         return false;
     }
     true
@@ -623,7 +632,7 @@ pub struct ProceedsInput {
 /// deliberate (it is what makes liquidation dearer than deleveraging), but it is capped at what is left after the debt,
 /// so it is never taken out of the reserve's recovery. Surplus goes back to the borrower unconditionally.
 pub fn split_proceeds(input: &ProceedsInput) -> Result<ProceedsSplit, RiskError> {
-    if input.proceeds <= 0 {
+    if input.proceeds <= Amount::ZERO {
         return Err(RiskError::new(
             "Cannot split zero proceeds",
             "bank.risk_invalid",
@@ -635,7 +644,7 @@ pub fn split_proceeds(input: &ProceedsInput) -> Result<ProceedsSplit, RiskError>
     let headroom = if input.proceeds > owed {
         input.proceeds - owed
     } else {
-        0
+        Amount::ZERO
     };
     let penalty = wanted.min(headroom);
 
@@ -653,7 +662,11 @@ pub fn split_proceeds(input: &ProceedsInput) -> Result<ProceedsSplit, RiskError>
         surplus_to_borrower: left,
         // A shortfall on a tranche that leaves collateral behind is not a loss yet: only a closing tranche
         // crystallises it.
-        shortfall: if input.closes_position { shortfall } else { 0 },
+        shortfall: if input.closes_position {
+            shortfall
+        } else {
+            Amount::ZERO
+        },
     })
 }
 
@@ -692,17 +705,30 @@ mod tests {
     #[test]
     fn ltv_rounds_up_so_a_position_fractionally_over_is_over() {
         let collateral = amt("10000");
-        assert_eq!(ltv_bps(amt("7500") + 1, collateral).unwrap(), 7_501);
+        assert_eq!(
+            ltv_bps(amt("7500") + Amount::from_scaled(1), collateral).unwrap(),
+            7_501
+        );
         assert_eq!(ltv_bps(amt("7500"), collateral).unwrap(), 7_500);
     }
 
     #[test]
     fn zero_collateral_against_debt_is_unsecured() {
-        assert_eq!(ltv_bps(amt("100"), 0).unwrap(), MAX_SAFE_INTEGER);
-        assert_eq!(ltv_bps(0, 0).unwrap(), 0);
+        assert_eq!(ltv_bps(amt("100"), Amount::ZERO).unwrap(), MAX_SAFE_INTEGER);
+        assert_eq!(ltv_bps(Amount::ZERO, Amount::ZERO).unwrap(), 0);
         assert_eq!(ltv_bps(amt("0.1") + amt("0.2"), amt("1")).unwrap(), 3_000);
-        assert_eq!(ltv_bps(-1, 1).unwrap_err().code, "bank.risk_invalid");
-        assert_eq!(ltv_bps(1, -1).unwrap_err().code, "bank.risk_invalid");
+        assert_eq!(
+            ltv_bps(-Amount::from_scaled(1), Amount::from_scaled(1))
+                .unwrap_err()
+                .code,
+            "bank.risk_invalid"
+        );
+        assert_eq!(
+            ltv_bps(Amount::from_scaled(1), -Amount::from_scaled(1))
+                .unwrap_err()
+                .code,
+            "bank.risk_invalid"
+        );
     }
 
     #[test]
@@ -711,9 +737,12 @@ mod tests {
         assert_eq!(format_amount(daily), "0.273972602739726027");
         assert_eq!(
             daily_loan_interest(amt("1000"), 0, DAYS_PER_YEAR).unwrap(),
-            0
+            Amount::ZERO
         );
-        assert_eq!(daily_loan_interest(0, 1_000, DAYS_PER_YEAR).unwrap(), 0);
+        assert_eq!(
+            daily_loan_interest(Amount::ZERO, 1_000, DAYS_PER_YEAR).unwrap(),
+            Amount::ZERO
+        );
         let err = daily_loan_interest(amt("1000"), -1, DAYS_PER_YEAR).unwrap_err();
         assert_eq!(err.code, "bank.risk_invalid");
         assert_eq!(
@@ -895,7 +924,7 @@ mod tests {
     #[test]
     fn a_non_positive_mark_is_refused() {
         let mut input = ladder("9000", amt("1"), Some(TWO_HOURS));
-        input.collateral_mark.price = 0;
+        input.collateral_mark.price = Amount::ZERO;
         let e = plan_liquidation(&input).unwrap_err();
         assert_eq!(e.code, "bank.mark_invalid");
         assert_eq!(
@@ -906,7 +935,7 @@ mod tests {
 
     #[test]
     fn no_ladder_once_the_collateral_is_gone() {
-        let rung = plan_liquidation(&ladder("1000", 0, Some(TWO_HOURS))).unwrap();
+        let rung = plan_liquidation(&ladder("1000", Amount::ZERO, Some(TWO_HOURS))).unwrap();
         assert_eq!(rung.action(), LadderAction::None);
         assert_eq!(rung.ltv_bps(), MAX_SAFE_INTEGER);
     }
@@ -923,7 +952,7 @@ mod tests {
         assert!(!is_margin_call_cured(
             LadderAction::None,
             amt("40"),
-            0,
+            Amount::ZERO,
             called
         ));
         assert!(!is_margin_call_cured(
@@ -958,7 +987,7 @@ mod tests {
         assert_eq!(format_amount(s.interest_repaid), "50");
         assert_eq!(format_amount(s.principal_repaid), "500");
         assert_eq!(format_amount(s.surplus_to_borrower), "430");
-        assert_eq!(s.shortfall, 0);
+        assert_eq!(s.shortfall, Amount::ZERO);
         assert_eq!(
             s.penalty + s.interest_repaid + s.principal_repaid + s.surplus_to_borrower,
             amt("1000")
@@ -967,19 +996,19 @@ mod tests {
         assert!(split("10000", "0", "1000", true).surplus_to_borrower > amt("8000"));
 
         let s = split("400", "50", "1000", true);
-        assert_eq!(s.penalty, 0);
+        assert_eq!(s.penalty, Amount::ZERO);
         assert_eq!(format_amount(s.interest_repaid), "50");
         assert_eq!(format_amount(s.principal_repaid), "350");
         assert_eq!(format_amount(s.shortfall), "650");
-        assert_eq!(s.surplus_to_borrower, 0);
+        assert_eq!(s.surplus_to_borrower, Amount::ZERO);
 
         let s = split("100", "0", "1000", false);
-        assert_eq!(s.shortfall, 0);
+        assert_eq!(s.shortfall, Amount::ZERO);
         assert_eq!(format_amount(s.principal_repaid), "100");
 
         let s = split("10", "50", "1000", true);
         assert_eq!(format_amount(s.interest_repaid), "10");
-        assert_eq!(s.principal_repaid, 0);
+        assert_eq!(s.principal_repaid, Amount::ZERO);
         assert_eq!(format_amount(s.shortfall), "1000");
         assert_eq!(
             s.interest_repaid + s.principal_repaid + s.penalty + s.surplus_to_borrower,
@@ -987,9 +1016,9 @@ mod tests {
         );
 
         let e = split_proceeds(&ProceedsInput {
-            proceeds: 0,
-            interest_owed: 0,
-            principal_owed: 0,
+            proceeds: Amount::ZERO,
+            interest_owed: Amount::ZERO,
+            principal_owed: Amount::ZERO,
             penalty_bps: 200,
             closes_position: true,
         })
@@ -1007,15 +1036,24 @@ mod tests {
                 quantity: q,
             }]
         };
-        assert_eq!(value_at(&h(1), &marks, Round::Floor).unwrap(), 3);
-        let third = 1;
+        assert_eq!(
+            value_at(&h(Amount::from_scaled(1)), &marks, Round::Floor).unwrap(),
+            Amount::from_scaled(3)
+        );
+        let third = Amount::from_scaled(1);
         let mut thin = BTreeMap::new();
         thin.insert("BTC".to_owned(), mark("0.5", "BTC"));
-        assert_eq!(value_at(&h(third), &thin, Round::Floor).unwrap(), 0);
-        assert_eq!(value_at(&h(third), &thin, Round::Ceil).unwrap(), 1);
+        assert_eq!(
+            value_at(&h(third), &thin, Round::Floor).unwrap(),
+            Amount::ZERO
+        );
+        assert_eq!(
+            value_at(&h(third), &thin, Round::Ceil).unwrap(),
+            Amount::from_scaled(1)
+        );
         let missing = vec![Holding {
             asset_id: "ETH".to_owned(),
-            quantity: 1,
+            quantity: Amount::from_scaled(1),
         }];
         let e = value_at(&missing, &marks, Round::Floor).unwrap_err();
         assert_eq!(e.code, "bank.mark_missing");
