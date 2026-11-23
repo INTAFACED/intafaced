@@ -130,15 +130,16 @@ pub fn person(id: &str, names: &BTreeMap<String, String>) -> Json {
 }
 
 fn directory_error(e: DirError) -> Refusal {
-    match e {
-        DirError::Unset => refuse(
+    if e.unset() {
+        refuse(
             "bank.business_directory_unset",
             "svc-bank cannot read handles, so shared pots cannot name anyone",
-        ),
-        DirError::Unavailable => refuse(
+        )
+    } else {
+        refuse(
             "bank.business_directory_unavailable",
             "svc-identity did not answer for handles; try again",
-        ),
+        )
     }
 }
 

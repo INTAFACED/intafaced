@@ -346,19 +346,14 @@ fn require_request_id(request_id: &str) -> Result<(), Refusal> {
     Ok(())
 }
 
-/// `directoryError`: unset stays unset; anything else is unavailable. The directory port names no detail here, so each
-/// answers its one sentence.
+/// `directoryError`: unset stays unset; anything else is unavailable; each says the directory's own sentence.
 fn directory_error(e: DirError) -> Refusal {
-    match e {
-        DirError::Unset => refuse(
-            "bank.business_directory_unset",
-            "IDENTITY_URL is unset, so svc-bank cannot read public handles from svc-identity. Team list, approval history and recipient lookup stay closed until that directory is connected (bank.business_directory_unset)",
-        ),
-        DirError::Unavailable => refuse(
-            "bank.business_directory_unavailable",
-            "svc-identity did not answer the business directory. Nothing was listed. Retry shortly (bank.business_directory_unavailable)",
-        ),
-    }
+    let code = if e.unset() {
+        "bank.business_directory_unset"
+    } else {
+        "bank.business_directory_unavailable"
+    };
+    refuse(code, e.sentence())
 }
 
 fn cursor_invalid() -> Refusal {
