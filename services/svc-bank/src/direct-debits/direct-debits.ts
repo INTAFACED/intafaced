@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import {
   InsufficientFundsError,
@@ -327,7 +328,7 @@ export class DirectDebitService {
     };
   }
 
-  private async ownedMandate(db: Sql, userId: string, mandateId: string, lock: boolean): Promise<MandateRow> {
+  private async ownedMandate(db: Queryable, userId: string, mandateId: string, lock: boolean): Promise<MandateRow> {
     const rows = lock
       ? await db<MandateRow[]>`SELECT ${db.unsafe(MANDATE_COLUMNS)} FROM bank.dd_mandates WHERE id = ${mandateId} FOR UPDATE`
       : await db<MandateRow[]>`SELECT ${db.unsafe(MANDATE_COLUMNS)} FROM bank.dd_mandates WHERE id = ${mandateId}`;
@@ -357,7 +358,7 @@ export class DirectDebitService {
     const atPartner = partner ? await partner.dd.block(input.userId, input.mandateId) : null;
     const code = atPartner?.refusalCode ?? 'bank.dd_mandate_blocked';
     const result = await this.sql.begin(async (tx) => {
-      const mandate = await this.ownedMandate(tx as unknown as Sql, input.userId, input.mandateId, true);
+      const mandate = await this.ownedMandate(tx, input.userId, input.mandateId, true);
       if (mandate.status === 'active') {
         await tx`UPDATE bank.dd_mandates SET status = 'blocked', blocked_at = ${now}, updated_at = now() WHERE id = ${mandate.id}`;
       }
@@ -387,7 +388,7 @@ export class DirectDebitService {
     const partner = this.partnerFor(input.userId);
     if (partner) await partner.dd.unblock(input.userId, input.mandateId);
     await this.sql.begin(async (tx) => {
-      const mandate = await this.ownedMandate(tx as unknown as Sql, input.userId, input.mandateId, true);
+      const mandate = await this.ownedMandate(tx, input.userId, input.mandateId, true);
       if (mandate.status === 'blocked') {
         await tx`UPDATE bank.dd_mandates SET status = 'active', blocked_at = NULL, updated_at = now() WHERE id = ${mandate.id}`;
       }
@@ -453,6 +454,19 @@ export class DirectDebitService {
     return rows.map((row) => ({ ...this.collectionView(row, now), userId: row.user_id, reason: row.refund_reason ?? '' }));
   }
 
+  /** The mandates by id, with whose they are and their creditor, for the finance desk's partner read (J-bank-28 #4). */
+  async opsMandateDetails(
+    ids: readonly string[],
+  ): Promise<Map<string, { userId: string; creditorName: string; reference: string; assetId: string }>> {
+    if (ids.length === 0) return new Map();
+    const rows = await this.sql<MandateRow[]>`
+      SELECT ${this.sql.unsafe(MANDATE_COLUMNS)} FROM bank.dd_mandates WHERE id = ANY(${ids as string[]}::text[])
+    `;
+    return new Map(
+      rows.map((r) => [r.id, { userId: r.user_id, creditorName: r.creditor_name, reference: r.reference, assetId: r.asset_id }]),
+    );
+  }
+
   // ── The scheme's side: signed job doors, never a customer ─────────────────────────────────────────────────────────
 
   /** A creditor sets up a mandate through the scheme. The same mandate again answers the first; other terms refuse. */
@@ -487,6 +501,8 @@ export class DirectDebitService {
     ) {
       throw new BankError('That mandate id is already set up with other terms.', 'bank.dd_mandate_conflict');
     }
+    // Partner-held money: the scheme sets the mandate up against the person's account at the partner, so it knows it.
+    await this.partnerFor(row.user_id)?.dd.setUp?.(row.user_id, row.id);
     return { ...this.mandateView(row, []), userId: row.user_id };
   }
 
@@ -515,7 +531,7 @@ export class DirectDebitService {
     // Partner-held money: whether this mandate refuses collections is the partner's answer, with its reason.
     const owner = (await this.sql<{ user_id: string }[]>`SELECT user_id FROM bank.dd_mandates WHERE id = ${input.mandateId}`)[0];
     const partner = owner ? this.partnerFor(owner.user_id) : null;
-    const atPartner = partner && owner ? await partner.dd.mandate(owner.user_id, input.mandateId) : null;
+    const atPartner = partner && owner ? await partner.dd.mandate(owner.user_id, input.mandateId, input.collectionId) : null;
     const rowId = await this.sql.begin(async (tx) => {
       // FOR SHARE orders this with a block, which takes the row FOR UPDATE.
       const mandate = (
@@ -681,7 +697,7 @@ export class DirectDebitService {
     const key = collectionPartnerKey(row.mandate_id, row.collection_id);
     let moved: PartnerMove | null = await partner.bank.moveByKey(key);
     if (!moved) {
-      const mandate = await partner.dd.mandate(row.user_id, row.mandate_id);
+      const mandate = await partner.dd.mandate(row.user_id, row.mandate_id, row.collection_id);
       if (mandate.blocked) return this.finish(row.id, 'rejected', mandate.refusalCode ?? 'bank.dd_mandate_blocked', now);
       try {
         await this.spaces.assertCanReceive(row.user_id);

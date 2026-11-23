@@ -9,9 +9,7 @@ import {
   type SupportVerificationCheckKind,
   type SupportVerificationChecks,
 } from '@intafaced/contracts/support-verification-checks';
-import type { FounderCallFailure } from '@/lib/desk/founder-call';
-import type { Part } from '@/lib/desk/part';
-import type { RefusalView } from '@/lib/desk/refusal-copy';
+import type { FounderCallFailure, Part, RefusalView } from '@/lib/desk';
 import { explainSupportFailure, supportCodeOf } from './refusal';
 import { isTicketId } from './model';
 

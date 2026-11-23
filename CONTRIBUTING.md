@@ -6,7 +6,7 @@ People and AI agents share one repo. This file is how that stays clean. The rule
 
 ## 1 · How a change lands
 
-The rules are in [`AGENTS.md`](AGENTS.md): read it first. In short: a short-lived branch in your own worktree, a pull request with its proof, the required checks green on its exact head, then a squash merge. No direct pushes to `main`: `.githooks/pre-push` blocks them and requires `format:check` (`pnpm install` turns the hook on); never use `--no-verify`. Never bypass a required check, and never weaken a gate to get green.
+The rules are in [`AGENTS.md`](AGENTS.md): read it first. In short: a short-lived branch in your own worktree, a pull request with its proof, the required checks green on its exact head, then a squash merge. No direct pushes to `main`: `.githooks/pre-push` blocks them, and `.githooks/pre-commit` checks formatting (`pnpm install` turns the hooks on); never use `--no-verify`. Never bypass a required check, and never weaken a gate to get green.
 
 Branch names: `feat/<scope>-<what>`, `fix/<scope>-<what>`, `chore/<what>`, `docs/<what>`. PR titles: `<type>(<scope>): <what changed>`; a gate-file change needs a `ci:` or `gate:` title. Fill in the template. Don't turn on required approvals or code-owner reviews, and don't open PRs whose only job is status.
 
@@ -44,12 +44,11 @@ CI job names, so you can find a failure fast:
 | `Typecheck & build`                          | the whole monorepo compiles                                                                                      |
 | `Tests (changed)` / `Tests (1/8)` to `(8/8)` | the changed packages, their dependents and readers; a run-everything change runs the whole suite in eight shards |
 | `CI merge seal`                              | one result for the checks the changed paths call for                                                             |
-| `Definition of Done`                         | the per-service gate (`pnpm gate`)                                                                               |
 | `Gitleaks` / `Dependency audit`              | secrets and known vulnerabilities                                                                                |
 
 Which checks a change needs, and what to do with a red, is in AGENTS.md.
 
-Locally, run the gates with `node tooling/ci/gates.mjs --changed`: it runs every gate, and the tooling tests (about four minutes) only when your branch's diff against `origin/main`, committed or not, touches `tooling/` or `.github/`. CI and `main` always run the full list.
+Locally, run the gates with `node tooling/ci/gates.mjs --changed`: it runs every gate, and the tooling tests (about three minutes on CI) only when your branch's diff against `origin/main`, committed or not, touches `tooling/` or `.github/`. CI and `main` always run the full list.
 
 ---
 

@@ -13,6 +13,8 @@
  *   B-reads   no non-test package reads another service's source from disk (`readFileSync(join(ROOT, 'services', ...))`),
  *             and no service reads another service's directory.
  *   B-cycle   no dependency cycle between workspace packages (`dependencies`, `devDependencies`, `peerDependencies`).
+ *   F-vue     no Vue: no `vue`, `vuex`, `nuxt`, `@vue/*`, `@nuxt/*` or `vue-*` dependency in the root package.json or any
+ *             workspace package's (the front end is React; AGENTS.md, owner's decisions).
  *
  * MONEY FENCE (one custodial ledger, business-key idempotency)
  *   M-entries no ledger entry (`direction: 'debit'|'credit'`) built in non-test code outside packages/ledger-client and
@@ -27,8 +29,8 @@
  *             that spans lines or goes through a local variable, in service or ledger-client code.
  *
  * The duplicate kinds this scan once counted against a committed baseline (local 10n ** 18n scales, result?.data unwraps,
- * padEnd parsers, timeout-less fetch) are lint rules now (garden/no-local-scale, no-hand-trpc-unwrap, no-hand-decimal-parse,
- * no-fetch-without-timeout), held per rule by tooling/ci/lint-ratchet.mjs.
+ * padEnd parsers, timeout-less fetch) are kinds of the lint rule garden/use-shared-helper now, held kind by kind by
+ * tooling/ci/lint-ratchet.mjs.
  *
  * Known limits (a regex scan, not a parser): a SQL string built by concatenation, a second table after a comma in FROM,
  * a key made by destructuring, a default parameter, a reassigned variable or a function other than randomUUID, Date.now and
@@ -39,7 +41,6 @@
  * matches anything warns with the line to delete (a fix never fails the build; owner decision 2026-10-27).
  *
  *   node tooling/ci/boundary-scan.mjs
- *   node tooling/ci/boundary-scan.mjs --self-test
  */
 import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -281,18 +282,36 @@ function workspaceCycles(root) {
   return findCycles(graph).map((c) => ({ rule: 'B-cycle', file: 'package.json', detail: c.join(' -> ') }));
 }
 
+const DEP_KINDS = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'];
+/** A Vue package: the front end is React (AGENTS.md, the owner's decisions), so none may come back. */
+const VUE_PACKAGE = /^(?:vue|vuex|nuxt)$|^@(?:vue|nuxt)\/|^vue-/;
+
+/** The F-vue findings of one package.json. */
+export function vueDeps(file, json) {
+  return DEP_KINDS.flatMap((k) =>
+    Object.keys(json[k] ?? {})
+      .filter((n) => VUE_PACKAGE.test(n))
+      .map((n) => ({ rule: 'F-vue', file, detail: `${k} ${n}` })),
+  );
+}
+
 function packageDeps(root) {
   const out = [];
-  for (const group of GROUPS) {
+  const rootJson = join(root, 'package.json');
+  if (existsSync(rootJson)) out.push(...vueDeps('package.json', JSON.parse(readFileSync(rootJson, 'utf8'))));
+  for (const group of [...GROUPS, 'tooling']) {
     const base = join(root, group);
     if (!existsSync(base)) continue;
     for (const d of readdirSync(base)) {
       const pj = join(base, d, 'package.json');
       if (!existsSync(pj)) continue;
       const json = JSON.parse(readFileSync(pj, 'utf8'));
-      for (const k of ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']) {
+      const file = `${group}/${d}/package.json`;
+      out.push(...vueDeps(file, json));
+      if (group === 'tooling') continue;
+      for (const k of DEP_KINDS) {
         for (const n of Object.keys(json[k] ?? {})) {
-          if (/^@intafaced\/svc-/.test(n)) out.push({ rule: 'B-deps', file: `${group}/${d}/package.json`, detail: `${k} ${n}` });
+          if (n.startsWith('@intafaced/svc-')) out.push({ rule: 'B-deps', file, detail: `${k} ${n}` });
         }
       }
     }
@@ -347,163 +366,7 @@ export function applyAllow(findings, allow) {
   return { open, stale: allow.filter((_, i) => !used.has(i)) };
 }
 
-function selfTest() {
-  const schemas = ['trade', 'pay', 'mining_pool'];
-  const t = (text, ctx) =>
-    checkSource(text, { rel: 'services/svc-pay/src/x.ts', group: 'services', service: 'svc-pay', ...ctx }, schemas).map((f) => f.rule);
-  const eq = (a, b, m) => {
-    if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(`${m}: ${JSON.stringify(a)}`);
-  };
-  eq(t("import x from '../../svc-trade/src/a.js';"), ['B-hops'], 'sibling hop');
-  eq(t("import x from '../helpers.js';"), [], 'plain import');
-  eq(t("// import x from '../../svc-trade/a.js'"), [], 'comment ignored');
-  eq(t('await sql`SELECT * FROM trade.orders`'), ['B-sql'], 'other schema');
-  eq(t('await sql`SELECT * FROM pay.orders`'), [], 'own schema');
-  eq(t("const r = { entries: [{ account: a, direction: 'debit', amount: 1n }] };"), ['M-entries'], 'inline entries');
-  eq(t('const a = { entries: [] };'), [], 'audit entries are not postings');
-  eq(
-    t("const r = { entries: [{ account: a, direction: 'debit' }] };", {
-      rel: 'packages/ledger-client/src/r.ts',
-      group: 'packages',
-      service: null,
-    }),
-    [],
-    'ledger-client owns entries',
-  );
-  eq(t('export class MyLedger implements LedgerClient {}'), ['M-client'], 'own ledger client');
-  eq(t("await fetch(`${base}/trpc/post`, { method: 'POST' });"), ['M-client'], 'direct ledger post');
-  eq(t('const c = createHttpLedgerClient({ baseUrl });'), [], 'shared client');
-  eq(
-    t('class L implements LedgerClient {}', { rel: 'services/svc-ledger/src/s.ts', service: 'svc-ledger' }),
-    [],
-    'ledger service owns the interface',
-  );
-  eq(t('post({ idempotencyKey: `x:${randomUUID()}` })'), ['M-key'], 'random key');
-  eq(t('post({ idempotencyKey: `x:${order.id}` })'), [], 'business key');
-  eq(
-    checkMigration('  hold_amount numeric(38,18) NOT NULL,', { rel: 'm.sql' }).map((f) => f.rule),
-    ['M-balance'],
-    'balance column',
-  );
-  eq(checkMigration('  filled_at timestamptz,', { rel: 'm.sql' }), [], 'plain column');
-  // The six evasions an independent reviewer fed the first version of this gate (briefs-scope-audit 2026-10-20 section 5).
-  eq(t('await sql<{ a: string }[]>`SELECT * FROM trade.orders`'), ['B-sql'], 'evasion 1: generic sql tag');
-  eq(t('await tx`SELECT * FROM trade.orders`'), ['B-sql'], 'evasion 1: tx tag');
-  eq(t('await tx<Row[]>`SELECT * FROM "trade"."orders"`'), ['B-sql'], 'evasion 1: tx generic quoted');
-  eq(t('await sql.unsafe("SELECT * FROM trade.orders")'), ['B-sql'], 'evasion 1: unsafe string');
-  eq(t('const msg = "amounts come from ledger.balance(houseFees)"'), [], 'a function call is not a table');
-  eq(
-    checkMigration('  ADD COLUMN IF NOT EXISTS "available" numeric(38, 18) NOT NULL DEFAULT 0;', { rel: 'm.sql' }).map((x) => x.rule),
-    ['M-balance'],
-    'evasion 2: ADD COLUMN available',
-  );
-  eq(checkMigration('ALTER TABLE x ADD COLUMN margin_current numeric;', { rel: 'm.sql' }).length, 1, 'ADD COLUMN margin mirror');
-  eq(checkMigration('  "refunded_count" integer NOT NULL DEFAULT 0,', { rel: 'm.sql' }), [], 'a count is not a balance');
-  eq(
-    checkSchemaTs("export const t = pgTable('t', { held: numeric('held', { precision: 38 }) });", { rel: 's.ts' }).length,
-    1,
-    'drizzle schema column',
-  );
-  eq(t('const k = randomUUID();\nawait post({ idempotencyKey: k });'), ['M-key'], 'evasion 3: key from a variable');
-  eq(t('const k = `x:${Date.now()}`;\nawait post({ idempotencyKey: `pay:${k}` });'), ['M-key'], 'evasion 3: key from a clock variable');
-  eq(t('await post({\n  idempotencyKey:\n    `x:${randomUUID()}`,\n});'), ['M-key'], 'evasion 3: key on the next line');
-  eq(t('const id = randomUUID();\nfoo(id);\nawait post({ idempotencyKey: `x:${row.id}` });'), [], 'property named like a random local');
-  eq(t('const idempotencyKey = randomUUID();\nawait post({ idempotencyKey });'), ['M-key'], 'evasion 3: shorthand key');
-  eq(
-    t("const e = [];\ne.push({ account: a, direction: 'debit', amount: 1n });\nawait post({ entries: e });"),
-    ['M-entries'],
-    'evasion 4: entries pushed',
-  );
-  eq(t("type Row = { direction: 'debit' | 'credit' };"), [], 'a direction type union is not an entry');
-  eq(t('const c: LedgerClient = { post, balance };'), ['M-client'], 'evasion 5: object-literal client');
-  eq(t('const c = makeThing() as LedgerClient;'), ['M-client'], 'cast client');
-  eq(t('export function build(): LedgerClient { return { post, balance }; }'), ['M-client'], 'factory without the shared client');
-  eq(t('export function build(): LedgerClient { return createHttpLedgerClient({}); }'), [], 'factory over the shared client');
-  eq(t('const p = "/trpc/post"; await fetch(base + p);'), ['M-client'], 'ledger path in a variable');
-  eq(
-    t("const root = join(ROOT, 'services', 'svc-x', 'src', 'a.ts'); readFileSync(root);"),
-    [],
-    'a variable path is not seen (known limit, documented in the header)',
-  );
-  eq(
-    t("readFileSync(join(ROOT, 'services', 'svc-execution', 'src', 'a.ts'), 'utf8')", {
-      rel: 'packages/p/src/a.ts',
-      group: 'packages',
-      service: null,
-    }),
-    ['B-reads'],
-    'package reads a service from disk',
-  );
-  eq(t("readFileSync(join(__dirname, '..', 'svc-trade', 'a.ts'))"), ['B-reads'], 'service reads a sibling service from disk');
-  eq(t("readFileSync(join(__dirname, 'svc-pay.txt'))"), [], 'own name is fine');
-  eq(
-    findCycles(
-      new Map([
-        ['a', ['b']],
-        ['b', ['c']],
-        ['c', ['a']],
-      ]),
-    ).length,
-    1,
-    'cycle found',
-  );
-  eq(
-    findCycles(
-      new Map([
-        ['a', ['b']],
-        ['b', []],
-      ]),
-    ).length,
-    0,
-    'no cycle',
-  );
-  eq(
-    findCycles(
-      new Map([
-        ['a', ['b', 'c']],
-        ['b', ['c']],
-        ['c', []],
-      ]),
-    ).length,
-    0,
-    'diamond is not a cycle',
-  );
-  // Second review round: forms the first version of this round lost or never saw.
-  eq(t('await sql`INSERT INTO trade.orders(id, amount) VALUES (1, 2)`'), ['B-sql'], 'INSERT INTO with no space before the column list');
-  eq(t('await sql`TRUNCATE trade.orders`'), ['B-sql'], 'TRUNCATE other schema');
-  eq(t('post({ entries:[{ account: a, direction: row.dir, amount }] });'), ['M-entries'], 'entries with a variable direction');
-  eq(
-    t("const DEBIT = 'debit';\npost({ entries: [{ account: a, direction: DEBIT }] });"),
-    ['M-entries'],
-    'entries with a constant direction',
-  );
-  eq(checkMigration('  balances numeric(38,18),', { rel: 'm.sql' }).length, 1, 'plural balance column');
-  eq(checkMigration('  availablebalance numeric,', { rel: 'm.sql' }).length, 1, 'run-together balance column');
-  eq(checkMigration('  available int8 NOT NULL,', { rel: 'm.sql' }).length, 1, 'int8 available column');
-  // An unterminated key, bare or inside an unclosed string, reads at most its cap, never the rest of the file: the slice
-  // is everything it read after the `:`. Checked by length, not by the runner's clock (#6138).
-  for (const [open, name] of [
-    ['', 'bare'],
-    ["'", 'single-quoted'],
-    ['"', 'double-quoted'],
-    ['`', 'template'],
-  ]) {
-    const flood = `idempotencyKey: ${open}${'idempotencyKey: '.repeat(20000)}`;
-    const read = keyExpression(flood, 'idempotencyKey'.length).length;
-    if (read > KEY_EXPR_CAP + 1) throw new Error(`an unterminated ${name} key expression read ${read} characters`);
-  }
-  eq(t('idempotencyKey: '.repeat(20000)), [], 'a flood of unterminated keys scans and finds nothing');
-  const f = { rule: 'B-deps', file: 'a/package.json', detail: 'devDependencies @intafaced/svc-x' };
-  eq(applyAllow([f], [{ rule: 'B-deps', file: 'a/package.json', reason: 'r' }]).open, [], 'allowed');
-  eq(applyAllow([], [{ rule: 'B-deps', file: 'a/package.json', reason: 'r' }]).stale.length, 1, 'stale allow entry');
-  console.log('✓ boundary-scan --self-test OK (self-test fixtures)');
-}
-
 if (import.meta.url === `file://${process.argv[1]}`) {
-  if (process.argv.includes('--self-test')) {
-    selfTest();
-    process.exit(0);
-  }
   const { findings, files, schemas } = scan();
   if (files === 0 || schemas === 0) {
     console.error(

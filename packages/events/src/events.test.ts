@@ -593,9 +593,7 @@ describe('declared wiring sockets', () => {
    *
    * A written reason proves somebody thought about it; the class is where they
    * say what the answer was. `satisfies readonly WiringSocket[]` already makes a
-   * missing class a compile error — this asserts the runtime value too, because
-   * `tooling/ci/event-wiring.mjs` parses this file as TEXT, and a rule that only
-   * one of those two readers enforces is a rule with a hole in it.
+   * missing class a compile error — this asserts the runtime value too.
    */
   it('classifies every socket A, B or C', () => {
     for (const socket of WIRING_SOCKETS) {
@@ -616,9 +614,7 @@ describe('declared wiring sockets', () => {
    * defect had been fixed by code that has never run. A test written to match a
    * wrong answer is worse than no test: it is a second voice agreeing.
    *
-   * Pinned by name and in order, matching `CLASS_B_AWAITING_A_DECISION` in
-   * `tooling/ci/event-wiring.mjs` — so quietly downgrading it to A to make the
-   * gate green fails here as well as there. Two readers, one rule.
+   * Pinned by name and in order, so quietly downgrading it to A fails here.
    */
   it('records exactly the Class B wiring defects that are pinned for a named decision', () => {
     const b = WIRING_SOCKETS.filter((s) => s.class === 'B').map((s) => `${s.event}::${s.missing}`);
@@ -941,6 +937,7 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
     securityFactorChanged: { userId: uid(), change: 'totp_replaced', changedAt: ts(), noticeKey: 'factor-changed:u:1' },
     deathNoticeCreated: { userId: uid(), noticeId: uid(), at: ts() },
     deathNoticeConfirmed: { userId: uid(), noticeId: uid(), at: ts() },
+    selfFreezeApplied: { userId: uid(), freezeId: uid(), since: ts() },
     staffCreated: {
       staffId: 'staff-1',
       actorId: 'staff-0',
@@ -1500,6 +1497,7 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
     copySkipped: { followId: 'follow-1', followerId: uid(), leaderId: uid(), leaderFillId: uid(), reason: 'paused', skippedAt: ts() },
     copyFailed: { followId: 'follow-1', followerId: uid(), leaderId: uid(), leaderFillId: uid(), reason: 'order_rejected', failedAt: ts() },
     copyStopped: { followId: 'follow-1', followerId: uid(), leaderId: uid(), reason: 'follower', closeOnly: true, stoppedAt: ts() },
+    recurringBuySuspended: { ruleId: 'rule-1', userId: uid(), slot: 2, asset: 'USDC', amount: '20', free: '10', suspendedAt: ts() },
     venueDelistingScheduled: {
       venueId: 'test-venue-sim',
       symbol: 'BTC-USDC',

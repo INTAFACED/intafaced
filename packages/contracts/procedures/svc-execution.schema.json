@@ -1,0 +1,67 @@
+{
+  "$comment": "Written by `procedures:write`; held by its drift test. Do not edit by hand.",
+  "procedures": {
+    "execution.spine": {
+      "service": "svc-execution",
+      "module": "execution",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "execution.spine",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:read",
+        "module": "execution"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "doors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "module": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "inventsQuotes": {
+                  "type": "boolean",
+                  "const": false
+                },
+                "callerSubmit": {
+                  "type": "boolean"
+                }
+              },
+              "required": ["id", "module", "kind", "inventsQuotes", "callerSubmit"],
+              "additionalProperties": false
+            }
+          },
+          "sorUsesVenueAdapterPlanRoute": {
+            "type": "boolean"
+          },
+          "externalOnly": {
+            "type": "boolean"
+          },
+          "houseInternalRefuse": {
+            "type": "boolean"
+          }
+        },
+        "required": ["doors", "sorUsesVenueAdapterPlanRoute", "externalOnly", "houseInternalRefuse"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    }
+  }
+}

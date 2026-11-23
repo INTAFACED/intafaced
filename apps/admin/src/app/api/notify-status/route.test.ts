@@ -75,6 +75,8 @@ const DEFINITION = {
   updatedAt: '2026-10-23T10:00:00.000Z',
   publicOrigin: 'https://site.example',
 };
+// The rest of what svc-notify sends with every definition (its record's reply), which this desk does not show.
+const wireDefinition = (d: object) => ({ ...d, noticeCategories: null });
 const PAGE = {
   asOf: '2026-10-23T12:00:00.000Z',
   revision: 3,
@@ -115,7 +117,7 @@ describe('status page desk BFF', () => {
 
   it('reads the definition and the visitor page as the founder, with the founder token', async () => {
     configure();
-    const c = upstream({ 'statusPage.definition': () => ok(DEFINITION), 'statusPage.read': () => ok(PAGE) });
+    const c = upstream({ 'statusPage.definition': () => ok(wireDefinition(DEFINITION)), 'statusPage.read': () => ok(PAGE) });
     const res = await GET(get());
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -134,7 +136,7 @@ describe('status page desk BFF', () => {
 
   it('sends a definition change from the revision read, with its reason', async () => {
     configure();
-    const c = upstream({ 'statusPage.configure': () => ok({ ...DEFINITION, revision: 4 }) });
+    const c = upstream({ 'statusPage.configure': () => ok(wireDefinition({ ...DEFINITION, revision: 4 })) });
     const change = {
       op: 'configure',
       components: DEFINITION.components,

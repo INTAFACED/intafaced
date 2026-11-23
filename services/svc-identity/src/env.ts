@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { parseExtraControlsMin } from './account/safety.js';
 import { authEnvSchema, edgeEnvSchema, internalServiceEnvSchema, loadEnv, s2sEnvSchema, serviceEnvSchema } from '@intafaced/config';
 import { founderSessionScopesFromEnv } from '@intafaced/auth';
 import { assertWebauthnPosture } from './webauthn-posture.js';
@@ -167,6 +168,12 @@ const schema = serviceEnvSchema
        * `auth.request_window_unset` and the published policy shows the window as not set.
        */
       IDENTITY_REQUEST_SIGN_WINDOW_SECONDS: z.string().optional().default(''),
+      /**
+       * The owner's stream-token lifetime, whole seconds from 1 to 3600 (J-developer-09 #2): how long a token from
+       * `POST /api/v1/stream/token` opens the private stream. Blank = unset: every mint refuses
+       * `identity.stream_token_ttl_unset`.
+       */
+      IDENTITY_STREAM_TOKEN_TTL_SECONDS: z.string().optional().default(''),
       /**
        * The owner's `API_KEY_SIGNING_OPTIONAL` (DV-auth-01): `true` lets a key that places orders turn signing off,
        * with a fresh factor. Blank (or anything else): signing stays required on such a key.
@@ -677,6 +684,22 @@ const schema = serviceEnvSchema
             return z.NEVER;
           }
           return n;
+        }),
+      /**
+       * BK-safe-01 (J-bank-18 #4). The owner's least number of step-up extras a person must choose. NO DEFAULT: blank /
+       * unset → setting extras refuses (`identity.extra_controls_unset`); reading and removing them still work. A whole
+       * number 1 to 4, or the service stops.
+       */
+      IDENTITY_EXTRA_CONTROLS_MIN: z
+        .string()
+        .optional()
+        .transform((v, ctx) => {
+          try {
+            return parseExtraControlsMin(v);
+          } catch (error) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: (error as Error).message });
+            return z.NEVER;
+          }
         }),
       /**
        * W-withdraw-09. Owner-set wait, in seconds, from an unlock request to when the customer security lock ends. NO

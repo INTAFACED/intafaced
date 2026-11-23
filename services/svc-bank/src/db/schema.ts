@@ -968,6 +968,8 @@ export const cardAuthorizations = bank.table(
     partnerHoldRef: text('partner_hold_ref'),
     /** `partner_holds` or `wallet_pull`, as the partner answered the hold. */
     partnerMode: text('partner_mode'),
+    /** The pay-from order the partner was asked to walk (J-bank-29 #3 to #5); null on a hold in the card's own asset. */
+    payFromOrder: text('pay_from_order').array(),
     decidedAt: tstz('decided_at').notNull().defaultNow(),
     createdAt: createdAt(),
     settledAt: tstz('settled_at'),
@@ -1014,7 +1016,10 @@ export const cardConversions = bank.table(
     fundingAmount: amount('funding_amount').notNull(),
     /** Settlement units per ONE funding unit — the direction `PriceSource` returns. */
     rate: amount('rate').notNull(),
-    /** `MarkQuality` from `loans/prices.ts`. Recorded, so an auditor can ask what kind of number moved this. */
+    /**
+     * `MarkQuality` from `loans/prices.ts`, or `partner`: the card partner's own rate, reported with its hold (J-bank-29).
+     * Recorded, so an auditor can ask what kind of number moved this.
+     */
     rateQuality: text('rate_quality').notNull(),
     /** When the FEED said it was true, not when we wrote the row. */
     rateAsOf: tstz('rate_as_of').notNull(),

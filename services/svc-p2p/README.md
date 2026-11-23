@@ -361,7 +361,7 @@ A **counterparty's** snapshot is never touched: that is their account, on a trad
 
 Every publish carries a **business** idempotency key (`p2p.escrow.release:<tradeId>`, `p2p:trade.completed.seller:<tradeId>:<userId>`), never a random uuid. A redelivered envelope finds the original, which is what makes svc-identity's XP dedupe work.
 
-**Consumes** — nothing yet. When svc-trade's mark-price surface lands it supplies the `ReferencePriceSource` that floating offers need; until then a floating offer is **refused** rather than priced from a stale number (§13 socket: cross-venue pricing).
+**Consumes** — nothing yet. When svc-trade's mark-price surface lands it supplies the `ReferencePriceSource` that floating offers need; until then a floating offer is **refused** rather than priced from a stale number (§13 socket: cross-venue pricing). A test stack may name a labelled TEST price per pair in `LOCAL_TEST_P2P_REFERENCE_PRICES` (JSON, `{"USDT/EUR": "0.92"}`; `src/local-test-reference.ts`), which refuses to start outside an explicit dev or test process; the local stack sets it only under `LOCAL_STACK_P2P_REFERENCE_FEED=on`, so by default it publishes no reference, as production does.
 
 Event subjects live in `packages/events` (catalog). Payloads are additive; business idempotency keys (not random uuids) are what make redelivery safe.
 
@@ -557,8 +557,8 @@ The device throughout is a **canary** — the seller's account details contain a
 
 ## Service keys (S2S v3)
 
-With `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` set, the calls to svc-ledger are signed with svc-p2p's own key, and the ledger names the caller from that key. `dual` also sends the shared secret; `keypair` sends the key signature only. Unset, the ledger calls are signed with the shared secret as before. The affiliate calls to identity still use the shared secret and move in their own PR. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
+With `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` set, the calls to svc-ledger are signed with svc-p2p's own key, and the ledger names the caller from that key. `dual` also sends the shared secret; `keypair` sends the key signature only. Unset, the ledger calls are signed with the shared secret as before. The affiliate calls to identity still use the shared secret and move in their own PR. Setup and rotation: `crates/svc-ledger/CALLER-BINDING.md`.
 
 ## Service keys: inbound doors
 
-The internal GET doors (escrow integrity, moderation backlog, reputation) and the closure check name the caller from its own service key when `S2S_AUTH_MODE`, `S2S_KEYRING` and the signing pair are set: `dual` accepts the key and the shared secret, `keypair` the key only. Unset, the shared secret works exactly as before. A key-signed call that fails is refused and never retried against the shared secret. The closure check still answers only svc-identity. `/trpc` is unchanged: it names no service caller. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
+The internal GET doors (escrow integrity, moderation backlog, reputation) and the closure check name the caller from its own service key when `S2S_AUTH_MODE`, `S2S_KEYRING` and the signing pair are set: `dual` accepts the key and the shared secret, `keypair` the key only. Unset, the shared secret works exactly as before. A key-signed call that fails is refused and never retried against the shared secret. The closure check still answers only svc-identity. `/trpc` is unchanged: it names no service caller. Setup and rotation: `crates/svc-ledger/CALLER-BINDING.md`.

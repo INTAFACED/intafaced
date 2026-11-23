@@ -76,7 +76,9 @@ describe('effectivePrice', () => {
 
   it('REFUSES a floating offer with no reference rather than inventing one', () => {
     expect(() => effectivePrice({ priceType: 'float', price: amt('1.02') })).toThrow(/refusing to take rather than invent one/);
-    expect(() => effectivePrice({ priceType: 'float', price: amt('1.02'), referencePrice: null })).toMatchObject;
+    expect(() => effectivePrice({ priceType: 'float', price: amt('1.02'), referencePrice: null })).toThrow(
+      /refusing to take rather than invent one/,
+    );
     expect(() => effectivePrice({ priceType: 'float', price: amt('1.02'), referencePrice: null })).toThrow(PricingError);
   });
 

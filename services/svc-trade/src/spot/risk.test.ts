@@ -562,7 +562,7 @@ describe('venue hours', () => {
   /** Undefined and null arrive the same way from a row that predates the column. */
   it('refuses a missing schedule rather than reading through it', () => {
     for (const bad of [undefined, null, '']) {
-      const market = withMarket({ schedule: bad as unknown as Market['schedule'] });
+      const market = withMarket({ schedule: bad as Market['schedule'] });
       expect(() => assertMarketOpen(market, new Date('2026-01-14T12:00:00Z'))).toThrow(TradeError);
     }
   });

@@ -229,7 +229,7 @@ That builds `EvmLiveChain` (`src/rails/evm-chain.ts`, `posture: 'live'`), starts
 
 **What the owner must still obtain for production money:**
 
-- A **production** (or public testnet) RPC, not only compose anvil — anvil proves the wiring; it is not a chain decision (`docs/decisions/local-dev-chain.md`).
+- A **production** (or public testnet) RPC, not only compose anvil — anvil proves the wiring; it is not a chain decision.
 - A real provider for the hot wallet signer and the deposit address source (HSM or signing service). Neither a key nor a seed phrase is a setting; the testnet implementations refuse mainnet, staging and prod.
 - Live boot wires `PostgresBroadcastStore` (`pay.crypto_broadcasts`, migration 0004 + `signed_raw` in 0012) for multi-replica claim→putSigned→sendRaw→put. `MemoryBroadcastStore` remains the unit/local default when no store is passed to `defaultChainFor` in `dev`/`test`. staging/prod live chain **refuses to build** without a store — two replicas on the in-memory journal can double-send. DIRECTION §3.1 / D26-P1-P9: the signed raw is journalled **before** `eth_sendRawTransaction`; crash-resume rebroadcasts the identical payload (`claim` → `resume`) instead of signing a second spend. Put-before-receipt still closes the wait-for-inclusion window.
 - Live boot also wires `PostgresChainWatcherCursorStore` (`pay.chain_watcher_cursors`, migration 0017) so the in-process watcher persists last-seen (block, tx hash, log index). A crash that re-drains the same finalization does not POST a second credit. No live chain config → no live chain → watcher never starts; `/pay` deposits stay a named refuse, not an invented inbound.
@@ -540,8 +540,8 @@ The PostgreSQL suite injects a SQL failure after successful rail and ledger comp
 
 ## Service keys: ledger calls
 
-The ledger client signs with svc-pay's own key when `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` are set (`dual` also sends the shared secret, `keypair` the key only); unset, it signs with the shared secret as before. Other outgoing calls still use the shared secret and move in their own PRs. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
+The ledger client signs with svc-pay's own key when `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` are set (`dual` also sends the shared secret, `keypair` the key only); unset, it signs with the shared secret as before. Other outgoing calls still use the shared secret and move in their own PRs. Setup and rotation: `crates/svc-ledger/CALLER-BINDING.md`.
 
 ## Service keys: inbound doors
 
-The internal doors (due-subscription run, subscription cycle journal, capture reconcile, merchant team email claim, owner pay scopes, pay step-up grant, merchant watch metrics) name the caller from its own service key when `S2S_AUTH_MODE`, `S2S_KEYRING` and the signing pair are set: `dual` accepts the key and the shared secret, `keypair` the key only. Unset, the shared secret works exactly as before. A key-signed call that fails is refused and never retried against the shared secret. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
+The internal doors (due-subscription run, subscription cycle journal, capture reconcile, merchant team email claim, owner pay scopes, pay step-up grant, merchant watch metrics) name the caller from its own service key when `S2S_AUTH_MODE`, `S2S_KEYRING` and the signing pair are set: `dual` accepts the key and the shared secret, `keypair` the key only. Unset, the shared secret works exactly as before. A key-signed call that fails is refused and never retried against the shared secret. Setup and rotation: `crates/svc-ledger/CALLER-BINDING.md`.

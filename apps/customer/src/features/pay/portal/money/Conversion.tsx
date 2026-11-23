@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import { EmptyState, Field } from '../../ui-kit';
 import { useResource } from '../../../../shared/resource';
 import { parseAmount } from '../../../../shared/money';
@@ -27,7 +27,7 @@ import { uiCopy } from '../ui/copy';
 import { ListBody, LinkButton, localRefusal, NamedBlocker, shortDay } from './common';
 import { mc } from './copy';
 import { useMoneyReason } from '../access/MoneyAction';
-import { conversionStatuses, type ConversionOrder, type ConversionQuote } from './schemas';
+import { type ConversionOrder, type ConversionQuote, PAY_CONVERSION_STATUSES as conversionStatuses } from '@intafaced/contracts/conversion';
 import { settlementName } from './Settlements';
 import { isConversionOff } from './refusals';
 
@@ -87,7 +87,7 @@ export function Conversion({ portal, merchantId }: { portal: PortalApi; merchant
   const inFlight = all.filter((o) => ['quoted', 'intent_committed', 'placing', 'placed', 'partially_filled'].includes(o.status)).length;
   const count = (n: number) => (all.length >= 50 ? t('mnCountNewest', { n }) : String(n));
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <TestNotice />
       <HaltBanner resource={halts.resource} scopes={['conversion']} />
       <Freshness asOf={readAt} />
@@ -207,7 +207,7 @@ export function ConversionNew({ portal, merchantId }: { portal: PortalApi; merch
   // Getting a quote is an ordinary write; converting moves money and carries the payout scope.
   const stepReason = useMoneyReason('payout', 'convert');
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <TestNotice />
       {refusal?.off ? (
         <Off />
@@ -250,7 +250,7 @@ export function ConversionNew({ portal, merchantId }: { portal: PortalApi; merch
                     />
                     <p className="muted pp-note">{t('cvPair')}</p>
                     <Button
-                      variant="secondary"
+                      tone="secondary"
                       disabled={problem !== null || busy || !may}
                       title={!may ? t('cvNotAllowed') : (problem ?? undefined)}
                       onClick={async () => {
@@ -288,7 +288,7 @@ export function ConversionNew({ portal, merchantId }: { portal: PortalApi; merch
               <Facts
                 items={[
                   [t('cvYouConvert'), <MoneyText value={quote.q.fromAmount} asset={quote.q.fromAsset} test />],
-                  [t('cvRate'), <span className="numeric">{quote.q.rate}</span>],
+                  [t('cvRate'), <span className="lt-num">{quote.q.rate}</span>],
                   [t('cvFee'), <MoneyText value={quote.q.feeAmount} asset={quote.q.toAsset} test sign="minus" />],
                   [t('cvSpread'), <MoneyText value={quote.q.spreadAmount} asset={quote.q.toAsset} test sign="minus" />],
                   [t('cvExpected'), <MoneyText value={quote.q.expectedOutput} asset={quote.q.toAsset} test />],
@@ -366,7 +366,7 @@ export function ConversionDetail({ portal, orderId }: { portal: PortalApi; order
   const r = order.resource;
   const off = useMemo(() => r.status === 'failed' && isConversionOff(r.failure), [r]);
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <TestNotice />
       {off ? (
         <Off />
@@ -380,7 +380,7 @@ export function ConversionDetail({ portal, orderId }: { portal: PortalApi; order
                 status={<ConversionChip status={o.status} />}
                 subtitle={t('cvName', { from: o.fromAsset, to: o.toAsset, when: shortDay(o.createdAt, locale) })}
                 action={
-                  <Button variant="secondary" onClick={order.reload}>
+                  <Button tone="secondary" onClick={order.reload}>
                     {t('cvRefresh')}
                   </Button>
                 }

@@ -4,12 +4,12 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
-import { formatAmount, MemoryLedger, parseAmount as amt, recipes, userAvailable } from '@intafaced/ledger-client';
+import { MemoryLedger, parseAmount as amt, recipes } from '@intafaced/ledger-client';
 import type { MarketStateSnapshot } from '@intafaced/exchange-contract';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { TradeService } from '../controls/test-admission.js';
 import { decideMarketAction, type MarketLifecyclePort } from '../market-lifecycle.js';
 import { PUBLISHED_TEST_FEE_SCHEDULE, READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor } from './testing.js';
@@ -27,7 +27,7 @@ const ALICE = '11111111-1111-4111-8111-111111111111';
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
   const envUrl = process.env.TEST_DATABASE_URL?.trim();
   if (envUrl) return { url: envUrl, stop: async () => undefined };
-  const container = await new PostgreSqlContainer('postgres:16-alpine')
+  const container = await testPostgres('postgres:16-alpine')
     .withDatabase('intafaced_order_tag_test')
     .withUsername('intafaced')
     .withPassword('intafaced')

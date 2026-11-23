@@ -10,7 +10,7 @@
  * No balance. No ledger. Does not place an order. No approval-workflow UI.
  */
 import { randomUUID } from 'node:crypto';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 
 export const ORG_ROLES = ['admin', 'trader', 'auditor', 'risk-manager'] as const;
@@ -236,7 +236,7 @@ export async function addOrgMember(
  * Lock every admin seat of an organization (`FOR UPDATE`, stable order) and return their user ids.
  * Call inside a transaction before any change that can remove an admin seat.
  */
-export async function lockOrgAdmins(tx: Sql, orgId: string): Promise<string[]> {
+export async function lockOrgAdmins(tx: Queryable, orgId: string): Promise<string[]> {
   const rows = await tx<Array<{ user_id: string }>>`
     SELECT user_id FROM organization_members WHERE org_id = ${orgId} AND role = 'admin' ORDER BY user_id FOR UPDATE`;
   return rows.map((r) => r.user_id);

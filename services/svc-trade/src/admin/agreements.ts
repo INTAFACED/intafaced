@@ -11,6 +11,7 @@
  * `trade.operator_audit` row. The content is the owner's: this file carries no agreement wording, no question and no
  * threshold, and a blank part refuses. No ledger posting happens here and no ledger write recipe is imported.
  */
+import type { Queryable } from '@intafaced/db';
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
 import type { Principal } from '@intafaced/auth';
@@ -256,8 +257,7 @@ export class AgreementsAdmin {
     const at = this.deps.now();
     let result: AgreementPublication | undefined;
     try {
-      await this.deps.sql.begin(async (tx) => {
-        const q = tx as unknown as Sql;
+      await this.deps.sql.begin(async (q) => {
         await q`INSERT INTO trade.risk_agreement_versions (kind, version, operator_id, approver_id, approval_id, reason, published_at)
           VALUES (${kind}, ${next}, ${principal.userId}, ${consumed.approverId}, ${approvalId}, ${reason}, ${at.toISOString()})`;
         for (const t of texts) {
@@ -472,8 +472,7 @@ export class AgreementsAdmin {
     const at = this.deps.now();
     let result: EligibilityRulesView | undefined;
     try {
-      await this.deps.sql.begin(async (tx) => {
-        const q = tx as unknown as Sql;
+      await this.deps.sql.begin(async (q) => {
         await q`INSERT INTO trade.derivatives_eligibility_rules (
           version, questions, pass_mark, min_kyc_tier, operator_id, approver_id, approval_id, reason, created_at
         ) VALUES (
@@ -512,7 +511,7 @@ export class AgreementsAdmin {
     return result!;
   }
 
-  private async readRules(sql: Sql): Promise<EligibilityRulesView> {
+  private async readRules(sql: Queryable): Promise<EligibilityRulesView> {
     const [row] = await sql<
       {
         version: number;

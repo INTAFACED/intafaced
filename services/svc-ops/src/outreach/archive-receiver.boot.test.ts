@@ -79,6 +79,7 @@ describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('compiled archive receive
     try {
       let live = false;
       let lastStatus: number | null = null;
+      let lastError = 'none';
       // Poll until the process is live, has exited, or its own kill is about to fire.
       // A fixed 10s or 11s cap ended while a starved CI boot was still starting.
       const deadline = Date.now() + CHILD_KILL_MS - 1_000;
@@ -92,12 +93,17 @@ describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('compiled archive receive
           });
           lastStatus = response.status;
           live = response.status === 200;
-        } catch {
-          /* Wait for this owned process only. */
+        } catch (error) {
+          // Wait for this owned process only; keep why the last poll failed for the message below.
+          lastError =
+            error instanceof Error ? `${error.message}${error.cause instanceof Error ? `: ${error.cause.message}` : ''}` : String(error);
         }
         if (!live && childAlive()) await new Promise((resolve) => setTimeout(resolve, 25));
       }
-      expect(live, `archive receiver not live (status ${String(lastStatus)}, exit ${String(run.process.exitCode)})`).toBe(true);
+      expect(
+        live,
+        `archive receiver not live (status ${String(lastStatus)}, exit ${String(run.process.exitCode)}, signal ${String(run.process.signalCode)}, last poll error ${lastError})`,
+      ).toBe(true);
       run.process.kill('SIGTERM');
       expect(await run.done).toEqual({ code: 0, signal: null, stderr: '', stdout: '' });
       await expect(fetch(url)).rejects.toThrow();

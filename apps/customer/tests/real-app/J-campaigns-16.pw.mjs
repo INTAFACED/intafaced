@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
-import { ROOT, api, journeyState, tool } from './stack.mjs';
+import { api, journeyState, ROOT, STACK_PORTS, stackUrl, tool } from './stack.mjs';
 import { tableIn } from './tables.mjs';
 
 // J-campaigns-16, in the running app (docs/roadmap/journeys.json): build a campaign and take it live, as a founder on the
@@ -30,17 +30,18 @@ const draftName = () => run.read().name ?? 'TEST task campaign (made in #2)';
 test.describe.configure({ mode: 'default' });
 
 // The builder's answers are read inside it: the console's route announcer is a second alert on every page.
-const builder = (page) => page.getByRole('form', { name: 'Campaign builder' });
+const builder = (page) => page.getByRole('form', { name: 'Campaign builder', exact: true });
 const campaigns = (page) => tableIn(page, 'Campaigns');
 
 /** Pages already signed in: each sign-in waits for a fresh one-time code (up to 30 s), so a page signs in once. */
 const signedIn = new WeakSet();
 
 async function openDesk(page, founder = 'a') {
-  if (!signedIn.has(page)) await founderSignIn(page, founder);
+  const who = signedIn.has(page) ? null : await founderSignIn(page, founder);
   signedIn.add(page);
   await page.goto(`${ADMIN}/more-ops/campaigns`);
-  await expect(page.getByRole('heading', { name: 'Campaigns', level: 1 })).toBeVisible(UNBUILT);
+  await expect(page.getByRole('heading', { name: 'Campaigns', level: 1, exact: true })).toBeVisible(UNBUILT);
+  return who;
 }
 
 /** svc-campaigns' own database role on the stack (loopback, the marker's postgres port, the stack's secret), to read what is stored. */
@@ -48,7 +49,7 @@ async function campaignsDb() {
   const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
   const ctx = await gates.makeContext({ log: () => {} });
   const postgres = createRequire(path.join(ROOT, 'services', 'svc-campaigns', 'package.json'))('postgres');
-  const port = ctx.marker.ports.postgres ?? 15460;
+  const port = ctx.marker.ports.postgres ?? STACK_PORTS.postgres;
   return postgres(`postgres://svc_campaigns:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
     max: 1,
     onnotice: () => {},
@@ -56,14 +57,25 @@ async function campaignsDb() {
 }
 
 async function openDraft(page) {
-  await openDesk(page);
+  const who = await openDesk(page);
   await campaigns(page).getByRole('link', { name: draftName(), exact: true }).click(UNBUILT);
   await expect(builder(page)).toBeVisible();
+  return who;
+}
+
+/** The step's picture from the top of the page, so the console's bar that stays at the top covers nothing of the step's
+ *  answer (a whole-page picture of a scrolled page draws that bar over the middle; J-ops-console-27 does the same). */
+async function pictureFromTop(page, stepPicture) {
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    window.scrollTo(0, 0);
+  });
+  await stepPicture(page);
 }
 
 test(`${J} #1 opens the campaigns desk with none: the overview with honest empty states and no sample number`, async ({ page }) => {
   await openDesk(page);
-  const overview = page.getByRole('region', { name: 'Overview' });
+  const overview = page.getByRole('region', { name: /Overview/i });
   await expect(overview).toBeVisible();
   // No sample number: each figure is the count of the campaigns the desk lists in that state, and a state with none says
   // "None yet". A stack with no campaign shows every figure as none, and the overview says so.
@@ -102,41 +114,57 @@ test(`${J} #2 starts the builder, leaves and returns: the draft resumes at the s
 }) => {
   await openDesk(page);
   const NAME = run.reset({ name: `TEST task campaign ${Date.now().toString(36)}` }).name;
-  await page.getByRole('button', { name: 'New campaign' }).click(UNBUILT);
-  await builder(page).getByRole('textbox', { name: 'Name' }).fill(NAME);
-  await builder(page).getByRole('radio', { name: 'Task' }).check();
-  await builder(page).getByRole('button', { name: 'Next' }).click();
+  await page.getByRole('button', { name: 'New campaign', exact: true }).click(UNBUILT);
+  await builder(page).getByRole('textbox', { name: 'Name', exact: true }).fill(NAME);
+  await builder(page).getByRole('radio', { name: 'Task', exact: true }).check();
+  await builder(page).getByRole('button', { name: 'Next', exact: true }).click();
   const step = await builder(page).getByRole('tab', { selected: true }).textContent();
   await page.goto(`${ADMIN}/more-ops`);
   await openDraft(page);
   await expect(builder(page).getByRole('tab', { selected: true })).toHaveText(step ?? '');
   await openDesk(page);
-  await page.getByRole('button', { name: 'New campaign' }).click();
-  await builder(page).getByRole('textbox', { name: 'Name' }).fill(`${NAME} second`);
-  await builder(page).getByRole('button', { name: 'Next' }).click();
+  await page.getByRole('button', { name: 'New campaign', exact: true }).click();
+  await builder(page).getByRole('textbox', { name: 'Name', exact: true }).fill(`${NAME} second`);
+  await builder(page).getByRole('radio', { name: 'Task', exact: true }).check();
+  await builder(page).getByRole('button', { name: 'Next', exact: true }).click();
+  await expect(builder(page).getByRole('tab', { selected: true })).toHaveText(step ?? '');
   await openDesk(page);
+  // Both drafts are listed side by side: the second was saved, and the first is still there beside it.
   await expect(campaigns(page).getByRole('link', { name: NAME, exact: true })).toBeVisible();
+  await expect(campaigns(page).getByRole('link', { name: `${NAME} second`, exact: true })).toBeVisible();
+  // Each is its own draft on the desk's list of what svc-campaigns holds.
+  for (const name of [NAME, `${NAME} second`]) {
+    const row = campaigns(page)
+      .getByRole('row')
+      .filter({ has: page.getByRole('link', { name, exact: true }) });
+    await expect(row).toHaveCount(1);
+    await expect(row.getByRole('cell').nth(2)).toHaveText('Draft');
+  }
+  // Opening the first again still resumes it at the step it was left on.
+  await openDraft(page);
+  await expect(builder(page).getByRole('tab', { selected: true })).toHaveText(step ?? '');
 });
 
 test(`${J} #3 validates a draft with blanks: the list names each blank (budget, rules, time frame, time zone, reward)`, async ({
   page,
 }) => {
   await openDraft(page);
-  await builder(page).getByRole('button', { name: 'Check the draft' }).click();
-  const blanks = page.getByRole('list', { name: 'Still missing' });
+  await builder(page).getByRole('button', { name: 'Check the draft', exact: true }).click();
+  const blanks = page.getByRole('list', { name: 'Still missing', exact: true });
   for (const blank of ['Budget', 'Rules', 'Time frame', 'Time zone', 'Reward']) await expect(blanks).toContainText(blank);
 });
 
 test(`${J} #4 builds a rule with nested AND and OR, tests it on a fixture account, saves it to the library: each failing leaf shown, nothing stored by the test; too deep refuses`, async ({
   page,
+  stepPicture,
 }, testInfo) => {
   await openDraft(page);
   await builder(page).getByRole('tab', { name: 'Rules', exact: true }).click();
-  const rule = page.getByRole('group', { name: 'Rule' });
-  const library = page.getByRole('region', { name: 'Rule library' });
+  const rule = page.getByRole('group', { name: 'Rule', exact: true });
+  const library = page.getByRole('region', { name: /Rule library/i });
   // Each attempt saves its own name, so a retry starts from a library without it.
   const ruleName = `${draftName()} rule r${testInfo.retry}`;
-  await page.getByRole('button', { name: 'Open the rule library' }).click(UNBUILT);
+  await page.getByRole('button', { name: 'Open the rule library', exact: true }).click(UNBUILT);
   await expect(library).toBeVisible();
   await expect(library).not.toContainText(ruleName);
   // What is stored before the tests: every library revision and the draft itself, read from svc-campaigns' own tables.
@@ -160,17 +188,17 @@ test(`${J} #4 builds a rule with nested AND and OR, tests it on a fixture accoun
   const shownBefore = await library.innerText();
 
   // Group 1 needs all of: an individual account (1.1), and either full verification (1.2.1) or a region other than KP (1.2.2).
-  await rule.getByRole('button', { name: 'Add an AND group' }).click();
-  await rule.getByRole('button', { name: 'Add an OR group' }).click();
-  await rule.getByRole('button', { name: 'Add a condition' }).click();
-  await rule.getByRole('combobox', { name: 'Field of condition 1.2.1' }).selectOption('kycTier');
-  await rule.getByRole('combobox', { name: 'Verification of condition 1.2.1' }).selectOption('full');
-  await rule.getByRole('combobox', { name: 'Field of condition 1.2.2' }).selectOption('region');
+  await rule.getByRole('button', { name: 'Add an AND group', exact: true }).click();
+  await rule.getByRole('button', { name: 'Add an OR group', exact: true }).click();
+  await rule.getByRole('button', { name: 'Add a condition', exact: true }).click();
+  await rule.getByRole('combobox', { name: 'Field of condition 1.2.1', exact: true }).selectOption('kycTier');
+  await rule.getByRole('combobox', { name: 'Verification of condition 1.2.1', exact: true }).selectOption('full');
+  await rule.getByRole('combobox', { name: 'Field of condition 1.2.2', exact: true }).selectOption('region');
 
   // The TEST business account in KP, not verified, fails every leaf: each one is listed by its place.
-  await page.getByLabel('Fixture account').selectOption('test-business-kp');
-  await page.getByRole('button', { name: 'Test on a fixture account' }).click();
-  const failing = page.getByRole('list', { name: 'Failing conditions' });
+  await page.getByLabel('Fixture account', { exact: true }).selectOption('test-business-kp');
+  await page.getByRole('button', { name: 'Test on a fixture account', exact: true }).click();
+  const failing = page.getByRole('list', { name: 'Failing conditions', exact: true });
   await expect(failing.getByRole('listitem')).toHaveText([
     '1.1: Account type is individual',
     '1.2.1: Verification is at least full',
@@ -178,115 +206,143 @@ test(`${J} #4 builds a rule with nested AND and OR, tests it on a fixture accoun
   ]);
   await expect(page.getByTestId('rule-test-result')).toContainText('The rule leaves this TEST account out. Nothing was read or stored.');
   // In DE with basic verification the OR group passes on its region, and its failing leaf is still listed.
-  await page.getByLabel('Fixture account').selectOption('test-individual-de');
-  await page.getByRole('button', { name: 'Test on a fixture account' }).click();
+  await page.getByLabel('Fixture account', { exact: true }).selectOption('test-individual-de');
+  await page.getByRole('button', { name: 'Test on a fixture account', exact: true }).click();
   await expect(page.getByTestId('rule-test-result')).toHaveAttribute('data-passes', 'true');
   await expect(failing.getByRole('listitem')).toHaveText(['1.2.1: Verification is at least full']);
   // An individual in FR with full verification holds every leaf: none is listed.
-  await page.getByLabel('Fixture account').selectOption('test-individual-fr-frozen');
-  await page.getByRole('button', { name: 'Test on a fixture account' }).click();
+  await page.getByLabel('Fixture account', { exact: true }).selectOption('test-individual-fr-frozen');
+  await page.getByRole('button', { name: 'Test on a fixture account', exact: true }).click();
   await expect(page.getByTestId('rule-test-result')).toHaveAttribute('data-passes', 'true');
   await expect(failing.getByRole('listitem')).toHaveText(['None: every condition holds for this account.']);
   // Nothing was stored by the tests: the library and the draft are exactly as they were, row for row, and the library the
   // desk lists reads the same.
   expect(await stored()).toEqual(before);
-  await page.getByRole('button', { name: 'Open the rule library' }).click();
+  await page.getByRole('button', { name: 'Open the rule library', exact: true }).click();
   await expect(library).not.toContainText(ruleName);
   expect(await library.innerText()).toBe(shownBefore);
 
-  await page.getByLabel('Rule name').fill(ruleName);
-  await page.getByRole('button', { name: 'Save to the library' }).click();
+  await page.getByLabel('Rule name', { exact: true }).fill(ruleName);
+  await page.getByRole('button', { name: 'Save to the library', exact: true }).click();
   await expect(builder(page).getByRole('status')).toContainText(`Saved to the rule library as ${ruleName}, revision`);
-  await page.getByRole('button', { name: 'Open the rule library' }).click();
+  await page.getByRole('button', { name: 'Open the rule library', exact: true }).click();
   await expect(library).toContainText(`${ruleName}, revision`);
+  // The save is the library's one new row: the tree as built, an AND group holding the account-type condition and an OR
+  // group of the verification and region conditions. Nothing else changed.
+  const saved = await stored();
+  const added = saved.rules.filter((r) => !before.rules.includes(r)).map((r) => JSON.parse(r));
+  expect(added).toHaveLength(1);
+  expect(added[0].name).toBe(ruleName);
+  const tree = added[0].tree;
+  // Group 1 is the AND group holding the account-type condition and the OR group; the outer group wraps it.
+  const groups = (g) => [g, ...g.parts.filter((p) => p.kind === 'group').flatMap(groups)];
+  const and = groups(tree).find((g) => g.op === 'and' && g.parts.some((p) => p.kind === 'group' && p.op === 'or'));
+  expect(and, 'the saved tree holds an AND group').toBeTruthy();
+  expect(and.parts.map((p) => (p.kind === 'group' ? `group:${p.op}` : `condition:${p.field}`))).toEqual([
+    'condition:accountType',
+    'group:or',
+  ]);
+  expect(and.parts[1].parts.map((p) => `${p.kind}:${p.field}`)).toEqual(['condition:kycTier', 'condition:region']);
+  expect(saved.drafts).toEqual(before.drafts);
+  // The save's own audit line (campaign.rule.save) is the one other row it adds.
+  expect(saved.counts).toEqual({
+    ...before.counts,
+    rule_library: before.counts.rule_library + 1,
+    audit_log: before.counts.audit_log + 1,
+  });
 
   // Four more groups inside group 1.2 nest the rule seven deep, past the depth limit: the try refuses by its code.
-  for (let i = 0; i < 4; i += 1) await rule.getByRole('button', { name: 'Add an AND group' }).click();
-  await page.getByRole('button', { name: 'Test on a fixture account' }).click();
+  for (let i = 0; i < 4; i += 1) await rule.getByRole('button', { name: 'Add an AND group', exact: true }).click();
+  await page.getByRole('button', { name: 'Test on a fixture account', exact: true }).click();
   await expect(builder(page).getByRole('alert')).toContainText('campaigns.rule_too_deep');
   await expect(page.getByTestId('rule-test-result')).toHaveCount(0);
+  // Saving the too-deep tree refuses the same way, and the library keeps only the revision saved above.
+  await page.getByRole('button', { name: 'Save to the library', exact: true }).click();
+  await expect(builder(page).getByRole('alert')).toContainText('campaigns.rule_too_deep');
+  expect(await stored()).toEqual(saved);
+  await pictureFromTop(page, stepPicture);
 });
 
 test(`${J} #5 defines participation exclusions and a region list: a blank region list refuses activation`, async ({ page }) => {
   await openDraft(page);
-  await builder(page).getByRole('tab', { name: 'Who can take part' }).click(UNBUILT);
-  const exclusions = page.getByRole('group', { name: 'Exclusions' });
-  await exclusions.getByRole('checkbox', { name: 'Business accounts' }).check();
-  await builder(page).getByRole('radio', { name: 'Every region except a restricted list' }).check();
-  await builder(page).getByRole('textbox', { name: 'Restricted regions' }).fill('');
-  await builder(page).getByRole('button', { name: 'Next' }).click();
+  await builder(page).getByRole('tab', { name: 'Who can take part', exact: true }).click(UNBUILT);
+  const exclusions = page.getByRole('group', { name: /Exclusions/i });
+  await exclusions.getByRole('checkbox', { name: 'Business accounts', exact: true }).check();
+  await builder(page).getByRole('radio', { name: 'Every region except a restricted list', exact: true }).check();
+  await builder(page).getByRole('textbox', { name: 'Restricted regions', exact: true }).fill('');
+  await builder(page).getByRole('button', { name: 'Next', exact: true }).click();
   await expect(builder(page).getByRole('tab', { name: 'Rules', exact: true })).toHaveAttribute('aria-selected', 'true');
   // The blank region list refuses activation by its own code.
-  await page.getByRole('button', { name: 'Ask to activate' }).click();
+  await page.getByRole('button', { name: 'Ask to activate', exact: true }).click();
   await expect(
     builder(page).getByRole('alert').getByRole('listitem').filter({ hasText: 'The region list is not set (campaigns.region_list_unset)' }),
   ).toHaveCount(1);
   await expect(page.getByTestId('campaign-state')).not.toHaveText('Waiting for approval');
   // The step defines the region list too, so the draft can go live in #7.
-  await builder(page).getByRole('tab', { name: 'Who can take part' }).click();
-  await builder(page).getByRole('textbox', { name: 'Restricted regions' }).fill('KP');
-  await builder(page).getByRole('button', { name: 'Next' }).click();
+  await builder(page).getByRole('tab', { name: 'Who can take part', exact: true }).click();
+  await builder(page).getByRole('textbox', { name: 'Restricted regions', exact: true }).fill('KP');
+  await builder(page).getByRole('button', { name: 'Next', exact: true }).click();
   await expect(builder(page).getByRole('tab', { name: 'Rules', exact: true })).toHaveAttribute('aria-selected', 'true');
   // Both are saved on the draft: a fresh load shows them.
   await page.reload();
-  await builder(page).getByRole('tab', { name: 'Who can take part' }).click();
-  await expect(exclusions.getByRole('checkbox', { name: 'Business accounts' })).toBeChecked();
-  await expect(exclusions.getByRole('checkbox', { name: 'Institutional accounts' })).not.toBeChecked();
-  await expect(builder(page).getByRole('textbox', { name: 'Restricted regions' })).toHaveValue('KP');
-  await builder(page).getByRole('button', { name: 'Check the draft' }).click();
-  await expect(page.getByRole('list', { name: 'Still missing' })).not.toContainText('Region list');
+  await builder(page).getByRole('tab', { name: 'Who can take part', exact: true }).click();
+  await expect(exclusions.getByRole('checkbox', { name: 'Business accounts', exact: true })).toBeChecked();
+  await expect(exclusions.getByRole('checkbox', { name: /Institutional accounts/i })).not.toBeChecked();
+  await expect(builder(page).getByRole('textbox', { name: 'Restricted regions', exact: true })).toHaveValue('KP');
+  await builder(page).getByRole('button', { name: 'Check the draft', exact: true }).click();
+  await expect(page.getByRole('list', { name: /Still missing/i })).not.toContainText('Region list');
 });
 
 test(`${J} #6 adds an earning rule with a trigger, condition and fixed incentive: one intent per event; a formula outside the grammar and an unknown trigger refuse`, async ({
   page,
 }) => {
   await openDraft(page);
-  await builder(page).getByRole('tab', { name: 'Earning rules' }).click();
-  const form = page.getByRole('form', { name: 'Earning rule' });
-  const rules = page.getByRole('list', { name: 'Earning rules' });
+  await builder(page).getByRole('tab', { name: 'Earning rules', exact: true }).click();
+  const form = page.getByRole('form', { name: /Earning rule/i });
+  const rules = page.getByRole('list', { name: /Earning rules/i });
   await expect(form).toBeVisible(UNBUILT);
   // A retry starts from a draft without the rule an earlier attempt added.
-  const earlier = page.getByRole('button', { name: 'Remove Deposit reward' });
+  const earlier = page.getByRole('button', { name: /Remove Deposit reward/i });
   if (await earlier.count()) await earlier.click();
   await expect(rules).toHaveCount(0);
-  await form.getByRole('textbox', { name: 'Earning rule name' }).fill('Deposit reward');
+  await form.getByRole('textbox', { name: 'Earning rule name', exact: true }).fill('Deposit reward');
 
   // A formula outside the grammar refuses, and nothing is saved.
-  await form.getByRole('combobox', { name: 'Trigger' }).selectOption('pay.deposit_credit.posted');
-  await form.getByRole('textbox', { name: 'Incentive formula' }).fill('amount * * 2');
-  await form.getByRole('button', { name: 'Add rule' }).click();
+  await form.getByRole('combobox', { name: 'Trigger', exact: true }).selectOption('pay.deposit_credit.posted');
+  await form.getByRole('textbox', { name: 'Incentive formula', exact: true }).fill('amount * * 2');
+  await form.getByRole('button', { name: 'Add rule', exact: true }).click();
   await expect(form.getByRole('alert')).toContainText('not in the formula grammar');
   await expect(form.getByRole('alert')).toContainText('campaigns.formula_invalid');
   await expect(rules).toHaveCount(0);
 
   // A trigger outside the catalogue (sent as a tampered page would send it) refuses at the service by its code.
   await form
-    .getByRole('combobox', { name: 'Trigger' })
+    .getByRole('combobox', { name: 'Trigger', exact: true })
     .evaluate((select) => select.add(new Option('Not in the catalogue', 'wallet.made.up')));
-  await form.getByRole('combobox', { name: 'Trigger' }).selectOption('wallet.made.up');
-  await form.getByRole('textbox', { name: 'Incentive formula' }).fill('1');
-  await form.getByRole('button', { name: 'Add rule' }).click();
+  await form.getByRole('combobox', { name: 'Trigger', exact: true }).selectOption('wallet.made.up');
+  await form.getByRole('textbox', { name: 'Incentive formula', exact: true }).fill('1');
+  await form.getByRole('button', { name: 'Add rule', exact: true }).click();
   await expect(form.getByRole('alert')).toContainText('campaigns.trigger_unknown');
   await expect(rules).toHaveCount(0);
 
   // A deposit of at least 10 gives a fixed 1, saved on the draft (it is still there after a reload).
-  await form.getByRole('combobox', { name: 'Trigger' }).selectOption('pay.deposit_credit.posted');
+  await form.getByRole('combobox', { name: 'Trigger', exact: true }).selectOption('pay.deposit_credit.posted');
   await form.getByLabel(/amount is at least/).fill('10');
-  await form.getByRole('textbox', { name: 'Incentive formula' }).fill('1');
-  await form.getByRole('button', { name: 'Add rule' }).click();
+  await form.getByRole('textbox', { name: 'Incentive formula', exact: true }).fill('1');
+  await form.getByRole('button', { name: 'Add rule', exact: true }).click();
   await expect(form.getByRole('alert')).toHaveCount(0);
   await expect(rules.getByTestId('earning-rule')).toHaveCount(1);
   await expect(rules).toContainText('Deposit reward: when a crypto deposit is credited of at least 10, give 1');
   await page.reload();
-  await builder(page).getByRole('tab', { name: 'Earning rules' }).click();
-  await expect(page.getByRole('list', { name: 'Earning rules' })).toContainText('Deposit reward');
+  await builder(page).getByRole('tab', { name: 'Earning rules', exact: true }).click();
+  await expect(page.getByRole('list', { name: 'Earning rules', exact: true })).toContainText('Deposit reward');
 });
 
 test(`${J} #7 sets the time frame, budget and limits and requests activation: each blank has its own typed code; with all set, publishing waits for approval`, async ({
   page,
 }) => {
   await openDraft(page);
-  await page.getByRole('button', { name: 'Ask to activate' }).click(UNBUILT);
+  await page.getByRole('button', { name: 'Ask to activate', exact: true }).click(UNBUILT);
   // Each blank of this step is its own line with its own code.
   const blanks = builder(page).getByRole('alert').getByRole('listitem');
   for (const line of [
@@ -298,45 +354,58 @@ test(`${J} #7 sets the time frame, budget and limits and requests activation: ea
   ])
     await expect(blanks.filter({ hasText: line })).toHaveCount(1);
   await expect(page.getByTestId('campaign-state')).toHaveText('Draft');
-  await builder(page).getByRole('tab', { name: 'Budget and time' }).click();
-  await builder(page).getByLabel('Starts').fill('2026-11-01T00:00');
-  await builder(page).getByLabel('Ends').fill('2026-11-30T23:59');
-  await builder(page).getByRole('combobox', { name: 'Time zone' }).selectOption('UTC');
-  await builder(page).getByRole('textbox', { name: 'Budget, USDT' }).fill('100');
-  await builder(page).getByRole('textbox', { name: 'Reward per person' }).fill('1');
+  await builder(page).getByRole('tab', { name: 'Budget and time', exact: true }).click();
+  await builder(page).getByLabel('Starts', { exact: true }).fill('2026-11-01T00:00');
+  await builder(page).getByLabel('Ends', { exact: true }).fill('2026-11-30T23:59');
+  await builder(page).getByRole('combobox', { name: 'Time zone', exact: true }).selectOption('UTC');
+  await builder(page).getByRole('textbox', { name: 'Budget, USDT', exact: true }).fill('100');
+  await builder(page).getByRole('textbox', { name: 'Reward per person', exact: true }).fill('1');
   // The limits: one reward per customer in any 24 hours, and no cap in all beyond the budget.
-  await builder(page).getByRole('textbox', { name: 'Rewards per customer' }).fill('1');
-  await builder(page).getByRole('textbox', { name: 'In any period of, hours' }).fill('24');
-  await page.getByRole('button', { name: 'Ask to activate' }).click();
+  await builder(page).getByRole('textbox', { name: 'Rewards per customer', exact: true }).fill('1');
+  await builder(page).getByRole('textbox', { name: 'In any period of, hours', exact: true }).fill('24');
+  await page.getByRole('button', { name: 'Ask to activate', exact: true }).click();
   await expect(page.getByTestId('campaign-state')).toHaveText('Waiting for approval');
 });
 
 test(`${J} #8 the requester tries to approve and a second founder approves: the requester is refused, and the approval applies to that revision only`, async ({
   page,
   browser,
+  stepPicture,
 }) => {
-  await openDraft(page);
-  await page.getByRole('button', { name: 'Approve' }).click(UNBUILT);
+  const a = await openDraft(page);
+  await page.getByRole('button', { name: /^approve and take live/i }).click(UNBUILT);
   await expect(builder(page).getByRole('alert')).toContainText('You asked for this, so another founder must approve it.');
   await expect(builder(page).getByRole('alert')).toHaveAttribute('data-code', 'campaigns.second_person_required');
   // The refused approval changed nothing: the campaign still waits for a second founder.
   await page.reload();
   await expect(page.getByTestId('campaign-state')).toHaveText('Waiting for approval');
+  // svc-campaigns recorded no approval: founder A asked, nobody approved, and the budget asked for is the one held.
+  await expect(page.getByTestId('campaign-submitted-by')).toHaveText(a.userId);
+  await expect(page.getByTestId('campaign-approved-by')).toHaveText('Not approved');
+  const budget = page.getByTestId('campaign-summary').locator('dt:text-is("Budget") + dd');
+  await expect(budget).toHaveText(/ of 100(\.0+)? USDT$/);
   const second = await (await browser.newContext()).newPage();
-  await openDesk(second, 'b');
+  const b = await openDesk(second, 'b');
   await campaigns(second).getByRole('link', { name: draftName(), exact: true }).click();
-  await second.getByRole('button', { name: 'Approve' }).click();
+  await second.getByRole('button', { name: /^approve and take live/i }).click();
   await expect(second.getByRole('status')).toContainText(/Approved revision \d+/);
   const approved = Number((await second.getByRole('status').textContent())?.match(/Approved revision (\d+)/)?.[1]);
   await second.context().close();
   // The approval is of that revision only: an edit after it is the next revision, a draft, and the approved one stays.
   await page.reload();
   await expect(page.getByTestId('campaign-revision')).toHaveText(`Revision ${approved}`);
-  await builder(page).getByRole('tab', { name: 'Budget and time' }).click();
-  await builder(page).getByRole('textbox', { name: 'Budget, USDT' }).fill('90');
-  await builder(page).getByRole('button', { name: 'Next' }).click();
+  await builder(page).getByRole('tab', { name: 'Budget and time', exact: true }).click();
+  await builder(page).getByRole('textbox', { name: 'Budget, USDT', exact: true }).fill('90');
+  await builder(page).getByRole('button', { name: 'Next', exact: true }).click();
   await expect(page.getByTestId('campaign-pending')).toContainText(`Revision ${approved + 1}, a draft`);
   await expect(page.getByTestId('campaign-revision')).toHaveText(`Revision ${approved}`);
+  // Founder B approved revision N, asked by A; the edit is revision N+1, a draft no one has approved, and the live
+  // campaign keeps revision N with its approved budget of 100, not the edit's 90.
+  await expect(page.getByTestId('campaign-approved-by')).toHaveText(b.userId);
+  await expect(page.getByTestId('campaign-submitted-by')).toHaveText(a.userId);
+  await expect(page.getByTestId('campaign-pending')).toContainText(`Revision ${approved + 1}, a draft not yet sent for approval`);
+  await expect(budget).toHaveText(/ of 100(\.0+)? USDT$/);
+  await pictureFromTop(page, stepPicture);
 });
 
 test(`${J} #9 edits the active campaign: a new revision; earlier vouchers keep the old one; archiving an active campaign is refused`, async ({
@@ -357,29 +426,34 @@ test(`${J} #9 edits the active campaign: a new revision; earlier vouchers keep t
   const vouchers = page.getByTestId('campaign-vouchers');
   await expect(vouchers.getByTestId('vouchers-empty')).toHaveText('No voucher issued yet.', UNBUILT);
   const issue = async (code) => {
-    await vouchers.getByLabel('Voucher code').fill(code);
-    await vouchers.getByRole('button', { name: 'Issue a voucher' }).click();
+    await vouchers.getByLabel('Voucher code', { exact: true }).fill(code);
+    await vouchers.getByRole('button', { name: 'Issue a voucher', exact: true }).click();
   };
   // A voucher issued now is published under the live revision, with that revision's reward as its face value.
   await issue(first);
   await expect(vouchers.getByRole('status')).toHaveText(`Issued voucher ${first} under revision 1: 5 USDT.`);
-  const row = (code) => vouchers.getByRole('table', { name: 'Vouchers' }).getByRole('row').filter({ hasText: code }).getByRole('cell');
+  const row = (code) =>
+    vouchers
+      .getByRole('table', { name: /^Vouchers/ })
+      .getByRole('row')
+      .filter({ hasText: code })
+      .getByRole('cell');
   await expect(row(first)).toHaveText([first, 'Revision 1', '5 USDT', 'published', /.+/, /UTC/]);
 
   // The edit is the next revision beside the live one, which stays live until another founder approves it.
-  await builder(page).getByRole('tab', { name: 'Budget and time' }).click();
-  await builder(page).getByRole('textbox', { name: 'Reward per person' }).fill('7');
+  await builder(page).getByRole('tab', { name: 'Budget and time', exact: true }).click();
+  await builder(page).getByRole('textbox', { name: 'Reward per person', exact: true }).fill('7');
   // The same edit sets the voucher window in the campaign's zone: a use-by before the claim-by is refused by name.
   const [claimBy, useBy] = ['2027-03-01T12:00', '2027-06-01T12:00'];
-  await builder(page).getByLabel('Vouchers claimable until').fill(useBy);
-  await builder(page).getByLabel('Claimed vouchers usable until').fill(claimBy);
-  await builder(page).getByRole('button', { name: 'Next' }).click();
+  await builder(page).getByLabel('Vouchers claimable until', { exact: true }).fill(useBy);
+  await builder(page).getByLabel('Claimed vouchers usable until', { exact: true }).fill(claimBy);
+  await builder(page).getByRole('button', { name: 'Next', exact: true }).click();
   await expect(builder(page).getByRole('alert')).toHaveAttribute('data-code', 'campaigns.voucher_window_invalid');
-  await builder(page).getByLabel('Vouchers claimable until').fill(claimBy);
-  await builder(page).getByLabel('Claimed vouchers usable until').fill(useBy);
-  await builder(page).getByRole('button', { name: 'Next' }).click();
+  await builder(page).getByLabel('Vouchers claimable until', { exact: true }).fill(claimBy);
+  await builder(page).getByLabel('Claimed vouchers usable until', { exact: true }).fill(useBy);
+  await builder(page).getByRole('button', { name: 'Next', exact: true }).click();
   await expect(page.getByTestId('campaign-pending')).toContainText('Revision 2, a draft');
-  await page.getByRole('button', { name: 'Ask to activate' }).click();
+  await page.getByRole('button', { name: 'Ask to activate', exact: true }).click();
   // Each saved edit is the next revision number; the one asked for is the one another founder approves.
   await expect(page.getByTestId('campaign-pending')).toContainText(/Revision \d+, waiting for another founder/);
   const asked = Number((await page.getByTestId('campaign-pending').textContent())?.match(/Revision (\d+)/)?.[1]);
@@ -389,7 +463,7 @@ test(`${J} #9 edits the active campaign: a new revision; earlier vouchers keep t
   const b = await (await browser.newContext()).newPage();
   await openDesk(b, 'b');
   await campaigns(b).getByRole('link', { name, exact: true }).click();
-  await b.getByRole('button', { name: 'Approve' }).click();
+  await b.getByRole('button', { name: /^approve and take live/i }).click();
   await expect(builder(b).getByRole('status')).toContainText(`Approved revision ${asked}. It replaces revision 1 as the live one.`);
   await b.context().close();
 
@@ -403,12 +477,12 @@ test(`${J} #9 edits the active campaign: a new revision; earlier vouchers keep t
   await expect(row(second)).toHaveText([second, `Revision ${asked}`, '7 USDT', 'published', /.+/, /UTC/]);
   await expect(row(first)).toHaveText([first, 'Revision 1', '5 USDT', 'published', /.+/, /UTC/]);
   // The live revision keeps the window as typed, read back in the same zone.
-  await builder(page).getByRole('tab', { name: 'Budget and time' }).click();
-  await expect(builder(page).getByLabel('Vouchers claimable until')).toHaveValue(claimBy);
-  await expect(builder(page).getByLabel('Claimed vouchers usable until')).toHaveValue(useBy);
+  await builder(page).getByRole('tab', { name: 'Budget and time', exact: true }).click();
+  await expect(builder(page).getByLabel('Vouchers claimable until', { exact: true })).toHaveValue(claimBy);
+  await expect(builder(page).getByLabel('Claimed vouchers usable until', { exact: true })).toHaveValue(useBy);
 
   // Archiving the active campaign is refused, and it stays active.
-  await page.getByRole('button', { name: 'Archive' }).click();
+  await page.getByRole('button', { name: 'Archive', exact: true }).click();
   await expect(builder(page).getByRole('alert')).toContainText('An active campaign cannot be archived');
   await expect(builder(page).getByRole('alert')).toHaveAttribute('data-code', 'campaign.archive_active');
   await page.reload();
@@ -417,8 +491,8 @@ test(`${J} #9 edits the active campaign: a new revision; earlier vouchers keep t
 
 test(`${J} #10 opens the calendar: all campaigns by time`, async ({ page }) => {
   await openDesk(page);
-  await page.getByRole('tab', { name: 'Calendar' }).click(UNBUILT);
-  const calendar = page.getByRole('grid', { name: 'Campaign calendar' });
+  await page.getByRole('tab', { name: 'Calendar', exact: true }).click(UNBUILT);
+  const calendar = page.getByRole('grid', { name: 'Campaign calendar', exact: true });
   await expect(calendar).toBeVisible();
   // The journey's campaign is there with the time frame #7 set, and every campaign is in order of its start.
   const entry = calendar.getByTestId('campaign-calendar-entry').filter({ hasText: draftName() });
@@ -504,8 +578,8 @@ async function depositAddress(page) {
   await page.mouse.move(0, 600);
   await page.getByRole('combobox', { name: /^Asset Coins you hold/ }).selectOption('USDT');
   await page.getByRole('combobox', { name: 'Network', exact: true }).selectOption({ label: 'TEST Ethereum' });
-  await page.getByRole('checkbox', { name: 'I will send only USDT on TEST Ethereum.' }).check();
-  await page.getByRole('button', { name: 'Show my deposit address' }).click();
+  await page.getByRole('checkbox', { name: /I will send only USDT on TEST Ethereum\./ }).check();
+  await page.getByRole('button', { name: 'Show my deposit address', exact: true }).click();
   return (await page.getByTestId('deposit-address').locator('strong[data-testid="numeric"]').innerText()).trim();
 }
 
@@ -542,7 +616,7 @@ function redeliverDeposit(userId) {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], {
     cwd: path.join(root, 'packages', 'events'),
-    env: { ...process.env, NATS_URL: 'nats://127.0.0.1:14232', NATS_STREAM_PREFIX: 'LOCAL_TEST', USER_ID: userId },
+    env: { ...process.env, NATS_URL: `nats://127.0.0.1:${STACK_PORTS.nats}`, NATS_STREAM_PREFIX: 'LOCAL_TEST', USER_ID: userId },
     encoding: 'utf8',
     timeout: 60_000,
   });
@@ -585,7 +659,7 @@ test(`${J} #6 the earning rule gives one intent per event: a deposit the chain d
   const event = redeliverDeposit(customer.userId);
   expect(event).toMatchObject({ userId: customer.userId, assetId: 'USDT', amount: '20' });
   await expect(async () => {
-    const info = await fetch('http://127.0.0.1:18232/jsz?consumers=true').then((r) => r.json());
+    const info = await fetch(`${stackUrl('natsMonitor')}/jsz?consumers=true`).then((r) => r.json());
     const consumer = info.account_details
       ?.flatMap((a) => a.stream_detail ?? [])
       .flatMap((st) => st.consumer_detail ?? [])

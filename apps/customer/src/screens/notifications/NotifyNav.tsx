@@ -1,3 +1,4 @@
+import { Tabs } from '@intafaced/ui/lit/templates';
 import { alertsCopy } from './alerts-copy';
 import { centreCopy } from './centre-copy';
 
@@ -15,12 +16,13 @@ export function NotifyNav({ current }: { current: NotifyView }) {
   const copy = centreCopy.useCopy();
   const alerts = alertsCopy.useCopy();
   return (
-    <nav className="nf-nav" aria-label={copy.t('navLabel')}>
-      {LINKS.map((link) => (
-        <a key={link.id} href={link.href} aria-current={link.id === current ? 'page' : undefined} className="nf-nav__link">
-          {link.label === 'navAlerts' ? alerts.t('navAlerts') : copy.t(link.label)}
-        </a>
-      ))}
-    </nav>
+    <Tabs
+      label={copy.t('navLabel')}
+      current={LINKS.find((link) => link.id === current)?.href ?? '/notifications'}
+      items={LINKS.map((link) => ({
+        href: link.href,
+        label: link.label === 'navAlerts' ? alerts.t('navAlerts') : copy.t(link.label),
+      }))}
+    />
   );
 }

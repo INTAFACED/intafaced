@@ -1,25 +1,25 @@
+// volt-room: /dex/tokens/:address
 import { useMemo, useState, type ReactNode } from 'react';
+import { Button, Tag } from '@intafaced/ui/lit';
+import { Candles, MonitorTemplate } from '@intafaced/ui/lit/templates';
 import type { TokenPageData } from '@intafaced/contracts/protocol-tokens';
 import { PRICE_SETTINGS_UNSET } from '@intafaced/contracts/protocol-swap';
 import { navigate } from '../../../app/location';
-import { Button, DataTable, EmptyState, Failure, Page, Panel } from '../../../shared/ui';
+import { DataTable, EmptyState, Failure, Panel } from '../volt/parts';
 import { useResource } from '../../../shared/resource';
 import { createProtocolApi } from '../api';
 import { currentPreferences, usePreferences } from '../../../shared/preferences';
-import { dec } from '../../../data/decimal';
 import { clockTime, stamp } from '../../../screens/money/time';
 import { protocolCopy } from '../copy';
 import { ADDRESS_SHAPE } from '../routes';
 import { QuickTicket } from './QuickTicket';
 import { InfoUpdate } from './InfoUpdate';
 import { TabList } from './TabList';
-import { useApi, useSession } from '../../session/session';
+import { useApi, useSession } from '../../session';
 import { useAccountTokenWatchlist, type ListWrite } from '../watch/account-lists';
 import { tokensCopy, type TokensTranslate } from './copy';
 import { exactUnits, isoTime, percentFromBps, shortAddress } from './format';
 import { addToWatchlist, readWatchlist, removeFromWatchlist, type WatchlistWrite } from './storage';
-import '../protocol.css';
-import './tokens.css';
 
 type Section = 'pairs' | 'holders' | 'trades';
 const SECTIONS: readonly Section[] = ['pairs', 'holders', 'trades'];
@@ -49,13 +49,13 @@ function WatchToggle({
   t: TokensTranslate;
 }) {
   return (
-    <div className="tokens-watch">
+    <div className="lt-stack">
       {on ? (
-        <Button variant="secondary" aria-pressed="true" title={t('watchRemove')} disabled={busy} onClick={onRemove}>
+        <Button tone="secondary" aria-pressed="true" title={t('watchRemove')} disabled={busy} onClick={onRemove}>
           {t('watchOn')}
         </Button>
       ) : (
-        <Button variant="secondary" disabled={busy} onClick={onAdd}>
+        <Button tone="secondary" disabled={busy} onClick={onAdd}>
           {t('watchAdd')}
         </Button>
       )}
@@ -68,7 +68,7 @@ function WatchToggle({
 function BrowserWatch({ address, t }: { address: string; t: TokensTranslate }) {
   const [list, setList] = useState<string[] | null>(() => readWatchlist());
   const [problem, setProblem] = useState<'not_saved' | 'full' | null>(null);
-  if (list === null) return <p className="muted">{t('watchUnavailable')}</p>;
+  if (list === null) return <p className="lt-hint">{t('watchUnavailable')}</p>;
   const change = (write: WatchlistWrite) => {
     if (write.ok) setList(write.list);
     else if (write.reason === 'blocked') setList(null);
@@ -80,7 +80,7 @@ function BrowserWatch({ address, t }: { address: string; t: TokensTranslate }) {
       onAdd={() => change(addToWatchlist(address))}
       onRemove={() => change(removeFromWatchlist(address))}
       note={
-        <span className="muted" role={problem ? 'alert' : undefined}>
+        <span className="lt-hint" role={problem ? 'alert' : undefined}>
           {problem === 'full' ? t('watchFull') : problem ? t('watchNotSaved') : t('watchNote')}
         </span>
       }
@@ -102,18 +102,18 @@ function AccountWatch({ address, t }: { address: string; t: TokensTranslate }) {
   if (list.status === 'signed-out') return null;
   if (list.status === 'loading')
     return (
-      <div className="tokens-watch">
-        <Button variant="secondary" disabled>
+      <div className="lt-stack">
+        <Button tone="secondary" disabled>
           {t('watchAdd')}
         </Button>
-        <span className="muted">{t('watchAccountChecking')}</span>
+        <span className="lt-hint">{t('watchAccountChecking')}</span>
       </div>
     );
   if (list.status === 'failed')
     return (
-      <div className="tokens-watch">
-        <span className="muted">{t('watchAccountFailed')}</span>
-        <Button variant="secondary" onClick={list.reload}>
+      <div className="lt-stack">
+        <span className="lt-hint">{t('watchAccountFailed')}</span>
+        <Button tone="secondary" onClick={list.reload}>
           {t('tryAgain')}
         </Button>
       </div>
@@ -131,7 +131,7 @@ function AccountWatch({ address, t }: { address: string; t: TokensTranslate }) {
       onAdd={() => void write((items) => (items.includes(key) ? items : [...items, key]))}
       onRemove={() => void write((items) => items.filter((entry) => entry !== key))}
       note={
-        <span className="muted" role={problem ? 'alert' : undefined}>
+        <span className="lt-hint" role={problem ? 'alert' : undefined}>
           {problem ? t(problem) : t('watchNoteAccount')}
         </span>
       }
@@ -147,52 +147,30 @@ function WatchButton({ address, t }: { address: string; t: TokensTranslate }) {
 
 type PageData = TokenPageData;
 
-/** A decimal string as a bigint scaled by 1e18, for drawing only: chart geometry never goes through a `number` price. */
-const scaled = (value: string): bigint => dec(value) ?? 0n;
-
-const CHART_WIDTH = 600;
-const CHART_HEIGHT = 200;
-
-/** One SVG candle per minute with a swap, in the other token of the pair. Every candle carries its own minute. */
+/** One candle per minute with a swap, in the other token of the pair, side by side. Every candle carries its own minute. */
 function CandleChart({ pair, data, t }: { pair: PageData['pairs'][number]; data: PageData; t: TokensTranslate }) {
   const label = t('priceChartOf', {
     token: data.token.symbol || shortAddress(data.token.address),
     other: pair.other.symbol || t('noSymbol'),
     fee: percentFromBps(pair.feeBps).replace(/^\+/, ''),
   });
-  if (pair.candles.length === 0)
-    return (
-      <figure role="img" aria-label={label} className="tokens-chart" data-pool={pair.pool}>
-        <figcaption>{t('chartEmpty')}</figcaption>
-      </figure>
-    );
-  const highs = pair.candles.map((c) => scaled(c.high));
-  const lows = pair.candles.map((c) => scaled(c.low));
-  const top = highs.reduce((a, b) => (b > a ? b : a));
-  const bottom = lows.reduce((a, b) => (b < a ? b : a));
-  const range = top - bottom === 0n ? 1n : top - bottom;
-  const y = (price: string) => Number(((top - scaled(price)) * BigInt(CHART_HEIGHT - 20)) / range) + 10;
-  const step = CHART_WIDTH / pair.candles.length;
   return (
-    <figure role="img" aria-label={label} className="tokens-chart" data-pool={pair.pool}>
-      <svg viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} className="tokens-candles" aria-hidden="true">
-        {pair.candles.map((candle, i) => {
-          const up = scaled(candle.close) >= scaled(candle.open);
-          const x = i * step + step / 2;
-          const bodyTop = Math.min(y(candle.open), y(candle.close));
-          const bodyHeight = Math.max(Math.abs(y(candle.open) - y(candle.close)), 1);
-          return (
-            <g key={candle.time} data-testid="candle" data-time={isoTime(candle.time)} data-period="60" className={up ? 'up' : 'down'}>
-              <line x1={x} x2={x} y1={y(candle.high)} y2={y(candle.low)} />
-              <rect x={x - step / 4} width={step / 2} y={bodyTop} height={bodyHeight} />
-            </g>
-          );
-        })}
-      </svg>
-      <figcaption className="muted">
-        {t('chartCaption', { other: pair.other.symbol || t('noSymbol'), count: pair.candles.length })}
-      </figcaption>
-    </figure>
+    <Candles
+      label={label}
+      marks={{ 'data-pool': pair.pool }}
+      candles={pair.candles.map((candle) => ({
+        key: String(candle.time),
+        open: candle.open,
+        high: candle.high,
+        low: candle.low,
+        close: candle.close,
+        marks: { 'data-testid': 'candle', 'data-time': isoTime(candle.time), 'data-period': '60' },
+      }))}
+      empty={t('chartEmpty')}
+      caption={
+        pair.candles.length === 0 ? undefined : t('chartCaption', { other: pair.other.symbol || t('noSymbol'), count: pair.candles.length })
+      }
+    />
   );
 }
 
@@ -203,9 +181,7 @@ function SectionBody({ section, data, t }: { section: Section; data: PageData; t
     return (
       <>
         {data.pairs.length === 0 ? (
-          <figure role="img" aria-label={t('priceChart')} className="tokens-chart">
-            <figcaption>{t('chartNoPool')}</figcaption>
-          </figure>
+          <Candles label={t('priceChart')} candles={[]} empty={t('chartNoPool')} />
         ) : (
           data.pairs.map((pair) => <CandleChart key={pair.pool} pair={pair} data={data} t={t} />)
         )}
@@ -245,7 +221,7 @@ function SectionBody({ section, data, t }: { section: Section; data: PageData; t
     return (
       <>
         <p>{t('holdersRule')}</p>
-        <dl className="protocol-facts">
+        <dl className="lt-kv">
           <Fact
             label={t('totalSupply')}
             value={
@@ -344,7 +320,7 @@ type ProtocolApi = ReturnType<typeof createProtocolApi>;
  */
 function UsdPrice({ address, api, t }: { address: string; api: ProtocolApi; t: TokensTranslate }) {
   const { resource, reload } = useResource((signal) => api.tokenPrices(signal), 'tokens:usd');
-  if (resource.status === 'loading') return <span className="muted">{t('usdReading')}</span>;
+  if (resource.status === 'loading') return <span className="lt-hint">{t('usdReading')}</span>;
   if (resource.status === 'failed')
     return resource.failure.code === PRICE_SETTINGS_UNSET ? (
       <span data-blocker="price_feed" data-code={PRICE_SETTINGS_UNSET}>
@@ -367,7 +343,7 @@ function UsdPrice({ address, api, t }: { address: string; api: ProtocolApi; t: T
         {t('usdAsOf', { time: clockTime(Date.parse(asOf), currentPreferences().timeZone), block: blockNumber })}
       </time>
       <br />
-      <span className="muted">{t(`usdBasis_${found.basis!}`)}</span>
+      <span className="lt-hint">{t(`usdBasis_${found.basis!}`)}</span>
     </>
   );
 }
@@ -377,7 +353,7 @@ function TokenFacts({ data, api, t }: { data: PageData; api: ProtocolApi; t: Tok
   return (
     <section aria-label={t('factsTitle')}>
       <Panel title={t('factsTitle')}>
-        <p className="muted">
+        <p className="lt-hint">
           <time data-testid="token-as-of" dateTime={isoTime(data.asOf)}>
             {t('asOfTime', {
               time: clockTime(data.asOf * 1000, currentPreferences().timeZone),
@@ -386,7 +362,7 @@ function TokenFacts({ data, api, t }: { data: PageData; api: ProtocolApi; t: Tok
           </time>
         </p>
         {!data.listed && <p role="status">{t('notListed')}</p>}
-        <dl className="protocol-facts">
+        <dl className="lt-kv">
           <Fact
             label={t('factPrice')}
             value={data.price === null ? t('noPrice') : `${data.price} ${quote.symbol || t('noSymbol')}`}
@@ -399,7 +375,7 @@ function TokenFacts({ data, api, t }: { data: PageData; api: ProtocolApi; t: Tok
               data.pairs.length === 0 ? (
                 t('pairsNone')
               ) : (
-                <ul className="tokens-plain">
+                <ul className="lt-rows">
                   {data.pairs.map((pair) => (
                     <li key={pair.pool} data-testid="token-liquidity">
                       {exactUnits(pair.reserve, data.token.decimals)} {data.token.symbol || t('noSymbol')} ·{' '}
@@ -436,11 +412,11 @@ function TokenTrust({ data, t }: { data: PageData; t: TokensTranslate }) {
     <section aria-label={t('trustTitle')}>
       <Panel title={t('trustTitle')}>
         {trust.lookalikeOf && (
-          <p role="alert" className="tokens-alert">
+          <p role="alert" className="lt-refusal">
             {t('impersonating', { name: trust.lookalikeOf.name, symbol: trust.lookalikeOf.symbol, address: trust.lookalikeOf.address })}
           </p>
         )}
-        <dl className="protocol-facts">
+        <dl className="lt-kv">
           <Fact
             label={t('trustTier')}
             value={trust.tier === 'unknown' ? t('tierUnknown') : <span data-code={trust.tierRefusal}>{t('tierRefused')}</span>}
@@ -452,10 +428,10 @@ function TokenTrust({ data, t }: { data: PageData; t: TokensTranslate }) {
             testId="token-organic-score"
           />
         </dl>
-        <p className="muted" data-testid="token-trust-note">
+        <p className="lt-hint" data-testid="token-trust-note">
           {trust.tier === 'unknown' ? t('tierNote') : t('tierRefusedNote', { code: trust.tierRefusal ?? '' })}
         </p>
-        <p className="muted">{t('organicNote', { code: trust.organicRefusal })}</p>
+        <p className="lt-hint">{t('organicNote', { code: trust.organicRefusal })}</p>
         <h3 id="token-flags">{t('flags')}</h3>
         <ul aria-labelledby="token-flags">
           {trust.flags.map((flag) => (
@@ -474,12 +450,12 @@ function TokenBody({ address, t }: { address: string; t: TokensTranslate }) {
   const protocol = useMemo(() => createProtocolApi(transport), [transport]);
   const { resource, reload } = useResource((signal) => protocol.tokenPage(address, signal), `tokens:page:${address.toLowerCase()}`);
   const [section, setSection] = useState<Section>('pairs');
-  if (resource.status === 'loading') return <p className="muted">{t('reading')}</p>;
+  if (resource.status === 'loading') return <p className="lt-hint">{t('reading')}</p>;
   if (resource.status === 'failed') return <Failure result={resource.failure} retry={reload} />;
   const data = resource.data;
   return (
     <>
-      <p className="muted">
+      <p className="lt-hint lt-wrap">
         {data.token.name || t('noName')} · {data.token.symbol || t('noSymbol')} · {data.token.address}
       </p>
       <TokenFacts data={data} api={protocol} t={t} />
@@ -501,7 +477,8 @@ function TokenBody({ address, t }: { address: string; t: TokensTranslate }) {
 
 /**
  * The open scam reports about this address (D-developer-compliance-01), from the address risk read: a count only, never
- * who reported. It reads on its own, so it shows even where the token's own read refuses.
+ * who reported. It reads on its own, so it shows even where the token's own read refuses. The same read carries the
+ * token's standing (D-launch-listing-02): the Blocked badge, and the gating of a permissioned token.
  */
 function ScamReports({ address, t }: { address: string; t: TokensTranslate }) {
   const transport = useApi();
@@ -514,10 +491,24 @@ function ScamReports({ address, t }: { address: string; t: TokensTranslate }) {
         {resource.status === 'failed' && <Failure result={resource.failure} retry={reload} />}
         {resource.status === 'ready' && (
           <>
+            {resource.data.blocked && (
+              <p data-testid="token-blocked">
+                <Tag>{t('standingBlocked')}</Tag> {t('standingBlockedNote', { reason: resource.data.blocked.reason })}
+              </p>
+            )}
+            {resource.data.permissioned && (
+              <p data-testid="token-permissioned">
+                <Tag>{t('standingPermissioned')}</Tag>{' '}
+                {t('standingPermissionedNote', {
+                  checker: resource.data.permissioned.checkerAddress,
+                  pool: resource.data.permissioned.pool,
+                })}
+              </p>
+            )}
             <p data-testid="scam-reports">
               {resource.data.openReports === 1 ? t('scamOne') : t('scamMany', { count: String(resource.data.openReports) })}
             </p>
-            <p className="muted">{t('scamNote')}</p>
+            <p className="lt-hint">{t('scamNote')}</p>
           </>
         )}
       </Panel>
@@ -536,40 +527,44 @@ export function TokenPage({ address }: { address: string | undefined }) {
   const room = protocolCopy.forLocale(language).t;
   const valid = address !== undefined && ADDRESS_SHAPE.test(address);
   return (
-    <div className="legacy-room protocol-room tokens-room" lang={renderedLocale} data-route="tokenDetail">
-      <Page
+    <div lang={renderedLocale} data-route="tokenDetail">
+      <MonitorTemplate
         title={valid ? t('pageTitle', { address }) : t('notFoundTitle')}
-        eyebrow={
-          <>
-            <span>{t('pageBanner')}</span>
-            <span className="badge protocol-pill">{room('bannerPill')}</span>
-          </>
-        }
+        state={{ kind: 'ready' }}
+        figures={[]}
         actions={
           valid ? (
-            <>
+            <div className="lt-actions">
               <WatchButton address={address} t={t} />
               <InfoUpdate token={address} t={t} />
-            </>
+            </div>
           ) : undefined
         }
-      >
-        {valid ? (
+        panels={
           <>
-            <TokenBody address={address} t={t} />
-            <ScamReports address={address} t={t} />
+            <p className="lt-hint">
+              <span>{t('pageBanner')}</span> <Tag>{room('bannerPill')}</Tag>
+            </p>
+            {valid ? (
+              <>
+                <TokenBody address={address} t={t} />
+                <ScamReports address={address} t={t} />
+              </>
+            ) : (
+              <Panel title={t('notFoundTitle')}>
+                <div data-code="protocol.not_found" role="status">
+                  <EmptyState title={t('notFoundBody')} />
+                </div>
+              </Panel>
+            )}
           </>
-        ) : (
-          <Panel title={t('notFoundTitle')}>
-            <div data-code="protocol.not_found" role="status">
-              <EmptyState title={t('notFoundBody')} />
-            </div>
-          </Panel>
-        )}
-        <Button variant="secondary" onClick={() => navigate('/dex/tokens')}>
-          {t('back')}
-        </Button>
-      </Page>
+        }
+        related={
+          <Button tone="secondary" onClick={() => navigate('/dex/tokens')}>
+            {t('back')}
+          </Button>
+        }
+      />
     </div>
   );
 }

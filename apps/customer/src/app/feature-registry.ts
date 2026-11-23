@@ -212,6 +212,26 @@ export const features: readonly Feature[] = [
     tab: 'money',
   },
   {
+    id: 'bank-salary',
+    label: 'Salary',
+    paths: ['/bank/salary'],
+    status: 'blocked',
+    reason:
+      "Salary by direct deposit is rail.bank: the partner bank's account details and the payroll network's credits and reversals; with no network wired every salary read refuses rail.bank, and the reversal window is an owner value: blank, a reversal refuses bank.direct_deposit_reversal_window_unset",
+    unlock: 'J-bank-30 passing on main',
+    tab: 'money',
+  },
+  {
+    id: 'bank-account',
+    label: 'Your bank account',
+    paths: ['/bank/account'],
+    status: 'blocked',
+    reason:
+      "Onboarding, information requests, reviews, closure and data requests are the partner bank's; the owner's requirements, an answer's size cap and the reopen window are owner values: blank, each refuses with its own code",
+    unlock: 'J-bank-17 #1 #2 #4 #5 #6 passing on main',
+    tab: 'money',
+  },
+  {
     id: 'bank-limits',
     label: 'Limits, fees and plan',
     paths: ['/bank/limits'],
@@ -583,6 +603,8 @@ export const features: readonly Feature[] = [
       '/quant/library/:listingId',
       '/quant/live',
       '/quant/live/:runId',
+      '/quant/limits',
+      '/quant/data',
       '/quant/backtest',
       '/quant/editor',
       '/quant/tester',
@@ -641,6 +663,7 @@ export const features: readonly Feature[] = [
       '/uc/promotion/mycards',
       '/uc/promotion/mypromotion',
       '/uc/promotion/points',
+      '/uc/promotion/perks',
       '/uc/invitingmining',
       '/uc/paydividends',
     ],

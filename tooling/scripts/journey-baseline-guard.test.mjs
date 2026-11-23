@@ -2,7 +2,15 @@
 // failing, on small made-up baselines. Runs in the Doctrine gates' tooling tests (tooling/scripts/tooling-tests.mjs).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { judgeBaselineChange, namedRunProblem, liveSteps, isProductCode, runRange, listRuns } from '../ci/journey-baseline-guard.mjs';
+import {
+  judgeBaselineChange,
+  namedRunProblem,
+  liveSteps,
+  isProductCode,
+  runRange,
+  listRuns,
+  needsHistory,
+} from '../ci/journey-baseline-guard.mjs';
 
 const SHA_A = 'a'.repeat(40);
 const SHA_B = 'b'.repeat(40);
@@ -211,28 +219,47 @@ test('an unbuilt entry added with the run unchanged is judged against every run 
   assert.deepEqual(runRange(base, { run: run(12, SHA_B), steps: [unbuilt('J-x-01#3')] }), { from: 10, to: 12, addsUnbuilt: false });
 });
 
-test('the runs list fails closed when it ends before the base run', () => {
-  const page = (nums) => ({
-    status: 0,
-    stdout: JSON.stringify({
-      workflow_runs: nums.map((n) => ({
-        run_number: n,
-        id: n,
-        head_sha: SHA_A,
-        head_branch: 'main',
-        event: 'schedule',
-        conclusion: 'failure',
-      })),
-    }),
+test("the runs list reads back past GitHub's 1,000-run cap, one day at a time, and fails closed where it cannot", () => {
+  // GitHub as it answers: newest first, a filtered list stops after 1,000 runs (10 pages of 100), created=<day> filters.
+  const github = (runs) => (args) => {
+    const url = new URL(`https://x/${args[1]}`);
+    const day = url.searchParams.get('created');
+    const page = Number(url.searchParams.get('page'));
+    const got = runs.filter((r) => !day || r.created_at.startsWith(day)).sort((a, b) => b.run_number - a.run_number);
+    const capped = got.slice(0, 1000);
+    return { status: 0, stdout: JSON.stringify({ workflow_runs: capped.slice((page - 1) * 100, page * 100) }) };
+  };
+  const now = new Date('2026-11-22T03:00:00Z');
+  const run = (n, day, extra = {}) => ({
+    run_number: n,
+    id: n,
+    head_sha: SHA_A,
+    head_branch: 'main',
+    event: 'push',
+    conclusion: 'success',
+    created_at: `${day}T12:00:00Z`,
+    ...extra,
   });
-  const pages = [page([15, 14, 13]), page([])];
-  const gh = () => pages.shift() ?? page([]);
-  assert.throws(() => listRuns(gh, 'o/r', 10, Infinity), /ended before run 10/);
-  const whole = [page([12, 11, 10, 9])];
+  const dayOf = (back) => new Date(Date.UTC(2026, 10, 22 - back)).toISOString().slice(0, 10);
+  // 1,500 runs over ten days, 150 a day: run 1 is ten days back, as run 1719 was on 22 Nov 2026 (project-state#3692).
+  const many = Array.from({ length: 1500 }, (_, i) => run(i + 1, dayOf(9 - Math.floor(i / 150))));
+  many[4] = run(5, many[4].created_at.slice(0, 10), { conclusion: 'cancelled' });
+  many[5] = run(6, many[5].created_at.slice(0, 10), { event: 'pull_request' });
+  const got = listRuns(github(many), 'o/r', 3, Infinity, { now }).map((r) => r.number);
+  assert.equal(got.length, 1500 - 2 - 2);
+  assert.deepEqual(got.slice(0, 3), [3, 4, 7]);
+  assert.equal(got.at(-1), 1500);
   assert.deepEqual(
-    listRuns(() => whole.shift(), 'o/r', 10, Infinity).map((r) => r.number),
-    [10, 11, 12],
+    listRuns(github(many), 'o/r', 1400, 1450, { now }).map((r) => r.number),
+    Array.from({ length: 51 }, (_, i) => 1400 + i),
   );
+  // A day at the cap can't be read whole.
+  const crowded = Array.from({ length: 1000 }, (_, i) => run(i + 1, dayOf(0)));
+  assert.throws(() => listRuns(github(crowded), 'o/r', 1, Infinity, { now }), /can't be read whole/);
+  // A base run older than the days read fails closed.
+  assert.throws(() => listRuns(github(many), 'o/r', 1, Infinity, { now, maxDays: 5 }), /more than 5 days of runs back/);
+  // A base run that is not on the list at all fails closed, never reads as the whole range.
+  assert.throws(() => listRuns(github([]), 'o/r', 1, Infinity, { now, maxDays: 3 }), /more than 3 days/);
 });
 
 test('product code matches the runbook definition', () => {
@@ -248,4 +275,20 @@ test('liveSteps leaves deferred journeys and steps out', () => {
     { id: 'J-b-01', deferred: true, steps: [{ n: 1 }] },
   ]);
   assert.deepEqual([...s], ['J-a-01#1']);
+});
+
+test('needs no history: only money or why changed (the guard passes without listing runs)', () => {
+  const base = { run: run(1719, SHA_A), steps: [unbuilt('J-x-01#1', { money: false, why: 'a' })] };
+  assert.equal(needsHistory(base, { ...base, steps: [unbuilt('J-x-01#1', { money: true, why: 'b' })] }), false);
+});
+
+test('needs history (planted): a state, a step, the run or any other field changes with the money flag', () => {
+  const base = { run: run(1719, SHA_A), steps: [unbuilt('J-x-01#1', { money: false })] };
+  const flip = unbuilt('J-x-01#1', { money: true });
+  assert.equal(needsHistory(base, { ...base, steps: [{ ...flip, state: 'regression' }] }), true);
+  assert.equal(needsHistory(base, { ...base, steps: [flip, unbuilt('J-x-01#2')] }), true);
+  assert.equal(needsHistory(base, { ...base, steps: [] }), true);
+  assert.equal(needsHistory(base, { run: run(1720, SHA_B), steps: [flip] }), true);
+  assert.equal(needsHistory(base, { ...base, steps: [{ ...flip, strengthenedBy: SHA_S }] }), true);
+  assert.equal(needsHistory(base, { ...base, note: 'x', steps: [flip] }), true);
 });

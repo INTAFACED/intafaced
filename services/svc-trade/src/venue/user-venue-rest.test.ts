@@ -7,6 +7,7 @@ import { parseAmount } from '@intafaced/ledger-client/money';
 import type { Principal } from '@intafaced/auth';
 import { StepUpCheckError } from '@intafaced/contracts';
 import { startTestVenueServer, type TestVenueSimulator, type TestVenueTypedData } from '@intafaced/venue-sim';
+import { venueClientOrderId } from '@intafaced/venue-contracts';
 import { HttpUserVenue } from './http-user-venue.js';
 import { listedTestStore } from './venue-listing-store.js';
 import { StoreVenueRoutingGate } from './venue-listing.js';
@@ -15,7 +16,7 @@ import { UserVenueDoor, type BuilderFeeValue } from './user-venue-door.js';
 import { attachUserVenueRoutes } from './user-venue-rest.js';
 import { UserVenueRouter } from './venue-router.js';
 
-const USER = { userId: '11111111-1111-4111-8111-1111111111c1', sid: 's-1', scopes: ['trade:read', 'trade:write'] } as unknown as Principal;
+const USER = { userId: '11111111-1111-4111-8111-1111111111c1', sid: 's-1', scopes: ['trade:read', 'trade:write'] } as Principal;
 const key = privateKeyToAccount(keccak256(toHex('intafaced TEST wallet svc-trade venue rest')));
 const owner = key.address.toLowerCase();
 
@@ -177,6 +178,85 @@ describe('/api/v1/venue/*', () => {
     expect(onSub.json().intafacedCode).toBe('trade.venue_request_invalid');
   });
 
+  it("J-derivatives-05 #6: a sub-account is read only when the venue lists it under the owner's main account; a sibling's id is refused", async () => {
+    await mount(door());
+    const post = async <T>(path: string, body: unknown): Promise<T> => {
+      const res = await fetch(`${url}${path}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      expect(res.status).toBe(200);
+      return (await res.json()) as T;
+    };
+    const venueId = ((await (await fetch(`${url}/venue`)).json()) as { venue: { id: string } }).venue.id;
+    // Another TEST wallet opens a sub-account of its own on the venue directly: the sibling.
+    const other = privateKeyToAccount(keccak256(toHex('intafaced TEST wallet svc-trade venue rest sibling')));
+    const otherMain = { venueId, owner: other.address.toLowerCase(), subAccount: null };
+    const opened = await post<{ typedData: TestVenueTypedData; digest: string }>('/prepare', {
+      account: otherMain,
+      signer: { role: 'owner', address: otherMain.owner },
+      intent: { kind: 'create_sub_account', name: 'TEST sibling', subAccountKey: 'test:rest-sibling:1' },
+    });
+    const t = opened.typedData;
+    const sig = await other.signTypedData({ domain: t.domain, types: t.types, primaryType: t.primaryType, message: t.message });
+    await post('/submit', { prepared: opened, signature: { digest: opened.digest, signature: sig, signedBy: otherMain.owner } });
+    const sibling = (await post<{ value: { subAccount: string }[] }>('/sub-accounts', { account: otherMain })).value[0]!.subAccount;
+    for (const path of ['positions', 'balances', 'orders/open']) {
+      const res = await app.inject({ method: 'GET', url: `/api/v1/venue/${path}?owner=${owner}&subAccount=${sibling}` });
+      expect(res.statusCode, path).toBe(403);
+      expect(res.json().intafacedCode).toBe('trade.venue_sub_account_not_own');
+    }
+    // The owner's own sub-account is read.
+    const mine = (await app.inject({ method: 'GET', url: `/api/v1/venue/sub-accounts?owner=${owner}` })).json().value as {
+      subAccount: string;
+    }[];
+    if (mine.length > 0) {
+      const res = await app.inject({ method: 'GET', url: `/api/v1/venue/positions?owner=${owner}&subAccount=${mine[0]!.subAccount}` });
+      expect(res.statusCode).toBe(200);
+    }
+  });
+
+  it("J-derivatives-05 #3 #4: status names each venue's position modes; leverage-change states the margin difference by the venue's rule", async () => {
+    await mount(door());
+    const status = (await app.inject({ method: 'GET', url: '/api/v1/venue/status' })).json();
+    expect(status.venues).toEqual([expect.objectContaining({ positionModes: ['one_way'] })]);
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/venue/leverage-change?owner=${owner}&symbol=BTC-PERP&leverageBps=50000&marginMode=isolated`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().value).toMatchObject({
+      symbol: 'BTC-PERP',
+      leverageBps: 50_000,
+      marginMode: 'isolated',
+      maxLeverageBps: expect.any(Number),
+    });
+    for (const k of ['positionSize', 'marginNow', 'marginAfter', 'difference']) expect(typeof res.json().value[k]).toBe('string');
+    const above = await app.inject({
+      method: 'GET',
+      url: `/api/v1/venue/leverage-change?owner=${owner}&symbol=BTC-PERP&leverageBps=99990000&marginMode=isolated`,
+    });
+    expect(above.statusCode).toBe(422);
+    const bad = await app.inject({
+      method: 'GET',
+      url: `/api/v1/venue/leverage-change?owner=${owner}&symbol=BTC-PERP&leverageBps=5x&marginMode=isolated`,
+    });
+    expect(bad.statusCode).toBe(400);
+  });
+
+  it("J-derivatives-06 #1 #3: account-summary and isolated-margin answer the venue's own figures; no position refuses in words", async () => {
+    await mount(door());
+    const summary = await app.inject({ method: 'GET', url: `/api/v1/venue/account-summary?owner=${owner}` });
+    expect(summary.statusCode).toBe(200);
+    expect(summary.json().value).toMatchObject({ asset: expect.any(String), marginRatio: expect.any(Object) });
+    for (const k of ['equity', 'free', 'usedMargin', 'maintenanceMargin']) expect(typeof summary.json().value[k]).toBe('string');
+    const none = await app.inject({ method: 'GET', url: `/api/v1/venue/isolated-margin?owner=${owner}&symbol=BTC-PERP` });
+    expect(none.statusCode).toBe(422);
+    expect(JSON.stringify(none.json())).toContain('no position is open on BTC-PERP');
+    expect((await app.inject({ method: 'GET', url: `/api/v1/venue/isolated-margin?owner=${owner}` })).statusCode).toBe(400);
+  });
+
   it("best-prices answers the venue's best bid and ask as decimal strings, and refuses without a symbol", async () => {
     await mount(door());
     const res = await app.inject({ method: 'GET', url: '/api/v1/venue/best-prices?symbol=BTC-USDC' });
@@ -232,6 +312,34 @@ describe('/api/v1/venue/*', () => {
     const outside = await app.inject({ method: 'POST', url: '/api/v1/venue/preview', payload: { owner, intent: buy('60301') } });
     expect(outside.statusCode, outside.body).toBe(422);
     expect(outside.json().intafacedCode).toBe('trade.venue.price_outside_protection');
+  });
+
+  it("J-bank-31 #3: withdrawal-terms answers the venue's published fee, network fee and arrival time as decimal strings, and refuses without an asset", async () => {
+    await mount(door());
+    const res = await app.inject({ method: 'GET', url: `/api/v1/venue/withdrawal-terms?owner=${owner}&asset=USDC` });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().value).toEqual({
+      asset: 'USDC',
+      fee: { known: true, value: '1' },
+      networkFee: { known: true, value: '0.25' },
+      arrivalSeconds: 60,
+    });
+    expect((await app.inject({ method: 'GET', url: `/api/v1/venue/withdrawal-terms?owner=${owner}` })).statusCode).toBe(400);
+  });
+
+  it('J-wallet-24 #5 #6: deposit-routes answers each asset the venue lists with the route it publishes, or none', async () => {
+    await mount(door());
+    sim.setAssetRoute('ZZB', { network: 'TEST other chain', how: 'TEST: send ZZB on TEST other chain to your venue address' });
+    const res = await app.inject({ method: 'GET', url: `/api/v1/venue/deposit-routes?owner=${owner}` });
+    expect(res.statusCode, res.body).toBe(200);
+    const rows = res.json().value as { asset: string; network: string | null; how: string | null }[];
+    expect(rows.find((r) => r.asset === 'ZZB')).toEqual({
+      asset: 'ZZB',
+      network: 'TEST other chain',
+      how: 'TEST: send ZZB on TEST other chain to your venue address',
+    });
+    // An asset the venue lists and publishes no route for: not offered, never a route of ours.
+    expect(rows.find((r) => r.asset === 'BTC')).toEqual({ asset: 'BTC', network: null, how: null });
   });
 
   it('funding-history is public: no sign-in or verification; the listed perpetual on the asset, rates as decimal strings', async () => {
@@ -714,5 +822,56 @@ describe('/api/v1/venue/*', () => {
     });
     expect(odd.status).toBe(400);
     expect(await odd.text()).toContain("figures is 'live', 'stale' or 'unknown'");
+  });
+});
+
+describe('/api/v1/venue/orders/by-client-id (J-cex-spot-15 #5)', () => {
+  it("reads one venue order by the bot's own client id, the same as by the venue's client order id", async () => {
+    const account = { venueId: sim.venue.id, owner, subAccount: null };
+    sim.deposit(account, 'USDC', parseAmount('100'), 'chain:rest-by-client-id:1');
+    const clientOrderKey = `bot:${USER.userId}:by-client-id:1`;
+    const bid = {
+      kind: 'place_order',
+      symbol: 'BTC-USDC',
+      side: 'buy',
+      type: 'limit',
+      amount: parseAmount('0.001'),
+      price: parseAmount('59000'),
+      timeInForce: 'GTC',
+      reduceOnly: false,
+      clientOrderKey,
+      builderFee: null,
+    } as const;
+    const prepared = await sim.prepare(account, { role: 'owner', address: owner }, bid);
+    const t = prepared.typedData as TestVenueTypedData;
+    const signature = await key.signTypedData({ domain: t.domain, types: t.types, primaryType: t.primaryType, message: t.message });
+    expect(await sim.submit(prepared, { digest: prepared.digest, signature, signedBy: owner })).toMatchObject({ accepted: true });
+
+    await mount(door());
+    const byKey = await app.inject({
+      method: 'GET',
+      url: `/api/v1/venue/orders/by-client-id?owner=${owner}&clientOrderKey=${encodeURIComponent(clientOrderKey)}`,
+    });
+    expect(byKey.statusCode, byKey.body).toBe(200);
+    expect(byKey.json().value).toMatchObject({ venueClientOrderId: venueClientOrderId(sim.venue.id, clientOrderKey), status: 'open' });
+    const byVenueId = await app.inject({
+      method: 'GET',
+      url: `/api/v1/venue/orders/by-client-id?owner=${owner}&clientOrderId=${venueClientOrderId(sim.venue.id, clientOrderKey)}`,
+    });
+    expect(byVenueId.json().value).toEqual(byKey.json().value);
+
+    // Both ids, or neither, is a malformed request; a random id is never a client id (floor 3).
+    const both = await app.inject({
+      method: 'GET',
+      url: `/api/v1/venue/orders/by-client-id?owner=${owner}&clientOrderKey=${clientOrderKey}&clientOrderId=0x00`,
+    });
+    expect(both.statusCode).toBe(400);
+    expect((await app.inject({ method: 'GET', url: `/api/v1/venue/orders/by-client-id?owner=${owner}` })).statusCode).toBe(400);
+    const random = await app.inject({
+      method: 'GET',
+      url: `/api/v1/venue/orders/by-client-id?owner=${owner}&clientOrderKey=0b9f3a52-6f1c-4c55-9f0e-8f1d2c3b4a59`,
+    });
+    expect(random.statusCode, random.body).toBe(422);
+    expect(random.json().intafacedCode).toBe('trade.venue.invalid_client_order_key');
   });
 });

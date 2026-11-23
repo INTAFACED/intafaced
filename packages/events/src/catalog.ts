@@ -250,6 +250,28 @@ export const deathNoticeConfirmed = defineEvent(
 );
 
 /**
+ * The owner's own freeze (W-security-accounts-03, J-wallet-13 #1). Published by svc-identity from the freeze's own row
+ * after the freeze commits, at least once, with the business key `identity.self_freeze.frozen:<freezeId>`. The freeze
+ * itself ended every session and API key in its transaction; each service that keeps a permission for an agent to act
+ * for the person revokes it on this event and stops that person's scheduled agent orders. A revoked permission stays
+ * revoked after the lift: the person signs a new one. Consumers are idempotent by `freezeId`, and every service that acts
+ * for the person still reads the freeze itself (`GET /internal/self-freeze/:userId`) before it acts, so a late or lost
+ * event never lets an action through. Moves no money.
+ */
+export const selfFreezeApplied = defineEvent(
+  'identity',
+  'self_freeze',
+  'frozen',
+  1,
+  z.object({
+    userId: userIdSchema,
+    freezeId: z.string().guid(),
+    since: z.string().datetime({ offset: true }),
+  }),
+  'The owner froze their own account: every agent permission kept for them is revoked and their scheduled agent orders stop (J-wallet-13).',
+);
+
+/**
  * A staff record changed (OPS-admin-access-03). `created`: an invite one person was approved for; `updated`: status,
  * roles or permissions changed; `deleted`: the staff record was removed. svc-identity publishes it from an outbox row
  * in the same transaction as the change, at least once, with the business key
@@ -1399,6 +1421,8 @@ export const COPY_SKIP_REASON_IDS = [
   'insufficient_funds',
   'max_copy_total',
   'copy_slippage_exceeded',
+  'per_contract_cap',
+  'daily_cap',
   'position_closed',
   'refused',
 ] as const;
@@ -1465,6 +1489,28 @@ export const copyStopped = defineEvent(
     stoppedAt: z.string().datetime({ offset: true }),
   }),
   'A follow stopped copying new leader fills. With closeOnly it still mirrors closes of what it already holds. A stop is one-way (close-only can only become left), so consumers dedupe on (followId, closeOnly). The follower is told the reason.',
+);
+
+/**
+ * A recurring buy found too little free quote on the person's own venue account for a slot and was suspended
+ * (J-copy-bots-otc-16 #6). No funds move: the slot bought nothing. svc-trade publishes once per rule and slot, after the
+ * status moved, so consumers dedupe on (ruleId, slot). The person is told once; funds arriving resume the rule.
+ */
+export const recurringBuySuspended = defineEvent(
+  'trade',
+  'recurring_buy',
+  'paused',
+  1,
+  z.object({
+    ruleId: copyFollowIdSchema,
+    userId: userIdSchema,
+    slot: z.number().int().min(0),
+    asset: z.string().regex(/^[A-Z0-9]{2,20}$/),
+    amount: z.string().regex(/^[0-9]+(\.[0-9]+)?$/),
+    free: z.string().regex(/^[0-9]+(\.[0-9]+)?$/),
+    suspendedAt: z.string().datetime({ offset: true }),
+  }),
+  'A recurring buy was suspended for insufficient funds at one slot. No funds move; consumers dedupe on (ruleId, slot). The person is told once.',
 );
 
 /**
@@ -2193,6 +2239,7 @@ export const EVENT_CATALOG = {
   securityFactorChanged,
   deathNoticeCreated,
   deathNoticeConfirmed,
+  selfFreezeApplied,
   staffCreated,
   staffUpdated,
   staffDeleted,
@@ -2272,6 +2319,7 @@ export const EVENT_CATALOG = {
   copySkipped,
   copyFailed,
   copyStopped,
+  recurringBuySuspended,
   venueDelistingScheduled,
   projectionUpdated,
 } as const;
@@ -2311,9 +2359,10 @@ export function eventBySubject(s: string): EventDef | undefined {
  * All three are kept here after the fact, because the SHAPE is what this list
  * exists for and every one of them was found by accident rather than on purpose.
  *
- * `tooling/ci/event-wiring.mjs` now reads the code and this list together, and
- * fails when they disagree. So the only two states an unwired event can be in
- * are: RECORDED HERE, with a reason a human wrote and a CLASS — or RED.
+ * An unwired event is RECORDED HERE, with a reason a human wrote and a CLASS.
+ * No CI check reads the code against this list since the event-wiring gate was
+ * removed: svc-notify logs an undeclared consumer at ERROR and counts it on
+ * /ready at boot, and a journey that needs the event fails.
  *
  * THE RULES, because a socket list rots into a suppression list otherwise:
  *
@@ -2633,34 +2682,6 @@ export const WIRING_SOCKETS = [
       'The escalation runner lives inside svc-ops and reads the stored group; no other service needs the event yet. Nothing pages anyone on main today, so no one is promised a page by it.',
   },
   {
-    event: 'coreOpsReconciliationAlertOpened',
-    missing: 'subscriber',
-    class: 'A',
-    reason:
-      'No other service needs it yet: the alert is a durable svc-ops row that /alerts reads, and nothing outside svc-ops is promised a reaction. The subject exists so audit and a later consumer can follow without polling.',
-  },
-  {
-    event: 'coreOpsReconciliationAlertUpdated',
-    missing: 'subscriber',
-    class: 'A',
-    reason:
-      'No other service needs it yet: the alert is a durable svc-ops row that /alerts reads, and nothing outside svc-ops is promised a reaction. The subject exists so audit and a later consumer can follow without polling.',
-  },
-  {
-    event: 'coreOpsReconciliationAlertResolved',
-    missing: 'subscriber',
-    class: 'A',
-    reason:
-      'No other service needs it yet: the alert is a durable svc-ops row that /alerts reads, and nothing outside svc-ops is promised a reaction. The subject exists so audit and a later consumer can follow without polling.',
-  },
-  {
-    event: 'coreOpsReconciliationAlertAccepted',
-    missing: 'subscriber',
-    class: 'A',
-    reason:
-      'No other service needs it yet: the alert is a durable svc-ops row that /alerts reads, and nothing outside svc-ops is promised a reaction. The subject exists so audit and a later consumer can follow without polling.',
-  },
-  {
     event: 'coreOpsComplianceCaseCreated',
     missing: 'publisher',
     class: 'A',
@@ -2773,7 +2794,7 @@ export const WIRING_SOCKETS = [
      * invisible to the check built to see it, which is strictly worse than the
      * honest entry it replaced.
      *
-     * `docs/TRACKER.md` never stopped saying this event "has no consumer yet". The
+     * The generated status board (since removed) never stopped saying this event "has no consumer yet". The
      * docs and the runtime agreed the whole time; only the catalog and the gate
      * disagreed.
      *

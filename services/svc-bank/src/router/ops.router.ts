@@ -1,15 +1,8 @@
 import { z } from 'zod';
-import { router, scopedProcedure } from '@intafaced/contracts';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
-import {
-  FRAUD_BLOCK_STANCES,
-  FRAUD_PREVIEW_ACTIONS,
-  FRAUD_RISK_BANDS,
-  FRAUD_SIGNALS,
-  fraudPreview,
-  refuseFraudPreviewAction,
-} from '../cards/fraud-preview.js';
+import { FRAUD_PREVIEW_ACTIONS, fraudPreviewDoor, refuseFraudPreviewAction } from '../cards/fraud-preview.js';
 import { poolTotalsProcedure } from '../ops/pool-totals.js';
 import { loanBookProcedure } from '../ops/loan-book.js';
 import { assetPausesProcedure, setAssetPauseProcedure } from '../ops/asset-pause.js';
@@ -18,6 +11,7 @@ import { partnerRefusalsProcedure } from '../partner/partner-refusals.js';
 import {
   cardPartnerTermsProcedure,
   cardProgrammeFundingProcedure,
+  cardPayFromReconciliationProcedure,
   cardProgrammeProcedure,
   requestCardProgrammeFundingProcedure,
   setCardStatusProcedure,
@@ -28,6 +22,9 @@ import { createEarnPoolProcedure, setEarnPoolRateProcedure, setEarnPoolStatusPro
 import { publishTransferTermsProcedure } from '../transfers/transfer-terms.js';
 import { DestinationFraudList, destinationFraudListProcedure, setDestinationFraudListingProcedure } from '../ramps/fraud-list.js';
 import { rampHealthProcedure } from '../ops/ramp-health.js';
+import { rampMetricsProcedure } from '../ops/ramp-metrics.js';
+import { directDebitMandatesProcedure } from '../ops/direct-debit-mandates.js';
+import { railsView, salaryRailsOutput } from '../salary/salary.router.js';
 import { onrampFeesNotKnownProcedure, onrampQuotesProcedure } from '../ops/onramp-quotes.js';
 import { transferHealthProcedure } from '../ops/transfer-health.js';
 import { failedTransfersProcedure } from '../ops/failed-transfers.js';
@@ -36,6 +33,7 @@ import { customerCardsProcedure } from '../ops/customer-cards.js';
 import { transferDetailProcedure } from '../ops/transfer-detail.js';
 import { authorizationGetProcedure } from '../ops/authorization-detail.js';
 import { businessApprovalsProcedure } from '../ops/business-approvals.js';
+import { cardProgrammeOpsProcedures } from '../ops/card-programme-ops.js';
 import { cardDisputeProcedures } from '../ops/card-disputes.js';
 import { ADJUST_LOAN_INTEREST_ACTION, correctionApprovalFields } from '../loans/loan-adjustments.js';
 import { amountString, actionApprovalFields, heldSendOutput, partnerFiguresOutput, signedAmountString } from './shared.js';
@@ -67,30 +65,9 @@ export function createOpsRouter(c: BankRouterContext) {
     /**
      * BK-cops-09 fraud preview (/bank-ops/cards/fraud). TEST rows only, labelled
      * and blurred; no authorisation carries a score until an engine exists.
+     * `admin:treasury`, from its record (BANK_OPS_FRAUD_PREVIEW).
      */
-    fraudPreview: scopedProcedure('admin:treasury')
-      .output(
-        z.object({
-          label: z.literal('Preview · sample data'),
-          engine: z.string(),
-          preview: z.literal(true),
-          blurred: z.literal(true),
-          stances: z.array(z.enum(FRAUD_BLOCK_STANCES)),
-          automaticBlocking: z.literal('unavailable'),
-          rows: z.array(
-            z.object({
-              testAuthorisationRef: z.string().startsWith('TEST-'),
-              test: z.literal(true),
-              band: z.enum(FRAUD_RISK_BANDS),
-              signals: z.array(z.enum(FRAUD_SIGNALS)),
-            }),
-          ),
-        }),
-      )
-      .query(() => {
-        const view = fraudPreview();
-        return { ...view, stances: [...view.stances], rows: view.rows.map((r) => ({ ...r, signals: [...r.signals] })) };
-      }),
+    fraudPreview: fraudPreviewDoor(),
     /**
      * Personal sends the owner's review rule holds (PP-send-request-10), oldest first. Each is the customer's own
      * instruction; nothing was taken while it waits.
@@ -1128,12 +1105,34 @@ export function createOpsRouter(c: BankRouterContext) {
     cardPartnerTerms: cardPartnerTermsProcedure(bank, guard),
     /** Settlement reconciliation, stablecoin conversion and the partner's funding offers (J-bank-26 #6). Read only. */
     cardProgrammeFunding: cardProgrammeFundingProcedure(bank, guard),
+    /** Pay-from spend and open holds against the card partner's own reports, per asset (J-bank-29 #8). Read only. */
+    cardPayFromReconciliation: cardPayFromReconciliationProcedure(bank, guard),
     /** Fund, defund or set auto reload at the card partner, with a second founder's approval (J-bank-26 #6). */
     requestCardProgrammeFunding: requestCardProgrammeFundingProcedure(bank, consumeOpsApproval, guard),
     setCardStatus: setCardStatusProcedure(bank, consumeOpsApproval, guard),
     /** J-bank-27: card disputes worked by support (queue, case, evidence, representment, arbitration, credit, decision). */
     ...cardDisputeProcedures(bank, guard),
+    /** J-bank-26: the card programme desk for support and finance (settings, rules, cardholders, log, roles, bulk issue). */
+    ...cardProgrammeOpsProcedures(bank, guard),
     rampHealth: rampHealthProcedure(bank, guard),
+    /** J-bank-28 #3: ramp orders by state, partner health and quote expiries, as the ramp partner reports them. Read only. */
+    rampMetrics: rampMetricsProcedure(() => bank.addMoney.partner, guard),
+    /** J-bank-28 #4: the partner's direct debit mandates with state, blocks and refunds, and its failures by reason. Read only. */
+    directDebitMandates: directDebitMandatesProcedure(
+      () => ({
+        report: bank.testPartner ? () => bank.testPartner!.directDebitReport() : null,
+        details: (ids) => bank.directDebits.opsMandateDetails(ids),
+      }),
+      guard,
+    ),
+    /**
+     * J-bank-30 #8: the payroll rail, per currency: the network's own credits minus reversals against what the app showed.
+     * `partner: null` when no payroll network is wired ("no data", never zero). Read only.
+     */
+    salaryRails: scopedProcedure('admin:read')
+      .input(z.object({}).strict().optional())
+      .output(salaryRailsOutput)
+      .query(() => guard(async () => railsView(await bank.salary.rails()))),
     /** J-cex-spot-17 #8: the fiat buy prices customers were given, with their exact fees. Read only. */
     onrampQuotes: onrampQuotesProcedure(() => bank.transferOps.sql, guard),
     /** J-cex-spot-17 #8: the buy asks the partner's ramp gave no fee for, read as "not known". Read only. */

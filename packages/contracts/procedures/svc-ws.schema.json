@@ -1,0 +1,83 @@
+{
+  "$comment": "Written by `procedures:write`; held by its drift test. Do not edit by hand.",
+  "procedures": {
+    "ws.sbe.consumers": {
+      "service": "svc-ws",
+      "transport": "http",
+      "method": "GET",
+      "path": "/internal/sbe/consumers",
+      "access": {
+        "caller": "service",
+        "callers": ["svc-edge"]
+      },
+      "refusals": {
+        "ws_status_unconfigured": "SERVICE_UNAVAILABLE",
+        "unauthenticated": "UNAUTHORIZED",
+        "forbidden": "FORBIDDEN"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "service": {
+            "type": "string",
+            "const": "svc-ws"
+          },
+          "codecLinked": {
+            "type": "boolean"
+          },
+          "consumers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "marketId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "connectedAt": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "framesSent": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "lastSequence": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["id", "marketId", "connectedAt", "framesSent", "lastSequence"],
+              "additionalProperties": false
+            }
+          },
+          "asOf": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["service", "codecLinked", "consumers", "asOf"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    }
+  }
+}

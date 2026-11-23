@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 import postgres from 'postgres';
 import { createTestDatabase } from '@intafaced/db';
 import {
@@ -77,7 +78,13 @@ describe('staff holds on real PostgreSQL', () => {
       await migrateOutreach(sql);
       const ledger = new MemoryLedger();
       await ledger.post(
-        recipes.deposit({ userId: CUSTOMER, assetId: 'USD', amount: parseAmount('100'), rail: 'bank-sandbox', railRef: 'dep-pg' }),
+        recipes.deposit({
+          userId: CUSTOMER,
+          assetId: asAssetId('USD'),
+          amount: parseAmount('100'),
+          rail: 'bank-sandbox',
+          railRef: 'dep-pg',
+        }),
       );
       const ids = approvals();
       const desk = new StaffHoldDesk({
@@ -91,7 +98,7 @@ describe('staff holds on real PostgreSQL', () => {
 
       const placed = await desk.place(FOUNDER, {
         userId: CUSTOMER,
-        assetId: 'USD',
+        assetId: asAssetId('USD'),
         amount: '40.00',
         reason: 'suspected account takeover',
         idempotencyKey: 'console:place:pg-1',
@@ -101,7 +108,7 @@ describe('staff holds on real PostgreSQL', () => {
       expect(
         await desk.place(FOUNDER, {
           userId: CUSTOMER,
-          assetId: 'USD',
+          assetId: asAssetId('USD'),
           amount: '40',
           reason: 'suspected account takeover',
           idempotencyKey: 'console:place:pg-1',
@@ -153,7 +160,13 @@ describe('staff holds on real PostgreSQL', () => {
       await migrateOutreach(sql);
       const book = new MemoryLedger();
       await book.post(
-        recipes.deposit({ userId: CUSTOMER, assetId: 'USD', amount: parseAmount('100'), rail: 'bank-sandbox', railRef: 'dep-pg-2' }),
+        recipes.deposit({
+          userId: CUSTOMER,
+          assetId: asAssetId('USD'),
+          amount: parseAmount('100'),
+          rail: 'bank-sandbox',
+          railRef: 'dep-pg-2',
+        }),
       );
       let refuse = false;
       const ledger: StaffHoldLedger = {
@@ -176,7 +189,14 @@ describe('staff holds on real PostgreSQL', () => {
         now: () => new Date(clock),
       });
       const hold = (amount: string, key: string) =>
-        desk.place(FOUNDER, { userId: CUSTOMER, assetId: 'USD', amount, reason: 'review', expiresInHours: 1, idempotencyKey: key });
+        desk.place(FOUNDER, {
+          userId: CUSTOMER,
+          assetId: asAssetId('USD'),
+          amount,
+          reason: 'review',
+          expiresInHours: 1,
+          idempotencyKey: key,
+        });
       const first = (await hold('40', 'console:place:pg-e1')).hold.holdNo;
       const second = (await hold('10', 'console:place:pg-e2')).hold.holdNo;
       expect(await store.expired(new Date(clock).toISOString(), 10)).toEqual([]);
@@ -203,7 +223,13 @@ describe('staff holds on real PostgreSQL', () => {
       await migrateOutreach(sql);
       const book = new MemoryLedger();
       await book.post(
-        recipes.deposit({ userId: CUSTOMER, assetId: 'USD', amount: parseAmount('100'), rail: 'bank-sandbox', railRef: 'dep-pg-3' }),
+        recipes.deposit({
+          userId: CUSTOMER,
+          assetId: asAssetId('USD'),
+          amount: parseAmount('100'),
+          rail: 'bank-sandbox',
+          railRef: 'dep-pg-3',
+        }),
       );
       let timeouts = 2;
       const reads: string[] = [];
@@ -230,7 +256,7 @@ describe('staff holds on real PostgreSQL', () => {
         now: () => new Date(clock),
       });
       const hold = (amount: string, key: string) =>
-        desk.place(FOUNDER, { userId: CUSTOMER, assetId: 'USD', amount, reason: 'review', idempotencyKey: key });
+        desk.place(FOUNDER, { userId: CUSTOMER, assetId: asAssetId('USD'), amount, reason: 'review', idempotencyKey: key });
       const first = (await hold('40', 'console:place:pg-l1')).hold.holdNo;
       const second = (await hold('10', 'console:place:pg-l2')).hold.holdNo;
       // One a tick: the one looked at longest ago goes first, so the second is read on the next tick.
@@ -243,7 +269,7 @@ describe('staff holds on real PostgreSQL', () => {
       await desk.resolve();
       expect((await desk.list(CUSTOMER)).holds.map((h) => h.state)).toEqual(['refused', 'refused']);
 
-      await book.post(recipes.staffHoldPlace({ holdNo: first, userId: CUSTOMER, assetId: 'USD', amount: parseAmount('40') }));
+      await book.post(recipes.staffHoldPlace({ holdNo: first, userId: CUSTOMER, assetId: asAssetId('USD'), amount: parseAmount('40') }));
       expect(await store.lost(new Date(clock - 86_400_000).toISOString(), new Date(clock - 600_000).toISOString(), 10)).toEqual([]);
       clock += 10 * 60_000;
       expect(await desk.recheckLost()).toBe(1);
@@ -288,7 +314,7 @@ describe('staff holds on real PostgreSQL', () => {
       const third = (
         await frozen.place(FOUNDER, {
           userId: CUSTOMER,
-          assetId: 'USD',
+          assetId: asAssetId('USD'),
           amount: '5',
           reason: 'review',
           idempotencyKey: 'console:place:pg-l3',

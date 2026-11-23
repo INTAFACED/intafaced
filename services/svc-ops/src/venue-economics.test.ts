@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 import postgres from 'postgres';
 import type { Principal } from '@intafaced/auth';
 import { createTestDatabase } from '@intafaced/db';
@@ -280,7 +281,7 @@ describe('net per asset from ledger fee revenue', () => {
       to: '2026-11-01T00:00:00.000Z',
       assets: assets.map(([assetId, earned, returned, venueId, collected]) => ({
         venueId: venueId ?? null,
-        assetId,
+        assetId: asAssetId(assetId),
         earned,
         returned,
         net: subtractCosts(earned, returned),
@@ -308,8 +309,8 @@ describe('net per asset from ledger fee revenue', () => {
     expect(report.feeRevenue).toEqual({
       status: 'ok',
       assets: [
-        { venueId: null, assetId: 'USD', earned: '20.25', returned: '0.25', net: '20', collected: null },
-        { venueId: null, assetId: 'BTC', earned: '0.001', returned: '0', net: '0.001', collected: null },
+        { venueId: null, assetId: asAssetId('USD'), earned: '20.25', returned: '0.25', net: '20', collected: null },
+        { venueId: null, assetId: asAssetId('BTC'), earned: '0.001', returned: '0', net: '0.001', collected: null },
       ],
     });
     expect(report.net).toEqual({

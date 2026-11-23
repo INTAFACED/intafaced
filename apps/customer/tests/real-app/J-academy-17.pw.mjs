@@ -68,6 +68,36 @@ async function revoke(publicId, reason) {
   expect(res.status, res.text.slice(0, 300)).toBe(200);
 }
 
+/** Founder A proposes, founder B approves, then A issues one learner the certificate as an exception, with a reason. */
+async function grantException(userId, reason) {
+  const { gates, ctx, sessions, token } = await founders();
+  const action = 'academy.cert.exception';
+  const payloadHash = `sha256:${createHash('sha256')
+    .update(JSON.stringify({ actionType: action, userId, certId: CERT, reason }))
+    .digest('hex')}`;
+  const approval = await gates.twoPerson(ctx, sessions, {
+    actionType: action,
+    targetService: 'svc-academy',
+    targetId: action,
+    expectedVersion: '1',
+    payloadHash,
+    policyVersion: gates.MARKERS.policyVersion,
+  });
+  const res = await ctx.edge.mutate('academy', 'admin.grantCertException', { userId, certId: CERT, reason, ...approval }, token);
+  expect(res.status, res.text.slice(0, 300)).toBe(200);
+  const issued = JSON.parse(res.text).result.data;
+  expect(issued).toMatchObject({ userId, certId: CERT, reason, grantedBy: sessions.a.op.userId });
+  return issued.publicId;
+}
+
+/** A time as the founder desk prints it (apps/admin/src/lib/as-of.ts formatWhen): always UTC, to the second. */
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const two = (n) => String(n).padStart(2, '0');
+const whenText = (iso) => {
+  const d = new Date(iso);
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}, ${two(d.getUTCHours())}:${two(d.getUTCMinutes())}:${two(d.getUTCSeconds())} UTC`;
+};
+
 /** The stack's grant audit page size switched off (blank) or back on, by restarting svc-academy (academy.mjs). */
 function grantAuditPage(on) {
   const before = process.env.LOCAL_STACK_ACADEMY_GRANT_AUDIT;
@@ -106,21 +136,9 @@ test(`${J} #1 opens /academy-ops/grants: grants and revokes newest first, each w
   // 1. Staff grant the learner access to a course, with a reason.
   const accessReason = `TEST ${J}: staff access for the audit`;
   await staff('admin.grantAccess', { userId: learnerId, pathSlug: ACCESS_PATH, reason: accessReason, expiresAt: null });
-  // 2. The learner finishes the course and the certificate is issued by the rule (no person, so no actor).
-  await setIssueRule('automatic');
-  let publicId;
-  try {
-    const last = await session.post(trpc('markCurriculumComplete'), { itemSlug: items.at(-1) });
-    expect(last.status, JSON.stringify(last.body).slice(0, 300)).toBe(200);
-    await expect
-      .poll(async () => (await read(who, 'myCerts', { limit: 50 })).find((row) => row.certId === CERT)?.publicId ?? null, {
-        timeout: 30_000,
-      })
-      .not.toBeNull();
-    publicId = (await read(who, 'myCerts', { limit: 50 })).find((row) => row.certId === CERT).publicId;
-  } finally {
-    await setIssueRule('manual');
-  }
+  // 2. Two founders issue the learner the certificate as an exception, with a reason: a staff line with its actor.
+  const issueReason = `TEST ${J}: issued as an exception for the audit`;
+  const publicId = await grantException(learnerId, issueReason);
   // 3. Two founders revoke it, with a reason.
   const revokeReason = `TEST ${J}: revoked for the audit`;
   await revoke(publicId, revokeReason);
@@ -142,25 +160,34 @@ test(`${J} #1 opens /academy-ops/grants: grants and revokes newest first, each w
     .filter({ hasText: learnerId })
     .filter({ has: own(CERT).or(own(ACCESS_PATH)) });
   await expect(rows).toHaveCount(3);
-  await expect(rows.nth(0)).toContainText('Certificate revoked');
-  await expect(rows.nth(0)).toContainText(CERT);
-  await expect(rows.nth(0)).toContainText(founderA);
-  await expect(rows.nth(0)).toContainText(revokeReason);
-  await expect(rows.nth(1)).toContainText('Certificate issued');
-  await expect(rows.nth(1)).toContainText(CERT);
-  await expect(rows.nth(1)).not.toContainText(founderA);
-  await expect(rows.nth(2)).toContainText('Course access granted');
-  await expect(rows.nth(2)).toContainText(ACCESS_PATH);
-  await expect(rows.nth(2)).toContainText(founderA);
-  await expect(rows.nth(2)).toContainText(accessReason);
-  // Every line shows its time, and they are newest first: the same lines as the service records them, in its order.
-  for (let i = 0; i < 3; i++) await expect(rows.nth(i)).toContainText(/\d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2}/);
+  // The same three lines as svc-academy records them, newest first: each names its actor, time and reason.
   const { ctx, token } = await founders();
-  const stored = await ctx.edge.query('academy', 'admin.grantAudit', { certificate: CERT }, token);
-  expect(stored.status, stored.text.slice(0, 300)).toBe(200);
-  const mine = JSON.parse(stored.text).result.data.items.filter((l) => l.accountId === learnerId);
-  expect(mine.map((l) => l.kind)).toEqual(['certificate_revoked', 'certificate_granted']);
-  expect(Date.parse(mine[0].at)).toBeGreaterThanOrEqual(Date.parse(mine[1].at));
+  const recorded = async (filter) => {
+    const res = await ctx.edge.query('academy', 'admin.grantAudit', filter, token);
+    expect(res.status, res.text.slice(0, 300)).toBe(200);
+    return JSON.parse(res.text).result.data.items.filter((l) => l.accountId === learnerId);
+  };
+  const stored = [...(await recorded({ certificate: CERT })), ...(await recorded({ course: ACCESS_PATH }))].sort(
+    (x, y) => Date.parse(y.at) - Date.parse(x.at),
+  );
+  expect(stored.map((l) => [l.kind, l.target, l.actorId, l.reason, l.source])).toEqual([
+    ['certificate_revoked', CERT, founderA, revokeReason, null],
+    ['certificate_granted', CERT, founderA, issueReason, 'exception'],
+    ['access_granted', ACCESS_PATH, founderA, accessReason, 'staff'],
+  ]);
+  for (let i = 1; i < stored.length; i++) expect(Date.parse(stored[i - 1].at)).toBeGreaterThanOrEqual(Date.parse(stored[i].at));
+  // On the page, line by line in that order, cell by cell in the table's columns: when, what happened, the learner, the
+  // course or certificate, who did it, why, and how it came about. Each time is the recorded one, as the desk prints it.
+  const cells = (i) => rows.nth(i).getByRole('cell');
+  const line = async (i, want) => {
+    for (const [col, text] of Object.entries(want)) await expect(cells(i).nth(Number(col))).toHaveText(text);
+  };
+  const what = ['Certificate revoked', 'Certificate issued', 'Course access granted'];
+  const how = ['—', 'Certificate issued as an exception', 'Granted by staff'];
+  for (let i = 0; i < 3; i++) {
+    const l = stored[i];
+    await line(i, { 0: whenText(l.at), 1: what[i], 2: learnerId, 3: l.target, 4: founderA, 5: l.reason, 6: how[i] });
+  }
 
   // With the owner's page size blank, the page says the size is not set, and shows no lines.
   grantAuditPage(false);
@@ -172,10 +199,25 @@ test(`${J} #1 opens /academy-ops/grants: grants and revokes newest first, each w
     grantAuditPage(true);
   }
 
-  // With none for a course, the audit has no line for it: an empty answer, never an invented row.
-  const none = await ctx.edge.query('academy', 'admin.grantAudit', { course: `${J}-no-such-course` }, token);
+  // With none for a course, the page narrowed to that course shows its empty state and no table: never an invented row.
+  const nothing = `${J.toLowerCase()}-no-such-course`;
+  await page.goto(`${ADMIN}/academy-ops/grants?course=${nothing}`);
+  await expect(audit.getByTestId('read-narrowed')).toHaveText(`Course ${nothing} only, as the page address names it.`, {
+    timeout: 60_000,
+  });
+  await expect(audit.getByTestId('list-empty')).toHaveText('svc-academy records no grants or revokes for this course.');
+  await expect(audit.getByRole('table')).toHaveCount(0);
+  const none = await ctx.edge.query('academy', 'admin.grantAudit', { course: nothing }, token);
   expect(none.status, none.text.slice(0, 300)).toBe(200);
   expect(JSON.parse(none.text).result.data).toEqual({ items: [], nextCursor: null });
+  // The page's refresh keeps the course it is narrowed to.
+  const refreshed = page.waitForResponse(
+    (r) => r.url().includes('/api/academy-ops?') && new URL(r.url()).searchParams.get('course') === nothing && r.ok(),
+  );
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await refreshed;
+  await expect(audit.getByTestId('list-empty')).toHaveText('svc-academy records no grants or revokes for this course.');
+  await expect(audit.getByTestId('read-narrowed')).toBeVisible();
 });
 
 // ─── #2 to #4: the certificate design and the issued list (AC-certificates-03) ───────────────────────────────────────
@@ -341,7 +383,11 @@ test(`${J} #3 editing an active design with issued certificates warns, and the i
   expect((await staffRead('admin.certDesign', { certId: CERT })).design.activeRevision).toBeNull();
 });
 
-test(`${J} #4 the issued list and its export agree, with zero counts and an empty state when none`, async ({ page, browser }) => {
+test(`${J} #4 the issued list and its export agree, with zero counts and an empty state when none`, async ({
+  page,
+  browser,
+  stepPicture,
+}) => {
   test.setTimeout(240_000);
   await staffSignIn(page, browser, 'compliance');
 
@@ -390,6 +436,13 @@ test(`${J} #4 the issued list and its export agree, with zero counts and an empt
     expect(lines.filter((l) => l[2] === c.certId && l[3] === 'revoked')).toHaveLength(c.revoked);
   }
   expect(lines.some((l) => l[0] === run.read().publicId && l[3] === 'revoked')).toBe(true);
+  // The step's picture: the counts, the newest issued and the export together, from the top of the page. Making the
+  // export left the page scrolled to its button, and a whole-page picture taken there paints the console's sticky bar
+  // over the middle of the page (the step picture of run 44391292793).
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect(page.getByTestId('issued-counts')).toBeVisible();
+  await expect(exported).toBeVisible();
+  await stepPicture();
 });
 
 // ─── #5 to #7: issue rules, an exception, a revoke and a course team role (AC-certificates-02, AC-roles-01) ───────────

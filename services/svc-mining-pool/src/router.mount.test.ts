@@ -1,3 +1,4 @@
+import type { AnyRouter } from '@trpc/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
@@ -138,12 +139,11 @@ describe('mining tRPC mount', () => {
     expect(store.listWorkers).not.toHaveBeenCalled();
   });
 
-  it('refuses worker registration with the typed code and does not read or write', async () => {
-    const store = reads();
-    await expect(createMiningRouter(store).createCaller(signed()).workers.register()).rejects.toMatchObject({
-      cause: { code: 'mining.worker_registration_scope_unset' },
-    });
-    expect(store.myWorkers).not.toHaveBeenCalled();
+  it('has no worker registration call: a worker exists only once its own shares create it', () => {
+    const router: AnyRouter = createMiningRouter(reads());
+    const procedures = Object.keys(router._def.procedures);
+    expect(procedures).toContain('workers.mine');
+    expect(procedures.filter((path) => /register/i.test(path))).toEqual([]);
   });
 
   it('terms is any signed-in caller, and an unsigned caller is refused', async () => {

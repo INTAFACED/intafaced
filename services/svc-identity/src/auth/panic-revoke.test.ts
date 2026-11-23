@@ -49,7 +49,7 @@ function panicStore(keys: KeyRow[], sessions: SessionRow[]) {
     },
     keys,
     sessions,
-  }) as unknown as Parameters<typeof panicRevoke>[0] & {
+  }) as Parameters<typeof panicRevoke>[0] & {
     writes: number;
     keys: KeyRow[];
     sessions: SessionRow[];

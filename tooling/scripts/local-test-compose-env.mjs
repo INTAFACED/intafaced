@@ -117,7 +117,11 @@ export function startedBy(services, root) {
   const todo = [root];
   while (todo.length) {
     const deps = services[todo.pop()]?.depends_on ?? {};
-    for (const dep of Array.isArray(deps) ? deps : Object.keys(deps)) if (!seen.has(dep)) (seen.add(dep), todo.push(dep));
+    for (const dep of Array.isArray(deps) ? deps : Object.keys(deps))
+      if (!seen.has(dep)) {
+        seen.add(dep);
+        todo.push(dep);
+      }
   }
   return seen;
 }

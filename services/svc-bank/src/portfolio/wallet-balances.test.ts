@@ -28,7 +28,7 @@ function callerFor(portfolio: PortfolioService, userId: string) {
     mfa: false,
     expiresAt: new Date(Date.now() + 60_000),
   } as Principal);
-  return createBankRouter({ portfolio } as unknown as BankServices).createCaller(
+  return createBankRouter({ portfolio } as BankServices).createCaller(
     edgeContext({
       headers: {
         'x-intafaced-principal': raw,
@@ -81,7 +81,7 @@ function service(rows: Balance[], source?: TickerSource) {
       asked.push([ownerType, ownerId]);
       return rows.filter((r) => r.account.ownerType === ownerType && r.account.ownerId === ownerId);
     },
-  } as unknown as Pick<LedgerClient, 'balances'>;
+  } as Pick<LedgerClient, 'balances'>;
   const lister: SpaceLister = { namedSpaces: async (userId) => spaces.filter((s) => s.userId === userId) };
   return { portfolio: new PortfolioService(ledger, lister, { ...(source ? { tickers: source } : {}), now: () => NOW }), asked };
 }
@@ -238,7 +238,7 @@ describe('balance breakdown: one account and one asset', () => {
   it('reads no Space list for the main account, so the main figure does not wait on it', async () => {
     const ledger = {
       balances: async (type: string, id: string) => holdings.filter((r) => r.account.ownerType === type && r.account.ownerId === id),
-    } as unknown as Pick<LedgerClient, 'balances'>;
+    } as Pick<LedgerClient, 'balances'>;
     const broken: SpaceLister = {
       namedSpaces: async () => {
         throw new Error('spaces down');

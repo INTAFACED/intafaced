@@ -5,11 +5,13 @@
  * the caller's own trades. Money stays in the ledger. This file does not
  * invent a handle, a fee, or a notification delivery.
  */
+import type { JsonValue } from '@intafaced/contracts/procedure-strict-schema';
 import { createHash } from 'node:crypto';
 import { ONGOING_TRADE_STATUSES } from './take-limits.js';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
+import { P2P_BOARD_SORTS } from '@intafaced/contracts/p2p-procedures';
 
 export interface BoardOffer {
   id: string;
@@ -23,7 +25,7 @@ export interface BoardOffer {
   maxAmt: Amount;
   totalAmt: Amount;
   remainingAmt: Amount;
-  methods: unknown[];
+  methods: JsonValue[];
   terms: string;
   /** Maker verification tier at create. Null when the row never stored one. */
   makerTier: string | null;
@@ -77,7 +79,7 @@ export interface WriteClaim {
 
 /** Insert the key or report the earlier write. Caller inserts the subject after `claimed`. */
 export async function claimWriteKey(
-  tx: Sql,
+  tx: Queryable,
   input: { actorId: string; scope: string; idempotencyKey: string; requestHash: string },
 ): Promise<WriteClaim> {
   const inserted = await tx<Array<{ idempotency_key: string }>>`
@@ -100,7 +102,7 @@ export async function claimWriteKey(
 }
 
 export async function finishWriteKey(
-  tx: Sql,
+  tx: Queryable,
   input: { actorId: string; scope: string; idempotencyKey: string; subjectId: string },
 ): Promise<void> {
   await tx`
@@ -119,12 +121,12 @@ export function throwWriteClaim(claim: WriteClaim): void {
 }
 
 /** Serialises a block and a take between the same two people (either order of the pair), for this transaction. */
-export async function lockContactPair(tx: Sql, a: string, b: string): Promise<void> {
+export async function lockContactPair(tx: Queryable, a: string, b: string): Promise<void> {
   const [low, high] = a < b ? [a, b] : [b, a];
   await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`p2p.contact_pair:${low}:${high}`}, 0))`;
 }
 
-export async function eitherBlocked(sql: Sql, a: string, b: string): Promise<boolean> {
+export async function eitherBlocked(sql: Queryable, a: string, b: string): Promise<boolean> {
   const rows = await sql<Array<{ n: number }>>`
     SELECT 1 AS n FROM p2p.contacts
      WHERE kind = 'block'
@@ -134,9 +136,7 @@ export async function eitherBlocked(sql: Sql, a: string, b: string): Promise<boo
   return Boolean(rows[0]);
 }
 
-/** Board order (P-trade-orders-01): fixed-price ads by price, then floating ads, which have no fiat price to rank by. */
-export const BOARD_SORTS = ['price_asc', 'price_desc'] as const;
-export type BoardSort = (typeof BOARD_SORTS)[number];
+export type BoardSort = (typeof P2P_BOARD_SORTS)[number];
 
 export interface OfferCursor {
   sort: BoardSort;
@@ -162,7 +162,7 @@ export function decodeOfferCursor(cursor: string): OfferCursor {
   const [sort, float, price, createdAt, id, extra] = raw.split('\n');
   if (
     extra !== undefined ||
-    !(BOARD_SORTS as readonly string[]).includes(sort ?? '') ||
+    !(P2P_BOARD_SORTS as readonly string[]).includes(sort ?? '') ||
     (float !== '0' && float !== '1') ||
     !price ||
     !createdAt ||
@@ -205,7 +205,7 @@ interface BoardRow {
   max_amt: string;
   total_amt: string;
   remaining_amt: string;
-  methods: unknown[];
+  methods: JsonValue[];
   terms: string;
   maker_tier: string | null;
   accepts_non_instant?: boolean;

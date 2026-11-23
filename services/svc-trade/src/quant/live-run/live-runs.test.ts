@@ -65,9 +65,24 @@ const noStepUp: StepUpCheck = {
 
 const strategies: StrategySource = {
   async version(_forwarded, id, version) {
-    if (id === 'signal') return { name: 'TEST signal', version, blocks: [], signalRules: true };
+    if (id === 'signal') return { name: 'TEST signal', version, blocks: [], signalRules: true, approvalRequired: false };
+    if (id === 'unapproved') {
+      return {
+        name: 'TEST unapproved',
+        version,
+        blocks: [{ side: 'buy', symbol: 'BTC-PERP', qty: '0.01' }],
+        signalRules: false,
+        approvalRequired: true,
+      };
+    }
     if (id !== 'trend' || version !== 1) return null;
-    return { name: 'TEST trend', version: 1, blocks: [{ side: 'buy', symbol: 'BTC-PERP', qty: '0.01' }], signalRules: false };
+    return {
+      name: 'TEST trend',
+      version: 1,
+      blocks: [{ side: 'buy', symbol: 'BTC-PERP', qty: '0.01' }],
+      signalRules: false,
+      approvalRequired: false,
+    };
   },
 };
 
@@ -115,6 +130,8 @@ describe('a live strategy run: stop, liquidate, manual orders, recovery and the 
   let runs: LiveRuns;
   let sub: UserVenueAccount;
   let venueDown = false;
+  /** Called once each venue submit has answered, before the run's code goes on: a look into the window after it. */
+  let afterSubmit: (() => Promise<void>) | null = null;
   /** The risk desk's halts as this TEST answers them (halts.ts), by `<user>:<strategy>`; haltsDown: they can't be read. */
   const halted = new Map<string, HaltView>();
   let haltsDown = false;
@@ -135,7 +152,9 @@ describe('a live strategy run: stop, liquidate, manual orders, recovery and the 
             if (prop === 'submit' || prop === 'openOrders') {
               return async (...args: unknown[]) => {
                 if (venueDown) throw new VenueRefusalError({ venueId: target.venue.id, code: 'venue_down', detail: 'TEST: venue down' });
-                return (target[prop] as (...x: unknown[]) => unknown)(...args);
+                const answer = await (target[prop] as (...x: unknown[]) => unknown)(...args);
+                if (prop === 'submit' && afterSubmit) await afterSubmit();
+                return answer;
               };
             }
             const v = Reflect.get(target, prop, receiver);
@@ -178,6 +197,7 @@ describe('a live strategy run: stop, liquidate, manual orders, recovery and the 
   beforeEach(async () => {
     k += 1;
     venueDown = false;
+    afterSubmit = null;
     halted.clear();
     haltsDown = false;
     clock = Date.now();
@@ -233,6 +253,8 @@ describe('a live strategy run: stop, liquidate, manual orders, recovery and the 
     expect(blank.detail).toEqual({ field: 'restartAttempts' });
     expect((await refused(runs.start(person, {}, terms({ strategyId: 'signal' }), 'DE'))).code).toBe('quant.live_plan_unsupported');
     expect((await refused(runs.start(person, {}, terms({ strategyId: 'missing' }), 'DE'))).code).toBe('quant.studio_not_found');
+    // The account's approval policy is on and this version holds no current approval by a different member (J-algo-dev-16 #4).
+    expect((await refused(runs.start(person, {}, terms({ strategyId: 'unapproved' }), 'DE'))).code).toBe('quant.approval_required');
     expect(await store.listForUser(USER)).toEqual([]);
   });
 
@@ -457,6 +479,91 @@ describe('a live strategy run: stop, liquidate, manual orders, recovery and the 
     expect((await runs.get(person, v.runId)).permission).toBe('active');
     freeze.down = false;
     expect((await runs.get(person, v.runId)).permission).toBe('revoked');
+  });
+
+  it("J-wallet-13 #1: the freeze event stops the person's running run and revokes every permission at once, none of another's; twice is one", async () => {
+    const v = await live();
+    await runs.manualOrder(person, v.runId, { seq: 2, side: 'buy', type: 'limit', symbol: 'BTC-PERP', size: '0.005', price: '50000' });
+    // A run still waiting for its signature, and another person's running run.
+    const waiting = await runs.start(person, {}, terms(), 'DE');
+    expect(waiting.state).toBe('signing');
+    const OTHER = '11111111-1111-4111-8111-1111111111a9';
+    const mine = (await store.find(USER, v.runId))!;
+    const theirs = await store.insertOnce({
+      ...mine,
+      userId: OTHER,
+      runId: uuid('b7'),
+      agentAddress: '0x00000000000000000000000000000000000000c7',
+    });
+    expect(theirs).toMatchObject({ state: 'running', permission: 'active' });
+
+    freeze.frozenUsers.add(USER);
+    // No supervisor pass: the event alone does it.
+    await runs.applySelfFreeze(USER);
+    const r = (await store.find(USER, v.runId))!;
+    expect(r).toMatchObject({ state: 'stopped', endReason: 'account_frozen', permission: 'revoked' });
+    expect(await openOrders()).toHaveLength(0);
+    expect((await positions())[0]!.size).toBe(a('0.01'));
+    expect(await store.find(USER, waiting.runId)).toMatchObject({ state: 'ended', endReason: 'account_frozen', permission: 'revoked' });
+    expect(await store.find(OTHER, theirs.runId)).toMatchObject({ state: 'running', permission: 'active', endReason: null });
+
+    // Twice delivered: one revoke, one stop, no new log line and nothing sent.
+    const before = { r, events: await store.events(USER, v.runId), waiting: await store.events(USER, waiting.runId) };
+    await runs.applySelfFreeze(USER);
+    expect(await store.find(USER, v.runId)).toEqual(before.r);
+    expect(await store.events(USER, v.runId)).toEqual(before.events);
+    expect(await store.events(USER, waiting.runId)).toEqual(before.waiting);
+    expect(before.events.filter((e) => e.kind === 'permission_revoked')).toHaveLength(1);
+
+    // #4: the lift restores nothing: the revoked permission stays revoked, and the waiting run asks for no signature.
+    freeze.frozenUsers.delete(USER);
+    await runs.tick();
+    expect((await store.find(USER, v.runId))!.permission).toBe('revoked');
+    expect((await refused(runs.submit(person, waiting.runId, waiting.next!.actionKey, await sign(waiting.next!.prepared)))).code).toBe(
+      'quant.run_not_signing',
+    );
+  });
+
+  it("J-wallet-13 #1: the venue shows the run's orders cancelled before the run records its stop, so a reader waits for the record", async () => {
+    // Why the journey's step reads the run's record within a window and not at the instant the venue shows no order:
+    // the cancel is taken on the venue first, and only then are the stop and the revoke recorded.
+    const v = await live();
+    await runs.manualOrder(person, v.runId, { seq: 2, side: 'buy', type: 'limit', symbol: 'BTC-PERP', size: '0.005', price: '50000' });
+    freeze.frozenUsers.add(USER);
+    const seen: Array<{ open: number; state: string; permission: string }> = [];
+    afterSubmit = async () => {
+      const r = (await store.find(USER, v.runId))!;
+      seen.push({ open: (await openOrders()).length, state: r.state, permission: r.permission });
+    };
+    await runs.applySelfFreeze(USER);
+    afterSubmit = null;
+    expect(seen).toContainEqual({ open: 0, state: 'running', permission: 'active' });
+    const r = (await store.find(USER, v.runId))!;
+    expect(r).toMatchObject({ state: 'stopped', endReason: 'account_frozen', permission: 'revoked' });
+    expect((await store.events(USER, v.runId)).map((e) => e.kind)).toEqual(expect.arrayContaining(['stopped', 'permission_revoked']));
+  });
+
+  it('J-wallet-13 #1: a stopped run that still holds its permission has it revoked by the event', async () => {
+    const v = await live();
+    await runs.stop(person, v.runId, { seq: 1 });
+    expect((await store.find(USER, v.runId))!.permission).toBe('active');
+    await runs.applySelfFreeze(USER);
+    expect(await store.find(USER, v.runId)).toMatchObject({ state: 'stopped', endReason: 'user_stop', permission: 'revoked' });
+  });
+
+  it("J-wallet-13 #2: a run's agent permission is not signed while frozen, nor while the freeze can't be read", async () => {
+    const v = await runs.start(person, {}, terms(), 'DE');
+    freeze.frozenUsers.add(USER);
+    const e = await refused(runs.submit(person, v.runId, v.next!.actionKey, await sign(v.next!.prepared)));
+    expect(e.code).toBe('quant.account_frozen');
+    expect(e.message).toMatch(/you froze this account/);
+    freeze.frozenUsers.delete(USER);
+    freeze.down = true;
+    expect((await refused(runs.submit(person, v.runId, v.next!.actionKey, await sign(v.next!.prepared)))).code).toBe(
+      'quant.freeze_unavailable',
+    );
+    expect((await store.find(USER, v.runId))!).toMatchObject({ state: 'signing', permission: 'signing' });
+    expect((await sim.agents(sub)).value.map((x) => x.address.toLowerCase())).not.toContain(v.agentAddress);
   });
 
   it("another person's run answers as a missing one; the plain door refuses a run's keys", async () => {

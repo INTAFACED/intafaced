@@ -11,7 +11,7 @@ describe('GET /api/v1/capabilities plane switch', () => {
     // A custody-on process (the TEST stack's custodial journeys), where unset spot is on (OWNER 288).
     process.env.LEDGER_CUSTODY_LAYER = 'on';
     const app = Fastify();
-    registerPublicRest(app, { now: () => 1 } as unknown as PublicRestDeps);
+    registerPublicRest(app, { now: () => 1 } as PublicRestDeps);
     await app.ready();
     try {
       const off = await app.inject({ method: 'GET', url: '/api/v1/capabilities' });

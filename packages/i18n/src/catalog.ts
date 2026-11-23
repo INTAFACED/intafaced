@@ -250,9 +250,16 @@ export const en = {
     'A copy would have gone past your per-order or total limit, so it was skipped. You can raise the limit on the follow.',
   'notify.trade.copy_skipped.body.copy_slippage_exceeded':
     'The price had moved past your slippage limit, so a copy was skipped. You can widen the limit on the follow.',
+  'notify.trade.copy_skipped.body.per_contract_cap':
+    'A copy would have gone past your most per contract, so it was skipped. Copies in your other markets go on. You can raise the limit with Edit limits on the follow.',
+  'notify.trade.copy_skipped.body.daily_cap':
+    'A copy would have gone past your most per day, so it was skipped. Copying resumes when the next day starts. You can raise the limit with Edit limits on the follow.',
   'notify.trade.copy_skipped.body.position_closed':
     'The leader closed a trade you no longer hold, so nothing was sold for you. You can see your positions on the follow.',
   'notify.trade.copy_skipped.body.refused': 'A copy of the leader’s trade could not be placed. You can see why in the follow’s skip log.',
+  'notify.trade.recurring_buy_suspended.title': 'Recurring buy paused: not enough {asset}',
+  'notify.trade.recurring_buy_suspended.body':
+    'Your recurring buy needed {amount} {asset} and your venue account had {free} {asset} free, so nothing was bought. It resumes by itself once the funds arrive.',
   'notify.trade.copy_stopped.title': 'Your follow stopped copying',
   'notify.trade.copy_stopped.body.follower': 'You stopped this follow. No new trades are copied for you. You can follow again any time.',
   'notify.trade.copy_stopped.body.follower_close_only':

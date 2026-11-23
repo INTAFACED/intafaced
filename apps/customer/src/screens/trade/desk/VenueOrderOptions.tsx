@@ -1,13 +1,23 @@
-import type { VenueMarket, VenueSelfTradeMode, VenueTimeInForce } from '../../../features/trade/venue-api';
+import type { VenueMarket, VenueSelfTradeMode } from '../../../features/trade/venue-api';
 import { word } from '../../../features/trade/venue/VenueKit';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './deps';
 import { spotVenueCopy } from './venue-copy';
-import { OTHER_ORDER_TYPES, SELF_TRADE_MODES, TIME_IN_FORCE_NAMES, offeredTif, venueSelfTrade, type TimeInForceName } from './venue-desk';
+import {
+  OTHER_ORDER_TYPES,
+  SELF_TRADE_MODES,
+  TIME_IN_FORCE_NAMES,
+  deskTif,
+  offeredTif,
+  venueSelfTrade,
+  type DeskTif,
+  type TimeInForceName,
+} from './venue-desk';
 
 // The venue spot desk's order options (J-cex-spot-03): every order type, time in force and self-trade rule the desk
 // names, each the venue offers on the market pickable, the rest listed disabled with "not offered by this venue". A
-// disabled choice signs and sends nothing: it can't be picked.
+// disabled choice signs and sends nothing: it can't be picked. Good till date, which the venue lacks, is run by
+// INTAFACED instead, by the owner's choice, and says so.
 
 /** The order types beside limit and market that the venue does not list, each a disabled button saying so. */
 export function NotOfferedTypes({ market }: { market: VenueMarket }) {
@@ -26,25 +36,21 @@ export function NotOfferedTypes({ market }: { market: VenueMarket }) {
   );
 }
 
-/** A label for a time in force: its name, with "not offered by this venue" where the venue doesn't take it. */
-function tifLabel(v: ReturnType<typeof venueCopy.useCopy>['t'], market: VenueMarket, name: TimeInForceName): string {
+/**
+ * A label for a time in force: its name; "run by INTAFACED" where our engine runs it in the venue's place; "not offered
+ * by this venue" where neither does.
+ */
+function tifLabel(v: ReturnType<typeof venueCopy.useCopy>['t'], engine: string, market: VenueMarket, name: TimeInForceName): string {
   const shown = word(v, 'tif', name);
-  return offeredTif(market, name) ? shown : `${shown} · ${v('Not offered')}`;
+  if (offeredTif(market, name)) return shown;
+  return deskTif(market, name) ? `${shown} · ${engine}` : `${shown} · ${v('Not offered')}`;
 }
 
 /** Time in force for a limit order, picked once for both tickets. */
-export function VenueTifSelect({
-  market,
-  tif,
-  onTif,
-}: {
-  market: VenueMarket;
-  tif: VenueTimeInForce;
-  onTif: (next: VenueTimeInForce) => void;
-}) {
+export function VenueTifSelect({ market, tif, onTif }: { market: VenueMarket; tif: DeskTif; onTif: (next: DeskTif) => void }) {
   const { t } = spotVenueCopy.useCopy();
   const v = venueCopy.useCopy().t;
-  const items = Object.fromEntries(TIME_IN_FORCE_NAMES.map((name) => [name, tifLabel(v, market, name)]));
+  const items = Object.fromEntries(TIME_IN_FORCE_NAMES.map((name) => [name, tifLabel(v, t('Tif engine'), market, name)]));
   return (
     <div className="dk-tif dk-opt" data-testid="venue-tif">
       <span className="dk-tif-label" id="venue-tif-label">
@@ -54,7 +60,7 @@ export function VenueTifSelect({
         items={items}
         value={tif}
         onValueChange={(next) => {
-          const offered = next ? offeredTif(market, next as TimeInForceName) : null;
+          const offered = next ? deskTif(market, next as TimeInForceName) : null;
           if (offered && offered !== tif) onTif(offered);
         }}
       >
@@ -63,7 +69,7 @@ export function VenueTifSelect({
         </SelectTrigger>
         <SelectContent align="start">
           {TIME_IN_FORCE_NAMES.map((name) => (
-            <SelectItem key={name} value={name} disabled={offeredTif(market, name) === null} data-tif={name}>
+            <SelectItem key={name} value={name} disabled={deskTif(market, name) === null} data-tif={name}>
               {items[name]}
             </SelectItem>
           ))}

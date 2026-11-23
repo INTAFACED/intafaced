@@ -67,6 +67,27 @@ export function offeredTif(market: Pick<VenueMarket, 'timeInForce'>, name: TimeI
   return (market.timeInForce as readonly string[]).includes(name) ? (name as VenueTimeInForce) : null;
 }
 
+/**
+ * A time in force on the venue spot desk: the venue's own, or good-till-date, which the venue does not offer and our
+ * engine runs instead (J-cex-spot-03 #7, by the owner's choice): the order rests on the venue good
+ * till cancelled, and our engine cancels it at the expiry under the person's agent permission.
+ */
+export type DeskTif = VenueTimeInForce | 'GTD';
+
+/** What the desk lets the person pick for `name`: the venue's own offer, else good-till-date run by our engine, else null. */
+export function deskTif(market: Pick<VenueMarket, 'timeInForce'>, name: TimeInForceName): DeskTif | null {
+  return offeredTif(market, name) ?? (name === 'GTD' ? 'GTD' : null);
+}
+
+/** The venue's own time in force for a desk choice: a good-till-date order rests on the venue good till cancelled. */
+export const venueTifOf = (tif: DeskTif): VenueTimeInForce => (tif === 'GTD' ? 'GTC' : tif);
+
+/** A good-till-date order's client id for our engine, from the ticket's held order key: one id per drafted order. */
+export function gtdClientId(orderKey: string): string {
+  const tail = orderKey.replace(/[^A-Za-z0-9_-]+/g, '-').slice(-56);
+  return `gtd-${tail}`.replace(/-+/g, '-');
+}
+
 /** Order types the desk names beside limit and market; a type the venue does not list is shown disabled. */
 export const OTHER_ORDER_TYPES = ['stop_limit', 'stop', 'take_profit', 'trailing_stop'] as const;
 
@@ -111,10 +132,32 @@ export function tagProblem(tag: string): boolean {
 }
 
 /** Why the ticket is not an order yet, or null when it is one the venue can be asked about. */
-export type TicketProblem = 'amount' | 'price' | 'amount_step' | 'price_step' | 'no_book' | 'no_cap';
+export type TicketProblem = 'rule_unpublished' | 'amount' | 'price' | 'amount_step' | 'price_step' | 'no_book' | 'no_cap';
 
-/** `capSet` false: the owner's protection is blank, so a market order is refused (`trade.slippage_cap_unset`). */
+/** A rule a spot order is checked against, which the venue may leave unpublished (J-cex-spot-04 #6). */
+export type VenueRule = 'min' | 'band' | 'cap';
+
+/** The rules the venue does not publish for this market, in the order the desk names them. */
+export function unpublishedRules(market: VenueMarket): VenueRule[] {
+  const out: VenueRule[] = [];
+  if (market.minOrderNotional == null) out.push('min');
+  if (market.priceBandBps == null) out.push('band');
+  if (market.maxOpenOrders == null) out.push('cap');
+  return out;
+}
+
+/** A band in bps as a percent string, exact: "9500" is "95", "250" is "2.5". */
+export function bpsAsPercent(bps: string): string {
+  return formatAmount(parseAmount(bps) / 100n);
+}
+
+/**
+ * `capSet` false: the owner's protection is blank, so a market order is refused (`trade.slippage_cap_unset`). A spot
+ * market whose venue publishes no smallest order value, band or open-order cap takes no order at all: the desk never
+ * stands in a default (`trade.venue_rule_unpublished`, refused by our door too).
+ */
 export function ticketProblem(fields: TicketFields, market: VenueMarket, worst: string | null, capSet = true): TicketProblem | null {
+  if (market.kind === 'spot' && unpublishedRules(market).length > 0) return 'rule_unpublished';
   if (!fields.amount.trim() || !isDecimal(fields.amount)) return 'amount';
   if (!onStep(fields.amount, market.lotSize)) return 'amount_step';
   if (fields.type === 'market') return !capSet ? 'no_cap' : worst === null ? 'no_book' : null;
@@ -210,8 +253,48 @@ export interface DepositRoute {
   asset: string;
 }
 
-/** The person's ERC-20 `transfer` to the venue's deposit address; null unless the amount is positive within the token's decimals. */
-export function depositTransfer(route: DepositRoute, amount: string): { to: string; data: string; units: bigint } | null {
+/** One row of the supported asset list (svc-bank `assets.list`), as far as the venue desk reads it. */
+export interface ListedAsset {
+  assetId: string;
+  precision: number;
+  state: string;
+  allowedActions: readonly string[];
+}
+
+/**
+ * The places the venue desk's Deposit or Withdraw allows for `asset` (J-wallet-01 #5): the supported asset list's own row
+ * and precision, the same rows Assets lists. Refused while the list is unread, for an asset it does not list, and for one
+ * not active or not open to the action. `'gated'`: the list is a bank read this person may not make (a person cleared for
+ * trading alone, who may still move their own USDC between their wallet and their venue account): the desk keeps the
+ * bound it had before the list, `unlisted` places, and names no list figure.
+ */
+export type ListedPlaces = { ok: true; places: number; from: 'list' | 'venue' } | { ok: false; why: 'unread' | 'unlisted' | 'closed' };
+export function listedPlaces(
+  rows: readonly ListedAsset[] | 'gated' | null,
+  asset: string,
+  action: 'deposit' | 'withdraw',
+  unlisted: number,
+): ListedPlaces {
+  if (rows === 'gated') return { ok: true, places: unlisted, from: 'venue' };
+  if (rows === null) return { ok: false, why: 'unread' };
+  const row = rows.find((r) => r.assetId === asset);
+  if (!row) return { ok: false, why: 'unlisted' };
+  if (row.state !== 'active' || !row.allowedActions.includes(action)) return { ok: false, why: 'closed' };
+  return { ok: true, places: row.precision, from: 'list' };
+}
+
+/** The places the venue withdrawal allowed before the list, and still allows where the list is not this person's to read. */
+export const WITHDRAW_UNLISTED_PLACES = 18;
+
+/** The places a deposit of `route` may carry: the list's precision, and never more than the token itself carries. */
+export const depositPlaces = (route: DepositRoute, places: number): number => Math.min(places, route.tokenDecimals);
+
+/**
+ * The person's ERC-20 `transfer` to the venue's deposit address; null unless the amount is positive within `places` (the
+ * asset list's precision) and the token's decimals.
+ */
+export function depositTransfer(route: DepositRoute, amount: string, places: number): { to: string; data: string; units: bigint } | null {
+  if (toTokenUnits(amount, depositPlaces(route, places)) === null) return null;
   const units = toTokenUnits(amount, route.tokenDecimals);
   if (units === null) return null;
   return { to: route.token, data: transferCalldata(route.address, units), units };
@@ -220,8 +303,9 @@ export function depositTransfer(route: DepositRoute, amount: string): { to: stri
 /** What the withdraw dialog does when its button is pressed: ask for the step-up first, and the wallet only after it. */
 export type WithdrawStep = { step: 'refuse'; why: 'amount' } | { step: 'step_up' } | { step: 'sign'; stepUpApprovalId: string | null };
 
-export function withdrawStep(amount: string, approval: { id: string | null } | null): WithdrawStep {
-  if (toTokenUnits(amount, 18) === null) return { step: 'refuse', why: 'amount' };
+/** `places`: the asset list's precision for the asset (listedPlaces); an amount finer than it is refused before the step-up. */
+export function withdrawStep(amount: string, approval: { id: string | null } | null, places: number): WithdrawStep {
+  if (toTokenUnits(amount, places) === null) return { step: 'refuse', why: 'amount' };
   if (approval === null) return { step: 'step_up' };
   return { step: 'sign', stepUpApprovalId: approval.id };
 }

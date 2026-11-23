@@ -1,0 +1,37 @@
+{
+  "inputs": {
+    "chainStatus": { "sample": "null", "sample-nulls": "null" }
+  },
+  "bodies": [
+    "{\"result\":{\"data\":{\"reachable\":false,\"configuredChainId\":31337,\"observedChainId\":null,\"blockNumber\":null,\"suiteConfigured\":false,\"suiteDeployed\":false,\"tokenFactoryConfigured\":false,\"tokenFactoryDeployed\":false,\"refusalCode\":\"protocol.chain_unreachable\",\"reason\":\"The chain connection is not available right now.\",\"expectedChainId\":null,\"actualChainId\":null,\"usable\":false,\"launchUsable\":false}}}",
+    "{\"error\":{\"message\":\"The United States is not served at launch.\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"chainStatus\",\"requestId\":\"req-replay\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}"
+  ],
+  "answers": {
+    "chainStatus": {
+      "absent anon": [200, 0],
+      "absent no-scope": [200, 0],
+      "absent all": [200, 0],
+      "absent all-US": [403, 1],
+      "null anon": [200, 0],
+      "null no-scope": [200, 0],
+      "null all": [200, 0],
+      "null all-US": [403, 1],
+      "wrong-type anon": [200, 0],
+      "wrong-type no-scope": [200, 0],
+      "wrong-type all": [200, 0],
+      "wrong-type all-US": [403, 1],
+      "empty anon": [200, 0],
+      "empty no-scope": [200, 0],
+      "empty all": [200, 0],
+      "empty all-US": [403, 1],
+      "sample anon": [200, 0],
+      "sample no-scope": [200, 0],
+      "sample all": [200, 0],
+      "sample all-US": [403, 1],
+      "sample-nulls anon": [200, 0],
+      "sample-nulls no-scope": [200, 0],
+      "sample-nulls all": [200, 0],
+      "sample-nulls all-US": [403, 1]
+    }
+  }
+}

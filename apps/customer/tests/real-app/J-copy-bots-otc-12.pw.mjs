@@ -6,6 +6,7 @@ import { fundedTrader, signIn } from './desk.mjs';
 import { copiedOrders, followOnScreen, leadFill, listLeader, openFollow } from './copy.mjs';
 import { tableIn, bodyRows } from './tables.mjs';
 import { HOLD_MAX_MS } from '../../../../tooling/scripts/local-test-market.mjs';
+import { chooseTab } from './tabs.mjs';
 
 // J-copy-bots-otc-12, in the running app (docs/roadmap/journeys.json): two founders pause copy or bots by lead, bot type
 // or symbol on the console's /trade-ops/kill-switch, "Copy and bots" tab. One test per step, titled
@@ -258,7 +259,7 @@ test(`${J} #1 pauses one lead: the next mirror for that lead is refused as pause
   expect((await (await api(follower)).balances()).BTC.total).toBe(holding);
   // The follow's skipped copies name the reason in the follower's words.
   const detail = await openFollow(page, leaderRef);
-  await detail.getByRole('tab', { name: 'Skipped' }).click();
+  await chooseTab(detail, 'Skipped');
   await expect(detail.getByText('Paused by the platform').first()).toBeVisible();
 });
 

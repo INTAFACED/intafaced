@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { isExplicitDevOrTest } from '@intafaced/config';
 import type { OnrampMethod, OnrampPaymentPort } from './customer-ports.js';
+import { rampPartnerBook, type RampPartnerBook } from './ramp-partner-book.js';
 
 /**
  * THE ADD-MONEY PAY-IN STAND-IN, AND IT IS A TEST FIXTURE (J-bank-02 #3, #5).
@@ -69,9 +70,13 @@ export interface OnrampPartner {
   returnUrl(requestId: string): string;
   /**
    * The stand-in's delivery of a purchase to the buyer's own wallet (J-dex-protocol-05 #4): the TEST partner sends it on
-   * the stack's TEST chain and answers the transfer's hash. Absent when no delivery address is set.
+   * the stack's TEST chain and answers the transfer's hash. Absent when no delivery address is set. With a `key` (a move
+   * from the person's own partner account to their wallet, J-derivatives-25 #2) it sends once per key: the same key again
+   * answers the first transfer's hash and sends nothing more.
    */
-  readonly deliver?: (input: { to: string; assetId: string; amount: string }) => Promise<string>;
+  readonly deliver?: (input: { to: string; assetId: string; amount: string; key?: string }) => Promise<string>;
+  /** The partner's own book of its orders, which it reports to the finance desk (J-bank-28 #3). */
+  readonly book?: RampPartnerBook;
 }
 
 /** The typed catalogue, or null when it is blank, not JSON, not labelled TEST or not in shape. */
@@ -117,7 +122,7 @@ export function payinSimDelivery(deliverUrl: URL, fetchImpl: typeof fetch = fetc
       method: 'POST',
       redirect: 'error',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ to: input.to, asset: input.assetId, amount: input.amount }),
+      body: JSON.stringify({ to: input.to, asset: input.assetId, amount: input.amount, ...(input.key ? { key: input.key } : {}) }),
       signal: AbortSignal.timeout(90_000),
     });
     const body = (await res.json().catch(() => null)) as { hash?: unknown; error?: unknown } | null;
@@ -134,7 +139,9 @@ export function payinSim(catalogue: PayinSimCatalogue, pageBase: URL, returnTo: 
   if (catalogue.bankTransfer) listed.add('bank_transfer');
   const transfer = catalogue.bankTransfer;
   const page = (onrampId: string) => new URL(`/test/payin-sim/pay/${encodeURIComponent(onrampId)}`, pageBase).toString();
+  const book = rampPartnerBook(catalogue.label);
   return {
+    book,
     label: catalogue.label,
     rail: PAYIN_SIM_RAIL,
     covers: (method) => listed.has(method),
@@ -142,8 +149,9 @@ export function payinSim(catalogue: PayinSimCatalogue, pageBase: URL, returnTo: 
       loopbackPages: true,
       async open(input) {
         if (!listed.has(input.method)) return null;
-        if (input.method === 'bank_transfer') {
-          if (!transfer) return null;
+        if (input.method === 'bank_transfer' && !transfer) return null;
+        book.opened(input.onrampId, input.quoteExpiresAt ?? null);
+        if (input.method === 'bank_transfer' && transfer) {
           const bank = { reference: payinSimReference(input.onrampId), accountName: transfer.accountName, accountRef: transfer.accountRef };
           return { partnerRail: PAYIN_SIM_RAIL, bank };
         }

@@ -2,16 +2,19 @@ import { TRPCError } from '@trpc/server';
 import {
   ANNOUNCEMENT_NOT_FOUND,
   BANNER_CONFLICT,
-  announcementActiveOutputSchema,
-  announcementChangeInputSchema,
   announcementSaveInputSchema,
   announcementWriteOutputSchema,
-  announcementsListOutputSchema,
-  router,
-  scopedProcedure,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/ops-console-announcements';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { OPS_IDEMPOTENCY_CONFLICT, OpsError } from '../codes.js';
 import type { AnnouncementDesk } from './desk.js';
+import {
+  OPS_ANNOUNCEMENTS_ACTIVE,
+  OPS_ANNOUNCEMENTS_LIST,
+  OPS_ANNOUNCEMENTS_CHANGE,
+} from '@intafaced/contracts/ops-announcements-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { opsRefusal } from '../refusal.js';
 
 const guards = { module: 'core-ops' as const, plane: 'fiat' as const };
 
@@ -35,24 +38,28 @@ function deskError(err: unknown): never {
  */
 export function createAnnouncementsRouter(desk: AnnouncementDesk) {
   return router({
-    list: scopedProcedure('admin:read', guards)
-      .output(announcementsListOutputSchema)
-      .query(async () => {
+    list: mountRecord(
+      OPS_ANNOUNCEMENTS_LIST,
+      async () => {
         try {
           return await desk.list();
         } catch (err) {
           return deskError(err);
         }
-      }),
-    active: scopedProcedure('admin:read', guards)
-      .output(announcementActiveOutputSchema)
-      .query(async () => {
+      },
+      opsRefusal,
+    ),
+    active: mountRecord(
+      OPS_ANNOUNCEMENTS_ACTIVE,
+      async () => {
         try {
           return await desk.active();
         } catch (err) {
           return deskError(err);
         }
-      }),
+      },
+      opsRefusal,
+    ),
     save: scopedProcedure('admin:write', guards)
       .input(announcementSaveInputSchema)
       .output(announcementWriteOutputSchema)
@@ -63,15 +70,16 @@ export function createAnnouncementsRouter(desk: AnnouncementDesk) {
           return deskError(err);
         }
       }),
-    change: scopedProcedure('admin:write', guards)
-      .input(announcementChangeInputSchema)
-      .output(announcementWriteOutputSchema)
-      .mutation(async ({ ctx, input }) => {
+    change: mountRecord(
+      OPS_ANNOUNCEMENTS_CHANGE,
+      async ({ ctx, input }) => {
         try {
           return await desk.change(ctx.principal.userId, input);
         } catch (err) {
           return deskError(err);
         }
-      }),
+      },
+      opsRefusal,
+    ),
   });
 }

@@ -20,6 +20,8 @@ import {
 } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { withPartner } from './partner.mjs';
+import { agePast } from './test-age.mjs';
+import { bankPerson, close, local, spacesOf, staffDoors } from './bank-desk.mjs';
 
 // J-bank-07, in the running app (docs/roadmap/journeys.json): I organise money in pots, goals and a shared account.
 // The person's bank money is held at the stack's TEST partner bank (`testPartner.set({ custody: 'off' })`, the launch
@@ -59,6 +61,8 @@ const SAVINGS = 'Rainy day TEST';
 const CHANGE = 'Spare change TEST';
 const WAIT_HOURS = 24;
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
+const { person } = bankPerson({ run, J });
+const spaces = spacesOf(bank);
 const PARTNER_BANK = 'TEST partner bank';
 
 test.describe.configure({ mode: 'default' });
@@ -134,41 +138,8 @@ async function runDue() {
   }
 }
 
-let staffDoor;
-async function founders() {
-  staffDoor ??= (async () => {
-    const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
-    const ctx = await gates.makeContext({ log: () => {} });
-    return { gates, ctx, sessions: await gates.approverSessions(ctx) };
-  })();
-  return staffDoor;
-}
-/** One card-issuer event through the bank's ops door, approved by two founders as the simulator's stand-in requires. */
-async function cardEvent(actionType, procedure, fields) {
-  const { gates, ctx, sessions } = await founders();
-  const approval = await gates.twoPerson(ctx, sessions, {
-    actionType,
-    targetService: 'svc-bank',
-    targetId: actionType,
-    expectedVersion: '1',
-    payloadHash: gates.bankPayloadHash(actionType, fields),
-    policyVersion: gates.MARKERS.policyVersion,
-  });
-  const res = await ctx.edge.mutate('bank', procedure, { ...fields, ...approval }, await sessions.a.treasuryToken());
-  expect(res.status, res.text.slice(0, 300)).toBe(200);
-  return res.json.result.data;
-}
+const { cardEvent, treasury } = staffDoors();
 
-function person() {
-  const { who } = run.read();
-  if (!who) throw new Error(`${J} #1 made no account, so this step has no one to act as`);
-  return who;
-}
-async function spaces(who) {
-  const res = await (await bank(who)).query('spaces.list', { limit: 50 });
-  if (!res.ok) throw new Error(`spaces.list refused: ${res.status} ${JSON.stringify(res.body).slice(0, 300)}`);
-  return res.data;
-}
 const main = (rows) => rows.find((s) => s.kind === 'primary' && s.assetId === 'USDT');
 const named = (rows, name) => rows.find((s) => s.kind === 'named' && s.name === name);
 
@@ -204,11 +175,6 @@ async function ledgerPerson(page) {
   run.write({ onLedger: who });
   return who;
 }
-/** A `datetime-local` value, in the browser's (and this process's) local time. */
-function local(at) {
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(at.getHours())}:${pad(at.getMinutes())}`;
-}
 
 /** One action of the selected space's page, through its review, to the bank's own confirmation. */
 async function act(page, button, fill, form = true) {
@@ -222,10 +188,6 @@ async function act(page, button, fill, form = true) {
 async function confirm(dialog, submit = 'Confirm') {
   await dialog.getByRole('button', { name: submit }).click();
   await expect(dialog.getByText('Confirmed by the service')).toBeVisible({ timeout: 30_000 });
-}
-async function close(page) {
-  await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
-  await expect(page.getByRole('dialog')).toHaveCount(0);
 }
 
 test(`${J} #1 opens a space with a goal: progress is exact, rounded down and capped, and no bar is drawn without a goal`, async ({
@@ -727,34 +689,6 @@ async function accrue(poolId, at) {
   return answer.result.data.results[0];
 }
 
-/**
- * One treasury door of the bank, approved by the stack's two TEST founders as an owner's change would be. The approval
- * is bound to `fields`, the door's canonical strings; `input` is what the door is sent.
- */
-async function treasury(actionType, procedure, input, fields) {
-  const { gates, ctx, sessions } = await founders();
-  const approval = await gates.twoPerson(ctx, sessions, {
-    actionType,
-    targetService: 'svc-bank',
-    targetId: actionType,
-    expectedVersion: '1',
-    payloadHash: gates.bankPayloadHash(actionType, fields),
-    policyVersion: gates.MARKERS.policyVersion,
-  });
-  const res = await ctx.edge.mutate('bank', procedure, { ...input, ...approval }, await sessions.a.treasuryToken());
-  expect(res.status, res.text.slice(0, 300)).toBe(200);
-  return res.json.result.data;
-}
-/** One of the stack's TEST seed commands (`tooling/scripts/local-test-seed.mjs`), on this stack. */
-function seed(...args) {
-  return execFileSync(process.execPath, [path.join(ROOT, 'tooling/scripts/local-test-seed.mjs'), ...args, '--state', localStackState()], {
-    cwd: ROOT,
-    encoding: 'utf8',
-    env: { ...process.env, LOCAL_TEST: '1' },
-    timeout: 60_000,
-  });
-}
-
 test(`${J} #5 uses instant-access savings: the bank's rate, TEST 10 saved, three days of interest that add up to what the account was paid, then taken back`, async ({
   page,
 }) => {
@@ -911,7 +845,6 @@ test(`${J} #6 shares a pot: invites by handle, an invite that expires, a contrib
     await close(page);
   };
   await invite(viewer, 'viewer');
-  const firstInviteAt = Date.now();
   await invite(partner, 'contributor');
   // Two open invites fill the TEST cap: a third is refused by name, and nothing is stored for it.
   const full = await api.mutate('sharedPots.invite', { inviteId: randomUUID(), spaceId: pot.id, handle: third.handle, role: 'viewer' });
@@ -945,8 +878,14 @@ test(`${J} #6 shares a pot: invites by handle, an invite that expires, a contrib
   expect(await mainOf(partner)).toBe(partnerBefore - toUnits('5'));
   await ledgerUnchanged(partner, partnerLedger);
 
-  // The viewer's invite has outlived the TEST two minutes: it shows as ended, and accepting it is refused by name.
-  await page.waitForTimeout(Math.max(0, firstInviteAt + 2 * 60_000 + 5_000 - Date.now()));
+  // The viewer's invite has outlived the TEST two minutes: it shows as ended, and accepting it is refused by name. The
+  // TEST age door makes that one invite two minutes older instead of waiting them out; no clock moves.
+  const viewerInvites = (await viewerApi.query('sharedPots.list', { limit: 50 })).data.invites.filter((i) => i.spaceId === pot.id);
+  expect(viewerInvites).toHaveLength(1);
+  const [toViewer] = viewerInvites;
+  expect(toViewer.expired).toBe(false);
+  expect(Date.parse(toViewer.expiresAt) - Date.parse(toViewer.createdAt)).toBe(2 * 60_000);
+  await agePast('bank', 'shared-pot-invite', toViewer.inviteId, toViewer.expiresAt);
   await signOutBrowser(page.context());
   await signIn(page, viewer);
   await page.goto('/bank/spaces');
@@ -958,6 +897,7 @@ test(`${J} #6 shares a pot: invites by handle, an invite that expires, a contrib
   await refusedDialog.getByRole('button', { name: 'Accept', exact: true }).click();
   await expect(refusedDialog).toContainText('This invite has ended. Ask the pot’s owner for a new one.');
   const expiredId = await ended.getAttribute('data-invite');
+  expect(expiredId).toBe(toViewer.inviteId);
   expect(await viewerApi.mutate('sharedPots.accept', { inviteId: expiredId })).toMatchObject({ ok: false, code: 'bank.invite_expired' });
   expect((await viewerApi.query('sharedPots.list', { limit: 50 })).data.shared).toEqual([]);
 
@@ -1082,3 +1022,16 @@ test(`${J} #6 shares a pot: invites by handle, an invite that expires, a contrib
   });
   await ledgerUnchanged(who, run.read().ledger);
 });
+
+/**
+ * One of the stack's TEST seed commands (`tooling/scripts/local-test-seed.mjs`), on this stack. It stays a copy here:
+ * only a journey file may name the seed script (local-test-seed.test.mjs), so no helper can hold it.
+ */
+function seed(...args) {
+  return execFileSync(process.execPath, [path.join(ROOT, 'tooling/scripts/local-test-seed.mjs'), ...args, '--state', localStackState()], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    env: { ...process.env, LOCAL_TEST: '1' },
+    timeout: 60_000,
+  });
+}

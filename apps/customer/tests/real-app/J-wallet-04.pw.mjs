@@ -12,6 +12,7 @@ import {
   addForm,
   approvalLinks,
   bankBookOnReload,
+  bankBookReadOnReload,
   bankRowOnReload,
   field,
   nextApprovalLink,
@@ -360,24 +361,11 @@ test(`${J} #4 renaming an entry keeps its cooling-off clock as it was; removing 
 
   // The step-up is the bank's, not only the page's: a remove sent to svc-bank with the signed-in session's own token and
   // no fresh confirmation is refused for want of the step-up scope (`trade:withdraw`, minted only by auth.stepUp), and
-  // the bank's book still holds the entry. The token is the reloaded page's own, from a bank call it makes after the
-  // reload committed, so it is a live session token and not one the old page held.
-  let session = null;
-  let committed = false;
-  const onCommit = (frame) => {
-    if (frame === page.mainFrame()) committed = true;
-  };
-  const onRequest = (req) => {
-    if (committed && !req.serviceWorker() && /\/api\/bank\/trpc\//.test(req.url()) && req.headers().authorization) {
-      session = req.headers().authorization;
-    }
-  };
-  page.on('framenavigated', onCommit);
-  page.on('request', onRequest);
-  const unconfirmed = await bankBookOnReload(page).finally(() => {
-    page.off('framenavigated', onCommit);
-    page.off('request', onRequest);
-  });
+  // the bank's book still holds the entry. The token is the reloaded page's own, from its own read of the bank's book
+  // (bankBookReadOnReload, which reads only the reloaded page's answer), so it is a live session token and not one the
+  // old page held.
+  const { rows: unconfirmed, answer: bookRead } = await bankBookReadOnReload(page);
+  const session = bookRead.request().headers().authorization ?? null;
   const target = unconfirmed.find((row) => row.label === 'TEST renamed wallet');
   expect(target, "the renamed entry is in the bank's book before the remove").toBeTruthy();
   expect(session, 'the reloaded page called the bank with its session token').toBeTruthy();

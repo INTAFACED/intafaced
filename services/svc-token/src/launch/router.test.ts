@@ -99,7 +99,7 @@ function fakeService(overrides: Partial<Record<keyof LaunchService, unknown>> = 
     setIssuer: vi.fn(),
     checkIssuerSet: vi.fn(async () => undefined),
     ...overrides,
-  } as unknown as LaunchService & Record<string, ReturnType<typeof vi.fn>>;
+  } as LaunchService & Record<string, ReturnType<typeof vi.fn>>;
 }
 
 function caller(

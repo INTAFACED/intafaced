@@ -51,6 +51,8 @@ export interface OnrampPaymentPort {
     amount: string;
     /** The person's own wallet the partner delivers the purchase to on chain (J-dex-protocol-05 #4); absent for a balance. */
     walletAddress?: string;
+    /** When the quote the payment is opened on runs out, so the partner can tell an order that expired unpaid (J-bank-28 #3). */
+    quoteExpiresAt?: Date;
   }): Promise<OnrampPaymentInstruction | null>;
 }
 

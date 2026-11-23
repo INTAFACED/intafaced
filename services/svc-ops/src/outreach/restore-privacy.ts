@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import postgres, { type Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
-import { guestNotificationEraseReceiptSchema } from '@intafaced/contracts';
+import { guestNotificationEraseReceiptSchema } from '@intafaced/contracts/guest-notifications';
 import { z } from 'zod';
 
 const id = z.string().guid();

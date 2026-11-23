@@ -1,10 +1,13 @@
 import { useMemo, useState } from 'react';
-import { REWARD_STATUSES, myRewardsSchema, type MyReward, type MyRewards } from '@intafaced/contracts/campaigns-catalogue';
-import { useApi } from '../session/session';
+import { REWARD_STATUSES, type MyReward, type MyRewards } from '@intafaced/contracts/campaigns-catalogue';
+import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
-import { DataTable, EmptyState, Failure, Loading, Panel } from '../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { Empty, Failure, Loading } from './kit-parts';
+import { RecordTable } from '../../shared/record/record-parts';
 import { rewardsHubCopy } from './rewards-hub-copy';
 import { timeLeft } from './time-left';
+import { CAMPAIGNS_REWARDS_MINE } from '@intafaced/contracts/campaigns-rewards-procedures';
 
 /**
  * My Rewards hub on /uc/promotion (CM-rewards-hub-01, J-campaigns-03): every campaign reward of the signed-in account in
@@ -36,12 +39,13 @@ function useFormat() {
 export function RewardsHub() {
   const api = useApi();
   const { t } = rewardsHubCopy.useCopy();
-  const rewards = useResource((signal) => api.query('campaigns', 'rewards.mine', {}, myRewardsSchema, { signal }), 'rewards-hub');
+  const rewards = useResource((signal) => api.call(CAMPAIGNS_REWARDS_MINE, {}, { signal }), 'rewards-hub');
   const r = rewards.resource;
   return (
-    <section className="rewards-hub" aria-label={t('title')} data-testid="rewards-hub" data-state={r.status}>
-      <Panel title={t('title')}>
-        <p className="muted">{t('intro')}</p>
+    <section className="lt-stack" aria-label={t('title')} data-testid="rewards-hub" data-state={r.status}>
+      <div className="lt-stack">
+        <h2>{t('title')}</h2>
+        <p className="lt-hint">{t('intro')}</p>
         {r.status === 'loading' ? (
           <Loading label={t('loading')} />
         ) : r.status === 'failed' ? (
@@ -50,21 +54,21 @@ export function RewardsHub() {
           </div>
         ) : r.data.rewards.length === 0 ? (
           <div data-testid="rewards-empty">
-            <EmptyState
+            <Empty
               title={t('emptyTitle')}
               action={
-                <a className="text-link" href="/campaigns">
+                <a className="lt-link" href="/campaigns">
                   {t('campaigns')}
                 </a>
               }
             >
               {t('emptyBody')}
-            </EmptyState>
+            </Empty>
           </div>
         ) : (
           <Rewards data={r.data} />
         )}
-      </Panel>
+      </div>
     </section>
   );
 }
@@ -74,7 +78,7 @@ function Rewards({ data }: { data: MyRewards }) {
   const totals = REWARD_STATUSES.flatMap((status) => data.totals.filter((line) => line.status === status));
   return (
     <>
-      <dl className="rewards-hub__totals" aria-label={t('totalsLabel')} data-testid="rewards-totals">
+      <dl className="lt-kv" aria-label={t('totalsLabel')} data-testid="rewards-totals">
         {totals.map((line) => (
           <div key={`${line.status}:${line.asset}`} data-testid="rewards-total" data-status={line.status} data-asset={line.asset}>
             <dt>{t(`total_${line.status}`)}</dt>
@@ -82,18 +86,18 @@ function Rewards({ data }: { data: MyRewards }) {
               <strong lang="zxx" data-testid="rewards-total-amount">
                 {line.amount} {line.asset}
               </strong>{' '}
-              <span className="muted">{t('totalCount', { count: String(line.count) })}</span>
+              <span className="lt-hint">{t('totalCount', { count: String(line.count) })}</span>
             </dd>
           </div>
         ))}
       </dl>
-      <DataTable label={t('listLabel')} headers={[t('colCampaign'), t('colAmount'), t('colStatus'), t('colDetail')]}>
+      <RecordTable label={t('listLabel')} headers={[t('colCampaign'), t('colAmount'), t('colStatus'), t('colDetail')]}>
         {data.rewards.map((reward) => (
           <Row key={reward.rewardKey} reward={reward} />
         ))}
-      </DataTable>
+      </RecordTable>
       {data.more ? (
-        <p className="muted" data-testid="rewards-more">
+        <p className="lt-hint" data-testid="rewards-more">
           {t('more', { count: String(data.rewards.length) })}
         </p>
       ) : null}
@@ -124,7 +128,7 @@ function Row({ reward: r }: { reward: MyReward }) {
   return (
     <tr data-testid="reward-row" data-status={r.status} data-state={r.state} data-reward-key={r.rewardKey} data-campaign={r.campaignId}>
       <td>
-        <a className="text-link" href={`/campaigns/${encodeURIComponent(r.campaignId)}`} lang="und">
+        <a className="lt-link" href={`/campaigns/${encodeURIComponent(r.campaignId)}`} lang="und">
           {r.campaignName}
         </a>
       </td>
@@ -145,7 +149,7 @@ function Row({ reward: r }: { reward: MyReward }) {
         {r.lock && r.state !== 'posted' && r.state !== 'forfeited' ? (
           <>
             {' '}
-            <span className="muted" data-testid="reward-lock-tx" data-tx={r.lock.txId} lang="zxx">
+            <span className="lt-hint" data-testid="reward-lock-tx" data-tx={r.lock.txId} lang="zxx">
               {t('lockTx', { tx: r.lock.txId })}
             </span>
           </>
@@ -153,11 +157,11 @@ function Row({ reward: r }: { reward: MyReward }) {
         {r.state === 'owed' ? (
           <>
             {' '}
-            <button type="button" className="text-link" data-testid="reward-spend" onClick={() => setSpendTried(true)}>
+            <Button tone="quiet" data-testid="reward-spend" onClick={() => setSpendTried(true)}>
               {t('spendOwed')}
-            </button>
+            </Button>
             {spendTried ? (
-              <span role="status" className="muted" data-testid="reward-spend-note">
+              <span role="status" className="lt-hint" data-testid="reward-spend-note">
                 {' '}
                 {t('spendOwedNote')}
               </span>
@@ -169,7 +173,7 @@ function Row({ reward: r }: { reward: MyReward }) {
             {' '}
             {/* The chain's own record of the payment, in the app's explorer: it left our wallet for theirs, never a balance. */}
             <a
-              className="text-link"
+              className="lt-link"
               data-testid="reward-chain-tx"
               data-tx={r.payout.chainTx}
               href={`/chain/tx/${encodeURIComponent(r.payout.chainTx)}`}
@@ -184,7 +188,7 @@ function Row({ reward: r }: { reward: MyReward }) {
           <>
             {' '}
             <a
-              className="text-link"
+              className="lt-link"
               data-testid="reward-tx"
               data-tx={r.ledgerTxId}
               href={`/money/activity/${encodeURIComponent(r.ledgerTxId)}`}

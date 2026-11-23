@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { withMarketSpan } from './tracing.js';
 import { decideVendorSlot, usableSlots, type SlotDecision } from './slot-access.js';
 import type { SlotEntitlementSource } from './stake-source.js';
@@ -595,7 +595,7 @@ export class VendorService {
   // ── Stage 2: stake-gated listing slots ─────────────────────────────────────
 
   /** Slots held and not released. A COUNT, never a maintained counter. */
-  async openSlotCount(vendorId: string, tx: Sql = this.sql): Promise<number> {
+  async openSlotCount(vendorId: string, tx: Queryable = this.sql): Promise<number> {
     const rows = await tx<Array<{ count: string }>>`
       SELECT COUNT(*)::text AS count FROM market.vendor_slots WHERE vendor_id = ${vendorId} AND released_at IS NULL
     `;
@@ -729,7 +729,11 @@ export class VendorService {
    * The vendor row under `FOR UPDATE`, plus the open slot for this ref if one
    * is already held. Status comes from this read, not from `myVendor`.
    */
-  private async lockedSlotClaim(tx: Sql, vendorId: string, ref: string): Promise<{ status: VendorStatus; existing: SlotRow | undefined }> {
+  private async lockedSlotClaim(
+    tx: Queryable,
+    vendorId: string,
+    ref: string,
+  ): Promise<{ status: VendorStatus; existing: SlotRow | undefined }> {
     const [locked] = await tx<Array<{ id: string; status: VendorStatus }>>`
       SELECT id, status FROM market.vendors WHERE id = ${vendorId} FOR UPDATE
     `;
@@ -796,8 +800,7 @@ export class VendorService {
    * vendor's slots were released by `vet` in the same transaction as the
    * suspension — but an under-staked one's were not, because svc-market never
    * learns that somebody unstaked. There is no bus subject for it, and inventing
-   * one with no publisher is what `tooling/ci/event-wiring.mjs` correctly reds
-   * on; polling svc-token on a timer would be a second source of truth that is
+   * one with no publisher would leave it dark; polling svc-token on a timer would be a second source of truth that is
    * wrong between ticks.
    *
    * So entitlement is re-derived HERE, on every read, against the tier svc-token

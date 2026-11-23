@@ -17,6 +17,8 @@ name: Look gate
 # in 24 hours. Its one reader is a builder taking new look baselines from a run's artifact (kept 7 days): the daily run
 # keeps one from main less than a day old, and a branch dispatches its own. Raw values on a changed room stay refused on
 # every pull request by look-drift.mjs.
+# A pull request that changes a Customer room or the kit gets its own run, on the rooms it reaches, before and after:
+# look-pr.yml (#9325), which CI calls.
 on:
   workflow_dispatch:
   schedule:
@@ -35,7 +37,7 @@ env:
 jobs:
   look:
     name: Look gate (${{ matrix.shard }}/3)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     container:
       # mcr.microsoft.com/playwright:v1.65.0-noble, the version in the lockfile.

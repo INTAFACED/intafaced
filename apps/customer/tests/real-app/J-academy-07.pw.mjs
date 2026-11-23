@@ -6,7 +6,8 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { CHAIN_ID, TOKEN_USD, connectWallet, fundOnTestChain, testChain } from './dex.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
-import { api } from './stack.mjs';
+import { api, STACK_PORTS } from './stack.mjs';
+import { chainBalance } from './venue.mjs';
 import { installTestWallet, testWalletKey } from './test-wallet.mjs';
 import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
 
@@ -146,9 +147,9 @@ async function transfersIn(hash) {
     .filter((log) => log.topics[0] === TRANSFER_TOPIC && log.address.toLowerCase() === TOKEN_USD.address)
     .map((log) => ({ from: log.topics[1], to: log.topics[2], value: BigInt(log.data) }));
 }
+/** A wallet's TEST USD as the TEST chain itself reports it (the fixture's chain read), in the token's units. */
 async function usdOf(address) {
-  const balanceOf = `0x70a08231${word(address).slice(2)}`;
-  return BigInt(await chainRpc('eth_call', [{ to: TOKEN_USD.address, data: balanceOf }, 'latest']));
+  return chainBalance(TOKEN_USD.address, address);
 }
 
 /** One booked ledger transaction, found by its business key, as svc-ledger itself holds it (founder A, admin:treasury). */
@@ -176,7 +177,7 @@ const REPO = fileURLToPath(new URL('../../../../', import.meta.url));
 async function purchaseRows(courseId) {
   const { ctx } = await founders();
   const postgres = createRequire(nodePath.join(REPO, 'services', 'svc-academy', 'package.json'))('postgres');
-  const port = ctx.marker.ports.postgres ?? 15460;
+  const port = ctx.marker.ports.postgres ?? STACK_PORTS.postgres;
   const sql = postgres(`postgres://svc_academy:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
     max: 1,
     onnotice: () => {},
@@ -395,6 +396,7 @@ test(`${J} #5 a second Buy or a lost reply is still one purchase and no second s
   test.setTimeout(240_000);
   const slug = run.second.slug;
   const payer = privateKeyToAccount(run.walletKey).address;
+  const before = await usdOf(payer);
   const { panel, wallet } = await openCourse(page, slug);
 
   // The answer to Buy is lost after Academy stored the purchase: the wallet is not asked, and a reload shows the stored one.
@@ -456,6 +458,8 @@ test(`${J} #5 a second Buy or a lost reply is still one purchase and no second s
   expect(rows).toEqual([{ purchase_key: key, state: 'posted', tx_hash: hash }]);
   expect(transferSends(wallet)).toHaveLength(1);
   expect(await transfersIn(hash)).toHaveLength(1);
+  // The wallet paid the price once on the chain, however often Buy was pressed or a reply was lost.
+  expect(before - (await usdOf(payer))).toBe(PRICE_UNITS);
   const tx = await ledgerTrace(key);
   expect(tx).toMatchObject({ found: true, businessKey: key });
   expectPrice(tx);
@@ -466,12 +470,16 @@ test(`${J} #5 a second Buy or a lost reply is still one purchase and no second s
 test(`${J} #6 Pay by card, with no card partner set, shows that card payment needs a card partner and is switched off`, async ({
   page,
 }) => {
+  const payer = privateKeyToAccount(run.walletKey).address;
+  const before = await usdOf(payer);
   const { panel } = await openCourse(page, run.priced.slug);
   const card = panel.getByRole('group', { name: 'Pay by card' });
   await expect(card.getByRole('button', { name: 'Pay by card' })).toBeDisabled();
   await expect(card.getByText('Card payment needs a card partner. It is switched off in this build.').first()).toBeVisible();
   await expect(card).toContainText('rail.card');
   expect((await purchaseView(run.priced.slug)).card).toEqual({ state: 'off', code: 'rail.card' });
+  // Switched off means nothing is charged: the wallet's TEST USD on the chain is what it was.
+  expect(await usdOf(payer)).toBe(before);
 });
 
 test(`${J} #7 staff with the refund permission refund: INTAFACED sends the TEST amount once from its own funds with the chain reference; the grant ends and the grant audit shows it with its reason`, async ({

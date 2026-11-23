@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { createHttpLedgerClient, createLedgerTransport, type PostRequest } from '@intafaced/ledger-client';
-import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import type { StaffHoldLedger, StaffHoldLedgerKey } from './desk.js';
 
 /** `/trpc/txByKey`: the identifying fields of the post booked under a key, never its entries. */

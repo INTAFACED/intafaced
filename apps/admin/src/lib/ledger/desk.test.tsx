@@ -4,7 +4,7 @@ import { GET } from '@/app/api/ledger-desk/[read]/route';
 import { LedgerDesk, deskRefusal } from '@/components/ledger-desk';
 import { TransactionView } from '@/components/ledger-lookup';
 import { deskQuery, deskSearch, localToIso, parseDeskAnswer } from './desk';
-import type { LedgerTransaction } from './lookup';
+import type { LedgerTransaction } from '@/lib/ledger-lookup';
 
 const auth = vi.hoisted(() => ({ authorize: vi.fn<() => Promise<unknown>>() }));
 vi.mock('@/lib/founder-session', async (importOriginal) => ({

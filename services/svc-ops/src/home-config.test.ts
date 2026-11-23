@@ -75,12 +75,12 @@ describe('home.config owner values', () => {
   it('is a public read: a caller with no principal gets the values', async () => {
     const config = homeConfigFromEnv({ OPS_HOME_WORK_LIST_CAP: '4' });
     const caller = createHomeConfigRouter(config).createCaller({} as never);
-    await expect(caller.config()).resolves.toEqual(config);
+    await expect(caller.config(undefined)).resolves.toEqual(config);
   });
 
   it('is mounted as home.config, blank when the service is given no values', async () => {
     const caller = createOpsRouter(new OpsService()).createCaller({} as never);
-    await expect(caller.home.config()).resolves.toEqual({
+    await expect(caller.home.config(undefined)).resolves.toEqual({
       workListCap: null,
       workListOrder: null,
       searchResultCap: null,

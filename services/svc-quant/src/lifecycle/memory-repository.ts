@@ -46,5 +46,20 @@ export function createMemoryLifecycleRepository(now: () => Date = () => new Date
       promotions.push({ ...input, at: now().toISOString() });
       return input.response;
     },
+    async audit(limit) {
+      const newest = [...promotions].reverse();
+      return {
+        total: newest.length,
+        rows: newest.slice(0, limit).map((row) => ({
+          key: row.key,
+          accountId: row.accountId,
+          strategyId: row.strategyId,
+          strategyVersion: row.strategyVersion,
+          actor: row.actor,
+          decision: row.decision,
+          stage: row.stage,
+        })),
+      };
+    },
   };
 }

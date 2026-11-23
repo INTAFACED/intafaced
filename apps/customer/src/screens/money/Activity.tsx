@@ -40,22 +40,15 @@ import {
 } from './activity-view';
 import { OrdersPanel, TradesPanel } from './TradeTabs';
 import { moneyCopy } from './copy';
+import { Amount, Button, Skeleton, StateBlock, Tabs, TabsList, TabsTab } from './ui-deps';
 import {
-  Amount,
-  Button,
   fmtAmount,
   isHiddenPath,
   navigate,
   quotePlaces,
   refusalCopy,
-  Skeleton,
-  StateBlock,
-  Tabs,
-  TabsList,
-  TabsTab,
   useActivity,
   type ActivityFeed,
-  type ActivityItem,
   type ActivityKind,
   type Loadable,
 } from './deps';
@@ -700,10 +693,18 @@ export default function Activity({ search }: { search: string }) {
   const bySource = venue.mode === 'on' && venue.status.available ? venue.status : null;
   // `?asset=BTC` narrows every tab that lists money lines or fills; Orders lists orders, so it ignores it.
   const asset = tab === 'orders' ? null : assetFromSearch(search);
-  // On a phone the tab row scrolls on its own; keep the open tab in view, also when a link opens a far one.
+  // On a phone the tab row scrolls on its own; keep the open tab in view, also when a link opens a far one, and again
+  // whenever a tab changes size (its face arriving late widens the row after the first scroll).
   const tabList = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    tabList.current?.querySelector('[data-active]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    const row = tabList.current;
+    if (!row) return;
+    const reveal = () => row.querySelector('[data-active]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    reveal();
+    if (typeof ResizeObserver === 'undefined') return;
+    const sizes = new ResizeObserver(reveal);
+    for (const child of row.children) sizes.observe(child);
+    return () => sizes.disconnect();
   }, [tab]);
   return (
     <div data-testid="if-money" className="if-money if-money--activity" data-density={layoutMode === 'pro' ? 'pro' : undefined}>

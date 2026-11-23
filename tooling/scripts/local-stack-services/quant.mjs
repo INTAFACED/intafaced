@@ -15,5 +15,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, CUSTOMER_ORIGIN }) => ({
     QUANT_EMBED_ORIGINS: process.env.LOCAL_STACK_QUANT_EMBED_ORIGINS === 'off' ? '' : CUSTOMER_ORIGIN,
     // `off` blanks the TEST licence list, so a journey can see publishing refused by name (J-algo-dev-09 #2).
     ...(process.env.LOCAL_STACK_QUANT_LIBRARY_LICENCES === 'off' ? { QUANT_LIBRARY_LICENCES: '' } : {}),
+    // `off` blanks the TEST default plan, so a journey can see an account with no plan read "not set" (J-algo-dev-12 #2).
+    ...(process.env.LOCAL_STACK_QUANT_DEFAULT_QUOTA_PROFILE === 'off' ? { QUANT_DEFAULT_QUOTA_PROFILE: '' } : {}),
   }),
 });

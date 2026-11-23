@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import {
   buildAffiliateMemberListBoard,
   buildAffiliateNodeStatus,
@@ -75,7 +75,7 @@ export class ReferralService {
     return this.loadParentMapFrom(this.sql);
   }
 
-  private async loadParentMapFrom(sql: Sql): Promise<Map<string, string>> {
+  private async loadParentMapFrom(sql: Queryable): Promise<Map<string, string>> {
     const rows = await sql<Array<{ user_id: string; referrer_id: string }>>`
       SELECT user_id, referrer_id FROM referral_edges
     `;
@@ -145,7 +145,7 @@ export class ReferralService {
     };
   }
 
-  private async userExists(sql: Sql, userId: string): Promise<boolean> {
+  private async userExists(sql: Queryable, userId: string): Promise<boolean> {
     const rows = await sql<Array<{ id: string }>>`
       SELECT id FROM users WHERE id = ${userId} LIMIT 1
     `;

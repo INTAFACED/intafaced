@@ -14,13 +14,20 @@ test.describe.configure({ mode: 'default' });
 
 /** The six rooms: the tile on /more, the room's start address and the page title it mounts with. */
 const ROOMS = [
-  { tile: 'predict', path: '/predict', title: 'Prediction' },
-  { tile: 'market', path: '/market', title: 'Market' },
-  { tile: 'launch', path: '/launch', title: 'Launch' },
-  { tile: 'token', path: '/token/governance', title: 'Token governance', tileHref: '/token' },
-  { tile: 'mining', path: '/mining', title: 'Mining' },
-  { tile: 'blueprint', path: '/blueprint', title: 'Identity Blueprint' },
+  { tile: 'predict', path: '/predict', title: 'Prediction', parked: 'owner.decision' },
+  { tile: 'market', path: '/market', title: 'Market', service: 'market' },
+  { tile: 'launch', path: '/launch', title: 'Launch', service: 'token' },
+  { tile: 'token', path: '/token/governance', title: 'Token governance', tileHref: '/token', service: 'token' },
+  { tile: 'mining', path: '/mining', title: 'Mining', parked: 'after.launch' },
+  { tile: 'blueprint', path: '/blueprint', title: 'Identity Blueprint', parked: 'after.launch' },
 ];
+
+/** A room's state line, as the tile says it: an open room's service answer, or what a parked room waits on. */
+const STATE_WORDS = { open: 'Open: its service answers', not_answering: 'Not answering right now' };
+const PARKED_WORDS = {
+  'owner.decision': 'Parked: how a result settles waits on an owner decision',
+  'after.launch': 'Parked until after launch',
+};
 
 /** Every section address of the set whose last segment is reserved, and the title its own page carries. */
 const SECTIONS = [
@@ -84,14 +91,33 @@ function who() {
 
 const heading = (page) => page.locator('main h1').first();
 
-test(`${J} #1 /more lists the six rooms, none hidden, each opening its own room`, async ({ page }) => {
+test(`${J} #1 /more lists the six rooms with their real state, none hidden, each opening its own room`, async ({ page }) => {
   run.reset({ who: await signUp(page, 'jmc1') });
   await page.goto('/more');
   for (const room of ROOMS) {
     const tile = page.locator(`a[data-tile="${room.tile}"]`);
     await expect(tile, room.tile).toBeVisible();
     await expect(tile, room.tile).toHaveAttribute('href', room.tileHref ?? room.path);
+    const line = tile.getByTestId('more-tile__state');
+    await expect(line, `${room.tile} state`).toBeVisible();
+    if (room.parked) {
+      // A parked room is listed as parked, with what it waits on, by its code and in words.
+      await expect(line, room.tile).toHaveAttribute('data-state', 'parked');
+      await expect(line, room.tile).toHaveAttribute('data-blocker', room.parked);
+      await expect(line, room.tile).toHaveText(PARKED_WORDS[room.parked]);
+      continue;
+    }
+    // An open room's real state: what its own service answers on /health through the edge right now, read by this test
+    // independently of the page. Answering is open; anything else is "not answering", never hidden.
+    const health = await page.request.get(`/api/${room.service}/health`);
+    const body = health.ok() ? await health.json().catch(() => null) : null;
+    const state = body?.ok === true ? 'open' : 'not_answering';
+    await expect(line, `${room.tile} state`).toHaveAttribute('data-state', state);
+    await expect(line, room.tile).not.toHaveAttribute('data-blocker', /.*/);
+    await expect(line, room.tile).toHaveText(STATE_WORDS[state]);
   }
+  // Only the six rooms carry a state line; the other tiles keep their title and description.
+  await expect(page.getByTestId('more-tile__state')).toHaveCount(ROOMS.length);
   // Every section is a region named by its own heading: its id is made from its key, so aria-labelledby finds it.
   for (const name of ['Learn and build', 'Markets and assets', 'Money and pay', 'Rewards', 'Web3', 'Help', 'Account', 'All services']) {
     await expect(page.getByRole('region', { name, exact: true }).filter({ has: page.getByTestId('more-h2') }), name).toBeVisible();

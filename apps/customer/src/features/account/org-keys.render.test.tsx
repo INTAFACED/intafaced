@@ -24,6 +24,9 @@ const api = {
     world.asked.push({ kind: 'mutate', procedure, input });
     return Promise.resolve(world.mutate.shift());
   },
+  /** A record call, answered as the query or mutation it is, by its path. */
+  call: (record: { path: string; kind: 'query' | 'mutation' }, input: unknown) =>
+    record.kind === 'query' ? api.query('identity', record.path, input) : api.mutate('identity', record.path, input),
 };
 vi.mock('../session/session', () => ({ useSession: () => ({ userId: USER, api }) }));
 

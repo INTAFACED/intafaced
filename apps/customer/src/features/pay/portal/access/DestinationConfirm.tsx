@@ -1,5 +1,4 @@
-import { Button } from '@intafaced/ui';
-import { Field } from '../../ui-kit';
+import { Button, Field } from '@intafaced/ui/lit';
 import { stepUpCopy } from './step-up-copy';
 import type { DestinationProof } from './destination-step-up';
 
@@ -11,15 +10,15 @@ export function DestinationConfirm({ proof, onChange }: { proof: DestinationProo
   const { t } = stepUpCopy.useCopy();
   if (!('code' in proof))
     return (
-      <div data-testid="form-stack" className="form-stack">
-        <p className="muted">{t('suDestinationPasskey')}</p>
-        <Button variant="ghost" onClick={() => onChange({ code: '' })}>
+      <div data-testid="form-stack">
+        <p className="lt-hint">{t('suDestinationPasskey')}</p>
+        <Button tone="quiet" onClick={() => onChange({ code: '' })}>
           {t('suOr')}
         </Button>
       </div>
     );
   return (
-    <div data-testid="form-stack" className="form-stack">
+    <div data-testid="form-stack">
       <Field
         label={`${t('suCode')} *`}
         name="destination-code"
@@ -31,7 +30,7 @@ export function DestinationConfirm({ proof, onChange }: { proof: DestinationProo
         onChange={(event) => onChange({ code: event.target.value.replace(/\D/g, '').slice(0, 6) })}
         data-security-sensitive="true"
       />
-      <Button variant="ghost" onClick={() => onChange({ passkey: true })}>
+      <Button tone="quiet" onClick={() => onChange({ passkey: true })}>
         {t('suPasskey')}
       </Button>
     </div>

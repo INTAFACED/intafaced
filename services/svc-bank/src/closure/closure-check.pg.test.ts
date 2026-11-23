@@ -124,7 +124,7 @@ it('blocks on a dust balance and on a sub-account hold, and ignores another user
       }
       return [];
     },
-  } as unknown as Pick<LedgerClient, 'balances'>;
+  } as Pick<LedgerClient, 'balances'>;
   const holdApp = Fastify();
   retainRawBody(holdApp);
   registerClosureCheck(holdApp, { sql: db.sql, ledger: holdLedger, secret: SECRET });
@@ -234,7 +234,7 @@ it('answers 503 when the ledger or the database fails, never an empty list', asy
     async balances() {
       throw new Error('ledger down');
     },
-  } as unknown as Pick<LedgerClient, 'balances'>;
+  } as Pick<LedgerClient, 'balances'>;
   const downApp = Fastify();
   retainRawBody(downApp);
   registerClosureCheck(downApp, { sql: db.sql, ledger: downLedger, secret: SECRET });

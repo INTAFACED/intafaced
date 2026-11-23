@@ -31,8 +31,57 @@ export interface PartnerDirectDebits {
   block(userId: string, mandateId: string): Promise<PartnerMandate>;
   /** Lift the block at the partner. Unblocking an active mandate changes nothing. */
   unblock(userId: string, mandateId: string): Promise<PartnerMandate>;
-  /** The mandate as the partner reports it now. A mandate it never heard of is active. */
-  mandate(userId: string, mandateId: string): Promise<PartnerMandate>;
+  /**
+   * The mandate as the partner reports it now. A mandate it never heard of is active. Asked for one collection
+   * (`forCollection`, the scheme's collection id), a blocked answer is the partner refusing that collection, and the
+   * partner keeps that refusal on its own record (J-bank-28 #4).
+   */
+  mandate(userId: string, mandateId: string, forCollection?: string): Promise<PartnerMandate>;
+  /** The scheme set this mandate up against the person's account at the partner: the partner now knows it. */
+  setUp?(userId: string, mandateId: string): Promise<void>;
+}
+
+/** One mandate on the partner's own record (J-bank-28 #4). */
+export interface PartnerMandateLine {
+  readonly userId: string;
+  readonly mandateId: string;
+  readonly state: 'active' | 'blocked';
+  readonly blockedAt: Date | null;
+  readonly knownAt: Date;
+}
+
+/** One collection the partner refused, with its own reason code. */
+export interface PartnerDirectDebitFailure {
+  readonly userId: string;
+  readonly mandateId: string;
+  readonly collectionId: string;
+  readonly code: string;
+  readonly at: Date;
+}
+
+/** One collected debit the partner gave back to the person, once (the scheme's refund guarantee). */
+export interface PartnerDirectDebitRefund {
+  readonly userId: string;
+  readonly mandateId: string;
+  readonly collectionId: string;
+  readonly assetId: string;
+  readonly amount: bigint;
+  readonly moveId: string;
+  readonly refundedAt: Date;
+}
+
+/** Everything the partner reports of the direct debits it answers for, as it keeps them. */
+export interface PartnerDirectDebitReport {
+  readonly label: string;
+  readonly asOf: Date;
+  readonly mandates: readonly PartnerMandateLine[];
+  readonly failures: readonly PartnerDirectDebitFailure[];
+  readonly refunds: readonly PartnerDirectDebitRefund[];
+}
+
+/** The partner's report of every direct debit it answers for, or null when no partner answers for any (J-bank-28 #4). */
+export interface PartnerDirectDebitsReporter {
+  report(): Promise<PartnerDirectDebitReport> | null;
 }
 
 /** Which partner, if any, answers for a person's direct debits: the one that holds their money. */

@@ -1,4 +1,4 @@
-import type { TestPartner } from '../partner/test-partner.js';
+import type { TestPartnerDoors } from '../partner/test-partner.js';
 import { listWithdrawNetworks, type WithdrawAsset, type WithdrawNetworkSource } from './withdraw-networks.js';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
@@ -249,7 +249,7 @@ export interface RampServiceOptions {
   /** The local stack's TEST rate stand-in (`BANK_ONRAMP_RATES=ramp-sim`), for the asks it lists. Unset everywhere else. */
   onrampStandIn?: OnrampStandIn | null;
   /** The TEST ramp's switches (quote expired, fee not known), on a dev or test stack only. Unset everywhere else. */
-  testRamp?: TestPartner | null;
+  testRamp?: TestPartnerDoors | null;
   /**
    * Partner that opens a hosted payment or bank-transfer instruction.
    * Unset refuses `bank.fiat_ramp_socket` and inserts no row.
@@ -302,7 +302,7 @@ export class RampService {
   private readonly offrampCoolingHours: string | undefined;
   private readonly onrampQuotes: OnrampQuoteSource | null;
   private readonly onrampStandIn: OnrampStandIn | null;
-  private readonly testRamp: TestPartner | null;
+  private readonly testRamp: TestPartnerDoors | null;
   private readonly onrampPayments: OnrampPaymentPort | null;
   private readonly offrampFees: OfframpFeeSource | null;
   private readonly withdrawNetworkSource: WithdrawNetworkSource | null;

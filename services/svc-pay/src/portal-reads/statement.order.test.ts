@@ -37,7 +37,7 @@ function answerStatementSql(text: string, values: unknown[], captures: Array<{ i
   if (text.includes('FROM pay.merchants')) return [{ user_id: USER }];
   if (text.includes("e.event = 'captured'")) return captures;
   if (text.includes('FROM pay.settlements')) return [];
-  if (text.includes("e.event = 'refund.posted'")) return [];
+  if (text.includes("e.event IN ('refund.posted', 'refund.reversed')")) return [];
   if (text.includes('chargeback.opening_planned')) return [];
   if (text.includes('pay.payout_admissions')) return [];
   throw new Error(text);
@@ -49,8 +49,7 @@ function scriptSql(
     { id: PAY_CREDIT, currency: 'USDT' },
   ],
 ): Sql {
-  return (async (strings: TemplateStringsArray, ...values: unknown[]) =>
-    answerStatementSql(strings.join(' '), values, captures)) as unknown as Sql;
+  return (async (strings: TemplateStringsArray, ...values: unknown[]) => answerStatementSql(strings.join(' '), values, captures)) as Sql;
 }
 
 function accountId(ref: AccountRef): string {

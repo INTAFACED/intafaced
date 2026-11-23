@@ -6,7 +6,7 @@ import type {
   AcademyIssuedCerts,
 } from '@intafaced/contracts/academy-cert-designs';
 import type { AcademyCertIssueRule } from '@intafaced/contracts/academy-certificates';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 
 /**
  * Certificate designs and the issued-certificates list on the founder console (AC-certificates-03). Pure, so the server

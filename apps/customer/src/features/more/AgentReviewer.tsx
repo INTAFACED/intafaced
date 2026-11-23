@@ -1,48 +1,39 @@
 import { useState } from 'react';
-import { z } from 'zod';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
-import { Button, DataTable, Field, Panel } from '../../shared/ui';
-import { Read, Select } from './common';
+import { Button, Select } from '@intafaced/ui/lit';
+import { DataTable, Field, Panel, Read } from './agent-room/parts';
 import { Answer, toolWords, type Failed } from './AgentGuardrails';
 import { agentGuardrailsCopy } from './agent-guardrails-copy';
 import { agentReviewerCopy } from './agent-reviewer-copy';
 import {
-  ownAgentCatalogueSchema,
   ownAgentReviewCheckSchema,
-  ownAgentReviewerSchema,
-  ownAgentReviewRowSchema,
   type OwnAgent,
   type OwnAgentReviewCheck,
   type OwnAgentReviewer,
   type OwnAgentReviewRow,
 } from '@intafaced/contracts/agents-own';
+import {
+  AGENTS_OWN_CATALOGUE,
+  AGENTS_OWN_REVIEWER_GET,
+  AGENTS_OWN_REVIEW_LIST,
+  AGENTS_OWN_REVIEWER_SET,
+} from '@intafaced/contracts/agents-own-procedures';
 
-/**
- * An own agent's automatic reviewer, on its Rules page (AG-approvals-02; J-agents-05 #7): the person's switch, the
- * reviewer's engine as svc-agents reports it (the owner-decision notice while the owner has not chosen the model), the
- * reviewer's decisions with their coded reasons, and a check of what it would decide for one call. Every answer comes
- * from svc-agents. Nothing here moves money.
- */
-
-const rowsSchema = z.array(ownAgentReviewRowSchema);
 const SHOWN = 50;
 
 export function ReviewerPanel({ agent }: { agent: OwnAgent }) {
   const api = useApi();
   const { t } = agentReviewerCopy.useCopy();
-  const setting = useResource(
-    (signal) => api.query('agents', 'own.reviewer.get', { id: agent.id }, ownAgentReviewerSchema, { signal }),
-    `own-reviewer:${agent.id}`,
-  );
+  const setting = useResource((signal) => api.call(AGENTS_OWN_REVIEWER_GET, { id: agent.id }, { signal }), `own-reviewer:${agent.id}`);
   const decisions = useResource(
-    (signal) => api.query('agents', 'own.review.list', { id: agent.id, limit: SHOWN }, rowsSchema, { signal }),
+    (signal) => api.call(AGENTS_OWN_REVIEW_LIST, { id: agent.id, limit: SHOWN }, { signal }),
     `own-reviews:${agent.id}`,
   );
   return (
     <>
       <Panel title={t('title')} role="region" aria-label={t('title')}>
-        <p className="muted">{t('intro')}</p>
+        <p className="lt-muted">{t('intro')}</p>
         <p>{t('valueAlwaysAsks')}</p>
         <Read resource={setting.resource} retry={setting.reload}>
           {(stored) => <ReviewerSwitch key={`${stored.on}:${stored.engine}:${stored.updatedAt}`} agent={agent} stored={stored} />}
@@ -80,7 +71,7 @@ function ReviewerSwitch({ agent, stored }: { agent: OwnAgent; stored: OwnAgentRe
     setBusy(true);
     setChanged(false);
     setRefused(null);
-    const res = await api.mutate('agents', 'own.reviewer.set', { id: agent.id, on: !current.on }, ownAgentReviewerSchema);
+    const res = await api.call(AGENTS_OWN_REVIEWER_SET, { id: agent.id, on: !current.on });
     setBusy(false);
     if (!res.ok) return setRefused(res);
     setCurrent(res.data);
@@ -111,7 +102,7 @@ function ReviewerSwitch({ agent, stored }: { agent: OwnAgent; stored: OwnAgentRe
 function Decisions({ rows }: { rows: OwnAgentReviewRow[] }) {
   const { t } = agentReviewerCopy.useCopy();
   const tools = agentGuardrailsCopy.useCopy().t;
-  if (!rows.length) return <p className="muted">{t('decisionsEmpty')}</p>;
+  if (!rows.length) return <p className="lt-muted">{t('decisionsEmpty')}</p>;
   return (
     <DataTable label={t('decisionsTitle')} headers={[t('colWhen'), t('colTool'), t('colDecision'), t('colReason'), t('colInput')]}>
       {rows.map((row) => (
@@ -137,10 +128,7 @@ function ReviewerCheck({ agent }: { agent: OwnAgent }) {
   const api = useApi();
   const { t } = agentReviewerCopy.useCopy();
   const tools = agentGuardrailsCopy.useCopy().t;
-  const catalogue = useResource(
-    (signal) => api.query('agents', 'own.catalogue', undefined, ownAgentCatalogueSchema, { signal }),
-    'own-catalogue',
-  );
+  const catalogue = useResource((signal) => api.call(AGENTS_OWN_CATALOGUE, undefined, { signal }), 'own-catalogue');
   const [tool, setTool] = useState('');
   const [text, setText] = useState('');
   const [answer, setAnswer] = useState<OwnAgentReviewCheck | null>(null);
@@ -162,7 +150,7 @@ function ReviewerCheck({ agent }: { agent: OwnAgent }) {
   }
   return (
     <Panel title={t('checkTitle')} role="region" aria-label={t('checkTitle')}>
-      <p className="muted">{t('checkIntro')}</p>
+      <p className="lt-muted">{t('checkIntro')}</p>
       <Read resource={catalogue.resource} retry={catalogue.reload}>
         {(offered) => {
           const chosen = tool || offered.tools[0]?.name || '';
@@ -178,7 +166,7 @@ function ReviewerCheck({ agent }: { agent: OwnAgent }) {
                 options={offered.tools.map((entry) => ({ value: entry.name, label: toolWords(tools, entry.name) }))}
               />
               <Field label={t('checkInput')} value={text} maxLength={4000} onChange={(event) => setText(event.target.value)} />
-              <Button disabled={busy || !chosen} onClick={() => void ask(chosen)}>
+              <Button tone="primary" disabled={busy || !chosen} onClick={() => void ask(chosen)}>
                 {t('checkButton')}
               </Button>
             </>

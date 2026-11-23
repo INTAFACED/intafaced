@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useSession } from '../session/session';
-import { Button } from '../../shared/ui';
+import { useSession } from '../session';
+import { Button } from '@intafaced/ui/lit';
 import { codesHelpCopy as copy } from './codes-help-copy';
 import {
   DRIFT_LIMIT_SECONDS,
@@ -53,30 +53,28 @@ export function CodesHelp({ onReplace, onClose }: { onReplace: () => void; onClo
   }, [run]);
 
   return (
-    <section className="security__codes-help stack" aria-label={t('title')} lang={languageFor('title')}>
+    <section aria-label={t('title')} lang={languageFor('title')}>
       <h3>{t('title')}</h3>
       <p>{t('why')}</p>
       {check.kind === 'checking' && <p role="status">{t('checking')}</p>}
       {check.kind === 'failed' && (
-        <div className="stack">
+        <div>
           <p role="alert">{t('checkFailed')}</p>
-          <div className="row">
-            <Button variant="secondary" onClick={() => void run()}>
+          <div className="lt-actions">
+            <Button tone="secondary" onClick={() => void run()}>
               {t('checkAgain')}
             </Button>
           </div>
         </div>
       )}
       {check.kind === 'done' && check.verdict.kind !== 'in-sync' && (
-        <p className="error-text" role="status">
-          {t(check.verdict.kind, { seconds: check.verdict.seconds })}
-        </p>
+        <p role="status">{t(check.verdict.kind, { seconds: check.verdict.seconds })}</p>
       )}
       {check.kind === 'done' && check.verdict.kind === 'in-sync' && (
-        <div className="stack">
+        <div>
           <p role="status">{t('inSync', { limit: DRIFT_LIMIT_SECONDS })}</p>
-          <div className="row">
-            <Button variant="secondary" onClick={onReplace}>
+          <div className="lt-actions">
+            <Button tone="secondary" onClick={onReplace}>
               {t('replace')}
             </Button>
           </div>
@@ -91,9 +89,11 @@ export function CodesHelp({ onReplace, onClose }: { onReplace: () => void; onClo
         <li>{t('move3')}</li>
         <li>{t('move4')}</li>
       </ol>
-      <div className="row">
-        <Button onClick={onReplace}>{t('moveStart')}</Button>
-        <Button variant="ghost" onClick={onClose}>
+      <div className="lt-actions">
+        <Button tone="primary" onClick={onReplace}>
+          {t('moveStart')}
+        </Button>
+        <Button tone="quiet" onClick={onClose}>
           {t('close')}
         </Button>
       </div>

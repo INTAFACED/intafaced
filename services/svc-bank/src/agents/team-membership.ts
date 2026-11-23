@@ -4,16 +4,13 @@
  * only to a member of the business. A failed read is 503 `bank.team_membership_unavailable`, never an empty team.
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { AgentsTeamBusinessRole, AgentsTeamMembershipResponse, ServiceAuthMode, ServiceVerifier } from '@intafaced/contracts';
 import {
   AGENTS_TEAM_MEMBERSHIP_PATH,
   agentsTeamMembershipRequestSchema,
   agentsTeamMembershipResponseSchema,
-  verifyServiceRequest,
-  type AgentsTeamBusinessRole,
-  type AgentsTeamMembershipResponse,
-  type ServiceAuthMode,
-  type ServiceVerifier,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/agents-team-membership';
+import { verifyServiceRequest } from '@intafaced/contracts/service-auth-http';
 import type { Sql } from 'postgres';
 
 /** A business holds at most this many members in one answer; more is refused, never a cut-off team. */

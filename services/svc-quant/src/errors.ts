@@ -4,6 +4,12 @@ export const QUANT_SANDBOX_TIMEOUT = 'quant.sandbox_timeout' as const;
 export const QUANT_SANDBOX_SYNTAX = 'quant.sandbox_syntax' as const;
 export const QUANT_SANDBOX_MAX_OPS_UNSET = 'quant.sandbox_max_ops_unset' as const;
 export const QUANT_SANDBOX_MAX_SOURCE_UNSET = 'quant.sandbox_max_source_unset' as const;
+/** A sandbox limit of the plan (wall-clock, memory, output) the owner has not set: no run starts (AL-limits-02). */
+export const QUANT_SANDBOX_LIMIT_UNSET = 'quant.sandbox_limit_unset' as const;
+/** A run's variables reached the plan's memory limit: it ends before the text is made. */
+export const QUANT_SANDBOX_MEMORY = 'quant.sandbox_memory' as const;
+/** A run's log reached the plan's output limit: it ends with the log cut at the limit. */
+export const QUANT_SANDBOX_OUTPUT = 'quant.sandbox_output' as const;
 export const QUANT_VENUE_VAULT_UNSET = 'quant.venue_vault_unset' as const;
 export const QUANT_STUDIO_RISK_BLOCK_REQUIRED = 'quant.studio_risk_block_required' as const;
 export const QUANT_BACKTEST_LAKE_MISSING = 'quant.backtest_lake_missing' as const;
@@ -25,8 +31,30 @@ export const QUANT_DATABASE_URL_UNSET = 'quant.database_url_unset' as const;
 export const QUANT_DATABASE_POOL_MAX_UNSET = 'quant.database_pool_max_unset' as const;
 export const QUANT_RUN_NOT_FOUND = 'quant.run_not_found' as const;
 export const QUANT_RUN_IMMUTABLE = 'quant.run_immutable' as const;
+/** The strategy API (J-algo-dev-14): a key's call outside it, and a key's backtest start under its Idempotency-Key. */
+export const QUANT_KEY_NO_SUCH_ENDPOINT = 'quant.key_no_such_endpoint' as const;
+export const QUANT_IDEMPOTENCY_KEY_REQUIRED = 'quant.idempotency_key_required' as const;
+export const QUANT_IDEMPOTENCY_KEY_INVALID = 'quant.idempotency_key_invalid' as const;
+export const QUANT_IDEMPOTENCY_KEY_REUSED = 'quant.idempotency_key_reused' as const;
 export const QUANT_RUN_UNFINISHED = 'quant.run_unfinished' as const;
 export const QUANT_RUN_NOT_SIMULATED = 'quant.run_not_simulated' as const;
+/** Monte Carlo resampling of a finished backtest (RC-algo-dev-04; J-algo-dev-16 #3): owner values blank, or too few trips. */
+export const QUANT_MONTECARLO_RUNS_UNSET = 'quant.montecarlo_runs_unset' as const;
+export const QUANT_MONTECARLO_MIN_TRADES_UNSET = 'quant.montecarlo_min_trades_unset' as const;
+export const QUANT_MONTECARLO_TRADES_INSUFFICIENT = 'quant.montecarlo_trades_insufficient' as const;
+/** The market data lake (RC-algo-dev-02; J-algo-dev-16 #2): no capture configured, or retention blank. */
+export const QUANT_LAKE_STORE_UNSET = 'quant.lake_store_unset' as const;
+export const QUANT_LAKE_RETENTION_UNSET = 'quant.lake_retention_unset' as const;
+export const QUANT_LAKE_SYMBOL_UNKNOWN = 'quant.lake_symbol_unknown' as const;
+/** The account's approval policy for live use (RC-algo-dev-01; J-algo-dev-16 #4). */
+export const QUANT_APPROVAL_POLICY_UNSET = 'quant.approval_policy_unset' as const;
+export const QUANT_APPROVAL_REQUIRED = 'quant.approval_required' as const;
+export const QUANT_APPROVAL_SELF_REVIEW = 'quant.approval_self_review' as const;
+export const QUANT_APPROVAL_HASH_STALE = 'quant.approval_hash_stale' as const;
+export const QUANT_APPROVAL_NOT_FOUND = 'quant.approval_not_found' as const;
+export const QUANT_APPROVAL_NOT_REVIEWER = 'quant.approval_not_reviewer' as const;
+export const QUANT_APPROVAL_DECIDED = 'quant.approval_decided' as const;
+/** A sandbox run asked for a language whose runtime this deployment does not run. */
 export const QUANT_RUN_RESULT_CAP_UNSET = 'quant.run_result_cap_unset' as const;
 export const QUANT_RUN_RESULT_TOO_LARGE = 'quant.run_result_too_large' as const;
 export const QUANT_CLAIM_PNL_UNSET = 'quant.claim_pnl_unset' as const;
@@ -136,6 +164,9 @@ export type QuantCode =
   | typeof QUANT_SANDBOX_SYNTAX
   | typeof QUANT_SANDBOX_MAX_OPS_UNSET
   | typeof QUANT_SANDBOX_MAX_SOURCE_UNSET
+  | typeof QUANT_SANDBOX_LIMIT_UNSET
+  | typeof QUANT_SANDBOX_MEMORY
+  | typeof QUANT_SANDBOX_OUTPUT
   | typeof QUANT_VENUE_VAULT_UNSET
   | typeof QUANT_STUDIO_RISK_BLOCK_REQUIRED
   | typeof QUANT_BACKTEST_LAKE_MISSING
@@ -231,6 +262,23 @@ export type QuantCode =
   | typeof QUANT_LIVE_PLAN_UNSUPPORTED
   | typeof QUANT_LIVE_ORDER_TYPE_UNSUPPORTED
   | typeof QUANT_LIVE_DEPLOY_UNAVAILABLE
+  | typeof QUANT_KEY_NO_SUCH_ENDPOINT
+  | typeof QUANT_IDEMPOTENCY_KEY_REQUIRED
+  | typeof QUANT_IDEMPOTENCY_KEY_INVALID
+  | typeof QUANT_IDEMPOTENCY_KEY_REUSED
+  | typeof QUANT_MONTECARLO_RUNS_UNSET
+  | typeof QUANT_MONTECARLO_MIN_TRADES_UNSET
+  | typeof QUANT_MONTECARLO_TRADES_INSUFFICIENT
+  | typeof QUANT_LAKE_STORE_UNSET
+  | typeof QUANT_LAKE_RETENTION_UNSET
+  | typeof QUANT_LAKE_SYMBOL_UNKNOWN
+  | typeof QUANT_APPROVAL_POLICY_UNSET
+  | typeof QUANT_APPROVAL_REQUIRED
+  | typeof QUANT_APPROVAL_SELF_REVIEW
+  | typeof QUANT_APPROVAL_HASH_STALE
+  | typeof QUANT_APPROVAL_NOT_FOUND
+  | typeof QUANT_APPROVAL_NOT_REVIEWER
+  | typeof QUANT_APPROVAL_DECIDED
   | 'quant.params_invalid';
 
 export class QuantError extends Error {

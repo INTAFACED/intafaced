@@ -15,7 +15,9 @@
  * 5. Paths: services/svc-bank/src/router.ts, step-up/step-up-gate.ts, step-up/money-out-fields.ts
  * 6. RED before: every one of these doors ran on plain `bank:write`
  */
+import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
+import { parseAmount } from '@intafaced/ledger-client';
 import type { Principal } from '@intafaced/auth';
 import {
   createEdgeContext,
@@ -152,6 +154,48 @@ class FakeIdentity implements ActionApprovalConsumer {
   }
 }
 
+const TEAM_PAYMENT = '45454545-4545-4545-8545-454545454545';
+const TEAM_INVITE = '56565656-5656-4656-8656-565656565656';
+const TEAM_ROLE = '67676767-6767-4767-8767-676767676767';
+const teamMember = {
+  userId: OTHER,
+  handle: 'other',
+  role: 'viewer',
+  customRole: null,
+  advisor: false,
+  departmentId: null,
+  permissions: ['view'],
+};
+const teamPayment = {
+  id: TEAM_PAYMENT,
+  accountId: ACCOUNT,
+  makerUserId: USER,
+  makerHandle: 'me',
+  payee: 'TEST Supplier',
+  paymentType: 'domestic',
+  assetId: 'USD',
+  amount: parseAmount('6000'),
+  rule: null,
+  approvalsNeeded: 0,
+  approvals: [],
+  status: 'sent',
+  partnerKey: `bank.business.payment:${TEAM_PAYMENT}`,
+  partnerMoveId: 'move-1',
+  refusalCode: null,
+  createdAt: new Date(START),
+  sentAt: new Date(START),
+};
+const teamInvite = {
+  id: TEAM_INVITE,
+  kind: 'email',
+  email: 'new@test.example',
+  role: 'checker',
+  customRole: null,
+  status: 'open',
+  expiresAt: new Date(START),
+  createdAt: new Date(START),
+};
+
 const space = (id: string, userId: string, assetId = 'USDT') => ({ id, userId, assetId, kind: 'named', name: 'n', archivedAt: null });
 
 function fixture(mode: StepUpMode = 'required') {
@@ -185,6 +229,15 @@ function fixture(mode: StepUpMode = 'required') {
       getSchedule: async () => ({ userId: USER }),
       cancelSchedule: mk('transfers.cancelSchedule', undefined),
       pauseSchedule: mk('transfers.pauseSchedule', { status: 'paused', nextRunAt: new Date(START) }),
+    },
+    // J-bank-19's team doors: what each returns only has to pass the door's output schema.
+    businessTeam: {
+      propose: mk('businessTeam.propose', teamPayment),
+      approve: mk('businessTeam.approve', teamPayment),
+      reject: mk('businessTeam.reject', { ...teamPayment, status: 'rejected' }),
+      invite: mk('businessTeam.invite', { invite: teamInvite, token: 'secret' }),
+      acceptInvite: mk('businessTeam.acceptInvite', { accountId: ACCOUNT, name: 'TEST Ltd', member: teamMember }),
+      assignRole: mk('businessTeam.assignRole', teamMember),
     },
     business: {
       runPayroll: mk('business.runPayroll', {
@@ -585,6 +638,82 @@ describe('flag required: business and cards', () => {
     await expect(f.caller().business.reject({ approvalId: BIZ_APPROVAL })).resolves.toEqual({ ok: true });
     await expect(f.caller().business.cancel({ approvalId: BIZ_APPROVAL })).resolves.toEqual({ ok: true });
     expect(f.calls).toEqual(['business.proposeTransfer', 'business.approve', 'business.addMember', 'business.reject', 'business.cancel']);
+  });
+
+  it('the business team (J-bank-19): propose, approve, invite, accept and assign each need one bound to their own payload; reject never does', async () => {
+    const f = fixture();
+    const propose = {
+      accountId: ACCOUNT,
+      paymentId: TEAM_PAYMENT,
+      payee: 'TEST Supplier',
+      paymentType: 'domestic' as const,
+      amount: '6000',
+    };
+    const invite = { accountId: ACCOUNT, inviteId: TEAM_INVITE, email: 'new@test.example', role: 'checker' as const, roleId: null };
+    const assign = { accountId: ACCOUNT, userId: OTHER, roleId: TEAM_ROLE };
+    const token = 'link-secret-0001';
+    const required = { message: expect.stringContaining('bank.step_up_required') };
+    await expect(f.caller().businessTeam.propose(propose)).rejects.toMatchObject(required);
+    await expect(f.caller().businessTeam.approve({ paymentId: TEAM_PAYMENT })).rejects.toMatchObject(required);
+    await expect(f.caller().businessTeam.invite(invite)).rejects.toMatchObject(required);
+    await expect(f.caller().businessTeam.acceptInvite({ token })).rejects.toMatchObject(required);
+    await expect(f.caller().businessTeam.assignRole(assign)).rejects.toMatchObject(required);
+    expect(f.calls).toEqual([]);
+
+    const mismatch = { message: expect.stringContaining('bank.step_up_mismatch') };
+    // A larger amount, another payee, an approval for a business transfer, a different role or another link is another payload.
+    const p = f.identity.approve('bank.step_up.businessTeam.propose', { actor: USER, ...propose });
+    await expect(f.caller().businessTeam.propose({ ...propose, amount: '60000', stepUpApprovalId: p })).rejects.toMatchObject(mismatch);
+    const p2 = f.identity.approve('bank.step_up.businessTeam.propose', { actor: USER, ...propose });
+    await expect(f.caller().businessTeam.propose({ ...propose, payee: 'Someone else', stepUpApprovalId: p2 })).rejects.toMatchObject(
+      mismatch,
+    );
+    const transferApproval = f.identity.approve('bank.step_up.business.approve', { actor: USER, approvalId: TEAM_PAYMENT });
+    await expect(f.caller().businessTeam.approve({ paymentId: TEAM_PAYMENT, stepUpApprovalId: transferApproval })).rejects.toMatchObject(
+      mismatch,
+    );
+    const i = f.identity.approve('bank.step_up.businessTeam.invite', { actor: USER, ...invite, roleId: '' });
+    await expect(f.caller().businessTeam.invite({ ...invite, role: 'admin', stepUpApprovalId: i })).rejects.toMatchObject(mismatch);
+    const sha = (v: string) => createHash('sha256').update(v, 'utf8').digest('hex');
+    const t = f.identity.approve('bank.step_up.businessTeam.acceptInvite', { actor: USER, tokenHash: sha('another-link') });
+    await expect(f.caller().businessTeam.acceptInvite({ token, stepUpApprovalId: t })).rejects.toMatchObject(mismatch);
+    expect(f.calls).toEqual([]);
+
+    const ok = {
+      propose: f.identity.approve('bank.step_up.businessTeam.propose', { actor: USER, ...propose }),
+      approve: f.identity.approve('bank.step_up.businessTeam.approve', { actor: USER, paymentId: TEAM_PAYMENT }),
+      invite: f.identity.approve('bank.step_up.businessTeam.invite', { actor: USER, ...invite, roleId: '' }),
+      accept: f.identity.approve('bank.step_up.businessTeam.acceptInvite', { actor: USER, tokenHash: sha(token) }),
+      assign: f.identity.approve('bank.step_up.businessTeam.assignRole', { actor: USER, ...assign }),
+    };
+    await f.caller().businessTeam.propose({ ...propose, stepUpApprovalId: ok.propose });
+    await f.caller().businessTeam.approve({ paymentId: TEAM_PAYMENT, stepUpApprovalId: ok.approve });
+    await f.caller().businessTeam.invite({ ...invite, stepUpApprovalId: ok.invite });
+    await f.caller().businessTeam.acceptInvite({ token, stepUpApprovalId: ok.accept });
+    await f.caller().businessTeam.assignRole({ ...assign, stepUpApprovalId: ok.assign });
+    // Refusing a payment moves nothing, so it never asks.
+    await f.caller().businessTeam.reject({ paymentId: TEAM_PAYMENT });
+    expect(f.calls).toEqual([
+      'businessTeam.propose',
+      'businessTeam.approve',
+      'businessTeam.invite',
+      'businessTeam.acceptInvite',
+      'businessTeam.assignRole',
+      'businessTeam.reject',
+    ]);
+  });
+
+  it('the business team doors change nothing while the rule is off', async () => {
+    const f = fixture('off');
+    await f.caller().businessTeam.propose({
+      accountId: ACCOUNT,
+      paymentId: TEAM_PAYMENT,
+      payee: 'TEST Supplier',
+      paymentType: 'domestic',
+      amount: '6000',
+    });
+    await f.caller().businessTeam.approve({ paymentId: TEAM_PAYMENT });
+    expect(f.calls).toEqual(['businessTeam.propose', 'businessTeam.approve']);
   });
 
   it('unfreeze and issue need one; freeze and close never do; unfreezing twice with one approval is refused', async () => {

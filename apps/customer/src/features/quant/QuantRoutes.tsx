@@ -1,30 +1,43 @@
 import type { ReactNode } from 'react';
-import { Quant } from '../more/Quant';
-import { t as moreCopy } from '../more/copy';
 import { AlgoHome } from './AlgoHome';
-import { BacktestRoom } from './BacktestRoom';
 import { StrategiesRoom } from './StrategiesRoom';
+import { LimitsRoom } from './LimitsRoom';
+import { limitsCopy } from './limits-copy';
 import { StrategyPage } from './StrategyPage';
-import { SharedRoom, SharedStrategy } from './SharedRooms';
+import { SharedRoom } from './SharedRooms';
+import { SharedStrategy } from './SharedStrategyRoom';
 import { teamCopy } from './team-copy';
-import { LibraryRoom, ListingRoom } from './LibraryRooms';
+import { LibraryRoom } from './LibraryRooms';
+import { ListingRoom } from './ListingRoom';
 import { libraryCopy } from './library-copy';
-import { LiveRun, LiveRuns } from './LiveRun';
+import { LiveRun } from './LiveRun';
+import { LiveRunsRoom } from './live-runs/LiveRunsRoom';
 import { liveRunCopy } from './live-run-copy';
 import { EditorRoom, OptimiseRoom, TesterRoom } from './PreviewRooms';
 import { previewCopy } from './preview-copy';
 import { strategyPageCopy } from './strategy-page-copy';
 import { strategiesCopy } from './strategies-copy';
 import { algoCopy } from './algo-copy';
+import { LakeRoom } from './LakeRoom';
+import { researchCopy } from './research-copy';
 
-const MODES = { '/quant/studio': 'studio', '/quant/backtest': 'backtest', '/quant/sandbox': 'sandbox' } as const;
+/**
+ * A room's title, the line under it and its content. `bare`: the content is a room on its kit template, which draws its own
+ * title, so it opens without the old page frame.
+ */
+export interface QuantRoute {
+  title: ReactNode;
+  description: ReactNode;
+  content: ReactNode;
+  bare?: true;
+}
 
-/** The Algo dev rooms under `/quant`; `MoreRoutes` hands the whole prefix here. Null for a path that is not one of them. */
-export function quantRoute(
-  pathname: string,
-  paper: boolean,
-  userId: string | null,
-): { title: ReactNode; description: ReactNode; content: ReactNode } | null {
+/**
+ * The Algo dev rooms under `/quant`; `MoreRoutes` hands the whole prefix here. Null for a path that is not one of them,
+ * and for studio, backtest and sandbox, which More's own `quantModeRoute` serves beside their room. `bare`: the room is on
+ * its Volt template, which draws its own title row, so More mounts it without the old page frame.
+ */
+export function quantRoute(pathname: string, paper: boolean, userId: string | null): QuantRoute | null {
   if (pathname === '/quant') {
     return {
       title: algoCopy.t('title'),
@@ -44,6 +57,7 @@ export function quantRoute(
       title: strategyPageCopy.t('roomTitle'),
       description: strategyPageCopy.t('description'),
       content: <StrategyPage key={`${userId ?? 'anonymous'}:${strategyId}`} strategyId={strategyId} paper={paper} />,
+      bare: true,
     };
   }
   // Strategies other people shared with the caller, and one of them (J-algo-dev-08).
@@ -52,6 +66,7 @@ export function quantRoute(
       title: teamCopy.t('sharedTitle'),
       description: teamCopy.t('sharedIntro'),
       content: <SharedRoom key={userId ?? 'anonymous'} paper={paper} />,
+      bare: true,
     };
   }
   const shared = /^\/quant\/shared\/([^/]+)$/.exec(pathname);
@@ -66,6 +81,7 @@ export function quantRoute(
       title: teamCopy.t('sharedTitle'),
       description: teamCopy.t('sharedIntro'),
       content: <SharedStrategy key={`${userId ?? 'anonymous'}:${strategyId}`} strategyId={strategyId} paper={paper} />,
+      bare: true,
     };
   }
   // The strategy library (J-algo-dev-09): what people published, and one listing.
@@ -74,6 +90,7 @@ export function quantRoute(
       title: libraryCopy.t('libraryTitle'),
       description: libraryCopy.t('libraryIntro'),
       content: <LibraryRoom key={userId ?? 'anonymous'} paper={paper} />,
+      bare: true,
     };
   }
   const listing = /^\/quant\/library\/([^/]+)$/.exec(pathname);
@@ -88,6 +105,7 @@ export function quantRoute(
       title: libraryCopy.t('libraryTitle'),
       description: libraryCopy.t('libraryIntro'),
       content: <ListingRoom key={`${userId ?? 'anonymous'}:${listingId}`} listingId={listingId} paper={paper} />,
+      bare: true,
     };
   }
   // A live strategy run on the person's own venue sub-account (J-algo-dev-07), and the list of them.
@@ -95,7 +113,8 @@ export function quantRoute(
     return {
       title: liveRunCopy.t('listTitle'),
       description: liveRunCopy.t('description'),
-      content: <LiveRuns key={userId ?? 'anonymous'} />,
+      content: <LiveRunsRoom key={userId ?? 'anonymous'} />,
+      bare: true,
     };
   }
   const live = /^\/quant\/live\/([0-9a-fA-F-]{36})$/.exec(pathname);
@@ -116,32 +135,31 @@ export function quantRoute(
       content: <Room key={userId ?? 'anonymous'} paper={paper} />,
     };
   }
+  // The market data lake (J-algo-dev-16 #2).
+  if (pathname === '/quant/data') {
+    return {
+      title: researchCopy.t('dataTitle'),
+      description: researchCopy.t('dataIntro'),
+      content: <LakeRoom key={userId ?? 'anonymous'} paper={paper} />,
+      bare: true,
+    };
+  }
+  // Every limit a developer's runs meet (J-algo-dev-12 #4).
+  if (pathname === '/quant/limits') {
+    return {
+      title: limitsCopy.t('title'),
+      description: limitsCopy.t('description'),
+      content: <LimitsRoom key={userId ?? 'anonymous'} paper={paper} />,
+      bare: true,
+    };
+  }
   if (pathname === '/quant/strategies') {
     return {
       title: strategiesCopy.t('title'),
       description: strategiesCopy.t('description'),
       content: <StrategiesRoom key={userId ?? 'anonymous'} paper={paper} />,
+      bare: true,
     };
   }
-  const mode = MODES[pathname as keyof typeof MODES];
-  if (!mode) return null;
-  return {
-    title:
-      mode === 'sandbox'
-        ? moreCopy('moreroutes.quant.sandbox')
-        : mode === 'studio'
-          ? moreCopy('moreroutes.quant.studio')
-          : moreCopy('moreroutes.backtest'),
-    description: moreCopy('moreroutes.simulated.strategy.research.with.explicit.historical.evidence'),
-    content:
-      mode === 'backtest' ? (
-        // The bar backtest runs saved signal rules; the walk-forward record below keeps its own named refusal.
-        <>
-          <BacktestRoom key={`bars:${userId}`} />
-          <Quant key={`${pathname}:${userId}`} paper={paper} mode={mode} />
-        </>
-      ) : (
-        <Quant key={`${pathname}:${userId}`} paper={paper} mode={mode} />
-      ),
-  };
+  return null;
 }

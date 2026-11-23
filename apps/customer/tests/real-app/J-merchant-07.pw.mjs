@@ -15,6 +15,7 @@ import {
   verifiedBusiness,
 } from './merchant.mjs';
 import { tableIn } from './tables.mjs';
+import { answerAfterNavigation } from './navigation.mjs';
 
 // J-merchant-07, in the running app (docs/roadmap/journeys.json): see the business's money and ask for a payout. One test
 // per step, titled "J-merchant-07 #<n>", run in order on one verified TEST business. #1 makes the owner and the business
@@ -179,10 +180,11 @@ test(`${J} #1 opens Money: zero per asset with "No money yet" for a new business
     tool('local-test-stack.mjs', 'stop', 'ledger');
     await expect(snapshot()).rejects.toThrow(/refused: 503 .*pay\.metrics_balance_unavailable/);
     // The page's own balance read is the one refused, with the balance code, not some other failure.
-    const [pageRead] = await Promise.all([
-      page.waitForResponse((res) => new URL(res.url()).pathname.includes('merchantMetrics.snapshot')),
-      page.reload(),
-    ]);
+    const pageRead = await answerAfterNavigation(
+      page,
+      (res) => new URL(res.url()).pathname.includes('merchantMetrics.snapshot'),
+      () => page.reload(),
+    );
     expect(pageRead.status()).toBe(503);
     const refusal = (await pageRead.json())?.error?.data;
     expect(refusal?.intafacedCode ?? refusal?.cause?.code ?? refusal?.code).toBe('pay.metrics_balance_unavailable');

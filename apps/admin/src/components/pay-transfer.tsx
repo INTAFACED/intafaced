@@ -4,7 +4,7 @@ import { useRef, useState } from 'react';
 import { fetchTransfer } from '@/lib/ops-desk/browser';
 import { displayCell } from '@/lib/ops-desk/model';
 import { ownServerFailureText, type OwnFetch } from '@/lib/ops-desk/own-server';
-import { transferIdOf } from '@/lib/ops-desk/transfer-id';
+import { transferIdOf } from '@/lib/transfer-id';
 import { formatAsOf } from '@/lib/as-of';
 import './desk.css';
 

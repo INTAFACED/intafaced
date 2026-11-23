@@ -66,11 +66,25 @@ const typeList = z
   .max(SUPPORT_ATTACHMENT_TYPES_MAX)
   .refine((list) => new Set(list).size === list.length, { message: 'support.attachment_settings_invalid' });
 
+/**
+ * The stored list as it is read back: the same media types and bounds, written so the language-neutral export carries
+ * them. A type listed twice is the one rule JSON Schema cannot say; the reads' records check it on the reply
+ * (`supportAttachmentTypesDistinct`).
+ */
+const storedTypeList = z.array(z.string().regex(MEDIA_TYPE)).min(1).max(SUPPORT_ATTACHMENT_TYPES_MAX);
+
+/** True when no media type is listed twice in a limits reply, or in a status reply's limits. */
+export function supportAttachmentTypesDistinct(reply: unknown): boolean {
+  const limits = reply && typeof reply === 'object' && 'limits' in reply ? reply.limits : reply;
+  const types = limits && typeof limits === 'object' && 'allowedTypes' in limits ? limits.allowedTypes : null;
+  return !Array.isArray(types) || new Set(types).size === types.length;
+}
+
 /** What a signed-in customer or an operator may read. A blank limit is `null`; `revision` is 0 until the owner sets one. */
 export const supportAttachmentLimitsSchema = z
   .object({
     maxBytes: positiveInt.nullable(),
-    allowedTypes: typeList.nullable(),
+    allowedTypes: storedTypeList.nullable(),
     maxCount: positiveInt.nullable(),
     /** The first piece an attach is missing, in the order it needs them, or `null` when every piece is set. */
     missing: z.enum(SUPPORT_ATTACHMENT_KEYS).nullable(),

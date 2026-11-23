@@ -8,7 +8,7 @@ import { marketHouseCommissionBpsSchema } from './house-commission-bps.js';
  * This service self-mounts /trpc, so it must be able to authenticate the edge:
  * every procedure resolves `ctx.principal.userId` into somebody's vendor
  * application, and an unsigned principal header would let a caller apply as, or
- * vet, anyone (docs/decisions/mount-boundary.md).
+ * vet, anyone.
  *
  * `internalServiceEnvSchema` arrived with Stage 2, for exactly ONE callee:
  * svc-token's `/internal/stake/:userId`, which is how a listing slot knows what

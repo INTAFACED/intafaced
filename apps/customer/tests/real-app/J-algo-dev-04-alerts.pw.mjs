@@ -1,11 +1,11 @@
-// World: book
-// Market: live
+// World: book, restart
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test, expect } from './journey.mjs';
-import { api, journeyState } from './stack.mjs';
+import { api, journeyState, STACK_PORTS, stackUrl } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
+import { venueForThisFile } from './venue.mjs';
 import {
   NAME,
   announcedFills,
@@ -16,20 +16,26 @@ import {
   saveSignalStrategy,
   savedStrategyId,
   startForm,
+  venueCandles,
+  venueTape,
 } from './paper-strategy.mjs';
 
 // J-algo-dev-04 #5 to #8, in the running app (docs/roadmap/journeys.json): get notified of a paper run's fills, then stop
 // it. Run in order on one TEST developer of this file's own, who starts signed in with a saved signal-rules strategy
 // version and one paper run started on the exchange's own prices (as #2 starts one in J-algo-dev-04-start.pw.mjs; #1 is
 // in J-algo-dev-04.pw.mjs). #7 reads a fill notice with the email #5 chose and the alert #6 added, and #8 stops the run
-// #6 and #7 watched, so the four stay together here, in order. The paper run trades on the local TEST market maker's own
-// 1 minute bars of BTC/USDT; every figure is paper and nothing here moves money (svc-quant imports no ledger client). No
+// #6 and #7 watched, so the four stay together here, in order. The paper run of BTC/USDT prices from the venue's own
+// prints on BTC-USDC: svc-trade's user-venue door is on for this file, on the stack's TEST venue, which another TEST trader
+// trades both ways every 15 s (venueTape). Every figure is paper or TEST and nothing here moves money (svc-quant imports no
+// ledger client). No
 // email sender is set on the stack, so email is the honest vendor notice and the notice still appears in the app.
 const J = 'J-algo-dev-04';
 const run = journeyState(`${J}-alerts-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const TEMPLATE = '{strategy} v{version} paper {side} {qty} {symbol} at {price} ({time})';
 
 test.describe.configure({ mode: 'default' });
+venueForThisFile(test);
+const tape = venueTape(test, 'algo-dev-04-alerts');
 
 function state() {
   const read = run.read();
@@ -154,10 +160,10 @@ test(`${J} #6 adds a fill alert with a message template, then changes a strategy
 
   // A fill of the run (started by this file's setup) after the alert: one notice, with the template's fields filled from that fill.
   await expect
-    .poll(async () => (await announcedFills(who, runId, before[0].createdAt)).length, {
+    .poll(async () => (await tape.trade(), (await announcedFills(who, runId, before[0].createdAt)).length), {
       timeout: 12 * 60_000,
       intervals: [15_000],
-      message: 'the paper run made no fill since the alert; is the TEST market maker running (pnpm local:market)?',
+      message: "the paper run made no fill since the alert on the TEST venue's own prints",
     })
     .toBeGreaterThan(0);
   const [fill] = await announcedFills(who, runId, before[0].createdAt);
@@ -208,7 +214,7 @@ function redeliverFill(userId) {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], {
     cwd: path.join(root, 'packages', 'events'),
-    env: { ...process.env, NATS_URL: 'nats://127.0.0.1:14232', NATS_STREAM_PREFIX: 'LOCAL_TEST', USER_ID: userId },
+    env: { ...process.env, NATS_URL: `nats://127.0.0.1:${STACK_PORTS.nats}`, NATS_STREAM_PREFIX: 'LOCAL_TEST', USER_ID: userId },
     encoding: 'utf8',
     timeout: 60_000,
   });
@@ -219,7 +225,7 @@ function redeliverFill(userId) {
 /** Until svc-notify's paper fill consumer has taken and acknowledged every message on the bus. */
 async function notifyConsumerCaughtUp() {
   await expect(async () => {
-    const info = await fetch('http://127.0.0.1:18232/jsz?consumers=true').then((r) => r.json());
+    const info = await fetch(`${stackUrl('natsMonitor')}/jsz?consumers=true`).then((r) => r.json());
     const consumer = info.account_details
       ?.flatMap((a) => a.stream_detail ?? [])
       .filter((st) => st.name === 'LOCAL_TEST_QUANT')
@@ -246,10 +252,10 @@ test(`${J} #7 lets the run fill, then closes the browser: the notice is still cr
 
   // With no browser open, the run fills again and the server writes the notice.
   await expect
-    .poll(async () => (await announcedFills(who, runId, alert.createdAt)).length, {
+    .poll(async () => (await tape.trade(), (await announcedFills(who, runId, alert.createdAt)).length), {
       timeout: 12 * 60_000,
       intervals: [15_000],
-      message: 'the paper run made no new fill with the browser closed; is the TEST market maker running (pnpm local:market)?',
+      message: "the paper run made no new fill with the browser closed on the TEST venue's own prints",
     })
     .toBeGreaterThan(seen);
   const onePerFill = async () => {
@@ -302,8 +308,18 @@ test(`${J} #8 stops the paper run: no new orders; the record stays`, async ({ pa
   expect(stopped.state).toBe('stopped');
   expect(stopped.stoppedAt).toBeTruthy();
 
-  // Three more closed bars later, nothing new has filled, and nothing filled after the stop.
-  await page.waitForTimeout(3 * 60_000);
+  // Three more closed candles of the venue's own prints later, nothing new has filled, and nothing filled after the stop.
+  const stopMs = Date.parse(stopped.stoppedAt);
+  await expect
+    .poll(
+      async () => {
+        await tape.trade();
+        const closed = [...(await venueCandles(tape.owner)).keys()].filter((at) => at >= stopMs && at + 60_000 <= Date.now());
+        return closed.length;
+      },
+      { timeout: 8 * 60_000, intervals: [15_000], message: "three candles of the TEST venue's own prints closed after the stop" },
+    )
+    .toBeGreaterThanOrEqual(3);
   const later = await read(who, 'quant', 'paper.get', { runId });
   expect(later.trades).toEqual(stopped.trades);
   for (const trade of later.trades) expect(Date.parse(trade.ts)).toBeLessThan(Date.parse(stopped.stoppedAt));

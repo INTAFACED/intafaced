@@ -88,7 +88,7 @@ function caller(activity: ActivityService) {
     expiresAt: new Date(Date.now() + 60_000),
   } as Principal;
   const raw = encodePrincipal(principal);
-  return createBankRouter({ activity } as unknown as BankServices).createCaller(
+  return createBankRouter({ activity } as BankServices).createCaller(
     edge({
       headers: {
         'x-intafaced-principal': raw,

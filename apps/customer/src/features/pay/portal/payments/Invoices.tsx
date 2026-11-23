@@ -24,7 +24,7 @@ import { addressOf } from './Links';
 import { StatusChip } from '../ui/StatusChip';
 import { Timeline } from '../ui/Timeline';
 import { useServerList } from '../ui/useServerList';
-import { useDebouncedValue } from './use-debounced';
+import { useDebouncedValue } from '../../../../shared/use-debounced';
 import {
   allowedActions,
   blankDraft,
@@ -38,7 +38,6 @@ import {
   isOverdue,
   lineAmount,
   lineProblem,
-  linesTotal,
   localDay,
   matchingPayments,
   MAX_INVOICE_LINES,
@@ -96,7 +95,7 @@ export function InvoiceList({ portal }: { portal: PortalApi }) {
   const now = Date.now();
   const rows = list.state.status === 'ready' ? (overdueOnly ? list.state.items.filter((i) => isOverdue(i, now)) : list.state.items) : [];
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <Freshness asOf={readAt} />
       <FilterRow
         label={t('inv_listTitle')}
@@ -133,7 +132,7 @@ export function InvoiceList({ portal }: { portal: PortalApi }) {
                   cell: (row) => (
                     <>
                       <strong>{name(row)}</strong>
-                      {row.customerRef && row.description && <small className="pay-cell-note">{row.description}</small>}
+                      {row.customerRef && row.description && <small className="lt-hint">{row.description}</small>}
                     </>
                   ),
                 },
@@ -155,7 +154,7 @@ export function InvoiceList({ portal }: { portal: PortalApi }) {
                 {t('inv_noneLoadedYet')}
               </p>
             )}
-            <div className="pp-actions">
+            <div className="lt-actions">
               {list.state.hasMore && (
                 <Button variant="secondary" onClick={list.loadMore} disabled={list.state.more === 'loading'}>
                   {list.state.more === 'loading' ? t('inv_loadingMore') : t('inv_loadMore')}
@@ -206,7 +205,7 @@ export function InvoiceList({ portal }: { portal: PortalApi }) {
             </div>
             <p className="muted pp-note">
               {t('inv_recurringNote')}{' '}
-              <a className="text-link" href="/pay/subscriptions">
+              <a className="lt-link" href="/pay/subscriptions">
                 {t('inv_openSubscriptions')}
               </a>
             </p>
@@ -241,7 +240,7 @@ export function InvoiceCreate({ portal, merchantId }: { portal: PortalApi; merch
     setLines(draft.lineItems.map((line, i) => (i === index ? { ...line, ...patch } : line)));
   const asset = draft.assetId.trim();
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <a className="text-link pp-back" href="/pay/invoices">
         ← {t('inv_back')}
       </a>
@@ -251,7 +250,7 @@ export function InvoiceCreate({ portal, merchantId }: { portal: PortalApi; merch
             {hasLines ? (
               <div data-testid="pp-line-total" className="field pp-line-total" role="group" aria-label={t('inv_fieldTotal')}>
                 <span>{t('inv_fieldTotal')}</span>
-                <strong className="numeric">{total ? <Money value={total} asset={asset} /> : '—'}</strong>
+                <strong className="lt-num">{total ? <Money value={total} asset={asset} /> : '—'}</strong>
                 <small>{shown('lineItems') ?? t('inv_hintTotal')}</small>
               </div>
             ) : (
@@ -274,7 +273,7 @@ export function InvoiceCreate({ portal, merchantId }: { portal: PortalApi; merch
           </div>
           <fieldset className="pp-group pp-lines">
             <legend>{t('inv_linesTitle')}</legend>
-            <p className="muted">{t(hasLines ? 'inv_linesBody' : 'inv_linesBodyEmpty')}</p>
+            <p className="lt-muted">{t(hasLines ? 'inv_linesBody' : 'inv_linesBodyEmpty')}</p>
             {draft.lineItems.map((line, index) => {
               const problem = touched.lineItems ? lineProblem(line) : null;
               const amount = lineAmount(line);
@@ -318,7 +317,7 @@ export function InvoiceCreate({ portal, merchantId }: { portal: PortalApi; merch
                   />
                   <div className="pp-line-amount">
                     <span>{t('inv_lineAmount')}</span>
-                    <strong className="numeric">{amount ? <Money value={amount} asset={asset} /> : '—'}</strong>
+                    <strong className="lt-num">{amount ? <Money value={amount} asset={asset} /> : '—'}</strong>
                   </div>
                   <Button
                     variant="ghost"
@@ -330,7 +329,7 @@ export function InvoiceCreate({ portal, merchantId }: { portal: PortalApi; merch
                 </div>
               );
             })}
-            <div className="pp-actions">
+            <div className="lt-actions">
               <Button
                 variant="secondary"
                 onClick={() => setLines([...draft.lineItems, blankLine()])}
@@ -367,7 +366,7 @@ export function InvoiceCreate({ portal, merchantId }: { portal: PortalApi; merch
             hint={t('inv_hintDue')}
             error={shown('dueDate')}
           />
-          <label className="field">
+          <label className="lt-field">
             <span>{t('inv_fieldDescription')}</span>
             <textarea
               rows={3}
@@ -436,13 +435,13 @@ function LineTable({ lines, asset, total }: { lines: readonly InvoiceLine[]; ass
         <tr key={index}>
           <th scope="row">
             {line.description}
-            {line.kind === 'credit' && <small className="pay-cell-note">{t('inv_kindCredit')}</small>}
+            {line.kind === 'credit' && <small className="lt-hint">{t('inv_kindCredit')}</small>}
           </th>
-          <td className="numeric">{line.quantity}</td>
-          <td className="numeric">
+          <td className="lt-num">{line.quantity}</td>
+          <td className="lt-num">
             <Money value={line.unitAmount} asset={asset} />
           </td>
-          <td className="numeric">
+          <td className="lt-num">
             <Money value={line.amount} asset={asset} />
           </td>
         </tr>
@@ -451,7 +450,7 @@ function LineTable({ lines, asset, total }: { lines: readonly InvoiceLine[]; ass
         <th scope="row" colSpan={3}>
           {t('inv_fieldTotal')}
         </th>
-        <td className="numeric">
+        <td className="lt-num">
           <strong>
             <Money value={total} asset={asset} />
           </strong>
@@ -565,7 +564,7 @@ export function InvoiceDetailView({
     ...(invoice.customerRef ? [{ href: `/pay/customers/${encodeURIComponent(invoice.customerRef)}`, label: t('inv_relCustomer') }] : []),
   ];
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <DetailHeader
         back={{ href: '/pay/invoices', label: back }}
         title={<Money value={invoice.amount} asset={invoice.assetId} />}
@@ -612,7 +611,7 @@ export function InvoiceDetailView({
           {actions.includes('markPaid') && (
             <MarkPaid portal={portal} invoice={invoice} disabled={!mayWrite} onDone={() => onChanged(null)} />
           )}
-          <div className="pp-actions">{voidAction}</div>
+          <div className="lt-actions">{voidAction}</div>
         </PaySection>
       )}
       <AuditPanel who={null} at={invoice.updatedAt} />
@@ -640,7 +639,7 @@ function MarkPaid({ portal, invoice, disabled, onDone }: { portal: PortalApi; in
   return (
     <fieldset className="pp-group">
       <legend>{t('inv_markPaid')}</legend>
-      <p className="muted">{t('inv_markPaidBody')}</p>
+      <p className="lt-muted">{t('inv_markPaidBody')}</p>
       <Field
         label={t('inv_searchPayments')}
         value={search}
@@ -651,7 +650,7 @@ function MarkPaid({ portal, invoice, disabled, onDone }: { portal: PortalApi; in
       {found.resource.status === 'failed' && <PortalFailure result={found.resource.failure} retry={found.reload} />}
       {found.resource.status === 'ready' &&
         (candidates.length === 0 ? (
-          <p className="muted" role="status">
+          <p className="lt-muted" role="status">
             {t('inv_noMatchingPayment')}
           </p>
         ) : (

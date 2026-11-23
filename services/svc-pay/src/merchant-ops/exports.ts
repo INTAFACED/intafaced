@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
+import type { PayExportKind } from '@intafaced/contracts';
 import { formatAmount, merchantClearing, merchantProceeds, type LedgerClient } from '@intafaced/ledger-client';
 import type { DisputeCaseStore } from '../fraud/dispute-case.js';
 import { MerchantOpsError } from './errors.js';
@@ -28,15 +29,13 @@ import { assertPermission, roleHasPermission, type MerchantCaller, type Merchant
  * VISIBILITY. Owner and admin see every export of their merchant; other roles
  * see the ones they requested. A job id outside that is "not found".
  */
-export const EXPORT_KINDS = ['payments', 'settlements', 'payouts', 'refunds', 'ledger_statement', 'disputes', 'fees'] as const;
-export type ExportKind = (typeof EXPORT_KINDS)[number];
 
 /**
  * Column allowlist per kind. A request that names anything else, including a
  * pricing rule id or a spread, is refused. Viewer and developer fee files omit
  * the rule layer; the fee amount itself is the booked snapshot.
  */
-const EXPORT_COLUMNS: Record<ExportKind, readonly string[]> = {
+const EXPORT_COLUMNS: Record<PayExportKind, readonly string[]> = {
   payments: [
     'payment_id',
     'created_at',
@@ -59,7 +58,7 @@ const EXPORT_COLUMNS: Record<ExportKind, readonly string[]> = {
 };
 const FEE_LAYER_COLUMNS = new Set(['fee_bps', 'applied_layer']);
 
-export function resolveExportColumns(kind: ExportKind, role: MerchantRole, requested: readonly string[] | undefined): string[] {
+export function resolveExportColumns(kind: PayExportKind, role: MerchantRole, requested: readonly string[] | undefined): string[] {
   const known = EXPORT_COLUMNS[kind];
   const permit =
     kind === 'fees' && (role === 'viewer' || role === 'developer')
@@ -110,7 +109,7 @@ interface JobRow {
   merchant_id: string;
   request_id: string;
   requested_by: string;
-  kind: ExportKind;
+  kind: PayExportKind;
   filters: ExportFilters;
   columns: string[] | null;
   status: 'queued' | 'running' | 'ready' | 'failed' | 'expired';
@@ -165,7 +164,7 @@ function projectLine(header: readonly string[], cells: readonly string[], chosen
   return chosen.map((name) => byName.get(name) ?? '').join(',');
 }
 
-export function validateFilters(kind: ExportKind, f: ExportFilters): void {
+export function validateFilters(kind: PayExportKind, f: ExportFilters): void {
   const bad = () => new MerchantOpsError('pay.export_filter_invalid', 'bad_request');
   for (const key of ['from', 'to'] as const) {
     const v = f[key];
@@ -206,7 +205,7 @@ export class ExportService {
     return caller.role === 'owner' || caller.role === 'admin';
   }
 
-  async create(caller: MerchantCaller, input: { requestId: string; kind: ExportKind; filters: ExportFilters; columns?: string[] }) {
+  async create(caller: MerchantCaller, input: { requestId: string; kind: PayExportKind; filters: ExportFilters; columns?: string[] }) {
     assertPermission(caller, 'exports.create');
     validateFilters(input.kind, input.filters);
     if (input.kind === 'ledger_statement' && !this.deps.ledger)
@@ -254,7 +253,7 @@ export class ExportService {
     input: {
       limit?: number | undefined;
       cursor?: string;
-      kind?: ExportKind;
+      kind?: PayExportKind;
       status?: JobRow['status'];
       search?: string;
       from?: string;
@@ -339,7 +338,7 @@ export class ExportService {
   async process(jobId: string): Promise<boolean> {
     const sql = this.sql;
     const claimed = await sql<
-      Array<{ id: string; merchant_id: string; kind: ExportKind; filters: ExportFilters; columns: string[] | null }>
+      Array<{ id: string; merchant_id: string; kind: PayExportKind; filters: ExportFilters; columns: string[] | null }>
     >`
       UPDATE pay.merchant_export_jobs SET status = 'running', updated_at = now()
        WHERE id = ${jobId}::uuid AND status = 'queued' RETURNING id, merchant_id, kind, filters, columns`;
@@ -376,7 +375,7 @@ export class ExportService {
 
   private async build(
     merchantId: string,
-    kind: ExportKind,
+    kind: PayExportKind,
     filters: ExportFilters,
     columns: readonly string[],
   ): Promise<{ content: string; rows: number }> {
@@ -446,7 +445,7 @@ export class ExportService {
                      to_char(s.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_ts
                 FROM pay.settlements s
                WHERE s.merchant_id = ${merchantId}
-                 ${kind === 'payouts' ? sql`AND (s.payout_method IS NOT NULL OR s.status = 'paid_out')` : sql``}
+                 ${kind === 'payouts' ? sql`AND s.status = 'paid_out'` : sql``}
                  ${filters.from ? sql`AND s.created_at >= (${filters.from}::text)::timestamptz` : sql``}
                  ${filters.to ? sql`AND s.created_at < (${filters.to}::text)::timestamptz` : sql``}
                  ${filters.status ? sql`AND s.status = ${filters.status}::pay.settlement_status` : sql``}

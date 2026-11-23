@@ -207,6 +207,11 @@ export class AddMoneyService {
     } | null = null,
   ) {}
 
+  /** The partner that opens these payments, which reports its own ramp orders to the finance desk (J-bank-28 #3); null when none. */
+  get partner(): OnrampPartner | null {
+    return this.credit?.partner ?? null;
+  }
+
   /** Each way to pay with its quote, or the reason there is none. A bad amount, asset or country refuses the whole read. */
   async methods(userId: string, input: { assetId: string; amount: string; country: string }): Promise<AddMoneyMethodView[]> {
     return Promise.all(

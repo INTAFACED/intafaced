@@ -1,18 +1,12 @@
 import { useRef, useState } from 'react';
-import { z } from 'zod';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
-import { Button, DataTable, Dialog, Failure, Field, Panel } from '../../shared/ui';
-import { Read, Select } from './common';
+import { Button, Select } from '@intafaced/ui/lit';
+import { DataTable, Dialog, Failure, Field, Panel, Read } from './agent-room/parts';
 import { agentGuardrailsCopy, hasGuardrailWords } from './agent-guardrails-copy';
 import {
   OWN_AGENT_RULE_CHOICES,
-  ownAgentApprovalRequestSchema,
-  ownAgentCatalogueSchema,
-  ownAgentConsentSchema,
-  ownAgentRuleSchema,
-  ownAgentSessionSchema,
   ownAgentToolCallSchema,
   type OwnAgent,
   type OwnAgentApprovalRequest,
@@ -23,6 +17,16 @@ import {
   type OwnAgentRuleChoice,
   type OwnAgentToolCall,
 } from '@intafaced/contracts/agents-own';
+import {
+  AGENTS_OWN_CATALOGUE,
+  AGENTS_OWN_SESSION_OPEN,
+  AGENTS_OWN_RULES_LIST,
+  AGENTS_OWN_RULES_SAVE,
+  AGENTS_OWN_CONSENTS_LIST,
+  AGENTS_OWN_CONSENTS_REVOKE,
+  AGENTS_OWN_CONSENTS_GRANT,
+  AGENTS_OWN_APPROVALS,
+} from '@intafaced/contracts/agents-own-procedures';
 
 /**
  * An own agent's Rules and Permissions pages, and the tool test on its Test page (AG-guardrails-01, AG-guardrails-02).
@@ -68,19 +72,26 @@ const CODES = [
 /** A refusal as words with its code beside them, or the app's own account of a failure that is not one. */
 export function Answer({ failed }: { failed: Failed }) {
   const { t } = agentGuardrailsCopy.useCopy();
+  const refusal = refusalWords(t, failed);
+  if (!refusal) return <Failure result={failed} />;
+  return (
+    <p role="alert">
+      {refusal.words} <code lang="zxx">{refusal.code}</code>
+    </p>
+  );
+}
+
+/** A refusal's code and its words, as Answer says them; null for a failure that is not a refusal of svc-agents'. */
+export function refusalWords(t: Words, failed: Failed): { code: string; words: string } | null {
   const code = refusalCode(failed);
-  if (!code) return <Failure result={failed} />;
+  if (!code) return null;
   const key = `code_${code.replaceAll('.', '_')}`;
   const words = code.startsWith('agents.tool_refused.')
     ? t('code_tool_refused')
     : (CODES as readonly string[]).includes(code) && hasGuardrailWords(key)
       ? t(key)
       : t('code_other');
-  return (
-    <p role="alert">
-      {words} <code lang="zxx">{code}</code>
-    </p>
-  );
+  return { code, words };
 }
 
 /** A request's state in words: an approved one says whether its tool has run yet. */
@@ -103,18 +114,11 @@ const classWords = (t: Words, dataClass: OwnAgentDataClass) => t(`class_${dataCl
 const ruleWords = (t: Words, rule: Pick<OwnAgentRule, 'tool' | 'choice'>) =>
   t(`rule_${rule.choice}`, { action: actionWords(t, rule.tool) });
 
-const rulesSchema = z.array(ownAgentRuleSchema);
-const consentsSchema = z.array(ownAgentConsentSchema);
-const requestsSchema = z.array(ownAgentApprovalRequestSchema);
-
 /** The Rules page: the person's standing rules for this agent, one per tool. */
 export function RulesPage({ agent }: { agent: OwnAgent }) {
   const api = useApi();
   const { t } = agentGuardrailsCopy.useCopy();
-  const loaded = useResource(
-    (signal) => api.query('agents', 'own.rules.list', { id: agent.id }, rulesSchema, { signal }),
-    `own-rules:${agent.id}`,
-  );
+  const loaded = useResource((signal) => api.call(AGENTS_OWN_RULES_LIST, { id: agent.id }, { signal }), `own-rules:${agent.id}`);
   return (
     <Panel title={t('rulesTitle')}>
       <Read resource={loaded.resource} retry={loaded.reload}>
@@ -137,7 +141,7 @@ function RulesForm({ agent, stored }: { agent: OwnAgent; stored: OwnAgentRule[] 
     setBusy(true);
     setSaved(false);
     setRefused(null);
-    const res = await api.mutate('agents', 'own.rules.save', { id: agent.id, tool, choice }, ownAgentRuleSchema);
+    const res = await api.call(AGENTS_OWN_RULES_SAVE, { id: agent.id, tool, choice });
     setBusy(false);
     if (!res.ok) return setRefused(res);
     setRules((current) => [...current.filter((rule) => rule.tool !== res.data.tool), res.data]);
@@ -151,7 +155,7 @@ function RulesForm({ agent, stored }: { agent: OwnAgent; stored: OwnAgentRule[] 
         void save();
       }}
     >
-      <p className="muted">{t('rulesIntro')}</p>
+      <p className="lt-muted">{t('rulesIntro')}</p>
       {agent.tools.length ? (
         <>
           <Select
@@ -172,12 +176,12 @@ function RulesForm({ agent, stored }: { agent: OwnAgent; stored: OwnAgentRule[] 
             }}
             options={OWN_AGENT_RULE_CHOICES.map((value) => ({ value, label: t(`choice_${value}`) }))}
           />
-          <Button type="submit" disabled={busy || !tool}>
+          <Button tone="primary" type="submit" disabled={busy || !tool}>
             {t('saveRule')}
           </Button>
         </>
       ) : (
-        <p className="muted">{t('noTools')}</p>
+        <p className="lt-muted">{t('noTools')}</p>
       )}
       {saved ? <p role="status">{t('ruleSaved')}</p> : null}
       {refused ? <Answer failed={refused} /> : null}
@@ -189,7 +193,7 @@ function RulesForm({ agent, stored }: { agent: OwnAgent; stored: OwnAgentRule[] 
           ))}
         </ul>
       ) : (
-        <p className="muted">{t('noRules')}</p>
+        <p className="lt-muted">{t('noRules')}</p>
       )}
     </form>
   );
@@ -208,14 +212,8 @@ function classesOf(agent: OwnAgent, catalogue: OwnAgentCatalogue): OwnAgentDataC
 export function PermissionsPage({ agent }: { agent: OwnAgent }) {
   const api = useApi();
   const { t } = agentGuardrailsCopy.useCopy();
-  const catalogue = useResource(
-    (signal) => api.query('agents', 'own.catalogue', undefined, ownAgentCatalogueSchema, { signal }),
-    'own-catalogue',
-  );
-  const consents = useResource(
-    (signal) => api.query('agents', 'own.consents.list', { id: agent.id }, consentsSchema, { signal }),
-    `own-consents:${agent.id}`,
-  );
+  const catalogue = useResource((signal) => api.call(AGENTS_OWN_CATALOGUE, undefined, { signal }), 'own-catalogue');
+  const consents = useResource((signal) => api.call(AGENTS_OWN_CONSENTS_LIST, { id: agent.id }, { signal }), `own-consents:${agent.id}`);
   return (
     <>
       <Panel title={t('permissionsTitle')}>
@@ -230,7 +228,7 @@ export function PermissionsPage({ agent }: { agent: OwnAgent }) {
         </Read>
       </Panel>
       <Panel title={t('domainsTitle')}>
-        <p className="muted">{t('domainsNone')}</p>
+        <p className="lt-muted">{t('domainsNone')}</p>
       </Panel>
       <Panel title={t('modeTitle')}>
         <p role="note">{t('modeParked')}</p>
@@ -250,13 +248,13 @@ function Consents({ agent, classes, stored }: { agent: OwnAgent; classes: OwnAge
     setBusy(true);
     setWithdrawn(null);
     setRefused(null);
-    const res = await api.mutate('agents', 'own.consents.revoke', { id: agent.id, dataClass }, ownAgentConsentSchema);
+    const res = await api.call(AGENTS_OWN_CONSENTS_REVOKE, { id: agent.id, dataClass });
     setBusy(false);
     if (!res.ok) return setRefused(res);
     setRows((current) => [...current.filter((row) => row.dataClass !== dataClass), res.data]);
     setWithdrawn(dataClass);
   }
-  if (!classes.length) return <p className="muted">{t('classesEmpty')}</p>;
+  if (!classes.length) return <p className="lt-muted">{t('classesEmpty')}</p>;
   return (
     <>
       <ul aria-label={t('classesTitle')}>
@@ -268,7 +266,7 @@ function Consents({ agent, classes, stored }: { agent: OwnAgent; classes: OwnAge
               {row?.state === 'granted' ? (
                 <>
                   {' '}
-                  <Button variant="secondary" disabled={busy} onClick={() => void revoke(dataClass)}>
+                  <Button tone="secondary" disabled={busy} onClick={() => void revoke(dataClass)}>
                     {t('revoke')}
                   </Button>
                 </>
@@ -296,10 +294,7 @@ export function TryTool({
 }) {
   const api = useApi();
   const { t } = agentGuardrailsCopy.useCopy();
-  const catalogue = useResource(
-    (signal) => api.query('agents', 'own.catalogue', undefined, ownAgentCatalogueSchema, { signal }),
-    'own-catalogue',
-  );
+  const catalogue = useResource((signal) => api.call(AGENTS_OWN_CATALOGUE, undefined, { signal }), 'own-catalogue');
   const [tool, setTool] = useState(agent.tools[0] ?? '');
   const [args, setArgs] = useState<Record<string, string>>({});
   const [answer, setAnswer] = useState<OwnAgentToolCall | null>(null);
@@ -315,7 +310,7 @@ export function TryTool({
 
   async function sessionFor(): Promise<string | null> {
     if (sessionId) return sessionId;
-    const res = await api.mutate('agents', 'own.session.open', { id: agent.id }, ownAgentSessionSchema);
+    const res = await api.call(AGENTS_OWN_SESSION_OPEN, { id: agent.id });
     if (!res.ok) {
       setRefused(res);
       return null;
@@ -353,7 +348,7 @@ export function TryTool({
 
   async function allow(dataClass: OwnAgentDataClass) {
     setBusy(true);
-    const res = await api.mutate('agents', 'own.consents.grant', { id: agent.id, dataClass }, ownAgentConsentSchema);
+    const res = await api.call(AGENTS_OWN_CONSENTS_GRANT, { id: agent.id, dataClass });
     setBusy(false);
     setConsent(null);
     if (!res.ok) return setRefused(res);
@@ -363,7 +358,7 @@ export function TryTool({
   return (
     <>
       <Panel title={t('tryTitle')} role="region" aria-label={t('tryTitle')}>
-        <p className="muted">{t('tryIntro')}</p>
+        <p className="lt-muted">{t('tryIntro')}</p>
         <Read resource={catalogue.resource} retry={catalogue.reload}>
           {(offered) => {
             const declared = offered.tools.find((entry) => entry.name === tool);
@@ -381,7 +376,7 @@ export function TryTool({
                     options={agent.tools.map((name) => ({ value: name, label: toolWords(t, name) }))}
                   />
                 ) : (
-                  <p className="muted">{t('noTools')}</p>
+                  <p className="lt-muted">{t('noTools')}</p>
                 )}
                 {Object.keys(declared?.shape?.input ?? {}).map((field) => (
                   <Field
@@ -393,7 +388,7 @@ export function TryTool({
                     onChange={(event) => setArgs((current) => ({ ...current, [field]: event.target.value }))}
                   />
                 ))}
-                <Button disabled={busy || !tool} onClick={() => void run(classOf)}>
+                <Button tone="primary" disabled={busy || !tool} onClick={() => void run(classOf)}>
                   {t('runTest')}
                 </Button>
               </>
@@ -413,10 +408,10 @@ export function TryTool({
           <Dialog title={t('consentTitle', { class: classWords(t, consent.dataClass) })} onClose={() => setConsent(null)}>
             <Answer failed={consent.failed} />
             <p>{t('consentBody', { class: classWords(t, consent.dataClass) })}</p>
-            <Button disabled={busy} onClick={() => void allow(consent.dataClass)}>
+            <Button tone="primary" disabled={busy} onClick={() => void allow(consent.dataClass)}>
               {t('allow')}
             </Button>
-            <Button variant="secondary" onClick={() => setConsent(null)}>
+            <Button tone="secondary" onClick={() => setConsent(null)}>
               {t('notNow')}
             </Button>
           </Dialog>
@@ -432,7 +427,7 @@ function ApprovalRequests({ agent, version }: { agent: OwnAgent; version: number
   const api = useApi();
   const { t } = agentGuardrailsCopy.useCopy();
   const requests = useResource(
-    (signal) => api.query('agents', 'own.approvals', { id: agent.id, limit: 50 }, requestsSchema, { signal }),
+    (signal) => api.call(AGENTS_OWN_APPROVALS, { id: agent.id, limit: 50 }, { signal }),
     `own-approvals:${agent.id}:${version}`,
   );
   return (
@@ -454,7 +449,7 @@ function ApprovalRequests({ agent, version }: { agent: OwnAgent; version: number
                 </tr>
               ))}
             </DataTable>
-            {rows.length === 0 ? <p className="muted">{t('requestsEmpty')}</p> : null}
+            {rows.length === 0 ? <p className="lt-muted">{t('requestsEmpty')}</p> : null}
           </>
         )}
       </Read>

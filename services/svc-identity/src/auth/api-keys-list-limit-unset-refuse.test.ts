@@ -13,6 +13,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { IDENTITY_API_KEYS_LIST } from '@intafaced/contracts/identity-api-keys-procedures';
 import {
   API_KEYS_LIST_LIMIT_MAX,
   ApiKeysListLimitUnsetError,
@@ -45,10 +46,14 @@ describe('apiKeys.list / listApiKeys limit unset refuse (no invented 50)', () =>
     const src = readFileSync(join(HERE, '../router.ts'), 'utf8');
     expect(src).not.toMatch(/listApiKeys\(ctx\.principal\.userId\)\s*;/);
     expect(src).toMatch(/listApiKeys\(ctx\.principal\.userId, input\.limit\)/);
-    expect(src).not.toMatch(/omit never dumps API keys[\s\S]{0,250}limit: z\.number\(\)\.int\(\)\.min\(1\)\.max\(200\)\.optional\(\)/);
-    expect(src).not.toMatch(/omit never dumps API keys[\s\S]{0,250}limit: z\.number\(\)\.int\(\)\.min\(1\)\.max\(200\)\.default\(/);
-    expect(src).toMatch(/omit never dumps API keys[\s\S]{0,250}limit: z\.number\(\)\.int\(\)\.min\(1\)\.max\(200\)/);
     expect(src).not.toMatch(/listApiKeys\([^)]*\?\? 50/);
+    // The input is the call's record (mounted here), so its limit is checked as the record parses it: required, 1..200.
+    expect(src).toMatch(/omit never dumps API keys[\s\S]{0,80}mountRecord\(\s*IDENTITY_API_KEYS_LIST\b/);
+    const input = IDENTITY_API_KEYS_LIST.input;
+    for (const bad of [{}, { limit: undefined }, { limit: null }, { limit: 0 }, { limit: 201 }, { limit: 1.5 }])
+      expect(input.safeParse(bad).success, JSON.stringify(bad)).toBe(false);
+    expect(input.parse({ limit: 1 })).toEqual({ limit: 1 });
+    expect(input.parse({ limit: 200 })).toEqual({ limit: 200 });
   });
 
   it('auth-service.ts does not invent a page via default param', () => {

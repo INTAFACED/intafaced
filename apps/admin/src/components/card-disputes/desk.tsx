@@ -11,7 +11,7 @@ import {
   type DisputeState,
   type DisputeSummary,
 } from '@/lib/card-disputes/model';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 import { DisputeActions } from './actions';
 import '../desk.css';
 

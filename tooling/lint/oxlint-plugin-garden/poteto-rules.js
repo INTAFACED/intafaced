@@ -19,18 +19,35 @@ const repoPath = (context) => {
 // garden/no-effect-in-product: "use effect in React ... agents are not good at using it ... our solution has been to just
 // ban it in product code, and it's really only allowed in some places inside of Dune APIs" (talk 05:35-06:00).
 // Our Dune APIs are the customer app's data layer and shared hooks: `src/data/` (sources read with useSyncExternalStore)
-// and `src/shared/` (useResource holds the one loading effect). Rooms, screens and the shell read through them.
+// and `src/shared/` (useResource holds the one loading effect). Rooms, screens and the shell read through them. The admin
+// app's is `src/lib/hooks/` (its useResource); its desks, pages and routes read through it.
 const CUSTOMER = 'apps/customer/src/';
-const EFFECT_HOMES = [`${CUSTOMER}data/`, `${CUSTOMER}shared/`];
+const ADMIN_APP = 'apps/admin/src/';
+const HOMES = {
+  [CUSTOMER]: {
+    homes: [`${CUSTOMER}data/`, `${CUSTOMER}shared/`],
+    fix: 'load data with useResource (src/shared/resource.ts) or a data hook (src/data/hooks.ts)',
+    keep: 'is a hook in src/shared/, as resource.ts is',
+  },
+  [ADMIN_APP]: {
+    homes: [`${ADMIN_APP}lib/hooks/`],
+    fix: "load data with useResource (src/lib/hooks/use-resource.ts), as src/components/founder-names.ts does, or in the page's server component",
+    keep: 'is a hook in src/lib/hooks/, as use-resource.ts is',
+  },
+};
 const EFFECTS = new Set(['useEffect', 'useLayoutEffect']);
 const noEffectInProduct = {
   meta: {
     type: 'problem',
-    docs: { description: 'No useEffect in customer rooms, screens or the shell; effects live in src/data and src/shared.' },
+    docs: {
+      description: 'No useEffect in app product code; effects live in the data hooks (customer src/data, src/shared; admin src/lib/hooks).',
+    },
   },
   create(context) {
     const path = repoPath(context);
-    if (!path || !path.startsWith(CUSTOMER) || TEST_FILE.test(path) || EFFECT_HOMES.some((h) => path.startsWith(h))) return {};
+    const app = path && Object.keys(HOMES).find((root) => path.startsWith(root));
+    if (!app || TEST_FILE.test(path) || HOMES[app].homes.some((h) => path.startsWith(h))) return {};
+    const { fix, keep } = HOMES[app];
     return {
       CallExpression(node) {
         const c = node.callee;
@@ -39,9 +56,8 @@ const noEffectInProduct = {
         context.report({
           node: c,
           message:
-            `${name} in product code: load data with useResource (src/shared/resource.ts) or a data hook (src/data/hooks.ts); ` +
-            'compute a value from props or state during render; reset state with a `key`; do an action in its event handler. ' +
-            'Something outside React kept in step (a listener, a timer, a focus) is a hook in src/shared/, as resource.ts is',
+            `${name} in product code: ${fix}; compute a value from props or state during render; reset state with a \`key\`; ` +
+            `do an action in its event handler. Something outside React kept in step (a listener, a timer, a focus) ${keep}`,
         });
       },
     };

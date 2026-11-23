@@ -1,0 +1,331 @@
+{
+  "verdicts": [
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[],\"message\":\"Invalid input: expected object, received undefined\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[],\"message\":\"Invalid input: expected object, received null\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[],\"message\":\"Invalid input: expected object, received number\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[],\"message\":\"Invalid input: expected object, received string\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[],\"message\":\"Invalid input: expected object, received array\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"operatorId\"],\"message\":\"Invalid input: expected string, received undefined\"}]",
+    "ok =",
+    "ok {\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+    "issues [{\"origin\":\"array\",\"code\":\"too_big\",\"maximum\":8,\"inclusive\":true,\"path\":[\"legs\"],\"message\":\"Too big: expected array to have <=8 items\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"kind\"],\"message\":\"Invalid input: expected string, received number\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"kind\"],\"message\":\"Invalid input: expected string, received boolean\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"too_big\",\"maximum\":32,\"inclusive\":true,\"path\":[\"kind\"],\"message\":\"Too big: expected string to have <=32 characters\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"kind\"],\"message\":\"Invalid input: expected string, received array\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"kind\"],\"message\":\"Invalid input: expected string, received object\"}]",
+    "issues [{\"expected\":\"array\",\"code\":\"invalid_type\",\"path\":[\"legs\"],\"message\":\"Invalid input: expected array, received number\"}]",
+    "issues [{\"expected\":\"array\",\"code\":\"invalid_type\",\"path\":[\"legs\"],\"message\":\"Invalid input: expected array, received boolean\"}]",
+    "issues [{\"expected\":\"array\",\"code\":\"invalid_type\",\"path\":[\"legs\"],\"message\":\"Invalid input: expected array, received string\"}]",
+    "issues [{\"expected\":\"array\",\"code\":\"invalid_type\",\"path\":[\"legs\"],\"message\":\"Invalid input: expected array, received string\"},{\"origin\":\"string\",\"code\":\"too_big\",\"maximum\":8,\"inclusive\":true,\"path\":[\"legs\"],\"message\":\"Too big: expected string to have <=8 characters\"}]",
+    "issues [{\"expected\":\"array\",\"code\":\"invalid_type\",\"path\":[\"legs\"],\"message\":\"Invalid input: expected array, received object\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"tick\"],\"message\":\"Invalid input: expected string, received number\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"tick\"],\"message\":\"Invalid input: expected string, received boolean\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"too_big\",\"maximum\":64,\"inclusive\":true,\"path\":[\"tick\"],\"message\":\"Too big: expected string to have <=64 characters\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"tick\"],\"message\":\"Invalid input: expected string, received array\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"tick\"],\"message\":\"Invalid input: expected string, received object\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"lot\"],\"message\":\"Invalid input: expected string, received number\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"lot\"],\"message\":\"Invalid input: expected string, received boolean\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"too_big\",\"maximum\":64,\"inclusive\":true,\"path\":[\"lot\"],\"message\":\"Too big: expected string to have <=64 characters\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"lot\"],\"message\":\"Invalid input: expected string, received array\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"lot\"],\"message\":\"Invalid input: expected string, received object\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"operatorId\"],\"message\":\"Invalid input: expected string, received null\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"operatorId\"],\"message\":\"Invalid input: expected string, received number\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"operatorId\"],\"message\":\"Invalid input: expected string, received boolean\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"too_small\",\"minimum\":1,\"inclusive\":true,\"path\":[\"operatorId\"],\"message\":\"Too small: expected string to have >=1 characters\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"too_big\",\"maximum\":128,\"inclusive\":true,\"path\":[\"operatorId\"],\"message\":\"Too big: expected string to have <=128 characters\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"operatorId\"],\"message\":\"Invalid input: expected string, received array\"},{\"origin\":\"array\",\"code\":\"too_small\",\"minimum\":1,\"inclusive\":true,\"path\":[\"operatorId\"],\"message\":\"Too small: expected array to have >=1 items\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"operatorId\"],\"message\":\"Invalid input: expected string, received object\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"confirmOperatorId\"],\"message\":\"Invalid input: expected string, received number\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"confirmOperatorId\"],\"message\":\"Invalid input: expected string, received boolean\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"too_big\",\"maximum\":128,\"inclusive\":true,\"path\":[\"confirmOperatorId\"],\"message\":\"Too big: expected string to have <=128 characters\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"confirmOperatorId\"],\"message\":\"Invalid input: expected string, received array\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"confirmOperatorId\"],\"message\":\"Invalid input: expected string, received object\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"approvalId\"],\"message\":\"Invalid input: expected string, received number\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"approvalId\"],\"message\":\"Invalid input: expected string, received boolean\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"too_big\",\"maximum\":128,\"inclusive\":true,\"path\":[\"approvalId\"],\"message\":\"Too big: expected string to have <=128 characters\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"approvalId\"],\"message\":\"Invalid input: expected string, received array\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"approvalId\"],\"message\":\"Invalid input: expected string, received object\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"operationId\"],\"message\":\"Invalid input: expected string, received number\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"operationId\"],\"message\":\"Invalid input: expected string, received boolean\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"too_big\",\"maximum\":128,\"inclusive\":true,\"path\":[\"operationId\"],\"message\":\"Too big: expected string to have <=128 characters\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"operationId\"],\"message\":\"Invalid input: expected string, received array\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"operationId\"],\"message\":\"Invalid input: expected string, received object\"}]"
+  ],
+  "cases": [
+    [null, 0],
+    ["null", 1],
+    ["7", 2],
+    ["\"x\"", 3],
+    ["[]", 4],
+    ["{}", 5],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      6
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\",\"extra\":1}",
+      7
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"x\",\"side\":\"buy\",\"ratio\":\"1\"},{\"symbol\":\"x\",\"side\":\"buy\",\"ratio\":\"1\"},{\"symbol\":\"x\",\"side\":\"buy\",\"ratio\":\"1\"},{\"symbol\":\"x\",\"side\":\"buy\",\"ratio\":\"1\"},{\"symbol\":\"x\",\"side\":\"buy\",\"ratio\":\"1\"},{\"symbol\":\"x\",\"side\":\"buy\",\"ratio\":\"1\"},{\"symbol\":\"x\",\"side\":\"buy\",\"ratio\":\"1\"},{\"symbol\":\"x\",\"side\":\"buy\",\"ratio\":\"1\"},{\"symbol\":\"x\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      8
+    ],
+    [
+      "{\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      6
+    ],
+    [
+      "{\"kind\":null,\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      6
+    ],
+    [
+      "{\"kind\":7,\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      9
+    ],
+    [
+      "{\"kind\":true,\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      10
+    ],
+    [
+      "{\"kind\":\"\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      6
+    ],
+    [
+      "{\"kind\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      11
+    ],
+    [
+      "{\"kind\":[],\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      12
+    ],
+    [
+      "{\"kind\":{},\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      13
+    ],
+    [
+      "{\"kind\":\"calendar\",\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      6
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":null,\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      6
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":7,\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      14
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":true,\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      15
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":\"\",\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      16
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      17
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      6
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":{},\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      18
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      6
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":null,\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      6
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":7,\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      19
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":true,\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      20
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      6
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      21
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":[],\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      22
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":{},\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      23
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      6
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":null,\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      6
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":7,\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      24
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":true,\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      25
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      6
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      26
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":[],\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      27
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":{},\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      28
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      5
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":null,\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      29
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":7,\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      30
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":true,\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      31
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      32
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      33
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":[],\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      34
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":{},\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      35
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      6
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":null,\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      6
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":7,\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      36
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":true,\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      37
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      6
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      38
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":[],\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      39
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":{},\"approvalId\":\"appr-1\",\"operationId\":\"op-1\"}",
+      40
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"operationId\":\"op-1\"}",
+      6
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":null,\"operationId\":\"op-1\"}",
+      6
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":7,\"operationId\":\"op-1\"}",
+      41
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":true,\"operationId\":\"op-1\"}",
+      42
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"\",\"operationId\":\"op-1\"}",
+      6
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"operationId\":\"op-1\"}",
+      43
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":[],\"operationId\":\"op-1\"}",
+      44
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":{},\"operationId\":\"op-1\"}",
+      45
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\"}",
+      6
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":null}",
+      6
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":7}",
+      46
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":true}",
+      47
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"\"}",
+      6
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+      48
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":[]}",
+      49
+    ],
+    [
+      "{\"kind\":\"calendar\",\"legs\":[{\"symbol\":\"BTC-27MAR\",\"side\":\"sell\",\"ratio\":\"1\"},{\"symbol\":\"BTC-26JUN\",\"side\":\"buy\",\"ratio\":\"1\"}],\"tick\":\"0.5\",\"lot\":\"0.001\",\"operatorId\":\"11111111-1111-4111-8111-111111111111\",\"confirmOperatorId\":\"44444444-4444-4444-8444-444444444444\",\"approvalId\":\"appr-1\",\"operationId\":{}}",
+      50
+    ]
+  ]
+}

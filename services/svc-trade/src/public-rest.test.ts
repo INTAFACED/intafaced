@@ -1017,6 +1017,40 @@ describe('public REST routes', () => {
     await app.close();
   });
 
+  it('GET /api/v1/ohlcv/:symbol refuses by name while the chart feed is disabled or on an unconnected fallback (J-charts-desk-19)', async () => {
+    for (const code of ['trade.chart_feed.disabled', 'trade.chart_feed.source_not_connected'] as const) {
+      let read = false;
+      const app = await build(
+        deps({
+          candles: async () => {
+            read = true;
+            return [candle];
+          },
+          chartFeedGate: async () => ({ kind: 'refuse', code, message: `TEST ${code}` }),
+        }),
+      );
+      const res = await app.inject({ method: 'GET', url: '/api/v1/ohlcv/BTC%2FUSDT?timeframe=1m&limit=500' });
+      expect(res.statusCode).toBe(503);
+      expect(res.json()).toMatchObject({ intafacedCode: code });
+      expect(read).toBe(false);
+      await app.close();
+    }
+  });
+
+  it('GET /api/v1/ohlcv/:symbol serves a chart delisted with history only up to its delisting (J-charts-desk-19)', async () => {
+    const later = { ...candle, openTimeMs: candle.openTimeMs + 60_000 };
+    const app = await build(
+      deps({
+        candles: async () => [candle, later],
+        chartFeedGate: async () => ({ kind: 'serve', until: new Date(later.openTimeMs) }),
+      }),
+    );
+    const res = await app.inject({ method: 'GET', url: '/api/v1/ohlcv/BTC%2FUSDT?timeframe=1m&limit=500' });
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as unknown[][]).map((c) => c[0])).toEqual([candle.openTimeMs]);
+    await app.close();
+  });
+
   it('GET /api/v1/ohlcv/:symbol passes timeframe, since and limit through to the aggregator', async () => {
     let seen: { tf: string; limit: number; since?: number } | null = null;
     const app = await build(

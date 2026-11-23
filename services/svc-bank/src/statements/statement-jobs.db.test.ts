@@ -251,21 +251,58 @@ describe('bank.statements.jobs', () => {
   });
 
   it('renews its claim while a render runs, so a long render is not taken by a second worker', async () => {
+    // No race on wall time: the render is held by a gate the test opens, the claim's first lease is made to run out on
+    // purpose, and the second worker tries only once the renewal has put a whole fresh lease back. The lease is long
+    // enough that nothing a loaded runner does between that read and the claim can use it up.
     const statements = new StatementService(activity(), SECRET);
-    const slow = new StatementJobService(db.sql, statements, { leaseMs: 100, testRenderHoldMs: 400 });
-    const other = new StatementJobService(db.sql, statements, { leaseMs: 100 });
     const who = fresh();
+    let entered!: () => void;
+    const rendering = new Promise<void>((resolve) => (entered = resolve));
+    let open!: () => void;
+    const gate = new Promise<void>((resolve) => (open = resolve));
+    let armed = false; // asking checks the plan too; only the render is held
+    const held: Pick<StatementService, 'plan' | 'render'> = {
+      plan: async (userId, input) => {
+        if (armed && userId === who) {
+          entered();
+          await gate;
+        }
+        return statements.plan(userId, input);
+      },
+      render: (userId, plan, asOf) => statements.render(userId, plan, asOf),
+    };
+    const leaseMs = 2_000;
+    const slow = new StatementJobService(db.sql, held, { leaseMs });
+    const other = new StatementJobService(db.sql, statements, { leaseMs });
     // Make everything older first, so the slow worker claims this job.
     while (await other.renderNext());
     const job = await slow.create(who, { ...LONG, report: 'trades', to: '2026-11-02T00:00:00.000Z' });
+    armed = true;
     const making = (async () => {
       let made = await slow.renderNext();
       while (made && made.id !== job.id) made = await slow.renderNext();
       return made;
     })();
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    const stolen = await other.claim();
-    expect(stolen?.id).not.toBe(job.id);
+    try {
+      await rendering;
+      // The first lease runs out: without a renewal, the next claim would take this job.
+      await db.sql`UPDATE bank.statement_jobs SET lease_until = now() - interval '1 second' WHERE id = ${job.id}`;
+      await expect
+        .poll(
+          async () => {
+            const [row] = await db.sql<{ left_ms: number }[]>`
+              SELECT extract(epoch FROM (lease_until - now())) * 1000 AS left_ms FROM bank.statement_jobs WHERE id = ${job.id}
+            `;
+            return Number(row?.left_ms);
+          },
+          { timeout: 10_000, interval: 20 },
+        )
+        .toBeGreaterThan(leaseMs / 2);
+      const stolen = await other.claim();
+      expect(stolen?.id).not.toBe(job.id);
+    } finally {
+      open();
+    }
     expect(await making).toMatchObject({ id: job.id, state: 'ready', attempts: 1 });
   });
 

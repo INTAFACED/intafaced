@@ -302,7 +302,7 @@ describe('personal bill pay and global send', () => {
     const me = caller(bank, USER, write);
     await expect(me.bills.billers.search({ query: 'power' })).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',
-      message: expect.stringContaining('socket.psp-partners') as unknown as string,
+      message: expect.stringContaining('socket.psp-partners') as string,
       cause: { code: 'bank.bills_directory_unset', blocker: 'socket.psp-partners' },
     });
     await expect(me.bills.lookup({ billerId: 'power-de', reference: '100' })).rejects.toMatchObject({
@@ -494,11 +494,11 @@ describe('personal bill pay and global send', () => {
     const space = await funded(bank, ledger);
     const me = caller(bank, USER, write);
     await expect(me.global.corridors.list()).rejects.toMatchObject({
-      message: expect.stringContaining('socket.psp-partners') as unknown as string,
+      message: expect.stringContaining('socket.psp-partners') as string,
       cause: { code: 'bank.global_corridors_unset', blocker: 'socket.psp-partners' },
     });
     await expect(me.global.quote({ asset: 'USDT', amount: '10', toCurrency: 'EUR' })).rejects.toMatchObject({
-      message: expect.not.stringMatching(/\d+\.\d+/) as unknown as string,
+      message: expect.not.stringMatching(/\d+\.\d+/) as string,
       cause: { code: 'bank.global_fx_unset' },
     });
     const checked = await me.global.recipients.validate({ account: 'GB82WEST12345698765432', bic: 'DEUTDEFF' });
@@ -1880,7 +1880,7 @@ describe('personal bill pay and global send', () => {
         me.global.send({ ...body, idempotencyKey: `send-${randomUUID()}`, amount: '1000.000000000000000001' }),
       ).rejects.toMatchObject({
         cause: { code: 'bank.global_amount_outside_corridor' },
-        message: expect.stringContaining('1000') as unknown as string,
+        message: expect.stringContaining('1000') as string,
       });
       await expect(me.global.send({ ...body, idempotencyKey: `send-${randomUUID()}`, amount: '0.5' })).rejects.toMatchObject({
         cause: { code: 'bank.global_amount_outside_corridor' },

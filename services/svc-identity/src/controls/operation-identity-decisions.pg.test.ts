@@ -162,6 +162,50 @@ describe.runIf(Boolean(url))('durable identity operation decisions', () => {
     expect(await decisions.decide(grant(intent()), 'svc-trade')).toMatchObject({ status: 'granted' });
   });
 
+  it("refuses every fresh trading operation while the owner's own freeze holds, a bot's child, a copy and a standing order included, and grants again once lifted (J-wallet-13 #2)", async () => {
+    const userId = target.principal!.userId;
+    const before = intent();
+    const original = await decisions.decide(grant(before), 'svc-trade');
+    const bot = await decisions.decide(grant(intent('strategy.start')), 'svc-trade');
+    expect(bot).toMatchObject({ status: 'granted' });
+    await db.sql`INSERT INTO account_self_freezes (user_id, reason) VALUES (${userId}, 'compromise')`;
+    // An earlier grant stays that intent's answer; everything fresh is refused with the owner's freeze.
+    expect(await decisions.decide(grant(before), 'svc-trade')).toEqual(original);
+    const during = intent();
+    const refused = await decisions.decide(grant(during), 'svc-trade');
+    expect(refused).toMatchObject({ status: 'cancelled', code: 'identity.account_frozen_self', intent: during });
+    expect(await decisions.decide(grant(intent('strategy.start')), 'svc-trade')).toMatchObject({ code: 'identity.account_frozen_self' });
+    const child: IdentityOperationIntent = {
+      ...intent(),
+      operation: { service: 'svc-trade', kind: 'algo.child', userId },
+      authority: { kind: 'delegation', parentGrantId: (bot as { grantId: string }).grantId },
+    };
+    expect(await decisions.decide(grant(child), 'svc-trade')).toMatchObject({ code: 'identity.account_frozen_self' });
+    for (const ownerService of ['svc-trade', 'svc-bank'] as const) {
+      const standing: IdentityOperationIntent = {
+        businessId: `${ownerService}:${randomUUID()}`,
+        payloadHash: 'sha256:' + 'a'.repeat(64),
+        operation: { service: 'svc-trade', kind: 'order.place', userId },
+        authority: { kind: 'standing_instruction', instructionId: randomUUID(), ownerService },
+      };
+      expect(await decisions.decide(grant(standing), 'svc-trade')).toMatchObject({ code: 'identity.account_frozen_self' });
+    }
+    // Another person trades on.
+    const other = await seed();
+    const theirs: IdentityOperationIntent = {
+      ...intent(),
+      operation: { service: 'svc-trade', kind: 'order.place', userId: other.principal!.userId },
+      authority: {
+        kind: 'credential',
+        subject: { userId: other.principal!.userId, credential: { kind: 'session', sessionId: other.principal!.sid } },
+      },
+    };
+    expect(await decisions.decide(grant(theirs), 'svc-trade')).toMatchObject({ status: 'granted' });
+    await db.sql`UPDATE account_self_freezes SET state = 'lifted', lifted_at = now() WHERE user_id = ${userId}`;
+    expect(await decisions.decide(grant(during), 'svc-trade')).toEqual(refused);
+    expect(await decisions.decide(grant(intent()), 'svc-trade')).toMatchObject({ status: 'granted' });
+  });
+
   it('refuses every fresh trading operation while a staff close with a grace date waits for its date (J-identity-14 #1)', async () => {
     const userId = target.principal!.userId;
     const before = intent();

@@ -22,7 +22,7 @@ async function fillSignIn(page, who) {
   await page.getByRole('button', { name: /^sign in$/i }).click();
 }
 
-const trustedCard = (page) => page.locator('section.security__trusted-devices');
+const trustedCard = (page) => page.locator('section[data-card="trusted-devices"]');
 
 test(`${J} #5 reviews trusted devices and removes one: the removed device asks for authorisation again at its next sign-in`, async ({
   browser,

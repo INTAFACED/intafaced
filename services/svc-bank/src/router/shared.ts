@@ -1,5 +1,7 @@
 import { z } from 'zod';
-import { TRPCError } from '@intafaced/contracts';
+import { bankSpaceSchema } from '@intafaced/contracts/bank-spaces-list';
+import type { ExtraControlsPort } from '../safety/extra-controls.js';
+import { TRPCError } from '@intafaced/contracts/trpc';
 import type { ActionApprovalConsumer } from '../action-approval-consume.js';
 import { BankError } from '../errors.js';
 import type { SpaceRecord } from '../spaces/space-service.js';
@@ -239,47 +241,8 @@ export function hideDestinationDetail(err: unknown): unknown {
   return err;
 }
 
-export const spaceOutput = z.object({
-  id: z.string(),
-  assetId: z.string(),
-  kind: z.enum(['primary', 'named']),
-  name: z.string(),
-  goalTarget: z.string().nullable(),
-  lockedUntil: z.string().nullable(),
-  /** An early unlock still waiting (BK-pots-02): when the pot opens, and when its owner asked. Null when none waits. */
-  unlocksAt: z.string().nullable(),
-  unlockRequestedAt: z.string().nullable(),
-  /** Set when this pot pays the person's bills (BK-pots-03): whether a standing order from it tops it up from the account. */
-  billsPot: z.object({ fallback: z.boolean() }).nullable(),
-  /** Read from the ledger at request time, or from the partner bank when it holds this money. Not stored, not cached. */
-  balance: amountString,
-  /**
-   * The ledger account this space is a view of — so a client can verify us. Null when the partner bank holds this money
-   * (OWNER 226): no ledger account holds it, and `heldAt` says whose figure the balance is.
-   */
-  ledgerAccount: z.object({ ownerType: z.string(), ownerId: z.string(), assetId: z.string(), kind: z.string() }).nullable(),
-  /**
-   * Set when the partner bank holds this money: its label (TEST on the TEST partner), the partner's own time for the
-   * balance, and the displayed figure (b2 change 6): `known`, or `stale` when older than the partner's declared limit.
-   * An unknown figure is never sent: the read refuses `bank.partner_balance_not_known`.
-   */
-  heldAt: z
-    .object({
-      label: z.string(),
-      asOf: z.string().datetime(),
-      figure: z
-        .object({
-          state: z.enum(['known', 'stale']),
-          source: z.string(),
-          amount: amountString,
-          asOf: z.string().datetime(),
-          staleAfterMs: z.number().int().positive(),
-          reason: z.null(),
-        })
-        .strict(),
-    })
-    .nullable(),
-});
+/** One space as `spaces.list` returns it: the record's own schema (`@intafaced/contracts/bank-spaces-list`), never a copy. */
+export const spaceOutput = bankSpaceSchema;
 
 /**
  * Optional kill switches for operator jobs. Production passes live env values
@@ -316,8 +279,22 @@ export type BankRouterOptions = {
    * `stepUpApprovalId` (a same-person identity approval).
    */
   stepUp?: StepUpGate;
+  /**
+   * Strong customer authentication for a business statement that reaches back past the partner's age for it (J-bank-23
+   * #3). Always required, whatever the money-out rule says: omitted, it fails closed (`bank.step_up_unavailable`).
+   */
+  statementStepUp?: StepUpGate;
+  /**
+   * A move from the person's partner account to their own wallet, on to their trading account (J-derivatives-25 #2).
+   * Always required, whatever the money-out rule says: omitted, it fails closed (`bank.step_up_unavailable`).
+   */
+  ownMoveStepUp?: StepUpGate;
+  /** The person's own step-up extras (BK-safe-01), read per send to another person. Omitted: no extras are checked (router tests). */
+  extraControls?: ExtraControlsPort;
   /** BK-loan-09: owner-published missed-payment policy. Omitted: `loans.missedPaymentPolicy` reads `not_set`. */
   loanMissedPaymentPolicy?: LoanMissedPaymentPolicy | null;
+  /** Home's margin warning level (`BANK_MARGIN_WARNING_LTV_BPS`), blank today: `loans.products` publishes it as null. */
+  marginWarningLtvBps?: null;
 };
 
 /** Optional on the wire so a missing approval is `bank.step_up_required`, not a Zod error. */
@@ -379,5 +356,12 @@ export const partnerHoldReportOutput = z
     refunded: z.string(),
     open: z.string(),
     expiresAt: z.string().nullable(),
+    /** The asset the partner holds it in, when it says. */
+    assetId: z.string().optional(),
+    /** A hold by a pay-from order (J-bank-29): the merchant's amount, the partner's rate and the rate's time. */
+    conversion: z
+      .object({ settlementAssetId: z.string(), settlementAmount: z.string(), rate: z.string(), rateAsOf: z.string() })
+      .strict()
+      .optional(),
   })
   .strict();

@@ -7,7 +7,6 @@ import {
   ChangeText,
   EmptyState,
   Money,
-  Pct,
   Price,
   StateBlock,
   StatusChip,
@@ -40,8 +39,8 @@ function RatioCell({ position, t }: { position: Position; t: T }) {
   const width = barWidth(health);
   if (health.marginRatioPct === null)
     return (
-      <span title={health.unknownWhy ? t(`Unknown why ${health.unknownWhy}`) : undefined} className="text-fg-2">
-        —<span className="sr-only">{health.unknownWhy ? t(`Unknown why ${health.unknownWhy}`) : ''}</span>
+      <span title={health.unknownWhy ? t(`Unknown why ${health.unknownWhy}`) : undefined} className="lt-muted">
+        —<span className="lt-sr">{health.unknownWhy ? t(`Unknown why ${health.unknownWhy}`) : ''}</span>
       </span>
     );
   return (
@@ -150,7 +149,7 @@ export function PositionsTable({
       numeric: true,
       cell: (p) =>
         p.markPrice === null ? (
-          <span title={t('Positions mark unavailable')} className="text-fg-2">
+          <span title={t('Positions mark unavailable')} className="lt-muted">
             —
           </span>
         ) : (
@@ -165,7 +164,7 @@ export function PositionsTable({
       cell: (p) => {
         const value = signedAmount(p.unrealizedPnl, 4);
         return value === null ? (
-          <span title={t('Positions mark unavailable')} className="text-fg-2">
+          <span title={t('Positions mark unavailable')} className="lt-muted">
             —
           </span>
         ) : (

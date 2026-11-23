@@ -88,7 +88,7 @@ describe('the country screened is the one recorded at sign-up', () => {
       return Promise.resolve([]);
     };
     const sql = Object.assign(tag, { begin: async (_mode: string, fn: (tx: unknown) => unknown) => fn(tag) });
-    return { sql: sql as unknown as Sql, writes: () => statements.filter((s) => /^(INSERT|UPDATE|DELETE)/.test(s)) };
+    return { sql: sql as Sql, writes: () => statements.filter((s) => /^(INSERT|UPDATE|DELETE)/.test(s)) };
   }
 
   const LISTED = parseSanctionsPersonsList(TEST_LIST, 'test')!;
