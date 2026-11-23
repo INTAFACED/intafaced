@@ -26,7 +26,7 @@ export function EarnRoom({ open }: { open: (spec: ActionSpec) => void }) {
     <CatalogueTemplate
       {...bankRoomProps('Earn', earnCopy.t('description'))}
       state={{ kind: 'ready' }}
-      filters={<BankTabs current="Earn" />}
+      section={<BankTabs />}
       items={
         <>
           {pools.resource.status === 'ready' && <EarnCompare pools={pools.resource.data} />}
@@ -195,8 +195,8 @@ export function EarnPoolRoom({ search, open }: { search: string; open: (spec: Ac
   return (
     <CatalogueTemplate
       {...bankRoomProps('Earn', t('poolDescription'), t('poolTitle'))}
+      section={<BankTabs />}
       state={{ kind: 'ready' }}
-      filters={<BankTabs current="Earn" />}
       items={<EarnPool poolId={poolId && poolId.trim() !== '' ? poolId : null} open={open} />}
     />
   );

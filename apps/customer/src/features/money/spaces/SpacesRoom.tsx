@@ -59,7 +59,7 @@ export function SpacesRoom({ open, search }: { open: (spec: ActionSpec) => void;
     <OverviewTemplate
       {...bankRoomProps('Spaces', copyText('rooms.give.an.asset.a.purpose.inside.the'))}
       state={{ kind: 'ready' }}
-      rooms={<BankTabs current="Spaces" />}
+      section={<BankTabs />}
       hero={
         <div className="lt-body">
           <SelectedSpace

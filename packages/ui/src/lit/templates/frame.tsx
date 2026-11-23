@@ -486,6 +486,7 @@ export function RoomFrame(props: RoomFrameProps) {
           </div>
           {roomAction ? <div className="lt-room-action">{roomAction}</div> : null}
         </header>
+        {props.section ? <div className="lt-room-section">{props.section}</div> : null}
         {state.kind === 'ready' && state.stale ? (
           <div className="lt-stale" data-region="stale" role="status">
             <p>
