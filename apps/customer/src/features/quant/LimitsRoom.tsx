@@ -71,7 +71,7 @@ function SandboxLimitsPanel() {
                   {t('planUnset')}
                 </p>
               )}
-              <div tabIndex={0} role="region" aria-label={t('sandboxTitle')}>
+              <div>
                 <table className="lt-table">
                   <thead>
                     <tr>

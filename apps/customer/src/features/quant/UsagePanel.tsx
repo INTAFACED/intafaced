@@ -36,7 +36,7 @@ export function UsagePanel({ revision }: { revision: number }) {
                   {t('planUnset')}
                 </p>
               )}
-              <div tabIndex={0} role="region" aria-label={t('title')}>
+              <div>
                 <table className="lt-table">
                   <thead>
                     <tr>
