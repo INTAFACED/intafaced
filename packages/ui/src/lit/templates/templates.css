@@ -2222,14 +2222,6 @@ button.lt-tab {
   border-block-start: 1px solid var(--lit-line);
 }
 
-/* A plain group of choices in a slot (checkboxes, radios) draws no browser frame: its own legend names it. */
-.lt-region fieldset:not([class]) {
-  border: 0;
-  padding: 0;
-  margin-inline: 0;
-  min-inline-size: 0;
-}
-
 /* A plain list's items in a slot sit apart, each one its own line. */
 .lt-region :is(ul, ol):not([class]) > li + li {
   margin-block-start: calc(var(--lit-gap-item) / 2);
