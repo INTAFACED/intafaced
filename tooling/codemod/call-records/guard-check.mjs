@@ -39,6 +39,22 @@ export function checkedUse(p, node) {
   return { base: node.callee.object, check: { name, file: p.file, exported: b.exported } };
 }
 
+/**
+ * The service's own check handed to a guard as its `check` option (`anyScopeProcedure(scopes, { check: teamMember })`), named
+ * `name` on the record: `{ name, file, exported, names? }`, as `checkedUse` gives it, `names` holding the binding a check of
+ * this file is read through so the mount can be held to the same one (`wrappedInScope`). Undefined when the mount cannot
+ * be handed it by that name (a parameter, an import under another name).
+ */
+export function optionCheck(p, ident) {
+  const b = bindingOf(p, ident, ident.name);
+  if (b.kind === 'import') {
+    const file = resolveRelative(p.file, b.from);
+    return file && b.imported === ident.name ? { name: ident.name, file, exported: true } : undefined;
+  }
+  if (b.kind !== 'function' && b.kind !== 'var') return undefined;
+  return { name: ident.name, file: p.file, exported: b.exported, names: [{ name: ident.name, binding: b, at: ident }] };
+}
+
 /** The base guard's access with the check added: only a `scope` record names a check, and only one. */
 export function withCheck(access, check) {
   if (!access.text.startsWith("{ caller: 'scope'") || /\bcheck: '/.test(access.text)) return undefined;

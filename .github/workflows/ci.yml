@@ -307,38 +307,6 @@ jobs:
           fi
           node "$lint"
 
-  fast-gates:
-    # Every Doctrine gate but the tooling tests (and the three that plant files in the tree), all at once: a red one is
-    # named about two minutes after the push, not after the tooling tests' three. The pre-push hook ran these before each
-    # push until 22 Nov; on the box, under a dozen builders, that was 3 to 4 minutes of a 7-minute push (project-state
-    # #3676). The Doctrine gates job above runs the whole list again and is the one the seal requires, so this job only
-    # says it sooner.
-    name: Fast gates
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10 # healthy run: about 2 min, most of it the install
-    permissions:
-      contents: read
-    # The lint ratchet reads main-bisect's automatic revert by these, as in the Doctrine gates job.
-    env:
-      PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
-      PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
-      PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-      PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
-      PR_COMMITS: ${{ github.event.pull_request.commits }}
-      PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0 # as in the Doctrine gates job: the lint ratchet judges the change against its merge-base with main
-      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Fast gates
-        run: node tooling/ci/gates.mjs --fast
-
   changes:
     name: Affected tests
     runs-on: ubuntu-24.04
@@ -609,12 +577,12 @@ jobs:
       matrix:
         shard: ${{ fromJSON(needs.changes.outputs.shards) }}
     runs-on: ubuntu-24.04
-    # healthy run: 11-20 min; a pull request's red one may wait up to 20 more for main's run on its base
+    # healthy run: 11-20 min; a pull request's red one may wait up to 20 more for a run of main on or near its base
     # (tooling/ci/base-failures.mjs WAIT_MIN)
     timeout-minutes: 60
     permissions:
       contents: read
-      actions: read # main's run on this pull request's base: its jobs and its test-results artifacts (base-failures.mjs)
+      actions: read # main's runs on and before this pull request's base: jobs and test-results artifacts (base-failures.mjs)
 
     services:
       postgres:
@@ -766,9 +734,11 @@ jobs:
           if-no-files-found: error
 
       # The owner's decision of 23 Nov 2026: a failing unit test that main's own run recorded the same way (test id and
-      # reason) on the commit this pull request merges into doesn't hold it. Never a test of money, custody, sign-in or
-      # permissions, nor a journey test; nothing when main's result is unknown. It names each failure it excused, and
-      # main's run. Only on a pull request; only when its tests failed.
+      # reason) on the commit this pull request merges into, or on the nearest commit before it that has a finished
+      # record (main's runs are one at a time, so most of its commits have none), doesn't hold it. Never a test of money,
+      # custody, sign-in or permissions, nor a journey test, nor one in a package main changed after that record; nothing
+      # when main's result is unknown. It names each failure it excused, the commit and main's run. Only on a pull
+      # request; only when its tests failed.
       - name: Failures main already has
         if: (success() || failure()) && github.event_name == 'pull_request' && steps.test.outcome == 'failure'
         env:
@@ -905,7 +875,6 @@ jobs:
           LOOK: ${{ needs.changes.outputs.look }}
           CHANGES: ${{ needs.changes.result }}
           GATES: ${{ needs.gates.result }}
-          FORMAT: ${{ needs.format.result }}
           BUILD: ${{ needs.build.result }}
           T_FULL: ${{ needs.test-full.result }}
           RUST_RESULT: ${{ needs.rust.result }}
@@ -997,10 +966,10 @@ jobs:
   # default branch's script, never the pull request's code. It replaced journey-seal-recheck.yml, a workflow_run
   # workflow that was a run of its own on every finished input, whether it did anything or not
   # (INTAFACED/project-state#1574). Fails closed: if it fails, the seal waits, and a missing seal blocks the merge.
-  # Not on a pull request into a Volt layer branch (`volt/<template>`): no seal guards those; CI's fast checks do.
+  # Not on a pull request into a Volt layer branch (`volt/<template>`): no seal guards those; CI's own jobs do.
   seal-start:
     name: Start the seal
-    needs: [changes, gates, fast-gates, format, build, test-full, rust, look, merge-seal]
+    needs: [changes, gates, format, build, test-full, rust, look, merge-seal]
     if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.base_ref, 'volt/') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 6 # healthy run: seconds; waiting out a seal that is already running takes up to 4 minutes
