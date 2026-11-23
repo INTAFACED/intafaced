@@ -641,7 +641,7 @@ pub fn read_account_metadata(store: &Store, account_id: &str) -> Result<Json, St
         let changes = tx
             .query(
                 &format!(
-                    "SELECT {} FROM account_metadata_changes WHERE account_id = $1::text::uuid ORDER BY seq DESC LIMIT $2",
+                    "SELECT {} FROM account_metadata_changes WHERE account_id = $1::text::uuid ORDER BY account_metadata_changes.seq DESC LIMIT $2",
                     change_columns()
                 ),
                 &[&account_id, &ACCOUNT_METADATA_HISTORY],
