@@ -2,6 +2,7 @@ import { defineProcedure, NO_INPUT } from './procedure.js';
 import {
   navigatorAskInputSchema,
   navigatorAskResultSchema,
+  navigatorOnchainBindInputSchema,
   navigatorOnchainAccountInputSchema,
   navigatorOnchainBindingReadSchema,
   navigatorOnchainBindingSchema,
@@ -111,6 +112,38 @@ export const AGENTS_NAVIGATOR_ORDERS = defineProcedure({
   output: navigatorOrdersSchema,
   samples: [
     { verdict: 'accept', input: { sessionId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/**
+ * Records the grant the person prepared for the Navigator's signer on this chain: the configured signer, never a key
+ * from the body, keyed by chain, account and key; a retry returns the first row.
+ */
+export const AGENTS_NAVIGATOR_ONCHAIN_BIND = defineProcedure({
+  ...base,
+  name: 'agents.navigator.onchain.bind',
+  kind: 'mutation',
+  path: 'navigator.onchain.bind',
+  access: { caller: 'scope', scope: 'agents:execute', module: 'agents', person: true, ownSession: 'agents.execute_person_only' },
+  refusals: {},
+  input: navigatorOnchainBindInputSchema,
+  output: navigatorOnchainBindingSchema,
+  // By hand: the wire replay's recorded request ({ account: 'x', ... }) fails the address pattern, so the door never let
+  // it through; this is the grant svc-agents' own bind test records (crates/svc-agents/tests/navigator_onchain_pg.rs).
+  samples: [
+    {
+      verdict: 'accept',
+      input: {
+        chainId: 84532,
+        account: '0x00000000000000000000000000000000000A0019',
+        specHash: `0x${'aa'.repeat(32)}`,
+        spendLimitWei: '1000000000000000000',
+        validUntil: 2000000000,
+        targets: ['0x00000000000000000000000000000000000b0019'],
+        selectors: ['0x8f2a8b5e'],
+      },
+    },
     { verdict: 'refuse', input: 42 },
   ],
 });

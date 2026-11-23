@@ -37,6 +37,7 @@ import { ChartTrading } from './trading/ChartTrading';
 import { ChartAlerts } from './alerts/ChartAlerts';
 import { CompareTools } from './CompareTools';
 import { useNow } from '../trade/desk/hooks';
+import { DateInput } from '@intafaced/ui/lit';
 
 /** What an add-on is drawn over: the price scale or percent mode, and whether a bar replay is cut. */
 export interface AddonView {
@@ -422,7 +423,7 @@ export const MarketChartWidget = memo(function MarketChartWidget({
         <form className="lt-row" onSubmit={(event) => void goToDate(event)}>
           <label className="lt-field">
             <span>{t('Go to date')}</span>
-            <input type="datetime-local" name="date" required />
+            <DateInput type="datetime-local" name="date" required />
           </label>
           <Button type="submit" size="sm">
             {t('Go')}

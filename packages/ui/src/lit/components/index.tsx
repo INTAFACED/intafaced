@@ -7,6 +7,7 @@ import * as React from 'react';
 import { clsx } from 'clsx';
 import { BrandLockup, BrandMark, BrandWordmark } from '../../brand/brand.js';
 import { moveFocusByArrow } from './arrow-focus.js';
+import { DateOrInput } from './date-input.js';
 import type { DataMarks } from './b2-table.js';
 import { doors as doorOrder, type Door, type GateReason, type LegalSlotProps, type Refusal } from '../contracts.js';
 
@@ -220,7 +221,8 @@ export function Field({ label, hint, error, before, after, id, className, ...res
   const inputId = id ?? auto;
   const describedBy =
     [rest['aria-describedby'], hint ? `${inputId}-hint` : null, error ? `${inputId}-error` : null].filter(Boolean).join(' ') || undefined;
-  const input = <input {...rest} id={inputId} aria-invalid={error ? true : rest['aria-invalid']} aria-describedby={describedBy} />;
+  const own = { ...rest, id: inputId, 'aria-invalid': error ? true : rest['aria-invalid'], 'aria-describedby': describedBy };
+  const input = <DateOrInput {...own} />;
   return (
     <div className={clsx('lit-field-control', className)}>
       <label htmlFor={inputId}>{label}</label>

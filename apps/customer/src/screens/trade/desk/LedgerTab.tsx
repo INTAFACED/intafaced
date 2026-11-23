@@ -4,7 +4,7 @@ import type { LedgerEntry, StatementJob } from '../../../features/trade/trade-ap
 import { usePreferences } from '../../../shared/preferences';
 import { deskCopy } from './copy';
 import { useDeskApi } from './data';
-import { Amount, Button, StateBlock } from '@intafaced/ui/lit';
+import { Amount, Button, StateBlock, DateInput } from '@intafaced/ui/lit';
 import { Sheet } from '@intafaced/ui/lit/templates';
 import { fmtAmount, refusalCopy, type Loadable } from './deps';
 import { ledgerKindKey, sameAmount, sha256Hex, statementRange, sumByAsset, todayEnd } from './ledger';
@@ -255,11 +255,11 @@ function Statement() {
           <div className="lt-cols-2">
             <label className="lt-field">
               <span>{t('Statement from')}</span>
-              <input type="date" value={fromDay} onChange={(event) => setFromDay(event.target.value)} />
+              <DateInput type="date" value={fromDay} onChange={(event) => setFromDay(event.target.value)} />
             </label>
             <label className="lt-field">
               <span>{t('Statement to')}</span>
-              <input type="date" value={toDay} onChange={(event) => setToDay(event.target.value)} />
+              <DateInput type="date" value={toDay} onChange={(event) => setToDay(event.target.value)} />
             </label>
           </div>
           <p className="lt-note">{t('Statement today', { time: clockMinutes(todayEnd(asOf).getTime(), 'UTC') })}</p>

@@ -2166,6 +2166,7 @@ test("a door's calls.rs rows read as kind, the record's access (or why none) and
       scoped('own.tool.try', 'agents:execute', false, true, 'Pre::PersonOnly("agents.execute_person_only")'),
       scoped('region.free', 'agents:read', false, false, 'Pre::None'),
       scoped('coach.runSession', 'agents:read', false, true, 'Pre::CoachRun'),
+      scoped('odd.pre', 'agents:read', false, true, 'Pre::Odd(3)'),
       scoped('settle', '', false, false, 'Pre::None', 'Access::Settle'),
     ].join('\n'),
   );
@@ -2177,7 +2178,12 @@ test("a door's calls.rs rows read as kind, the record's access (or why none) and
       guarded: null,
     },
     'region.free': { kind: 'query', access: { caller: 'scope', scope: 'agents:read' }, guarded: null },
-    'coach.runSession': { kind: 'query', access: null, why: 'its own middleware Pre::CoachRun, which a record cannot name', guarded: null },
+    'coach.runSession': {
+      kind: 'query',
+      access: { caller: 'scope', scope: 'agents:read', module: 'agents', check: 'coachRun' },
+      guarded: null,
+    },
+    'odd.pre': { kind: 'query', access: null, why: 'its own middleware Pre::Odd(3), which a record cannot name', guarded: null },
     settle: { kind: 'query', access: null, why: "access Access::Settle, which this reader does not map to a record's", guarded: null },
   });
   assert.equal(
@@ -2204,6 +2210,36 @@ test("a door record's accepted sample is the door's own accepted request, and no
   assert.match(samplesFor(record, new Map([['p', { from: '2026-01-01' }]])), /verdict: 'accept', input: \{"from":"2026-01-01"\}/);
   assert.throws(() => samplesFor(record, new Map()), /the door lets through/);
   assert.match(samplesFor(record), /verdict: 'accept'/);
+});
+
+test('a type a record reads is imported as a type (contracts builds with verbatimModuleSyntax), beside the value it types', () => {
+  const root = mkdtempSync(join(tmpdir(), 'call-records-type-'));
+  const git = agentsRepo(root);
+  // svc-agents' coach.runSession: its refusal codes are a type and a list of that type, both moved to the shared file.
+  writeFileSync(
+    join(root, 'services/svc-agents/src/router.ts'),
+    [
+      "import { z } from 'zod';",
+      "export type Kind = 'a' | 'b';",
+      "export const KINDS: readonly Kind[] = ['a', 'b'];",
+      'export function createAgentsRouter() {',
+      "  return router({ own: router({ kind: scopedProcedure('agents:read').output(z.object({ kind: z.enum(KINDS as [Kind, ...Kind[]]) })).query(() => ({ kind: 'a' })) }) });",
+      '}',
+      '',
+    ].join('\n'),
+  );
+  writeFileSync(
+    join(root, 'apps/customer/src/features/agents/agent.ts'),
+    "import { z } from 'zod';\nexport const k = (api) => api.query('agents', 'own.kind', undefined, z.object({ kind: z.string() }));\n",
+  );
+  git('add', '.');
+  git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'a typed list');
+  const index = join(root, 'tooling/codemod/call-records/index.mjs');
+  execFileSync('node', [index, '--module', 'agents', '--callers-only', '--write'], { cwd: root, encoding: 'utf8', stdio: 'pipe' });
+  const record = readFileSync(join(root, 'packages/contracts/src/agents-own-procedures.ts'), 'utf8');
+  const from = record.match(/import \{([^}]*)\} from ["']\.\/agents-call-schemas\.js["']/)?.[1] ?? '';
+  assert.match(from, /\btype Kind\b/, `the type is imported as one: ${from}`);
+  assert.match(from, /(^|,)\s*KINDS\b/, 'the list is imported as a value');
 });
 
 test('a schema const the moved call left unread goes, and the one it read after it; one still read or impure stays, and an export no file imports loses its export', () => {

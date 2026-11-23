@@ -15,7 +15,7 @@ import type { BookPick } from './OrderBook';
 import { deskCopy } from './copy';
 import { useDeskApi, useFeeToken, useMyFees, useOpenOrders, useRefreshPrivate } from './data';
 import { feeTokenChoice, type FeeTokenChoice } from './fee-token';
-import { Amount, Bone, Button, StateBlock } from '@intafaced/ui/lit';
+import { Amount, Bone, Button, StateBlock, DateInput } from '@intafaced/ui/lit';
 import { DecimalInput, Sheet, TabPanel, Tabs } from '@intafaced/ui/lit/templates';
 import { fmtAmount, fmtPct, fmtPrice, refusalCopy, type Loadable } from './deps';
 import { SPOT_TICKET_ORDER_TYPES } from '@intafaced/contracts/spot-order-types';
@@ -1473,7 +1473,7 @@ export const OrderPanel = memo(function OrderPanel({
         {market.open && tif === 'GTD' ? (
           <label className="lt-field">
             <span className="lt-label">{t('Order expires')}</span>
-            <input
+            <DateInput
               type="datetime-local"
 
               value={expiry}

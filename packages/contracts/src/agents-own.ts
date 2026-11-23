@@ -366,7 +366,7 @@ export type OwnAgentInboxRow = z.infer<typeof ownAgentInboxRowSchema>;
  * it; `waiting` is an approval request and the tool has not run. A refusal answers with its code as the error message.
  */
 export const ownAgentToolCallSchema = z.discriminatedUnion('outcome', [
-  z.object({ outcome: z.literal('ran'), tool: z.string(), dataClass: z.enum(OWN_AGENT_DATA_CLASSES), result: z.unknown() }),
+  z.object({ outcome: z.literal('ran'), tool: z.string(), dataClass: z.enum(OWN_AGENT_DATA_CLASSES), result: jsonValueSchema }),
   z.object({
     outcome: z.literal('waiting'),
     tool: z.string(),

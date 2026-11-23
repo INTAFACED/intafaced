@@ -23,7 +23,7 @@ import { SubAccountsPanel } from '../../../features/trade/venue/SubAccounts';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { venueOrdersCopy } from '../../../features/trade/orders/venue-orders-copy';
 import { deskCopy } from './copy';
-import { Button } from '@intafaced/ui/lit';
+import { Button, DateInput } from '@intafaced/ui/lit';
 import { DeskTemplate, TabPanel, Tabs } from '@intafaced/ui/lit/templates';
 import { navigate } from '../../../app/location';
 import { useDeviceSetting } from '../../../features/trade/hooks';
@@ -363,7 +363,7 @@ export function VenueSpotDesk({
           {type === 'limit' && tif === 'GTD' ? (
             <label className="lt-field">
               <span>{t('Expires')}</span>
-              <input
+              <DateInput
                 type="datetime-local"
                 value={expiry}
                 onChange={(event) => setExpiry(event.target.value)}

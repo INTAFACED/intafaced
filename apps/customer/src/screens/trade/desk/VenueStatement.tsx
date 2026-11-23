@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { VenueStatementJob, VenueUp } from '../../../features/trade/venue-api';
 import { useVenueApi } from '../../../features/trade/venue/VenueKit';
 import { deskCopy } from './copy';
-import { Button } from '@intafaced/ui/lit';
+import { Button, DateInput } from '@intafaced/ui/lit';
 import { Sheet } from '@intafaced/ui/lit/templates';
 import { refusalCopy } from '../../../data';
 import { sha256Hex, statementRange, todayEnd } from './ledger';
@@ -107,11 +107,11 @@ export function VenueStatement({ status, owner }: { status: VenueUp; owner: stri
           <div className="lt-cols-2">
             <label className="lt-field">
               <span>{d('Statement from')}</span>
-              <input type="date" value={fromDay} onChange={(event) => setFromDay(event.target.value)} />
+              <DateInput type="date" value={fromDay} onChange={(event) => setFromDay(event.target.value)} />
             </label>
             <label className="lt-field">
               <span>{d('Statement to')}</span>
-              <input type="date" value={toDay} onChange={(event) => setToDay(event.target.value)} />
+              <DateInput type="date" value={toDay} onChange={(event) => setToDay(event.target.value)} />
             </label>
           </div>
           <p className="lt-note">{d('Statement today', { time: clockMinutes(todayEnd(asOf).getTime(), 'UTC') })}</p>
