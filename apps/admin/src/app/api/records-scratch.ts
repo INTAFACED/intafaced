@@ -8,11 +8,16 @@ import {
   PAY_ACCOUNT_CONTROLS_HISTORY,
   PAY_ACCOUNT_CONTROLS_CHANGE,
 } from '@intafaced/contracts/pay-account-controls-procedures';
+import {
+  IDENTITY_ACCOUNT_CONTROLS_GET_STATE,
+  IDENTITY_ACCOUNT_CONTROLS_HISTORY,
+  IDENTITY_ACCOUNT_CONTROLS_CHANGE,
+} from '@intafaced/contracts/identity-account-controls-procedures';
 
 export async function scratch(config: AdminSessionConfig, ctx: FounderCallContext, input: any, token: string) {
-  await founderEdgeCall(config, 'identity', 'accountControls.getState', 'GET', input, token);
-  await founderEdgeCall(config, 'identity', 'accountControls.history', 'GET', input, token);
-  await founderEdgeCall(config, 'identity', 'accountControls.change', 'POST', input, token);
+  await founderEdgeRecordCall(config, IDENTITY_ACCOUNT_CONTROLS_GET_STATE, input, token);
+  await founderEdgeRecordCall(config, IDENTITY_ACCOUNT_CONTROLS_HISTORY, input, token);
+  await founderEdgeRecordCall(config, IDENTITY_ACCOUNT_CONTROLS_CHANGE, input, token);
   await founderEdgeCall(config, 'trade', 'accountControls.getState', 'GET', input, token);
   await founderEdgeCall(config, 'trade', 'accountControls.history', 'GET', input, token);
   await founderEdgeCall(config, 'trade', 'accountControls.change', 'POST', input, token);
