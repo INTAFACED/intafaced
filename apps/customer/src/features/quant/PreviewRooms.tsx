@@ -96,9 +96,9 @@ function PreviewShell({
         description={t('label')}
         mode="pro"
         state={{ kind: 'ready' }}
+        section={<QuantRooms paper={paper} />}
         instrument={
           <div className="lt-col-main">
-            <QuantRooms active={room} paper={paper} />
             <p role="note">
               <Tag tone="accent">
                 <strong>{t('label')}</strong>

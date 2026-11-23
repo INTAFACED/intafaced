@@ -1,24 +1,21 @@
 import { Tabs } from '@intafaced/ui/lit/templates';
 
-export type TradeRoom = 'spot' | 'margin' | 'futures' | 'options' | 'copy' | 'bots' | 'execution' | 'otc' | 'convert';
-
 const ROOMS = [
-  { id: 'spot', label: 'Spot', href: '/trade/spot/BTC-USDT' },
-  { id: 'margin', label: 'Margin', href: '/trade/margin' },
-  { id: 'futures', label: 'Futures', href: '/trade/futures' },
-  { id: 'options', label: 'Options', href: '/trade/options' },
-  { id: 'copy', label: 'Copy', href: '/trade/copy' },
-  { id: 'bots', label: 'Bots', href: '/trade/bots' },
-  { id: 'convert', label: 'Convert', href: '/trade/convert' },
-  { id: 'execution', label: 'Execution', href: '/execution' },
-  { id: 'otc', label: 'Quote desk', href: '/otc' },
+  { label: 'Spot', href: '/trade/spot/BTC-USDT', match: ['/trade/spot'] },
+  { label: 'Margin', href: '/trade/margin' },
+  { label: 'Futures', href: '/trade/futures' },
+  { label: 'Options', href: '/trade/options' },
+  { label: 'Copy', href: '/trade/copy' },
+  { label: 'Bots', href: '/trade/bots' },
+  { label: 'Convert', href: '/trade/convert' },
+  { label: 'Execution', href: '/execution', match: ['/execution'] },
+  { label: 'Quote desk', href: '/otc', match: ['/otc'] },
 ] as const;
 
 /**
- * The one row every Trade room carries (Binance/OKX product switch), so a trader moves between rooms in one click and the
- * row never changes size. Drawn by the kit's room row; `className` is kept for callers and draws nothing of its own.
+ * The one row every Trade room carries (Binance/OKX product switch), so a trader moves between rooms in one click: the
+ * kit's section tab bar, its lit tab the route's own (a room it does not list, such as the terminal, lights none).
  */
-export function TradeSubNav({ active }: { active: TradeRoom; className?: string }) {
-  const current = ROOMS.find((room) => room.id === active)?.href ?? '';
-  return <Tabs label="Trading rooms" items={ROOMS} current={current} />;
+export function TradeSubNav() {
+  return <Tabs label="Trading rooms" items={ROOMS} />;
 }

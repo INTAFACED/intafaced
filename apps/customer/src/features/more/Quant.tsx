@@ -296,7 +296,6 @@ export function Quant({ mode, paper = false, bars }: { mode: 'sandbox' | 'studio
   }, [api]);
   const intro = (
     <div className="lt-col-main">
-      <QuantRooms active={mode} paper={paper} />
       <p>
         <Tag>
           <Text k="quant.simulated.no.live.trading.authority" />
@@ -892,5 +891,15 @@ export function Quant({ mode, paper = false, bars }: { mode: 'sandbox' | 'studio
                 </div>
               ),
             };
-  return <DeskTemplate title={title} description={description} mode="pro" state={{ kind: 'ready' }} instrument={intro} {...slots} />;
+  return (
+    <DeskTemplate
+      title={title}
+      description={description}
+      mode="pro"
+      state={{ kind: 'ready' }}
+      section={<QuantRooms paper={paper} />}
+      instrument={intro}
+      {...slots}
+    />
+  );
 }

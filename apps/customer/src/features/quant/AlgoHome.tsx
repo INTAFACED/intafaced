@@ -23,9 +23,9 @@ export function AlgoHome({ paper = false }: { paper?: boolean }) {
       description={t('description')}
       mode="pro"
       state={{ kind: 'ready' }}
+      section={<QuantRooms paper={paper} />}
       instrument={
         <div className="lt-col-main">
-          <QuantRooms active="home" paper={paper} />
           <p className="lt-hint">{t('simulated')}</p>
         </div>
       }

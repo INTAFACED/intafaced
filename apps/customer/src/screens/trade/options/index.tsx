@@ -15,7 +15,8 @@ import { Ticket } from './Ticket';
 import { useCheckStatus } from './check';
 import { optionsCopy } from './copy';
 import { useOptionMarkets, useOptionOrders, useOptionsPolicy } from './data';
-import { Freshness, TradeRoomsNav, WriteNotice } from './notices';
+import { Freshness, WriteNotice } from './notices';
+import { TradeSubNav } from '../TradeSubNav';
 
 type TabId = 'chain' | 'strategy' | 'orders' | 'positions' | 'settlement' | 'rules';
 
@@ -60,10 +61,10 @@ export default function Screen(_props: ScreenProps) {
       title={t('Options')}
       description={t('Options description')}
       mode="pro"
+      section={<TradeSubNav />}
       state={{ kind: 'ready' }}
       instrument={
         <div className="lt-stack">
-          <TradeRoomsNav active="options" />
           {chips}
           <WriteNotice writer={writer} onCheck={(id) => void check(id)} done={t('Request done')} />
           {note ? (

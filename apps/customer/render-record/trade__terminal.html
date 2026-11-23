@@ -102,11 +102,8 @@
 <p class="lt-description">Your orders, fills, copied positions and algo orders in one view, read from your account.</p>
 </div>
 </header>
-<div class="lt-body">
-<div class="lt-desk" data-desk="pro">
-<section class="lt-region" data-region="orders" aria-label="Orders and positions">
-<div class="lt-body">
-<nav class="lt-tabs" aria-label="Trading rooms">
+<div class="lt-room-section">
+<nav class="lt-tabs" aria-label="Trading rooms" data-region="section-tabs">
 <a href="/trade/spot/BTC-USDT" class="lt-tab">Spot</a>
 <a href="/trade/margin" class="lt-tab">Margin</a>
 <a href="/trade/futures" class="lt-tab">Futures</a>
@@ -114,9 +111,14 @@
 <a href="/trade/copy" class="lt-tab">Copy</a>
 <a href="/trade/bots" class="lt-tab">Bots</a>
 <a href="/trade/convert" class="lt-tab">Convert</a>
-<a href="/execution" class="lt-tab" aria-current="page">Execution</a>
+<a href="/execution" class="lt-tab">Execution</a>
 <a href="/otc" class="lt-tab">Quote desk</a>
 </nav>
+</div>
+<div class="lt-body">
+<div class="lt-desk" data-desk="pro">
+<section class="lt-region" data-region="orders" aria-label="Orders and positions">
+<div class="lt-body">
 <div class="lt-tabs" role="tablist" aria-label="Terminal">
 <button type="button" role="tab" id="terminal-tab-orders" aria-controls="terminal-panel-orders" aria-selected="true" tabindex="0" class="lt-tab">Orders</button>
 <button type="button" role="tab" id="terminal-tab-history" aria-controls="terminal-panel-history" aria-selected="false" tabindex="-1" class="lt-tab">History</button>

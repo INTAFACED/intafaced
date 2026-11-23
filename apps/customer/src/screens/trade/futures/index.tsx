@@ -189,8 +189,8 @@ function TodayFuturesScreen({ search }: ScreenProps) {
 
   return (
     <div data-screen="futures">
-      <ModeStrip active="Futures" />
       <DeskTemplate
+        section={<ModeStrip />}
         title={t('Futures desk')}
         mode="pro"
         state={{ kind: 'ready' }}

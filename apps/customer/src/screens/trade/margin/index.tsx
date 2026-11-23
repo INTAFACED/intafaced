@@ -164,8 +164,8 @@ export default function MarginScreen(_props: ScreenProps) {
 
   return (
     <div data-screen="margin">
-      <ModeStrip active="Margin" />
       <DeskTemplate
+        section={<ModeStrip />}
         title={t('Margin account')}
         description={t('Margin intro')}
         mode="pro"

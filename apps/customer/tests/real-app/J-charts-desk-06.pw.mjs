@@ -268,7 +268,7 @@ test(`${J} #3 adds a Gann fan and a Fibonacci extension, each from its stated ru
   const extension = rowNamed(page, /^Fib extension \d+$/);
   const [a, b, c] = pricesOf(await pointText(extension).textContent());
   const expected = EXTENSION.map((level) => `${level} at ${levelCents(c, b, a, level)}`);
-  expect(await figureLines(extension).allTextContents()).toEqual(expected);
+  await expect.poll(async () => await figureLines(extension).allTextContents()).toEqual(expected);
 });
 
 test(`${J} #4 draws a pattern and a shape, and uses the brush: each is stored and editable like any drawing`, async () => {
@@ -284,7 +284,7 @@ test(`${J} #4 draws a pattern and a shape, and uses the brush: each is stored an
   }
   const pattern = rowNamed(page, /^Pattern \d+$/);
   await expect(pattern).toHaveAttribute('data-kind', 'pattern');
-  expect(pricesOf(await pointText(pattern).textContent())).toHaveLength(5);
+  await expect.poll(async () => pricesOf(await pointText(pattern).textContent())).toHaveLength(5);
   // Editable like any drawing: dragging its first point moves that point only.
   await select(pattern, /^Pattern \d+$/);
   const patternBefore = pricesOf(await pointText(pattern).textContent());

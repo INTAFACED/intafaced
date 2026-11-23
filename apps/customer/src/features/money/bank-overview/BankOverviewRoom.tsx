@@ -70,7 +70,7 @@ export function BankOverview() {
       title={copyText('index.bank')}
       description={copyText('overview.description')}
       state={{ kind: 'ready' }}
-      rooms={<BankTabs current="Overview" />}
+      section={<BankTabs />}
       actions={
         <div className="lt-actions">
           <a className="lt-button lt-button-primary" href="/bank/spaces">

@@ -4,7 +4,7 @@ export const verificationLadderCopy = defineCopy('account.verificationLadder', {
   title: 'What each level unlocks',
   intro: 'Each level shows what it lets you do, what it asks for and how long review takes.',
   region: 'Rules for your region ({region}).',
-  regionUnknown: 'Your region could not be confirmed, so these are the general rules. Your region’s rules may differ.',
+  regionUnknown: 'We could not tell where you are connecting from, so these are the general rules. The rules for your country may differ.',
   yourLevel: 'Your level',
   unlocks: 'What it unlocks',
   asks: 'What it asks for',

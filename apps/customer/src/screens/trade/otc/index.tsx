@@ -8,7 +8,8 @@ import { useRoomWriter } from '../rooms/write';
 import { useSession } from '../rooms/ui';
 import { Button } from '@intafaced/ui/lit';
 import { DeskTemplate, RefusalBox, Skeleton, TabPanel, Tabs } from '@intafaced/ui/lit/templates';
-import { Freshness, Refusal, TradeRoomsNav, WriteNotice } from '../options/notices';
+import { Freshness, Refusal, WriteNotice } from '../options/notices';
+import { TradeSubNav } from '../TradeSubNav';
 import { otcCopy } from './copy';
 import { useDeskStatus, useOtcMakers, usePairs, useQuoteBook, useRfqBoard } from './data';
 import { DeskStatusStrip } from './DeskStatusStrip';
@@ -91,10 +92,10 @@ function Room({ linkedId }: { linkedId: string | null }) {
       title={t('Quote desk')}
       description={t('Quote desk description')}
       mode="pro"
+      section={<TradeSubNav />}
       state={{ kind: 'ready' }}
       instrument={
         <div className="lt-stack">
-          <TradeRoomsNav active="otc" />
           <div className="lt-toolbar">
             <Freshness asOf={asOfOf(desk)} refused={desk.status === 'refused'} now={now} />
           </div>
@@ -220,7 +221,7 @@ export default function Screen(props: ScreenProps) {
         title={t('Quote desk')}
         description={t('Quote desk description')}
         mode="pro"
-        roomAction={<TradeRoomsNav active="otc" />}
+        section={<TradeSubNav />}
         state={{
           kind: 'gated',
           gate: 'signed-out',

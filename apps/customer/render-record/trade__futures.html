@@ -96,7 +96,14 @@
 </header>
 <main id="main" tabindex="-1">
 <div data-screen="futures">
-<nav class="lt-tabs" aria-label="Trading rooms">
+<div class="lt-room" data-template="desk" data-state="ready" data-mode="pro">
+<header class="lt-title-row">
+<div>
+<h1 class="lt-title">Futures desk</h1>
+</div>
+</header>
+<div class="lt-room-section">
+<nav class="lt-tabs" aria-label="Trading rooms" data-region="section-tabs">
 <a href="/trade/spot/BTC-USDT" class="lt-tab">Spot</a>
 <a href="/trade/margin" class="lt-tab">Margin</a>
 <a href="/trade/futures" class="lt-tab" aria-current="page">Futures</a>
@@ -107,12 +114,7 @@
 <a href="/execution" class="lt-tab">Execution</a>
 <a href="/otc" class="lt-tab">Quote desk</a>
 </nav>
-<div class="lt-room" data-template="desk" data-state="ready" data-mode="pro">
-<header class="lt-title-row">
-<div>
-<h1 class="lt-title">Futures desk</h1>
 </div>
-</header>
 <div class="lt-body">
 <div class="lt-desk" data-desk="pro">
 <section class="lt-region" data-region="instrument" aria-label="Price">

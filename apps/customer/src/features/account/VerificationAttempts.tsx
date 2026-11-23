@@ -14,7 +14,8 @@ import { IDENTITY_KYC_ATTEMPTS_READ } from '@intafaced/contracts/identity-kyc-pr
  */
 export function VerificationAttempts({ recordsKey, onLocked }: { recordsKey: string; onLocked: (locked: boolean) => void }) {
   const { api, userId } = useSession();
-  const { Copy } = copy.useCopy();
+  const { t, Copy } = copy.useCopy();
+  const hours = (n: number) => (n === 1 ? t('hourOne') : t('hoursMany', { n: String(n) }));
   const { resource, reload } = useResource(
     (signal) => api.call(IDENTITY_KYC_ATTEMPTS_READ, undefined, { signal }),
     `verification-attempts:${userId}:${recordsKey}`,
@@ -71,8 +72,8 @@ export function VerificationAttempts({ recordsKey, onLocked }: { recordsKey: str
             params={{
               count: String(denialsInWindow ?? 0),
               max: String(limit.maxDenials),
-              window: String(limit.windowHours),
-              lockout: String(limit.lockoutHours),
+              window: hours(limit.windowHours),
+              lockout: hours(limit.lockoutHours),
             }}
           />
         </p>

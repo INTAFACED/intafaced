@@ -147,9 +147,70 @@ export function StatusChip({ status, label, returned = false }: { status: MoneyS
   );
 }
 
-/** A door's room row: links, with the open room marked for assistive tech as well as by look. */
+/** One link in a section's tab bar. `match` names more path prefixes the tab owns (a room's detail pages). */
+export interface TabLink {
+  label: string;
+  href: string;
+  match?: readonly string[];
+}
+
+const pathOf = (href: string) => (href.split(/[?#]/)[0] ?? href).replace(/(.)\/$/, '$1');
+
+/**
+ * The href of the tab `pathname` sits in: the tab whose path is the route, else the longest tab path (or `match`
+ * prefix) the route sits under. A tab at a section's root (`/bank`, `/quant`: one segment) lights only on itself, so a
+ * room the bar does not list lights no tab rather than the wrong one.
+ */
+export function currentTab(items: readonly TabLink[], pathname: string): string {
+  const here = pathOf(pathname);
+  const exact = items.find((t) => pathOf(t.href) === here);
+  if (exact) return exact.href;
+  let best = '';
+  let found = '';
+  for (const t of items) {
+    const own = pathOf(t.href);
+    const prefixes = [...(own.split('/').filter(Boolean).length > 1 ? [own] : []), ...(t.match ?? [])];
+    for (const prefix of prefixes) {
+      if ((here === prefix || here.startsWith(`${prefix}/`)) && prefix.length > best.length) {
+        best = prefix;
+        found = t.href;
+      }
+    }
+  }
+  return found;
+}
+
+const onRoute = (listener: () => void) => {
+  window.addEventListener('popstate', listener);
+  return () => window.removeEventListener('popstate', listener);
+};
+const routePath = () => (typeof location === 'undefined' ? '' : location.pathname);
+
+/**
+ * Scrolls a tab row (only the row, never the page) as far as brings its lit tab (`aria-current`, `aria-pressed` or
+ * `aria-selected`) wholly into view, once per lit tab, so a row that scrolls never opens with its lit tab off-screen.
+ */
+const shown = new WeakMap<HTMLElement, string>();
+function showLit(row: HTMLElement | null, lit: string) {
+  if (!row || shown.get(row) === lit) return;
+  shown.set(row, lit);
+  const tab = row.querySelector<HTMLElement>('[aria-current="page"], [aria-pressed="true"], [aria-selected="true"]');
+  if (!tab || row.scrollWidth <= row.clientWidth) return;
+  const box = row.getBoundingClientRect();
+  const at = tab.getBoundingClientRect();
+  if (at.right > box.right) row.scrollLeft += at.right - box.right + 24;
+  else if (at.left < box.left) row.scrollLeft -= box.left - at.left + 24;
+}
+
+/**
+ * One row of tabs. With `href`s it is a section's tab bar: links, the open room marked `aria-current`; the lit tab is the
+ * route's (`currentTab`) unless `current` names one. With `value`s and `onChange` it is in-page tabs: a `tablist` of
+ * `tab`s, the shown one `aria-selected`, one Tab stop, and the arrow keys, Home and End move and show (the panel is a
+ * `TabPanel` with the same `id`). Either row is one line at every width: a longer row scrolls sideways, fading at the
+ * end that has more, with the lit tab scrolled into view.
+ */
 export type TabsProps =
-  | { items: readonly { label: string; href: string }[]; current: string; label: string }
+  | { items: readonly TabLink[]; current?: string; label: string }
   | {
       /** In-page tabs: each item names the panel it shows. */
       items: readonly { label: string; value: string }[];
@@ -162,19 +223,16 @@ export type TabsProps =
       className?: string;
     };
 
-/**
- * One row of tabs. With `href`s it is a door's room row: links, the open room marked `aria-current`. With `value`s and
- * `onChange` it is in-page tabs: a `tablist` of `tab`s, the shown one `aria-selected`, one Tab stop, and the arrow keys,
- * Home and End move and show (the panel is a `TabPanel` with the same `id`).
- */
 export function Tabs(props: TabsProps) {
   const refs = React.useRef<(HTMLButtonElement | null)[]>([]);
+  const path = React.useSyncExternalStore(onRoute, routePath, routePath);
   if (!('onChange' in props)) {
     const { items, current, label } = props;
+    const lit = current ?? currentTab(items, path);
     return (
-      <nav className="lt-tabs" aria-label={label}>
+      <nav ref={(node) => showLit(node, lit)} className="lt-tabs" aria-label={label} data-region="section-tabs">
         {items.map((t) => (
-          <a key={t.href} href={t.href} className="lt-tab" aria-current={t.href === current ? 'page' : undefined}>
+          <a key={t.href} href={t.href} className="lt-tab" aria-current={t.href === lit ? 'page' : undefined}>
             {t.label}
           </a>
         ))}
@@ -303,7 +361,7 @@ export function TabPanel({
 
 /**
  * A room's own sections, one button each, the open one pressed: the same row as Tabs, for sections a room switches
- * itself (it navigates in `onChange`) rather than by link. Wraps onto a second line when it overflows, as Tabs do. The
+ * itself (it navigates in `onChange`) rather than by link. One line that scrolls sideways when it overflows, as Tabs do. The
  * arrow keys move focus between the sections (`arrow-focus.ts`).
  */
 export function SectionTabs<T extends string>({
@@ -318,7 +376,7 @@ export function SectionTabs<T extends string>({
   label: string;
 }) {
   return (
-    <div className="lt-tabs" role="group" aria-label={label} onKeyDown={moveFocusByArrow}>
+    <div ref={(node) => showLit(node, value)} className="lt-tabs" role="group" aria-label={label} onKeyDown={moveFocusByArrow}>
       {items.map((t) => (
         <button key={t.value} type="button" className="lt-tab" aria-pressed={t.value === value} onClick={() => onChange(t.value)}>
           {t.label}
@@ -364,7 +422,7 @@ export function TabList<T extends string>({
     event.preventDefault();
   };
   return (
-    <div className="lt-tabs" role="tablist" aria-label={label}>
+    <div ref={(node) => showLit(node, value)} className="lt-tabs" role="tablist" aria-label={label}>
       {items.map((t, i) => (
         <button
           key={t.value}

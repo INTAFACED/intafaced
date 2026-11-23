@@ -122,7 +122,7 @@ function ParkedBotRoom({ title, reason }: { title: string; reason: string }) {
   const { t } = roomCopy.useCopy();
   return (
     <Page width="full" className="cb-page" landmark={false}>
-      <ModeNav active="bots" />
+      <ModeNav />
       <PageHeader title={t(title as 'Spot grid')} description={t('This bot can’t be set up here.')} />
       <EmptyState
         variant="refused"
@@ -467,7 +467,7 @@ function BotsHub({ path }: { path: string }) {
   const schedulerOff = policy.data !== null && !policy.data.capability.jobsEnabled;
   return (
     <Page width="full" className="cb-page" landmark={false}>
-      <ModeNav active="bots" />
+      <ModeNav />
       <PageHeader
         title={t('Bots')}
         description={t('Pick a bot, set its size and limits, see what it will cost before it starts, and stop it any time.')}

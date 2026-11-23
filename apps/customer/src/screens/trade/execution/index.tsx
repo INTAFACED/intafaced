@@ -58,6 +58,7 @@ export default function Screen(_props: ScreenProps) {
     <DeskTemplate
       mode="pro"
       title={t('Execution')}
+      section={<TradeSubNav />}
       description={t('Execution description')}
       state={state}
       instrument={undefined}
@@ -65,7 +66,6 @@ export default function Screen(_props: ScreenProps) {
       ticket={undefined}
       orders={
         <div className="lt-body">
-          <TradeSubNav active="execution" />
           {meta}
           <Tabs
             id="execution"

@@ -32,7 +32,7 @@ async function openWorkbench(page) {
   await page.goto(CHART);
   await expect(panel(page)).toBeVisible();
   await expect(panel(page)).toHaveAttribute('data-status', /^(ready|error)$/);
-  expect(await panel(page).getAttribute('data-status'), "the person's saved lists were read").toBe('ready');
+  await expect.poll(async () => await panel(page).getAttribute('data-status'), "the person's saved lists were read").toBe('ready');
 }
 
 /** The public ticker Edge serves for a symbol: the value the page must agree with. */

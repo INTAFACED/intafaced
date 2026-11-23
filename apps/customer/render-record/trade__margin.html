@@ -96,7 +96,15 @@
 </header>
 <main id="main" tabindex="-1">
 <div data-screen="margin">
-<nav class="lt-tabs" aria-label="Trading rooms">
+<div class="lt-room" data-template="desk" data-state="ready" data-mode="pro">
+<header class="lt-title-row">
+<div>
+<h1 class="lt-title">Margin account</h1>
+<p class="lt-description">Futures margin is isolated: each position carries its own margin and can lose only that. This page shows how much you have at risk and how close each position is.</p>
+</div>
+</header>
+<div class="lt-room-section">
+<nav class="lt-tabs" aria-label="Trading rooms" data-region="section-tabs">
 <a href="/trade/spot/BTC-USDT" class="lt-tab">Spot</a>
 <a href="/trade/margin" class="lt-tab" aria-current="page">Margin</a>
 <a href="/trade/futures" class="lt-tab">Futures</a>
@@ -107,13 +115,7 @@
 <a href="/execution" class="lt-tab">Execution</a>
 <a href="/otc" class="lt-tab">Quote desk</a>
 </nav>
-<div class="lt-room" data-template="desk" data-state="ready" data-mode="pro">
-<header class="lt-title-row">
-<div>
-<h1 class="lt-title">Margin account</h1>
-<p class="lt-description">Futures margin is isolated: each position carries its own margin and can lose only that. This page shows how much you have at risk and how close each position is.</p>
 </div>
-</header>
 <div class="lt-body">
 <div class="lt-desk" data-desk="pro">
 <section class="lt-region" data-region="instrument" aria-label="Price">

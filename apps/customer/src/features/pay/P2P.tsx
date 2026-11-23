@@ -1,5 +1,6 @@
 import type { P2pCancelReason } from '@intafaced/contracts/p2p-cancel';
 import { ContractEscrowPanel } from './personal/ContractEscrow';
+import { P2PTabs } from './p2p-tabs';
 import { payCopy, PayCopy, payRefusal } from './copy';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
@@ -93,34 +94,22 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
           : payCopy.t('externalPaymentLedgerEscrowAndARecorded')
       }
     >
-      <nav
-        className={`pay-room-tabs${tradeId || current === '/chat' ? ' pay-order-tabs' : ''}`}
-        aria-label={payCopy.t('p2pRooms')}
-        onFocus={(event) => {
-          if (event.target instanceof HTMLAnchorElement) event.target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-        }}
-      >
-        <a
-          href="/p2p"
-          aria-current={
-            !showOrders && !showMine && !showMethods && !showAccess && !publish && !tradeId && current !== '/chat' ? 'page' : undefined
-          }
-        >
-          <PayCopy k="offers" />
-        </a>
-        <a href="/uc/order" aria-current={showOrders || tradeId || current === '/chat' ? 'page' : undefined}>
-          <PayCopy k="yourOrders" />
-        </a>
-        <a href="/uc/ad" aria-current={showMine ? 'page' : undefined}>
-          <PayCopy k="yourOffers" />
-        </a>
-        <a href="/p2p/methods" aria-current={showMethods ? 'page' : undefined}>
-          <PayCopy k="paymentMethods" />
-        </a>
-        <a href="/p2p/access" aria-current={showAccess ? 'page' : undefined}>
-          <PayCopy k="tradingAccess" />
-        </a>
-      </nav>
+      <P2PTabs
+        order={Boolean(tradeId) || current === '/chat'}
+        current={
+          showOrders || tradeId || current === '/chat'
+            ? '/uc/order'
+            : showMine
+              ? '/uc/ad'
+              : showMethods
+                ? '/p2p/methods'
+                : showAccess
+                  ? '/p2p/access'
+                  : publish
+                    ? undefined
+                    : '/p2p'
+        }
+      />
       {current === '/chat' && !tradeId ? (
         <EmptyState
           title={p2pDepth.t('chatPickTitle')}

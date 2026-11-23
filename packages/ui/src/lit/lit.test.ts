@@ -308,6 +308,26 @@ describe('lit fonts are self-hosted and named as the roles name them', () => {
       expect(css).toContain(pkg === 'geist' ? "font-family: 'Geist Variable'" : "font-family: 'Geist Mono Variable'");
     }
   });
+  it('every Volt family draws arrows, shapes and check marks from its own symbol faces, not a system fallback', () => {
+    const faces = [...fonts.matchAll(/@font-face\s*{([^}]*)}/g)].map((m) => m[1] ?? '');
+    for (const family of ['Archivo Variable', 'Geist Variable', 'Geist Mono Variable']) {
+      const own = faces.filter((f) => f.includes(`font-family: '${family}'`));
+      const ranges = own.map((f) => /unicode-range:\s*([^;]+);/.exec(f)?.[1] ?? '').join(',');
+      // → ↗ ← ↔ ↙ ↘ ↕ ↻ ▲ ▼ ▾ ▸ ○ ● ✓ ✕: every symbol the Customer app types today.
+      for (const ch of '→↗←↔↙↘↕↻▲▼▾▸○●✓✕') {
+        const cp = ch.codePointAt(0)!;
+        const covered = ranges.split(',').some((r) => {
+          const [a = '', b = a] = r.trim().replace(/^U\+/, '').split('-');
+          return cp >= parseInt(a, 16) && cp <= parseInt(b, 16);
+        });
+        expect(covered, `${family} draws ${ch}`).toBe(true);
+      }
+      for (const f of own) {
+        const file = /url\(\.\/(fonts\/[^)]+)\)/.exec(f)?.[1];
+        expect(file && statSync(join(here, file)).size).toBeGreaterThan(0);
+      }
+    }
+  });
 });
 
 describe('one part per role', () => {
@@ -346,8 +366,9 @@ describe('one part per role', () => {
 });
 
 describe('the kit draws the arrows its faces lack', () => {
-  // Archivo and Geist carry no ▲ ▼ → ← ↗, so a typed one falls back to a system face (look gate run 45061471946: ▲ in
-  // WenQuanYi Zen Hei). The kit draws them: lt-arrow-up, lt-arrow-down, lt-arrow-go, lt-arrow-back, lt-arrow-out.
+  // Archivo and Geist carry no ▲ ▼ → ← ↗ (look gate run 45061471946: ▲ in WenQuanYi Zen Hei); fonts.css now gives each
+  // family symbol faces for typed text, and the kit's own parts still draw theirs: lt-arrow-up, lt-arrow-down,
+  // lt-arrow-go, lt-arrow-back, lt-arrow-out.
   it('no kit component types one outside a comment', () => {
     const typed = walk(here)
       .filter((f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f))

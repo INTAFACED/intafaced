@@ -248,7 +248,7 @@ test(`${J} #5 starts bar replay 100 bars back at 4x; the chart moves forward bar
   await expect(page.getByTestId('replay-note')).toContainText('replay can start at most');
   // Leaving replay draws every bar again, up to the newest.
   await expect.poll(async () => Number(await canvas.getAttribute('data-bars'))).toBeGreaterThanOrEqual(total);
-  expect(Number(await canvas.getAttribute('data-last'))).toBeGreaterThanOrEqual(Number(newest));
+  await expect.poll(async () => Number(await canvas.getAttribute('data-last'))).toBeGreaterThanOrEqual(Number(newest));
 });
 
 test(`${J} #6 uses chart and desk shortcuts, and each does what its help list says`, async ({ page }) => {
@@ -269,8 +269,8 @@ test(`${J} #6 uses chart and desk shortcuts, and each does what its help list sa
     ['Home', 'Show the newest bars'],
     ['?', 'Show this list'],
   ];
-  expect(await list.locator('dt').allTextContents()).toEqual(help.map(([key]) => key));
-  expect(await list.locator('dd').allTextContents()).toEqual(help.map(([, does]) => does));
+  await expect.poll(async () => await list.locator('dt').allTextContents()).toEqual(help.map(([key]) => key));
+  await expect.poll(async () => await list.locator('dd').allTextContents()).toEqual(help.map(([, does]) => does));
   await page.keyboard.press('Escape');
   await expect(list).toBeHidden();
   // Each key does what the list says. Styles: Alt+1 to Alt+6 in the listed order, from Alt+2 so Alt+1 changes something.

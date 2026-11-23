@@ -269,6 +269,7 @@ export default function Screen({ search }: ScreenProps) {
     <DeskTemplate
       mode="pro"
       title={t('Terminal')}
+      section={<TradeSubNav />}
       description={t('Terminal description')}
       state={state}
       instrument={undefined}
@@ -276,7 +277,6 @@ export default function Screen({ search }: ScreenProps) {
       ticket={undefined}
       orders={
         <div className="lt-body">
-          <TradeSubNav active="execution" />
           <Tabs
             id="terminal"
             label={t('Terminal tabs')}
