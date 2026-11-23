@@ -11,6 +11,7 @@ export { HeroFigure, HIDDEN_MASK, type HeroFigureProps } from './components/hero
 export { Fold, type FoldProps } from './components/fold.js';
 export { CardStack, CardStackLoading, type CardStackProps, type StackCard } from './components/card-stack.js';
 export { AmountField, type AmountFieldProps } from './components/amount-field.js';
+export { DateInput, DateOrInput, formatDateValue, emptyDateValue, type DateInputProps } from './components/date-input.js';
 export { ToastProvider, useToast, type ToastOptions, type ToastProviderProps } from './components/toast.js';
 export { Payee, type PayeeProps } from './components/payee.js';
 export { StatusNote, type StatusNoteProps } from './components/status-note.js';
