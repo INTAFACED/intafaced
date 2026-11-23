@@ -74,14 +74,14 @@ export function MoneyList({
 }) {
   if (items.length === 0)
     return (
-      <span className="pp-none" title={emptyLabel}>
+      <span className="lt-muted" title={emptyLabel}>
         —
       </span>
     );
   return (
     <span className="pp-lines">
       {items.map((item) => (
-        <span key={item.assetCode} className="pp-line">
+        <span key={item.assetCode}>
           <MoneyText value={item.amount} asset={item.assetCode} test={test} sign={sign} />
         </span>
       ))}

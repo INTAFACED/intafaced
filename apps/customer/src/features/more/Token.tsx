@@ -225,7 +225,7 @@ export function Token({ tab: first }: { tab?: TokenTab } = {}) {
     [limit, setLimit] = useState(50);
   const { access, stakes, burned } = useTokenReads(status, limit);
   return (
-    <div className="more-grid">
+    <div className="lt-stack">
       <Tabs
         items={['Staking', 'Governance', 'Economy', 'Burn']}
         labels={{

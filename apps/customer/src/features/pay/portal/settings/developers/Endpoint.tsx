@@ -86,7 +86,7 @@ export function EndpointView({
     <div className="lt-stack">
       <DetailHeader
         back={{ href: '/pay/developer/webhooks', label: t('backToEndpoints') }}
-        title={<span className="pp-wrap">{shownEndpointUrl(endpoint.url)}</span>}
+        title={<span className="lt-wrap">{shownEndpointUrl(endpoint.url)}</span>}
         status={<StatusChip entity="endpoint" value={endpoint.status} />}
         subtitle={endpoint.status === 'disabled' ? t('disabledSubtitle') : t('activeSubtitle')}
       />
@@ -129,7 +129,7 @@ export function EndpointView({
         <AuditPanel who={null} at={endpoint.updatedAt} />
       </PaySection>
       <PaySection title={t('manageTitle')} description={t('manageBody')}>
-        <div data-testid="form-stack" className="form-stack pp-form">
+        <div data-testid="form-stack" className="lt-stack">
           <ChangeAddress api={api} endpoint={endpoint} canManage={canManage} onDone={reload} />
           <RotateEndpointSecret
             api={api}
@@ -148,7 +148,7 @@ export function EndpointView({
               disabledReason={t('readOnlyRole')}
               review={
                 <p>
-                  <strong className="pp-wrap">{shownEndpointUrl(endpoint.url)}</strong> {t('disableEffect')}
+                  <strong className="lt-wrap">{shownEndpointUrl(endpoint.url)}</strong> {t('disableEffect')}
                 </p>
               }
               perform={() => api.endpointDisable(endpoint.id)}
@@ -213,11 +213,11 @@ function ChangeAddress({
           <dl className="pay-details">
             <div>
               <dt>{t('from')}</dt>
-              <dd className="pp-wrap">{shownEndpointUrl(endpoint.url)}</dd>
+              <dd className="lt-wrap">{shownEndpointUrl(endpoint.url)}</dd>
             </div>
             <div>
               <dt>{t('to')}</dt>
-              <dd className="pp-wrap">{shownEndpointUrl(url.trim())}</dd>
+              <dd className="lt-wrap">{shownEndpointUrl(url.trim())}</dd>
             </div>
           </dl>
         }

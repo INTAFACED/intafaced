@@ -68,7 +68,7 @@ export function SalaryRoom({ open }: { open: (spec: ActionSpec) => void }) {
         <ResourceView resource={credits.resource} reload={credits.reload}>
           {(rows) =>
             rows.length ? (
-              <ul className="money-list" data-testid="salary-credits">
+              <ul data-testid="salary-credits">
                 {rows.map((credit) => (
                   <CreditRow key={credit.networkId} credit={credit} nameOf={nameOf} />
                 ))}
@@ -136,7 +136,7 @@ function CreditRow({ credit, nameOf }: { credit: SalaryCredit; nameOf: (spaceId:
         </p>
       )}
       {credit.legs.length > 0 && (
-        <ul className="money-list">
+        <ul>
           {credit.legs.map((leg) => {
             const words = { amount: amount(leg.amount, credit.assetId), space: nameOf(leg.spaceId), code: leg.rejectionCode ?? '' };
             const key = { settled: 'legSettled', rejected: 'legRejected', pending: 'legPending', unsplit: 'legUnsplit' } as const;
