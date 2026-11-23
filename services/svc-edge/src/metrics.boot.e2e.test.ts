@@ -83,51 +83,66 @@ async function waitForBoot(url: string, log: () => string): Promise<void> {
   throw new Error(`svc-edge never became reachable (${last}):\n${log()}`);
 }
 
+/**
+ * A port from `freePort` is free only until the probe closes; another process on
+ * the runner can take it before the child binds it (EADDRINUSE). Only that
+ * exit boots again on a fresh port; any other exit still fails the run.
+ */
+const isAddressInUse = (output: string): boolean => /\bEADDRINUSE\b/.test(output);
+
 beforeAll(async () => {
-  const port = await freePort();
-  base = `http://127.0.0.1:${port}`;
+  for (let attempt = 1; ; attempt++) {
+    const port = await freePort();
+    base = `http://127.0.0.1:${port}`;
 
-  let output = '';
-  const log = () => output;
+    let output = '';
+    const log = () => output;
 
-  // `--import tsx` keeps this to ONE process, so the kill in `afterAll` cannot
-  // leave an orphan holding the port. `tsx src/index.ts` would spawn a grandchild
-  // that survives killing its parent on Windows.
-  child = spawn(process.execPath, ['--import', 'tsx', ENTRYPOINT], {
-    cwd: join(HERE, '..'),
-    env: {
-      ...process.env,
-      APP_ENV: 'test',
-      NODE_ENV: 'test',
-      SERVICE_NAME: 'svc-edge',
-      HTTP_HOST: '127.0.0.1',
-      HTTP_PORT: String(port),
-      LOG_LEVEL: 'fatal',
-      // No collector in a unit-test run; a provider that cannot export would
-      // only add retry noise to this process's stderr.
-      OTEL_ENABLED: 'false',
-      JWT_ACCESS_SECRET: 'test-only-signing-secret-at-least-32-characters-long',
-      EDGE_PRINCIPAL_SECRET: 'test-only-edge-principal-secret-at-least-32-chars',
-      EDGE_RATE_LIMIT_MAX: '300',
-      EDGE_RATE_LIMIT_WINDOW_MS: '60000',
-      EDGE_BODY_LIMIT_BYTES: '1048576',
-      // Listed fixture so the geo-block guard can pass through to the proxy
-      // (unset would 503 as unknown). Placeholder codes only — not counsel content.
-      INTAFACED_SANCTIONS_REGIONS: 'AA:test-fixture-not-a-real-list',
-      // Kept out of the repo tree so a test run cannot leave a state file behind.
-      EDGE_KILL_STATE_PATH: '',
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+    // `--import tsx` keeps this to ONE process, so the kill in `afterAll` cannot
+    // leave an orphan holding the port. `tsx src/index.ts` would spawn a grandchild
+    // that survives killing its parent on Windows.
+    child = spawn(process.execPath, ['--import', 'tsx', ENTRYPOINT], {
+      cwd: join(HERE, '..'),
+      env: {
+        ...process.env,
+        APP_ENV: 'test',
+        NODE_ENV: 'test',
+        SERVICE_NAME: 'svc-edge',
+        HTTP_HOST: '127.0.0.1',
+        HTTP_PORT: String(port),
+        LOG_LEVEL: 'fatal',
+        // No collector in a unit-test run; a provider that cannot export would
+        // only add retry noise to this process's stderr.
+        OTEL_ENABLED: 'false',
+        JWT_ACCESS_SECRET: 'test-only-signing-secret-at-least-32-characters-long',
+        EDGE_PRINCIPAL_SECRET: 'test-only-edge-principal-secret-at-least-32-chars',
+        EDGE_RATE_LIMIT_MAX: '300',
+        EDGE_RATE_LIMIT_WINDOW_MS: '60000',
+        EDGE_BODY_LIMIT_BYTES: '1048576',
+        // Listed fixture so the geo-block guard can pass through to the proxy
+        // (unset would 503 as unknown). Placeholder codes only — not counsel content.
+        INTAFACED_SANCTIONS_REGIONS: 'AA:test-fixture-not-a-real-list',
+        // Kept out of the repo tree so a test run cannot leave a state file behind.
+        EDGE_KILL_STATE_PATH: '',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
 
-  child.stdout?.on('data', (d: Buffer) => {
-    output += d.toString();
-  });
-  child.stderr?.on('data', (d: Buffer) => {
-    output += d.toString();
-  });
+    child.stdout?.on('data', (d: Buffer) => {
+      output += d.toString();
+    });
+    child.stderr?.on('data', (d: Buffer) => {
+      output += d.toString();
+    });
 
-  await waitForBoot(base, log);
+    try {
+      await waitForBoot(base, log);
+      return;
+    } catch (err) {
+      if (attempt >= 5 || child?.exitCode === null || !isAddressInUse(output)) throw err;
+      child = null;
+    }
+  }
 }, 90_000);
 
 afterAll(async () => {
