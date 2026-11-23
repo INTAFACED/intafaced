@@ -62,6 +62,7 @@ import {
   crmActivitySchema,
   crmAssignmentInputSchema,
   crmContactSchema,
+  crmDeliverySchema,
   crmListInputSchema,
   crmNextActionInputSchema,
   crmNoteInputSchema,
@@ -490,8 +491,16 @@ export class OutreachCrm {
       const rows = await tx`SELECT record FROM ops.crm_opportunities WHERE id=${opportunityId}`;
       if (!rows[0]) return null;
       const opportunity = crmOpportunitySchema.parse(rows[0].record);
-      const deliveries =
+      const deliveryRows =
         await tx`SELECT id,business_key,kind,status,attempts,acceptance_ref,error_code,created_at,updated_at FROM ops.crm_outbox WHERE submission_id=${opportunity.submissionId}`;
+      // Times go out as the ISO strings JSON already made of them; the answer schema checks each row.
+      const deliveries = deliveryRows.map((r) =>
+        crmDeliverySchema.parse({
+          ...r,
+          created_at: new Date(r.created_at).toISOString(),
+          updated_at: new Date(r.updated_at).toISOString(),
+        }),
+      );
       const contacts = await tx`SELECT record FROM ops.crm_contacts WHERE id=${opportunity.contactId}`;
       const submissions = await tx`SELECT record FROM ops.crm_submissions WHERE id=${opportunity.submissionId}`;
       const organisations = opportunity.organisationId

@@ -1,26 +1,8 @@
-// The only file in this screen that knows where the shared pieces come from: the kit in @intafaced/ui, the data
+// The only file in this screen that knows where the shared pieces come from: the Volt kit's parts, the data
 // layer in ../../data, the Simple Buy card and chart adapter from the trade screens, and the feature registry.
-export {
-  Amount,
-  Button,
-  ChangeText,
-  CoinIcon,
-  HeroNumber,
-  Money,
-  Pct,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-  Skeleton,
-  StateBlock,
-  ToggleGroup,
-  ToggleGroupItem,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@intafaced/ui';
+// Drawn only from the Volt kit: Home's figures and the trade screens' states, each already on the kit.
+export { Amount, ChangeText, HeroFigure, Money } from '../home/volt-parts';
+export { KitState, LinkButton } from '../trade/kit-parts';
 
 export {
   classifyRefusal,

@@ -4,7 +4,7 @@ import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from './index.js';
 import { defineProcedure, NO_INPUT, type Access } from './procedure.js';
 import { mountRecords, type ServiceParts } from './procedure-mount.js';
-import { router, scopedProcedure, TRPCError, type GuardOptions, type ServiceCheck } from './trpc.js';
+import { personProcedure, router, scopedProcedure, TRPCError, type GuardOptions, type ServiceCheck } from './trpc.js';
 
 /**
  * A guard a service wrote by hand, and the record the call-records codemod copies it onto, refuse exactly the same
@@ -50,7 +50,11 @@ async function contextOf(c: Caller) {
 const output = z.object({ ok: z.literal(true) });
 
 /** The record for `access`, mounted as `guarded`, and the hand guard's procedure at the same path. */
-function both(access: Access & { caller: 'scope' }, hand: ReturnType<typeof scopedProcedure>, parts: ServiceParts = () => undefined) {
+function both(
+  access: Access & { caller: 'scope' | 'person' },
+  hand: ReturnType<typeof scopedProcedure> | ReturnType<typeof personProcedure>,
+  parts: ServiceParts = () => undefined,
+) {
   const RECORD = defineProcedure({
     service: 'svc-quant',
     module: 'quant',
@@ -87,6 +91,38 @@ const KEY = 'key-1';
 const SUB = '33333333-3333-4333-8333-333333333333';
 
 describe('a guard copied onto its record refuses as the hand guard did', () => {
+  it("svc-identity's personProcedure(): the person's own session passes and a key or a sub-account is refused, through the record", async () => {
+    const { fromRecord, byHand } = both({ caller: 'person' }, personProcedure());
+    const callers: Caller[] = [{ scopes: [] }, { scopes: ['admin:read'], kid: KEY }, { scopes: [], sub_account: SUB }];
+    for (const c of callers) expect(await verdict(fromRecord, c), JSON.stringify(c)).toEqual(await verdict(byHand, c));
+    expect(await verdict(fromRecord, { scopes: [] })).toEqual({ ok: true });
+    expect(await verdict(fromRecord, { scopes: [], kid: KEY })).toEqual({
+      refused: 'FORBIDDEN',
+      message: 'Sign in yourself; an API key, a sub-account or a service cannot do this',
+    });
+  });
+
+  it('personProcedure(scope, guards): the scope and the jurisdiction hold through the record as by hand', async () => {
+    const { fromRecord, byHand } = both(
+      { caller: 'person', scope: 'admin:read', module: 'core-ops', plane: 'fiat' },
+      personProcedure('admin:read', { module: 'core-ops', plane: 'fiat' }),
+    );
+    const callers: Caller[] = [
+      { scopes: ['admin:read'] },
+      { scopes: [] },
+      { scopes: ['admin:read'], kid: KEY },
+      ...['US', 'KP', 'IR', 'RU'].map((region) => ({ scopes: ['admin:read'], region })),
+    ];
+    const seen: unknown[] = [];
+    for (const c of callers) {
+      const got = await verdict(fromRecord, c);
+      expect(got, JSON.stringify(c)).toEqual(await verdict(byHand, c));
+      seen.push(got);
+    }
+    expect(seen[0]).toEqual({ ok: true });
+    expect(seen[1]).toEqual({ refused: 'FORBIDDEN', message: 'Scope "admin:read" is required' });
+  });
+
   it("svc-agents' operator(scope): an API key and a sub-account are refused with the call's own code before the scope, through the record", async () => {
     // svc-agents fleet/control.ts before the record could say it; a person's session is judged as it was by hand.
     const hand = scopedProcedure('admin:read', { module: 'agents', person: true }).use(({ ctx, next }) => {

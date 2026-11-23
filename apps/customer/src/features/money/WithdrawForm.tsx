@@ -7,7 +7,7 @@ import { displayAmount } from '../../shared/money';
 import { usePreferences } from '../../shared/preferences';
 import { useSession } from '../session';
 import { useWallet } from '../protocol';
-import { date, useBankRead } from './components';
+import { date, useBankRecord } from './components';
 import type { Destination } from './contracts';
 import { DepthPanel, DisabledAction, Fact } from './DepthParts';
 import { useHoldings } from './holdings';
@@ -30,6 +30,7 @@ import { WithdrawStepUp } from './WithdrawStepUp';
 import { WALLET_NOT_CONNECTED, walletFill, walletGone, walletSavedNetwork, type WalletFill } from './withdraw-to-wallet';
 import './bank-depth.css';
 import { CAMPAIGNS_REWARDS_MINE } from '@intafaced/contracts/campaigns-rewards-procedures';
+import { BANK_RAMPS_DESTINATIONS_NETWORKS, BANK_RAMPS_DESTINATIONS_LIST } from '@intafaced/contracts/bank-ramps-procedures';
 
 const AMOUNT_ERROR = { invalid: 'fAmountInvalid', zero: 'fAmountZero', tooMuch: 'fAmountTooMuch', unknown: 'fBalanceUnknown' } as const;
 // A person's ask has no business id before svc-pay records it, so its client reference is minted once per ask here and kept
@@ -209,8 +210,8 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
   const { hideBalances } = usePreferences();
   const { api, userId } = useSession();
   const held = useHoldings();
-  const networks = useBankRead('ramps.destinations.networks', undefined);
-  const book = useBankRead('ramps.destinations.list', undefined);
+  const networks = useBankRecord(BANK_RAMPS_DESTINATIONS_NETWORKS, undefined);
+  const book = useBankRecord(BANK_RAMPS_DESTINATIONS_LIST, undefined);
   const assets = held.resource.status === 'ready' ? held.resource.data.assets : [];
   // The send inside INTAFACED being confirmed: its terms and its client reference. Kept until svc-pay gives a final answer,
   // so a send whose answer was lost is finished by confirming again with the same reference and the same terms.
@@ -581,19 +582,19 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
   }
 
   return (
-    <div className="bd-stack" data-testid="withdraw-form">
+    <div className="lt-stack" data-testid="withdraw-form">
       <DepthPanel title={t('formTitle')} lead={t('formLead')}>
         <div className="bd-address" role="status">
           <strong>{t('unavailable')}</strong>
           <p>{t('unavailableNote')}</p>
         </div>
-        <form className="bd-stack" onSubmit={(event) => event.preventDefault()} noValidate>
+        <form className="lt-stack" onSubmit={(event) => event.preventDefault()} noValidate>
           {held.resource.status === 'loading' ? (
             <Loading />
           ) : held.resource.status === 'failed' ? (
             <Failure result={held.resource.failure} retry={held.reload} />
           ) : (
-            <label className="field">
+            <label className="lt-field">
               <span>{t('fAsset')}</span>
               <select
                 value={asset}
@@ -613,7 +614,7 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
           {networks.resource.status === 'failed' ? (
             <Failure result={networks.resource.failure} retry={networks.reload} />
           ) : (
-            <label className="field">
+            <label className="lt-field">
               <span>{t('fNetwork')}</span>
               <select
                 value={network}
@@ -632,12 +633,12 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
             </label>
           )}
           {!insideNow && asset && network && (
-            <div className="bd-stack" data-testid="withdraw-network-rules">
+            <div className="lt-stack" data-testid="withdraw-network-rules">
               <strong>{t('nrTitle')}</strong>
               {networkRules.resource.status === 'loading' ? (
                 <Loading />
               ) : networkRules.resource.status === 'failed' ? (
-                <p className="failure" role="status">
+                <p className="lt-refusal" role="status">
                   {words(networkRules.resource.failure)}
                 </p>
               ) : (
@@ -652,7 +653,7 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
                       ] as const
                     ).map(([label, value]) => (
                       <Fact key={label} label={t(label)}>
-                        <span className="numeric" lang="und">
+                        <span className="lt-num" lang="und">
                           {displayAmount(value)} {asset}
                         </span>
                       </Fact>
@@ -662,7 +663,7 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
               )}
             </div>
           )}
-          <fieldset className="bd-stack">
+          <fieldset className="lt-stack">
             <legend className="bd-subhead">{t('fWhere')}</legend>
             {fill.state !== 'off' && (
               <WalletChip
@@ -677,7 +678,7 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
             {book.resource.status === 'failed' ? (
               <Failure result={book.resource.failure} retry={book.reload} />
             ) : (
-              <label className="field">
+              <label className="lt-field">
                 <span>{t('fSaved')}</span>
                 <select
                   value={chosen?.destinationId ?? ''}
@@ -697,13 +698,13 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
                 </select>
                 <small id="withdraw-saved-why">
                   {t('fSavedWhy')}{' '}
-                  <a className="text-link" href="/uc/withdraw/address">
+                  <a className="lt-link" href="/uc/withdraw/address">
                     {t('fManage')}
                   </a>
                 </small>
               </label>
             )}
-            <label className="field">
+            <label className="lt-field">
               <span>{walletLocked ? t('wLabel') : t('fNew')}</span>
               <input
                 value={typed}
@@ -729,12 +730,12 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
               </small>
             </label>
             {walletLocked && (
-              <div className="actions">
+              <div className="lt-actions">
                 <Button variant="secondary" onClick={editWallet}>
                   {t('wEdit')}
                 </Button>
                 {!typedSaved && typedCheck === 'ok' && !insideNow && (
-                  <a className="text-link" href="/uc/withdraw/address">
+                  <a className="lt-link" href="/uc/withdraw/address">
                     {t('wSave')}
                   </a>
                 )}
@@ -749,7 +750,7 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
             )}
             <DestinationNote place={place} t={t} />
           </fieldset>
-          <label className="field">
+          <label className="lt-field">
             <span>{t('fAmount')}</span>
             <input
               inputMode="decimal"
@@ -772,12 +773,12 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
               </button>
             </div>
           )}
-          <div className="bd-stack" data-testid="withdraw-limit">
+          <div className="lt-stack" data-testid="withdraw-limit">
             <strong>{t('lTitle')}</strong>
             {!asset ? null : limits.resource.status === 'loading' ? (
               <Loading />
             ) : limits.resource.status === 'failed' ? (
-              <p className="failure" role="status">
+              <p className="lt-refusal" role="status">
                 {words(limits.resource.failure)}
               </p>
             ) : (
@@ -792,13 +793,13 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
               </p>
             )}
           </div>
-          <div className="bd-stack" data-testid="withdraw-fee">
+          <div className="lt-stack" data-testid="withdraw-fee">
             <dl className="bd-facts">
               <Fact label={t('fFee')}>
                 {insideNow ? (
                   t('rNoFee')
                 ) : current ? (
-                  <span className="numeric" lang="und">
+                  <span className="lt-num" lang="und">
                     {displayAmount(current.feeTotal)} {current.assetId}
                   </span>
                 ) : (
@@ -807,7 +808,7 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
               </Fact>
             </dl>
             {quote.status === 'failed' && (
-              <p className="failure" role="status">
+              <p className="lt-refusal" role="status">
                 {words(quote.failure)}
               </p>
             )}
@@ -826,7 +827,7 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
         <dl className="bd-facts" data-testid="withdraw-review">
           <Fact label={t('rSend')}>
             {check === 'ok' && asset ? (
-              <span className="numeric" lang="und">
+              <span className="lt-num" lang="und">
                 {shown(amount.trim())} {asset}
               </span>
             ) : (
@@ -863,7 +864,7 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
           )}
         </dl>
         {!insideNow && current && (
-          <p className="money-caption">
+          <p className="lt-muted">
             {current.feeMode === 'on_top' ? t('qOnTop') : t('qDeducted')} {t('qExpires', { time: date(current.expiresAt) })}
           </p>
         )}
@@ -873,26 +874,26 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
           </p>
         )}
         {canSendInside ? (
-          <div className="bd-stack">
+          <div className="lt-stack">
             {resuming && (
-              <p className="money-caption" role="status">
+              <p className="lt-muted" role="status">
                 {t('sUnknown')}
               </p>
             )}
-            <div className="actions">
+            <div className="lt-actions">
               <Button variant="primary" onClick={startInside}>
                 {resuming ? t('sFinish') : t('sSend')}
               </Button>
             </div>
           </div>
         ) : canSendOut ? (
-          <div className="bd-stack">
+          <div className="lt-stack">
             {resumingOut && !outcome && (
-              <p className="money-caption" role="status">
+              <p className="lt-muted" role="status">
                 {t('xResume')}
               </p>
             )}
-            <div className="actions">
+            <div className="lt-actions">
               <Button variant="primary" onClick={reviewOut}>
                 {resumingOut ? t('sFinish') : t('xConfirm')}
               </Button>
@@ -902,7 +903,7 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
           <DisabledAction variant="primary" label={inside ? t('sSend') : t('fReview')} reason={inside ? t('sNeedAmount') : t('fReason')} />
         )}
         {refusal && (
-          <p className="failure" role="alert" data-testid="withdraw-refusal">
+          <p className="lt-refusal" role="alert" data-testid="withdraw-refusal">
             {refusal}
           </p>
         )}
@@ -910,7 +911,7 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
           <div className="bd-address" role="status" data-testid="withdraw-outcome" data-status={sentInside.status}>
             <strong>{t('sDoneTitle')}</strong>
             <p>{t('sDone', { amount: shown(sentInside.amount), asset: sentInside.assetId })}</p>
-            <a className="text-link" href={`/uc/withdraw?withdrawalId=${sentInside.id}`}>
+            <a className="lt-link" href={`/uc/withdraw?withdrawalId=${sentInside.id}`}>
               {t('sOpen')}
             </a>
           </div>
@@ -933,7 +934,7 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
                 <strong>{t('xDoneTitle')}</strong>
                 <p>{t('xDone', { id: outcome.record.id })}</p>
                 {outcome.record.customerStatus && <p data-testid="withdraw-outcome-status">{t(`s_${outcome.record.customerStatus}`)}</p>}
-                <a className="text-link" href={`/uc/withdraw?withdrawalId=${encodeURIComponent(outcome.record.id)}`}>
+                <a className="lt-link" href={`/uc/withdraw?withdrawalId=${encodeURIComponent(outcome.record.id)}`}>
                   {t('sOpen')}
                 </a>
               </>
@@ -1014,7 +1015,7 @@ function WalletChip({
         <strong>{t('wTitle')}</strong>
         <p>{lost ? `${t('wGone')} ${t('sReference', { code: WALLET_NOT_CONNECTED })}` : t('wConnect')}</p>
         {wallet.wallets.length > 0 && (
-          <div className="actions">
+          <div className="lt-actions">
             {wallet.wallets.map((entry) => (
               <Button key={entry.info.rdns} variant="secondary" onClick={() => void wallet.connect(entry)}>
                 {t('wConnectTo', { name: entry.info.name })}
@@ -1023,7 +1024,7 @@ function WalletChip({
           </div>
         )}
         {wallet.problem && <p className="error-text">{wallet.problem}</p>}
-        <a className="text-link" href="/wallet">
+        <a className="lt-link" href="/wallet">
           {t('wOpen')}
         </a>
       </div>
@@ -1058,7 +1059,7 @@ function LockedRewards({ asset, hidden, shown }: { asset: string; hidden: boolea
   if (r.status === 'loading') return null;
   if (r.status === 'failed') {
     return (
-      <p className="muted" data-testid="withdraw-locked-rewards" data-state="failed">
+      <p className="lt-muted" data-testid="withdraw-locked-rewards" data-state="failed">
         {t('fLockedUnread')}
       </p>
     );
@@ -1067,14 +1068,14 @@ function LockedRewards({ asset, hidden, shown }: { asset: string; hidden: boolea
   if (!line) return null;
   return (
     <p
-      className="muted"
+      className="lt-muted"
       data-testid="withdraw-locked-rewards"
       data-state="ready"
       data-amount={hidden ? undefined : line.amount}
       data-asset={asset}
     >
       {t('fLocked', { amount: shown(line.amount), asset })}{' '}
-      <a className="text-link" href="/uc/promotion">
+      <a className="lt-link" href="/uc/promotion">
         {t('fLockedLink')}
       </a>
     </p>

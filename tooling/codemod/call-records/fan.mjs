@@ -13,6 +13,8 @@ const ARG_AT = {
   founderEdgeCall: { module: 1, path: 2, input: 4 },
   payCall: { module: 5, path: 1, input: 3 },
   useBankRead: { path: 0, input: 1 },
+  payQuery: { path: 0, input: 1 },
+  payMutate: { path: 0, input: 1 },
 };
 
 const unwrap = (n) => {
@@ -35,16 +37,25 @@ export function fanOut(p, site) {
   if (set.open) return [{ ...site, problem: `${REASON}: ${set.open}` }];
   const values = [...new Map(set.values.map((v) => [v.value, v])).values()];
   if (values.length === 1) return [{ ...site, [key]: values[0].value }];
-  // Each value's input is typed by its own record: only an input written out here (or none) can be.
+  // Each value's input is typed by its own record: only an input written out here (or none) can be, or a `? :` on the
+  // very test that picks the value, whose branch each value sends (`rotate ? { keyId, ...ids } : ids`).
   const input = a[at.input];
-  const typed = !input || input.type === 'ObjectExpression' || (input.type === 'Identifier' && input.name === 'undefined');
+  const branches = inputBranches(p, input, values);
+  const typed = branches || !input || input.type === 'ObjectExpression' || (input.type === 'Identifier' && input.name === 'undefined');
   const why = `its ${set.by} sends one input value to ${values.length} records: each one's input type can't be kept`;
   return values.map((v, i) => ({
     ...site,
     [key]: v.value,
-    fan: { key: site.node, at: i, size: values.length, test: v.test },
+    fan: { key: site.node, at: i, size: values.length, test: v.test, ...(branches ? { input: branches[i] } : {}) },
     ...(typed ? {} : { problem: why }),
   }));
+}
+
+/** Each value's own input when the input is a `? :` on the same test that picks the call's two values, else undefined. */
+function inputBranches(p, input, values) {
+  const n = unwrap(input);
+  if (n?.type !== 'ConditionalExpression' || values.length !== 2 || values[0].test === undefined) return undefined;
+  return text(p, n.test) === values[0].test ? [n.consequent, n.alternate] : undefined;
 }
 
 /**

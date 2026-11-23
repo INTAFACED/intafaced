@@ -93,7 +93,7 @@ pub struct Post {
     pub lacks_identity_write: bool,
 }
 
-/// Which slice of the port owns a call's handler (`PORT.md`, `## Slices`). `Door` is answered here (`health`).
+/// Which slice of the port owns a call's handler (`README.md`, `## Slices`). `Door` is answered here (`health`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Slice {
     Door,
@@ -132,7 +132,7 @@ impl Slice {
         Slice::Webhooks,
     ];
 
-    /// The slice's name in `PORT.md`.
+    /// The slice's name in `README.md`.
     pub fn name(self) -> &'static str {
         match self {
             Slice::Door => "door",
@@ -315,6 +315,8 @@ pub struct AgentsDoor {
     advisors: Advisors,
     own: Own,
     team: Team,
+    /// The run webhooks (`webhooks`); none, every webhook call refuses `agents.webhooks_unwired`.
+    webhooks: Option<crate::webhooks::RunWebhooks>,
 }
 
 /// The system clock.
@@ -364,6 +366,7 @@ impl AgentsDoor {
             advisors: config.advisors,
             own: config.own,
             team: config.team,
+            webhooks: None,
         })
     }
 
@@ -371,6 +374,17 @@ impl AgentsDoor {
     pub fn with_edge_key(mut self, key: EdgeKey) -> AgentsDoor {
         self.edge_key = Some(key);
         self
+    }
+
+    /// The door with the run webhooks (`webhooks`); without them every webhook call refuses by name.
+    pub fn with_webhooks(mut self, webhooks: crate::webhooks::RunWebhooks) -> AgentsDoor {
+        self.webhooks = Some(webhooks);
+        self
+    }
+
+    /// The run webhooks, when wired.
+    pub fn webhooks(&self) -> Option<&crate::webhooks::RunWebhooks> {
+        self.webhooks.as_ref()
     }
 
     /// The door with the factories' live ports (\`factories\`); without them every live run refuses.
@@ -414,7 +428,7 @@ impl AgentsDoor {
         &self.own
     }
 
-    /// The slices' answers: the door's own call and every ported slice; `webhooks`, not ported yet, answers "not ported".
+    /// The slices' answers: the door's own call and every slice.
     fn handle_call(&self, ctx: &Ctx<'_>) -> Result<Option<Json>, TrpcError> {
         match ctx.call.slice {
             Slice::Door => Ok(Some(Json::obj([
@@ -513,8 +527,9 @@ impl AgentsDoor {
                     team: &self.team,
                 },
             ),
-            // The webhooks slice is not ported yet (PORT.md): the runtime and background ports write no delivery row.
-            Slice::Webhooks => Err(not_ported(Slice::Webhooks)),
+            Slice::Webhooks => {
+                crate::webhooks::slice::handle(ctx, &self.store, self.webhooks.as_ref())
+            }
         }
     }
 

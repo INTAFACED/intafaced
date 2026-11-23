@@ -5,7 +5,7 @@ import { currentPreferences } from '../../shared/preferences';
 import { amount, date } from './money-format';
 import { useSession } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
-import { authoredRefusal, type ApiResult, type AppProcedure } from '../../shared/api';
+import { authoredRefusal, callAs, type ApiResult, type AppProcedure } from '../../shared/api';
 import type { ProcedureInput, ProcedureOutput } from '@intafaced/contracts/procedure';
 import { Button, Dialog, EmptyState, Failure, Field, Loading } from '../../shared/ui';
 import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
@@ -58,6 +58,26 @@ export function useBankRecord<R extends AppProcedure & { readonly module: 'bank'
     `${userId}:${record.path}:${JSON.stringify(input)}:${enabled}`,
   );
 }
+/**
+ * `useBankRecord` where this caller keeps its own stricter answer schema on top of the record's (`callAs`): the record
+ * names the path and input, and the answer must pass both the record's output and `schema`.
+ */
+export function useBankRecordAs<R extends AppProcedure & { readonly module: 'bank'; readonly kind: 'query' }, T>(
+  record: R,
+  input: ProcedureInput<R>,
+  schema: ZodType<T>,
+  enabled = true,
+) {
+  const { api, userId } = useSession();
+  return useResource<T>(
+    async (signal) => {
+      if (!enabled) return { ok: false, reason: 'not_supported', message: copyText('components.select.a.record.to.load.its.details') };
+      if (!userId) return { ok: false, reason: 'unauthorized', message: copyText('components.sign.in.to.read.your.bank.information') };
+      return callAs(api, record, input, schema, { signal });
+    },
+    `${userId}:${record.path}:${JSON.stringify(input)}:${enabled}`,
+  );
+}
 /** The person's spaces, by the `spaces.list` record and Money's row check (`readSpaces`). */
 export function useSpaces(limit: number) {
   const { api, userId } = useSession();
@@ -95,9 +115,9 @@ export function Section({
       <header>
         <div>
           <h2>{title}</h2>
-          {description && <p className="muted">{description}</p>}
+          {description && <p className="lt-muted">{description}</p>}
         </div>
-        {actions && <div className="actions">{actions}</div>}
+        {actions && <div className="lt-actions">{actions}</div>}
       </header>
       {children}
     </section>
@@ -671,7 +691,7 @@ export function MutationDialog({
     <Dialog title={stage === 'review' ? copyText('components.review.3', { value1: spec.title.toLowerCase() }) : spec.title} onClose={close}>
       <div className="money-dialog-body" ref={body}>
         {spec.notes.map((note) => (
-          <p className="muted" key={note}>
+          <p className="lt-muted" key={note}>
             {note}
           </p>
         ))}
@@ -694,7 +714,7 @@ export function MutationDialog({
             )}
             {spec.fields?.map((field) =>
               field.options ? (
-                <label className="field" key={field.name}>
+                <label className="lt-field" key={field.name}>
                   <span>{field.label}</span>
                   <select
                     name={field.name}
@@ -805,7 +825,7 @@ export function MutationDialog({
             {stage === 'sending' ? (
               <Loading label={copyText('components.waiting.for.the.authoritative.outcome')} />
             ) : (
-              <div className="actions">
+              <div className="lt-actions">
                 {spec.stepUp ? (
                   <StepUpConfirm
                     request={() => spec.stepUp!.request(reviewInput!)}
@@ -869,7 +889,7 @@ export function MutationDialog({
                 </p>
                 {resendable() && (
                   <>
-                    <p className="muted">
+                    <p className="lt-muted">
                       <Text k="components.the.bank.answers.this.reference.with.its.first.result" />
                     </p>
                     <Button onClick={() => void resend()}>
@@ -887,7 +907,7 @@ export function MutationDialog({
                 </Button>
               </>
             )}
-            <div className="actions">
+            <div className="lt-actions">
               <Button variant="secondary" onClick={close}>
                 <Text k="components.close" />
               </Button>

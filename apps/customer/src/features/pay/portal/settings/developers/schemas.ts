@@ -4,7 +4,7 @@ import { stamp } from '../b-shared';
 // Authorities on main: services/identity apiKeys.*, setApiKeyRequestSigning, rotateSigningSecret, bind/unbindApiKeyIpAllowlist,
 // and services/svc-pay/src/merchant-ops/webhooks.ts (#4826). Unknown keys are ignored.
 
-export const keySchema = z.object({
+const keySchema = z.object({
   id: z.string(),
   name: z.string(),
   prefix: z.string(),
@@ -17,8 +17,6 @@ export const keySchema = z.object({
   ipAllowlist: z.array(z.string()),
 });
 export type ApiKey = z.infer<typeof keySchema>;
-export const createdKeySchema = z.object({ id: z.string(), key: z.string(), prefix: z.string(), mode: z.enum(['live', 'sandbox']) });
-export const revokedSchema = z.object({ revoked: z.boolean() });
 export const signingSchema = z.object({
   id: z.string(),
   requireSignature: z.boolean(),
@@ -26,8 +24,6 @@ export const signingSchema = z.object({
   signingSecret: z.string().nullable(),
 });
 export type SigningResult = z.infer<typeof signingSchema>;
-export const rotatedSigningSchema = z.object({ id: z.string(), signingSecret: z.string() });
-export const ipListSchema = z.object({ id: z.string(), ipAllowlist: z.array(z.string()) });
 
 export const endpointSchema = z.object({
   id: z.string(),

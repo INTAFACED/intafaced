@@ -27,6 +27,7 @@ import { readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { allEdges, pathReadEdges } from './cross-package-reads.mjs';
 import { journeyTouch } from './journey-touch.mjs';
+import { reachesLook } from './look-paths.mjs';
 import { SPLIT } from './test-shards.mjs';
 import { checkoutTree, covers, reachOf, readersOf } from './tooling-reach.mjs';
 
@@ -164,7 +165,18 @@ export function rustCrates(root = fileURLToPath(new URL('../..', import.meta.url
  * (crates/svc-tax/tests/procedure_samples.rs, refusal_coverage.rs; crates/svc-academy/tests/procedure_records.rs). Another
  * service's records reach no crate, so a change to them runs no Rust job.
  */
-const RUST_READS = new Set(['docker-compose.apps.yml']);
+const RUST_READS = new Set([
+  'docker-compose.apps.yml',
+  // crates/svc-matching/tests/bus.rs: each engine event's subject is the one the catalog declares.
+  'packages/events/src/catalog.ts',
+  // crates/svc-matching/tests/boot.rs: the scrape job that reads matching's /metrics.
+  'tooling/infra/prometheus.yaml',
+  // crates/svc-matching/tests/ported_f_conformance.rs: the shared-conformance ADR and exchange-contract's enums.
+  'docs/adr/2026-09-18-matching-shared-conformance.md',
+  'packages/exchange-contract/src/schemas.ts',
+  // crates/svc-agents/tests/boot.rs: the compose pins' env names are the ones .env.example documents.
+  '.env.example',
+]);
 /** Source the Rust ledger's recorded tables come from (crates/svc-ledger/scripts/record-posting.mjs, checked in the Rust job). */
 const RUST_READS_UNDER = ['packages/ledger-client/src/'];
 const RECORDS_FILE = /^packages\/[^/]+\/procedures\/([^/]+)\.schema\.json$/;
@@ -318,12 +330,8 @@ export function testedPackages(filters, run = (args) => execFileSync('pnpm', arg
   }
 }
 
-/**
- * What a pull request's look gate (look-pr.yml, #9325) runs on: a change to a Customer room or the kit draws, or to
- * the gate itself. Docs there draw nothing. The seal then needs its pass, as for the Rust job.
- */
-const LOOK_PATHS = ['apps/customer/', 'packages/ui/', 'tooling/ci/look-gate/', '.github/workflows/look-pr.yml'];
-export const reachesLook = (files) => (files || []).map(posix).some((f) => !isDoc(f) && LOOK_PATHS.some((p) => matchesPrefix(f, p)));
+/** What a pull request's look gate runs on (look-paths.mjs). The seal then needs its pass, as for the Rust job. */
+export { reachesLook };
 
 export function sealNeeded(flags, results) {
   const problems = [];

@@ -1,7 +1,7 @@
 import type { Queryable } from '@intafaced/db';
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
-import type { RestoreStep } from '@intafaced/contracts';
+import type { RestoreStep, RestoreStepDetail } from '@intafaced/contracts';
 import { OPS_IDEMPOTENCY_CONFLICT, OpsError } from '../codes.js';
 import { OPS_LIST_LIMIT_CAP } from '../list-limit.js';
 
@@ -17,7 +17,7 @@ export interface RestoreStepRow {
   readonly step: RestoreStep;
   readonly actor: string;
   readonly approverId: string | null;
-  readonly detail: Record<string, unknown>;
+  readonly detail: RestoreStepDetail;
   readonly at: string;
 }
 
@@ -115,7 +115,7 @@ interface StepRow {
   step: RestoreStep;
   actor: string;
   approver_id: string | null;
-  detail: Record<string, unknown>;
+  detail: RestoreStepDetail;
   at: Date;
   fingerprint?: string;
 }

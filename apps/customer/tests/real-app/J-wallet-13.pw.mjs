@@ -435,6 +435,12 @@ test(`${J} #4 Asks to unfreeze before the wait is over, then after it: refused w
   );
   expect(again.state).toBe('signing');
   expect(again.next?.prepared?.typedData, 'a new run asks the wallet for a new signature').toBeTruthy();
+  // The TEST venue's own record agrees: the new run's agent holds no permission on the sub-account until the wallet
+  // signs it, and no agent has traded there since the freeze of #1, through the lift.
+  expect(again.agentAddress, 'the new run names its agent').toMatch(/^0x[0-9a-f]{40}$/i);
+  expect((await subRecord(s, '/agents')).map((a) => a.address.toLowerCase())).not.toContain(again.agentAddress.toLowerCase());
+  expect(await subRecord(s, '/open-orders')).toEqual([]);
+  expect(await subRecord(s, '/fills', { since: new Date(s.frozenAt).toISOString() })).toEqual([]);
   // The own agent's permission stays revoked until the person allows it again, which now works.
   expect((await consentsOf(s.who, s.agentId)).map((c) => c.state)).toEqual(['withdrawn']);
   body200(await session.post('/api/agents/trpc/own.consents.grant', { id: s.agentId, dataClass: 'own_data' }));

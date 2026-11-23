@@ -55,6 +55,7 @@ import { reachesLook } from './ci-affected.mjs';
 import { AUTO_REVERT_AUTHOR, AUTO_REVERT_BRANCH } from './journey-seal.mjs';
 import { exactReverse, revertTreeMatches } from './exact-revert.mjs';
 import { isBudgetResponse, budgetLine, titleFor } from './api-budget.mjs';
+import { countCall } from './api-count.mjs';
 
 /** The largest diff one reviewer call is given; a larger one is reviewed in parts of at most this size (splitDiff). */
 export const MAX_DIFF_BYTES = 400_000;
@@ -227,6 +228,56 @@ export function summarizeGenerated(diff, { readBlob = null } = {}) {
         '',
       ].join('\n');
       return Buffer.byteLength(out) < Buffer.byteLength(part) ? out : part;
+    })
+    .join('');
+}
+
+/**
+ * A diff still over MAX_DIFF_BYTES with each file it deletes whole given as one line in place of its every `-` line, when
+ * the reviewer's checkout holds that exact text at the same path (the job checks out the default branch, and its Read
+ * reads that tree): the section's one hunk must be its whole old text (one sign, the blob its `index` line names), and
+ * `readFile(path)` must return text of that same blob. Anything else stays whole: a file deleted in part, renamed, or
+ * changed on the default branch since. (Failure it prevents: a service switch deletes its TypeScript service, 3.6 MB of
+ * `-` lines, and no split under MAX_PARTS can carry it: intafaced #9811, weed project-state#3706.)
+ */
+export function summarizeDeleted(diff, readFile) {
+  if (Buffer.byteLength(diff) <= MAX_DIFF_BYTES) return diff;
+  return diff
+    .split(/^(?=diff --git )/m)
+    .map((part) => {
+      const m = /^diff --git a\/(\S+) b\/(\S+)\n/.exec(part);
+      if (!m || m[1] !== m[2]) return part;
+      const lines = part.replace(/\n$/, '').split('\n');
+      const at = lines.findIndex((l) => l.startsWith('@@'));
+      if (at < 0) return part;
+      const head = lines.slice(1, at);
+      if (!head.some((l) => l.startsWith('deleted file mode ')) || !head.every((l) => EXPORT_HEADER.test(l))) return part;
+      const index = head.map((l) => /^index ([0-9a-f]{7,40})\.\.(0+)(?: [0-7]{6})?$/.exec(l)).filter(Boolean);
+      if (index.length !== 1) return part;
+      const oldId = index[0][1];
+      let body = lines.slice(at + 1);
+      let end = '\n';
+      if (body.at(-1) === '\\ No newline at end of file') {
+        body = body.slice(0, -1);
+        end = '';
+      }
+      if (!body.every((l) => l.startsWith('-'))) return part;
+      const was = body.map((l) => l.slice(1)).join('\n') + end;
+      if (!blobId(was).startsWith(oldId)) return part;
+      let there;
+      try {
+        there = readFile(m[1]);
+      } catch {
+        return part;
+      }
+      if (typeof there !== 'string' || blobId(there) !== blobId(was)) return part;
+      const kept = head.filter((l) => !/^(--- |\+\+\+ )/.test(l));
+      return [
+        `diff --git a/${m[1]} b/${m[1]}`,
+        ...kept,
+        `[deleted whole: ${body.length} lines, ${Buffer.byteLength(part)} bytes of diff; the CI review job checked that the file at this path in your checkout is exactly the text deleted (blob ${blobId(was).slice(0, 12)}), so Read it there to see what this change removes]`,
+        '',
+      ].join('\n');
     })
     .join('');
 }
@@ -917,6 +968,7 @@ async function getText(path, accept, token = process.env.GH_TOKEN) {
     headers: { authorization: `Bearer ${token}`, accept, 'x-github-api-version': '2022-11-28' },
     signal: AbortSignal.timeout(60_000),
   });
+  countCall(res);
   const text = await res.text();
   if (res.status === 403 || res.status === 429)
     throw new Error(
@@ -1096,6 +1148,115 @@ export async function indexHead(dir) {
 }
 
 /**
+ * The carry (poteto: "A verdict covers a patch ... Compare `git patch-id` at the verdict SHA with the current head before
+ * trusting an older verdict"; project-state #3728): a head whose diff against main is byte for byte the diff of an
+ * earlier reviewed head of the same pull request carries that head's verdicts, both parts, without asking the reviewer.
+ * Byte equality is stricter than patch-id: it counts whitespace, and each file's `index` line names its blob at the merge
+ * base, so a main that changed any file the patch touches changes the diff and the head is reviewed afresh. A file with
+ * no `index` line (a mode change or a pure rename) names no blob, so a diff holding one carries nothing. The earlier
+ * head's diff is read against today's main, so its merge base must have reached main before that head was first
+ * reviewed (`baseAtOf`), or the patch read now may not be the patch it was judged on. A FAIL is carried too, and any
+ * FAIL among the matching heads stands over a newer PASS: it stands for the same patch, as it stands for the same tree
+ * (review-marker.mjs), so merging main never asks again. A head with no verdict (pending, judge down) is passed over; a
+ * new patch matches nothing and is reviewed. CI's tests and the journeys still run on the new head. (Measured over 48 h
+ * to 22 Nov 2026 12:23 UTC: 111 of 699 reviews, 366 of 1,469 job minutes, were of a diff an earlier head had passed; in
+ * replay 2 of the 117 carried heads' fresh reviews FAILed a finding the first PASS had missed, the second look a carry
+ * gives up.)
+ *
+ * `runs` are this workflow's runs on the pull request's branch; `attempts(run)` the jobs of each attempt; `diffOf(sha)`
+ * the compare API's diff of base...sha, the same read as `diff`; `baseAtOf(sha)` when that diff's merge base reached
+ * main (ms). Returns null (review it) or { from, review, tests } with each part `PASS` or `FAIL`.
+ */
+export const CARRY_HEADS = 5;
+
+/** Whether every file in a unified diff has an `index <old>..<new>` line naming its blobs. */
+export const everyFileIndexed = (diff) =>
+  String(diff)
+    .split(/^diff --git /m)
+    .slice(1)
+    .every((sec) => /^index [0-9a-f]+\.\.[0-9a-f]+/m.test(sec));
+
+export async function carriedVerdict({ pull, diff, runs, attempts, diffOf, baseAtOf }) {
+  const { ciReviewVerdict, REVIEW_CHECK, JUDGE_CHECK, REVIEW_WORKFLOW, REVIEW_BASE } = await import('./review-marker.mjs');
+  if (!everyFileIndexed(diff) || typeof baseAtOf !== 'function') return null;
+  const own = String(pull.head).toLowerCase();
+  const heads = new Map();
+  for (const r of runs ?? []) {
+    const sha = String(r?.head_sha ?? '').toLowerCase();
+    if (r?.path !== REVIEW_WORKFLOW || r?.event !== 'pull_request_target' || !SHA40.test(sha) || sha === own) continue;
+    if (!(r?.pull_requests ?? []).some((p) => Number(p?.number) === Number(pull.number) && p?.base?.ref === REVIEW_BASE)) continue;
+    const at = Date.parse(r?.created_at ?? '') || 0;
+    const h = heads.get(sha) ?? { at: 0, first: Infinity, runs: [] };
+    h.at = Math.max(h.at, at);
+    h.first = Math.min(h.first, at);
+    h.runs.push(r);
+    heads.set(sha, h);
+  }
+  const newest = [...heads.entries()].sort((a, b) => b[1].at - a[1].at).slice(0, CARRY_HEADS);
+  const matched = [];
+  for (const [sha, h] of newest) {
+    const read = (check) => ciReviewVerdict({ sha, runs: h.runs, attempts, base: REVIEW_BASE, number: pull.number, check });
+    const review = await read(REVIEW_CHECK);
+    const tests = await read(JUDGE_CHECK);
+    const decided = (v) => v.state === 'pass' || v.state === 'fail';
+    if (!decided(review) || !decided(tests)) continue;
+    if ((await diffOf(sha)) !== diff) continue;
+    const baseAt = await baseAtOf(sha);
+    if (!Number.isFinite(baseAt) || baseAt > h.first) continue;
+    matched.push({ from: sha, review: review.state === 'pass' ? 'PASS' : 'FAIL', tests: tests.state === 'pass' ? 'PASS' : 'FAIL' });
+  }
+  if (matched.length === 0) return null;
+  const failed = (part) => matched.find((m) => m[part] === 'FAIL');
+  const from = (failed('review') ?? failed('tests') ?? matched[0]).from;
+  return { from, review: failed('review') ? 'FAIL' : 'PASS', tests: failed('tests') ? 'FAIL' : 'PASS' };
+}
+
+/** A carried verdict written as the diff step's decision (`skip-reviewer`, `skip-judge`), read back by `read` and `judge`. */
+export function writeCarried(dir, { head, carried }) {
+  const { from, review, tests } = carried;
+  const said = (part, v) =>
+    v === 'PASS'
+      ? `note: carried: ${from}, whose diff against main is byte for byte this head's, passed the ${part}; the same patch is not reviewed again (ci-review.mjs carriedVerdict)`
+      : `the ${part} FAILed on ${from}, whose diff against main is byte for byte this head's; a FAIL stands for the same patch, so push a fix that changes it`;
+  const t = join(dir, TESTS_DIR);
+  mkdirSync(t, { recursive: true });
+  writeFileSync(join(dir, 'head.txt'), head);
+  writeFileSync(join(t, 'head.txt'), head);
+  writeFileSync(join(t, 'verdict.json'), JSON.stringify({ head, verdict: tests, lines: [], findings: [said('test part', tests)] }));
+  writeFileSync(join(t, 'skip-judge'), '1');
+  writeFileSync(join(dir, 'verdict.json'), JSON.stringify({ head, verdict: review, findings: [said('CI review', review)] }));
+  writeFileSync(join(dir, 'skip-reviewer'), '1');
+  return `carried from ${from}: review ${review}, test part ${tests}, without asking the reviewer`;
+}
+
+/** The carry's reads from GitHub: the branch's newest runs of this workflow, each run's attempts, a head's compare diff. */
+async function readCarry({ repo, pull, diff, get = getText }) {
+  const json = async (p) => {
+    const r = await get(p, 'application/vnd.github+json');
+    if (r.status !== 200) throw new Error(`could not read ${p}: HTTP ${r.status}`);
+    return JSON.parse(r.text);
+  };
+  if (!pull.ref) return null;
+  const q = `event=pull_request_target&branch=${encodeURIComponent(pull.ref)}&per_page=100`;
+  const runs = (await json(`/repos/${repo}/actions/workflows/ci-review.yml/runs?${q}`)).workflow_runs ?? [];
+  const attempts = async (run) => {
+    const out = [];
+    for (let n = 1; n <= Math.max(1, Number(run.run_attempt) || 1); n++)
+      out.push((await runJobs(`/repos/${repo}/actions/runs/${run.id}/attempts/${n}/jobs`, json)) ?? []);
+    return out;
+  };
+  const diffOf = async (sha) => {
+    const r = await get(`/repos/${repo}/compare/${pull.base}...${sha}`, 'application/vnd.github.v3.diff');
+    return r.status === 200 ? r.text : null;
+  };
+  const baseAtOf = async (sha) => {
+    const c = await json(`/repos/${repo}/compare/${pull.base}...${sha}?per_page=1`);
+    return Date.parse(c?.merge_base_commit?.commit?.committer?.date ?? '');
+  };
+  return carriedVerdict({ pull, diff, runs, attempts, diffOf, baseAtOf });
+}
+
+/**
  * The review's input and the test part's, from one diff. `diff` is the compare API's diff at base...head; `src` and
  * `loadWords` are test-judge.mjs's (buildInputs). The test part decides alone when nothing needs judging (PASS) or the
  * change is too large to judge whole (FAIL), in `<dir>/tests`; otherwise its prompt, which heads with both briefs and
@@ -1238,6 +1399,13 @@ async function cmdDiff(dir) {
   const r = await getText(`/repos/${repo}/compare/${pull.base}...${pull.head}`, 'application/vnd.github.v3.diff');
   if (r.status !== 200) throw new Error(`could not read the diff ${pull.base.slice(0, 7)}...${pull.head.slice(0, 7)}: HTTP ${r.status}`);
   readableDiff(r.text, pull);
+  // The same patch an earlier head of this pull request was reviewed on carries that verdict (carriedVerdict). A failed
+  // read carries nothing: the head is reviewed as it would be without the carry.
+  const carried = await readCarry({ repo, pull, diff: r.text }).catch((e) => {
+    console.log(`carry: none (${String(e.message).split('\n')[0]})`);
+    return null;
+  });
+  if (carried) return console.log(writeCarried(dir, { head: pull.head, carried }));
   // A call-record export changed in place is summarised from its two whole sides (summarizeExports): the blobs at the
   // merge base and the head, fetched as the test part's source fetches them. Unread, those sections stay whole.
   let readBlob = null;
@@ -1293,7 +1461,9 @@ async function cmdDiff(dir) {
   };
   console.log(
     await writeReviewInputs(dir, {
-      diff: summarizeGenerated(r.text, { readBlob }),
+      diff: summarizeDeleted(summarizeGenerated(r.text, { readBlob }), (p) =>
+        readFileSync(join(process.env.GITHUB_WORKSPACE ?? '.', p), 'utf8'),
+      ),
       base: pull.base,
       head: pull.head,
       pr: pull.number,

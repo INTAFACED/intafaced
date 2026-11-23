@@ -218,7 +218,7 @@ test(`${J} #3 manages alerts: each shows its market, side, exact price and statu
     await expect(row.getByTestId('alert-market'), `${name}'s market, shown in its row`).toHaveText('BTC/USDT');
     await expect(row.getByTestId('nf-body').first()).toHaveText(`At or below ${price} USDT`);
     await expect(row).toHaveAttribute('data-status', status);
-    await expect(row.locator('.nf-pill')).toHaveText(statusWords);
+    await expect(row.getByTestId('alert-status')).toHaveText(statusWords);
     // A cancel for an active one; a stopped one is still open and keeps its cancel; a cancelled one has none left.
     await expect(row.getByRole('button', { name: 'Cancel the alert on BTC/USDT' })).toHaveCount(status === 'cancelled' ? 0 : 1);
   };
@@ -277,7 +277,7 @@ test(`${J} #4 edits an alert from one price to another: the new price and a modi
   await createAlert({ condition: 'At or below', price: first, name: 'TEST edit me' });
   const row = rowWith('TEST edit me');
   await expect(row.getByTestId('nf-body').first()).toHaveText(`At or below ${first} USDT`);
-  await expect(row.locator('.nf-muted')).not.toContainText('Modified');
+  await expect(row.getByTestId('alert-dates')).not.toContainText('Modified');
   const price = testPrice(52, await lastText());
   expect(price).not.toBe(first);
   await row.getByRole('button', { name: 'Edit the alert on BTC/USDT' }).click();
@@ -289,7 +289,7 @@ test(`${J} #4 edits an alert from one price to another: the new price and a modi
   await page.reload();
   await expect(rowWith('TEST edit me').getByTestId('nf-body').first()).toHaveText(`At or below ${price} USDT`);
   // A modified time, in the person's zone (UTC+8), within the last few minutes there, after the created time.
-  const muted = await rowWith('TEST edit me').locator('.nf-muted').textContent();
+  const muted = await rowWith('TEST edit me').getByTestId('alert-dates').textContent();
   const m = /Modified (\d{1,2} [A-Z][a-z]{2,3}(?: \d{4})?), (\d\d):(\d\d) UTC\+8/.exec(muted);
   expect(m, `"${muted}" names a UTC+8 modified time`).toBeTruthy();
   const nowThere = new Date(Date.now() + 8 * 3_600_000);
@@ -406,7 +406,7 @@ test(`${J} #5 sees the alert level on the chart and drags it: the level line mov
   const row = rowWith('TEST on the chart');
   await expect(row.getByTestId('nf-body').first()).toHaveText(`${condition} ${moved} USDT`);
   await expect(row).toHaveAttribute('data-status', 'active');
-  await expect(row.locator('.nf-muted')).toContainText('Modified');
+  await expect(row.getByTestId('alert-dates')).toContainText('Modified');
 });
 
 test(`${J} #6 reads the trigger log: when it fired, at what price, in the person's time zone, for the retention window`, async () => {
@@ -430,7 +430,7 @@ test(`${J} #6 reads the trigger log: when it fired, at what price, in the person
   expect((gap < 0n ? -gap : gap) * 20n <= cents(mark), `mark ${mark} near the market`).toBe(true);
   await expect(fired.getByTestId('nf-title')).toHaveText('BTC/USDT');
   // When: in the person's zone (UTC+8), named, and within the last few minutes there.
-  const when = await fired.locator('.nf-muted').textContent();
+  const when = await fired.getByTestId('alert-trigger-when').textContent();
   const m = /^Triggered (\d{1,2} [A-Z][a-z]{2,3}(?: \d{4})?), (\d\d):(\d\d) UTC\+8$/.exec(when.trim());
   expect(m, `"${when}" is a UTC+8 time`).toBeTruthy();
   const nowThere = new Date(Date.now() + 8 * 3_600_000);
@@ -448,7 +448,7 @@ test(`${J} #6 reads the trigger log: when it fired, at what price, in the person
   const days = logData.retentionDays;
   expect(Number.isInteger(days) && days > 0, `the service keeps the log for a whole number of days (${days})`).toBe(true);
   // The window shown is the service's own, to the day.
-  await expect(log.locator('.nf-note')).toHaveText(`Kept for ${days} days.`);
+  await expect(log.getByTestId('alerts-log-kept')).toHaveText(`Kept for ${days} days.`);
   // The entry the page shows is the service's: the same mark, and the time it names is the entry's own firing time.
   const entries = logData.items.filter((t) => cents(String(t.targetPrice)) === cents(target));
   expect(entries, `one entry for the alert at ${target}`).toHaveLength(1);

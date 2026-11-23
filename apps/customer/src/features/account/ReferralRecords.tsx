@@ -5,10 +5,10 @@ import { useResource, type Resource } from '../../shared/resource';
 import { displayAmount, formatAmount, parseAmount } from '../../shared/money';
 import { usePreferences } from '../../shared/preferences';
 import { shortReference } from '../../shared/reference';
-import { Button, EmptyState, Failure, Loading } from '../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { Empty, Failure, Loading } from './kit-parts';
 import { useSession } from '../session';
 import { referralCopy as copy } from './referral-copy';
-import './referrals.css';
 import { callAs } from '../../shared/api';
 import {
   IDENTITY_AFFILIATES_MY_REFERRER,
@@ -156,33 +156,33 @@ function OwnerRecords({ userId }: { userId: string }) {
     );
   }
   return (
-    <section className="referral-records" aria-label={t('title')} lang={languageFor('title')}>
-      <header className="referral-heading">
+    <section className="lt-stack" aria-label={t('title')} lang={languageFor('title')}>
+      <header className="lt-title-row">
         <h2>
           <Copy k="title" />
         </h2>
-        <Button variant="ghost" onClick={() => setCycle((value) => value + 1)}>
+        <Button tone="quiet" onClick={() => setCycle((value) => value + 1)}>
           <Copy k="refresh" />
         </Button>
       </header>
-      <details className="referral-caption">
+      <details className="lt-hint">
         <summary>
           <Copy k="disclosure" />
         </summary>
         <Copy k="owner" />: <span>{userId}</span>
       </details>
-      <section className="referral-block" aria-label={t('referrer')}>
+      <section className="lt-stack" aria-label={t('referrer')}>
         <h3>
           <Copy k="referrer" />
         </h3>
         <Read resource={edge.resource} retry={edge.reload}>
           {(row) =>
             row ? (
-              <div className="referral-relationship">
+              <div className="lt-lines">
                 <p title={row.referrerId}>
                   <Copy k="member" params={{ ref: shortReference(row.referrerId) }} />
                 </p>
-                <p className="referral-caption">
+                <p className="lt-hint">
                   <Copy k="attributed" />:{' '}
                   <time dateTime={row.attributedAt}>
                     {timestamp(row.attributedAt)} · {timeZoneLabel}
@@ -190,14 +190,14 @@ function OwnerRecords({ userId }: { userId: string }) {
                 </p>
               </div>
             ) : (
-              <EmptyState title={<Copy k="noReferrer" />}>
+              <Empty title={<Copy k="noReferrer" />}>
                 <Copy k="noReferrerBody" />
-              </EmptyState>
+              </Empty>
             )
           }
         </Read>
       </section>
-      <section className="referral-block" aria-label={t('term')}>
+      <section className="lt-stack" aria-label={t('term')}>
         <h3>
           <Copy k="term" />
         </h3>
@@ -205,32 +205,32 @@ function OwnerRecords({ userId }: { userId: string }) {
           {(row) => (
             <>
               {row.state === 'none' && (
-                <p className="referral-caption">
+                <p className="lt-hint">
                   <Copy k="termNone" />
                 </p>
               )}
               {row.state === 'unset' && (
-                <p className="referral-caption">
+                <p className="lt-hint">
                   <Copy k="termUnset" />
                 </p>
               )}
               {row.state === 'active' && row.periodSeconds && row.lastActivityAt && row.endsAt && (
                 <>
-                  <dl className="referral-details">
+                  <dl className="lt-kv">
                     {detail('lastActivity', instant(row.lastActivityAt))}
                     {detail('endsAt', instant(row.endsAt))}
                   </dl>
-                  <p className="referral-caption">
+                  <p className="lt-hint">
                     <Copy k="termRule" params={{ period: period(row.periodSeconds) }} />
                   </p>
                 </>
               )}
               {row.ended && (
-                <section className="referral-block" aria-label={t('ended')}>
+                <section className="lt-stack" aria-label={t('ended')}>
                   <h4>
                     <Copy k="ended" />
                   </h4>
-                  <dl className="referral-details">
+                  <dl className="lt-kv">
                     {detail(
                       'referrer',
                       <span title={row.ended.referrerId}>{t('member', { ref: shortReference(row.ended.referrerId) })}</span>,
@@ -239,7 +239,7 @@ function OwnerRecords({ userId }: { userId: string }) {
                     {detail('lastActivity', instant(row.ended.lastActivityAt))}
                     {detail('endedAt', instant(row.ended.lapsedAt))}
                   </dl>
-                  <p className="referral-caption">
+                  <p className="lt-hint">
                     <Copy k="endedMeaning" params={{ period: period(row.ended.periodSeconds) }} />
                   </p>
                 </section>
@@ -248,63 +248,63 @@ function OwnerRecords({ userId }: { userId: string }) {
           )}
         </Read>
       </section>
-      <section className="referral-block" aria-label={t('chain')}>
+      <section className="lt-stack" aria-label={t('chain')}>
         <Read resource={chain.resource} retry={chain.reload}>
           {(rows) =>
             rows.length ? (
               <>
-                <Button variant="ghost" className="referral-link" aria-expanded={chainOpen} onClick={() => setChainOpen(!chainOpen)}>
+                <Button tone="quiet" aria-expanded={chainOpen} onClick={() => setChainOpen(!chainOpen)}>
                   <Copy k={chainOpen ? 'hideChain' : 'showChain'} params={{ count: String(rows.length) }} />
                 </Button>
                 {chainOpen && (
                   <>
-                    <ol data-testid="referral-chain" className="referral-chain">
+                    <ol data-testid="referral-chain" className="lt-rows">
                       {rows.map((id) => (
                         <li key={id} title={id}>
                           <Copy k="member" params={{ ref: shortReference(id) }} />
                         </li>
                       ))}
                     </ol>
-                    <p className="referral-caption">
+                    <p className="lt-hint">
                       <Copy k="chainMeaning" />
                     </p>
                   </>
                 )}
               </>
             ) : (
-              <EmptyState title={<Copy k="noChain" />}>
+              <Empty title={<Copy k="noChain" />}>
                 <Copy k="noChainBody" />
-              </EmptyState>
+              </Empty>
             )
           }
         </Read>
       </section>
-      <section className="referral-block referral-section" aria-label={t('accruals')}>
+      <section className="lt-stack" aria-label={t('accruals')}>
         <h3>
           <Copy k="accruals" />
         </h3>
-        <p className="referral-description">
+        <p className="lt-hint">
           <Copy k="meaning" />
         </p>
         <Read resource={records.resource} retry={records.reload}>
           {({ rows }) => (
             <>
               {rows.length ? (
-                <div className="referral-list">
+                <div className="lt-rows">
                   {rows.map((row) => (
-                    <article className="referral-row" key={recordKey(row)} aria-label={`${row.feeEventId} · ${row.hop}`}>
-                      <p className="referral-amount">
+                    <article className="lt-lines" key={recordKey(row)} aria-label={`${row.feeEventId} · ${row.hop}`}>
+                      <p className="lt-figure">
                         {quantity(row.commissionAmount)} <span>{row.asset}</span>
                       </p>
-                      <p className="referral-caption">
+                      <p className="lt-hint">
                         <time dateTime={row.accruedAt}>
                           {timestamp(row.accruedAt)} · {timeZoneLabel}
                         </time>{' '}
                         · {row.sourceModule}
                       </p>
                       <Button
-                        variant="ghost"
-                        className="referral-link"
+                        tone="quiet"
+
                         aria-pressed={Boolean(selected && recordKey(selected) === recordKey(row))}
                         onClick={() => setSelected({ feeEventId: row.feeEventId, hop: row.hop })}
                       >
@@ -314,21 +314,21 @@ function OwnerRecords({ userId }: { userId: string }) {
                   ))}
                 </div>
               ) : (
-                <EmptyState title={<Copy k="noAccruals" />}>
+                <Empty title={<Copy k="noAccruals" />}>
                   <Copy k="noAccrualsBody" />
-                </EmptyState>
+                </Empty>
               )}
-              <p className="referral-caption">
+              <p className="lt-hint">
                 <Copy k="window" params={{ count: String(rows.length), limit: String(limit) }} />
               </p>
-              <div className="referral-actions">
+              <div className="lt-actions">
                 {rows.length === limit && limit < 500 && (
-                  <Button variant="secondary" onClick={() => setLimit(Math.min(limit * 2, 500))}>
+                  <Button tone="secondary" onClick={() => setLimit(Math.min(limit * 2, 500))}>
                     <Copy k="expand" params={{ limit: String(Math.min(limit * 2, 500)) }} />
                   </Button>
                 )}
                 {limit > 50 && (
-                  <Button variant="ghost" onClick={() => setLimit(50)}>
+                  <Button tone="quiet" onClick={() => setLimit(50)}>
                     <Copy k="latest" />
                   </Button>
                 )}
@@ -338,20 +338,20 @@ function OwnerRecords({ userId }: { userId: string }) {
         </Read>
       </section>
       {selected && (
-        <section className="referral-block referral-section" aria-label={t('selected')}>
+        <section className="lt-stack" aria-label={t('selected')}>
           <h3>
             <Copy k="selected" />
           </h3>
-          <dl className="referral-details">
+          <dl className="lt-kv">
             {detail('event', selected.feeEventId)}
             {detail('hop', String(selected.hop))}
           </dl>
           {current ? (
-            <section className="referral-block" aria-label={t('details')}>
+            <section className="lt-stack" aria-label={t('details')}>
               <h4>
                 <Copy k="details" />
               </h4>
-              <dl className="referral-details">
+              <dl className="lt-kv">
                 {detail(
                   'commission',
                   <>
@@ -376,21 +376,21 @@ function OwnerRecords({ userId }: { userId: string }) {
                 )}
                 {detail('source', current.sourceModule)}
               </dl>
-              <p className="referral-caption">
+              <p className="lt-hint">
                 <Copy k="hopMeaning" />
               </p>
               {hideBalances && (
-                <p className="referral-caption">
+                <p className="lt-hint">
                   <Copy k="hidden" />
                 </p>
               )}
             </section>
           ) : (
-            <p className="referral-description">
+            <p className="lt-hint">
               <Copy k="missing" />
             </p>
           )}
-          <Button variant="ghost" className="referral-link" onClick={() => setSelected(null)}>
+          <Button tone="quiet" onClick={() => setSelected(null)}>
             <Copy k="hideInspection" />
           </Button>
         </section>

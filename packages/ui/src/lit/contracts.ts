@@ -284,9 +284,13 @@ export const components = {
   Button: 'tone primary (metal, one per view) | secondary (dark pill) | quiet',
   ActionKey: 'Icon key with caption (Add, Send, Buy); `lit` for the one key that is the light',
   Switch: 'Glass disc knob toggle',
-  Segmented: 'Ranges, Buy/Sell, Simple/Pro',
-  ToggleChips: "A list's filter chips: a named group of pressed buttons, one on at a time, optionally pressed off",
-  Field: 'Input with label, hint and typed error',
+  Segmented: 'Ranges, Buy/Sell, Simple/Pro: a named group of pressed buttons, one pressed, the arrow keys moving focus between them',
+  ToggleChips:
+    "A list's filter chips: a named group of pressed buttons, one on at a time, optionally pressed off; the arrow keys move between them",
+  Field: 'Input with label, hint and typed error; a decorative mark before the text (the @ of a handle) and a control after it (Paste)',
+  SelectField: 'A labelled native list to pick from, in the field look',
+  TextField: 'A labelled box of several lines, with hint and typed error, in the field look',
+  Choice: 'A tick or round choice with its words on one row',
   Figure: 'A money figure from a decimal string (never a number), with TEST and stale marks',
   Change: 'Up or down change as text, with sign and arrow, never colour alone',
   FinePrint: 'Mono micro text for codes and scales (never legal text)',
@@ -307,18 +311,43 @@ export const components = {
   Table:
     '(B2) Table with a phone row form (rows become stacked cards under compact); sortable headers (aria-sort), row and cell data marks, and window virtualisation for long lists',
   Sheet: '(B2) Bottom sheet on phone, side sheet on computer; a glass layer',
+  Dialog: '(B2) A modal dialog in the middle of the screen, named by its title: a review before a step, or one short task',
   Stepper: '(B2) Steps of a flow',
   Skeleton: '(B2) Loading placeholder shaped like the content, never a flash of "no records"',
   KeyValue: '(B2) Label and value rows (review, receipt, details)',
   StatusChip: '(B2) Money status: pending, failed, done, unknown, with words not colour alone',
   Tabs: "(B2) A door's room row",
-  SectionTabs: "(B2) A room's own sections as pressed buttons, the Tabs row for sections the room switches itself",
+  SectionTabs:
+    "(B2) A room's own sections as pressed buttons, the Tabs row for sections the room switches itself; the arrow keys move between them",
+  RoomBar:
+    "(B2) A room's own bar (an asset's name, price and sections), drawn first by the frame and staying under the top bar's measured bottom edge as the page scrolls",
+  Disclosure: '(B2) Sections that fold: a heading button each, the open body a region named by it',
   Checkbox: '(B2) A tick with its words on one row',
   LineChart: '(B2) Price or value over time',
   AreaChart: '(B2) Value over time with a lit fill',
   Sparkline: '(B2) A small trend line for a card or a row, named for a screen reader; nothing from fewer than two points',
+  Candles:
+    "(B2) Candles over time: rise and fall from role tokens and in words (data-rising, each candle's title), placed by time so a gap stays a gap; an honest empty line for none",
   Bars: '(B2) Bars (volume, monthly totals)',
+  QrCode:
+    '(B2) A scannable code: dark modules on a light ground in every theme, a four-module quiet zone, a bounded size, a name for a screen reader and its text on the figure',
   Parts: '(B2) Parts of a whole that reconcile to the total, with a list fallback',
+  TimeLine:
+    '(B2) A line placed by time, so a gap keeps its real width; a zero line, a readout by pointer or arrow keys, an honest empty line for none',
+  ChartBox: "(B2) A chart's box of definite size (22.5rem high, full width) for a library that draws into it, or a state in its place",
+  ChartCanvas: '(B2) The named figure inside a ChartBox and the element a charting library draws into, filling the box',
+  AssetIcon: "An asset's round mark: the kit's artwork for a listed asset, a lettered disc for any other, never a guessed logo",
+  InfoTip: 'A short explanation behind an (i) button: opens on hover, focus and tap, closes on Escape; also the description',
+  HeroFigure: 'The one large figure a room is about: masked when balances are hidden, a dash when there is none, never animated',
+  Fold: 'A group closed until opened (small balances), with its count: the native disclosure',
+  CardStack: 'The account as two cards you hold, each a link: matte black metal in front, the lit card behind',
+  AmountField:
+    'The box an amount of money is typed into: a decimal string (inputMode decimal, never a number), its unit beside it, what is available and a Max key under it, a refusal announced',
+  Toast:
+    'A short confirmation at the top of the screen (ToastProvider once, useToast().add), announced politely; never the only place a result is shown',
+  Payee: 'The person money is about to go to, as the lookup found them: face, name, handle, a confirmed badge and a tick; nothing guessed',
+  StatusNote:
+    'Where something stands, in the flow (still confirming, held for review, could not load): title, words, the caller’s actions; polite, an alert only for a failure',
 } as const;
 export type ComponentName = keyof typeof components;
 

@@ -44,6 +44,9 @@ import {
   type UserVenueAccountMode,
   type UserVenueVault,
   type UserVenueVaultHoldings,
+  type UserVenueStaking,
+  type UserVenueStakingAccount,
+  type VenueStakingDiscount,
   type UserVenueVaultTransfer,
   type VenueAccountMode,
   type UserVenueCrossMargin,
@@ -218,6 +221,51 @@ export const TEST_VENUE_VAULTS: readonly {
     pastReturn: null,
   },
 ];
+
+/**
+ * The TEST venue's staking (J-cex-spot-21), in the shape of the venue it stands for (Hyperliquid, read 20 Nov 2026:
+ * `hypercore/staking.md`, a 1-day delegation lock-up, "transfers from staking account to spot account have a 7 day
+ * unstaking queue", "at most 5 pending withdrawals"; `trading/fees.md`, staking tiers from 5% to 40% off the venue's fee).
+ * The reward rate is a TEST figure. A validator's stake is its TEST own stake and what accounts here delegated to it.
+ */
+export const TEST_STAKING = {
+  asset: 'HYPE',
+  delegationLockUpSeconds: 86_400,
+  unstakingQueueSeconds: 7 * 86_400,
+  maxPendingWithdrawals: 5,
+  rewardRateBps: 230,
+  validators: [
+    {
+      address: '0x7e57000000000000000000000000000000000b01',
+      name: 'TEST Validator One',
+      commissionBps: 300,
+      ownStake: '10000',
+      status: 'active',
+    },
+    {
+      address: '0x7e57000000000000000000000000000000000b02',
+      name: 'TEST Validator Two',
+      commissionBps: 500,
+      ownStake: '25000',
+      status: 'active',
+    },
+    {
+      address: '0x7e57000000000000000000000000000000000b03',
+      name: 'TEST Validator Three',
+      commissionBps: 1_000,
+      ownStake: '10000',
+      status: 'jailed',
+    },
+  ],
+  discountTiers: [
+    { name: 'Wood', fromStaked: '10', discountBps: 500 },
+    { name: 'Bronze', fromStaked: '100', discountBps: 1_000 },
+    { name: 'Silver', fromStaked: '1000', discountBps: 1_500 },
+    { name: 'Gold', fromStaked: '10000', discountBps: 2_000 },
+    { name: 'Platinum', fromStaked: '100000', discountBps: 3_000 },
+    { name: 'Diamond', fromStaked: '500000', discountBps: 4_000 },
+  ],
+} as const;
 
 export interface SimMarketConfig {
   readonly symbol: string;
@@ -506,6 +554,18 @@ interface AccountState {
   readonly vaults: Map<string, { equity: Amount; costBasis: Amount; lockUpEndsAt: Date }>;
   /** Its deposits into and withdrawals from vaults, oldest first. */
   readonly vaultTransfers: UserVenueVaultTransfer[];
+  /**
+   * Main account only (J-cex-spot-21): its staking in TEST_STAKING.asset. Staked, delegated and queued coins stay in the
+   * asset's balance as locked; a queued withdrawal moves to free when it arrives, a reward adds to its delegation.
+   */
+  readonly staking: {
+    staked: Amount;
+    readonly delegations: Map<string, { amount: Amount; lockUpEndsAt: Date }>;
+    pending: { amount: Amount; requestedAt: Date; arrivesAt: Date; nonce: string }[];
+    readonly arrived: { amount: Amount; requestedAt: Date; arrivedAt: Date; nonce: string }[];
+    readonly rewards: { validator: string; amount: Amount; rewardedAt: Date }[];
+    readonly rewardRefs: Set<string>;
+  };
   /** Its liquidations, oldest first, each with the parts the venue closed (J-derivatives-07 #2). */
   readonly liquidations: {
     liquidationId: string;
@@ -582,6 +642,8 @@ function accountKey(account: UserVenueAccount): string {
 export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   venue: UserVenueDescriptor;
   readonly switches: SimSwitches;
+  /** TEST switch on the staking terms (J-cex-spot-21 #1): the reward rate withheld. */
+  private readonly stakingTest = { rewardRateUnpublished: false, tiersUnpublished: false };
 
   /**
    * TEST: what the descriptor declares as an agent permission's reach (`agentPermissionReach`), so a journey can show
@@ -1783,6 +1845,61 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
           refuse(this.venue.id, 'venue_rejected', 'TEST rule: cancel every open order before the account mode changes');
         return;
       }
+      case 'staking_transfer':
+      case 'staking_delegate': {
+        if (intent.asset !== TEST_STAKING.asset)
+          refuse(this.venue.id, 'venue_rejected', `${this.venue.displayName} stakes ${TEST_STAKING.asset} only`);
+        this.settleUnstaking(state);
+        const staking = state.staking;
+        if (intent.kind === 'staking_transfer') {
+          if (intent.direction === 'to_staking') {
+            const free = state.balances.get(intent.asset)?.free ?? ZERO;
+            if (compare(intent.amount, free) > 0)
+              refuse(
+                this.venue.id,
+                'insufficient_balance',
+                `the spot balance holds ${formatAmount(free)} ${intent.asset} free; ${formatAmount(intent.amount)} is more than that`,
+              );
+            return;
+          }
+          // The pending-withdrawal limit is the venue's to apply when the signed move arrives (submit), not here.
+          if (compare(intent.amount, staking.staked) > 0)
+            refuse(
+              this.venue.id,
+              'insufficient_balance',
+              `the staking balance holds ${formatAmount(staking.staked)} ${intent.asset} not delegated; ${formatAmount(intent.amount)} is more than that`,
+            );
+          return;
+        }
+        const validator = this.validatorOf(intent.validator);
+        if (intent.direction === 'delegate') {
+          if (validator.status !== 'active')
+            refuse(this.venue.id, 'venue_rejected', `TEST rule: ${validator.name} is ${validator.status} and takes no new delegation`);
+          if (compare(intent.amount, staking.staked) > 0)
+            refuse(
+              this.venue.id,
+              'insufficient_balance',
+              `the staking balance holds ${formatAmount(staking.staked)} ${intent.asset} not delegated; ${formatAmount(intent.amount)} is more than that`,
+            );
+          return;
+        }
+        const held = staking.delegations.get(validator.address);
+        if (!held) refuse(this.venue.id, 'venue_rejected', `nothing is delegated to ${validator.name}`);
+        // Before the lock-up ends nothing is undelegated: refused before the wallet is asked to sign, and again at submit.
+        if (held.lockUpEndsAt.getTime() > this.clock().getTime())
+          refuse(
+            this.venue.id,
+            'venue_rejected',
+            `the delegation to ${validator.name} is locked until ${held.lockUpEndsAt.toISOString()}; it cannot be undelegated before then`,
+          );
+        if (compare(intent.amount, held.amount) > 0)
+          refuse(
+            this.venue.id,
+            'insufficient_balance',
+            `${formatAmount(held.amount)} ${intent.asset} is delegated to ${validator.name}; ${formatAmount(intent.amount)} is more than that`,
+          );
+        return;
+      }
       case 'vault_transfer': {
         const vault = this.vaultOf(intent.vault);
         if (intent.asset !== vault.asset) refuse(this.venue.id, 'venue_rejected', `${vault.name} takes ${vault.asset} only`);
@@ -1950,6 +2067,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   async balances(account: UserVenueAccount): Promise<AsOf<readonly UserVenueBalance[]>> {
     this.up();
     const state = this.account(account);
+    this.settleUnstaking(state);
     const assets = new Set([...state.balances.keys(), ...state.deficits.keys()]);
     const list = [...assets]
       .sort((a, b) => a.localeCompare(b))
@@ -1978,8 +2096,15 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       const market = this.market(symbol);
       if (!market.marginAccount && market.quoteAsset === asset) margin = add(margin, p.margin);
     }
-    const staked = state.stakes.get(asset) ?? ZERO;
-    return compare(add(add(inOrders, margin), staked), locked) === 0 ? { inOrders, margin, staked } : null;
+    const staking = asset === TEST_STAKING.asset ? state.staking : null;
+    const staked = add(state.stakes.get(asset) ?? ZERO, staking?.staked ?? ZERO);
+    // J-cex-spot-21 #8: delegated and queued coins are named apart, when the account has any.
+    const delegated = staking ? this.delegatedOf(state) : ZERO;
+    let unstaking = ZERO;
+    for (const p of staking?.pending ?? []) unstaking = add(unstaking, p.amount);
+    const parts = add(add(add(inOrders, margin), staked), add(delegated, unstaking));
+    if (compare(parts, locked) !== 0) return null;
+    return delegated === ZERO && unstaking === ZERO ? { inOrders, margin, staked } : { inOrders, margin, staked, delegated, unstaking };
   }
 
   /**
@@ -2134,6 +2259,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         spot: rates('spot'),
         perpetual: rates('perpetual'),
         tierUpdatedAt: state.feeTier?.updatedAt ?? null,
+        stakingDiscount: account.subAccount === null ? this.stakingDiscountOf(state) : null,
       },
       otherFees,
     });
@@ -2201,6 +2327,19 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
    * own published rates (the base tier). A rate the tier leaves unpublished falls back to the market's.
    */
   private ratesOf(state: AccountState | null, market: SimMarketConfig): VenueFeeRates {
+    const rates = this.tierRatesOf(state, market);
+    const discount = state ? this.stakingTierOf(state).discountBps : 0;
+    if (discount === 0) return rates;
+    // The staking discount comes off the venue's own fee; a rebate (below zero) is left as it is.
+    const off = (r: MaybeKnown<Amount>): MaybeKnown<Amount> =>
+      r.known && compare(r.value, ZERO) > 0
+        ? { known: true, value: div(mul(r.value, parseAmount(String(10_000 - discount))), BPS, 'floor') }
+        : r;
+    return { makerFeeBps: off(rates.makerFeeBps), takerFeeBps: off(rates.takerFeeBps) };
+  }
+
+  /** The account's volume tier rates on `market`, before any staking discount. */
+  private tierRatesOf(state: AccountState | null, market: SimMarketConfig): VenueFeeRates {
     const own = { makerFeeBps: market.makerFeeBps, takerFeeBps: market.takerFeeBps };
     const index = state?.feeTier?.index ?? 0;
     const tier = index > 0 ? this.feeSchedule.tiers?.[index] : undefined;
@@ -2472,6 +2611,167 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     if (!held) throw new VenueWireError(`TEST: the account holds nothing in ${v.name}`);
     held.lockUpEndsAt = new Date(this.clock().getTime() - 1);
     return held.lockUpEndsAt;
+  }
+
+  /** A listed validator by its address, or `venue_rejected` for one the venue does not list. */
+  private validatorOf(address: string): (typeof TEST_STAKING.validators)[number] {
+    const v = TEST_STAKING.validators.find((x) => x.address === String(address).toLowerCase());
+    if (!v) refuse(this.venue.id, 'venue_rejected', `${String(address)} is not a validator ${this.venue.displayName} lists`);
+    return v;
+  }
+
+  /** Every queued staking withdrawal whose time has come moves to free spot (J-cex-spot-21 #7). */
+  private settleUnstaking(state: AccountState): void {
+    const now = this.clock();
+    const due = state.staking.pending.filter((p) => p.arrivesAt.getTime() <= now.getTime());
+    if (due.length === 0) return;
+    state.staking.pending = state.staking.pending.filter((p) => p.arrivesAt.getTime() > now.getTime());
+    const balance = this.balance(state, TEST_STAKING.asset);
+    for (const p of due) {
+      balance.locked = sub(balance.locked, p.amount);
+      balance.free = add(balance.free, p.amount);
+      state.staking.arrived.push({ amount: p.amount, requestedAt: p.requestedAt, arrivedAt: p.arrivesAt, nonce: p.nonce });
+    }
+  }
+
+  private delegatedOf(state: AccountState): Amount {
+    let total = ZERO;
+    for (const d of state.staking.delegations.values()) total = add(total, d.amount);
+    return total;
+  }
+
+  /** The staking tier the account's delegated stake reaches (TEST rule: delegated HYPE is what the discount counts). */
+  private stakingTierOf(state: AccountState): { counted: Amount; name: string | null; discountBps: number } {
+    const counted = this.delegatedOf(state);
+    let tier: { name: string; discountBps: number } | null = null;
+    for (const t of TEST_STAKING.discountTiers) if (compare(counted, parseAmount(t.fromStaked)) >= 0) tier = t;
+    return { counted, name: tier?.name ?? null, discountBps: tier?.discountBps ?? 0 };
+  }
+
+  /** The account's staking discount and each listed market's venue rates before and after it (J-cex-spot-21 #4). */
+  private stakingDiscountOf(state: AccountState): VenueStakingDiscount {
+    const tier = this.stakingTierOf(state);
+    return {
+      asset: TEST_STAKING.asset,
+      countedStake: tier.counted,
+      tierName: tier.name,
+      discountBps: tier.discountBps,
+      markets: [...this.marketsBySymbol.values()].map((m) => ({
+        symbol: m.symbol,
+        kind: m.kind,
+        before: this.tierRatesOf(state, m),
+        after: this.ratesOf(state, m),
+      })),
+    };
+  }
+
+  /** The venue's staking terms (J-cex-spot-21 #1); the reward rate or the discount tiers read `null` under the TEST switch that withholds them. */
+  async staking(): Promise<AsOf<UserVenueStaking>> {
+    this.up();
+    return this.asOf({
+      asset: TEST_STAKING.asset,
+      validators: TEST_STAKING.validators.map((v) => {
+        let stake = parseAmount(v.ownStake);
+        for (const s of this.accounts.values()) stake = add(stake, s.staking.delegations.get(v.address)?.amount ?? ZERO);
+        return { address: v.address, name: v.name, commissionBps: v.commissionBps, totalStake: stake, status: v.status };
+      }),
+      rewardRateBps: this.stakingTest.rewardRateUnpublished ? null : TEST_STAKING.rewardRateBps,
+      discountTiers: this.stakingTest.tiersUnpublished
+        ? null
+        : TEST_STAKING.discountTiers.map((t) => ({
+            name: t.name,
+            fromStaked: parseAmount(t.fromStaked),
+            discountBps: t.discountBps,
+          })),
+      delegationLockUpSeconds: TEST_STAKING.delegationLockUpSeconds,
+      unstakingQueueSeconds: TEST_STAKING.unstakingQueueSeconds,
+      maxPendingWithdrawals: TEST_STAKING.maxPendingWithdrawals,
+    });
+  }
+
+  /** The account's staking balance, delegations, queued and arrived withdrawals, and rewards (J-cex-spot-21). */
+  async stakingAccount(account: UserVenueAccount): Promise<AsOf<UserVenueStakingAccount>> {
+    this.up();
+    if (account.subAccount !== null) refuse(this.venue.id, 'not_offered', 'staking is held on the main account');
+    const state = this.account(account);
+    this.settleUnstaking(state);
+    const s = state.staking;
+    let rewards = ZERO;
+    for (const r of s.rewards) rewards = add(rewards, r.amount);
+    return this.asOf({
+      asset: TEST_STAKING.asset,
+      staked: s.staked,
+      delegations: [...s.delegations.entries()].map(([validator, d]) => ({
+        validator,
+        name: this.validatorOf(validator).name,
+        amount: d.amount,
+        lockUpEndsAt: d.lockUpEndsAt,
+      })),
+      pending: s.pending.map((p) => ({ ...p })),
+      arrived: [...s.arrived].reverse(),
+      rewards: { total: rewards, recent: [...s.rewards].reverse() },
+    });
+  }
+
+  /** TEST switches on the venue's staking terms (J-cex-spot-21 #1): the reward rate or the discount tiers withheld from `staking()`. */
+  testStakingPublished(set: { rewardRate?: boolean; tiers?: boolean }): void {
+    if (set.rewardRate !== undefined) this.stakingTest.rewardRateUnpublished = !set.rewardRate;
+    if (set.tiers !== undefined) this.stakingTest.tiersUnpublished = !set.tiers;
+  }
+
+  /**
+   * TEST controls on one account's staking (J-cex-spot-21 #6 #7 #8 #9), each as the venue's clock or the venue itself:
+   * `passLockUp` passes the lock-up of its delegation to that validator; `passQueue` lets every queued withdrawal arrive;
+   * `reward` pays a reward into a delegation once per `rewardRef`; `fillPending` queues withdrawals of that amount from
+   * the staking balance until the venue's limit is pending.
+   */
+  testStaking(
+    account: UserVenueAccount,
+    set: {
+      passLockUp?: string;
+      passQueue?: boolean;
+      reward?: { validator: string; amount: Amount; rewardRef: string };
+      fillPending?: Amount;
+    },
+  ): void {
+    const state = this.account(account);
+    const s = state.staking;
+    const now = this.clock();
+    if (set.passLockUp !== undefined) {
+      const v = this.validatorOf(set.passLockUp);
+      const held = s.delegations.get(v.address);
+      if (!held) throw new VenueWireError(`TEST: nothing is delegated to ${v.name}`);
+      held.lockUpEndsAt = new Date(now.getTime() - 1);
+    }
+    if (set.passQueue) {
+      for (const p of s.pending) p.arrivesAt = new Date(Math.min(p.arrivesAt.getTime(), now.getTime() - 1));
+      this.settleUnstaking(state);
+    }
+    if (set.reward && !s.rewardRefs.has(set.reward.rewardRef)) {
+      const v = this.validatorOf(set.reward.validator);
+      const held = s.delegations.get(v.address);
+      if (!held) throw new VenueWireError(`TEST: nothing is delegated to ${v.name}`);
+      if (compare(set.reward.amount, ZERO) <= 0) throw new VenueWireError('TEST: a reward must be above zero');
+      held.amount = add(held.amount, set.reward.amount);
+      const balance = this.balance(state, TEST_STAKING.asset);
+      balance.locked = add(balance.locked, set.reward.amount);
+      s.rewards.push({ validator: v.address, amount: set.reward.amount, rewardedAt: now });
+      s.rewardRefs.add(set.reward.rewardRef);
+    }
+    if (set.fillPending !== undefined) {
+      const each = set.fillPending;
+      if (compare(each, ZERO) <= 0) throw new VenueWireError('TEST: a queued withdrawal must be above zero');
+      while (s.pending.length < TEST_STAKING.maxPendingWithdrawals) {
+        if (compare(s.staked, each) < 0) throw new VenueWireError('TEST: the staking balance does not cover the queued withdrawals');
+        s.staked = sub(s.staked, each);
+        s.pending.push({
+          amount: each,
+          requestedAt: now,
+          arrivesAt: new Date(now.getTime() + TEST_STAKING.unstakingQueueSeconds * 1000),
+          nonce: `test-pending-${s.pending.length + 1}-${now.getTime()}`,
+        });
+      }
+    }
   }
 
   async accountSummary(account: UserVenueAccount): Promise<AsOf<UserVenueAccountSummary>> {
@@ -3016,6 +3316,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         modeTest: { unreported: false, refuseSwitch: null },
         vaults: new Map(),
         vaultTransfers: [],
+        staking: { staked: ZERO, delegations: new Map(), pending: [], arrived: [], rewards: [], rewardRefs: new Set() },
         liquidations: [],
         deleverages: [],
         fundingPayments: [],
@@ -3523,6 +3824,52 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         const to = toSpot ? this.spotOf(state, intent.asset) : this.balance(state, intent.asset);
         from.free = sub(from.free, intent.amount);
         to.free = add(to.free, intent.amount);
+        return accepted(prepared.nonce, null);
+      }
+      case 'staking_transfer': {
+        // validate() above refused a move past free spot or past the staking balance.
+        const balance = this.balance(state, intent.asset);
+        const staking = state.staking;
+        if (intent.direction === 'to_staking') {
+          balance.free = sub(balance.free, intent.amount);
+          balance.locked = add(balance.locked, intent.amount);
+          staking.staked = add(staking.staked, intent.amount);
+          return accepted(prepared.nonce, null);
+        }
+        // The venue's own limit on queued withdrawals, applied to the signed move it received: refused, nothing queued.
+        if (staking.pending.length >= TEST_STAKING.maxPendingWithdrawals)
+          return refused(
+            'venue_rejected',
+            `at most ${TEST_STAKING.maxPendingWithdrawals} staking withdrawals may be pending at once, and ${staking.pending.length} are pending; wait for one to arrive`,
+          );
+        staking.staked = sub(staking.staked, intent.amount);
+        staking.pending.push({
+          amount: intent.amount,
+          requestedAt: now,
+          arrivesAt: new Date(now.getTime() + TEST_STAKING.unstakingQueueSeconds * 1000),
+          nonce: prepared.nonce,
+        });
+        return accepted(prepared.nonce, null);
+      }
+      case 'staking_delegate': {
+        const validator = this.validatorOf(intent.validator);
+        const staking = state.staking;
+        if (intent.direction === 'delegate') {
+          const held = staking.delegations.get(validator.address);
+          staking.staked = sub(staking.staked, intent.amount);
+          // The newest delegation sets the lock-up of the whole delegation to that validator (TEST rule).
+          staking.delegations.set(validator.address, {
+            amount: add(held?.amount ?? ZERO, intent.amount),
+            lockUpEndsAt: new Date(now.getTime() + TEST_STAKING.delegationLockUpSeconds * 1000),
+          });
+          return accepted(prepared.nonce, null);
+        }
+        const held = staking.delegations.get(validator.address);
+        if (!held) return refused('venue_rejected', `nothing is delegated to ${validator.name}`);
+        const left = sub(held.amount, intent.amount);
+        if (compare(left, ZERO) === 0) staking.delegations.delete(validator.address);
+        else staking.delegations.set(validator.address, { ...held, amount: left });
+        staking.staked = add(staking.staked, intent.amount);
         return accepted(prepared.nonce, null);
       }
       case 'vault_transfer': {

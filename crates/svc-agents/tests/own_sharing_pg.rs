@@ -16,7 +16,7 @@
     reason = "a test: a failure is the point"
 )]
 
-mod support;
+use crate::support::{self, standin};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -1725,4 +1725,95 @@ fn fails_closed_identity_down_or_no_freeze_read_wired_refuses_every_one_owner_fr
         );
     }
     assert_eq!(live(&db, USER), before);
+}
+
+/// The `selfFreezeApplied` consumer the binary runs, end to end over a stand-in JetStream: the first delivery applies the
+/// freeze and its ack is lost, so JetStream delivers it again; the second changes nothing and is acked. A delivery the
+/// database refuses is nak'd, never acked, and records nothing.
+#[test]
+fn the_freeze_consumer_applies_once_acks_after_the_commit_and_a_redelivery_changes_nothing() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
+
+    use service_kit::nats::{JetStream, consume};
+    use svc_agents::bus::{SELF_FREEZE_APPLIED, on_self_freeze};
+
+    let Some(db) = fresh() else { return };
+    let d = door(&db, Build::default());
+    equip(&db, &d, USER);
+    equip(&db, &d, OTHER);
+    let server = standin::StandIn::start();
+    let spec = SELF_FREEZE_APPLIED.spec("INTAFACED");
+    let envelope = |key: &str, payload: &Json| {
+        Json::obj([
+            ("id", Json::str("0b8f6a1e-0000-4000-8000-0000000000aa")),
+            ("subject", Json::str(SELF_FREEZE_APPLIED.subject())),
+            ("version", Json::int(1)),
+            ("occurredAt", Json::str(SINCE)),
+            ("producer", Json::str("svc-identity")),
+            ("idempotencyKey", Json::str(key)),
+            ("payload", payload.clone()),
+        ])
+        .compact()
+        .into_bytes()
+    };
+    server.state.lock().unwrap().lose_acks = 1;
+    server.push(
+        &spec.filter_subject,
+        &envelope(&format!("self-freeze:{FREEZE_ID}"), &payload()),
+    );
+    let js = JetStream::connect(&server.url(), "svc-agents-test", Duration::from_secs(5)).unwrap();
+    js.ensure_consumer(&spec).unwrap();
+    let p = pool(&db);
+    let stop = AtomicBool::new(false);
+    let work = |env: &service_kit::nats::Envelope| on_self_freeze(&p, env);
+    std::thread::scope(|scope| {
+        scope.spawn(|| {
+            consume(
+                &js,
+                &spec,
+                Duration::from_millis(200),
+                &stop,
+                &work,
+                &|_| {},
+            )
+        });
+        server.until(Duration::from_secs(20), |s| !s.acks.is_empty());
+        // A worked and acked delivery does not come again.
+        std::thread::sleep(Duration::from_millis(400));
+        {
+            let s = server.state.lock().unwrap();
+            assert_eq!(
+                s.deliveries,
+                vec![(1, 1), (1, 2)],
+                "the lost ack delivered it again"
+            );
+            assert_eq!(s.acks, vec![(1, 2)]);
+            assert!(s.naks.is_empty(), "{:?}", s.naks);
+        }
+        assert_eq!(
+            db.count("SELECT count(*) FROM agents.self_freezes_applied"),
+            1
+        );
+        assert_eq!(live(&db, USER), NONE_LIVE);
+        assert_eq!(live(&db, OTHER), ALL_LIVE);
+
+        // A freeze id Postgres refuses: nak'd for redelivery, never acked, nothing recorded.
+        let bad = obj(&[
+            ("userId", Json::str(OTHER)),
+            ("freezeId", Json::str("not-a-uuid")),
+            ("since", Json::str(SINCE)),
+        ]);
+        server.push(&spec.filter_subject, &envelope("self-freeze:bad", &bad));
+        server.until(Duration::from_secs(20), |s| !s.naks.is_empty());
+        stop.store(true, Ordering::Relaxed);
+    });
+    let s = server.state.lock().unwrap();
+    assert_eq!(s.acks, vec![(1, 2)], "the refused delivery is never acked");
+    assert_eq!(s.naks.first().map(|n| (n.0, n.1)), Some((2, 1)));
+    assert_eq!(
+        db.count("SELECT count(*) FROM agents.self_freezes_applied"),
+        1
+    );
+    assert_eq!(live(&db, OTHER), ALL_LIVE);
 }

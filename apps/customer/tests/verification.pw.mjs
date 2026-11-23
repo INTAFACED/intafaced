@@ -232,7 +232,7 @@ for (const [name, corrupt] of [
     const s = await network(context);
     s['kyc.status'] = (r) => reply(r, { tier: 'basic', records: corrupt(s.rows) });
     await login(page);
-    await expect(page.locator('.failure')).toBeVisible();
+    await expect(page.locator(':is(.failure, .lt-refusal)')).toBeVisible();
     await expect(records(page)).not.toContainText(a);
     expect(count(s)).toBe(0);
   });
@@ -242,7 +242,7 @@ test('failed GET hides selection, retry is read only, and independent request re
   await page.getByRole('button', { name: 'Inspect record ' + a, exact: true }).click();
   s['kyc.status'] = (r) => fail(r);
   await page.getByRole('button', { name: 'Refresh records', exact: true }).click();
-  await expect(page.locator('.failure')).toBeVisible();
+  await expect(page.locator(':is(.failure, .lt-refusal)')).toBeVisible();
   await expect(page.getByRole('region', { name: 'Selected record', exact: true })).toHaveCount(0);
   await review(page);
   await expect(page.getByRole('dialog')).toBeVisible();
@@ -536,7 +536,7 @@ test('native locale change preserves frozen review terms and only exact two-fiel
   await review(page, 'institutional', 'fr');
   await changeLocale(context, 'fr');
   await expect(page.getByRole('dialog')).toContainText('Institutionnel');
-  await page.getByRole('dialog').locator('.button--primary').click();
+  await page.getByRole('dialog').locator(':is(.button--primary, .lt-button-primary)').click();
   await expect(page.locator('.verification__original')).toContainText('Un dossier a été renvoyé.');
   expect(s.privateWrites.filter((r) => r.procedure === 'kyc.submit').map((r) => r.input)).toEqual([
     { tier: 'institutional', jurisdiction: 'FR' },
@@ -584,7 +584,7 @@ test('unknown320 plus failed current GET retains original; retry only reads', as
   const before = await journal(page);
   s['kyc.status'] = (r) => fail(r);
   await page.getByRole('button', { name: 'Refresh records', exact: true }).click();
-  await expect(page.locator('.failure')).toBeVisible();
+  await expect(page.locator(':is(.failure, .lt-refusal)')).toBeVisible();
   await expect(records(page)).not.toContainText(a);
   await shot(page, 'unknown320-failed-current-read');
   delete s['kyc.status'];

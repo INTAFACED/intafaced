@@ -55,6 +55,13 @@ import {
   ownAgentTriggerSchema,
   ownAgentUsageDaySchema,
   ownAgentUsageWindowSchema,
+  OWN_AGENT_POLICY_EFFECTS,
+  OWN_AGENT_POLICY_ACTIONS,
+  OWN_AGENT_POLICY_SCOPES,
+  ownAgentSchedulesSchema,
+  ownAgentInboxRowSchema,
+  ownAgentApprovalApprovedSchema,
+  ownAgentApprovalRequestSchema,
 } from './agents-own.js';
 import { ownAgentUsageLimitsInputSchema, ownAgentUsageLimitsSchema } from './agents-usage-limits.js';
 import { idInput, ownBackgroundRunSchema } from './agents-call-schemas.js';
@@ -1085,6 +1092,168 @@ export const AGENTS_OWN_ANALYTICS = defineProcedure({
   output: ownAgentAnalyticsSchema,
   samples: [
     { verdict: 'accept', input: { id: 'USDC' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const AGENTS_OWN_POLICY_ADD = defineProcedure({
+  ...base,
+  name: 'agents.own.policy.add',
+  kind: 'mutation',
+  path: 'own.policy.add',
+  access: { caller: 'scope', scope: 'agents:read', module: 'agents', person: true },
+  refusals: {},
+  input: idInput.extend({
+    effect: z.enum(OWN_AGENT_POLICY_EFFECTS),
+    action: z.enum(OWN_AGENT_POLICY_ACTIONS),
+    scope: z.enum(OWN_AGENT_POLICY_SCOPES),
+  }),
+  output: ownAgentPolicySchema,
+  samples: [
+    { verdict: 'accept', input: { id: 'USDC', effect: 'allow', action: 'place_order', scope: 'all' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const AGENTS_OWN_POLICY_REMOVE = defineProcedure({
+  ...base,
+  name: 'agents.own.policy.remove',
+  kind: 'mutation',
+  path: 'own.policy.remove',
+  access: { caller: 'scope', scope: 'agents:read', module: 'agents', person: true },
+  refusals: {},
+  input: idInput.extend({ ruleId: z.string().uuid() }),
+  output: ownAgentPolicySchema,
+  samples: [
+    { verdict: 'accept', input: { id: 'USDC', ruleId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const AGENTS_OWN_POLICY_REQUIRE = defineProcedure({
+  ...base,
+  name: 'agents.own.policy.require',
+  kind: 'mutation',
+  path: 'own.policy.require',
+  access: { caller: 'scope', scope: 'agents:read', module: 'agents', person: true },
+  refusals: {},
+  input: idInput.extend({ rulesRequired: z.boolean() }),
+  output: ownAgentPolicySchema,
+  samples: [
+    { verdict: 'accept', input: { id: 'USDC', rulesRequired: true } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** The agent's schedules, newest first, each with its status, next occurrence and recent occurrences. */
+export const AGENTS_OWN_SCHEDULES_LIST = defineProcedure({
+  ...base,
+  name: 'agents.own.schedules.list',
+  kind: 'query',
+  path: 'own.schedules.list',
+  access: { caller: 'scope', scope: 'agents:read', module: 'agents', person: true },
+  refusals: {},
+  input: idInput,
+  output: ownAgentSchedulesSchema,
+  samples: [
+    { verdict: 'accept', input: { id: 'USDC' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** Cancels a schedule: no further occurrence is due. A run already running goes on. */
+export const AGENTS_OWN_SCHEDULES_CANCEL = defineProcedure({
+  ...base,
+  name: 'agents.own.schedules.cancel',
+  kind: 'mutation',
+  path: 'own.schedules.cancel',
+  access: { caller: 'scope', scope: 'agents:execute', module: 'agents', person: true, ownSession: 'agents.execute_person_only' },
+  refusals: {},
+  input: idInput.extend({ scheduleId: z.string().min(1).max(64) }),
+  output: ownAgentScheduleSchema,
+  samples: [
+    { verdict: 'accept', input: { id: 'USDC', scheduleId: 'USDC' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** The agent's triggers, newest first, each with the events delivered to it and the runs they made. */
+export const AGENTS_OWN_TRIGGERS_LIST = defineProcedure({
+  ...base,
+  name: 'agents.own.triggers.list',
+  kind: 'query',
+  path: 'own.triggers.list',
+  access: { caller: 'scope', scope: 'agents:read', module: 'agents', person: true },
+  refusals: {},
+  input: idInput,
+  output: z.array(ownAgentTriggerSchema),
+  samples: [
+    { verdict: 'accept', input: { id: 'USDC' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/**
+ * The Approvals inbox (AG-approvals-01): the calls a rule held for the person across all their own agents, newest
+ * first, each with its agent. None of them has run.
+ */
+export const AGENTS_OWN_INBOX = defineProcedure({
+  ...base,
+  name: 'agents.own.inbox',
+  kind: 'query',
+  path: 'own.inbox',
+  access: { caller: 'scope', scope: 'agents:read', module: 'agents', person: true },
+  refusals: {},
+  input: z.object({ limit: z.number().int().min(1).max(200) }),
+  output: z.array(ownAgentInboxRowSchema),
+  samples: [
+    { verdict: 'accept', input: { limit: 1 } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const AGENTS_OWN_APPROVAL_APPROVE = defineProcedure({
+  ...base,
+  name: 'agents.own.approval.approve',
+  kind: 'mutation',
+  path: 'own.approval.approve',
+  access: { caller: 'scope', scope: 'agents:execute', module: 'agents', person: true, ownSession: 'agents.execute_person_only' },
+  refusals: {},
+  input: z.object({ requestId: z.string().uuid() }),
+  output: ownAgentApprovalApprovedSchema,
+  samples: [
+    { verdict: 'accept', input: { requestId: '33333333-3333-4333-8333-333333333333' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const AGENTS_OWN_APPROVAL_REJECT = defineProcedure({
+  ...base,
+  name: 'agents.own.approval.reject',
+  kind: 'mutation',
+  path: 'own.approval.reject',
+  access: { caller: 'scope', scope: 'agents:read', module: 'agents', person: true },
+  refusals: {},
+  input: z.object({ requestId: z.string().uuid() }),
+  output: ownAgentApprovalRequestSchema,
+  samples: [
+    { verdict: 'accept', input: { requestId: '33333333-3333-4333-8333-333333333333' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** The calls of this agent's tools that a rule held for the person, newest first. None of them has run. */
+export const AGENTS_OWN_APPROVALS = defineProcedure({
+  ...base,
+  name: 'agents.own.approvals',
+  kind: 'query',
+  path: 'own.approvals',
+  access: { caller: 'scope', scope: 'agents:read', module: 'agents', person: true },
+  refusals: {},
+  input: idInput.extend({ limit: z.number().int().min(1).max(200) }),
+  output: z.array(ownAgentApprovalRequestSchema),
+  samples: [
+    { verdict: 'accept', input: { id: 'x', limit: 1 } },
     { verdict: 'refuse', input: 42 },
   ],
 });

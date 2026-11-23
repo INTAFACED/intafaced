@@ -27,8 +27,9 @@
  */
 
 /**
- * Money roots from D26-P2-01 promise-falsify surface (plus ledger-client). The ledger itself is the Rust crate
- * `crates/svc-ledger`, which this scan of TypeScript tests cannot read: CI's Rust job runs its database tests with
+ * Money roots from D26-P2-01 promise-falsify surface (plus ledger-client). The ledger and the matching engine are the
+ * Rust crates `crates/svc-ledger` and `crates/svc-matching`, which this scan of TypeScript tests cannot read (the
+ * engine's tests need no database, so they never skip): CI's Rust job runs its database tests with
  * REQUIRE_POSTGRES=1, so a missing database fails them rather than skipping.
  */
 export const MONEY_PATH_ROOTS = [
@@ -36,7 +37,6 @@ export const MONEY_PATH_ROOTS = [
   'services/svc-pay',
   'services/svc-bank',
   'services/svc-p2p',
-  'services/svc-matching',
   'services/svc-token',
   'services/svc-market',
   'services/svc-ws',

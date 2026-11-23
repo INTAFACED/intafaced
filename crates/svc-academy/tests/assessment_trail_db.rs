@@ -9,7 +9,7 @@
     reason = "a test: a failure is the point"
 )]
 
-mod support;
+use crate::support;
 
 use service_kit::json::Json;
 use support::{TestDb, at, code_of, enrol, jp, merged, seed_course};

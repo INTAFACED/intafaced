@@ -104,7 +104,7 @@ test(`${J} #3 Swap while the node is unreachable lists its blockers in order, ch
   // The disabled Swap names its first blocker: its title is the chain-unreachable sentence, and the one notice beside it
   // (drawn only for the first blocker) is the crypto network notice.
   await expect(button).toHaveAttribute('title', /^The chain is unreachable/);
-  const firstReason = swap.locator(':scope > .protocol-actions__reason');
+  const firstReason = swap.locator(':scope > [role="note"]');
   await expect(firstReason).toHaveCount(1);
   await expect(firstReason).toHaveAttribute('data-not-connected', 'rail.crypto');
   // The notice's own words: what Swap needs, and that it is off here, with its code.
@@ -192,7 +192,12 @@ async function withPublishedNetworks(body) {
   }
 }
 
-const networkCard = (page) => page.locator('main section').filter({ has: page.getByRole('heading', { name: 'Network', exact: true }) });
+// The card itself, not the page's Details region that holds it: the innermost section with the heading.
+const networkCard = (page) =>
+  page
+    .locator('main section')
+    .filter({ has: page.getByRole('heading', { name: 'Network', exact: true }) })
+    .filter({ hasNot: page.locator('section') });
 const fact = (page, label) =>
   networkCard(page)
     .locator('dl div')

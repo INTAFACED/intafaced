@@ -21,7 +21,7 @@ pub const DOOR_CALLERS: [(&str, &[&str]); 22] = [
             "svc-trade",
         ],
     ),
-    ("postRecipe", &["svc-academy", "svc-agents"]),
+    ("postRecipe", &["svc-academy", "svc-agents", "svc-bank"]),
     (
         "balance",
         &[

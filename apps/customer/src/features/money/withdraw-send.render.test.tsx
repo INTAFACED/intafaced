@@ -71,13 +71,12 @@ const ASSETS: WithdrawAsset[] = [
 ];
 vi.mock('./components', async (original) => {
   const real = await original<typeof import('./components')>();
-  return {
-    ...real,
-    useBankRead: (procedure: string) =>
-      procedure === 'ramps.destinations.networks'
-        ? { resource: { status: 'ready', data: ASSETS }, reload: () => undefined }
-        : { resource: { status: 'ready', data: [ROW] }, reload: () => undefined },
-  };
+  // The room reads by its records now: each record's read is served from the same answers, by its path.
+  const useBankRead = (procedure: string) =>
+    procedure === 'ramps.destinations.networks'
+      ? { resource: { status: 'ready', data: ASSETS }, reload: () => undefined }
+      : { resource: { status: 'ready', data: [ROW] }, reload: () => undefined };
+  return { ...real, useBankRead, useBankRecord: (record: { path: string }) => useBankRead(record.path) };
 });
 import { WithdrawForm } from './WithdrawForm';
 
@@ -139,7 +138,7 @@ async function mount() {
   await act(async () => mounted.render(<WithdrawForm />));
 }
 function field(label: string): HTMLInputElement | HTMLSelectElement {
-  const found = [...document.querySelectorAll('label.field')].find((l) => l.querySelector('span')?.textContent === label);
+  const found = [...document.querySelectorAll('label.lt-field')].find((l) => l.querySelector('span')?.textContent === label);
   return found!.querySelector('input, select') as HTMLInputElement | HTMLSelectElement;
 }
 async function type(label: string, value: string) {

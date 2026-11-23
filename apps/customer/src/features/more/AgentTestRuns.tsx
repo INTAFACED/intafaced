@@ -2,14 +2,14 @@ import { useRef, useState, type ReactNode } from 'react';
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
-import { Button, DataTable, Failure, Field, Panel, Stat } from '../../shared/ui';
+import { Button, Select } from '@intafaced/ui/lit';
+import { KeyValue } from '@intafaced/ui/lit/templates';
+import { DataTable, Failure, Field, Panel, Read, TextArea } from './agent-room/parts';
 import { TabList } from '../protocol';
-import { Read, Select, TextArea } from './common';
 import { GuardOutcome, replyShown } from './AgentTestGuards';
 import { toolWords } from './AgentGuardrails';
 import { agentGuardrailsCopy } from './agent-guardrails-copy';
 import { agentTestRunsCopy, hasTestRunsWords } from './agent-test-runs-copy';
-import './agents-session.css';
 import {
   ownAgentTestRunSchema,
   type OwnAgent,
@@ -129,7 +129,7 @@ export function TestPanel({ agent }: { agent: OwnAgent }) {
   const catalogue = useCatalogue();
   return (
     <Panel title={t('testTitle')} role="region" aria-label={t('testTitle')}>
-      <p className="muted">{t('testIntro')}</p>
+      <p className="lt-muted">{t('testIntro')}</p>
       <EngineRun agent={agent} />
       <MoveTest agent={agent} catalogue={catalogue} />
       <DryRun agent={agent} catalogue={catalogue} />
@@ -177,18 +177,18 @@ function EngineRun({ agent }: { agent: OwnAgent }) {
   return (
     <>
       <h3>{t('runTitle')}</h3>
-      <p className="muted">{t('runIntro')}</p>
+      <p className="lt-muted">{t('runIntro')}</p>
       <Field label={t('ask')} value={ask} maxLength={4000} onChange={(event) => setAsk(event.target.value)} />
       <TextArea label={t('contentField')} value={content} maxLength={8000} onChange={setContent} />
       <TextArea label={t('schemaField')} value={outputSchema} maxLength={4000} onChange={setOutputSchema} />
       {/* The page's reset gives a checkbox no size; the builder's choice class gives it one a person can tick. */}
-      <label className="agent-surface-choice">
+      <label className="lt-field">
         <input type="checkbox" checked={background} onChange={(event) => setBackground(event.target.checked)} /> {t('runInBackground')}
       </label>
-      <Button disabled={busy} onClick={() => void runTest()}>
+      <Button tone="primary" disabled={busy} onClick={() => void runTest()}>
         {t('runTest')}
       </Button>
-      {started ? <p className="muted">{t('backgroundStarted')}</p> : null}
+      {started ? <p className="lt-muted">{t('backgroundStarted')}</p> : null}
       {refused ? <Answer failed={refused} /> : null}
       {ran ? (
         <section role="region" aria-label={t('engineRun')}>
@@ -256,7 +256,7 @@ function MoveTest({ agent, catalogue }: { agent: OwnAgent; catalogue: Catalogue 
   return (
     <>
       <h3>{t('moveTitle')}</h3>
-      <p className="muted">{t('moveIntro')}</p>
+      <p className="lt-muted">{t('moveIntro')}</p>
       <Read resource={catalogue.resource} retry={catalogue.reload}>
         {(offered) => {
           const money = offered.tools.filter((entry) => entry.movesMoney).map((entry) => entry.name);
@@ -269,7 +269,7 @@ function MoveTest({ agent, catalogue }: { agent: OwnAgent; catalogue: Catalogue 
                 onChange={setPicked}
                 options={money.map((name) => ({ value: name, label: moneyToolWords(t, 'money', name) }))}
               />
-              <Button disabled={busy || !tool} onClick={() => void testTool(tool)}>
+              <Button tone="primary" disabled={busy || !tool} onClick={() => void testTool(tool)}>
                 {t('moveTest')}
               </Button>
             </>
@@ -340,7 +340,7 @@ function DryRun({ agent, catalogue }: { agent: OwnAgent; catalogue: Catalogue })
   return (
     <>
       <h3>{t('dryTitle')}</h3>
-      <p className="muted">{t('dryIntro')}</p>
+      <p className="lt-muted">{t('dryIntro')}</p>
       <Read resource={catalogue.resource} retry={catalogue.reload}>
         {(offered) => {
           const declared = offered.tools.find((entry) => entry.name === tool);
@@ -367,12 +367,12 @@ function DryRun({ agent, catalogue }: { agent: OwnAgent; catalogue: Catalogue })
                   }}
                 />
               ))}
-              <Button disabled={busy || !tool} onClick={() => void dryRun()}>
+              <Button tone="primary" disabled={busy || !tool} onClick={() => void dryRun()}>
                 {t('dryRun')}
               </Button>
             </>
           ) : (
-            <p className="muted">{t('noTools')}</p>
+            <p className="lt-muted">{t('noTools')}</p>
           );
         }}
       </Read>
@@ -492,7 +492,7 @@ function TestRuns({ agent, focusRun }: { agent: OwnAgent; focusRun: string | nul
                 </tr>
               ))}
             </DataTable>
-            {rows.length === 0 ? <p className="muted">{t('testRunsEmpty')}</p> : null}
+            {rows.length === 0 ? <p className="lt-muted">{t('testRunsEmpty')}</p> : null}
           </>
         )}
       </Read>
@@ -511,27 +511,31 @@ export function AnalyticsPage({ agent }: { agent: OwnAgent }) {
   );
   return (
     <Panel title={t('analyticsTitle')} role="region" aria-label={t('analyticsTitle')}>
-      <p className="muted">{t('analyticsIntro')}</p>
+      <p className="lt-muted">{t('analyticsIntro')}</p>
       <Field label={t('includeTest')} type="checkbox" checked={includeTest} onChange={(event) => setIncludeTest(event.target.checked)} />
       <Read resource={figures.resource} retry={figures.reload}>
         {(view) => (
-          <div className="more-grid" data-include-test={String(view.includeTest)}>
-            <Stat label={t('statRuns')} value={<span data-testid="analytics-runs">{view.runs}</span>} />
-            <Stat label={t('statExecuted')} value={<span data-testid="analytics-executed">{view.executed}</span>} />
-            <Stat label={t('statRefused')} value={<span data-testid="analytics-refused">{view.refused}</span>} />
-            <Stat label={t('statFailed')} value={<span data-testid="analytics-failed">{view.failed}</span>} />
-            <Stat
-              label={t('statTestRuns')}
-              value={<span data-testid="analytics-test-runs">{view.testRuns === null ? '—' : view.testRuns}</span>}
-              note={view.testRuns === null ? t('testLeftOut') : undefined}
-            />
-            <Stat
-              label={t('statCost')}
-              value={
-                <span data-testid="analytics-cost">
-                  {view.cost} {view.assetId}
-                </span>
-              }
+          <div data-include-test={String(view.includeTest)}>
+            <KeyValue
+              rows={[
+                { label: t('statRuns'), value: <span data-testid="analytics-runs">{view.runs}</span> },
+                { label: t('statExecuted'), value: <span data-testid="analytics-executed">{view.executed}</span> },
+                { label: t('statRefused'), value: <span data-testid="analytics-refused">{view.refused}</span> },
+                { label: t('statFailed'), value: <span data-testid="analytics-failed">{view.failed}</span> },
+                {
+                  label: t('statTestRuns'),
+                  value: <span data-testid="analytics-test-runs">{view.testRuns === null ? '—' : view.testRuns}</span>,
+                  note: view.testRuns === null ? t('testLeftOut') : undefined,
+                },
+                {
+                  label: t('statCost'),
+                  value: (
+                    <span data-testid="analytics-cost">
+                      {view.cost} {view.assetId}
+                    </span>
+                  ),
+                },
+              ]}
             />
           </div>
         )}

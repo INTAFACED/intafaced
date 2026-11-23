@@ -123,7 +123,7 @@
 <header data-testid="page-heading" class="page-heading">
 <div>
 <h1>Verification</h1>
-<p class="muted">Your verification level and your requests for review.</p>
+<p class="lt-muted">Your verification level and your requests for review.</p>
 </div>
 </header>
 <p class="verification__identity">
@@ -133,7 +133,7 @@
 <h2>
 <span lang="en" dir="ltr" data-i18n="account.verificationTrading.failedTitle">The trading checks could not be read</span>
 </h2>
-<div data-testid="failure" class="failure" role="status">
+<div data-testid="failure" class="lt-refusal" role="status">
 <h3>
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
 </h3>
@@ -152,7 +152,7 @@
 <h2 class="verification__level">
 <span data-slot="status-tag" data-status="filled" class="inline-flex items-center whitespace-nowrap border border-current/40 text-accent-text bg-lime-soft verification__level-tag h-10 rounded-sm px-5 text-lg font-semibold" data-testid="verification__level-tag">Basic</span>
 </h2>
-<p class="muted">
+<p class="lt-muted">
 <span lang="en" dir="ltr" data-i18n="account.verification.currentBody">A pending request doesn’t change your level until it’s approved.</span>
 </p>
 </div>
@@ -165,7 +165,7 @@
 <span lang="en" dir="ltr" data-i18n="account.verification.refresh">Refresh records</span>
 </button>
 </div>
-<p class="muted">
+<p class="lt-muted">
 <span lang="en" dir="ltr" data-i18n="account.verification.window">Showing up to 50 recent requests.</span>
 </p>
 <button type="button" class="button button--secondary verification__jump">
@@ -194,14 +194,14 @@
 <h2>
 <span lang="en" dir="ltr" data-i18n="account.verification.requestTitle">Request review</span>
 </h2>
-<p class="muted">
+<p class="lt-muted">
 <span lang="en" dir="ltr" data-i18n="account.verification.requestBody">Sending this asks for a review. It doesn’t change your level unless it’s approved.</span>
 </p>
 <div class="verification__attempts" data-testid="verification__attempts" data-state="unread">
 <h3>
 <span lang="en" dir="ltr" data-i18n="account.verificationAttempts.failedTitle">Attempts could not be read</span>
 </h3>
-<div data-testid="failure" class="failure" role="status">
+<div data-testid="failure" class="lt-refusal" role="status">
 <h3>
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
 </h3>
@@ -211,8 +211,8 @@
 </button>
 </div>
 </div>
-<form class="form-stack">
-<label class="field">
+<form class="lt-stack">
+<label class="lt-field">
 <span>
 <span lang="en" dir="ltr" data-i18n="account.verification.tier">Level to request</span>
 </span>
@@ -221,7 +221,7 @@
 <option value="institutional">Institutional</option>
 </select>
 </label>
-<label class="field" for="kyc-country-_r_3_">
+<label class="lt-field" for="kyc-country-_r_3_">
 <span id="kyc-country-_r_3_-label">Country code</span>
 <input required="" minlength="2" maxlength="2" pattern="[a-zA-Z]{2}" id="kyc-country-_r_3_" aria-labelledby="kyc-country-_r_3_-label" aria-invalid="false" aria-describedby="kyc-country-_r_3_-help" value="" name="kyc-country">
 <small id="kyc-country-_r_3_-help" class="">Two letters, for example US.</small>
@@ -230,7 +230,7 @@
 <span lang="en" dir="ltr" data-i18n="account.verification.review">Review request</span>
 </button>
 </form>
-<p class="muted">
+<p class="lt-muted">
 <span lang="en" dir="ltr" data-i18n="account.verification.documentBoundary">You can’t upload documents here. Not sure which level to pick? Verification help explains each one.</span>
 </p>
 <a data-testid="text-link" class="text-link" href="/support">
@@ -241,7 +241,7 @@
 <h2>
 <span lang="en" dir="ltr" data-i18n="account.verificationLadder.failedTitle">Levels could not be read</span>
 </h2>
-<div data-testid="failure" class="failure" role="status">
+<div data-testid="failure" class="lt-refusal" role="status">
 <h3>
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
 </h3>
@@ -255,7 +255,7 @@
 <h2>
 <span lang="en" dir="ltr" data-i18n="account.verificationTrading.bankTitle">Verification for the bank</span>
 </h2>
-<p class="muted">
+<p class="lt-muted">
 <span lang="en" dir="ltr" data-i18n="account.verificationTrading.bankBody">Cards, bank accounts and higher limits need a fuller verification with your documents. Trading does not.</span>
 </p>
 <button type="button" class="button button--secondary ">
@@ -266,13 +266,13 @@
 <h2 id="verification-poa-title">
 <span lang="en" dir="ltr" data-i18n="account.verificationPoa.title">Proof of address</span>
 </h2>
-<p class="muted">
+<p class="lt-muted">
 <span lang="en" dir="ltr" data-i18n="account.verificationPoa.intro">A recent document that shows your name and address. A person checks it.</span>
 </p>
 <h3>
 <span lang="en" dir="ltr" data-i18n="account.verificationPoa.failedTitle">Proof of address could not be read</span>
 </h3>
-<div data-testid="failure" class="failure" role="status">
+<div data-testid="failure" class="lt-refusal" role="status">
 <h3>
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
 </h3>
@@ -289,7 +289,7 @@
 <h3>
 <span lang="en" dir="ltr" data-i18n="account.verificationCapabilities.failedTitle">Capabilities could not be read</span>
 </h3>
-<div data-testid="failure" class="failure" role="status">
+<div data-testid="failure" class="lt-refusal" role="status">
 <h3>
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
 </h3>
@@ -303,7 +303,7 @@
 <h2 id="verification-restrictions-title">
 <span lang="en" dir="ltr" data-i18n="account.status.restrictionsOnAccount">Restrictions on your account</span>
 </h2>
-<div data-testid="failure" class="failure" role="status">
+<div data-testid="failure" class="lt-refusal" role="status">
 <h3>
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
 </h3>
@@ -325,7 +325,7 @@
 <h3>
 <span lang="en" dir="ltr" data-i18n="account.verificationCases.failedTitle">Case history could not be read</span>
 </h3>
-<div data-testid="failure" class="failure" role="status">
+<div data-testid="failure" class="lt-refusal" role="status">
 <h3>
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
 </h3>

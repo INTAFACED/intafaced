@@ -341,4 +341,27 @@ describe('Reclaim: a reward we owe and have not paid, cancelled by a risk decisi
     expect(() => reclaim('1', { caseId: 'a:b' })).toThrow(InvalidEntryError);
     expect(() => reclaim('1', { rewardId: `campaign:other:${USER}:x` })).toThrow(/own campaign/);
   });
+
+  it('reclaims, once, a reward whose owe key is the full 200 characters', async () => {
+    const campaignId = '22222222-2222-4222-8222-222222222222';
+    const authorizationId = '33333333-3333-4333-8333-333333333333';
+    const longId = `campaign:${campaignId}:task-${campaignId}-${USER}-earn-card-spend-cashback-${authorizationId}`;
+    const otherId = `${longId.slice(0, -1)}4`;
+    await ourMoneyAtTheWallet('10');
+    await fundBudget('10', campaignId);
+    const posted = await ledger.post(owe({ campaignId, rewardId: longId }));
+    expect(posted.idempotencyKey).toHaveLength(200);
+    const engineBefore = await bal(rewardsEngine('USDC'));
+
+    const long = (rewardId = longId) => reclaim('10', { campaignId, rewardId });
+    const key = long().idempotencyKey;
+    expect(key.length).toBeLessThanOrEqual(200);
+    // One key per reward, the same on every retry: a retry books nothing twice, and another reward never shares it.
+    expect(long().idempotencyKey).toBe(key);
+    expect(long(otherId).idempotencyKey).not.toBe(key);
+    const first = await ledger.post(long());
+    expect((await ledger.post(long())).id).toBe(first.id);
+    expect(await bal(rewardOwedAccount(longId))).toBe('0');
+    expect(formatAmount(amt(await bal(rewardsEngine('USDC'))) - amt(engineBefore))).toBe('10');
+  });
 });

@@ -1,11 +1,6 @@
 import { TRPCError } from '@trpc/server';
 import {
-  protocolOpsActionResultSchema,
   protocolOpsHiddenOutputSchema,
-  protocolOpsMarketDelistInputSchema,
-  protocolOpsMarketRestoreInputSchema,
-  protocolOpsPoolHideInputSchema,
-  protocolOpsPoolRestoreInputSchema,
   protocolOpsReasonCodesOutputSchema,
   protocolOpsReasonCodesSetInputSchema,
 } from '@intafaced/contracts/protocol-ops';
@@ -18,6 +13,10 @@ import {
   OPS_PROTOCOL_LISTING_POOLS_LIST,
   OPS_PROTOCOL_LISTING_MARKETS_LIST,
   OPS_PROTOCOL_LISTING_REASON_CODES_LIST,
+  OPS_PROTOCOL_LISTING_POOLS_HIDE,
+  OPS_PROTOCOL_LISTING_POOLS_RESTORE,
+  OPS_PROTOCOL_LISTING_MARKETS_DELIST,
+  OPS_PROTOCOL_LISTING_MARKETS_RESTORE,
 } from '@intafaced/contracts/ops-protocol-listing-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { opsRefusal } from '../refusal.js';
@@ -86,26 +85,28 @@ export function createProtocolListingRouter(desk: ListingDesk | undefined) {
         },
         opsRefusal,
       ),
-      hide: scopedProcedure('admin:write', guards)
-        .input(protocolOpsPoolHideInputSchema)
-        .output(protocolOpsActionResultSchema)
-        .mutation(async ({ ctx, input }) => {
+      hide: mountRecord(
+        OPS_PROTOCOL_LISTING_POOLS_HIDE,
+        async ({ ctx, input }) => {
           try {
             return await require(desk).desk.hidePool(ctx.principal.userId, input);
           } catch (err) {
             return deskError(err);
           }
-        }),
-      restore: scopedProcedure('admin:write', guards)
-        .input(protocolOpsPoolRestoreInputSchema)
-        .output(protocolOpsActionResultSchema)
-        .mutation(async ({ ctx, input }) => {
+        },
+        opsRefusal,
+      ),
+      restore: mountRecord(
+        OPS_PROTOCOL_LISTING_POOLS_RESTORE,
+        async ({ ctx, input }) => {
           try {
             return await require(desk).desk.restorePool(ctx.principal.userId, input);
           } catch (err) {
             return deskError(err);
           }
-        }),
+        },
+        opsRefusal,
+      ),
     }),
     markets: router({
       list: mountRecord(
@@ -121,26 +122,28 @@ export function createProtocolListingRouter(desk: ListingDesk | undefined) {
         },
         opsRefusal,
       ),
-      delist: scopedProcedure('admin:write', guards)
-        .input(protocolOpsMarketDelistInputSchema)
-        .output(protocolOpsActionResultSchema)
-        .mutation(async ({ ctx, input }) => {
+      delist: mountRecord(
+        OPS_PROTOCOL_LISTING_MARKETS_DELIST,
+        async ({ ctx, input }) => {
           try {
             return await require(desk).desk.delistMarket(ctx.principal.userId, input);
           } catch (err) {
             return deskError(err);
           }
-        }),
-      restore: scopedProcedure('admin:write', guards)
-        .input(protocolOpsMarketRestoreInputSchema)
-        .output(protocolOpsActionResultSchema)
-        .mutation(async ({ ctx, input }) => {
+        },
+        opsRefusal,
+      ),
+      restore: mountRecord(
+        OPS_PROTOCOL_LISTING_MARKETS_RESTORE,
+        async ({ ctx, input }) => {
           try {
             return await require(desk).desk.restoreMarket(ctx.principal.userId, input);
           } catch (err) {
             return deskError(err);
           }
-        }),
+        },
+        opsRefusal,
+      ),
     }),
     /**
      * The reasons a hide or delist may name. Reading is `admin:read`; replacing the whole list is `admin:write` and is logged with

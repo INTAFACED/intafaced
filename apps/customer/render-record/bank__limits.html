@@ -97,72 +97,75 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div class="lt-room" data-template="settings" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<p class="eyebrow">Money / Bank</p>
-<h1>Limits, fees and plan</h1>
-<p class="muted">What you can send today, the fees the bank has published and your plan.</p>
+<h1 class="lt-title">Limits, fees and plan</h1>
+<p class="lt-description">What you can send today, the fees the bank has published and your plan.</p>
 </div>
-<div class="actions">
-<a class="button button--secondary" href="/bank">
-<span lang="en" dir="ltr" data-i18n="customer.money.rooms.bank.overview">Bank overview</span>
-</a>
+<div class="lt-room-action">
+<a class="lt-button lt-button-secondary" href="/bank">Bank overview</a>
 </div>
 </header>
-<nav data-testid="money-bank-nav" class="money-bank-nav" aria-label="Bank rooms">
-<a href="/bank" aria-current="page">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.overview">Overview</span>
-</a>
-<a href="/bank/spaces">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.spaces">Spaces</span>
-</a>
-<a href="/bank/transfers">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.transfers">Transfers</span>
-</a>
-<a href="/bank/earn">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.earn">Earn</span>
-</a>
-<a href="/bank/loans">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.loans">Loans</span>
-</a>
-<a href="/bank/cards">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.cards">Cards</span>
-</a>
-<a href="/bank/ramps">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.ramps">Ramps</span>
-</a>
-<a href="/bank/analytics">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.analytics">Analytics</span>
-</a>
-<a href="/bank/business">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.business">Business</span>
-</a>
+<div class="lt-body">
+<div class="lt-grid lt-grid-settings">
+<section class="lt-region" data-region="index" aria-label="Sections">
+<nav class="lt-tabs" aria-label="Bank rooms">
+<a href="/bank" class="lt-tab" aria-current="page">Overview</a>
+<a href="/bank/spaces" class="lt-tab">Spaces</a>
+<a href="/bank/transfers" class="lt-tab">Transfers</a>
+<a href="/bank/earn" class="lt-tab">Earn</a>
+<a href="/bank/loans" class="lt-tab">Loans</a>
+<a href="/bank/cards" class="lt-tab">Cards</a>
+<a href="/bank/ramps" class="lt-tab">Ramps</a>
+<a href="/bank/analytics" class="lt-tab">Analytics</a>
+<a href="/bank/business" class="lt-tab">Business</a>
 </nav>
-<div class="bd-stack" data-testid="bank-limits">
-<section class="bd-panel" aria-labelledby="_r_3_">
-<h3 id="_r_3_">Sending limits</h3>
-<p class="money-caption">What the bank lets you send to people today, from its own quote. Limits refresh at 00:00 UTC.</p>
-<label class="field">
-<span>Coin</span>
-<select>
+<nav aria-label="Limits sections">
+<ul>
+<li>
+<a class="lt-link" href="#limits-sending">Sending limits</a>
+</li>
+<li>
+<a class="lt-link" href="#limits-fees">Fees</a>
+</li>
+<li>
+<a class="lt-link" href="#limits-plan">Your plan</a>
+</li>
+</ul>
+</nav>
+</section>
+<section class="lt-region" data-region="sections" aria-label="Settings">
+<div data-testid="bank-limits">
+<section aria-labelledby="_r_3_" id="limits-sending">
+<h2 id="_r_3_">Sending limits</h2>
+<p class="lt-hint">What the bank lets you send to people today, from its own quote. Limits refresh at 00:00 UTC.</p>
+<label class="lt-field">
+<span id="_r_4_-label">Coin</span>
+<select aria-labelledby="_r_4_-label">
 <option value="USDT">USDT</option>
 <option value="BTC">BTC</option>
 <option value="ETH">ETH</option>
 </select>
 </label>
-<p role="alert" class="error-text" data-code="">No services run in the look gate.</p>
+<p role="alert" data-code="">No services run in the look gate.</p>
 </section>
-<section class="bd-panel" aria-labelledby="_r_4_">
-<h3 id="_r_4_">Fees</h3>
-<p role="alert" class="error-text" data-code="">No services run in the look gate.</p>
-<p role="alert" class="error-text" data-code="">No services run in the look gate.</p>
+<section aria-labelledby="_r_5_" id="limits-fees">
+<h2 id="_r_5_">Fees</h2>
+<p role="alert" data-code="">No services run in the look gate.</p>
+<p role="alert" data-code="">No services run in the look gate.</p>
 </section>
-<section class="bd-panel" aria-labelledby="_r_5_">
-<h3 id="_r_5_">Your plan</h3>
-<p class="money-caption">This plan fee is our own, separate from anything the bank partner charges.</p>
-<p role="alert" class="error-text" data-code="">No services run in the look gate.</p>
+<section aria-labelledby="_r_6_" id="limits-plan">
+<h2 id="_r_6_">Your plan</h2>
+<p class="lt-hint">This plan fee is our own, separate from anything the bank partner charges.</p>
+<p role="alert" data-code="">No services run in the look gate.</p>
 </section>
+</div>
+</section>
+<section class="lt-region" data-region="explain" aria-label="What this means">
+<p>Every limit and fee here is read from the bank as it stands now; none is written in the app. A limit or fee the bank has not published says not set, and nothing is charged for it.</p>
+</section>
+</div>
 </div>
 </div>
 </div>

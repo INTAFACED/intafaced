@@ -103,7 +103,16 @@ export function TopSearch({ compact, helpCap }: { compact?: boolean; helpCap?: n
   );
 
   return (
-    <div className={`tb-search ${compact ? 'tb-search--compact' : ''}`} ref={boxRef}>
+    <div
+      className={`tb-search ${compact ? 'tb-search--compact' : ''}`}
+      ref={boxRef}
+      // Keyboard focus that moves on past the search closes its results, or they stay open over the page under the next
+      // control (WCAG 2.4.11; look gate on /kit at phone). A pointer press elsewhere closes them through `outside`.
+      onBlur={(event) => {
+        const next = event.relatedTarget;
+        if (next instanceof Node && !boxRef.current?.contains(next)) setOpen(false);
+      }}
+    >
       <ShellIcon name="search" size={16} />
       <input
         ref={inputRef}

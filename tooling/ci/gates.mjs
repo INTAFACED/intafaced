@@ -325,6 +325,8 @@ export const NOT_GATES = {
     'not a gate on its own: check 4 of custody-scan.mjs (the custody switch, OWNER 226), imported and run by it, so the `custody` gate runs it. A separate module so its plants can run in a sandbox copy without touching the tree.',
   'api-budget.mjs':
     "not a gate: the words for GitHub's spent hourly API budget (403 or 429 with no calls left, or gh's \"API rate limit exceeded\"), which the seal's scripts put in their error and annotation title, so why-red.mjs reads such a red as JUDGE DOWN rather than a red of the change's own (project-state #2065 row d25). It changes no pass or fail. Its tests are api-budget.test.mjs.",
+  'api-count.mjs':
+    "not a gate: counts this process's GitHub API calls and prints one line at exit naming the script and its count (project-state#3718), so an hour of job logs says who spends the workflow token's shared hourly budget. It changes no pass or fail. Its tests are api-count.test.mjs, which also fail on a script that calls GitHub without counting.",
   'run-jobs.mjs':
     "not a gate: the one way a tooling/ci script reads a run's jobs list (project-state#3258): pages of 30, every page, so a re-run run's jobs page, which GitHub answers 502 at 100 a page, is read whole. It changes no pass or fail. Its tests are run-jobs.test.mjs, which also fail on a script that reads a run's jobs list by itself.",
   'github-fetch.mjs':
@@ -335,6 +337,8 @@ export const NOT_GATES = {
     "the plan of model-check.yml: which TLA+ models a change is checked against (every model, when a modelled service, a path a COVERS.md names or the check itself changes), failing on a model nothing runs. Not a doctrine gate: it needs the pull request's changed files, and the models need Java and minutes, so the Model check workflow runs it; its tests are model-check.test.mjs.",
   'journey-verdict.mjs':
     "the Real-app journeys run's verdict against docs/runbooks/journey-baseline.json, run by the Real-app journeys job of real-app-journeys.yml on a finished run's merged report. Not a doctrine gate: it needs a run's report, its baseline's named run and the pass history since, so a laptop verify has no input. Its tests are journey-verdict.test.mjs, run in the `changes` job of ci.yml.",
+  'look-paths.mjs':
+    "not a gate: the paths that draw a Customer room or kit part (reachesLook), read by ci-affected.mjs, review-marker.mjs and journey-touch.mjs. It changes no pass or fail by itself. Its tests are ci-affected.test.mjs's reachesLook cases.",
   'ci-affected.mjs':
     'path classifier for named CI test shards and the merge-seal aggregator. Invoked from ci.yml `changes` / `merge-seal` jobs. Not a doctrine gate: a laptop verify has no GitHub event payload, and reddening verify over missing GITHUB_OUTPUT is how a classifier gets deleted. Its tests are ci-affected.test.mjs.',
   'bisect-main.mjs':
@@ -384,7 +388,7 @@ export const NOT_GATES = {
   'review-marker.mjs':
     "merge-seal step: for a gate-file or look-baseline change, needs the `CI review` job (ci-review.yml, a pull_request_target run of the default branch's copy) to have passed its `Verdict` step on the PR's exact head, read from the Actions API; a FAIL on that head stands, and no comment or status counts. Needs a GitHub token and a head sha, so a laptop verify cannot run it; review-marker.test.mjs and ci-review.test.mjs check the verdict reader and which changes need the review.",
   'ci-jobs-seal.mjs':
-    'merge-seal step: CI’s jobs on the pull request’s exact head (ci.yml’s Affected tests, Doctrine gates, Format, Typecheck & build and every Tests shard), read through the Actions API, held to `sealNeeded` with the default branch classifying the changed files (`classify`). It fails when main changed a lint rule, a ceiling or the gate list (`RULE_PATHS`) after CI’s run on the head took main’s rules, so a change green before a new rule merges only once CI has judged it by that rule (project-state#3326). It runs in merge-seal.yml on pull_request_target, so the seal is the default branch’s whatever a pull request changes (R3 C3 piece 2). Needs a GitHub token and a head, so a laptop verify has no input; `ci-jobs-seal.test.mjs` holds its planted cases.',
+    'merge-seal step: CI’s jobs on the pull request’s exact head (ci.yml’s Affected tests, Doctrine gates, Format, Typecheck & build, every Tests shard, Rust and the Look gate when the change needs them, and any other job that ran red), read through the Actions API, held to `sealNeeded` with the default branch classifying the changed files (`classify`). It fails when main changed a lint rule, a ceiling or the gate list (`RULE_PATHS`) after CI’s run on the head took main’s rules, so a change green before a new rule merges only once CI has judged it by that rule (project-state#3326). It runs in merge-seal.yml on pull_request_target, so the seal is the default branch’s whatever a pull request changes (R3 C3 piece 2). Needs a GitHub token and a head, so a laptop verify has no input; `ci-jobs-seal.test.mjs` holds its planted cases.',
   'open-flaky.mjs':
     'the one command an agent opens a flaky item with (`gh issue create --label`, so it never exists bare: RULING 7, project-state #2065). It writes a GitHub issue, so a laptop verify has no input; `open-flaky.test.mjs` holds its cases.',
   'journey-seal.mjs':

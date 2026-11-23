@@ -1,7 +1,7 @@
 // The call-records codemod's own pieces, on small inputs (the codemod itself is proven by its runs: run.mjs).
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
@@ -21,13 +21,14 @@ import {
   recordName,
   rewriteSite,
   schemaArgOf,
+  writeSchemas,
 } from './index.mjs';
 import { answerFromCallers } from './answer.mjs';
 import { applyEdits, forget, freeNames, load, resolveRelative, text } from './ast.mjs';
 import { findSites } from './sites.mjs';
 import { closureOf } from './closure.mjs';
 import { CALL_METHOD, callMethodFor, doublesIn } from './doubles.mjs';
-import { armsOf, callsOf } from './door.mjs';
+import { accessText, armsOf, callsOf } from './door.mjs';
 import { canon, doorTree, treeOf } from './door-check.mjs';
 import { samplesFor } from './samples.mjs';
 import { createRequire } from 'node:module';
@@ -60,19 +61,26 @@ test('a service whose Rust port is in flight is refused, by name, before anythin
   holdCallersOnly([join(root, 'apps/customer/src/a.ts'), join(root, 'packages/contracts/src/agents-own-procedures.ts')], root);
 });
 
-test('--callers-only moves a caller of a service mid-port to a record written from its router, leaves a near case, and never touches the service or its crate', () => {
-  // The codemod, copied into a small repo: a service whose crate sits beside it, a helper its router declares, and two callers.
-  const root = mkdtempSync(join(tmpdir(), 'call-records-callers-'));
+/** The codemod, copied into a small repo: svc-agents with its crate beside it, a helper two router files declare, and three callers. */
+function agentsRepo(root) {
   const here = new URL('.', import.meta.url).pathname;
   const files = {
     'services/svc-agents/src/errors.ts': 'export const refusalOf: RefusalOf = () => undefined;\n',
     'services/svc-agents/src/router.ts': [
       "import { z } from 'zod';",
+      "import { schedulesRouter } from './schedules.js';",
       'const idInput = z.object({ id: z.string().min(1) });',
       'const agentOut = z.object({ id: z.string(), name: z.string() });',
       'export function createAgentsRouter() {',
-      "  return router({ own: router({ get: scopedProcedure('agents:read').input(idInput).output(agentOut).query(({ input }) => get(input)) }) });",
+      "  return router({ own: router({ get: scopedProcedure('agents:read').input(idInput).output(agentOut).query(({ input }) => get(input)), schedules: schedulesRouter }) });",
       '}',
+      '',
+    ].join('\n'),
+    // A second router file declaring the same idInput the same way (svc-agents' own/automation-routes.ts).
+    'services/svc-agents/src/schedules.ts': [
+      "import { z } from 'zod';",
+      'const idInput = z.object({ id: z.string().min(1) });',
+      "export const schedulesRouter = router({ list: scopedProcedure('agents:read').input(idInput).output(z.array(z.string())).query(() => []) });",
       '',
     ].join('\n'),
     'crates/svc-agents/src/lib.rs': '// the port\n',
@@ -81,6 +89,7 @@ test('--callers-only moves a caller of a service mid-port to a record written fr
       'const agent = z.object({ id: z.string(), name: z.string() });',
       "export const a = (api) => api.query('agents', 'own.get', { id: 'x' }, agent);",
       "export const b = (api) => api.query('agents', 'own.gone', { id: 'x' }, agent);",
+      "export const c = (api) => api.query('agents', 'own.schedules.list', { id: 'x' }, z.array(z.string()));",
       '',
     ].join('\n'),
   };
@@ -90,6 +99,11 @@ test('--callers-only moves a caller of a service mid-port to a record written fr
   }
   mkdirSync(join(root, 'tooling/codemod'), { recursive: true });
   mkdirSync(join(root, 'packages/contracts/src'), { recursive: true });
+  // An earlier run already copied the router's idInput into the shared file (svc-agents' own.schedules.list rerun).
+  writeFileSync(
+    join(root, 'packages/contracts/src/agents-call-schemas.ts'),
+    "import { z } from 'zod';\n\n/** Copied by an earlier run. */\nexport const idInput = z.object({ id: z.string().min(1) });\n",
+  );
   execFileSync('cp', ['-R', here.replace(/\/$/, ''), join(root, 'tooling/codemod/call-records')]);
   execFileSync('cp', [join(here, '../../../packages/contracts/package.json'), join(root, 'packages/contracts/package.json')]);
   execFileSync('ln', ['-s', join(here, '../../../node_modules'), join(root, 'node_modules')]);
@@ -98,6 +112,12 @@ test('--callers-only moves a caller of a service mid-port to a record written fr
   git('init', '-q');
   git('add', '.');
   git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'mid-port');
+  return git;
+}
+
+test('--callers-only moves a caller of a service mid-port to a record written from its router, leaves a near case, and never touches the service or its crate', () => {
+  const root = mkdtempSync(join(tmpdir(), 'call-records-callers-'));
+  const git = agentsRepo(root);
   const index = join(root, 'tooling/codemod/call-records/index.mjs');
   const run = (...a) => execFileSync('node', [index, '--module', 'agents', ...a], { cwd: root, encoding: 'utf8', stdio: 'pipe' });
   // Without the mode the service is still refused, by name, exit 3.
@@ -107,7 +127,11 @@ test('--callers-only moves a caller of a service mid-port to a record written fr
   );
   run('--callers-only', '--write', '--json', join(root, '.git/summary.json'));
   const summary = JSON.parse(readFileSync(join(root, '.git/summary.json'), 'utf8'));
-  assert.deepEqual(summary.records, ['AGENTS_OWN_GET']);
+  assert.deepEqual(
+    summary.records.sort(),
+    ['AGENTS_OWN_GET', 'AGENTS_OWN_SCHEDULES_LIST'],
+    'two router files with one idInput as written clash with nothing',
+  );
   assert.deepEqual(
     summary.hand.map((h) => h.call),
     ['agents own.gone'],
@@ -123,11 +147,274 @@ test('--callers-only moves a caller of a service mid-port to a record written fr
   assert.equal(git('status', '--porcelain', '--', 'services', 'crates'), '');
   // The record's input and answer are the router's own declarations, copied as written.
   const shared = readFileSync(join(root, 'packages/contracts/src/agents-call-schemas.ts'), 'utf8');
-  assert.match(shared, /export const idInput = z\.object\(\{ id: z\.string\(\)\.min\(1\) \}\);/);
+  assert.equal(
+    shared.match(/export const idInput = z\.object\(\{ id: z\.string\(\)\.min\(1\) \}\);/g)?.length,
+    1,
+    'the copy already there is the one',
+  );
   assert.match(shared, /export const agentOut = z\.object\(\{ id: z\.string\(\), name: z\.string\(\) \}\);/);
   const record = readFileSync(join(root, 'packages/contracts/src/agents-own-procedures.ts'), 'utf8');
   assert.match(record, /input: idInput,\s+output: agentOut,/);
+  assert.doesNotMatch(record, /const idInput/, 'the record imports the copy already in the shared file, never declares it again');
+  assert.match(record, /import \{[^}]*\bidInput\b[^}]*\} from ["']\.\/agents-call-schemas\.js["']/);
   assert.match(record, /access: \{ caller: ["']scope["'], scope: ["']agents:read["'] \}/);
+});
+
+test("--door: the router read from the commit before its deletion keeps one copy of a shared helper, and access is the door's", () => {
+  const root = mkdtempSync(join(tmpdir(), 'call-records-callers-'));
+  const git = agentsRepo(root);
+  // The switch: the door serves the calls (svc-agents' calls.rs, nested Scoped), and services/svc-agents is deleted.
+  const row = (path) =>
+    `    Call {\n        path: "${path}",\n        kind: Kind::Query,\n        access: Access::Scope(Scoped {\n            scope: "agents:read",\n            person: true,\n            module: true,\n        }),\n        pre: Pre::None,\n        post: Post {\n            key: false,\n            sub_account: false,\n            lacks_identity_write: false,\n        },\n        slice: Slice::Runtime,\n        has_input: true,\n    },`;
+  mkdirSync(join(root, 'crates/svc-agents/src/door'), { recursive: true });
+  writeFileSync(
+    join(root, 'crates/svc-agents/src/door/calls.rs'),
+    `pub const CALLS: [Call; 2] = [\n${row('own.get')}\n${row('own.schedules.list')}\n];\n`,
+  );
+  git('rm', '-rq', 'services/svc-agents');
+  git('add', '.');
+  git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'switch');
+  const index = join(root, 'tooling/codemod/call-records/index.mjs');
+  execFileSync(
+    'node',
+    [
+      index,
+      '--module',
+      'agents',
+      '--service',
+      'svc-agents',
+      '--door',
+      'crates/svc-agents',
+      '--from-rev',
+      'HEAD^',
+      '--write',
+      '--json',
+      join(root, '.git/summary.json'),
+    ],
+    { cwd: root, encoding: 'utf8', stdio: 'pipe' },
+  );
+  const summary = JSON.parse(readFileSync(join(root, '.git/summary.json'), 'utf8'));
+  assert.deepEqual(
+    summary.records.sort(),
+    ['AGENTS_OWN_GET', 'AGENTS_OWN_SCHEDULES_LIST'],
+    'two router files with one idInput as written clash with nothing',
+  );
+  const shared = readFileSync(join(root, 'packages/contracts/src/agents-call-schemas.ts'), 'utf8');
+  assert.equal(shared.match(/export const idInput = /g)?.length, 1, 'the copy already there is the one');
+  const record = readFileSync(join(root, 'packages/contracts/src/agents-own-procedures.ts'), 'utf8');
+  assert.doesNotMatch(record, /const idInput/, 'the record imports the copy already in the shared file, never declares it again');
+  assert.match(record, /access: \{\s*caller: ["']scope["'],\s*scope: ["']agents:read["'],\s*module: ["']agents["'],\s*person: true,?\s*\}/);
+  assert.equal(git('status', '--porcelain', '--', 'services', 'crates'), '', 'the router read from the old commit is gone again');
+});
+
+test('a helper the shared file names another way lands beside its record once: an earlier copy there with the same text is the one', () => {
+  // svc-pay's founderAdmin.ops.notes run: the router's `id` clashes with pay-call-schemas.ts's own `id`, so it goes to the
+  // record file, which an earlier run already gave the same `id`. Writing it again broke the contracts build.
+  const root = mkdtempSync(join(tmpdir(), 'call-records-here-'));
+  const here = new URL('.', import.meta.url).pathname;
+  const mark = '// Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.';
+  const files = {
+    'services/svc-notes/src/errors.ts': 'export const refusalOf: RefusalOf = () => undefined;\n',
+    'services/svc-notes/src/router.ts': [
+      "import { z } from 'zod';",
+      'const id = z.string().guid();',
+      'const noteOut = z.object({ noteId: z.string() });',
+      'export function createNotesRouter() {',
+      "  return router({ own: router({ get: scopedProcedure('notes:read').input(z.object({ noteId: id })).output(noteOut).query(({ input }) => get(input)) }) });",
+      '}',
+      '',
+    ].join('\n'),
+    'apps/customer/src/features/notes/note.ts': [
+      "import { z } from 'zod';",
+      "export const a = (api) => api.query('notes', 'own.get', { noteId: 'x' }, z.object({ noteId: z.string() }));",
+      '',
+    ].join('\n'),
+    'packages/contracts/src/notes-call-schemas.ts': "import { z } from 'zod';\n\nexport const id = z.string().min(1);\n",
+    'packages/contracts/src/notes-own-procedures.ts': [
+      "import { z } from 'zod';",
+      "import { defineProcedure } from './procedure.js';",
+      '',
+      mark,
+      '',
+      'export const id = z.string().guid();',
+      '',
+    ].join('\n'),
+  };
+  for (const [f, body] of Object.entries(files)) {
+    mkdirSync(dirname(join(root, f)), { recursive: true });
+    writeFileSync(join(root, f), body);
+  }
+  mkdirSync(join(root, 'tooling/codemod'), { recursive: true });
+  execFileSync('cp', ['-R', here.replace(/\/$/, ''), join(root, 'tooling/codemod/call-records')]);
+  execFileSync('cp', [join(here, '../../../packages/contracts/package.json'), join(root, 'packages/contracts/package.json')]);
+  execFileSync('ln', ['-s', join(here, '../../../node_modules'), join(root, 'node_modules')]);
+  writeFileSync(join(root, '.gitignore'), 'node_modules\n');
+  const git = (...a) => execFileSync('git', a, { cwd: root, encoding: 'utf8' });
+  git('init', '-q');
+  git('add', '.');
+  git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'before');
+  const index = join(root, 'tooling/codemod/call-records/index.mjs');
+  execFileSync('node', [index, '--module', 'notes', '--write', '--json', join(root, '.git/summary.json')], {
+    cwd: root,
+    encoding: 'utf8',
+    stdio: 'pipe',
+  });
+  const summary = JSON.parse(readFileSync(join(root, '.git/summary.json'), 'utf8'));
+  assert.deepEqual(summary.records, ['NOTES_OWN_GET']);
+  const record = readFileSync(join(root, 'packages/contracts/src/notes-own-procedures.ts'), 'utf8');
+  assert.equal(record.match(/export const id = z\.string\(\)\.guid\(\);/g)?.length, 1, 'the copy already there is the one');
+  assert.match(record, /export const NOTES_OWN_GET = defineProcedure/);
+  assert.doesNotMatch(
+    readFileSync(join(root, 'packages/contracts/src/notes-call-schemas.ts'), 'utf8'),
+    /guid/,
+    "the shared file keeps its own id and takes none of the router's",
+  );
+});
+
+test('a helper name taken in the record file or the shared file never lands twice: the record reuses its copy, takes the free file, or moves to its sub-area file', () => {
+  // svc-pay on main (weed project-state#3759): registries and deposit freezes each declare their own networkIdSchema under
+  // founderAdmin.*; deposit travel rules declare a userIdSchema the founder-admin record file already holds; mandateView
+  // reads pay-subscription-procedures' amountSchema, which the shared file declares otherwise.
+  const root = mkdtempSync(join(tmpdir(), 'call-records-clash-'));
+  const here = new URL('.', import.meta.url).pathname;
+  const files = {
+    'services/svc-agents/src/errors.ts': 'export const refusalOf: RefusalOf = () => undefined;\n',
+    'services/svc-agents/src/router.ts': [
+      "import { z } from 'zod';",
+      "import { schedulesRouter } from './schedules.js';",
+      "import { feeProcedures } from './fees.js';",
+      "import { amountSchema } from '@intafaced/contracts/agents-amounts';",
+      'const idInput = z.object({ id: z.string().min(1) });',
+      'const tagInput = z.object({ tag: z.string() });',
+      'export function createAgentsRouter() {',
+      '  return router({ own: router({',
+      "    get: scopedProcedure('agents:read').input(idInput).output(z.string()).query(() => ''),",
+      "    tags: scopedProcedure('agents:read').input(tagInput).output(z.string()).query(() => ''),",
+      "    stats: scopedProcedure('agents:read').input(z.object({ amount: amountSchema })).output(z.string()).query(() => ''),",
+      '    schedules: schedulesRouter,',
+      '    ...feeProcedures(),',
+      '  }) });',
+      '}',
+      '',
+    ].join('\n'),
+    // The same name, declared otherwise, under the same area.
+    'services/svc-agents/src/schedules.ts': [
+      "import { z } from 'zod';",
+      'const idInput = z.object({ id: z.string().uuid() });',
+      "export const schedulesRouter = router({ list: scopedProcedure('agents:read').input(idInput).output(z.string()).query(() => '') });",
+      '',
+    ].join('\n'),
+    // A third idInput, read by two calls with no sub-area (svc-bank's loans.* read their router's own amountString).
+    'services/svc-agents/src/fees.ts': [
+      "import { z } from 'zod';",
+      'const idInput = z.object({ id: z.string().email() });',
+      'export function feeProcedures() {',
+      '  return {',
+      "    fee: scopedProcedure('agents:read').input(idInput).output(z.string()).query(() => ''),",
+      "    feeRefund: scopedProcedure('agents:write').input(idInput).output(z.string()).mutation(() => ''),",
+      '  };',
+      '}',
+      '',
+    ].join('\n'),
+    'crates/svc-agents/src/lib.rs': '// the port\n',
+    'apps/customer/src/features/agents/agent.ts': [
+      "import { z } from 'zod';",
+      "export const a = (api) => api.query('agents', 'own.get', { id: 'x' }, z.string());",
+      "export const b = (api) => api.query('agents', 'own.schedules.list', { id: 'x' }, z.string());",
+      "export const c = (api) => api.query('agents', 'own.tags', { tag: 'x' }, z.string());",
+      "export const d = (api) => api.query('agents', 'own.stats', { amount: '1' }, z.string());",
+      "export const e = (api) => api.query('agents', 'own.fee', { id: 'a@b.c' }, z.string());",
+      "export const f = (api) => api.mutate('agents', 'own.feeRefund', { id: 'a@b.c' }, z.string());",
+      '',
+    ].join('\n'),
+    // An earlier run's record file, already holding tagInput as the router writes it.
+    'packages/contracts/src/agents-own-procedures.ts': [
+      "import { z } from 'zod';",
+      '',
+      '// Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.',
+      'export const tagInput = z.object({ tag: z.string() });',
+      '',
+    ].join('\n'),
+    // The shared file declares its own amountSchema; the router reads another contracts file's.
+    'packages/contracts/src/agents-call-schemas.ts': "import { z } from 'zod';\n\nexport const amountSchema = z.string();\n",
+    'packages/contracts/src/agents-amounts.ts': "import { z } from 'zod';\n\nexport const amountSchema = z.string().regex(/^\\d+$/);\n",
+  };
+  for (const [f, body] of Object.entries(files)) {
+    mkdirSync(dirname(join(root, f)), { recursive: true });
+    writeFileSync(join(root, f), body);
+  }
+  mkdirSync(join(root, 'tooling/codemod'), { recursive: true });
+  execFileSync('cp', ['-R', here.replace(/\/$/, ''), join(root, 'tooling/codemod/call-records')]);
+  execFileSync('cp', [join(here, '../../../packages/contracts/package.json'), join(root, 'packages/contracts/package.json')]);
+  execFileSync('ln', ['-s', join(here, '../../../node_modules'), join(root, 'node_modules')]);
+  writeFileSync(join(root, '.gitignore'), 'node_modules\n');
+  const git = (...a) => execFileSync('git', a, { cwd: root, encoding: 'utf8' });
+  git('init', '-q');
+  git('add', '.');
+  git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'mid-port');
+  const index = join(root, 'tooling/codemod/call-records/index.mjs');
+  execFileSync('node', [index, '--module', 'agents', '--callers-only', '--write', '--json', join(root, '.git/summary.json')], {
+    cwd: root,
+    stdio: 'pipe',
+  });
+  const summary = JSON.parse(readFileSync(join(root, '.git/summary.json'), 'utf8'));
+  assert.deepEqual(summary.hand, [], 'no call is left for a name clash');
+  assert.deepEqual(summary.records.sort(), [
+    'AGENTS_OWN_FEE',
+    'AGENTS_OWN_FEE_REFUND',
+    'AGENTS_OWN_GET',
+    'AGENTS_OWN_SCHEDULES_LIST',
+    'AGENTS_OWN_STATS',
+    'AGENTS_OWN_TAGS',
+  ]);
+  const read = (f) => readFileSync(join(root, 'packages/contracts/src', f), 'utf8');
+  // Each file binds each name once: never declared and imported, never declared twice.
+  for (const f of [
+    'agents-own-procedures.ts',
+    'agents-own-schedules-procedures.ts',
+    'agents-own-2-procedures.ts',
+    'agents-call-schemas.ts',
+  ]) {
+    const src = read(f);
+    const imported = [...src.matchAll(/^import (?:type )?\{([^}]*)\} from/gm)].flatMap((m) =>
+      m[1].split(',').map((x) => x.trim().split(/ as /).pop()),
+    );
+    const declared = [...src.matchAll(/^(?:export )?(?:const|function|type) (\w+)/gm)].map((m) => m[1]);
+    const all = [...imported, ...declared].filter(Boolean);
+    assert.deepEqual(
+      all.filter((n, i) => all.indexOf(n) !== i),
+      [],
+      `${f} binds a name twice:\n${src}`,
+    );
+  }
+  const own = read('agents-own-procedures.ts');
+  assert.match(own, /export const AGENTS_OWN_TAGS = [\s\S]*input: tagInput,/, 'the record reads the copy already in its file');
+  assert.match(own, /export const AGENTS_OWN_GET = /);
+  const sub = read('agents-own-schedules-procedures.ts');
+  assert.match(sub, /export const AGENTS_OWN_SCHEDULES_LIST = /);
+  // Each record reads its own router's idInput: declared in its file, or imported from the file that declares it.
+  const idInputOf = (f) => {
+    const src = read(f);
+    const from = /import \{[^}]*\bidInput\b[^}]*\} from ["']\.\/([\w-]+)\.js["']/.exec(src)?.[1];
+    return from ? idInputOf(`${from}.ts`) : /const idInput = z\.object\(\{ id: z\.string\(\)\.(\w+)\(/.exec(src)?.[1];
+  };
+  assert.equal(idInputOf('agents-own-schedules-procedures.ts'), 'uuid', 'the schedules record reads its own idInput');
+  assert.equal(idInputOf('agents-own-procedures.ts'), 'min', 'the get record reads its own idInput');
+  // Two calls with no sub-area whose router's idInput is taken in both files land together in their area's second file.
+  const second = read('agents-own-2-procedures.ts');
+  assert.match(second, /export const AGENTS_OWN_FEE = [\s\S]*export const AGENTS_OWN_FEE_REFUND = /);
+  assert.equal(idInputOf('agents-own-2-procedures.ts'), 'email', "the fee records read their own router's idInput");
+  assert.match(second, /svc-agents `own\.\*`/, 'its header names the area, not one call');
+  assert.doesNotMatch(
+    read('agents-call-schemas.ts'),
+    /agents-amounts/,
+    'the shared file keeps its own amountSchema, never imports the other',
+  );
+  const caller = readFileSync(join(root, 'apps/customer/src/features/agents/agent.ts'), 'utf8');
+  assert.match(caller, /api\.call\(AGENTS_OWN_SCHEDULES_LIST, /);
+  assert.match(caller, /from ["']@intafaced\/contracts\/agents-own-schedules-procedures["']/);
+  assert.match(caller, /api\.call\(AGENTS_OWN_FEE, /);
+  assert.match(caller, /from ["']@intafaced\/contracts\/agents-own-2-procedures["']/);
 });
 
 test('the report plans a door service from the commit before its TypeScript was deleted, refuses one in flight, and skips a name no service has', async () => {
@@ -397,6 +684,210 @@ test('a useBankRead, payCall and founderEdgeCall call each moves to its record f
   );
 });
 
+test("the Business API's calls, named by their call alone, are svc-pay's and move to its record form; a near shape stays", () => {
+  const repo = mkdtempSync(join(tmpdir(), 'call-records-'));
+  const put = (path, lines) => {
+    mkdirSync(join(repo, dirname(path)), { recursive: true });
+    writeFileSync(join(repo, path), `${lines.join('\n')}\n`);
+  };
+  const pay = 'apps/customer/src/features/pay';
+  put(`${pay}/pay-api.ts`, ['export function createBusinessPayApi() { return {}; }', 'export type BusinessPayApi = {};']);
+  put(`${pay}/Room.tsx`, [
+    "import { createBusinessPayApi, type BusinessPayApi } from './pay-api';",
+    'export function Balance({ pay }: { pay: BusinessPayApi }) {',
+    "  return pay.query('merchant.balances', { merchantId }, balanceSchema, signal);",
+    '}',
+    'export function Capture() {',
+    '  const pay = useMemo(() => createBusinessPayApi(api, userId, authority), [api]);',
+    "  return pay.mutate('payment.capture', { paymentId }, paymentSchema, 'pay:write', `payment:${paymentId}`, 'captured');",
+    '}',
+    // Near: a call that names its service first, and a query on something that is not the Business API.
+    "export const named = (api) => api.query('pay', 'merchant.me', undefined, meSchema);",
+    "export const other = (portal: PortalApi) => portal.query('merchant.listLinks', { merchantId }, linksSchema, signal);",
+  ]);
+  execFileSync('git', ['init', '-q'], { cwd: repo });
+  execFileSync('git', ['add', '.'], { cwd: repo });
+
+  const sites = findSites(repo).filter((s) => s.shape !== 'keyed-schema');
+  assert.deepEqual(
+    sites.map((s) => [s.shape, s.module, s.path, s.kind]).sort(),
+    [
+      ['payMutate', 'pay', 'payment.capture', 'mutation'],
+      ['payQuery', 'pay', 'merchant.balances', 'query'],
+      ['query', 'merchant.listLinks', undefined, 'query'],
+      ['query', 'pay', 'merchant.me', 'query'],
+    ].sort(),
+  );
+  const of = (path) => sites.find((s) => s.path === path);
+  for (const path of ['merchant.balances', 'payment.capture']) assert.equal(of(path).problem, undefined);
+  assert.equal(text(load(of('merchant.balances').file), schemaArgOf(of('merchant.balances'))), 'balanceSchema');
+  const moved = (s, name) => {
+    const changes = new Changes();
+    rewriteSite(changes, s, name, '@intafaced/contracts/x');
+    return applyEdits(load(s.file).src, changes.of(s.file).edits);
+  };
+  assert.match(
+    moved(of('merchant.balances'), 'PAY_MERCHANT_BALANCES'),
+    /return pay\.queryRecord\(PAY_MERCHANT_BALANCES, \{ merchantId \}, signal\);$/m,
+  );
+  assert.match(
+    moved(of('payment.capture'), 'PAY_PAYMENT_CAPTURE'),
+    /return pay\.mutateRecord\(PAY_PAYMENT_CAPTURE, \{ paymentId \}, 'pay:write', `payment:\$\{paymentId\}`, 'captured'\);$/m,
+  );
+});
+
+test("the portal's tools and validatedMutation, each caller naming its call alone, move one by one to the record form beside them; near shapes stay", async () => {
+  const { toolFormsIn } = await import('./tool-forms.mjs');
+  const repo = mkdtempSync(join(tmpdir(), 'call-records-'));
+  const put = (path, lines) => {
+    mkdirSync(join(repo, dirname(path)), { recursive: true });
+    writeFileSync(join(repo, path), `${lines.join('\n')}\n`);
+  };
+  const portal = 'apps/customer/src/features/pay/portal';
+  put(`${portal}/api-tools.ts`, [
+    'export function portalTools(api, userId) {',
+    "  async function query(procedure: string, input, schema, signal) { return api.query('pay', procedure, input, schema, { signal }); }",
+    '  return { userId, query };',
+    '}',
+    'export type PortalTools = ReturnType<typeof portalTools>;',
+  ]);
+  put(`${portal}/settings/b-client.ts`, ['export type SettingsBTools = {};']);
+  put('apps/customer/src/features/pay/BusinessPay.tsx', ['export async function validatedMutation() {}']);
+  put(`${portal}/money/api.ts`, [
+    "import type { PortalTools } from '../api-tools';",
+    'export const moneyApi = ({ query, mutate, list }: PortalTools) => ({',
+    "  balances: (merchantId: string, signal?: AbortSignal) => query('merchant.balances', { merchantId }, balanceSchema, signal),",
+    "  hold: (id: string) => mutate('merchant.payoutDestinations.cancelHold', { id }, holdSchema),",
+    "  rows: (cursor: string, signal?: AbortSignal) => list('settlement.lines', lineSchema, { cursor }, signal),",
+    "  again: () => query('merchant.me', undefined, meSchema),",
+    // Near: a template, and a tool kept by name in this function (its record form is added beside it).
+    '  tpl: (a: string) => mutate(`subscription.${a}`, {}, s),',
+    '});',
+  ]);
+  put(`${portal}/settings/developers/client.ts`, [
+    "import type { SettingsBTools } from '../b-client';",
+    'export const developersApi = ({ identityMutate }: SettingsBTools) => ({',
+    "  rotate: (keyId: string) => identityMutate('rotateSigningSecret', { keyId }, rotatedSchema),",
+    '});',
+  ]);
+  put(`${portal}/near.ts`, [
+    "import type { PortalTools } from './api-tools';",
+    // Near: a renamed tool, a tool reached as a member, and a bare query that is no tool.
+    "export const a = ({ query: q }: PortalTools) => q('merchant.x', {}, s);",
+    "export const b = (tools: PortalTools) => tools.query('merchant.y', {}, s);",
+    "export const c = (query) => query('merchant.z', {}, s);",
+  ]);
+  put('apps/customer/src/features/pay/Room.tsx', [
+    "import { validatedMutation } from './BusinessPay';",
+    "export const go = (pay) => validatedMutation(pay, 'payment.create', input, inputSchema, paymentSchema, 'pay:write', 'create');",
+  ]);
+  execFileSync('git', ['init', '-q'], { cwd: repo });
+  execFileSync('git', ['add', '.'], { cwd: repo });
+
+  const sites = findSites(repo).filter((s) => String(s.shape).startsWith('tool:'));
+  assert.deepEqual(
+    sites.map((s) => [s.shape, s.module, s.path, s.kind, s.problem ?? null]).sort(),
+    [
+      ['tool:identityMutate', 'identity', 'rotateSigningSecret', 'mutation', null],
+      ['tool:list', 'pay', 'settlement.lines', 'query', null],
+      ['tool:mutate', 'pay', 'merchant.payoutDestinations.cancelHold', 'mutation', null],
+      ['tool:mutate', 'pay', undefined, 'mutation', "mutate's call named by a template"],
+      ['tool:query', 'pay', 'merchant.balances', 'query', null],
+      ['tool:query', 'pay', 'merchant.me', 'query', null],
+      ['tool:validatedMutation', 'pay', 'payment.create', 'mutation', null],
+    ].sort(),
+  );
+  const of = (path) => sites.find((s) => s.path === path);
+  // The answer schema goes with the call; a list's item schema is one row, so no answer is retyped from it.
+  assert.equal(text(load(of('merchant.balances').file), schemaArgOf(of('merchant.balances'))), 'balanceSchema');
+  assert.equal(schemaArgOf(of('settlement.lines')), undefined);
+
+  const changes = new Changes();
+  const money = of('merchant.balances').file;
+  for (const [path, name] of [
+    ['merchant.balances', 'PAY_MERCHANT_BALANCES'],
+    ['merchant.payoutDestinations.cancelHold', 'PAY_HOLD'],
+    ['settlement.lines', 'PAY_SETTLEMENT_LINES'],
+    ['merchant.me', 'PAY_MERCHANT_ME'],
+  ])
+    rewriteSite(changes, of(path), name, '@intafaced/contracts/x', path === 'merchant.me');
+  rewriteSite(changes, of('rotateSigningSecret'), 'IDENTITY_ROTATE', '@intafaced/contracts/y');
+  rewriteSite(changes, of('payment.create'), 'PAY_PAYMENT_CREATE', '@intafaced/contracts/x');
+  toolFormsIn(changes);
+  const out = applyEdits(load(money).src, changes.of(money).edits);
+  // query moved whole and goes from the parameter; mutate keeps its template caller, so it stays beside its record form.
+  assert.match(out, /^export const moneyApi = \(\{ mutate, queryRecord, mutateRecord, listRecord \}: PortalTools\) => \(\{$/m);
+  assert.match(out, /queryRecord\(PAY_MERCHANT_BALANCES, \{ merchantId \}, signal\)/);
+  assert.match(out, /mutateRecord\(PAY_HOLD, \{ id \}\)/);
+  assert.match(out, /listRecord\(PAY_SETTLEMENT_LINES, \{ cursor \}, signal\)/);
+  assert.match(out, /again: \(\) => queryRecord\(PAY_MERCHANT_ME, undefined\)/);
+  const dev = of('rotateSigningSecret').file;
+  assert.match(
+    applyEdits(load(dev).src, changes.of(dev).edits),
+    /\(\{ identityMutateRecord \}: SettingsBTools\)[\s\S]*identityMutateRecord\(IDENTITY_ROTATE, \{ keyId \}\)/,
+  );
+  const room = of('payment.create').file;
+  assert.match(
+    applyEdits(load(room).src, changes.of(room).edits),
+    /validatedRecordMutation\(pay, PAY_PAYMENT_CREATE, input, inputSchema, 'pay:write', 'create'\)/,
+  );
+  assert.ok(
+    [...changes.of(room).imports.entries()].some(([spec, names]) => spec === './BusinessPay' && names.has('validatedRecordMutation')),
+  );
+
+  // The tool's own sender is named as kept for its callers, a reason of its own.
+  const sender = findSites(repo).find((s) => s.file.endsWith('api-tools.ts'));
+  assert.match(sender.problem, /its tool query has a record form its callers move to one by one, and stays while a caller is left/);
+  const { reasonOf } = await import('./report.mjs');
+  assert.equal(reasonOf(sender.problem), 'tool kept while a caller is left (each caller named under its own reason)');
+});
+
+test('a name imported from a contracts subpath is read from that file, though another contracts file exports the name too', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'call-records-'));
+  const put = (path, lines) => {
+    mkdirSync(join(repo, dirname(path)), { recursive: true });
+    writeFileSync(join(repo, path), `${lines.join('\n')}\n`);
+  };
+  // asset-id sorts first and exports a looser assetIdSchema under the same name (svc-pay's merchant.balances).
+  put('packages/contracts/src/asset-id.ts', ["import { z } from 'zod';", 'export const assetIdSchema = z.string().brand();']);
+  put('packages/contracts/src/pay-call-schemas.ts', [
+    "import { z } from 'zod';",
+    "import { assetIdSchema as branded } from './asset-id.js';",
+    'export const assetIdSchema = z.string().min(1).max(16);',
+  ]);
+  put('svc/router.ts', [
+    "import { z } from 'zod';",
+    "import { assetIdSchema } from '@intafaced/contracts/pay-call-schemas';",
+    "import { assetIdSchema as root } from '@intafaced/contracts';",
+    'const a = z.object({ assetId: assetIdSchema });',
+  ]);
+  const p = load(join(repo, 'svc/router.ts'));
+  const c = closureOf(repo, [{ p, node: p.program.body[3].declarations[0].init, where: 'r' }]);
+  assert.deepEqual(c.problems, []);
+  assert.equal(c.fromContracts.get('assetIdSchema').file, join(repo, 'packages/contracts/src/pay-call-schemas.ts'));
+});
+
+test('a Business API test double gets the record form of each method it has; an API client double does not', async () => {
+  const { businessDoubleEdits } = await import('./pay-business.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-'));
+  const file = join(dir, 'a.test.ts');
+  writeFileSync(
+    file,
+    [
+      'const pay = { authority, query } as unknown as BusinessPayApi;',
+      'const both = { query, mutate, queryRecord } as unknown as BusinessPayApi;',
+      'const api = { query, mutate } as unknown as ApiClient;',
+      '',
+    ].join('\n'),
+  );
+  const p = load(file);
+  const out = applyEdits(p.src, businessDoubleEdits(p));
+  assert.match(out.split('\n')[0], /, query, queryRecord\( ?this: \{ query: .*\[record\.path, input, record\.output,/);
+  assert.doesNotMatch(out.split('\n')[0], /mutateRecord/);
+  assert.match(out.split('\n')[1], /, queryRecord, mutateRecord\(/);
+  assert.equal(out.split('\n')[2], 'const api = { query, mutate } as unknown as ApiClient;');
+});
+
 test('the report sorts each hand reason into the kind one script change or one decision closes', async () => {
   const { reasonOf } = await import('./report.mjs');
   assert.equal(
@@ -409,12 +900,16 @@ test('the report sorts each hand reason into the kind one script change or one d
   );
   assert.equal(reasonOf('identity.x: no accepted input found; write its samples by hand'), 'no sample inputs');
   assert.equal(
+    reasonOf('crates/svc-agents serves coach.runSession to its own middleware Pre::CoachRun, which a record cannot name'),
+    'door access a record cannot name (Pre::CoachRun, Settle, ...)',
+  );
+  assert.equal(
     reasonOf("its `action` sends one input value to 3 records: each one's input type can't be kept"),
     'one input sent to each of a closed set of calls',
   );
   assert.equal(
-    reasonOf('helper amountString clashes with another amountString in this record file: a rerun places it'),
-    'helper name clash (a rerun places it)',
+    reasonOf("helper amountString clashes with another amountString in this record file and its sub-area's"),
+    'helper name clash (in its record file and its sub-area file)',
   );
   assert.equal(
     reasonOf("r: s comes from @intafaced/cyc, which depends on @intafaced/contracts, so contracts can't import it"),
@@ -425,6 +920,62 @@ test('the report sorts each hand reason into the kind one script change or one d
     'answer or input schema from another package or generic',
   );
   assert.equal(reasonOf('something new'), 'other');
+});
+
+test('the report names what the export refused, construct by construct, as the run left it', async () => {
+  const { reasonOf } = await import('./report.mjs');
+  // The run's own words for svc-pay's and svc-ops' refusals, as run.mjs left them.
+  const refine =
+    "its record can't be exported as the router writes it: pay.payment.refund.input cannot be exported without losing meaning: input.refundId (.refine/.superRefine (a TypeScript predicate the export drops))";
+  const both =
+    "its record can't be exported as the router writes it: ops.x.output cannot be exported without losing meaning: ops.x.output (.refine/.superRefine (a TypeScript predicate the export drops)); ops.x.output.id (transform (a value computed in TypeScript))";
+  const regex =
+    "its record can't be exported as the router writes it: ops.i.output cannot be exported without losing meaning: ops.i.output.s|1 (regex /^(?!pending$)[a-z]$/ uses lookaround or backreferences (not in Rust regex))";
+  assert.equal(reasonOf(refine), "record can't be exported as written: .refine");
+  assert.equal(reasonOf(both), "record can't be exported as written: .refine + transform");
+  assert.equal(reasonOf(regex), "record can't be exported as written: regex lookaround");
+});
+
+test('the deep report counts what each service run moved, never what its plan would rewrite, and puts the checkout back after each', async () => {
+  const { deep } = await import('./report.mjs');
+  // svc-ops: the plan rewrote 20 calls, and the run moved none (each record refused by the export).
+  const why =
+    "its record can't be exported as the router writes it: ops.a.output cannot be exported without losing meaning: ops.a.output (.refine/.superRefine (a TypeScript predicate the export drops))";
+  const rows = [
+    { service: 'svc-ops', sites: 30, planned: 20, left: { other: 1 } },
+    { service: 'svc-trade', sites: 36, planned: 25, left: {} },
+    { service: 'svc-none', sites: 0, planned: 0, left: {} },
+  ];
+  const ran = [];
+  let restored = 0;
+  const runOne = (row) => {
+    ran.push(row.service);
+    if (row.service === 'svc-trade') throw new Error('build failed');
+    return { records: 0, rewritten: 0, hand: Array.from({ length: 20 }, () => ({ why })) };
+  };
+  assert.throws(
+    () =>
+      deep(
+        rows,
+        runOne,
+        () => ({ typeErrors: 0 }),
+        () => restored++,
+      ),
+    /build failed/,
+  );
+  assert.deepEqual(ran, ['svc-ops', 'svc-trade'], 'a service with nothing planned is not run');
+  assert.equal(restored, 2, 'the checkout is put back after every run, a failed one too');
+  assert.equal(rows[0].wouldMove, 0);
+  assert.deepEqual(rows[0].left, { "record can't be exported as written: .refine": 20 });
+  const errored = [{ service: 'svc-pay', sites: 67, planned: 6, left: { other: 2 } }];
+  deep(
+    errored,
+    () => ({ error: 'records still refused' }),
+    () => ({}),
+    () => {},
+  );
+  assert.equal(errored[0].wouldMove, 0, 'a run that fails moves nothing');
+  assert.equal(errored[0].runError, 'records still refused');
 });
 
 test('the router reader follows a builder member, an imported builder and both branches of a switch, and names a path two branches define', async () => {
@@ -602,13 +1153,38 @@ test('a call naming one of two paths by `? :` is a site per branch, its input wr
     [
       "export const a = (api: any, ok: boolean, id: string) => api.mutate('bank', ok ? 'holds.accept' : 'holds.deny', { id }, s);",
       "export const b = (api: any, reg: boolean, body: object) => api.mutate('identity', reg ? 'auth.register' : 'auth.login', body, s);",
+      // An input that is a `? :` on the very test that picks the call: each value sends its own branch. On another test it stays.
+      "export const c = (api: any, rotate: boolean, ids: object) => api.mutate('identity', rotate ? 'keys.rotate' : 'keys.removeOld', rotate ? { keyId: 'k', ...ids } : ids, s);",
+      "export const d = (api: any, rotate: boolean, other: boolean, ids: object) => api.mutate('identity', rotate ? 'keys.rotate' : 'keys.removeOld', other ? { keyId: 'k' } : ids, s);",
       '',
     ].join('\n'),
   );
   execFileSync('git', ['init', '-q'], { cwd: repo });
   execFileSync('git', ['add', '.'], { cwd: repo });
   const found = findSites(repo).map((s) => `${s.path} ${s.fan.at} ${s.problem ? 'stays' : 'moves'}`);
-  assert.deepEqual(found, ['holds.accept 0 moves', 'holds.deny 1 moves', 'auth.register 0 stays', 'auth.login 1 stays']);
+  assert.deepEqual(found, [
+    'holds.accept 0 moves',
+    'holds.deny 1 moves',
+    'auth.register 0 stays',
+    'auth.login 1 stays',
+    'keys.rotate 0 moves',
+    'keys.removeOld 1 moves',
+    'keys.rotate 0 stays',
+    'keys.removeOld 1 stays',
+  ]);
+
+  // Written back as one call, each value sending its own branch of the input.
+  const { callText } = await import('./index.mjs');
+  const { fanIn } = await import('./fan.mjs');
+  const file = join(repo, 'apps/customer/src/holds.ts');
+  const keys = findSites(repo).filter((s) => s.path?.startsWith('keys.') && !s.problem);
+  const changes = new Changes();
+  for (const s of keys) rewriteSite(changes, s, s.path.toUpperCase().replace('.', '_'), '@intafaced/contracts/x', false);
+  const planned = { hand: [], existing: [] };
+  fanIn(changes, planned, [], callText);
+  const out = applyEdits(load(file).src, changes.of(file).edits);
+  assert.match(out, /=> \(rotate \? api\.call\(KEYS_ROTATE, \{ keyId: 'k', \.\.\.ids \}\) : api\.call\(KEYS_REMOVEOLD, ids\)\);$/m);
+  assert.deepEqual(planned.hand, []);
 });
 
 test('a call named by a template over a closed set the code lists is one site per value, written back as one call; an open one stays, named', async () => {
@@ -651,7 +1227,8 @@ test('a call named by a template over a closed set the code lists is one site pe
     'identity clock.now - moves',
     "trade ? - service or call named by a template: parameter `action`'s type is not a closed set of strings",
     'trade ? - service or call named by a template: parameter `action` is assigned again',
-    'bank ? - service or call named by a template: `spec.procedure` is not a name, a `? :` or a string',
+    // A spec's procedure is wrapper.mjs's: this one's type is written inline, not a type of its file.
+    'bank ? - call name passed through a wrapper: its spec is not typed by a type of its file',
     "trade algo.pause 0/2 its `action` sends one input value to 2 records: each one's input type can't be kept",
     "trade algo.resume 1/2 its `action` sends one input value to 2 records: each one's input type can't be kept",
   ]);
@@ -705,7 +1282,7 @@ test("a guard behind the service's own function or const options is copied whole
   writeFileSync(
     join(dir, 'src/router.ts'),
     [
-      "import { scopedProcedure, TRPCError } from '@intafaced/contracts';",
+      "import { personProcedure, scopedProcedure, serviceProcedureFor, TRPCError } from '@intafaced/contracts';",
       "import { executeProcedure, opsProcedure as sharedOps } from './procedures.js';",
       "const guards = { module: 'core-ops' as const, plane: 'fiat' as const };",
       "const opsScope = 'admin:compliance' as const;",
@@ -719,6 +1296,8 @@ test("a guard behind the service's own function or const options is copied whole
       "  const auditedOps = scopedProcedure('campaigns:ops', guards).use(({ ctx, next }) => { requireMfa(ctx); requireMfa(ctx); return next(); });",
       '  const jobProcedure = publicProcedure.use(({ ctx, next }) => { requireMfa(ctx); return next(); });',
       '  const merchantApi = async () => {};',
+      "  const JOB_FORBIDDEN = 'token job is callable only as svc-token';",
+      "  const tokenJob = serviceProcedureFor(['svc-token'], { forbidden: JOB_FORBIDDEN });",
       "  const merchantApiProcedure = (scope: 'p2p:read' | 'p2p:write') => scopedProcedure(scope, { module: 'p2p', check: merchantApi });",
       '  return router({',
       "    desk: operator('admin:read').output(o).query(h),",
@@ -732,6 +1311,10 @@ test("a guard behind the service's own function or const options is copied whole
       '    audited: auditedOps.output(o).query(h),',
       '    job: jobProcedure.output(o).mutation(h),',
       "    dispute: merchantApiProcedure('p2p:write').output(o).mutation(h),",
+      '    logoutAll: personProcedure().output(o).mutation(h),',
+      "    revoke: personProcedure('identity:write', { module: 'identity' }).output(o).mutation(h),",
+      '    mint: tokenJob.output(o).mutation(h),',
+      "    ping: serviceProcedureFor(['svc-trade']).output(o).query(h),",
       '  });',
       '}',
       '',
@@ -754,12 +1337,19 @@ test("a guard behind the service's own function or const options is copied whole
     shared: "{ caller: 'scope', scope: 'campaigns:ops', module: 'campaigns', check: 'requireOpsMfa' }",
     // One statement more is not one check: it stays.
     audited: 'guard use() chained: not one a record names',
-    job: "guard jobProcedure kept by hand: it is a job twin's signed-service check (requireBankJobService, requireTokenJobService) with its own refusal message, not serviceProcedureFor's",
+    // A guard on publicProcedure with a check of its own: no record says that, so it stays.
+    job: 'guard use() chained: not one a record names',
     // The service's own check is named on the record, which mounts it from the service's parts.
     dispute: "{ caller: 'scope', scope: 'p2p:write', module: 'p2p', check: 'merchantApi' }",
+    // The person's own session only, with no scope or with one and its guards.
+    logoutAll: "{ caller: 'person' }",
+    revoke: "{ caller: 'person', scope: 'identity:write', module: 'identity' }",
+    // A service door keeps its own wording for an unlisted caller; without it, the list alone.
+    mint: "{ caller: 'service', callers: ['svc-token'], forbidden: 'token job is callable only as svc-token' }",
+    ping: "{ caller: 'service', callers: ['svc-trade'] }",
   });
   const { reasonOf } = await import('./report.mjs');
-  assert.equal(reasonOf(access.job), 'guard kept by hand (named, with its reason)');
+  assert.equal(reasonOf(access.job), 'guard chained with .use()');
   assert.equal(reasonOf(access.audited), 'guard chained with .use()');
 });
 
@@ -826,6 +1416,85 @@ test("a guard whose one check runs inside the service's own error mapper names i
     partsFor([], file, guard, () => undefined),
     undefined,
   );
+});
+
+test("a procedure on the service's own founderProcedure names caller founder and mounts with that guard; a near shape is read as what it is", async () => {
+  const { procedures, chainOf } = await import('./router.mjs');
+  const { founderPartsFor } = await import('./founder-guard.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-founder-'));
+  mkdirSync(join(dir, 'src'));
+  writeFileSync(
+    join(dir, 'src/founder-procedure.ts'),
+    [
+      "import { middleware, protectedProcedure } from '@intafaced/contracts/trpc';",
+      'export function founderProcedure(authority) {',
+      '  const guard = async ({ ctx, next }) => next({ ctx: { ...ctx, founderUserId: await authority(ctx) } });',
+      '  return protectedProcedure.use(middleware(guard));',
+      '}',
+      '',
+    ].join('\n'),
+  );
+  // The same name, built on a scope: not the founder guard.
+  writeFileSync(
+    join(dir, 'src/other.ts'),
+    "import { scopedProcedure } from '@intafaced/contracts';\nexport function founderProcedure(a) { return scopedProcedure('admin:read'); }\n",
+  );
+  writeFileSync(
+    join(dir, 'src/router.ts'),
+    [
+      "import { protectedProcedure, router, TRPCError } from '@intafaced/contracts/trpc';",
+      "import { founderProcedure } from './founder-procedure.js';",
+      "import { founderProcedure as scopeFounder } from './other.js';",
+      'type Founder = ReturnType<typeof founderProcedure>;',
+      'const typed = (founder: Founder) => router({ inner: founder.output(o).query(h) });',
+      'const untyped = (founder) => router({ inner: founder.output(o).query(h) });',
+      'export function createSvcRouter(deps) {',
+      '  const founder = founderProcedure(deps.founderAuthority);',
+      '  const lookalike = protectedProcedure.use(async ({ ctx, next }) => {',
+      "    if (!(await deps.isFounder(ctx))) throw new TRPCError({ code: 'FORBIDDEN' });",
+      '    return next();',
+      '  });',
+      '  return router({',
+      '    list: founder.output(o).query(h),',
+      '    direct: founderProcedure(deps.founderAuthority).input(i).output(o).mutation(h),',
+      '    typed: typed(founder),',
+      '    untyped: untyped(founder),',
+      '    named: scopeFounder(deps.founderAuthority).output(o).query(h),',
+      '    lookalike: lookalike.output(o).query(h),',
+      '  });',
+      '}',
+      '',
+    ].join('\n'),
+  );
+  const { procedures: found } = procedures(dir);
+  const chains = new Map([...found].map(([path, proc]) => [path, chainOf(proc)]));
+  const access = Object.fromEntries(
+    [...chains].map(([path, c]) => [path, c.problems.length ? c.problems.join('; ') : `${c.guard.text} ${c.guard.founder ?? ''}`.trim()]),
+  );
+  assert.deepEqual(access, {
+    // The record names the founder; the mount is handed the guard expression the procedure stood on, where it stood.
+    list: "{ caller: 'founder' } founder",
+    direct: "{ caller: 'founder' } founderProcedure(deps.founderAuthority)",
+    'typed.inner': "{ caller: 'founder' } founder",
+    // A parameter nothing says is the founder guard, a scope guard under the same name, a founder check of its own: none is.
+    'untyped.inner': 'guard founder (param) is not one a record names',
+    named: "{ caller: 'scope', scope: 'admin:read' }",
+    lookalike: 'guard use() chained: not one a record names',
+  });
+  const file = join(dir, 'src/router.ts');
+  const guard = chains.get('list').guard;
+  assert.deepEqual(founderPartsFor(file, guard, { name: 'payRefusal', file: join(dir, 'src/errors.ts'), exported: true }), {
+    name: '{ refusalOf: payRefusal, founder }',
+    file,
+    imports: [{ file: join(dir, 'src/errors.ts'), name: 'payRefusal' }],
+  });
+  // A guard written as a call is handed whole.
+  assert.equal(
+    founderPartsFor(file, chains.get('direct').guard, { name: 'payRefusal', file, exported: false }).name,
+    '{ refusalOf: payRefusal, founder: founderProcedure(deps.founderAuthority) }',
+  );
+  // No refusal reader: the call stays.
+  assert.equal(founderPartsFor(file, guard, undefined), undefined);
 });
 
 test("a record naming its service's own check mounts with the router file's parts, else with its refusal reader and the check's export", async () => {
@@ -977,6 +1646,143 @@ test('portable: an answer refinement with a message is named in the record, once
   );
 });
 
+test("portable: an input refinement with a message is named in the record's checks, with a placeholder sample per check; a .superRefine with no written message is left, named", async () => {
+  const { plan } = await import('./portable.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-portable-'));
+  writeFileSync(
+    join(dir, 'review.ts'),
+    [
+      "import { z } from 'zod';",
+      'export const reviewInputSchema = z',
+      "  .object({ verdict: z.enum(['accepted', 'rejected']), reason: z.string().refine((t) => t.length >= 3, 'a reason is 3 or more characters').nullish() })",
+      '  .strict()',
+      "  .refine((i) => (i.verdict === 'rejected') === Boolean(i.reason), { message: 'a rejection needs a reason', path: ['reason'] });",
+      'export const noteSchema = z.object({ note: z.string().superRefine(() => {}) });',
+      '',
+    ].join('\n'),
+  );
+  const record = join(dir, 'review-procedures.ts');
+  const placeholder = "samples: [{ verdict: 'accept', input: {} }, { verdict: 'refuse', input: 42 }]";
+  writeFileSync(
+    record,
+    [
+      "import { reviewInputSchema, noteSchema } from './review.js';",
+      `export const R = defineProcedure({ name: 'x.review', input: reviewInputSchema, output: NO_INPUT, ${placeholder} });`,
+      `export const N = defineProcedure({ name: 'x.note', input: noteSchema, output: NO_INPUT, ${placeholder} });`,
+      '',
+    ].join('\n'),
+  );
+  const refine = '(.refine/.superRefine (a TypeScript predicate the export drops))';
+  const { edits, left } = plan(
+    {
+      review: `x.review.input cannot be exported without losing meaning: input ${refine}; input.reason ${refine}`,
+      note: `x.note.input cannot be exported without losing meaning: input.note ${refine}`,
+    },
+    [record],
+  );
+  assert.deepEqual(left, [{ record: 'x.note', at: 'input.note', why: 'its .superRefine raises no issue the codemod can read' }]);
+  assert.deepEqual(
+    [...edits.get(record).edits.values()].map((e) => e.text),
+    [
+      ', checks: { review_input_holds: { at: "input", says: "a rejection needs a reason" }, reason_holds: { at: "input.reason", says: "a reason is 3 or more characters" } }',
+      ", { verdict: 'refuse', input: 42, by: 'review_input_holds' }, { verdict: 'refuse', input: 42, by: 'reason_holds' }",
+    ],
+  );
+});
+
+test('portable: a .superRefine is named in the words of each issue it raises, its function inline, local or imported; one issue with no written words leaves it', async () => {
+  const { plan } = await import('./portable.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-portable-'));
+  writeFileSync(
+    join(dir, 'rules.ts'),
+    [
+      'export function windowRules(v: { from: number; to: number }, ctx: any) {',
+      "  if (v.to < v.from) ctx.addIssue({ code: 'custom', message: 'a window ends after it starts', path: ['to'] });",
+      "  if (v.to - v.from > 90) ctx.addIssue({ code: 'custom', message: 'a window is at most 90 days' });",
+      '}',
+      '',
+    ].join('\n'),
+  );
+  writeFileSync(
+    join(dir, 'window.ts'),
+    [
+      "import { z } from 'zod';",
+      "import { windowRules } from './rules.js';",
+      'export const windowSchema = z.object({ from: z.number(), to: z.number() }).superRefine(windowRules);',
+      "export const tagSchema = z.object({ tag: z.string().superRefine((t, ctx) => { if (t === 'x') ctx.addIssue({ code: 'custom', message: 'a tag is never x' }); }) });",
+      "export const loudSchema = z.object({ n: z.string().superRefine((t, ctx) => { ctx.addIssue({ code: 'custom', message: `bad ${t}` }); }) });",
+      '',
+    ].join('\n'),
+  );
+  const record = join(dir, 'window-procedures.ts');
+  const placeholder = "samples: [{ verdict: 'accept', input: {} }]";
+  writeFileSync(
+    record,
+    [
+      "import { windowSchema, tagSchema, loudSchema } from './window.js';",
+      `export const W = defineProcedure({ name: 'x.window', input: windowSchema, output: NO_INPUT, ${placeholder} });`,
+      `export const T = defineProcedure({ name: 'x.tag', input: tagSchema, output: NO_INPUT, ${placeholder} });`,
+      `export const L = defineProcedure({ name: 'x.loud', input: loudSchema, output: NO_INPUT, ${placeholder} });`,
+      '',
+    ].join('\n'),
+  );
+  const refine = '(.refine/.superRefine (a TypeScript predicate the export drops))';
+  const { edits, left } = plan(
+    {
+      window: `x.window.input cannot be exported without losing meaning: input ${refine}`,
+      tag: `x.tag.input cannot be exported without losing meaning: input.tag ${refine}`,
+      loud: `x.loud.input cannot be exported without losing meaning: input.n ${refine}`,
+    },
+    [record],
+  );
+  assert.deepEqual(left, [
+    { record: 'x.loud', at: 'input.n', why: 'its .superRefine raises an issue with no message written as a string' },
+  ]);
+  assert.deepEqual(
+    [...edits.get(record).edits.values()].map((e) => e.text),
+    [
+      ', checks: { window_holds: { at: "input", says: "a window ends after it starts; a window is at most 90 days" } }',
+      ", { verdict: 'refuse', input: 42, by: 'window_holds' }",
+      ', checks: { tag_holds: { at: "input.tag", says: "a tag is never x" } }',
+      ", { verdict: 'refuse', input: 42, by: 'tag_holds' }",
+    ],
+  );
+});
+
+test('samples: each input check the record names gets an input that check alone refuses, which the export accepts', async () => {
+  const { z } = await contractsZod();
+  const input = z
+    .object({
+      verdict: z.enum(['accepted', 'rejected']),
+      reason: z
+        .string()
+        .trim()
+        .refine((t) => t.length >= 3, 'a reason is 3 or more characters')
+        .nullish(),
+    })
+    .strict()
+    .refine((i) => (i.verdict === 'rejected') === Boolean(i.reason), { message: 'a rejection needs a reason', path: ['reason'] });
+  const checks = {
+    review_holds: { at: 'input', says: 'a rejection needs a reason' },
+    reason_holds: { at: 'input.reason', says: 'a reason is 3 or more characters' },
+  };
+  const text = samplesFor({ name: 'x.review', path: 'p', input, checks });
+  const samples = Function(`return ${text}`)();
+  const by = Object.fromEntries(samples.filter((s) => s.by).map((s) => [s.by, s.input]));
+  assert.deepEqual(Object.keys(by).sort(), ['reason_holds', 'review_holds']);
+  for (const [name, value] of Object.entries(by)) {
+    const r = input.safeParse(value);
+    assert.equal(r.success, false, name);
+    // Refused by that check's own words only, so the JSON export (which carries it only by name) accepts it.
+    assert.deepEqual([...new Set(r.error.issues.map((i) => `${i.code} ${i.message}`))], [`custom ${checks[name].says}`], name);
+  }
+  // A check no candidate input trips alone is named, never guessed.
+  assert.throws(
+    () => samplesFor({ name: 'x.never', path: 'p', input: z.object({ a: z.string() }), checks: { never: { at: 'input', says: 'never' } } }),
+    /no input found that input check never alone refuses/,
+  );
+});
+
 test("portable: a service's wire replay samples a JSON-value schema as main's z.unknown(), once, in either sampler", async () => {
   const { withReplayJson } = await import('./portable.mjs');
   for (const head of [
@@ -1017,7 +1823,7 @@ test("a door's match arms: a pattern over lines, each arm to the next, a literal
   );
 });
 
-test("a door's calls.rs rows read as kind, scope (null when public) and guarded; a row it can't read stops it", () => {
+test("a door's calls.rs rows read as kind, the record's access (or why none) and guarded; a row it can't read stops it", () => {
   const dir = mkdtempSync(join(tmpdir(), 'door-'));
   mkdirSync(join(dir, 'src/door'), { recursive: true });
   const row = (path, kind, access, guarded) =>
@@ -1026,12 +1832,52 @@ test("a door's calls.rs rows read as kind, scope (null when public) and guarded;
     join(dir, 'src/door/calls.rs'),
     [row('a', 'Query', 'Public', 'false'), row('b', 'Mutation', 'Scope("x:write")', 'true')].join('\n'),
   );
-  assert.deepEqual(Object.fromEntries(callsOf(dir)), {
-    a: { kind: 'query', scope: null, guarded: false },
-    b: { kind: 'mutation', scope: 'x:write', guarded: true },
+  assert.deepEqual(Object.fromEntries(callsOf(dir, 'x')), {
+    a: { kind: 'query', access: { caller: 'public' }, guarded: false },
+    b: { kind: 'mutation', access: { caller: 'scope', scope: 'x:write', module: 'x' }, guarded: true },
   });
-  writeFileSync(join(dir, 'src/door/calls.rs'), 'Call { path: "c", kind: Kind::Query, access: Access::Operator, guarded: true, }');
-  assert.throws(() => callsOf(dir), /can't read/);
+  // svc-agents' rows: a nested Scoped and Post, a Pre, no guarded flag. Before, the reader threw on the first of them.
+  const scoped = (path, scope, person, module, pre, access) =>
+    `    Call {
+        path: "${path}",
+        kind: Kind::Query,
+        access: ${access ?? `Access::Scope(Scoped {\n            scope: "${scope}",\n            person: ${person},\n            module: ${module},\n        })`},
+        pre: ${pre},
+        post: Post {
+            key: false,
+            sub_account: false,
+            lacks_identity_write: false,
+        },
+        slice: Slice::Runtime,
+        has_input: true,
+    },`;
+  writeFileSync(
+    join(dir, 'src/door/calls.rs'),
+    [
+      scoped('own.inbox', 'agents:read', true, true, 'Pre::None'),
+      scoped('own.tool.try', 'agents:execute', false, true, 'Pre::PersonOnly("agents.execute_person_only")'),
+      scoped('region.free', 'agents:read', false, false, 'Pre::None'),
+      scoped('coach.runSession', 'agents:read', false, true, 'Pre::CoachRun'),
+      scoped('settle', '', false, false, 'Pre::None', 'Access::Settle'),
+    ].join('\n'),
+  );
+  assert.deepEqual(Object.fromEntries(callsOf(dir, 'agents')), {
+    'own.inbox': { kind: 'query', access: { caller: 'scope', scope: 'agents:read', module: 'agents', person: true }, guarded: null },
+    'own.tool.try': {
+      kind: 'query',
+      access: { caller: 'scope', scope: 'agents:execute', module: 'agents', ownSession: 'agents.execute_person_only' },
+      guarded: null,
+    },
+    'region.free': { kind: 'query', access: { caller: 'scope', scope: 'agents:read' }, guarded: null },
+    'coach.runSession': { kind: 'query', access: null, why: 'its own middleware Pre::CoachRun, which a record cannot name', guarded: null },
+    settle: { kind: 'query', access: null, why: "access Access::Settle, which this reader does not map to a record's", guarded: null },
+  });
+  assert.equal(
+    accessText({ caller: 'scope', scope: 'agents:read', module: 'agents', person: true }),
+    "{ caller: 'scope', scope: 'agents:read', module: 'agents', person: true }",
+  );
+  writeFileSync(join(dir, 'src/door/calls.rs'), 'Call { path: "c", kind: Kind::Query, guarded: true, }');
+  assert.throws(() => callsOf(dir, 'x'), /can't read/);
 });
 
 test("a record's input is held to the door's tree: the same zod parts match, one changed bound does not", async () => {
@@ -1295,13 +2141,15 @@ test('a re-run whose records already exist (no record file changes) skips the fi
   const bin = join(root, 'bin');
   const log = join(root, 'calls.log');
   for (const d of [dir, bin, join(root, 'node_modules/.bin'), join(root, 'packages/contracts/src')]) mkdirSync(d, { recursive: true });
-  writeFileSync(join(dir, 'run.mjs'), readFileSync(new URL('./run.mjs', import.meta.url)));
+  // The real run.mjs, copied to run in the sandbox (its steps are the stubs beside it), never read as text.
+  copyFileSync(new URL('./run.mjs', import.meta.url), join(dir, 'run.mjs'));
   const stub = (body) =>
     `#!/usr/bin/env node\nconst { appendFileSync, writeFileSync } = process.getBuiltinModule('node:fs');\nconst a = process.argv.slice(2);\nappendFileSync(${JSON.stringify(log)}, process.getBuiltinModule('node:path').basename(process.argv[1]) + ' ' + a.join(' ') + '\\n');\n${body}\n`;
   const flagOut = (flag, json) => `const i = a.indexOf('${flag}'); if (i >= 0) writeFileSync(a[i + 1], '${json}');`;
   writeFileSync(join(dir, 'index.mjs'), stub(flagOut('--json', '{"records":[],"rewritten":1,"hand":[]}')));
   writeFileSync(join(dir, 'samples.mjs'), stub(flagOut('--unportable', '{}')));
-  for (const f of ['portable.mjs', 'refusals.mjs', 'door-check.mjs', 'doubles.mjs']) writeFileSync(join(dir, f), stub(''));
+  for (const f of ['portable.mjs', 'refusals.mjs', 'door-check.mjs', 'doubles.mjs', 'dead-hand-schemas.mjs'])
+    writeFileSync(join(dir, f), stub(''));
   // Like the real prettier: no paths is an error.
   writeFileSync(
     join(root, 'node_modules/.bin/prettier'),
@@ -1334,6 +2182,9 @@ test('a re-run whose records already exist (no record file changes) skips the fi
     calls.some((c) => c.startsWith('doubles.mjs --write')),
     calls.join('\n'),
   );
+  // Step 7, after the doubles: the hand schemas the moved callers were the last to name go in the same change.
+  const doubles = calls.findIndex((c) => c.startsWith('doubles.mjs --write'));
+  assert.ok(doubles >= 0 && calls.findIndex((c) => c.startsWith('dead-hand-schemas.mjs --write')) > doubles, calls.join('\n'));
 });
 
 test("a call whose router writes no answer schema takes its callers' one pure zod schema; callers that disagree, check or parse with none keep it", () => {
@@ -1441,13 +2292,21 @@ test('dead-hand-schemas deletes only the bank hand schemas no caller spells, eac
   const repo = plantRepo('dead-hand-', {
     [`${money}/contracts-earn.ts`]: [
       "import { z } from 'zod';",
+      '/** A schema above the map, its comment closed before the code. */',
+      'const kept = z.string();',
       'export const earnReads = {',
       "  'earn.pools': z.array(z.string()),",
       '  /** Nobody reads this one. */',
       "  'earn.dead': z.object({ a: z.string() }),",
       "  'earn.byTest': z.string(),",
+      "  'earn.byType': z.string(),",
+      "  'earn.stubbed': z.string(),",
+      "  'eligibility.get': z.string(),",
       '} as const;',
       'export const earnWrites = {',
+      // Moved to its record: only a refusal copy's key and a check picked by the write's name still spell it (#3755).
+      "  'earn.deposit': z.object({ positionId: z.string() }),",
+      "  'earn.byCase': z.string(),",
       "  'autoInvest.cancel': z.object({ ok: z.literal(true) }),",
       "  'ramps.setWithdrawDestination': z.object({ kind: z.string() }),",
       '} as const;',
@@ -1457,18 +2316,197 @@ test('dead-hand-schemas deletes only the bank hand schemas no caller spells, eac
       // A template that starts with a call's segment names what it can spell; one that starts with a value names nothing.
       'export const b = (action: string) => ({ procedure: `autoInvest.${action}` });',
       'export const c = (x: string, y: string) => `${x}.${y}`;',
+      // A copy key is words, never a call, though it starts like one.
+      'export const d = (state: string) => t(`eligibility.${state}`);',
+      "type E = z.infer<(typeof earnReads)['earn.byType']>;",
+      "export const f = (procedure: string) => (procedure === 'earn.deposit' ? 1 : 0);",
+      "export const g = (procedure: string) => { switch (procedure) { case 'earn.deposit': return 1; } };",
+      "export const h = { procedure: 'earn.byCase' };",
     ],
-    [`${money}/earn.test.ts`]: ["expect(bankReads['earn.byTest'].parse('x')).toBe('x');"],
+    // A file of words keys its sentences by the write's name; it calls nothing.
+    [`${money}/money-refusal-copy.ts`]: ["export const CHECKED = new Set(['earn.deposit']);"],
+    // A test names an entry only by reading it from its map; a stubbed answer keyed by the name is not a caller.
+    [`${money}/earn.test.ts`]: [
+      "expect(bankReads['earn.byTest'].parse('x')).toBe('x');",
+      "const reads = { 'earn.stubbed': { status: 'ready' } };",
+    ],
+    [`${money}/earn.mock.mjs`]: ["export const answers = { 'earn.stubbed': 'x' };"],
   });
   assert.deepEqual(
     deadHandSchemas(repo).map((h) => h.name),
-    ['earn.dead', 'ramps.setWithdrawDestination'],
+    ['earn.dead', 'earn.stubbed', 'eligibility.get', 'earn.deposit', 'ramps.setWithdrawDestination'],
   );
   const deleted = deleteDead(repo);
-  assert.equal(deleted.length, 2);
+  assert.equal(deleted.length, 5);
   const after = readFileSync(join(repo, `${money}/contracts-earn.ts`), 'utf8');
-  assert.doesNotMatch(after, /earn\.dead|Nobody reads|setWithdrawDestination/);
-  for (const kept of ['earn.pools', 'earn.byTest', 'autoInvest.cancel']) assert.match(after, new RegExp(kept.replace('.', '\\.')));
+  assert.doesNotMatch(after, /earn\.dead|Nobody reads|setWithdrawDestination|earn\.stubbed|eligibility\.get/);
+  for (const kept of [
+    'earn.pools',
+    'earn.byTest',
+    'earn.byType',
+    'earn.byCase',
+    'autoInvest.cancel',
+    'const kept = z.string();',
+    'A schema above the map',
+  ])
+    assert.ok(after.includes(kept), kept);
   forget(join(repo, `${money}/contracts-earn.ts`));
   assert.deepEqual(deadHandSchemas(repo), [], 'a second run finds nothing: safe to rerun');
+});
+
+test('a wrapper that sends the call name it is handed, or a spec whose procedure it sends, is a site per caller string, moved whole; a near shape stays, named', async () => {
+  const { callText } = await import('./index.mjs');
+  const { wrapperIn } = await import('./wrapper.mjs');
+  const repo = mkdtempSync(join(tmpdir(), 'call-records-wrapper-'));
+  mkdirSync(join(repo, 'apps/customer/src/shared'), { recursive: true });
+  writeFileSync(join(repo, 'apps/customer/src/shared/api.ts'), 'export const callAs = () => undefined;\n');
+  const file = join(repo, 'apps/customer/src/contacts.ts');
+  writeFileSync(
+    file,
+    [
+      // A parameter wrapper, its callers in its file and, exported, in another.
+      'async function change(api: any, procedure: string, input: unknown) {',
+      "  return api.mutate('identity', procedure, input, s);",
+      '}',
+      "export const add = (api: any) => change(api, 'contacts.add', { to: 'x' });",
+      "export const remove = (api: any) => change(api, 'contacts.remove', {});",
+      "export const read = (api: any, procedure: string) => api.query('identity', procedure, undefined, s, { signal });",
+      // A spec whose field one function sends, each object of it naming its call.
+      "type Change = { procedure: 'keys.add' | 'keys.revoke'; body: object };",
+      "const send = (api: any, change: Change) => api.mutate('identity', change.procedure, change.body, s);",
+      "export const addKey = (api: any) => send(api, { procedure: 'keys.add', body: {} });",
+      "export const revokeKey = (api: any) => send(api, { procedure: 'keys.revoke', body: {} });",
+      '',
+    ].join('\n'),
+  );
+  writeFileSync(
+    join(repo, 'apps/customer/src/page.ts'),
+    "import { read } from './contacts';\nexport const view = (api: any) => read(api, 'contacts.list');\n",
+  );
+  // The near cases, each in its own file.
+  const near = {
+    // compares its name: the record would not equal the string
+    'compares.ts':
+      "const w = (api: any, procedure: string) => (procedure === 'a.b' ? null : api.mutate('pay', procedure, {}, s));\nexport const c = (api: any) => w(api, 'a.c');",
+    // handed on in what it returns: its callers are not all here
+    'handed.ts':
+      "export function tools(api: any) { const query = (procedure: string) => api.query('pay', procedure, undefined, s); return { query }; }",
+    // a caller names the call by a variable
+    'variable.ts':
+      "const w = (api: any, procedure: string) => api.mutate('pay', procedure, {}, s);\nexport const c = (api: any, p: string) => w(api, p);",
+    // another read of a spec's procedure
+    'spec-read.ts':
+      "type S = { procedure: string };\nconst go = (api: any, x: S) => api.mutate('pay', x.procedure, {}, s);\nexport const c = (api: any) => { const x = { procedure: 'a.b' }; log(x.procedure); return go(api, x); };",
+  };
+  for (const [f, body] of Object.entries(near)) writeFileSync(join(repo, 'apps/customer/src', f), `${body}\n`);
+  execFileSync('git', ['init', '-q'], { cwd: repo });
+  execFileSync('git', ['add', '.'], { cwd: repo });
+  const sites = findSites(repo);
+  const row = (s) =>
+    `${s.file.slice(repo.length + 1)} ${s.shape} ${s.module} ${s.path ?? '?'} ${s.wrapper ? `${s.wrapper.at}/${s.wrapper.size}` : '-'} ${s.problem ?? 'moves'}`;
+  assert.deepEqual(sites.map(row).sort(), [
+    'apps/customer/src/compares.ts mutate pay ? - call name passed through a wrapper: its wrapper w reads its call name for more than sending it (apps/customer/src/compares.ts:1)',
+    'apps/customer/src/contacts.ts wrapper identity contacts.add 0/2 moves',
+    'apps/customer/src/contacts.ts wrapper identity contacts.remove 1/2 moves',
+    'apps/customer/src/contacts.ts wrapper identity keys.add 0/2 moves',
+    'apps/customer/src/contacts.ts wrapper identity keys.revoke 1/2 moves',
+    'apps/customer/src/handed.ts query pay ? - call name passed through a wrapper: its wrapper query takes its call name by a parameter, and apps/customer/src/handed.ts:1 hands query on rather than calling it',
+    'apps/customer/src/page.ts wrapper identity contacts.list 0/1 moves',
+    "apps/customer/src/spec-read.ts mutate pay ? - call name passed through a wrapper: apps/customer/src/spec-read.ts:3 reads a spec's procedure for more than sending it",
+    'apps/customer/src/spec-read.ts procedure-prop undefined a.b - `procedure:` names its call by a string',
+    'apps/customer/src/variable.ts mutate pay ? - call name passed through a wrapper: its wrapper w takes its call name by a parameter, and apps/customer/src/variable.ts:2 names its call by p, not a string',
+  ]);
+
+  // Every caller has its record: each string is its record, the name typed AppProcedure, the senders through callAs.
+  const moving = sites.filter((s) => s.shape === 'wrapper');
+  const name = (s) => s.path.toUpperCase().replace('.', '_');
+  const changes = new Changes();
+  for (const s of moving) rewriteSite(changes, s, name(s), '@intafaced/contracts/x', false);
+  const planned = { hand: [], existing: [] };
+  wrapperIn(changes, planned, [], () => undefined);
+  assert.deepEqual(planned.hand, []);
+  const out = applyEdits(load(file).src, changes.of(file).edits);
+  assert.match(
+    out,
+    /^async function change\(api: any, procedure: AppProcedure, input: unknown\) \{\n  return callAs\(api, procedure, input, s\);/m,
+  );
+  assert.match(out, /change\(api, CONTACTS_ADD, \{ to: 'x' \}\);$/m);
+  assert.match(out, /change\(api, CONTACTS_REMOVE, \{\}\);$/m);
+  assert.match(out, /\(api: any, procedure: AppProcedure\) => callAs\(api, procedure, undefined, s, \{ signal \}\);$/m);
+  assert.match(out, /^type Change = \{ procedure: AppProcedure; body: object \};$/m);
+  assert.match(out, /=> callAs\(api, change\.procedure, change\.body, s\);$/m);
+  assert.match(out, /send\(api, \{ procedure: KEYS_ADD, body: \{\} \}\);$/m);
+  assert.deepEqual([...changes.of(file).imports.get('./shared/api')], ['callAs', 'type AppProcedure']);
+  const page = applyEdits(load(join(repo, 'apps/customer/src/page.ts')).src, changes.of(join(repo, 'apps/customer/src/page.ts')).edits);
+  assert.match(page, /read\(api, CONTACTS_LIST\);$/m);
+  assert.equal(typeof callText, 'function');
+
+  // One caller left: its wrapper moves none of them, each named; a record of the other kind is one left too.
+  for (const [left, kindOf, why] of [
+    [
+      moving.filter((s) => s.path !== 'contacts.remove'),
+      () => undefined,
+      'another caller of its wrapper change stays, and the wrapper sends them all',
+    ],
+    [moving, (n) => (n === 'CONTACTS_ADD' ? 'query' : undefined), 'CONTACTS_ADD is a query, but its wrapper change sends a mutation'],
+  ]) {
+    const some = new Changes();
+    for (const s of left) rewriteSite(some, s, name(s), '@intafaced/contracts/x', false);
+    const back = { hand: [], existing: [] };
+    wrapperIn(some, back, [], kindOf);
+    assert.deepEqual(
+      back.hand.filter((h) => h.site.wrapper.name === 'change').map((h) => `${h.site.path} ${h.why}`),
+      left.filter((s) => s.wrapper.name === 'change').map((s) => `${s.path} ${why}`),
+    );
+    assert.ok(!some.of(file).edits.some((e) => /CONTACTS_|callAs\(api, procedure, input/.test(e.text)));
+  }
+});
+
+// A wrapper that takes its call name is one site per caller, while the rule counts its sender once and a caller only
+// where it names the call in a `procedure:` property. On main at a67176909 the report counted 931 sites to the rule's 928:
+// RecoveryKeys.tsx (3 `procedure:` callers, +1), LostPhoneRoom.tsx and AgentAccess.tsx (3 plain-string callers each, -2).
+test("the report adds a wrapper's sender the rule counts and drops the callers it does not, so its totals meet the rule", async () => {
+  const { wrapperSenders } = await import('./report.mjs');
+  const caller = (key, type) => ({ shape: 'wrapper', node: { type }, wrapper: { key } });
+  const sites = [
+    { shape: 'query', node: { type: 'CallExpression' } },
+    ...['a', 'b', 'c'].map(() => caller('recovery:send', 'Property')),
+    ...['a', 'b', 'c'].map(() => caller('lost-phone:change', 'CallExpression')),
+    ...['a', 'b', 'c'].map(() => caller('agent-access:change', 'CallExpression')),
+  ];
+  assert.equal(wrapperSenders(sites), 1 - 2 - 2);
+  assert.equal(wrapperSenders(sites.slice(0, 1)), 0, 'no wrapper, nothing to add');
+});
+
+test('the shared schema file reads a declaration it already holds where it stands, and imports one from another contracts file', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-schemas-'));
+  const file = join(dir, 'trade-call-schemas.ts');
+  writeFileSync(file, "import { z } from 'zod';\n\nexport const decimal = z.string();\n");
+  const closure = {
+    fromContracts: new Map([
+      ['decimal', { file: join(dir, 'trade-call-schemas.ts'), imported: 'decimal' }],
+      ['orderSideSchema', { file: join(dir, 'order-enums.ts'), imported: 'orderSideSchema' }],
+    ]),
+    fromPackages: new Map(),
+    moved: [{ text: 'export const quote = z.object({ qty: decimal, side: orderSideSchema });' }],
+  };
+  const out = writeSchemas({ service: 'svc-trade' }, file, closure);
+  assert.doesNotMatch(out, /from '\.\/trade-call-schemas\.js'/);
+  assert.match(out, /import \{ orderSideSchema \} from '\.\/order-enums\.js';/);
+  assert.match(out, /export const decimal = z\.string\(\);/);
+});
+
+test('an assetId field the codemod appends to contracts starts from assetIdSchema; one the file already held stays', async () => {
+  // garden/asset-id-schema refused 29 fields svc-bank's callers-only run copied as `assetId: z.string()` (weed project-state#3755).
+  const { brandAssetIds, unbranded } = await import('./asset-id.mjs');
+  const before = ["import { z } from 'zod';", '', 'export const old = z.object({ assetId: z.string() });', ''].join('\n');
+  const after = `${before}export const fresh = z.object({ assetId: z.string().min(1).max(16), other: z.string() });\n`;
+  const out = brandAssetIds(after, unbranded(before).length);
+  assert.match(out, /^import \{ assetIdSchema \} from '\.\/asset-id\.js';$/m);
+  assert.match(out, /old = z\.object\(\{ assetId: z\.string\(\) \}\)/, 'what the file held is left as it was');
+  assert.match(out, /fresh = z\.object\(\{ assetId: assetIdSchema\.min\(1\)\.max\(16\), other: z\.string\(\) \}\)/);
+  assert.equal(brandAssetIds(out, unbranded(before).length), out, 'safe to rerun');
+  // A file whose own assetIdSchema is another schema keeps its fields.
+  const own = "import { z } from 'zod';\nconst assetIdSchema = z.string();\nexport const a = z.object({ assetId: z.string() });\n";
+  assert.equal(brandAssetIds(own), own);
 });

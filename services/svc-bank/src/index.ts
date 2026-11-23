@@ -51,7 +51,7 @@ import {
   TEST_RAMP_PARTNER_RECORD_BASE,
   TEST_RAMP_PARTNER_RECORD_PATHS,
 } from './ramps/test-ramp-partner-record.js';
-import { answerTestPartnerRecord, onLoopback, TEST_PARTNER_RECORD_BASE } from './partner/test-partner-record.js';
+import { answerTestPartnerRecord, onLoopback, TEST_PARTNER_PERSON_PATHS, TEST_PARTNER_RECORD_BASE } from './partner/test-partner-record.js';
 import {
   answerTestCardPartnerRecord,
   TEST_CARD_PARTNER_RECORD_BASE,
@@ -112,7 +112,7 @@ import { recoveryCounts, startBankRecoveryJobs } from './recovery-jobs.js';
 import { withSpan } from './tracing.js';
 import { registerTestAgeDoor, testAgeDoorOpen } from '@intafaced/service-kit';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
-import { ageBusinessInvite, agePayYourselfRule, ageSharedPotInvite } from './test-age-door.js';
+import { ageBusinessInvite, agePayYourselfRule, ageScheduledTransfer, ageSharedPotInvite } from './test-age-door.js';
 
 // §9 — register the TracerProvider before the first span is created.
 // `@opentelemetry/api` alone is a no-op: without this call every span in
@@ -566,6 +566,7 @@ registerTestAgeDoor(app, {
     'shared-pot-invite': ageSharedPotInvite(sql),
     'business-invite': ageBusinessInvite(sql),
     'pay-yourself-rule': agePayYourselfRule(sql),
+    'scheduled-transfer': ageScheduledTransfer(sql),
   },
   installRawBody: false,
 });
@@ -956,9 +957,7 @@ if (testPartner) {
     return reply.code(status).header('cache-control', 'no-store').send(body);
   };
   app.get(`${TEST_PARTNER_RECORD_BASE}/venue`, read);
-  app.post(`${TEST_PARTNER_RECORD_BASE}/balances`, read);
-  app.post(`${TEST_PARTNER_RECORD_BASE}/moves`, read);
-  app.post(`${TEST_PARTNER_RECORD_BASE}/onboarding`, read);
+  for (const path of TEST_PARTNER_PERSON_PATHS) app.post(`${TEST_PARTNER_RECORD_BASE}${path}`, read);
   app.post(`${TEST_PARTNER_RECORD_BASE}/direct-debits`, read);
   app.post(`${TEST_PARTNER_RECORD_BASE}/dd-refund`, read);
 }
@@ -988,11 +987,11 @@ if (rampBook) {
  */
 const cardRecord = cardIssuer.testRecord?.bind(cardIssuer);
 if (cardRecord) {
-  const recorder = { programme: cardIssuer.programme, testRecord: cardRecord };
+  const recorder = { programme: cardIssuer.programme, testRecord: cardRecord, holds: bank.partnerCardHolds };
   const read = async (req: FastifyRequest, reply: FastifyReply) => {
     if (!onLoopback(req.socket.remoteAddress)) return reply.code(403).send({ error: 'loopback only' });
     const below = req.url.split('?')[0]!.slice(TEST_CARD_PARTNER_RECORD_BASE.length);
-    const [status, body] = answerTestCardPartnerRecord(recorder, req.method, below, req.body ?? null);
+    const [status, body] = await answerTestCardPartnerRecord(recorder, req.method, below, req.body ?? null);
     return reply.code(status).header('cache-control', 'no-store').send(body);
   };
   for (const path of TEST_CARD_PARTNER_RECORD_PATHS) {

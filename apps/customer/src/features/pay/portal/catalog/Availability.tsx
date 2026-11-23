@@ -59,10 +59,10 @@ export function ProductAvailabilitySection({ portal, product }: { portal: Portal
   return (
     <PaySection title={t('availabilityTitle')} description={t('availabilityPurpose')}>
       {where.stores.length === 0 ? (
-        <p className="muted">
+        <p className="lt-muted">
           {t('availabilityNoStores')}{' '}
           {may.allowed && (
-            <a className="text-link" href="/pay/settings/stores">
+            <a className="lt-link" href="/pay/settings/stores">
               {t('availabilityStoresLink')}
             </a>
           )}

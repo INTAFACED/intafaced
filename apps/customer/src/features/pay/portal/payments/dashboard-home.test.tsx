@@ -39,6 +39,7 @@ const view = (patch: Partial<Parameters<typeof LayoutDashboardView>[0]> = {}, he
   renderToString(
     withMoneyAccess(
       <LayoutDashboardView
+        frame={{ title: 'TEST overview', description: 'TEST purpose', state: { kind: 'ready' } }}
         merchant={null}
         role="owner"
         data={data}
@@ -85,7 +86,7 @@ describe('portal overview', () => {
   it('renders one selected headline balance and offers an asset selector', () => {
     const multi = { ...snapshot, balances: [...snapshot.balances, { assetCode: 'USD', available: '25', clearing: '0' }] };
     const out = view({ data: { ...data, today: { status: 'ready', data: multi } } });
-    expect(out.match(/plo-number/g)).toHaveLength(1);
+    expect(out.match(/data-testid="plo-balance-amount"/g)).toHaveLength(1);
     expect(out).toContain('Balance asset');
     expect(out).toContain('9,007,199,254,740,993.12');
     expect(out).not.toContain('123456789123456789');

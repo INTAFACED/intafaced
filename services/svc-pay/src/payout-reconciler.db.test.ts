@@ -207,6 +207,26 @@ describe('payout reconciler job', { timeout: 30_000 }, () => {
     expect(ledger.journal().filter((tx) => tx.reason === 'pay.proceeds.payout.settled')).toHaveLength(1);
   });
 
+  it('shows a payout settled inside the statement window', async () => {
+    const { merchant, settlement } = await crashedAfterSend('statement-late-payout');
+    const [admission] = await sql<Array<{ admitted_at: Date }>>`
+      SELECT admitted_at FROM pay.payout_admissions WHERE settlement_id = ${settlement.id} AND attempt = 0`;
+    expect(await runPayoutReconcilePass(sql, pay, { batchLimit: 10 })).toMatchObject({ paidOut: 1 });
+    const post = await ledger.getTxByKey(`pay.proceeds.payout.settle:${settlement.id}:0`);
+    expect(post).not.toBeNull();
+    // The window opens after the admission, so only the later settle can bring the payout in.
+    const from = new Date(admission!.admitted_at.getTime() + 1);
+    expect(post!.postedAt.getTime()).toBeGreaterThanOrEqual(from.getTime());
+
+    const page = await pay.listStatement({
+      merchantId: merchant.id,
+      limit: 20,
+      from: from.toISOString(),
+      to: new Date(post!.postedAt.getTime() + 1).toISOString(),
+    });
+    expect(page.items).toContainEqual(expect.objectContaining({ kind: 'payout', account: 'payoutHold', ledgerTxId: post!.id }));
+  });
+
   it('a pass reverses a payout the rail confirms was never sent, once', async () => {
     const { merchant, settlement } = await readySettlement('recon-not-sent');
     crypto.payout = async () => {
@@ -289,5 +309,32 @@ describe('payout reconciler job', { timeout: 30_000 }, () => {
       examined: 1,
       stillUnknown: 1,
     });
+  });
+
+  it('reconciles a dispatched payout retry', async () => {
+    const { merchant, settlement } = await readySettlement('recon-dispatched-retry');
+    await pay.destinationBook().seedVerified({
+      merchantId: merchant.id,
+      railId: 'crypto-native',
+      ...DEST,
+    });
+    const input = { settlementId: settlement.id, railId: 'crypto-native' };
+    const send = crypto.payout.bind(crypto);
+
+    crypto.payout = async () => {
+      throw new Error('before broadcast');
+    };
+    await expect(pay.payoutSettlement(input)).rejects.toThrow('before broadcast');
+    expect(await runPayoutReconcilePass(sql, pay, { batchLimit: 10 })).toMatchObject({ examined: 1, reversed: 1 });
+
+    crypto.payout = async (instruction) => {
+      await send(instruction);
+      throw new Error('reply lost');
+    };
+    await expect(pay.payoutSettlement(input)).rejects.toThrow('reply lost');
+    expect(chain.outboundTransfers()).toHaveLength(1);
+
+    expect(await runPayoutReconcilePass(sql, pay, { batchLimit: 10 })).toMatchObject({ examined: 1, paidOut: 1, reversed: 0 });
+    expect(await ledger.getTxByKey(`pay.proceeds.payout.settle:${settlement.id}:1`)).not.toBeNull();
   });
 });

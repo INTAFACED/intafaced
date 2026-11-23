@@ -5,6 +5,9 @@ import { join } from 'node:path';
 import { bindingOf, calleeName, keyOf, literal, load, resolveRelative, walk } from './ast.mjs';
 import { fanOut } from './fan.mjs';
 import { handSchemas } from './dead-hand-schemas.mjs';
+import { businessSite } from './pay-business.mjs';
+import { toolSite } from './tool-forms.mjs';
+import { wrapperOut } from './wrapper.mjs';
 
 const TEST_FILE = /(\.(test|spec|testkit)\.[cm]?[jt]sx?$)|(\.pw\.[cm]?[jt]s$)|(\/(test|tests|__tests__|__fixtures__)\/)/u;
 const NAMED_AT = { query: [0, 1], mutate: [0, 1], founderCall: [1, 2], founderEdgeCall: [1, 2], payCall: [1], useBankRead: [0] };
@@ -22,18 +25,28 @@ function appFiles(repo) {
 
 export function findSites(repo) {
   const out = [];
-  for (const file of appFiles(repo)) {
+  const files = appFiles(repo);
+  const wrappers = new Set();
+  for (const file of files) {
     const p = load(file);
     const line = (n) => p.src.slice(0, n.start).split('\n').length;
     walk(p.program, (n) => {
       if (n.type === 'CallExpression') {
+        // A portal tool called bare, by name: its record form is beside it (tool-forms.mjs).
+        const tool = toolSite(p, n);
+        if (tool) {
+          out.push({ file, line: line(n), node: n, ...tool });
+          return;
+        }
         const name = calleeName(n);
         if (!name || !Object.hasOwn(NAMED_AT, name)) return;
         if ((name === 'query' || name === 'mutate') && n.callee.type !== 'MemberExpression') return;
         if (!NAMED_AT[name].some((i) => isString(n.arguments[i]))) return;
         const a = n.arguments;
         const site = { file, line: line(n), node: n, shape: name };
-        if (name === 'query' || name === 'mutate') {
+        const business = businessSite(p, n);
+        if (business) Object.assign(site, business);
+        else if (name === 'query' || name === 'mutate') {
           Object.assign(site, { module: literal(a[0]), path: literal(a[1]), kind: name === 'query' ? 'query' : 'mutation' });
           if (a.length < 4 || a.length > 5 || a.some((x) => x.type === 'SpreadElement'))
             site.problem = `${name} with ${a.length} arguments`;
@@ -76,9 +89,17 @@ export function findSites(repo) {
           }
         }
         if (name === 'founderCall' && a[2]?.type === 'MemberExpression' && !a[2].computed && a[2].property.name === 'procedure')
-          Object.assign(site, { shape: 'ops-dispatch', problem: 'sends the call its table entry names: it moves with the table' });
+          Object.assign(site, {
+            shape: 'ops-dispatch',
+            problem:
+              "sends the call its table entry names: it moves with the table once the table sits in this file, read as `const spec = TABLE[key]; founderCall(ctx, '<service>', spec.procedure, ...)`",
+          });
+        // A call named by its wrapper's parameter or spec: a site per caller's string, or the wrapper named with why (wrapper.mjs).
+        const w = !site.problem && site.module && !site.path ? wrapperOut(p, site, files, wrappers) : undefined;
+        if (Array.isArray(w)) out.push(...w);
+        else if (w) out.push({ ...site, problem: `call name passed through a wrapper: ${w.why}` });
         // A service or call not named by a string: one site per value the code lists, or the call named with why (fan.mjs).
-        if (!site.problem && (!site.module || !site.path)) out.push(...fanOut(p, site));
+        else if (!site.problem && (!site.module || !site.path)) out.push(...fanOut(p, site));
         else out.push(site);
       }
       if (n.type === 'Property') {
@@ -107,7 +128,9 @@ export function findSites(repo) {
       }
     });
   }
-  return out;
+  // A spec's `procedure: '<call>'` that its wrapper moves is that wrapper's site, not a second one of its own.
+  const claimed = new Set(out.filter((s) => s.shape === 'wrapper').map((s) => s.node));
+  return out.filter((s) => s.shape === 'wrapper' || !claimed.has(s.node));
 }
 
 /** `parseWith(schema)` or `schema.safeParse`-shaped: the call's answer as the service sends it, nothing of its own. */

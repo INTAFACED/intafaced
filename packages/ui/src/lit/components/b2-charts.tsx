@@ -1,5 +1,5 @@
 /**
- * Owner: lane B2 (templates). LineChart, AreaChart, Sparkline, Bars and Parts: plain SVG, every chart with its data as a
+ * Owner: lane B2 (templates). LineChart, AreaChart, Sparkline, Candles, Bars and Parts: plain SVG, every chart with its data as a
  * table (its text equivalent, and Pro's "table behind the chart"). Values arrive as decimal strings; they become
  * floats here only to place pixels (the kit's rule: floats for drawing only). Parts never draws a whole its
  * parts don't add up to: it adds "Other" for the difference or refuses.
@@ -7,6 +7,7 @@
 import * as React from 'react';
 import { formatMoney, reconcileParts, type Part } from '../templates/money.js';
 import type { DecimalString } from '../templates/types.js';
+import type { DataMarks } from './b2-table.js';
 
 export interface Point {
   /** ISO date or time. */
@@ -133,6 +134,106 @@ export function Sparkline({
   );
 }
 
+/** One candle: its four prices as decimal strings, never a number. */
+export interface Candle {
+  /** Unique in the chart (the candle's start time); React's key. */
+  key: string;
+  open: DecimalString;
+  high: DecimalString;
+  low: DecimalString;
+  close: DecimalString;
+  /** The candle's start in Unix seconds: with the chart's `window`, it places the candle on the time axis. */
+  at?: number;
+  /** The candle's own words (its time and figures): its tooltip, and its line in the chart's text equivalent. */
+  title?: string;
+  /** The candle's own marks (`data-testid`, `data-time`), what a room's tests find it by. */
+  marks?: DataMarks;
+}
+
+/** A time axis: its start in Unix seconds, its length and one candle's width, both in seconds. */
+export interface CandleWindow {
+  start: number;
+  seconds: number;
+  width: number;
+}
+
+/** Where each candle is drawn, in the chart's own units. Prices become floats here only to place pixels. */
+export function candlePlaces(candles: readonly Candle[], window?: CandleWindow) {
+  if (candles.length === 0) return [];
+  const top = Math.max(...candles.map((c) => plot(c.high)));
+  const bottom = Math.min(...candles.map((c) => plot(c.low)));
+  const span = top - bottom || Math.abs(top) || 1;
+  const y = (v: DecimalString) => H - PAD - ((plot(v) - bottom) * (H - 2 * PAD)) / span;
+  // On a time axis each candle sits at its own time, so a quiet stretch stays a gap; without one they sit side by side.
+  const step = window ? (W * window.width) / window.seconds : W / candles.length;
+  const body = Math.max(step * 0.6, 1);
+  return candles.map((candle, i) => {
+    const x = (window && candle.at !== undefined ? ((candle.at - window.start) / window.seconds) * W : i * step) + step / 2;
+    const open = y(candle.open);
+    const close = y(candle.close);
+    return {
+      candle,
+      x,
+      wick: { y1: y(candle.high), y2: y(candle.low) },
+      body: { x: x - body / 2, y: Math.min(open, close), width: body, height: Math.max(Math.abs(open - close), 1) },
+      rising: plot(candle.close) >= plot(candle.open),
+    };
+  });
+}
+
+/**
+ * A candle chart: one candle per period, its wick from low to high and its body from open to close, in the rise
+ * colour when it closed at or above its open and the fall colour when below (`data-rising` says which, in words for
+ * tests; colour is never the only carrier: each candle's `title` holds its figures). With `window` the candles sit at
+ * their own times, so a gap is a gap. No candles draw `empty` in place of a made-up chart, and the figure keeps its
+ * name. `caption` (a range line, a count) goes under the chart. `marks` are the figure's own (`data-pool`).
+ */
+export function Candles({
+  label,
+  candles,
+  window,
+  empty,
+  caption,
+  marks,
+}: {
+  label: string;
+  candles: readonly Candle[];
+  window?: CandleWindow;
+  empty: React.ReactNode;
+  caption?: React.ReactNode;
+  marks?: DataMarks;
+}) {
+  const places = candlePlaces(candles, window);
+  const titled = candles.filter((c) => c.title);
+  return (
+    <figure className="lt-chart lt-candles" aria-label={label} data-empty={places.length === 0 || undefined} {...marks}>
+      {places.length === 0 ? (
+        <p className="lt-candles-empty" role="status">
+          {empty}
+        </p>
+      ) : (
+        <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={label}>
+          {places.map((p) => (
+            <g key={p.candle.key} className="lt-candle" data-rising={p.rising} {...p.candle.marks}>
+              {p.candle.title ? <title>{p.candle.title}</title> : null}
+              <line x1={p.x} x2={p.x} y1={p.wick.y1} y2={p.wick.y2} vectorEffect="non-scaling-stroke" />
+              <rect x={p.body.x} y={p.body.y} width={p.body.width} height={p.body.height} />
+            </g>
+          ))}
+        </svg>
+      )}
+      {titled.length > 0 ? (
+        <ul className="lt-sr">
+          {titled.map((c) => (
+            <li key={c.key}>{c.title}</li>
+          ))}
+        </ul>
+      ) : null}
+      {caption ? <figcaption>{caption}</figcaption> : null}
+    </figure>
+  );
+}
+
 /**
  * Which stretches of a time window hold data: one track, each covered range drawn where it falls and the gaps left
  * empty, so a gap reads as a gap. `from` and `to` are the window (ISO times); a range too short to see keeps a sliver.
@@ -242,6 +343,42 @@ export function Parts({
             <span>{p.label}</span>
             <span className="lt-parts-value" dir="ltr" data-ltr="">
               {formatMoney({ value: p.value, asset })}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </figure>
+  );
+}
+
+export interface Share {
+  key: string;
+  label: string;
+  /** The part's share of the whole as a ratio string ("0.5433"), never a number. */
+  share: DecimalString;
+  /** The share in words as the room writes it ("54.33%", "<0.01%"). */
+  text: string;
+}
+
+/**
+ * Shares of a whole the room already worked out (an allocation by coin, kind or place): the same bar and list as Parts,
+ * with each share's own words instead of an amount. Up to six shares take their own colour; the room groups the rest.
+ */
+export function Shares({ label, shares }: { label: string; shares: readonly Share[] }) {
+  return (
+    <figure className="lt-parts" aria-label={label}>
+      <div className="lt-parts-bar" aria-hidden="true">
+        {shares.map((s, i) => (
+          <span key={s.key} data-part={i} style={{ flexGrow: plot(s.share) }} />
+        ))}
+      </div>
+      <ul className="lt-parts-list">
+        {shares.map((s, i) => (
+          <li key={s.key} data-group={s.key}>
+            <span className="lt-parts-swatch" data-part={i} aria-hidden="true" />
+            <span>{s.label}</span>
+            <span className="lt-parts-value" dir="ltr" data-ltr="">
+              {s.text}
             </span>
           </li>
         ))}

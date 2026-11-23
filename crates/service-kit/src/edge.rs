@@ -25,6 +25,12 @@ pub struct Principal {
     pub mfa: bool,
     pub kid: Option<String>,
     pub sub_account: Option<String>,
+    /// `sid`: the session the principal was minted for (a step-up approval is bound to it).
+    pub sid: String,
+    /// `fam`: the sign-in (session family) the access token names, the same across refreshes; none when it names none.
+    pub fam: Option<String>,
+    /// `dev`: the trusted device the access token names; none when it names none.
+    pub dev: Option<String>,
 }
 
 /// `signPrincipalHeader`: HMAC-SHA256 over `<raw>\nregion=<region>`, lower-case hex.
@@ -204,6 +210,18 @@ fn parse_principal(v: &Json) -> Option<(Principal, Instant, Option<i64>)> {
                 _ => None,
             },
             sub_account: match v.get("sub_account") {
+                Some(Json::String(k)) => Some(k.clone()),
+                _ => None,
+            },
+            sid: match v.get("sid") {
+                Some(Json::String(k)) => k.clone(),
+                _ => String::new(),
+            },
+            fam: match v.get("fam") {
+                Some(Json::String(k)) => Some(k.clone()),
+                _ => None,
+            },
+            dev: match v.get("dev") {
                 Some(Json::String(k)) => Some(k.clone()),
                 _ => None,
             },

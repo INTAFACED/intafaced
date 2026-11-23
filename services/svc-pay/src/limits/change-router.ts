@@ -1,5 +1,4 @@
 import { router, TRPCError } from '@intafaced/contracts/trpc';
-import { withdrawalAllowanceInputSchema, withdrawalAllowanceSchema } from '@intafaced/contracts/withdrawal-allowance';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import type { ActionApprovalConsumer } from '../action-approval-consume.js';
@@ -17,6 +16,9 @@ import {
 } from './change-schemas.js';
 import { LimitChangeService } from './change-service.js';
 import { GUARD_WITHDRAWAL_LIMITS_UNWIRED, type WithdrawalLimitReader } from './reader.js';
+import { PAY_FOUNDER_ADMIN_LIMITS_LIST, PAY_FOUNDER_ADMIN_LIMITS_CUSTOMER } from '@intafaced/contracts/pay-founder-admin-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { payRefusal } from '../record-refusal.js';
 
 /** What a mount supplies besides the founder authority. */
 export type WithdrawalLimitsMountDeps = Omit<WithdrawalLimitsRouterDeps, 'founderAuthority'>;
@@ -53,10 +55,7 @@ export function createWithdrawalLimitsRouter(deps: WithdrawalLimitsRouterDeps) {
   const founder = founderProcedure(deps.founderAuthority);
   const service = new LimitChangeService({ sql: deps.sql, approvals: deps.approvals });
   return router({
-    list: founder
-      .input(z.object({}).strict().optional())
-      .output(z.array(limitViewSchema))
-      .query(() => wrap(() => service.list())),
+    list: mountRecord(PAY_FOUNDER_ADMIN_LIMITS_LIST, () => wrap(() => service.list()), { refusalOf: payRefusal, founder }),
     history: founder
       .input(limitHistoryInputSchema)
       .output(z.array(limitEventViewSchema))
@@ -70,15 +69,15 @@ export function createWithdrawalLimitsRouter(deps: WithdrawalLimitsRouterDeps) {
      * One customer's withdrawal allowance for one asset, read the way the guard reads it (J-ops-console-04 #12): base,
      * override in force, used and left. Refuses with the guard's own typed codes, never a guessed figure.
      */
-    customer: founder
-      .input(withdrawalAllowanceInputSchema)
-      .output(withdrawalAllowanceSchema)
-      .query(({ input }) =>
+    customer: mountRecord(
+      PAY_FOUNDER_ADMIN_LIMITS_CUSTOMER,
+      ({ input }) =>
         wrap(async () => {
           if (!deps.reader) throw new PayGuardRefusal(GUARD_WITHDRAWAL_LIMITS_UNWIRED, 'unavailable');
           return deps.reader.allowance(input.userId, input.assetId);
         }),
-      ),
+      { refusalOf: payRefusal, founder },
+    ),
     change: founder
       .input(limitChangeInputSchema)
       .output(limitViewSchema)

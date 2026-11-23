@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { defineProcedure, NO_INPUT } from './procedure.js';
-import { signInChallengeSchema } from './identity-signin-challenge.js';
+import { signInChallengeSchema, signInChallengeProofSchema } from './identity-signin-challenge.js';
+import { loggedOutEverywhereSchema } from './identity-account-room.js';
 import {
   ACCOUNT_TYPES,
   loginCodeAccepted,
@@ -457,4 +458,67 @@ export const IDENTITY_AUTH_STEP_UP_OPTIONS = defineProcedure({
   input: NO_INPUT,
   output: authenticationOptions,
   samples: [{ verdict: 'accept' }],
+});
+
+export const IDENTITY_AUTH_LOGOUT_ALL = defineProcedure({
+  ...base,
+  name: 'identity.auth.logoutAll',
+  kind: 'mutation',
+  path: 'auth.logoutAll',
+  access: { caller: 'person' },
+  refusals: {},
+  input: NO_INPUT,
+  output: loggedOutEverywhereSchema,
+  samples: [{ verdict: 'accept' }],
+});
+
+export const IDENTITY_AUTH_LOGIN = defineProcedure({
+  ...base,
+  name: 'identity.auth.login',
+  kind: 'mutation',
+  path: 'auth.login',
+  access: { caller: 'public' },
+  refusals: {},
+  input: z.object({
+    identifier: z.string().min(1),
+    password: z.string().min(1),
+    totpCode: z.string().optional(),
+    deviceKey: z.string().min(16).max(128).optional(),
+    /** A solved `auth.challenge`, needed once this address reached the owner's count of failed sign-ins. */
+    challenge: signInChallengeProofSchema.optional(),
+  }),
+  output: sessionOutput,
+  samples: [
+    { verdict: 'accept', input: { identifier: 'USDC', password: 'placeholder' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const IDENTITY_AUTH_REGISTER = defineProcedure({
+  ...base,
+  name: 'identity.auth.register',
+  kind: 'mutation',
+  path: 'auth.register',
+  access: { caller: 'public' },
+  refusals: {},
+  input: z.object({
+    handle: z.string().regex(/^[a-zA-Z0-9_]{3,32}$/, 'handle must be 3-32 letters, numbers or underscores'),
+    email: z.string().email(),
+    password: z.string().min(12).max(200),
+    region: z.string().length(2).optional(),
+    /** A native or API client's own device key, trusted with the new account (a browser's comes in `ifc_dk`). */
+    deviceKey: z.string().min(16).max(128).optional(),
+    /**
+     * Optional referrer at signup. Same law as `affiliates.attribute`
+     * (self/cycle/depth/unknown refuse loud). Blank = no edge.
+     * Account is created first; a failed attribute still leaves the user
+     * (they can fix referrer via attribute later if product allows once).
+     */
+    referrerId: z.string().guid().optional(),
+  }),
+  output: sessionOutput,
+  samples: [
+    { verdict: 'accept', input: { handle: 'USDC', email: 'a@example.com', password: 'placeholderx' } },
+    { verdict: 'refuse', input: 42 },
+  ],
 });
