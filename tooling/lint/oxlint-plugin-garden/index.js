@@ -25,6 +25,7 @@ import { restartServiceRules } from './restart-service-rule.js';
 import { storedSearchRules } from './stored-search-rule.js';
 import { callByNameRules } from './call-by-name-rule.js';
 import { runtimeSwapRules } from './runtime-swap-rule.js';
+import { switchRouterRules } from './switch-router-rule.js';
 import { crossFeatureImportRules } from './cross-feature-import-rule.js';
 import { sourceTextTestRules } from './source-text-test-rule.js';
 import { composeOnlyRules } from './compose-only-rule.js';
@@ -234,6 +235,7 @@ export default {
     ...storedSearchRules,
     ...callByNameRules,
     ...runtimeSwapRules,
+    ...switchRouterRules,
     ...crossFeatureImportRules,
     ...sourceTextTestRules,
     ...composeOnlyRules,
