@@ -90,6 +90,9 @@
       "businessApprovalSettle",
       "businessPayroll"
     ],
+    "crates/svc-bank/src/cards/moves/cashback.rs": ["rewardPay"],
+    "crates/svc-bank/src/cards/moves/decide.rs": ["withdrawHold"],
+    "crates/svc-bank/src/cards/moves/settle.rs": ["withdrawHold", "withdrawReverse", "withdrawSettle"],
     "crates/svc-bank/src/earn/service.rs": ["earnDeposit", "earnInterest", "earnPoolFund", "earnWithdraw"],
     "crates/svc-bank/src/global/send.rs": ["bankTransfer"],
     "crates/svc-bank/src/loans/service.rs": ["loanCollateralLock", "loanCollateralRelease", "loanDraw", "loanRepay", "loanReserveFund"],

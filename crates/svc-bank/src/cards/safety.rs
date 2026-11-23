@@ -295,8 +295,8 @@ pub fn list(
 
 /// `CardSafety.answer`: a wrong code counts once and, at the owner's count, locks the challenge; a decided challenge
 /// checks no more codes. The right code approves it. An approved challenge with no authorisation is completed through
-/// `CardService.authorize`, slice `card-ops`'; until it is ported that answers "not ported" and the challenge stays
-/// approved with no authorisation, which the next answer with no code finishes, as after a crash in the TypeScript.
+/// slice `card-ops`' authorisation (`moves::decide::authorize`); if that fails the challenge stays approved with no
+/// authorisation, which the next answer with no code finishes.
 pub fn answer_challenge(
     d: &Deps<'_>,
     card_id: &str,
@@ -359,11 +359,39 @@ pub fn answer_challenge(
     if decided.state != "approved" || decided.authorization_id.is_some() {
         return with(d.store(), |c| view(d, c, &decided));
     }
-    // Approved and not yet authorised: `authorize(cardId, '3ds:<ref>', amount, online, merchant...)` is slice
-    // `card-ops`' move. The challenge stays approved with no authorisation until it is ported.
-    Err(Refusal::Trpc(crate::door::not_ported(
-        crate::door::Slice::CardOps,
-    )))
+    // Approved and not yet authorised: drive the purchase's authorisation, once, under the challenge's business key. If
+    // it fails, the challenge stays approved with no authorisation, and the next answer (with no code) finishes it.
+    let authorization = super::moves::decide::authorize(
+        &super::moves::Moves::bare(d),
+        &super::moves::decide::Ask {
+            card_id: card.id.clone(),
+            authorization_ref: three_ds_authorization_ref(&decided.challenge_ref),
+            amount: service_kit::money::parse_amount(&decided.amount).map_err(Refusal::Other)?,
+            merchant_category: decided.merchant_category.clone(),
+            merchant: decided.merchant.clone(),
+            merchant_country: decided.merchant_country.clone(),
+            channel: Some("online".to_owned()),
+            ..Default::default()
+        },
+    )?;
+    with(d.store(), |c| {
+        let rows = c
+            .query(
+                &format!(
+                    "UPDATE bank.card_3ds_challenges SET authorization_id = COALESCE(authorization_id, $2::text::uuid) \
+                      WHERE id = $1::text::uuid RETURNING {}",
+                    challenge_cols()
+                ),
+                &[&decided.id, &authorization.id],
+            )
+            .map_err(|e| pg(&e))?;
+        let done = rows
+            .first()
+            .map(Challenge::from_row)
+            .transpose()?
+            .ok_or_else(not_found)?;
+        view(d, c, &done)
+    })
 }
 
 fn report_json(r: &Row) -> Json {

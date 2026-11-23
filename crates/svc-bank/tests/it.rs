@@ -44,6 +44,20 @@ mod business_retry_db;
 mod business_roles_db;
 #[path = "business_team_membership_db.rs"]
 mod business_team_membership_db;
+#[path = "card_ops_desk_disputes_db.rs"]
+mod card_ops_desk_disputes_db;
+#[path = "card_ops_desk_programme_db.rs"]
+mod card_ops_desk_programme_db;
+#[path = "card_ops_desk_reads_db.rs"]
+mod card_ops_desk_reads_db;
+#[path = "card_ops_desk_record_db.rs"]
+mod card_ops_desk_record_db;
+#[path = "card_ops_ledger_db.rs"]
+mod card_ops_ledger_db;
+#[path = "card_ops_partner_db.rs"]
+mod card_ops_partner_db;
+#[path = "card_ops_product_db.rs"]
+mod card_ops_product_db;
 #[path = "cards_core_db.rs"]
 mod cards_core_db;
 #[path = "cards_orders_db.rs"]
@@ -113,6 +127,8 @@ mod wire_replay;
 
 // The helpers the files share: `use crate::<helper>;`, never a `mod` of their own.
 mod business_kit;
+mod card_ops_desk_kit;
+mod card_ops_kit;
 mod loans_kit;
 mod support;
 
