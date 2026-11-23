@@ -19,6 +19,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { viewerToken } from './beta-front.mjs';
 import { betaPaths, invitedLoop, serveMailbox } from './beta-host.mjs';
@@ -47,7 +48,6 @@ const check = (ok, what) => {
   mark(`${ok ? 'ok' : 'FAIL'} ${what}`);
   if (!ok) failures.push(what);
 };
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const ctx = await gates.makeContext({ log: () => {} });
 const data = (res) => res.json?.result?.data;
 

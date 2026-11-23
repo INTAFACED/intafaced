@@ -100,7 +100,7 @@ export function recordInvited(file, token, now = new Date()) {
   if (!TOKEN_RE.test(String(token ?? ''))) return false;
   const doc = readJson(file, null) ?? { kind: 'intafaced-beta-invited', label: 'TEST beta: tokens of invited viewers', tokens: {} };
   if (doc.tokens?.[token]) return false;
-  doc.tokens = { ...(doc.tokens ?? {}), [token]: now.toISOString() };
+  doc.tokens = { ...doc.tokens, [token]: now.toISOString() };
   writePrivate(file, doc);
   return true;
 }
