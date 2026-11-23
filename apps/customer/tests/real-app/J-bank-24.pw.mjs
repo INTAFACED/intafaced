@@ -189,8 +189,8 @@ test(`${J} #1 creates a token and approves it with SCA: the token's scopes; the 
   // A name of its own each attempt: a worker restart signs in as the same person, whose earlier key keeps its name.
   const keyName = `TEST bank books ${Date.now().toString(36)}`;
   await page.getByLabel('Key name').fill(keyName);
-  await page.getByRole('checkbox', { name: /^bank:read\b/ }).check();
-  await page.getByRole('checkbox', { name: /^bank:write\b/ }).check();
+  await page.locator('input[name="scope"][value="bank:read"]').check();
+  await page.locator('input[name="scope"][value="bank:write"]').check();
   // The strong customer authentication: the passkey (the virtual authenticator) approves this create, once.
   await page.getByRole('button', { name: 'Create with a passkey', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Your new key' })).toBeVisible();
