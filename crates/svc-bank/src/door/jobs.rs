@@ -48,8 +48,8 @@ pub const JOB_DOORS: [JobDoor; 27] = [
     job("/internal/jobs/payout-sim/failed", Slice::PartnerAccount),
     job("/internal/jobs/payout-sim/cancelled", Slice::PartnerAccount),
     job("/internal/jobs/payout-sim/returned", Slice::PartnerAccount),
-    job("/internal/jobs/bill-pay/run-due", Slice::Bills),
-    job("/internal/jobs/bill-pay/returned", Slice::Bills),
+    job("/internal/jobs/bill-pay/run-due", Slice::BusinessSpend),
+    job("/internal/jobs/bill-pay/returned", Slice::BusinessSpend),
     job("/internal/jobs/payin-sim/paid", Slice::Ramps),
     job("/internal/jobs/payin-sim/returned", Slice::Ramps),
     job("/internal/jobs/card-sim/shipment", Slice::Cards),
@@ -77,7 +77,8 @@ fn unauthenticated() -> Response {
     reply(401, "service credentials required", "bank.unauthenticated")
 }
 
-fn not_ported(slice: Slice) -> Response {
+/// A job door whose slice's work is not ported.
+pub fn not_ported(slice: Slice) -> Response {
     Response {
         status: 500,
         body: Json::obj([(
@@ -363,6 +364,13 @@ pub fn answer(door: &BankDoor, req: &Request<'_>) -> Option<Response> {
         return Some(unauthenticated());
     };
     if let Some(j) = job {
+        if j.slice == Slice::PartnerAccount {
+            return Some(crate::partner_account::job(
+                &door.partner_account(),
+                path,
+                &body,
+            ));
+        }
         if j.path == RUN_DUE_TRANSFERS {
             return Some(run_due_transfers(door));
         }
@@ -389,13 +397,31 @@ pub fn answer(door: &BankDoor, req: &Request<'_>) -> Option<Response> {
                 .unwrap_or_else(|| not_ported(Slice::Automations)),
             );
         }
+        if j.slice == Slice::Bills {
+            return Some(
+                door.bills_deps(door.now(), |d| crate::bills::router::job(d, j.path, &body))
+                    .unwrap_or_else(|| not_ported(Slice::Bills)),
+            );
+        }
+        if j.slice == Slice::BusinessSpend {
+            return Some(
+                door.transfers_deps(|d| {
+                    let d = crate::transfers::Deps {
+                        now: door.now(),
+                        ..*d
+                    };
+                    crate::business_spend::router::job(&d, j.path, &body)
+                })
+                .unwrap_or_else(|| not_ported(Slice::BusinessSpend)),
+            );
+        }
         return Some(not_ported(j.slice));
     }
     if caller != "svc-ops" {
         return Some(reply(403, "caller not allowed", "bank.caller_forbidden"));
     }
     if path == PARTNER_RESERVES {
-        return Some(not_ported(Slice::CardOps));
+        return Some(crate::card_ops_desk::reserves::door(door));
     }
     Some(
         match restore_watermark::read(door.store(), door.now(), BANK_SCHEMA) {
@@ -430,32 +456,5 @@ mod tests {
         paths.sort_unstable();
         paths.dedup();
         assert_eq!(paths.len(), JOB_DOORS.len());
-    }
-
-    /// While the TypeScript service runs, the table is its `index.ts`'s job routes, in its order.
-    #[test]
-    fn the_table_is_the_job_routes_index_ts_registers() {
-        let index = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../services/svc-bank/src/index.ts");
-        let Ok(text) = std::fs::read_to_string(index) else {
-            return;
-        };
-        let mut theirs = Vec::new();
-        let mut rest = text.as_str();
-        while let Some(at) = rest.find("'/internal/") {
-            let after = &rest[at + 1..];
-            let end = after.find('\'').unwrap_or(after.len());
-            theirs.push(&after[..end]);
-            rest = &after[end..];
-        }
-        let jobs: Vec<&str> = theirs
-            .iter()
-            .copied()
-            .filter(|p| p.starts_with("/internal/jobs/"))
-            .collect();
-        let ours: Vec<&str> = JOB_DOORS.iter().map(|d| d.path).collect();
-        assert_eq!(ours, jobs);
-        assert!(theirs.contains(&RESTORE_WATERMARK));
-        assert!(theirs.contains(&PARTNER_RESERVES));
     }
 }

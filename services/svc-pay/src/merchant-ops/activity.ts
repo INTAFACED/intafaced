@@ -4,24 +4,8 @@ import { MerchantOpsError } from './errors.js';
 import { iso, money } from './money.js';
 import { decodeCursor, encodeCursor, requireLimit, toPage } from './pagination.js';
 import { assertPermission, type MerchantCaller } from './roles.js';
+import { ACTIVITY_OBJECT_TYPES } from '@intafaced/contracts/pay-merchant-ops-procedures';
 
-/**
- * Merchant activity (portal /pay/activity).
- *
- * A read of rows the merchant already owns: payment events, team changes, KYB
- * transitions, dispute evidence and responses, export jobs, payout approvals,
- * webhook endpoints and deliveries, and each payer detail a teammate unmasked
- * (who, which field; the reason stays in `payment.unmaskReads`). `pay.control_audit` is not a source. That
- * table is the founder control room (captured-over-cap, destination reads,
- * tier and pricing edits).
- *
- * Destinations are masked with the same function the approval view uses. Free
- * text (KYB reasons, dispute notes, webhook payloads, signing secrets) is not
- * selected. Detail keys are an allowlist applied again in process, so a new
- * column cannot leak by being named in SQL alone.
- */
-
-export const ACTIVITY_OBJECT_TYPES = ['payment', 'team', 'kyb', 'dispute', 'export', 'approval', 'webhook'] as const;
 export type ActivityObjectType = (typeof ACTIVITY_OBJECT_TYPES)[number];
 
 const DETAIL_KEYS = new Set([

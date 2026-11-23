@@ -32,7 +32,6 @@ import { router, publicProcedure, protectedProcedure, scopedProcedure, servicePr
 import { staffTestStatusSchema } from '@intafaced/contracts/identity-staff';
 import { accountControlResultSchema } from '@intafaced/contracts/account-controls';
 import { rankPerksSchema, rankStateSchema } from '@intafaced/contracts/identity';
-import { signInChallengeProofSchema } from '@intafaced/contracts/identity-signin-challenge';
 import {
   callFounderControl,
   identityFreezeInputSchema,
@@ -182,6 +181,8 @@ import {
   IDENTITY_AUTH_SUB_ACCOUNT_SESSION,
   IDENTITY_AUTH_STEP_UP_OPTIONS,
   IDENTITY_AUTH_LOGOUT_ALL,
+  IDENTITY_AUTH_LOGIN,
+  IDENTITY_AUTH_REGISTER,
 } from '@intafaced/contracts/identity-auth-procedures';
 import {
   IDENTITY_WAITLIST_WAVES_LIST,
@@ -194,6 +195,7 @@ import {
   IDENTITY_KYC_SELFIE_DECIDE,
   IDENTITY_KYC_PENDING,
   IDENTITY_KYC_REJECT,
+  IDENTITY_KYC_APPROVE,
   IDENTITY_KYC_PROOF_OF_ADDRESS_LIST_FOR,
   IDENTITY_KYC_CAPABILITIES_GET_FOR,
   IDENTITY_KYC_CAPABILITIES_SET,
@@ -951,6 +953,11 @@ export function createIdentityRouter(
      */
     registrationOpen?: boolean;
     /**
+     * Invited addresses (lowercase) that may still sign up while `registrationOpen` is false. Ignored while open;
+     * unset or empty leaves a closed registration closed to everyone.
+     */
+    registrationAllowlist?: ReadonlySet<string>;
+    /**
      * The code-less `auth.register` door, kept for the dev and test stacks' own tools (TEST market accounts,
      * fixtures). True only when APP_ENV is exactly dev or test (index.ts). Off, every call refuses
      * `identity.register_replaced`: people sign up through `auth.signUpStart` and the mailed code.
@@ -1130,8 +1137,16 @@ export function createIdentityRouter(
   const waitlist = options.waitlist;
   const handleLookupLimiter = options.handleLookupLimiter ?? new HandleLookupLimiter();
 
-  /** The owner's registration switch. Unset refuses as unset; closed says so with its own code. */
-  function assertRegistrationOpen(): void {
+  const registrationAllowlist = options.registrationAllowlist?.size ? options.registrationAllowlist : undefined;
+  const registrationClosed = () =>
+    new TRPCError({ code: 'FORBIDDEN', message: 'Registration is not open yet', cause: { code: 'identity.registration_closed' } });
+
+  /**
+   * The owner's registration switch. Unset refuses as unset; closed says so with its own code. Closed with an
+   * invited list lets a listed `email` through; a door that has no address yet (`email` omitted) passes, and the
+   * address is checked where it is known (signUpConfirm checks the draft's own address before making the account).
+   */
+  function assertRegistrationOpen(email?: string | null): void {
     if (options.registrationOpen === undefined) {
       throw new TRPCError({
         code: 'PRECONDITION_FAILED',
@@ -1139,9 +1154,14 @@ export function createIdentityRouter(
         cause: { code: 'identity.registration_open_unset' },
       });
     }
-    if (!options.registrationOpen) {
-      throw new TRPCError({ code: 'FORBIDDEN', message: 'Registration is not open yet', cause: { code: 'identity.registration_closed' } });
-    }
+    if (options.registrationOpen) return;
+    if (!registrationAllowlist) throw registrationClosed();
+    if (email !== undefined) assertInvitedEmail(email);
+  }
+
+  /** Closed with an invited list: only a listed address may make an account. */
+  function assertInvitedEmail(email: string | null): void {
+    if (!email || !registrationAllowlist?.has(email.trim().toLowerCase())) throw registrationClosed();
   }
 
   function requireReferral(): ReferralService {
@@ -1471,27 +1491,10 @@ export function createIdentityRouter(
     }),
 
     auth: router({
-      register: publicProcedure
-        .input(
-          z.object({
-            handle: z.string().regex(/^[a-zA-Z0-9_]{3,32}$/, 'handle must be 3-32 letters, numbers or underscores'),
-            email: z.string().email(),
-            password: z.string().min(12).max(200),
-            region: z.string().length(2).optional(),
-            /** A native or API client's own device key, trusted with the new account (a browser's comes in `ifc_dk`). */
-            deviceKey: z.string().min(16).max(128).optional(),
-            /**
-             * Optional referrer at signup. Same law as `affiliates.attribute`
-             * (self/cycle/depth/unknown refuse loud). Blank = no edge.
-             * Account is created first; a failed attribute still leaves the user
-             * (they can fix referrer via attribute later if product allows once).
-             */
-            referrerId: z.string().guid().optional(),
-          }),
-        )
-        .output(sessionOutput)
-        .mutation(async ({ input, ctx }) => {
-          assertRegistrationOpen();
+      register: mountRecord(
+        IDENTITY_AUTH_REGISTER,
+        async ({ input, ctx }) => {
+          assertRegistrationOpen(input.email);
           if (options.directRegister !== true) {
             throw new TRPCError({
               code: 'FORBIDDEN',
@@ -1513,7 +1516,9 @@ export function createIdentityRouter(
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /**
        * What the sign-up page tells a person before they type a password (J-identity-01 #2): whether the owner's
@@ -1537,7 +1542,7 @@ export function createIdentityRouter(
       signUpStart: mountRecord(
         IDENTITY_AUTH_SIGN_UP_START,
         async ({ input }) => {
-          assertRegistrationOpen();
+          assertRegistrationOpen(input.email ?? null);
           try {
             if (input.channel === 'phone') {
               throw new SignUpError(
@@ -1581,7 +1586,14 @@ export function createIdentityRouter(
         .mutation(async ({ input, ctx }) => {
           assertRegistrationOpen();
           try {
-            const done = await auth.signUpConfirm({ ...input, ip: requestIpAls.getStore(), deviceKey: presentedDeviceKey(ctx, undefined) });
+            const done = await auth.signUpConfirm({
+              ...input,
+              ip: requestIpAls.getStore(),
+              deviceKey: presentedDeviceKey(ctx, undefined),
+              // Closed with an invited list: a code asked for while registration was open makes no account for an
+              // address not on the list. Checked inside the confirm, so the refusal makes nothing and spends nothing.
+              ...(options.registrationOpen === false ? { admit: (email: string) => assertInvitedEmail(email) } : {}),
+            });
             if (done.referrerId) {
               // Attribution never blocks the account (it is already made); a refusal, or no referral tree, is logged.
               try {
@@ -1661,19 +1673,9 @@ export function createIdentityRouter(
         kycProfileRefusal,
       ),
 
-      login: publicProcedure
-        .input(
-          z.object({
-            identifier: z.string().min(1),
-            password: z.string().min(1),
-            totpCode: z.string().optional(),
-            deviceKey: z.string().min(16).max(128).optional(),
-            /** A solved `auth.challenge`, needed once this address reached the owner's count of failed sign-ins. */
-            challenge: signInChallengeProofSchema.optional(),
-          }),
-        )
-        .output(sessionOutput)
-        .mutation(async ({ input, ctx }) => {
+      login: mountRecord(
+        IDENTITY_AUTH_LOGIN,
+        async ({ input, ctx }) => {
           const address = requestIpAls.getStore();
           let admission: SignInAdmission | undefined;
           let wrongPassword = false;
@@ -1693,7 +1695,9 @@ export function createIdentityRouter(
               console.error('[svc-identity] sign-in challenge count not settled', err instanceof Error ? err.message : err);
             });
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /**
        * The second step by passkey (I-signin-sessions-10). `login` answered `auth.mfa_required` with a passkey challenge
@@ -2578,19 +2582,9 @@ export function createIdentityRouter(
        * (`confirmOperatorId` mill field → distinct `confirmActorId`) so one
        * operator cannot self-grant `institutional`.
        */
-      approve: scopedProcedure('admin:compliance')
-        .input(
-          z.object({
-            recordId: z.string().guid(),
-            /** When the verification lapses. Null means it does not. */
-            expiresAt: z.string().datetime({ offset: true }).nullish(),
-            confirmOperatorId: z.string().max(128).nullish(),
-            approvalId: z.string().max(128).nullish(),
-            operationId: z.string().max(128).nullish(),
-          }),
-        )
-        .output(kycRecordOutput)
-        .mutation(async ({ ctx, input }) => {
+      approve: mountRecord(
+        IDENTITY_KYC_APPROVE,
+        async ({ ctx, input }) => {
           try {
             requireMfa(ctx.principal);
             refuseAgentKycReview(ctx);
@@ -2612,7 +2606,9 @@ export function createIdentityRouter(
           } catch (err) {
             throw toTrpcError(err);
           }
-        }),
+        },
+        kycProfileRefusal,
+      ),
 
       /**
        * The other half of a review. Grants nothing. Dual-control matches approve. A reject names a code from the owner's

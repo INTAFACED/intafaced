@@ -261,8 +261,8 @@ test(`${J} #3 reads holdings change over a period: each coin then and now, what 
     const row = card.locator(`tr[data-change-asset="${asset}"]`);
     // The account did not exist 7 days ago: nothing held then, so everything held now is what rose.
     await expect(row).toHaveAttribute('data-start', '0');
-    expect(toUnits(await row.getAttribute('data-end'))).toBe(now[asset]);
-    expect(toUnits(await row.getAttribute('data-change'))).toBe(now[asset]);
+    await expect.poll(async () => toUnits(await row.getAttribute('data-end'))).toBe(now[asset]);
+    await expect.poll(async () => toUnits(await row.getAttribute('data-change'))).toBe(now[asset]);
     await expect(row.locator('td').nth(0)).toHaveText('No holding yet');
     await expect(row.locator('td').nth(2)).toHaveText(new RegExp(`^\\+[\\d,.]+ ${asset}$`));
   }

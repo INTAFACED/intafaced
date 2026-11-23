@@ -32,14 +32,14 @@ import { answerFromCallers } from './answer.mjs';
 import { brandAssetIds, unbranded } from './asset-id.mjs';
 import { chainOf, procedures } from './router.mjs';
 import { asWritten, closureOf, contractsExports, declaresSame, usedOutside } from './closure.mjs';
-import { doorOf } from './door.mjs';
+import { accessText, doorOf } from './door.mjs';
 import { founderPartsFor } from './founder-guard.mjs';
 import { partsFor } from './guard-check.mjs';
 import { fanBranch, fanIn } from './fan.mjs';
 import { wrapperBranch, wrapperIn } from './wrapper.mjs';
 import { findSites } from './sites.mjs';
 import { BUSINESS_FORMS, businessCall } from './pay-business.mjs';
-import { toolCall, toolChecked, toolFormsIn, toolInput, toolSchema, toolShape } from './tool-forms.mjs';
+import { checkedTool, toolCall, toolChecked, toolFormsIn, toolInput, toolItem, toolSchema, toolShape } from './tool-forms.mjs';
 
 const REPO = resolve(new URL('../../..', import.meta.url).pathname);
 const CONTRACTS = join(REPO, 'packages/contracts/src');
@@ -162,6 +162,8 @@ function plan(opts) {
     // A customer query or mutate whose schema only checks the answer (no transform) keeps that schema: the call goes to its
     // record through `callAs`, which holds the answer to it and returns what it parses (apps/customer/src/shared/api.ts).
     if (checks.length && checkedCall(s, arg, checks)) s.checked = text(load(s.file), arg);
+    // A portal tool's caller keeps its checking schema the same way, in the tool's checked form (tool-forms.mjs).
+    else if (checks.length && checked && checkedToolCall(s, checks)) s.checked = text(load(s.file), checked);
     else if (checks.length) {
       hand.push({
         site: s,
@@ -173,13 +175,15 @@ function plan(opts) {
     byPath.get(s.path).push(s);
   }
   const readers = opts.door ? [] : refusalReaders(serviceDir);
-  const door = opts.door ? doorOf(join(REPO, opts.door)) : undefined;
+  const door = opts.door ? doorOf(join(REPO, opts.door), opts.module) : undefined;
   const exportsIndex = contractsExports(REPO);
   const records = [];
   const existing = [];
   for (const [path, list] of byPath) {
     if (opts.skip?.[path]) {
-      for (const s of list) hand.push({ site: s, why: `its record can't be exported as the router writes it: ${opts.skip[path]}` });
+      const skipped = opts.skip[path];
+      const why = typeof skipped === 'object' ? skipped.why : `its record can't be exported as the router writes it: ${skipped}`;
+      for (const s of list) hand.push({ site: s, why });
       continue;
     }
     const proc = procs.get(path);
@@ -207,12 +211,13 @@ function plan(opts) {
     const chain = chainOf(proc);
     if (!chain.output) {
       // No answer schema in the router: the record takes its callers' own, or the reason it can't names the caller.
-      const taken = answerFromCallers(REPO, list, { schemaOf: schemaArgOf, checksOf: answerChecks });
+      const taken = answerFromCallers(REPO, list, { schemaOf: schemaArgOf, checksOf: answerChecks, itemOf: listItemOf });
       const at = chain.problems.findIndex((x) => x.startsWith('no .output()'));
       if (taken.output) {
         chain.problems.splice(at, 1);
         chain.output = taken.output.node;
         chain.outputP = taken.output.p;
+        chain.outputPage = Boolean(taken.output.page);
       } else chain.problems[at] = `no .output(), and the callers' own can't stand for it: ${taken.why}`;
     }
     let reader = door ? undefined : readerFor(readers, proc.p.file, chain.guard);
@@ -223,8 +228,9 @@ function plan(opts) {
       chain.problems = chain.problems.filter((x) => !/^guard |^scopedProcedure /.test(x));
       if (!row) chain.problems.push(`${opts.door} serves no call ${path}`);
       else if (row.kind !== chain.kind) chain.problems.push(`${opts.door} serves ${path} as a ${row.kind}, the router as a ${chain.kind}`);
+      else if (!row.access) chain.problems.push(`${opts.door} serves ${path} to ${row.why}`);
       else {
-        chain.guard = { text: row.scope ? `{ caller: 'scope', scope: '${row.scope}', module: '${opts.module}' }` : "{ caller: 'public' }" };
+        chain.guard = { text: accessText(row.access) };
         try {
           reader = { refusals: door.refusals(path) };
         } catch (e) {
@@ -280,7 +286,8 @@ function recordOfPath(file, name, path) {
 /** The input argument of a site, and whether it is no input at all (`undefined`, `{}`, or absent). */
 const INPUT_AT = { founderCall: 4, founderEdgeCall: 4, payCall: 3, useBankRead: 1, payQuery: 1, payMutate: 1 };
 const inputArg = (s) =>
-  s.shape === 'desk-read'
+  s.fan?.input ??
+  (s.shape === 'desk-read'
     ? s.inputProp?.value
     : s.shape === 'ops-entry'
       ? s.dispatchers[0].arguments[4]
@@ -288,7 +295,7 @@ const inputArg = (s) =>
         ? undefined // the spec's `input` builds it from the form; the record's input type holds it at the typecheck
         : toolShape(s)
           ? toolInput(s)
-          : s.node.arguments[INPUT_AT[s.shape] ?? 2];
+          : s.node.arguments[INPUT_AT[s.shape] ?? 2]);
 function noInput(s) {
   // A wrapper sends the input it sent before: its record only names the call.
   if (s.shape === 'wrapper') return true;
@@ -305,14 +312,21 @@ function noInput(s) {
 function recordFile(opts, path, depth = 1) {
   if (opts.file && depth === 1) return join(CONTRACTS, `${opts.file.replace(/\.ts$/, '')}.ts`);
   const segs = path.split('.');
-  const seg = depth > 1 && segs.length <= depth ? `${kebab(segs[0])}-2` : segs.slice(0, depth).map(kebab).join('-');
+  // A call with no sub-area left at this depth overflows into its area's numbered file: `loans-2`, then `loans-3`.
+  const seg =
+    depth > 1 && segs.length <= depth ? `${kebab(segs[0])}-${depth - segs.length + 2}` : segs.slice(0, depth).map(kebab).join('-');
   const primary = join(CONTRACTS, `${opts.module}-${seg}-procedures.ts`);
   if (!existsSync(primary) || readFileSync(primary, 'utf8').includes(MARK)) return primary;
   return join(CONTRACTS, `${opts.module}-${seg}-records.ts`);
 }
 
-/** A record's file: its area's, or, once a helper name it needs is taken there, its own sub-area's (`fileDepth` 2). */
+/**
+ * A record's file: its area's, or, once a helper name it needs is taken there, its own sub-area's (`fileDepth` 2), and
+ * once taken there too, the next one (`fileDepth` 3): svc-bank's loans writes need a third `amountString`.
+ */
 const fileOf = (opts, r) => recordFile(opts, r.path, r.fileDepth ?? 1);
+const MAX_FILE_DEPTH = 3;
+const deeper = (r) => (r.fileDepth ?? 1) < MAX_FILE_DEPTH;
 
 /**
  * What each top-level name of a file (its text) is bound to: `{ decl: true }` for a declaration, `{ from, imported }`
@@ -353,7 +367,33 @@ function takenIn(file, src, decls, imports) {
   return undefined;
 }
 
+/** The contracts files a contracts file's text imports (`./x.js`), as paths. */
+function importsOf(src) {
+  const out = new Set();
+  for (const m of (src ?? '').matchAll(/^import\b[^;]*?from '\.\/([\w-]+)\.js';/gms)) out.add(join(CONTRACTS, `${m[1]}.ts`));
+  return out;
+}
+
+/**
+ * Whether contracts file `from` reaches `to` through its imports (`textOf` reads a file as this run has written it) and
+ * the `[importer, imported]` edges a group is about to add.
+ */
+function reaches(from, to, textOf, added = []) {
+  const seen = new Set();
+  const next = [from];
+  while (next.length) {
+    const f = next.pop();
+    if (f === to) return true;
+    if (seen.has(f)) continue;
+    seen.add(f);
+    next.push(...importsOf(textOf(f)), ...added.filter(([a]) => a === f).map(([, b]) => b));
+  }
+  return false;
+}
+
 function build(opts, planned) {
+  // The router is read, never edited: mid-port (callers only), or a door's, read from the commit before its deletion.
+  const routerKept = Boolean(opts.callersOnly || opts.door);
   const changes = new Changes();
   const created = new Map();
   const groups = new Map();
@@ -393,13 +433,14 @@ function build(opts, planned) {
     // message, some without; svc-pay's registries and deposit freezes each their own `networkIdSchema`) cannot land in
     // one file. Keep the records whose helpers agree; the rest go to their own sub-area's file in this same run
     // (`founderAdmin.depositFreezes.*` to pay-founder-admin-deposit-freezes-procedures.ts), where the name is free. A
-    // record already in its sub-area's file that still clashes stays by name, named.
-    // Mid-port the router is never edited, so two of its files declaring one helper the same way (svc-agents' `idInput`
-    // in own/routes.ts and own/automation-routes.ts) give contracts one copy; elsewhere each declaration is its file's.
+    // record that still clashes goes one file deeper (`loans-3`), and past the last stays by name, named.
+    // Mid-port, and for a door (its router read from the commit before its deletion), the router is never edited, so two
+    // of its files declaring one helper the same way (svc-agents' `idInput` in own/routes.ts and own/automation-routes.ts)
+    // give contracts one copy; elsewhere each declaration is its file's.
     const keyOfMoved = (m) =>
       !m.q
         ? `inline#${m.name}`
-        : opts.callersOnly && serviceFiles([m.q.file]).length
+        : routerKept && serviceFiles([m.q.file]).length
           ? `as written#${m.name}#${asWritten(m.text)}`
           : `${m.q.file}#${m.name}`;
     const clashing = (moved, seen = new Map()) =>
@@ -420,7 +461,7 @@ function build(opts, planned) {
         const trial = new Map(seen);
         const bad = clashing(c.moved, trial);
         if (bad && keep.length) {
-          if (!r.fileDepth) {
+          if (deeper(r)) {
             moved.push(r);
             continue;
           }
@@ -437,7 +478,7 @@ function build(opts, planned) {
         records: planned.records
           .filter((r) => keep.includes(r) || moved.includes(r) || fileOf(opts, r) !== file)
           .map((r) => {
-            if (moved.includes(r)) r.fileDepth = 2;
+            if (moved.includes(r)) r.fileDepth = (r.fileDepth ?? 1) + 1;
             return r;
           }),
       });
@@ -456,9 +497,9 @@ function build(opts, planned) {
       );
     const taken = schemaNames.get(shared);
     const keyOf = keyOfMoved;
-    // Mid-port, an earlier run already copied the router's helper into the shared file: the router still declares it, so
-    // the same text there is that copy. The record imports it; declaring it again beside the record would clash.
-    if (opts.callersOnly)
+    // Mid-port or for a door, an earlier run already copied the router's helper into the shared file: the router still
+    // declares it, so the same text there is that copy. The record imports it; declaring it again beside it would clash.
+    if (routerKept)
       for (const m of closure.moved) {
         const k = keyOf(m);
         if (!m.q || movedTo.has(k) || taken.get(m.name) !== 'existing' || !declaresSame(shared, m.name, m.text)) continue;
@@ -499,7 +540,7 @@ function build(opts, planned) {
         takenIn(file, textOf(file), [], [...fromContracts, ...fromHomes(shared)]));
     const fileTaken = sharedTaken && takenIn(file, textOf(file), names, [...fromContracts, ...fromHomes(file)]);
     if (fileTaken) {
-      // Neither file has the name free: the group goes to its sub-area's file, or, already there, stays by name.
+      // Neither file has the name free: the group goes one file deeper, or, past the last, stays by name.
       // Only the records that need the name move: the rest of the group stays in its file.
       for (const m of reused) movedTo.delete(keyOf(m));
       const needs = recs.filter((r) => {
@@ -510,7 +551,7 @@ function build(opts, planned) {
         return c.moved.some((m) => m.name === fileTaken) || c.fromContracts.has(fileTaken);
       });
       const offenders = needs.length ? needs : recs;
-      const stay = offenders.filter((r) => r.fileDepth);
+      const stay = offenders.filter((r) => !deeper(r));
       for (const r of stay)
         for (const site of r.sites)
           planned.hand.push({ site, why: `helper ${fileTaken} clashes with another ${fileTaken} in this record file and its sub-area's` });
@@ -519,17 +560,53 @@ function build(opts, planned) {
         records: planned.records
           .filter((r) => !stay.includes(r))
           .map((r) => {
-            if (offenders.includes(r)) r.fileDepth = 2;
+            if (offenders.includes(r) && !stay.includes(r)) r.fileDepth = (r.fileDepth ?? 1) + 1;
             return r;
           }),
       });
     }
-    const target = sharedTaken ? file : shared;
+    // Each import the group adds between two contracts files. One back to a file that already reaches the importer is a
+    // cycle, and a schema read at the top of either file is then read before it is declared (svc-bank's shared file
+    // importing `signed` from bank-ops-procedures, which imports `figures` from it).
+    const edgesFor = (target) => {
+      const homeOf = (m) => (fresh.includes(m) ? target : (movedTo.get(keyOf(m)) ?? target));
+      return [
+        ...[...closure.fromContracts.values()].map((c) => [file, c.file]),
+        ...closure.moved.map((m) => [file, homeOf(m)]),
+        ...(target === shared && fresh.length
+          ? [
+              ...[...closure.fromContracts.values()].map((c) => [shared, c.file]),
+              ...closure.moved.filter((m) => !fresh.includes(m)).map((m) => [shared, homeOf(m)]),
+            ]
+          : []),
+      ].filter(([a, b]) => a !== b && !importsOf(textOf(a)).has(b));
+    };
+    const cycleIn = (edges) => edges.find(([a, b]) => reaches(b, a, textOf, edges));
+    // A group whose new helpers would close a cycle through the shared file (svc-pay's deposit-freeze inputs read the
+    // `userIdSchema` an earlier run left in pay-founder-admin-procedures) keeps them beside its records instead, when
+    // their names are free there; only a cycle that way too leaves the group by name, named.
+    let target = sharedTaken ? file : shared;
+    let cycle = cycleIn(edgesFor(target));
+    if (cycle && target === shared && !takenIn(file, textOf(file), names, [...fromContracts, ...fromHomes(file)])) {
+      const beside = cycleIn(edgesFor(file));
+      if (!beside) [target, cycle] = [file, undefined];
+    }
+    if (cycle) {
+      const [a, b] = cycle.map((f) => basename(f));
+      for (const r of recs)
+        for (const site of r.sites)
+          planned.hand.push({ site, why: `its record would import ${b} into ${a}, which ${b} already imports: an import cycle` });
+      return build(opts, { ...planned, records: planned.records.filter((r) => !recs.includes(r)) });
+    }
     for (const m of fresh) {
       movedTo.set(keyOf(m), target);
       if (target === shared) taken.set(m.name, keyOf(m));
     }
-    const placed = closure.moved.map((m) => ({ name: m.name, file: movedTo.get(keyOf(m)) }));
+    // A type is imported as one (`import { type X }`): contracts builds with verbatimModuleSyntax, which refuses a bare one.
+    const placed = closure.moved.map((m) => ({
+      name: m.binding?.kind === 'type' ? `type ${m.name}` : m.name,
+      file: movedTo.get(keyOf(m)),
+    }));
     created.set(file, writeRecords(opts, file, recs, { ...closure, moved: target === file ? fresh : [] }, placed, created.get(file)));
     if (target === shared && fresh.length) {
       // A helper this group sends to the shared file may read one an earlier group kept beside its own record (a name
@@ -537,15 +614,15 @@ function build(opts, planned) {
       const fromRecords = new Map();
       for (const m of closure.moved) {
         const home = movedTo.get(keyOf(m));
-        if (home && home !== shared && !fresh.includes(m)) fromRecords.set(m.name, home);
+        if (home && home !== shared && !fresh.includes(m)) fromRecords.set(m.binding?.kind === 'type' ? `type ${m.name}` : m.name, home);
       }
       created.set(shared, writeSchemas(opts, shared, { ...closure, moved: fresh, fromRecords }, created.get(shared)));
     }
     // Moved declarations: their old home imports them from contracts.
     for (const m of [...fresh, ...reused]) {
       if (m.inline || !m.q) continue;
-      // Mid-port, the service's own declaration stays where it is: contracts gets a copy, and the router reads its own.
-      if (opts.callersOnly && serviceFiles([m.q.file]).length) continue;
+      // Mid-port or for a door, the service's own declaration stays where it is: contracts gets a copy.
+      if (routerKept && serviceFiles([m.q.file]).length) continue;
       const b = m.binding;
       const stmt = b.statement;
       if (b.kind === 'var' && b.declaration.declarations.length > 1) {
@@ -625,6 +702,13 @@ function tables(changes, planned, done) {
   }
 }
 
+/** A portal list caller's row schema (its answer is a page of it), or undefined. */
+export const listItemOf = (s) => (toolShape(s) ? toolItem(s) : undefined);
+/** A record's answer as written: its schema, or for a portal list, the page of the row schema its callers parsed. */
+const outputText = (r, schema) => (r.chain.outputPage ? pageOf(schema) : schema);
+/** The page a list answers with, as the portal's tool parsed it (`page` in apps/customer/src/features/pay/portal/schemas.ts). */
+export const pageOf = (item) => `z.object({ items: z.array(${item}), nextCursor: z.string().nullable() })`;
+
 /** The schema a caller parses the answer with, or undefined. */
 export function schemaArgOf(s) {
   // A wrapper keeps its own schema, read through `callAs`.
@@ -667,6 +751,12 @@ export function checkedCall(s, arg, checks) {
   );
 }
 
+/**
+ * Whether a portal tool site with answer checks moves to its tool's checked form: only zod checks it writes itself
+ * (`.refine()`); a schema built by its own function, or one that changes the answer, stays for its own move.
+ */
+export const checkedToolCall = (s, checks) => checkedTool(s) && checks.every((c) => /^\.(refine|superRefine|check)\(\)/.test(c));
+
 export function answerChecks(p, node, seen = new Set()) {
   const found = [];
   const visit = (q, n) => {
@@ -698,11 +788,17 @@ export function answerChecks(p, node, seen = new Set()) {
     });
   };
   // A schema built by the caller's own function (`verificationStatus(userId, limit)`) checks against what it captures:
-  // whatever its body says, its answer check is the caller's, so the call stays for that check to move to accept.
+  // whatever its body says, its answer check is the caller's, so the call stays for that check to move to accept. A
+  // builder imported from contracts (`payPageSchema(row)`) is the one the routers use, not the caller's: its arguments are
+  // read like any schema.
   let top = node;
   while (top?.type === 'TSAsExpression' || top?.type === 'TSSatisfiesExpression' || top?.type === 'ParenthesizedExpression')
     top = top.expression;
-  if (top?.type === 'CallExpression' && top.callee.type === 'Identifier')
+  if (
+    top?.type === 'CallExpression' &&
+    top.callee.type === 'Identifier' &&
+    !/^@intafaced\/contracts(\/|$)/.test(bindingOf(p, top.callee, top.callee.name).from ?? '')
+  )
     found.push(`${top.callee.name}() builds the schema (${relative(REPO, p.file)}:${p.src.slice(0, top.start).split('\n').length})`);
   visit(p, node);
   return [...new Set(found)];
@@ -850,7 +946,7 @@ function writeRecords(opts, file, recs, closure, placed, pending) {
       `  access: ${r.chain.guard.text},`,
       `  refusals: ${r.reader.refusals ? JSON.stringify(r.reader.refusals).replace(/"/g, "'").replace(/','/g, "', '").replace(/':'/g, "': '") : '{}'},`,
       `  input: ${r.chain.input ? exactInput(p, r.chain.input, lines, r.path) : 'NO_INPUT'},`,
-      `  output: ${text(r.chain.outputP ?? p, r.chain.output)},`,
+      `  output: ${outputText(r, text(r.chain.outputP ?? p, r.chain.output))},`,
       `  samples: ${r.chain.input ? "[{ verdict: 'accept', input: {} }, { verdict: 'refuse', input: 42 }]" : "[{ verdict: 'accept' }]"},`,
       '});',
       '',
@@ -1428,6 +1524,11 @@ function report(opts) {
     records: result.done.map((r) => r.name),
     existing: planned.existing.map((e) => e.name),
     rewritten: new Set([...result.done, ...planned.existing].flatMap((r) => r.sites.map((s) => s.node))).size,
+    // Each moved call's path and the files its callers are in (run.mjs leaves a path whose caller then fails the typecheck).
+    moved: [...result.done, ...planned.existing].map((r) => ({
+      path: r.path,
+      files: [...new Set(r.sites.map((s) => relative(REPO, s.file)))],
+    })),
     hand: planned.hand.map((h) => ({
       at: `${relative(REPO, h.site.file)}:${h.site.line}`,
       call: `${h.site.module ?? '?'} ${h.site.path ?? '?'}`,

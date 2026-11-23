@@ -11,6 +11,7 @@ use service_kit::approvals::{
     ACTION_APPROVAL_CONSUME_FAILED, ConsumeError, ConsumeInput, Consumed, IdentityClient, Replay,
 };
 use service_kit::http::Fetch;
+use service_kit::s2s::{Mode, ServiceSigner};
 use service_kit::schema::js_trim;
 
 /// `ACTION_APPROVAL_UNWIRED`.
@@ -49,18 +50,19 @@ impl Approvals for Unwired {
     }
 }
 
-/// `createIdentityApprovalClient(IDENTITY_URL, INTERNAL_SERVICE_SECRET)` for svc-ledger.
+/// `createIdentityApprovalClient(IDENTITY_URL, INTERNAL_SERVICE_SECRET, s2sKey)` for svc-ledger: signed with
+/// svc-ledger's own key when S2S gives it one, else with the shared secret.
 pub struct Identity(IdentityClient);
 
 impl Identity {
-    pub fn new(base_url: &str, secret: &str, fetch: Arc<dyn Fetch>, now: fn() -> i64) -> Identity {
-        Identity(IdentityClient::new(
-            TARGET_SERVICE,
-            base_url,
-            secret,
-            fetch,
-            now,
-        ))
+    pub fn new(
+        base_url: &str,
+        secret: &str,
+        s2s: Option<(Arc<ServiceSigner>, Mode)>,
+        fetch: Arc<dyn Fetch>,
+        now: fn() -> i64,
+    ) -> Identity {
+        Identity(IdentityClient::new(TARGET_SERVICE, base_url, secret, fetch, now).with_key(s2s))
     }
 }
 

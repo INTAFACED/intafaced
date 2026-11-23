@@ -486,7 +486,7 @@ function EvidenceSection({ portal, dispute, reload }: { portal: PortalApi; dispu
                 <small className="lt-hint">{e.contentType}</small>
               </td>
               <td className="lt-num">{formatBytes(e.sizeBytes)}</td>
-              <td data-testid="pp-mono" className="pp-mono" title={e.sha256}>
+              <td data-testid="pp-mono" className="lt-mono" title={e.sha256}>
                 {e.sha256.slice(0, 12)}…
               </td>
               <td>{e.note ?? '—'}</td>
@@ -555,7 +555,7 @@ function EvidenceSection({ portal, dispute, reload }: { portal: PortalApi; dispu
                     [t('colSize'), formatBytes(String(picked.sizeBytes))],
                     [
                       t('colFingerprint'),
-                      <span data-testid="pp-mono" className="pp-mono">
+                      <span data-testid="pp-mono" className="lt-mono">
                         {picked.sha256}
                       </span>,
                     ],
@@ -618,7 +618,7 @@ function RespondSection({ portal, dispute, reload }: { portal: PortalApi; disput
           {dispute.responses.length > 0 ? t('respondedAlready') : t('respondClosed')}
         </p>
       ) : (
-        <div data-testid="form-stack" className="form-stack pp-form">
+        <div data-testid="form-stack" className="lt-stack">
           <label className="lt-field">
             <span>{t('colNote')}</span>
             <textarea value={note} onChange={(e) => setNote(e.target.value)} maxLength={2000} rows={3} />

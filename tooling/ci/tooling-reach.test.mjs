@@ -32,20 +32,16 @@ test("the seal's tree is the commit's: its files and their text, read through gi
 
 test('the scan finds what the journeys run and the unit-test jobs are known to use, and not what they are known not to', () => {
   const { journeys, tests } = scan();
-  // A journey helper the app's pay portal imports, a config every package's vitest reads, the type-check wrapper's
-  // worktree setup, and the tooling workspace package the image builds.
-  for (const f of [
-    'tooling/uiproof/playwright-browsers.mjs',
-    'tooling/vitest/budget.mjs',
-    'tooling/t3/setup-worktree.mjs',
-    'tooling/pay-sim/src/cli.ts',
-  ])
+  // A journey helper the app's pay portal imports, a config every package's vitest reads, and the tooling workspace
+  // package the image builds. T3's worktree setup is not one: a journeys run installs with pnpm, never through it.
+  for (const f of ['tooling/uiproof/playwright-browsers.mjs', 'tooling/vitest/budget.mjs', 'tooling/pay-sim/src/cli.ts'])
     assert.ok(covers(journeys, f), `the journeys run reaches ${f}`);
   for (const f of [
     'tooling/design/RECIPE.md',
     'tooling/design/volt-recipe.mjs',
     'tooling/codemod/call-records/index.mjs',
     'tooling/beta/beta-host.mjs',
+    'tooling/t3/setup-worktree.mjs',
   ])
     assert.ok(!covers(journeys, f), `no journeys run reaches ${f}`);
   // What ci.yml's test jobs run: the classifier, the shard plan, the tooling tests that need the build and what they import.

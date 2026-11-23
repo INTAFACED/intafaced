@@ -1,3 +1,4 @@
+// volt-room: /academy/rooms/discussion/:courseSlug
 // volt-room: /academy/rooms/discussion/:courseSlug/:postId
 import { useEffect, useId, useRef, useState } from 'react';
 import {
@@ -31,7 +32,7 @@ import { AcademyRefusal } from './academy-refusal';
 import { AcademySections } from './academy-sections';
 import { t as copyText } from './copy';
 import { Button, Field, Tag } from '@intafaced/ui/lit';
-import { CheckField, FileField, ReadingTemplate, SelectField, TextAreaField } from '@intafaced/ui/lit/templates';
+import { CheckField, FileField, ReadingTemplate, RecordListTemplate, SelectField, TextAreaField } from '@intafaced/ui/lit/templates';
 import { Section, Waiting } from './volt-parts';
 
 /**
@@ -138,6 +139,24 @@ export function AcademyDiscussionCourses() {
           ))}
       </div>
     </Section>
+  );
+}
+
+/**
+ * `/academy/rooms/discussion/:courseSlug` on the record-list template, signed in: the course's topics, the open topic's
+ * posts and the new-post form. The Academy's sections are links above it.
+ */
+export function AcademyDiscussionListRoom({ courseSlug }: { courseSlug: string }) {
+  return (
+    <div data-room="academy-discussion">
+      <RecordListTemplate
+        title={copyText('moreroutes.academy')}
+        description={copyText('moreroutes.learn.practise.and.join.hosted.sessions')}
+        state={{ kind: 'ready' }}
+        filters={<AcademySections current="Rooms" />}
+        list={<AcademyDiscussionPage key={courseSlug} courseSlug={courseSlug} />}
+      />
+    </div>
   );
 }
 

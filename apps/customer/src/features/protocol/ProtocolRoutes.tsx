@@ -7,6 +7,7 @@ import { WalletHomeRoom } from './wallet/WalletHomeRoom';
 import { AccountsRoom } from './wallet/AccountsRoom';
 import { ActivityRoom } from './wallet/ActivityRoom';
 import { ReceiveRoom } from './wallet/ReceivePanel';
+import { TrackerRoom } from './wallet/TrackerPanel';
 import { AddressBookRoom } from './wallet/AddressBookRoom';
 import { ApprovalsRoom } from './wallet/ApprovalsRoom';
 import { SessionKeysRoom } from './wallet/SessionKeysRoom';
@@ -71,6 +72,8 @@ function routeBody(path: string, found: NonNullable<ReturnType<typeof matchWeb3R
   if (route.wallet === 'overview') return <WalletHomeRoom />;
   // Receive is drawn on its own monitor template (J-dex-protocol-04 #4).
   if (route.wallet === 'receive') return <ReceiveRoom />;
+  // Track an address is drawn on its own monitor template (J-dex-protocol-06 #5 #6).
+  if (route.wallet === 'tracker') return <TrackerRoom />;
   if (route.wallet) return <WalletRoom section={route.wallet} />;
   if (route.tokens === 'list') return <TokensRoom />;
   if (route.tokens === 'detail') return <TokenPage address={safeDecode(params.address)} />;

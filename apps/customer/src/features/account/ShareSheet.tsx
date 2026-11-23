@@ -123,7 +123,11 @@ function OwnerShareSheet({ surface }: { surface: Surface }) {
             </div>
           ))}
         </dl>
-      ) : noLink ? null : (
+      ) : noLink ? (
+        <p className="lt-hint" data-testid="share-visits-none">
+          <Copy k="visitsNoLink" />
+        </p>
+      ) : (
         <p role="alert">
           <Copy k="statsFailed" /> {resource.failure.code && <span lang="zxx">{resource.failure.code}</span>}
         </p>

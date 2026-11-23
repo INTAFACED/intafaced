@@ -8,6 +8,7 @@ import { loanApplyCopy } from './loan-apply-copy';
 import './bank-depth.css';
 import { BANK_LOANS_PRODUCTS, BANK_LOANS_ELIGIBILITY } from '@intafaced/contracts/bank-loans-procedures';
 import { BANK_LOANS_QUOTE, BANK_LOANS_FEES } from '@intafaced/contracts/bank-loans-2-procedures';
+import { BANK_LOANS_OPEN } from '@intafaced/contracts/bank-loans-3-procedures';
 
 /**
  * `/bank/loans/apply?product=<id>` (J-bank-09 #1 to #4, BK-loan-01): choose a loan, see its limits, work out the
@@ -258,7 +259,7 @@ function ProductApplication({ productId, open }: { productId: string; open: (spe
             onClick={() =>
               open({
                 title: t('open'),
-                procedure: 'loans.open',
+                record: BANK_LOANS_OPEN,
                 fields: [
                   positiveMoney(product.debtAssetId, 'principal', t('principal')),
                   positiveMoney(product.collateralAssetId, 'collateralAmount', t('collateral')),
@@ -311,7 +312,7 @@ export function LoanApply({ productId, open }: { productId: string | null; open:
             <label className="lt-field">
               <span>{t('chooseLabel')}</span>
               <select value={chosen ?? ''} onChange={(event) => setChosen(event.target.value === '' ? null : event.target.value)}>
-                <option value="">—</option>
+                <option value="">{t('choosePlaceholder')}</option>
                 {products.resource.data.map((one) => (
                   <option key={one.id} value={one.id}>
                     {one.name}
@@ -320,6 +321,11 @@ export function LoanApply({ productId, open }: { productId: string | null; open:
               </select>
             </label>
           ))}
+        {products.resource.status === 'ready' && products.resource.data.length > 0 && !chosen && (
+          <p className="lt-muted" data-testid="loan-apply-hint">
+            {t('chooseHint')}
+          </p>
+        )}
       </DepthPanel>
       {chosen && <ProductApplication key={chosen} productId={chosen} open={open} />}
       <p>

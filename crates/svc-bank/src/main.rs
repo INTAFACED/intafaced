@@ -23,6 +23,8 @@ use service_kit::telemetry::{Logger, Telemetry};
 
 use svc_bank::activity;
 use svc_bank::automations;
+use svc_bank::bank_api;
+use svc_bank::bills;
 use svc_bank::cards;
 use svc_bank::db::{self, Store};
 use svc_bank::door::{BankDoor, DoorConfig, ServiceAuth, system_now};
@@ -58,6 +60,8 @@ fn main() -> ExitCode {
             args.iter().any(|a| a == "--down"),
             &mut std::io::stdout(),
         )
+    } else if args.first().map(String::as_str) == Some("test-seed") {
+        test_seed(args.get(1).map_or("", String::as_str))
     } else {
         run()
     };
@@ -66,6 +70,30 @@ fn main() -> ExitCode {
         Err(e) => {
             eprintln!("{e}");
             ExitCode::FAILURE
+        }
+    }
+}
+
+/// `svc-bank test-seed <op>`: one seed operation on a TEST stack's bank schema (`test_seed`), its input on stdin and
+/// its answer on stdout.
+fn test_seed(op: &str) -> Result<(), String> {
+    let raw: BTreeMap<String, String> = std::env::vars().collect();
+    svc_bank::test_seed::allowed(&raw)?;
+    let mut input = String::new();
+    std::io::Read::read_to_string(&mut std::io::stdin(), &mut input).map_err(|e| e.to_string())?;
+    let url = raw
+        .get("DATABASE_URL")
+        .cloned()
+        .unwrap_or_else(|| migrate::DEFAULT_URL.to_owned());
+    let store = db::open(&url, "svc-bank-test-seed", 1, false)?;
+    match svc_bank::test_seed::run(store, raw, op, &input) {
+        Ok(answer) => {
+            println!("{}", answer.compact());
+            Ok(())
+        }
+        Err(refused) => {
+            println!("{}", refused.compact());
+            Err(format!("svc-bank test-seed {op} refused"))
         }
     }
 }
@@ -232,6 +260,8 @@ fn transfers_wiring(env: &BankEnv, bus: &Arc<JetStream>) -> Result<transfers::Wi
         scheduled_transfers: env.flag("SCHEDULED_TRANSFERS_ENABLED").unwrap_or(false),
         batch_size: env.int("TRANSFER_BATCH_SIZE"),
         producer: env.str("SERVICE_NAME").unwrap_or("svc-bank").to_owned(),
+        business_invite_minutes: owned("BANK_BUSINESS_INVITE_MINUTES"),
+        bill_reader: env.str("BANK_BILL_READER").map(str::to_owned),
     };
     let bus: Box<dyn transfers::ports::Bus> = Box::new(JetStreamBus(bus.clone()));
     Ok(match env.str("IDENTITY_URL") {
@@ -327,6 +357,21 @@ fn recovery_jobs<'a>(
             "bank.recovery.sweep_received_holds",
             Box::new(move |batch| {
                 door.transfers_deps(|d| Ok(outcomes(transfers::holds::sweep(d, i64::from(batch)))))
+            }),
+        ),
+        (
+            "bank.recovery.deliver_bank_api_webhooks",
+            Box::new(move |batch| {
+                door.bank_api_deps(door.now(), |d| {
+                    bank_api::drain(d, i64::from(batch)).map_err(|e| format!("{e:?}"))
+                })
+            }),
+        ),
+        // Slice `partner-account`: cash-outs left before their hold or the partner's acceptance, driven on.
+        (
+            "bank.recovery.redrive_cash_outs",
+            Box::new(move |batch| {
+                svc_bank::partner_account::cash_out::recovery(&door.partner_account(), batch)
             }),
         ),
     ]
@@ -548,6 +593,69 @@ fn cards_wiring(env: &BankEnv) -> Result<cards::Wiring, String> {
     })
 }
 
+/// Slice `bills`' wiring from the environment, one part each.
+fn bills_wiring(env: &BankEnv) -> Result<bills::Wiring, String> {
+    let raw = |k: &str| env.raw.get(k).map(String::as_str);
+    let mut w = bills::Wiring::none();
+    // `composeRailSendsArea`: `payeeCoolingHours: env.BANK_PAYEE_COOLING_HOURS`, the owner's window, blank refuses.
+    w.rail_sends = bills::rail_sends::Wiring {
+        cooling_hours: env.str("BANK_PAYEE_COOLING_HOURS").map(str::to_owned),
+    };
+    // `directDebitSchemeFor(env.BANK_DD_SCHEME, env.BANK_DD_SIM_JSON, raw APP_ENV and NODE_ENV)` and the run's switch.
+    w.direct_debits = bills::direct_debits::Wiring {
+        scheme: bills::direct_debits::scheme::scheme_for(
+            env.str("BANK_DD_SCHEME").unwrap_or("none"),
+            env.str("BANK_DD_SIM_JSON"),
+            raw("APP_ENV"),
+            raw("NODE_ENV"),
+        )?,
+        collections_enabled: env.flag("BANK_DD_COLLECTIONS_ENABLED").unwrap_or(true),
+    };
+    Ok(w)
+}
+
+/// Slice `card-programme`'s wiring (`index.ts`'s `cardProgramme` options, `receiptSecret` and the cards' `rates`): the
+/// owner's cardholder sanctions list, the simulator on a dev or test stack alone, the export secret and svc-trade's ticker.
+fn card_programme_wiring(env: &BankEnv) -> svc_bank::card_programme::Wiring {
+    let raw = |k: &str| env.raw.get(k).map(String::as_str);
+    svc_bank::card_programme::Wiring {
+        sanctions: raw("BANK_CARDHOLDER_SANCTIONS").map(str::to_owned),
+        simulator_allowed: cards::terms::dev_or_test(env.str("APP_ENV"), raw("NODE_ENV")),
+        export_secret: env.str("INTERNAL_SERVICE_SECRET").map(str::to_owned),
+        rates: Box::new(loans::prices::TickerPriceSource::new(
+            env.str("TRADE_URL").unwrap_or("http://localhost:4004"),
+            Box::new(UreqFetch::new()),
+            None,
+            Box::new(system_now),
+        )),
+    }
+}
+
+/// Slice `global`'s wiring (`index.ts`'s `global` and its owner values): unset ports unless the TEST stand-in was
+/// chosen, which refuses to start outside dev or test (the raw `APP_ENV` and `NODE_ENV`).
+fn global_wiring(env: &BankEnv) -> Result<svc_bank::global::Wiring, String> {
+    let raw = |k: &str| env.raw.get(k).map(String::as_str);
+    let own = |k: &str| env.str(k).map(str::to_owned);
+    Ok(svc_bank::global::Wiring {
+        ports: svc_bank::global::sim::ports_for(
+            env.str("BANK_GLOBAL_PARTNER").unwrap_or("none"),
+            env.str("BANK_GLOBAL_SIM_JSON"),
+            raw("APP_ENV"),
+            raw("NODE_ENV"),
+            system_now,
+        )?,
+        settings: svc_bank::global::Settings {
+            send_field_rules: own("BANK_SEND_FIELD_RULES_JSON"),
+            payee_controls: own("BANK_PAYEE_CONTROLS_JSON"),
+            exchange_allowance: own("BANK_EXCHANGE_ALLOWANCE_JSON"),
+            proof_limits: own("BANK_PROOF_LIMITS_JSON"),
+            hold_cancel_hours: own("BANK_GLOBAL_HOLD_CANCEL_HOURS"),
+            refund_fee: own("BANK_GLOBAL_REFUND_FEE"),
+            receipt_secret: own("INTERNAL_SERVICE_SECRET"),
+        },
+    })
+}
+
 /// Slice `ramps`' address book: identity's mail and trusted devices, from the environment.
 fn ramps_book_wiring(env: &BankEnv) -> Result<ramps::book::Wiring, String> {
     let Some(url) = env.str("IDENTITY_URL") else {
@@ -734,7 +842,13 @@ fn door(env: &BankEnv, store: Store, bus: &Arc<JetStream>) -> Result<BankDoor, S
     .with_loans(loans_wiring(env)?)
     .with_ramps(ramps_wiring(env)?)
     .with_activity(activity_wiring(env)?)
-    .with_automations(automations_wiring(env)?);
+    .with_global(global_wiring(env)?)
+    .with_card_programme(card_programme_wiring(env))
+    .with_bank_api(bank_api::Wiring::new(
+        matches!(raw("APP_ENV"), Some("dev" | "test")) && raw("NODE_ENV") != Some("production"),
+    ))
+    .with_automations(automations_wiring(env)?)
+    .with_bills(bills_wiring(env)?);
     Ok(match env.str("EDGE_PRINCIPAL_PUBLIC_KEY") {
         None => door,
         Some(key) => door.with_edge_key(EdgeKey::from_env(
@@ -926,6 +1040,12 @@ fn serve(env: &BankEnv, log: &Logger, telemetry: &Telemetry) -> Result<(), Strin
                     );
                 });
             });
+        }
+        // Slice `bank-api`: a recorded state change's webhook deliveries, posted after the request that recorded it.
+        {
+            let stop = &stop;
+            let door = &app.wire;
+            scope.spawn(move || bank_api::run_kicked(door, stop));
         }
         server::serve(&server, &app, log, telemetry, &stop);
     });

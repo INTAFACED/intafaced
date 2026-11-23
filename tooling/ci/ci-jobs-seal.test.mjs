@@ -19,6 +19,10 @@ import {
   modelVerdict,
   moneyVerdict,
   RERUN_POLLS,
+  RERAN,
+  GATES_WAIT_POLLS,
+  awaitGatesRerun,
+  judgeWaitingOnGates,
   rerunStaleGates,
   ruleChanges,
   rulesTakenAt,
@@ -34,7 +38,6 @@ const job = (id, name, conclusion = 'success', status = 'completed') => ({ id, n
 const green = (tests = ['Tests (changed)']) => [
   job(1, 'Affected tests'),
   job(2, 'Doctrine gates'),
-  job(3, 'Format'),
   job(4, 'Typecheck & build'),
   ...tests.map((t, i) => job(10 + i, t)),
 ];
@@ -71,10 +74,21 @@ test('a run still going waits (red) and says the seal re-runs; none says to merg
 
 test('planted: a red or missing required job fails', () => {
   assert.equal(
-    judgeCiJobs({ run: run(1), jobs: green().map((j) => (j.name === 'Format' ? { ...j, conclusion: 'failure' } : j)), files: product }).ok,
+    judgeCiJobs({
+      run: run(1),
+      jobs: green().map((j) => (j.name === 'Typecheck & build' ? { ...j, conclusion: 'failure' } : j)),
+      files: product,
+    }).ok,
     false,
   );
   assert.equal(judgeCiJobs({ run: run(1), jobs: green().filter((j) => j.name !== 'Doctrine gates'), files: product }).ok, false);
+});
+
+test('the Format job is no longer required: a run without it passes, and a red one, like any job that ran red, still fails', () => {
+  assert.equal(judgeCiJobs({ run: run(1), jobs: green(), files: product }).ok, true);
+  const red = judgeCiJobs({ run: run(1), jobs: [...green(), job(3, 'Format', 'failure')], files: product });
+  assert.equal(red.ok, false);
+  assert.match(red.lines.join('\n'), /Format was failure/);
 });
 
 test('planted: a pull request whose own ci.yml skips the tests its change needs fails (the base classifies)', () => {
@@ -102,8 +116,8 @@ test('files unreadable whole (null) or a merge queue commit need the full suite'
 });
 
 test('jobResults counts a repeated name by its newest job', () => {
-  const r = jobResults([job(1, 'Format', 'failure'), job(2, 'Format', 'success')]);
-  assert.equal(r.format, 'success');
+  const r = jobResults([job(1, 'Doctrine gates', 'failure'), job(2, 'Doctrine gates', 'success')]);
+  assert.equal(r.gates, 'success');
 });
 
 test('planted: a full-suite change whose own ci.yml ran one shard fails; the whole matrix passes', () => {
@@ -140,7 +154,7 @@ test('a CI run back in progress only because its own seal job is being re-run is
   const jobs = [...green(), { id: 99, name: 'CI merge seal', status: 'in_progress', conclusion: null }];
   assert.equal(judgeCiJobs({ run: run(1, { status: 'in_progress', run_attempt: 2 }), jobs, files: product }).ok, true);
   // Planted: a required job still running keeps it waiting.
-  const running = jobs.map((j) => (j.name === 'Format' ? { ...j, status: 'in_progress', conclusion: null } : j));
+  const running = jobs.map((j) => (j.name === 'Typecheck & build' ? { ...j, status: 'in_progress', conclusion: null } : j));
   assert.equal(judgeCiJobs({ run: run(1, { status: 'in_progress' }), jobs: running, files: product }).wait, true);
   assert.equal(judgeCiJobs({ run: run(1, { status: 'in_progress' }), jobs: [], files: product }).wait, true, 'no jobs read yet');
 });
@@ -387,6 +401,109 @@ test('project-state#3599: rerunStaleGates waits for the CI run to finish, then r
   });
   assert.equal(posts, 0, 'never posts into a running run');
   assert.match(never, new RegExp(`had not finished after ${RERUN_POLLS * 10} s`));
+});
+
+// Seal run 45009874144 on 22 Nov 2026: CI run 45007856468's Doctrine gates job 137163526193 (which judged on main afresh)
+// read main's rules at 09:30:57Z; #9736 changed tooling/lint/ in 44afbc587e at 09:54:01Z. The seal re-ran the job and
+// ended red at 09:57:38Z; that day 27 builders merged main 0.5 to 4 minutes after such a red (project-state#3820).
+test('project-state#3820: the seal waits in its own job for the Doctrine gates job it re-runs, and passes once it has judged', async () => {
+  const ci = run(45007856468, { created_at: '2026-11-22T09:30:50Z' });
+  const fresh = [{ name: FRESH_MAIN_STEP, status: 'completed', conclusion: 'success' }];
+  const gatesJob = (id, started_at, conclusion = 'success', steps = fresh) => ({
+    id,
+    name: 'Doctrine gates',
+    status: 'completed',
+    conclusion,
+    started_at,
+    steps,
+  });
+  const first = gatesJob(137163526193, '2026-11-22T09:30:57Z');
+  const later = { sha: '44afbc587e'.padEnd(40, '0'), date: '2026-11-22T09:54:01Z', title: 'design(volt) (#9736)' };
+  const pass = { ok: true, lines: [] };
+  const flow = async ({ changes, jobsAfter, waited = true, steps = fresh }) => {
+    const jobs = [...green().filter((j) => j.name !== 'Doctrine gates'), { ...first, steps }];
+    const calls = [];
+    const logs = [];
+    const v = await judgeWaitingOnGates({
+      judge: async () => ({
+        ci: judgeCiJobs({ run: ci, jobs, files: product }),
+        money: pass,
+        model: pass,
+        rules: rulesVerdict({ run: ci, jobs, changes }),
+      }),
+      rerun: async (step) => (calls.push(step), jobs.push(...jobsAfter), `${RERAN} ${step.jobId} of CI run ${step.runId}`),
+      wait: async () => ({ done: waited, line: waited ? 'ended' : 'had not ended' }),
+      log: (l) => logs.push(l),
+    });
+    return { v, calls, logs };
+  };
+  for (const path of ['tooling/lint/', 'tooling/ci/gates.mjs']) {
+    const ok = await flow({ changes: [{ ...later, path }], jobsAfter: [gatesJob(137170000000, '2026-11-22T09:58:00Z')] });
+    assert.deepEqual(ok.calls, [{ runId: 45007856468, jobId: 137163526193 }], path);
+    assert.equal(ok.v.rules.ok && ok.v.ci.ok, true, `${path}: green once the re-run judged on main's rules now`);
+    assert.ok(!ok.logs.some((l) => l.startsWith('✖')), 'no red line while it waits');
+    // Planted: the re-run fails on main's new rules: the seal is red on that job.
+    const red = await flow({ changes: [{ ...later, path }], jobsAfter: [gatesJob(137170000000, '2026-11-22T09:58:00Z', 'failure')] });
+    assert.equal(red.v.ci.ok, false, path);
+    assert.match(red.v.ci.lines.join(), /gates was failure/);
+    // A wait that runs out stays red on the stale rule, as before.
+    const slow = await flow({ changes: [{ ...later, path }], jobsAfter: [], waited: false });
+    assert.equal(slow.v.rules.ok, false, path);
+  }
+  // Planted fault #3326 guards: a gate-list change after a Doctrine gates job that never judged on main afresh can't be
+  // cleared by a re-run. The seal re-runs nothing, waits for nothing, and stays red: merge main and push.
+  const stale = await flow({ changes: [{ ...later, path: 'tooling/ci/gates.mjs' }], jobsAfter: [], steps: [] });
+  assert.deepEqual(stale.calls, []);
+  assert.equal(stale.v.rules.ok, false);
+  assert.match(stale.v.rules.lines[0], /merge origin\/main and push/);
+  // A refused re-run is not waited for.
+  let waits = 0;
+  const refused = await judgeWaitingOnGates({
+    judge: async () => ({
+      ci: pass,
+      money: pass,
+      model: pass,
+      rules: rulesVerdict({ run: ci, jobs: [first], changes: [{ ...later, path: 'tooling/lint/' }] }),
+    }),
+    rerun: async () => 'could not re-run Doctrine gates job 1 (403 x); re-run it by hand',
+    wait: async () => (waits++, { done: true, line: '' }),
+    log: () => {},
+  });
+  assert.equal(waits, 0);
+  assert.equal(refused.rules.ok, false);
+});
+
+test('project-state#3820: awaitGatesRerun waits for the newest Doctrine gates job to be another job and finished', async () => {
+  const step = { runId: 7, jobId: 100 };
+  const pages = [
+    [{ id: 100, name: 'Doctrine gates', status: 'completed', conclusion: 'success' }],
+    [
+      { id: 100, name: 'Doctrine gates', status: 'completed', conclusion: 'success' },
+      { id: 200, name: 'Doctrine gates', status: 'queued' },
+    ],
+    [{ id: 200, name: 'Doctrine gates', status: 'in_progress' }],
+    [{ id: 200, name: 'Doctrine gates', status: 'completed', conclusion: 'failure' }],
+  ];
+  const asked = [];
+  const w = await awaitGatesRerun({
+    repo: 'o/r',
+    step,
+    get: async (p) => (asked.push(p), { jobs: pages.shift(), total_count: 1 }),
+    sleep: async () => {},
+  });
+  assert.equal(w.done, true);
+  assert.match(w.line, /job 200 of CI run 7 ended failure/);
+  assert.equal(asked.length, 4);
+  assert.match(asked[0], /^\/repos\/o\/r\/actions\/runs\/7\/jobs\?filter=latest&per_page=30&page=1$/);
+  let n = 0;
+  const never = await awaitGatesRerun({
+    repo: 'o/r',
+    step,
+    get: async () => (n++, { jobs: [{ id: 100, name: 'Doctrine gates', status: 'completed', conclusion: 'success' }] }),
+    sleep: async () => {},
+  });
+  assert.equal(never.done, false);
+  assert.equal(n, GATES_WAIT_POLLS);
 });
 
 test("project-state#3599: merge-seal.yml's seal job may re-run a job (actions: write), and its script still never checks out the pull request", () => {

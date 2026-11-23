@@ -536,7 +536,7 @@ test(`${J} #5 requests a statement export of orders, trades and money movements 
   expect(ids('deposit', 'transfer_in', 'withdrawal')).toEqual(credits); // no withdrawal was signed
   expect(ids('order')).toContain(bought.order.venueClientOrderId);
   expect(ids('trade').length).toBeGreaterThan(0);
-  expect(job.rows).toEqual({ orders: orders.length, trades: trades.length, movements: credits.length });
+  expect(job.rows).toEqual({ orders: orders.length, trades: trades.length, movements: credits.length, liquidations: 0 });
   await expect(ready).toHaveText(
     `Ready: ${orders.length} orders, ${trades.length} trades and ${credits.length} money movements. Statement ${job.id}.`,
   );

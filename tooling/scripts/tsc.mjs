@@ -2,8 +2,9 @@
 /**
  * The one way to type-check in this repo: `node tooling/scripts/tsc.mjs <tsc's own arguments>`, a drop-in for `tsc`.
  * Every package.json script that type-checks or builds calls it, tooling/ci/test-typecheck.mjs calls it for
- * tsconfig.test.json, and the worktree setup points every `node_modules/.bin/tsc` at it (installShims), so a hand-typed
- * `npx tsc` takes it too.
+ * tsconfig.test.json, and TypeScript's own `bin/tsc` runs it (patches/typescript@<version>.patch), so every
+ * `node_modules/.bin/tsc`, a hand-typed `npx tsc` and `pnpm exec tsc` take it too, after any install. This file runs
+ * the compiler's `lib/tsc.js` itself.
  *
  * A `--noEmit` check of one project becomes, with nothing else changed (same compiler, same config):
  *   - incremental: `--incremental --tsBuildInfoFile <project dir>/node_modules/.cache/tsc/<config>.tsbuildinfo`, so a
@@ -41,25 +42,15 @@
  * the box. Incremental, a one-file change checks in about 2 s at under 2 GB, and three at once run one compiler.
  */
 import { spawn, spawnSync } from 'node:child_process';
-import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  realpathSync,
-  renameSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, '..', '..');
-const TSC = join(REPO, 'node_modules', 'typescript', 'bin', 'tsc');
+// lib/tsc.js, not bin/tsc: the patched bin/tsc runs this file.
+const TSC = join(REPO, 'node_modules', 'typescript', 'lib', 'tsc.js');
 const TSRS = join(REPO, 'node_modules', 'tsrs', 'bin', 'tsrs');
 
 /** The compiler a one-project check runs: tsc in CI or where tsrs is not installed, else tsrs. */
@@ -317,26 +308,6 @@ export async function run(argv, { cwd = process.cwd() } = {}) {
   } finally {
     release();
   }
-}
-
-/**
- * Points the worktree's `node_modules/.bin/tsc` (the root's and each package's) at this file, so `npx tsc`,
- * `pnpm exec tsc` and a package script's bare `tsc` all come here. pnpm writes those files at install; this runs after.
- */
-export function installShims(root = REPO) {
-  const shim = `#!/bin/sh\n# Written by tooling/t3/setup-worktree.mjs: every tsc here goes through ${relative(root, fileURLToPath(import.meta.url))}.\nexec node "${fileURLToPath(import.meta.url)}" "$@"\n`;
-  const bins = [join(root, 'node_modules', '.bin', 'tsc')];
-  for (const area of ['apps', 'packages', 'services', 'tooling']) {
-    if (!existsSync(join(root, area))) continue;
-    for (const name of readdirSync(join(root, area))) bins.push(join(root, area, name, 'node_modules', '.bin', 'tsc'));
-  }
-  let n = 0;
-  for (const bin of bins) {
-    if (!existsSync(bin)) continue;
-    writeFileSync(bin, shim, { mode: 0o755 });
-    n += 1;
-  }
-  return n;
 }
 
 // exitCode, not exit(): a held-back report written to a pipe is flushed before the process ends.

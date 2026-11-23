@@ -1,7 +1,7 @@
 import { useId, useState } from 'react';
 import { alertsCopy } from './alerts-copy';
 import { editDiff, editStart, expiryProblem, priceProblem, SOURCE_KEY } from './alerts-model';
-import { Button } from '@intafaced/ui/lit';
+import { Button, DateInput } from '@intafaced/ui/lit';
 import { ALERT_CONDITIONS, ALERT_SOURCES, type AlertCondition, type AlertEdit, type PriceAlert } from './notify-api';
 
 const CONDITION_KEY = {
@@ -116,7 +116,7 @@ export function AlertEditPanel({
       </label>
       <label className="lt-field">
         <span>{copy.t('expiresLabel')}</span>
-        <input
+        <DateInput
           type="datetime-local"
           value={form.expires}
           disabled={busy}

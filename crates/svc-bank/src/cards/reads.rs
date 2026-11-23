@@ -8,8 +8,8 @@
 //! never 0.
 //!
 //! The TEST partner card's book ([`CardHoldBook`]) lives in this process, as the TypeScript's `testPartnerCardHolds`
-//! does, kept once in the slice's wiring (`Wiring::holds`). Its holds are made by slice `card-ops`' hold instruction;
-//! until that is ported nothing writes one, so a call reads the TEST figures plus the TEST partner's credits.
+//! does, kept once in the slice's wiring (`Wiring::holds`). Its holds are made by slice `card-ops`' hold instruction
+//! (`moves::partner_book`), and its reads run an uncaptured hold out at its time.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Mutex;
@@ -144,6 +144,11 @@ pub trait HoldReads {
     fn quote(&self, _asset_id: &str, _settlement: &str) -> Option<Result<Option<Quote>, Refusal>> {
         None
     }
+    /// What the partner captured for this cardholder in this asset, `Ok(None)` when it reports no book for them;
+    /// `None` for a partner without the read.
+    fn captured(&self, _user_id: &str, _asset_id: &str) -> Option<Result<Option<String>, Refusal>> {
+        None
+    }
 }
 
 /// `partnerCardKey('hold', authorizationId)`: our id, never the network's reference.
@@ -180,16 +185,16 @@ pub struct Hold {
 }
 
 impl Hold {
-    fn open(&self) -> Amount {
+    pub(crate) fn open(&self) -> Amount {
         self.amount - self.captured - self.released
     }
 
-    fn report(&self) -> HoldReport {
+    pub(crate) fn report(&self) -> HoldReport {
         let status = if self.expired {
             "expired"
-        } else if self.captured > 0 {
+        } else if self.captured > Amount::ZERO {
             "captured"
-        } else if self.released > 0 {
+        } else if self.released > Amount::ZERO {
             "released"
         } else {
             "held"
@@ -216,9 +221,11 @@ impl Hold {
 pub struct CardHoldBook {
     pub books: BTreeMap<String, Book>,
     pub holds: BTreeMap<String, Hold>,
+    /// Each instruction's first answer under its key, with the body it answered (`once`): slice `card-ops`' writes.
+    pub answers: BTreeMap<String, (String, super::moves::partner_book::Kept)>,
 }
 
-fn book_id(user_id: &str, asset_id: &str) -> String {
+pub(crate) fn book_id(user_id: &str, asset_id: &str) -> String {
     format!("{user_id}|{asset_id}")
 }
 
@@ -237,7 +244,7 @@ impl CardHoldBook {
                 id.clone(),
                 Book {
                     available,
-                    held: 0,
+                    held: Amount::ZERO,
                     open: BTreeSet::new(),
                 },
             );
@@ -247,11 +254,11 @@ impl CardHoldBook {
 
     /// `runOut`: the partner gives an uncaptured hold back when its hold time runs out, or when the person's TEST
     /// switch says so.
-    fn run_out(&mut self, key: &str, now: Instant, switch_expired: bool) {
+    pub(crate) fn run_out(&mut self, key: &str, now: Instant, switch_expired: bool) {
         let Some(h) = self.holds.get_mut(key) else {
             return;
         };
-        if h.expired || h.captured > 0 || h.open() == 0 {
+        if h.expired || h.captured > Amount::ZERO || h.open() == Amount::ZERO {
             return;
         }
         if now.0 < h.expires_at.0 && !switch_expired {
@@ -284,14 +291,14 @@ pub struct TestCardHolds<'a> {
 }
 
 impl TestCardHolds<'_> {
-    fn switch_expired(&self, user_id: &str) -> bool {
+    pub(crate) fn switch_expired(&self, user_id: &str) -> bool {
         self.partner
             .is_some_and(|p| p.switches(user_id).card_hold == "expired")
     }
 
     /// `testCardCredited` plus `payInCredited`: what else the TEST partner credited this cardholder in this asset.
-    fn credited(&self, user_id: &str, asset_id: &str) -> Amount {
-        let mut sum: Amount = 0;
+    pub(crate) fn credited(&self, user_id: &str, asset_id: &str) -> Amount {
+        let mut sum: Amount = Amount::ZERO;
         if let Some(book) = self.issuer.sim_book() {
             for (_, c) in &book.credits {
                 if c.user_id == user_id && c.asset_id == asset_id && !c.reversed {
@@ -311,7 +318,7 @@ impl TestCardHolds<'_> {
         sum
     }
 
-    fn lock(&self) -> std::sync::MutexGuard<'_, CardHoldBook> {
+    pub(crate) fn lock(&self) -> std::sync::MutexGuard<'_, CardHoldBook> {
         self.book
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -341,6 +348,21 @@ impl HoldReads for TestCardHolds<'_> {
             available: figures.as_ref().map(|f| f.0.clone()),
             held: figures.map(|f| f.1),
         })
+    }
+
+    /// `captured`: every hold's captured part, once the partner keeps a book for this cardholder and asset.
+    fn captured(&self, user_id: &str, asset_id: &str) -> Option<Result<Option<String>, Refusal>> {
+        let mut book = self.lock();
+        if book.book_of(self.terms, user_id, asset_id).is_none() {
+            return Some(Ok(None));
+        }
+        let sum: Amount = book
+            .holds
+            .values()
+            .filter(|h| h.user_id == user_id && h.asset_id == asset_id)
+            .map(|h| h.captured)
+            .sum();
+        Some(Ok(Some(format_amount(sum))))
     }
 
     fn hold_state(&self, hold_key: &str) -> Result<Option<HoldReport>, Refusal> {
@@ -488,7 +510,7 @@ pub const CONVERSION_MAX_AGE_SECONDS: i64 = 60;
 /// `acceptableForMarking` under the card conversion policy: above zero, no older than its window, no more than 30 s in
 /// the future.
 pub fn acceptable_for_marking(price: Amount, as_of: Instant, now: Instant) -> bool {
-    if price <= 0 {
+    if price <= Amount::ZERO {
         return false;
     }
     let age_ms = now.0 - as_of.0;
@@ -713,7 +735,7 @@ fn opt_amount_text(s: Option<String>) -> Result<Json, Refusal> {
 }
 
 /// `parseChannel`.
-fn channel(v: &str) -> &str {
+pub(crate) fn channel(v: &str) -> &str {
     match v {
         "online" | "contactless" | "atm" | "foreign" | "card-present" => v,
         _ => "card-present",
@@ -1264,11 +1286,27 @@ mod tests {
     #[test]
     fn a_quote_is_fresh_for_its_window_and_never_from_more_than_30_s_ahead() {
         let now = Instant(1_000_000_000);
-        assert!(acceptable_for_marking(1, Instant(now.0 - 60_000), now));
-        assert!(!acceptable_for_marking(1, Instant(now.0 - 61_000), now));
-        assert!(!acceptable_for_marking(1, Instant(now.0 + 120_000), now));
-        assert!(acceptable_for_marking(1, Instant(now.0 + 30_000), now));
-        assert!(!acceptable_for_marking(0, now, now));
+        assert!(acceptable_for_marking(
+            Amount::from_scaled(1),
+            Instant(now.0 - 60_000),
+            now
+        ));
+        assert!(!acceptable_for_marking(
+            Amount::from_scaled(1),
+            Instant(now.0 - 61_000),
+            now
+        ));
+        assert!(!acceptable_for_marking(
+            Amount::from_scaled(1),
+            Instant(now.0 + 120_000),
+            now
+        ));
+        assert!(acceptable_for_marking(
+            Amount::from_scaled(1),
+            Instant(now.0 + 30_000),
+            now
+        ));
+        assert!(!acceptable_for_marking(Amount::ZERO, now, now));
     }
 
     #[test]
@@ -1337,9 +1375,9 @@ mod tests {
                     amount: parse_amount("40").unwrap(),
                     expires_at: Instant(t0.0 + TEST_CARD_HOLD_DAYS * 86_400_000),
                     conversion: None,
-                    captured: 0,
-                    released: 0,
-                    refunded: 0,
+                    captured: Amount::ZERO,
+                    released: Amount::ZERO,
+                    refunded: Amount::ZERO,
                     expired: false,
                 },
             );

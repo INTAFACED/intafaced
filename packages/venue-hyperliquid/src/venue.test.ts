@@ -16,6 +16,7 @@ import {
 import {
   actionHash,
   HyperliquidNetworkRefusedError,
+  recoverTypedDataSigner,
   typedDataDigest,
   type HlTypedData,
   type L1TypedData,
@@ -28,6 +29,7 @@ import {
   InMemoryNonceSource,
   PERP_COLLATERAL_ASSET,
   mapOrderStatus,
+  withCancelReason,
   type FetchLike,
   type HyperliquidNonceSource,
 } from './venue.js';
@@ -351,7 +353,7 @@ describe('prepare builds exactly what the wallet signs', () => {
     const prepared = await venue.prepare(account, ownerSigner, withdraw);
     const typed = prepared.typedData as UserSignedTypedData;
     expect(typed.primaryType).toBe('HyperliquidTransaction:Withdraw');
-    expect(typed.domain.chainId).toBe(0x66eee);
+    expect(typed.domain.chainId).toBe(84532);
     expect(typed.message).toEqual({ hyperliquidChain: 'Testnet', destination: OWNER, amount: '12.5', time: BigInt(NOW) });
     expect(prepared.venueClientOrderId).toBeNull();
     await refusedWith(
@@ -362,6 +364,36 @@ describe('prepare builds exactly what the wallet signs', () => {
     // withdraw3 draws on the perp account: spot USDC (reported by balances() as `USDC`) is a different balance, refused.
     await refusedWith(venue.prepare(account, ownerSigner, { ...withdraw, asset: 'USDC' }), 'not_offered');
     await refusedWith(venue.prepare(account, ownerSigner, { ...withdraw, amount: a('1.0000001') }), 'venue_rejected');
+  });
+
+  // The customer's wallet is held on the app chain (Base Sepolia, 84532: apps/customer eip1193.ts APP_CHAIN_ID), and
+  // the app's signing sheet refuses a typed-data domain on any other chain before the wallet is asked; a wallet such as
+  // MetaMask refuses one too. Hyperliquid takes the chain the action names in `signatureChainId` (the SDK signs under the
+  // wallet's own chain when none is set), so every user-signed action is built for the wallet's chain.
+  it('user-signed actions are signed under the wallet chain (84532 by default, else the one passed in), and the venue gets that chain', async () => {
+    const intents = [
+      { kind: 'approve_agent', agentAddress: AGENT, agentName: 'TEST bot', validUntil: null },
+      { kind: 'approve_builder_fee', builder: AGENT, maxFeeBps: a('1') },
+      { kind: 'withdraw', asset: PERP_COLLATERAL_ASSET, amount: a('12.5'), destination: OWNER, withdrawalKey: 'withdraw:test-user:9' },
+    ] as const;
+    for (const [walletChainId, hex] of [
+      [undefined, '0x14a34'],
+      [31337, '0x7a69'],
+    ] as const) {
+      const fake = fakeVenue();
+      const venue = new HyperliquidTestnetUserVenue({ appEnv: 'test', fetch: fake.fetch, clock: () => new Date(NOW), walletChainId });
+      expect(venue.chainId).toBe(walletChainId ?? 84532);
+      for (const intent of intents) {
+        const prepared = await venue.prepare(account, ownerSigner, intent);
+        const typed = prepared.typedData as UserSignedTypedData;
+        expect(typed.domain.chainId).toBe(walletChainId ?? 84532);
+        const signed = await sign(ownerKey, prepared);
+        await venue.submit(prepared, signed);
+        expect((fake.exchangeBodies.at(-1)!.action as Record<string, unknown>).signatureChainId).toBe(hex);
+        expect(await recoverTypedDataSigner(typed, signed.signature)).toBe(OWNER);
+      }
+    }
+    expect(() => new HyperliquidTestnetUserVenue({ appEnv: 'test', walletChainId: 0 })).toThrow(/wallet chain/);
   });
 
   it('approveBuilderFee and approveAgent: the testnet typed data; an agent expiry, revoke and amend refuse', async () => {
@@ -384,7 +416,7 @@ describe('prepare builds exactly what the wallet signs', () => {
     await venue.submit(agent, await sign(ownerKey, agent));
     expect(fake.exchangeBodies[0]!.action).toEqual({
       type: 'approveAgent',
-      signatureChainId: '0x66eee',
+      signatureChainId: '0x14a34',
       hyperliquidChain: 'Testnet',
       agentAddress: AGENT,
       agentName: 'TEST bot',
@@ -683,6 +715,14 @@ describe('reads: the venue record, decimal strings to scaled bigints', () => {
     expect(mapOrderStatus('perpMarginRejected')).toBe('rejected');
     expect(mapOrderStatus('triggered')).toBe('open');
     expect(() => mapOrderStatus('somethingNew')).toThrow();
+  });
+
+  it('a self-trade cancel is named as one; any other cancel word leaves the reason unsaid (J-derivatives-04 #7)', () => {
+    const order = { venueClientOrderId: '0x1', status: 'canceled', cancelReason: null };
+    expect(mapOrderStatus('selfTradeCanceled')).toBe('canceled');
+    expect(withCancelReason(order, 'selfTradeCanceled').cancelReason).toBe('self_trade');
+    expect(withCancelReason(order, 'marginCanceled')).toBe(order);
+    expect(withCancelReason(order, 'canceled')).toBe(order);
   });
 
   it('order history: every state the venue reports, newest placed first, with when it was placed (J-cex-spot-06 #1)', async () => {

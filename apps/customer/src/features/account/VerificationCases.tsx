@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { StatusTag } from '@intafaced/ui';
+import { StatusChip } from '@intafaced/ui/lit/templates';
 import { type KycCase, type KycCaseState } from '@intafaced/contracts/identity-kyc-cases';
 import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
-import { Button, EmptyState, Failure, Loading } from '../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { Empty, Failure, Loading } from './kit-parts';
 import { usePreferences } from '../../shared/preferences';
 import { stamp } from '../../screens/money/time';
 import { verificationCasesCopy as copy } from './verification-cases-copy';
@@ -11,12 +12,12 @@ import { IDENTITY_KYC_HISTORY } from '@intafaced/contracts/identity-kyc-procedur
 
 type Tier = KycCase['tier'];
 const PAGE = 10;
-const tagOf: Record<KycCaseState, 'pending' | 'filled' | 'cancelled' | 'working'> = {
+const tagOf: Record<KycCaseState, 'pending' | 'done' | 'failed'> = {
   submitted: 'pending',
-  approved: 'filled',
-  rejected: 'cancelled',
+  approved: 'done',
+  rejected: 'failed',
   // A lapsed approval no longer counts, so it reads as ended, never as work in progress.
-  expired: 'cancelled',
+  expired: 'failed',
 };
 
 /**
@@ -64,22 +65,22 @@ export function VerificationCases({
     const { cases } = resource.data;
     if (cases.length === 0)
       return (
-        <EmptyState title={t('empty')}>
+        <Empty title={t('empty')}>
           <Copy k="intro" />
-        </EmptyState>
+        </Empty>
       );
     // Only the newest case can be followed by a new request; an older rejected case already was, or a newer one is open.
     const newest = cases[0]!;
     return (
       <>
-        <ol className="verification__case-list">
+        <ol className="lt-sections">
           {cases.map((c) => (
-            <li key={c.id} className="verification__case" data-testid="verification__case" data-case={c.id} data-state={c.state}>
-              <div className="verification__case-head">
+            <li key={c.id} className="lt-stack" data-testid="verification__case" data-case={c.id} data-state={c.state}>
+              <div className="lt-title-row">
                 <h3>
                   <Copy k={c.tier} /> · <span lang="zxx">{c.jurisdiction}</span>
                 </h3>
-                <StatusTag status={tagOf[c.state]} label={t(c.state)} />
+                <StatusChip status={tagOf[c.state]} label={t(c.state)} />
               </div>
               <p className="lt-muted">
                 <Copy k="submittedAt" /> {time(c.submittedAt)}
@@ -91,12 +92,12 @@ export function VerificationCases({
                 )}
               </p>
               {c.followsCaseId && (
-                <p className="muted verification__case-follows" data-testid="verification__case-follows">
+                <p className="lt-muted" data-testid="verification__case-follows">
                   <Copy k="follows" />
                 </p>
               )}
               {c.state === 'rejected' && (
-                <div className="verification__case-reason" data-testid="verification__case-reason" data-reason={c.reason?.code ?? ''}>
+                <div className="lt-stack" data-testid="verification__case-reason" data-reason={c.reason?.code ?? ''}>
                   {c.reason === null ? (
                     <p>
                       <Copy k="reasonMissing" />
@@ -112,24 +113,24 @@ export function VerificationCases({
                     </>
                   ) : (
                     <>
-                      <p className="verification__case-reason-text" data-testid="verification__case-reason-text">
+                      <p data-testid="verification__case-reason-text">
                         <Copy k="reason" params={{ text: c.reason.text }} />
                       </p>
                       {c.reason.guidance && (
-                        <p className="verification__case-guidance" data-testid="verification__case-guidance">
+                        <p data-testid="verification__case-guidance">
                           <Copy k="whatToDo" params={{ text: c.reason.guidance }} />
                         </p>
                       )}
                     </>
                   )}
                   {c.note && (
-                    <p className="verification__case-note">
+                    <p>
                       <Copy k="note" params={{ text: c.note }} />
                     </p>
                   )}
                   {c.id === newest.id && offered.includes(c.tier) && (
                     <>
-                      <Button variant="secondary" disabled={resubmitDisabled} onClick={() => onResubmit(c.tier)}>
+                      <Button tone="secondary" disabled={resubmitDisabled} onClick={() => onResubmit(c.tier)}>
                         <Copy k="resubmit" />
                       </Button>
                       <p className="lt-muted">
@@ -142,7 +143,7 @@ export function VerificationCases({
               <h4>
                 <Copy k="stepsTitle" />
               </h4>
-              <ol className="verification__case-steps" data-testid="verification__case-steps">
+              <ol className="lt-list" data-testid="verification__case-steps">
                 {c.history.map((step) => (
                   <li key={step.version} data-state={step.state}>
                     <Copy k={`step_${step.state}`} /> · {time(step.at)}
@@ -153,7 +154,7 @@ export function VerificationCases({
           ))}
         </ol>
         {cases.length === limit && limit < 200 && (
-          <Button variant="secondary" onClick={() => setLimit((value) => Math.min(200, value + PAGE))}>
+          <Button tone="secondary" onClick={() => setLimit((value) => Math.min(200, value + PAGE))}>
             <Copy k="more" />
           </Button>
         )}
@@ -161,7 +162,7 @@ export function VerificationCases({
     );
   };
   return (
-    <section className="verification__cases" aria-labelledby="verification-cases-title">
+    <section className="lt-stack" aria-labelledby="verification-cases-title">
       <h2 id="verification-cases-title">
         <Copy k="title" />
       </h2>

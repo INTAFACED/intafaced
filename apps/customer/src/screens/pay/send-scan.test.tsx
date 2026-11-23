@@ -40,7 +40,7 @@ const world = vi.hoisted(() => {
 });
 vi.mock('../../features/session/session', () => ({ useSession: () => world.session }));
 
-import { ToastProvider } from '@intafaced/ui';
+import { ToastProvider } from '@intafaced/ui/lit';
 import { SendCard } from './SendCard';
 import { parseRequestSearch } from '../../features/pay/personal/personal-model';
 
@@ -68,7 +68,7 @@ async function open(search: string) {
   root = createRoot(host);
   await act(async () => {
     root?.render(
-      <ToastProvider>
+      <ToastProvider closeLabel="Dismiss">
         <SendCard identity={{ status: 'handles', handle: 'payer_test' }} prefill={prefill} prefillKey={search} />
       </ToastProvider>,
     );

@@ -238,7 +238,7 @@ struct StopView {
 fn stop_view(order: &EngineOrder) -> StopView {
     StopView {
         side: order.side,
-        stop_price: order.stop_price.unwrap_or(0),
+        stop_price: order.stop_price.unwrap_or(Amount::ZERO),
         trigger_by: read_trigger_by(order),
         trigger_role: read_trigger_role(order),
     }
@@ -363,7 +363,10 @@ fn moved_through(
 
 /// Both or neither: a missing or non-positive trail or mark is not a walk.
 fn trail_peak(trail: Option<Amount>, mark: Option<Amount>) -> (Option<Amount>, Option<Amount>) {
-    match (trail.filter(|t| *t > 0), mark.filter(|m| *m > 0)) {
+    match (
+        trail.filter(|t| *t > Amount::ZERO),
+        mark.filter(|m| *m > Amount::ZERO),
+    ) {
         (Some(t), Some(p)) => (Some(t), Some(p)),
         _ => (None, None),
     }
@@ -592,7 +595,7 @@ impl OrderBook {
                 .iter()
                 .take(limit)
                 .map(|level| {
-                    let total = level.orders.iter().fold(0, |t, o| {
+                    let total = level.orders.iter().fold(Amount::ZERO, |t, o| {
                         add(t, visible_remaining(o.remaining, o.display_remaining))
                     });
                     (level.price, total)
@@ -989,13 +992,13 @@ impl OrderBook {
         }
         let qty = cmd.qty.unwrap_or(resting.remaining);
         let price = cmd.price.unwrap_or(resting.price);
-        if qty <= 0 {
+        if qty <= Amount::ZERO {
             return AmendResult::refused(
                 id,
                 Reject::new("invalid_qty", "quantity must be strictly positive"),
             );
         }
-        if price <= 0 {
+        if price <= Amount::ZERO {
             return AmendResult::refused(
                 id,
                 Reject::new("invalid_price", "price must be strictly positive"),
@@ -1133,13 +1136,13 @@ impl OrderBook {
         };
         let stop_price = cmd.stop_price.unwrap_or(stop.stop_price);
         let tif = cmd.tif.unwrap_or(stop.tif);
-        if qty <= 0 {
+        if qty <= Amount::ZERO {
             return AmendResult::refused(
                 id,
                 Reject::new("invalid_qty", "quantity must be strictly positive"),
             );
         }
-        if stop_price <= 0 {
+        if stop_price <= Amount::ZERO {
             return AmendResult::refused(
                 id,
                 Reject::new("invalid_price", "stopPrice must be strictly positive"),
@@ -1153,7 +1156,7 @@ impl OrderBook {
                         Reject::new("missing_price", "a stop_limit order requires a price"),
                     );
                 }
-                Some(p) if p <= 0 => {
+                Some(p) if p <= Amount::ZERO => {
                     return AmendResult::refused(
                         id,
                         Reject::new("invalid_price", "price must be strictly positive"),
@@ -1239,7 +1242,7 @@ impl OrderBook {
             if let Some(i) = self.stop_at(&stop.order_id) {
                 self.stops.remove(i);
             }
-            let reference = self.last_trade_price.unwrap_or(0);
+            let reference = self.last_trade_price.unwrap_or(Amount::ZERO);
             let fired = self.fire(updated.clone(), reference);
             let cascade = self.drain_stops();
             self.last_move = None;
@@ -1309,7 +1312,7 @@ impl OrderBook {
         if let Some(r) = stp_identity_refuse(&order.account_id) {
             return Some(r);
         }
-        if order.qty <= 0 {
+        if order.qty <= Amount::ZERO {
             return Some(Reject::new(
                 "invalid_qty",
                 "quantity must be strictly positive",
@@ -1349,7 +1352,7 @@ impl OrderBook {
                     ));
                 }
                 // A spread price is a weighted leg-price difference and may be zero or negative (`book::spread`).
-                Some(p) if p <= 0 && order.spread.is_none() => {
+                Some(p) if p <= Amount::ZERO && order.spread.is_none() => {
                     return Some(Reject::new(
                         "invalid_price",
                         "price must be strictly positive",
@@ -1372,7 +1375,7 @@ impl OrderBook {
                         format!("a {kind} order requires a stopPrice"),
                     ));
                 }
-                Some(p) if p <= 0 => {
+                Some(p) if p <= Amount::ZERO => {
                     return Some(Reject::new(
                         "invalid_price",
                         "stopPrice must be strictly positive",
@@ -1547,7 +1550,7 @@ impl OrderBook {
     }
 
     fn fillable_qty(&self, order: &Effective) -> Amount {
-        let mut total: Amount = 0;
+        let mut total: Amount = Amount::ZERO;
         let mut remaining = order.qty;
         let taker_min = order.min_qty;
         let mut removed: HashSet<String> = HashSet::new();
@@ -1568,7 +1571,7 @@ impl OrderBook {
                 break;
             }
             for maker in &level.orders {
-                if remaining == 0 {
+                if remaining == Amount::ZERO {
                     return total;
                 }
                 if removed.contains(&maker.order_id) {
@@ -1585,13 +1588,13 @@ impl OrderBook {
                 }
                 let mut clip =
                     remaining.min(visible_remaining(maker.remaining, maker.display_remaining));
-                if clip == 0 {
+                if clip == Amount::ZERO {
                     return total;
                 }
                 if maker.reduce_only {
                     let open =
                         open_qty(self.net_after_fills(&maker.account_id, &fills), maker.side);
-                    if open == 0 {
+                    if open == Amount::ZERO {
                         continue;
                     }
                     clip = clip.min(open);
@@ -1648,7 +1651,7 @@ impl OrderBook {
         };
         let mut cancellations = matched.cancellations;
         let mut resting = None;
-        if matched.remaining > 0 {
+        if matched.remaining > Amount::ZERO {
             if order.price.is_some() && order.tif.can_rest() {
                 resting = Some(self.rest(order, matched.remaining, sequence, version));
             } else {
@@ -1731,7 +1734,7 @@ impl OrderBook {
         let mut oco_fired: HashSet<String> = HashSet::new();
         let mut level_index = 0usize;
 
-        'levels: while remaining > 0 {
+        'levels: while remaining > Amount::ZERO {
             let Some(level_price) = self.levels(maker_side).get(level_index).map(|l| l.price)
             else {
                 break;
@@ -1742,7 +1745,7 @@ impl OrderBook {
                 break;
             }
             let mut level_done = false;
-            while remaining > 0 {
+            while remaining > Amount::ZERO {
                 let Some(maker) = self.front(maker_side, level_price).cloned() else {
                     break;
                 };
@@ -1775,13 +1778,13 @@ impl OrderBook {
                 }
                 let mut qty =
                     remaining.min(visible_remaining(maker.remaining, maker.display_remaining));
-                if qty == 0 {
+                if qty == Amount::ZERO {
                     break;
                 }
                 if maker.reduce_only {
                     let open =
                         open_qty(self.net_after_fills(&maker.account_id, &fills), maker.side);
-                    if open == 0 {
+                    if open == Amount::ZERO {
                         if self.pull_reduce_only_maker(
                             maker_side,
                             level_price,
@@ -1851,7 +1854,7 @@ impl OrderBook {
                 let Some((left, display_left, peak)) = now else {
                     continue;
                 };
-                if left == 0 {
+                if left == Amount::ZERO {
                     // `level.orders.shift()`: the emptied level is dropped after the loop, as the TypeScript does.
                     if let Some(at) = self.level_at(maker_side, level_price)
                         && let Some(level) = self.levels_mut(maker_side).get_mut(at)
@@ -1861,7 +1864,8 @@ impl OrderBook {
                     }
                     self.index.remove(&maker.order_id);
                 } else if maker.reduce_only
-                    && open_qty(self.net_after_fills(&maker.account_id, &fills), maker.side) == 0
+                    && open_qty(self.net_after_fills(&maker.account_id, &fills), maker.side)
+                        == Amount::ZERO
                 {
                     if self.pull_reduce_only_maker(
                         maker_side,
@@ -1871,7 +1875,7 @@ impl OrderBook {
                     ) {
                         continue 'levels;
                     }
-                } else if display_left == Some(0)
+                } else if display_left == Some(Amount::ZERO)
                     && let Some(peak) = peak
                 {
                     if let Some(at) = self.level_at(maker_side, level_price)
@@ -1922,7 +1926,7 @@ impl OrderBook {
                 order_id: order.order_id.clone(),
                 account_id: order.account_id.clone(),
                 side: order.side,
-                price: 0,
+                price: Amount::ZERO,
                 remaining,
                 sequence,
                 version,
@@ -2070,7 +2074,7 @@ impl OrderBook {
             .position(|s| self.legacy_level_triggered(s))
         {
             let stop = self.stops.remove(at);
-            let reference = self.last_trade_price.unwrap_or(0);
+            let reference = self.last_trade_price.unwrap_or(Amount::ZERO);
             outcomes.push(self.fire(stop, reference));
         }
     }
@@ -2358,7 +2362,10 @@ impl OrderBook {
 
     /// The account's signed net fill quantity on this book: positive long, negative short, zero flat.
     pub fn net_position(&self, account_id: &str) -> Amount {
-        self.positions.get(account_id).copied().unwrap_or(0)
+        self.positions
+            .get(account_id)
+            .copied()
+            .unwrap_or(Amount::ZERO)
     }
 
     /// The net after the fills this match has already taken; the book's own net moves only once the match is done.
@@ -2426,7 +2433,7 @@ impl OrderBook {
     fn reserved_reduce_only(&self, account_id: &str, side: Side, except: Option<&str>) -> Amount {
         self.reduce_only_rows(account_id, side, except)
             .iter()
-            .fold(0, |t, r| add(t, r.qty))
+            .fold(Amount::ZERO, |t, r| add(t, r.qty))
     }
 
     fn signed_position(&self, account_id: &str, explicit: Option<Amount>) -> Amount {
@@ -2442,7 +2449,11 @@ impl OrderBook {
     fn reducible_qty(&self, account_id: &str, side: Side, except: Option<&str>) -> Amount {
         let open = open_qty(self.signed_position(account_id, None), side);
         let reserved = self.reserved_reduce_only(account_id, side, except);
-        if open > reserved { open - reserved } else { 0 }
+        if open > reserved {
+            open - reserved
+        } else {
+            Amount::ZERO
+        }
     }
 
     /// The order's own size must fit the open quantity after the reduce-only rows that stay. An untriggered stop always
@@ -2462,7 +2473,7 @@ impl OrderBook {
                 r.kind == RestKind::Stop
                     || !more_aggressive(order.side, incoming_price(order), r.price)
             })
-            .fold(0, |t, r| add(t, r.qty));
+            .fold(Amount::ZERO, |t, r| add(t, r.qty));
         add(order.qty, reserved) > open
     }
 
@@ -2478,7 +2489,7 @@ impl OrderBook {
             return Vec::new();
         }
         let rows = self.reduce_only_rows(&order.account_id, order.side, Some(&order.order_id));
-        let mut reserved = rows.iter().fold(0, |t, r| add(t, r.qty));
+        let mut reserved = rows.iter().fold(Amount::ZERO, |t, r| add(t, r.qty));
         let mut less: Vec<&ReduceRow> = rows
             .iter()
             .filter(|r| {
@@ -2572,7 +2583,7 @@ impl OrderBook {
 
     fn add_position(&mut self, account_id: &str, delta: Amount) {
         let next = add(self.net_position(account_id), delta);
-        if next == 0 {
+        if next == Amount::ZERO {
             self.positions.remove(account_id);
         } else {
             self.positions.insert(account_id.to_owned(), next);
@@ -2718,7 +2729,7 @@ impl OrderBook {
             TriggerBy::Index => self.index_price,
             _ => self.mark_price,
         };
-        let price = price.filter(|p| *p > 0);
+        let price = price.filter(|p| *p > Amount::ZERO);
         match source {
             TriggerBy::Index => self.index_price = price,
             _ => self.mark_price = price,
@@ -2757,14 +2768,14 @@ impl OrderBook {
 
     /// Remember the extreme a trailing stop follows. Nothing for a stop that does not trail or a peak not positive.
     pub fn note_stop_peak(&mut self, order_id: &str, peak: Amount) -> bool {
-        if peak <= 0 {
+        if peak <= Amount::ZERO {
             return false;
         }
         let Some(at) = self.stop_at(order_id) else {
             return false;
         };
         match self.stops.get_mut(at) {
-            Some(stop) if stop.trail.is_some_and(|t| t > 0) => {
+            Some(stop) if stop.trail.is_some_and(|t| t > Amount::ZERO) => {
                 stop.peak = Some(peak);
                 true
             }
@@ -2790,14 +2801,16 @@ impl OrderBook {
         self.stops
             .iter()
             .filter_map(|s| match (s.trail, s.peak) {
-                (Some(trail), Some(peak)) if trail > 0 && peak > 0 => Some(TrailingStop {
-                    order_id: s.order_id.clone(),
-                    side: s.side,
-                    trail,
-                    peak,
-                    stop_price: s.stop_price,
-                    version: s.version,
-                }),
+                (Some(trail), Some(peak)) if trail > Amount::ZERO && peak > Amount::ZERO => {
+                    Some(TrailingStop {
+                        order_id: s.order_id.clone(),
+                        side: s.side,
+                        trail,
+                        peak,
+                        stop_price: s.stop_price,
+                        version: s.version,
+                    })
+                }
                 _ => None,
             })
             .collect()
@@ -2864,8 +2877,10 @@ impl OrderBook {
     }
 
     fn sorted_positions(map: &HashMap<String, Amount>, keep_zero: bool) -> Vec<Json> {
-        let mut rows: Vec<(&String, &Amount)> =
-            map.iter().filter(|(_, q)| keep_zero || **q != 0).collect();
+        let mut rows: Vec<(&String, &Amount)> = map
+            .iter()
+            .filter(|(_, q)| keep_zero || **q != Amount::ZERO)
+            .collect();
         rows.sort_by(|a, b| js_sort_cmp(a.0, b.0));
         rows.into_iter()
             .map(|(account, qty)| {
@@ -2915,7 +2930,9 @@ impl OrderBook {
                                     f.push(("displayQty".into(), Json::str(format_amount(peak))));
                                     f.push((
                                         "displayRemaining".into(),
-                                        Json::str(format_amount(o.display_remaining.unwrap_or(0))),
+                                        Json::str(format_amount(
+                                            o.display_remaining.unwrap_or(Amount::ZERO),
+                                        )),
                                     ));
                                 }
                                 if let Some(m) = o.min_qty {
@@ -3092,7 +3109,7 @@ impl OrderBook {
                 OrderType::Stop
             };
             let (trail, peak) = match (sr.opt_amount("trail")?, sr.opt_amount("peak")?) {
-                (Some(t), Some(p)) if t > 0 && p > 0 => (Some(t), Some(p)),
+                (Some(t), Some(p)) if t > Amount::ZERO && p > Amount::ZERO => (Some(t), Some(p)),
                 _ => (None, None),
             };
             let stop = StopOrder {
@@ -3156,7 +3173,7 @@ impl OrderBook {
         for row in r.opt_list("positions")? {
             let rr = Reader(row);
             let qty = rr.amount("qty")?;
-            if qty != 0 {
+            if qty != Amount::ZERO {
                 book.positions.insert(rr.text("accountId")?, qty);
             }
         }
@@ -3180,12 +3197,12 @@ impl OrderBook {
 /// `openQty`: how much of the position a fill on this side closes.
 fn open_qty(net: Amount, side: Side) -> Amount {
     match side {
-        Side::Sell => net.max(0),
+        Side::Sell => net.max(Amount::ZERO),
         Side::Buy => {
-            if net < 0 {
+            if net < Amount::ZERO {
                 -net
             } else {
-                0
+                Amount::ZERO
             }
         }
     }

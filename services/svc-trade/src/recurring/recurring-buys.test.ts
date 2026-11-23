@@ -405,6 +405,22 @@ describe('the recurring buy on the venue (J-copy-bots-otc-16)', { timeout: 60_00
     expect(formatAmount((await free(made.basket[0]!.baseAsset)) as Amount)).not.toBe('0');
   });
 
+  it('still runs a due slot after the first attempt to insert it fails', async () => {
+    await approveBuilder();
+    const made = await sign(await create());
+    const spy = vi.spyOn(store, 'insertSlot').mockRejectedValueOnce(new Error('TEST: database connection lost before insert'));
+    try {
+      await nextDay(made.ruleId);
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(await free('USDC')).toBe(a('90'));
+    } finally {
+      spy.mockRestore();
+    }
+    await recurring.tickAll();
+    expect(await free('USDC')).toBe(a('80'));
+    expect((await recurring.get(person, made.ruleId)).slots).toHaveLength(2);
+  });
+
   it('retries a timed-out slot order that never reached the venue under its original key', async () => {
     await approveBuilder();
     const made = await create({ basket: [{ symbol: SYMS[0]!, weightPct: '100' }] });

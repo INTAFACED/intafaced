@@ -4,9 +4,9 @@
 //! A 3D Secure challenge is the card partner asking the cardholder to confirm an online purchase. The partner holds the
 //! code; this row never does, only how many wrong codes were typed. The owner's count (`BANK_CARD_3DS_TRY_LIMIT`) of
 //! wrong codes locks the challenge. The right code approves it, and the purchase's authorisation is then driven once,
-//! under the business key `3ds:<challenge ref>`, through `CardService.authorize`: that move is slice `card-ops`', so an
-//! approved challenge with no authorisation answers "not ported" until that slice is, and stays approved for it to finish
-//! (the TypeScript's own crash path: the next answer with no code finishes it).
+//! under the business key `3ds:<challenge ref>`, through `card-ops`' authorisation (`moves::decide::authorize`). If that
+//! fails the challenge stays approved for the next answer to finish (the TypeScript's own crash path: the next answer
+//! with no code finishes it).
 //!
 //! A fraud report freezes the card as the person's own lock and opens one case for that payment: the payment is the
 //! business key, so filing again returns the same case. Nothing here moves money.
@@ -295,8 +295,8 @@ pub fn list(
 
 /// `CardSafety.answer`: a wrong code counts once and, at the owner's count, locks the challenge; a decided challenge
 /// checks no more codes. The right code approves it. An approved challenge with no authorisation is completed through
-/// `CardService.authorize`, slice `card-ops`'; until it is ported that answers "not ported" and the challenge stays
-/// approved with no authorisation, which the next answer with no code finishes, as after a crash in the TypeScript.
+/// slice `card-ops`' authorisation (`moves::decide::authorize`); if that fails the challenge stays approved with no
+/// authorisation, which the next answer with no code finishes.
 pub fn answer_challenge(
     d: &Deps<'_>,
     card_id: &str,
@@ -359,11 +359,39 @@ pub fn answer_challenge(
     if decided.state != "approved" || decided.authorization_id.is_some() {
         return with(d.store(), |c| view(d, c, &decided));
     }
-    // Approved and not yet authorised: `authorize(cardId, '3ds:<ref>', amount, online, merchant...)` is slice
-    // `card-ops`' move. The challenge stays approved with no authorisation until it is ported.
-    Err(Refusal::Trpc(crate::door::not_ported(
-        crate::door::Slice::CardOps,
-    )))
+    // Approved and not yet authorised: drive the purchase's authorisation, once, under the challenge's business key. If
+    // it fails, the challenge stays approved with no authorisation, and the next answer (with no code) finishes it.
+    let authorization = super::moves::decide::authorize(
+        &super::moves::Moves::bare(d),
+        &super::moves::decide::Ask {
+            card_id: card.id.clone(),
+            authorization_ref: three_ds_authorization_ref(&decided.challenge_ref),
+            amount: service_kit::money::parse_amount(&decided.amount).map_err(Refusal::Other)?,
+            merchant_category: decided.merchant_category.clone(),
+            merchant: decided.merchant.clone(),
+            merchant_country: decided.merchant_country.clone(),
+            channel: Some("online".to_owned()),
+            ..Default::default()
+        },
+    )?;
+    with(d.store(), |c| {
+        let rows = c
+            .query(
+                &format!(
+                    "UPDATE bank.card_3ds_challenges SET authorization_id = COALESCE(authorization_id, $2::text::uuid) \
+                      WHERE id = $1::text::uuid RETURNING {}",
+                    challenge_cols()
+                ),
+                &[&decided.id, &authorization.id],
+            )
+            .map_err(|e| pg(&e))?;
+        let done = rows
+            .first()
+            .map(Challenge::from_row)
+            .transpose()?
+            .ok_or_else(not_found)?;
+        view(d, c, &done)
+    })
 }
 
 fn report_json(r: &Row) -> Json {

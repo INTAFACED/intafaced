@@ -80,12 +80,7 @@ const destinationCheckSchema = z.object({
 export type DestinationCheck = z.infer<typeof destinationCheckSchema>;
 
 /** This area's reads of svc-bank `bank.*`, composed into `bankReads` in contracts.ts. */
-export const rampsReads = {
-  'ramps.onramps': z.array(onrampSchema),
-  'ramps.offramps': z.array(offrampSchema),
-} as const;
+export const rampsReads = {} as const;
 
 /** This area's writes to svc-bank `bank.*`, composed into `bankWrites` in contracts.ts. */
-export const rampsWrites = {
-  'ramps.destinations.rename': destinationSchema,
-} as const;
+export const rampsWrites = {} as const;

@@ -5,10 +5,11 @@
 // Run after `pnpm --filter @intafaced/contracts build`; it rewrites the placeholder in the record's source file.
 //
 //   node tooling/codemod/call-records/samples.mjs <record file.ts> ...
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
+import { KEY_MAPS, quietIssue, quietRefineAt } from './door-refine.mjs';
 
 const REPO = resolve(new URL('../../..', import.meta.url).pathname);
 // The records' own zod: the one @intafaced/contracts resolves.
@@ -74,7 +75,9 @@ function candidates(schema, depth = 0, key = '') {
       return n === 0 ? [[], [item[0]]] : [Array.from({ length: n }, (_, i) => item[i % item.length])];
     }
     case 'string': {
-      if (schema.format === 'uuid') return ['11111111-1111-4111-8111-111111111111'];
+      // A uuid can't say it is a placeholder, so a credential-named one gets no sample: the secret scan would read the
+      // literal as a committed credential, and its call stays by name (no accepted input) rather than land one.
+      if (schema.format === 'uuid') return CREDENTIAL_KEY.test(key) ? [] : ['11111111-1111-4111-8111-111111111111'];
       if (schema.format === 'date-time') return ['2026-01-01T00:00:00.000Z'];
       if (schema.format === 'date') return ['2026-01-01'];
       if (schema.format === 'email') return ['a@example.com'];
@@ -120,8 +123,14 @@ function candidates(schema, depth = 0, key = '') {
 
 const REFUSALS = [42, 'not-an-input', [], null, true, { '': 1 }];
 
-/** Values tried where an input check sits: blanks, short and long strings, numbers and absence. */
-const CHECK_TRIES = [undefined, null, '', ' ', 'x', 'ab', 'x'.repeat(1001), 0, -1, 1, ...STRINGS, [], {}];
+/** Values tried where an input check sits: blanks, short and long strings, numbers, absence, and maps of growing size. */
+const CHECK_TRIES = [undefined, null, '', ' ', 'x', 'ab', 'x'.repeat(1001), 0, -1, 1, ...STRINGS, [], {}, ...KEY_MAPS];
+
+/** zod's own words for a custom issue: what a `.refine` written with no message raises. */
+const QUIET = z
+  .unknown()
+  .refine(() => false)
+  .safeParse(0).error.issues[0].message;
 
 /** `v` with the value at `steps` (`.reason`, `[]`) set to `value`, or undefined when the path is not there. */
 function setAt(v, steps, value) {
@@ -148,21 +157,26 @@ const stepsOf = (at) => [...at.replace(/^input/, '').matchAll(/\.([\w$]+)|\[\]/g
 /**
  * For each input check the record names, an input refused by that check alone: every issue zod raises is its own words
  * (a custom issue whose message is one of the check's), so the export, which carries the check only by name, accepts it.
- * Tried from every candidate the schema allows, with the value where the check sits replaced.
+ * Tried from every candidate the schema allows, with the value where the check sits replaced. A check that sits on a
+ * `.refine` written with no message (a door's, named by the door: door-refine.mjs) raises zod's own words, and is known
+ * by them at the very place the value was tried.
  */
 function checkRefusals(record, bases) {
   const out = [];
   for (const [name, check] of Object.entries(record.checks ?? {})) {
     const says = new Set(check.says.split('; '));
-    const alone = (v) => {
+    const alone = (v, steps) => {
+      const quiet = quietRefineAt(record.input, steps);
       const r = record.input.safeParse(v);
-      return !r.success && r.error.issues.every((i) => i.code === 'custom' && says.has(i.message));
+      return (
+        !r.success && r.error.issues.every((i) => i.code === 'custom' && (says.has(i.message) || (quiet && quietIssue(i, steps, QUIET))))
+      );
     };
     let found;
     for (const at of typeof check.at === 'string' ? [check.at] : check.at) {
       const steps = stepsOf(at);
       const tries = bases.flatMap((b) => (steps.length ? CHECK_TRIES.map((t) => setAt(b, steps, t)) : [b]));
-      found = tries.find((v) => v !== undefined && alone(v));
+      found = tries.find((v) => v !== undefined && alone(v, steps));
       if (found !== undefined) break;
     }
     if (found === undefined)
@@ -173,14 +187,29 @@ function checkRefusals(record, bases) {
 }
 
 /**
- * A Rust door's own accepted input for each call: the `valid` request its wire replay sends (`tests/fixtures/
- * wire-replay.golden.json`), when the operator's answer to it, with the store down, is not a 400. A handler may check
- * its input past the schema (a date range, a slug), so only a request the door itself let through is an accepted sample.
+ * A Rust door's own accepted input for each call: the `valid` request its wire replay sends, when the door let it through.
+ * A handler may check its input past the schema (a date range, a slug), so only a request the door itself let through is
+ * an accepted sample. Two recordings: svc-academy's one file (`tests/fixtures/wire-replay.golden.json`), read by the
+ * operator's answer with the store down, not a 400; and svc-agents' directory of parts (`tests/fixtures/
+ * wire-replay.golden/*.json`), where some caller's answer to it is past the door's checks: not a 400, 401 or 403.
  */
-function doorAccepts(crateDir) {
-  const golden = JSON.parse(readFileSync(join(REPO, crateDir, 'tests/fixtures/wire-replay.golden.json'), 'utf8'));
-  const operator = 3; // the answers' callers: anon, read, write, operator (record-door.mjs), the last holding every scope
+export function doorAccepts(crateDir) {
+  const dir = join(REPO, crateDir, 'tests/fixtures/wire-replay.golden');
   const out = new Map();
+  if (existsSync(dir)) {
+    for (const f of readdirSync(dir)
+      .filter((x) => x.endsWith('.json'))
+      .sort()) {
+      const part = JSON.parse(readFileSync(join(dir, f), 'utf8'));
+      for (const [path, valid] of Object.entries(part.inputs ?? {})) {
+        const answers = Object.entries(part.answers ?? {}).filter(([k]) => k.startsWith(`${path} valid `));
+        if (answers.some(([, a]) => ![400, 401, 403].includes(a.status))) out.set(path, valid);
+      }
+    }
+    return out;
+  }
+  const golden = JSON.parse(readFileSync(`${dir}.json`, 'utf8'));
+  const operator = 3; // the answers' callers: anon, read, write, operator (record-door.mjs), the last holding every scope
   for (const c of golden.calls) {
     const answer = golden.answers[c.path]?.['store-down valid'];
     const body = answer === undefined ? undefined : golden.bodies[answer[operator]];

@@ -41,7 +41,6 @@ pub struct Wiring {
     pub statements: statements::Wiring,
     pub analytics: analytics::Wiring,
     pub portfolio: portfolio::Wiring,
-    pub calendar: calendar::Wiring,
 }
 
 impl Wiring {
@@ -55,7 +54,6 @@ impl Wiring {
             statements: statements::Wiring::none(),
             analytics: analytics::Wiring::none(),
             portfolio: portfolio::Wiring::none(),
-            calendar: calendar::Wiring::none(),
         }
     }
 }
@@ -105,7 +103,6 @@ pub fn wiring(b: &Build<'_>) -> Result<Wiring, String> {
         statements: statements::wiring(b)?,
         analytics: analytics::wiring(b)?,
         portfolio: portfolio::wiring(b)?,
-        calendar: calendar::wiring(b)?,
     })
 }
 

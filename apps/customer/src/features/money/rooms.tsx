@@ -87,7 +87,8 @@ import { SalaryRoom } from './Salary';
 import { salaryCopy } from './salary-copy';
 import { StatementLetters, TaxStatements } from './StatementExtras';
 import { statementCentreCopy } from './statement-centre-copy';
-import { bankLabels, bankRoomHref, bankRooms } from './bank-frame/bank-rooms';
+import { bankLabels } from './bank-frame/bank-rooms';
+import { BankTabs } from './bank-frame/BankFrame';
 import {
   BANK_TRANSFERS_CANCEL,
   BANK_TRANSFERS_LIST_SCHEDULES,
@@ -97,17 +98,6 @@ import { BANK_SPACES_ARCHIVE } from '@intafaced/contracts/bank-spaces-procedures
 import { BANK_SPACES_CREATE } from '@intafaced/contracts/bank-spaces-2-procedures';
 import { BANK_TRANSFERS_SCHEDULE, BANK_TRANSFERS_UPDATE_SCHEDULE } from '@intafaced/contracts/bank-transfers-2-procedures';
 
-export function BankNavigation({ current }: { current: string }) {
-  return (
-    <nav data-testid="money-bank-nav" className="money-bank-nav" aria-label={copyText('rooms.bank.rooms')}>
-      {bankRooms.map((room) => (
-        <a key={room} href={bankRoomHref(room)} aria-current={current === room ? 'page' : undefined}>
-          <Text k={bankLabels[room]} />
-        </a>
-      ))}
-    </nav>
-  );
-}
 function BankPage({
   room,
   title,
@@ -132,7 +122,7 @@ function BankPage({
         ) : undefined
       }
     >
-      <BankNavigation current={room} />
+      <BankTabs where={false} />
       {children}
     </Page>
   );
@@ -390,8 +380,8 @@ function Schedules({ open }: { open: (spec: ActionSpec) => void }) {
                         <h3 lang="und" dir="auto">
                           {row.cadence} · {row.status}
                         </h3>
-                        <p className="money-standing-row-reference">
-                          <span className="money-visually-hidden">
+                        <p className="lt-wrap">
+                          <span className="lt-sr">
                             <Copy k="reference" />
                           </span>
                           <bdi lang="zxx" dir="ltr">
@@ -483,9 +473,11 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
   const referenceWords = referenceIssue ? depth.t(referenceIssue === 'tooLong' ? 'referenceTooLong' : 'referenceCharacters') : null;
   return (
     <BankPage room="Transfers" description={copyText('rooms.move.available.quantities.between.spaces.or.to')}>
-      <DirectDebitsLink />
-      <CalendarLink />
-      <RulesLink />
+      <div className="lt-stack money-transfer-links">
+        <DirectDebitsLink />
+        <CalendarLink />
+        <RulesLink />
+      </div>
       <Section title={copyText('rooms.new.transfer')}>
         <ResourceView resource={query.resource} reload={query.reload}>
           {(spaces) => {

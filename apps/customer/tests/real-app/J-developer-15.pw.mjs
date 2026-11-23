@@ -111,7 +111,7 @@ test(`${J} #1 the master creates a key for the second sub-account: it reaches on
   const options = page.getByLabel('Sub-account', { exact: true }).locator('option');
   await expect(options).toHaveCount(3);
   await expect(options.first()).toHaveText('None: a key for this account');
-  expect((await options.allTextContents()).slice(1).sort()).toEqual(['Sub A', 'Sub B']);
+  await expect.poll(async () => (await options.allTextContents()).slice(1).sort()).toEqual(['Sub A', 'Sub B']);
   await createOnForm({ name: 'sub-b-reader', account: 'Sub B' });
   subKey = await takeShownKey();
   expect(subKey).toMatch(/^ifc_/);
@@ -312,8 +312,8 @@ test(`${J} #5 creates an agent key: it is tagged and restricted, and a forbidden
   await page.getByLabel('Key name').fill('agent-settings');
   await page.getByLabel('This key is for an AI agent').check();
   await page.getByLabel('Choose', { exact: true }).check();
-  await page.getByRole('checkbox', { name: /^trade:read/ }).check();
-  await page.getByRole('checkbox', { name: /^identity:write/ }).check();
+  await page.locator('input[name="scope"][value="trade:read"]').check();
+  await page.locator('input[name="scope"][value="identity:write"]').check();
   await page.getByRole('button', { name: 'Create with a passkey', exact: true }).click();
   await expect(page.getByRole('alert')).toHaveText(
     'An agent key cannot hold refund, payout, withdrawal or settings permissions. Remove them and try again. Nothing was created.',
@@ -333,7 +333,7 @@ test(`${J} #5 creates an agent key: it is tagged and restricted, and a forbidden
   await page.getByLabel('Key name').fill('agent-reader');
   await page.getByLabel('This key is for an AI agent').check();
   await page.getByLabel('Choose', { exact: true }).check();
-  await page.getByRole('checkbox', { name: /^trade:read/ }).check();
+  await page.locator('input[name="scope"][value="trade:read"]').check();
   await page.getByRole('button', { name: 'Create with a passkey', exact: true }).click();
   agentKey = await takeShownKey();
   const row = keyRow('agent-reader');

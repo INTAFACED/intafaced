@@ -62,6 +62,12 @@
   inset-block-start: var(--a11y-obscured-top, calc(var(--lit-topbar-h) + var(--lit-legal-band-min-h)));
 }
 
+/* ---- the section's tab bar (RoomProps.section), under the title row on every template ---- */
+
+.lt-room-section {
+  min-inline-size: 0;
+}
+
 /* ---- title row, stale line ---- */
 
 .lt-title-row {
@@ -69,6 +75,30 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--lit-gap-item);
+}
+
+/* A section's title row that may run out of room (a phone): the title keeps a readable width and the actions move under
+   it, rather than both squeezing onto one line. */
+.lt-title-row-wrap {
+  flex-wrap: wrap;
+}
+.lt-title-row-wrap > :first-child {
+  flex: 1 1 12rem;
+  min-inline-size: 0;
+}
+/* A first part that must never break across lines (a hero price): it keeps its whole width, so the actions move under it. */
+.lt-title-row-wrap > .lt-unbroken {
+  min-inline-size: max-content;
+}
+
+/* A figure that stays on one line (an amount beside a name); the name beside it wraps instead. */
+.lt-nowrap {
+  white-space: nowrap;
+}
+
+/* A room's action keeps its words on one line; the title column gives way, never the button's label. */
+.lt-room-action .lt-button {
+  white-space: nowrap;
 }
 
 .lt-title {
@@ -221,6 +251,11 @@
   }
   .lt-grid-settings {
     grid-template-columns: 13.75rem minmax(0, 1fr) minmax(13.75rem, 18.75rem);
+  }
+  /* A settings room whose section's tab bar sits above it and that has no index of its own: sections and explanation
+     take the two columns, never the index's narrow one. */
+  .lt-grid-settings:not(:has(> [data-region='index'])) {
+    grid-template-columns: minmax(0, 1fr) minmax(13.75rem, 18.75rem);
   }
   .lt-grid-reading-toc {
     grid-template-columns: 13.75rem minmax(0, 45rem);
@@ -473,7 +508,7 @@
   .lt-grid-settings > [data-region='index'] .lt-tabs {
     flex-direction: column;
   }
-  .lt-grid-settings > .lt-gate-area {
+  .lt-grid-settings:has(> [data-region='index']) > .lt-gate-area {
     grid-column: 2 / -1;
   }
   .lt-grid-settings .lt-gate-cols {
@@ -634,7 +669,9 @@
   font: inherit;
   text-decoration: underline;
   cursor: pointer;
-  min-block-size: 1.5rem;
+  /* A link that is its own box (a <summary>, a button) is a whole 24 CSS pixel target at any root size: 1.5rem alone drew
+     21px under Pro's smaller root (summary.lt-link 88x21, look gate run 45057109047). Inline in a sentence it takes none. */
+  min-block-size: max(1.5rem, 24px); /* look-drift-allow: WCAG 2.5.8 sets the minimum target in CSS pixels */
 }
 
 /*
@@ -696,6 +733,19 @@
   flex-wrap: wrap;
 }
 
+/* A field and the one button that acts on it (search, check): the field takes the row, the button sits on its
+   baseline, beside it on a computer and under it when the row is too narrow. */
+.lt-field-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--lit-gap-item);
+  align-items: flex-end;
+}
+
+.lt-field-row > .lit-field-control {
+  flex: 1 1 16rem;
+}
+
 /* Equal weight: same size, style and level. */
 .lt-equal > .lt-button {
   flex: 1 1 0;
@@ -717,6 +767,13 @@
   line-height: var(--lit-type-hero-line);
   font-weight: var(--lit-type-hero-weight);
   letter-spacing: var(--lit-type-hero-tracking);
+}
+/* On a phone the hero figure shrinks with the room, so a price like $65,403.57 stays on one line beside its controls. */
+@container room (max-width: 599px) {
+  .lt-figure-hero {
+    font-size: min(var(--lit-type-hero-size), 11cqi);
+    line-height: 1.1;
+  }
 }
 
 .lt-test {
@@ -755,6 +812,11 @@
   max-block-size: 30rem;
   block-size: auto;
   object-fit: contain;
+}
+
+/* A live camera preview of the person (a selfie): shown as a mirror, as a person expects to see themself. */
+.lt-media[data-mirror] {
+  transform: scaleX(-1);
 }
 
 /* Code read as written (a strategy's source, a line comparison): it keeps its lines, wraps rather than widening the room,
@@ -858,7 +920,7 @@
   flex-direction: column;
 }
 
-.lt-kv > div {
+.lt-kv > :is(div, section) {
   display: flex;
   justify-content: space-between;
   gap: var(--lit-gap-item);
@@ -869,6 +931,18 @@
 
 .lt-kv dt {
   color: var(--lit-text-2);
+}
+
+/* A labelled row whose value is a paragraph (a published text section): its heading reads as the row's label. */
+.lt-kv > section > :is(h2, h3, h4) {
+  margin: 0;
+  font: inherit;
+  color: var(--lit-text-2);
+}
+
+.lt-kv > section > p {
+  margin: 0;
+  text-align: end;
 }
 
 .lt-kv dd {
@@ -1013,12 +1087,25 @@
   border-style: dashed;
 }
 
-/* A row of tabs wraps onto a second line rather than scrolling, so on a phone or at large text every tab stays in view
-   and whole: none sits under a fade or past the edge. */
+/* A row of tabs is one line at every width (issue 10303): wrapped, a section's ten rooms stacked four rows of pills over a
+   phone's first screen. A longer row scrolls sideways, its scroll bar hidden, and fades at its far end until it is
+   scrolled there (lt-scroll-row's timeline), so a cut tab reads as "more"; Tabs scrolls the lit tab into view. */
 .lt-tabs {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: calc(var(--lit-gap-item) / 2);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  /* Room above and below for a tab's focus ring inside the scrolling box, which would clip it, without moving the row.
+     Not at the sides: a row at the screen's edge would then reach past it. */
+  padding-block: 0.25rem;
+  margin-block: -0.25rem;
+  animation: lt-tabs-more linear both;
+  animation-timeline: scroll(self inline);
+}
+[dir='rtl'] .lt-tabs {
+  animation-name: lt-tabs-more-rtl;
 }
 /* A row that scrolls (a room's section index: add lt-scroll-row) fades at its far end until it is scrolled there, so a
    cut link reads as "more", not as broken. The timeline is inactive when nothing overflows, so a row that fits never
@@ -1058,10 +1145,9 @@
   color: var(--lit-text-2);
   text-decoration: none;
   border: 1px solid var(--lit-line);
-  /* A tab keeps its width and never squeezes over its neighbour: the row wraps instead (.lt-tabs). One line while it
-     fits; a label longer than the whole row (long copy, large text) wraps inside its pill. */
+  /* A tab keeps its width and its one line, never squeezing over its neighbour: the row scrolls instead (.lt-tabs). */
   flex-shrink: 0;
-  max-inline-size: 100%;
+  white-space: nowrap;
   text-align: center;
 }
 
@@ -1153,6 +1239,11 @@ button.lt-tab {
 
 .lt-table [data-align='end'] {
   text-align: end;
+}
+
+/* Words, not figures: a last column of prose reads from its start, even inside an old room whose tables end-align it. */
+.lt-table [data-align='start'] {
+  text-align: start;
 }
 
 .lt-table tr[data-selected] td {
@@ -1324,6 +1415,95 @@ button.lt-tab {
   .lt-table td::before {
     content: attr(data-label);
     color: var(--lit-text-2);
+  }
+  /* An empty table's one message is not a labelled value: it reads as one block across the phone, never split in two. */
+  .lt-table tr[data-empty] td {
+    display: block;
+    text-align: center;
+  }
+}
+
+/* A table in a column too narrow for its columns at any width (a reading page's many-column catalogue) asks to stack
+   always, with `data-stack="always"`: the same labelled rows as on a phone. */
+.lt-table[data-stack='always'] thead {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+/* The hidden header's names one under another, each as wide as its own words, so its row never reaches past a
+   phone's width and no name spills out of its own box. */
+.lt-table[data-stack='always'] thead tr {
+  display: block;
+}
+.lt-table[data-stack='always'] thead th {
+  display: inline-block;
+}
+.lt-table[data-stack='always'],
+.lt-table[data-stack='always'] tbody,
+.lt-table[data-stack='always'] tr,
+.lt-table[data-stack='always'] td {
+  display: block;
+}
+.lt-table[data-stack='always'] tr {
+  padding-block: var(--lit-gap-item);
+  border-block-end: 1px solid var(--lit-line);
+}
+.lt-table[data-stack='always'] td {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--lit-gap-item);
+  block-size: auto;
+  min-block-size: 1.75rem;
+  border: 0;
+  padding-inline: 0;
+}
+.lt-table[data-stack='always'] td::before {
+  content: attr(data-label);
+  color: var(--lit-text-2);
+}
+/* An empty table's one message is not a labelled value: it reads as one block across the phone, never split in two. */
+.lt-table[data-stack='always'] tr[data-empty] td {
+  display: block;
+  text-align: center;
+}
+
+/* A table with a header row whose cells carry no label (`data-label`) can't say which value is which once stacked: on a
+   phone it keeps its header and columns, and its cells wrap (long words break) so it stays inside the phone's width.
+   (The kit's Table labels every cell; this holds a hand-written `lt-table`.) */
+@container room (max-width: 599px) {
+  .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) {
+    display: table;
+    table-layout: auto;
+  }
+  .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) thead {
+    position: static;
+    display: table-header-group;
+    inline-size: auto;
+    block-size: auto;
+    overflow: visible;
+    clip-path: none;
+  }
+  .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) thead tr,
+  .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) tbody tr {
+    display: table-row;
+    padding-block: 0;
+  }
+  .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) tbody {
+    display: table-row-group;
+  }
+  .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) :is(th, td) {
+    display: table-cell;
+    overflow-wrap: anywhere;
+  }
+  .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) td {
+    block-size: var(--lit-row-h);
+    padding-inline: var(--lit-gap-item);
+    border-block-end: 1px solid var(--lit-line);
+  }
+  .lt-table:has(> thead):not(:has(td[data-label], tr[data-empty])) td::before {
+    content: none;
   }
 }
 
@@ -1527,7 +1707,9 @@ button.lt-tab {
 }
 
 /* ChartBox: a definite size for a library that draws into an element (the coin page's chart); whatever it holds fills it.
-   ChartCanvas's colour is the accent role, for a library that reads its line colour from the element. */
+   ChartCanvas's colour is the accent role, for a library that reads its line colour from the element. It clips to its
+   box with square corners: a library draws its axis labels into the corners, and a rounded clip (Volt's control radius
+   is a pill) cuts them. */
 .lt-chart-box {
   position: relative;
   display: grid;
@@ -1540,7 +1722,6 @@ button.lt-tab {
   position: relative;
   min-inline-size: 0;
   color: var(--lit-accent);
-  border-radius: var(--lit-radius-control);
   overflow: hidden;
 }
 
@@ -1551,6 +1732,27 @@ button.lt-tab {
 
 .lt-bar {
   fill: var(--lit-accent);
+}
+
+/* Bars: each bar's name and amount, in a column under its bar. */
+.lt-bars-key {
+  display: grid;
+  gap: var(--lit-gap-item);
+  margin-block-start: calc(var(--lit-gap-item) / 2);
+  text-align: center;
+}
+.lt-bars-key > span {
+  display: flex;
+  flex-direction: column;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+.lt-bars-name {
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+}
+.lt-bars-value {
+  font-variant-numeric: tabular-nums;
 }
 
 .lt-chart-refused {
@@ -1708,7 +1910,7 @@ button.lt-tab {
 
 /* The control fills its field and gives way when the row it sits in is narrower than its own width, so a row of fields
    on a phone, or at twice the text size, never runs past the screen. */
-.lt-field input:not([type='checkbox'], [type='radio']),
+.lt-field input:not([type='checkbox'], [type='radio'], [type='file']),
 .lt-field select,
 .lt-field textarea {
   inline-size: 100%;
@@ -1722,8 +1924,10 @@ button.lt-tab {
   font: inherit;
 }
 
+/* A box of several lines keeps the tile's corners: the control's pill radius turns a tall box into an oval. */
 .lt-field textarea {
   padding-block: 0.5rem;
+  border-radius: var(--lit-radius-tile);
 }
 
 .lt-field :is(input, select, textarea):focus-visible {
@@ -1747,16 +1951,138 @@ button.lt-tab {
   gap: 0.5rem;
 }
 
-/* The app's base reset (packages/ui/src/theme/base.css) leaves every input with appearance: none and no size, which
-   draws a tick as nothing: keep the browser's own control, sized, in the kit's accent. */
-.lt-field input:is([type='checkbox'], [type='radio']) {
-  appearance: auto;
+/* ---- the browser's own form controls, drawn by the kit (issue 10316) ----
+   The app's base reset (packages/ui/src/theme/base.css) leaves every input with appearance: none and no size, which
+   draws a tick as nothing, and the browser's own fieldset, file and date chrome reads as unfinished on Volt's black.
+   These rules draw them once for every room on the look, kit part or plain element alike. They match with the least
+   weight a type can have, so a room's own class still wins. */
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) input:is([type='checkbox'], [type='radio']) {
+  appearance: none;
+  display: inline-grid;
+  place-content: center;
   flex: none;
-  inline-size: 1rem;
-  block-size: 1rem;
+  inline-size: 1.125rem;
+  block-size: 1.125rem;
   margin: 0;
-  accent-color: var(--lit-accent);
+  border: 1px solid var(--lit-line-strong);
+  border-radius: 0.3125rem;
+  background: var(--lit-solid-bg-raised);
+  vertical-align: middle;
   cursor: pointer;
+}
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) input[type='radio'] {
+  border-radius: 50%;
+}
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) input:is([type='checkbox'], [type='radio']):is(:checked, :indeterminate) {
+  border-color: transparent;
+  background: var(--lit-accent-fill);
+}
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) input:is([type='checkbox'], [type='radio'])::before {
+  content: '';
+  inline-size: 0.625rem;
+  block-size: 0.625rem;
+  background: var(--lit-on-accent);
+  transform: scale(0);
+}
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) input[type='checkbox']::before {
+  clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+}
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) input[type='checkbox']:indeterminate::before {
+  block-size: 0.125rem;
+  clip-path: none;
+  transform: none;
+}
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) input[type='radio']::before {
+  inline-size: 0.5rem;
+  block-size: 0.5rem;
+  border-radius: 50%;
+}
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) input:is([type='checkbox'], [type='radio']):checked::before {
+  transform: scale(1);
+}
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) input:is([type='checkbox'], [type='radio']):focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) input:is([type='checkbox'], [type='radio']):disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Forced colours paint over backgrounds, which would hide the tick: the browser's own box comes back there. */
+@media (forced-colors: active) {
+  :where([data-look='lit']) :where(.if-app, [data-slot]) input:is([type='checkbox'], [type='radio']) {
+    appearance: auto;
+  }
+  :where([data-look='lit']) :where(.if-app, [data-slot]) input:is([type='checkbox'], [type='radio'])::before {
+    content: none;
+  }
+}
+
+/* A fieldset groups its controls; the browser's grooved white frame around it is not Volt's. A fieldset with no class of
+   its own stacks its fields with the item gap. */
+:where([data-look='lit']) :where(.if-app, [data-slot]) fieldset {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) fieldset:not([class]) {
+  display: grid;
+  gap: var(--lit-gap-item);
+}
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) legend {
+  padding: 0;
+}
+
+/* A file picker: its button is the kit's secondary button, the name of the file chosen beside it in the quiet text. */
+:where([data-look='lit']) :where(.if-app, [data-slot]) input[type='file'] {
+  max-inline-size: 100%;
+  color: var(--lit-text-2);
+  font: inherit;
+}
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) input[type='file']::file-selector-button {
+  /* Sized by its padding, not the control height: a room may set its picker's own height, which clips a taller button. */
+  margin-inline-end: var(--lit-gap-item);
+  padding-block: 0.4375rem;
+  padding-inline: 1rem;
+  border: 1px solid var(--lit-line-strong);
+  border-radius: var(--lit-radius-control);
+  background: var(--lit-secondary-bg);
+  color: var(--lit-text-1);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) input[type='file']:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+
+/* A date or time box in the look's scheme: its digits in the page's text, its calendar mark readable on black. */
+:where([data-look='lit']) :where(.if-app, [data-slot]) input:is([type='date'], [type='datetime-local'], [type='time'], [type='month']) {
+  color-scheme: dark;
+  font-variant-numeric: tabular-nums;
+}
+
+:root:where([data-look='lit'][data-theme='light'])
+  :where(.if-app, [data-slot])
+  input:is([type='date'], [type='datetime-local'], [type='time'], [type='month']) {
+  color-scheme: light;
 }
 
 .lt-button:disabled {
@@ -1861,6 +2187,34 @@ button.lt-tab {
   flex-direction: column;
   gap: var(--lit-gap-item);
   min-inline-size: 0;
+}
+
+/* A step of several parts, each under its own heading (a room's checks, forms and records in one column): the parts sit
+   a section apart with a line between them, so they read as one aligned column, never cards inside a card. On a list it
+   also drops the markers. */
+.lt-sections {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-section);
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lt-sections > * + * {
+  border-block-start: 1px solid var(--lit-line);
+  padding-block-start: var(--lit-gap-section);
+}
+
+/* A plain list of short rows (what a level unlocks): no markers, the kit's item gap. */
+.lt-list {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--lit-gap-item) / 2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 /* An outline row set in by its owner-set depth (a course item under a sub-heading): 0 to 2 steps. */
@@ -2026,6 +2380,54 @@ button.lt-tab {
   color: var(--lt-on-brand, var(--lit-text-1));
 }
 
+/* ---- doors: a short list of entry points to other rooms, each a card, as many to a row as fit ---- */
+
+.lt-doors {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--lit-gap-item);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+}
+
+.lt-doors > li > * {
+  block-size: 100%;
+}
+
+/* ---- a room's own plain markup in a slot: the kit's rhythm, never text run together ---- */
+
+/* Blocks a room writes as plain elements in a slot (a section, its heading, a paragraph, a list, a disclosure) sit
+   one gap apart. Only where their parent is the region or a plain element with no class: a kit part lays out its own
+   children. Inline parts (a button beside a button, a chip after a name) are never pushed apart here. */
+.lt-region
+  > :is(section, div, form, fieldset, details, h2, h3, h4, p, ul, ol, dl, table, pre, blockquote, figure)
+  + :is(section, div, form, fieldset, details, h2, h3, h4, p, ul, ol, dl, table, pre, blockquote, figure),
+.lt-region
+  :not([class])
+  > :is(section, div, form, fieldset, details, h2, h3, h4, p, ul, ol, dl, table, pre, blockquote, figure)
+  + :is(section, div, form, fieldset, details, h2, h3, h4, p, ul, ol, dl, table, pre, blockquote, figure) {
+  margin-block-start: var(--lit-gap-item);
+}
+
+/* A heading after other parts opens a new group: a section gap above it. */
+.lt-region > * + :is(h2, h3, h4),
+.lt-region :not([class]) > * + :is(h2, h3, h4) {
+  margin-block-start: var(--lit-gap-section);
+}
+
+/* Sections side by side in one slot read as separate groups: a section gap and a hairline between them. */
+.lt-region section:not(.lt-region) + section {
+  margin-block-start: var(--lit-gap-item);
+  padding-block-start: var(--lit-gap-section);
+  border-block-start: 1px solid var(--lit-line);
+}
+
+/* A plain list's items in a slot sit apart, each one its own line. */
+.lt-region :is(ul, ol):not([class]) > li + li {
+  margin-block-start: calc(var(--lit-gap-item) / 2);
+}
+
 /* ---- record rows: a list of records, one per row, each with its own stacked lines ---- */
 
 /* A list of records drawn as rows (a notification, an alert, a firing): no bullets, a line between rows, each row's
@@ -2042,6 +2444,28 @@ button.lt-tab {
   gap: calc(var(--lit-gap-item) / 2);
   padding-block: var(--lit-gap-item);
   border-block-end: 1px solid var(--lit-line);
+}
+
+/* One record on one line: a leading mark, the record's lines taking the room, and its end part (a time, a mark) kept
+   together at the end of the first line, never pushed under the words. */
+.lt-record-line {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--lit-gap-item);
+  inline-size: 100%;
+  text-align: start;
+}
+
+.lt-record-line > .lt-lines {
+  flex: 1 1 auto;
+}
+
+.lt-record-line > [data-part='end'] {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--lit-gap-item) / 2);
+  color: var(--lit-text-2);
 }
 
 /* A record's own lines, stacked: its name first, then each line under it. */

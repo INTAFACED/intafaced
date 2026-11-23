@@ -19,7 +19,8 @@ import {
 } from '../blueprint-reads';
 import { blueprintSessionCopy } from '../blueprint-session-copy';
 import { Details } from '../catalogue-parts';
-import { t as copyText, Text } from '../copy';
+import { birthDateOptions } from '../birth-date';
+import { copy, t as copyText, Text } from '../copy';
 import { useKitAction } from '../volt-action';
 import { KitRead, Section } from '../volt-parts';
 
@@ -32,7 +33,9 @@ export function BlueprintRoom({ path }: { path: string }) {
   const api = useApi(),
     { userId } = useSession(),
     action = useKitAction('blueprint'),
-    { t: label } = blueprintSessionCopy.useCopy();
+    { t: label } = blueprintSessionCopy.useCopy(),
+    { renderedLocale } = copy.useCopy();
+  const birth = birthDateOptions(renderedLocale, copyText('blueprint.birth.not.given'), new Date().getUTCFullYear());
   const [size, setSize] = useState<CardSize>('portrait'),
     [erase, setErase] = useState(''),
     [exporting, setExporting] = useState(false),
@@ -258,7 +261,14 @@ export function BlueprintRoom({ path }: { path: string }) {
                         <Text k="blueprint.optional.birth.data" />
                       </summary>
                       <div className="lt-stack">
-                        <Field label={copyText('blueprint.birth.date.optional')} type="date" value="" onChange={() => undefined} />
+                        <fieldset className="lt-stack">
+                          <legend>{copyText('blueprint.birth.date.optional')}</legend>
+                          <div className="lt-toolbar">
+                            <Select label={copyText('blueprint.birth.day')} value="" onChange={() => undefined} options={birth.days} />
+                            <Select label={copyText('blueprint.birth.month')} value="" onChange={() => undefined} options={birth.months} />
+                            <Select label={copyText('blueprint.birth.year')} value="" onChange={() => undefined} options={birth.years} />
+                          </div>
+                        </fieldset>
                         <Field label={copyText('blueprint.birth.time.optional')} type="time" value="" onChange={() => undefined} />
                         <Field label={copyText('blueprint.birth.place.optional')} value="" onChange={() => undefined} maxLength={200} />
                       </div>

@@ -1,7 +1,6 @@
 import { z } from 'zod';
-import { router, scopedProcedure } from '@intafaced/contracts/trpc';
+import { router } from '@intafaced/contracts/trpc';
 import {
-  campaignCatalogueSchema,
   campaignDefinitionInputSchema,
   campaignGetInputSchema,
   ruleLibraryEntrySchema,
@@ -11,8 +10,6 @@ import {
   campaignSchema,
   campaignTransitionInputSchema,
   campaignUpdateInputSchema,
-  campaignViewSchema,
-  myCampaignsSchema,
 } from '@intafaced/contracts/campaigns-catalogue';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import {
@@ -22,8 +19,10 @@ import {
   CAMPAIGNS_PARTICIPATION_JOIN,
   CAMPAIGNS_PARTICIPATION_REQUEST_REVIEW,
 } from '@intafaced/contracts/campaigns-procedures';
-import { guard, mapError, opsProcedure, refusalOf, requireOpsMfa } from './kit.js';
+import { mapError, opsProcedure, refusalOf, requireOpsMfa } from './kit.js';
 import type { CampaignServices } from '../router.js';
+import { CAMPAIGNS_CATALOGUE_LIST, CAMPAIGNS_CATALOGUE_GET } from '@intafaced/contracts/campaigns-catalogue-procedures';
+import { CAMPAIGNS_PARTICIPATION_MINE } from '@intafaced/contracts/campaigns-participation-procedures';
 
 /** Campaigns themselves: the catalogue and joining for the customer; the operator's campaign desk and rule library. */
 export function campaignRoutes({ campaigns }: CampaignServices) {
@@ -31,25 +30,28 @@ export function campaignRoutes({ campaigns }: CampaignServices) {
     customer: {
       catalogue: router({
         /** The type list, parked types with their blocker, and every published campaign with the caller's own participation. */
-        list: scopedProcedure('campaigns:read', guard)
-          .output(campaignCatalogueSchema)
-          .query(async ({ ctx }) => {
+        list: mountRecord(
+          CAMPAIGNS_CATALOGUE_LIST,
+          async ({ ctx }) => {
             try {
               return await campaigns.catalogue(ctx.principal!.userId);
             } catch (err) {
               mapError(err);
             }
-          }),
-        get: scopedProcedure('campaigns:read', guard)
-          .input(campaignGetInputSchema)
-          .output(campaignViewSchema)
-          .query(async ({ ctx, input }) => {
+          },
+          refusalOf,
+        ),
+        get: mountRecord(
+          CAMPAIGNS_CATALOGUE_GET,
+          async ({ ctx, input }) => {
             try {
               return await campaigns.get({ id: input.id, accountId: ctx.principal!.userId });
             } catch (err) {
               mapError(err);
             }
-          }),
+          },
+          refusalOf,
+        ),
       }),
       participation: router({
         join: mountRecord(
@@ -62,15 +64,17 @@ export function campaignRoutes({ campaigns }: CampaignServices) {
           async ({ ctx, input }) => campaigns.requestReview({ campaignId: input.campaignId, accountId: ctx.principal.userId }),
           refusalOf,
         ),
-        mine: scopedProcedure('campaigns:read', guard)
-          .output(myCampaignsSchema)
-          .query(async ({ ctx }) => {
+        mine: mountRecord(
+          CAMPAIGNS_PARTICIPATION_MINE,
+          async ({ ctx }) => {
             try {
               return await campaigns.myCampaigns(ctx.principal!.userId);
             } catch (err) {
               mapError(err);
             }
-          }),
+          },
+          refusalOf,
+        ),
       }),
     },
     opsCampaigns: {

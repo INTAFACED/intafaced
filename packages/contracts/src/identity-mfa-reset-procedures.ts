@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { defineProcedure, NO_INPUT } from './procedure.js';
-import { mfaResetCancelSchema, mfaResetStatusSchema } from './identity.js';
+import { mfaResetCancelSchema, mfaResetStatusSchema, mfaResetViewSchema } from './identity.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-identity `mfaReset.*`, one record per call: svc-identity mounts each (`mountRecord`) and every app caller calls it by its record. */
@@ -30,6 +30,36 @@ export const IDENTITY_MFA_RESET_CANCEL = defineProcedure({
   output: mfaResetCancelSchema,
   samples: [
     { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const IDENTITY_MFA_RESET_CONFIRM = defineProcedure({
+  ...base,
+  name: 'identity.mfaReset.confirm',
+  kind: 'mutation',
+  path: 'mfaReset.confirm',
+  access: { caller: 'public' },
+  refusals: {},
+  input: z.object({ resetId: z.string().guid(), code: z.string().min(1).max(16) }).strict(),
+  output: mfaResetViewSchema,
+  samples: [
+    { verdict: 'accept', input: { resetId: '11111111-1111-4111-8111-111111111111', code: 'USDC' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const IDENTITY_MFA_RESET_START = defineProcedure({
+  ...base,
+  name: 'identity.mfaReset.start',
+  kind: 'mutation',
+  path: 'mfaReset.start',
+  access: { caller: 'public' },
+  refusals: {},
+  input: z.object({ identifier: z.string().min(1).max(320), password: z.string().min(1).max(200) }).strict(),
+  output: mfaResetViewSchema,
+  samples: [
+    { verdict: 'accept', input: { identifier: 'USDC', password: 'placeholder' } },
     { verdict: 'refuse', input: 42 },
   ],
 });

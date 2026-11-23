@@ -605,3 +605,16 @@ export const offrampOutput = z.object({
   settleLedgerTxId: z.string().nullable(),
   createdAt: z.string(),
 });
+
+export const onrampOutput = z.object({
+  id: z.string(),
+  assetId: assetIdSchema,
+  amount: amountString,
+  kind: z.enum(['crypto', 'fiat']),
+  rail: z.string(),
+  railRef: z.string(),
+  simulated: z.boolean(),
+  status: z.string(),
+  ledgerTxId: z.string().nullable(),
+  createdAt: z.string(),
+});
