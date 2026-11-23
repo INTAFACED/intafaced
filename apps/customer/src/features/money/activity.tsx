@@ -71,7 +71,7 @@ export function MoneyActivity() {
           labels={{ incoming: t(sources.incoming.label), outgoing: t(sources.outgoing.label), scheduled: t(sources.scheduled.label) }}
         />
         <ActivitySource key={`${asset ?? ''}:${source}`} source={source} asset={asset} />
-        <div className="money-activity-related">
+        <div className="lt-actions">
           <a className="text-link" href="/bank/transfers">
             {t('activity.manage.schedules')} ↗
           </a>

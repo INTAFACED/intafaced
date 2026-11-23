@@ -16,7 +16,7 @@ use crate::loans::prices::{MarkPolicy, MarkQuality, PriceSource, acceptable_for_
 use crate::partner::refuse;
 use crate::spaces::space::pg;
 
-const ONE: Amount = 1_000_000_000_000_000_000;
+const ONE: Amount = Amount::whole(1);
 
 /// `CardConversionPolicy`: the loan book's `MarkPolicy` and how far back a previous rate still arms the breaker.
 pub struct Policy {
@@ -52,7 +52,7 @@ pub struct Quote {
 /// `fundingFor`: how many funding units a settlement amount costs, rounded UP so the rail is never a unit short, and
 /// monotonic in the settlement amount so a partial capture never converts to more than the hold.
 pub fn funding_for(settlement_amount: Amount, rate: Amount) -> Result<Amount, Refusal> {
-    if rate <= 0 {
+    if rate <= Amount::ZERO {
         return Err(refuse(
             "bank.mark_invalid",
             format!(
@@ -186,7 +186,7 @@ mod tests {
     fn is_monotonic_in_the_settlement_amount_and_exact_at_the_full_amount() {
         let rate = amt("1.0837");
         let full = funding_for(amt("100"), rate).unwrap();
-        let mut last = 0;
+        let mut last = Amount::ZERO;
         for part in ["0.01", "1", "33.33", "99.99", "100"] {
             let f = funding_for(amt(part), rate).unwrap();
             assert!(f >= last && f <= full);
@@ -197,7 +197,7 @@ mod tests {
 
     #[test]
     fn refuses_a_non_positive_rate_rather_than_treating_it_as_a_free_card() {
-        for rate in [0, -1] {
+        for rate in [Amount::ZERO, -Amount::UNIT] {
             let Err(Refusal::Bank(e)) = funding_for(amt("1"), rate) else {
                 panic!()
             };

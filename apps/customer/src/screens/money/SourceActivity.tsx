@@ -412,11 +412,11 @@ function LineRow({
                 </span>
               )}
               {sub ? (
-                <span data-testid="money-act__sub" className="money-act__sub">
+                <span data-testid="money-act__sub" className="lt-hint">
                   {sub}
                 </span>
               ) : null}
-              <span data-testid="money-act__source" className="money-act__sub" data-source={line.source}>
+              <span data-testid="money-act__source" className="lt-hint" data-source={line.source}>
                 {sourceLabel(line, t)}
                 {test ? (
                   <>
@@ -426,7 +426,7 @@ function LineRow({
                 ) : null}
               </span>
               {/* The source's own reference (J-cex-spot-07 #6): a transaction hash, a fill id, a deposit or a partner move id. */}
-              <span data-testid="money-act__ref" className="money-act__sub money-act__ref">
+              <span data-testid="money-act__ref" className="lt-hint lt-wrap">
                 {t('Source reference {ref}', { ref: line.ref })}
               </span>
             </span>
@@ -507,14 +507,14 @@ function FillParts({ id, line, group, t, hidden }: { id: string; line: SourceLin
   return (
     <tr data-testid="money-act__parts-row" className="money-act__parts-row">
       <td colSpan={4}>
-        <section id={id} data-testid="money-act__parts" aria-label={t('Parts of this order')} className="money-act__parts">
+        <section id={id} data-testid="money-act__parts" aria-label={t('Parts of this order')} className="lt-stack">
           <h3 className="money-detail__h">{t('Parts of this order')}</h3>
           <p className="lt-hint" data-label="fill-reference">
-            {t('Fill reference')} <code className="money-code">{line.ref}</code>
+            {t('Fill reference')} <code className="lt-mono">{line.ref}</code>
           </p>
           {order ? (
             <p className="lt-hint" data-label="order-reference">
-              {t('Order reference')} <code className="money-code">{order}</code>
+              {t('Order reference')} <code className="lt-mono">{order}</code>
             </p>
           ) : null}
           {record && OPEN.has(record.status) ? (
@@ -542,7 +542,7 @@ function FillParts({ id, line, group, t, hidden }: { id: string; line: SourceLin
                 >
                   <td>{partWord(part.part, part.fromHold, t)}</td>
                   <td>
-                    <code className="money-code">{part.fill ?? order ?? ''}</code>
+                    <code className="lt-mono">{part.fill ?? order ?? ''}</code>
                   </td>
                   <td className="money-num">
                     <Amount

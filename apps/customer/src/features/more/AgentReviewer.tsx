@@ -6,18 +6,13 @@ import { DataTable, Field, Panel, Read } from './agent-room/parts';
 import { Answer, toolWords, type Failed } from './AgentGuardrails';
 import { agentGuardrailsCopy } from './agent-guardrails-copy';
 import { agentReviewerCopy } from './agent-reviewer-copy';
-import {
-  ownAgentReviewCheckSchema,
-  type OwnAgent,
-  type OwnAgentReviewCheck,
-  type OwnAgentReviewer,
-  type OwnAgentReviewRow,
-} from '@intafaced/contracts/agents-own';
+import { type OwnAgent, type OwnAgentReviewCheck, type OwnAgentReviewer, type OwnAgentReviewRow } from '@intafaced/contracts/agents-own';
 import {
   AGENTS_OWN_CATALOGUE,
   AGENTS_OWN_REVIEWER_GET,
   AGENTS_OWN_REVIEW_LIST,
   AGENTS_OWN_REVIEWER_SET,
+  AGENTS_OWN_REVIEW_CHECK,
 } from '@intafaced/contracts/agents-own-procedures';
 
 const SHOWN = 50;
@@ -138,12 +133,7 @@ function ReviewerCheck({ agent }: { agent: OwnAgent }) {
     setBusy(true);
     setAnswer(null);
     setRefused(null);
-    const res = await api.query(
-      'agents',
-      'own.review.check',
-      { id: agent.id, tool: name, input: text ? { text } : {} },
-      ownAgentReviewCheckSchema,
-    );
+    const res = await api.call(AGENTS_OWN_REVIEW_CHECK, { id: agent.id, tool: name, input: text ? { text } : {} });
     setBusy(false);
     if (!res.ok) return setRefused(res);
     setAnswer(res.data);

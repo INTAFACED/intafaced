@@ -338,6 +338,11 @@ test("each package's own test script runs as CI's pnpm test runs it, its vitest 
     packageTestCommand('node scripts/run-mvn.mjs test && vitest run --passWithNoTests && node scripts/linked-roundtrip.mjs', t),
     /^node scripts\/run-mvn\.mjs test && vitest related --run .*'\/r\/a\.ts' --passWithNoTests && node scripts\/linked-roundtrip\.mjs$/,
   );
+  // customer: tooling/vitest/run-all.mjs, one related run per config it names, every other argument kept on each.
+  assert.match(
+    packageTestCommand('node ../../tooling/vitest/run-all.mjs vite.config.ts vitest.render.config.ts', t),
+    /^vitest related --run .*'\/r\/a\.ts' --config vite\.config\.ts && vitest related --run .*'\/r\/a\.ts' --config vitest\.render\.config\.ts$/,
+  );
   // mobile: no vitest, the whole script.
   assert.equal(packageTestCommand('node ./scripts/build-wrap.mjs --check', t), 'node ./scripts/build-wrap.mjs --check');
   // Excluded files and quoting.

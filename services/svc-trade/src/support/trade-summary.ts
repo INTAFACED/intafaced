@@ -22,7 +22,7 @@
  * selected.
  */
 import { createHash } from 'node:crypto';
-import type { Sql } from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
 import type {
   SupportTradeLiquidation,
   SupportTradeOrder,
@@ -108,6 +108,21 @@ interface OrderReadRow extends OrderRow {
   has_stop_trigger: boolean;
   /** The stored stop kind: `stop` for a stop-market, `stop_limit` otherwise; null with no stop. */
   stop_kind?: string | null;
+}
+
+/**
+ * One customer's orders with their market and stop kind, newest first, at most `rows` of them: the rows this summary and the
+ * console's customer record (`admin.customerOrders`) both narrow with `toSupportOrder`.
+ */
+export async function selectCustomerOrders(sql: TransactionSql, userId: string, rows: number): Promise<OrderReadRow[]> {
+  return sql<OrderReadRow[]>`
+    SELECT o.*, m.symbol, (t.order_id IS NOT NULL) AS has_stop_trigger, t.kind AS stop_kind
+      FROM trade.orders o
+      JOIN trade.markets m ON m.id = o.market_id
+      LEFT JOIN trade.order_stop_trigger t ON t.order_id = o.id
+     WHERE o.user_id = ${userId}
+     ORDER BY o.created_at DESC, o.id DESC
+     LIMIT ${rows}`;
 }
 
 /** The customer order view narrowed to the contract. A stop-limit or stop-market shows as one, as it does on the customer's own list. */
@@ -197,14 +212,7 @@ export class SupportTradeSummaryReader {
              WHERE p.user_id = ${input.userId}
              ORDER BY r.created_at DESC, r.rung_id DESC
              LIMIT ${limit + 1}`;
-          const orders = await tx<OrderReadRow[]>`
-            SELECT o.*, m.symbol, (t.order_id IS NOT NULL) AS has_stop_trigger, t.kind AS stop_kind
-              FROM trade.orders o
-              JOIN trade.markets m ON m.id = o.market_id
-              LEFT JOIN trade.order_stop_trigger t ON t.order_id = o.id
-             WHERE o.user_id = ${input.userId}
-             ORDER BY o.created_at DESC, o.id DESC
-             LIMIT ${limit + 1}`;
+          const orders = await selectCustomerOrders(tx, input.userId, limit + 1);
           const p = cut(positions, limit);
           const l = cut(rungs, limit);
           const o = cut(orders, limit);

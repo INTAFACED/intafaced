@@ -5,6 +5,7 @@ import { AcademyRoom } from './Academy';
 import { academyRoute, academySectionRedirect } from './academy-lms';
 import { AcademyLearningRoom } from './academy-catalogue/AcademyLearningRoom';
 import { AcademyRoomsRoom } from './academy-catalogue/AcademyRoomsRoom';
+import { AcademyCertificatesRoom } from './AcademyCertificatesRoom';
 import { AcademyVideosRoom } from './academy-catalogue/AcademyVideosRoom';
 import { AcademyProgrammesRoom } from './academy-catalogue/AcademyProgrammesRoom';
 import { AcademyProgrammeRoom } from './academy-catalogue/AcademyProgrammeRoom';
@@ -38,6 +39,7 @@ import { MarketRoom } from './market-room/MarketRoom';
 import { MarketListingPage } from './MarketListingPage';
 import { Prediction } from './Prediction';
 import { PredictRoom } from './predict-room/PredictRoom';
+import { PredictSettingsRoom } from './predict-settings/PredictSettingsRoom';
 import { quantRoute } from '../quant';
 import { quantModeRoute } from './quant-mode-route';
 import { Support } from './Support';
@@ -128,6 +130,8 @@ function MoreRooms({ path }: { path: string }) {
         initialPath={url.searchParams.get('path') ?? undefined}
       />
     );
+  } else if (academy?.kind === 'tab' && academy.tab === 'Certificates') {
+    volt = <AcademyCertificatesRoom key={`${p}:${url.search}`} signedIn={Boolean(userId)} />;
   } else if (academy?.kind === 'tab' && academy.tab === 'Rooms') {
     volt = <AcademyRoomsRoom key={`${p}:${url.search}`} signedIn={Boolean(userId)} />;
   } else if (academy?.kind === 'tab' && academy.tab === 'Videos') {
@@ -220,7 +224,8 @@ function MoreRooms({ path }: { path: string }) {
       const page = ROOM_PAGES[room];
       title = moreRoomRoutesCopy.t(hit.route.title);
       description = page.description();
-      if (hit.route.pattern === '/launch/requirements') volt = <LaunchRequirementsRoom paper={paper} />;
+      if (hit.route.pattern === '/predict/settings') volt = <PredictSettingsRoom />;
+      else if (hit.route.pattern === '/launch/requirements') volt = <LaunchRequirementsRoom paper={paper} />;
       else if (hit.route.pattern === '/token/economy') volt = <TokenEconomyRoom paper={paper} />;
       else if (hit.route.pattern === '/mining/status') volt = <MiningStatusRoom paper={paper} />;
       else if (hit.route.pattern === '/mining/workers/:workerId')

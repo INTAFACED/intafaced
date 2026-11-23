@@ -94,7 +94,7 @@ function MiningOverview({ health }: { health: Health }) {
   const { Copy, t } = miningDepthCopy.useCopy();
   const { reading, loading, verdict, steps } = useMiningJourney(health);
   return (
-    <div className="more-grid">
+    <div className="lt-stack">
       <Panel title={t('verdictTitle')}>
         {loading ? (
           <Loading />

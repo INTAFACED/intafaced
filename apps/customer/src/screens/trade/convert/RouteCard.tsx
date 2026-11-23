@@ -22,7 +22,7 @@ export function RouteCard({ from, to }: { from: string; to: string }) {
       </div>
       <div className="cvt-fields">
         <div className="cvt-field" data-testid="from-field">
-          <span className="cvt-field__label">{t('From')}</span>
+          <span className="lt-hint">{t('From')}</span>
           <div className="cvt-field__main">
             <span className="cvt-asset">
               <CoinIcon asset={from} size={28} />
@@ -40,7 +40,7 @@ export function RouteCard({ from, to }: { from: string; to: string }) {
           </div>
         </div>
         <div className="cvt-field" data-testid="to-field">
-          <span className="cvt-field__label">{t('To')}</span>
+          <span className="lt-hint">{t('To')}</span>
           <div className="cvt-field__main">
             <span className="cvt-asset">
               <CoinIcon asset={to} size={28} />

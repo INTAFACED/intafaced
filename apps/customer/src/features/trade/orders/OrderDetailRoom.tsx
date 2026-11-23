@@ -1,13 +1,14 @@
+// volt-room: /trade/orders/:id
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Trade } from '@intafaced/exchange-contract/schemas';
-import { Button } from '@intafaced/ui';
+import { Button, EmptyState } from '@intafaced/ui/lit';
 import { dec } from '../../../data/decimal';
 import { fmtAmount, fmtPct, fmtPrice } from '../../../data/format';
 import { useDataEnv } from '../../../data/hooks';
 import { refusalCopy } from '../../../data/refusals';
 import type { ApiResult } from '../../../shared/api';
 import { usePreferences } from '../../../shared/preferences';
-import { EmptyState, Failure, Loading, Page } from '../../../shared/ui';
+import { FailureNote } from '../../../shared/failure-note';
 import { deskCopy } from '../../../screens/trade/desk/copy';
 import { useDeskMarkets } from '../../../screens/trade/desk/data';
 import { fillFeeRate, fillRole } from '../../../screens/trade/desk/fill-detail';
@@ -20,7 +21,7 @@ import { createTradeApi, isTerminalOrder, ORDER_TRADES_LIMIT, type Order, type O
 import { orderReason } from './order-reason';
 import { fillsAverage, orderTrigger, type Slippage } from './order-trigger';
 import { ordersCopy, type OrdersT } from './orders-copy';
-import './orders.css';
+import { OrderPageFrame, SignedOut, WaitingRows } from './orders-parts';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 type Read<T> = { status: 'loading' } | { status: 'failed'; failure: Refusal } | { status: 'ready'; data: T };
@@ -30,7 +31,7 @@ const isZero = (value: string): boolean => /^0*(\.0*)?$/.test(value);
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div data-testid="orders-row" className="orders-row">
+    <div data-testid="orders-row">
       <dt>{label}</dt>
       <dd>{children}</dd>
     </div>
@@ -94,19 +95,19 @@ function Trigger({
     const text = slippageText(state.slippage, price, quote, t);
     slippage = (
       <Row label={t('slippage')}>
-        <span className="if-num">{text}</span>
+        <span className="lt-num">{text}</span>
       </Row>
     );
   }
   return (
     <>
       <Row label={t('stopPrice')}>
-        <span className="if-num">
+        <span className="lt-num">
           {price(state.stopPrice)} {quote}
         </span>
       </Row>
       <Row label={t('trigger')}>
-        <span className="if-num">{fired}</span>
+        <span className="lt-num">{fired}</span>
       </Row>
       {slippage}
     </>
@@ -123,37 +124,37 @@ function Fill({ fill, order, precision, t }: { fill: Trade; order: Order; precis
   const rate = fillFeeRate(fill);
   return (
     <li>
-      <details data-testid="orders-fill" className="orders-fill">
-        <summary>
-          <span className="if-num">{dayTime(fill.timestamp, timeZone)}</span>{' '}
-          <span className="if-num">{t('fillSummary', { amount: `${amount} ${baseOf(fill.symbol)}`, price: `${price} ${quote}` })}</span>
+      <details data-testid="orders-fill" className="lt-disclosure-item">
+        <summary className="lt-disclosure-head">
+          <span className="lt-num">{dayTime(fill.timestamp, timeZone)}</span>{' '}
+          <span className="lt-num">{t('fillSummary', { amount: `${amount} ${baseOf(fill.symbol)}`, price: `${price} ${quote}` })}</span>
         </summary>
-        <dl data-testid="orders-list" className="orders-list">
+        <dl data-testid="orders-list" className="lt-kv lt-disclosure-body">
           <Row label={t('fillTime')}>
-            <span className="if-num">{dayTime(fill.timestamp, timeZone)}</span>
+            <span className="lt-num">{dayTime(fill.timestamp, timeZone)}</span>
           </Row>
           <Row label={t('price')}>
-            <span className="if-num">
+            <span className="lt-num">
               {price} {quote}
             </span>
           </Row>
           <Row label={t('amount')}>
-            <span className="if-num">
+            <span className="lt-num">
               {amount} {baseOf(fill.symbol)}
             </span>
           </Row>
           <Row label={t('total')}>
-            <span className="if-num">
+            <span className="lt-num">
               {fmtAmount(fill.cost, { places: quotePlaces(quote), fixed: true })} {quote}
             </span>
           </Row>
           <Row label={t('fillRole')}>{role === 'maker' ? t('roleMaker') : role === 'taker' ? t('roleTaker') : t('roleUnknown')}</Row>
           <Row label={t('fillFee')}>
-            <span className="if-num">{fill.fee ? fmtAmount(fill.fee.cost, { places: 8 }) : t('notStated')}</span>
+            <span className="lt-num">{fill.fee ? fmtAmount(fill.fee.cost, { places: 8 }) : t('notStated')}</span>
           </Row>
           <Row label={t('fillFeeAsset')}>{fill.fee ? fill.fee.currency : t('notStated')}</Row>
           <Row label={t('fillFeeRate')}>
-            <span className="if-num">{rate === null ? t('notStated') : fmtPct(rate, { signed: false })}</span>
+            <span className="lt-num">{rate === null ? t('notStated') : fmtPct(rate, { signed: false })}</span>
           </Row>
           <Row label={t('discount')}>{discountText(order.feeDiscount, t)}</Row>
         </dl>
@@ -164,7 +165,7 @@ function Fill({ fill, order, precision, t }: { fill: Trade; order: Order; precis
 
 function Changes({ read, tick, t }: { read: Read<OrderChange[]>; tick: string | undefined; t: OrdersT }) {
   const { timeZone } = usePreferences();
-  if (read.status === 'loading') return <Loading label={t('changesLoading')} />;
+  if (read.status === 'loading') return <WaitingRows label={t('changesLoading')} />;
   if (read.status === 'failed') return <p role="alert">{t('changesFailed')}</p>;
   if (read.data.length === 0) return <p>{t('changesNone')}</p>;
   const rows = read.data.flatMap((change) => {
@@ -173,10 +174,10 @@ function Changes({ read, tick, t }: { read: Read<OrderChange[]>; tick: string | 
   });
   return (
     <>
-      <ol data-testid="orders-changes" className="orders-changes">
+      <ol data-testid="orders-changes" className="lt-rows">
         {rows.map(({ change, line }, index) => (
           <li key={`${line.at}:${index}`}>
-            <span className="if-num">{Number.isNaN(Date.parse(line.at)) ? '—' : dayTime(Date.parse(line.at), timeZone)}</span>{' '}
+            <span className="lt-num">{Number.isNaN(Date.parse(line.at)) ? '—' : dayTime(Date.parse(line.at), timeZone)}</span>{' '}
             {line.key === 'Order changes amend'
               ? t('changeAmend', { amount: fmtAmount(line.amount, { places: 8 }), price: fmtPrice(line.price, tick) })
               : line.key === 'Order changes replaced by'
@@ -246,36 +247,28 @@ export function OrderDetailRoom({ orderId }: { orderId: string }) {
   );
   if (!userId)
     return (
-      <Page eyebrow={t('eyebrow')} title={t('detailTitle')}>
-        <EmptyState
-          title={t('signedOutTitle')}
-          action={
-            <a className="lt-button lt-button-primary" href={`/login?redirect=${encodeURIComponent(`/trade/orders/${orderId}`)}`}>
-              {t('signIn')}
-            </a>
-          }
-        >
-          {t('signedOutBody')}
-        </EmptyState>
-      </Page>
+      <OrderPageFrame title={t('detailTitle')}>
+        <SignedOut title={t('signedOutTitle')} body={t('signedOutBody')} signIn={t('signIn')} back={`/trade/orders/${orderId}`} />
+      </OrderPageFrame>
     );
   if (order.status === 'loading')
     return (
-      <Page eyebrow={t('eyebrow')} title={t('detailTitle')}>
-        <Loading label={t('detailLoading')} />
-      </Page>
+      <OrderPageFrame title={t('detailTitle')}>
+        <WaitingRows label={t('detailLoading')} />
+      </OrderPageFrame>
     );
   if (order.status === 'failed')
     return (
-      <Page eyebrow={t('eyebrow')} title={t('detailTitle')} actions={back}>
+      <OrderPageFrame title={t('detailTitle')}>
         {order.failure.code === 'trade.order_not_found' || order.failure.status === 404 ? (
-          <EmptyState title={t('notFoundTitle')} action={back}>
-            {t('notFoundBody')}
-          </EmptyState>
+          <EmptyState title={t('notFoundTitle')} body={t('notFoundBody')} action={back} />
         ) : (
-          <Failure result={order.failure} retry={() => setRevision((n) => n + 1)} />
+          <>
+            <FailureNote result={order.failure} retry={() => setRevision((n) => n + 1)} />
+            {back}
+          </>
         )}
-      </Page>
+      </OrderPageFrame>
     );
 
   const o = order.data;
@@ -307,28 +300,25 @@ export function OrderDetailRoom({ orderId }: { orderId: string }) {
     setRevision((n) => n + 1);
   }
   return (
-    <Page
-      eyebrow={t('eyebrow')}
+    <OrderPageFrame
       title={t('detailHeading', { side, pair: o.symbol })}
       description={orderStatus(o, desk.t)}
-      actions={
-        <>
-          {back}
-          <Button variant="secondary" size={40} onClick={() => setRevision((n) => n + 1)}>
-            {t('refresh')}
-          </Button>
-        </>
-      }
+      action={<Button onClick={() => setRevision((n) => n + 1)}>{t('refresh')}</Button>}
     >
-      <div className="orders-room">
+      {back}
+      <div className="lt-stack">
         {cancelled ? (
-          <p className={`orders-note orders-note--${cancelled.tone}`} role={cancelled.tone === 'good' ? 'status' : 'alert'}>
+          <p
+            className="lt-hint"
+            data-part={cancelled.tone === 'bad' ? 'error' : undefined}
+            role={cancelled.tone === 'good' ? 'status' : 'alert'}
+          >
             {cancelled.text}
           </p>
         ) : null}
-        <dl data-testid="orders-list" className="orders-list" aria-label={t('detailTitle')}>
+        <dl data-testid="orders-list" className="lt-kv" aria-label={t('detailTitle')}>
           <Row label={t('placed')}>
-            <span className="if-num">{dayTime(o.timestamp, timeZone)}</span>
+            <span className="lt-num">{dayTime(o.timestamp, timeZone)}</span>
           </Row>
           <Row label={t('type')}>
             {o.type === 'market'
@@ -339,7 +329,7 @@ export function OrderDetailRoom({ orderId }: { orderId: string }) {
           </Row>
           <Trigger order={o} average={average} tick={tick} quote={quote} t={t} />
           <Row label={t('price')}>
-            <span className="if-num">
+            <span className="lt-num">
               {o.price === null
                 ? t('marketPrice')
                 : o.type === 'stop'
@@ -348,37 +338,37 @@ export function OrderDetailRoom({ orderId }: { orderId: string }) {
             </span>
           </Row>
           <Row label={t('amount')}>
-            <span className="if-num">
+            <span className="lt-num">
               {fmtAmount(o.amount, { places: lot })} {base}
             </span>
           </Row>
           <Row label={t('filled')}>
-            <span className="if-num">
+            <span className="lt-num">
               {fmtAmount(o.filled, { places: lot })} {base}
             </span>
           </Row>
           {o.status === 'open' ? (
             <Row label={t('remaining')}>
-              <span className="if-num">
+              <span className="lt-num">
                 {fmtAmount(o.remaining, { places: lot })} {base}
               </span>
             </Row>
           ) : null}
           {o.status === 'open' ? (
             <Row label={t('held')}>
-              <span className="if-num">{o.hold ? `${fmtAmount(o.hold.amount, { places: 8 })} ${o.hold.asset}` : t('notStated')}</span>
+              <span className="lt-num">{o.hold ? `${fmtAmount(o.hold.amount, { places: 8 })} ${o.hold.asset}` : t('notStated')}</span>
             </Row>
           ) : null}
           {average ? (
             <Row label={t('average')}>
-              <span className="if-num">
+              <span className="lt-num">
                 {fmtPrice(average, tick)} {quote}
               </span>
             </Row>
           ) : null}
           {o.cost !== null && !isZero(o.cost) ? (
             <Row label={t('total')}>
-              <span className="if-num">
+              <span className="lt-num">
                 {fmtAmount(o.cost, { places: quotePlaces(quote), fixed: true })} {quote}
               </span>
             </Row>
@@ -392,37 +382,37 @@ export function OrderDetailRoom({ orderId }: { orderId: string }) {
         </dl>
         {isTerminalOrder(o) ? null : (
           <div>
-            <Button variant="secondary" size={40} loading={busy} onClick={() => void cancel()}>
+            <Button disabled={busy} aria-busy={busy || undefined} onClick={() => void cancel()}>
               {busy ? t('cancelling') : t('cancel')}
             </Button>
           </div>
         )}
-        <section className="orders-section">
+        <section className="lt-stack">
           <h2>{t('fillsHeading')}</h2>
-          {fills.status === 'loading' ? <Loading label={t('fillsLoading')} /> : null}
+          {fills.status === 'loading' ? <WaitingRows label={t('fillsLoading')} /> : null}
           {fills.status === 'failed' ? <p role="alert">{t('fillsFailed')}</p> : null}
           {fills.status === 'ready' ? (
             fills.data.length === 0 ? (
               <p>{t('fillsNone')}</p>
             ) : (
               <>
-                <ul className="orders-fills">
+                <ul className="lt-disclosure">
                   {fills.data.map((fill) => (
                     <Fill key={fill.id} fill={fill} order={o} precision={precision} t={t} />
                   ))}
                 </ul>
                 {fills.data.length >= ORDER_TRADES_LIMIT ? (
-                  <p className="orders-note">{t('fillsCapped', { count: String(ORDER_TRADES_LIMIT) })}</p>
+                  <p className="lt-hint">{t('fillsCapped', { count: String(ORDER_TRADES_LIMIT) })}</p>
                 ) : null}
               </>
             )
           ) : null}
         </section>
-        <section className="orders-section">
+        <section className="lt-stack">
           <h2>{t('changesHeading')}</h2>
           <Changes read={changes} tick={tick} t={t} />
         </section>
       </div>
-    </Page>
+    </OrderPageFrame>
   );
 }

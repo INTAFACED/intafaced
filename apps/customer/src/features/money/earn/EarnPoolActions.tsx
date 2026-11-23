@@ -5,11 +5,11 @@ import type { ApiResult } from '../../../shared/api';
 import { ReadFailure, ReadLoading } from '../../../shared/read-state';
 import { parseAmount } from '../../../shared/money';
 import { useSession } from '../../session';
-import { amount, bps, date, funds, positiveMoney, useBankRead, useBankRecord, usePageLimit, type ActionSpec } from '../components';
+import { amount, bps, date, funds, positiveMoney, useBankRecord, usePageLimit, type ActionSpec } from '../components';
 import { t as copyText } from '../copy';
 import { availableRow, earnFormFacts, earnLiveRows } from '../form-preview';
 import { useHoldings } from '../holdings';
-import { bankReads, type earnPoolPageSchema, type poolSchema, type positionSchema } from '../contracts';
+import { type earnPoolPageSchema, type poolSchema, type positionSchema } from '../contracts';
 import { CALCULATOR_MAX_DAYS, earnCalculation } from '../earn-calculator';
 import { earnCopy } from '../earn-copy';
 import { utcDay } from '../earn-rate-history';
@@ -21,7 +21,7 @@ import {
   BANK_EARN_POOL,
   BANK_EARN_SET_AUTO_RENEW,
 } from '@intafaced/contracts/bank-earn-procedures';
-import { BANK_AUTO_INVEST_LIST } from '@intafaced/contracts/bank-auto-invest-procedures';
+import { BANK_AUTO_INVEST_LIST, BANK_AUTO_INVEST_POLICY } from '@intafaced/contracts/bank-auto-invest-procedures';
 import { BANK_EARN_DEPOSIT, BANK_EARN_WITHDRAW } from '@intafaced/contracts/bank-earn-2-procedures';
 import {
   BANK_AUTO_INVEST_CREATE_ROUND_UP,
@@ -460,12 +460,12 @@ function EarlierDays({ pool, before }: { pool: Pool; before: string }) {
 export function AutoEarn({ pool, open }: { pool: Pool; open: Open }) {
   const { t } = earnPoolActionsCopy.useCopy();
   const { api } = useSession();
-  const policy = useBankRead('autoInvest.policy', undefined);
+  const policy = useBankRecord(BANK_AUTO_INVEST_POLICY, undefined);
   const rules = useBankRecord(BANK_AUTO_INVEST_LIST, { limit: RULES });
   const preflight = async (): Promise<ApiResult<null>> => {
     const [freshPool, freshPolicy] = await Promise.all([
       api.call(BANK_EARN_POOL, { poolId: pool.id }),
-      api.query('bank', 'autoInvest.policy', undefined, bankReads['autoInvest.policy']),
+      api.call(BANK_AUTO_INVEST_POLICY, undefined),
     ]);
     if (!freshPool.ok) return readFailed(t('subjectPool'));
     if (!freshPolicy.ok) return readFailed(t('subjectPolicy'));
@@ -557,7 +557,7 @@ export function useEarnRoom() {
     const current = fresh.data.find((row) => row.id === pool.id);
     if (!current || JSON.stringify(current) !== JSON.stringify(pool)) return changed();
     if (automation) {
-      const policy = await api.query('bank', 'autoInvest.policy', undefined, bankReads['autoInvest.policy']);
+      const policy = await api.call(BANK_AUTO_INVEST_POLICY, undefined);
       if (!policy.ok) return fail(earnCopy.t('subjectPolicy'));
       if (!policy.data.enabled) return changed();
     }
@@ -574,7 +574,7 @@ export function useEarnRoom() {
   const positions = useBankRecord(BANK_EARN_POSITIONS, { limit });
   const held = useHoldings();
   const heldRows = held.resource.status === 'ready' ? held.resource.data.holdings : null;
-  const automation = useBankRead('autoInvest.policy', undefined);
+  const automation = useBankRecord(BANK_AUTO_INVEST_POLICY, undefined);
   return {
     limit,
     setLimit,

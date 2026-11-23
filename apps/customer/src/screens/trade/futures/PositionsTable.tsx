@@ -247,7 +247,7 @@ export function PositionsTable({
     );
 
   return (
-    <section aria-label={t('Positions table label')} className="flex flex-col gap-2">
+    <section aria-label={t('Positions table label')} className="lt-stack">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <StatusChip
           kind={positions.status === 'refused' ? 'refused' : undefined}
@@ -263,7 +263,7 @@ export function PositionsTable({
             refused: t('Positions chip refused'),
           }}
         />
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="lt-toolbar">
           {closeAllOff ? <span className="text-2xs text-fg-2">{t('Close all off', { reason: closeAllOff })}</span> : null}
           <Button variant="secondary" size={28} onClick={refreshNow}>
             {t('Positions refresh')}

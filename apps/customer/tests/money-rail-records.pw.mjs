@@ -508,7 +508,7 @@ test('funding destinations remain reachable by keyboard without discarding the u
           '/bank/analytics',
           '/bank/business',
         ])
-          await expect(page.locator('.money-bank-nav a[href="' + path + '"]')).toHaveCount(1);
+          await expect(page.locator('[data-testid="money-bank-nav"] a[href="' + path + '"]')).toHaveCount(1);
         await page.locator('.money-ramp-entry a[href="' + target + '"]').focus();
         await page.keyboard.press('Enter');
         await expect(page).toHaveURL(new URL(target, process.env.RAIL_RECORDS_BASE_URL).href);

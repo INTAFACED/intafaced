@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Amount, Badge, Button, ChoiceGroup, Price, Table, type TableColumn } from '@intafaced/ui';
+import { Button, EmptyState, Segmented, Tag } from '@intafaced/ui/lit';
+import { Table, type Column } from '@intafaced/ui/lit/templates';
 import { navigate } from '../../../app/location';
 import { fmtAmount, fmtPrice } from '../../../data/format';
 import { useDataEnv } from '../../../data/hooks';
 import type { ApiResult } from '../../../shared/api';
 import { usePreferences } from '../../../shared/preferences';
-import { EmptyState, Failure, Loading, Page } from '../../../shared/ui';
+import { FailureNote } from '../../../shared/failure-note';
 import { dayTime } from '../../../screens/trade/desk/time';
 import {
   FUTURES_EXECUTION_KINDS,
@@ -23,7 +24,7 @@ import { futuresOrdersCopy, type FuturesOrdersT } from './futures-orders-copy';
 import { appendPage } from './history-query';
 import { ordersCopy } from './orders-copy';
 import { venueOrdersCopy } from './venue-orders-copy';
-import './orders.css';
+import { OrdersRoomFrame, Pick, SignedOut, WaitingRows } from './orders-parts';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 type View = 'open' | 'history' | 'executions';
@@ -63,11 +64,14 @@ export function ProductSwitch({ product }: { product: 'spot' | 'futures' | 'venu
   const { t } = futuresOrdersCopy.useCopy();
   const venue = venueOrdersCopy.useCopy().t;
   return (
-    <ChoiceGroup
-      items={['spot', 'futures', 'venue']}
+    <Segmented
+      options={[
+        { value: 'spot', label: t('productSpot') },
+        { value: 'futures', label: t('productFutures') },
+        { value: 'venue', label: venue('productVenue') },
+      ]}
       value={product}
       label={t('productLabel')}
-      labels={{ spot: t('productSpot'), futures: t('productFutures'), venue: venue('productVenue') }}
       onChange={(next) => navigate(next === 'spot' ? '/trade/orders' : `/trade/orders?product=${next}`, true)}
     />
   );
@@ -202,58 +206,55 @@ export function FuturesOrdersRoom({ path }: { path: string }) {
 
   if (!userId)
     return (
-      <Page eyebrow={orders('eyebrow')} title={t('title')} description={t('lead')}>
-        <EmptyState
-          title={orders('signedOutTitle')}
-          action={
-            <a className="lt-button lt-button-primary" href={`/login?redirect=${encodeURIComponent(`/trade/orders${search}`)}`}>
-              {orders('signIn')}
-            </a>
-          }
-        >
-          {orders('signedOutBody')}
-        </EmptyState>
-      </Page>
+      <OrdersRoomFrame
+        title={t('title')}
+        description={t('lead')}
+        list={
+          <SignedOut
+            title={orders('signedOutTitle')}
+            body={orders('signedOutBody')}
+            signIn={orders('signIn')}
+            back={`/trade/orders${search}`}
+          />
+        }
+      />
     );
 
   const time = (iso: string | undefined) => (iso ? dayTime(Date.parse(iso), timeZone) : '');
-  const side = (s: 'buy' | 'sell') => (
-    <Badge variant="outline" tone={s === 'buy' ? 'up' : 'down'}>
-      {s === 'buy' ? t('buy') : t('sell')}
-    </Badge>
-  );
+  const side = (s: 'buy' | 'sell') => <Tag tone={s === 'buy' ? 'up' : 'down'}>{s === 'buy' ? t('buy') : t('sell')}</Tag>;
   const detailsHref = (orderId: string) => `/trade/orders/${encodeURIComponent(orderId)}?product=futures`;
+  const figure = (text: string) => <span className="lt-num">{text}</span>;
 
-  const orderColumns: TableColumn<FuturesOrder>[] = [
-    { id: 'placed', header: t('colPlaced'), value: (o) => time(o.createdAt) },
-    { id: 'contract', header: t('colContract'), value: (o) => o.symbol ?? o.marketId },
+  const orderColumns: Column<FuturesOrder>[] = [
+    { key: 'placed', label: t('colPlaced'), cell: (o) => time(o.createdAt) },
+    { key: 'contract', label: t('colContract'), cell: (o) => o.symbol ?? o.marketId },
     {
-      id: 'side',
-      header: t('colSide'),
+      key: 'side',
+      label: t('colSide'),
       cell: (o) => (
-        <span className="flex items-center gap-1">
+        <span className="lt-actions">
           {side(o.side)}
-          {o.reduceOnly ? <Badge>{t('reduceOnly')}</Badge> : null}
+          {o.reduceOnly ? <Tag tone="neutral">{t('reduceOnly')}</Tag> : null}
         </span>
       ),
     },
-    { id: 'type', header: t('colType'), value: (o) => (o.type === 'limit' ? t('limit') : t('market')) },
-    { id: 'price', header: t('colPrice'), numeric: true, cell: (o) => <Price value={fmtPrice(o.limitPrice, undefined)} /> },
-    { id: 'size', header: t('colSize'), numeric: true, cell: (o) => <Amount value={fmtAmount(o.qty, { places: 8 })} /> },
-    { id: 'filled', header: t('colFilled'), numeric: true, cell: (o) => <Amount value={fmtAmount(o.filledQty, { places: 8 })} /> },
-    { id: 'held', header: t('colHeld'), numeric: true, cell: (o) => <Amount value={fmtAmount(o.holdAmount, { places: 4 })} /> },
-    { id: 'from', header: t('colFrom'), cell: (o) => <FuturesOrderOrigin origin={o.origin} label={o.orderLabel} /> },
-    { id: 'status', header: t('colStatus'), cell: (o) => <FuturesOrderStatus order={o} /> },
+    { key: 'type', label: t('colType'), cell: (o) => (o.type === 'limit' ? t('limit') : t('market')) },
+    { key: 'price', label: t('colPrice'), align: 'end', cell: (o) => figure(fmtPrice(o.limitPrice, undefined)) },
+    { key: 'size', label: t('colSize'), align: 'end', cell: (o) => figure(fmtAmount(o.qty, { places: 8 })) },
+    { key: 'filled', label: t('colFilled'), align: 'end', cell: (o) => figure(fmtAmount(o.filledQty, { places: 8 })) },
+    { key: 'held', label: t('colHeld'), align: 'end', cell: (o) => figure(fmtAmount(o.holdAmount, { places: 4 })) },
+    { key: 'from', label: t('colFrom'), cell: (o) => <FuturesOrderOrigin origin={o.origin} label={o.orderLabel} /> },
+    { key: 'status', label: t('colStatus'), cell: (o) => <FuturesOrderStatus order={o} /> },
     {
-      id: 'action',
-      header: t('colAction'),
+      key: 'action',
+      label: t('colAction'),
       cell: (o) => (
-        <span className="flex items-center gap-2">
+        <span className="lt-actions">
           <a className="lt-link" href={detailsHref(o.orderId)}>
             {t('details')}
           </a>
           {cancellable(o) ? (
-            <Button variant="secondary" size={28} loading={cancelling === o.orderId} onClick={() => void cancel(o)}>
+            <Button disabled={cancelling === o.orderId} aria-busy={cancelling === o.orderId || undefined} onClick={() => void cancel(o)}>
               {t('cancel')}
             </Button>
           ) : null}
@@ -268,22 +269,22 @@ export function FuturesOrdersRoom({ path }: { path: string }) {
     liquidation: t('kindLiquidation'),
     adl: t('kindAdl'),
   };
-  const execColumns: TableColumn<FuturesExecution>[] = [
-    { id: 'time', header: t('colTime'), value: (e) => time(e.at) },
-    { id: 'contract', header: t('colContract'), value: (e) => e.symbol },
+  const execColumns: Column<FuturesExecution>[] = [
+    { key: 'time', label: t('colTime'), cell: (e) => time(e.at) },
+    { key: 'contract', label: t('colContract'), cell: (e) => e.symbol },
     {
-      id: 'kind',
-      header: t('colKind'),
-      cell: (e) => <Badge tone={e.kind === 'liquidation' || e.kind === 'adl' ? 'down' : 'neutral'}>{kindWord[e.kind]}</Badge>,
+      key: 'kind',
+      label: t('colKind'),
+      cell: (e) => <Tag tone={e.kind === 'liquidation' || e.kind === 'adl' ? 'down' : 'neutral'}>{kindWord[e.kind]}</Tag>,
     },
-    { id: 'side', header: t('colSide'), cell: (e) => side(e.side) },
-    { id: 'size', header: t('colSize'), numeric: true, cell: (e) => <Amount value={fmtAmount(e.qty, { places: 8 })} /> },
-    { id: 'price', header: t('colPrice'), numeric: true, cell: (e) => <Price value={fmtPrice(e.price, undefined)} /> },
+    { key: 'side', label: t('colSide'), cell: (e) => side(e.side) },
+    { key: 'size', label: t('colSize'), align: 'end', cell: (e) => figure(fmtAmount(e.qty, { places: 8 })) },
+    { key: 'price', label: t('colPrice'), align: 'end', cell: (e) => figure(fmtPrice(e.price, undefined)) },
     {
-      id: 'fee',
-      header: t('colFee'),
-      numeric: true,
-      value: (e) =>
+      key: 'fee',
+      label: t('colFee'),
+      align: 'end',
+      cell: (e) =>
         e.fee === null
           ? t('feeNone')
           : e.feeRole
@@ -291,15 +292,15 @@ export function FuturesOrdersRoom({ path }: { path: string }) {
             : fmtAmount(e.fee, { places: 6 }),
     },
     {
-      id: 'realized',
-      header: t('colRealized'),
-      numeric: true,
-      value: (e) => (e.realizedPnl === null ? t('realizedNone') : fmtAmount(e.realizedPnl, { places: 6 })),
+      key: 'realized',
+      label: t('colRealized'),
+      align: 'end',
+      cell: (e) => (e.realizedPnl === null ? t('realizedNone') : fmtAmount(e.realizedPnl, { places: 6 })),
     },
-    { id: 'from', header: t('colFrom'), cell: (e) => (e.origin ? <FuturesOrderOrigin origin={e.origin} label={e.orderLabel} /> : null) },
+    { key: 'from', label: t('colFrom'), cell: (e) => (e.origin ? <FuturesOrderOrigin origin={e.origin} label={e.orderLabel} /> : null) },
     {
-      id: 'order',
-      header: t('colOrder'),
+      key: 'order',
+      label: t('colOrder'),
       cell: (e) =>
         e.orderId ? (
           <a className="lt-link" href={detailsHref(e.orderId)}>
@@ -320,168 +321,154 @@ export function FuturesOrdersRoom({ path }: { path: string }) {
         ? t('noneHistory')
         : t('noneExecutions');
   const labelBad = labelDraft !== '' && !ORDER_LABEL.test(labelDraft);
+  const clear = () => setParams({ view: params.view, symbol: '', origin: '', label: '', kind: '' });
+  const originWords = Object.fromEntries(FUTURES_ORDER_ORIGINS.map((origin) => [origin, tabs(`Origin ${origin}`)]));
 
   return (
-    <Page
-      eyebrow={orders('eyebrow')}
+    <OrdersRoomFrame
       title={t('title')}
       description={t('lead')}
-      actions={
-        <Button variant="secondary" size={40} onClick={() => setRevision((n) => n + 1)}>
-          {t('refresh')}
-        </Button>
-      }
-    >
-      <div className="orders-room">
-        <ProductSwitch product="futures" />
-        <ChoiceGroup
-          items={VIEWS}
-          value={params.view}
-          label={t('viewLabel')}
-          labels={{ open: t('viewOpen'), history: t('viewHistory'), executions: t('viewExecutions') }}
-          onChange={(view) =>
-            // Executions filter by contract and kind; orders by contract, origin and label. A filter the next view can't
-            // use is dropped, so nothing hidden narrows the list.
-            setParams(view === 'executions' ? { ...params, view, origin: '', label: '' } : { ...params, view: view as View, kind: '' })
-          }
-        />
-        <form
-          className="orders-filters"
-          role="search"
-          aria-label={t('title')}
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (!labelBad)
-              setParams({ ...params, symbol: symbolDraft.trim(), label: params.view === 'executions' ? '' : labelDraft.trim() });
-          }}
-        >
-          <label className="orders-field">
-            <span>{t('filterContract')}</span>
-            <input value={symbolDraft} onChange={(event) => setSymbolDraft(event.target.value)} />
-          </label>
-          {params.view === 'executions' ? (
-            <label className="orders-field">
-              <span>{t('filterKind')}</span>
-              <select value={params.kind} onChange={(event) => setParams({ ...params, kind: event.target.value })}>
-                <option value="">{t('filterAll')}</option>
-                {FUTURES_EXECUTION_KINDS.map((kind) => (
-                  <option key={kind} value={kind}>
-                    {kindWord[kind]}
-                  </option>
-                ))}
-              </select>
+      action={<Button onClick={() => setRevision((n) => n + 1)}>{t('refresh')}</Button>}
+      filters={
+        <div className="lt-stack">
+          <ProductSwitch product="futures" />
+          <Segmented
+            options={VIEWS.map((view) => ({
+              value: view,
+              label: view === 'open' ? t('viewOpen') : view === 'history' ? t('viewHistory') : t('viewExecutions'),
+            }))}
+            value={params.view}
+            label={t('viewLabel')}
+            onChange={(view) =>
+              // Executions filter by contract and kind; orders by contract, origin and label. A filter the next view can't
+              // use is dropped, so nothing hidden narrows the list.
+              setParams(view === 'executions' ? { ...params, view, origin: '', label: '' } : { ...params, view, kind: '' })
+            }
+          />
+          <form
+            className="lt-toolbar"
+            role="search"
+            aria-label={t('title')}
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!labelBad)
+                setParams({ ...params, symbol: symbolDraft.trim(), label: params.view === 'executions' ? '' : labelDraft.trim() });
+            }}
+          >
+            <label className="lt-field">
+              <span>{t('filterContract')}</span>
+              <input value={symbolDraft} onChange={(event) => setSymbolDraft(event.target.value)} />
             </label>
-          ) : (
-            <>
-              <label className="orders-field">
-                <span>{t('filterOrigin')}</span>
-                <select value={params.origin} onChange={(event) => setParams({ ...params, origin: event.target.value })}>
-                  <option value="">{t('filterAll')}</option>
-                  {FUTURES_ORDER_ORIGINS.map((origin) => (
-                    <option key={origin} value={origin}>
-                      {tabs(`Origin ${origin}`)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="orders-field">
-                <span>{t('filterLabel')}</span>
-                <input
-                  value={labelDraft}
-                  maxLength={36}
-                  aria-invalid={labelBad}
-                  aria-describedby="futures-label-hint"
-                  onChange={(event) => setLabelDraft(event.target.value)}
+            {params.view === 'executions' ? (
+              <Pick
+                label={t('filterKind')}
+                value={params.kind}
+                choices={FUTURES_EXECUTION_KINDS}
+                words={kindWord}
+                all={t('filterAll')}
+                onPick={(kind) => setParams({ ...params, kind })}
+              />
+            ) : (
+              <>
+                <Pick
+                  label={t('filterOrigin')}
+                  value={params.origin}
+                  choices={FUTURES_ORDER_ORIGINS}
+                  words={originWords}
+                  all={t('filterAll')}
+                  onPick={(origin) => setParams({ ...params, origin })}
                 />
-                <small id="futures-label-hint" className="lt-muted">
-                  {labelBad ? t('refusedLabel') : t('labelHint')}
-                </small>
-              </label>
-            </>
-          )}
-          <Button type="submit" variant="secondary" size={40} disabled={labelBad}>
-            {t('filterApply')}
-          </Button>
-          {filtering ? (
-            <Button
-              variant="secondary"
-              size={40}
-              onClick={() => setParams({ view: params.view, symbol: '', origin: '', label: '', kind: '' })}
-            >
-              {t('filterClear')}
+                <label className="lt-field">
+                  <span>{t('filterLabel')}</span>
+                  <input
+                    value={labelDraft}
+                    maxLength={36}
+                    aria-invalid={labelBad}
+                    aria-describedby="futures-label-hint"
+                    onChange={(event) => setLabelDraft(event.target.value)}
+                  />
+                  <small id="futures-label-hint" className="lt-hint" data-part={labelBad ? 'error' : undefined}>
+                    {labelBad ? t('refusedLabel') : t('labelHint')}
+                  </small>
+                </label>
+              </>
+            )}
+            <Button type="submit" disabled={labelBad}>
+              {t('filterApply')}
             </Button>
-          ) : null}
-        </form>
-        <p className="muted orders-note">
-          <a className="lt-link" href="/trade/futures">
-            {t('deskLink')}
-          </a>
-        </p>
-        {cancelFailure ? (
-          <p className="orders-note orders-note--bad" role="alert">
-            {t('cancelFailed', { reason: cancelFailure })}
+            {filtering ? <Button onClick={clear}>{t('filterClear')}</Button> : null}
+          </form>
+          <p className="lt-hint">
+            <a className="lt-link" href="/trade/futures">
+              {t('deskLink')}
+            </a>
           </p>
-        ) : null}
-        {state.status === 'loading' ? <Loading label={params.view === 'executions' ? t('loadingExecutions') : t('loadingOrders')} /> : null}
-        {state.status === 'failed' ? <Failure result={state.failure} retry={() => setRevision((n) => n + 1)} /> : null}
-        {state.status === 'refused' ? (
-          <div className="lt-refusal" role="alert">
-            <h3>{t('refusedTitle')}</h3>
-            <p>{state.words}</p>
-            <Button
-              variant="secondary"
-              size={40}
-              onClick={() => setParams({ view: params.view, symbol: '', origin: '', label: '', kind: '' })}
-            >
-              {t('filterClear')}
-            </Button>
-          </div>
-        ) : null}
-        {state.status === 'ready' ? (
-          state.rows.length === 0 ? (
-            <EmptyState title={none} />
-          ) : (
-            <>
-              <p className="muted orders-note" role="status">
-                {t('shownCount', { count: String(state.rows.length) })}
-              </p>
-              <div className="orders-table">
-                {params.view === 'executions' ? (
-                  <Table
-                    label={t('viewExecutions')}
-                    density="dense"
-                    columns={execColumns}
-                    rows={execState.status === 'ready' ? execState.rows : []}
-                    getRowId={(e) => e.id}
-                  />
-                ) : (
-                  <Table
-                    label={params.view === 'open' ? t('viewOpen') : t('viewHistory')}
-                    density="dense"
-                    columns={orderColumns}
-                    rows={orderState.status === 'ready' ? orderState.rows : []}
-                    getRowId={(o) => o.orderId}
-                  />
-                )}
-              </div>
-              {olderFailed ? (
-                <p className="orders-note" role="alert">
-                  {t('olderFailed')}
+        </div>
+      }
+      list={
+        <>
+          {cancelFailure ? (
+            <p className="lt-hint" data-part="error" role="alert">
+              {t('cancelFailed', { reason: cancelFailure })}
+            </p>
+          ) : null}
+          {state.status === 'loading' ? (
+            <WaitingRows label={params.view === 'executions' ? t('loadingExecutions') : t('loadingOrders')} />
+          ) : null}
+          {state.status === 'failed' ? <FailureNote result={state.failure} retry={() => setRevision((n) => n + 1)} /> : null}
+          {state.status === 'refused' ? (
+            <div className="lt-refusal" role="alert">
+              <p className="lt-refusal-title">{t('refusedTitle')}</p>
+              <p className="lt-refusal-body">{state.words}</p>
+              <Button onClick={clear}>{t('filterClear')}</Button>
+            </div>
+          ) : null}
+          {state.status === 'ready' ? (
+            state.rows.length === 0 ? (
+              <EmptyState title={none} />
+            ) : (
+              <>
+                <p className="lt-hint" role="status">
+                  {t('shownCount', { count: String(state.rows.length) })}
                 </p>
-              ) : null}
-              {state.next ? (
-                <Button variant="secondary" size={40} loading={olderBusy} onClick={() => void older()}>
-                  {olderBusy ? t('olderLoading') : t('older')}
-                </Button>
-              ) : (
-                <p className="muted orders-note">{t('end')}</p>
-              )}
-              <p className="muted orders-note">{t('footer')}</p>
-            </>
-          )
-        ) : null}
-      </div>
-    </Page>
+                <div className="lt-table-scroll">
+                  {params.view === 'executions' ? (
+                    <Table
+                      caption={t('viewExecutions')}
+                      mode="pro"
+                      columns={execColumns}
+                      rows={execState.status === 'ready' ? execState.rows : []}
+                      rowKey={(e) => e.id}
+                    />
+                  ) : (
+                    <Table
+                      caption={params.view === 'open' ? t('viewOpen') : t('viewHistory')}
+                      mode="pro"
+                      columns={orderColumns}
+                      rows={orderState.status === 'ready' ? orderState.rows : []}
+                      rowKey={(o) => o.orderId}
+                    />
+                  )}
+                </div>
+                {olderFailed ? (
+                  <p className="lt-hint" data-part="error" role="alert">
+                    {t('olderFailed')}
+                  </p>
+                ) : null}
+                {state.next ? (
+                  <Button disabled={olderBusy} aria-busy={olderBusy || undefined} onClick={() => void older()}>
+                    {olderBusy ? t('olderLoading') : t('older')}
+                  </Button>
+                ) : (
+                  <p className="lt-hint">{t('end')}</p>
+                )}
+                <p className="lt-hint">{t('footer')}</p>
+              </>
+            )
+          ) : null}
+        </>
+      }
+    />
   );
 }
 

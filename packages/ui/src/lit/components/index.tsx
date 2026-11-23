@@ -7,6 +7,7 @@ import * as React from 'react';
 import { clsx } from 'clsx';
 import { BrandLockup, BrandMark, BrandWordmark } from '../../brand/brand.js';
 import { moveFocusByArrow } from './arrow-focus.js';
+import { DateOrInput } from './date-input.js';
 import type { DataMarks } from './b2-table.js';
 import { doors as doorOrder, type Door, type GateReason, type LegalSlotProps, type Refusal } from '../contracts.js';
 
@@ -198,7 +199,8 @@ export function Field({ label, hint, error, before, after, id, className, ...res
   const inputId = id ?? auto;
   const describedBy =
     [rest['aria-describedby'], hint ? `${inputId}-hint` : null, error ? `${inputId}-error` : null].filter(Boolean).join(' ') || undefined;
-  const input = <input {...rest} id={inputId} aria-invalid={error ? true : rest['aria-invalid']} aria-describedby={describedBy} />;
+  const own = { ...rest, id: inputId, 'aria-invalid': error ? true : rest['aria-invalid'], 'aria-describedby': describedBy };
+  const input = <DateOrInput {...own} />;
   return (
     <div className={clsx('lit-field-control', className)}>
       <label htmlFor={inputId}>{label}</label>
@@ -374,12 +376,18 @@ export type ChangeProps = {
   className?: string;
 };
 
-/** Up or down as words and an arrow, never colour alone. The figures are left to right on any page. */
+/**
+ * Up or down as words and an arrow, never colour alone. The figures are left to right on any page. The arrow is drawn
+ * (lt-arrow-up / lt-arrow-down, templates.css), never typed: Volt's faces carry no ▲ ▼ glyphs.
+ */
 export function Change({ text, dir, spoken, className }: ChangeProps) {
-  const arrow = dir === 'up' ? '▲' : dir === 'down' ? '▼' : '';
   return (
     <span className={clsx('lit-change', className)} data-dir={dir}>
-      {arrow && <span aria-hidden="true">{arrow} </span>}
+      {dir !== 'flat' && (
+        <>
+          <span className={`lt-arrow lt-arrow-${dir}`} aria-hidden="true" data-arrow={dir} />{' '}
+        </>
+      )}
       <span className="lit-sr">{spoken} </span>
       <span dir="ltr" data-ltr="">
         {text}

@@ -68,7 +68,7 @@ fn buy() -> Fill {
         posted_at: day(1, 12),
         received: leg("BTC", "1"),
         paid: Some(leg("USDT", "100")),
-        fee: Some(0),
+        fee: Some(Amount::ZERO),
         fee_asset_id: None,
     }
 }
@@ -334,7 +334,7 @@ fn a_lot_with_no_cost_leaves_the_position_unknown_only_while_open() {
     s6.tx_id = "s6".to_owned();
     s6.posted_at = day(6, 12);
     s6.received = leg("USDT", "80");
-    s6.fee = Some(0);
+    s6.fee = Some(Amount::ZERO);
     let out = run(Run {
         book: book_with(
             &[buy(), s6],
@@ -362,7 +362,7 @@ fn an_older_unknown_sale_leaves_the_line_unknown_but_the_change_known() {
     s2.tx_id = "s2".to_owned();
     s2.posted_at = day(2, 12);
     s2.received = leg("USDT", "60");
-    s2.fee = Some(0);
+    s2.fee = Some(Amount::ZERO);
     let mut b = buy();
     b.posted_at = day(3, 12);
     let out = run(Run {
@@ -429,7 +429,7 @@ fn names_a_coin_for_coin_swap_by_no_market() {
         posted_at: day(9, 12),
         received: leg("ETH", "2"),
         paid: Some(leg("BTC", "0.25")),
-        fee: Some(0),
+        fee: Some(Amount::ZERO),
         fee_asset_id: None,
     };
     let book = book_of(

@@ -7,8 +7,9 @@ import { LOCAL_MAIL_TRANSPORT, MAIL_TRANSPORT_REFUSED, localMailLine, openIdenti
 describe('openIdentityMail', () => {
   const file = path.join(tmpdir(), 'email-outbox.log');
 
-  it('stays unwired when no transport is selected', () => {
-    expect(openIdentityMail({ appEnv: 'prod', transport: undefined, outboxPath: file })).toBeUndefined();
+  // Staging and prod refuse to boot with no transport: gateway-mail.test.ts, 'mail transport at boot'.
+  it('stays unwired in dev and test when no transport is selected', () => {
+    expect(openIdentityMail({ appEnv: 'test', transport: undefined, outboxPath: file })).toBeUndefined();
     expect(openIdentityMail({ appEnv: 'dev', transport: '  ', outboxPath: file })).toBeUndefined();
   });
 

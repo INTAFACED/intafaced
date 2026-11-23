@@ -9,6 +9,19 @@ import java.util.Map;
  * stdin adapt CLI remains FixAdapterMain.
  */
 public final class FixAcceptorMain {
+    /**
+     * The host every svc-fix listener binds (the fleet's HTTP_HOST): the FIX sockets and the ingest listener. The
+     * local test stack sets 127.0.0.1 so none is reachable off the machine (#10244); blank listens on every interface.
+     */
+    public static final String LISTEN_HOST_ENV = "HTTP_HOST";
+
+    /** {@code host:port}, or every interface on {@code port} when the host is blank. */
+    static java.net.InetSocketAddress listenAddress(String host, int port) {
+        return host == null || host.isBlank()
+                ? new java.net.InetSocketAddress(port)
+                : new java.net.InetSocketAddress(host.trim(), port);
+    }
+
     public static void main(String[] args) throws Exception {
         Started started = start(System.getenv());
         if (!started.ok) {
@@ -57,11 +70,12 @@ public final class FixAcceptorMain {
         } catch (ServiceKeys.KeyError e) {
             return Started.refuse("s2s_unconfigured", e.getMessage());
         }
+        String host = env.getOrDefault(LISTEN_HOST_ENV, "");
         DropCopyHub hub = new DropCopyHub();
         FixSessionApplication orderApp = new FixSessionApplication(new FixGatewayAdapter(), matching, hub);
         FixDropCopyApplication dropApp = new FixDropCopyApplication(hub);
         DropCopyIngest.Result ingestStarted =
-                DropCopyIngest.start(ingest.config.port, dropCopy.config.productBegin, secret, hub, s2s);
+                DropCopyIngest.start(host, ingest.config.port, dropCopy.config.productBegin, secret, hub, s2s);
         if (!ingestStarted.ok) {
             return Started.refuse(ingestStarted.errorCode, ingestStarted.errorMessage);
         }
@@ -79,8 +93,8 @@ public final class FixAcceptorMain {
                 listener.close();
                 return Started.refuse(store.errorCode, store.errorMessage);
             }
-            orderEntry = FixAcceptor.start(parsed.config, orderApp, orderStore.path);
-            dropAcceptor = FixDropCopyAcceptor.start(dropCopy.config, dropApp, store.path);
+            orderEntry = FixAcceptor.start(parsed.config, orderApp, orderStore.path, host);
+            dropAcceptor = FixDropCopyAcceptor.start(dropCopy.config, dropApp, store.path, host);
             // The adapter's own status on the ingest listener: its sessions and the CompID map it submits with.
             Map<String, String> compIdAccounts =
                     MatchingSubmitPort.readCompIdAccountMap(env.get(MatchingSubmitPort.COMPID_ACCOUNT_JSON_ENV));
@@ -149,6 +163,14 @@ public final class FixAcceptorMain {
         /** The HTTP port of the ingest listener, which also serves the health and the status. */
         public int httpPort() {
             return listener.port();
+        }
+
+        /** Where every listener is bound: the order-entry and drop-copy FIX sockets, then the ingest listener. */
+        public java.util.List<java.net.SocketAddress> listenAddresses() {
+            java.util.List<java.net.SocketAddress> out = new java.util.ArrayList<>(orderEntry.listenAddresses());
+            out.addAll(dropCopy.listenAddresses());
+            out.add(listener.address());
+            return out;
         }
 
         @Override

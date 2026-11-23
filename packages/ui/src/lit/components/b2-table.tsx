@@ -95,6 +95,16 @@ function moveFocus(event: React.KeyboardEvent<HTMLElement>, count: number, revea
 
 type RenderRow<Row> = (row: Row, index: number, extra?: { ref: (node: HTMLTableRowElement | null) => void }) => React.ReactNode;
 
+/** A sorted column's mark, drawn (Volt's faces carry no ▲ ▼ glyphs): up for ascending, down for descending. */
+function SortMark({ order }: { order: ReturnType<typeof ariaSortOf> }) {
+  const way = order === 'ascending' ? 'up' : order === 'descending' ? 'down' : null;
+  return (
+    <span className="lt-sort-mark" aria-hidden="true">
+      {way && <span className={`lt-arrow lt-arrow-${way}`} />}
+    </span>
+  );
+}
+
 function Spacer({ size, span }: { size: number; span: number }) {
   if (size <= 0) return null;
   return (
@@ -234,9 +244,7 @@ export function Table<Row>({
                   onClick={() => onSort(nextSort(sort ?? null, c.key, c.sortType))}
                 >
                   {c.label}
-                  <span className="lt-sort-mark" aria-hidden="true">
-                    {ariaSortOf(sort ?? null, c.key) === 'ascending' ? '▲' : ariaSortOf(sort ?? null, c.key) === 'descending' ? '▼' : ''}
-                  </span>
+                  <SortMark order={ariaSortOf(sort ?? null, c.key)} />
                 </button>
               ) : (
                 c.label

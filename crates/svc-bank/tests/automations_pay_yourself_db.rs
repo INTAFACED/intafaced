@@ -549,7 +549,7 @@ fn gives_each_person_their_own_address_credits_a_transfer_once_after_its_confirm
     );
     // The sender, as the transfer log names it, lowercase.
     assert_eq!(field(&credits(&b, ADA)[0], "from"), Json::str(OWNER));
-    assert_eq!(partner_usdc(&b, ADA), Some(0));
+    assert_eq!(partner_usdc(&b, ADA), Some(Amount::ZERO));
     // One short of its confirmations: still pending, not counted.
     b.chain.mine(CONFIRMATIONS - 2);
     poll(&b);
@@ -561,7 +561,7 @@ fn gives_each_person_their_own_address_credits_a_transfer_once_after_its_confirm
             Json::int(i64::try_from(CONFIRMATIONS - 1).unwrap())
         )]
     );
-    assert_eq!(partner_usdc(&b, ADA), Some(0));
+    assert_eq!(partner_usdc(&b, ADA), Some(Amount::ZERO));
     b.chain.mine(1);
     poll(&b);
     poll(&b);
@@ -602,7 +602,7 @@ fn holds_a_pay_in_pending_while_the_partner_holds_its_answer_and_credits_it_once
             .collect::<Vec<_>>()
     };
     assert_eq!(held(&b), vec![(Json::str("pending"), Json::Bool(true))]);
-    assert_eq!(partner_usdc(&b, ADA), Some(0));
+    assert_eq!(partner_usdc(&b, ADA), Some(Amount::ZERO));
     assert_eq!(
         call(&b, ADA, "testPartner.set", r#"{"payIn":"answered"}"#).0,
         200

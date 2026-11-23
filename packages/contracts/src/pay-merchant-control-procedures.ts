@@ -13,6 +13,8 @@ import {
   payControlUsageSchema,
   payoutApprovalSchema,
   payPricingQuoteSchema,
+  merchantControlApprovalListInputSchema,
+  merchantControlApprovalPageSchema,
 } from './merchant-control.js';
 import { approvalCancelInputSchema, approvalRequestInputSchema, pricingPreviewInputSchema, usageInputSchema } from './pay-call-schemas.js';
 
@@ -172,6 +174,21 @@ export const PAY_MERCHANT_CONTROL_PRICING_HISTORY = defineProcedure({
   refusals: {},
   input: merchantPricingHistoryInputSchema,
   output: merchantPricingHistorySchema,
+  samples: [
+    { verdict: 'accept', input: { merchantId: '11111111-1111-4111-8111-111111111111', limit: 1 } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const PAY_MERCHANT_CONTROL_APPROVALS_LIST = defineProcedure({
+  ...base,
+  name: 'pay.merchantControl.approvals.list',
+  kind: 'query',
+  path: 'merchantControl.approvals.list',
+  access: { caller: 'anyScope', scopes: ['pay:onboard', 'pay:read'], module: 'pay' },
+  refusals: {},
+  input: merchantControlApprovalListInputSchema,
+  output: merchantControlApprovalPageSchema,
   samples: [
     { verdict: 'accept', input: { merchantId: '11111111-1111-4111-8111-111111111111', limit: 1 } },
     { verdict: 'refuse', input: 42 },

@@ -10,6 +10,9 @@
 //  - /api/bank/trpc/spaces.list               (GET)   the customer's own balances
 //  - /api/bank/trpc/transfers.quote           (GET)   published limits and fee (TEST figures below)
 //  - /api/bank/trpc/transfers.toUser          (POST)  the payment
+//  - /api/bank/trpc/business.list             (GET)   business profiles (none here)
+//  - /api/bank/trpc/activity.list             (GET)   recent payments (none here)
+//  - /api/identity/trpc/qr.mine               (GET)   own pay code's payload (a TEST link)
 // A small world (balances) really changes when a payment is accepted. Overrides replace one answer: a JSON body, a
 // function of the request, 'error' (500), 'abort' (connection dropped), 'hang' (held until release()), or { status, json }.
 
@@ -30,6 +33,10 @@ const space = (id, assetId, balance, over = {}) => ({
   name: `${assetId} main`,
   goalTarget: null,
   lockedUntil: null,
+  unlocksAt: null,
+  unlockRequestedAt: null,
+  billsPot: null,
+  heldAt: null,
   balance,
   ledgerAccount: { ownerType: 'user', ownerId: ME, assetId, kind: 'available' },
   ...over,
@@ -76,6 +83,10 @@ export async function mock(page, overrides = {}) {
       return trpc({ found: false });
     },
     savedRecipients: () => trpc([]),
+    businesses: () => trpc([]),
+    activity: () => trpc({ items: [], nextCursor: null }),
+    // A TEST payload: the harness's own pay code, never a real link.
+    payQr: () => trpc({ payload: 'https://example.test/pay/send?to=harness_me&test=1' }),
     payeeCard: () => trpc({ found: false }),
     handleGet: () => trpc(handleView()),
     receiveContacts: () => trpc({ contacts: [], max: 3 }),
@@ -102,6 +113,7 @@ export async function mock(page, overrides = {}) {
         perTransferLimit: '1000000',
         dailyLimit: '1000000',
         spentToday: '0',
+        remainingToday: '1000000',
         fee: '0',
         feeBlocker: null,
         withinPerTransfer: true,
@@ -115,7 +127,14 @@ export async function mock(page, overrides = {}) {
       // The service is idempotent on transferId: the same id answers with the same transaction and moves money once.
       const known = world.sent.get(body.transferId);
       if (known) return trpc(known);
-      const out = { ledgerTxId: `tx-${(world.counter += 1)}`, amount: body.amount };
+      const out = {
+        ledgerTxId: `tx-${(world.counter += 1)}`,
+        partnerMove: null,
+        amount: body.amount,
+        note: body.note ?? null,
+        reference: null,
+        requestId: null,
+      };
       world.sent.set(body.transferId, out);
       const asset = Object.entries({ [SPACE.usdt]: 'USDT', [SPACE.eth]: 'ETH' }).find(([id]) => id === body.fromSpaceId)?.[1];
       if (asset) {
@@ -140,6 +159,9 @@ export async function mock(page, overrides = {}) {
       me: 'me',
       'users.resolveHandle': 'resolve',
       'recipients.list': 'savedRecipients',
+      'business.list': 'businesses',
+      'activity.list': 'activity',
+      'qr.mine': 'payQr',
       'users.payeeCard': 'payeeCard',
       'handle.get': 'handleGet',
       'receiveContacts.list': 'receiveContacts',
