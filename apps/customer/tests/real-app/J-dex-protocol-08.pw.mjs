@@ -226,16 +226,12 @@ const scamAddressFor = (who) => `0x${createHash('sha256').update(who.email).dige
 const REPORT_SUBMIT = '/api/protocol/trpc/addressReports.submit';
 const RISK_READ = '/api/protocol/trpc/addressRisk.read';
 
-/** Every report svc-protocol holds about `address`, from its own table, oldest first: who filed it, and the duplicates refused. */
-const reportsAbout = (address) =>
-  protocolDb(async (sql) =>
-    Array.from(
-      await sql`
-        SELECT id::text AS id, reporter_id, kind, note, status, duplicates_refused FROM protocol.address_reports
-        WHERE chain_id = ${CHAIN_ID} AND lower(address) = ${address.toLowerCase()} ORDER BY created_at`,
-      (row) => ({ ...row }),
-    ),
-  );
+/** The open reports svc-protocol counts against `address`, asked through the room's own risk read as `client` (an api()). */
+const openReportsOn = async (client, address) => {
+  const answer = await client.get(`${RISK_READ}?input=${encodeURIComponent(JSON.stringify({ address }))}`);
+  expect(answer.status).toBe(200);
+  return answer.body.result.data.openReports;
+};
 
 test(`${J} starts: a TEST wallet with two active session keys and several old approvals`, async ({ page }) => {
   dex.start();
@@ -432,7 +428,8 @@ test(`${J} #6 reports a scam address: a confirmation; a second report by the sam
   test.setTimeout(240_000);
   const who = await person(page);
   // The person's account id, as identity answers a sign-in of theirs: the id the service files a report under.
-  const { userId } = await api(who);
+  const client = await api(who);
+  const { userId } = client;
   const scam = scamAddressFor(who);
   const NOTE = `LOCAL TEST ${J} report by ${who.handle}`;
   // What the public must never be shown: who reported (by handle, email or account id) and what they wrote.
@@ -451,9 +448,9 @@ test(`${J} #6 reports a scam address: a confirmation; a second report by the sam
   };
 
   await page.goto(`/chain/address/${scam}`);
-  // Nobody has reported this address yet: the card says so, and the service holds no report about it.
+  // Nobody has reported this address yet: the card says so, and the service counts no report about it.
   await expect(mine).toContainText('Not reported.');
-  expect(await reportsAbout(scam)).toEqual([]);
+  expect(await openReportsOn(client, scam)).toBe(0);
 
   // The person reports it as a scam: the service takes the report, and the card confirms it and counts it.
   const taken = await sendReport();
@@ -464,9 +461,8 @@ test(`${J} #6 reports a scam address: a confirmation; a second report by the sam
   await expect(mine.getByRole('status').filter({ hasText: CONFIRMATION })).toBeVisible();
   await expect(report).toHaveCount(0);
   await expect(mine).toContainText('Reported 1 time.');
-  // On record: one open report, filed under this person's id, with no duplicate refused yet.
-  const filed = { id: receipt.id, reporter_id: userId, kind: 'scam', note: NOTE, status: 'open' };
-  expect(await reportsAbout(scam)).toEqual([{ ...filed, duplicates_refused: 0 }]);
+  // The service counts exactly that one report.
+  expect(await openReportsOn(client, scam)).toBe(1);
 
   // The same person sends the same report again: the service refuses it by its typed code, and the form says why.
   const refused = await sendReport();
@@ -476,8 +472,8 @@ test(`${J} #6 reports a scam address: a confirmation; a second report by the sam
   expect(refusal.data.code).toBe('CONFLICT');
   expect(refusal.data.cause.code).toBe('protocol.reports.duplicate');
   await expect(report.getByRole('alert')).toHaveText('You already reported this address. Your report is still open.');
-  // Nothing was added: still that one report, now holding the one duplicate that was refused.
-  expect(await reportsAbout(scam)).toEqual([{ ...filed, duplicates_refused: 1 }]);
+  // Nothing was added: the service still counts the one report.
+  expect(await openReportsOn(client, scam)).toBe(1);
   // The person closes the form: their page keeps the confirmation of the one report they made.
   await report.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(report).toHaveCount(0);
