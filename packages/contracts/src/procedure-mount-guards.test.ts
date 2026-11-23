@@ -313,3 +313,38 @@ describe('a guard copied onto its record refuses as the hand guard did', () => {
     );
   });
 });
+
+describe('an any-scope refusal is typed as a single-scope one is', () => {
+  it('a caller holding none of the listed scopes is refused FORBIDDEN with the typed code scope.denied, as scopedProcedure refuses', async () => {
+    const app = router({
+      any: anyScopeProcedure(['admin:read', 'admin:treasury'])
+        .output(output)
+        .query(() => ({ ok: true as const })),
+      one: scopedProcedure('admin:treasury')
+        .output(output)
+        .query(() => ({ ok: true as const })),
+    });
+    const refusal = async (call: () => Promise<unknown>) => {
+      try {
+        await call();
+      } catch (err) {
+        if (err instanceof TRPCError)
+          return { code: err.code, message: err.message, typed: (err.cause as { code?: string } | undefined)?.code };
+        throw err;
+      }
+      return 'answered';
+    };
+    const caller = app.createCaller(await contextOf({ scopes: ['support:ops', 'market:ops'], mfa: true }));
+    expect(await refusal(() => caller.any())).toEqual({
+      code: 'FORBIDDEN',
+      message: 'One of admin:read, admin:treasury is required',
+      typed: 'scope.denied',
+    });
+    expect(await refusal(() => caller.one())).toEqual({
+      code: 'FORBIDDEN',
+      message: 'Scope "admin:treasury" is required',
+      typed: 'scope.denied',
+    });
+    expect(await app.createCaller(await contextOf({ scopes: ['admin:read'], mfa: true })).any()).toEqual({ ok: true });
+  });
+});

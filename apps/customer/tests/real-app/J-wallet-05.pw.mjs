@@ -56,16 +56,6 @@ function payScreener(on) {
   }
 }
 
-/** The step's picture, taken from the top of the page with nothing focused: a whole-page picture taken while scrolled draws
- *  the sticky header over the middle of the page (runs 44386780554 and 44390756982: #1 and #2 read BROKEN). */
-async function pictureFromTop(page, stepPicture) {
-  await page.evaluate(() => {
-    document.activeElement?.blur?.();
-    window.scrollTo(0, 0);
-  });
-  await stepPicture(page);
-}
-
 test(`${J} starts: a verified TEST account with 300 USDT, a second factor and a saved wallet approved and past its cooling-off`, async ({
   page,
   browser,
@@ -142,7 +132,7 @@ test(`${J} #1 opens Withdraw and picks asset and network: the default network wi
     expect(figure(shown[1]), `${rule} is the catalogue's TEST ${want} USDT`).toBe(figure(want));
   }
   await expect(form(page).getByRole('textbox', { name: /^(Tag|Memo)/ })).toHaveCount(0);
-  await pictureFromTop(page, stepPicture);
+  await stepPicture(page);
   // A tag on a network without tags is refused by svc-pay itself, by name, with a real quote and a fresh step-up: never
   // dropped and sent without it. Then nothing is held and nothing is recorded.
   const quoteRef = `${J}-tag-quote-${Date.now()}`;
@@ -244,7 +234,7 @@ test(`${J} #2 picks the saved address or pastes one: a mistyped address is refus
   await expect(again.getByRole('alert')).toHaveText('This address is on the sanctions list, so it can’t be saved. Nothing was saved.');
   await expect(stepUp(page)).toHaveCount(0);
   await expect(page.locator('tbody tr', { hasText: 'TEST sanctioned wallet' })).toHaveCount(0);
-  await pictureFromTop(page, stepPicture);
+  await stepPicture(page);
   // The bank itself refuses it with its typed code, however its letters are cased, even with a fresh step-up.
   for (const ref of [LOCAL_TEST_SANCTIONED_ADDRESS, LOCAL_TEST_SANCTIONED_ADDRESS.toUpperCase().replace('0X', '0x')]) {
     const sanctioned = await api.saveAddress(
@@ -340,7 +330,7 @@ test(`${J} #7 confirms with a fresh step-up while no signer is connected: refuse
   );
   await expect(outcome).toContainText('Nothing was sent and nothing is held. Your available balance is 300 USDT.');
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  await pictureFromTop(page, stepPicture);
+  await stepPicture(page);
 
   // The ledger agrees: nothing left the available balance, and svc-pay recorded no withdrawal.
   const api = await customerApi();
