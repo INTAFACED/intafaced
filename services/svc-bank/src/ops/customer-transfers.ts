@@ -19,10 +19,6 @@ import { money, type TransferOps } from './transfer-source.js';
 
 const amountString = z.string().regex(/^\d+(\.\d{1,18})?$/);
 
-export function writeCustomerTransfersAudit(actorUserId: string, ownerUserId: string): void {
-  writeCustomerReadAudit('bank.ops.customer_transfers_read', actorUserId, ownerUserId);
-}
-
 export interface CustomerTransfer {
   id: string;
   direction: 'sent' | 'received';
@@ -46,7 +42,7 @@ const TransferRow = z.object({
   created_at: z.date(),
 });
 
-export async function readCustomerTransfers(
+async function readCustomerTransfers(
   ops: TransferOps,
   userId: string,
   limit: number,
@@ -103,7 +99,7 @@ export function customerTransfersProcedure(bank: BankServices, guard: Guard) {
     )
     .query(({ ctx, input }) =>
       guard(async () => {
-        writeCustomerTransfersAudit(ctx.principal.userId, input.userId);
+        writeCustomerReadAudit('bank.ops.customer_transfers_read', ctx.principal.userId, input.userId);
         const page = await readCustomerTransfers(bank.transferOps, input.userId, input.limit);
         return { userId: input.userId, ...page };
       }),

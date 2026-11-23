@@ -20,10 +20,10 @@ import { selectCustomerOrders, toSupportOrder } from '../support/trade-summary.j
 import { COPY_LOOKUP_SCOPE } from './copy-bots-otc.js';
 import { requireOperator, writeOperatorAudit } from './common.js';
 
-export const CUSTOMER_ORDERS_AUDIT_KIND = 'customer_orders.read' as const;
+const CUSTOMER_ORDERS_AUDIT_KIND = 'customer_orders.read' as const;
 
 /** The audit id of one read: a UUID derived from what the read was, never random. */
-export function customerOrdersAuditId(input: { operatorId: string; userId: string; limit: number; readAt: string }): string {
+function customerOrdersAuditId(input: { operatorId: string; userId: string; limit: number; readAt: string }): string {
   const key = [CUSTOMER_ORDERS_AUDIT_KIND, input.operatorId, input.userId, String(input.limit), input.readAt].join('|');
   const bytes = Buffer.from(createHash('sha256').update(key).digest().subarray(0, 16));
   bytes.writeUInt8((bytes.readUInt8(6) & 0x0f) | 0x50, 6);

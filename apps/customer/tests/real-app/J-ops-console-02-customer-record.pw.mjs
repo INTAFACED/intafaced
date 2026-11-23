@@ -105,6 +105,15 @@ async function customerWithRecords(browser) {
   // The deposit, less what the payment and the buy took, is still there in USDT; the buy brought BTC.
   expect(assets.map((a) => a.assetId)).toEqual(expect.arrayContaining(['USDT', 'BTC']));
   expect(toUnits(assets.find((a) => a.assetId === 'USDT').total) > 0n, 'the customer holds USDT').toBe(true);
+  // The operator balances read stays shut to a session holding neither admin:read nor admin:treasury: the customer's own
+  // session asking it for themselves is refused 403 with the platform's one scope code, and gets no figure.
+  const operatorRead = await own.get(
+    `/api/bank/trpc/ops.customerBalances?input=${encodeURIComponent(JSON.stringify({ userId: own.userId }))}`,
+  );
+  expect(operatorRead.status, JSON.stringify(operatorRead.body).slice(0, 300)).toBe(403);
+  expect(operatorRead.body.result).toBeUndefined();
+  expect(operatorRead.body.error.message).toBe('One of admin:read, admin:treasury is required');
+  expect(operatorRead.body.error.data.intafacedCode).toBe('scope.denied');
   return { userId: own.userId, payeeId, order, paymentId, card, ticket, assets };
 }
 
