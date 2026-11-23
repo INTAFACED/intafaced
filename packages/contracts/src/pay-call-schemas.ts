@@ -459,7 +459,7 @@ export const heldDepositViewSchema = z
   .object({
     depositId: z.string(),
     userId: z.string(),
-    assetId: z.string(),
+    assetId: brandedAssetIdSchema,
     networkId: z.string(),
     txHash: z.string(),
     amount: z.string(),
