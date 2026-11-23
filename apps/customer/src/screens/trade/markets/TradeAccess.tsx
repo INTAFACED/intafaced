@@ -2,7 +2,7 @@ import { KYC_LADDER_LEVELS } from '@intafaced/contracts/identity-kyc-levels';
 import { verificationStatus } from '../../../features/account/verification-guards';
 import { useSession } from '../../../features/session/session';
 import { useResource } from '../../../shared/resource';
-import { Button } from './deps';
+import { Button, StatusNote } from '@intafaced/ui/lit';
 import { marketsCopy } from './copy';
 
 /** The lowest level the spot desk takes orders from (svc-trade's `requireTier(principal, 'basic')`). */
@@ -66,27 +66,37 @@ export function TradeAccess() {
   const state = tradeAccess(resource.status === 'ready' ? resource.data : null);
   if (state.kind === 'unread')
     return (
-      <div data-testid="trade-access" data-state="unread" className="mkt-access" role="status">
-        <strong>{t('Access unread')}</strong>
-        <Button variant="ghost" size={28} onClick={reload}>
-          {t('Try again')}
-        </Button>
+      <div data-testid="trade-access" data-state="unread">
+        <StatusNote
+          tone="warn"
+          title={t('Access unread')}
+          actions={
+            <Button tone="quiet" onClick={reload}>
+              {t('Try again')}
+            </Button>
+          }
+        />
       </div>
     );
   if (state.kind === 'verified')
     return (
-      <div data-testid="trade-access" data-state="verified" data-level={state.level} className="mkt-access">
+      <div data-testid="trade-access" data-state="verified" data-level={state.level} className="lt-toolbar">
         <strong>{t('Verified to trade')}</strong>
-        <span className="mkt-muted">{t('Access level', { level: t(LEVEL_WORD[state.level]) })}</span>
+        <span className="lt-hint">{t('Access level', { level: t(LEVEL_WORD[state.level]) })}</span>
       </div>
     );
   return (
-    <div data-testid="trade-access" data-state={state.kind} className="mkt-access">
-      <strong>{t(state.kind === 'pending' ? 'Verification pending' : 'Verify to trade')}</strong>
-      <span className="mkt-muted">{t(state.kind === 'pending' ? 'Access pending body' : 'Access verify body')}</span>
-      <a className="mkt-access__link" href="/verification">
-        {t(state.kind === 'pending' ? 'See your request' : 'Verify now')}
-      </a>
+    <div data-testid="trade-access" data-state={state.kind}>
+      <StatusNote
+        title={t(state.kind === 'pending' ? 'Verification pending' : 'Verify to trade')}
+        actions={
+          <a className="lt-link" href="/verification">
+            {t(state.kind === 'pending' ? 'See your request' : 'Verify now')}
+          </a>
+        }
+      >
+        {t(state.kind === 'pending' ? 'Access pending body' : 'Access verify body')}
+      </StatusNote>
     </div>
   );
 }

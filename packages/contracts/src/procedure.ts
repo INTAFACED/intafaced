@@ -73,6 +73,8 @@ export type Access =
       readonly scopes: readonly [Scope, ...Scope[]];
       readonly module?: ModuleId;
       readonly plane?: Plane;
+      /** The serving service's own check, run last, as on a `scope` record. */
+      readonly check?: string;
     }
   | {
       readonly caller: 'service';
@@ -86,7 +88,7 @@ export type Access =
    */
   | { readonly caller: 'person'; readonly scope?: Scope; readonly module?: ModuleId; readonly plane?: Plane; readonly tier?: KycTier }
   /** Any signed-in principal, no scope; then the module's jurisdiction check when `module` is named (`signedInProcedure`). */
-  | { readonly caller: 'signedIn'; readonly module?: ModuleId; readonly plane?: Plane }
+  | { readonly caller: 'signedIn'; readonly module?: ModuleId; readonly plane?: Plane; readonly check?: string }
   /**
    * A founder at the console: a signed interactive principal with MFA and no API key, whose founder entitlement the serving
    * service reads live before the input is parsed. No scope says it (`admin:read` can sit on a long-lived key), so the

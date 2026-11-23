@@ -270,7 +270,7 @@ function GridWizard({
           <TabsTab value="presets">{t('Presets')}</TabsTab>
         </TabsList>
         <TabsPanel value="setup">
-          <PageSection title={t('Set up')} headingLevel={2}>
+          <div className="lt-stack">
             <SelectField
               label={t('Market')}
               value={symbol}
@@ -328,10 +328,10 @@ function GridWizard({
                 {guard.busy ? t('Starting') : t('Create bot')}
               </Button>
             </div>
-          </PageSection>
+          </div>
         </TabsPanel>
         <TabsPanel value="presets">
-          <PageSection title={t('Presets')} headingLevel={2}>
+          <div className="lt-stack">
             {presets.status === 'ready' && presets.data ? (
               <KeyValue items={[{ label: t('Backtested presets'), value: t('Not set') }]} />
             ) : presets.failure ? (
@@ -340,7 +340,7 @@ function GridWizard({
               <InfoNote>{t('Checking')}</InfoNote>
             )}
             <InfoNote>{t('No backtest source is connected, so no preset and no APR is shown.')}</InfoNote>
-          </PageSection>
+          </div>
         </TabsPanel>
       </Tabs>
     </form>

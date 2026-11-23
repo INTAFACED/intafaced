@@ -5,6 +5,7 @@
 //   node tooling/design/volt-recipe.mjs --write <file> ...                            writes the changes
 //   node tooling/design/volt-recipe.mjs --plan                                        counts, over every customer .tsx
 //                                                                                       but its tests, what it would change and leave
+//   node tooling/design/volt-recipe.mjs --plan --rank                                 and ranks the classes and parts left by count
 // What it changes, and nothing else:
 //   - an `import { … } from '@intafaced/ui'` whose every part is in PARTS with a twin, when every use of each part
 //     moves: the import becomes the kit's (`@intafaced/ui/lit`) and each tag is renamed to its twin;
@@ -14,9 +15,12 @@
 //     `loading` without a `disabled` naming it is left);
 //   - <Badge> becomes the kit's <Tag>, tone neutral | lime | up | down as neutral | accent | up | down (no tone: the
 //     old default, neutral); <StatusTag status="pending|failed|filled" label={…}> becomes <StatusChip>, filled as done;
-//   - a className written as a string whose every class is in CLASSES becomes the kit's classes.
+//   - a className written as a whole string in WHOLE becomes its one kit class;
+//   - a className written as a string whose every class is in CLASSES becomes the kit's classes; a class in GONE, which
+//     no stylesheet names, is dropped from it.
 // It leaves, with file:line: any other import from '@intafaced/ui' (PARTS says why, for the parts it has no twin for),
-// a prop the kit's part has no twin for, a part used other than as a tag, and any other own class.
+// a prop the kit's part has no twin for, a part used other than as a tag, any other own class, and a class a test or a
+// journey finds an element by (`.name` in a string of a test file), which would stop finding it.
 // It reads the file with a real parser (oxc-parser, as tooling/codemod/call-records does), so a quote or a backtick in
 // a comment or in JSX text never moves a tag's end; it refuses a file that does not parse, and refuses to hand back
 // text that does not parse or has a different line count, so a fault is an error, never a written file.
@@ -25,6 +29,84 @@ import { join } from 'node:path';
 import { parseSync } from 'oxc-parser';
 
 const SRC = new URL('../../apps/customer/src/', import.meta.url).pathname;
+
+/** The second map (#10049). Each class here is drawn by rules on its own element only, which say what the kit class
+ * says (read from the stylesheets on 23 Nov 2026; the test holds that no rule reaches another element through the
+ * name), so nothing else is lost with it. */
+export const ONE_RULE = {
+  // Parts one under another with a gap: a flex column, or a one-column grid.
+  'pay-body': 'lt-stack',
+  'more-grid': 'lt-stack',
+  'orders-room': 'lt-stack',
+  'of-section': 'lt-stack',
+  'of-col': 'lt-stack',
+  'of-queue': 'lt-stack',
+  'bd-recipient': 'lt-stack',
+  'money-detail__head': 'lt-stack',
+  'money-detail__skeleton': 'lt-stack',
+  'money-act__parts': 'lt-stack',
+  'pay-recent__section': 'lt-stack',
+  'pay-waiting__item': 'lt-stack',
+  'p2p-chat': 'lt-stack',
+  'p2p-chat-item': 'lt-stack',
+  'cvt-limit': 'lt-stack',
+  'depth-step-main': 'lt-stack',
+  'market-purchases-value': 'lt-stack',
+  'mining-room-status': 'lt-stack',
+  'trade-tools': 'lt-stack',
+  'st-settings': 'lt-stack',
+  'dk-ledger': 'lt-stack',
+  // Secondary text: the colour only.
+  'mkt-muted': 'lt-muted',
+  'pay-muted': 'lt-muted',
+  'pp-none': 'lt-muted',
+  'dw-badge': 'lt-muted',
+  'dk-saved-facts': 'lt-muted',
+  'depth-reason': 'lt-muted',
+  'cw-replay-note': 'lt-muted',
+  // Words only assistive tech reads.
+  'pp-sr': 'lt-sr',
+  'pfo-sr': 'lt-sr',
+  'wl-sr': 'lt-sr',
+  'money-visually-hidden': 'lt-sr',
+  'money-execution-label': 'lt-sr',
+  // A long unbroken value that breaks anywhere; one that also keeps its own line breaks.
+  'pp-wrap': 'lt-wrap',
+  'money-act__ref': 'lt-wrap',
+  'money-standing-row-reference': 'lt-wrap',
+  'verification__selfie-link': 'lt-wrap',
+  'p2p-order-terms': 'lt-pre-wrap',
+  // A wrapping row of controls or links.
+  'support-chat__actions': 'lt-actions',
+  'money-activity-related': 'lt-actions',
+  'st-chips': 'lt-actions',
+  'dk-note-actions': 'lt-actions',
+  // Figures that line up: tabular digits only.
+  'tb-option-price': 'lt-num',
+  'mkt-volume': 'lt-num',
+  // A small secondary line with no margin of its own.
+  'wl-note': 'lt-hint',
+  // A control's label: small secondary words (on a span inside the label, where a margin draws nothing).
+  'pay-field__label': 'lt-hint',
+  'cvt-field__label': 'lt-hint',
+  // Secondary words a step quieter: the colour only.
+  'of-note': 'lt-muted',
+};
+
+/** Whole class strings of utilities (as written, in this order) that together say exactly what one kit class says: a
+ * string is taken whole or not at all, so no utility is left half-moved. Without `m-0` a paragraph keeps the margin
+ * the utilities layer never resets, which lt-hint sets to 0, so only the `m-0` lines move to it. */
+export const WHOLE = {
+  'm-0 text-sm text-fg-2': 'lt-hint',
+  'm-0 text-xs text-fg-2': 'lt-hint',
+  'flex flex-col gap-1': 'lt-stack',
+  'flex flex-col gap-2': 'lt-stack',
+  'flex flex-col gap-3': 'lt-stack',
+  'flex flex-col gap-4': 'lt-stack',
+  'flex min-w-0 flex-col gap-3': 'lt-stack',
+  'flex flex-wrap gap-2': 'lt-actions',
+  'flex flex-wrap gap-3': 'lt-actions',
+};
 
 /** The old classes with a one-to-one class in the kit (packages/ui/src/lit/templates/templates.css): each does the kit
  * class's job, the same role drawn in Volt's values. A class not here stays a finding for the redraw. */
@@ -60,7 +142,58 @@ export const CLASSES = {
   button: 'lt-button',
   'button--primary': 'lt-button-primary',
   'button--secondary': 'lt-button-secondary',
+  ...ONE_RULE,
 };
+
+/** Classes still written in rooms that no stylesheet names (the test reads the stylesheets and holds it so) and nothing
+ * else names either: they draw nothing, so the recipe drops them. A className left with none loses the attribute. */
+export const GONE = new Set([
+  'pp-form',
+  'pp-count',
+  'pp-line',
+  'pp-table',
+  'p2p-order-result',
+  'bd-addresses',
+  'money-form-facts',
+  'money-list',
+]);
+
+const TESTS = new URL('../../apps/customer/', import.meta.url).pathname;
+
+/** The class names a test file's text selects by: a `.name` that starts a selector or follows a combinator (after a
+ * quote, a space, `>`, `+`, `~`, `,` or `(`), and any `.name` with a hyphen, which no property access has. It takes too
+ * many (a method called at the start of a line) rather than too few. */
+export function classesIn(text) {
+  // A selector that already takes either name, `:is(.form-stack, .lt-stack)`, finds the element after the move too.
+  const either = /:is\(([^()]*)\)/g;
+  const rest = text.replace(either, (group, inner) => {
+    const names = inner.split(',').map((s) => s.trim());
+    const old = names.filter((n) => !n.startsWith('.lt-'));
+    return old.length > 0 && old.every((n) => /^\.[\w-]+$/.test(n) && names.includes(`.${CLASSES[n.slice(1)]}`)) ? '' : group;
+  });
+  const names = [...rest.matchAll(/(?<=['"`\s>+~,(])\.(-?[_a-zA-Z][\w-]*)/g), ...rest.matchAll(/\.(-?[_a-zA-Z]\w*-[\w-]*)/g)];
+  return names.map((m) => m[1]);
+}
+
+/**
+ * Every class a test or a journey finds an element by: classesIn over the customer app's test files (`*.test.ts(x)`,
+ * `*.pw.mjs`, everything under `tests/`). A selector it cannot read (built from parts, or `div.name` with no hyphen) is
+ * not seen, so the customer unit tests and the journeys stay the judge; this stops the ones it can see.
+ */
+export function classesTestsFind(root = TESTS) {
+  const found = new Set();
+  const read = (dir, all) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (['node_modules', 'dist', 'look-baselines', 'render-record'].includes(entry.name)) continue;
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) read(path, all || entry.name === 'tests');
+      else if (/\.(tsx?|mjs|js)$/.test(entry.name) && (all || /\.(test|spec|pw)\.(tsx?|mjs|js)$/.test(entry.name)))
+        for (const name of classesIn(readFileSync(path, 'utf8'))) found.add(name);
+    }
+  };
+  read(root, false);
+  return found;
+}
 
 const TONES = { primary: 'primary', secondary: 'secondary', ghost: 'quiet' };
 const BADGE_TONES = { neutral: 'neutral', lime: 'accent', up: 'up', down: 'down' };
@@ -127,6 +260,13 @@ const PARTS = {
   },
   DataTable: { why: "it takes its rows as children; the kit's Table takes rows and columns as data" },
   SubNav: { why: "it marks the current item by its id; the kit's Tabs marks it by its href" },
+  EmptyState: {
+    why: "it takes its action as data ({ label, onClick or href }) and a variant, reason, code and size; the kit's EmptyState takes a title, a body and an action drawn by the room",
+  },
+  Table: {
+    why: "its columns are { id, header, value, cell } and it sorts itself; the kit's Table takes a caption and its own column shape, and is handed its sort",
+  },
+  KeyValue: { why: "it takes items ({ label, value, hint, mono, asOf }); the kit's KeyValue takes rows ({ label, value, note, ltr })" },
 };
 
 /** Whether a string written anywhere in `node` (a literal, either side of a choice) holds a typed arrow. */
@@ -160,9 +300,10 @@ function walk(node, visit, parent) {
   }
 }
 
-/** The recipe applied to one file's text: `{ text, changed, left }`, `left` as `line: why`. Throws when the file does
- * not parse, or when its own output would not. */
-export function recipe(source) {
+/** The recipe applied to one file's text: `{ text, changed, left }`, `left` as `line: why`. `found` is the classes a
+ * test finds an element by (classesTestsFind), which stay as written. Throws when the file does not parse, or when its
+ * own output would not. */
+export function recipe(source, { found = new Set() } = {}) {
   const program = parse(source, 'the room');
   const left = [];
   const lineOf = (index) => source.slice(0, index).split('\n').length;
@@ -258,19 +399,36 @@ export function recipe(source) {
       if (attr.value?.type === 'JSXExpressionContainer') computed.push(`${lineOf(attr.start)}: className={…}, computed, needs judgement`);
       continue;
     }
-    const names = value.split(/\s+/).filter(Boolean);
-    const own = names.filter((c) => !c.startsWith('lt-') && !Object.hasOwn(CLASSES, c));
+    const written = value.split(/\s+/).filter(Boolean);
+    const whole = WHOLE[written.join(' ')];
+    const names = whole ? [whole] : written;
+    const own = names.filter((c) => !c.startsWith('lt-') && !Object.hasOwn(CLASSES, c) && !GONE.has(c));
     if (own.length > 0) {
       left.push(`${lineOf(attr.start)}: className "${value}" (${own.join(' ')} has no recipe)`);
       continue;
     }
-    const kit = [...new Set(names.map((c) => CLASSES[c] ?? c))].join(' ');
+    const kit = [...new Set(names.filter((c) => !GONE.has(c)).map((c) => CLASSES[c] ?? c))].join(' ');
     if (kit === value) continue;
     const typed = (elementOf.get(opening)?.children ?? []).some(
       (c) => (c.type === 'JSXText' && ARROW.test(c.value)) || (c.type === 'JSXExpressionContainer' && typedIn(c.expression)),
     );
     if (typed) {
       left.push(`${lineOf(attr.start)}: className "${value}" on words with a typed arrow, which the kit draws (lt-arrow)`);
+      continue;
+    }
+    const held = written.filter((c) => !c.startsWith('lt-') && found.has(c));
+    if (held.length > 0) {
+      left.push(`${lineOf(attr.start)}: className "${value}" (a test finds an element by ${held.join(' ')}, needs judgement)`);
+      continue;
+    }
+    if (kit === '') {
+      // Nothing left to say: the attribute goes with the one space before it. Alone on its line, it is left.
+      if (source[attr.start - 1] !== ' ' || /\s/.test(source[attr.start - 2] ?? ' ')) {
+        left.push(`${lineOf(attr.start)}: className "${value}" (no stylesheet names it: delete the attribute and its line)`);
+        continue;
+      }
+      edits.push({ start: attr.start - 1, end: attr.end, text: '' });
+      changed++;
       continue;
     }
     edits.push({ start: attr.value.start, end: attr.value.end, text: `"${kit}"` });
@@ -294,28 +452,51 @@ export function recipe(source) {
   return { text, changed, left };
 }
 
+/** The classes and old-kit parts the left lines name, commonest first, as `count name`: what the next map is chosen from. */
+export function rank(lefts) {
+  const classes = new Map();
+  const parts = new Map();
+  const count = (map, name) => map.set(name, (map.get(name) ?? 0) + 1);
+  for (const line of lefts) {
+    const own = line.match(/className "[^"]*" \((.*) has no recipe\)$/);
+    if (own) for (const c of own[1].split(' ')) count(classes, c);
+    const old = line.match(/imports (.*) from @intafaced\/ui \(/);
+    if (old) for (const p of old[1].split(', ')) count(parts, p);
+  }
+  const top = (map) => [...map].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([name, n]) => `${n} ${name}`);
+  return { classes: top(classes), parts: top(parts) };
+}
+
 const write = process.argv.includes('--write');
-const files = process.argv.slice(2).filter((a) => a !== '--write');
+const files = process.argv.slice(2).filter((a) => a !== '--write' && a !== '--rank');
 if (import.meta.url === `file://${process.argv[1]}` && process.argv.includes('--plan')) {
   const all = readdirSync(SRC, { recursive: true }).filter((f) => f.endsWith('.tsx') && !f.endsWith('.test.tsx'));
+  const found = classesTestsFind();
   let changed = 0;
-  let left = 0;
+  const left = [];
   for (const f of all) {
-    const result = recipe(readFileSync(join(SRC, f), 'utf8'));
+    const result = recipe(readFileSync(join(SRC, f), 'utf8'), { found });
     changed += result.changed;
-    left += result.left.length;
+    left.push(...result.left);
   }
-  process.stdout.write(`${all.length} files: ${changed} to change, ${left} left\n`);
+  process.stdout.write(`${all.length} files: ${changed} to change, ${left.length} left\n`);
+  if (process.argv.includes('--rank')) {
+    const { classes, parts } = rank(left);
+    process.stdout.write(
+      `old-kit parts left:\n  ${parts.join('\n  ')}\nown classes left (the 60 commonest of ${classes.length}):\n  ${classes.slice(0, 60).join('\n  ')}\n`,
+    );
+  }
 } else if (import.meta.url === `file://${process.argv[1]}`) {
   if (files.length === 0) {
     process.stderr.write('usage: node tooling/design/volt-recipe.mjs [--write] <file under apps/customer/src> ...\n');
     process.exit(2);
   }
+  const found = classesTestsFind();
   for (const file of files) {
     const path = join(SRC, file);
     let result;
     try {
-      result = recipe(readFileSync(path, 'utf8'));
+      result = recipe(readFileSync(path, 'utf8'), { found });
     } catch (error) {
       process.stderr.write(`${file}: refused, nothing written: ${error.message}\n`);
       process.exitCode = 1;

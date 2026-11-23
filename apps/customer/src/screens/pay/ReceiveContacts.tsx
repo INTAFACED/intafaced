@@ -222,7 +222,7 @@ export function ReceiveContacts() {
                 <DialogDescription>{payCopy.t('Add a way to receive body')}</DialogDescription>
               </DialogHeader>
               <div className="pay-field">
-                <label className="pay-field__label" htmlFor={addressId}>
+                <label className="lt-hint" htmlFor={addressId}>
                   {payCopy.t('Email or phone')}
                 </label>
                 <input
@@ -262,7 +262,7 @@ export function ReceiveContacts() {
                 <DialogDescription>{payCopy.t('Code sent to {target}', { target: step.contact.target })}</DialogDescription>
               </DialogHeader>
               <div className="pay-field">
-                <label className="pay-field__label" htmlFor={codeId}>
+                <label className="lt-hint" htmlFor={codeId}>
                   {payCopy.t('Code')}
                 </label>
                 <input

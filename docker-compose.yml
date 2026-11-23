@@ -108,6 +108,7 @@ services:
       - '--enable-feature=exemplar-storage'
     volumes:
       - ./tooling/infra/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+      - ./tooling/infra/prometheus-alerts.yaml:/etc/prometheus/prometheus-alerts.yaml:ro
       - promdata:/prometheus
     ports:
       - '127.0.0.1:9090:9090'
@@ -273,6 +274,48 @@ services:
       - prometheus
       - tempo
 
+  # ── THE HOSTED BETA'S BACKUP AND HOST METRICS (#10211) ─────────────────────
+  #
+  # Profile `beta` only: a dev machine and CI never start them. `pg-backup` runs tooling/infra/backup/pg-backup.sh
+  # nightly (19:17 UTC, 03:17 in Bali): every database and the roles, the newest 14 kept in the `pgbackups` volume,
+  # and its result written for node-exporter, whose disk and backup metrics the alerts in
+  # tooling/infra/prometheus-alerts.yaml read. The backups sit on the same host as the database: they cover a dropped
+  # table or a bad migration, not a lost host. A restore: the script's header. No published ports.
+  pg-backup:
+    image: postgres:16-alpine
+    container_name: intafaced-pg-backup
+    profiles: ['beta']
+    restart: unless-stopped
+    command: ['sh', '/backup-bin/pg-backup.sh', 'nightly']
+    environment:
+      PGHOST: postgres
+      PGPORT: '5432'
+      PGUSER: intafaced
+      # The postgres service's own password, above.
+      PGPASSWORD: intafaced
+      BACKUP_DIR: /backups
+      KEEP: '14'
+      METRICS_DIR: /metrics
+    volumes:
+      - ./tooling/infra/backup:/backup-bin:ro
+      - pgbackups:/backups
+      - backupmetrics:/metrics
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    container_name: intafaced-node-exporter
+    profiles: ['beta']
+    restart: unless-stopped
+    command:
+      - '--path.rootfs=/host'
+      - '--collector.textfile.directory=/textfile'
+    volumes:
+      - /:/host:ro,rslave
+      - backupmetrics:/textfile:ro
+
 volumes:
   pgdata:
   redisdata:
@@ -280,3 +323,5 @@ volumes:
   promdata:
   tempodata:
   grafanadata:
+  pgbackups:
+  backupmetrics:

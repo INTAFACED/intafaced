@@ -30,7 +30,7 @@ import { githubFetch, githubToken } from './github-fetch.mjs';
 export const CI_WORKFLOW_PATH = '.github/workflows/ci.yml';
 
 /** ci.yml's job names (`name:`), keyed as sealNeeded keys its results. */
-export const CI_JOBS = { changes: 'Affected tests', gates: 'Doctrine gates', format: 'Format', build: 'Typecheck & build', rust: 'Rust' };
+export const CI_JOBS = { changes: 'Affected tests', gates: 'Doctrine gates', build: 'Typecheck & build', rust: 'Rust' };
 /** The test matrix's jobs: `Tests (1/16)` … or `Tests (changed)`. */
 export const TEST_JOB = /^Tests \(.+\)$/;
 /** ci.yml's Look job (look-pr.yml, #9325): a reusable workflow, so its jobs are named `Look / Build (before)`,

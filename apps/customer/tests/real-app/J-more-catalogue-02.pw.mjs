@@ -200,6 +200,16 @@ test(`${J} #2 opens a listing by id: the seller profile, review summary and perf
   expect(vendor.id).toBe(read.vendor.id);
   expect(JSON.stringify(read)).not.toContain(vendor.userId);
 
+  // The review list loads apart from the listing, with its own loading status in the same Reviews region. Hold it
+  // open until the summary is read, so the summary is checked beside that second status on every run, not by luck.
+  let release = () => {};
+  const held = new Promise((resolve) => (release = resolve));
+  const reviewsList = '**/api/market/trpc/reviews.list?**';
+  await page.route(reviewsList, async (route) => {
+    await held;
+    await route.continue().catch(() => {});
+  });
+
   // From the catalogue: the listing's dialog links to its own page.
   const dialog = await openListing(page);
   await dialog.getByRole('link', { name: 'Open the listing page' }).click();
@@ -220,15 +230,27 @@ test(`${J} #2 opens a listing by id: the seller profile, review summary and perf
   await expect(sellerPart).toContainText(`Active listings: ${read.activeListingCount}`);
 
   const reviews = main.getByRole('region', { name: 'Reviews' });
-  if (read.reviews.count === '0') await expect(reviews.getByRole('status')).toHaveText('No reviews yet.');
-  else await expect(reviews.getByTestId('market-review-summary')).toContainText(`Reviews: ${read.reviews.count} `);
+  await expect(reviews.getByRole('status')).toHaveCount(2);
+  const summary = reviews.getByTestId('market-review-summary');
+  await expect(summary).toHaveAttribute('role', 'status');
+  if (read.reviews.count === '0') await expect(summary).toHaveText('No reviews yet.');
+  else await expect(summary).toContainText(`Reviews: ${read.reviews.count} `);
+  release();
+  await page.unroute(reviewsList);
+  // The list answers and its loading status goes; the summary is the region's one status left.
+  await expect(reviews.getByRole('status')).toHaveCount(1);
+  await expect(reviews.getByRole('status')).toHaveAttribute('data-testid', 'market-review-summary');
 
   // Performance with its stated basis: the service reports none, so no figure is drawn.
   expect(read.performance).toEqual({ reported: false });
   const performance = main.getByRole('region', { name: 'Performance' });
-  await expect(performance).toContainText('No performance reported.');
-  await expect(performance).toContainText(/Basis:/);
-  await expect(performance).not.toContainText(/%|\d+\.\d+/);
+  // The region is its heading, the none line and the stated basis, word for word, and no figure anywhere in it.
+  await expect(performance.getByRole('heading', { level: 3 })).toHaveText('Performance');
+  await expect(performance.locator('p')).toHaveText([
+    'No performance reported.',
+    'Basis: this listing names no copy leader, bot or signal, so there is no record to measure. Nothing in the Market is ranked by returns.',
+  ]);
+  await expect(performance).not.toContainText(/%|\d/);
 
   // An unknown id: the service's typed not-found, and the page says so, never a blank page.
   const unknown = '00000000-0000-4000-8000-000000000000';

@@ -239,7 +239,7 @@ function PriceForm({
   return (
     <div
       data-testid="form-stack"
-      className="form-stack pp-form"
+      className="lt-stack"
       role="group"
       aria-label={replacing ? t('replaceTitle', { price: priceWords(replacing) }) : t('addPrice')}
     >
@@ -364,7 +364,7 @@ function AmountCheck({ portal, prices }: { portal: PortalApi; prices: readonly M
   }
 
   return (
-    <div data-testid="form-stack" className="form-stack pp-form" role="group" aria-label={t('checkTitle')}>
+    <div data-testid="form-stack" className="lt-stack" role="group" aria-label={t('checkTitle')}>
       <h3>{t('checkTitle')}</h3>
       <p className="lt-muted">{t('checkPurpose')}</p>
       {prices.length > 1 && (
@@ -461,7 +461,7 @@ function SaleCheck({ portal, productId, prices }: { portal: PortalApi; productId
       setAnswer(null);
     };
   return (
-    <div data-testid="form-stack" className="form-stack pp-form" role="group" aria-label={t('saleCheckTitle')}>
+    <div data-testid="form-stack" className="lt-stack" role="group" aria-label={t('saleCheckTitle')}>
       <h3>{t('saleCheckTitle')}</h3>
       <p className="lt-muted">{t('saleCheckPurpose')}</p>
       <SelectField

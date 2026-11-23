@@ -71,6 +71,11 @@
   gap: var(--lit-gap-item);
 }
 
+/* A room's action keeps its words on one line; the title column gives way, never the button's label. */
+.lt-room-action .lt-button {
+  white-space: nowrap;
+}
+
 .lt-title {
   margin: 0;
   font-size: var(--lit-type-title-size);
@@ -634,7 +639,9 @@
   font: inherit;
   text-decoration: underline;
   cursor: pointer;
-  min-block-size: 1.5rem;
+  /* A link that is its own box (a <summary>, a button) is a whole 24 CSS pixel target at any root size: 1.5rem alone drew
+     21px under Pro's smaller root (summary.lt-link 88x21, look gate run 45057109047). Inline in a sentence it takes none. */
+  min-block-size: max(1.5rem, 24px); /* look-drift-allow: WCAG 2.5.8 sets the minimum target in CSS pixels */
 }
 
 /*
@@ -755,6 +762,11 @@
   max-block-size: 30rem;
   block-size: auto;
   object-fit: contain;
+}
+
+/* A live camera preview of the person (a selfie): shown as a mirror, as a person expects to see themself. */
+.lt-media[data-mirror] {
+  transform: scaleX(-1);
 }
 
 /* Code read as written (a strategy's source, a line comparison): it keeps its lines, wraps rather than widening the room,
@@ -1325,6 +1337,11 @@ button.lt-tab {
     content: attr(data-label);
     color: var(--lit-text-2);
   }
+  /* An empty table's one message is not a labelled value: it reads as one block across the phone, never split in two. */
+  .lt-table tr[data-empty] td {
+    display: block;
+    text-align: center;
+  }
 }
 
 .lt-chart {
@@ -1709,7 +1726,7 @@ button.lt-tab {
 
 /* The control fills its field and gives way when the row it sits in is narrower than its own width, so a row of fields
    on a phone, or at twice the text size, never runs past the screen. */
-.lt-field input:not([type='checkbox'], [type='radio']),
+.lt-field input:not([type='checkbox'], [type='radio'], [type='file']),
 .lt-field select,
 .lt-field textarea {
   inline-size: 100%;
@@ -1723,8 +1740,10 @@ button.lt-tab {
   font: inherit;
 }
 
+/* A box of several lines keeps the tile's corners: the control's pill radius turns a tall box into an oval. */
 .lt-field textarea {
   padding-block: 0.5rem;
+  border-radius: var(--lit-radius-tile);
 }
 
 .lt-field :is(input, select, textarea):focus-visible {
@@ -1748,16 +1767,136 @@ button.lt-tab {
   gap: 0.5rem;
 }
 
-/* The app's base reset (packages/ui/src/theme/base.css) leaves every input with appearance: none and no size, which
-   draws a tick as nothing: keep the browser's own control, sized, in the kit's accent. */
-.lt-field input:is([type='checkbox'], [type='radio']) {
-  appearance: auto;
+/* ---- the browser's own form controls, drawn by the kit (issue 10316) ----
+   The app's base reset (packages/ui/src/theme/base.css) leaves every input with appearance: none and no size, which
+   draws a tick as nothing, and the browser's own fieldset, file and date chrome reads as unfinished on Volt's black.
+   These rules draw them once for every room on the look, kit part or plain element alike. They match with the least
+   weight a type can have, so a room's own class still wins. */
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) input:is([type='checkbox'], [type='radio']) {
+  appearance: none;
+  display: inline-grid;
+  place-content: center;
   flex: none;
-  inline-size: 1rem;
-  block-size: 1rem;
+  inline-size: 1.125rem;
+  block-size: 1.125rem;
   margin: 0;
-  accent-color: var(--lit-accent);
+  border: 1px solid var(--lit-line-strong);
+  border-radius: 0.3125rem;
+  background: var(--lit-solid-bg-raised);
+  vertical-align: middle;
   cursor: pointer;
+}
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) input[type='radio'] {
+  border-radius: 50%;
+}
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) input:is([type='checkbox'], [type='radio']):is(:checked, :indeterminate) {
+  border-color: transparent;
+  background: var(--lit-accent-fill);
+}
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) input:is([type='checkbox'], [type='radio'])::before {
+  content: '';
+  inline-size: 0.625rem;
+  block-size: 0.625rem;
+  background: var(--lit-on-accent);
+  transform: scale(0);
+}
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) input[type='checkbox']::before {
+  clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+}
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) input[type='checkbox']:indeterminate::before {
+  block-size: 0.125rem;
+  clip-path: none;
+  transform: none;
+}
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) input[type='radio']::before {
+  inline-size: 0.5rem;
+  block-size: 0.5rem;
+  border-radius: 50%;
+}
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) input:is([type='checkbox'], [type='radio']):checked::before {
+  transform: scale(1);
+}
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) input:is([type='checkbox'], [type='radio']):focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) input:is([type='checkbox'], [type='radio']):disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Forced colours paint over backgrounds, which would hide the tick: the browser's own box comes back there. */
+@media (forced-colors: active) {
+  :where([data-look='lit']) :where(.if-app, [data-slot]) input:is([type='checkbox'], [type='radio']) {
+    appearance: auto;
+  }
+  :where([data-look='lit']) :where(.if-app, [data-slot]) input:is([type='checkbox'], [type='radio'])::before {
+    content: none;
+  }
+}
+
+/* A fieldset groups its controls; the browser's grooved white frame around it is not Volt's. A fieldset with no class of
+   its own stacks its fields with the item gap. */
+:where([data-look='lit']) :where(.if-app, [data-slot]) fieldset {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) fieldset:not([class]) {
+  display: grid;
+  gap: var(--lit-gap-item);
+}
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) legend {
+  padding: 0;
+}
+
+/* A file picker: its button is the kit's secondary button, the name of the file chosen beside it in the quiet text. */
+:where([data-look='lit']) :where(.if-app, [data-slot]) input[type='file'] {
+  max-inline-size: 100%;
+  color: var(--lit-text-2);
+  font: inherit;
+}
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) input[type='file']::file-selector-button {
+  /* Sized by its padding, not the control height: a room may set its picker's own height, which clips a taller button. */
+  margin-inline-end: var(--lit-gap-item);
+  padding-block: 0.4375rem;
+  padding-inline: 1rem;
+  border: 1px solid var(--lit-line-strong);
+  border-radius: var(--lit-radius-control);
+  background: var(--lit-secondary-bg);
+  color: var(--lit-text-1);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+:where([data-look='lit']) :where(.if-app, [data-slot]) input[type='file']:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 2px;
+}
+
+/* A date or time box in the look's scheme: its digits in the page's text, its calendar mark readable on black. */
+:where([data-look='lit']) :where(.if-app, [data-slot]) input:is([type='date'], [type='datetime-local'], [type='time'], [type='month']) {
+  color-scheme: dark;
+  font-variant-numeric: tabular-nums;
+}
+
+:root:where([data-look='lit'][data-theme='light']) :where(.if-app, [data-slot]) input:is([type='date'], [type='datetime-local'], [type='time'], [type='month']) {
+  color-scheme: light;
 }
 
 .lt-button:disabled {
@@ -1862,6 +2001,34 @@ button.lt-tab {
   flex-direction: column;
   gap: var(--lit-gap-item);
   min-inline-size: 0;
+}
+
+/* A step of several parts, each under its own heading (a room's checks, forms and records in one column): the parts sit
+   a section apart with a line between them, so they read as one aligned column, never cards inside a card. On a list it
+   also drops the markers. */
+.lt-sections {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lit-gap-section);
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lt-sections > * + * {
+  border-block-start: 1px solid var(--lit-line);
+  padding-block-start: var(--lit-gap-section);
+}
+
+/* A plain list of short rows (what a level unlocks): no markers, the kit's item gap. */
+.lt-list {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--lit-gap-item) / 2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 /* An outline row set in by its owner-set depth (a course item under a sub-heading): 0 to 2 steps. */
