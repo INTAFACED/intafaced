@@ -1527,7 +1527,9 @@ button.lt-tab {
 }
 
 /* ChartBox: a definite size for a library that draws into an element (the coin page's chart); whatever it holds fills it.
-   ChartCanvas's colour is the accent role, for a library that reads its line colour from the element. */
+   ChartCanvas's colour is the accent role, for a library that reads its line colour from the element. It clips to its
+   box with square corners: a library draws its axis labels into the corners, and a rounded clip (Volt's control radius
+   is a pill) cuts them. */
 .lt-chart-box {
   position: relative;
   display: grid;
@@ -1540,7 +1542,6 @@ button.lt-tab {
   position: relative;
   min-inline-size: 0;
   color: var(--lit-accent);
-  border-radius: var(--lit-radius-control);
   overflow: hidden;
 }
 
