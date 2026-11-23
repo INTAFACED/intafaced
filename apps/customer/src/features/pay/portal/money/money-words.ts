@@ -28,3 +28,14 @@ export function payoutName(
 export function shortDay(value: string, locale: string): string {
   return formatDay(value, locale) ?? value;
 }
+
+/** A person's name: "You" for the signed-in user, their team name where the list has it, otherwise a short id. */
+export function whoIs(id: string, me: string | null, names: ReadonlyMap<string, string>, you: string): string {
+  if (id === me) return you;
+  return names.get(id) ?? `${id.slice(0, 8)}…`;
+}
+
+/** A refusal this page words itself (an address that cannot be right), shaped like a service refusal. */
+export function localRefusal(message: string): Extract<ApiResult<never>, { ok: false }> {
+  return { ok: false, reason: 'error', code: 'portal.local', message };
+}
