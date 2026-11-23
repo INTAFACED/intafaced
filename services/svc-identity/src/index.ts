@@ -770,6 +770,7 @@ const social = new SocialSignin(sql, { providers: new Map(), flowTtlSeconds: env
 export const appRouter = mergeRouters(
   createIdentityRouter(auth, rank, {
     registrationOpen: env.REGISTRATION_OPEN,
+    ...(env.REGISTRATION_EMAIL_ALLOWLIST ? { registrationAllowlist: env.REGISTRATION_EMAIL_ALLOWLIST } : {}),
     extraControlsMin: env.IDENTITY_EXTRA_CONTROLS_MIN,
     // One budget per person across every replica and restart (#4689).
     handleLookupLimiter: new PgHandleLookupLimiter(sql),

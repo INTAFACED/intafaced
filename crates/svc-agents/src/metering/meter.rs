@@ -336,6 +336,7 @@ pub fn settle(
     session_id: &str,
     user_id: &str,
     window_id: &str,
+    now: Instant,
 ) -> Result<Settlement, MeterError> {
     let charge_key = charge_key_for(session_id, window_id);
 
@@ -424,6 +425,7 @@ pub fn settle(
             sealed.amount,
             &held,
             business.as_deref(),
+            now,
         );
     }
     let tx_id = m
@@ -440,24 +442,55 @@ pub fn settle(
     notify_affiliates(m, &charge_key, user_id, sealed.amount);
 
     // Step 3, the record: of two settles of one unpaid window at once, both post (the ledger key keeps one charge) and
-    // only the one that records the id reports a settlement.
-    let recorded = db::with_client(pool, |c| {
-        Ok(c.query(
-            "UPDATE agents.usage_windows SET charge_tx_id = $3::text, paid_by = 'ledger'
-              WHERE session_id = $1::text::uuid AND window_id = $2::text AND charge_tx_id IS NULL
-             RETURNING window_id",
-            &[&session_id, &window_id, &tx_id],
-        )?
-        .len())
-    })?;
-    Ok(Settlement {
+    // only the one that records the id reports a settlement, and writes its `agentUsageSettled` in the same
+    // transaction.
+    let mut settlement = Settlement {
         session_id: session_id.to_owned(),
         window_id: window_id.to_owned(),
         charge_key,
         amount: sealed.amount,
-        charge_tx_id: Some(tx_id),
-        settled: recorded > 0,
-    })
+        charge_tx_id: Some(tx_id.clone()),
+        settled: false,
+    };
+    settlement.settled = record_charge(
+        m,
+        pool,
+        &settlement,
+        user_id,
+        now,
+        "UPDATE agents.usage_windows SET charge_tx_id = $3::text, paid_by = 'ledger'
+          WHERE session_id = $1::text::uuid AND window_id = $2::text AND charge_tx_id IS NULL
+         RETURNING window_id",
+        &[&session_id, &window_id, &tx_id],
+    )?;
+    Ok(settlement)
+}
+
+/// The charge's record and, when this call made it, the settlement's `agentUsageSettled` in the outbox, in one
+/// transaction: a billed settlement is never recorded without its event (intafaced#10084). True when this call
+/// recorded it.
+fn record_charge(
+    m: &Metering,
+    pool: &Pool,
+    s: &Settlement,
+    user_id: &str,
+    now: Instant,
+    sql: &str,
+    params: &[&(dyn postgres::types::ToSql + Sync)],
+) -> Result<bool, MeterError> {
+    let envelope = super::settle::usage_settled_envelope(m, s, user_id, now)
+        .map_err(|e| MeterError::Store(StoreError::new(e, None)))?;
+    Ok(db::transaction(
+        pool,
+        IsolationLevel::ReadCommitted,
+        |tx| {
+            let recorded = !tx.query(sql, params)?.is_empty();
+            if recorded {
+                db::OUTBOX.write(tx, &envelope)?;
+            }
+            Ok(recorded)
+        },
+    )?)
 }
 
 /// `earnAndCollect`: earn the window once (`charge:earned:agents:<session>.<window>`), have the partner collect it
@@ -477,6 +510,7 @@ fn earn_and_collect(
     amount: Amount,
     held: &HeldBy,
     business: Option<&str>,
+    now: Instant,
 ) -> Result<Settlement, MeterError> {
     let debtor = business.unwrap_or(user_id);
     m.ledger
@@ -526,24 +560,27 @@ fn earn_and_collect(
         })
         .map_err(MeterError::Ledger)?;
     notify_affiliates(m, charge_key, user_id, amount);
-    let recorded = db::with_client(pool, |c| {
-        Ok(c.query(
-            "UPDATE agents.usage_windows
-                SET charge_tx_id = $3::text, paid_by = 'partner', payment_ref = $4::text, payment_label = $5::text
-              WHERE session_id = $1::text::uuid AND window_id = $2::text AND charge_tx_id IS NULL
-             RETURNING window_id",
-            &[&session_id, &window_id, &tx_id, &payment_id, &label],
-        )?
-        .len())
-    })?;
-    Ok(Settlement {
+    let mut settlement = Settlement {
         session_id: session_id.to_owned(),
         window_id: window_id.to_owned(),
         charge_key: charge_key.to_owned(),
         amount,
-        charge_tx_id: Some(tx_id),
-        settled: recorded > 0,
-    })
+        charge_tx_id: Some(tx_id.clone()),
+        settled: false,
+    };
+    settlement.settled = record_charge(
+        m,
+        pool,
+        &settlement,
+        user_id,
+        now,
+        "UPDATE agents.usage_windows
+            SET charge_tx_id = $3::text, paid_by = 'partner', payment_ref = $4::text, payment_label = $5::text
+          WHERE session_id = $1::text::uuid AND window_id = $2::text AND charge_tx_id IS NULL
+         RETURNING window_id",
+        &[&session_id, &window_id, &tx_id, &payment_id, &label],
+    )?;
+    Ok(settlement)
 }
 
 /// `fireAffiliateAccrue` then `fireAffiliatePayout`: a zero fee has nothing to share; a failure never unwinds the

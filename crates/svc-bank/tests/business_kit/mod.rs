@@ -697,6 +697,8 @@ pub struct Mount {
     pub custody_layer: &'static str,
     /// `BANK_STEP_UP_MONEY_OUT=required`.
     pub step_up: bool,
+    /// `BANK_TEST_PARTNER=test`: the TEST partner bank holds the money of whoever turns its custody off.
+    pub test_partner: bool,
 }
 
 impl Default for Mount {
@@ -704,6 +706,7 @@ impl Default for Mount {
         Mount {
             custody_layer: "on",
             step_up: false,
+            test_partner: false,
         }
     }
 }
@@ -782,7 +785,9 @@ pub fn door_over(
     })
     .unwrap()
     .with_partner(PartnerWiring {
-        partner: None,
+        partner: m
+            .test_partner
+            .then(|| svc_bank::partner::TestPartner::new().unwrap()),
         freeze: Box::new(Open),
         custody_layer: m.custody_layer.to_owned(),
         cash_legs: None,

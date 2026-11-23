@@ -176,6 +176,35 @@ if (!available) {
   });
 
   describe('sign-up', () => {
+    it('closed with an invited list: a listed address confirms; a code asked for while open makes no account for anyone else (#9167)', async () => {
+      const invited = form();
+      const stranger = form();
+      const listed = createIdentityRouter(auth, rank, {
+        registrationOpen: false,
+        registrationAllowlist: new Set([invited.email.toLowerCase()]),
+        actionApprovals: stubActionApprovals(),
+      }).createCaller(anonContext);
+      // The stranger asked for a code while registration was open; then it closed to the list.
+      const early = await anon().auth.signUpStart(stranger);
+      const strangerCode = sent[0]!.code;
+      expect((await refusal(listed.auth.signUpStart(form()))).code).toBe('identity.registration_closed');
+      expect(await rows()).toEqual({ users: 0, flows: 1, drafts: 1, outbox: 1 });
+
+      expect((await refusal(listed.auth.signUpConfirm({ flowId: early.flowId, code: strangerCode }))).code).toBe(
+        'identity.registration_closed',
+      );
+      // Nothing made, the code not spent, the draft kept.
+      expect(await rows()).toEqual({ users: 0, flows: 1, drafts: 1, outbox: 1 });
+      expect(await db.sql`SELECT status, attempts FROM auth_flows WHERE id = ${early.flowId}`).toEqual([
+        { status: 'code_sent', attempts: 0 },
+      ]);
+
+      const answer = await listed.auth.signUpStart(invited);
+      const session = await listed.auth.signUpConfirm({ flowId: answer.flowId, code: sent.at(-1)!.code });
+      expect(await db.sql`SELECT email FROM users WHERE id = ${session.userId}`).toEqual([{ email: invited.email }]);
+      expect(await count('users')).toBe(1);
+    });
+
     it('opens no session until the mailed code is entered, then makes one account with the email proved', async () => {
       const input = form();
       const answer = await anon().auth.signUpStart(input);

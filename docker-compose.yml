@@ -1,5 +1,8 @@
 name: intafaced
 
+# Every published port binds the host's loopback (127.0.0.1): Docker's own iptables rules skip a host firewall, so a
+# port published on all interfaces is open to the network on any hosted server (#9168). tooling/ci/compose-ports.test.mjs
+# holds it; only the customer site's entry point (vendor-shell, docker-compose.apps.yml) may listen beyond loopback.
 services:
   postgres:
     image: postgres:16-alpine
@@ -23,7 +26,7 @@ services:
     ports:
       # Host 5433 — a native Postgres commonly owns 5432, and the platform DB
       # must never depend on that slot being free. Container-internal is 5432.
-      - '${POSTGRES_HOST_PORT:-5433}:5432'
+      - '127.0.0.1:${POSTGRES_HOST_PORT:-5433}:5432'
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./tooling/infra/postgres-init:/docker-entrypoint-initdb.d:ro
@@ -41,7 +44,7 @@ services:
     ports:
       # Host 6380 for the same reason as Postgres above — a local Redis often
       # owns 6379. Container-internal stays 6379.
-      - '${REDIS_HOST_PORT:-6380}:6379'
+      - '127.0.0.1:${REDIS_HOST_PORT:-6380}:6379'
     volumes:
       - redisdata:/data
     healthcheck:
@@ -60,8 +63,8 @@ services:
       - '--http_port=8222'
       - '--name=intafaced-nats'
     ports:
-      - '4222:4222' # client
-      - '8222:8222' # monitoring
+      - '127.0.0.1:4222:4222' # client
+      - '127.0.0.1:8222:8222' # monitoring
     volumes:
       - natsdata:/data
     healthcheck:
@@ -78,8 +81,8 @@ services:
     volumes:
       - ./tooling/infra/otel-collector.yaml:/etc/otel/config.yaml:ro
     ports:
-      - '4317:4317' # OTLP gRPC
-      - '4318:4318' # OTLP HTTP
+      - '127.0.0.1:4317:4317' # OTLP gRPC
+      - '127.0.0.1:4318:4318' # OTLP HTTP
     depends_on:
       - tempo
       - prometheus
@@ -93,7 +96,7 @@ services:
       - ./tooling/infra/tempo.yaml:/etc/tempo/tempo.yaml:ro
       - tempodata:/var/tempo
     ports:
-      - '3200:3200'
+      - '127.0.0.1:3200:3200'
 
   prometheus:
     image: prom/prometheus:v3.0.1
@@ -107,7 +110,7 @@ services:
       - ./tooling/infra/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
       - promdata:/prometheus
     ports:
-      - '9090:9090'
+      - '127.0.0.1:9090:9090'
 
   # ══════════════════════════════════════════════════════════════════════════
   # DEV ONLY — A THROWAWAY EVM. NEVER DEPLOY THIS. NEVER POINT IT AT VALUE.
@@ -179,7 +182,7 @@ services:
     ports:
       # 8545 is the EVM dev convention and nothing else in this stack wants it.
       # Overridable because a developer may already run their own node there.
-      - '${EVM_HOST_PORT:-8545}:8545'
+      - '127.0.0.1:${EVM_HOST_PORT:-8545}:8545'
     healthcheck:
       test:
         - CMD-SHELL
@@ -229,7 +232,7 @@ services:
         --block-base-fee-per-gas 0
         --silent
     ports:
-      - '${EVM_REORG_HOST_PORT:-8546}:8545'
+      - '127.0.0.1:${EVM_REORG_HOST_PORT:-8546}:8545'
     healthcheck:
       test:
         - CMD-SHELL
@@ -265,7 +268,7 @@ services:
       - ./tooling/infra/grafana/dashboards:/etc/grafana/dashboards:ro
       - grafanadata:/var/lib/grafana
     ports:
-      - '3001:3000'
+      - '127.0.0.1:3001:3000'
     depends_on:
       - prometheus
       - tempo

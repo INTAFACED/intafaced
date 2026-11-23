@@ -729,9 +729,8 @@ pub fn advance(x: &Rt<'_>, step_ms: i64, batch: i64) -> Result<i64, RunError> {
     Ok(touched)
 }
 
-/// `publishCompletedRuns`: the finish notice of every completed run not yet announced, on the run id, then marked. A
-/// crash between the publish and the mark publishes it again on the next pass under the same key; svc-notify writes one
-/// row per key.
+/// `publishCompletedRuns`: the finish notice of every completed run not yet announced, on the run id, owed in the outbox,
+/// sent, then marked. One the bus refuses stops the pass and stays owed for the next; svc-notify writes one row per key.
 pub fn publish_completed(
     pool: &Pool,
     bus: &dyn Bus,
@@ -776,8 +775,15 @@ pub fn publish_completed(
             ("idempotencyKey", Json::str(key.clone())),
             ("payload", payload),
         ]);
-        bus.publish(RUN_COMPLETED, &key, &envelope)
-            .map_err(RunError::Other)?;
+        with_client(pool, |c| Ok(crate::db::OUTBOX.write(c, &envelope)?))?;
+        if !crate::db::OUTBOX
+            .send(pool, bus, &key)
+            .map_err(StoreError::from)?
+        {
+            return Err(RunError::Other(format!(
+                "run {id}: its finish notice is owed: the bus refused it"
+            )));
+        }
         with_client(pool, |c| {
             c.execute(
                 "UPDATE agents.session_background_runs SET notice_published_at = now() WHERE id = $1::text::uuid",

@@ -533,6 +533,35 @@ describe('guard seams: lock order, replay flag, refund and user-money withdrawal
       expect(row!.failure_code).toBe('rail.not_sent');
     });
 
+    // A requested attempt the chain mined and reverted moved nothing, so it never settles.
+    it('requested attempt the chain reverted: the hold stays until the revert is final, then reverses once, never a settle', async () => {
+      const rail = new CardSandboxAdapter({ secret: SECRET, toleranceSeconds: 300 });
+      const realPayout = rail.payout.bind(rail);
+      const state = { calls: 0, final: false };
+      rail.payout = async (instruction) => {
+        state.calls += 1;
+        await realPayout(instruction);
+        throw new Error('receipt status reverted');
+      };
+      rail.queryPayout = async () => ({ status: 'reverted', railRef: '0xreverted', depth: 3, final: state.final });
+      const money = moneyService({}, new RailRegistry([rail]));
+      await credit(money);
+      await expect(money.withdraw(request('w-reverted'))).rejects.toThrow('receipt status reverted');
+      await expect(money.withdraw(request('w-reverted'))).rejects.toMatchObject({ code: 'pay.rail_outcome_unknown' });
+      expect(await heldStatus('w-reverted')).toBe('held');
+      expect(await available()).toBe(amt('60'));
+      state.final = true;
+      await expect(money.withdraw(request('w-reverted'))).rejects.toMatchObject({ code: 'pay.rail_failed' });
+      expect(state.calls).toBe(1);
+      expect(await heldStatus('w-reverted')).toBe('failed');
+      expect(await available()).toBe(amt('100'));
+      const [row] = await sql`SELECT failure_code FROM pay.withdrawals WHERE client_ref = 'w-reverted'`;
+      expect(row!.failure_code).toBe('rail.reverted');
+      const reasons = ledger.journal().map((tx) => tx.reason);
+      expect(reasons.filter((r) => r === 'withdraw.settled')).toHaveLength(0);
+      expect(reasons.filter((r) => r === 'withdraw.reversed')).toHaveLength(1);
+    });
+
     describe('crash window: attempt requested, rail answer lost', () => {
       const reasons = () => ledger.journal().map((tx) => tx.reason);
       const count = (reason: string) => reasons().filter((r) => r === reason).length;
