@@ -212,7 +212,15 @@ export const venueStatementJobSchema = z.object({
   from: isoTime,
   to: isoTime,
   status: z.enum(['pending', 'finished', 'failed']),
-  rows: z.object({ orders: z.number().int(), trades: z.number().int(), movements: z.number().int() }).nullable(),
+  rows: z
+    .object({
+      orders: z.number().int(),
+      trades: z.number().int(),
+      movements: z.number().int(),
+      /** Liquidation parts the file lists (J-derivatives-26 #7); null for a job built before they were listed. */
+      liquidations: z.number().int().nullable(),
+    })
+    .nullable(),
   sha256: z.string().nullable(),
   error: z.string().nullable(),
   createdAt: isoTime,

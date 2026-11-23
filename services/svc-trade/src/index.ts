@@ -35,6 +35,7 @@ import { createEmailProofClient } from './spot/email-proof.js';
 import { createLedgerClient } from './ledger-client.js';
 import { createLedgerPages } from './statements/ledger-history.js';
 import { VenueStatements } from './venue/venue-statements.js';
+import { VenueMarginSamples } from './venue/venue-margin-samples.js';
 import { StatementExports } from './statements/statement-export.js';
 import { registerClosureCheck } from './closure/closure-check.js';
 import { registerTrackRecord } from './signals/track-record.js';
@@ -879,6 +880,8 @@ const leadDesk = new LeadDesk({
   },
   ownerDay: copyOwnerDay,
 });
+/** The venue's margin readings our door keeps, for a founder's ratio history (J-derivatives-26 #8). */
+const venueMarginSamples = new VenueMarginSamples(sql, (err) => app.log.warn({ err }, 'venue margin sample not kept'));
 export const appRouter = createTradeRouter(
   trade,
   otc,
@@ -938,6 +941,14 @@ export const appRouter = createTradeRouter(
   venueGrid,
   recurringBuys,
   venueAutoTopUp,
+  // A founder's read of one person's venue accounts and ratio history (J-derivatives-26 #8); off: the door is off.
+  {
+    audit: (row, at) => writeOperatorAudit(sql, row, at),
+    venue: userVenue ? () => userVenue.venue() : null,
+    store: new SqlPreparedActionStore(sql),
+    samples: venueMarginSamples,
+    now: () => new Date(),
+  },
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({
@@ -1980,6 +1991,7 @@ registerPrivateRest(app, {
   venueConverts,
   // J-cex-spot-07 #5: the statement export on the venue's own records, when the user-venue door is on.
   venueStatements: userVenueRouter ? new VenueStatements(sql) : null,
+  venueMarginSamples: userVenueRouter ? venueMarginSamples : null,
   venueAdlAcks: userVenueRouter ? sqlVenueAdlAcks(sql) : null,
   venueBuilderFees: userVenueRouter ? builderFees.ofUser : null,
   algo: trade,
