@@ -39,7 +39,7 @@ import { fanBranch, fanIn } from './fan.mjs';
 import { wrapperBranch, wrapperIn } from './wrapper.mjs';
 import { findSites } from './sites.mjs';
 import { BUSINESS_FORMS, businessCall } from './pay-business.mjs';
-import { toolCall, toolChecked, toolFormsIn, toolInput, toolSchema, toolShape } from './tool-forms.mjs';
+import { checkedTool, toolCall, toolChecked, toolFormsIn, toolInput, toolSchema, toolShape } from './tool-forms.mjs';
 
 const REPO = resolve(new URL('../../..', import.meta.url).pathname);
 const CONTRACTS = join(REPO, 'packages/contracts/src');
@@ -162,6 +162,8 @@ function plan(opts) {
     // A customer query or mutate whose schema only checks the answer (no transform) keeps that schema: the call goes to its
     // record through `callAs`, which holds the answer to it and returns what it parses (apps/customer/src/shared/api.ts).
     if (checks.length && checkedCall(s, arg, checks)) s.checked = text(load(s.file), arg);
+    // A portal tool's caller keeps its checking schema the same way, in the tool's checked form (tool-forms.mjs).
+    else if (checks.length && checked && checkedToolCall(s, checks)) s.checked = text(load(s.file), checked);
     else if (checks.length) {
       hand.push({
         site: s,
@@ -355,6 +357,30 @@ function takenIn(file, src, decls, imports) {
   return undefined;
 }
 
+/** The contracts files a contracts file's text imports (`./x.js`), as paths. */
+function importsOf(src) {
+  const out = new Set();
+  for (const m of (src ?? '').matchAll(/^import\b[^;]*?from '\.\/([\w-]+)\.js';/gms)) out.add(join(CONTRACTS, `${m[1]}.ts`));
+  return out;
+}
+
+/**
+ * Whether contracts file `from` reaches `to` through its imports (`textOf` reads a file as this run has written it) and
+ * the `[importer, imported]` edges a group is about to add.
+ */
+function reaches(from, to, textOf, added = []) {
+  const seen = new Set();
+  const next = [from];
+  while (next.length) {
+    const f = next.pop();
+    if (f === to) return true;
+    if (seen.has(f)) continue;
+    seen.add(f);
+    next.push(...importsOf(textOf(f)), ...added.filter(([a]) => a === f).map(([, b]) => b));
+  }
+  return false;
+}
+
 function build(opts, planned) {
   // The router is read, never edited: mid-port (callers only), or a door's, read from the commit before its deletion.
   const routerKept = Boolean(opts.callersOnly || opts.door);
@@ -530,6 +556,28 @@ function build(opts, planned) {
       });
     }
     const target = sharedTaken ? file : shared;
+    // Each import the group adds between two contracts files. One back to a file that already reaches the importer is a
+    // cycle, and a schema read at the top of either file is then read before it is declared (svc-bank's shared file
+    // importing `signed` from bank-ops-procedures, which imports `figures` from it): the group stays by name, named.
+    const homeOf = (m) => (fresh.includes(m) ? target : (movedTo.get(keyOf(m)) ?? target));
+    const edges = [
+      ...[...closure.fromContracts.values()].map((c) => [file, c.file]),
+      ...closure.moved.map((m) => [file, homeOf(m)]),
+      ...(target === shared && fresh.length
+        ? [
+            ...[...closure.fromContracts.values()].map((c) => [shared, c.file]),
+            ...closure.moved.filter((m) => !fresh.includes(m)).map((m) => [shared, homeOf(m)]),
+          ]
+        : []),
+    ].filter(([a, b]) => a !== b && !importsOf(textOf(a)).has(b));
+    const cycle = edges.find(([a, b]) => reaches(b, a, textOf, edges));
+    if (cycle) {
+      const [a, b] = cycle.map((f) => basename(f));
+      for (const r of recs)
+        for (const site of r.sites)
+          planned.hand.push({ site, why: `its record would import ${b} into ${a}, which ${b} already imports: an import cycle` });
+      return build(opts, { ...planned, records: planned.records.filter((r) => !recs.includes(r)) });
+    }
     for (const m of fresh) {
       movedTo.set(keyOf(m), target);
       if (target === shared) taken.set(m.name, keyOf(m));
@@ -671,6 +719,12 @@ export function checkedCall(s, arg, checks) {
     !checks.some((c) => CHANGES_ANSWER.test(c))
   );
 }
+
+/**
+ * Whether a portal tool site with answer checks moves to its tool's checked form: only zod checks it writes itself
+ * (`.refine()`); a schema built by its own function, or one that changes the answer, stays for its own move.
+ */
+export const checkedToolCall = (s, checks) => checkedTool(s) && checks.every((c) => /^\.(refine|superRefine|check)\(\)/.test(c));
 
 export function answerChecks(p, node, seen = new Set()) {
   const found = [];

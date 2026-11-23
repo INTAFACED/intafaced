@@ -234,6 +234,7 @@ fn transfers_wiring(env: &BankEnv, bus: &Arc<JetStream>) -> Result<transfers::Wi
         scheduled_transfers: env.flag("SCHEDULED_TRANSFERS_ENABLED").unwrap_or(false),
         batch_size: env.int("TRANSFER_BATCH_SIZE"),
         producer: env.str("SERVICE_NAME").unwrap_or("svc-bank").to_owned(),
+        business_invite_minutes: owned("BANK_BUSINESS_INVITE_MINUTES"),
     };
     let bus: Box<dyn transfers::ports::Bus> = Box::new(JetStreamBus(bus.clone()));
     Ok(match env.str("IDENTITY_URL") {
@@ -337,6 +338,13 @@ fn recovery_jobs<'a>(
                 door.bank_api_deps(door.now(), |d| {
                     bank_api::drain(d, i64::from(batch)).map_err(|e| format!("{e:?}"))
                 })
+            }),
+        ),
+        // Slice `partner-account`: cash-outs left before their hold or the partner's acceptance, driven on.
+        (
+            "bank.recovery.redrive_cash_outs",
+            Box::new(move |batch| {
+                svc_bank::partner_account::cash_out::recovery(&door.partner_account(), batch)
             }),
         ),
     ]

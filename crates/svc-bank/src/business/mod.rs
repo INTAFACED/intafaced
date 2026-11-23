@@ -15,6 +15,7 @@
 //! (`businessPayroll`, `bank.business.payroll:<id>`). With the custodial layer off (`LEDGER_CUSTODY_LAYER`, the launch
 //! decision) each refuses `bank.no_partner_bank` before svc-ledger is asked, as `custodyGuardedLedger` does.
 
+pub mod payouts;
 pub mod policy;
 pub mod router;
 pub mod service;

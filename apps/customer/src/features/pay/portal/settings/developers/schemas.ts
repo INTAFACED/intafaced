@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { stamp } from '../b-shared';
+import { healthSchema, attemptsSchema, policySchema, guideSchema } from '@intafaced/contracts/pay-merchant-ops-procedures';
 
 // Authorities on main: services/identity apiKeys.*, setApiKeyRequestSigning, rotateSigningSecret, bind/unbindApiKeyIpAllowlist,
 // and services/svc-pay/src/merchant-ops/webhooks.ts (#4826). Unknown keys are ignored.
@@ -52,30 +53,8 @@ export type Delivery = z.infer<typeof deliverySchema>;
 export const retriedSchema = z.object({ retried: z.boolean(), delivery: deliverySchema });
 export const recoveredSchema = z.object({ recovered: z.boolean(), queued: z.number().int().min(0) });
 
-export const attemptsSchema = z.object({
-  deliveryId: z.string(),
-  attempts: z.array(
-    z.object({
-      attemptNo: z.number().int().min(1),
-      at: stamp,
-      outcome: z.enum(['delivered', 'failed', 'unknown']),
-      statusCode: z.number().int().nullable(),
-      error: z.string().nullable(),
-      durationMs: z.number().min(0),
-      resend: z.boolean(),
-    }),
-  ),
-});
 export type Attempts = z.infer<typeof attemptsSchema>;
 
-/** The owner's webhook values; each null is not set. */
-export const policySchema = z.object({
-  endpointCap: z.number().int().nullable(),
-  overlapMaxSeconds: z.number().int().nullable(),
-  resendWindowSeconds: z.number().int().nullable(),
-  retryScheduleSeconds: z.array(z.number().int()).nullable(),
-  resendRate: z.object({ maxPerWindow: z.number().int(), windowMs: z.number().int() }).nullable(),
-});
 export type Policy = z.infer<typeof policySchema>;
 
 export const catalogueSchema = z.object({
@@ -85,31 +64,6 @@ export const catalogueSchema = z.object({
 });
 export type Catalogue = z.infer<typeof catalogueSchema>;
 
-export const guideSchema = z.object({
-  headers: z.object({ timestamp: z.string(), signature: z.string(), eventId: z.string() }),
-  algorithm: z.string(),
-  toleranceSeconds: z.number().int().nullable(),
-  senderIps: z.array(z.string()).nullable(),
-  vector: z.object({ secret: z.string(), timestamp: z.string(), body: z.string(), signature: z.string() }),
-});
 export type Guide = z.infer<typeof guideSchema>;
 
-export const healthSchema = z.object({
-  asOf: stamp,
-  endpoints: z.array(
-    z.object({
-      endpointId: z.string(),
-      status: z.enum(['active', 'disabled']),
-      consecutiveFailures: z.number().int().min(0),
-      deliveries: z.object({
-        pending: z.number().int().min(0),
-        delivered: z.number().int().min(0),
-        failed: z.number().int().min(0),
-        dead: z.number().int().min(0),
-        unknown: z.number().int().min(0).optional(),
-      }),
-      lastDeliveredAt: stamp.nullable(),
-    }),
-  ),
-});
 export type Health = z.infer<typeof healthSchema>;

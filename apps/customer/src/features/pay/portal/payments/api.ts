@@ -11,23 +11,33 @@ import { subscriptionSchema, mandateSchema, executionSchema, listed } from '../.
 import * as pay from './schemas';
 import { PAGE_SIZE, type PortalTools } from '../api-tools';
 import { PAY_PAYMENT_VIEWS_LIST, PAY_PAYMENT_HISTORY } from '@intafaced/contracts/pay-payment-procedures';
-import { PAY_MERCHANT_OPS_CUSTOMERS_SERIES } from '@intafaced/contracts/pay-merchant-ops-procedures';
-import { PAY_SUBSCRIPTION_PRODUCT_READY, PAY_SUBSCRIPTION_CYCLES } from '@intafaced/contracts/pay-subscription-procedures';
+import {
+  PAY_MERCHANT_OPS_CUSTOMERS_SERIES,
+  PAY_MERCHANT_OPS_DISPUTES_GET_EVIDENCE,
+  PAY_MERCHANT_OPS_CUSTOMERS_SUMMARY,
+} from '@intafaced/contracts/pay-merchant-ops-procedures';
+import {
+  PAY_SUBSCRIPTION_PRODUCT_READY,
+  PAY_SUBSCRIPTION_CYCLES,
+  PAY_SUBSCRIPTION_LIST,
+  PAY_SUBSCRIPTION_GET,
+  PAY_SUBSCRIPTION_LIST_EXECUTIONS,
+} from '@intafaced/contracts/pay-subscription-procedures';
 import { PAY_MERCHANT_LIST_LINKS } from '@intafaced/contracts/pay-merchant-procedures';
 
 const REFUND_PAGES = 5;
 
-export const paymentsApi = ({ query, mutate, list, queryRecord }: PortalTools) => ({
+export const paymentsApi = ({ query, mutate, list, queryRecord, queryRecordAs, listRecordAs }: PortalTools) => ({
   subscriptions: (merchantId: string, limit: number, signal?: AbortSignal) =>
-    query(
-      'subscription.list',
+    queryRecordAs(
+      PAY_SUBSCRIPTION_LIST,
       { merchantId, limit },
       p.page(subscriptionSchema.refine((row) => row.merchantId === merchantId)),
       signal,
     ).then(listed),
   subscription: (merchantId: string, subscriptionId: string, signal?: AbortSignal) =>
-    query(
-      'subscription.get',
+    queryRecordAs(
+      PAY_SUBSCRIPTION_GET,
       { subscriptionId },
       subscriptionSchema.refine((row) => row.merchantId === merchantId && row.id === subscriptionId),
       signal,
@@ -38,10 +48,10 @@ export const paymentsApi = ({ query, mutate, list, queryRecord }: PortalTools) =
     cursor: string | undefined,
     signal?: AbortSignal,
   ) =>
-    list(
-      'subscription.list',
-      subscriptionSchema.refine((row) => row.merchantId === merchantId),
+    listRecordAs(
+      PAY_SUBSCRIPTION_LIST,
       { merchantId, ...(cursor ? { cursor } : {}), ...Object.fromEntries(Object.entries(filters).filter(([, value]) => value)) },
+      subscriptionSchema.refine((row) => row.merchantId === merchantId),
       signal,
     ),
   mandates: (merchantId: string, signal?: AbortSignal) =>
@@ -57,8 +67,8 @@ export const paymentsApi = ({ query, mutate, list, queryRecord }: PortalTools) =
     ),
   subscriptionPosture: (signal?: AbortSignal) => queryRecord(PAY_SUBSCRIPTION_PRODUCT_READY, undefined, signal),
   subscriptionExecutions: (subscriptionId: string, signal?: AbortSignal) =>
-    query(
-      'subscription.listExecutions',
+    queryRecordAs(
+      PAY_SUBSCRIPTION_LIST_EXECUTIONS,
       { subscriptionId, limit: 200 },
       z.array(executionSchema.refine((row) => row.subscriptionId === subscriptionId)),
       signal,
@@ -87,7 +97,7 @@ export const paymentsApi = ({ query, mutate, list, queryRecord }: PortalTools) =
     sha256: string;
     note?: string;
   }) => mutate('merchantOps.disputes.uploadEvidence', input, p.evidenceSchema),
-  evidenceFile: (evidenceId: string) => query('merchantOps.disputes.getEvidence', { evidenceId }, pay.evidenceFileSchema),
+  evidenceFile: (evidenceId: string) => queryRecord(PAY_MERCHANT_OPS_DISPUTES_GET_EVIDENCE, { evidenceId }),
   disputeSummary: (signal?: AbortSignal) => query('merchantOps.disputes.summary', {}, p.disputeSummarySchema, signal),
   disputes: (cursor: string | undefined, status: string, signal?: AbortSignal) =>
     list('merchantOps.disputes.list', p.disputeSchema, { ...(cursor ? { cursor } : {}), ...(status ? { status } : {}) }, signal),
@@ -105,8 +115,7 @@ export const paymentsApi = ({ query, mutate, list, queryRecord }: PortalTools) =
     mutate('merchantOps.disputes.respond', input, p.disputeDetailSchema),
   customerSeries: (customerRef: string, from: string, to: string, signal?: AbortSignal) =>
     queryRecord(PAY_MERCHANT_OPS_CUSTOMERS_SERIES, { customerRef, from, to, bucket: 'day', limit: 200 }, signal),
-  customerSummary: (activeSince: string, signal?: AbortSignal) =>
-    query('merchantOps.customers.summary', { activeSince }, p.customerSummarySchema, signal),
+  customerSummary: (activeSince: string, signal?: AbortSignal) => queryRecord(PAY_MERCHANT_OPS_CUSTOMERS_SUMMARY, { activeSince }, signal),
   customers: (cursor: string | undefined, search: string, signal?: AbortSignal) =>
     list('merchantOps.customers.list', p.customerSchema, { ...(cursor ? { cursor } : {}), ...(search ? { search } : {}) }, signal),
   customer: (customerRef: string, signal?: AbortSignal) =>

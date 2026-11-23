@@ -13,12 +13,18 @@ import { IDENTITY_ROTATE_SIGNING_SECRET } from '@intafaced/contracts/identity-ro
 import { IDENTITY_SET_API_KEY_REQUEST_SIGNING } from '@intafaced/contracts/identity-set-api-key-request-signing-procedures';
 import { IDENTITY_BIND_API_KEY_IP_ALLOWLIST } from '@intafaced/contracts/identity-bind-api-key-ip-allowlist-procedures';
 import { IDENTITY_UNBIND_API_KEY_IP_ALLOWLIST } from '@intafaced/contracts/identity-unbind-api-key-ip-allowlist-procedures';
+import {
+  PAY_MERCHANT_OPS_WEBHOOKS_HEALTH,
+  PAY_MERCHANT_OPS_WEBHOOKS_DELIVERIES_ATTEMPTS,
+  PAY_MERCHANT_OPS_WEBHOOKS_POLICY,
+  PAY_MERCHANT_OPS_WEBHOOKS_GUIDE,
+} from '@intafaced/contracts/pay-merchant-ops-procedures';
 
 /** An answer that says "no" in its data (`revoked: false`) is a refusal in words, never a quiet success. */
 const refusedWhen = <T>(result: ApiResult<T>, notDone: (data: T) => boolean, words: () => string): ApiResult<T> =>
   result.ok && notDone(result.data) ? { ok: false, reason: 'error', code: 'portal.local', message: words() } : result;
 
-export const developersApi = ({ query, mutate, identityQueryRecord, identityMutateRecord }: SettingsBTools) => ({
+export const developersApi = ({ query, mutate, identityQueryRecord, identityMutateRecord, queryRecord }: SettingsBTools) => ({
   // ---- API keys and request signing (identity service) ----
   keysList: (signal?: AbortSignal) => identityQueryRecord(IDENTITY_API_KEYS_LIST, { limit: 200 }, signal),
   keyCreate: (input: { name: string; scopes: string[] }) => identityMutateRecord(IDENTITY_API_KEYS_CREATE, { ...input, mode: 'sandbox' }),
@@ -73,12 +79,12 @@ export const developersApi = ({ query, mutate, identityQueryRecord, identityMuta
   // queued. A real refusal arrives as an error code, so both answers count as done.
   deliveryRetry: (deliveryId: string, requestId: string) =>
     mutate('merchantOps.webhooks.deliveries.retry', { deliveryId, requestId }, s.retriedSchema),
-  webhookHealth: (signal?: AbortSignal) => query('merchantOps.webhooks.health', {}, s.healthSchema, signal),
+  webhookHealth: (signal?: AbortSignal) => queryRecord(PAY_MERCHANT_OPS_WEBHOOKS_HEALTH, {}, signal),
   deliveryAttempts: (deliveryId: string, signal?: AbortSignal) =>
-    query('merchantOps.webhooks.deliveries.attempts', { deliveryId }, s.attemptsSchema, signal),
+    queryRecord(PAY_MERCHANT_OPS_WEBHOOKS_DELIVERIES_ATTEMPTS, { deliveryId }, signal),
   deliveriesRecover: (endpointId: string, since: string, requestId: string) =>
     mutate('merchantOps.webhooks.deliveries.recover', { endpointId, since, requestId }, s.recoveredSchema),
-  webhookPolicy: (signal?: AbortSignal) => query('merchantOps.webhooks.policy', {}, s.policySchema, signal),
+  webhookPolicy: (signal?: AbortSignal) => queryRecord(PAY_MERCHANT_OPS_WEBHOOKS_POLICY, {}, signal),
   webhookCatalogue: (signal?: AbortSignal) => query('merchantOps.webhooks.catalogue', {}, s.catalogueSchema, signal),
-  webhookGuide: (signal?: AbortSignal) => query('merchantOps.webhooks.guide', {}, s.guideSchema, signal),
+  webhookGuide: (signal?: AbortSignal) => queryRecord(PAY_MERCHANT_OPS_WEBHOOKS_GUIDE, {}, signal),
 });

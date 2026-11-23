@@ -17,6 +17,8 @@ import {
   bandEdgeQuote,
   crossingQuote,
   marketStatus,
+  staleAfterMs,
+  startArgs,
   buildLadder,
   createPriceWalk,
   crossingSide,
@@ -679,6 +681,12 @@ try {
   assert.equal(st.pid, fake.pid);
   assert.equal(marketStatus({ home: sup, now: old.getTime() + 119_000 }).state, 'ok');
   assert.equal(marketStatus({ home: sup, now: old.getTime() + 121_000 }).state, 'stale');
+  // A maker started with a longer interval (the beta's LOCAL_STACK_MARKET_INTERVAL) is stale two minutes past its sleep.
+  assert.equal(staleAfterMs(), 120_000);
+  assert.equal(staleAfterMs(['--interval', '300']), 412_000);
+  assert.deepEqual(startArgs(['--levels', '2'], {}), ['--levels', '2']);
+  assert.deepEqual(startArgs([], { LOCAL_STACK_MARKET_INTERVAL: '300' }), ['--interval', '300']);
+  assert.deepEqual(startArgs(['--interval', '9'], { LOCAL_STACK_MARKET_INTERVAL: '300' }), ['--interval', '9']);
 
   // 9c. Never twice: start and ensure see the running copy and leave its pid alone; a start already in progress also blocks.
   for (const cmd of ['start', 'ensure']) {

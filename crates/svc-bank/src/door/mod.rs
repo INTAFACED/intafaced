@@ -258,6 +258,8 @@ pub struct BankDoor {
     bank_api: crate::bank_api::Wiring,
     /// `TEST_AGE_DOOR`: whether `POST /internal/test/age` ages a record.
     test_age_open: bool,
+    /// Slice `partner-account`'s parts, built from the environment.
+    partner_account: crate::partner_account::Wiring,
 }
 
 /// The system clock.
@@ -313,6 +315,7 @@ impl BankDoor {
             card_programme: crate::card_programme::Wiring::none(),
             bank_api: crate::bank_api::Wiring::none(),
             test_age_open: false,
+            partner_account: crate::partner_account::Wiring::from_env(&config.env)?,
         })
     }
 
@@ -601,6 +604,22 @@ impl BankDoor {
         self
     }
 
+    /// Slice `partner-account`'s parts, when a test builds them itself.
+    pub fn with_partner_account(mut self, wiring: crate::partner_account::Wiring) -> BankDoor {
+        self.partner_account = wiring;
+        self
+    }
+
+    /// What slice `partner-account`'s parts read.
+    pub fn partner_account(&self) -> crate::partner_account::Deps<'_> {
+        crate::partner_account::Deps {
+            store: &self.store,
+            partner: &self.partner,
+            wiring: &self.partner_account,
+            now: (self.now)(),
+        }
+    }
+
     /// Slice `partner`'s wiring.
     pub fn partner(&self) -> &crate::partner::router::Wiring {
         &self.partner
@@ -637,10 +656,20 @@ impl BankDoor {
             }
             Slice::Partner => crate::partner::router::answer(&self.partner, &self.store, ctx)
                 .unwrap_or_else(|| Err(not_ported(Slice::Partner))),
+            Slice::PartnerAccount => crate::partner_account::answer(&self.partner_account(), ctx)
+                .unwrap_or_else(|| Err(not_ported(Slice::PartnerAccount))),
             Slice::Spaces => {
                 let freeze = |card_id: &str, user: &str| {
                     self.cards_deps(ctx.now, |d| {
                         crate::cards::core::freeze_for_holder(d, card_id, user)
+                    })
+                };
+                // The card partner's held figure for one person and asset (`cardHolds.figures`), `None` when it gives none.
+                let card_held = |user: &str, asset: &str| {
+                    self.cards_deps(ctx.now, |d| {
+                        crate::cards::reads::test_card_holds(d, &d.w.holds).map_or(Ok(None), |h| {
+                            crate::cards::reads::HoldReads::figures(&h, user, asset).map(|f| f.held)
+                        })
                     })
                 };
                 crate::spaces::router::answer(
@@ -649,6 +678,7 @@ impl BankDoor {
                     &self.store,
                     ctx,
                     &freeze,
+                    &card_held,
                 )
                 .unwrap_or_else(|| Err(not_ported(Slice::Spaces)))
             }
@@ -752,6 +782,19 @@ impl BankDoor {
                     crate::business::router::answer(&d, ctx)
                 })
                 .unwrap_or_else(|| Err(not_ported(Slice::Business))),
+            Slice::BusinessTeam => self
+                .transfers_deps(|d| {
+                    let d = crate::transfers::Deps { now: ctx.now, ..*d };
+                    let minutes = d.w.settings.business_invite_minutes.as_deref();
+                    crate::business_team::router::answer(&d, ctx, minutes)
+                })
+                .unwrap_or_else(|| Err(not_ported(Slice::BusinessTeam))),
+            Slice::BusinessPayouts => self
+                .transfers_deps(|d| {
+                    let d = crate::transfers::Deps { now: ctx.now, ..*d };
+                    crate::business::payouts::router::answer(&d, ctx)
+                })
+                .unwrap_or_else(|| Err(not_ported(Slice::BusinessPayouts))),
             other => Err(not_ported(other)),
         }
     }

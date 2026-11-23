@@ -357,6 +357,12 @@ export const missingTitle = (why) =>
     ? 'judge down: CI review (no verdict yet; the review re-runs when the judge is back)'
     : 'Review sign-off missing';
 
+/** Why a sign-off is missing, as the seal prints it: a draft's review never ran, so re-running it can't help. */
+export const missingWhy = (why, pull) =>
+  pull?.draft
+    ? `this pull request is a draft and the CI review skips drafts (${REVIEW_WORKFLOW}): run \`gh pr ready ${pull.number}\``
+    : why;
+
 export async function lookForSignoff({ sha, io, branch, base, number, check = REVIEW_CHECK }) {
   return ciReviewVerdict({
     sha,
@@ -966,7 +972,7 @@ async function main() {
   }
   for (const [label, { reason }] of open)
     console.error(
-      `::error title=${missingTitle(last.get(label)?.why)}::No passing ${label} on ${HEAD_SHA}. This change needs one (${reason}): ${last.get(label)?.why}. The ${label} job runs on every push to an in-repo pull request (${REVIEW_WORKFLOW}) and re-runs this seal when it passes (AGENTS.md, "Where a mistake costs more"); a comment or a status counts for nothing.`,
+      `::error title=${missingTitle(last.get(label)?.why)}::No passing ${label} on ${HEAD_SHA}. This change needs one (${reason}): ${missingWhy(last.get(label)?.why, pull)}. The ${label} job runs on every push to an in-repo pull request (${REVIEW_WORKFLOW}) and re-runs this seal when it passes (AGENTS.md, "Where a mistake costs more"); a comment or a status counts for nothing.`,
     );
   process.exit(1);
 }

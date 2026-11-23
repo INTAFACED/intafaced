@@ -585,6 +585,13 @@ export class CryptoNativeAdapter implements RailAdapter {
       const found = await this.chain.lookupSend(idempotencyKey);
       if (found.state === 'not_sent') return { status: 'not_sent' };
       if (found.state === 'unknown') return { status: 'unknown' };
+      // A journalled hash only says the send left. Its receipt says whether it moved anything: a reverted one never reads
+      // `sent` (ENGINE W-3), and no receipt yet (or a node that cannot say) is `unknown`, so the hold stays.
+      const depth = await this.chain.sendDepth(idempotencyKey);
+      if (depth === null || depth === 0) return { status: 'unknown' };
+      if (typeof depth === 'object') {
+        return { status: 'reverted', railRef: found.txHash, depth: depth.depth, final: depth.depth >= this.minConfirmations };
+      }
       return { status: 'sent', railRef: found.txHash, amount: found.amount, assetId: found.assetId };
     } catch (err) {
       if (err instanceof ChainNotConfiguredError) return { status: 'unknown' };

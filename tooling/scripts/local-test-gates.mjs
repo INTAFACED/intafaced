@@ -1815,7 +1815,8 @@ export async function publishWithdrawQuotePolicy(ctx) {
 
 /**
  * LOCAL TEST custody transaction policy (svc-pay `founderAdmin.custody.policy`, W-custody-ops-07), not an owner value: allow a
- * TEST send out to a wallet on the crypto-native rail, which on this stack is the in-memory MemoryChain. svc-pay refuses every
+ * TEST send out to a wallet on the TEST withdrawal networks (`TEST_DEPOSIT_NETWORKS`; on this stack the crypto-native rail's
+ * in-memory MemoryChain). A rule's `networks` names the withdrawal's chain network, never the rail id (#10148). svc-pay refuses every
  * send out of the platform while no policy is published (`pay.guard_custody_policy_unset`; PAY_CUSTODY_POLICY defaults to
  * required), so J-wallet-05 #6 and #4 need one. A send inside the platform (J-wallet-07) is not a custody transaction and never
  * reads it. Published the way the service requires: a draft, then a `policy` config task that founder a proposes and founder b,
@@ -1825,7 +1826,7 @@ export const TEST_CUSTODY_POLICY_RULES = Object.freeze([
   Object.freeze({
     id: 'TEST-allow-wallet-sends',
     action: 'allow',
-    match: Object.freeze({ networks: ['crypto-native'], destinationKinds: ['crypto'], txTypes: ['transfer'] }),
+    match: Object.freeze({ networks: TEST_DEPOSIT_NETWORKS.map((n) => n.networkId), destinationKinds: ['crypto'], txTypes: ['transfer'] }),
   }),
 ]);
 export const TEST_CUSTODY_CONFIG_QUORUM = Object.freeze({ kind: 'config', requiredApprovals: 1, expirySeconds: 3600 });
