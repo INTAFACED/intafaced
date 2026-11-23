@@ -312,7 +312,7 @@ export const moreRooms = areaRooms('more', moreCopy, [
   // Academy tabs and the progress page (AC-order-01, IA-SPEC 2.9). Exact rows win over the reader pattern below them.
   ...(
     [
-      // Written out whole so the look gate (tests/real-app/routes.mjs) shoots each tab (intafaced issue 10317).
+      // Written out whole so the look gate's route sweep shoots each tab (intafaced issue 10317).
       ['/academy/learning', 'Academy learning'],
       ['/academy/certificates', 'Academy certificates'],
       ['/academy/rooms', 'Academy rooms'],
