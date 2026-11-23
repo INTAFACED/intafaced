@@ -108,8 +108,8 @@ describe('independent mailbox receipt restore boundary (actual SQL + HTTP)', () 
       const archive = join(dir, 'before-enqueue.dump');
       await run(process.env.PG_DUMP_BIN ?? 'pg_dump', ['--format=custom', '--schema=notify', '--file', archive, '--dbname', first.url]);
       const wire = await upstream();
-      // This test proves restore replay, not deadlines: a loaded runner's first
-      // send once stalled ~2 s and outran a 1 s relay budget (#9958).
+      // Proves restore replay, not deadlines: the file's first send pays every
+      // cold start, so its budgets leave room for a loaded runner's stall.
       const gateway = await relay(independent, wire.fetchImpl, 8_000);
       const input = {
         businessKey: `acknowledgement:${randomUUID()}`,
