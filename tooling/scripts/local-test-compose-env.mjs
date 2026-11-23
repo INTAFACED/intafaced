@@ -5,6 +5,7 @@
  *
  *   node tooling/scripts/local-test-compose-env.mjs [--out .env.tester.local]
  *   docker compose --env-file .env.example --env-file .env.tester.local -f docker-compose.yml -f docker-compose.apps.yml \
+ *     -f docker-compose.tester.yml \
  *     --profile tester up seed
  *
  * .env.example leaves deployment values blank on purpose, and compose refuses a blank `${VAR:?}`. For every compose service
@@ -22,7 +23,17 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const COMPOSE_FILES = ['docker-compose.yml', 'docker-compose.apps.yml'];
+const COMPOSE_FILES = ['docker-compose.yml', 'docker-compose.apps.yml', 'docker-compose.tester.yml'];
+
+/**
+ * The host user that owns the state folder: the tester profile's containers that write there (docker-compose.tester.yml)
+ * run as it, so a folder only its owner may open is still theirs to write.
+ */
+const testerUser = (uid = process.getuid?.(), gid = process.getgid?.()) => {
+  if (!Number.isSafeInteger(uid) || !Number.isSafeInteger(gid))
+    throw new Error('compose-env needs a POSIX host user for the tester profile');
+  return { LOCAL_TESTER_UID: String(uid), LOCAL_TESTER_GID: String(gid) };
+};
 
 /** Values compose needs only to parse a profile the tester never starts (`ai`): not a key and no config. */
 export const PARSE_ONLY = {
@@ -216,7 +227,7 @@ async function main(argv) {
       '--format',
       'json',
     ],
-    { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
+    { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, env: { ...process.env, ...testerUser() } },
   );
   fs.rmSync(markers, { recursive: true, force: true });
   if (config.status !== 0) throw new Error(`docker compose config failed:\n${config.error?.message ?? config.stderr}`);
@@ -227,7 +238,7 @@ async function main(argv) {
   if (conflicts.length)
     throw new Error(`refusing: compose shares a variable the stack sets differently per service:\n  ${conflicts.join('\n  ')}`);
   if (unfilled.length) throw new Error(`refusing: compose requires values the stack does not run with: ${unfilled.join(', ')}`);
-  fs.writeFileSync(out, renderEnvFile(values), { mode: 0o600 });
+  fs.writeFileSync(out, renderEnvFile({ ...values, ...testerUser() }), { mode: 0o600 });
   fs.chmodSync(out, 0o600);
   console.log(
     `compose-env: ${Object.keys(values).length} LOCAL TEST values written to ${path.relative(ROOT, out)} (git-ignored, mode 600)`,

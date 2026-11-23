@@ -1,0 +1,24 @@
+# The tester profile's own wiring (HM-desks-03, J-home-ia-11 #1), layered over docker-compose.yml and
+# docker-compose.apps.yml only by a tester's compose up:
+#
+#   node tooling/scripts/local-test-compose-env.mjs --out "$LOCAL_STACK_STATE/tester.env.local"
+#   docker compose --env-file .env.example --env-file "$LOCAL_STACK_STATE/tester.env.local" \
+#     -f docker-compose.yml -f docker-compose.apps.yml -f docker-compose.tester.yml --profile tester up seed
+#
+# LOCAL TEST only. A deployment never names this file, so nothing here reaches staging or production. Every value comes
+# from compose-env (LOCAL_STACK_STATE, the state folder the tester profile shares with the host, and the host user that
+# owns it), never a default: a missing one refuses by name.
+services:
+  # Identity mails each sign-in code and confirm link to the LOCAL TEST outbox in the state folder (the transport
+  # compose-env copies from the stack, `local-outbox`), where the founder seed reads the confirm links, as
+  # `pnpm local:stack` does. It runs as the folder's owner, so it can write there.
+  svc-identity:
+    user: '${LOCAL_TESTER_UID:?run local-test-compose-env.mjs}:${LOCAL_TESTER_GID:?run local-test-compose-env.mjs}'
+    environment:
+      IDENTITY_LOCAL_MAIL_OUTBOX: ${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}/email-outbox.log
+    volumes:
+      - ${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}:${LOCAL_STACK_STATE:?LOCAL_STACK_STATE names the tester state folder}
+
+  # The seed writes the founder vault and the TEST wallet into the state folder, so it runs as the folder's owner too.
+  seed:
+    user: '${LOCAL_TESTER_UID:?run local-test-compose-env.mjs}:${LOCAL_TESTER_GID:?run local-test-compose-env.mjs}'
