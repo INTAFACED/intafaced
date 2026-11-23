@@ -2,7 +2,7 @@
 // (tooling/lint/oxlint-plugin-garden/call-by-name-rule.js), each with what a rewrite needs, or the reason it can't be.
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
-import { bindingOf, calleeName, keyedEntry, keyOf, literal, load, resolveRelative, walk } from './ast.mjs';
+import { bindingOf, calleeName, keyedEntry, keyOf, literal, load, walk } from './ast.mjs';
 import { fanOut } from './fan.mjs';
 import { handSchemas } from './dead-hand-schemas.mjs';
 import { businessSite } from './pay-business.mjs';
