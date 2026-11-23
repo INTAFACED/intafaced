@@ -190,7 +190,8 @@ test(`${J} #3 shows the last price and change of each row live, from the stack's
       probe.remove();
       return color;
     };
-    const seen = { up: swatch('--if-up'), down: swatch('--if-down'), moves: [] };
+    // The kit's text roles for up and down: a price is text, drawn in the readable shade of each colour (.lt-up, .lt-down).
+    const seen = { up: swatch('--lit-up-text'), down: swatch('--lit-down-text'), moves: [] };
     const value = (text) => Number(text.replace(/[^0-9.-]/g, ''));
     const lastText = new Map();
     const changes = new Map();

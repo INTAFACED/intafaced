@@ -634,7 +634,7 @@ test(`${J} #7 picks good-till-date with an expiry, then a past time: the review 
     await expect(review).toContainText('Good till date');
     // The review's Expires row is the time that was picked, as this browser writes it.
     const picked = await enginePage.evaluate((ms) => new Date(ms).toLocaleString(), at);
-    await expect(review.locator('div', { has: enginePage.locator('dt', { hasText: /^Expires$/ }) }).locator('dd')).toHaveText(picked);
+    await expect(review.locator('dl > div', { has: enginePage.locator('dt', { hasText: /^Expires$/ }) }).locator('dd')).toHaveText(picked);
     await confirm(enginePage, 'buy');
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({ timeInForce: 'GTD', expireAt: new Date(at).toISOString() });
