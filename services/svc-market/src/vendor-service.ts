@@ -1031,6 +1031,15 @@ export class VendorService {
   }
 
   /**
+   * The user behind a vendor, for a read svc-market makes on the server (the listing's track record in svc-trade).
+   * Never sent to a client: the public listing names the seller by their vendor profile only.
+   */
+  async userIdOf(vendorId: string): Promise<string | null> {
+    const [row] = await this.sql<Array<{ user_id: string }>>`SELECT user_id FROM market.vendors WHERE id = ${vendorId}`;
+    return row?.user_id ?? null;
+  }
+
+  /**
    * What an unauthenticated visitor sees — `null` unless the vendor is listed.
    *
    * ONE `null` FOR EVERY REASON. Unknown id, never approved, suspended, holds no
