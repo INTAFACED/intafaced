@@ -71,6 +71,14 @@ async function terms(sender) {
   return {
     fee: toUnits(quote.fee) === 0n ? 'No fee' : `Fee: ${shown(quote.fee)} USDT`,
     reviewFee: toUnits(quote.fee) === 0n ? 'No fee' : `${shown(quote.fee)} USDT`,
+    // The network fee as the bank states it: a send on its own book crosses no network ("0"), a partner's is its figure.
+    network:
+      quote.networkFee === null
+        ? 'Network fee: not known.'
+        : toUnits(quote.networkFee) === 0n
+          ? 'No network fee.'
+          : `Network fee: ${shown(quote.networkFee)} USDT.`,
+    networkFee: quote.networkFee,
     allowance: `${shown(fromUnits(left))} of ${shown(quote.dailyLimit)} USDT left`,
     after: `${shown(fromUnits(left - toUnits(AMOUNT)))} USDT`,
     perPayment: `Up to ${shown(quote.perTransferLimit)} USDT per payment. ${shown(fromUnits(left))} USDT left today.`,
@@ -376,12 +384,32 @@ test(`${J} #3 picks the asset (stablecoin first), enters TEST 25 USDT and a note
   await expect(page.getByTestId('pay-summary-note')).toHaveText(NOTE);
   await expect(page.getByTestId('pay-summary-source')).toHaveText(await mainSpace(sender));
 
-  // The fee line is the published one for this amount: free here, as the quote answers.
+  // The fee line is the published one for this amount, free here, and the network fee the bank states for this send:
+  // A's money is on the bank's own book, so the move crosses no network and the quote says "0", which the line names.
   const expected = await terms(sender);
+  expect(expected.networkFee).toBe('0');
   const line = page.getByTestId('pay-terms');
   await expect(line).toHaveAttribute('data-terms', 'ok');
-  await expect(line).toHaveText(`${expected.fee}. ${expected.perPayment}`);
+  await expect(line).toHaveText(`${expected.fee}. ${expected.network} ${expected.perPayment}`);
   await expect(page.getByTestId('pay-review')).toBeEnabled();
+
+  // A refuse that names the blocker: no payment limits are published for BTC, so the bank refuses every BTC send by
+  // name, the line says why and Review is off; back on USDT, the fee line returns.
+  const btc = await (
+    await api(sender)
+  ).get(`/api/bank/trpc/transfers.quote?input=${encodeURIComponent(JSON.stringify({ assetId: 'BTC', amount: '0.001' }))}`);
+  expect(JSON.stringify(btc.body)).toContain('bank.personal_transfer_terms_unset');
+  await picker.selectOption({ label: 'BTC' });
+  await amount.fill('0.001');
+  await expect(line).toHaveAttribute('data-terms', 'unset');
+  await expect(line).toHaveText('Sending BTC is paused: no payment limits are published for it.');
+  await expect(page.getByTestId('pay-review')).toBeDisabled();
+  await expect(page.getByTestId('pay-review')).toHaveText('Sending is paused');
+  await picker.selectOption({ label: 'USDT' });
+  await amount.fill(AMOUNT);
+  await page.locator('#pay-note').fill(NOTE);
+  await expect(line).toHaveAttribute('data-terms', 'ok');
+  await expect(line).toHaveText(`${expected.fee}. ${expected.network} ${expected.perPayment}`);
 
   // The partner that moves it and does not say what that costs (the TEST partner switched to give no fee): the network
   // fee reads "not known", never 0, beside our own published fee.
@@ -394,7 +422,7 @@ test(`${J} #3 picks the asset (stablecoin first), enters TEST 25 USDT and a note
   });
   await amount.fill('25.5');
   await amount.fill(AMOUNT);
-  await expect(line).toHaveText(`${expected.fee}. ${expected.perPayment}`);
+  await expect(line).toHaveText(`${expected.fee}. ${expected.network} ${expected.perPayment}`);
 });
 
 test(`${J} #4 presses Review and sees amount, recipient identity, source, note, fee and today's allowance, with a first-time caution and no test payment`, async ({
@@ -413,7 +441,7 @@ test(`${J} #4 presses Review and sees amount, recipient identity, source, note, 
   await expect(dialog.getByTestId('pay-review-amount')).toContainText(`${AMOUNT} USDT`);
   await expect(dialog.getByTestId('pay-review-from')).toContainText(await mainSpace(sender));
   await expect(dialog.getByTestId('pay-review-note')).toContainText(NOTE);
-  await expect(dialog.getByTestId('pay-review-fee')).toContainText(expected.reviewFee);
+  await expect(dialog.getByTestId('pay-review-fee')).toHaveText(`${expected.reviewFee}. ${expected.network}`);
   await expect(dialog.getByTestId('pay-review-allowance')).toContainText(expected.allowance);
   await expect(dialog.getByTestId('pay-review-left')).toContainText(expected.after);
   // B is a first-time recipient: a caution, and the promise that no test payment is sent for them.

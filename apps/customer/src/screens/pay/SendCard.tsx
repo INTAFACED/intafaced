@@ -808,7 +808,9 @@ function SendForm({
               {parseAmount(review.terms.fee) === 0n
                 ? personal.t('termsNoFee')
                 : `${fmtAmount(review.terms.fee, { places: 18 })} ${review.source.asset}`}
-              {review.terms.networkFeeUnknown ? `. ${personal.t('termsNetworkFeeUnknown')}` : null}
+              {networkFeeText(review.terms.networkFee, review.source.asset, personal) === null
+                ? null
+                : `. ${networkFeeText(review.terms.networkFee, review.source.asset, personal)}`}
             </span>
           ),
         },
@@ -1141,6 +1143,14 @@ function SendForm({
 
 type PersonalCopy = ReturnType<typeof personalCopy.useCopy>;
 
+/** The network fee as the bank states it: the figure, none, or "not known"; null when the bank states nothing. */
+function networkFeeText(networkFee: string | null | undefined, asset: string, personal: PersonalCopy): string | null {
+  if (networkFee === undefined) return null;
+  if (networkFee === null) return personal.t('termsNetworkFeeUnknown');
+  if (parseAmount(networkFee) === 0n) return personal.t('termsNoNetworkFee');
+  return personal.t('termsNetworkFee', { fee: fmtAmount(networkFee, { places: 18 }), asset });
+}
+
 /** Why Review is off because of the published terms, in a few words for the button. Null when they allow the send. */
 function termsBlock(verdict: TermsVerdict, personal: PersonalCopy): string | null {
   switch (verdict.kind) {
@@ -1185,7 +1195,7 @@ function TermsLine({ verdict, asset, onRetry }: { verdict: TermsVerdict; asset: 
             ? personal.t('termsOverPayment', { limit: amountOf(verdict.limit), asset })
             : verdict.kind === 'overDaily'
               ? personal.t('termsOverDaily', { left: amountOf(verdict.left), asset })
-              : `${parseAmount(verdict.fee) === 0n ? personal.t('termsNoFee') : personal.t('termsFee', { fee: amountOf(verdict.fee), asset })}.${verdict.networkFeeUnknown ? ` ${personal.t('termsNetworkFeeUnknown')}` : ''} ${personal.t('termsAllowance', { perTransfer: amountOf(verdict.perTransfer), left: amountOf(verdict.left), asset })}`;
+              : `${parseAmount(verdict.fee) === 0n ? personal.t('termsNoFee') : personal.t('termsFee', { fee: amountOf(verdict.fee), asset })}.${networkFeeText(verdict.networkFee, asset, personal) === null ? '' : ` ${networkFeeText(verdict.networkFee, asset, personal)}`} ${personal.t('termsAllowance', { perTransfer: amountOf(verdict.perTransfer), left: amountOf(verdict.left), asset })}`;
   const blocked = verdict.kind !== 'ok' && verdict.kind !== 'checking';
   return (
     <p className="lt-hint" role={blocked ? 'alert' : 'status'} data-testid="pay-terms" data-terms={verdict.kind}>
