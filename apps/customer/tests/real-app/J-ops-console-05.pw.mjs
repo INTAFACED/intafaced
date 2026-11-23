@@ -26,11 +26,11 @@ import {
 // customer account is on it. A TEST builder fee due (`builderFeeEarn`) is booked on this stack only by svc-trade from a
 // routed fill on the TEST venue's door (J-bank-13's earnBuilderFees: a trade restart, a wallet's builder-fee approval and
 // seven sells), so this journey takes the house seed, the other own-money posting the stack books on request. Its asset
-// (SGD) is one no other journey reads, so taking it back out of the house account never moves another journey's figures.
+// (JPY, seeded by the ledger's asset migration) is one no other journey reads, so taking it back out of the house account never moves another journey's figures.
 // Steps 4-10 (adjust, attribute) are later slices and are not in this file yet.
 
 const tag = randomUUID().slice(0, 8);
-const ASSET = 'SGD';
+const ASSET = 'JPY';
 const AMOUNT = '1.25';
 const state = {
   a: null,

@@ -1254,7 +1254,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       await signUpInBrowser(await (await browser.newContext({ baseURL: ORIGIN })).newPage(), state.fixPayer);
       const deposit = fund(state.fixPayer.email, 'USDT', '2');
       expect(deposit.tx, `the deposit names its ledger transaction: ${deposit.out}`).toMatch(/^[0-9a-f-]{36}$/);
-      const own = fund('house', 'SGD', '0.5', `ops07-fix-${tag}`);
+      const own = fund('house', 'AUD', '0.5', `ops07-fix-${tag}`);
       expect(own.tx, `our own entry names its ledger transaction: ${own.out}`).toMatch(/^[0-9a-f-]{36}$/);
       const reversal = await reverseWithTwoFounders(a, b, own.tx, {
         reason: `LOCAL TEST J-ops-console-07 corrective reversal ${tag}`,
