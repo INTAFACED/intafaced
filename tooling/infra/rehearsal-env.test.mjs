@@ -56,3 +56,7 @@ test('every variable compose requires has a value, and a stand-in only where the
   assert.equal(owner.env.get('EDGE_RATE_LIMIT_MAX'), '7');
   assert.ok(!owner.standIns.includes('EDGE_RATE_LIMIT_MAX'));
 });
+
+test('no service connects with a password compose cannot rotate', () => {
+  assert.deepEqual(compose.match(/postgres:\/\/(svc_[a-z_]+):\1@/g) ?? [], []);
+});

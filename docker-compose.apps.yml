@@ -1161,7 +1161,7 @@ services:
       SERVICE_NAME: svc-p2p
       # 4007: the code default is 4004, which svc-trade already holds.
       HTTP_PORT: '4007'
-      DATABASE_URL: postgres://svc_p2p:svc_p2p@postgres:5432/intafaced
+      DATABASE_URL: postgres://svc_p2p:${SVC_P2P_DB_PASSWORD:-svc_p2p}@postgres:5432/intafaced
       LEDGER_URL: http://svc-ledger:4001
       IDENTITY_URL: http://svc-identity:4002
       # p2p.merchants — host `.env` must reach the container. Empty ceilings stay

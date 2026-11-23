@@ -45,7 +45,6 @@ export const TEST_STAND_INS = {
   TRANSFER_BATCH_SIZE: '1',
   IDENTITY_SIGNUP_CLOSED_COUNTRIES: 'AQ',
   NOTIFY_REQUIRED_CHANNELS: 'none',
-  INDEXER_VENUE_ADDRESS: '0x0000000000000000000000000000000000000000',
   INDEXER_START_HEIGHT: '0',
   INDEXER_FINALITY_DEPTH: '2',
   INDEXER_BATCH_SIZE: '50',
@@ -61,6 +60,13 @@ export const TEST_NETWORK = {
   PROTOCOL_CHAIN_ID: '84532',
   PROTOCOL_RPC_URL: 'https://sepolia.base.org',
   INDEXER_RPC_URL: 'https://sepolia.base.org',
+  // A public contract that exists on every chain (the ERC-4337 v0.7 EntryPoint), so the indexer has real logs to read.
+  INDEXER_VENUE_ADDRESS: '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
+  // The example's addresses are what a fresh Anvil deploy produces; on a testnet they are no deployment of ours, so they
+  // stay blank and the protocol refuses its chain paths with a typed answer.
+  PROTOCOL_FACTORY_ADDRESS: '',
+  PROTOCOL_IMPLEMENTATION_ADDRESS: '',
+  PROTOCOL_TOKEN_FACTORY_ADDRESS: '',
 };
 
 const LINE = /^([A-Z][A-Z0-9_]*)=(.*)$/;
