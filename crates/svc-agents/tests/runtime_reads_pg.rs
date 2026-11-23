@@ -20,7 +20,7 @@
     reason = "a test: a failure is the point"
 )]
 
-mod support;
+use crate::support;
 
 use std::cell::Cell;
 use std::collections::BTreeMap;
@@ -249,8 +249,11 @@ impl World {
             ready: ReadyInput::unwired(),
             metering: metering(&ledger, &bus),
             runtime: runtime_settings(),
+            ops: svc_agents::ops::Ops::unwired(),
             background: svc_agents::background::Settings::default(),
             advisors: svc_agents::advisors::Advisors::unwired(),
+            own: svc_agents::own::Own::unwired(),
+            team: svc_agents::team::Team::unwired(),
         })
         .unwrap();
         let g = parse_guardrail(&probe(max_actions)).unwrap();
@@ -1156,6 +1159,7 @@ fn run_input<'a>(session: &'a str, request: &'a str, task: &'a str) -> RunInput<
         request_id: request,
         task,
         asset_id: "IFC",
+        provenance_of: None,
     }
 }
 

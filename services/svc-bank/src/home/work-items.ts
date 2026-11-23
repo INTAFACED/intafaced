@@ -17,7 +17,9 @@
  * The bank sends copy keys and record values, never sentences, and links only into its own rooms (`/bank`).
  */
 import type { Sql } from 'postgres';
-import { router, scopedProcedure, TRPCError, workItemsOutputSchema, type WorkItem, type WorkItemsOutput } from '@intafaced/contracts';
+import type { WorkItem, WorkItemsOutput } from '@intafaced/contracts';
+import { workItemsOutputSchema } from '@intafaced/contracts/home-work-items';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 
 type MarginRow = {

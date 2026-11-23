@@ -1,17 +1,19 @@
+import type {
+  ServiceAuthMode,
+  ServiceSigner,
+  SupportTicket,
+  SupportWithdrawalFreezeInput,
+  SupportWithdrawalFreezeRecordsInput,
+  SupportWithdrawalFreezeRecordsResult,
+  SupportWithdrawalFreezeResult,
+} from '@intafaced/contracts';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import {
-  serviceCallSigner,
   SUPPORT_WITHDRAWAL_FREEZE_PATH,
   SUPPORT_WITHDRAWAL_FREEZE_RECORDS_PATH,
   supportWithdrawalFreezeRecordsResultSchema,
   supportWithdrawalFreezeResultSchema,
-  type ServiceAuthMode,
-  type ServiceSigner,
-  type SupportTicket,
-  type SupportWithdrawalFreezeInput,
-  type SupportWithdrawalFreezeRecordsInput,
-  type SupportWithdrawalFreezeRecordsResult,
-  type SupportWithdrawalFreezeResult,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/support-withdrawal-freeze';
 import { SupportError } from './support-service.js';
 import { identitySecretSet } from './identity-grounding-honesty.js';
 

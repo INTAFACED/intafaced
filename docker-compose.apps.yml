@@ -526,10 +526,15 @@ services:
   # No DATABASE_URL, deliberately: §5.1 gives this service in-memory books and
   # the file journal below, and nothing else. It is therefore not gated on
   # `migrate` — there is no schema to migrate.
+  # The Rust binary (crates/svc-matching), its own image, like svc-ledger's.
   svc-matching:
-    <<: *app
+    image: intafaced/svc-matching:dev
+    build:
+      context: .
+      dockerfile: crates/svc-matching/Dockerfile
+    restart: unless-stopped
     container_name: intafaced-svc-matching
-    command: ['node', 'services/svc-matching/dist/index.js']
+    command: ['/app/svc-matching']
     environment:
       <<: [*service-env, *internal-secret, *edge-secret]
       SERVICE_NAME: svc-matching
@@ -543,7 +548,7 @@ services:
       # Engine kill-switch. Host `.env` can halt submissions before the journal.
       # Off unless the host says on: our own book settles fills as customer
       # money in our ledger, which this file (staging's unit) does not hold with
-      # custody off; env.ts refuses boot on "engine on, custody off" (OWNER 288).
+      # custody off; env.rs refuses boot on "engine on, custody off" (OWNER 288).
       # A host that sets LEDGER_CUSTODY_LAYER=on sets this on too.
       MATCHING_ENGINE_ENABLED: ${MATCHING_ENGINE_ENABLED:-false}
       # The custody switch, the same variable and default as svc-ledger's (OWNER 226), for the boot guard above.
@@ -556,12 +561,12 @@ services:
       # Operators who may propose and approve venue actions (open, halt, ...).
       # Comma-separated identity user ids, at least two distinct; whitespace is
       # trimmed. EMPTY pass-through, no invented ids: blank or one id REFUSES
-      # BOOT with a FATAL message (services/svc-matching/src/env.ts), so a lost
+      # BOOT with a FATAL message (crates/svc-matching/src/env.rs), so a lost
       # host `.env` entry stops the container instead of leaving markets with no
       # reachable halt. Host `.env` publishes it. `docker compose config` stays
       # valid because the variable has an empty default.
       MATCHING_OPERATOR_IDS: ${MATCHING_OPERATOR_IDS:-}
-      # Replay hold check. Read-only balances on svc-ledger. No default in env.ts:
+      # Replay hold check. Read-only balances on svc-ledger. No default in env.rs:
       # a blank URL leaves a book that replayed resting orders closed. Compose
       # points at the ledger the same way svc-trade does.
       LEDGER_URL: http://svc-ledger:4001
@@ -573,7 +578,9 @@ services:
       # before it will accept an order. On an anonymous volume a container
       # replacement would silently start with empty books.
       - matchingjournal:/data/matching
-    healthcheck: *healthcheck
+    healthcheck:
+      <<: *healthcheck
+      test: ['CMD', 'curl', '-fsS', 'http://127.0.0.1:4005/health']
     depends_on:
       <<: *needs-bus
       svc-ledger:
@@ -1401,17 +1408,38 @@ services:
     # published to the host and never reachable through svc-edge.
     expose: ['4400']
 
+  # svc-agents' own `agents` schema migrations, applied once by its Rust binary as its own role (svc_agents), before the
+  # service starts, as svc-ledger-migrate does for the ledger.
+  svc-agents-migrate:
+    image: intafaced/svc-agents:dev
+    build:
+      context: .
+      dockerfile: crates/svc-agents/Dockerfile
+    container_name: intafaced-svc-agents-migrate
+    restart: 'no'
+    command: ['/app/svc-agents', 'migrate']
+    environment:
+      DATABASE_URL: postgres://svc_agents:${SVC_AGENTS_DB_PASSWORD:-svc_agents}@postgres:5432/intafaced
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # The Rust binary (crates/svc-agents), its own image, like svc-ledger's.
   svc-agents:
-    <<: *app
+    image: intafaced/svc-agents:dev
+    build:
+      context: .
+      dockerfile: crates/svc-agents/Dockerfile
+    restart: unless-stopped
     container_name: intafaced-svc-agents
-    command: ['node', 'services/svc-agents/dist/index.js']
+    command: ['/app/svc-agents']
     environment:
       <<: [*service-env, *edge-secret, *internal-secret]
       SERVICE_NAME: svc-agents
       HTTP_PORT: '4008'
       DATABASE_URL: postgres://svc_agents:${SVC_AGENTS_DB_PASSWORD:-svc_agents}@postgres:5432/intafaced
       LEDGER_URL: http://svc-ledger:4001
-      # Affiliate accrue + payout after usage feeCharge. env.ts is optional with
+      # Affiliate accrue + payout after usage feeCharge. env.rs is optional with
       # no localhost default (unset = noop). Compose pins identity on the fleet
       # network. Never invents rates; identity owns the payout door.
       IDENTITY_URL: http://svc-identity:4002
@@ -1442,10 +1470,10 @@ services:
       # Billing window: no git default — blank refuses (never 60). Owner may
       # set 60 explicitly (see .env.example). Same `:?` shape as pay
       # confirmations so compose-up fails instead of publishing a 60-minute
-      # bill window. Window must divide 1440 (env.ts). Timeout still 60000.
+      # bill window. Window must divide 1440 (env.rs). Timeout still 60000.
       AGENTS_USAGE_WINDOW_MINUTES: ${AGENTS_USAGE_WINDOW_MINUTES:?missing — copy .env.example to .env}
       AGENTS_UPSTREAM_TIMEOUT_MS: ${AGENTS_UPSTREAM_TIMEOUT_MS:-60000}
-      # Upstream auth header name + prefix (env.ts defaults x-api-key / empty).
+      # Upstream auth header name + prefix (env.rs defaults x-api-key / empty).
       # Without compose pass-through a host `.env` pin never reaches the container.
       AGENTS_UPSTREAM_AUTH_HEADER: ${AGENTS_UPSTREAM_AUTH_HEADER:-x-api-key}
       AGENTS_UPSTREAM_AUTH_PREFIX: ${AGENTS_UPSTREAM_AUTH_PREFIX:-}
@@ -1493,9 +1521,15 @@ services:
       LIVE_TRADE_COPY_LEADER_IDS:
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4008']
-    healthcheck: *healthcheck
+    healthcheck:
+      <<: *healthcheck
+      test: ['CMD', 'curl', '-fsS', 'http://127.0.0.1:4008/health']
     depends_on:
-      <<: [*needs-schema, *needs-bus]
+      <<: *needs-bus
+      postgres:
+        condition: service_healthy
+      svc-agents-migrate:
+        condition: service_completed_successfully
       svc-ledger:
         condition: service_healthy
 

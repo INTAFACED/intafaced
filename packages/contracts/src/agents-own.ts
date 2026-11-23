@@ -8,6 +8,7 @@
 
 import { z } from 'zod';
 import { assetIdSchema } from './asset-id.js';
+import { jsonValueSchema } from './procedure-strict-schema.js';
 
 /** The classes of data a tool touches; the first use of each by an agent asks the person's consent (AG-guardrails-01). */
 export const OWN_AGENT_DATA_CLASSES = ['own_data', 'market_data', 'draft_write', 'live_write'] as const;
@@ -345,7 +346,7 @@ export const ownAgentApprovalRequestSchema = z.object({
   decidedBy: z.enum(['person', 'reviewer']).nullable(),
   replacedBy: z.string().uuid().nullable(),
   /** The tool's first answer once an approved request has run; null before. A repeated approve returns this. */
-  result: z.unknown().nullable(),
+  result: jsonValueSchema.nullable(),
   ranAt: z.string().nullable(),
 });
 export type OwnAgentApprovalRequest = z.infer<typeof ownAgentApprovalRequestSchema>;

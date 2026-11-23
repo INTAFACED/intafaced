@@ -2,21 +2,22 @@
 //! \`review/routes.ts\` answer them. The door has already checked the caller, the scope, the region, the person-only
 //! rules and the input; each handler here runs in the TypeScript's order, inside its \`guard\`.
 //!
-//! A Navigator session's \`run.complete\` is research (\`prepareResearch\`): the navigator slice's to port, answered here
-//! as not ported rather than run without its sources.
+//! A Navigator session's \`run.complete\` is research when the ask names a market (\`crate::navigator::research\`): the
+//! service reads each market before anything runs, and the answer carries its provenance.
 
-use service_kit::json::Json;
+use service_kit::json::{self, Json};
 use service_kit::pg::Pool;
 use service_kit::schema::Value;
 use service_kit::trpc::TrpcError;
 
 use crate::audit;
 use crate::db::Store;
-use crate::door::{Ctx, Slice, not_ported};
+use crate::door::Ctx;
 use crate::gateway::desk::GatewaySlice;
 use crate::gateway::providers::{ChatMessage, Role};
 use crate::gateway::routing::engine_for_tasks;
 use crate::metering::Metering;
+use crate::navigator::research;
 use crate::runtime::guardrails::tool_refusal_codes;
 use crate::runtime::{self, Rt, RunError, Runtime, ThinkInput, eligibility, reads, runs, to_trpc};
 use service_kit::money::format_amount;
@@ -40,6 +41,21 @@ pub fn handle(
     answer(ctx, store, gateway, m, rt)
         .map(Some)
         .map_err(to_trpc)
+}
+
+/// Every declared tool shape by tool name (`tool_shapes.json`, written by `scripts/record-door.mjs` from the
+/// TypeScript's `own/catalog.ts` `DECLARED_TOOL_SHAPES` and held to it by `own/tool-shapes-rust.test.ts`).
+const TOOL_SHAPES: &str = include_str!("../tool_shapes.json");
+
+static DECLARED_TOOL_SHAPES: std::sync::LazyLock<Json> =
+    std::sync::LazyLock::new(|| json::parse(TOOL_SHAPES).unwrap_or(Json::Null));
+
+/// A tool's declared input and output, as `agent.get` shows it; null when the tool declares none, never a guess.
+pub fn declared_tool_shape(name: &str) -> Json {
+    DECLARED_TOOL_SHAPES
+        .get(name)
+        .cloned()
+        .unwrap_or(Json::Null)
 }
 
 fn pool(store: &Store) -> Result<&Pool, RunError> {
@@ -112,6 +128,7 @@ fn answer(
                                                 .collect(),
                                         ),
                                     ),
+                                    ("shape", declared_tool_shape(&t.name)),
                                 ])
                             })
                             .collect(),
@@ -328,9 +345,6 @@ fn complete(ctx: &Ctx<'_>, x: &Rt<'_>, user: &str) -> Result<Json, RunError> {
     let input = &ctx.input;
     let session_id = text(input, "sessionId").unwrap_or("");
     let s = runtime::owned_session(x.pool, session_id, user)?;
-    if s.agent_id == "navigator" {
-        return Err(RunError::Trpc(not_ported(Slice::Navigator)));
-    }
     let messages: Vec<ChatMessage> = input
         .get("messages")
         .as_array()
@@ -345,8 +359,35 @@ fn complete(ctx: &Ctx<'_>, x: &Rt<'_>, user: &str) -> Result<Json, RunError> {
             content: msg.get("content").as_str().unwrap_or("").to_owned(),
         })
         .collect();
-    // \`[input.system, research?.system].filter(Boolean).join('\n\n')\`, with no research outside the navigator.
-    let system = text(input, "system").filter(|s| !s.is_empty());
+    // A Navigator ask that names a market is research: each market is read before anything runs, and an answer it
+    // cannot source refuses uncharged, with no run row.
+    let research = if s.agent_id == "navigator" {
+        let ask = messages
+            .iter()
+            .rev()
+            .find(|m| m.role == Role::User)
+            .map_or("", |m| m.content.as_str());
+        let nav = &x.rt.navigator;
+        research::prepare_research(ask, nav.trade_data.as_deref(), &nav.research)?
+    } else {
+        None
+    };
+    // \`[input.system, research?.system].filter(Boolean).join('\n\n')\`.
+    let joined = [
+        text(input, "system"),
+        research.as_ref().map(|r| r.system.as_str()),
+    ]
+    .into_iter()
+    .flatten()
+    .filter(|s| !s.is_empty())
+    .collect::<Vec<_>>()
+    .join("\n\n");
+    let system = Some(joined.as_str()).filter(|s| !s.is_empty());
+    let provenance_of = |reply: &str| {
+        research
+            .as_ref()
+            .map_or(Json::Null, |plan| research::build_provenance(plan, reply))
+    };
     let request_id = text(input, "requestId").unwrap_or("");
     let task = text(input, "task").unwrap_or("");
     #[allow(
@@ -364,6 +405,9 @@ fn complete(ctx: &Ctx<'_>, x: &Rt<'_>, user: &str) -> Result<Json, RunError> {
             request_id,
             task,
             asset_id: fee,
+            provenance_of: research
+                .is_some()
+                .then_some(&provenance_of as &dyn Fn(&str) -> Json),
         },
         x.now,
         || {
@@ -381,6 +425,9 @@ fn complete(ctx: &Ctx<'_>, x: &Rt<'_>, user: &str) -> Result<Json, RunError> {
             )
         },
     )?;
+    let provenance = research.as_ref().map_or(Json::Null, |plan| {
+        research::build_provenance(plan, &result.text)
+    });
     Ok(Json::obj([
         ("runId", Json::str(run.id)),
         ("text", Json::str(result.text)),
@@ -390,6 +437,22 @@ fn complete(ctx: &Ctx<'_>, x: &Rt<'_>, user: &str) -> Result<Json, RunError> {
         ("assetId", Json::str(fee)),
         ("metered", Json::Bool(result.metered)),
         ("action", result.action.to_output()),
-        ("provenance", Json::Null),
+        ("provenance", provenance),
     ]))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_declared_tool_shows_its_shape_and_an_undeclared_one_none() {
+        assert!(matches!(&*DECLARED_TOOL_SHAPES, Json::Object(rows) if !rows.is_empty()));
+        assert_eq!(
+            declared_tool_shape("trade.quote").compact(),
+            r#"{"input":{"marketId":"text, up to 64 characters"},"output":{"marketId":"text","last":"decimal string","asOf":"time"}}"#
+        );
+        assert_eq!(declared_tool_shape("identity.session.read"), Json::Null);
+        assert_eq!(declared_tool_shape("ledger.transfer"), Json::Null);
+    }
 }

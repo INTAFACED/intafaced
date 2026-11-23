@@ -7,11 +7,14 @@
 //! belongs to their slices, and the door owes an order that needs one (`door::book`).
 //!
 //! The market modes (halt, maintenance, prelaunch, reduce-only, post-only, expiry, delisting, the venue halt) and dead
-//! sessions are switched by the `venue` slice's doors. Here they are read back from the journal on a cold start and
+//! sessions are switched by the `venue` slice's calls (`venue`). Here they are also read back from the journal on a cold start and
 //! every submit and amend is gated on them, as the base engine gates them.
 
 pub mod admission;
+pub mod client_ids;
+pub mod liquidity;
 pub mod reconcile;
+pub mod venue;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -19,16 +22,21 @@ use service_kit::json::Json;
 use service_kit::money::{Amount, format_amount, parse_amount};
 use service_kit::time::Instant;
 
-use crate::approval::dual_control_refuse;
-use crate::book::order_book::{OrderBook, QueueLevel};
+use crate::approval::{dual_control_refuse, read_operator_id};
+use crate::book::order_book::{
+    OrderBook, QueueLevel, outright_on_spread_refuse, spread_amend_refuse, spread_order_refuse,
+};
 use crate::book::rules::{mass_cancel_session_refuse, read_session_id};
+use crate::book::spread::{SpreadListingInput, read_spread_listing, spread_identity};
 use crate::book::triggers::mark_refuse;
 use crate::book::types::{
     AmendResult, CancelReason, CancelResult, CancelledRef, EngineAmend, EngineOrder, Fill,
-    OrderType, Reject, RestKind, Side, SubmitResult, Tif, TriggerFact, reject_or_null, seq_json,
+    OrderType, Reject, RestKind, Side, SpreadInstrument, SpreadTerms, SubmitResult, Tif,
+    TriggerFact, reject_or_null, seq_json,
 };
-use crate::book::wire::{WireError, from_wire, from_wire_amend, to_wire, to_wire_amend};
-use crate::door::Slice;
+use crate::book::wire::{
+    WireError, from_wire, from_wire_amend, spread_from_json, spread_json, to_wire, to_wire_amend,
+};
 use crate::journal::JournalError;
 use crate::journal::io::EngineJournal;
 use crate::journal::record::{JournalCommand, JournalRecord, js_string};
@@ -77,8 +85,9 @@ pub enum EngineError {
     Publish(String),
     /// The journal holds a record this port cannot replay yet, or one that does not read.
     Replay(String),
-    /// A cold start met state a later slice owns.
-    Owed { slice: Slice, why: String },
+    /// A spread fill whose legs no longer price, though the rehearsal before the journal priced them: the book moved
+    /// under it. The TypeScript throws here; nothing is announced, never half a spread.
+    Invariant(String),
     /// A publish during the cold start kept timing out (`StartupPublishError`): the process exits before it listens.
     StartupPublish(String),
 }
@@ -89,9 +98,7 @@ impl std::fmt::Display for EngineError {
             EngineError::Journal(e) => write!(f, "journal: {e}"),
             EngineError::Publish(e) => write!(f, "event bus: {e}"),
             EngineError::Replay(e) => write!(f, "replay: {e}"),
-            EngineError::Owed { slice, why } => {
-                write!(f, "{why} (slice {} is not ported)", slice.name())
-            }
+            EngineError::Invariant(e) => write!(f, "{e}"),
             EngineError::StartupPublish(message) => f.write_str(message),
         }
     }
@@ -118,6 +125,59 @@ pub struct EngineParts {
     pub sink: Box<dyn SnapshotSink<Json> + Send>,
     /// `MATCHING_ENGINE_ENABLED`.
     pub enabled: bool,
+    /// Spread fills are announced (`spreadFills`: `spreadFilled` on the bus). Without it a spread order refuses
+    /// `spread_fill_event_unwired` before it is journalled: a maker fill nobody announces would strand that maker's hold.
+    pub spread_fills: bool,
+}
+
+/// A spread book read (`SpreadBookView`): L2 in spread-price units, the top of book and the last spread print.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpreadBookView {
+    pub instrument: SpreadInstrument,
+    pub bids: Vec<(Amount, Amount)>,
+    pub asks: Vec<(Amount, Amount)>,
+    pub sequence: u64,
+    pub best_bid: Option<Amount>,
+    pub best_ask: Option<Amount>,
+    pub last_price: Option<Amount>,
+}
+
+/// What a listing answers (`SpreadListResult`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpreadListResult {
+    pub accepted: bool,
+    pub spread_id: String,
+    pub instrument: Option<SpreadInstrument>,
+    pub already_listed: bool,
+    pub rejected: Option<Reject>,
+}
+
+impl SpreadListResult {
+    fn refused(spread_id: &str, rejected: Reject) -> SpreadListResult {
+        SpreadListResult {
+            accepted: false,
+            spread_id: spread_id.to_owned(),
+            instrument: None,
+            already_listed: false,
+            rejected: Some(rejected),
+        }
+    }
+}
+
+/// A spread order as the door hands it over (`SpreadOrderInput`): the engine stamps the listing, the caller never sends
+/// it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpreadOrderInput {
+    pub order_id: String,
+    pub account_id: String,
+    pub side: Side,
+    pub qty: Amount,
+    pub price: Amount,
+    pub tif: Tif,
+    pub anchor_reference: Option<Amount>,
+    pub client_order_id: Option<String>,
+    pub environment: Option<String>,
+    pub session_id: Option<String>,
 }
 
 /// One live order, as the engine lists it (`EngineLiveOrder`).
@@ -214,6 +274,35 @@ struct Pending {
     name: &'static str,
     payload: Json,
     key: String,
+}
+
+/// `fillEvent`: a spread fill carries its legs and announces as one spread fill; an outright fill is `orderFilled`.
+fn fill_event(market_id: &str, fill: &Fill, at: &str) -> Pending {
+    match &fill.legs {
+        Some(legs) => Pending {
+            sequence: fill.sequence,
+            name: "spreadFilled",
+            payload: Json::obj([
+                ("spreadId", Json::str(market_id)),
+                ("makerOrderId", Json::str(fill.maker_order_id.clone())),
+                ("takerOrderId", Json::str(fill.taker_order_id.clone())),
+                ("makerAccountId", Json::str(fill.maker_account_id.clone())),
+                ("takerAccountId", Json::str(fill.taker_account_id.clone())),
+                ("takerSide", Json::str(fill.taker_side.as_str())),
+                ("price", Json::str(format_amount(fill.price))),
+                ("qty", Json::str(format_amount(fill.qty))),
+                ("sequence", seq_json(fill.sequence)),
+                ("ts", Json::str(at)),
+                (
+                    "legs",
+                    Json::Array(legs.iter().map(|l| l.to_json()).collect()),
+                ),
+            ]),
+            // One spread fill has one engine sequence on its book, forever.
+            key: format!("matching.spread.filled:{market_id}:{}", fill.sequence),
+        },
+        None => filled_event(market_id, fill, at),
+    }
 }
 
 fn filled_event(market_id: &str, fill: &Fill, at: &str) -> Pending {
@@ -353,6 +442,38 @@ fn not_live(order_id: &str, market_id: &str) -> AmendResult {
     )
 }
 
+/// `open` while an amend or cancel is between its `in_flight` record and its book move in this process; `unknown`
+/// when a cold start read an `in_flight` record no later amend or cancel resolved (`ifm.ts`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InFlight {
+    Open,
+    Unknown,
+}
+
+fn in_flight_reject(order_id: &str, status: InFlight) -> Reject {
+    match status {
+        InFlight::Open => refused(
+            "in_flight",
+            format!(
+                "order {order_id} has an unconfirmed amend or cancel — a second live order or duplicate fill is refused"
+            ),
+        ),
+        InFlight::Unknown => refused(
+            "in_flight_unknown",
+            format!(
+                "order {order_id} in-flight outcome is unknown — further mutation is refused until reconstructed"
+            ),
+        ),
+    }
+}
+
+fn mmp_unpublished() -> Reject {
+    refused(
+        "mmp_unpublished",
+        "MMP magnitudes are unpublished; the engine does not invent a zero max quote, position, loss, delta, or quote-size band".to_owned(),
+    )
+}
+
 /// The engine.
 pub struct MatchingEngine {
     books: HashMap<String, OrderBook>,
@@ -364,6 +485,22 @@ pub struct MatchingEngine {
     sink: Box<dyn SnapshotSink<Json> + Send>,
     enabled: bool,
     modes: Modes,
+    /// The owner's spread listings, rebuilt from `spread_list` records. Empty means nothing is listed.
+    spreads: HashMap<String, SpreadInstrument>,
+    spread_fills: bool,
+    /// The open surveillance cases kept as evidence (`surveillance-persist.ts`).
+    evidence: venue::Evidence,
+    /// `inFlight`: each order with an amend or cancel not yet confirmed.
+    in_flight: HashMap<String, InFlight>,
+    /// `ifm-crash.ts`'s store: the orders a cold start found in flight with durable evidence (`inFlight: true`). Every
+    /// submit, amend and cancel of one refuses before anything else is checked.
+    crash_unknown: HashSet<String>,
+    /// `core-tif.ts`'s store: each client order id claimed per account and environment ([`client_ids`]). Kept across
+    /// fills and cancels; rebuilt from every `submit` record on a cold start.
+    client_ids: client_ids::ClientIds,
+    /// `auction-uncross.ts`'s auction state. Nothing in the service enters it: the uncrossing rules are unset, so
+    /// entering refuses ([`enter_auction`](Self::enter_auction)). A submit on a market in it refuses.
+    auction: HashSet<String>,
     /// Owner rulebook versions in publish order, rebuilt from `rulebook_version` records. Empty is unpublished.
     rulebook: Vec<Version>,
     /// Set for the whole book when the replay hold check cannot be asked (`admissionClosed`). Not journalled: the next
@@ -389,11 +526,239 @@ impl MatchingEngine {
             sink: parts.sink,
             enabled: parts.enabled,
             modes: Modes::default(),
+            spreads: HashMap::new(),
+            spread_fills: parts.spread_fills,
+            evidence: venue::Evidence::default(),
+            in_flight: HashMap::new(),
+            crash_unknown: HashSet::new(),
+            client_ids: client_ids::ClientIds::new(),
+            auction: HashSet::new(),
             rulebook: Vec::new(),
             admission_closed: None,
             hold_halted: BTreeMap::new(),
             announcing: false,
             startup_sleep: Box::new(|ms| std::thread::sleep(std::time::Duration::from_millis(ms))),
+        }
+    }
+
+    // ── spreads ─────────────────────────────────────────────────────────
+
+    /// The owner's spread listings, sorted by id; empty when nothing is listed, never a sample instrument.
+    pub fn spread_instruments(&self) -> Vec<&SpreadInstrument> {
+        let mut ids: Vec<&String> = self.spreads.keys().collect();
+        ids.sort_by(|a, b| js_sort_cmp(a, b));
+        ids.into_iter()
+            .filter_map(|id| self.spreads.get(id))
+            .collect()
+    }
+
+    pub fn spread_instrument(&self, spread_id: &str) -> Option<&SpreadInstrument> {
+        self.spreads.get(spread_id)
+    }
+
+    /// The spread book to `limit` levels, or none when the spread is not listed. A listed spread with no orders is an
+    /// empty book, not a refusal.
+    pub fn spread_book(&self, spread_id: &str, limit: usize) -> Option<SpreadBookView> {
+        let instrument = self.spreads.get(spread_id)?.clone();
+        let book = self.books.get(spread_id);
+        let (bids, asks, sequence) = book.map_or((Vec::new(), Vec::new(), 0), |b| b.depth(limit));
+        Some(SpreadBookView {
+            instrument,
+            bids,
+            asks,
+            sequence,
+            best_bid: book.and_then(OrderBook::best_bid),
+            best_ask: book.and_then(OrderBook::best_ask),
+            last_price: book.and_then(OrderBook::last_price),
+        })
+    }
+
+    /// List one owner spread instrument. The door spends the two-person approval first; this checks both names,
+    /// journals the listing, and only then makes it tradable. Re-listing the same definition changes nothing; a
+    /// different definition under a listed id refuses, since open orders were admitted under the first.
+    pub fn list_spread(
+        &mut self,
+        input: &SpreadListingInput,
+        operator_id: Option<&str>,
+        confirm_operator_id: Option<&str>,
+    ) -> Result<SpreadListResult, EngineError> {
+        let spread_id = input
+            .spread_id
+            .as_deref()
+            .map_or("", service_kit::schema::js_trim)
+            .to_owned();
+        if let Some(r) = dual_control_refuse(operator_id, confirm_operator_id) {
+            return Ok(SpreadListResult::refused(&spread_id, r));
+        }
+        let instrument = match read_spread_listing(input) {
+            Ok(i) => i,
+            Err(r) => return Ok(SpreadListResult::refused(&spread_id, r)),
+        };
+        let id = instrument.spread_id.clone();
+        if let Some(listed) = self.spreads.get(&id) {
+            if spread_identity(listed) == spread_identity(&instrument) {
+                return Ok(SpreadListResult {
+                    accepted: true,
+                    spread_id: id,
+                    instrument: Some(listed.clone()),
+                    already_listed: true,
+                    rejected: None,
+                });
+            }
+            return Ok(SpreadListResult::refused(
+                &id,
+                Reject::new(
+                    "spread_listing_conflict",
+                    format!(
+                        "{id} is already listed with a different definition; list the change under a new id"
+                    ),
+                ),
+            ));
+        }
+        if self.books.contains_key(&id)
+            || self.modes.listed.contains(&id)
+            || self.modes.prelaunch.contains(&id)
+        {
+            return Ok(SpreadListResult::refused(
+                &id,
+                Reject::new(
+                    "spread_id_collides",
+                    format!("{id} is already an outright market"),
+                ),
+            ));
+        }
+        if let Some(nested) = instrument
+            .legs
+            .iter()
+            .find(|l| self.spreads.contains_key(&l.symbol))
+        {
+            return Ok(SpreadListResult::refused(
+                &id,
+                Reject::new(
+                    "spread_legs_invalid",
+                    format!("leg {} is itself a spread", nested.symbol),
+                ),
+            ));
+        }
+        let operator = read_operator_id(operator_id).unwrap_or_default();
+        let confirm = read_operator_id(confirm_operator_id);
+        let at = self.now_iso((self.clock)());
+        let mut record = vec![
+            ("kind".to_owned(), Json::str("spread_list")),
+            ("marketId".to_owned(), Json::str(id.clone())),
+            ("at".to_owned(), Json::str(at)),
+            ("operatorId".to_owned(), Json::str(operator)),
+        ];
+        if let Some(c) = confirm {
+            record.push(("confirmOperatorId".to_owned(), Json::str(c)));
+        }
+        record.push(("instrument".to_owned(), spread_json(&instrument)));
+        self.append(Json::Object(record))?;
+        self.spreads.insert(id.clone(), instrument.clone());
+        Ok(SpreadListResult {
+            accepted: true,
+            spread_id: id,
+            instrument: Some(instrument),
+            already_listed: false,
+            rejected: None,
+        })
+    }
+
+    /// Place a spread order: the engine stamps the listing onto it, so the journal carries the exact definition it was
+    /// admitted under, then runs the normal submit (every gate, the journal, the book, the events).
+    pub fn submit_spread(
+        &mut self,
+        spread_id: &str,
+        input: &SpreadOrderInput,
+        lifecycle_proof: Option<&Json>,
+    ) -> Result<SubmitResult, EngineError> {
+        let Some(instrument) = self.spreads.get(spread_id).cloned() else {
+            return Ok(SubmitResult::refused(Reject::new(
+                "spread_unlisted",
+                format!("no spread instrument {spread_id} is listed"),
+            )));
+        };
+        let mut order = EngineOrder::new(
+            input.order_id.clone(),
+            input.account_id.clone(),
+            OrderType::Limit,
+            input.side,
+            input.qty,
+            Some(input.price),
+            input.tif,
+        );
+        order.client_order_id = input.client_order_id.clone().filter(|s| !s.is_empty());
+        order.environment = input.environment.clone().filter(|s| !s.is_empty());
+        order.session_id = input.session_id.clone().filter(|s| !s.is_empty());
+        order.spread = Some(SpreadTerms {
+            instrument,
+            anchor_reference: input.anchor_reference,
+        });
+        self.submit(spread_id, &order, lifecycle_proof)
+    }
+
+    /// Why a submit must not reach the journal for spread reasons; an outright order on a spread id refuses here.
+    fn spread_admission_refuse(
+        &self,
+        market_id: &str,
+        order: &EngineOrder,
+        now: Option<i64>,
+    ) -> Option<Reject> {
+        let book = self.books.get(market_id);
+        let listed = self.spreads.get(market_id);
+        let Some(terms) = &order.spread else {
+            return (listed.is_some() || book.is_some_and(OrderBook::is_spread_book))
+                .then(|| outright_on_spread_refuse(market_id));
+        };
+        let Some(listed) = listed else {
+            return Some(Reject::new(
+                "spread_unlisted",
+                format!("no spread instrument {market_id} is listed"),
+            ));
+        };
+        if spread_identity(&terms.instrument) != spread_identity(listed) {
+            return Some(Reject::new(
+                "spread_identity_disagrees",
+                format!("the order does not carry the {market_id} listing"),
+            ));
+        }
+        if !self.spread_fills {
+            return Some(Reject::new(
+                "spread_fill_event_unwired",
+                "no spread fill event subject is declared yet; a spread fill nobody announces would strand the maker hold",
+            ));
+        }
+        for leg in &listed.legs {
+            if let Some(closed) = self.leg_closed_reason(&leg.symbol) {
+                return Some(Reject::new(
+                    "spread_leg_unavailable",
+                    format!(
+                        "leg {} is {closed} here; the whole spread refuses",
+                        leg.symbol
+                    ),
+                ));
+            }
+        }
+        spread_order_refuse(book, market_id, order, now)
+    }
+
+    /// A leg market this engine knows is closed; a leg it has never seen is not judged here.
+    fn leg_closed_reason(&self, symbol: &str) -> Option<&'static str> {
+        let m = &self.modes;
+        if self.hold_halted.contains_key(symbol) {
+            Some("held closed")
+        } else if m.maintenance.contains(symbol) {
+            Some("in maintenance")
+        } else if m.halted.contains(symbol) {
+            Some("halted")
+        } else if m.expired.contains(symbol) {
+            Some("expired")
+        } else if m.delisted.contains(symbol) {
+            Some("delisted")
+        } else if m.prelaunch.contains(symbol) {
+            Some("in prelaunch")
+        } else {
+            None
         }
     }
 
@@ -686,6 +1051,14 @@ impl MatchingEngine {
 
     fn emit(&mut self, events: Vec<Pending>) -> Result<(), EngineError> {
         for e in events {
+            // Admission refuses spreads without a publisher, so only a journal written by a build that had one reaches
+            // here: stop rather than drop a maker's fill.
+            if e.name == "spreadFilled" && !self.spread_fills {
+                return Err(EngineError::Publish(format!(
+                    "spread fill {} has no publisher; refusing to drop it",
+                    e.key
+                )));
+            }
             if self.announcing {
                 admission::publish_with_startup_retry(
                     &mut || self.bus.publish(e.name, &e.payload, &e.key),
@@ -731,19 +1104,88 @@ impl MatchingEngine {
             ("mutation", Json::str(mutation)),
             ("inFlight", Json::Bool(true)),
             ("qty", Json::str(format_amount(remaining))),
-        ]))
+        ]))?;
+        self.in_flight.insert(order_id.to_owned(), InFlight::Open);
+        Ok(())
+    }
+
+    /// The refusal for an order in flight, as the base engine checks it.
+    fn in_flight_refusal(&self, order_id: &str) -> Option<Reject> {
+        self.in_flight
+            .get(order_id)
+            .map(|s| in_flight_reject(order_id, *s))
+    }
+
+    /// The crash store's refusal (`ifm-crash.ts`), checked before everything else.
+    fn crash_refusal(&self, order_id: &str) -> Option<Reject> {
+        self.crash_unknown
+            .contains(order_id)
+            .then(|| in_flight_reject(order_id, InFlight::Unknown))
     }
 
     // ── submit ──────────────────────────────────────────────────────────
 
-    /// Place one order. `lifecycle_proof` is the door's admission evidence, journalled with it.
+    /// Place one order. `lifecycle_proof` is the door's admission evidence, journalled with it. Each surveillance case
+    /// the market's book then holds is kept as evidence (`surveillance-persist.ts`), the refused submit's included.
     pub fn submit(
         &mut self,
         market_id: &str,
         order: &EngineOrder,
         lifecycle_proof: Option<&Json>,
     ) -> Result<SubmitResult, EngineError> {
+        let result = self.submit_order(market_id, order, lifecycle_proof)?;
+        self.keep_cases(market_id, &result.surveillance_cases);
+        Ok(result)
+    }
+
+    fn submit_order(
+        &mut self,
+        market_id: &str,
+        order: &EngineOrder,
+        lifecycle_proof: Option<&Json>,
+    ) -> Result<SubmitResult, EngineError> {
         let id = order.order_id.as_str();
+        // `mmp.ts`, then `ifm-crash.ts`, then `auction-uncross.ts`: the wrappers' order around the base engine.
+        if order.mmp.wants_sidecar() {
+            return Ok(SubmitResult::refused(refused(
+                "mmp_sidecar_refused",
+                "sidecar MM / vendor MM / off-engine margin is refused; MMP law stays in-repo"
+                    .to_owned(),
+            )));
+        }
+        if order.mmp.wants_mmp() {
+            return Ok(SubmitResult::refused(mmp_unpublished()));
+        }
+        if let Some(r) = self.crash_refusal(id) {
+            return Ok(SubmitResult::refused(r));
+        }
+        // `core-tif.ts`, inside `ifm-crash.ts` and around everything after it: claim before the submit runs; only a
+        // returned refusal that touched nothing releases the claim. A failure keeps it: the order may be durable.
+        let Some(claim) = client_ids::key_of(order) else {
+            return self.submit_unclaimed(market_id, order, lifecycle_proof);
+        };
+        if self.client_ids.contains(&claim) {
+            return Ok(SubmitResult::refused(client_ids::reuse_refuse()));
+        }
+        self.client_ids.insert(claim.clone());
+        let result = self.submit_unclaimed(market_id, order, lifecycle_proof);
+        if result.as_ref().is_ok_and(client_ids::releases) {
+            self.client_ids.remove(&claim);
+        }
+        result
+    }
+
+    /// The submit under the client order id claim: `auction-uncross.ts` and the base engine's gates, then the journal.
+    fn submit_unclaimed(
+        &mut self,
+        market_id: &str,
+        order: &EngineOrder,
+        lifecycle_proof: Option<&Json>,
+    ) -> Result<SubmitResult, EngineError> {
+        let id = order.order_id.as_str();
+        if self.auction.contains(market_id) {
+            return Ok(SubmitResult::refused(liquidity::uncross_submit_refuse(id)));
+        }
         if self.modes.split_brain {
             return Ok(SubmitResult::refused(split_brain(id)));
         }
@@ -781,11 +1223,18 @@ impl MatchingEngine {
                 format!("session {session} is gone — order {id} not processed"),
             )));
         }
+        if let Some(r) = self.in_flight_refusal(id) {
+            return Ok(SubmitResult::refused(r));
+        }
         let expiry_now = self.expiry_now();
         if let Some(book) = self.books.get_mut(m)
             && book.has_accepted(id)
         {
             return Ok(book.submit(order, expiry_now));
+        }
+        // Spread admission refuses before the journal: a refused spread leaves no record and no leg.
+        if let Some(r) = self.spread_admission_refuse(m, order, expiry_now) {
+            return Ok(SubmitResult::refused(r));
         }
         if order.tif.expires() && expiry_now.is_none() {
             return Ok(SubmitResult::refused(refused(
@@ -803,6 +1252,12 @@ impl MatchingEngine {
             ("order", to_wire(order, lifecycle_proof)),
         ]))?;
         let result = self.book_mut(m).submit(order, expiry_now);
+        if let Some(fill) = unpriced_spread_fill(order, &result) {
+            return Err(EngineError::Invariant(format!(
+                "spread leg invariant broken on {}",
+                fill.sequence
+            )));
+        }
         self.drop_if_never_traded(m);
         let events = events_for_submit(m, id, &result, &at);
         self.emit(events)?;
@@ -818,6 +1273,12 @@ impl MatchingEngine {
         order_id: &str,
         reason: CancelReason,
     ) -> Result<CancelResult, EngineError> {
+        if let Some(r) = self.crash_refusal(order_id) {
+            return Ok(CancelResult {
+                rejected: Some(r),
+                ..CancelResult::missing(order_id)
+            });
+        }
         if self.modes.maintenance.contains(market_id) {
             return Ok(CancelResult {
                 rejected: Some(refused(
@@ -826,6 +1287,12 @@ impl MatchingEngine {
                         "market {market_id} is in maintenance — cancels are refused and the resting order stays"
                     ),
                 )),
+                ..CancelResult::missing(order_id)
+            });
+        }
+        if let Some(r) = self.in_flight_refusal(order_id) {
+            return Ok(CancelResult {
+                rejected: Some(r),
                 ..CancelResult::missing(order_id)
             });
         }
@@ -845,6 +1312,7 @@ impl MatchingEngine {
         }
         self.append(Json::Object(record))?;
         let result = self.book_mut(market_id).cancel(order_id, reason);
+        self.in_flight.remove(order_id);
         if let Some(c) = &result.cancellation {
             self.emit(vec![cancelled_event(market_id, c)])?;
         }
@@ -923,6 +1391,14 @@ impl MatchingEngine {
         if !self.enabled {
             return Some(AmendResult::refused(id, disabled(id)));
         }
+        if self.spreads.contains_key(market_id)
+            || self
+                .books
+                .get(market_id)
+                .is_some_and(OrderBook::is_spread_book)
+        {
+            return Some(AmendResult::refused(id, spread_amend_refuse()));
+        }
         if let Some(r) = self.admission_refusal(market_id, id) {
             return Some(AmendResult::refused(id, r));
         }
@@ -978,6 +1454,9 @@ impl MatchingEngine {
                 ));
             }
         }
+        if let Some(r) = self.in_flight_refusal(id) {
+            return Some(AmendResult::refused(id, r));
+        }
         if book.is_none() {
             return Some(not_live(id, m));
         }
@@ -990,6 +1469,9 @@ impl MatchingEngine {
         cmd: &EngineAmend,
         lifecycle_proof: Option<&Json>,
     ) -> Result<AmendResult, EngineError> {
+        if let Some(r) = self.crash_refusal(&cmd.order_id) {
+            return Ok(AmendResult::refused(&cmd.order_id, r));
+        }
         if self.modes.split_brain {
             return Ok(AmendResult::refused(
                 &cmd.order_id,
@@ -1015,6 +1497,7 @@ impl MatchingEngine {
         }
         self.append(Json::Object(record))?;
         let result = self.book_mut(market_id).amend(cmd, expiry_now);
+        self.in_flight.remove(&cmd.order_id);
         self.drop_if_never_traded(market_id);
         let events = events_for_amend(market_id, &result, &at);
         self.emit(events)?;
@@ -1118,35 +1601,56 @@ impl MatchingEngine {
     /// rebuild, and at state a later slice owns.
     pub fn recover(&mut self) -> Result<Recovered, EngineError> {
         let records: Vec<JournalRecord> = self.journal.read().to_vec();
-        if let Some(r) = records.iter().find(|r| r.kind() == Some("spread_list")) {
-            return Err(EngineError::Owed {
-                slice: Slice::Spreads,
-                why: format!(
-                    "the journal lists spread {}",
-                    js_string(r.field("marketId"))
-                ),
-            });
-        }
-        let unresolved = unresolved_in_flight(&records);
-        if let Some(id) = unresolved.first() {
-            return Err(EngineError::Owed {
-                slice: Slice::Liquidity,
-                why: format!("order {id} has an in-flight mutation the journal never resolved"),
-            });
+        let mut spreads: HashMap<String, SpreadInstrument> = HashMap::new();
+        for r in records.iter().filter(|r| r.kind() == Some("spread_list")) {
+            let id = js_string(r.field("marketId"));
+            if spreads.contains_key(&id) {
+                continue;
+            }
+            let instrument = r
+                .field("instrument")
+                .ok_or_else(|| {
+                    EngineError::Replay(format!("spread {id} is listed without an instrument"))
+                })
+                .and_then(|i| {
+                    spread_from_json(i).map_err(|e| EngineError::Replay(e.to_string()))
+                })?;
+            spreads.insert(id, instrument);
         }
         let mut into = Rebuild::default();
         replay_journal(&records, &mut into).map_err(|e| EngineError::Replay(e.to_string()))?;
         if let Some(e) = into.error {
-            return Err(match e {
-                WireError::Owed { field, slice } => EngineError::Owed {
-                    slice,
-                    why: format!("the journal holds a {field}"),
-                },
-                WireError::Malformed(why) => EngineError::Replay(why),
-            });
+            let WireError::Malformed(why) = e;
+            return Err(EngineError::Replay(why));
         }
         self.books = into.books;
         self.modes = replay_modes(&records);
+        self.spreads = spreads;
+        self.evidence = venue::Evidence::from_journal(&records);
+        for market in self.markets() {
+            let cases = self
+                .books
+                .get(&market)
+                .map(|b| b.open_surveillance_cases().to_vec())
+                .unwrap_or_default();
+            self.evidence.keep_all(&cases);
+        }
+        let open = replay_in_flight(&records);
+        self.in_flight = open
+            .iter()
+            .map(|id| (id.clone(), InFlight::Unknown))
+            .collect();
+        // `hydrateFromJournal`: only an order with a durable `inFlight: true` record of its own.
+        self.crash_unknown = open
+            .into_iter()
+            .filter(|id| {
+                records.iter().any(|r| {
+                    r.kind() == Some("in_flight")
+                        && matches!(r.field("orderId"), Some(Json::String(s)) if s == id)
+                        && matches!(r.field("inFlight"), Some(Json::Bool(true)))
+                })
+            })
+            .collect();
         self.rulebook.clear();
         for r in records
             .iter()
@@ -1157,12 +1661,15 @@ impl MatchingEngine {
                 self.rulebook.push(v);
             }
         }
+        // `hydrateFromJournal`: every journalled submit's client order id stays claimed. Claimed before the announce, so
+        // a recover whose announce fails still refuses a retry.
+        self.client_ids.extend(client_ids::claims_in(&records));
         self.admission_closed = None;
         self.hold_halted.clear();
         self.announcing = true;
         let mut announced: Vec<Pending> = Vec::new();
         for (market, at, fill) in &into.fills {
-            announced.push(filled_event(market, fill, at));
+            announced.push(fill_event(market, fill, at));
         }
         for (market, c) in &into.hold_cancels {
             announced.push(cancelled_event(market, c));
@@ -1177,6 +1684,12 @@ impl MatchingEngine {
             markets: self.books.len(),
         })
     }
+}
+
+/// A spread order's fill the spread layer could not price: there is none unless the book moved under the rehearsal.
+fn unpriced_spread_fill<'a>(order: &EngineOrder, result: &'a SubmitResult) -> Option<&'a Fill> {
+    order.spread.as_ref()?;
+    result.fills.iter().find(|f| f.legs.is_none())
 }
 
 /// `rulebookPrecheck`'s answer.
@@ -1255,7 +1768,7 @@ fn events_for_submit(
         });
     }
     let collect = |events: &mut Vec<Pending>, fills: &[Fill], cancels: &[CancelledRef]| {
-        events.extend(fills.iter().map(|f| filled_event(market_id, f, at)));
+        events.extend(fills.iter().map(|f| fill_event(market_id, f, at)));
         events.extend(cancels.iter().map(|c| cancelled_event(market_id, c)));
     };
     collect(&mut events, &result.fills, &result.cancellations);
@@ -1283,7 +1796,7 @@ fn events_for_amend(market_id: &str, result: &AmendResult, at: &str) -> Vec<Pend
             .iter()
             .map(|c| cancelled_event(market_id, c)),
     );
-    events.extend(result.fills.iter().map(|f| filled_event(market_id, f, at)));
+    events.extend(result.fills.iter().map(|f| fill_event(market_id, f, at)));
     for t in &result.triggered {
         if let Some(fact) = &t.trigger {
             events.push(triggered_event(
@@ -1294,7 +1807,7 @@ fn events_for_amend(market_id: &str, result: &AmendResult, at: &str) -> Vec<Pend
                 at,
             ));
         }
-        events.extend(t.fills.iter().map(|f| filled_event(market_id, f, at)));
+        events.extend(t.fills.iter().map(|f| fill_event(market_id, f, at)));
         events.extend(
             t.cancellations
                 .iter()
@@ -1308,8 +1821,9 @@ fn events_for_amend(market_id: &str, result: &AmendResult, at: &str) -> Vec<Pend
     events
 }
 
-/// `replayInFlight`: the orders whose last `in_flight` mark no later cancel or amend of theirs resolved.
-fn unresolved_in_flight(records: &[JournalRecord]) -> Vec<String> {
+/// `replayInFlight`: the orders an `in_flight` record (with a market) marked that no later cancel or amend of theirs
+/// resolved. Only a text id can name a live order, so any other id is passed over.
+fn replay_in_flight(records: &[JournalRecord]) -> Vec<String> {
     let mut open: Vec<String> = Vec::new();
     for r in records {
         let id = match r.field("orderId") {
@@ -1317,7 +1831,7 @@ fn unresolved_in_flight(records: &[JournalRecord]) -> Vec<String> {
             _ => continue,
         };
         match r.kind() {
-            Some("in_flight") if matches!(r.field("inFlight"), Some(Json::Bool(true))) => {
+            Some("in_flight") if r.field("marketId").is_some() => {
                 if !open.contains(&id) {
                     open.push(id);
                 }
@@ -1492,6 +2006,13 @@ impl ReplayBooks for Rebuild {
             .entry(market_id.to_owned())
             .or_insert_with(|| OrderBook::new(market_id))
             .submit(&order, clock);
+        if let Some(fill) = unpriced_spread_fill(&order, &result) {
+            self.error = Some(WireError::Malformed(format!(
+                "spread leg invariant broken on {}",
+                fill.sequence
+            )));
+            return;
+        }
         let at = js_string(record.field("at"));
         self.collect(market_id, &at, &result.fills, &result.triggered);
         self.drop_if_never_traded(market_id);

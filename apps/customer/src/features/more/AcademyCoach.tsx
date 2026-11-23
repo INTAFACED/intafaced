@@ -1,13 +1,13 @@
 import { useId, useState } from 'react';
 import { z } from 'zod';
 import { formatNumberToParts } from '@intafaced/i18n';
-import { Figure, type FigurePart } from '@intafaced/ui/lit';
-import { RefusalBox, type Refusal } from '@intafaced/ui/lit/templates';
+import { Button, Figure, type FigurePart } from '@intafaced/ui/lit';
+import { RefusalBox, TextAreaField, type Refusal } from '@intafaced/ui/lit/templates';
 import { useApi, useSession } from '../session';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
-import { Button } from '../../shared/ui';
 import { academyCoachCopy as copy } from './academy-coach-copy';
+import { AGENTS_ROUTES_LIST } from '@intafaced/contracts/agents-routes-procedures';
 
 /** The Coach's routing task (svc-agents `COACH_TASK`): its published price is the cost line shown before asking. */
 const COACH_TASK = 'coach.answer';
@@ -35,16 +35,6 @@ const coachResult = z.discriminatedUnion('status', [
   z.object({ status: z.literal('refused'), code: z.string().min(1) }),
 ]);
 type CoachResult = z.infer<typeof coachResult>;
-const routeList = z.array(
-  z.object({
-    task: z.string(),
-    maxOutputTokens: z.number().int().positive().safe(),
-    inputPerMillion: z.string().nullable(),
-    outputPerMillion: z.string().nullable(),
-    assetId: z.string().min(1),
-    engine,
-  }),
-);
 
 type CopyKey =
   | 'advice'
@@ -108,7 +98,7 @@ export function AcademyCoach({ lessonSlug }: { lessonSlug?: string }) {
   const fieldId = useId();
   const [question, setQuestion] = useState('');
   const [asked, setAsked] = useState<Asked>({ kind: 'idle' });
-  const routes = useResource((signal) => api.query('agents', 'routes.list', undefined, routeList, { signal }), `coach-routes:${userId}`);
+  const routes = useResource((signal) => api.call(AGENTS_ROUTES_LIST, undefined, { signal }), `coach-routes:${userId}`);
   const route = routes.resource.status === 'ready' ? (routes.resource.data.find((r) => r.task === COACH_TASK) ?? null) : undefined;
   const parts = (value: string, asset: string): readonly FigurePart[] => [
     ...formatNumberToParts(value, language),
@@ -144,26 +134,26 @@ export function AcademyCoach({ lessonSlug }: { lessonSlug?: string }) {
   };
 
   return (
-    <section className="academy-lms-stack" aria-labelledby={`${fieldId}-title`}>
+    <section className="lt-stack" aria-labelledby={`${fieldId}-title`}>
       <h3 id={`${fieldId}-title`}>
         <Copy k="title" />
       </h3>
-      <p className="muted">
+      <p className="lt-hint">
         <Copy k="intro" />
       </p>
       <div aria-label={t('costTitle')} role="group">
         {route === undefined ? (
           routes.resource.status === 'loading' ? null : (
-            <p className="muted">
+            <p className="lt-hint">
               <Copy k="costUnread" />
             </p>
           )
         ) : route === null ? (
-          <p className="muted">
+          <p className="lt-hint">
             <Copy k="costMissing" />
           </p>
         ) : route.inputPerMillion === null || route.outputPerMillion === null ? (
-          <p className="muted">
+          <p className="lt-hint">
             <Copy k="costUnset" />
           </p>
         ) : (
@@ -180,22 +170,29 @@ export function AcademyCoach({ lessonSlug }: { lessonSlug?: string }) {
             <dd>
               <Figure size="body" parts={parts(route.outputPerMillion, route.assetId)} test={route.engine !== 'live'} />
             </dd>
-            <dd className="muted">
+            <dd className="lt-hint">
               <Copy k="costTokens" params={{ tokens: route.maxOutputTokens }} />
             </dd>
           </dl>
         )}
       </div>
       <form
+        className="lt-stack"
         onSubmit={(e) => {
           e.preventDefault();
           const text = question.trim();
           if (text && asked.kind !== 'loading') void send(text);
         }}
       >
-        <label htmlFor={fieldId}>{t(lessonSlug ? 'question' : 'questionHub')}</label>
-        <textarea id={fieldId} rows={3} maxLength={2000} value={question} onChange={(e) => setQuestion(e.target.value)} />
-        <Button type="submit" disabled={!question.trim() || asked.kind === 'loading'}>
+        <TextAreaField
+          id={fieldId}
+          label={t(lessonSlug ? 'question' : 'questionHub')}
+          rows={3}
+          maxLength={2000}
+          value={question}
+          onChange={setQuestion}
+        />
+        <Button type="submit" tone="primary" disabled={!question.trim() || asked.kind === 'loading'}>
           <Copy k="ask" />
         </Button>
       </form>
@@ -205,9 +202,9 @@ export function AcademyCoach({ lessonSlug }: { lessonSlug?: string }) {
         </p>
       )}
       {asked.kind === 'uncertain' && (
-        <div role="alert">
+        <div role="alert" className="lt-stack">
           <RefusalBox refusal={{ variant: 'unreachable', title: t('uncertainTitle'), body: t('uncertainBody') }} />
-          <Button variant="secondary" onClick={() => void send(asked.question)}>
+          <Button tone="secondary" onClick={() => void send(asked.question)}>
             <Copy k="checkAgain" />
           </Button>
         </div>
@@ -249,12 +246,12 @@ function CoachAnswer({
   const { t, Copy } = copy.useCopy();
   const test = result.engine !== 'live';
   return (
-    <section aria-label={t('answerTitle')} data-coach="answered" data-engine={result.engine}>
+    <section className="lt-stack" aria-label={t('answerTitle')} data-coach="answered" data-engine={result.engine}>
       <h4>
         <Copy k="answerTitle" />
       </h4>
       {result.replayed && (
-        <p className="muted">
+        <p className="lt-hint">
           <Copy k="answerReplayed" />
         </p>
       )}
@@ -264,10 +261,10 @@ function CoachAnswer({
       <h5>
         <Copy k="citationsTitle" />
       </h5>
-      <ul aria-label={t('citationsTitle')}>
+      <ul className="lt-stack" aria-label={t('citationsTitle')}>
         {result.citations.map((c) => (
           <li key={c.slug}>
-            <a className="text-link" href={`/academy/${encodeURIComponent(c.slug)}`} lang="und">
+            <a className="lt-link lt-link-alone" href={`/academy/${encodeURIComponent(c.slug)}`} lang="und">
               {c.title}
             </a>
           </li>
@@ -276,7 +273,7 @@ function CoachAnswer({
       {result.nextLesson && (
         <p>
           <Copy k="nextLesson" />:{' '}
-          <a className="text-link" href={`/academy/${encodeURIComponent(result.nextLesson.slug)}`} lang="und" rel="next">
+          <a className="lt-link" href={`/academy/${encodeURIComponent(result.nextLesson.slug)}`} lang="und" rel="next">
             {result.nextLesson.title}
           </a>
         </p>

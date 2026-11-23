@@ -20,6 +20,7 @@ import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { diffBase } from './ci-affected.mjs';
 import { linesOutsideCode } from './journey-seal.mjs';
+import { countCall } from './api-count.mjs';
 
 export const BRIEF_PATHS = { review: 'tooling/ci/ci-review/REVIEW.md', read: 'tooling/ci/test-judge/READ.md' };
 export const SCORE_LINE = /^Brief-score: (review|read) (old|new) bad (\d+(?:\.\d+)?) of (\d+), controls (\d+) of (\d+)$/;
@@ -55,6 +56,7 @@ async function bodyFromEnv() {
   const res = await fetch(`https://api.github.com/repos/${REPO}/pulls/${PR_NUMBER}`, {
     headers: { authorization: `Bearer ${GH_TOKEN}`, accept: 'application/vnd.github+json', 'user-agent': 'brief-score-guard' },
   });
+  countCall(res);
   // A refusal stops here; the guard fails closed rather than judge a body it could not read.
   if (!res.ok) throw new Error(`reading pull request ${PR_NUMBER}'s body: ${res.status} ${await res.text()}`);
   return (await res.json()).body ?? '';

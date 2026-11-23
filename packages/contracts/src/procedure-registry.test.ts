@@ -1,4 +1,7 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { appendFileSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { describe, expect, it } from 'vitest';
@@ -125,10 +128,36 @@ describe('the written records of calls', () => {
       expect(() => procedureJsonSchema(plant({ input: z.object({ a: z.unknown() }) }))).toThrow('z.unknown');
       expect(() => procedureJsonSchema(plant({ output: z.object({ a: z.any() }) }))).toThrow('z.any');
     });
-    it('a declared JSON value (`jsonValueSchema`), written whole; any other recursive schema stays refused', () => {
+    it('a declared JSON value (`jsonValueSchema`), written whole', () => {
       const json = procedureJsonSchema(plant({ output: z.object({ a: jsonValueSchema }) }));
       expect(JSON.stringify(json.output)).toContain('"anyOf":[{"type":"string"},{"type":"number"},{"type":"boolean"},{"type":"null"}');
-      expect(() => procedureJsonSchema(plant({ output: z.object({ a: z.json() }) }))).toThrow('z.lazy');
+    });
+    it('a `z.lazy`, forward or recursive, written exactly (a cycle as `$ref`), and what it points to still checked', () => {
+      // svc-campaigns' shapes: a rule tree whose parts are trees, and a field named before its schema.
+      type Tree = { op: 'all' | 'any'; parts: Tree[] } | { fact: string };
+      const tree: z.ZodType<Tree> = z.lazy(() =>
+        z.union([z.object({ op: z.enum(['all', 'any']), parts: z.array(tree).max(8) }).strict(), z.object({ fact: z.string() }).strict()]),
+      );
+      const record = plant({
+        input: z.object({ tree }).strict(),
+        output: z.object({ limits: z.lazy(() => limits).nullish() }),
+        samples: [
+          { verdict: 'accept', input: { tree: { op: 'all', parts: [{ fact: 'kyc' }, { op: 'any', parts: [] }] } } },
+          { verdict: 'refuse', input: { tree: { op: 'all', parts: [{ fact: 1 }] } } },
+          { verdict: 'refuse', input: { tree: { op: 'all', parts: [{ op: 'none', parts: [] }] } } },
+        ],
+      });
+      const limits = z.object({ cap: z.string() });
+      const json = procedureJsonSchema(record);
+      expect(JSON.stringify(json.input)).toContain('"$ref"');
+      expect(json.output).toMatchObject({
+        properties: { limits: { anyOf: [{ properties: { cap: { type: 'string' } } }, { type: 'null' }] } },
+      });
+      const files = procedureSchemaFiles([record]);
+      expect(sampleDisagreements([record], files)).toEqual([]);
+      const hidden: z.ZodType = z.lazy(() => z.object({ next: hidden.optional(), at: z.string().refine((v) => v !== '') }));
+      expect(() => procedureJsonSchema(plant({ output: z.object({ a: z.lazy(() => z.unknown()) }) }))).toThrow('z.unknown');
+      expect(() => procedureJsonSchema(plant({ output: hidden }))).toThrow('output.at (.refine');
     });
     it('keeps an optional root as `inputOptional`, never as a required object', () => {
       expect(procedureJsonSchema(TAX_LOT_BOOK)).toMatchObject({ inputOptional: true, input: { type: 'object' } });
@@ -213,5 +242,53 @@ describe('the written records of calls', () => {
     const route = { transport: 'http', method: 'POST', path: '/markets/:marketId/orders' } as const;
     expect(routePath(route, { marketId: 'BTC/USDT' })).toBe('/markets/BTC%2FUSDT/orders');
     expect(() => routePath(route, {})).toThrow('needs :marketId');
+  });
+});
+
+describe('the registry under parallel changes', () => {
+  // Two changes off one base, each adding records, merged by git: what `procedures:write` writes must be what the merge
+  // leaves (else main goes stale with every PR green), or the merge must conflict.
+  const SCRIPT = join(PACKAGE, 'scripts', 'procedure-registry.mjs');
+  const record = (name: string) => `export const ${name} = defineProcedure({});\n`;
+  const repo = () => {
+    const dir = mkdtempSync(join(tmpdir(), 'registry-merge-'));
+    mkdirSync(join(dir, 'src'));
+    const git = (...args: string[]) =>
+      spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: dir, encoding: 'utf8' });
+    const write = () => execFileSync('node', [SCRIPT, '.', 'ALL', './procedure.js'], { cwd: dir, stdio: 'pipe' });
+    const fresh = () => spawnSync('node', [SCRIPT, '.', 'ALL', './procedure.js', '--check'], { cwd: dir }).status === 0;
+    // Each file a few records, the files many, so a fixed-size part would cross files.
+    for (const f of ['a', 'b', 'c', 'd', 'e', 'f'])
+      writeFileSync(join(dir, 'src', `${f}.ts`), [1, 2, 3].map((n) => record(`${f.toUpperCase()}${n}`)).join(''));
+    write();
+    git('init', '-q', '-b', 'base');
+    git('add', '-A');
+    git('commit', '-qm', 'base');
+    const change = (branch: string, file: string, name: string) => {
+      git('switch', '-q', '-c', branch, 'base');
+      appendFileSync(join(dir, 'src', `${file}.ts`), record(name));
+      write();
+      git('commit', '-qam', branch);
+    };
+    const merge = (into: string, from: string) => {
+      git('switch', '-q', into);
+      return git('merge', '-q', '--no-edit', from).status === 0;
+    };
+    return { change, merge, fresh };
+  };
+
+  it('two changes adding records to different files merge into what procedures:write writes', () => {
+    const r = repo();
+    r.change('x', 'a', 'A4');
+    r.change('y', 'b', 'B4');
+    expect(r.merge('y', 'x')).toBe(true);
+    expect(r.fresh()).toBe(true);
+  });
+
+  it('two changes adding records to one file conflict in git, never merge stale', () => {
+    const r = repo();
+    r.change('x', 'c', 'C4');
+    r.change('y', 'c', 'C5');
+    expect(r.merge('y', 'x')).toBe(false);
   });
 });

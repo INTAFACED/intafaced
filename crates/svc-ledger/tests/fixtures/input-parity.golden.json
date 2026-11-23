@@ -563,7 +563,7 @@
     "issues [{\"code\":\"invalid_type\",\"expected\":\"object\",\"path\":[],\"message\":\"Invalid input: expected object, received number\"}]",
     "issues [{\"code\":\"invalid_type\",\"expected\":\"object\",\"path\":[],\"message\":\"Invalid input: expected object, received string\"}]",
     "issues [{\"code\":\"invalid_type\",\"expected\":\"object\",\"path\":[],\"message\":\"Invalid input: expected object, received array\"}]",
-    "issues [{\"code\":\"invalid_union\",\"errors\":[],\"note\":\"No matching discriminator\",\"discriminator\":\"recipe\",\"options\":[\"academyPurchase\",\"academyPurchaseRefund\",\"feeCharge\",\"chargeEarn\",\"chargeCollect\"],\"path\":[\"recipe\"],\"message\":\"Invalid discriminator value. Expected 'academyPurchase' | 'academyPurchaseRefund' | 'feeCharge' | 'chargeEarn' | 'chargeCollect'\"}]",
+    "issues [{\"code\":\"invalid_union\",\"errors\":[],\"note\":\"No matching discriminator\",\"discriminator\":\"recipe\",\"options\":[\"academyPurchase\",\"academyPurchaseRefund\",\"feeCharge\",\"chargeEarn\",\"chargeCollect\",\"bankTransfer\",\"payReceivedHold\",\"payReceivedRelease\",\"payReceivedReturn\",\"earnDeposit\",\"earnWithdraw\",\"earnPoolFund\",\"earnInterest\"],\"path\":[\"recipe\"],\"message\":\"Invalid discriminator value. Expected 'academyPurchase' | 'academyPurchaseRefund' | 'feeCharge' | 'chargeEarn' | 'chargeCollect' | 'bankTransfer' | 'payReceivedHold' | 'payReceivedRelease' | 'payReceivedReturn' | 'earnDeposit' | 'earnWithdraw' | 'earnPoolFund' | 'earnInterest'\"}]",
     "ok {\"recipe\":\"academyPurchase\",\"input\":{\"course\":\"perps-101\",\"userId\":\"22222222-2222-4222-8222-222222222222\",\"n\":\"1\",\"assetId\":\"USDC\",\"amount\":\"2.5\",\"paymentId\":\"0xabababababababababababababababababababababababababababababababab\",\"to\":{\"kind\":\"treasury-wallet\",\"walletId\":\"0x00000000000000000000000000000000000000aa\"}}}",
     "ok {\"recipe\":\"academyPurchase\",\"input\":{\"course\":\"perps-101\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"n\":\"1\",\"assetId\":\"USDC\",\"amount\":\"2.5\",\"paymentId\":\"0xabababababababababababababababababababababababababababababababab\",\"to\":{\"kind\":\"treasury-wallet\",\"walletId\":\"0x00000000000000000000000000000000000000aa\"}}}",
     "ok {\"recipe\":\"academyPurchaseRefund\",\"input\":{\"course\":\"perps-101\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"n\":\"12\",\"assetId\":\"USDC\",\"amount\":\"0.000000000000000001\",\"paymentId\":\"0xabababababababababababababababababababababababababababababababab\",\"from\":{\"kind\":\"partner-reserve\",\"partnerId\":\"reserve-a\"}}}",
@@ -990,7 +990,22 @@
     "issues [{\"origin\":\"string\",\"code\":\"too_big\",\"maximum\":2000,\"inclusive\":true,\"path\":[\"explanation\"],\"message\":\"Too big: expected string to have <=2000 characters\"}]",
     "ok {\"controlId\":\"22222222-2222-4222-8222-222222222222\",\"severity\":\"info\",\"reason\":\"TEST reconciliation reason\"}",
     "ok {\"controlId\":\"22222222-2222-4222-8222-222222222222\",\"severity\":\"info\",\"reason\":\"TEST reconciliation reason\",\"activate\":true}",
-    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"controlId\"],\"message\":\"Invalid input: expected string, received undefined\"},{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"reason\"],\"message\":\"Invalid input: expected string, received undefined\"},{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"approvalId\"],\"message\":\"Invalid input: expected string, received undefined\"},{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"operationId\"],\"message\":\"Invalid input: expected string, received undefined\"}]"
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"controlId\"],\"message\":\"Invalid input: expected string, received undefined\"},{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"reason\"],\"message\":\"Invalid input: expected string, received undefined\"},{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"approvalId\"],\"message\":\"Invalid input: expected string, received undefined\"},{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"operationId\"],\"message\":\"Invalid input: expected string, received undefined\"}]",
+    "issues [{\"code\":\"invalid_value\",\"values\":[\"own\",\"p2p\",\"sched\",\"rail\",\"recovery\"],\"path\":[\"input\",\"keySpace\"],\"message\":\"Invalid option: expected one of \\\"own\\\"|\\\"p2p\\\"|\\\"sched\\\"|\\\"rail\\\"|\\\"recovery\\\"\"}]",
+    "issues [{\"origin\":\"number\",\"code\":\"too_small\",\"minimum\":0,\"inclusive\":true,\"path\":[\"input\",\"occurrence\"],\"message\":\"Too small: expected number to be >=0\"}]",
+    "issues [{\"expected\":\"number\",\"code\":\"invalid_type\",\"path\":[\"input\",\"occurrence\"],\"message\":\"Invalid input: expected number, received string\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"invalid_format\",\"format\":\"regex\",\"pattern\":\"/^[^\\\\s]+$/\",\"path\":[\"input\",\"transferId\"],\"message\":\"Invalid string: must match pattern /^[^\\\\s]+$/\"}]",
+    "issues [{\"code\":\"invalid_value\",\"values\":[\"available\"],\"path\":[\"input\",\"to\",\"kind\"],\"message\":\"Invalid input: expected \\\"available\\\"\"},{\"code\":\"unrecognized_keys\",\"keys\":[\"purpose\"],\"path\":[\"input\",\"to\"],\"message\":\"Unrecognized key: \\\"purpose\\\"\"}]",
+    "issues [{\"code\":\"invalid_union\",\"errors\":[],\"note\":\"No matching discriminator\",\"discriminator\":\"ownerType\",\"options\":[\"user\",\"subaccount\",\"treasury\"],\"path\":[\"input\",\"to\",\"ownerType\"],\"message\":\"Invalid discriminator value. Expected 'user' | 'subaccount' | 'treasury'\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"too_big\",\"maximum\":119,\"inclusive\":true,\"path\":[\"input\",\"holdId\"],\"message\":\"Too big: expected string to have <=119 characters\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"input\",\"heldAmount\"],\"message\":\"Invalid input: expected string, received undefined\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"input\",\"payerUserId\"],\"message\":\"Invalid input: expected string, received undefined\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"invalid_format\",\"format\":\"regex\",\"pattern\":\"/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/\",\"path\":[\"input\",\"positionId\"],\"message\":\"Invalid string: must match pattern /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"input\",\"poolId\"],\"message\":\"Invalid input: expected string, received undefined\"}]",
+    "issues [{\"code\":\"unrecognized_keys\",\"keys\":[\"from\"],\"path\":[\"input\"],\"message\":\"Unrecognized key: \\\"from\\\"\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"too_big\",\"maximum\":128,\"inclusive\":true,\"path\":[\"input\",\"fundingId\"],\"message\":\"Too big: expected string to have <=128 characters\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"invalid_format\",\"format\":\"regex\",\"pattern\":\"/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/\",\"path\":[\"input\",\"date\"],\"message\":\"Invalid string: must match pattern /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"input\",\"payouts\",0,\"amount\"],\"message\":\"Invalid input: expected string, received number\"}]"
   ],
   "cases": [
     ["post", null, 0],
@@ -9679,6 +9694,141 @@
       128
     ],
     ["controlRuns", "{\"controlId\":\"22222222-2222-4222-8222-222222222222\",\"limit\":[]}", 129],
-    ["controlRuns", "{\"controlId\":\"22222222-2222-4222-8222-222222222222\",\"limit\":{}}", 130]
+    ["controlRuns", "{\"controlId\":\"22222222-2222-4222-8222-222222222222\",\"limit\":{}}", 130],
+    [
+      "postRecipe",
+      "{\"recipe\":\"bankTransfer\",\"input\":{\"transferId\":\"22222222-2222-4222-8222-222222222222\",\"occurrence\":0,\"from\":{\"ownerType\":\"user\",\"ownerId\":\"11111111-1111-4111-8111-111111111111\",\"assetId\":\"USDC\",\"kind\":\"available\"},\"to\":{\"ownerType\":\"user\",\"ownerId\":\"33333333-3333-4333-8333-333333333333\",\"assetId\":\"USDC\",\"kind\":\"available\"},\"amount\":\"12.5\",\"kind\":\"manual\",\"keySpace\":\"p2p\"}}",
+      6
+    ],
+    [
+      "postRecipe",
+      "{\"recipe\":\"bankTransfer\",\"input\":{\"transferId\":\"22222222-2222-4222-8222-222222222222\",\"occurrence\":3,\"from\":{\"ownerType\":\"user\",\"ownerId\":\"11111111-1111-4111-8111-111111111111\",\"assetId\":\"USDC\",\"kind\":\"available\"},\"to\":{\"ownerType\":\"user\",\"ownerId\":\"33333333-3333-4333-8333-333333333333\",\"assetId\":\"USDC\",\"kind\":\"available\"},\"amount\":\"12.5\",\"kind\":\"scheduled\",\"keySpace\":\"sched\"}}",
+      6
+    ],
+    [
+      "postRecipe",
+      "{\"recipe\":\"payReceivedHold\",\"input\":{\"holdId\":\"22222222-2222-4222-8222-222222222222\",\"userId\":\"33333333-3333-4333-8333-333333333333\",\"assetId\":\"USDC\",\"amount\":\"12.5\"}}",
+      6
+    ],
+    [
+      "postRecipe",
+      "{\"recipe\":\"payReceivedRelease\",\"input\":{\"holdId\":\"22222222-2222-4222-8222-222222222222\",\"userId\":\"33333333-3333-4333-8333-333333333333\",\"assetId\":\"USDC\",\"amount\":\"12.5\",\"heldAmount\":\"12.5\"}}",
+      6
+    ],
+    [
+      "postRecipe",
+      "{\"recipe\":\"payReceivedReturn\",\"input\":{\"holdId\":\"22222222-2222-4222-8222-222222222222\",\"userId\":\"33333333-3333-4333-8333-333333333333\",\"assetId\":\"USDC\",\"amount\":\"12.5\",\"heldAmount\":\"12.5\",\"payerUserId\":\"11111111-1111-4111-8111-111111111111\"}}",
+      6
+    ],
+    [
+      "postRecipe",
+      "{\"recipe\":\"bankTransfer\",\"input\":{\"transferId\":\"22222222-2222-4222-8222-222222222222\",\"occurrence\":0,\"from\":{\"ownerType\":\"user\",\"ownerId\":\"11111111-1111-4111-8111-111111111111\",\"assetId\":\"USDC\",\"kind\":\"available\"},\"to\":{\"ownerType\":\"user\",\"ownerId\":\"33333333-3333-4333-8333-333333333333\",\"assetId\":\"USDC\",\"kind\":\"available\"},\"amount\":\"12.5\",\"kind\":\"manual\"}}",
+      991
+    ],
+    [
+      "postRecipe",
+      "{\"recipe\":\"bankTransfer\",\"input\":{\"transferId\":\"22222222-2222-4222-8222-222222222222\",\"occurrence\":0,\"from\":{\"ownerType\":\"user\",\"ownerId\":\"11111111-1111-4111-8111-111111111111\",\"assetId\":\"USDC\",\"kind\":\"available\"},\"to\":{\"ownerType\":\"user\",\"ownerId\":\"33333333-3333-4333-8333-333333333333\",\"assetId\":\"USDC\",\"kind\":\"available\"},\"amount\":\"12.5\",\"kind\":\"manual\",\"keySpace\":\"legacy\"}}",
+      991
+    ],
+    [
+      "postRecipe",
+      "{\"recipe\":\"bankTransfer\",\"input\":{\"transferId\":\"22222222-2222-4222-8222-222222222222\",\"occurrence\":-1,\"from\":{\"ownerType\":\"user\",\"ownerId\":\"11111111-1111-4111-8111-111111111111\",\"assetId\":\"USDC\",\"kind\":\"available\"},\"to\":{\"ownerType\":\"user\",\"ownerId\":\"33333333-3333-4333-8333-333333333333\",\"assetId\":\"USDC\",\"kind\":\"available\"},\"amount\":\"12.5\",\"kind\":\"manual\",\"keySpace\":\"p2p\"}}",
+      992
+    ],
+    [
+      "postRecipe",
+      "{\"recipe\":\"bankTransfer\",\"input\":{\"transferId\":\"22222222-2222-4222-8222-222222222222\",\"occurrence\":\"0\",\"from\":{\"ownerType\":\"user\",\"ownerId\":\"11111111-1111-4111-8111-111111111111\",\"assetId\":\"USDC\",\"kind\":\"available\"},\"to\":{\"ownerType\":\"user\",\"ownerId\":\"33333333-3333-4333-8333-333333333333\",\"assetId\":\"USDC\",\"kind\":\"available\"},\"amount\":\"12.5\",\"kind\":\"manual\",\"keySpace\":\"p2p\"}}",
+      993
+    ],
+    [
+      "postRecipe",
+      "{\"recipe\":\"bankTransfer\",\"input\":{\"transferId\":\"a b\",\"occurrence\":0,\"from\":{\"ownerType\":\"user\",\"ownerId\":\"11111111-1111-4111-8111-111111111111\",\"assetId\":\"USDC\",\"kind\":\"available\"},\"to\":{\"ownerType\":\"user\",\"ownerId\":\"33333333-3333-4333-8333-333333333333\",\"assetId\":\"USDC\",\"kind\":\"available\"},\"amount\":\"12.5\",\"kind\":\"manual\",\"keySpace\":\"p2p\"}}",
+      994
+    ],
+    [
+      "postRecipe",
+      "{\"recipe\":\"bankTransfer\",\"input\":{\"transferId\":\"22222222-2222-4222-8222-222222222222\",\"occurrence\":0,\"from\":{\"ownerType\":\"user\",\"ownerId\":\"11111111-1111-4111-8111-111111111111\",\"assetId\":\"USDC\",\"kind\":\"available\"},\"to\":{\"ownerType\":\"user\",\"ownerId\":\"33333333-3333-4333-8333-333333333333\",\"assetId\":\"USDC\",\"kind\":\"available\"},\"amount\":12.5,\"kind\":\"manual\",\"keySpace\":\"p2p\"}}",
+      574
+    ],
+    [
+      "postRecipe",
+      "{\"recipe\":\"bankTransfer\",\"input\":{\"transferId\":\"22222222-2222-4222-8222-222222222222\",\"occurrence\":0,\"from\":{\"ownerType\":\"user\",\"ownerId\":\"11111111-1111-4111-8111-111111111111\",\"assetId\":\"USDC\",\"kind\":\"available\"},\"to\":{\"ownerType\":\"user\",\"ownerId\":\"33333333-3333-4333-8333-333333333333\",\"assetId\":\"USDC\",\"kind\":\"hold\",\"purpose\":\"x\"},\"amount\":\"12.5\",\"kind\":\"manual\",\"keySpace\":\"p2p\"}}",
+      995
+    ],
+    [
+      "postRecipe",
+      "{\"recipe\":\"bankTransfer\",\"input\":{\"transferId\":\"22222222-2222-4222-8222-222222222222\",\"occurrence\":0,\"from\":{\"ownerType\":\"user\",\"ownerId\":\"11111111-1111-4111-8111-111111111111\",\"assetId\":\"USDC\",\"kind\":\"available\"},\"to\":{\"ownerType\":\"house\",\"ownerId\":\"fees:bank\",\"assetId\":\"USDC\",\"kind\":\"available\"},\"amount\":\"12.5\",\"kind\":\"manual\",\"keySpace\":\"p2p\"}}",
+      996
+    ],
+    [
+      "postRecipe",
+      "{\"recipe\":\"payReceivedHold\",\"input\":{\"holdId\":\"hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh\",\"userId\":\"33333333-3333-4333-8333-333333333333\",\"assetId\":\"USDC\",\"amount\":\"12.5\"}}",
+      997
+    ],
+    [
+      "postRecipe",
+      "{\"recipe\":\"payReceivedRelease\",\"input\":{\"holdId\":\"22222222-2222-4222-8222-222222222222\",\"userId\":\"33333333-3333-4333-8333-333333333333\",\"assetId\":\"USDC\",\"amount\":\"12.5\"}}",
+      998
+    ],
+    [
+      "postRecipe",
+      "{\"recipe\":\"payReceivedReturn\",\"input\":{\"holdId\":\"22222222-2222-4222-8222-222222222222\",\"userId\":\"33333333-3333-4333-8333-333333333333\",\"assetId\":\"USDC\",\"amount\":\"12.5\",\"heldAmount\":\"12.5\"}}",
+      999
+    ],
+    [
+      "postRecipe",
+      "{\"recipe\":\"earnDeposit\",\"input\":{\"positionId\":\"22222222-2222-4222-8222-222222222222\",\"poolId\":\"44444444-4444-4444-8444-444444444444\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"assetId\":\"USDT\",\"amount\":\"100\"}}",
+      6
+    ],
+    [
+      "postRecipe",
+      "{\"recipe\":\"earnWithdraw\",\"input\":{\"positionId\":\"22222222-2222-4222-8222-222222222222\",\"poolId\":\"44444444-4444-4444-8444-444444444444\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"assetId\":\"USDT\",\"amount\":\"100\"}}",
+      6
+    ],
+    [
+      "postRecipe",
+      "{\"recipe\":\"earnPoolFund\",\"input\":{\"poolId\":\"44444444-4444-4444-8444-444444444444\",\"fundingId\":\"treasury-2026-11\",\"assetId\":\"USDT\",\"amount\":\"50\"}}",
+      6
+    ],
+    [
+      "postRecipe",
+      "{\"recipe\":\"earnInterest\",\"input\":{\"poolId\":\"44444444-4444-4444-8444-444444444444\",\"date\":\"2026-11-22\",\"assetId\":\"USDT\",\"payouts\":[{\"userId\":\"11111111-1111-4111-8111-111111111111\",\"amount\":\"0.013698630136986301\"},{\"userId\":\"33333333-3333-4333-8333-333333333333\",\"amount\":\"0.5\"}]}}",
+      6
+    ],
+    [
+      "postRecipe",
+      "{\"recipe\":\"earnDeposit\",\"input\":{\"positionId\":\"22222222-2222-4222-8222-222222222222\",\"poolId\":\"44444444-4444-4444-8444-444444444444\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"assetId\":\"USDT\",\"amount\":\"-1\"}}",
+      572
+    ],
+    [
+      "postRecipe",
+      "{\"recipe\":\"earnDeposit\",\"input\":{\"positionId\":\"position-1\",\"poolId\":\"44444444-4444-4444-8444-444444444444\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"assetId\":\"USDT\",\"amount\":\"100\"}}",
+      1000
+    ],
+    [
+      "postRecipe",
+      "{\"recipe\":\"earnWithdraw\",\"input\":{\"positionId\":\"22222222-2222-4222-8222-222222222222\",\"userId\":\"11111111-1111-4111-8111-111111111111\",\"assetId\":\"USDT\",\"amount\":\"100\"}}",
+      1001
+    ],
+    [
+      "postRecipe",
+      "{\"recipe\":\"earnPoolFund\",\"input\":{\"poolId\":\"44444444-4444-4444-8444-444444444444\",\"fundingId\":\"treasury-2026-11\",\"assetId\":\"USDT\",\"amount\":\"50\",\"from\":{\"ownerType\":\"house\",\"ownerId\":\"fees:bank\"}}}",
+      1002
+    ],
+    [
+      "postRecipe",
+      "{\"recipe\":\"earnPoolFund\",\"input\":{\"poolId\":\"44444444-4444-4444-8444-444444444444\",\"fundingId\":\"fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"assetId\":\"USDT\",\"amount\":\"50\"}}",
+      1003
+    ],
+    [
+      "postRecipe",
+      "{\"recipe\":\"earnInterest\",\"input\":{\"poolId\":\"44444444-4444-4444-8444-444444444444\",\"date\":\"2026-11-2\",\"assetId\":\"USDT\",\"payouts\":[{\"userId\":\"11111111-1111-4111-8111-111111111111\",\"amount\":\"0.013698630136986301\"},{\"userId\":\"33333333-3333-4333-8333-333333333333\",\"amount\":\"0.5\"}]}}",
+      1004
+    ],
+    [
+      "postRecipe",
+      "{\"recipe\":\"earnInterest\",\"input\":{\"poolId\":\"44444444-4444-4444-8444-444444444444\",\"date\":\"2026-11-22\",\"assetId\":\"USDT\",\"payouts\":[{\"userId\":\"11111111-1111-4111-8111-111111111111\",\"amount\":0.5}]}}",
+      1005
+    ]
   ]
 }

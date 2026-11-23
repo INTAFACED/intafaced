@@ -1,7 +1,7 @@
 import { AuthError, requireMfa, type Principal } from '@intafaced/auth';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
-import { publicProcedure, scopedProcedure } from '@intafaced/contracts';
+import { publicProcedure, scopedProcedure } from '@intafaced/contracts/trpc';
 import type { RefusalOf } from '@intafaced/contracts/procedure-mount';
 import { CAMPAIGNS_REFUSAL_STATUS } from '@intafaced/contracts/campaigns-procedures';
 import { CampaignsError } from '../codes.js';

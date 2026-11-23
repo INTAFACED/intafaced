@@ -792,8 +792,21 @@
         "module": "quant",
         "plane": "fiat"
       },
-      "refusals": {},
-      "input": null,
+      "refusals": {
+        "quant.account_rule_unset": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          }
+        },
+        "required": ["symbol"]
+      },
       "output": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -802,22 +815,37 @@
             "type": "string",
             "const": "netting"
           },
+          "venueMarket": {
+            "type": ["string", "null"]
+          },
           "maxLeverage": {
+            "type": ["string", "null"]
+          },
+          "maintenancePercent": {
             "type": ["string", "null"]
           },
           "marginCallPercent": {
             "type": ["string", "null"]
           },
-          "stopOutPercent": {
-            "type": ["string", "null"]
+          "test": {
+            "type": "boolean"
           }
         },
-        "required": ["mode", "maxLeverage", "marginCallPercent", "stopOutPercent"],
+        "required": ["mode", "venueMarket", "maxLeverage", "maintenancePercent", "marginCallPercent", "test"],
         "additionalProperties": false
       },
       "samples": [
         {
-          "verdict": "accept"
+          "verdict": "accept",
+          "input": {
+            "symbol": "BTC/USDT"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "symbol": ""
+          }
         }
       ]
     },
@@ -1703,7 +1731,7 @@
                 },
                 "reason": {
                   "type": "string",
-                  "enum": ["signal", "stop_loss", "take_profit", "stop_out", "close_out"]
+                  "enum": ["signal", "stop_loss", "take_profit", "venue_close", "close_out"]
                 },
                 "qty": {
                   "type": "string",
@@ -1762,7 +1790,7 @@
                 "take_profit_without_slippage",
                 "open_position_marked_at_last_close",
                 "risk_limits_not_simulated",
-                "stop_out_before_exits",
+                "venue_close_before_exits",
                 "margin_level_at_bar_low",
                 "loss_beyond_margin",
                 "equity_stop_at_bar_low"
@@ -2595,20 +2623,26 @@
                     "type": "string",
                     "const": "netting"
                   },
+                  "venueMarket": {
+                    "type": ["string", "null"]
+                  },
                   "maxLeverage": {
+                    "type": ["string", "null"]
+                  },
+                  "maintenancePercent": {
                     "type": ["string", "null"]
                   },
                   "marginCallPercent": {
                     "type": ["string", "null"]
                   },
-                  "stopOutPercent": {
-                    "type": ["string", "null"]
+                  "test": {
+                    "type": "boolean"
                   },
                   "leverage": {
                     "type": "string"
                   }
                 },
-                "required": ["mode", "maxLeverage", "marginCallPercent", "stopOutPercent", "leverage"],
+                "required": ["mode", "venueMarket", "maxLeverage", "maintenancePercent", "marginCallPercent", "test", "leverage"],
                 "additionalProperties": false
               },
               {
@@ -2626,7 +2660,7 @@
                 },
                 "kind": {
                   "type": "string",
-                  "enum": ["margin_call", "stop_out"]
+                  "enum": ["margin_call", "venue_close"]
                 },
                 "price": {
                   "type": "string"
@@ -3418,7 +3452,7 @@
                 },
                 "reason": {
                   "type": "string",
-                  "enum": ["signal", "stop_loss", "take_profit", "stop_out", "close_out"]
+                  "enum": ["signal", "stop_loss", "take_profit", "venue_close", "close_out"]
                 },
                 "qty": {
                   "type": "string",
@@ -3477,7 +3511,7 @@
                 "take_profit_without_slippage",
                 "open_position_marked_at_last_close",
                 "risk_limits_not_simulated",
-                "stop_out_before_exits",
+                "venue_close_before_exits",
                 "margin_level_at_bar_low",
                 "loss_beyond_margin",
                 "equity_stop_at_bar_low"
@@ -4310,20 +4344,26 @@
                     "type": "string",
                     "const": "netting"
                   },
+                  "venueMarket": {
+                    "type": ["string", "null"]
+                  },
                   "maxLeverage": {
+                    "type": ["string", "null"]
+                  },
+                  "maintenancePercent": {
                     "type": ["string", "null"]
                   },
                   "marginCallPercent": {
                     "type": ["string", "null"]
                   },
-                  "stopOutPercent": {
-                    "type": ["string", "null"]
+                  "test": {
+                    "type": "boolean"
                   },
                   "leverage": {
                     "type": "string"
                   }
                 },
-                "required": ["mode", "maxLeverage", "marginCallPercent", "stopOutPercent", "leverage"],
+                "required": ["mode", "venueMarket", "maxLeverage", "maintenancePercent", "marginCallPercent", "test", "leverage"],
                 "additionalProperties": false
               },
               {
@@ -4341,7 +4381,7 @@
                 },
                 "kind": {
                   "type": "string",
-                  "enum": ["margin_call", "stop_out"]
+                  "enum": ["margin_call", "venue_close"]
                 },
                 "price": {
                   "type": "string"
@@ -7446,11 +7486,24 @@
           "liveEnabled": {
             "type": "boolean"
           },
+          "approval": {
+            "type": "object",
+            "properties": {
+              "required": {
+                "type": "boolean"
+              },
+              "allowed": {
+                "type": "boolean"
+              }
+            },
+            "required": ["required", "allowed"],
+            "additionalProperties": false
+          },
           "asOf": {
             "type": "string"
           }
         },
-        "required": ["strategyId", "strategyVersion", "name", "plan", "orderTypes", "compiles", "liveEnabled", "asOf"],
+        "required": ["strategyId", "strategyVersion", "name", "plan", "orderTypes", "compiles", "liveEnabled", "approval", "asOf"],
         "additionalProperties": false
       },
       "samples": [
@@ -7500,6 +7553,7 @@
         "quant.studio_not_found": "NOT_FOUND",
         "quant.database_url_unset": "PRECONDITION_FAILED",
         "quant.database_pool_max_unset": "PRECONDITION_FAILED",
+        "quant.approval_required": "PRECONDITION_FAILED",
         "quant.live_disabled": "PRECONDITION_FAILED",
         "quant.live_plan_unsupported": "BAD_REQUEST",
         "trade.order_type_unsupported": "BAD_REQUEST",
@@ -9685,7 +9739,7 @@
         "quant.param_out_of_range": "BAD_REQUEST",
         "quant.params_invalid": "BAD_REQUEST",
         "quant.sizing_rule_unset": "BAD_REQUEST",
-        "quant.backtest_lake_missing": "PRECONDITION_FAILED",
+        "quant.backtest_history_range": "BAD_REQUEST",
         "quant.cost_unset": "BAD_REQUEST"
       },
       "input": {
@@ -9781,6 +9835,22 @@
           "barSize": {
             "type": "string"
           },
+          "prices": {
+            "type": "object",
+            "properties": {
+              "venueMarket": {
+                "type": ["string", "null"]
+              },
+              "test": {
+                "type": "boolean"
+              },
+              "unavailable": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["venueMarket", "test", "unavailable"],
+            "additionalProperties": false
+          },
           "priced": {
             "type": "boolean"
           },
@@ -9801,7 +9871,7 @@
                 },
                 "reason": {
                   "type": "string",
-                  "enum": ["signal", "stop_loss", "take_profit", "stop_out", "close_out"]
+                  "enum": ["signal", "stop_loss", "take_profit", "venue_close", "close_out"]
                 },
                 "qty": {
                   "type": "string",
@@ -9908,6 +9978,7 @@
           "costs",
           "symbol",
           "barSize",
+          "prices",
           "priced",
           "pricedThrough",
           "trades",
@@ -10104,7 +10175,7 @@
         "quant.param_out_of_range": "BAD_REQUEST",
         "quant.params_invalid": "BAD_REQUEST",
         "quant.sizing_rule_unset": "BAD_REQUEST",
-        "quant.backtest_lake_missing": "PRECONDITION_FAILED",
+        "quant.backtest_history_range": "BAD_REQUEST",
         "quant.cost_unset": "BAD_REQUEST"
       },
       "input": {
@@ -10254,6 +10325,22 @@
           "barSize": {
             "type": "string"
           },
+          "prices": {
+            "type": "object",
+            "properties": {
+              "venueMarket": {
+                "type": ["string", "null"]
+              },
+              "test": {
+                "type": "boolean"
+              },
+              "unavailable": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["venueMarket", "test", "unavailable"],
+            "additionalProperties": false
+          },
           "priced": {
             "type": "boolean"
           },
@@ -10274,7 +10361,7 @@
                 },
                 "reason": {
                   "type": "string",
-                  "enum": ["signal", "stop_loss", "take_profit", "stop_out", "close_out"]
+                  "enum": ["signal", "stop_loss", "take_profit", "venue_close", "close_out"]
                 },
                 "qty": {
                   "type": "string",
@@ -10381,6 +10468,7 @@
           "costs",
           "symbol",
           "barSize",
+          "prices",
           "priced",
           "pricedThrough",
           "trades",
@@ -10479,7 +10567,7 @@
         "quant.param_out_of_range": "BAD_REQUEST",
         "quant.params_invalid": "BAD_REQUEST",
         "quant.sizing_rule_unset": "BAD_REQUEST",
-        "quant.backtest_lake_missing": "PRECONDITION_FAILED",
+        "quant.backtest_history_range": "BAD_REQUEST",
         "quant.cost_unset": "BAD_REQUEST"
       },
       "input": {
@@ -10575,6 +10663,22 @@
           "barSize": {
             "type": "string"
           },
+          "prices": {
+            "type": "object",
+            "properties": {
+              "venueMarket": {
+                "type": ["string", "null"]
+              },
+              "test": {
+                "type": "boolean"
+              },
+              "unavailable": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["venueMarket", "test", "unavailable"],
+            "additionalProperties": false
+          },
           "priced": {
             "type": "boolean"
           },
@@ -10595,7 +10699,7 @@
                 },
                 "reason": {
                   "type": "string",
-                  "enum": ["signal", "stop_loss", "take_profit", "stop_out", "close_out"]
+                  "enum": ["signal", "stop_loss", "take_profit", "venue_close", "close_out"]
                 },
                 "qty": {
                   "type": "string",
@@ -10702,6 +10806,7 @@
           "costs",
           "symbol",
           "barSize",
+          "prices",
           "priced",
           "pricedThrough",
           "trades",
@@ -18551,7 +18656,6 @@
         "quant.database_pool_max_unset": "PRECONDITION_FAILED",
         "quant.permission_denied": "FORBIDDEN",
         "quant.run_not_found": "NOT_FOUND",
-        "quant.backtest_lake_missing": "PRECONDITION_FAILED",
         "quant.backtest_history_range": "BAD_REQUEST",
         "quant.cost_unset": "BAD_REQUEST"
       },
@@ -18653,6 +18757,22 @@
           "barSize": {
             "type": "string"
           },
+          "prices": {
+            "type": "object",
+            "properties": {
+              "venueMarket": {
+                "type": ["string", "null"]
+              },
+              "test": {
+                "type": "boolean"
+              },
+              "unavailable": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["venueMarket", "test", "unavailable"],
+            "additionalProperties": false
+          },
           "priced": {
             "type": "boolean"
           },
@@ -18673,7 +18793,7 @@
                 },
                 "reason": {
                   "type": "string",
-                  "enum": ["signal", "stop_loss", "take_profit", "stop_out", "close_out"]
+                  "enum": ["signal", "stop_loss", "take_profit", "venue_close", "close_out"]
                 },
                 "qty": {
                   "type": "string",
@@ -18780,6 +18900,7 @@
           "costs",
           "symbol",
           "barSize",
+          "prices",
           "priced",
           "pricedThrough",
           "trades",

@@ -357,7 +357,7 @@ export function VenueFollowWizard({
         ) : null}
 
         {step === 1 ? (
-          <div className="cb-form">
+          <div className="lt-stack">
             {listed ? (
               <KeyValue items={[{ label: t('Leader'), value: listed.displayName }]} />
             ) : (
@@ -377,7 +377,7 @@ export function VenueFollowWizard({
         ) : null}
 
         {step === 2 ? (
-          <div className="cb-form">
+          <div className="lt-stack">
             <fieldset className="cb-fieldset">
               <legend className="cb-label">{t('Markets you allow')}</legend>
               {markets.resource.status === 'failed' ? (
@@ -412,7 +412,7 @@ export function VenueFollowWizard({
         ) : null}
 
         {step === 3 ? (
-          <div className="cb-form">
+          <div className="lt-stack">
             <WalletBar />
             {show(problems.wallet) ? (
               <p className="cb-error" role="alert">
@@ -465,7 +465,7 @@ export function VenueFollowWizard({
         ) : null}
 
         {step === 4 ? (
-          <div className="cb-form">
+          <div className="lt-stack">
             {failure ? <RefusalNote failure={failure} /> : null}
             <KeyValue
               items={[

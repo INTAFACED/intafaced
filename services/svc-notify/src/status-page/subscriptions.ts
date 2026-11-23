@@ -8,18 +8,17 @@
  * pending with `vendor.email`. Nothing is sent to an unconfirmed address except its confirmation.
  */
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
-import {
-  statusChallengeMet,
-  statusChallengeText,
-  type StatusChallenge,
-  type StatusSubscribeInput,
-  type StatusSubscribeResult,
-  type StatusSubscriberState,
-  type StatusSubscription,
-  type StatusSubscriptionErrorCode,
-  type StatusSubscriptionPolicy,
-  type StatusSubscriptionUpdateInput,
+import type {
+  StatusChallenge,
+  StatusSubscribeInput,
+  StatusSubscribeResult,
+  StatusSubscriberState,
+  StatusSubscription,
+  StatusSubscriptionErrorCode,
+  StatusSubscriptionPolicy,
+  StatusSubscriptionUpdateInput,
 } from '@intafaced/contracts';
+import { statusChallengeMet, statusChallengeText } from '@intafaced/contracts/status-subscriptions';
 import type { NoticeWire } from '../notices/board.js';
 import type { StatusPageBook } from './book.js';
 import type { MailOutcome, StatusMailer } from './mailer.js';

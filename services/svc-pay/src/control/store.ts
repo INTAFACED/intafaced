@@ -1,7 +1,8 @@
 import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
-import { payCapSchema, payPayoutFeeSchema, type PayCap, type PayPayoutFee } from '@intafaced/contracts';
+import type { PayCap, PayPayoutFee } from '@intafaced/contracts';
+import { payCapSchema, payPayoutFeeSchema } from '@intafaced/contracts/merchant-control';
 import { parseAmount, formatAmount, type Amount } from '@intafaced/ledger-client';
 import { ControlRefusal } from './errors.js';
 import type { PricingBand, PricingLayer, PricingRule, RoundingBeneficiary } from './pricing.js';

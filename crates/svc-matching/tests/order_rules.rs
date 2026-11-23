@@ -144,6 +144,7 @@ fn replay(journal: Box<dyn EngineJournal + Send>) -> MatchingEngine {
         snapshot_every: 0,
         sink: Box::new(MemorySnapshotSink::default()),
         enabled: true,
+        spread_fills: false,
     });
     engine.recover().unwrap();
     engine
@@ -1248,11 +1249,15 @@ fn collared(mut o: EngineOrder, collar: bool, min: Option<&str>, max: Option<&st
 
 /// A fresh directory under the system's temporary one (`mkdtempSync`).
 fn temp_dir(prefix: &str) -> std::path::PathBuf {
+    // The clock alone can repeat between two tests started together (macOS reads it in microseconds), and then one
+    // test's clean-up deletes the other's journal: a count makes each directory its own.
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let dir = std::env::temp_dir().join(format!("{prefix}{}-{nanos}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("{prefix}{}-{nanos}-{n}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }

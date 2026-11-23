@@ -1,4 +1,5 @@
-import { StateBlock } from '@intafaced/ui';
+import { DocPage } from '../DocPage';
+import { ReadFailed, ReadLoading } from '../ReadState';
 import { useSession } from '../../session';
 import { botPolicyView, readBotPolicy } from '../developers-values';
 import { useRead } from '../use-read';
@@ -14,30 +15,23 @@ export function BotPolicyPage({ title }: { title: string }) {
   const { read, reload } = useRead((signal) => readBotPolicy(api, signal), [api]);
   const view = botPolicyView(read);
   return (
-    <div className="pub-page" data-testid="developers-bot-policy">
-      <header className="pub-heading">
-        <h1>{title}</h1>
-        <p className="muted">{t('botLead')}</p>
-      </header>
+    <DocPage id="bot-policy" title={title} lead={t('botLead')} back={t('back')}>
       {view.kind === 'loading' ? (
-        <StateBlock kind="loading" rows={2} rowHeight={24} label={t('loading')} />
+        <ReadLoading rows={2} label={t('loading')} />
       ) : view.kind === 'failed' ? (
-        <StateBlock kind="error" title={t('loadFailed')} onRetry={reload} retryLabel={t('tryAgain')} />
+        <ReadFailed title={t('loadFailed')} onRetry={reload} retryLabel={t('tryAgain')} />
       ) : view.kind === 'unset' ? (
-        <section className="pub-notice" role="status" data-testid="developers-bot-policy-state" data-state="unset" data-code={view.code}>
+        <section className="lt-hint" role="status" data-testid="developers-bot-policy-state" data-state="unset" data-code={view.code}>
           <p>
             <strong>{t('botUnpublished')}</strong>
           </p>
           <p>{t('botUnpublishedBody')}</p>
         </section>
       ) : (
-        <section className="pub-card" data-testid="developers-bot-policy-state" data-state="set">
-          <p style={{ whiteSpace: 'pre-line' }}>{view.policy}</p>
+        <section data-testid="developers-bot-policy-state" data-state="set">
+          <p className="lt-pre-line">{view.policy}</p>
         </section>
       )}
-      <a className="text-link" href="/developers">
-        ← {t('back')}
-      </a>
-    </div>
+    </DocPage>
   );
 }

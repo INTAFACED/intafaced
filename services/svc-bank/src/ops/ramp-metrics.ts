@@ -6,7 +6,7 @@
  * rows are not counted here. With no ramp partner wired the answer is `{ partner: null }`, which the desk shows as
  * "no data", never as zero orders. Read only, `admin:read`.
  */
-import { scopedProcedure } from '@intafaced/contracts';
+import { scopedProcedure } from '@intafaced/contracts/trpc';
 import { z } from 'zod';
 import { RAMP_PARTNER_ORDER_STATES, type RampPartnerReport } from '../ramps/ramp-partner-book.js';
 import type { OnrampPartner } from '../ramps/payin-sim.js';

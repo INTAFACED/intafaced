@@ -38,6 +38,8 @@ import {
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import './verification.css';
+import { callAs } from '../../shared/api';
+import { IDENTITY_KYC_SUBMIT } from '@intafaced/contracts/identity-kyc-procedures';
 
 type Original = { owner: string; client: ApiClient; token: string; tier: RequestedTier; country: string; mount: object; path: string };
 type Known = {
@@ -241,9 +243,9 @@ export function Verification() {
         }
         sync(intent.owner);
         if (!same(intent)) return;
-        const answer = await intent.client.mutate(
-          'identity',
-          'kyc.submit',
+        const answer = await callAs(
+          intent.client,
+          IDENTITY_KYC_SUBMIT,
           { tier: intent.tier, jurisdiction: intent.country },
           verificationReply(intent.owner, intent.tier),
           { signal: controller.signal },
@@ -358,7 +360,7 @@ export function Verification() {
         <EmptyState
           title={t('signIn')}
           action={
-            <a data-testid="text-link" className="text-link" href="/login?redirect=%2Fverification">
+            <a data-testid="text-link" className="lt-link" href="/login?redirect=%2Fverification">
               <Copy k="signIn" />
             </a>
           }
@@ -409,7 +411,7 @@ export function Verification() {
                   <p>
                     <Copy k="paused" />
                   </p>
-                  <p className="muted">
+                  <p className="lt-muted">
                     <Copy k="privacy" />
                   </p>
                   <a className="button button--secondary" href="/support">
@@ -431,7 +433,7 @@ export function Verification() {
                       <Copy k="returned" />
                     </h3>
                     {record(receipt.row)}
-                    <p className="muted">
+                    <p className="lt-muted">
                       <Copy k="replyBoundary" />
                     </p>
                   </>
@@ -463,7 +465,7 @@ export function Verification() {
                     <Button variant="secondary" disabled={busy} onClick={() => void finalize(receipt)}>
                       <Copy k="finish" />
                     </Button>
-                    <p className="muted">
+                    <p className="lt-muted">
                       <Copy k="finishBody" />
                     </p>
                   </div>
@@ -492,7 +494,7 @@ export function Verification() {
                 <div lang="und">
                   <Failure result={resource.failure} retry={reload} />
                 </div>
-                <p className="muted">
+                <p className="lt-muted">
                   <Copy k="readBoundary" />
                 </p>
               </>
@@ -510,7 +512,7 @@ export function Verification() {
                       label={t(resource.data.tier)}
                     />
                   </h2>
-                  <p className="muted">
+                  <p className="lt-muted">
                     <Copy k="currentBody" />
                   </p>
                 </div>
@@ -523,7 +525,7 @@ export function Verification() {
                       <Copy k="refresh" />
                     </Button>
                   </div>
-                  <p className="muted">
+                  <p className="lt-muted">
                     <Copy k="window" params={{ limit }} />
                   </p>
                   {offeredTiers.length > 0 && (
@@ -565,7 +567,7 @@ export function Verification() {
                     </Button>
                   )}
                   {limit === 200 && (
-                    <p className="muted">
+                    <p className="lt-muted">
                       <Copy k="maximum" />
                     </p>
                   )}
@@ -580,7 +582,7 @@ export function Verification() {
                         </p>
                       )}
                       {record(selected)}
-                      <p className="muted">
+                      <p className="lt-muted">
                         <Copy k="recordBoundary" />
                       </p>
                     </section>
@@ -593,20 +595,20 @@ export function Verification() {
             <h2>
               <Copy k="requestTitle" />
             </h2>
-            <p className="muted">
+            <p className="lt-muted">
               <Copy k="requestBody" />
             </p>
             {casesKey !== null && <VerificationAttempts recordsKey={`${casesKey}:${lockRefusals}`} onLocked={setLocked} />}
             {offeredTiers.length > 0 ? (
               <form
                 ref={form}
-                className="form-stack"
+                className="lt-stack"
                 onSubmit={(event) => {
                   event.preventDefault();
                   open();
                 }}
               >
-                <label className="field">
+                <label className="lt-field">
                   <span>
                     <Copy k="tier" />
                   </span>
@@ -646,7 +648,7 @@ export function Verification() {
                 <Copy k="topLevel" />
               </p>
             )}
-            <p className="muted">
+            <p className="lt-muted">
               <Copy k="documentBoundary" />
             </p>
             <a data-testid="text-link" className="text-link" href="/support">
@@ -680,7 +682,7 @@ export function Verification() {
                 <h2>
                   <trading.Copy k="bankTitle" />
                 </h2>
-                <p className="muted">
+                <p className="lt-muted">
                   <trading.Copy k="bankBody" />
                 </p>
                 <Button variant="secondary" onClick={() => setBankRoute(true)}>
@@ -720,7 +722,7 @@ export function Verification() {
               <p>
                 <Copy k="consequence" />
               </p>
-              <p className="muted">
+              <p className="lt-muted">
                 <Copy k="permissionBoundary" />
               </p>
               <Button disabled={busy} onClick={() => void dispatch(review)}>

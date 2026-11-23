@@ -102,7 +102,7 @@ export function WebhooksRoom() {
           <EmptyState variant="refused" title={t('You are signed out')} reason={t('Sign in to make a webhook.')} />
         ) : (
           <>
-            <div className="cb-action-row">
+            <div className="lt-actions">
               <Button
                 onClick={() => {
                   setRequestKey(`wh-${crypto.randomUUID()}`);
@@ -170,7 +170,7 @@ export function WebhooksRoom() {
             <Input kind="text" value={account} onValueChange={setOwner} maxLength={64} autoComplete="off" />
           </Field>
           {refused ? <p role="alert">{refused}</p> : null}
-          <div className="cb-action-row">
+          <div className="lt-actions">
             <Button disabled={!symbol || !account || busy} onClick={() => void create()}>
               {t('Create webhook')}
             </Button>

@@ -1,4 +1,5 @@
-import { currentAuthorityResultSchema, type CurrentAuthorityInput, type CurrentAuthorityResult } from '@intafaced/contracts';
+import type { CurrentAuthorityInput, CurrentAuthorityResult } from '@intafaced/contracts';
+import { currentAuthorityResultSchema } from '@intafaced/contracts/account-controls';
 import type { CurrentAuthorityPort } from '../private/authority.js';
 
 /** Explicit fixture injection only; production boot never selects this port. */

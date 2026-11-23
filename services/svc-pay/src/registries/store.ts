@@ -1,3 +1,4 @@
+import type { JsonValue } from '@intafaced/contracts/procedure-strict-schema';
 import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import type { NetworkState, VenueState, WalletRouteState } from './policy.js';
@@ -221,8 +222,8 @@ export interface EventRow {
   actor_id: string;
   approver_id: string | null;
   dual_control: boolean;
-  before: Record<string, unknown> | null;
-  after: Record<string, unknown>;
+  before: Record<string, JsonValue> | null;
+  after: Record<string, JsonValue>;
   reason: string;
   created_at: Date;
 }

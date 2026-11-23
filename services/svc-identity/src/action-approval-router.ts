@@ -3,20 +3,8 @@
  * A typed-in second name is not accepted on approve.
  */
 import { z } from 'zod';
-import {
-  SAME_PERSON_ACTION_TYPES,
-  actionApprovalApproveInputSchema,
-  actionApprovalConsumeInputSchema,
-  actionApprovalIdInputSchema,
-  actionApprovalPoliciesReadSchema,
-  actionApprovalProposeInputSchema,
-  actionApprovalSchema,
-  protectedProcedure,
-  router,
-  scopedProcedure,
-  serviceProcedure,
-  TRPCError,
-} from '@intafaced/contracts';
+import { SAME_PERSON_ACTION_TYPES, actionApprovalConsumeInputSchema, actionApprovalSchema } from '@intafaced/contracts/action-approval';
+import { protectedProcedure, router, scopedProcedure, serviceProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { AuthError as GuardError, hasScope, requireMfa } from '@intafaced/auth';
 import { IDENTITY_ACTION_APPROVAL_LIST } from '@intafaced/contracts/identity-action-approval-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
@@ -30,6 +18,13 @@ import {
 } from './auth/action-approval-audience.js';
 import { AuthError, type AuthService } from './auth/auth-service.js';
 import { userCopy } from './user-copy.js';
+import {
+  IDENTITY_ACTION_APPROVAL_REJECT,
+  IDENTITY_ACTION_APPROVAL_PROPOSE,
+  IDENTITY_ACTION_APPROVAL_APPROVE,
+  IDENTITY_ACTION_APPROVAL_POLICIES,
+  IDENTITY_ACTION_APPROVAL_REVOKE,
+} from '@intafaced/contracts/identity-action-approval-records';
 
 /**
  * Proves ONE fresh second factor for this user and session, or throws `AuthError`.
@@ -230,22 +225,22 @@ export function createActionApprovalRouter(
           }
         }),
 
-      propose: protectedProcedure
-        .input(actionApprovalProposeInputSchema)
-        .output(actionApprovalSchema)
-        .mutation(async ({ ctx, input }) => {
+      propose: mountRecord(
+        IDENTITY_ACTION_APPROVAL_PROPOSE,
+        async ({ ctx, input }) => {
           try {
             await assertAudienceFor(ctx.principal, input);
             return await svc.propose(ctx.principal.userId, input);
           } catch (err) {
             toTrpc(err);
           }
-        }),
+        },
+        codedRefusal,
+      ),
 
-      approve: protectedProcedure
-        .input(actionApprovalApproveInputSchema)
-        .output(actionApprovalSchema)
-        .mutation(async ({ ctx, input }) => {
+      approve: mountRecord(
+        IDENTITY_ACTION_APPROVAL_APPROVE,
+        async ({ ctx, input }) => {
           try {
             requireMfa(ctx.principal);
             await assertAudienceFor(ctx.principal, await svc.subjectOf(input.approvalId));
@@ -253,12 +248,13 @@ export function createActionApprovalRouter(
           } catch (err) {
             toTrpc(err);
           }
-        }),
+        },
+        codedRefusal,
+      ),
 
-      reject: protectedProcedure
-        .input(actionApprovalIdInputSchema)
-        .output(actionApprovalSchema)
-        .mutation(async ({ ctx, input }) => {
+      reject: mountRecord(
+        IDENTITY_ACTION_APPROVAL_REJECT,
+        async ({ ctx, input }) => {
           try {
             requireMfa(ctx.principal);
             await assertAudienceFor(ctx.principal, await svc.subjectOf(input.approvalId), 'default');
@@ -266,7 +262,9 @@ export function createActionApprovalRouter(
           } catch (err) {
             toTrpc(err);
           }
-        }),
+        },
+        codedRefusal,
+      ),
 
       /**
        * Pending approvals this caller may decide, or the caller's own requests.
@@ -296,17 +294,21 @@ export function createActionApprovalRouter(
        * Every policy-governed action type with its owner policy row, or `unset` with `action_approval.policy_unset`
        * (OPS-change-control-01 CR-1). A founder or operator read for the console; it changes nothing.
        */
-      policies: protectedProcedure.output(actionApprovalPoliciesReadSchema).query(async ({ ctx }) => {
-        try {
-          const access = await callerAccess(ctx.principal);
-          if (!access.operator && !access.founder) {
-            throw new ActionApprovalError('approval policies are an operator or founder read', 'action_approval.operator_only');
+      policies: mountRecord(
+        IDENTITY_ACTION_APPROVAL_POLICIES,
+        async ({ ctx }) => {
+          try {
+            const access = await callerAccess(ctx.principal);
+            if (!access.operator && !access.founder) {
+              throw new ActionApprovalError('approval policies are an operator or founder read', 'action_approval.operator_only');
+            }
+            return { policies: svc.policyEntries() };
+          } catch (err) {
+            toTrpc(err);
           }
-          return { policies: svc.policyEntries() };
-        } catch (err) {
-          toTrpc(err);
-        }
-      }),
+        },
+        codedRefusal,
+      ),
 
       /** One approval by id. The requester, or an operator/founder in its audience. */
       get: protectedProcedure
@@ -320,16 +322,17 @@ export function createActionApprovalRouter(
           }
         }),
 
-      revoke: protectedProcedure
-        .input(actionApprovalIdInputSchema)
-        .output(actionApprovalSchema)
-        .mutation(async ({ ctx, input }) => {
+      revoke: mountRecord(
+        IDENTITY_ACTION_APPROVAL_REVOKE,
+        async ({ ctx, input }) => {
           try {
             return await svc.revoke(ctx.principal.userId, input.approvalId);
           } catch (err) {
             toTrpc(err);
           }
-        }),
+        },
+        codedRefusal,
+      ),
 
       consume: serviceProcedure
         .input(actionApprovalConsumeInputSchema)

@@ -104,12 +104,22 @@ describe('business bank team and approval rules (J-bank-19)', () => {
     partner = testPartner();
     inviteMinutes = '2';
     postingFreeze = { postingEnabled: async () => true };
+    built = undefined;
   });
+
+  // The bank's router is built once a test, as the server builds it once at start-up, and again only when the test
+  // changes the freeze it stands on. Built for every caller it cost 70 to 300 ms, and the tests that make many callers
+  // ran out the 30 s budget on a loaded runner.
+  let built: { freeze: typeof postingFreeze; router: ReturnType<typeof createBankRouter> } | undefined;
+  function bankRouter() {
+    if (!built || built.freeze !== postingFreeze) built = { freeze: postingFreeze, router: createBankRouter(services()) };
+    return built.router;
+  }
 
   function as(userId: string) {
     const raw = encodePrincipal(principal(userId));
     const edge = createEdgeContext({ secret: SECRET, serviceName: 'svc-bank' });
-    return createBankRouter(services()).createCaller(
+    return bankRouter().createCaller(
       edge({
         headers: {
           'x-intafaced-principal': raw,

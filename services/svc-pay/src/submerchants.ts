@@ -3,6 +3,7 @@ import { transaction, type Queryable } from '@intafaced/db';
 import { MAX_FEE_BPS } from './fee-bps-bound.js';
 import { logIsolationDenial } from './isolation-log.js';
 import { pendingPayfacPermissionIntentCount } from './payfac-authority.js';
+import { PERMISSION_AREAS } from '@intafaced/contracts/pay-call-schemas';
 
 /**
  * THE SUB-MERCHANT TREE, AND WHO MAY ACT INSIDE IT (§6.1 PayFac mode).
@@ -148,39 +149,6 @@ export function assertPermissionHistoryLimit(limit: number | undefined): number 
   }
   return Math.min(200, n);
 }
-
-/**
- * THE PERMISSION AREAS.
- *
- * Each one names a surface `services/svc-pay` genuinely has today. Read the
- * banner above before adding one: the number in the tracker title is not a
- * target, and an area that names nothing is worse than a missing area, because
- * it can be granted and then does nothing.
- */
-export const PERMISSION_AREAS = [
-  /** The sub-merchant's own record: pricing band, settlement prefs, status. */
-  'merchant.profile',
-  /** `payment_profiles` — checkout config, fee routing, allowed domains. */
-  'checkout.profile',
-  /** `payment_links` — shareable links and their use counters. */
-  'payment.link',
-  /** Create and read payments. NOT refunds — sending money back is its own area. */
-  'payment',
-  /** Refund a captured payment. Separate because it moves value back out. */
-  'payment.refund',
-  /** Read and run settlement windows. */
-  'settlement',
-  /** Pay a settlement out through a rail. The value-leaves-the-platform area. */
-  'settlement.payout',
-  /** Outbound webhook endpoints and the delivery dashboard. */
-  'webhook',
-  /** Submit and read the KYB dossier state. */
-  'kyb',
-  /** See and onboard nodes beneath this one. */
-  'submerchant',
-  /** Grant and revoke within this subtree. Delegating delegation. */
-  'permission',
-] as const;
 
 export type PermissionArea = (typeof PERMISSION_AREAS)[number];
 
@@ -895,3 +863,4 @@ export class SubMerchantService {
     return rows.map(toEvent);
   }
 }
+export { PERMISSION_AREAS };

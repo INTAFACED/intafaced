@@ -2,11 +2,12 @@ import { Failure, Loading } from '../../shared/ui';
 import { CopyButton } from '../../screens/account/CopyButton';
 import { useSession } from '../session';
 import { AccountDetailsList } from './AccountDetails';
-import { IncomeSorter } from './IncomeSorter';
-import { amount, date, NoRows, ResourceView, Section, useBankRead, useSpaces, type ActionSpec } from './components';
+import { IncomeSorter } from './spaces/IncomeSorter';
+import { amount, date, NoRows, ResourceView, Section, useBankRead, useSpaces, type ActionSpec, useBankRecord } from './components';
 import type { AccountDetailsRow, SalaryCredit } from './contracts';
 import { salaryCopy } from './salary-copy';
 import type { Space } from './client';
+import { BANK_SALARY_CREDITS } from '@intafaced/contracts/bank-salary-procedures';
 
 /**
  * `/bank/salary` (J-bank-30): salary paid in by direct deposit. The partner bank's account details the employer pays,
@@ -19,12 +20,12 @@ export function SalaryRoom({ open }: { open: (spec: ActionSpec) => void }) {
   const { profiles } = useSession();
   const details = useBankRead('salary.details', { profile: profiles.active });
   const spaces = useSpaces(200);
-  const credits = useBankRead('salary.credits', { limit: 50 });
+  const credits = useBankRecord(BANK_SALARY_CREDITS, { limit: 50 });
   const spaceRows: Space[] = spaces.resource.status === 'ready' ? (spaces.resource.data as Space[]) : [];
   const nameOf = (spaceId: string) => spaceRows.find((space) => space.id === spaceId)?.name ?? t('unknownSpace');
 
   return (
-    <div className="bd-stack" data-testid="salary-room">
+    <div className="lt-stack" data-testid="salary-room">
       <Section title={t('detailsTitle')} description={t('detailsLead')}>
         {details.resource.status === 'loading' ? (
           <Loading />
@@ -33,10 +34,8 @@ export function SalaryRoom({ open }: { open: (spec: ActionSpec) => void }) {
             <Failure result={details.resource.failure} retry={details.reload} />
           </div>
         ) : (
-          <div className="bd-stack" data-testid="salary-details">
-            <p className="money-caption">
-              {t('heldAt', { bank: details.resource.data.partnerBank, network: details.resource.data.network })}
-            </p>
+          <div className="lt-stack" data-testid="salary-details">
+            <p className="lt-muted">{t('heldAt', { bank: details.resource.data.partnerBank, network: details.resource.data.network })}</p>
             <dl className="bd-facts">
               <div>
                 <dt>{t('holder')}</dt>
@@ -89,9 +88,9 @@ function EmployerForm({ row }: { row: AccountDetailsRow }) {
   const { profiles } = useSession();
   const form = useBankRead('salary.form', { currency: row.currency, profile: profiles.active });
   return (
-    <section className="bd-stack" aria-label={t('formTitle', { currency: row.currency })} data-testid={`salary-form-${row.currency}`}>
+    <section className="lt-stack" aria-label={t('formTitle', { currency: row.currency })} data-testid={`salary-form-${row.currency}`}>
       <h4>{t('formTitle', { currency: row.currency })}</h4>
-      <p className="money-caption">{t('formLead')}</p>
+      <p className="lt-muted">{t('formLead')}</p>
       <ResourceView resource={form.resource} reload={form.reload}>
         {(data) => (
           <>
@@ -100,7 +99,7 @@ function EmployerForm({ row }: { row: AccountDetailsRow }) {
             </pre>
             <p>
               <a
-                className="text-link"
+                className="lt-link"
                 download={`salary-form-${data.currency}.txt`}
                 href={`data:text/plain;charset=utf-8,${encodeURIComponent(data.text)}`}
               >
@@ -125,14 +124,14 @@ function CreditRow({ credit, nameOf }: { credit: SalaryCredit; nameOf: (spaceId:
         <span data-testid="salary-credit-amount">{amount(credit.amount, credit.assetId)}</span>{' '}
         <span data-testid="salary-credit-state">{state}</span>
       </p>
-      <p className="money-caption">{date(credit.receivedAt ?? credit.createdAt)}</p>
+      <p className="lt-muted">{date(credit.receivedAt ?? credit.createdAt)}</p>
       {credit.state === 'returned' && credit.refusalCode && (
-        <p className="money-caption" data-testid="salary-credit-code" data-code={credit.refusalCode}>
+        <p className="lt-muted" data-testid="salary-credit-code" data-code={credit.refusalCode}>
           {t('returnedWhy', { code: credit.refusalCode })}
         </p>
       )}
       {credit.state === 'reversed' && (
-        <p className="money-caption" data-testid="salary-credit-reversed">
+        <p className="lt-muted" data-testid="salary-credit-reversed">
           {t('reversedOn', { date: date(credit.reversedAt) })}
         </p>
       )}

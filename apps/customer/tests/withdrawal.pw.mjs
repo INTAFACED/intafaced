@@ -92,7 +92,7 @@ const privateVisible = (page, value) => page.locator('main').evaluate((node, tex
 async function fit(page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   const sizes = await page
-    .locator('main .withdrawal-page button, main .withdrawal-page a.button, main .withdrawal-page input')
+    .locator('main .withdrawal-page button, main .withdrawal-page :is(a.button, a.lt-button), main .withdrawal-page input')
     .evaluateAll((nodes) =>
       nodes.map((node) => {
         const r = node.getBoundingClientRect();
@@ -257,7 +257,7 @@ test('empty bounded read, loading, failure and refresh preserve honest states', 
   await expect(page.getByRole('button', { name: /Load up to/ })).toHaveCount(0);
   mode = 'failure';
   await page.getByRole('button', { name: 'Refresh records', exact: true }).click();
-  await expect(page.locator('main .failure')).toBeVisible();
+  await expect(page.locator('main :is(.failure, .lt-refusal)')).toBeVisible();
   mode = 'empty';
   await page.getByRole('button', { name: 'Try again', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'No withdrawal records returned', exact: true })).toBeVisible();
@@ -278,7 +278,7 @@ for (const kind of ['numeric', 'owner', 'original', 'status'])
       path: '/uc/withdraw?withdrawalId=' + id,
       read: (route) => reply(route, { ...original, ...(bad ? change : {}) }),
     });
-    await expect(page.locator('main .failure')).toBeVisible();
+    await expect(page.locator('main :is(.failure, .lt-refusal)')).toBeVisible();
     expect(await privateVisible(page, original.destination.ref)).toBe(false);
     bad = false;
     await page.getByRole('button', { name: 'Try again', exact: true }).click();
@@ -311,7 +311,7 @@ for (const kind of ['named404', 'unmounted404', 'forbidden403'])
             )
           : reply(route, original),
     });
-    await expect(page.locator('main .failure')).toBeVisible();
+    await expect(page.locator('main :is(.failure, .lt-refusal)')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Withdrawal not found', exact: true })).toHaveCount(kind === 'named404' ? 1 : 0);
     expect(await privateVisible(page, original.destination.ref)).toBe(false);
     denied = false;
@@ -434,7 +434,7 @@ test('owner and API replacement retire private reads and retained refresh throug
   await page.getByLabel('Email or handle', { exact: true }).fill('other-owner@example.invalid');
   await page.getByLabel('Password', { exact: true }).fill('isolated-password');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await expect(page.locator('main .failure')).toBeVisible();
+  await expect(page.locator('main :is(.failure, .lt-refusal)')).toBeVisible();
   const before = state.reads.length;
   await page.evaluate(() => window.retiredOwnerRefresh());
   expect(state.reads.length).toBe(before);

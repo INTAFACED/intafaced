@@ -1,10 +1,11 @@
 import { readAdminJson } from '@/lib/admin-json';
 import { adminSessionErrorResponse, AdminSessionError, authorizeAdminRequest } from '@/lib/founder-session';
 import { fromFailure, json } from '@/lib/merchants/bff';
-import { payCall, type PayCallContext } from '@/lib/merchants/pay-call';
+import { type PayCallContext, payRecordRead } from '@/lib/merchants/pay-call';
 import { asNote, NOTE_BODY_MAX, NOTE_TAG_MAX, NOTE_TAGS_MAX, RETRACT_REASON_MAX, RETRACT_REASON_MIN } from '@/lib/founder-ops/notes';
 import { isUuid } from '@/lib/founder-ops/read-model';
 import { moduleDisabledResponse } from '@/lib/modules';
+import { PAY_FOUNDER_ADMIN_OPS_NOTES_ADD, PAY_FOUNDER_ADMIN_OPS_NOTES_RETRACT } from '@intafaced/contracts/pay-founder-admin-procedures';
 
 /**
  * Merchants panel BFF: operator notes (founder only, never shown to the merchant).
@@ -51,10 +52,9 @@ export async function POST(request: Request) {
       )
         throw bad();
       if (body.flagged !== undefined && typeof body.flagged !== 'boolean') throw bad();
-      const result = await payCall(
+      const result = await payRecordRead(
         ctx,
-        'founderAdmin.ops.notes.add',
-        'POST',
+        PAY_FOUNDER_ADMIN_OPS_NOTES_ADD,
         { merchantId, body: text, tags: (tags as string[]).map((t) => t.trim()), flagged: body.flagged === true },
         asNote,
       );
@@ -66,7 +66,7 @@ export async function POST(request: Request) {
       const noteId = typeof body.noteId === 'string' ? body.noteId.trim().toLowerCase() : '';
       const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
       if (!isUuid(noteId) || reason.length < RETRACT_REASON_MIN || reason.length > RETRACT_REASON_MAX) throw bad();
-      const result = await payCall(ctx, 'founderAdmin.ops.notes.retract', 'POST', { noteId, reason }, asNote);
+      const result = await payRecordRead(ctx, PAY_FOUNDER_ADMIN_OPS_NOTES_RETRACT, { noteId, reason }, asNote);
       if (result.kind !== 'ok') return fromFailure(result, { notFoundCode: 'pay.note_not_found' });
       return json({ ok: true, note: result.data });
     }

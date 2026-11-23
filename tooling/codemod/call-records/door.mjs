@@ -6,7 +6,7 @@
 // (`src/slices/*.rs`) or in any function it reaches; a code the door sends as INTERNAL_SERVER_ERROR is a failure, not a
 // named refusal, and an unguarded call names none (its refusals reach the caller as a 500).
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -146,28 +146,100 @@ function catalogueOf(crateDir) {
   return new Map([...src.matchAll(/\(\s*"(\w+\.[a-z0-9_]+)",\s*"([A-Z_]+)"/g)].map((m) => [m[1], m[2]]));
 }
 
-/** `calls.rs`: path -> { kind, scope (null for a public call), guarded }. */
-export function callsOf(crateDir) {
-  const src = readFileSync(join(crateDir, 'src/door/calls.rs'), 'utf8');
-  const out = new Map();
-  for (const m of src.matchAll(/Call \{([^}]*)\}/g)) {
-    const body = m[1];
-    const path = body.match(/path: "([^"]+)"/)?.[1];
-    const kind = body.match(/kind: Kind::(Query|Mutation)/)?.[1];
-    const access = body.match(/access: Access::(Public|Scope\("([^"]+)"\))/);
-    const guarded = body.match(/guarded: (true|false)/)?.[1];
-    if (!path || !kind || !access || !guarded) throw new Error(`calls.rs: a call this reader can't read: ${body.trim()}`);
-    out.set(path, { kind: kind.toLowerCase(), scope: access[2] ?? null, guarded: guarded === 'true' });
+/** Each `Call { ... }` body in `src`, its nested braces (`Scoped { ... }`, `Post { ... }`) kept whole. */
+function callBodies(src) {
+  const out = [];
+  for (const m of src.matchAll(/\bCall \{/g)) {
+    let depth = 1;
+    let i = m.index + m[0].length;
+    for (; i < src.length && depth; i++) depth += src[i] === '{' ? 1 : src[i] === '}' ? -1 : 0;
+    out.push(src.slice(m.index + m[0].length, i - 1));
   }
   return out;
+}
+
+/**
+ * Who may call, as a record's `access` names it (`packages/contracts/src/procedure.ts`), or why no record can: the
+ * row's `access` and its `pre`. `Access::Scope("x")` is a scope checked in the module's region (svc-academy);
+ * `Access::Scope(Scoped { scope, person, module })` names each (svc-agents); `Pre::PersonOnly(code)` is the record's
+ * `ownSession`. Anything else (svc-agents' `Settle` and `Pre::CoachRun`, svc-bank's tier and region) is named, not guessed.
+ */
+function accessOf(body, module) {
+  const pre = body.match(/pre: Pre::(None|PersonOnly\("([^"]+)"\)|\w+)/);
+  if (pre && !/^(None|PersonOnly)/.test(pre[1])) return { why: `its own middleware Pre::${pre[1]}, which a record cannot name` };
+  const ownSession = pre?.[2];
+  if (/access: Access::Public\b/.test(body))
+    return ownSession ? { why: 'a public call with Pre::PersonOnly' } : { access: { caller: 'public' } };
+  const flat = body.match(/access: Access::Scope\("([^"]+)"\)/);
+  if (flat) return { access: { caller: 'scope', scope: flat[1], module, ...(ownSession ? { ownSession } : {}) } };
+  const scoped = body.match(/access: Access::Scope\(Scoped \{([^}]*)\}\)/);
+  if (scoped) {
+    const fields = Object.fromEntries([...scoped[1].matchAll(/(\w+): ([^,\n]+)/g)].map((f) => [f[1], f[2].trim()]));
+    const odd = Object.keys(fields).filter((k) => !['scope', 'person', 'module'].includes(k));
+    const scope = fields.scope?.match(/^"([^"]+)"$/)?.[1];
+    if (!scope || odd.length || !/^(true|false)$/.test(fields.person ?? '') || !/^(true|false)$/.test(fields.module ?? ''))
+      return { why: `access Scoped { ${scoped[1].trim().replace(/\s+/g, ' ')} }, which this reader does not map to a record's` };
+    return {
+      access: {
+        caller: 'scope',
+        scope,
+        ...(fields.module === 'true' ? { module } : {}),
+        ...(fields.person === 'true' ? { person: true } : {}),
+        ...(ownSession ? { ownSession } : {}),
+      },
+    };
+  }
+  const other = body.match(/access: Access::(\w+)/)?.[1];
+  return other ? { why: `access Access::${other}, which this reader does not map to a record's` } : undefined;
+}
+
+/**
+ * `calls.rs`: path -> { kind, access (the record's, or null with `why`), guarded (null when the door has no such flag:
+ * its refusals are not read) }. A row with no path, kind or access stops it.
+ */
+export function callsOf(crateDir, module) {
+  const src = readFileSync(join(crateDir, 'src/door/calls.rs'), 'utf8');
+  const out = new Map();
+  for (const body of callBodies(src)) {
+    const path = body.match(/path: "([^"]+)"/)?.[1];
+    const kind = body.match(/kind: Kind::(Query|Mutation)/)?.[1];
+    const who = accessOf(body, module);
+    const guarded = body.match(/guarded: (true|false)/)?.[1];
+    if (!path || !kind || !who) throw new Error(`calls.rs: a call this reader can't read: ${body.trim()}`);
+    out.set(path, {
+      kind: kind.toLowerCase(),
+      access: who.access ?? null,
+      ...(who.why ? { why: who.why } : {}),
+      guarded: guarded === undefined ? null : guarded === 'true',
+    });
+  }
+  return out;
+}
+
+/** A record's `access` as its source writes it, keys in the order the records do. */
+export function accessText(a) {
+  const v = (x) => (typeof x === 'string' ? `'${x}'` : String(x));
+  return `{ ${Object.entries(a)
+    .map(([k, x]) => `${k}: ${v(x)}`)
+    .join(', ')} }`;
 }
 
 /**
  * The door of the crate at `crateDir` (`crates/svc-x`): `calls` as `calls.rs` writes them, and `refusals(path)`, the
  * named refusals (code -> tRPC code) a call's handler can send. Indexing the crate takes rust-analyzer a minute or two.
  */
-export function doorOf(crateDir) {
-  const calls = callsOf(crateDir);
+export function doorOf(crateDir, module) {
+  const calls = callsOf(crateDir, module);
+  // A door with no error table (svc-agents: each slice's guard maps its own codes) names no refusals: a record lists
+  // none, as one written mid-port does, and an unlisted refusal reaches the caller as the door sends it.
+  if (!existsSync(join(crateDir, 'src/door/errors_table.rs')))
+    return {
+      calls,
+      refusals: (call) => {
+        if (!calls.get(call)) throw new Error(`${call}: not a call the door serves`);
+        return {};
+      },
+    };
   const catalogue = catalogueOf(crateDir);
   const tmp = mkdtempSync(join(tmpdir(), 'door-scip-'));
   let docs;

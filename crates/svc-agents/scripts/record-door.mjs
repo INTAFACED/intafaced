@@ -10,6 +10,8 @@
 // - `src/boot_agents.json`: every `agent_definitions` row the boot upserts (`index.ts`: the product factories, the Coach,
 //   the catalogue-only agents), in boot order, as `runtime.registerAgent` writes it. The TypeScript test
 //   `services/svc-agents/src/fleet/boot-agents-rust.test.ts` fails while it is stale.
+// - `src/tool_shapes.json`: every declared tool shape by tool name (`own/catalog.ts` `DECLARED_TOOL_SHAPES`), which
+//   `agent.get` shows. The TypeScript test `services/svc-agents/src/own/tool-shapes-rust.test.ts` fails while it is stale.
 //
 // Run from the repository root, with the workspace packages built (`pnpm --filter "@intafaced/svc-agents^..." build`):
 //   TZ=UTC node --import tsx crates/svc-agents/scripts/record-door.mjs          writes the files
@@ -84,7 +86,7 @@ if (JSON.stringify(golden.callers.map((c) => c.path)) !== JSON.stringify(paths))
 
 // ── Who owns each call ─────────────────────────────────────────────────────────────────────────────────────────────
 
-/** The slices (one Rust module each, `PORT.md`'s `## Slices`), and the calls each owns: exact paths, then `prefix*`. */
+/** The slices (one Rust module each, `README.md`'s `## Slices`), and the calls each owns: exact paths, then `prefix*`. */
 const SLICES = {
   door: ['health'],
   gateway: ['routes.*'],
@@ -145,6 +147,9 @@ const SLICES = {
     'own.consents.*',
   ],
   'own-sharing': ['own.access.*', 'own.coOwners.*', 'own.share.*', 'own.sharedWithMe', 'own.identity.*'],
+  // The run webhooks (J-agents-12 #5). Porting them includes the delivery row the runtime and background slices write
+  // in the transaction that ends a run (`webhooks/run-webhooks.ts` `enqueueRunFinished`), which neither writes yet.
+  webhooks: ['webhook.*'],
 };
 
 function sliceOf(path) {
@@ -221,7 +226,12 @@ async function scopedGuards(path, mw) {
   const region = said(await run(mw, { ...only({}), region: 'US' }));
   const module = region !== null;
   if (module && !region.startsWith('FORBIDDEN ')) throw new Error(`${path}: the region refused as ${region}`);
-  return { scope, person, module };
+  // `ownSession`: a key or a sub-account refused with the call's own code, before the scope, whatever it holds.
+  const key = said(await run(mw, ctx({ principal: principal({ scopes: [], kid: 'key-1' }) })));
+  const sub = said(await run(mw, ctx({ principal: principal({ scopes: [], sub_account: SUB }) })));
+  const ownCode = /^FORBIDDEN (agents\.[a-z_.]+)$/.exec(key ?? '')?.[1] ?? null;
+  if (ownCode !== null && sub !== key) throw new Error(`${path}: an own-session check that says ${key} / ${sub}`);
+  return { guards: { scope, person, module }, ownSession: ownCode };
 }
 
 /** The checks a call runs before its input, from its middlewares in order. */
@@ -234,7 +244,9 @@ async function chainOf(path, proc) {
   if (rest[0] && isAuth(flat(rest[0]))) {
     rest.shift();
     if (!rest[0] || !isScoped(flat(rest[0]))) throw new Error(`${path}: signed in, but not through scopedProcedure`);
-    out.access = { t: 'scope', ...(await scopedGuards(path, rest.shift())) };
+    const { guards, ownSession } = await scopedGuards(path, rest.shift());
+    out.access = { t: 'scope', ...guards };
+    if (ownSession !== null) out.pre = { t: 'person_only', message: ownSession };
   } else if (rest[0] && isServiceFor(flat(rest[0]))) {
     const mw = rest.shift();
     const callers = [];
@@ -245,6 +257,7 @@ async function chainOf(path, proc) {
     out.access = { t: 'settle' };
   }
   if (rest[0] && rest[0]._type !== 'input') {
+    if (out.pre !== null) throw new Error(`${path}: an own-session guard and a middleware of its own`);
     const mw = rest.shift();
     const src = flat(mw);
     if (COACH_RUN.test(src)) out.pre = { t: 'coach_run' };
@@ -1097,6 +1110,7 @@ const recording = {
 await registerProductAgentsAtBoot(recording);
 await registerCoachAgent(recording);
 await registerCatalogueOnlyAgents(recording);
+const { DECLARED_TOOL_SHAPES } = await import(`${SVC}own/catalog.ts`);
 
 const outputs = [
   [`${CRATE}src/door/calls.rs`, callsRs],
@@ -1105,6 +1119,7 @@ const outputs = [
   ...parityFiles(),
   [`${CRATE}tests/fixtures/env-parity.golden.json`, `${JSON.stringify({ cases: envCases }, null, 1)}\n`],
   [`${CRATE}src/boot_agents.json`, `${JSON.stringify(bootAgents, null, 2)}\n`],
+  [`${CRATE}src/tool_shapes.json`, `${JSON.stringify(DECLARED_TOOL_SHAPES, null, 2)}\n`],
 ];
 
 /** Each file leaves in the shape the repo's checks hold it to: `cargo fmt --check` for Rust, `format:check` for JSON. */

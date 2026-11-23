@@ -91,7 +91,7 @@ async function expectRequirements(page, requirements) {
     const item = requirement(page, r.id);
     await expect(item).toHaveCount(1);
     await expect(item).toHaveAttribute('data-met', String(r.met));
-    await expect(item.locator('.launch-catalogue-badge')).toHaveText(r.met ? 'Met' : 'Not met');
+    await expect(item.getByTestId('launch-requirement-badge')).toHaveText(r.met ? 'Met' : 'Not met');
   }
 }
 

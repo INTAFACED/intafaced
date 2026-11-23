@@ -10,7 +10,6 @@ import {
   P2P_MERCHANTS_POSTING_ELIGIBILITY,
   P2P_MERCHANTS_PRESENCE,
   P2P_MERCHANTS_TODOS,
-  P2P_MODERATION,
   P2P_BOARD_SORTS,
   P2P_OFFERS_BULK,
   P2P_OFFERS_EDIT_QUOTA,
@@ -83,37 +82,6 @@ export type RevealedInstrument = ProcedureOutput<typeof P2P_INSTRUMENTS_REVEAL_M
 /** What a payment method needs in one market, as svc-p2p's registry publishes it. About the method, never about a person. */
 export type MethodSchema = ProcedureOutput<typeof P2P_INSTRUMENTS_METHODS_LIST>[number];
 export type MethodField = MethodSchema['fields'][number];
-export const disputeSchema = z.object({
-  id,
-  tradeId: id,
-  openedBy: z.string(),
-  openedVia: z.enum(['party', 'timeout']),
-  reason: z.string(),
-  chatThreadId: id.nullable(),
-  status: z.enum(['open', 'resolved']),
-  moderatorId: z.string().nullable(),
-  resolution: z.enum(['release', 'refund']).nullable(),
-  resolutionNotes: z.string().nullable(),
-  deadlineAt: z.string(),
-  openedAt: z.string(),
-  resolvedAt: z.string().nullable(),
-  evidence: z.array(
-    z.object({ seq: z.number().int(), submittedBy: z.string().nullable(), submittedAt: z.string().nullable(), item: z.unknown() }),
-  ),
-  overdue: z.boolean(),
-  escalatedAt: z.string().nullable(),
-  escalations: z.number().int(),
-  lastSeenByModeratorAt: z.string().nullable(),
-});
-export const disputeOpenedSchema = z.object({
-  disputeId: id,
-  tradeId: id,
-  chatThreadId: id,
-  deadlineAt: z.string(),
-  ifNobodyRules: z.literal('escalated_and_held'),
-  moderationConfigured: z.boolean(),
-  moderation: P2P_MODERATION,
-});
 /** A versioned acceptance: the owner-published version and when this person accepted it (advertiser terms). */
 export type P2PRiskNotice = ProcedureOutput<typeof P2P_MERCHANTS_ADVERTISER_TERMS>;
 /** P-ads-merchant-01: the caller's free balance of one coin, as svc-p2p reads it from the ledger. */
@@ -135,7 +103,7 @@ export type PostOfferInput = {
   /** The ad's own id, chosen once per form; the post's key names it too. */
   offerId?: string;
 };
-export const merchantSchema = z.object({
+const merchantSchema = z.object({
   id,
   userId: id,
   mode: z.enum(['gateway', 'psp', 'payfac']),
@@ -148,7 +116,6 @@ export const merchantSchema = z.object({
     .nullable()
     .optional(),
 });
-export const balanceSchema = z.object({ clearing: amount, available: amount });
 export const linkSchema = z.object({
   id,
   prefix: z.string(),
@@ -311,27 +278,6 @@ export const subscriptionPostureSchema = z.object({
   preChargeNotify: z.object({ status: z.literal('unwired'), notified: z.literal(false), merchantReadable: z.string() }),
   card: z.object({ status: z.literal('refuse_closed'), code: z.literal('pay.mandate_rail_absent') }),
 });
-export const submerchantSchema = z.object({
-  id,
-  userId: z.string(),
-  parentMerchantId: id.nullable(),
-  mode: z.enum(['gateway', 'psp', 'payfac']),
-  status: z.enum(['pending', 'active', 'suspended', 'closed']),
-  kybStatus: z.enum(['none', 'pending', 'approved', 'rejected']),
-  settlingParty: z.string(),
-  feeBps: z.number().int().nullable(),
-  depth: z.number().int(),
-  createdAt: z.string(),
-});
-export const grantSchema = z.object({
-  granteeMerchantId: id,
-  subjectMerchantId: id,
-  area: z.string(),
-  reason: z.string(),
-  actorId: z.string(),
-  actorMerchantId: id,
-  grantedAt: z.string(),
-});
 export const permissionEventSchema = z.object({
   id,
   seq: z.string(),
@@ -344,18 +290,6 @@ export const permissionEventSchema = z.object({
   actorMerchantId: id,
   actorScope: z.string(),
   createdAt: z.string(),
-});
-export const keySchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  prefix: z.string(),
-  scopes: z.array(z.string()),
-  lastUsedAt: z.string().nullable(),
-  revoked: z.boolean(),
-  mode: z.enum(['live', 'sandbox']),
-  requireSignature: z.boolean(),
-  requireNonEmptyIpAllowlist: z.boolean(),
-  ipAllowlist: z.array(z.string()),
 });
 export const webhookSchema = z.object({
   id,

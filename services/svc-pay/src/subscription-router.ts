@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { assertMerchantAreaAccess, refuseAsMissing, type MerchantAreaFence } from './merchant-ownership.js';
 import { PayError, type PayService } from './payment-service.js';
@@ -7,29 +7,27 @@ import type { SubscriptionService } from './subscriptions/subscription-service.j
 import type { Cadence } from './subscriptions/schedule.js';
 import { COLLECTION_METHODS, collectionMethodOf } from './subscriptions/merchant-disp-bill-rep-collection-method.js';
 import {
-  CARD_MANDATE_CHARGE_SOCKET,
   MANDATE_PATH_MATRIX,
-  PRECHARGE_NOTIFY_SOCKET,
   mandateDunningBound,
   preChargeNotifyGap,
   subscriptionsProductPosture,
 } from './subscriptions/mandate-product.js';
 import { ownMerchantRead } from './own-merchant-read.js';
-
-/**
- * Merchant subscription surface — mandate + subscription create/get/list/cancel.
- *
- * Invoice runner and capture-watch stay internal (jobs / payment events).
- * This router does not pull on-chain and does not invent dunning.
- * Money paths that open invoices still go through PayService + rails.
- * `subscription.productReady` seals notify/card residuals so merchants cannot
- * read "notified" or "card pull live" from silence.
- */
-
-const amountSchema = z
-  .string()
-  .regex(/^\d+(\.\d{1,18})?$/, 'amount must be an unsigned decimal string')
-  .refine((s) => !s.includes('e') && !s.includes('E'), 'scientific notation refused');
+import {
+  subscriptionView,
+  amountSchema,
+  PAY_SUBSCRIPTION_LIST,
+  PAY_SUBSCRIPTION_PRODUCT_READY,
+  PAY_SUBSCRIPTION_GET,
+  PAY_SUBSCRIPTION_LIST_EXECUTIONS,
+  PAY_SUBSCRIPTION_PAUSE,
+  PAY_SUBSCRIPTION_RESUME,
+  PAY_SUBSCRIPTION_CANCEL,
+  PAY_SUBSCRIPTION_CREATE,
+  PAY_SUBSCRIPTION_CYCLES,
+} from '@intafaced/contracts/pay-subscription-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { payRefusal } from './record-refusal.js';
 
 const mandateView = z.object({
   id: z.string().guid(),
@@ -46,74 +44,6 @@ const mandateView = z.object({
   status: z.enum(['active', 'cancelled', 'expired']),
   cancelledAt: z.string().datetime({ offset: true }).nullable(),
   createdAt: z.string().datetime({ offset: true }),
-});
-
-const subscriptionView = z.object({
-  id: z.string().guid(),
-  mandateId: z.string().guid(),
-  merchantId: z.string().guid(),
-  customerId: z.string(),
-  nextRunAt: z.string().datetime({ offset: true }),
-  status: z.enum(['active', 'paused', 'cancelled', 'completed']),
-  cancelledAt: z.string().datetime({ offset: true }).nullable(),
-  path: z.string(),
-  createdAt: z.string().datetime({ offset: true }),
-  /**
-   * The schedule frame. On the wire because a merchant looking at a resumed
-   * subscription needs to see that its due times moved — a `nextRunAt` alone
-   * cannot tell them whether the schedule re-spaced or is about to burst.
-   */
-  anchorAt: z.string().datetime({ offset: true }).nullable(),
-  anchorOccurrence: z.number().int().nonnegative(),
-  pausedAt: z.string().datetime({ offset: true }).nullable(),
-  resumedAt: z.string().datetime({ offset: true }).nullable(),
-  stalledAt: z.string().datetime({ offset: true }).nullable(),
-  /**
-   * WHY it stopped advancing, and the whole point of it being a separate field:
-   * an operator pause and a runner outage have identical mechanics and
-   * completely different explanations
-   * (`adr/2026-08-08-twap-overdue-slice-disposition.md`), and arrears is a third
-   * thing again. A single `paused` word owes the merchant an answer it does not
-   * have.
-   */
-  stallReason: z.enum(['operator_pause', 'runner_outage', 'arrears', 'fee_unpublished', 'window_exhausted', 'due_pass_fault']).nullable(),
-  /** The catalogue price it was started on, kept for its whole life; null when it was started from a mandate alone. */
-  priceId: z.string().guid().nullable(),
-});
-
-/** One recorded period. The journal, not a status word. */
-const cycleView = z.object({
-  occurrence: z.number().int().nonnegative(),
-  amount: amountSchema,
-  status: z.enum(['pending', 'invoiced', 'settled', 'rejected', 'skipped']),
-  /**
-   * The business idempotency key of the PERIOD. Exposed deliberately: "was this
-   * period charged twice" is answerable by reading two keys, and a key that
-   * changed between attempts is visible rather than inferred.
-   */
-  idempotencyKey: z.string().nullable(),
-  attemptCount: z.number().int().positive(),
-  rejectionCode: z.string().nullable(),
-  paymentId: z.string().guid().nullable(),
-  exhausted: z.boolean(),
-  settledAt: z.string().datetime({ offset: true }).nullable(),
-  notifyStatus: z.enum(['attempted', 'skipped_unwired', 'failed']).nullable(),
-  notifyCode: z.string().nullable(),
-});
-
-const executionView = z.object({
-  id: z.string().guid(),
-  subscriptionId: z.string().guid(),
-  occurrence: z.number().int().nonnegative(),
-  amount: amountSchema,
-  status: z.enum(['pending', 'invoiced', 'settled', 'rejected', 'skipped']),
-  paymentId: z.string().guid().nullable(),
-  rejectionCode: z.string().nullable(),
-  attemptedAt: z.string().datetime({ offset: true }),
-  settledAt: z.string().datetime({ offset: true }).nullable(),
-  createdAt: z.string().datetime({ offset: true }),
-  notifyStatus: z.enum(['attempted', 'skipped_unwired', 'failed']).nullable(),
-  notifyCode: z.string().nullable(),
 });
 
 function toMandateOut(m: Awaited<ReturnType<SubscriptionService['getMandate']>>) {
@@ -398,54 +328,9 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
        * Crypto invoice-and-watch is product-complete; card refuse + pre-charge
        * notify gap are named. `preChargeNotify.notified` is always false.
        */
-      productReady: ownMerchantRead()
-        .output(
-          z.object({
-            mountain: z.literal('pay.subscriptions'),
-            boardDoneBar: z.literal('Mandates product-complete; notify gaps honest'),
-            paths: z.array(
-              z.object({
-                path: z.enum(['crypto_invoice', 'card']),
-                charge: z.enum(['open_crypto_invoice', 'refuse']),
-                opensMoney: z.boolean(),
-                posture: z.string(),
-              }),
-            ),
-            crypto: z.object({
-              status: z.literal('product_complete'),
-              charge: z.literal('open_crypto_invoice'),
-              model: z.literal('invoice-and-watch'),
-            }),
-            card: z.object({
-              status: z.literal('refuse_closed'),
-              code: z.literal('pay.mandate_rail_absent'),
-              socket: z.literal(CARD_MANDATE_CHARGE_SOCKET),
-            }),
-            dunning: z.object({
-              maxAttemptsPerCycle: z.number().int().positive(),
-              afterLimit: z.literal('stall_named'),
-              stallReason: z.literal('arrears'),
-            }),
-            preChargeNotify: z.object({
-              status: z.literal('unwired'),
-              notifyStatus: z.literal('skipped_unwired'),
-              code: z.literal('pay.subscription_notify_unwired'),
-              socket: z.literal(PRECHARGE_NOTIFY_SOCKET),
-              inventForbidden: z.literal(true),
-              notified: z.literal(false),
-              merchantReadable: z.string(),
-            }),
-            cancel: z.object({
-              immediacy: z.literal('immediate'),
-              retentionDelayForbidden: z.literal(true),
-            }),
-            reconsent: z.object({
-              priceOrCeilingChange: z.literal('refuse'),
-              code: z.literal('pay.subscription_reconsent_required'),
-            }),
-          }),
-        )
-        .query(() => {
+      productReady: mountRecord(
+        PAY_SUBSCRIPTION_PRODUCT_READY,
+        () => {
           const posture = subscriptionsProductPosture();
           // Pin imports so Ready cannot drift from the fire-path matrix/gap.
           if (posture.paths.length !== MANDATE_PATH_MATRIX.length) {
@@ -465,7 +350,9 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
           }
           // Mutable copy — zod output schema is not `readonly`.
           return { ...posture, paths: [...posture.paths] };
-        }),
+        },
+        payRefusal,
+      ),
 
       /**
        * Idempotency-Key is `idempotencyKey` on the input. The tRPC context has
@@ -480,30 +367,9 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
        * same uncertain attempt reuses the stored attempt id. It is not an HTTP
        * header — see `createBusinessPayApi`.
        */
-      create: scopedProcedure('pay:write', { module: 'pay' })
-        .input(
-          z.object({
-            mandateId: z.string().guid(),
-            /** Default crypto_invoice — never invents a pull path. */
-            path: z.enum(['crypto_invoice', 'card', 'card_mandate']).optional(),
-            /**
-             * Caller's Idempotency-Key. Omit it and the mandate unique index is
-             * still enforced. Blank or over 255 characters is
-             * `pay.idempotency_required`. 255 is the existing public REST cap,
-             * not a new product limit. The check lives in the handler so the
-             * refusal is that pay code, not a generic parser error.
-             */
-            idempotencyKey: z.string().optional(),
-            /**
-             * A catalogue price to start it on (M-adv-payments-core-20): a monthly fixed price of this business whose
-             * asset and amount are the monthly mandate's. The subscription keeps it for its whole life, through Replace
-             * price and archiving.
-             */
-            priceId: z.string().guid().optional(),
-          }),
-        )
-        .output(subscriptionView)
-        .mutation(({ ctx, input }) =>
+      create: mountRecord(
+        PAY_SUBSCRIPTION_CREATE,
+        ({ ctx, input }) =>
           wrap(async () => {
             if (input.idempotencyKey !== undefined) {
               const key = input.idempotencyKey.trim();
@@ -521,40 +387,26 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
             });
             return toSubOut(sub);
           }),
-        ),
+        payRefusal,
+      ),
 
-      get: ownMerchantRead()
-        .input(z.object({ subscriptionId: z.string().guid() }))
-        .output(subscriptionView)
-        .query(({ ctx, input }) =>
+      get: mountRecord(
+        PAY_SUBSCRIPTION_GET,
+        ({ ctx, input }) =>
           wrap(async () => {
             const sub = await subscriptions.getSubscription(input.subscriptionId);
             await assertSubscriptionArea(ctx.principal?.userId, input.subscriptionId, sub.merchantId);
             return toSubOut(sub);
           }),
-        ),
+        payRefusal,
+      ),
 
       /**
        * Merchant fleet list (ops truth). Read-only — no fire, no dunning.
        */
-      list: ownMerchantRead()
-        .input(
-          z.object({
-            merchantId: z.string().guid(),
-            status: z.enum(['active', 'paused', 'cancelled', 'completed']).optional(),
-            /**
-             * Page size. Optional so omit reaches `pay.subscription_list_limit_unset`.
-             * Blank is not 50; pass 50 explicitly.
-             */
-            limit: z.number().int().min(1).max(200).optional(),
-            cursor: z.string().min(1).max(300).optional(),
-            search: z.string().trim().min(1).max(200).optional(),
-            from: z.string().datetime({ offset: true }).optional(),
-            to: z.string().datetime({ offset: true }).optional(),
-          }),
-        )
-        .output(z.object({ items: z.array(subscriptionView), nextCursor: z.string().nullable() }))
-        .query(({ ctx, input }) =>
+      list: mountRecord(
+        PAY_SUBSCRIPTION_LIST,
+        ({ ctx, input }) =>
           wrap(async () => {
             await assertPaymentArea(ctx.principal?.userId, input.merchantId);
             const page = await subscriptions.listSubscriptions(input.merchantId, {
@@ -567,45 +419,37 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
             });
             return { items: page.items.map(toSubOut), nextCursor: page.nextCursor };
           }),
-        ),
+        payRefusal,
+      ),
 
       /**
        * Firing history for one subscription (invoice / settled / rejected).
        * Read-only — no dunning invent, no retry.
        */
-      listExecutions: ownMerchantRead()
-        .input(
-          z.object({
-            subscriptionId: z.string().guid(),
-            /**
-             * Page size. Optional so omit reaches `pay.subscription_execution_list_limit_unset`.
-             * Blank is not 50; pass 50 explicitly.
-             */
-            limit: z.number().int().min(1).max(200).optional(),
-          }),
-        )
-        .output(z.array(executionView))
-        .query(({ ctx, input }) =>
+      listExecutions: mountRecord(
+        PAY_SUBSCRIPTION_LIST_EXECUTIONS,
+        ({ ctx, input }) =>
           wrap(async () => {
             const sub = await subscriptions.getSubscription(input.subscriptionId);
             await assertSubscriptionArea(ctx.principal?.userId, input.subscriptionId, sub.merchantId);
             const rows = await subscriptions.listExecutions(input.subscriptionId, { limit: input.limit });
             return rows.map(toExecutionOut);
           }),
-        ),
+        payRefusal,
+      ),
 
       /** Immediate cancel (SPEC §4). Does not reverse settled executions. */
-      cancel: scopedProcedure('pay:write', { module: 'pay' })
-        .input(z.object({ subscriptionId: z.string().guid() }))
-        .output(subscriptionView)
-        .mutation(({ ctx, input }) =>
+      cancel: mountRecord(
+        PAY_SUBSCRIPTION_CANCEL,
+        ({ ctx, input }) =>
           wrap(async () => {
             const existing = await subscriptions.getSubscription(input.subscriptionId);
             await assertSubscriptionArea(ctx.principal?.userId, input.subscriptionId, existing.merchantId);
             const sub = await subscriptions.cancelSubscription(input.subscriptionId);
             return toSubOut(sub);
           }),
-        ),
+        payRefusal,
+      ),
 
       /**
        * M-bill-01: collection method. `send_invoice` is the live crypto-invoice
@@ -631,16 +475,16 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
        * outage later, which the TWAP ADR requires: identical mechanics,
        * completely different explanations.
        */
-      pause: scopedProcedure('pay:write', { module: 'pay' })
-        .input(z.object({ subscriptionId: z.string().guid() }))
-        .output(subscriptionView)
-        .mutation(({ ctx, input }) =>
+      pause: mountRecord(
+        PAY_SUBSCRIPTION_PAUSE,
+        ({ ctx, input }) =>
           wrap(async () => {
             const existing = await subscriptions.getSubscription(input.subscriptionId);
             await assertSubscriptionArea(ctx.principal?.userId, input.subscriptionId, existing.merchantId);
             return toSubOut(await subscriptions.pauseSubscription(input.subscriptionId));
           }),
-        ),
+        payRefusal,
+      ),
 
       /**
        * Resume — and the schedule does not compress.
@@ -656,42 +500,33 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
        * A resume that would run past a bounded mandate's window is REFUSED
        * (`pay.subscription_resume_exceeds_mandate`), not quietly trimmed.
        */
-      resume: scopedProcedure('pay:write', { module: 'pay' })
-        .input(z.object({ subscriptionId: z.string().guid() }))
-        .output(z.object({ subscription: subscriptionView, projectedEnd: z.string().datetime({ offset: true }).nullable() }))
-        .mutation(({ ctx, input }) =>
+      resume: mountRecord(
+        PAY_SUBSCRIPTION_RESUME,
+        ({ ctx, input }) =>
           wrap(async () => {
             const existing = await subscriptions.getSubscription(input.subscriptionId);
             await assertSubscriptionArea(ctx.principal?.userId, input.subscriptionId, existing.merchantId);
             const { subscription, projectedEnd } = await subscriptions.resumeSubscription(input.subscriptionId);
             return { subscription: toSubOut(subscription), projectedEnd: projectedEnd === null ? null : projectedEnd.toISOString() };
           }),
-        ),
+        payRefusal,
+      ),
 
       /**
        * The period journal. Read-only, and the honest answer to "did you charge
        * me twice" — two periods carry two keys, one period retried carries one.
        */
-      cycles: ownMerchantRead()
-        .input(
-          z.object({
-            subscriptionId: z.string().guid(),
-            /**
-             * Page size. Optional so omit reaches `pay.subscription_cycle_list_limit_unset`.
-             * Blank is not 50; pass 50 explicitly.
-             */
-            limit: z.number().int().min(1).max(200).optional(),
-          }),
-        )
-        .output(z.object({ subscriptionId: z.string().guid(), cycles: z.array(cycleView) }))
-        .query(({ ctx, input }) =>
+      cycles: mountRecord(
+        PAY_SUBSCRIPTION_CYCLES,
+        ({ ctx, input }) =>
           wrap(async () => {
             const existing = await subscriptions.getSubscription(input.subscriptionId);
             await assertSubscriptionArea(ctx.principal?.userId, input.subscriptionId, existing.merchantId);
             const cycles = await subscriptions.listCycles(input.subscriptionId, { limit: input.limit });
             return { subscriptionId: input.subscriptionId, cycles: cycles.map(toCycleOut) };
           }),
-        ),
+        payRefusal,
+      ),
     }),
   });
 }

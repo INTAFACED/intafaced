@@ -14,7 +14,7 @@
  * assigned and does nothing. The cursor is stored, so it survives a restart.
  */
 import type { Sql, TransactionSql } from 'postgres';
-import { SUPPORT_ROUTING_ACTOR_ID } from '@intafaced/contracts';
+import { SUPPORT_ROUTING_ACTOR_ID } from '@intafaced/contracts/support';
 import { SUPPORT_NO_AGENT_AVAILABLE, SUPPORT_ROUTING_MODES, SUPPORT_SKILLS_MAX } from '@intafaced/contracts/support-desk-procedures';
 import type { GroupBook } from './desk-groups.js';
 import type { StaffAvailability, StaffBook } from './desk-staff.js';

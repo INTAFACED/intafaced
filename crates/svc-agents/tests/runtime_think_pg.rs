@@ -6,8 +6,8 @@
 //! log, ported case for case onto \`svc_agents::runtime\` (each test names its source): per-task routing, the guardrail
 //! and spend-hold cases, the action log, provider failure and the events. The provider is the crate's deterministic
 //! mock (wrapped where the TypeScript wraps the gateway), the ledger a double-entry fake that books each recipe once per
-//! key as \`MemoryLedger\` does, and the bus an in-memory list. The cases that run a tool (\`runtime.act\`) are the
-//! tool-running slices'.
+//! key as \`MemoryLedger\` does, and the bus an in-memory list. The cases that run a tool (\`runtime.act\`) are
+//! \`tests/runtime_act_pg.rs\`'s.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -17,7 +17,7 @@
     reason = "a test: a failure is the point"
 )]
 
-mod support;
+use crate::support;
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Condvar, Mutex};

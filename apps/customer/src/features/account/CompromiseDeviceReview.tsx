@@ -1,12 +1,13 @@
 import { useState } from 'react';
-import { compromiseReviewOutputSchema } from '@intafaced/contracts/identity-compromise';
 import type { ApiResult } from '../../shared/api';
 import { useSession } from '../session';
 import { usePreferences } from '../../shared/preferences';
-import { Button, Failure } from '../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { Failure } from './kit-parts';
 import { stamp } from '../../screens/money/time';
 import { defineCopy } from '../../shared/i18n';
 import { useCompromiseCase } from './Compromised';
+import { IDENTITY_ACCOUNT_COMPROMISED_MARK_REVIEWED } from '@intafaced/contracts/identity-account-procedures';
 
 const copy = defineCopy('account.compromise-devices', {
   title: 'Your compromised-account case',
@@ -36,7 +37,7 @@ export function CompromiseDeviceReview() {
     setBusy(true);
     setFailure(null);
     try {
-      const answer = await api.mutate('identity', 'account.compromised.markReviewed', { item: 'devices' }, compromiseReviewOutputSchema);
+      const answer = await api.call(IDENTITY_ACCOUNT_COMPROMISED_MARK_REVIEWED, { item: 'devices' });
       if (!answer.ok) return setFailure(answer);
       reload();
     } finally {
@@ -48,7 +49,7 @@ export function CompromiseDeviceReview() {
     <section
       id="devices"
       data-testid="devices__compromise-review"
-      className="security__card"
+
       aria-labelledby="devices-compromise-review"
       lang={languageFor('title')}
     >
@@ -59,13 +60,13 @@ export function CompromiseDeviceReview() {
       ) : (
         <>
           <p>{t('body')}</p>
-          <Button disabled={busy} onClick={() => void review()}>
+          <Button tone="primary" disabled={busy} onClick={() => void review()}>
             {t('ask')}
           </Button>
         </>
       )}
       <p>
-        <a className="text-link" href="/uc/safe/compromised">
+        <a className="lt-link" href="/uc/safe/compromised">
           {t('back')}
         </a>
       </p>

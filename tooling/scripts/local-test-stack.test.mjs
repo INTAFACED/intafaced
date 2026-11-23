@@ -1,3 +1,5 @@
+// tooling-tests: alone. It takes the checkout's index.lock, and finds a free port that a child then binds, which a file
+// beside it could take first.
 // Proves the local test stack's two safety properties without starting anything:
 // local:fund refuses outside its own stack, and the script never supplies a sanctions list.
 import assert from 'node:assert/strict';
@@ -118,6 +120,33 @@ const script = resolve(here, 'local-test-stack.mjs');
   assert.equal(
     onEmptyCatalogueDb('postgres://u:p@h:1/db?sslmode=disable'),
     `postgres://u:p@h:1/${SUPPORT_EMPTY_CATALOGUE_DB}?sslmode=disable`,
+  );
+}
+
+// The empty agent catalogue (J-agents-01 #1): LOCAL_STACK_AGENTS_CATALOGUE=off moves svc-agents, and only svc-agents, to
+// a database of its own; without it svc-agents is on the stack's database like every other service.
+{
+  const { localTestServiceEnvs, PLAN_SECRETS } = await import('./local-test-stack.mjs');
+  const { AGENTS_EMPTY_CATALOGUE_DB, onEmptyAgentsDb } = await import('./local-stack-services/agents.mjs');
+  const dbOf = (envs, name) => new URL(envs.find((d) => d.name === name).env.DATABASE_URL).pathname.slice(1);
+  const prior = process.env.LOCAL_STACK_AGENTS_CATALOGUE;
+  try {
+    delete process.env.LOCAL_STACK_AGENTS_CATALOGUE;
+    const shared = localTestServiceEnvs(PLAN_SECRETS);
+    assert.equal(dbOf(shared, 'agents'), 'intafaced_local_test', 'agents on the stack database by default');
+    process.env.LOCAL_STACK_AGENTS_CATALOGUE = 'off';
+    const empty = localTestServiceEnvs(PLAN_SECRETS);
+    assert.equal(dbOf(empty, 'agents'), AGENTS_EMPTY_CATALOGUE_DB, 'agents on its own empty database under the profile');
+    for (const { name, env } of empty)
+      if (name !== 'agents' && env.DATABASE_URL)
+        assert.equal(dbOf(empty, name), 'intafaced_local_test', `${name} stays on the stack database under the profile`);
+  } finally {
+    if (prior === undefined) delete process.env.LOCAL_STACK_AGENTS_CATALOGUE;
+    else process.env.LOCAL_STACK_AGENTS_CATALOGUE = prior;
+  }
+  assert.equal(
+    onEmptyAgentsDb('postgres://svc_agents:pw@127.0.0.1:5433/intafaced_local_test?sslmode=disable'),
+    `postgres://svc_agents:pw@127.0.0.1:5433/${AGENTS_EMPTY_CATALOGUE_DB}?sslmode=disable`,
   );
 }
 
@@ -906,11 +935,27 @@ try {
       if (statSync(full).isDirectory()) return f === 'vendor' || f === 'node_modules' ? [] : walk(full);
       return /\.(ts|tsx)$/.test(f) && !/\.(test|pw|spec)\./.test(f) ? [full] : [];
     });
+  // A call by its record (`api.call(P2P_DISPUTES_OPEN, …)`, `callAs(api, RECORD, …)`) names no module in its text: the
+  // record carries it. Each published record is known by the name the call-records codemod gives it, with its module.
+  const { recordName } = await import('../codemod/call-records/index.mjs');
+  const recordModule = new Map();
+  const published = join(repo, 'packages', 'contracts', 'procedures');
+  for (const f of readdirSync(published).filter((x) => x.endsWith('.schema.json'))) {
+    const { procedures } = JSON.parse(readFileSync(join(published, f), 'utf8'));
+    for (const r of Object.values(procedures)) if (r.module && r.path) recordModule.set(recordName(r.module, r.path), r.module);
+  }
+  assert.ok(recordModule.size >= 100, `could not read contracts' published records (${recordModule.size})`);
   const used = new Set();
   for (const f of walk(join(repo, 'apps', 'customer', 'src'))) {
     const src = readFileSync(f, 'utf8');
     for (const m of src.matchAll(/\b(?:query|mutate|plain)\(\s*'([a-z0-9]+)'/g)) used.add(m[1]);
     for (const m of src.matchAll(/'\/api\/([a-z0-9]+)/g)) used.add(m[1]);
+    // A record passed as an argument, imports and `typeof` reads left out: those call nothing.
+    const code = src.replace(/^import [^;]*?;/gm, '');
+    for (const m of code.matchAll(/(?<!typeof\s*)[(,]\s*([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)\b/g)) {
+      const module = recordModule.get(m[1]);
+      if (module) used.add(module);
+    }
   }
   used.delete('v1'); // public exchange REST, served by svc-trade
   used.add('trade');
@@ -1134,7 +1179,7 @@ console.log('local-test-stack: customer folder override checks passed');
   // Its session key is canonical 32-byte base64url (apps/admin/src/lib/founder-session.ts), and it never runs in prod posture.
   assert.match(source, /s\.adminSession = crypto\.randomBytes\(32\)\.toString\('base64url'\);/);
   assert.match(source, /APP_ENV: 'dev',/);
-  assert.match(source, /async function cmdRestart[\s\S]*?await cmdStart\(\[\]\);/);
+  assert.match(source, /async function cmdRestart\(names, \{[^}]*start = cmdStart \}[\s\S]*?await start\(\[\]\);/);
   assert.match(source, /function ensureMarket\(\) \{\n\s+const r = marketTool\('ensure'\);/);
   assert.match(source, /local-test-market\.mjs'\), cmd\]/);
   console.log('local-test-stack: market supervision checks passed');
@@ -1420,17 +1465,40 @@ console.log('local-test-stack: customer folder override checks passed');
   assert.equal(onCurrentBuild({}, 'b2'), false, 'started before builds had ids');
   assert.equal(onCurrentBuild({}, undefined), true, 'no build id yet: nothing to compare');
 
-  // Each built part's start stops a process on another build first (services, console, Customer app, invitation site).
-  const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'local-test-stack.mjs'), 'utf8');
-  for (const part of ['def.name', "'admin'", "'customer'", "'invitation'"])
-    assert.ok(source.includes(`await stopForNewBuild(${part},`), `${part} restarts onto a new build`);
+  // Each built part's start stops a process on another build first (services, console, Customer app, invitation site):
+  // its first act is the stop, for its own name and port. The stand-in stop ends the start there.
+  {
+    const { startNodeService, startCustomer, startInvitation, startAdmin, localTestServiceEnvs } = await import('./local-test-stack.mjs');
+    const { STACK_PORTS } = await import('./local-test-facts.mjs');
+    const ledger = localTestServiceEnvs().find((d) => d.name === 'ledger');
+    const halt = new Error('stopped here');
+    for (const [part, port, start] of [
+      ['ledger', Number(ledger.env.HTTP_PORT), (stop) => startNodeService({ name: 'ledger', env: () => ledger.env }, { stop })],
+      ['customer', STACK_PORTS.customer, (stop) => startCustomer({ stop })],
+      ['invitation', STACK_PORTS.invitation, (stop) => startInvitation({ stop })],
+      ['admin', STACK_PORTS.admin, (stop) => startAdmin({}, { stop })],
+    ]) {
+      const stops = [];
+      await assert.rejects(
+        start((...args) => {
+          stops.push(args);
+          throw halt;
+        }),
+        (err) => err === halt,
+        `${part} stops a process on another build before anything else`,
+      );
+      assert.equal(stops.length, 1);
+      assert.equal(stops[0][0], part, `${part} restarts onto a new build`);
+      assert.equal(stops[0][3], port, `${part} waits on its own port`);
+    }
+  }
   console.log('local-test-stack: builds are fresh only for their own checkout and edits, and running parts restart onto a new build');
 }
 
 // 21. A new TEST chain empties what services stored from the old one, so the indexer reads it from block 0 instead
 // of halting on blocks the new node never made (lead, 30 Oct: indexer.halted after a restart).
 {
-  const { CHAIN_DERIVED, emptySchemaSql } = await import('./local-test-stack.mjs');
+  const { CHAIN_DERIVED, afterSeed, emptySchemaSql, forgetOldChain, startNewAnvil, withRenewed } = await import('./local-test-stack.mjs');
   assert.deepEqual(
     CHAIN_DERIVED.map((c) => c.service),
     ['indexer'],
@@ -1440,48 +1508,129 @@ console.log('local-test-stack: customer folder override checks passed');
   assert.match(sql, /TRUNCATE ' \|\| t \|\| ' RESTART IDENTITY CASCADE/);
   assert.doesNotMatch(sql, /DROP/, 'the tables and their applied migrations stay');
   assert.throws(() => emptySchemaSql("indexer'; DROP SCHEMA x; --"), /not a schema name/);
-  const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'local-test-stack.mjs'), 'utf8');
   assert.match(sql, /tablename <> '__migrations'/, 'the migration journal stays, so migrations never run twice');
   assert.match(sql, /^SET lock_timeout = '10s';/, 'a held lock fails the start by name instead of hanging it');
   // Only a new anvil forgets the old chain, and only once it answers and is seeded; a running chain's rows stay.
-  assert.match(
-    source,
-    /if \(!ownedAlive\(procs\.chain\)\) \{[\s\S]{0,600}?fs\.rmSync\(chainRecordPath\(STATE\), \{ force: true \}\);\s*renewed = true;/,
+  {
+    const did = [];
+    const io = {
+      open: async () => false,
+      taken: () => did.push('taken'),
+      dropRecord: () => did.push('drop record'),
+      start: () => did.push('start anvil'),
+    };
+    assert.equal(
+      await startNewAnvil({ chain: { pid: 1 } }, '/bin/anvil', { ...io, alive: () => true }),
+      false,
+      'a running chain is not renewed',
+    );
+    assert.deepEqual(did, [], 'a running chain keeps its record and its node');
+    assert.equal(await startNewAnvil({}, '/bin/anvil', { ...io, alive: () => false }), true, 'a new anvil is renewed');
+    assert.deepEqual(did, ['drop record', 'start anvil'], "the old node's record goes before the new node starts");
+  }
+  // A failed seed stops the start before anything is forgotten; a seeded new chain forgets; a running chain never does.
+  const stopped = (msg) => {
+    throw new Error(msg);
+  };
+  const forgot = [];
+  const forget = () => (forgot.push('forgot'), ['indexer']);
+  assert.throws(
+    () => afterSeed({ seeded: { status: 1, output: 'no rpc' }, renewed: true, forget, stop: stopped }),
+    /seeding the TEST chain failed:\nno rpc/,
   );
-  assert.match(source, /if \(seeded\.status !== 0\) fail\([^\n]*\n[\s\S]{0,200}?return renewed \? forgetOldChain\(secrets\) : \[\];/);
-  assert.equal(source.split('forgetOldChain(secrets) : []').length - 1, 1, 'one place forgets the old chain');
-  // The stack keeps every service in its one database; svc_indexer is a role, not a database.
-  assert.match(source, /psql\(secrets, emptySchemaSql\(schema\), \{ db: DB_NAME \}\)/);
+  assert.deepEqual(forgot, [], 'a failed seed forgets nothing');
+  assert.deepEqual(afterSeed({ seeded: { status: 0, output: '' }, renewed: false, forget, stop: stopped }), []);
+  assert.deepEqual(forgot, [], 'a running chain keeps its rows');
+  assert.deepEqual(afterSeed({ seeded: { status: 0, output: '' }, renewed: true, forget, stop: stopped }), ['indexer']);
+  assert.deepEqual(forgot, ['forgot'], 'a seeded new chain forgets once');
+  // Forgetting stops a running indexer and empties its schema in the stack's one database (svc_indexer is a role, not
+  // a database); an indexer that is not running is only emptied.
+  {
+    const ran = [];
+    const stopped = [];
+    const io = { stop: async (name) => (stopped.push(name), 'stopped'), run: (...args) => ran.push(args) };
+    assert.deepEqual(await forgetOldChain('S', { ...io, procs: { indexer: { pid: 1 } }, alive: () => true }), ['indexer']);
+    assert.deepEqual(stopped, ['indexer']);
+    assert.deepEqual(ran, [['S', emptySchemaSql('indexer'), { db: 'intafaced_local_test' }]]);
+    assert.deepEqual(await forgetOldChain('S', { ...io, procs: {}, alive: () => false }), [], 'nothing to bring back');
+    assert.equal(ran.length, 2, 'its rows are emptied all the same');
+  }
   // What it stopped comes back even under --only.
-  assert.match(source, /renewed\.includes\(d\.name\)/);
+  {
+    const def = (name) => ({ name });
+    assert.deepEqual(
+      withRenewed([def('trade')], [def('trade'), def('indexer'), def('ledger')], ['indexer']).map((d) => d.name),
+      ['trade', 'indexer'],
+    );
+    assert.deepEqual(
+      withRenewed([def('indexer')], [def('indexer')], ['indexer']).map((d) => d.name),
+      ['indexer'],
+      'once',
+    );
+  }
   console.log('local-test-stack: a new TEST chain empties the indexer and brings it back');
 }
 
 // 22. A halted indexer still answers /health, so the health table also reads its /ready and names the halt.
 {
-  const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'local-test-stack.mjs'), 'utf8');
-  assert.match(source, /n === 'indexer' \? await indexerHalt\(\) : null/);
-  assert.match(source, /halted \? `HALTED \(\$\{halted\}\)` : 'ok'/);
+  const { serviceHealthRow, indexerHalt, healthAllOk } = await import('./local-test-stack.mjs');
+  const chain = { rpcUrl: 'http://127.0.0.1:14530' };
+  const ok = async () => ({ status: 200 });
+  const halts = [];
+  const halt = async () => (halts.push(1), 'projection mismatch');
+  const row = await serviceHealthRow('indexer', { procs: { indexer: { pid: 7 } }, chain, read: ok, halt });
+  assert.deepEqual(row.slice(2), [7, 'HALTED (projection mismatch)']);
+  assert.equal(healthAllOk([row, ['market-maker']]), false, 'a halted indexer fails the start');
+  assert.equal((await serviceHealthRow('indexer', { procs: {}, chain, read: ok, halt: async () => null }))[3], 'ok');
+  halts.length = 0;
+  assert.equal((await serviceHealthRow('ledger', { procs: {}, chain, read: ok, halt }))[3], 'ok', 'only the indexer reads /ready');
+  assert.deepEqual(halts, []);
+  // /ready names the halt and its reason; a /ready down for another reason is no halt.
+  const ready = (status, text) => async () => ({ status, text });
+  assert.equal(await indexerHalt(ready(503, JSON.stringify({ haltedAt: 12, reason: 'hash mismatch at 12' }))), 'hash mismatch at 12');
+  assert.equal(await indexerHalt(ready(503, JSON.stringify({ haltedAt: 12 }))), 'no reason given');
+  assert.equal(await indexerHalt(ready(503, JSON.stringify({ ready: false }))), null);
+  assert.equal(await indexerHalt(ready(0, '')), null);
   console.log('local-test-stack: a halted indexer reads HALTED in the health table');
 }
 
 // 23. A running service on another build is restarted onto the new one, so the start migrates it first (a new
 // migration would otherwise be missing: svc-protocol refused to boot without protocol.listing_challenges).
 {
-  const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'local-test-stack.mjs'), 'utf8');
-  assert.match(
-    source,
-    /const toStart = wanted\.filter\(\s*\(d\) => !ownedAlive\(procsNow\[d\.name\]\) \|\| !onCurrentBuild\(procsNow\[d\.name\], backendBuild\),?\s*\);/,
+  const { stopThenMigrate, migrateRenewed } = await import('./local-test-stack.mjs');
+  const did = [];
+  const def = (name) => ({ name });
+  const procs = { ledger: { pid: 1, build: 'b2' }, trade: { pid: 2, build: 'b1' } };
+  const toStart = await stopThenMigrate({
+    wanted: [def('ledger'), def('trade'), def('identity')],
+    procs,
+    build: 'b2',
+    secrets: 'S',
+    alive: (rec) => Boolean(rec),
+    stop: async (name, rec, build) => did.push(['stop', name, rec?.build ?? null, build]),
+    migrateSchemas: async (secrets, schemas) => did.push(['migrate', secrets, schemas]),
+  });
+  assert.deepEqual(
+    toStart.map((d) => d.name),
+    ['trade', 'identity'],
+    'a service on another build, or not running, starts; one on this build keeps running',
   );
-  assert.match(
-    source,
-    /const extra = renewed\.filter\(\(name\) => !toStart\.some\(\(d\) => d\.name === name\)\);\s*if \(extra\.length\)\s*await migrate\(/,
-  );
-  // The old build stops before its schema is migrated past it.
-  assert.match(
-    source,
-    /for \(const d of toStart\) await stopForNewBuild\(d\.name, procsNow\[d\.name\], backendBuild, PORTS\[d\.name\]\);\s*await migrate\(/,
-  );
+  // The old build stops before its schema is migrated past it, and only what starts is migrated.
+  assert.deepEqual(did, [
+    ['stop', 'trade', 'b1', 'b2'],
+    ['stop', 'identity', null, 'b2'],
+    ['migrate', 'S', ['identity', 'trade']],
+  ]);
+  // A service stopped for a new chain that this start did not plan for is migrated before it comes back; a planned one
+  // was migrated already.
+  did.length = 0;
+  const record = async (secrets, schemas) => did.push(schemas);
+  assert.deepEqual(await migrateRenewed({ renewed: ['indexer'], toStart, secrets: 'S', migrateSchemas: record }), ['indexer']);
+  assert.deepEqual(did, [['indexer']]);
+  did.length = 0;
+  assert.deepEqual(await migrateRenewed({ renewed: ['trade'], toStart, secrets: 'S', migrateSchemas: record }), []);
+  assert.deepEqual(await migrateRenewed({ renewed: [], toStart, secrets: 'S', migrateSchemas: record }), []);
+  assert.deepEqual(did, [], 'nothing extra, no migration');
   console.log('local-test-stack: a service restarted onto a new build, or for a new chain, is migrated first');
 }
 
@@ -1501,26 +1650,73 @@ console.log('local-test-stack: customer folder override checks passed');
   // Without a chain the indexer's env still names the zero venue it refuses, never an invented one.
   const ix = localTestServiceEnvs().find((d) => d.name === 'indexer').env;
   assert.equal(ix.INDEXER_VENUE_ADDRESS, '0x0000000000000000000000000000000000000000');
-  const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'local-test-stack.mjs'), 'utf8');
+  const { startServices, serviceHealthRow, adapterHealthRow, adaptersWanted, healthAllOk, cmdRestart } =
+    await import('./local-test-stack.mjs');
   // The start filters by it before the start order is worked out, so Edge never waits for a service that won't start.
-  assert.match(
-    source,
-    /async function startServices\(all\) \{\s*const chain = testChain\(\);\s*const defs = all\.filter\(\(d\) => \{\s*const why = absentWhy\(d\.name, chain\);/,
-  );
+  {
+    const defs = ['ledger', 'indexer', 'edge'].map((name) => ({
+      name,
+      env: () => localTestServiceEnvs().find((d) => d.name === name).env,
+    }));
+    for (const [c, want] of [
+      [null, ['ledger', 'edge']],
+      [chain, ['ledger', 'indexer', 'edge']],
+    ]) {
+      const started = [];
+      await startServices(defs, { chain: c, start: async (d) => started.push(d.name) });
+      assert.deepEqual(started.sort(), [...want].sort(), c ? 'with a chain every service starts' : 'the indexer is left out');
+    }
+  }
   // An absent service doesn't fail the start, but a service that is DOWN still does.
-  assert.match(source, /const absent = r\.status !== 200 \? absentWhy\(n, chain\) : null;/);
-  assert.match(source, /every\(\(r\) => \/\^\(ok\|absent\|off\)\\b\/\.test\(String\(r\[3\]\)\)\)/);
-  assert.equal(/^(ok|absent|off)\b/.test('DOWN (0)'), false);
+  const down = async () => ({ status: 0 });
+  const absentRow = await serviceHealthRow('indexer', { procs: {}, chain: null, read: down });
+  assert.equal(absentRow[3], 'absent (no TEST chain)');
+  assert.equal(
+    (await serviceHealthRow('indexer', { procs: {}, chain, read: down }))[3],
+    'DOWN (0)',
+    'with a chain, a silent indexer is DOWN',
+  );
+  assert.equal((await serviceHealthRow('ledger', { procs: {}, chain: null, read: down }))[3], 'DOWN (0)');
+  const okRow = ['svc-ledger', 1, 1, 'ok'];
+  const marketRow = ['market-maker', '-', '-', 'DOWN'];
+  assert.equal(healthAllOk([okRow, absentRow, marketRow]), true, 'absent passes (the maker is judged apart)');
+  assert.equal(healthAllOk([okRow, ['svc-trade', 2, 2, 'DOWN (0)'], marketRow]), false, 'DOWN fails');
+  assert.equal(healthAllOk([okRow, marketRow], { gateMarket: true, marketBad: true }), false, 'a gated dead maker fails');
   // "off" is written only for a TEST adapter this start never recorded, or a stopped venue the switch doesn't ask for; one
   // the switch asks for (and the wallet provider, always) is checked, so DOWN still fails.
-  assert.match(
-    source,
-    /if \(!procs\[name\] \|\| \(!wanted\[name\] && !ownedAlive\(procs\[name\]\)\)\) \{\s*rows\.push\(\[`\$\{name\} \(TEST\)`, PORTS\[name\], '-', 'off \(not started\)'\]\);/,
-  );
-  assert.match(source, /'test-venue': venues >= 1, 'test-venue-b': venues === 2, 'test-wallet-provider': true/);
-  assert.equal((source.match(/'off \(not started\)'/g) ?? []).length, 1);
+  {
+    const wanted = { 'test-venue': false, 'test-venue-b': false, 'test-wallet-provider': true };
+    const get = async () => ({ status: 502 });
+    const row = (name, procs, alive = () => false) => adapterHealthRow(name, { procs, wanted, alive, get }).then((r) => r[3]);
+    assert.equal(await row('test-venue', {}), 'off (not started)', 'never recorded');
+    assert.equal(await row('test-venue', { 'test-venue': { pid: 3 } }), 'off (not started)', 'stopped, not asked for');
+    assert.equal(await row('test-venue', { 'test-venue': { pid: 3 } }, () => true), 'DOWN (502)', 'running is checked');
+    assert.equal(await row('test-wallet-provider', { 'test-wallet-provider': { pid: 4 } }), 'DOWN (502)', 'asked for: checked');
+    assert.equal(healthAllOk([okRow, ['test-venue (TEST)', 1, '-', 'off (not started)'], marketRow]), true, 'off passes');
+    assert.equal(healthAllOk([okRow, ['test-wallet-provider (TEST)', 1, 4, 'DOWN (502)'], marketRow]), false);
+    assert.deepEqual(adaptersWanted({}), { 'test-venue': false, 'test-venue-b': false, 'test-wallet-provider': true });
+    assert.deepEqual(adaptersWanted({ LOCAL_STACK_USER_VENUE: 'on' }), {
+      'test-venue': true,
+      'test-venue-b': false,
+      'test-wallet-provider': true,
+    });
+    assert.deepEqual(adaptersWanted({ LOCAL_STACK_USER_VENUE: 'two' }), {
+      'test-venue': true,
+      'test-venue-b': true,
+      'test-wallet-provider': true,
+    });
+  }
   // `restart <service>` is a stop and a full start, so it takes the same path.
-  assert.match(source, /await cmdStop\(names\);\s*await cmdStart\(\[\]\);/);
+  {
+    const did = [];
+    await cmdRestart(['ledger'], {
+      take: async () => did.push('take'),
+      refuse: async () => did.push('refuse'),
+      stop: async (names) => did.push(['stop', names]),
+      start: async (flags) => did.push(['start', flags]),
+    });
+    assert.deepEqual(did, ['take', 'refuse', ['stop', ['ledger']], ['start', []]]);
+  }
   console.log('local-test-stack: with no TEST chain the indexer is left out and named, and the start still passes');
 }
 

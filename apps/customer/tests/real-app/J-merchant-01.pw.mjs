@@ -33,7 +33,9 @@ test(`${J} #1 More opens Business Pay at /pay/merchant from the registry row bus
   expect(rows.map((r) => r.id)).toEqual(['business-pay']);
   const [row] = rows;
   expect(row.status).toBe('live');
-  const section = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Money and pay', level: 2 }) });
+  // The section named by its own heading: the room's template wraps its sections in a region of its own, which also
+  // holds this heading, so a filter on any section with it would take that region (and the All services index) too.
+  const section = page.getByRole('region', { name: 'Money and pay', exact: true });
   const tile = section.getByRole('link', { name: /^Merchant\b/ });
   await expect(tile).toHaveCount(1);
   await expect(tile).toHaveAttribute('href', '/pay/merchant');
@@ -161,7 +163,7 @@ test(`${J} #3 a new business reads its KPI area: one explanation with a link to 
         as.map((a) => ({
           label: a.querySelector('span')?.textContent?.split(' · ')[0],
           value: a.querySelector('strong')?.textContent?.trim(),
-          none: a.querySelector('strong .pp-none')?.getAttribute('title') ?? null,
+          none: a.querySelector('strong [data-testid="pp-none"]')?.getAttribute('title') ?? null,
         })),
       );
     const expected = [
@@ -181,7 +183,7 @@ test(`${J} #3 a new business reads its KPI area: one explanation with a link to 
   for (const list of refundLists) expect(list.items).toEqual([]);
 
   // Pending settlement draws no figure for a business with no balance, with today's as-of.
-  const pending = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Pending settlement', level: 2 }) });
+  const pending = page.getByRole('heading', { name: 'Pending settlement', level: 2 }).locator('xpath=ancestor::section[1]');
   const pendingText = await pending.evaluate((el) => {
     const copy = el.cloneNode(true);
     copy.querySelectorAll('[role="status"]').forEach((n) => n.remove());
@@ -346,7 +348,8 @@ test(`${J} #5 the team page lists the five built-in roles and every permission e
   // Each permission row, in the service's order: the five cells say Yes exactly where its heldBy names the role.
   const order = ['owner', 'admin', 'finance', 'developer', 'viewer'];
   const expected = catalogue.areas.flatMap((g) => g.permissions.map((p) => order.map((r) => (p.heldBy.includes(r) ? 'Yes' : 'No'))));
-  const matrix = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Every permission, by role' }) });
+  // The section the heading titles, its nearest one: the settings template wraps every section in a region section of its own.
+  const matrix = page.getByRole('heading', { name: 'Every permission, by role' }).locator('xpath=ancestor::section[1]');
   await expect(matrix.locator('tbody tr')).toHaveCount(expected.length);
   const shown = await matrix
     .locator('tbody tr')

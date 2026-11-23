@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { formatAmount } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import { PersonalPayError } from '../personal-pay/errors.js';
 import type { BillPayService } from '../personal-pay/bills.js';
@@ -8,6 +8,7 @@ import type { EarnService } from '../earn/earn-service.js';
 import type { LoanService } from '../loans/loan-service.js';
 import type { TransferService } from '../transfers/transfer-service.js';
 import { occurrenceStart, type ScheduleCadence } from '../transfers/schedule.js';
+import { CALENDAR_SOURCES, type CalendarSource } from './sources.js';
 
 /**
  * The money calendar (BK-acct-10, J-bank-06 #5): one read of what is dated in a window, merged from svc-bank's own
@@ -19,8 +20,7 @@ import { occurrenceStart, type ScheduleCadence } from '../transfers/schedule.js'
  * itself and the others still show.
  */
 
-export const CALENDAR_SOURCES = ['standing_orders', 'bills', 'direct_debits', 'loans', 'earn'] as const;
-export type CalendarSource = (typeof CALENDAR_SOURCES)[number];
+export { CALENDAR_SOURCES, type CalendarSource } from './sources.js';
 
 export const CALENDAR_ITEM_STATUSES = ['upcoming', 'paused', 'done', 'failed', 'skipped', 'refused'] as const;
 export type CalendarItemStatus = (typeof CALENDAR_ITEM_STATUSES)[number];
@@ -78,6 +78,11 @@ export interface CalendarDeps {
   readonly earn: Pick<EarnService, 'positionsOf'>;
   readonly loans: Pick<LoanService, 'loansOf'>;
   readonly log?: (source: CalendarSource, err: unknown) => void;
+  /**
+   * The source the person's TEST switch fails (`calendarSource`, J-bank-06 #8), or null. Only the TEST stack passes it:
+   * that source's read throws as an outage would, so it reads unavailable and the others still show.
+   */
+  readonly testFailing?: (userId: string) => CalendarSource | null;
 }
 
 type SourceResult = { items: CalendarItem[]; full: boolean; state?: 'ok' | 'not_set'; count?: number; code?: string | null };
@@ -148,9 +153,11 @@ export class CalendarService {
       loans: () => this.loans(input.userId, input.limit),
       earn: () => this.earn(input.userId, from, to, input.limit),
     };
+    const failing = this.deps.testFailing?.(input.userId) ?? null;
     const answers = await Promise.all(
       CALENDAR_SOURCES.map(async (source) => {
         try {
+          if (source === failing) throw new Error(`TEST switch: the ${source} source is failing for this person`);
           return { source, result: await read[source]() };
         } catch (err) {
           const code = refusalCode(err);
@@ -190,8 +197,10 @@ export class CalendarService {
     const full = schedules.length >= limit;
     const dated = schedules.flatMap((s) => occurrencesIn(s, from, to).map((o) => ({ s, ...o })));
     if (dated.length === 0) return { items: [], full };
-    const runs = await this.deps.sql<Array<{ schedule_id: string; occurrence: number; status: string; rejection_code: string | null }>>`
-      SELECT e.schedule_id, e.occurrence, e.status, e.rejection_code
+    const runs = await this.deps.sql<
+      Array<{ schedule_id: string; occurrence: number; status: string; rejection_code: string | null; amount: string }>
+    >`
+      SELECT e.schedule_id, e.occurrence, e.status, e.rejection_code, e.amount::text AS amount
         FROM bank.transfer_executions e
         JOIN unnest(${dated.map((d) => d.s.id)}::uuid[], ${dated.map((d) => d.n)}::int[]) AS w(schedule_id, occurrence)
           ON w.schedule_id = e.schedule_id AND w.occurrence = e.occurrence
@@ -220,7 +229,8 @@ export class CalendarService {
         date: at.toISOString(),
         label: null,
         assetId: s.assetId,
-        amount: formatAmount(s.amount),
+        // A run shows what it booked; the schedule's amount may have changed since.
+        amount: formatAmount(run ? parseAmount(run.amount) : s.amount),
         status,
         reasonCode: run?.rejection_code ?? null,
       });

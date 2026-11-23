@@ -641,7 +641,7 @@ test(`${J} #8 the customer reads a plain status, no promised time and no staff-o
   await page.goto(`/support/tickets/${ticket.id}`);
   const main = page.locator('main');
   await expect(main.getByRole('heading', { name: ticket.subject })).toBeVisible();
-  await expect(main.locator('.support-status').first()).toHaveText(/^(Open|Awaiting your reply|Solved)$/);
+  await expect(main.getByTestId('support-status').first()).toHaveText(/^(Open|Awaiting your reply|Solved)$/);
   await expect(main.getByText(note)).toHaveCount(0);
   await expect(main.getByText(/within \d|by \d{1,2}:\d{2}|due|expected (by|on)|\d+ (hours|days)/i)).toHaveCount(0);
   const client = await api(who);

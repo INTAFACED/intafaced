@@ -35,6 +35,7 @@
  * only unstarted job is waiting for a runner reads `queued` (42542683115, its scoreboard job, at 03:13 UTC); and a job
  * waiting on `needs` is not listed until it is created (42542683115's jobs at 02:49 UTC listed no scoreboard job).
  */
+import { runJobs } from './run-jobs.mjs';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { githubFetch, githubToken } from './github-fetch.mjs';
@@ -186,7 +187,7 @@ async function main() {
   const GH_TOKEN = githubToken();
   const { REPO, DISPATCH_FULL, RUN_ID, RUN_ATTEMPT, TARGETED, GITHUB_OUTPUT } = process.env;
   if (!REPO) return console.log('::notice::main-first has no REPO; going on');
-  const jobsOf = async (id) => (await get(REPO, `/actions/runs/${id}/jobs?filter=latest&per_page=100`, GH_TOKEN))?.jobs;
+  const jobsOf = (id) => runJobs(`/actions/runs/${id}/jobs?filter=latest`, (p) => get(REPO, p, GH_TOKEN));
   if (process.argv.includes('--release')) {
     const list = await get(REPO, `/actions/workflows/${WORKFLOW}/runs?per_page=100`, GH_TOKEN);
     const ids = await toRelease(list?.workflow_runs, jobsOf);

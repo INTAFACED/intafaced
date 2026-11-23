@@ -1,7 +1,9 @@
 //! svc-identity's `actionApproval.consume`, as `createIdentityApprovalClient` in
-//! `packages/contracts/src/action-approval-client.ts` calls it for a service that passes no S2S signer.
+//! `packages/contracts/src/action-approval-client.ts` calls it.
 //!
-//! One POST of the checked consume input, signed with the shared secret, bounded by a 5 s timeout. The reply counts
+//! One POST of the checked consume input, bounded by a 5 s timeout. It is signed with the shared secret, or, once the
+//! service passes its own key ([`IdentityClient::with_key`], the TypeScript's `s2s` option), as
+//! `serviceCallSigner({ service, audience: 'svc-identity', legacySecret, s2s })` signs it. The reply counts
 //! only when it is an action approval, `CONSUMED`, and echoes the request (approval, operation, payload hash, target,
 //! version). Any other reply refuses as `action_approval.consume_failed` ([`ConsumeError::Refused`]); a call that got
 //! no reply, or an input out of bounds, is what `fetch` or zod threw ([`ConsumeError::Thrown`]). Each service maps
@@ -11,7 +13,7 @@ use std::sync::Arc;
 
 use crate::http::{Fetch, HttpRequest};
 use crate::json::{self, Json};
-use crate::s2s::{self, js_length};
+use crate::s2s::{self, CallSigner, Mode, ServiceSigner, js_length};
 use crate::time::zod_datetime;
 use sha2::{Digest, Sha256};
 
@@ -59,6 +61,21 @@ pub struct Consumed {
     pub requester_is_founder: Option<bool>,
 }
 
+/// `principalUserId` and `principalSessionId`: the person and session a same-person approval is consumed for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PrincipalBinding<'a> {
+    pub user_id: &'a str,
+    pub session_id: &'a str,
+}
+
+/// Two more fields of the consumed approval a same-person consume reads: its `kind` (absent on an older identity) and
+/// `expiresAt`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Facts {
+    pub kind: Option<String>,
+    pub expires_at: String,
+}
+
 /// Why a consume did not answer an approval.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConsumeError {
@@ -71,13 +88,15 @@ pub enum ConsumeError {
 /// The service's clock in whole seconds, for the signature's timestamp.
 pub type Seconds = fn() -> i64;
 
-/// `createIdentityApprovalClient({ service, baseUrl, internalSecret, fail })`.
+/// `createIdentityApprovalClient({ service, baseUrl, internalSecret, fail, s2s })`.
 pub struct IdentityClient {
     url: String,
     service: String,
     secret: String,
     fetch: Arc<dyn Fetch>,
     now: Seconds,
+    /// `authHeadersFor`: present only when the service passed its key; absent keeps the shared secret alone.
+    keyed: Option<CallSigner>,
 }
 
 /// `z.string().min(1).max(max)`, lengths in UTF-16 code units.
@@ -86,7 +105,10 @@ fn bounded(s: &str, max: usize) -> bool {
 }
 
 /// `actionApprovalConsumeInputSchema.parse(input)` and `JSON.stringify` of what it returns.
-fn consume_payload(input: &ConsumeInput<'_>) -> Result<String, ConsumeError> {
+fn consume_payload(
+    input: &ConsumeInput<'_>,
+    principal: Option<PrincipalBinding<'_>>,
+) -> Result<String, ConsumeError> {
     let mut fields = vec![
         ("approvalId", input.approval_id, 128),
         ("operationId", input.operation_id, 128),
@@ -95,6 +117,10 @@ fn consume_payload(input: &ConsumeInput<'_>) -> Result<String, ConsumeError> {
         ("targetId", input.target_id, 256),
         ("expectedVersion", input.expected_version, 128),
     ];
+    if let Some(p) = principal {
+        fields.push(("principalUserId", p.user_id, 128));
+        fields.push(("principalSessionId", p.session_id, 128));
+    }
     if let Some(r) = input.replay {
         fields.push(("requestId", r.request_id, 128));
         if let Some(consumer) = r.consumer_principal_id {
@@ -199,6 +225,7 @@ struct Approval {
     operation_id: String,
     payload_hash: String,
     expected_version: String,
+    facts: Facts,
 }
 
 fn read_approval(o: &Json) -> Option<Approval> {
@@ -228,6 +255,16 @@ fn read_approval(o: &Json) -> Option<Approval> {
         operation_id: str_field(o, "operationId", 128)?,
         payload_hash: str_field(o, "payloadHash", 128)?,
         expected_version: str_field(o, "expectedVersion", 128)?,
+        facts: Facts {
+            kind: match o.get("kind") {
+                Some(Json::String(k)) => Some(k.clone()),
+                _ => None,
+            },
+            expires_at: match o.get("expiresAt") {
+                Some(Json::String(e)) => e.clone(),
+                _ => String::new(),
+            },
+        },
         consumed: Consumed {
             action_type: str_field(o, "actionType", 128)?,
             target_service: str_field(o, "targetService", 64)?,
@@ -282,22 +319,62 @@ impl IdentityClient {
             secret: secret.to_owned(),
             fetch,
             now,
+            keyed: None,
         }
+    }
+
+    /// The `s2s` option: with a key, every consume is signed by it for svc-identity (in dual mode with the shared
+    /// secret beside it); `None` leaves the client on the shared secret, as before.
+    #[must_use]
+    pub fn with_key(mut self, s2s: Option<(Arc<ServiceSigner>, Mode)>) -> IdentityClient {
+        self.keyed = s2s.map(|key| {
+            let mut signer =
+                CallSigner::new(&self.service, "svc-identity", &self.secret, Some(key));
+            signer.clock = Arc::new(self.now);
+            signer
+        });
+        self
+    }
+
+    /// The headers `authHeadersFor(payload, { method: 'POST', url: new URL(target), contentType })` or
+    /// `serviceAuthHeadersForBody(service, internalSecret, payload)` give.
+    fn auth_headers(&self, payload: &str, target: &str) -> Result<s2s::Headers, ConsumeError> {
+        let Some(signer) = &self.keyed else {
+            return s2s::legacy_headers(&self.service, &self.secret, payload, (self.now)())
+                .map_err(ConsumeError::Thrown);
+        };
+        // `new URL(target)`: the signature covers `pathname + search`.
+        let url =
+            url::Url::parse(target).map_err(|_| ConsumeError::Thrown("Invalid URL".to_owned()))?;
+        let path = match url.query().filter(|q| !q.is_empty()) {
+            Some(q) => format!("{}?{q}", url.path()),
+            None => url.path().to_owned(),
+        };
+        signer
+            .sign(payload, "POST", &path, "application/json")
+            .map_err(ConsumeError::Thrown)
     }
 
     /// `consume(input)`: the consumed approval, or why there is none.
     pub fn consume(&self, input: &ConsumeInput<'_>) -> Result<Consumed, ConsumeError> {
-        let payload = consume_payload(input)?;
+        self.consume_for(input, None).map(|(c, _)| c)
+    }
+
+    /// `consume` with the person and session a same-person approval is bound to, answering its kind and expiry too.
+    pub fn consume_for(
+        &self,
+        input: &ConsumeInput<'_>,
+        principal: Option<PrincipalBinding<'_>>,
+    ) -> Result<(Consumed, Facts), ConsumeError> {
+        let payload = consume_payload(input, principal)?;
+        let target = format!("{}/trpc/actionApproval.consume", self.url);
         let mut headers = vec![("content-type".to_owned(), "application/json".to_owned())];
-        headers.extend(
-            s2s::legacy_headers(&self.service, &self.secret, &payload, (self.now)())
-                .map_err(ConsumeError::Thrown)?,
-        );
+        headers.extend(self.auth_headers(&payload, &target)?);
         let res = self
             .fetch
             .fetch(&HttpRequest {
                 method: "POST".to_owned(),
-                url: format!("{}/trpc/actionApproval.consume", self.url),
+                url: target,
                 headers,
                 body: Some(payload),
                 timeout_ms: Some(IDENTITY_CONSUME_TIMEOUT_MS),
@@ -333,16 +410,23 @@ impl IdentityClient {
                 "identity consume result does not match the request or is not CONSUMED".to_owned(),
             ));
         }
-        Ok(approval.consumed)
+        Ok((approval.consumed, approval.facts))
     }
 }
 
-/// `ledgerActionPayloadHash` and `matchingActionPayloadHash` (`actionType`, `fields`): `sha256:` and the hex digest of `JSON.stringify({ actionType,
-/// ...fields })`.
+/// `JSON.stringify({ actionType, ...fields })` hashed: `sha256:` and the hex digest, as every service's
+/// `*ActionPayloadHash` writes it (a repeated key keeps its first place and its last value; integer-like keys first, as
+/// JavaScript orders them).
 pub fn payload_hash(action_type: &str, fields: &[(&str, &str)]) -> String {
-    let mut o = vec![("actionType".to_owned(), Json::str(action_type))];
-    o.extend(fields.iter().map(|(k, v)| ((*k).to_owned(), Json::str(*v))));
-    let digest = Sha256::digest(Json::Object(o).compact().as_bytes());
+    let mut all = vec![("actionType".to_owned(), Json::str(action_type))];
+    for (k, v) in fields {
+        match all.iter_mut().find(|(key, _)| key == k) {
+            Some(slot) => slot.1 = Json::str(*v),
+            None => all.push(((*k).to_owned(), Json::str(*v))),
+        }
+    }
+    let payload = Json::Object(json::js_key_order(all)).compact();
+    let digest = Sha256::digest(payload.as_bytes());
     let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
     format!("sha256:{hex}")
 }
@@ -668,21 +752,38 @@ mod tests {
     fn a_replayable_consume_sends_its_key_and_consumer_after_the_six_fields() {
         let mut asked = input();
         assert_eq!(
-            consume_payload(&asked).unwrap(),
+            consume_payload(&asked, None).unwrap(),
             r#"{"approvalId":"ap-1","operationId":"op-1","payloadHash":"sha256:abc","targetService":"svc-academy","targetId":"academy.season.create","expectedVersion":"1"}"#
         );
         asked.replay = Some(Replay {
             request_id: "op-1",
             consumer_principal_id: Some("founder-a"),
         });
-        assert!(consume_payload(&asked).unwrap().ends_with(
+        assert!(consume_payload(&asked, None).unwrap().ends_with(
             r#""expectedVersion":"1","requestId":"op-1","consumerPrincipalId":"founder-a"}"#
         ));
         asked.replay = Some(Replay {
             request_id: "op-1",
             consumer_principal_id: Some(""),
         });
-        assert!(consume_payload(&asked).is_err());
+        assert!(consume_payload(&asked, None).is_err());
+    }
+
+    #[test]
+    fn a_same_person_consume_names_the_person_and_session_after_the_six_fields() {
+        let asked = input();
+        let who = PrincipalBinding {
+            user_id: "u-1",
+            session_id: "s-1",
+        };
+        assert!(consume_payload(&asked, Some(who)).unwrap().ends_with(
+            r#""expectedVersion":"1","principalUserId":"u-1","principalSessionId":"s-1"}"#
+        ));
+        let empty = PrincipalBinding {
+            user_id: "u-1",
+            session_id: "",
+        };
+        assert!(consume_payload(&asked, Some(empty)).is_err());
     }
 
     #[test]
