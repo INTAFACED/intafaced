@@ -9,6 +9,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
+import { KEY_MAPS, quietIssue, quietRefineAt } from './door-refine.mjs';
 
 const REPO = resolve(new URL('../../..', import.meta.url).pathname);
 // The records' own zod: the one @intafaced/contracts resolves.
@@ -122,8 +123,14 @@ function candidates(schema, depth = 0, key = '') {
 
 const REFUSALS = [42, 'not-an-input', [], null, true, { '': 1 }];
 
-/** Values tried where an input check sits: blanks, short and long strings, numbers and absence. */
-const CHECK_TRIES = [undefined, null, '', ' ', 'x', 'ab', 'x'.repeat(1001), 0, -1, 1, ...STRINGS, [], {}];
+/** Values tried where an input check sits: blanks, short and long strings, numbers, absence, and maps of growing size. */
+const CHECK_TRIES = [undefined, null, '', ' ', 'x', 'ab', 'x'.repeat(1001), 0, -1, 1, ...STRINGS, [], {}, ...KEY_MAPS];
+
+/** zod's own words for a custom issue: what a `.refine` written with no message raises. */
+const QUIET = z
+  .unknown()
+  .refine(() => false)
+  .safeParse(0).error.issues[0].message;
 
 /** `v` with the value at `steps` (`.reason`, `[]`) set to `value`, or undefined when the path is not there. */
 function setAt(v, steps, value) {
@@ -150,21 +157,26 @@ const stepsOf = (at) => [...at.replace(/^input/, '').matchAll(/\.([\w$]+)|\[\]/g
 /**
  * For each input check the record names, an input refused by that check alone: every issue zod raises is its own words
  * (a custom issue whose message is one of the check's), so the export, which carries the check only by name, accepts it.
- * Tried from every candidate the schema allows, with the value where the check sits replaced.
+ * Tried from every candidate the schema allows, with the value where the check sits replaced. A check that sits on a
+ * `.refine` written with no message (a door's, named by the door: door-refine.mjs) raises zod's own words, and is known
+ * by them at the very place the value was tried.
  */
 function checkRefusals(record, bases) {
   const out = [];
   for (const [name, check] of Object.entries(record.checks ?? {})) {
     const says = new Set(check.says.split('; '));
-    const alone = (v) => {
+    const alone = (v, steps) => {
+      const quiet = quietRefineAt(record.input, steps);
       const r = record.input.safeParse(v);
-      return !r.success && r.error.issues.every((i) => i.code === 'custom' && says.has(i.message));
+      return (
+        !r.success && r.error.issues.every((i) => i.code === 'custom' && (says.has(i.message) || (quiet && quietIssue(i, steps, QUIET))))
+      );
     };
     let found;
     for (const at of typeof check.at === 'string' ? [check.at] : check.at) {
       const steps = stepsOf(at);
       const tries = bases.flatMap((b) => (steps.length ? CHECK_TRIES.map((t) => setAt(b, steps, t)) : [b]));
-      found = tries.find((v) => v !== undefined && alone(v));
+      found = tries.find((v) => v !== undefined && alone(v, steps));
       if (found !== undefined) break;
     }
     if (found === undefined)

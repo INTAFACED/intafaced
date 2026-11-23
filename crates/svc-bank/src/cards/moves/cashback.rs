@@ -10,7 +10,7 @@
 //! (`bankCardCashbackEarned`), which owes it and pays it to the person's own wallet.
 
 use service_kit::json::Json;
-use service_kit::money::{Amount, Rounding, format_amount, mul_div, parse_amount};
+use service_kit::money::{Amount, Rounding, format_amount, mul_ratio, parse_amount};
 use service_kit::time::Instant;
 
 use super::{Auth, Moves, code_of, custody_guard};
@@ -76,13 +76,7 @@ pub fn cashback_on(captured: Amount, rate_bps: i64) -> Amount {
     if rate_bps <= 0 {
         return Amount::ZERO;
     }
-    // `captured * rate_bps / 10_000`: the rate is a count of basis points, carried as a scaled factor.
-    mul_div(
-        captured,
-        Amount::from_scaled(i128::from(rate_bps)),
-        Amount::from_scaled(10_000),
-        Rounding::Floor,
-    )
+    mul_ratio(captured, i128::from(rate_bps), 10_000, Rounding::Floor)
 }
 
 /// `rewardsEngine(assetId)`: the pot cashback is paid from.

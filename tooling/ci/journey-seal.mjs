@@ -1447,12 +1447,13 @@ export async function mainReference({ repo, mainRuns, contains, reportOf, verdic
  *   - one whose paths share an area (areasOf) with a commit on main from where the step last passed to the newest main
  *     commit the head holds (`upTo`): the commits one of which broke it, and any that tried to fix it since
  *     (`rangeOf(from, to)` → { files, commits } from GitHub's compare).
+ * With no such run in the head's history, main's newest finished full run (`latest`) is the reference run instead.
  * A pull request that changes the journey stack's shared setup (`touches.shared`: it reaches every journey) is in every
  * red's area, so nothing it inherited is passed over. A money step's red (the verdict's
  * money rule) is never passed over, for any pull request. (A pass on the retry is no longer a red at all: the lead's
  * decision of 12 Nov 2026 under OWNER 296 and 297, journey-verdict.mjs.)
  * A red that can't be bounded stops every pull request it reaches: an unreadable input, main's reference run with an
- * input problem, no reference run, or a break range that can't be read, is wider than RANGE_MAX commits or lists files
+ * input problem, no finished full run on main at all, or a break range that can't be read, is wider than RANGE_MAX commits or lists files
  * short, or a step that never passed on main (no commit bounds where it broke; council review G1). A step that last
  * passed on the commit it now fails on (a flake: no commit between) has its journey as its whole area. Every other red
  * (new on this head) stops it as before. Returns { blocking, passed, notes }.
@@ -1473,9 +1474,14 @@ export const kindTitle = (kinds, title) => {
   return k.length ? `${k.join(' + ')}: ${title}` : title;
 };
 
-export async function splitInherited({ red, main, touches, upTo, rangeOf }) {
+export async function splitInherited({ red, main: inHistory, latest, touches, upTo, rangeOf }) {
+  // No finished full run on main in the head's history: main's newest finished full run (`latest`, mainReference read
+  // whatever the head holds) stands in, so a red main already has is not counted against this pull request (project-state
+  // #3754: 5 of 24 sampled seal holds were this case). Its commit is outside the head, so the break range below reaches
+  // past it and the area only widens. With neither, every red counts.
+  const main = inHistory ?? latest ?? null;
   if (!main) return { blocking: red, passed: [], notes: [`no finished full run on main is in this head's history, so every red counts`] };
-  const at = `main's run ${main.run.id} on ${String(main.run.head_sha).slice(0, 10)}`;
+  const at = `main's ${inHistory ? '' : 'newest '}run ${main.run.id} on ${String(main.run.head_sha).slice(0, 10)}${inHistory ? '' : " (none is in this head's history)"}`;
   if (main.problems.length)
     return { blocking: red, passed: [], notes: [`${at} has unreadable inputs (${main.problems[0]}), so every red counts`] };
   if (touches.shared)
@@ -1958,6 +1964,16 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
               reportOf,
               verdictOf,
             })),
+            // Only when none of main's runs is in the head's history (splitInherited).
+            latest: (await main)
+              ? null
+              : await (latest ??= mainReference({
+                  repo,
+                  mainRuns: await io.mainRuns(),
+                  contains: async () => true,
+                  reportOf,
+                  verdictOf,
+                })),
             touches,
             upTo: await (upTo ??= Promise.resolve()
               .then(() => io.mergeBase(pull.base?.sha, head))
