@@ -87,11 +87,11 @@ fn trimmed(v: Option<&String>) -> String {
 
 /// Ratio: null or zero is missing, never invented; a negative ratio is a short leg.
 fn read_ratio(leg: &ComboLeg) -> Option<Amount> {
-    leg.ratio.filter(|r| *r != 0)
+    leg.ratio.filter(|r| *r != Amount::ZERO)
 }
 
 fn read_strike(leg: &ComboLeg) -> Option<Amount> {
-    leg.strike.filter(|s| *s > 0)
+    leg.strike.filter(|s| *s > Amount::ZERO)
 }
 
 fn read_expiry(leg: &ComboLeg) -> Option<String> {

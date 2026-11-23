@@ -110,7 +110,7 @@ pub fn partner_terms(d: &Deps<'_>) -> Result<Json, Refusal> {
 
 /// A figure that may fall below zero, as a decimal string (`signedAmount`).
 pub fn signed(a: Amount) -> String {
-    if a < 0 {
+    if a < Amount::ZERO {
         format!("-{}", format_amount(-a))
     } else {
         format_amount(a)
@@ -133,7 +133,9 @@ fn figures(spend: Amount, open: Amount) -> Json {
 }
 
 fn amount_of(v: Option<&str>) -> Result<Amount, Refusal> {
-    v.map_or(Ok(0), |s| parse_amount(s).map_err(Refusal::Other))
+    v.map_or(Ok(Amount::ZERO), |s| {
+        parse_amount(s).map_err(Refusal::Other)
+    })
 }
 
 /// `payFromReconciliation`: per asset, the spend and open holds the card partner reports against what the app recorded
@@ -385,7 +387,7 @@ mod tests {
             "-0.0008"
         );
         assert_eq!(signed(parse_amount("12").unwrap_or_default()), "12");
-        assert_eq!(signed(0), "0");
+        assert_eq!(signed(Amount::ZERO), "0");
     }
 
     #[test]

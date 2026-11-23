@@ -385,7 +385,7 @@ pub fn start(
     ask: &StartAsk<'_>,
 ) -> Result<Viewed, Refusal> {
     let parsed = parse_amount(ask.amount).map_err(Refusal::Other)?;
-    if parsed <= 0 {
+    if parsed <= Amount::ZERO {
         return Err(refuse(
             "bank.validation_failed",
             "The amount to add must be above zero",

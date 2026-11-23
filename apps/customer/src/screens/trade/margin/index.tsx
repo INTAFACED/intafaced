@@ -153,7 +153,7 @@ export default function MarginScreen(_props: ScreenProps) {
     <div className="flex min-w-0 flex-col" data-screen="margin">
       <ModeStrip active="Margin" />
       <div className="mx-auto flex w-full max-w-(--if-w-content,1224px) flex-col gap-8 px-(--if-gutter) py-6">
-        <header className="flex flex-col gap-2">
+        <header className="lt-stack">
           <h1 className="text-xl font-semibold text-fg">{t('Margin account')}</h1>
           <p className="max-w-3xl text-base text-fg-2">{t('Margin intro')}</p>
         </header>
@@ -184,7 +184,7 @@ export default function MarginScreen(_props: ScreenProps) {
         )}
 
         {userId ? (
-          <section aria-labelledby="margin-health" className="flex flex-col gap-3">
+          <section aria-labelledby="margin-health" className="lt-stack">
             <h2 id="margin-health" className="text-md font-medium text-fg">
               {t('Position health')}
             </h2>
@@ -220,7 +220,7 @@ export default function MarginScreen(_props: ScreenProps) {
         ) : null}
 
         <section aria-labelledby="margin-rules" className="grid gap-6 lg:grid-cols-2">
-          <div className="flex flex-col gap-3">
+          <div className="lt-stack">
             <h2 id="margin-rules" className="text-md font-medium text-fg">
               {t('Margin rules')}
             </h2>
@@ -236,7 +236,7 @@ export default function MarginScreen(_props: ScreenProps) {
             />
             <EmptyState variant="unavailable" size="inline" title={t('Switch mode')} reason={t('Switch mode reason')} />
           </div>
-          <div className="flex flex-col gap-3">
+          <div className="lt-stack">
             <h2 className="text-md font-medium text-fg">{t('Spot margin')}</h2>
             <EmptyState
               variant="unavailable"

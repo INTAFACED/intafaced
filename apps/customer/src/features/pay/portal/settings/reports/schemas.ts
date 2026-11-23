@@ -33,12 +33,4 @@ export const exportJobSchema = z.object({
 });
 export type ExportJob = z.infer<typeof exportJobSchema>;
 
-export const exportDownloadSchema = z.object({
-  fileName: z.string(),
-  contentType: z.string(),
-  content: z.string(),
-  sha256: z.string(),
-  rowCount: z.number().int(),
-});
-
 export const memberLabelSchema = z.object({ userId: z.string(), label: z.string().nullish(), role: z.string().optional() });

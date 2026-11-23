@@ -20,7 +20,7 @@ use postgres::{Client, NoTls};
 use service_kit::edge;
 use service_kit::http::{Fetch, FetchError, HttpRequest, HttpResponse};
 use service_kit::json::{self, Json};
-use service_kit::money::parse_amount;
+use service_kit::money::{Amount, parse_amount};
 use service_kit::pg::Pool;
 use service_kit::schema::Value;
 use service_kit::server::Request;
@@ -241,19 +241,19 @@ impl HostRights for MayHost {
 struct HeldStake {
     started: Arc<Gate>,
     finish: Arc<Gate>,
-    value: Result<i128, Refusal>,
+    value: Result<Amount, Refusal>,
 }
 impl Stake for HeldStake {
-    fn stake_of(&self, _: &str) -> Result<i128, Refusal> {
+    fn stake_of(&self, _: &str) -> Result<Amount, Refusal> {
         self.started.open();
         self.finish.wait();
         self.value.clone()
     }
 }
 
-struct Fixed(i128);
+struct Fixed(Amount);
 impl Stake for Fixed {
-    fn stake_of(&self, _: &str) -> Result<i128, Refusal> {
+    fn stake_of(&self, _: &str) -> Result<Amount, Refusal> {
         Ok(self.0)
     }
 }
@@ -261,7 +261,7 @@ impl Stake for Fixed {
 fn ports_with(stream: Box<dyn Stream>) -> Ports {
     let mut ports = Ports::unwired();
     ports.host_rights = Box::new(MayHost);
-    ports.stake = Box::new(Fixed(0));
+    ports.stake = Box::new(Fixed(Amount::ZERO));
     ports.stream = stream;
     ports
 }

@@ -514,7 +514,7 @@ export function StudiesBar({
                       {!here ? (
                         <>
                           {' '}
-                          <span className="dw-badge">{word('Hidden on this interval')}</span>
+                          <span className="lt-muted">{word('Hidden on this interval')}</span>
                         </>
                       ) : null}
                     </span>
@@ -542,7 +542,7 @@ export function StudiesBar({
         <Button type="button" variant="secondary" onClick={() => setAdding(true)}>
           {t('Indicators')}
         </Button>
-        <div className="st-chips" role="group" aria-label={t('Studies on this chart')}>
+        <div className="lt-actions" role="group" aria-label={t('Studies on this chart')}>
           {store.studies.map((s) => (
             <button
               key={s.id}

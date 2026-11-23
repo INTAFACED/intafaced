@@ -76,7 +76,7 @@ const { testPartner } = await svc('partner/test-partner.ts');
 const { parseCashLegRates } = await svc('partner/cash-leg.ts');
 const { registerAgentsUsagePayment, usagePaymentHeldBy } = await svc('agents/usage-payment.ts');
 const { answerTestPartnerRecord, onLoopback, TEST_PARTNER_RECORD_BASE } = await svc('partner/test-partner-record.ts');
-const { ageSharedPotInvite, ageBusinessInvite, agePayYourselfRule } = await svc('test-age-door.ts');
+const { ageSharedPotInvite, ageBusinessInvite, agePayYourselfRule, ageScheduledTransfer } = await svc('test-age-door.ts');
 
 const SECRET = 'placeholder-bank-partner-probe-edge-secret-0000';
 const INTERNAL = 'placeholder-bank-partner-probe-internal-secret-0';
@@ -216,6 +216,7 @@ registerTestAgeDoor(app, {
     'shared-pot-invite': ageSharedPotInvite(fakeSql),
     'business-invite': ageBusinessInvite(fakeSql),
     'pay-yourself-rule': agePayYourselfRule(fakeSql),
+    'scheduled-transfer': ageScheduledTransfer(fakeSql),
   },
   installRawBody: false,
 });

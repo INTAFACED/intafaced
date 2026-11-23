@@ -347,7 +347,7 @@ pub struct Edit<'a> {
 pub fn update(d: &Deps<'_>, e: &Edit<'_>) -> Result<Schedule, Refusal> {
     let now = d.now;
     let cutoff = edit_cutoff(d.w.settings.schedule_edit_cutoff.as_deref())?;
-    if e.amount <= 0 {
+    if e.amount <= Amount::ZERO {
         return Err(validation("A standing order amount must be above zero"));
     }
     in_tx(d.store, |tx| {
@@ -1193,7 +1193,7 @@ fn top_up_bills_pot(
         .balance(&pot.ledger_account())
         .map_err(Refusal::Other)?;
     let shortfall = s.amount - held;
-    if shortfall <= 0 {
+    if shortfall <= Amount::ZERO {
         return Ok(true);
     }
     let main = resolve_for_debit(tx, &primary.id, d.now)?;
@@ -1246,7 +1246,7 @@ fn top_up_bills_pot_at_partner(
     }
     let held = reported(&p.balance(&pot.partner_account(), d.now))?;
     let shortfall = s.amount - held;
-    if shortfall <= 0 {
+    if shortfall <= Amount::ZERO {
         return Ok(true);
     }
     let main = resolve_for_debit(tx, &primary.id, d.now)?;

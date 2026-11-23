@@ -294,6 +294,22 @@ describe('refuseTestVenueOutsideTest', () => {
     expect(refusalCode(() => refuseTestVenueOutsideTest(sim, env))).toBe('test_venue_outside_test');
   });
 
+  it('allows a TEST venue in the beta posture: APP_ENV staging and INTAFACED_BETA_POSTURE test-networks', () => {
+    expect(() => refuseTestVenueOutsideTest(sim, 'staging', 'test-networks')).not.toThrow();
+    expect(() => refuseTestVenueOutsideTest({ ...sim, proofLevel: 'partner-sandbox' }, 'staging', 'test-networks')).not.toThrow();
+  });
+
+  it.each([
+    ['prod', 'test-networks'],
+    ['staging', 'mainnet'],
+    ['staging', ''],
+    ['staging', 'TEST-NETWORKS'],
+    ['staging', undefined],
+    [undefined, 'test-networks'],
+  ])('refuses a TEST venue in APP_ENV %j with the beta switch %j', (env, betaPosture) => {
+    expect(refusalCode(() => refuseTestVenueOutsideTest(sim, env, betaPosture))).toBe('test_venue_outside_test');
+  });
+
   it('counts every proof level but live as TEST', () => {
     expect(isTestVenue(sim)).toBe(true);
     expect(isTestVenue({ ...sim, proofLevel: 'partner-sandbox' })).toBe(true);

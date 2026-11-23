@@ -86,7 +86,7 @@ export function RecentPanel() {
 
   return (
     <div className="pay-recent" data-testid="pay-recent">
-      <section className="pay-recent__section" aria-labelledby="pay-recent-payments" data-testid="recent-payments">
+      <section className="lt-stack" aria-labelledby="pay-recent-payments" data-testid="recent-payments">
         <header className="pay-recent__head">
           <h2 id="pay-recent-payments">{copy.t('paymentsTitle')}</h2>
           <button type="button" className="pay-recent__link" onClick={() => setRevision((value) => value + 1)}>
@@ -155,7 +155,7 @@ export function RecentPanel() {
         ) : null}
       </section>
 
-      <section className="pay-recent__section" aria-labelledby="pay-recent-recipients" data-testid="recent-recipients">
+      <section className="lt-stack" aria-labelledby="pay-recent-recipients" data-testid="recent-recipients">
         <header className="pay-recent__head">
           <h2 id="pay-recent-recipients">{copy.t('recipientsTitle')}</h2>
         </header>

@@ -267,19 +267,19 @@ impl Http {
                     total = whole(&page, "total");
                     for sum in list(&page, "sums") {
                         let asset = text(sum, "assetId");
-                        add(&mut net, &asset, parse_amount(&text(sum, "net")).ok()?);
+                        add(&mut net, &asset, parse_amount(&text(sum, "net")).ok()?)?;
                         tally(
                             &mut by_kind,
                             &format!("held:{asset}"),
                             parse_amount(&text(sum, "held")).ok()?,
                             i128::from(whole(sum, "heldCount")),
-                        );
+                        )?;
                         tally(
                             &mut by_kind,
                             &format!("reversal_unfunded:{asset}"),
                             parse_amount(&text(sum, "reversalUnfunded")).ok()?,
                             i128::from(whole(sum, "reversalUnfundedCount")),
-                        );
+                        )?;
                     }
                 }
                 Some(f) if *f != shape => return None,
@@ -298,7 +298,9 @@ impl Http {
                 } else {
                     format!("-{amount}")
                 };
-                if text(item, "signedAmount") != signed || parse_amount(&amount).ok()? <= 0 {
+                if text(item, "signedAmount") != signed
+                    || parse_amount(&amount).ok()? <= Amount::ZERO
+                {
                     return None;
                 }
                 let named = parsed(
@@ -335,14 +337,14 @@ impl Http {
         let mut added: Vec<(String, Amount)> = Vec::new();
         let mut listed: Vec<(String, Amount)> = Vec::new();
         for i in &items {
-            add(&mut added, &i.asset_id, i.amount);
+            add(&mut added, &i.asset_id, i.amount)?;
             // Kind by kind, in amount and in count, so two kinds can never swap behind a net that still adds up.
             tally(
                 &mut listed,
                 &format!("{}:{}", i.kind, i.asset_id),
                 i.amount.checked_abs()?,
                 1,
-            );
+            )?;
         }
         if !same(&added, &net) || !same(&listed, &by_kind) {
             return None;
@@ -351,26 +353,33 @@ impl Http {
     }
 }
 
-fn add(into: &mut Vec<(String, Amount)>, key: &str, amount: Amount) {
+/// `add`: `amount` onto `key`'s figure; `None` when the sum leaves `i128`, so two figures past its top never clamp
+/// to one value and read as equal.
+fn add(into: &mut Vec<(String, Amount)>, key: &str, amount: Amount) -> Option<()> {
     match into.iter_mut().find(|(k, _)| k == key) {
-        Some((_, v)) => *v = v.saturating_add(amount),
+        Some((_, v)) => *v = v.checked_add(amount)?,
         None => into.push((key.to_owned(), amount)),
     }
+    Some(())
 }
 
 /// `tally`: one kind's amount under `key` and its count under `#key`, skipping a sum that is zero in both.
-fn tally(into: &mut Vec<(String, Amount)>, key: &str, amount: Amount, count: i128) {
-    if amount == 0 && count == 0 {
-        return;
+fn tally(into: &mut Vec<(String, Amount)>, key: &str, amount: Amount, count: i128) -> Option<()> {
+    if amount == Amount::ZERO && count == 0 {
+        return Some(());
     }
-    add(into, key, amount);
-    add(into, &format!("#{key}"), count);
+    add(into, key, amount)?;
+    // The count rides in the same figures as the amounts, as the TypeScript's one bigint map holds both; it is a
+    // count, not money, so it goes in as its raw integer on both sides of `same`.
+    add(into, &format!("#{key}"), Amount::from_scaled(count))
 }
 
 /// Every key of either side holds the same figure on both, a missing one read as zero.
 fn same(a: &[(String, Amount)], b: &[(String, Amount)]) -> bool {
     let of = |side: &[(String, Amount)], k: &str| {
-        side.iter().find(|(key, _)| key == k).map_or(0, |(_, v)| *v)
+        side.iter()
+            .find(|(key, _)| key == k)
+            .map_or(Amount::ZERO, |(_, v)| *v)
     };
     a.iter().chain(b).all(|(k, _)| of(a, k) == of(b, k))
 }

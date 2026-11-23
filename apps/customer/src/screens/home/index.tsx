@@ -9,7 +9,6 @@ import {
   dec,
   fmtChangeLine,
   isHiddenPath,
-  refusalCopy,
   useActivity,
   useFavorites,
   useMarkets,
@@ -23,6 +22,7 @@ import {
   type HomePortfolio,
 } from './deps';
 import { InfoTip } from './InfoTip';
+import { balanceRefusal } from './balance-refusal';
 import { ChangeText, HeroFigure, StateBlock } from './volt-parts';
 import { MarketsFailure, MarketsRow, MarketsSkeleton, MoversHeading, MoversRow, MoversSkeleton } from './MarketsSection';
 import { YourCrypto, YourCryptoSkeleton } from './YourCrypto';
@@ -123,7 +123,7 @@ function Balance({ portfolio, hidden }: { portfolio: Loadable<HomePortfolio>; hi
 
   if (portfolio.status === 'refused') {
     // The raw service code never reaches the screen: only a short reference a customer can quote to support.
-    const copy = refusalCopy(portfolio.code);
+    const copy = balanceRefusal(portfolio.code);
     return <StateBlock kind="refused" title={copy.title} body={copy.body} code={copy.reference} action={copy.action} />;
   }
 

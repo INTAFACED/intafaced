@@ -42,7 +42,7 @@ pub fn parse_payoff_fee(raw: Option<&str>) -> Result<Amount, Refusal> {
         ));
     }
     let fee = amount_text(text)?;
-    if fee != 0 {
+    if fee != Amount::ZERO {
         return Err(refuse(
             "bank.loan_fee_unsupported",
             "A loan payoff fee is published, but repay cannot collect a fee, so no payoff quote is given",
@@ -130,7 +130,7 @@ pub fn project_days(
     )]
     let days = days as i64;
     let applied = extra
-        .filter(|e| *e > 0)
+        .filter(|e| *e > Amount::ZERO)
         .map(|e| apply_interest_first(principal, interest, e));
     let (mut principal, mut interest) = applied.map_or((principal, interest), |(p, i, _)| (p, i));
     let opening_principal = format_amount(principal);
@@ -181,7 +181,7 @@ pub struct PayoffAsk<'a> {
 
 /// `quotePayoff`: what clears the loan today, valid until the owner's window or the UTC day ends.
 pub fn quote_payoff(a: &PayoffAsk<'_>) -> Result<Json, Refusal> {
-    if a.principal + a.interest <= 0 {
+    if a.principal + a.interest <= Amount::ZERO {
         return Err(refuse(
             "bank.loan_closed",
             format!("Loan {} has nothing outstanding", a.loan_id),
@@ -388,7 +388,7 @@ fn debt_before(
     let drawn = if drawn_at.is_some_and(|t| t < cutoff) {
         drawn_principal
     } else {
-        0
+        Amount::ZERO
     };
     let cut = instant_f64(Instant(cutoff));
     let r = c
@@ -426,7 +426,7 @@ fn debt_before(
     // Insured shortfall is principal the books wrote off, counted once its bad-debt tx is set, as `outstanding` does.
     let principal = drawn - repaid_p - seized_p - seized_s;
     let interest = accrued + adjusted - repaid_i - seized_i;
-    Ok((principal.max(0), interest.max(0)))
+    Ok((principal.max(Amount::ZERO), interest.max(Amount::ZERO)))
 }
 
 fn assert_range(from: &str, to: &str) -> Result<(i64, i64), Refusal> {
@@ -506,7 +506,7 @@ pub fn statement(
                 kind: "draw",
                 at,
                 amount: l.principal,
-                interest: 0,
+                interest: Amount::ZERO,
                 principal: l.principal,
                 asset: l.debt_asset_id.clone(),
                 ledger_tx_id: l.draw_ledger_tx_id.clone().unwrap_or_default(),
@@ -528,7 +528,7 @@ pub fn statement(
                 at: day_ms(&day).unwrap_or(0),
                 amount: interest,
                 interest,
-                principal: 0,
+                principal: Amount::ZERO,
                 asset: l.debt_asset_id.clone(),
                 ledger_tx_id: String::new(),
             });
@@ -553,7 +553,7 @@ pub fn statement(
                 at: r.try_get(0).map_err(|e| pg(&e))?,
                 amount: interest,
                 interest,
-                principal: 0,
+                principal: Amount::ZERO,
                 asset: l.debt_asset_id.clone(),
                 ledger_tx_id: String::new(),
             });
@@ -612,8 +612,8 @@ pub fn statement(
                 kind,
                 at: r.try_get(0).map_err(|e| pg(&e))?,
                 amount: amount_text(&r.try_get::<_, String>(3).map_err(|e| pg(&e))?)?,
-                interest: 0,
-                principal: 0,
+                interest: Amount::ZERO,
+                principal: Amount::ZERO,
                 asset: l.collateral_asset_id.clone(),
                 ledger_tx_id: r.try_get::<_, Option<String>>(4).map_err(|e| pg(&e))?.unwrap_or_default(),
             });
@@ -648,12 +648,12 @@ pub fn statement(
             });
             let shortfall = amount_text(&r.try_get::<_, String>(3).map_err(|e| pg(&e))?)?;
             let bad: Option<String> = r.try_get(5).map_err(|e| pg(&e))?;
-            if let Some(bad) = bad.filter(|_| shortfall > 0) {
+            if let Some(bad) = bad.filter(|_| shortfall > Amount::ZERO) {
                 lines.push(Line {
                     kind: "liquidation_shortfall",
                     at,
                     amount: shortfall,
-                    interest: 0,
+                    interest: Amount::ZERO,
                     principal: shortfall,
                     asset: l.debt_asset_id.clone(),
                     ledger_tx_id: bad,

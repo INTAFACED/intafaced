@@ -41,7 +41,7 @@ export function NewAgent() {
     else setRefused(res);
   }
   return (
-    <div className="more-grid">
+    <div className="lt-stack">
       <Panel title={t('templatesTitle')} role="region" aria-label={t('templatesTitle')}>
         <p className="lt-muted">{t('templatesIntro')}</p>
         <div className="depth-card-actions">
