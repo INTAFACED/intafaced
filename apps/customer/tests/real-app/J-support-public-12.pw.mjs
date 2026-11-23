@@ -126,11 +126,12 @@ test(`${J} #1 the agent directory shows availability and groups; an agent goes b
   await page.reload();
   await expect(staff.getByTestId('staff-policy')).toContainText('5 seconds');
   await expect(availability(people.c)).toHaveText('online');
-  // svc-support's directory reads C offline once the window has passed; the page then shows it on one refresh.
+  // svc-support's directory reads C offline once the 5 s window has passed (allowed 6.5 s, as before); the page then shows
+  // it on one refresh.
   await expect
     .poll(async () => (await desk('lead', 'query', 'staffList')).find((m) => m.userId === people.c)?.availability, {
-      timeout: 20_000,
-      intervals: [1_000],
+      timeout: 6_500,
+      intervals: [500],
     })
     .toBe('offline');
   await page.getByRole('button', { name: 'Refresh staff', exact: true }).click();
@@ -242,12 +243,12 @@ test(`${J} #4 two groups and an agent in one: the agent's list, search and count
   // The lead still sees all three.
   const leadList = (await desk('lead', 'query', 'listAll', { limit: 500, q: word })).map((t) => t.id);
   expect(leadList.sort()).toEqual([scoped.inOne, scoped.inTwo, scoped.mine].sort());
-  // The agent's own console: its search shows the payments request and its own, never the trading one.
+  // The agent's own console: its queue (unassigned requests only, so not the one already theirs, which listAll shows
+  // above) searched for this step's word shows the payments request, never the trading one.
   const { page: agentPage } = await founders.console('b');
   await agentPage.goto(`${ADMIN}/support?q=${word}`);
   const queue = agentPage.getByRole('region', { name: 'Support queue', exact: true });
   await expect(queue.getByRole('row').filter({ hasText: `${word} in payments` })).toHaveCount(1);
-  await expect(queue.getByRole('row').filter({ hasText: `${word} assigned to the agent` })).toHaveCount(1);
   await expect(queue.getByRole('row').filter({ hasText: `${word} in trading` })).toHaveCount(0);
   await stepPicture(agentPage);
 });
