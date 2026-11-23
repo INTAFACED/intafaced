@@ -55,16 +55,16 @@ const SELFIE_CHECK_WORDS: Record<KycSelfieForCompliance['captureCheck'], string>
   not_checked: 'None ran: no automatic liveness or face-match check; a person compares the photo with the ID',
 };
 
-/** An account-control history for one target: every restrict or restore attempt, newest first, as the owning service logged it. */
-function controlHistory(id: string, module: 'identity' | 'trade', area: 'identity' | 'trading', userId: string, service: string): ReadSpec {
+/** This account's trading-control history: every restrict or restore attempt, newest first, as svc-trade logged it. */
+function tradeControlHistory(userId: string): ReadSpec {
   return {
-    id,
-    title: area === 'trading' ? 'Trading restrictions' : 'Account restrictions',
-    note: `Every restrict or restore of this account’s ${area === 'trading' ? 'trading' : 'access'} that ${service} logged, with its outcome. Changing it is on Account controls, with a second founder.`,
-    module,
-    plainName: `${service}’s restriction history`,
+    id: 'trade.controls',
+    title: 'Trading restrictions',
+    note: 'Every restrict or restore of this account’s trading that svc-trade logged, with its outcome. Changing it is on Account controls, with a second founder.',
+    module: 'trade',
+    plainName: 'svc-trade’s restriction history',
     procedure: 'accountControls.history',
-    input: { target: { area, userId }, limit: CONTROL_HISTORY_LIMIT },
+    input: { target: { area: 'trading', userId }, limit: CONTROL_HISTORY_LIMIT },
     shape: 'list',
     idKey: 'auditId',
     page: CONTROL_HISTORY_LIMIT,
@@ -74,8 +74,9 @@ function controlHistory(id: string, module: 'identity' | 'trade', area: 'identit
       col('outcome', 'Outcome', 'text'),
       col('auditId', 'Audit id', 'text', { detail: true }),
     ],
-    emptyText: `${service} has no restriction logged for this account: it has never been restricted or restored here.`,
-    forbiddenText: `${service} did not accept your founder session for this read (account controls need an enabled founder with a confirmed second factor).`,
+    emptyText: 'svc-trade has no restriction logged for this account: it has never been restricted or restored here.',
+    forbiddenText:
+      'svc-trade did not accept your founder session for this read (account controls need an enabled founder with a confirmed second factor).',
   };
 }
 
@@ -437,7 +438,7 @@ export function tabPlan(tab: CustomerTab, userId: string, query: { readonly requ
       };
     case 'trade':
       return {
-        reads: [controlHistory('trade.controls', 'trade', 'trading', userId, 'svc-trade')],
+        reads: [tradeControlHistory(userId)],
         unwired: [
           un(
             'trade.orders',

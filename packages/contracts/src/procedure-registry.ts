@@ -459,7 +459,12 @@ import {
   BANK_AUTO_INVEST_CREATE_DCA,
 } from './bank-auto-invest-2-procedures.js';
 
-import { BANK_AUTO_INVEST_LIST } from './bank-auto-invest-procedures.js';
+import {
+  BANK_AUTO_INVEST_LIST,
+  BANK_AUTO_INVEST_PAUSE,
+  BANK_AUTO_INVEST_RESUME,
+  BANK_AUTO_INVEST_CANCEL,
+} from './bank-auto-invest-procedures.js';
 
 import { BANK_BILLS_OPS_SUMMARY, BANK_BILLS_OPS_FAILED } from './bank-bills-procedures.js';
 
@@ -713,6 +718,8 @@ import {
   BANK_RAMPS_DESTINATIONS_SAVE,
   BANK_RAMPS_DESTINATIONS_REMOVE,
   BANK_RAMPS_OFFRAMP,
+  BANK_RAMPS_ONRAMPS,
+  BANK_RAMPS_OFFRAMPS,
 } from './bank-ramps-procedures.js';
 
 import { BANK_RECOVERY_CLAIMS_OPEN, BANK_RECOVERY_ESTATES } from './bank-recovery-procedures.js';
@@ -2622,7 +2629,12 @@ const part_bank_auto_invest_2_procedures: readonly ProcedureRecord[] = [
   BANK_AUTO_INVEST_CREATE_DCA,
 ];
 
-const part_bank_auto_invest_procedures: readonly ProcedureRecord[] = [BANK_AUTO_INVEST_LIST];
+const part_bank_auto_invest_procedures: readonly ProcedureRecord[] = [
+  BANK_AUTO_INVEST_LIST,
+  BANK_AUTO_INVEST_PAUSE,
+  BANK_AUTO_INVEST_RESUME,
+  BANK_AUTO_INVEST_CANCEL,
+];
 
 const part_bank_bills_procedures: readonly ProcedureRecord[] = [BANK_BILLS_OPS_SUMMARY, BANK_BILLS_OPS_FAILED];
 
@@ -2899,6 +2911,8 @@ const part_bank_ramps_procedures: readonly ProcedureRecord[] = [
   BANK_RAMPS_DESTINATIONS_SAVE,
   BANK_RAMPS_DESTINATIONS_REMOVE,
   BANK_RAMPS_OFFRAMP,
+  BANK_RAMPS_ONRAMPS,
+  BANK_RAMPS_OFFRAMPS,
 ];
 
 const part_bank_recovery_procedures: readonly ProcedureRecord[] = [BANK_RECOVERY_CLAIMS_OPEN, BANK_RECOVERY_ESTATES];
