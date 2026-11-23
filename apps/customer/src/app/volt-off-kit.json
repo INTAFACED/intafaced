@@ -161,7 +161,6 @@
   "/wallet/send",
   "/wallet/scan",
   "/wallet/claim-links",
-  "/wallet/track",
   "/wallet/venue",
   "/wallet/tokens/:token",
   "/wallet/conventions/:convention",
