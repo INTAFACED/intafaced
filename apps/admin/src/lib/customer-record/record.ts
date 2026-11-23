@@ -11,6 +11,7 @@ import {
   PAY_FOUNDER_ADMIN_DEPOSIT_FREEZES_HISTORY,
   PAY_FOUNDER_ADMIN_DEPOSIT_TRAVEL_RULE_LIST,
 } from '@intafaced/contracts/pay-founder-admin-procedures';
+import { TRADE_ACCOUNT_CONTROLS_HISTORY } from '@intafaced/contracts/trade-account-controls-procedures';
 
 export {
   CUSTOMER_TABS,
@@ -62,9 +63,8 @@ function tradeControlHistory(userId: string): ReadSpec {
     id: 'trade.controls',
     title: 'Trading restrictions',
     note: 'Every restrict or restore of this account’s trading that svc-trade logged, with its outcome. Changing it is on Account controls, with a second founder.',
-    module: 'trade',
     plainName: 'svc-trade’s restriction history',
-    procedure: 'accountControls.history',
+    ...readOf(TRADE_ACCOUNT_CONTROLS_HISTORY),
     input: { target: { area: 'trading', userId }, limit: CONTROL_HISTORY_LIMIT },
     shape: 'list',
     idKey: 'auditId',
