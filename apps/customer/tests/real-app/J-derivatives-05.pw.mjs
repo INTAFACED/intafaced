@@ -7,19 +7,18 @@ import { signIn, signUp, verify } from './desk.mjs';
 import { installTestWallet, testWalletKey } from './test-wallet.mjs';
 import { connectWhenAsked } from './dex.mjs';
 import { doorCalls, ledgerUntouched, ledgerView } from './venue-door.mjs';
-import { TEST_VENUE, TEST_VENUE_B, continueInWallet, otherTraderKey, testVenueAt, venueForThisFile } from './venue.mjs';
+import { TEST_VENUE, TEST_VENUE_B, continueInWallet, otherTraderKey, testVenueAt, venueForThisFile, venueRecord } from './venue.mjs';
 
 // J-derivatives-05, "I run my positions room", on the person's own venue accounts (the launch money model: each venue
 // holds the positions and their margin, the ledger posts nothing), in the running app against the stack's two TEST venue
 // simulators (LOCAL_STACK_USER_VENUE=two, as J-derivatives-28). One test per step, titled "J-derivatives-05 #<n>", run in
-// order on one TEST account. #3 and #7 are not here: what their words prove (a mode switch the venue refuses, a position
-// the venue moves between accounts) needs a TEST venue that offers hedge mode and moves positions, which neither of
-// these does.
+// order on one TEST account. #3 is not here: its words' last branch (a mode switch the venue refuses with an open
+// position) needs a TEST venue that offers hedge mode, which neither of these does.
 //
 // The Starts line, made at the start of #1 straight on the TEST venues with the person's own key: positions in two
 // products on two venues (a BTC-PERP perpetual and an XSTK-PERP stock perpetual on the first, a BTC-PERP short on the
-// second). Every figure the page shows is checked against the TEST venue's own record, read straight from the venue,
-// never through our door; the ledger is read before and after to show it posts nothing. Every figure is TEST.
+// second). Every figure the page shows is checked against the TEST venue's own record, read straight from the venue by
+// the venue fixture (`venueRecord`), never through our door; the ledger is read before and after to show it posts nothing. Every figure is TEST.
 const J = 'J-derivatives-05';
 const ROOM = '/trade/positions';
 const BTC = 'BTC-PERP';
@@ -48,9 +47,9 @@ async function venuesNow() {
   return out;
 }
 const accountOn = (venue, owner, subAccount = null) => ({ venueId: venue.id, owner, subAccount });
-/** The venue's own record for one account (`/positions`, `/balances`, `/fills`, ...). */
+/** The venue's own record for one account (`/positions`, `/balances`, `/fills`, ...), read by the venue fixture. */
 const record = async (venue, owner, path, extra = {}, subAccount = null) =>
-  (await at(venue.base, path, { account: accountOn(venue, owner, subAccount), ...extra })).value;
+  (await venueRecord(owner, path, extra, venue.base, subAccount)).value;
 const positionsOn = (venue, owner, subAccount = null) => record(venue, owner, '/positions', {}, subAccount);
 const usdcOn = async (venue, owner, subAccount = null) =>
   (await record(venue, owner, '/balances', {}, subAccount)).find((b) => b.asset === 'USDC') ?? { free: '0', locked: '0', total: '0' };
@@ -492,5 +491,88 @@ test(`${J} #6 opens sub-account positions as the main wallet: each venue sub-acc
     expect(res.status, path).toBe(403);
     expect(res.body.intafacedCode).toBe('trade.venue_sub_account_not_own');
   }
+  await ledgerUntouched(s);
+});
+
+test(`${J} #7 moves a position between main and sub-account: moved where the venue moves positions, both accounts showing the change; refused in words where it can't; moving margin is a signed venue transfer shown on both accounts`, async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  const s = state();
+  if (!s.subAccount) throw new Error(`${J} #6 opened no sub-account, so this step has none to move between`);
+  const v = await venuesNow();
+  // TEST setup, straight on the venue as the owner (#5 closed every main position): one BTC-PERP long on the main account.
+  await signedOn(v.a, s.key, take(BTC, 'buy', '0.01', '60100', `order:jd5:${s.tag}:main-move`));
+  // What a move would change: each position's market, side, size and entry (its mark and P&L move with the market).
+  const held = async (subAccount = null) =>
+    (await positionsOn(v.a, s.owner, subAccount))
+      .map((p) => ({ symbol: p.symbol, side: p.side, size: p.size, entry: p.entryPrice, margin: p.margin }))
+      .sort((x, y) => x.symbol.localeCompare(y.symbol));
+  const mainBefore = await held();
+  const subBefore = await held(s.subAccount);
+  expect(mainBefore.map((p) => p.symbol)).toEqual([BTC]);
+  expect(subBefore.map((p) => p.symbol).sort()).toEqual([BTC, STOCK]);
+
+  const wallet = await openRoom(page, s);
+  const door = doorCalls(page);
+  const subs = page.locator(`[data-testid="positions-subs"][data-venue="${v.a.id}"]`);
+  const card = subs.locator(`[data-testid="positions-sub"][data-sub-account="${s.subAccount}"]`);
+  await expect(card.locator('tbody tr:not([data-row="total"])')).toHaveCount(2, { timeout: 30_000 });
+
+  // The position: the venue moves no open position between accounts, so the move is refused in words, nothing is
+  // prepared or signed, and both accounts' positions on the venue are as they were.
+  const asked = signatures(wallet);
+  const movePosition = subs.getByTestId('positions-move-position');
+  await movePosition.getByRole('combobox', { name: 'Position', exact: true }).selectOption(BTC);
+  await movePosition.getByRole('button', { name: 'Move position to the sub-account', exact: true }).click();
+  await expect(movePosition.getByTestId('positions-move-position-refused')).toHaveText(
+    `${v.a.name} doesn’t move an open position between accounts: no venue connected here offers that. Close it here and open it on the sub-account, or move its margin above.`,
+  );
+  expect(door.of('prepare')).toHaveLength(0);
+  expect(door.of('submit')).toHaveLength(0);
+  expect(signatures(wallet)).toBe(asked);
+  expect(await held()).toEqual(mainBefore);
+  expect(await held(s.subAccount)).toEqual(subBefore);
+
+  // The margin: one signed venue transfer of 100 USDC from the main account into the sub-account, shown on both.
+  const mainFree = (await usdcOn(v.a, s.owner)).free;
+  const subFree = (await usdcOn(v.a, s.owner, s.subAccount)).free;
+  const moveMargin = subs.getByTestId('positions-move-margin');
+  await moveMargin.getByRole('combobox', { name: 'Sub-account', exact: true }).selectOption(s.subAccount);
+  await moveMargin.getByRole('combobox', { name: 'Direction', exact: true }).selectOption('into_sub_account');
+  await moveMargin.getByRole('textbox', { name: 'USDC to move', exact: true }).fill('100');
+  const submitted = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/submit' && r.request().method() === 'POST');
+  await moveMargin.getByRole('button', { name: 'Move margin', exact: true }).click();
+  await continueInWallet(page);
+  await expect(subs).toContainText('The venue accepted it.', { timeout: 20_000 });
+  expect(signatures(wallet)).toBe(asked + 1);
+  const sent = door.of('prepare').map((c) => c.body.intent);
+  expect(sent).toHaveLength(1);
+  expect(sent[0]).toMatchObject({
+    kind: 'sub_account_transfer',
+    subAccount: s.subAccount,
+    direction: 'into_sub_account',
+    asset: 'USDC',
+    amount: '100',
+  });
+  // The venue's own record of that one transfer, by the nonce its answer names.
+  const answer = await (await submitted).json();
+  expect(answer.readBack?.nonce, JSON.stringify(answer).slice(0, 300)).toBeTruthy();
+  const transfer = await record(v.a, s.owner, '/transfer', { nonce: answer.readBack.nonce });
+  expect(transfer).toMatchObject({ subAccount: s.subAccount, direction: 'into_sub_account', asset: 'USDC', status: 'done' });
+  expect(same(transfer.amount, '100')).toBe(true);
+  const mainAfter = (await usdcOn(v.a, s.owner)).free;
+  const subAfter = (await usdcOn(v.a, s.owner, s.subAccount)).free;
+  expect(same(mainAfter, fromUnits(toUnits(mainFree) - toUnits('100')))).toBe(true);
+  expect(same(subAfter, fromUnits(toUnits(subFree) + toUnits('100')))).toBe(true);
+  // Both accounts on the page show the venue's figures after the move.
+  const shows = (locator, figure) => async () => same((await locator.innerText()).trim(), figure);
+  await expect.poll(shows(subs.locator('[data-value="main-free"]'), mainAfter), { timeout: 30_000 }).toBe(true);
+  await expect.poll(shows(card.locator('[data-value="sub-free"]'), subAfter), { timeout: 30_000 }).toBe(true);
+
+  // Sent once: one prepare, one submit, one signature; the positions on both accounts stay where they were.
+  expect(door.of('submit')).toHaveLength(1);
+  expect(await held()).toEqual(mainBefore);
+  expect(await held(s.subAccount)).toEqual(subBefore);
   await ledgerUntouched(s);
 });
