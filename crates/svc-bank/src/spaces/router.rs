@@ -150,39 +150,18 @@ fn spaces_list(
     let mut views = Vec::new();
     for s in spaces {
         let (balance, held_at) = if let Some(p) = &partner {
-            let account = s.partner_account();
-            let reported = reports
-                .iter()
-                .find(|b| {
-                    b.account.asset_id == account.asset_id && b.account.space_id == account.space_id
-                })
-                .cloned()
-                .unwrap_or_else(|| p.balance(&account, money.now));
-            let (Some(amount), Some(as_of)) = (reported.amount, reported.as_of) else {
-                return Err(crate::partner::balance_not_known(reported.label));
-            };
-            let age = money.now.0 - as_of.0;
-            if age < -crate::partner::STALE_AFTER_MS {
-                return Err(crate::partner::balance_not_known(reported.label));
-            }
-            let figure = format_amount(amount);
+            let f = space::held_figure(p, &reports, &s, money.now)?;
+            let figure = format_amount(f.amount);
             let held = Json::obj([
-                ("label", Json::str(reported.label)),
-                ("asOf", Json::str(as_of.iso())),
+                ("label", Json::str(f.label)),
+                ("asOf", Json::str(f.as_of.iso())),
                 (
                     "figure",
                     Json::obj([
-                        (
-                            "state",
-                            Json::str(if age > crate::partner::STALE_AFTER_MS {
-                                "stale"
-                            } else {
-                                "known"
-                            }),
-                        ),
-                        ("source", Json::str(reported.label)),
+                        ("state", Json::str(if f.stale { "stale" } else { "known" })),
+                        ("source", Json::str(f.label)),
                         ("amount", Json::str(figure.clone())),
-                        ("asOf", Json::str(as_of.iso())),
+                        ("asOf", Json::str(f.as_of.iso())),
                         ("staleAfterMs", Json::int(crate::partner::STALE_AFTER_MS)),
                         ("reason", Json::Null),
                     ]),
