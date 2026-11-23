@@ -10,6 +10,7 @@ import {
   crmActivitySchema,
   crmTaskSchema,
   crmContactProvenanceSchema,
+  type CrmNextActionInput,
 } from '@intafaced/contracts';
 import {
   adminSessionErrorResponse,
@@ -32,7 +33,7 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
-type Write = { input: { opportunityId: string }; send: () => Promise<unknown> };
+type Write = { input: { opportunityId: string }; nextAction?: CrmNextActionInput; send: () => Promise<unknown> };
 /**
  * One write, its input checked as the service checks it, and sent through its record. `changeStage` keeps its call by
  * name until its record can carry the stage rules its input checks.
@@ -47,10 +48,15 @@ function writeOf(action: unknown, raw: unknown, config: AdminSessionConfig, acce
   };
   if (action === 'assign')
     return via(OPS_OUTREACH_ASSIGN.input, (input) => founderEdgeRecordCall(config, OPS_OUTREACH_ASSIGN, input, accessToken));
-  if (action === 'updateNextAction')
-    return via(OPS_OUTREACH_UPDATE_NEXT_ACTION.input, (input) =>
-      founderEdgeRecordCall(config, OPS_OUTREACH_UPDATE_NEXT_ACTION, input, accessToken),
-    );
+  if (action === 'updateNextAction') {
+    const parsed = OPS_OUTREACH_UPDATE_NEXT_ACTION.input.safeParse(raw);
+    if (!parsed.success) return null;
+    return {
+      input: parsed.data,
+      nextAction: parsed.data,
+      send: () => founderEdgeRecordCall(config, OPS_OUTREACH_UPDATE_NEXT_ACTION, parsed.data, accessToken),
+    };
+  }
   if (action === 'addNote')
     return via(OPS_OUTREACH_ADD_NOTE.input, (input) => founderEdgeRecordCall(config, OPS_OUTREACH_ADD_NOTE, input, accessToken));
   if (action === 'changeStage')
@@ -201,8 +207,9 @@ export async function POST(request: Request) {
     const row = result.data;
     if (body.action === 'updateNextAction') {
       // The receipt must be the edit that was asked for: same enquiry, one revision on, the new text and time, stage untouched.
-      const asked = write.input as unknown as { expectedRevision: number; description: string; dueAt: string };
+      const asked = write.nextAction;
       if (
+        !asked ||
         !('nextAction' in row) ||
         row.revision !== asked.expectedRevision + 1 ||
         row.nextAction?.description !== asked.description ||

@@ -1,9 +1,7 @@
 import type { Sql } from 'postgres';
-import { z } from 'zod';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import { PERMISSION_AREAS, SubMerchantError, refuseSubMerchantWithoutConsent, type SubMerchantService } from './submerchants.js';
 import { readSubMerchantSummary } from './merchant-portal/summary.js';
-import { areaSchema, permissionEventView } from '@intafaced/contracts/pay-call-schemas';
 import {
   PAY_SUBMERCHANT_LIST,
   PAY_SUBMERCHANT_GET,
