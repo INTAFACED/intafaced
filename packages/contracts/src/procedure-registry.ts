@@ -469,6 +469,7 @@ import {
   BANK_AUTO_INVEST_PAUSE,
   BANK_AUTO_INVEST_RESUME,
   BANK_AUTO_INVEST_CANCEL,
+  BANK_AUTO_INVEST_POLICY,
 } from './bank-auto-invest-procedures.js';
 
 import { BANK_BILLS_OPS_SUMMARY, BANK_BILLS_OPS_FAILED } from './bank-bills-procedures.js';
@@ -633,6 +634,14 @@ import {
   BANK_LOANS_LEDGER_CHECK,
   BANK_LOANS_STATEMENT,
 } from './bank-loans-2-procedures.js';
+
+import {
+  BANK_LOANS_OPEN,
+  BANK_LOANS_REPAY,
+  BANK_LOANS_ADD_COLLATERAL,
+  BANK_LOANS_RELEASE_EXCESS,
+  BANK_LOANS_CLOSE,
+} from './bank-loans-3-procedures.js';
 
 import {
   BANK_LOANS_PRODUCTS,
@@ -2727,6 +2736,7 @@ const part_bank_auto_invest_procedures: readonly ProcedureRecord[] = [
   BANK_AUTO_INVEST_PAUSE,
   BANK_AUTO_INVEST_RESUME,
   BANK_AUTO_INVEST_CANCEL,
+  BANK_AUTO_INVEST_POLICY,
 ];
 
 const part_bank_bills_procedures: readonly ProcedureRecord[] = [BANK_BILLS_OPS_SUMMARY, BANK_BILLS_OPS_FAILED];
@@ -2909,6 +2919,14 @@ const part_bank_loans_2_procedures: readonly ProcedureRecord[] = [
   BANK_LOANS_INTEREST_ROWS,
   BANK_LOANS_LEDGER_CHECK,
   BANK_LOANS_STATEMENT,
+];
+
+const part_bank_loans_3_procedures: readonly ProcedureRecord[] = [
+  BANK_LOANS_OPEN,
+  BANK_LOANS_REPAY,
+  BANK_LOANS_ADD_COLLATERAL,
+  BANK_LOANS_RELEASE_EXCESS,
+  BANK_LOANS_CLOSE,
 ];
 
 const part_bank_loans_procedures: readonly ProcedureRecord[] = [
@@ -4713,6 +4731,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_bank_holds_procedures,
   ...part_bank_linked_accounts_procedures,
   ...part_bank_loans_2_procedures,
+  ...part_bank_loans_3_procedures,
   ...part_bank_loans_procedures,
   ...part_bank_ops_2_procedures,
   ...part_bank_ops_procedures,

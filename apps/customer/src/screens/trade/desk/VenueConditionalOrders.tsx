@@ -445,6 +445,8 @@ function PendingRow({ order: o, onChanged }: { order: SpotConditionalView; onCha
       </td>
       <td data-cell="status">
         {t(`status_${o.status}`)}
+        {/* A sent order says what became of it on the venue: filled, partly filled, open or cancelled. */}
+        {o.status === 'fired' && o.legs[0] ? <span> · {t(`leg_${o.legs[0].status}`)}</span> : null}
         {o.failure ? <span className="lt-note-bad"> · {t('Failure', { failure: o.failure })}</span> : null}
         {o.status === 'cancelled' && isReason(o.cancelReason) ? <span> · {t(`Cancel reason ${o.cancelReason}`)}</span> : null}
         {o.expireAt ? (
