@@ -1163,11 +1163,20 @@ export async function indexHead(dir) {
  * replay 2 of the 117 carried heads' fresh reviews FAILed a finding the first PASS had missed, the second look a carry
  * gives up.)
  *
+ * A verdict is the patch read against the briefs of its day, so it carries only while they stand: a head first reviewed
+ * before main's newest change to either brief (`CARRY_BRIEFS`) is passed over, and a patch the owner's new decision
+ * entry now allows is reviewed again rather than held by the FAIL the entry answers (intafaced#10229 on 23 Nov 2026:
+ * the entry merged and the FAIL of the patch it allowed still stood). An unread brief date carries nothing.
+ *
  * `runs` are this workflow's runs on the pull request's branch; `attempts(run)` the jobs of each attempt; `diffOf(sha)`
  * the compare API's diff of base...sha, the same read as `diff`; `baseAtOf(sha)` when that diff's merge base reached
- * main (ms). Returns null (review it) or { from, review, tests } with each part `PASS` or `FAIL`.
+ * main (ms); `briefsAt` when main last changed a brief (ms). Returns null (review it) or { from, review, tests } with
+ * each part `PASS` or `FAIL`.
  */
 export const CARRY_HEADS = 5;
+
+/** The briefs a verdict is given against (REVIEW.md, the review's; JUDGE.md, the test part's). */
+export const CARRY_BRIEFS = ['tooling/ci/ci-review/REVIEW.md', 'tooling/ci/test-judge/JUDGE.md'];
 
 /** Whether every file in a unified diff has an `index <old>..<new>` line naming its blobs. */
 export const everyFileIndexed = (diff) =>
@@ -1176,9 +1185,9 @@ export const everyFileIndexed = (diff) =>
     .slice(1)
     .every((sec) => /^index [0-9a-f]+\.\.[0-9a-f]+/m.test(sec));
 
-export async function carriedVerdict({ pull, diff, runs, attempts, diffOf, baseAtOf }) {
+export async function carriedVerdict({ pull, diff, runs, attempts, diffOf, baseAtOf, briefsAt }) {
   const { ciReviewVerdict, REVIEW_CHECK, JUDGE_CHECK, REVIEW_WORKFLOW, REVIEW_BASE } = await import('./review-marker.mjs');
-  if (!everyFileIndexed(diff) || typeof baseAtOf !== 'function') return null;
+  if (!everyFileIndexed(diff) || typeof baseAtOf !== 'function' || !Number.isFinite(briefsAt)) return null;
   const own = String(pull.head).toLowerCase();
   const heads = new Map();
   for (const r of runs ?? []) {
@@ -1195,6 +1204,7 @@ export async function carriedVerdict({ pull, diff, runs, attempts, diffOf, baseA
   const newest = [...heads.entries()].sort((a, b) => b[1].at - a[1].at).slice(0, CARRY_HEADS);
   const matched = [];
   for (const [sha, h] of newest) {
+    if (h.first < briefsAt) continue;
     const read = (check) => ciReviewVerdict({ sha, runs: h.runs, attempts, base: REVIEW_BASE, number: pull.number, check });
     const review = await read(REVIEW_CHECK);
     const tests = await read(JUDGE_CHECK);
@@ -1253,7 +1263,13 @@ async function readCarry({ repo, pull, diff, get = getText }) {
     const c = await json(`/repos/${repo}/compare/${pull.base}...${sha}?per_page=1`);
     return Date.parse(c?.merge_base_commit?.commit?.committer?.date ?? '');
   };
-  return carriedVerdict({ pull, diff, runs, attempts, diffOf, baseAtOf });
+  // main's newest change to either brief, read at this run's base: the commit that changed it reached main then.
+  let briefsAt = -Infinity;
+  for (const path of CARRY_BRIEFS) {
+    const [c] = await json(`/repos/${repo}/commits?sha=${pull.base}&path=${encodeURIComponent(path)}&per_page=1`);
+    briefsAt = Math.max(briefsAt, Date.parse(c?.commit?.committer?.date ?? ''));
+  }
+  return carriedVerdict({ pull, diff, runs, attempts, diffOf, baseAtOf, briefsAt });
 }
 
 /**
