@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { keccak256, toHex, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { recoverTypedDataSigner, spotSendAction, type FetchLike } from '../src/index.js';
-import { runSend } from './testnet-send.js';
+import { recoverTypedDataSigner, type FetchLike } from '../src/index.js';
+import { runSend, spotToSpotSend } from './testnet-send.js';
 
 const NOW = Date.UTC(2026, 10, 23, 0, 0, 0);
 /** A TEST key derived from a label. Never a real key. */
@@ -19,7 +19,12 @@ function fakeNet(spot: Map<string, number>, exchangeAnswer: unknown = { status: 
     if (url.endsWith('/exchange')) {
       const action = body.action as Record<string, string>;
       sent.push(body);
-      if ((exchangeAnswer as { status?: string }).status === 'ok' && action.type === 'spotSend') {
+      if (
+        (exchangeAnswer as { status?: string }).status === 'ok' &&
+        action.type === 'sendAsset' &&
+        action.sourceDex === 'spot' &&
+        action.destinationDex === 'spot'
+      ) {
         spot.set(action.destination!, (spot.get(action.destination!) ?? 0) + Number(action.amount));
         spot.set(FUNDER_ADDR, (spot.get(FUNDER_ADDR) ?? 0) - Number(action.amount));
       }
@@ -56,16 +61,28 @@ describe('testnet:send', () => {
     expect(r.sent).toHaveLength(1);
     const body = r.sent[0] as { action: Record<string, unknown>; nonce: number; signature: { r: string; s: string; v: number } };
     expect(body.action).toMatchObject({
-      type: 'spotSend',
+      type: 'sendAsset',
       destination: TO,
+      sourceDex: 'spot',
+      destinationDex: 'spot',
       token: `USDC:${TOKEN_ID}`,
       amount: '500',
+      fromSubAccount: '',
       hyperliquidChain: 'Testnet',
+      nonce: body.nonce,
     });
-    const { typedData } = spotSendAction(TO, `USDC:${TOKEN_ID}`, '500', BigInt(body.nonce));
+    const { typedData } = spotToSpotSend(TO, `USDC:${TOKEN_ID}`, '500', BigInt(body.nonce));
     const joined = `${body.signature.r}${body.signature.s.slice(2)}${body.signature.v.toString(16)}`;
     expect(await recoverTypedDataSigner(typedData, joined)).toBe(FUNDER_ADDR);
+    expect(typedData.primaryType).toBe('HyperliquidTransaction:SendAsset');
+    expect(r.text).toContain('before: funder 999 spot USDC free, destination 0');
     expect(r.text).toContain('after: funder 499 spot USDC free, destination 500');
+  });
+
+  it('signs sendAsset, never spotSend or usdSend, which a unified account refuses', async () => {
+    const r = await run({});
+    const types = r.sent.map((b) => (b.action as { type: string }).type);
+    expect(types).toEqual(['sendAsset']);
   });
 
   it('takes the key as MetaMask exports it, 64 hex characters with no 0x, and signs as that account', async () => {
@@ -73,7 +90,7 @@ describe('testnet:send', () => {
     expect(r.code).toBe(0);
     expect(r.sent).toHaveLength(1);
     const body = r.sent[0] as { nonce: number; signature: { r: string; s: string; v: number } };
-    const { typedData } = spotSendAction(TO, `USDC:${TOKEN_ID}`, '500', BigInt(body.nonce));
+    const { typedData } = spotToSpotSend(TO, `USDC:${TOKEN_ID}`, '500', BigInt(body.nonce));
     const joined = `${body.signature.r}${body.signature.s.slice(2)}${body.signature.v.toString(16)}`;
     expect(await recoverTypedDataSigner(typedData, joined)).toBe(FUNDER_ADDR);
   });

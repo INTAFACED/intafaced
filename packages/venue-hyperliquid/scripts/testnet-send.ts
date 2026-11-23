@@ -12,7 +12,10 @@
  *    that isn't 32-byte hex, a destination that isn't a 0x address or is the funder itself, an amount that isn't a
  *    positive decimal with at most 2 decimals, or one above `MAX_SEND_USDC`.
  * 2. Reads the funder's free spot USDC on the testnet; refuses when it holds less than the amount (exit 1).
- * 3. Signs a user-signed `spotSend` of USDC (the token named by the venue's own spotMeta) and posts it.
+ * 3. Signs a user-signed `sendAsset` of USDC (the token named by the venue's own spotMeta), spot to spot from the main
+ *    account, checks it against the @nktkas/hyperliquid build of the same action, and posts it. `sendAsset` because the
+ *    funder is a unified account, where the venue refuses `spotSend` and `usdSend` ("Action disabled when unified
+ *    account is active"); both account kinds accept `sendAsset`.
  * 4. Reads the destination's spot USDC again until it has risen by the amount, or a short wait runs out.
  * Prints only addresses, amounts and the venue's answers. The key is never printed, logged or written.
  */
@@ -25,12 +28,13 @@ import {
   HyperliquidTestnetUserVenue,
   assertTestnetUrl,
   recoverTypedDataSigner,
-  spotSendAction,
+  sendAssetAction,
   splitSignature,
   typedDataDigest,
   type FetchLike,
   type HyperliquidNonceSource,
 } from '../src/index.js';
+import { assertSigningAgrees } from '../src/cross-check.js';
 import { isHexKey } from './live-settings.js';
 import { postExchange } from './testnet-setup.js';
 
@@ -107,6 +111,11 @@ async function usdcToken(fetchImpl: FetchLike, baseUrl: string): Promise<string>
   return `USDC:${usdc.tokenId}`;
 }
 
+/** The one send this script makes: `token` from the funder's spot balance to `to`'s spot balance, main account. */
+export function spotToSpotSend(to: string, token: string, amount: string, nonce: bigint): ReturnType<typeof sendAssetAction> {
+  return sendAssetAction({ destination: to, sourceDex: 'spot', destinationDex: 'spot', token, amount, fromSubAccount: '' }, nonce);
+}
+
 export async function runSend(deps: SendDeps): Promise<SendExit> {
   const { env, out, err } = deps;
   const fetchImpl: FetchLike = deps.fetch ?? ((url, init) => globalThis.fetch(url, init));
@@ -149,7 +158,13 @@ export async function runSend(deps: SendDeps): Promise<SendExit> {
   }
 
   const nonce = await nonceSource.next(from, clock().getTime());
-  const { action, typedData } = spotSendAction(inputs.to, token, inputs.amountText, BigInt(nonce));
+  const { action, typedData } = spotToSpotSend(inputs.to, token, inputs.amountText, BigInt(nonce));
+  try {
+    await assertSigningAgrees({ action, vaultAddress: null, nonce: String(nonce), typedData });
+  } catch (error) {
+    err(`testnet send stopped: ${(error as Error).message}`);
+    return 1;
+  }
   const signature = await signer.sign({ hash: typedDataDigest(typedData) });
   if ((await recoverTypedDataSigner(typedData, signature)) !== from) {
     err('testnet send stopped: the signature does not recover the funder; not sent.');
@@ -160,7 +175,7 @@ export async function runSend(deps: SendDeps): Promise<SendExit> {
     baseUrl,
     JSON.stringify({ action, nonce: Number(nonce), signature: splitSignature(signature), vaultAddress: null, expiresAfter: null }),
   );
-  out(`spotSend (nonce ${nonce}): ${verdict.text}`);
+  out(`sendAsset (nonce ${nonce}): ${verdict.text}`);
   if (!verdict.ok) return 1;
 
   const want = add(toBefore, inputs.amount);
