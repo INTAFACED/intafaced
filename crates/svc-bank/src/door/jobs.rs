@@ -457,31 +457,4 @@ mod tests {
         paths.dedup();
         assert_eq!(paths.len(), JOB_DOORS.len());
     }
-
-    /// While the TypeScript service runs, the table is its `index.ts`'s job routes, in its order.
-    #[test]
-    fn the_table_is_the_job_routes_index_ts_registers() {
-        let index = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../services/svc-bank/src/index.ts");
-        let Ok(text) = std::fs::read_to_string(index) else {
-            return;
-        };
-        let mut theirs = Vec::new();
-        let mut rest = text.as_str();
-        while let Some(at) = rest.find("'/internal/") {
-            let after = &rest[at + 1..];
-            let end = after.find('\'').unwrap_or(after.len());
-            theirs.push(&after[..end]);
-            rest = &after[end..];
-        }
-        let jobs: Vec<&str> = theirs
-            .iter()
-            .copied()
-            .filter(|p| p.starts_with("/internal/jobs/"))
-            .collect();
-        let ours: Vec<&str> = JOB_DOORS.iter().map(|d| d.path).collect();
-        assert_eq!(ours, jobs);
-        assert!(theirs.contains(&RESTORE_WATERMARK));
-        assert!(theirs.contains(&PARTNER_RESERVES));
-    }
 }

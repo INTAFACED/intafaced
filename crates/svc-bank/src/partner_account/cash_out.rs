@@ -100,7 +100,16 @@ impl Wiring {
             partner,
             receipt_secret: Some(secret).filter(|s| !s.is_empty()),
             security_lock,
-            ledger: Box::new(Unwired),
+            ledger: match super::recovery::call_signer(env, "svc-ledger")? {
+                None => Box::new(Unwired),
+                Some(signer) => Box::new(ledger::HttpLedger(Box::new(
+                    crate::spaces::ports::LedgerHttp::new(
+                        raw("LEDGER_URL").unwrap_or("http://localhost:4001"),
+                        signer,
+                        Box::new(UreqFetch::new()),
+                    ),
+                ))),
+            },
             gate: Gate::new(
                 raw("DATABASE_POOL_MAX")
                     .and_then(|v| js_trim(v).parse::<usize>().ok())

@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
-import { HOME_ASSET, HOME_DEPOSIT_AMOUNT, HOME_NOTICE_TITLE } from '../../../../tooling/scripts/local-test-home.mjs';
+import { HOME_NOTICE_TITLE } from '../../../../tooling/scripts/local-test-home.mjs';
 import { ROOT } from './stack.mjs';
 import { COMPOSE, composeSteps, run, seedService } from './tester-compose.mjs';
 
@@ -120,10 +120,10 @@ test(`${J} #1 a fresh compose up with the tester profile seeds (BLOCKED compose_
     expect(up.out).toMatch(new RegExp(`seed: done \\(${ran.length} steps\\)$`, 'm'));
     // What it made, as its run reports it and its closing status reads it back from the compose stack's services.
     expect(up.out).toContain(`home notice: ${HOME_NOTICE_TITLE} published`);
-    expect(up.out).toMatch(new RegExp(`home inbox: 1 deposit-credited row for \\S+$`, 'm'));
-    expect(up.out).toContain(`  deposit  ${HOME_DEPOSIT_AMOUNT} ${HOME_ASSET} credited  `);
+    expect(up.out).toMatch(new RegExp(`home inbox: 1 transfer-received row for \\S+$`, 'm'));
+    expect(up.out).toMatch(/ {2}wallet {2}0x[0-9a-f]{40}$/m);
     expect(up.out).toContain(`  notice  ${HOME_NOTICE_TITLE}  published`);
-    expect(up.out).toContain(`  inbox  1 deposit-credited row  `);
+    expect(up.out).toContain(`  inbox  1 transfer-received row  `);
     // Once: the seed service has exactly one container, exited 0.
     const runs = compose(['ps', '-a', '--format', '{{.Service}} {{.State}} {{.ExitCode}}', 'seed'], env);
     expect(runs.out.trim().split('\n')).toEqual(['seed exited 0']);

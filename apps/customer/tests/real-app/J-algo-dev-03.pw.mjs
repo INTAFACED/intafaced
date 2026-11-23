@@ -139,6 +139,7 @@ async function saveVersion(page, name, slow, note, version) {
 
 test(`${J} #3 edits, saves and writes release notes on two versions, then compares them: both listed with notes and a diff; the code each past run used is shown`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(10 * 60_000);
   const { strategyId } = run.read();
@@ -190,8 +191,14 @@ test(`${J} #3 edits, saves and writes release notes on two versions, then compar
   await ran.getByRole('button', { name: 'Show the code (version 2)' }).click();
   const code = versions.getByTestId('quant-run-code');
   await expect(code).toHaveAttribute('data-version', '2');
-  await expect(code.getByTestId('quant-version-source')).toContainText('BTC/USDT');
+  // Version 2's own source: its slow average is 3 bars (saved above), not version 3's 4.
+  const source = code.getByTestId('quant-version-source');
+  await expect(source).toHaveAttribute('data-version', '2');
+  await expect(source).toContainText('const closes = bars("BTC/USDT", "1m").close;');
+  await expect(source).toContainText(/const slow = \w+\(closes, 3\);/);
+  await expect(source).not.toContainText(/const slow = \w+\(closes, 4\);/);
   await expect(code.locator('textarea, [contenteditable="true"]')).toHaveCount(0);
+  await stepPicture();
 });
 
 /** A TEST starter template through the operator's publish door, as the founder console calls it. */
@@ -739,6 +746,7 @@ async function startBacktest(page, slippage) {
 test(`${J} #9 starts a fourth run when the plan allows three stored runs: a refusal naming stored runs with 3 used of 3 allowed; the stored runs are unchanged`, async ({
   page,
   founders,
+  stepPicture,
 }) => {
   test.setTimeout(10 * 60_000);
   const { strategyId } = run.read();
@@ -770,6 +778,8 @@ test(`${J} #9 starts a fourth run when the plan allows three stored runs: a refu
   await expect(refusal).toHaveAttribute('data-kind', 'exceeded');
   await expect(refusal).toContainText('Your plan allows 3 stored runs: 3 used of 3 allowed. Nothing was added.');
   await expect(room.getByTestId('quant-bar-result')).toHaveCount(0);
+  // The step's screen: the backtest room showing the refusal, before the test goes on to check the stored runs.
+  await stepPicture();
 
   // The stored runs are unchanged: the same three, and the usage view still counts three.
   expect(await storedRuns(page, strategyId)).toEqual(before);

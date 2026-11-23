@@ -43,9 +43,11 @@ pub const LABEL: &str = "TEST partner bank";
 pub const MAX_MOVES: usize = 200_000;
 /// How old the TEST partner says its figure may be before it is stale (`TEST_PARTNER_STALE_AFTER_MS`).
 pub const STALE_AFTER_MS: i64 = 60_000;
-/// The TEST partner's send limit and fee (`TEST_PARTNER_DAILY_SEND`, `TEST_PARTNER_SEND_FEE`). TEST values.
+/// The TEST partner's send limit and fee (`TEST_PARTNER_DAILY_SEND`, `TEST_PARTNER_SEND_FEE`). TEST values. The fee is
+/// what its move for a send to another person takes, which is nothing, as a move between a person's own accounts takes
+/// nothing: a stated fee its move did not take would be a figure nobody pays (J-pay-01 #3).
 pub const DAILY_SEND: &str = "1000";
-pub const SEND_FEE: &str = "0.5";
+pub const SEND_FEE: &str = "0";
 /// The stand-in merchant a TEST payment goes to (`TEST_PARTNER_MERCHANT`).
 pub const MERCHANT: &str = "partner:test-merchant";
 /// The TEST partner's statement rules (`TEST_PARTNER_HISTORY_DAYS`, `TEST_PARTNER_SCA_AFTER_DAYS`).
