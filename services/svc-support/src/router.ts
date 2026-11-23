@@ -43,6 +43,7 @@ import { DeskMacros, MemoryMacroBook } from './desk-macros.js';
 import { macroProcedures } from './desk-macros-router.js';
 import { MemoryCheckBook, VerificationChecks } from './verification-checks.js';
 import { verificationCheckProcedures } from './verification-checks-router.js';
+import { MemoryReadGrantBook, ReadGrants } from './read-grants.js';
 import { mapRequestForm, requestFormProcedures } from './request-forms-router.js';
 import { MemoryKbLibraryBook, type KbLibraryBook } from './kb-library.js';
 import { kbLibraryProcedures } from './kb-library-router.js';
@@ -183,6 +184,8 @@ export function createSupportRouter(
   freezes: WithdrawalFreezes = new WithdrawalFreezes(support, null),
   /** A request's links to the customer's own records (J-support-public-20 #1). Left out, every link refuses unverifiable. */
   links: TicketLinks = new TicketLinks(new MemoryLinkBook(), support, null, null),
+  /** The customer's grants for support to read, and the reads under them (J-support-public-20 #2). Left out, no owner is wired. */
+  reads: ReadGrants = new ReadGrants({ book: new MemoryReadGrantBook(), support, linkedWithdrawals: async () => [] }),
 ) {
   const helpCentreOpen = helpCentreGate(helpCentre);
   return router({
@@ -200,7 +203,7 @@ export function createSupportRouter(
     ...kbReviewProcedures(kbAuthoring, kbLibrary),
     ...guestProcedures(guests, mapError),
     ...kbSegmentProcedures(kbSegmentCap),
-    ...verificationCheckProcedures(checks),
+    ...verificationCheckProcedures(checks, reads),
     ...ticketLinkProcedures(links, mapError),
     ...officialChannelProcedures(officialChannels),
     safety: safetyRouter(safety),

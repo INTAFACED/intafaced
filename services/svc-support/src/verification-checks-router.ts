@@ -8,6 +8,8 @@ import {
   SUPPORT_DESK_RECORD_VERIFICATION_CHECK,
   SUPPORT_DESK_VERIFICATION_CHECKS,
 } from '@intafaced/contracts/support-desk-settings-procedures';
+import { SUPPORT_GRANT_READ, SUPPORT_READ_ACCESS, supportDisclosureSchema } from '@intafaced/contracts/support-read-grants';
+import type { ReadGrants } from './read-grants.js';
 import type { VerificationChecks } from './verification-checks.js';
 import { requireSupportOps, SupportError } from './support-service.js';
 import { supportRefusal } from './record-refusal.js';
@@ -15,14 +17,24 @@ import { mapError } from './router.js';
 import { userCopy } from './user-copy.js';
 
 /**
- * Balance disclosure gate (RC-support-public-01, J-support-public-20 #2). Every procedure is the desk's (`support:ops`, an
- * interactive-only scope, so never an API key) and takes a ticket, never a customer: the customer comes off the ticket, and
- * a ticket outside the caller's desk scope answers as not found. `readDisclosure` (balance, fills or destination) and
- * `customerBalance` (the journey's name for the balance read) have no success answer: before the two matched checks they
- * refuse `support.verification_checks_required`, after them `support.disclosure_unwired` naming the owner of the read.
+ * The desk's reads of a customer's balance or withdrawal destination, and the customer's grant that opens them
+ * (RC-support-public-01, J-support-public-20 #2). The desk's procedures are `support:ops` (an interactive-only scope, so
+ * never an API key) and take a ticket, never a customer: the customer comes off the ticket, and a ticket outside the
+ * caller's desk scope answers as not found. `readDisclosure` (balance, fills or destination) and `customerBalance` (the
+ * journey's name for the balance read) refuse `support.read_grant_required` until the customer's own grant is live, then
+ * answer from the read's owner or refuse `support.disclosure_unwired` naming it. `grantRead` and `readAccess` are the
+ * customer's own, on their own request: the grant for a set time, and the list of each read the desk was answered.
  */
-export function verificationCheckProcedures(checks: VerificationChecks) {
+export function verificationCheckProcedures(checks: VerificationChecks, reads: ReadGrants) {
   return {
+    grantRead: mountRecord(
+      SUPPORT_GRANT_READ,
+      ({ ctx, input }) => reads.grant(ctx.principal.userId, input),
+      supportRefusal,
+    ),
+
+    readAccess: mountRecord(SUPPORT_READ_ACCESS, ({ ctx, input }) => reads.access(ctx.principal.userId, input.ticketId), supportRefusal),
+
     recordVerificationCheck: mountRecord(
       SUPPORT_DESK_RECORD_VERIFICATION_CHECK,
       async ({ ctx, input }) => {
@@ -50,7 +62,7 @@ export function verificationCheckProcedures(checks: VerificationChecks) {
       async ({ ctx, input }) => {
         try {
           requireSupportOps(ctx.principal);
-          return await checks.disclose(ctx.principal.userId, input.ticketId, input.kind);
+          return await reads.read(ctx.principal.userId, input.ticketId, input.kind);
         } catch (err) {
           throw asGate(err);
         }
@@ -60,10 +72,11 @@ export function verificationCheckProcedures(checks: VerificationChecks) {
 
     customerBalance: scopedProcedure('support:ops')
       .input(supportTicketOnlyInputSchema)
+      .output(supportDisclosureSchema)
       .query(async ({ ctx, input }) => {
         try {
           requireSupportOps(ctx.principal);
-          return await checks.disclose(ctx.principal.userId, input.ticketId, 'balance');
+          return await reads.read(ctx.principal.userId, input.ticketId, 'balance');
         } catch (err) {
           mapCheck(err);
         }
@@ -77,6 +90,8 @@ const HTTP: Record<SupportVerificationErrorCode, TRPCError['code']> = {
   'support.disclosure_unwired': 'PRECONDITION_FAILED',
   'support.verification_attempts_unset': 'PRECONDITION_FAILED',
   'support.verification_attempts_exhausted': 'TOO_MANY_REQUESTS',
+  'support.read_grant_required': 'PRECONDITION_FAILED',
+  'support.read_withdrawal_unlinked': 'PRECONDITION_FAILED',
 };
 
 const isGateCode = (code: string): code is SupportVerificationErrorCode =>

@@ -59,6 +59,7 @@ import { env } from './env.js';
 import { readMerchantStarterFee } from './starter-fee.js';
 import { registerClosureCheckRoute, runPayClosureCheck } from './closure-check.js';
 import { recordOwned, registerSupportRecordOwnershipRoute } from './support-record-ownership.js';
+import { registerSupportWithdrawalDestinationsRoute, withdrawalDestinations } from './support-withdrawal-destinations.js';
 import { CustodyDepositBook } from './custody/deposits/book.js';
 import { CustodyDepositService } from './custody/deposits/service.js';
 import { registerCustodyDepositRoutes } from './custody/deposits/routes.js';
@@ -1008,6 +1009,14 @@ registerSupportRecordOwnershipRoute(app, {
   s2s: doorS2s,
   installRawBody: false,
   owned: (input) => recordOwned(sql, input),
+});
+
+// Where a customer's linked withdrawals go, for svc-support under the customer's own grant (J-support-public-20 #2).
+registerSupportWithdrawalDestinationsRoute(app, {
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
+  installRawBody: false,
+  destinations: (input) => withdrawalDestinations(sql, input),
 });
 
 const custodyDeposits = new CustodyDepositService({ sql, chain, registries: createRegistryReader(sql) });

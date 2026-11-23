@@ -81,6 +81,7 @@ export * from './market-maintenance.js';
 export * from './support-record-ownership.js';
 export * from './support-withdrawal-freeze.js';
 export * from './support-verification-checks.js';
+export * from './support-read-grants.js';
 export * from './crm-privacy.js';
 export * from './merchant-control.js';
 export * from './merchant-metrics.js';
