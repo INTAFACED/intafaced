@@ -218,7 +218,7 @@ test(`${J} #1 opens /uc/paydividends with no distribution: the honest empty hist
   await expect(empty).toHaveAttribute('data-kind', 'airdrop');
   await expect(empty).toContainText('No records yet');
   await expect(empty).toContainText('An airdrop you join is listed here once its snapshot time comes.');
-  await expect(page.getByText('not a statement that you were owed one or paid nothing')).toBeVisible();
+  await expect(page.getByText('That doesn’t mean you were owed one or paid nothing.')).toBeVisible();
 });
 
 test(`${J} #2 opens it after an airdrop ran: my record with the snapshot, my amount, and its chain reference once paid`, async ({

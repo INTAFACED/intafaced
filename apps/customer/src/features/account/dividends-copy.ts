@@ -9,7 +9,7 @@ export const dividendsCopy = defineCopy(
     whatBody:
       'An airdrop shares a pool of INTAFACED’s own money among the accounts that joined it, each by the value of its trading account at a set time (the snapshot). Each share is paid once to your connected wallet, and its record shows the payment on the chain.',
     needTitle: 'Dividends',
-    needBody: 'Dividends to token holders are not paid, so none is listed here. That doesn’t mean you were owed one.',
+    needBody: 'Dividends to token holders are not paid, so none is listed here. That doesn’t mean you were owed one or paid nothing.',
     needToken: 'Token holdings and earning activity are in their own rooms.',
     historyTitle: 'Your records',
     historyLabel: 'Distribution records',
@@ -51,7 +51,7 @@ export const dividendsCopy = defineCopy(
         'Un airdrop reparte un fondo de dinero propio de INTAFACED entre las cuentas que se unieron, cada una según su patrimonio en el mercado en el momento de la instantánea. Cada parte se paga una sola vez a tu monedero conectado, y su registro muestra el pago en la cadena.',
       needTitle: 'Dividendos',
       needBody:
-        'Los dividendos a quienes tienen un token no se pagan, así que aquí no aparece ninguno. Eso no significa que se te debiera uno.',
+        'Los dividendos a quienes tienen un token no se pagan, así que aquí no aparece ninguno. Eso no significa que se te debiera uno ni que no hayas cobrado nada.',
       needToken: 'Tus tokens y tu actividad de rendimiento están en sus propias salas.',
       historyTitle: 'Tus registros',
       historyLabel: 'Registros de repartos',
@@ -93,7 +93,7 @@ export const dividendsCopy = defineCopy(
         'Un airdrop partage un fonds de l’argent propre d’INTAFACED entre les comptes qui l’ont rejoint, chacun selon son avoir sur le marché à l’heure de l’instantané. Chaque part est versée une seule fois à votre portefeuille connecté, et sa ligne montre le paiement sur la chaîne.',
       needTitle: 'Dividendes',
       needBody:
-        'Les dividendes aux détenteurs d’un jeton ne sont pas versés, donc aucun n’est listé ici. Cela ne veut pas dire qu’un vous était dû.',
+        'Les dividendes aux détenteurs d’un jeton ne sont pas versés, donc aucun n’est listé ici. Cela ne veut pas dire qu’un vous était dû ni que vous n’avez rien reçu.',
       needToken: 'Vos jetons et votre activité de rendement sont dans leurs propres salles.',
       historyTitle: 'Vos registres',
       historyLabel: 'Registres de distributions',

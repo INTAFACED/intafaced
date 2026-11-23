@@ -62,7 +62,7 @@ describe('/uc/paydividends room', () => {
     expect(html).toContain('What an airdrop is here');
     expect(html).toContain('Dividends');
     expect(html).toContain('are not paid, so none is listed here');
-    expect(html).toContain('That doesn’t mean you were owed one.');
+    expect(html).toContain('That doesn’t mean you were owed one or paid nothing.');
   });
 
   it('shows the history as a table with headers and an honest empty state, and invents no rows', () => {
