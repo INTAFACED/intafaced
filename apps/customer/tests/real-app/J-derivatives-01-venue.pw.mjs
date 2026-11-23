@@ -496,10 +496,10 @@ test(`${J} #10 closes 40 percent, then the rest: the venue's split results sum t
   for (const f of closing) {
     const shown = page.getByTestId('venue-fills').locator(`tr[data-fill="${f.fillId}"]`);
     await expect(shown).toBeVisible({ timeout: 15_000 });
-    expect(sameDecimal(await shown.locator('[data-cell="realised"]').innerText(), f.realisedPnl)).toBe(true);
+    await expect.poll(async () => sameDecimal(await shown.locator('[data-cell="realised"]').innerText(), f.realisedPnl)).toBe(true);
   }
   const closed = page.getByTestId('venue-history').locator(`tr[data-closed="${SYMBOL}"]`);
-  expect(sameDecimal(await closed.locator('[data-cell="realised"]').innerText(), fromUnits(realised))).toBe(true);
+  await expect.poll(async () => sameDecimal(await closed.locator('[data-cell="realised"]').innerText(), fromUnits(realised))).toBe(true);
 
   // Our ledger posts only our builder fee: for every fill of this position that carries it (both closes do) one transaction
   // under the fill's own key, our fee exactly as the venue charged it, in two postings; a fill without it posts nothing;
@@ -538,9 +538,9 @@ test(`${J} #11 opens History: the closed position with its realised result, the 
   const builderFees = fromUnits(fills.reduce((t, f) => t + toUnits(f.builderFee), 0n));
   const closed = page.getByTestId('venue-history').locator(`tr[data-closed="${SYMBOL}"]`);
   await expect(closed).toBeVisible({ timeout: 15_000 });
-  expect(sameDecimal(await closed.locator('[data-cell="realised"]').innerText(), realised)).toBe(true);
-  expect(sameDecimal(await closed.locator('[data-cell="venue-fees"]').innerText(), venueFees)).toBe(true);
-  expect(sameDecimal(await closed.locator('[data-cell="builder-fees"]').innerText(), builderFees)).toBe(true);
+  await expect.poll(async () => sameDecimal(await closed.locator('[data-cell="realised"]').innerText(), realised)).toBe(true);
+  await expect.poll(async () => sameDecimal(await closed.locator('[data-cell="venue-fees"]').innerText(), venueFees)).toBe(true);
+  await expect.poll(async () => sameDecimal(await closed.locator('[data-cell="builder-fees"]').innerText(), builderFees)).toBe(true);
   expect(toUnits(builderFees) > 0n).toBe(true);
   for (const f of fills) await expect(page.getByTestId('venue-fills').locator(`tr[data-fill="${f.fillId}"]`)).toBeVisible();
 });

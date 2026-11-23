@@ -335,8 +335,8 @@ test(`${J} #2 opens the public fee page: the venue's schedule and our builder fe
   const section = page.locator('[data-fees="venue"]');
   await expect(section).toContainText('our builder fee is added on top, as its own line');
 
-  // The venue's tiers, row for row as the venue publishes them.
-  const schedule = (await testVenue('/fee-status', {})).body.value.schedule;
+  // The venue's tiers, row for row as the venue's own record publishes them (one schedule, whichever account reads it).
+  const schedule = (await venueRecord(s.owner, '/fee-status')).value.schedule;
   expect(schedule.tiers.length).toBeGreaterThan(1);
   for (const tier of schedule.tiers) {
     const row = section.locator(`[data-fees="venue-tiers"] tr[data-tier="${tier.name}"]`);
@@ -349,7 +349,7 @@ test(`${J} #2 opens the public fee page: the venue's schedule and our builder fe
 
   // Each listed market: the venue's own rates, our builder fee and the venue's cap on it, each read from the venue.
   const ours = await (await fetch(`${EDGE}/api/v1/venue/fees`)).json();
-  const listedOnVenue = (await testVenue('/markets', {})).body.value;
+  const listedOnVenue = (await venueRecord(s.owner, '/markets')).value;
   expect(ours.value.markets.length).toBeGreaterThan(0);
   const builderPct = pct(s.builder.feeBps);
   for (const m of ours.value.markets) {

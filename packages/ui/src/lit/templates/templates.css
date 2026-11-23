@@ -2232,6 +2232,39 @@ button.lt-tab {
   color: var(--lt-on-brand, var(--lit-text-1));
 }
 
+/* ---- a room's own plain markup in a slot: the kit's rhythm, never text run together ---- */
+
+/* Blocks a room writes as plain elements in a slot (a section, its heading, a paragraph, a list, a disclosure) sit
+   one gap apart. Only where their parent is the region or a plain element with no class: a kit part lays out its own
+   children. Inline parts (a button beside a button, a chip after a name) are never pushed apart here. */
+.lt-region
+  > :is(section, div, form, fieldset, details, h2, h3, h4, p, ul, ol, dl, table, pre, blockquote, figure)
+  + :is(section, div, form, fieldset, details, h2, h3, h4, p, ul, ol, dl, table, pre, blockquote, figure),
+.lt-region
+  :not([class])
+  > :is(section, div, form, fieldset, details, h2, h3, h4, p, ul, ol, dl, table, pre, blockquote, figure)
+  + :is(section, div, form, fieldset, details, h2, h3, h4, p, ul, ol, dl, table, pre, blockquote, figure) {
+  margin-block-start: var(--lit-gap-item);
+}
+
+/* A heading after other parts opens a new group: a section gap above it. */
+.lt-region > * + :is(h2, h3, h4),
+.lt-region :not([class]) > * + :is(h2, h3, h4) {
+  margin-block-start: var(--lit-gap-section);
+}
+
+/* Sections side by side in one slot read as separate groups: a section gap and a hairline between them. */
+.lt-region section:not(.lt-region) + section {
+  margin-block-start: var(--lit-gap-item);
+  padding-block-start: var(--lit-gap-section);
+  border-block-start: 1px solid var(--lit-line);
+}
+
+/* A plain list's items in a slot sit apart, each one its own line. */
+.lt-region :is(ul, ol):not([class]) > li + li {
+  margin-block-start: calc(var(--lit-gap-item) / 2);
+}
+
 /* ---- record rows: a list of records, one per row, each with its own stacked lines ---- */
 
 /* A list of records drawn as rows (a notification, an alert, a firing): no bullets, a line between rows, each row's
