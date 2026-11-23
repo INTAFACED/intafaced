@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button } from '@intafaced/ui/lit';
@@ -7,24 +6,17 @@ import { TextAreaField } from '@intafaced/ui/lit/templates';
 import { FailureNote, Waiting } from '../more';
 import { useSession } from '../session';
 import { referrerChangeCopy as copy } from './referrer-change-copy';
-import { IDENTITY_AFFILIATES_MY_REBIND, IDENTITY_AFFILIATES_WITHDRAW_REBIND } from '@intafaced/contracts/identity-affiliates-procedures';
+import {
+  IDENTITY_AFFILIATES_MY_REBIND,
+  IDENTITY_AFFILIATES_WITHDRAW_REBIND,
+  IDENTITY_AFFILIATES_REQUEST_REBIND,
+} from '@intafaced/contracts/identity-affiliates-procedures';
+import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 
 // The person's reviewed referrer change (CM-referral-01, J-campaigns-05 #5 and #6): the latest request and its state,
 // and, after a link attach was refused, the offer to ask for one. A second person decides; this screen never does.
 // hand-declared-ok: svc-identity's affiliates procedures have no browser-safe schema in packages/contracts yet
-const rebindSchema = z.object({
-  requestId: z.string().uuid(),
-  state: z.enum(['submitted', 'under_review', 'approved', 'rejected', 'withdrawn', 'expired']),
-  fromReferrerId: z.string().uuid().nullable(),
-  toReferrerId: z.string().uuid(),
-  reason: z.string(),
-  decisionReason: z.string().nullable(),
-  createdAt: z.string().datetime({ offset: true }),
-  reviewEndsAt: z.string().datetime({ offset: true }).nullable(),
-  decidedAt: z.string().datetime({ offset: true }).nullable(),
-  appliedAt: z.string().datetime({ offset: true }).nullable(),
-});
-type Rebind = z.infer<typeof rebindSchema>;
+type Rebind = ProcedureOutput<typeof IDENTITY_AFFILIATES_REQUEST_REBIND>;
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 
 const REFUSAL_COPY: Record<string, 'rebindOpen' | 'rebindNotNeeded' | 'sameReferrer' | 'revoked' | 'reviewUnset'> = {
@@ -55,8 +47,7 @@ export function ReferrerChange({ offerToken }: { offerToken: string | null }) {
     if (!answer.ok) setRefused(answer);
     reload();
   }
-  const request = (token: string) =>
-    send(() => api.mutate('identity', 'affiliates.requestRebind', { token, reason: reason.trim() }, rebindSchema));
+  const request = (token: string) => send(() => api.call(IDENTITY_AFFILIATES_REQUEST_REBIND, { token, reason: reason.trim() }));
   const withdraw = (requestId: string) => send(() => api.call(IDENTITY_AFFILIATES_WITHDRAW_REBIND, { requestId }));
 
   const latest = resource.status === 'ready' ? resource.data : null;

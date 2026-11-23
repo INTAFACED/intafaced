@@ -6,7 +6,6 @@ import {
   apiKeySetExpiryOutputSchema,
   type DeveloperRole,
   type DeveloperTeam,
-  apiKeyRotateOutputSchema,
   type ApiKeyRotateOutput,
   type ApiKeyCreateInput,
   type ApiKeyCreateOutput,
@@ -26,11 +25,17 @@ import {
   IDENTITY_DEVELOPER_KEYS_TEAM,
 } from '@intafaced/contracts/identity-developer-keys-procedures';
 import type { ProcedureOutput } from '@intafaced/contracts/procedure';
-import { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { requestPasskeyAssertion } from '../session';
 import type { ApiKeysCopyKey } from './api-keys-copy';
 import { subaccountsIn, type Subaccount } from './subaccount-guards';
+import { callAs } from '../../shared/api';
+import { IDENTITY_SUB_ACCOUNTS_LIST } from '@intafaced/contracts/identity-sub-accounts-procedures';
+import { IDENTITY_LIST_ORGS } from '@intafaced/contracts/identity-list-orgs-procedures';
+import {
+  IDENTITY_DEVELOPER_KEYS_ROTATE,
+  IDENTITY_DEVELOPER_KEYS_APPROVE_ROTATION,
+} from '@intafaced/contracts/identity-developer-keys-records';
 
 /** The most keys the room reads at once; the owner's cap is far below it. */
 const LIST_LIMIT = 200;
@@ -51,14 +56,12 @@ const SUBACCOUNT_LIMIT = 50;
  * revoked one is left out: identity refuses a key for it (`identity.key_account_denied`).
  */
 export async function readKeySubaccounts(api: ApiClient, signal: AbortSignal): Promise<ApiResult<Subaccount[]>> {
-  const rows = await api.query('identity', 'subAccounts.list', { limit: SUBACCOUNT_LIMIT }, subaccountsIn(SUBACCOUNT_LIMIT), { signal });
+  const rows = await callAs(api, IDENTITY_SUB_ACCOUNTS_LIST, { limit: SUBACCOUNT_LIMIT }, subaccountsIn(SUBACCOUNT_LIMIT), { signal });
   return rows.ok ? { ok: true, data: rows.data.filter((row) => !row.revoked) } : rows;
 }
 
-/** The organisations the person belongs to; the key page shows each one's developer area (DV-console-01). */
-const orgsOut = z.object({ orgs: z.array(z.object({ id: z.string(), name: z.string(), role: z.string() })) });
-export function readMyOrgs(api: ApiClient, signal: AbortSignal): Promise<ApiResult<z.infer<typeof orgsOut>>> {
-  return api.query('identity', 'listOrgs', undefined, orgsOut, { signal });
+export function readMyOrgs(api: ApiClient, signal: AbortSignal): Promise<ApiResult<ProcedureOutput<typeof IDENTITY_LIST_ORGS>>> {
+  return api.call(IDENTITY_LIST_ORGS, undefined, { signal });
 }
 
 /** One organisation's developer area as the person sees it: their role, why they may not manage keys, and its keys. */
@@ -296,11 +299,9 @@ export async function rotateDeveloperKey(
 ): Promise<ApiResult<ApiKeyRotateOutput>> {
   const proof = await proofFor(api, { passkey: true }, signal);
   if (!proof.ok) return proof;
-  return api.mutate(
-    'identity',
-    'developerKeys.rotate',
+  return api.call(
+    IDENTITY_DEVELOPER_KEYS_ROTATE,
     { keyId, overlapSeconds, ...(proof.proof ? { factorProof: proof.proof } : {}) },
-    apiKeyRotateOutputSchema,
     { signal, keepSessionFor: ['auth.mfa_invalid', 'auth.webauthn_invalid'] },
   );
 }
@@ -320,11 +321,9 @@ export async function approveRotationRequest(
 ): Promise<ApiResult<ApiKeyRotateOutput>> {
   const proof = await proofFor(api, { passkey: true }, signal);
   if (!proof.ok) return proof;
-  return api.mutate(
-    'identity',
-    'developerKeys.approveRotation',
+  return api.call(
+    IDENTITY_DEVELOPER_KEYS_APPROVE_ROTATION,
     { requestId, ...(proof.proof ? { factorProof: proof.proof } : {}) },
-    apiKeyRotateOutputSchema,
     { signal, keepSessionFor: ['auth.mfa_invalid', 'auth.webauthn_invalid'] },
   );
 }

@@ -2,24 +2,8 @@
 import { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { signAssertion } from '../session';
+import { IDENTITY_STEP_UP_BEGIN } from '@intafaced/contracts/identity-step-up-procedures';
 
-const begun = z
-  .object({
-    challengeId: z.string().guid(),
-    totp: z.boolean(),
-    webauthn: z
-      .object({
-        challenge: z.string(),
-        timeout: z.number().optional(),
-        rpId: z.string().optional(),
-        allowCredentials: z
-          .array(z.object({ type: z.literal('public-key'), id: z.string(), transports: z.array(z.string()).optional() }))
-          .optional(),
-        userVerification: z.enum(['required', 'preferred', 'discouraged']).optional(),
-      })
-      .nullable(),
-  })
-  .passthrough();
 const approved = z.object({ stepUpApprovalId: z.string().min(1) }).passthrough();
 
 // `target` is left out for a door that names none (the anti-phishing code is never sent as a target).
@@ -38,7 +22,7 @@ export async function confirmWithStepUp(
   method: StepUpMethod,
   signal?: AbortSignal,
 ): Promise<ApiResult<{ stepUpApprovalId: string }>> {
-  const start = await api.mutate('identity', 'stepUp.begin', request, begun, { signal });
+  const start = await api.call(IDENTITY_STEP_UP_BEGIN, request, { signal });
   if (!start.ok) return start;
   if ('totpCode' in method) {
     return api.mutate('identity', 'stepUp.complete', { challengeId: start.data.challengeId, totpCode: method.totpCode }, approved, {

@@ -1,16 +1,16 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
-import { accountControlResultSchema, type AccountControlResult } from '@intafaced/contracts';
+import { type AccountControlResult } from '@intafaced/contracts';
 import {
   type DeskRequest,
   type ExecuteFn,
   type ExecuteReply,
   explainRefusal,
   failureRefusal,
-  founderCall,
   type FounderCallContext,
-  parseWith,
+  founderRecordCall,
 } from '@/lib/desk';
+import { IDENTITY_ACCOUNT_CONTROLS_CHANGE } from '@intafaced/contracts/identity-account-controls-procedures';
 
 /**
  * Run an approved account unfreeze (J-ops-console-04 #6) against identity, as the signed-in founder.
@@ -45,21 +45,14 @@ export function restoreReply(
 export function restoreExecute(ctx: FounderCallContext): ExecuteFn {
   return async (request, ids) => {
     if (request.kind !== 'identity.account.unfreeze') return { ok: false, refusal: explainRefusal('admin.request_invalid', 400, false) };
-    const result = await founderCall(
-      ctx,
-      'identity',
-      'accountControls.change',
-      'POST',
-      {
-        requestId: randomUUID(),
-        target: { area: 'identity', userId: request.userId },
-        action: 'restore',
-        reason: request.reason,
-        expectedVersion: request.version,
-        approvalId: ids.approvalId,
-      },
-      parseWith(accountControlResultSchema),
-    );
+    const result = await founderRecordCall(ctx, IDENTITY_ACCOUNT_CONTROLS_CHANGE, {
+      requestId: randomUUID(),
+      target: { area: 'identity', userId: request.userId },
+      action: 'restore',
+      reason: request.reason,
+      expectedVersion: request.version,
+      approvalId: ids.approvalId,
+    });
     if (result.kind !== 'ok') return failureRefusal('svc-identity', 'identity', result);
     return restoreReply(request, result.data);
   };

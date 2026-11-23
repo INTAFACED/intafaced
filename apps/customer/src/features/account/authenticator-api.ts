@@ -1,6 +1,5 @@
 import type { z } from 'zod';
 import {
-  stepUpBegunSchema,
   stepUpDoneSchema,
   totpDisabledSchema,
   totpReplacedSchema,
@@ -12,7 +11,6 @@ import {
 export const totpStatus = totpStatusSchema;
 export type TotpStatus = z.infer<typeof totpStatus>;
 
-export const stepUpBegun = stepUpBegunSchema;
 export const stepUpDone = stepUpDoneSchema;
 export const disabledAnswer = totpDisabledSchema;
 export const replaceStarted = totpReplaceStartedSchema;

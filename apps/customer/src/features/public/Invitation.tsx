@@ -16,7 +16,6 @@ import {
   finishInvitation,
   invitationKey,
   invitationLock,
-  invitationReply,
   isInvitationRefusal,
   readInvitations,
   referralRefusal,
@@ -27,7 +26,12 @@ import {
   type ReferralRefusal,
 } from './invitation-guards';
 import { callAs } from '../../shared/api';
-import { IDENTITY_AFFILIATES_MY_REFERRER, IDENTITY_AFFILIATES_ATTACH_WINDOW } from '@intafaced/contracts/identity-affiliates-procedures';
+import {
+  IDENTITY_AFFILIATES_MY_REFERRER,
+  IDENTITY_AFFILIATES_ATTACH_WINDOW,
+  IDENTITY_AFFILIATES_SHARE_HITS,
+} from '@intafaced/contracts/identity-affiliates-procedures';
+import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 
 type Context = { client: ApiClient; owner: string | null; token: string | null; url: string; generation: number };
 type Original = Context & { owner: string; capability: string };
@@ -36,7 +40,7 @@ type Problem = 'storage' | 'locks' | 'another' | 'changed' | 'preflight';
 type Receipt = {
   original: Original;
   record: InvitationRecord;
-  answer: ApiResult<z.infer<typeof invitationReply>>;
+  answer: ApiResult<ProcedureOutput<typeof IDENTITY_AFFILIATES_SHARE_HITS>>;
   retained: boolean;
   finalized?: boolean;
 };
@@ -279,9 +283,13 @@ export function Invitation() {
           finishInvitation(record);
           return;
         }
-        const answer = await intent.client.mutate('identity', 'affiliates.shareHits', { token: intent.capability }, invitationReply, {
-          signal: controller.signal,
-        });
+        const answer = await intent.client.call(
+          IDENTITY_AFFILIATES_SHARE_HITS,
+          { token: intent.capability },
+          {
+            signal: controller.signal,
+          },
+        );
         if (!same(intent)) return;
         if (answer.ok || isInvitationRefusal(answer)) {
           const retained = !finishInvitation(record);

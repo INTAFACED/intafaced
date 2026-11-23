@@ -19,8 +19,10 @@ import {
   type Part,
   partFrom,
   type RefusalView,
+  founderRecordRead,
 } from '@/lib/desk';
 import { isObj, type GovernanceSettings, type RoleRow, type SettingsMove } from './model';
+import { IDENTITY_STEP_UP_BEGIN } from '@intafaced/contracts/identity-step-up-procedures';
 
 /**
  * Token governance (J-more-catalogue-10), read and written as the signed-in founder through svc-token `governance.*`. Each
@@ -115,7 +117,7 @@ async function stepUpForRole(
   code: string,
 ): Promise<{ ok: true; stepUpApprovalId: string } | { ok: false; refusal: RefusalView }> {
   const fields = { userId: request.userId, role: request.role, expectedRevision: request.revision };
-  const begun = await founderCall(ctx, 'identity', 'stepUp.begin', 'POST', { ...ROLE_STEP_UP, target: request.userId, fields }, (raw) =>
+  const begun = await founderRecordRead(ctx, IDENTITY_STEP_UP_BEGIN, { ...ROLE_STEP_UP, target: request.userId, fields }, (raw) =>
     isObj(raw) && typeof raw.challengeId === 'string' && raw.totp === true ? { challengeId: raw.challengeId } : null,
   );
   if (begun.kind !== 'ok') return refusedOnly(failureRefusal('svc-identity', 'identity', begun));

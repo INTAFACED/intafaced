@@ -7,12 +7,13 @@ import {
   assertAdminCsrf,
   authorizeAdminRequest,
   founderCookie,
-  founderEdgeCall,
   founderSignedIn,
   openFounderSession,
+  founderEdgeRecordCall,
 } from '@/lib/founder-session';
 import { readAdminJson } from '@/lib/admin-json';
 import { signInChallengeProofSchema } from '@intafaced/contracts/identity-signin-challenge';
+import { IDENTITY_AUTH_LOGOUT, IDENTITY_AUTH_LOGIN } from '@intafaced/contracts/identity-auth-procedures';
 
 export const dynamic = 'force-dynamic';
 
@@ -51,7 +52,7 @@ export async function POST(request: Request) {
     // Identity's new-device check knows this browser by its key; a browser it has not seen waits for approval
     // (`/api/session/device`), and the key is kept so the approval lands on this same browser.
     device = adminDeviceKey(request.headers.get('cookie'));
-    const raw = await founderEdgeCall(config, 'identity', 'auth.login', 'POST', { ...input, deviceKey: device.key }, undefined, {
+    const raw = await founderEdgeRecordCall(config, IDENTITY_AUTH_LOGIN, { ...input, deviceKey: device.key }, undefined, {
       userAgent: request.headers.get('user-agent'),
     });
     return await founderSignedIn(raw, config, device.cookie);
@@ -70,7 +71,7 @@ export async function DELETE(request: Request) {
     assertAdminCsrf(request, session);
     let serverRevocation: 'confirmed' | 'unconfirmed' = 'confirmed';
     try {
-      await founderEdgeCall(config, 'identity', 'auth.logout', 'POST', { refreshToken: session.refreshToken });
+      await founderEdgeRecordCall(config, IDENTITY_AUTH_LOGOUT, { refreshToken: session.refreshToken });
     } catch {
       serverRevocation = 'unconfirmed';
     }

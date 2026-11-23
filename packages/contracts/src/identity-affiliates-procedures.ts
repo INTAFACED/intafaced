@@ -337,3 +337,43 @@ export const IDENTITY_AFFILIATES_SHARE_TAG_HIT = defineProcedure({
     { verdict: 'refuse', input: 42 },
   ],
 });
+
+/**
+ * Public hit. Signed-out: increment only. Signed-in: increment then
+ * attribute via the same `affiliates.attribute` path (one tree).
+ * Revoked / gone profile: named refuse, no later attribute.
+ */
+export const IDENTITY_AFFILIATES_SHARE_HITS = defineProcedure({
+  ...base,
+  name: 'identity.affiliates.shareHits',
+  kind: 'mutation',
+  path: 'affiliates.shareHits',
+  access: { caller: 'public' },
+  refusals: {},
+  input: z.object({ token: z.string().guid() }),
+  output: z.object({ hits: z.number().int(), attributed: z.boolean() }),
+  samples: [
+    { verdict: 'accept', input: { token: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/**
+ * Ask for a reviewed change of referrer (J-campaigns-05 #5): the invitation link names the new referrer, the
+ * person gives a reason, and a second person decides. Only when a link attach cannot apply (window closed or
+ * unset, or a referrer is already set). Asking again for the same link returns the open request.
+ */
+export const IDENTITY_AFFILIATES_REQUEST_REBIND = defineProcedure({
+  ...base,
+  name: 'identity.affiliates.requestRebind',
+  kind: 'mutation',
+  path: 'affiliates.requestRebind',
+  access: { caller: 'scope', scope: 'identity:write' },
+  refusals: {},
+  input: z.object({ token: z.string().uuid(), reason: z.string().min(3).max(500) }),
+  output: rebindForCustomer,
+  samples: [
+    { verdict: 'accept', input: { token: '11111111-1111-4111-8111-111111111111', reason: 'USDC' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});

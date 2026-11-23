@@ -15,7 +15,6 @@ const invitationInstant = z
     );
   });
 
-export const invitationReply = z.object({ hits: z.number().int().nonnegative().safe(), attributed: z.boolean() });
 export function currentReferrerFor(owner: string) {
   return z
     .object({ userId: uuid, referrerId: uuid, attributedAt: invitationInstant })

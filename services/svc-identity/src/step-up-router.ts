@@ -5,13 +5,13 @@
  * token is not a session and is not a factor.
  */
 import { z } from 'zod';
-import { SAME_PERSON_ACTION_TYPES } from '@intafaced/contracts/action-approval';
 import { protectedProcedure, router, TRPCError } from '@intafaced/contracts/trpc';
 import { AuthError } from './auth/auth-service.js';
 import { CustomerStepUpService, StepUpError } from './auth/customer-step-up.js';
 import { userCopy } from './user-copy.js';
-
-const amountField = z.string().regex(/^\d+(\.\d{1,18})?$/);
+import { IDENTITY_STEP_UP_BEGIN } from '@intafaced/contracts/identity-step-up-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from './record-refusal.js';
 
 const webauthnShape = z.object({
   id: z.string().min(1),
@@ -25,16 +25,6 @@ const webauthnShape = z.object({
   }),
   clientExtensionResults: z.record(z.string(), z.unknown()).optional(),
 });
-
-const beginInput = z
-  .object({
-    scope: z.enum(SAME_PERSON_ACTION_TYPES),
-    purpose: z.string().min(1).max(64),
-    amount: amountField.optional(),
-    target: z.string().min(1).max(256).optional(),
-    fields: z.record(z.string().min(1).max(64), z.string().max(4000)),
-  })
-  .strict();
 
 const completeInput = z
   .object({
@@ -51,31 +41,6 @@ const completeInput = z
   .refine((value) => [value.totpCode, value.recoveryCode, value.webauthn].filter(Boolean).length === 1, {
     message: 'Provide exactly one of totpCode, recoveryCode or webauthn',
   });
-
-const ceremonyOutput = z.object({
-  challengeId: z.string().guid(),
-  expiresAt: z.string().datetime({ offset: true }),
-  scope: z.string(),
-  purpose: z.string(),
-  amount: z.string().nullable(),
-  target: z.string().nullable(),
-  totp: z.boolean(),
-  webauthn: z
-    .object({
-      challenge: z.string(),
-      timeout: z.number(),
-      rpId: z.string(),
-      allowCredentials: z.array(
-        z.object({
-          type: z.literal('public-key'),
-          id: z.string(),
-          transports: z.array(z.string()).optional(),
-        }),
-      ),
-      userVerification: z.literal('required'),
-    })
-    .nullable(),
-});
 
 const approvalOutput = z.object({
   stepUpApprovalId: z.string().guid(),
@@ -132,10 +97,9 @@ export function createStepUpRouter(stepUps: CustomerStepUpService) {
        * be accepted. Recovery codes are not a method. The result is not an
        * approval and not an access token.
        */
-      begin: protectedProcedure
-        .input(beginInput)
-        .output(ceremonyOutput)
-        .mutation(async ({ ctx, input }) => {
+      begin: mountRecord(
+        IDENTITY_STEP_UP_BEGIN,
+        async ({ ctx, input }) => {
           try {
             if (ctx.principal.kid || ctx.principal.sub_account) {
               throw new TRPCError({ code: 'FORBIDDEN', message: 'API keys and sub-accounts cannot confirm a payment' });
@@ -144,7 +108,9 @@ export function createStepUpRouter(stepUps: CustomerStepUpService) {
           } catch (err) {
             toTrpc(err);
           }
-        }),
+        },
+        codedRefusal,
+      ),
 
       /**
        * Prove the fresh factor and mint `stepUpApprovalId`. Bound to this user,

@@ -4,10 +4,10 @@ import { SocialSignIn } from './SocialSignIn';
 import { CodeSignIn } from './CodeSignIn';
 import { TesterBuild } from './TesterBuild';
 import { DeviceApproval } from './DeviceApproval';
-import { RecoveryCodeUsed, signInAnswerSchema, type SignInAnswer } from './RecoveryCodeUsed';
+import { RecoveryCodeUsed, type SignInAnswer } from './RecoveryCodeUsed';
 import { FrozenByYou } from './FrozenByYou';
 import { ClosedAppeal } from './ClosedAppeal';
-import { accountStatusSchema, type AccountRestriction } from '@intafaced/contracts/identity-account-status';
+import { type AccountRestriction } from '@intafaced/contracts/identity-account-status';
 import { recoveryCodeCopy } from './recovery-code-copy';
 import { MfaReset } from './MfaReset';
 import { mfaResetCopy } from './mfa-reset-copy';
@@ -19,16 +19,7 @@ import { LanguageMenu } from '../../shared/LanguageMenu';
 import { useAccountViewStatus } from '../account';
 import { savePreferences } from '../../shared/preferences';
 import { passwordIssue } from '../../shared/password';
-import {
-  findBrowserWallet,
-  sessionSchema,
-  signAssertion,
-  signInWithPasskey,
-  signWithBrowserWallet,
-  useSession,
-  walletChallengeSchema,
-  type Session,
-} from '../session';
+import { findBrowserWallet, signAssertion, signInWithPasskey, signWithBrowserWallet, useSession, type Session } from '../session';
 import type { Eip1193Provider } from '../protocol';
 import { useLocation, navigate } from '../../app/location';
 import { findRoom, roomTitle } from '../../app/navigation';
@@ -48,7 +39,14 @@ import {
   type AuthRecord,
 } from './public-auth-guards';
 import './public-auth.css';
-import { IDENTITY_AUTH_LOGIN, IDENTITY_AUTH_REGISTER } from '@intafaced/contracts/identity-auth-procedures';
+import {
+  IDENTITY_AUTH_LOGIN,
+  IDENTITY_AUTH_REGISTER,
+  IDENTITY_AUTH_LOGIN_SECOND_STEP_PASSKEY,
+  IDENTITY_AUTH_WALLET_CHALLENGE,
+  IDENTITY_AUTH_WALLET_SIGN_IN,
+} from '@intafaced/contracts/identity-auth-procedures';
+import { IDENTITY_ACCOUNT_STATUS_MINE } from '@intafaced/contracts/identity-account-status-procedures';
 
 type Original = {
   api: ApiClient;
@@ -237,7 +235,7 @@ export function AuthForm({ register }: { register: boolean }) {
       return;
     }
     const controller = new AbortController();
-    void api.query('identity', 'accountStatus.mine', undefined, accountStatusSchema, { signal: controller.signal }).then((status) => {
+    void api.call(IDENTITY_ACCOUNT_STATUS_MINE, undefined, { signal: controller.signal }).then((status) => {
       if (controller.signal.aborted) return;
       if (location.href !== landing.url) {
         setLanding(null);
@@ -369,18 +367,20 @@ export function AuthForm({ register }: { register: boolean }) {
             return;
           }
           if (!save('secondStep')) return;
-          answer = await original.api.mutate('identity', 'auth.loginSecondStepPasskey', { credential: assertion.data }, sessionSchema, {
-            signal: controller.signal,
-          });
+          answer = await original.api.call(
+            IDENTITY_AUTH_LOGIN_SECOND_STEP_PASSKEY,
+            { credential: assertion.data },
+            {
+              signal: controller.signal,
+            },
+          );
         } else if (kind === 'wallet') {
           // The wallet signs the service's message first; a declined or failed signature sends nothing that signs in.
           const signed = await signWithBrowserWallet(
             (address, chainId) =>
-              original.api.mutate(
-                'identity',
-                'auth.walletChallenge',
+              original.api.call(
+                IDENTITY_AUTH_WALLET_CHALLENGE,
                 { address, chainId, origin: location.origin },
-                walletChallengeSchema,
                 {
                   signal: controller.signal,
                 },
@@ -395,11 +395,9 @@ export function AuthForm({ register }: { register: boolean }) {
           }
           if (!save('wallet')) return;
           const { flowId, message, signature } = signed.answer;
-          answer = await original.api.mutate(
-            'identity',
-            'auth.walletSignIn',
+          answer = await original.api.call(
+            IDENTITY_AUTH_WALLET_SIGN_IN,
             { flowId, message, signature, ...(totp ? { totpCode: totp } : {}) },
-            signInAnswerSchema,
             { signal: controller.signal },
           );
         } else if (kind === 'options') {

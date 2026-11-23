@@ -23,15 +23,12 @@ import {
   apiKeyCreateOutputSchema,
   apiKeySetExpiryInputSchema,
   apiKeySetExpiryOutputSchema,
-  apiKeyRotateInputSchema,
-  apiKeyRotateOutputSchema,
 } from '@intafaced/contracts/api-keys';
 import { ApiKeyCallsError, listApiKeyCalls, recordApiKeyCall } from './auth/api-key-calls.js';
 import { AgentKeyApprovalError, holdAgentKeyAction, listAgentKeyApprovals } from './auth/agent-key-approvals.js';
 import { rotateDeveloperKey } from './auth/developer-key-rotate.js';
 import { LeakedKeyError, operatorKeyAudit, reportLeakedKey } from './ops/leaked-api-key.js';
 import { approveByPerson, RotationRequestError, waitingRotation } from './auth/key-rotation-requests.js';
-import { z } from 'zod';
 import { optionalFactorProof } from './auth/api-key-fresh-factor.js';
 import {
   createDeveloperKey,
@@ -48,6 +45,10 @@ import {
 import { developerTeam, DeveloperTeamError, revokeOrgKey, setDeveloperRole } from './auth/developer-team.js';
 import { MintApiKeyPasskeyError } from './auth/mint-api-key-passkey.js';
 import { userCopy } from './user-copy.js';
+import {
+  IDENTITY_DEVELOPER_KEYS_ROTATE,
+  IDENTITY_DEVELOPER_KEYS_APPROVE_ROTATION,
+} from '@intafaced/contracts/identity-developer-keys-records';
 
 /** The status each developer key refusal leaves with: the records' own table, which must name every code. */
 export const DEVELOPER_KEY_STATUS: Record<DeveloperKeyError['code'], TRPCError['code']> = DEVELOPER_KEY_REFUSALS;
@@ -310,30 +311,32 @@ export function createDeveloperKeysRouter(deps: DeveloperKeysDeps) {
         }),
 
       /** A key can never rotate itself here: a key's own request goes through the approval door instead. */
-      rotate: scopedProcedure('identity:write')
-        .input(apiKeyRotateInputSchema.extend({ factorProof: optionalFactorProof }))
-        .output(apiKeyRotateOutputSchema)
-        .mutation(async ({ ctx, input }) => {
+      rotate: mountRecord(
+        IDENTITY_DEVELOPER_KEYS_ROTATE,
+        async ({ ctx, input }) => {
           assertSignedInPerson(ctx.principal);
           try {
             return await rotateDeveloperKey(deps, ctx.principal, input);
           } catch (err) {
             refused(err);
           }
-        }),
+        },
+        codedRefusal,
+      ),
 
       /** The owner, signed in on a device with a fresh passkey, approves a key's request: one replacement issues. */
-      approveRotation: scopedProcedure('identity:write')
-        .input(z.object({ requestId: z.string().uuid(), factorProof: optionalFactorProof }))
-        .output(apiKeyRotateOutputSchema)
-        .mutation(async ({ ctx, input }) => {
+      approveRotation: mountRecord(
+        IDENTITY_DEVELOPER_KEYS_APPROVE_ROTATION,
+        async ({ ctx, input }) => {
           assertSignedInPerson(ctx.principal);
           try {
             return await approveByPerson(deps, ctx.principal, input);
           } catch (err) {
             rotationRefused(err);
           }
-        }),
+        },
+        codedRefusal,
+      ),
     }),
   });
 }

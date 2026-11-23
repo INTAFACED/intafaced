@@ -2,19 +2,18 @@
  * `account.safety.*` (BK-safe-01, J-bank-18 #4): the person's own step-up extras and location signal. Shapes and
  * refusals: `@intafaced/contracts/identity-safety`. Customer sessions only; an API key or sub-account is refused.
  */
-import { protectedProcedure, router, TRPCError } from '@intafaced/contracts/trpc';
-import {
-  clearExtraControlsInputSchema,
-  safetyChangeOutputSchema,
-  setExtraControlsInputSchema,
-  setLocationConsentInputSchema,
-} from '@intafaced/contracts/identity-safety';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import { AuthError, type AuthService } from '../auth/auth-service.js';
 import { factorActor } from '../auth/factor-gate.js';
 import { toTrpcError } from '../router.js';
 import { userCopy } from '../user-copy.js';
 import { clearExtraControls, readSafety, SafetyError, setExtraControls, setLocationConsent } from './safety.js';
-import { IDENTITY_ACCOUNT_SAFETY_READ } from '@intafaced/contracts/identity-account-procedures';
+import {
+  IDENTITY_ACCOUNT_SAFETY_READ,
+  IDENTITY_ACCOUNT_SAFETY_SET_EXTRA_CONTROLS,
+  IDENTITY_ACCOUNT_SAFETY_CLEAR_EXTRA_CONTROLS,
+  IDENTITY_ACCOUNT_SAFETY_SET_LOCATION_CONSENT,
+} from '@intafaced/contracts/identity-account-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { codedRefusal } from '../record-refusal.js';
 
@@ -48,10 +47,9 @@ export function createSafetyRouter(auth: AuthService, privilegedUserIds: readonl
       codedRefusal,
     ),
 
-    setExtraControls: protectedProcedure
-      .input(setExtraControlsInputSchema)
-      .output(safetyChangeOutputSchema)
-      .mutation(async ({ ctx, input }) => {
+    setExtraControls: mountRecord(
+      IDENTITY_ACCOUNT_SAFETY_SET_EXTRA_CONTROLS,
+      async ({ ctx, input }) => {
         try {
           const actor = own(ctx.principal);
           const minimum = extraControlsMin();
@@ -68,12 +66,13 @@ export function createSafetyRouter(auth: AuthService, privilegedUserIds: readonl
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      codedRefusal,
+    ),
 
-    clearExtraControls: protectedProcedure
-      .input(clearExtraControlsInputSchema)
-      .output(safetyChangeOutputSchema)
-      .mutation(async ({ ctx, input }) => {
+    clearExtraControls: mountRecord(
+      IDENTITY_ACCOUNT_SAFETY_CLEAR_EXTRA_CONTROLS,
+      async ({ ctx, input }) => {
         try {
           const actor = own(ctx.principal);
           await auth.confirmOwnPassword({ userId: ctx.principal.userId, actor, password: input.password });
@@ -82,12 +81,13 @@ export function createSafetyRouter(auth: AuthService, privilegedUserIds: readonl
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      codedRefusal,
+    ),
 
-    setLocationConsent: protectedProcedure
-      .input(setLocationConsentInputSchema)
-      .output(safetyChangeOutputSchema)
-      .mutation(async ({ ctx, input }) => {
+    setLocationConsent: mountRecord(
+      IDENTITY_ACCOUNT_SAFETY_SET_LOCATION_CONSENT,
+      async ({ ctx, input }) => {
         try {
           own(ctx.principal);
           const { changed } = await setLocationConsent(auth.safetySql, ctx.principal.userId, input.consent);
@@ -95,6 +95,8 @@ export function createSafetyRouter(auth: AuthService, privilegedUserIds: readonl
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      codedRefusal,
+    ),
   });
 }

@@ -7,7 +7,7 @@ import { recoveryCodeCopy } from './recovery-code-copy';
  * A sign-in answer (I-signin-sessions-12): the session, plus `recoveryCodesLeft` only when the second step spent a
  * recovery code. The count is the account's own, read under the same lock that spent the code.
  */
-export const signInAnswerSchema = sessionSchema.extend({ recoveryCodesLeft: z.number().int().min(0).optional() });
+const signInAnswerSchema = sessionSchema.extend({ recoveryCodesLeft: z.number().int().min(0).optional() });
 export type SignInAnswer = z.infer<typeof signInAnswerSchema>;
 
 /**

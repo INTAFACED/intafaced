@@ -1,9 +1,9 @@
 import { z } from 'zod';
 
-export const passkeyKind = z.enum(['platform', 'cross_device', 'security_key', 'unknown']);
+const passkeyKind = z.enum(['platform', 'cross_device', 'security_key', 'unknown']);
 export type PasskeyKind = z.infer<typeof passkeyKind>;
 /** What a passkey can be kept for (I-signin-sessions-10); none set means every action. */
-export const passkeyPurpose = z.enum(['signin', 'money_out', 'security_change']);
+const passkeyPurpose = z.enum(['signin', 'money_out', 'security_change']);
 export type PasskeyPurpose = z.infer<typeof passkeyPurpose>;
 export const PASSKEY_PURPOSES = passkeyPurpose.options;
 
@@ -22,7 +22,6 @@ export const passkeyList = z.object({
   secondStep: z.boolean().default(false),
 });
 export type PasskeyList = z.infer<typeof passkeyList>;
-export const renamed = z.object({ credentialId: z.string(), label: z.string().nullable() }).passthrough();
 
 const CONTROL = /[\p{Cc}\p{Zl}\p{Zp}]/u;
 /** The service trims, then needs 1 to 64 characters without control characters. Returns the trimmed name or null. */

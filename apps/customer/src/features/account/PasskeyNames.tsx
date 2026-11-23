@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { z } from 'zod';
 import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
@@ -11,15 +10,17 @@ import { passkeyNamesCopy as copy } from './passkey-names-copy';
 import {
   cleanName,
   encodePurposes,
-  passkeyList,
   PASSKEY_PURPOSES,
   purposesStepUp,
-  renamed,
   renameStepUp,
   secondStepStepUp,
   type PasskeyPurpose,
 } from './passkey-names';
 import { confirmWithStepUp, type StepUpBegin, type StepUpMethod } from './security-step-up';
+import { IDENTITY_LIST_PASSKEYS } from '@intafaced/contracts/identity-list-passkeys-procedures';
+import { IDENTITY_RENAME_PASSKEY } from '@intafaced/contracts/identity-rename-passkey-procedures';
+import { IDENTITY_SET_PASSKEY_PURPOSES } from '@intafaced/contracts/identity-set-passkey-purposes-procedures';
+import { IDENTITY_SET_PASSKEY_SECOND_STEP } from '@intafaced/contracts/identity-set-passkey-second-step-procedures';
 
 type Editing = { kind: 'rename' | 'purposes'; credentialId: string } | { kind: 'secondStep' } | null;
 
@@ -49,9 +50,7 @@ export function PasskeyNames({ revision = 0 }: { revision?: number } = {}) {
   }, []);
   const { resource, reload } = useResource(
     (signal) =>
-      userId
-        ? api.query('identity', 'listPasskeys', { limit: 200 }, passkeyList, { signal })
-        : Promise.resolve({ ok: true as const, data: null }),
+      userId ? api.call(IDENTITY_LIST_PASSKEYS, { limit: 200 }, { signal }) : Promise.resolve({ ok: true as const, data: null }),
     // A passkey added or removed in Security's own list reloads these names.
     `passkey-names:${userId}:${revision}`,
   );
@@ -97,7 +96,7 @@ export function PasskeyNames({ revision = 0 }: { revision?: number } = {}) {
       method,
       (requestId) => (label ? renameStepUp(credentialId, label, requestId) : null),
       (requestId, stepUpApprovalId) =>
-        api.mutate('identity', 'renamePasskey', { credentialId, label, clientRequestId: requestId, stepUpApprovalId }, renamed),
+        api.call(IDENTITY_RENAME_PASSKEY, { credentialId, label, clientRequestId: requestId, stepUpApprovalId }),
       t('saved'),
     );
   }
@@ -110,7 +109,7 @@ export function PasskeyNames({ revision = 0 }: { revision?: number } = {}) {
       method,
       (requestId) => purposesStepUp(credentialId, purposes, requestId),
       (requestId, stepUpApprovalId) =>
-        api.mutate('identity', 'setPasskeyPurposes', { credentialId, purposes, clientRequestId: requestId, stepUpApprovalId }, renamed),
+        api.call(IDENTITY_SET_PASSKEY_PURPOSES, { credentialId, purposes, clientRequestId: requestId, stepUpApprovalId }),
       t('purposesSaved'),
     );
   }
@@ -120,13 +119,7 @@ export function PasskeyNames({ revision = 0 }: { revision?: number } = {}) {
       element,
       method,
       (requestId) => secondStepStepUp(on, requestId),
-      (requestId, stepUpApprovalId) =>
-        api.mutate(
-          'identity',
-          'setPasskeySecondStep',
-          { on, clientRequestId: requestId, stepUpApprovalId },
-          z.object({ secondStep: z.boolean() }),
-        ),
+      (requestId, stepUpApprovalId) => api.call(IDENTITY_SET_PASSKEY_SECOND_STEP, { on, clientRequestId: requestId, stepUpApprovalId }),
       t('secondStepSaved'),
     );
   }

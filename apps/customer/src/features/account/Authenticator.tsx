@@ -8,22 +8,14 @@ import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import { authenticatorCopy as copy } from './authenticator-copy';
 import { CodesHelp } from './CodesHelp';
-import {
-  isProof,
-  isSixDigits,
-  replacedAnswer,
-  stepUpBegun,
-  stepUpBeginInput,
-  stepUpDone,
-  stepUpProof,
-  type StepUpScope,
-} from './authenticator-api';
+import { isProof, isSixDigits, replacedAnswer, stepUpBeginInput, stepUpDone, stepUpProof, type StepUpScope } from './authenticator-api';
 import {
   IDENTITY_TOTP_MANAGE_STATUS,
   IDENTITY_TOTP_MANAGE_REPLACE_START,
   IDENTITY_TOTP_MANAGE_DISABLE,
   IDENTITY_TOTP_MANAGE_RENAME,
 } from '@intafaced/contracts/identity-totp-manage-procedures';
+import { IDENTITY_STEP_UP_BEGIN } from '@intafaced/contracts/identity-step-up-procedures';
 
 type Mode =
   | { kind: 'idle' }
@@ -111,7 +103,7 @@ export function Authenticator({ onChanged }: { onChanged?: (change?: { sessionsE
     await run(async () => {
       const requestId = crypto.randomUUID();
       const scope: StepUpScope = action === 'disable' ? 'identity.step_up.totp_disable' : 'identity.step_up.totp_replace';
-      const begun = await api.mutate('identity', 'stepUp.begin', stepUpBeginInput(scope, requestId), stepUpBegun);
+      const begun = await api.call(IDENTITY_STEP_UP_BEGIN, stepUpBeginInput(scope, requestId));
       if (fail(begun)) return;
       const approved = await api.mutate('identity', 'stepUp.complete', { challengeId: begun.data.challengeId, ...proof }, stepUpDone, {
         keepSessionFor: ['auth.mfa_invalid'],

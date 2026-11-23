@@ -1,4 +1,4 @@
-import { accountStatusSchema, type AccountRestriction } from '@intafaced/contracts/identity-account-status';
+import { type AccountRestriction } from '@intafaced/contracts/identity-account-status';
 import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { Failure, Loading } from './kit-parts';
@@ -7,6 +7,7 @@ import { stamp } from '../../screens/money/time';
 import { accountStatusCopy as copy } from './account-status-copy';
 import { verificationCapabilitiesCopy } from './verification-capabilities-copy';
 import { AccountAppeals } from './AccountAppeals';
+import { IDENTITY_ACCOUNT_STATUS_MINE } from '@intafaced/contracts/identity-account-status-procedures';
 
 /**
  * I-signin-sessions-22: the account status card on /uc/account. It lists what the person can still do and what they
@@ -19,9 +20,7 @@ export function AccountStatus() {
   const { timeZone } = usePreferences();
   const { resource, reload } = useResource(
     (signal) =>
-      userId
-        ? api.query('identity', 'accountStatus.mine', undefined, accountStatusSchema, { signal })
-        : Promise.resolve({ ok: true as const, data: null }),
+      userId ? api.call(IDENTITY_ACCOUNT_STATUS_MINE, undefined, { signal }) : Promise.resolve({ ok: true as const, data: null }),
     `account-status:${userId}`,
   );
 

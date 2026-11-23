@@ -1,7 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import {
   KYC_PROFILE_STEPS,
-  kycProfileDraftExactSchema,
   type KycProfileDraft,
   type KycProfileFieldStep,
   type KycProfileFields,
@@ -21,6 +20,7 @@ import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
 import { verificationGuidedCopy as copy } from './verification-guided-copy';
+import { IDENTITY_KYC_PROFILE_SAVE_STEP } from '@intafaced/contracts/identity-kyc-procedures';
 
 type Tier = KycProfileDraft['tier'];
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
@@ -190,10 +190,7 @@ export function VerificationGuided({ tier, disabled, onSent }: { tier: Tier; dis
           busy={busy || disabled}
           onProblem={setProblem}
           onSave={(step, fields) =>
-            void run(
-              () => api.mutate('identity', 'kyc.profile.saveStep', { step, version: open.version, fields }, kycProfileDraftExactSchema),
-              uploadCaps,
-            )
+            void run(() => api.call(IDENTITY_KYC_PROFILE_SAVE_STEP, { step, version: open.version, fields }), uploadCaps)
           }
           onUpload={(file) =>
             void run(

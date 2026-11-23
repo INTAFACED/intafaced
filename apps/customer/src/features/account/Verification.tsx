@@ -39,7 +39,7 @@ import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import './verification.css';
 import { callAs } from '../../shared/api';
-import { IDENTITY_KYC_SUBMIT } from '@intafaced/contracts/identity-kyc-procedures';
+import { IDENTITY_KYC_SUBMIT, IDENTITY_KYC_STATUS } from '@intafaced/contracts/identity-kyc-procedures';
 
 type Original = { owner: string; client: ApiClient; token: string; tier: RequestedTier; country: string; mount: object; path: string };
 type Known = {
@@ -107,7 +107,7 @@ export function Verification() {
   const { resource, reload } = useResource<VerificationStatus>(
     (signal) =>
       userId
-        ? api.query('identity', 'kyc.status', { limit }, verificationStatus(userId, limit), { signal })
+        ? callAs(api, IDENTITY_KYC_STATUS, { limit }, verificationStatus(userId, limit), { signal })
         : Promise.resolve({ ok: true as const, data: { tier: 'none' as const, records: [] } }),
     `verification:${userId}:${clientVersion.current.value}:${limit}`,
   );

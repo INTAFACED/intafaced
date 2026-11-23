@@ -15,6 +15,7 @@ import { kycAttemptsSchema } from './identity-kyc-attempts.js';
 import { kycLevelsDescribeOutputSchema } from './identity-kyc-levels.js';
 import { kycTradingChecksResultSchema, kycTradingChecksRunInputSchema, kycTradingChecksSchema } from './identity-kyc-trading-checks.js';
 import { kycRecordOutput, submittableTier } from './identity-call-schemas.js';
+import { kycProfileSaveStepInputSchema, kycProfileDraftExactSchema } from './identity-kyc-profile.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-identity `kyc.*`, one record per call: svc-identity mounts each (`mountRecord`) and every app caller calls it by its record. */
@@ -366,6 +367,148 @@ export const IDENTITY_KYC_TRADING_CHECKS_RUN = defineProcedure({
   output: kycTradingChecksResultSchema,
   samples: [
     { verdict: 'accept', input: { legalName: 'USDC', country: 'US', confirmed: true } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const kycDocMetaOutput = z.object({
+  id: z.string().guid(),
+  userId: z.string().guid(),
+  contentType: z.string(),
+  byteLength: z.number().int().positive(),
+  storedBy: z.string().nullable(),
+  createdAt: z.string(),
+});
+
+export const kycDocListOutput = kycDocMetaOutput.extend({
+  reviewStatus: z.enum(['not_attached', 'pending', 'approved', 'rejected', 'expired']),
+  reviewRecordId: z.string().guid().nullable(),
+  reviewTier: z.enum(['none', 'basic', 'full', 'institutional']).nullable(),
+});
+
+/**
+ * Meta-only list for one subject. No document bytes on the wire.
+ * Compliance scope only — not a free userId lookup for ordinary sessions.
+ * Limit required — omit never dumps KYC meta.
+ */
+export const IDENTITY_KYC_LIST_DOCUMENTS = defineProcedure({
+  ...base,
+  name: 'identity.kyc.listDocuments',
+  kind: 'query',
+  path: 'kyc.listDocuments',
+  access: { caller: 'scope', scope: 'admin:compliance' },
+  refusals: {},
+  input: z.object({ userId: z.string().guid(), limit: z.number().int().min(1).max(200) }),
+  output: z.array(kycDocListOutput),
+  samples: [
+    { verdict: 'accept', input: { userId: '11111111-1111-4111-8111-111111111111', limit: 1 } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/**
+ * §10 — operator opens a KYC document from the encrypted vault.
+ *
+ * MFA required: same privilege class as store/approve (document = PII).
+ * Dual-control reuses four-eyes (`confirmOperatorId` mill field → distinct
+ * `confirmActorId`) so one MFA `admin:compliance` session cannot PII-read.
+ * Refuses a blank IDENTITY_KYC_DOC_KEY before reader — no invented AES key, no plaintext.
+ */
+export const IDENTITY_KYC_GET_DOCUMENT = defineProcedure({
+  ...base,
+  name: 'identity.kyc.getDocument',
+  kind: 'mutation',
+  path: 'kyc.getDocument',
+  access: { caller: 'scope', scope: 'admin:compliance' },
+  refusals: {},
+  input: z.object({
+    documentId: z.string().guid(),
+    /**
+     * Distinct confirming operator. Enforced after parse so
+     * missing/blank/same refuse `dual_control_missing`, not a schema dump.
+     */
+    confirmOperatorId: z.string().max(128).nullish(),
+    approvalId: z.string().max(128).nullish(),
+    operationId: z.string().max(128).nullish(),
+  }),
+  output: kycDocMetaOutput.extend({ bytesBase64: z.string() }),
+  samples: [
+    { verdict: 'accept', input: { documentId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/**
+ * THE OPERATOR ACTION — THIS GRANTS TRADING ACCESS.
+ *
+ * `admin:compliance`, which no user session carries, plus an explicit
+ * second-factor check.
+ *
+ * WHY `requireMfa` IS HERE AND NOT IMPLIED BY THE SCOPE.
+ * `admin:compliance` is in `INTERACTIVE_ONLY_SCOPES`, so an API key that
+ * carries it is refused at `requireScope` (`scope.interactive_only`).
+ * That list does not force 2FA: `SESSION_MFA_SCOPES` is the value-off-
+ * platform subset, and approving a record moves nothing. It is still a
+ * privilege-escalation primitive, so the second factor is enforced here,
+ * locally. Dual-control reuses four-eyes
+ * (`confirmOperatorId` mill field → distinct `confirmActorId`) so one
+ * operator cannot self-grant `institutional`.
+ */
+export const IDENTITY_KYC_APPROVE = defineProcedure({
+  ...base,
+  name: 'identity.kyc.approve',
+  kind: 'mutation',
+  path: 'kyc.approve',
+  access: { caller: 'scope', scope: 'admin:compliance' },
+  refusals: {},
+  input: z.object({
+    recordId: z.string().guid(),
+    /** When the verification lapses. Null means it does not. */
+    expiresAt: z.string().datetime({ offset: true }).nullish(),
+    confirmOperatorId: z.string().max(128).nullish(),
+    approvalId: z.string().max(128).nullish(),
+    operationId: z.string().max(128).nullish(),
+  }),
+  output: kycRecordOutput,
+  samples: [
+    { verdict: 'accept', input: { recordId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+/** The caller's own records, and the tier they currently add up to. Limit required — omit never dumps records. */
+export const IDENTITY_KYC_STATUS = defineProcedure({
+  ...base,
+  name: 'identity.kyc.status',
+  kind: 'query',
+  path: 'kyc.status',
+  access: { caller: 'scope', scope: 'identity:read' },
+  refusals: {},
+  input: z.object({ limit: z.number().int().min(1).max(200) }),
+  output: z.object({
+    tier: z.enum(['none', 'basic', 'full', 'institutional']),
+    /** True when the level held was cleared by the trading checks alone (no ID checked): it is for trading. */
+    tradingOnly: z.boolean(),
+    records: z.array(kycRecordOutput),
+  }),
+  samples: [
+    { verdict: 'accept', input: { limit: 1 } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const IDENTITY_KYC_PROFILE_SAVE_STEP = defineProcedure({
+  ...base,
+  name: 'identity.kyc.profile.saveStep',
+  kind: 'mutation',
+  path: 'kyc.profile.saveStep',
+  access: { caller: 'scope', scope: 'identity:write' },
+  refusals: {},
+  input: kycProfileSaveStepInputSchema,
+  output: kycProfileDraftExactSchema,
+  outputChecks: { kyc_profile_draft_exact_holds: { at: 'output', says: 'not a valid date of birth' } },
+  samples: [
+    { verdict: 'accept', input: { step: 'residence', version: 1, fields: {} } },
     { verdict: 'refuse', input: 42 },
   ],
 });

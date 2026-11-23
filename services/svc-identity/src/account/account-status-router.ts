@@ -3,6 +3,9 @@ import type { Context } from '@intafaced/contracts';
 import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { accountStatusSchema } from '@intafaced/contracts/identity-account-status';
 import type { AccountStatusDesk } from './account-status.js';
+import { IDENTITY_ACCOUNT_STATUS_MINE } from '@intafaced/contracts/identity-account-status-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from '../record-refusal.js';
 
 /**
  * Staff reads are for a person at the console, as `listRestricted` is: never a service (the procedure's `person` guard),
@@ -37,12 +40,14 @@ export function createAccountStatusRouter(desk: AccountStatusDesk) {
   };
   return router({
     accountStatus: router({
-      mine: scopedProcedure('identity:read')
-        .output(accountStatusSchema)
-        .query(({ ctx }) => {
+      mine: mountRecord(
+        IDENTITY_ACCOUNT_STATUS_MINE,
+        ({ ctx }) => {
           refuseSubAccount(ctx);
           return read(ctx.principal.userId, 'owner');
-        }),
+        },
+        codedRefusal,
+      ),
       of: scopedProcedure('admin:read', { person: true })
         .input(z.object({ userId: z.string().guid() }).strict())
         .output(accountStatusSchema)

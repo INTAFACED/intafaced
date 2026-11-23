@@ -1,7 +1,11 @@
 import { z } from 'zod';
 import { createApiClient, type ApiResult } from '../../shared/api';
 import { forgetDeviceSessionKeys } from '../../shared/device-session-key';
-import { IDENTITY_AUTH_SUB_ACCOUNT_SESSION } from '@intafaced/contracts/identity-auth-procedures';
+import {
+  IDENTITY_AUTH_SUB_ACCOUNT_SESSION,
+  IDENTITY_AUTH_LOGOUT,
+  IDENTITY_AUTH_REFRESH,
+} from '@intafaced/contracts/identity-auth-procedures';
 
 /**
  * What the page holds about a sign-in. There is no refresh token here, on purpose: the server keeps it in the HttpOnly
@@ -132,8 +136,7 @@ export function createSessionRefresher(
   });
   const retryDelayMs = options.retryDelayMs ?? REFRESH_RETRY_MS;
   let flight: Promise<RefreshOutcome> | null = null;
-  const attempt = async (idle: boolean) =>
-    mapRefreshResult(await api.mutate('identity', 'auth.refresh', idle ? { idle: true } : {}, sessionSchema));
+  const attempt = async (idle: boolean) => mapRefreshResult(await api.call(IDENTITY_AUTH_REFRESH, idle ? { idle: true } : {}));
   async function once(idle: boolean): Promise<RefreshOutcome> {
     const first = await attempt(idle);
     if (first.kind !== 'unavailable') return first;
@@ -190,12 +193,7 @@ export async function requestSubAccountSession(
 
 /** Ask the server to end this browser's session. The cookie rides along (credentials included) and the reply clears it. */
 export function requestLogout(options: { fetch?: typeof fetch } = {}) {
-  return createApiClient({ credentials: 'include', ...(options.fetch ? { fetch: options.fetch } : {}) }).mutate(
-    'identity',
-    'auth.logout',
-    {},
-    z.object({ ok: z.literal(true) }),
-  );
+  return createApiClient({ credentials: 'include', ...(options.fetch ? { fetch: options.fetch } : {}) }).call(IDENTITY_AUTH_LOGOUT, {});
 }
 
 export type SessionState = {

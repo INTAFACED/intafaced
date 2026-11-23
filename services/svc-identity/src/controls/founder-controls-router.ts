@@ -1,24 +1,16 @@
 import { z } from 'zod';
 import type { IdentityAccountControlInput, Context } from '@intafaced/contracts';
 import {
-  accountControlInputSchema,
-  identityAccountControlInputSchema,
   accountControlLookupInputSchema,
   accountControlHistoryInputSchema,
   accountControlStateSchema,
   accountControlResultSchema,
   accountOperatorEntitlementSchema,
-  accountClosureInputSchema,
-  accountClosureHistoryInputSchema,
-  accountClosureResultSchema,
   accountArchiveInputSchema,
   accountArchiveLookupInputSchema,
   accountArchiveHistoryInputSchema,
   accountArchiveStateSchema,
   accountArchiveResultSchema,
-  accountTierMoveInputSchema,
-  accountTierHistoryInputSchema,
-  accountTierResultSchema,
   accountLimitOverrideClearInputSchema,
   accountLimitOverrideSetInputSchema,
   accountLimitResultSchema,
@@ -52,9 +44,16 @@ import {
   IDENTITY_ACCOUNT_CONTROLS_CLOSURE_STATE,
   IDENTITY_ACCOUNT_CONTROLS_DETAILS_HISTORY,
   IDENTITY_ACCOUNT_CONTROLS_TIER_STATE,
+  IDENTITY_ACCOUNT_CONTROLS_CLOSURE_HISTORY,
+  IDENTITY_ACCOUNT_CONTROLS_TIER_HISTORY,
+  IDENTITY_ACCOUNT_CONTROLS_CLOSURE,
+  IDENTITY_ACCOUNT_CONTROLS_CHANGE,
+  IDENTITY_ACCOUNT_CONTROLS_TIER_MOVE,
+  IDENTITY_ACCOUNT_CONTROLS_OPERATOR_STATUS,
 } from '@intafaced/contracts/identity-account-controls-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { codedRefusal } from '../record-refusal.js';
+import { identityFreezeInputSchema, identityRestoreInputSchema } from '@intafaced/contracts/identity-compliance-procedures';
 
 export type FounderControlsPort = Pick<
   FounderControls,
@@ -81,18 +80,6 @@ export type FounderControlsPort = Pick<
 >;
 export type CustomerDetailsPort = Pick<CustomerDetailsDesk, 'state' | 'edit' | 'decide' | 'reviews' | 'history'>;
 export type AccountLimitsPort = Pick<AccountLimitsDesk, 'state' | 'set' | 'clear' | 'history'>;
-const identityRestrictionInputSchema = accountControlInputSchema.refine(
-  (input) => input.target.area === 'identity',
-  'Identity target required',
-);
-export const identityFreezeInputSchema = identityRestrictionInputSchema.refine(
-  (input) => input.action === 'restrict',
-  'Restrict action required',
-);
-/** A restore carries the `identity.account_unfreeze` approval a second person signed (`approvalId`); identity spends it. */
-export const identityRestoreInputSchema = identityAccountControlInputSchema
-  .refine((input) => input.target.area === 'identity', 'Identity target required')
-  .refine((input) => input.action === 'restore', 'Restore action required');
 
 export async function callFounderControl(
   controls: Pick<FounderControlsPort, 'change'> | undefined,
@@ -154,15 +141,7 @@ function limitsDesk(limits: AccountLimitsPort | undefined): AccountLimitsPort {
 export function createFounderControlsRouter(controls: FounderControlsPort, details?: CustomerDetailsPort, limits?: AccountLimitsPort) {
   return router({
     accountControls: router({
-      change: protectedProcedure
-        .input(
-          identityAccountControlInputSchema.refine(
-            (input) => input.target.area === 'identity' || input.target.area === 'trading',
-            'Identity or trading target required',
-          ),
-        )
-        .output(accountControlResultSchema)
-        .mutation(({ ctx, input }) => callFounderControl(controls, ctx, input)),
+      change: mountRecord(IDENTITY_ACCOUNT_CONTROLS_CHANGE, ({ ctx, input }) => callFounderControl(controls, ctx, input), codedRefusal),
       history: protectedProcedure
         .input(accountControlHistoryInputSchema.refine((input) => input.target.area === 'identity', 'Identity target required'))
         .output(z.array(accountControlResultSchema))
@@ -172,19 +151,21 @@ export function createFounderControlsRouter(controls: FounderControlsPort, detai
         .output(accountControlStateSchema.nullable())
         .query(({ ctx, input }) => controlCall(() => controls.getState(ctx, input))),
       // Staff close and reopen (J-ops-console-04 #7): a live founder with a second person's approval, spent here.
-      closure: protectedProcedure
-        .input(accountClosureInputSchema)
-        .output(accountClosureResultSchema)
-        .mutation(({ ctx, input }) => controlCall(() => controls.closure(ctx, input))),
+      closure: mountRecord(
+        IDENTITY_ACCOUNT_CONTROLS_CLOSURE,
+        ({ ctx, input }) => controlCall(() => controls.closure(ctx, input)),
+        codedRefusal,
+      ),
       closureState: mountRecord(
         IDENTITY_ACCOUNT_CONTROLS_CLOSURE_STATE,
         ({ ctx, input }) => controlCall(() => controls.closureState(ctx, input)),
         codedRefusal,
       ),
-      closureHistory: protectedProcedure
-        .input(accountClosureHistoryInputSchema)
-        .output(z.array(accountClosureResultSchema))
-        .query(({ ctx, input }) => controlCall(() => controls.closureHistory(ctx, input))),
+      closureHistory: mountRecord(
+        IDENTITY_ACCOUNT_CONTROLS_CLOSURE_HISTORY,
+        ({ ctx, input }) => controlCall(() => controls.closureHistory(ctx, input)),
+        codedRefusal,
+      ),
       // Archive of a closed customer record (J-ops-console-04 #10): four-eyes, irreversible, and the dormancy proposals.
       archive: protectedProcedure
         .input(accountArchiveInputSchema)
@@ -205,19 +186,21 @@ export function createFounderControlsRouter(controls: FounderControlsPort, detai
       ),
       // Account product tiers (J-ops-console-04 #11): the owner's tier list, and a move a second live founder approved.
       tiers: mountRecord(IDENTITY_ACCOUNT_CONTROLS_TIERS, ({ ctx }) => controlCall(() => controls.tiers(ctx)), codedRefusal),
-      tierMove: protectedProcedure
-        .input(accountTierMoveInputSchema)
-        .output(accountTierResultSchema)
-        .mutation(({ ctx, input }) => controlCall(() => controls.tierMove(ctx, input))),
+      tierMove: mountRecord(
+        IDENTITY_ACCOUNT_CONTROLS_TIER_MOVE,
+        ({ ctx, input }) => controlCall(() => controls.tierMove(ctx, input)),
+        codedRefusal,
+      ),
       tierState: mountRecord(
         IDENTITY_ACCOUNT_CONTROLS_TIER_STATE,
         ({ ctx, input }) => controlCall(() => controls.tierState(ctx, input)),
         codedRefusal,
       ),
-      tierHistory: protectedProcedure
-        .input(accountTierHistoryInputSchema)
-        .output(z.array(accountTierResultSchema))
-        .query(({ ctx, input }) => controlCall(() => controls.tierHistory(ctx, input))),
+      tierHistory: mountRecord(
+        IDENTITY_ACCOUNT_CONTROLS_TIER_HISTORY,
+        ({ ctx, input }) => controlCall(() => controls.tierHistory(ctx, input)),
+        codedRefusal,
+      ),
       // Customer details (J-ops-console-04 #9): open details apply at once; name, date of birth and tax number go through a
       // compliance review the other founder passes. Values are encrypted at rest; the history names fields, never values.
       details: protectedProcedure
@@ -292,10 +275,11 @@ export function createFounderControlsRouter(controls: FounderControlsPort, detai
       changeOperatorEntitlement: protectedProcedure
         .input(founderEntitlementChangeSchema)
         .mutation(({ ctx, input }) => controlCall(() => controls.changeEntitlement(ctx, input))),
-      operatorStatus: protectedProcedure
-        .input(z.object({}).strict())
-        .output(accountOperatorEntitlementSchema)
-        .query(({ ctx }) => controlCall(() => controls.operatorStatus(ctx))),
+      operatorStatus: mountRecord(
+        IDENTITY_ACCOUNT_CONTROLS_OPERATOR_STATUS,
+        ({ ctx }) => controlCall(() => controls.operatorStatus(ctx)),
+        codedRefusal,
+      ),
       // POST reads retain exact body bytes for required service HMAC verification.
       // Enabled is a query-time observation, never account-change or future
       // admission authority. Consumers must not positive-cache.
@@ -316,3 +300,4 @@ export function createFounderControlsRouter(controls: FounderControlsPort, detai
     }),
   });
 }
+export { identityFreezeInputSchema };

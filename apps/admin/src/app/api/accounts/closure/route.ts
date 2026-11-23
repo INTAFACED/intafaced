@@ -6,16 +6,13 @@ import {
   accountClosureStateSchema,
 } from '@intafaced/contracts';
 import { adminBffSession } from '@/lib/admin-bff-gate';
-import {
-  adminSessionErrorResponse,
-  AdminSessionError,
-  authorizeAdminRequest,
-  founderEdgeCall,
-  founderEdgeRecordCall,
-} from '@/lib/founder-session';
+import { adminSessionErrorResponse, AdminSessionError, authorizeAdminRequest, founderEdgeRecordCall } from '@/lib/founder-session';
 import { closureExecute } from '@/lib/accounts/closure';
 import { handleStep } from '@/lib/desk/step-route';
-import { IDENTITY_ACCOUNT_CONTROLS_CLOSURE_STATE } from '@intafaced/contracts/identity-account-controls-procedures';
+import {
+  IDENTITY_ACCOUNT_CONTROLS_CLOSURE_STATE,
+  IDENTITY_ACCOUNT_CONTROLS_CLOSURE_HISTORY,
+} from '@intafaced/contracts/identity-account-controls-procedures';
 
 /**
  * Staff close and reopen of one account (J-ops-console-04 #7).
@@ -39,7 +36,7 @@ export async function GET(request: Request) {
     if (params.get('history') === 'true') {
       const parsed = accountClosureHistoryInputSchema.safeParse({ userId, limit: Number(params.get('limit')) });
       if (!parsed.success) throw new AdminSessionError('admin.accounts_input', 400);
-      const data = await founderEdgeCall(config, 'identity', 'accountControls.closureHistory', 'GET', parsed.data, session.accessToken);
+      const data = await founderEdgeRecordCall(config, IDENTITY_ACCOUNT_CONTROLS_CLOSURE_HISTORY, parsed.data, session.accessToken);
       const valid =
         Array.isArray(data) &&
         data.length <= Number(params.get('limit')) &&

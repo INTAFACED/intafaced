@@ -1,5 +1,6 @@
-import { requestSigningPolicySchema, type RequestSigningPolicy } from '@intafaced/contracts/api-keys';
+import { type RequestSigningPolicy } from '@intafaced/contracts/api-keys';
 import type { ApiClient, ApiResult } from '../../shared/api';
+import { IDENTITY_REQUEST_SIGNING_POLICY } from '@intafaced/contracts/identity-request-signing-policy-procedures';
 
 /**
  * Identity's published request-signing policy (DV-auth-01): the owner's timestamp window, null while it is not set,
@@ -7,5 +8,5 @@ import type { ApiClient, ApiResult } from '../../shared/api';
  * window a page names is the one the server enforces, never a number written here.
  */
 export function readSigningPolicy(api: Pick<ApiClient, 'query'>, signal?: AbortSignal): Promise<ApiResult<RequestSigningPolicy>> {
-  return api.query('identity', 'requestSigningPolicy', undefined, requestSigningPolicySchema, signal ? { signal } : {});
+  return api.call(IDENTITY_REQUEST_SIGNING_POLICY, undefined, signal ? { signal } : {});
 }

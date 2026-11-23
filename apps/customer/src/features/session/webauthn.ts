@@ -1,8 +1,12 @@
-import { z } from 'zod';
 import { authoredRefusal, type ApiClient, type ApiResult } from '../../shared/api';
-import { sessionSchema, type Session } from './session';
+import { type Session } from './session';
 import { IDENTITY_AUTH_STEP_UP_OPTIONS } from '@intafaced/contracts/identity-auth-procedures';
-import { IDENTITY_WEBAUTHN_AUTH_OPTIONS, IDENTITY_WEBAUTHN_REGISTER_OPTIONS } from '@intafaced/contracts/identity-webauthn-procedures';
+import {
+  IDENTITY_WEBAUTHN_AUTH_OPTIONS,
+  IDENTITY_WEBAUTHN_REGISTER_OPTIONS,
+  IDENTITY_WEBAUTHN_AUTH_VERIFY,
+  IDENTITY_WEBAUTHN_REGISTER_VERIFY,
+} from '@intafaced/contracts/identity-webauthn-procedures';
 import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 
 function bytes(value: string): ArrayBuffer {
@@ -79,9 +83,8 @@ export async function signInWithPasskey(
       return authoredRefusal('error', { key: 'passkeyAssertion' });
     const response = credential.response;
     if (!intent.beforeVerify() || !active()) return changed();
-    return api.mutate(
-      'identity',
-      'webauthn.authVerify',
+    return api.call(
+      IDENTITY_WEBAUTHN_AUTH_VERIFY,
       {
         identifier,
         credential: {
@@ -97,7 +100,6 @@ export async function signInWithPasskey(
           clientExtensionResults: credential.getClientExtensionResults(),
         },
       },
-      sessionSchema,
       { signal: intent.signal },
     );
   } catch (error) {
@@ -129,22 +131,17 @@ export async function enrollPasskey(api: ApiClient): Promise<ApiResult<{ credent
     if (!(credential instanceof PublicKeyCredential) || !(credential.response instanceof AuthenticatorAttestationResponse))
       return authoredRefusal('error', { key: 'passkeyMissing' });
     const response = credential.response;
-    return api.mutate(
-      'identity',
-      'webauthn.registerVerify',
-      {
-        id: credential.id,
-        rawId: base64url(credential.rawId),
-        type: 'public-key',
-        response: {
-          clientDataJSON: base64url(response.clientDataJSON),
-          attestationObject: base64url(response.attestationObject),
-          transports: response.getTransports(),
-        },
-        clientExtensionResults: credential.getClientExtensionResults(),
+    return api.call(IDENTITY_WEBAUTHN_REGISTER_VERIFY, {
+      id: credential.id,
+      rawId: base64url(credential.rawId),
+      type: 'public-key',
+      response: {
+        clientDataJSON: base64url(response.clientDataJSON),
+        attestationObject: base64url(response.attestationObject),
+        transports: response.getTransports(),
       },
-      z.object({ credentialId: z.string() }),
-    );
+      clientExtensionResults: credential.getClientExtensionResults(),
+    });
   } catch (error) {
     return authoredRefusal('error', {
       key: error instanceof DOMException && error.name === 'NotAllowedError' ? 'passkeyCreateStopped' : 'passkeyCreateFailed',

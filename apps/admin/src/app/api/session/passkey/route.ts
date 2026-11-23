@@ -5,13 +5,13 @@ import {
   assertAdminOrigin,
   assertCurrentFounder,
   founderCookie,
-  founderEdgeCall,
   newFounderSession,
   sealFounderSession,
   founderEdgeRecordCall,
 } from '@/lib/founder-session';
 import { readAdminJson } from '@/lib/admin-json';
-import { IDENTITY_WEBAUTHN_AUTH_OPTIONS } from '@intafaced/contracts/identity-webauthn-procedures';
+import { IDENTITY_WEBAUTHN_AUTH_OPTIONS, IDENTITY_WEBAUTHN_AUTH_VERIFY } from '@intafaced/contracts/identity-webauthn-procedures';
+import { IDENTITY_AUTH_LOGOUT } from '@intafaced/contracts/identity-auth-procedures';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,7 +33,7 @@ export async function POST(request: Request) {
     }
     if (input.action !== 'authenticate' || !input.credential || typeof input.credential !== 'object' || Array.isArray(input.credential))
       throw new AdminSessionError('admin.login_input', 400);
-    const raw = await founderEdgeCall(config, 'identity', 'webauthn.authVerify', 'POST', {
+    const raw = await founderEdgeRecordCall(config, IDENTITY_WEBAUTHN_AUTH_VERIFY, {
       identifier: input.identifier,
       credential: input.credential,
     });
@@ -41,7 +41,7 @@ export async function POST(request: Request) {
     try {
       await assertCurrentFounder(session, config);
     } catch (error) {
-      await founderEdgeCall(config, 'identity', 'auth.logout', 'POST', { refreshToken: session.refreshToken }).catch(() => undefined);
+      await founderEdgeRecordCall(config, IDENTITY_AUTH_LOGOUT, { refreshToken: session.refreshToken }).catch(() => undefined);
       throw error;
     }
     return Response.json(

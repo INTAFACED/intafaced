@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { setScopedBearer, type ApiClient, type ApiResult } from '../../../../shared/api';
 import { MONEY_SCOPE, type MoneyKind } from './money-step';
+import { IDENTITY_AUTH_STEP_UP_PAY } from '@intafaced/contracts/identity-auth-procedures';
 
 /**
  * The "Confirm it's you" token for refunds and payouts, held in memory and nowhere else.
@@ -254,11 +255,9 @@ export async function mintPayStepUp(
   input: { merchantId: string; kind: MoneyKind; proof: FactorProof },
   signal?: AbortSignal,
 ): Promise<ApiResult<z.infer<typeof mintedSchema>>> {
-  return api.mutate(
-    'identity',
-    'auth.stepUpPay',
+  return api.call(
+    IDENTITY_AUTH_STEP_UP_PAY,
     { merchantId: input.merchantId, scopes: [MONEY_SCOPE[input.kind]], factorProof: input.proof },
-    mintedSchema,
     { signal, keepSessionFor: ['auth.mfa_invalid', 'auth.webauthn_invalid'] },
   );
 }

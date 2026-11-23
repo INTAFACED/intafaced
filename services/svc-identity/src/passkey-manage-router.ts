@@ -1,5 +1,4 @@
-import { z } from 'zod';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import type { Sql } from 'postgres';
 import {
   normalizePasskeyLabel,
@@ -9,17 +8,14 @@ import {
   setPasskeyPurposes,
   setPasskeySecondStep,
 } from './auth/passkey-manage.js';
-import { encodePurposes, parsePurposes, PASSKEY_PURPOSES } from './auth/passkey-purposes.js';
+import { encodePurposes, parsePurposes } from './auth/passkey-purposes.js';
 import { toSecurityStepUpTrpc, type SecurityStepUp } from './auth/security-step-up.js';
-
-const row = z.object({
-  credentialId: z.string(),
-  label: z.string().nullable(),
-  kind: z.enum(['platform', 'cross_device', 'security_key', 'unknown']),
-  createdAt: z.string(),
-  lastUsedAt: z.string().nullable(),
-  purposes: z.array(z.enum(PASSKEY_PURPOSES)),
-});
+import { IDENTITY_LIST_PASSKEYS } from '@intafaced/contracts/identity-list-passkeys-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from './record-refusal.js';
+import { IDENTITY_RENAME_PASSKEY } from '@intafaced/contracts/identity-rename-passkey-procedures';
+import { IDENTITY_SET_PASSKEY_PURPOSES } from '@intafaced/contracts/identity-set-passkey-purposes-procedures';
+import { IDENTITY_SET_PASSKEY_SECOND_STEP } from '@intafaced/contracts/identity-set-passkey-second-step-procedures';
 
 function mapManage(err: unknown): never {
   if (err instanceof PasskeyManageError) {
@@ -43,29 +39,20 @@ function mapManage(err: unknown): never {
  */
 export function createPasskeyManageRouter(sql: Sql, stepUp: SecurityStepUp, limits: { readonly maxPerAccount?: number | undefined } = {}) {
   return router({
-    listPasskeys: scopedProcedure('identity:read')
-      .input(z.object({ limit: z.number().int().min(1).max(200) }).strict())
-      .output(z.object({ passkeys: z.array(row), maxPerAccount: z.number().int().nullable(), secondStep: z.boolean() }))
-      .query(async ({ ctx, input }) => {
+    listPasskeys: mountRecord(
+      IDENTITY_LIST_PASSKEYS,
+      async ({ ctx, input }) => {
         try {
           return { ...(await passkeySettings(sql, ctx.principal.userId, input.limit)), maxPerAccount: limits.maxPerAccount ?? null };
         } catch (err) {
           return mapManage(err);
         }
-      }),
-    renamePasskey: scopedProcedure('identity:write')
-      .input(
-        z
-          .object({
-            credentialId: z.string().min(1).max(1024),
-            label: z.string().max(256),
-            clientRequestId: z.string().min(1).max(128),
-            stepUpApprovalId: z.string().min(1).max(128).nullish(),
-          })
-          .strict(),
-      )
-      .output(row)
-      .mutation(async ({ ctx, input }) => {
+      },
+      codedRefusal,
+    ),
+    renamePasskey: mountRecord(
+      IDENTITY_RENAME_PASSKEY,
+      async ({ ctx, input }) => {
         try {
           const label = normalizePasskeyLabel(input.label);
           await stepUp.require(
@@ -78,24 +65,16 @@ export function createPasskeyManageRouter(sql: Sql, stepUp: SecurityStepUp, limi
         } catch (err) {
           return mapManage(err);
         }
-      }),
+      },
+      codedRefusal,
+    ),
     /**
      * Bind one passkey to the actions it answers for (I-signin-sessions-10): `signin`, `money_out`, `security_change`.
      * Sent sorted and comma-joined, the same string the step-up hashed; '' answers for every action.
      */
-    setPasskeyPurposes: scopedProcedure('identity:write')
-      .input(
-        z
-          .object({
-            credentialId: z.string().min(1).max(1024),
-            purposes: z.string().max(64),
-            clientRequestId: z.string().min(1).max(128),
-            stepUpApprovalId: z.string().min(1).max(128).nullish(),
-          })
-          .strict(),
-      )
-      .output(row)
-      .mutation(async ({ ctx, input }) => {
+    setPasskeyPurposes: mountRecord(
+      IDENTITY_SET_PASSKEY_PURPOSES,
+      async ({ ctx, input }) => {
         try {
           const purposes = parsePurposes(input.purposes);
           if (!purposes) throw new PasskeyManageError('identity.passkey_purposes_invalid');
@@ -109,20 +88,13 @@ export function createPasskeyManageRouter(sql: Sql, stepUp: SecurityStepUp, limi
         } catch (err) {
           return mapManage(err);
         }
-      }),
+      },
+      codedRefusal,
+    ),
     /** Ask, or stop asking, for a passkey after the password at sign-in (I-signin-sessions-10). */
-    setPasskeySecondStep: scopedProcedure('identity:write')
-      .input(
-        z
-          .object({
-            on: z.boolean(),
-            clientRequestId: z.string().min(1).max(128),
-            stepUpApprovalId: z.string().min(1).max(128).nullish(),
-          })
-          .strict(),
-      )
-      .output(z.object({ secondStep: z.boolean() }))
-      .mutation(async ({ ctx, input }) => {
+    setPasskeySecondStep: mountRecord(
+      IDENTITY_SET_PASSKEY_SECOND_STEP,
+      async ({ ctx, input }) => {
         try {
           await stepUp.require(
             ctx.principal,
@@ -134,6 +106,8 @@ export function createPasskeyManageRouter(sql: Sql, stepUp: SecurityStepUp, limi
         } catch (err) {
           return mapManage(err);
         }
-      }),
+      },
+      codedRefusal,
+    ),
   });
 }

@@ -59,7 +59,12 @@ import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import { VerifyEmail } from './VerifyEmail';
 import { StepUpSheet } from '../money';
-import { IDENTITY_WEBAUTHN_REMOVE, IDENTITY_WEBAUTHN_REGISTER_OPTIONS } from '@intafaced/contracts/identity-webauthn-procedures';
+import {
+  IDENTITY_WEBAUTHN_REMOVE,
+  IDENTITY_WEBAUTHN_REGISTER_OPTIONS,
+  IDENTITY_WEBAUTHN_LIST,
+  IDENTITY_WEBAUTHN_REGISTER_VERIFY,
+} from '@intafaced/contracts/identity-webauthn-procedures';
 import { IDENTITY_TOTP_ENROL } from '@intafaced/contracts/identity-totp-procedures';
 import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 import { IDENTITY_AUTH_LOGOUT_ALL } from '@intafaced/contracts/identity-auth-procedures';
@@ -177,7 +182,7 @@ export function Security() {
   const { resource, reload } = useResource(
     (signal) =>
       userId
-        ? api.query('identity', 'webauthn.list', { limit }, passkeysIn(limit), { signal })
+        ? callAs(api, IDENTITY_WEBAUTHN_LIST, { limit }, passkeysIn(limit), { signal })
         : Promise.resolve({ ok: true as const, data: [] }),
     `security-credentials:${userId}:${clientVersion.current.value}:${limit}`,
   );
@@ -393,9 +398,9 @@ export function Security() {
     }
     const registration = makeRecord(intent, 'register', payload.rawId);
     if (!save(intent, registration)) return;
-    const answer = await intent.client.mutate(
-      'identity',
-      'webauthn.registerVerify',
+    const answer = await callAs(
+      intent.client,
+      IDENTITY_WEBAUTHN_REGISTER_VERIFY,
       payload,
       passkeyRegisteredSchema.refine((value) => value.credentialId === payload!.rawId),
       sending(intent, abort.signal),
@@ -413,7 +418,7 @@ export function Security() {
     if (!intent.credential) return;
     const abort = new AbortController();
     controller.current = abort;
-    const fresh = await intent.client.query('identity', 'webauthn.list', { limit: intent.limit }, passkeysIn(intent.limit), {
+    const fresh = await callAs(intent.client, IDENTITY_WEBAUTHN_LIST, { limit: intent.limit }, passkeysIn(intent.limit), {
       signal: abort.signal,
     });
     if (!same(intent)) {
