@@ -377,7 +377,7 @@ test('a red wire replay refuses the push, named; a green one lets it through (pr
 // lint ratchet; its second push, for the secret scan; its third, for the CI review's size count: three pushes for three
 // refusals the first run could have named. Replayed: the real lint ratchet on a real rise, and the size count planted
 // with the refusal that head got; the one push names both and lists them at the end. (The secret scan is a Doctrine gate,
-// CI's alone since 22 Nov: its Fast gates job names it about two minutes after the push.)
+// CI's alone since 22 Nov.)
 test('every check runs and every refusal is named in one run, listed at the end (fix/ps-3343-curriculum 09d41f0f86, replayed)', () => {
   const file = 'crates/svc-academy/scripts/record-curriculum.mjs';
   const p = plant({
