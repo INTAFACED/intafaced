@@ -82,9 +82,12 @@ export interface PaymentIntent {
  * What a rail status query may answer about one original payout key.
  * `amount` and `assetId` are null when the rail can prove a send but does
  * not echo the instruction. A disagreeing amount is not a send of this payout.
+ * `reverted` is a send the chain mined and reverted: it left, and it moved nothing. `final` is true once the revert is as
+ * deep as the rail's own finality depth (a reorg below it could still drop the revert); never a reason to settle the hold.
  */
 export type PayoutRailStatus =
   | { readonly status: 'sent'; readonly railRef: string; readonly amount: Amount | null; readonly assetId: string | null }
+  | { readonly status: 'reverted'; readonly railRef: string; readonly depth: number; readonly final: boolean }
   | { readonly status: 'not_sent' }
   | { readonly status: 'unknown' };
 
