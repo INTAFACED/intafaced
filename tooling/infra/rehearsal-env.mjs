@@ -98,6 +98,8 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
       INTAFACED_SANCTIONS_LIST_SOURCE: process.env.INTAFACED_SANCTIONS_LIST_SOURCE,
     },
   });
+  // Actions masks a registered value wherever it would appear later in this job's public log.
+  if (process.env.GITHUB_ACTIONS === 'true') for (const name of generated) console.log(`::add-mask::${env.get(name)}`);
   writeFileSync(envFile, [...env].map(([k, v]) => `${k}=${v}`).join('\n') + '\n', { mode: 0o600 });
   writeFileSync(sqlFile, rolesSql(env, roles), { mode: 0o600 });
   console.log(

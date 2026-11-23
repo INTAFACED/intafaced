@@ -19,16 +19,15 @@ report() {
   done
 }
 
-# Why a bad container stopped, without its full log (public): its typed refusal codes (`notify.verify_ttl_unset`) and
-# its boot refusal's own lines ("Refusing to start", each "  - <SETTING> ..." issue, a "<SETTING>: Required"), which
-# name settings, not their values. Long hex runs and URL credentials are masked on top, in case a line carries one.
+# Why a bad container stopped: the last lines of its log. The rehearsal registers every value it made with
+# `::add-mask::` and Actions masks repository secrets, so none shows; long hex runs and URL credentials are masked here
+# as well, for a run of this script anywhere else.
 codes() {
   while read -r name _; do
     [ -n "$name" ] || continue
-    echo "  ${name#/} said:"
-    docker logs --tail 200 "${name#/}" 2>&1 \
-      | grep -E 'Refusing to start|^Error|panicked|\berror:|^\s+- [A-Z][A-Z0-9_]+ |^[A-Z][A-Z0-9_]+: |\b[a-z][a-z0-9_-]*\.[a-z0-9_.]*(_unset|_required|_refused|_invalid|_missing|_forbidden|_not_allowed|_blank|_not_required)\b' \
-      | sed -E 's/[0-9a-fA-F]{16,}/<hex>/g; s#://[^/@ ]*@#://<credentials>@#g' | sort -u | head -n 30 | sed 's/^/    /' || true
+    echo "  ${name#/} said, last lines:"
+    docker logs --tail 25 "${name#/}" 2>&1 \
+      | sed -E 's/[0-9a-fA-F]{16,}/<hex>/g; s#://[^/@ ]*@#://<credentials>@#g' | cut -c1-400 | sed 's/^/    /' || true
   done <<< "$1"
 }
 
