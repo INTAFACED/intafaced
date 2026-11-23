@@ -24,6 +24,7 @@ const subscription = {
   resumedAt: null,
   stalledAt: null,
   stallReason: null,
+  priceId: null,
 };
 const mandate = {
   id: D,

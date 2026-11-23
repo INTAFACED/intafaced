@@ -7,12 +7,21 @@ vi.mock('../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
-vi.mock('../session/session', async (original) => {
-  const real = await original<typeof import('../session/session')>();
+vi.mock('../session', async (original) => {
+  const real = await original<typeof import('../session')>();
   const api = {
     query: async () => ({ ok: false, reason: 'unavailable', message: 'TEST off' }),
     mutate: async () => ({ ok: false }),
     canWrite: () => true,
+    // A call by its record reaches this double's query or mutate under the record's module and path.
+    call(record: { kind: string; module: string; path: string }, input?: unknown): Promise<unknown> {
+      const send = (record.kind === 'query' ? api.query : api.mutate) as (
+        module: string,
+        path: string,
+        input?: unknown,
+      ) => Promise<unknown>;
+      return send(record.module, record.path, input);
+    },
   };
   const held = { api, userId: 'user-1', session: { accessToken: 'token' } };
   return { ...real, useApi: () => api, useSession: () => held };

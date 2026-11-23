@@ -1,6 +1,8 @@
-//! Who may call: the scope check (`requireScope`, `requireMfa` in `packages/auth/src/guards.ts`, with the scope lists
-//! of `scopes.ts`) and the jurisdiction check (`packages/config/src/jurisdiction.ts` `checkAccess`, `screening.ts`) for a
-//! module the matrix keeps open everywhere with no verification tier (`tax`, `academy`), on the fiat plane.
+//! Who may call: the scope and tier checks (`requireScope`, `requireMfa`, `requireTier` in
+//! `packages/auth/src/guards.ts`, with the scope lists of `scopes.ts`) and the jurisdiction check
+//! (`packages/config/src/jurisdiction.ts` `checkAccess`, `screening.ts`) on the fiat plane, for a module the matrix
+//! keeps open everywhere: with no verification tier (`tax`, `academy`: `check_open`), or at one tier (`bank`:
+//! `check_module`).
 //!
 //! The TypeScript reads the process environment on each call; this reads the same variables once, when the service is
 //! put together, from the map it is given.
@@ -50,15 +52,18 @@ const SESSION_MFA_SCOPES: [&str; 4] = [
     "pay:onboard",
 ];
 
+/// `hasScope(granted, scope)`: the scope held, or implied by one held.
+pub fn has_scope(granted: &[String], scope: &str) -> bool {
+    granted
+        .iter()
+        .any(|s| s == scope || IMPLIED.iter().any(|(from, to)| s == from && *to == scope))
+}
+
 /// `requireScope(principal, scope)`: the scope held (or implied), not exercised from an API key or sub-account when it
 /// may not be, and with two-factor where the scope needs it. `code` is `scope.denied`, `scope.interactive_only` or
 /// `mfa.required`.
 pub fn require_scope(p: &Principal, scope: &str) -> Result<(), Refused> {
-    let held = p
-        .scopes
-        .iter()
-        .any(|s| s == scope || IMPLIED.iter().any(|(from, to)| s == from && *to == scope));
-    if !held {
+    if !has_scope(&p.scopes, scope) {
         return Err(Refused {
             message: format!("Scope \"{scope}\" is required"),
             code: "scope.denied".to_owned(),
@@ -103,6 +108,29 @@ pub fn require_mfa(p: &Principal) -> Result<(), Refused> {
     }
 }
 
+/// `TIER_ORDER` (`packages/auth/src/guards.ts`, the same in `packages/config/src/jurisdiction.ts`): `None` for a tier it
+/// does not list, which JavaScript reads as `undefined` and compares false either way.
+pub fn tier_rank(tier: &str) -> Option<u8> {
+    match tier {
+        "none" => Some(0),
+        "basic" => Some(1),
+        "full" => Some(2),
+        "institutional" => Some(3),
+        _ => None,
+    }
+}
+
+/// `requireTier(principal, tier)`: refused (`tier.insufficient`) only when the held tier ranks below the one asked.
+pub fn require_tier(p: &Principal, tier: &str) -> Result<(), Refused> {
+    match (tier_rank(&p.tier), tier_rank(tier)) {
+        (Some(held), Some(need)) if held < need => Err(Refused {
+            message: format!("Verification tier \"{tier}\" is required"),
+            code: "tier.insufficient".to_owned(),
+        }),
+        _ => Ok(()),
+    }
+}
+
 /// One region the screening list or the business refuses, with why.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Blocked {
@@ -122,6 +150,16 @@ struct ScreeningList {
     regions: Vec<Blocked>,
     declaration: Declaration,
     source: String,
+}
+
+/// The screening list as `ScreeningList` reads: `declaration`, `configured`, `source` and the listed regions.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScreeningView<'a> {
+    pub declaration: &'static str,
+    pub configured: bool,
+    pub source: &'a str,
+    /// Each listed region and its reason.
+    pub regions: Vec<(&'a str, &'a str)>,
 }
 
 /// What the jurisdiction check reads from the environment, read once.
@@ -390,6 +428,31 @@ impl Jurisdiction {
         })
     }
 
+    /// `envScreeningList()` as its readers see it: the declaration, whether an answer was supplied, the provenance, and
+    /// each listed region with its reason (every row carries the list's own source).
+    pub fn screening(&self) -> ScreeningView<'_> {
+        ScreeningView {
+            declaration: match self.screening.declaration {
+                Declaration::Unset => "unset",
+                Declaration::Listed => "listed",
+                Declaration::ReviewedEmpty => "reviewed-empty",
+            },
+            configured: self.screening.declaration != Declaration::Unset,
+            source: &self.screening.source,
+            regions: self
+                .screening
+                .regions
+                .iter()
+                .map(|b| (b.region.as_str(), b.reason.as_deref().unwrap_or_default()))
+                .collect(),
+        }
+    }
+
+    /// `SHIPPED_BUSINESS_BLOCKS`: the matrix's own blocks, without the TEST blocks a dev or test process adds.
+    pub fn shipped_business_regions() -> impl Iterator<Item = &'static str> {
+        SHIPPED_BUSINESS_BLOCKS.iter().map(|(r, _)| *r)
+    }
+
     fn money_grade(&self) -> &'static str {
         if self.screening.declaration == Declaration::Unset {
             return "unconfigured";
@@ -468,6 +531,41 @@ impl Jurisdiction {
         // be reached for this module.
         Ok(())
     }
+
+    /// `AccessDecision.blockedBy`: which authority refuses the region, `screening` winning when both name it; none for a
+    /// region neither names (so none for any refusal but `denied.region_blocked`).
+    pub fn blocked_by(&self, region: &str) -> Option<&'static str> {
+        if Self::hit(&self.screening.regions, region).is_some() {
+            Some("screening")
+        } else if Self::hit(&self.business, region).is_some() {
+            Some("business")
+        } else {
+            None
+        }
+    }
+
+    /// `checkAccess({ module, plane: 'fiat', region, kycTier })` for a fiat module whose rule is open everywhere at
+    /// `min_tier` (no region of the matrix names the module: `ruleFor` is its default rule): the checks of
+    /// [`Jurisdiction::check_open`], then `denied.kyc_required` when the caller's tier does not satisfy it
+    /// (`tierSatisfies`: a tier the order does not list never does).
+    pub fn check_module(
+        &self,
+        region: &str,
+        tier: &str,
+        module: &str,
+        min_tier: &str,
+    ) -> Result<(), Refused> {
+        self.check_open(region)?;
+        let satisfied =
+            matches!((tier_rank(tier), tier_rank(min_tier)), (Some(h), Some(n)) if h >= n);
+        if satisfied {
+            return Ok(());
+        }
+        Err(Refused {
+            code: "denied.kyc_required".to_owned(),
+            message: format!("Verification tier \"{min_tier}\" required for {module} in {region}"),
+        })
+    }
 }
 
 #[cfg(test)]
@@ -498,6 +596,9 @@ mod tests {
             "denied.region_blocked"
         );
         assert_eq!(test.check_open("CA-QC"), Ok(()));
+        assert_eq!(test.blocked_by("US"), Some("business"));
+        assert_eq!(test.blocked_by("IR"), Some("screening"));
+        assert_eq!(test.blocked_by("DE"), None);
         assert!(
             test.check_open("UA-43")
                 .unwrap_err()

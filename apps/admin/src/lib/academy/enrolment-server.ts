@@ -1,21 +1,23 @@
 import 'server-only';
 import {
-  academyBulkEmailDetailSchema,
-  academyBulkEmailsSchema,
-  academyBulkEnrolSchema,
-  academyCourseInvitationsSchema,
-  academyInviteToCourseSchema,
-  academyReportFileSchema,
-  academyReportTasksSchema,
-  academyRequestLearnerExportSchema,
-  academySendBulkEmailSchema,
-  academyStaffEnrolmentsSchema,
-  academyStaffEnrolSchema,
-} from '@intafaced/contracts/academy-staff-enrolment';
-import { academyLearnerTagsSchema } from '@intafaced/contracts/academy-learner-desk';
+  ACADEMY_ADMIN_BULK_EMAIL,
+  ACADEMY_ADMIN_BULK_EMAILS,
+  ACADEMY_ADMIN_BULK_ENROL,
+  ACADEMY_ADMIN_COURSE_INVITATIONS,
+  ACADEMY_ADMIN_INVITE_TO_COURSE,
+  ACADEMY_ADMIN_LEARNER_TAGS,
+  ACADEMY_ADMIN_REPORT_FILE,
+  ACADEMY_ADMIN_REPORT_TASKS,
+  ACADEMY_ADMIN_REQUEST_LEARNER_EXPORT,
+  ACADEMY_ADMIN_SEND_BULK_EMAIL,
+  ACADEMY_ADMIN_STAFF_ENROL,
+  ACADEMY_ADMIN_STAFF_ENROLMENTS,
+  ACADEMY_ADMIN_TAG_LEARNERS,
+} from '@intafaced/contracts/academy-admin-procedures';
 import { identityLearnerCardResultSchema } from '@intafaced/contracts/identity-learner-card';
 import {
-  founderCall,
+  founderAskedCall,
+  founderRecordCall,
   parseWith,
   type FounderCallContext,
   type FounderCallResult,
@@ -23,8 +25,10 @@ import {
   type PartLabels,
   explainRefusal,
   type RefusalView,
+  founderRecordRead,
 } from '@/lib/desk';
 import { ENROLMENT_COPY, type EnrolmentReply, type EnrolmentView, type MailView, type ReportsView } from './enrolment-model';
+import { IDENTITY_LEARNER_CARD_LOOKUP } from '@intafaced/contracts/identity-learner-card-procedures';
 
 /**
  * Staff enrolment, invitations, course email and learner exports (J-academy-15), as the signed-in operator. Addresses
@@ -49,7 +53,7 @@ const readCard = parseWith(identityLearnerCardResultSchema);
 async function accountOf(ctx: FounderCallContext, term: string): Promise<{ userId: string | null } | { failed: RefusalView }> {
   const value = term.trim();
   const input = value.startsWith('@') ? { handle: value.slice(1) } : value.includes('@') ? { email: value } : { handle: value };
-  const found = await founderCall(ctx, 'identity', 'learnerCard.lookup', 'GET', input, readCard);
+  const found = await founderRecordRead(ctx, IDENTITY_LEARNER_CARD_LOOKUP, input, readCard);
   if (found.kind === 'ok') return { userId: found.data.card?.id ?? null };
   const why = failure(found);
   return { failed: why.reply.ok ? enrolmentRefusal(null, 502, true) : why.reply };
@@ -104,9 +108,9 @@ const incomplete = (body: string) => ({
 
 export async function loadEnrolment(ctx: FounderCallContext): Promise<EnrolmentView> {
   const [events, invitations, tags] = await Promise.all([
-    founderCall(ctx, 'academy', 'admin.staffEnrolments', 'GET', {}, parseWith(academyStaffEnrolmentsSchema)),
-    founderCall(ctx, 'academy', 'admin.courseInvitations', 'GET', {}, parseWith(academyCourseInvitationsSchema)),
-    founderCall(ctx, 'academy', 'admin.learnerTags', 'GET', undefined, parseWith(academyLearnerTagsSchema)),
+    founderRecordCall(ctx, ACADEMY_ADMIN_STAFF_ENROLMENTS, {}),
+    founderRecordCall(ctx, ACADEMY_ADMIN_COURSE_INVITATIONS, {}),
+    founderRecordCall(ctx, ACADEMY_ADMIN_LEARNER_TAGS, undefined),
   ]);
   return {
     events: partFrom(events, (d) => d, ACADEMY),
@@ -118,8 +122,8 @@ export async function loadEnrolment(ctx: FounderCallContext): Promise<EnrolmentV
 
 export async function loadMail(ctx: FounderCallContext, id: string | null): Promise<MailView> {
   const [history, detail] = await Promise.all([
-    founderCall(ctx, 'academy', 'admin.bulkEmails', 'GET', {}, parseWith(academyBulkEmailsSchema)),
-    id ? founderCall(ctx, 'academy', 'admin.bulkEmail', 'GET', { id }, parseWith(academyBulkEmailDetailSchema)) : null,
+    founderRecordCall(ctx, ACADEMY_ADMIN_BULK_EMAILS, {}),
+    id ? founderRecordCall(ctx, ACADEMY_ADMIN_BULK_EMAIL, { id }) : null,
   ]);
   return {
     history: partFrom(history, (d) => d, ACADEMY),
@@ -130,15 +134,15 @@ export async function loadMail(ctx: FounderCallContext, id: string | null): Prom
 
 export async function loadReports(ctx: FounderCallContext): Promise<ReportsView> {
   const [tasks, tags] = await Promise.all([
-    founderCall(ctx, 'academy', 'admin.reportTasks', 'GET', undefined, parseWith(academyReportTasksSchema)),
-    founderCall(ctx, 'academy', 'admin.learnerTags', 'GET', undefined, parseWith(academyLearnerTagsSchema)),
+    founderRecordCall(ctx, ACADEMY_ADMIN_REPORT_TASKS, undefined),
+    founderRecordCall(ctx, ACADEMY_ADMIN_LEARNER_TAGS, undefined),
   ]);
   return { tasks: partFrom(tasks, (d) => d, ACADEMY), tags: partFrom(tags, (d) => d, ACADEMY), asOf: new Date().toISOString() };
 }
 
 /** A finished export's file, as svc-academy stored it, or why it cannot be served. */
 export async function reportFile(ctx: FounderCallContext, id: string) {
-  const result = await founderCall(ctx, 'academy', 'admin.reportFile', 'GET', { id }, parseWith(academyReportFileSchema));
+  const result = await founderRecordCall(ctx, ACADEMY_ADMIN_REPORT_FILE, { id });
   return result.kind === 'ok' ? { ok: true as const, file: result.data } : failure(result);
 }
 
@@ -163,14 +167,7 @@ export async function changeEnrolment(ctx: FounderCallContext, body: Body): Prom
         rows.push({ address, userId: found.userId });
       }
       return reply(
-        await founderCall(
-          ctx,
-          'academy',
-          'admin.bulkEnrol',
-          'POST',
-          { path: body.path, rows, reason: str(body.reason) },
-          parseWith(academyBulkEnrolSchema),
-        ),
+        await founderAskedCall(ctx, ACADEMY_ADMIN_BULK_ENROL, { path: body.path, rows, reason: str(body.reason) }),
         'bulk enrolment answered',
       );
     }
@@ -181,27 +178,17 @@ export async function changeEnrolment(ctx: FounderCallContext, body: Body): Prom
       if ('failed' in found) return { status: 502, reply: { ok: false, ...found.failed } };
       if (!found.userId) return { status: 404, reply: { ok: false, ...enrolmentRefusal('academy.learner_not_found', 404) } };
       return reply(
-        await founderCall(
-          ctx,
-          'academy',
-          'admin.staffEnrol',
-          'POST',
-          { path: body.path, userId: found.userId, reason: str(body.reason) },
-          parseWith(academyStaffEnrolSchema),
-        ),
+        await founderAskedCall(ctx, ACADEMY_ADMIN_STAFF_ENROL, { path: body.path, userId: found.userId, reason: str(body.reason) }),
         'learner enrolled',
       );
     }
     case 'invite':
       return reply(
-        await founderCall(
-          ctx,
-          'academy',
-          'admin.inviteToCourse',
-          'POST',
-          { path: body.path, address: str(body.address), reason: str(body.reason) },
-          parseWith(academyInviteToCourseSchema),
-        ),
+        await founderAskedCall(ctx, ACADEMY_ADMIN_INVITE_TO_COURSE, {
+          path: body.path,
+          address: str(body.address),
+          reason: str(body.reason),
+        }),
         'invitation stored',
       );
     case 'bulkTag': {
@@ -227,39 +214,26 @@ export async function changeEnrolment(ctx: FounderCallContext, body: Body): Prom
             changed: 'no',
           },
         };
-      const result = await founderCall(
-        ctx,
-        'academy',
-        'admin.tagLearners',
-        'POST',
-        { userIds: [...new Set(userIds)], tag: str(body.tag).trim(), reason: str(body.reason) },
-        (raw: unknown) =>
-          raw && typeof raw === 'object' && Number.isInteger((raw as { added?: unknown }).added) ? (raw as { added: number }) : null,
-      );
+      const result = await founderAskedCall(ctx, ACADEMY_ADMIN_TAG_LEARNERS, {
+        userIds: [...new Set(userIds)],
+        tag: str(body.tag).trim(),
+        reason: str(body.reason),
+      });
       return reply(result, `tag ${str(body.tag).trim()} added`);
     }
     case 'sendMail':
       return reply(
-        await founderCall(
-          ctx,
-          'academy',
-          'admin.sendBulkEmail',
-          'POST',
-          { path: body.path, subject: str(body.subject), body: str(body.body), key: str(body.key) },
-          parseWith(academySendBulkEmailSchema),
-        ),
+        await founderAskedCall(ctx, ACADEMY_ADMIN_SEND_BULK_EMAIL, {
+          path: body.path,
+          subject: str(body.subject),
+          body: str(body.body),
+          key: str(body.key),
+        }),
         'course email recorded',
       );
     case 'requestExport':
       return reply(
-        await founderCall(
-          ctx,
-          'academy',
-          'admin.requestLearnerExport',
-          'POST',
-          { tag: str(body.tag).trim() || null, key: str(body.key) },
-          parseWith(academyRequestLearnerExportSchema),
-        ),
+        await founderAskedCall(ctx, ACADEMY_ADMIN_REQUEST_LEARNER_EXPORT, { tag: str(body.tag).trim() || null, key: str(body.key) }),
         'learner export requested',
       );
     default:

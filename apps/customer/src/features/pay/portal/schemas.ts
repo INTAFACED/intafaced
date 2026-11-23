@@ -2,10 +2,6 @@ import { z } from 'zod';
 import { paymentListPrivacySchema } from '@intafaced/contracts/pay-payment-views';
 import {
   PAY_CAP_KINDS,
-  PAY_PRICING_LAYERS,
-  merchantControlProfileSchema,
-  payControlUsageSchema,
-  payPricingQuoteSchema,
   payoutApprovalSchema,
   type MerchantControlProfile,
   type PayCapKind,
@@ -17,21 +13,18 @@ import {
 import {
   PAY_METRIC_PRESETS,
   PAY_PAYMENT_STATUSES,
-  merchantMetricsSeriesSchema,
-  merchantMetricsSnapshotSchema,
-  metricsFreshnessSchema,
   type MerchantMetricsSeries,
   type MerchantMetricsSnapshot,
   type MetricsFreshness,
   type PayAssetAmount,
 } from '@intafaced/contracts/merchant-metrics';
-import { PAY_HALT_SCOPES, payHaltStatusSchema, type PayHaltScope, type PayHaltStatus } from '@intafaced/contracts/pay-halts';
+import { type PayHaltScope, type PayHaltStatus } from '@intafaced/contracts/pay-halts';
 import {
   payMerchantFailureSchema,
   payPaymentConfirmationsSchema,
   payPricingSnapshotViewSchema,
 } from '@intafaced/contracts/pay-merchant-reads';
-import { PAY_EXPORT_KINDS, payExportJobSchema, type PayExportJob, type PayExportKind } from '@intafaced/contracts/pay-portal-reads';
+import { type PayExportJob, type PayExportKind } from '@intafaced/contracts/pay-portal-reads';
 import {
   amount,
   asset,
@@ -39,6 +32,24 @@ import {
   paymentSchema as basePaymentSchema,
   settlementSchema as baseSettlementSchema,
 } from '../schemas';
+import {
+  teamRoles,
+  memberRoleSchema,
+  evidenceKinds,
+  timestamp,
+  evidenceSchema,
+  customerSummarySchema,
+  kybStatusSchema,
+  kybCurrentSchema,
+  invitationSchema,
+  memberSchema,
+  notificationKinds,
+  preferenceSchema,
+  kybEventSchema,
+  teamEventSchema,
+  notificationSchema,
+  preferenceChangeSchema,
+} from '@intafaced/contracts/pay-merchant-ops-procedures';
 
 export { paymentEventSchema };
 
@@ -48,8 +59,6 @@ export { paymentEventSchema };
 
 export const page = <T extends z.ZodTypeAny>(item: T) => z.object({ items: z.array(item), nextCursor: z.string().nullable() });
 export type Page<T> = { items: T[]; nextCursor: string | null };
-
-const timestamp = z.string().datetime({ offset: true });
 
 // ---- fields added to payments, settlements and approvals (all optional: an older service simply omits them) -----------
 // Authorities: packages/contracts/src/pay-merchant-reads.ts and merchant-control.ts. Foundation only parses them;
@@ -72,31 +81,16 @@ export const settlementSchema = baseSettlementSchema.extend({
 });
 export type AssetAmount = PayAssetAmount;
 
-export const metricPresets = PAY_METRIC_PRESETS;
+const metricPresets = PAY_METRIC_PRESETS;
 export type MetricPreset = (typeof metricPresets)[number];
 export const paymentStatuses = PAY_PAYMENT_STATUSES;
 
 // svc-pay `merchantMetrics.snapshot` and `.series` answer with these, checked against them on the server.
-export const freshnessSchema = metricsFreshnessSchema;
 export type Freshness = MetricsFreshness;
-export const snapshotSchema = merchantMetricsSnapshotSchema;
 export type Snapshot = MerchantMetricsSnapshot;
-export const seriesSchema = merchantMetricsSeriesSchema;
 export type Series = MerchantMetricsSeries;
 
-export const kybStatusSchema = z.enum(['none', 'pending', 'approved', 'rejected']);
-export const kybCurrentSchema = z.object({ kybStatus: kybStatusSchema, kybRef: z.string().nullable(), mode: z.string() });
-export const kybEventSchema = z.object({
-  seq: z.string(),
-  fromStatus: z.string(),
-  toStatus: z.string(),
-  kybRef: z.string().nullable(),
-  decidedBy: z.enum(['merchant', 'intafaced']),
-  reason: z.string().nullable(),
-  at: timestamp,
-});
 export type KybEvent = z.infer<typeof kybEventSchema>;
-export const kybSubmitSchema = z.object({ id: z.string(), kybStatus: kybStatusSchema, kybRef: z.string().nullable() });
 export const merchantCreatedSchema = z.object({ id: z.string(), userId: z.string(), mode: z.string(), feeBps: z.number().nullable() });
 export const destinationSchema = z.object({ kind: z.string(), ref: z.string(), railId: z.string() });
 
@@ -111,39 +105,11 @@ const onboardingDraftFieldsSchema = z.object({
   expectedVolume: z.string(),
 });
 export type OnboardingDraftFields = z.infer<typeof onboardingDraftFieldsSchema>;
-export const onboardingDraftSchema = z.object({ fields: onboardingDraftFieldsSchema, updatedAt: z.string() }).nullable();
 
-export const teamRoles = ['admin', 'finance', 'developer', 'viewer'] as const;
 export type TeamRole = (typeof teamRoles)[number];
-export const memberRoleSchema = z.enum(['owner', ...teamRoles]);
 export type MemberRole = z.infer<typeof memberRoleSchema>;
-export const memberSchema = z.object({
-  memberId: z.string().nullable(),
-  userId: z.string(),
-  role: memberRoleSchema,
-  status: z.enum(['active', 'invited', 'removed']),
-  label: z.string().nullable(),
-  invitedBy: z.string().nullable(),
-  createdAt: timestamp,
-  activatedAt: timestamp.nullable(),
-  removedAt: timestamp.nullable(),
-  cursor: z.string().nullable(),
-});
 export type Member = z.infer<typeof memberSchema>;
-export const teamEventSchema = z.object({
-  seq: z.string(),
-  memberUserId: z.string(),
-  action: z.string(),
-  fromRole: z.string().nullable(),
-  toRole: z.string().nullable(),
-  actorId: z.string(),
-  createdAt: timestamp,
-});
 export type TeamEvent = z.infer<typeof teamEventSchema>;
-export const teamMeSchema = z.object({ merchantId: z.string(), userId: z.string(), role: memberRoleSchema });
-export const invitationSchema = z.array(
-  z.object({ memberId: z.string(), merchantId: z.string(), role: z.enum(teamRoles), invitedAt: timestamp }),
-);
 export type Invitation = z.infer<typeof invitationSchema>[number];
 
 /**
@@ -206,19 +172,7 @@ export const disputeSummarySchema = z.object({
   }),
   amountAtRisk: z.array(z.object({ assetId: asset, amount })),
 });
-export const evidenceKinds = ['receipt', 'shipping_proof', 'customer_communication', 'terms_accepted', 'identity_check', 'other'] as const;
 export type EvidenceKind = (typeof evidenceKinds)[number];
-export const evidenceSchema = z.object({
-  evidenceId: z.string(),
-  kind: z.enum(evidenceKinds),
-  fileName: z.string(),
-  contentType: z.string(),
-  sizeBytes: z.string(),
-  sha256: z.string(),
-  note: z.string().nullable(),
-  addedBy: z.string(),
-  createdAt: timestamp,
-});
 export type Evidence = z.infer<typeof evidenceSchema>;
 export const disputeDetailSchema = disputeSchema.extend({
   canRespond: z.boolean(),
@@ -249,76 +203,21 @@ export const customerSchema = z.object({
   totals: z.array(totalsSchema),
 });
 export type Customer = z.infer<typeof customerSchema>;
-export const customerSummarySchema = z.object({
-  customerCount: z.number().int(),
-  activeSinceCount: z.number().int(),
-  repeatCustomerCount: z.number().int(),
-  activeSince: timestamp,
-});
 export const customerDetailSchema = customerSchema.extend({
   recentPayments: z.array(z.object({ paymentId: z.string(), status: z.string(), assetId: asset, amount, createdAt: timestamp })),
 });
 export type CustomerDetail = z.infer<typeof customerDetailSchema>;
 
-export const exportKinds = PAY_EXPORT_KINDS;
 export type ExportKind = PayExportKind;
-export const exportJobSchema = payExportJobSchema;
 export type ExportJob = PayExportJob;
-export const exportDownloadSchema = z.object({
-  fileName: z.string(),
-  contentType: z.string(),
-  content: z.string(),
-  sha256: z.string(),
-  rowCount: z.number().int(),
-});
 
-export const notificationKinds = [
-  'payout_awaiting_approval',
-  'settlement_failed',
-  'payout_failed',
-  'limit_threshold',
-  'dispute_opened',
-  'dispute_due',
-  'webhook_failing',
-  'operator_pause',
-  'export_ready',
-  'team_change',
-  'payout_destination',
-] as const;
 export type NotificationKind = (typeof notificationKinds)[number];
-export const notificationSchema = z.object({
-  notificationId: z.string(),
-  kind: z.enum(notificationKinds),
-  title: z.string(),
-  body: z.string().nullable(),
-  subjectType: z.string().nullable(),
-  subjectId: z.string().nullable(),
-  createdAt: timestamp,
-  readAt: timestamp.nullable(),
-});
 export type Notification = z.infer<typeof notificationSchema>;
-export const preferenceSchema = z.object({
-  kind: z.enum(notificationKinds),
-  inApp: z.boolean(),
-  threshold: z.string().nullable(),
-  updatedBy: z.string().nullable(),
-  updatedAt: timestamp.nullable(),
-});
 export type Preference = z.infer<typeof preferenceSchema>;
-/** One change to a notification preference (`merchantOps.notifications.preferences.history`): what it was set to, by whom. */
-export const preferenceChangeSchema = z.object({
-  seq: z.string(),
-  kind: z.enum(notificationKinds),
-  inApp: z.boolean(),
-  threshold: z.string().nullable(),
-  actorId: z.string(),
-  createdAt: timestamp,
-});
 export type PreferenceChange = z.infer<typeof preferenceChangeSchema>;
 export const markedSchema = z.object({ marked: z.number().int() });
-export const unreadSchema = z.object({ unread: z.number().int() });
 
-export const merchantRecordSchema = z
+const merchantRecordSchema = z
   .object({
     id: z.string(),
     userId: z.string(),
@@ -336,17 +235,6 @@ export const merchantRecordSchema = z
 export type MerchantRecord = NonNullable<z.infer<typeof merchantRecordSchema>>;
 /** The fee INTAFACED has published for new accounts, exactly as the service states it. `local_test` marks a TEST value. */
 export type StarterFee = { bps: number; source: 'local_test' };
-export const railSchema = z.array(
-  z.object({
-    id: z.string(),
-    capabilities: z.array(z.string()),
-    mode: z.enum(['live', 'sandbox', 'absent']),
-    usable: z.boolean(),
-    healthy: z.boolean(),
-    latencyMs: z.number(),
-    reason: z.string().optional(),
-  }),
-);
 
 // ---- payments, settlements and payouts (W3b) -----------------------------------------------------------
 // `payment.*` and `settlement.*` are the pay service's own reads; both are checked on the server against the signed session.
@@ -361,14 +249,10 @@ export const settlementStatuses = ['pending', 'posted', 'paid_out', 'failed'] as
 // an operator; a null section is "not configured" and is shown as such, never as a default.
 export const capKinds = PAY_CAP_KINDS;
 export type CapKind = PayCapKind;
-export const pricingLayers = PAY_PRICING_LAYERS;
 export type PricingRule = PayPricingRule;
-export const controlProfileSchema = merchantControlProfileSchema;
 export type ControlProfile = MerchantControlProfile;
-export const usageSchema = payControlUsageSchema;
 export type Usage = PayControlUsage;
 export type UsageRow = Usage['rows'][number];
-export const quoteSchema = payPricingQuoteSchema;
 export type Quote = PayPricingQuote;
 
 export const approvalStatuses = ['pending', 'approved', 'rejected', 'voided', 'expired', 'consumed'] as const;
@@ -376,7 +260,17 @@ export type ApprovalStatus = (typeof approvalStatuses)[number];
 export const approvalSchema = payoutApprovalSchema;
 export type Approval = PayoutApproval;
 
-export const haltScopes = PAY_HALT_SCOPES;
 export type HaltScope = PayHaltScope;
-export const haltStatusSchema = payHaltStatusSchema;
 export type HaltStatus = PayHaltStatus;
+export {
+  teamRoles,
+  memberRoleSchema,
+  evidenceKinds,
+  evidenceSchema,
+  customerSummarySchema,
+  kybCurrentSchema,
+  memberSchema,
+  notificationKinds,
+  preferenceSchema,
+};
+export { preferenceChangeSchema };

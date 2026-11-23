@@ -1,14 +1,12 @@
 import {
-  router,
-  serviceProcedureFor,
-  TRPCError,
   GUEST_VERIFICATION_CALLERS,
   guestVerificationEraseInputSchema,
   guestVerificationEraseReceiptSchema,
   guestVerificationGetInputSchema,
   guestVerificationReceiptSchema,
   guestVerificationSendInputSchema,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/guest-verification';
+import { router, serviceProcedureFor, TRPCError } from '@intafaced/contracts/trpc';
 import { GuestVerificationError, type GuestVerificationService, type Producer } from './verification.js';
 
 /**

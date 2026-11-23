@@ -1,10 +1,10 @@
-import { useRef } from 'react';
-import { z } from 'zod';
+import { useId, useRef } from 'react';
+import type { z } from 'zod';
+import { membershipOfferSchema } from '@intafaced/contracts/identity-account-room';
 import type { ApiClient } from '../../shared/api';
 import { useSession } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
-import { Failure, Loading } from '../../shared/ui';
-import { DepthPanel, Fact } from '../money';
+import { Failure, Loading } from './kit-parts';
 import { membershipCopy as copy } from './membership-copy';
 
 /**
@@ -14,46 +14,34 @@ import { membershipCopy as copy } from './membership-copy';
  * its price and perks and nothing to press.
  */
 
-// hand-declared-ok: svc-identity's membership.offer output lives in the service (membership-router.ts), not in @intafaced/contracts.
-const tier = z
-  .object({
-    id: z.string(),
-    name: z.string(),
-    price: z.string(),
-    assetId: z.string(),
-    periodDays: z.number().int(),
-    perks: z.array(z.string()),
-  })
-  .strict();
-
-export const membershipOfferSchema = z.union([
-  z.object({ offered: z.literal(false), code: z.literal('identity.membership_not_offered') }).strict(),
-  z.object({ offered: z.literal(true), tiers: z.array(tier), current: z.null() }).strict(),
-]);
+export { membershipOfferSchema };
 export type MembershipOffer = z.infer<typeof membershipOfferSchema>;
 
 export function MembershipView({ offer }: { offer: MembershipOffer }) {
   const { t } = copy.useCopy();
   if (!offer.offered) {
     return (
-      <div className="bd-address" role="status" data-testid="membership" data-state="not-offered">
+      <div role="status" data-testid="membership" data-state="not-offered">
         <strong>{t('notOffered')}</strong>
         <p>{t('notOfferedBody')}</p>
       </div>
     );
   }
   return (
-    <div className="bd-stack" data-testid="membership" data-state="offered">
-      <dl className="bd-facts">
-        <Fact label={t('yours')}>{t('noTier')}</Fact>
+    <div data-testid="membership" data-state="offered">
+      <dl>
+        <div>
+          <dt>{t('yours')}</dt>
+          <dd>{t('noTier')}</dd>
+        </div>
       </dl>
-      <ul className="bd-list">
+      <ul>
         {offer.tiers.map((row) => (
           <li key={row.id} data-tier={row.id}>
             <strong lang="und">{row.name}</strong>
             <p lang="und">{t('price', { price: row.price, asset: row.assetId, days: row.periodDays })}</p>
             {row.perks.length === 0 ? (
-              <p className="money-caption">{t('noPerks')}</p>
+              <p className="lt-hint">{t('noPerks')}</p>
             ) : (
               <ul aria-label={t('perks')}>
                 {row.perks.map((perk, index) => (
@@ -66,7 +54,7 @@ export function MembershipView({ offer }: { offer: MembershipOffer }) {
           </li>
         ))}
       </ul>
-      <p className="money-caption">{t('notForSale')}</p>
+      <p className="lt-hint">{t('notForSale')}</p>
     </div>
   );
 }
@@ -80,6 +68,7 @@ export function MembershipBody({ resource, reload }: { resource: Resource<Member
 /** Asks identity only once someone is signed in, and again whenever the session's client changes. */
 function MembershipRead({ api, userId }: { api: ApiClient; userId: string }) {
   const { t } = copy.useCopy();
+  const heading = useId();
   const client = useRef({ api, version: 0 });
   if (client.current.api !== api) client.current = { api, version: client.current.version + 1 };
   const { resource, reload } = useResource(
@@ -87,9 +76,11 @@ function MembershipRead({ api, userId }: { api: ApiClient; userId: string }) {
     `account-membership:${userId}:${client.current.version}`,
   );
   return (
-    <DepthPanel title={t('title')} lead={t('lead')} id="membership">
+    <section aria-labelledby={heading} id="membership">
+      <h3 id={heading}>{t('title')}</h3>
+      <p className="lt-hint">{t('lead')}</p>
       <MembershipBody resource={resource} reload={reload} />
-    </DepthPanel>
+    </section>
   );
 }
 

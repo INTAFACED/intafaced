@@ -1,12 +1,6 @@
-import {
-  currentAuthorityInputSchema,
-  currentAuthorityResultSchema,
-  serviceCallSigner,
-  type CurrentAuthorityInput,
-  type CurrentAuthorityResult,
-  type ServiceAuthMode,
-  type ServiceSigner,
-} from '@intafaced/contracts';
+import type { CurrentAuthorityInput, CurrentAuthorityResult, ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { currentAuthorityInputSchema, currentAuthorityResultSchema } from '@intafaced/contracts/account-controls';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import { assertLiveCredential, createIdentityOwnershipClient, type LiveCredentialInput } from './live-credential.js';
 
 /** Private-read snapshot only. This port never supplies trading admission. */

@@ -1,11 +1,10 @@
-import { publicProcedure, router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import {
   limitDeskOutputSchema,
   limitRequestCreateInputSchema,
   limitRequestListOutputSchema,
   limitRequestSchema,
   limitReviewInputSchema,
-  rateTiersOutputSchema,
 } from '@intafaced/contracts/api-rate-limits';
 import type { Sql } from 'postgres';
 import {
@@ -19,6 +18,9 @@ import {
   type RatePolicy,
 } from './auth/api-rate-limits.js';
 import { userCopy } from './user-copy.js';
+import { IDENTITY_API_RATE_TIERS } from '@intafaced/contracts/identity-api-rate-tiers-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from './record-refusal.js';
 
 const STATUS: Record<RateLimitCode, TRPCError['code']> = {
   'identity.rate_limits_unset': 'PRECONDITION_FAILED',
@@ -57,7 +59,7 @@ function assertSignedInPerson(principal: { kid?: string | undefined; sub_account
  */
 export function createApiRateLimitsRouter(sql: Sql, policy: RatePolicy | null) {
   return router({
-    apiRateTiers: publicProcedure.output(rateTiersOutputSchema).query(() => publishedTiers(policy)),
+    apiRateTiers: mountRecord(IDENTITY_API_RATE_TIERS, () => publishedTiers(policy), codedRefusal),
 
     apiLimitRequests: router({
       create: scopedProcedure('identity:write')

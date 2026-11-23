@@ -1,10 +1,11 @@
 import { useEffect, useRef, useReducer, type FormEvent } from 'react';
-import { Button, Field } from '../../shared/ui';
+import { Button, Field } from '@intafaced/ui/lit';
 import { useSession } from '../session';
 import { MAX_INPUT_LENGTH, singleFlight } from '../../shared/password';
 import { passwordCopy } from '../../shared/password-copy';
-import { changeIssue, changeReducer, changedSchema, initialChange } from './change-password';
+import { changeIssue, changeReducer, initialChange } from './change-password';
 import { changePasswordCopy } from './change-password-copy';
+import { IDENTITY_AUTH_CHANGE_PASSWORD } from '@intafaced/contracts/identity-auth-procedures';
 
 /**
  * The change-password card in Security. Passwords are read from the form when it is sent and cleared straight
@@ -54,9 +55,13 @@ export function ChangePassword({ onChanged }: { onChanged?: () => void }) {
     const startedFor = userId;
     const answered = await flight.run(async () => {
       dispatch({ type: 'submit', issue: null });
-      return api.mutate('identity', 'auth.changePassword', { currentPassword: current, newPassword: next }, changedSchema, {
-        signal: abort.current?.signal,
-      });
+      return api.call(
+        IDENTITY_AUTH_CHANGE_PASSWORD,
+        { currentPassword: current, newPassword: next },
+        {
+          signal: abort.current?.signal,
+        },
+      );
     });
     // Whatever the answer, nothing typed stays in the page: the person retypes after a refusal.
     wipe('current-password', 'new-password', 'confirm-password');
@@ -72,23 +77,23 @@ export function ChangePassword({ onChanged }: { onChanged?: () => void }) {
     <section
       id="password"
       data-testid="security__password"
-      className="security__password security__card"
+
       aria-label={t('title')}
       lang={languageFor('title')}
     >
       <h2>{t('title')}</h2>
       <p>{t('body')}</p>
       {state.phase === 'changed' ? (
-        <div className="stack">
-          <p data-testid="notice" className="notice" role="status">
+        <div>
+          <p data-testid="notice" className="lt-hint" role="status">
             {t('changed')}
           </p>
-          <Button variant="secondary" onClick={() => dispatch({ type: 'again' })}>
+          <Button tone="secondary" onClick={() => dispatch({ type: 'again' })}>
             {t('again')}
           </Button>
         </div>
       ) : (
-        <form ref={form} method="post" className="stack" onSubmit={(event) => void submit(event)} noValidate>
+        <form ref={form} method="post" onSubmit={(event) => void submit(event)} noValidate>
           <Field
             label={t('currentField')}
             name="current-password"
@@ -121,11 +126,11 @@ export function ChangePassword({ onChanged }: { onChanged?: () => void }) {
             data-security-sensitive="true"
           />
           {problemText && (
-            <p className="error-text" role="alert">
+            <p className="lt-hint" role="alert">
               {problemText}
             </p>
           )}
-          <Button type="submit" disabled={sending}>
+          <Button tone="primary" type="submit" disabled={sending}>
             {sending ? t('sending') : t('submit')}
           </Button>
         </form>

@@ -1,19 +1,21 @@
 import 'server-only';
 import {
-  opsAlertDetailSchema,
-  opsAlertListSchema,
-  opsPlatformIncidentsSchema,
-  opsReconciliationPeriodsSchema,
   type OpsAlertCursor,
   type OpsAlertDetail,
   type OpsAlertList,
   type OpsPlatformIncidents,
   type OpsReconciliationPeriods,
-  notifyReconAlertFeedSchema,
   type NotifyReconAlertFeed,
 } from '@intafaced/contracts/ops-reconciliation-alerts';
-import { founderCall, parseWith, type FounderCallContext, partFrom, type Part } from '@/lib/desk';
+import { type FounderCallContext, partFrom, type Part, founderRecordCall } from '@/lib/desk';
 import { refusalWords } from './model';
+import { NOTIFY_RECONCILIATION_ALERT_FEED_LIST } from '@intafaced/contracts/notify-reconciliation-alert-feed-procedures';
+import {
+  OPS_ALERTS_LIST,
+  OPS_ALERTS_PERIODS,
+  OPS_ALERTS_PLATFORM_INCIDENTS,
+  OPS_ALERTS_GET,
+} from '@intafaced/contracts/ops-alerts-procedures';
 
 const labels = {
   service: 'svc-ops',
@@ -35,9 +37,9 @@ export interface AlertsRoom {
 /** The list, the periods and the platform incidents, each read on its own so one failure never hides another. */
 export async function readAlertsRoom(ctx: FounderCallContext, after: OpsAlertCursor | null): Promise<AlertsRoom> {
   const [list, periods, incidents] = await Promise.all([
-    founderCall(ctx, 'ops', 'alerts.list', 'GET', { after, limit: ALERT_PAGE }, parseWith(opsAlertListSchema)),
-    founderCall(ctx, 'ops', 'alerts.periods', 'GET', { limit: 50 }, parseWith(opsReconciliationPeriodsSchema)),
-    founderCall(ctx, 'ops', 'alerts.platformIncidents', 'GET', { limit: 50 }, parseWith(opsPlatformIncidentsSchema)),
+    founderRecordCall(ctx, OPS_ALERTS_LIST, { after, limit: ALERT_PAGE }),
+    founderRecordCall(ctx, OPS_ALERTS_PERIODS, { limit: 50 }),
+    founderRecordCall(ctx, OPS_ALERTS_PLATFORM_INCIDENTS, { limit: 50 }),
   ]);
   return {
     asOf: new Date().toISOString(),
@@ -48,7 +50,7 @@ export async function readAlertsRoom(ctx: FounderCallContext, after: OpsAlertCur
 }
 
 export async function readAlertDetail(ctx: FounderCallContext, alertId: string): Promise<Part<OpsAlertDetail>> {
-  const result = await founderCall(ctx, 'ops', 'alerts.get', 'GET', { alertId }, parseWith(opsAlertDetailSchema));
+  const result = await founderRecordCall(ctx, OPS_ALERTS_GET, { alertId });
   return partFrom(result, (d) => d, labels);
 }
 
@@ -59,14 +61,7 @@ const feedLabels = {
 
 /** What svc-notify received of this alert's transitions: its own record, one per business key, read apart from svc-ops. */
 export async function readAlertFeed(ctx: FounderCallContext, alertId: string): Promise<Part<NotifyReconAlertFeed>> {
-  const result = await founderCall(
-    ctx,
-    'notify',
-    'reconciliationAlertFeed.list',
-    'GET',
-    { alertId },
-    parseWith(notifyReconAlertFeedSchema),
-  );
+  const result = await founderRecordCall(ctx, NOTIFY_RECONCILIATION_ALERT_FEED_LIST, { alertId });
   return partFrom(result, (d) => d, feedLabels);
 }
 

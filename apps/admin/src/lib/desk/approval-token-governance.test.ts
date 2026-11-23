@@ -9,7 +9,7 @@ import {
 } from '../../../../../services/svc-token/src/governance-payload';
 import { payloadHashFor, proposeInputFor } from './approval-hash';
 import { confirmPhrase, describeRequest, readDeskRequest, requestReason } from './approval-packet';
-import { GOVERNANCE_ROLES, durationWords, hoursToMs, msToHours } from '@/lib/token-governance/model';
+import { GOVERNANCE_ROLES, durationWords, hoursToMs, msToHours } from '@/lib/token-governance';
 
 /** J-more-catalogue-10: the console's governance requests hash exactly as svc-token consumes them. */
 describe('token governance desk requests', () => {

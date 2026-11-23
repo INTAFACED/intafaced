@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const USER = '12345678-1234-4234-8234-123456789abc';
 const world = vi.hoisted(() => ({ userId: null as string | null, me: (() => Promise.resolve({})) as () => Promise<unknown> }));
 // One api object, as the real session keeps: the notice re-reads only when the api or the user changes.
-const api = { query: () => world.me() };
+const api = { call: () => world.me() };
 vi.mock('../session/session', () => ({
   useSession: () => ({ userId: world.userId, api }),
 }));

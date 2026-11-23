@@ -274,9 +274,3 @@ export const copyActionSchema = z.object({
 export const otcSettledSchema = otcFillSchema.extend({ fillId: z.string(), takerOrderId: z.string(), makerOrderId: z.string() });
 /** `/futures/adl-disclosure`: the auto-deleveraging disclosure and whether this person acknowledged its version. */
 export const adlDisclosureSchema = z.object({ version: z.string(), copy: z.string(), acknowledged: z.boolean() });
-/** `execution.spine`: every execution door and the house rule that it routes outside only. */
-export const executionSpineSchema = z.object({
-  doors: z.array(z.object({ id: z.string(), module: z.string(), kind: z.string(), callerSubmit: z.boolean() })),
-  externalOnly: z.boolean(),
-  houseInternalRefuse: z.boolean(),
-});

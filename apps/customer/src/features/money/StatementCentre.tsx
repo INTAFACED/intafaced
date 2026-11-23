@@ -2,9 +2,8 @@ import { useState, type FormEvent } from 'react';
 import { Download } from 'lucide-react';
 import { Button } from '../../shared/ui';
 import { useSession } from '../session';
-import { refusalCopy } from '../../data';
 import { decodeBase64, lastFullMonth, monthIsOver, monthRange, saveFile, shortFingerprint } from '../../screens/money/statement-model';
-import { statementFileSchema, statementJobSchema, type LineTotal } from './contracts';
+import { type LineTotal } from './contracts';
 import { LineTotals } from './StatementExtras';
 import { DepthPanel } from './DepthParts';
 import { dayIsOver, endedBy, dayRange, last30Days, STATEMENT_REPORTS, utcDay, type StatementReport } from './statement-centre-model';
@@ -13,6 +12,7 @@ import { statementDocumentsCopy } from './statement-documents-copy';
 import { refusedWords } from './statement-refusals';
 import { StatementDocuments } from './StatementDocuments';
 import './bank-depth.css';
+import { BANK_STATEMENTS_EXPORT, BANK_STATEMENTS_JOBS_CREATE } from '@intafaced/contracts/bank-statements-procedures';
 
 type Said =
   | { kind: 'done'; name: string; count: number; fingerprint: string; totals: readonly LineTotal[] | null }
@@ -74,7 +74,7 @@ export function StatementCentre() {
     if (busy || !range || problem) return;
     setBusy(true);
     setSaid(null);
-    const result = await api.query('bank', 'statements.export', { from: range.from, to: range.to, format, report }, statementFileSchema);
+    const result = await api.call(BANK_STATEMENTS_EXPORT, { from: range.from, to: range.to, format, report });
     setBusy(false);
     if (!result.ok) {
       const code = result.code ?? null;
@@ -98,13 +98,7 @@ export function StatementCentre() {
     if (busy || !range || problem) return;
     setBusy(true);
     setSaid(null);
-    const result = await api.mutate(
-      'bank',
-      'statements.jobs.create',
-      // A background export is of dates that have ended: a range running to the end of today stops now.
-      { from: range.from, to: endedBy(range.to, new Date()), format, report },
-      statementJobSchema,
-    );
+    const result = await api.call(BANK_STATEMENTS_JOBS_CREATE, { from: range.from, to: endedBy(range.to, new Date()), format, report });
     setBusy(false);
     if (!result.ok) {
       const code = result.code ?? null;
@@ -123,52 +117,52 @@ export function StatementCentre() {
 
   return (
     <DepthPanel title={t('title')} lead={t('notTaxForm')}>
-      <form className="bd-stack" data-testid="statement-centre" aria-label={t('title')} onSubmit={(event) => void download(event)}>
-        <fieldset className="bd-stack">
+      <form className="lt-stack" data-testid="statement-centre" aria-label={t('title')} onSubmit={(event) => void download(event)}>
+        <fieldset className="lt-stack">
           <legend>{t('kind')}</legend>
           <div className="bd-choice-row" role="radiogroup" aria-label={t('kind')}>
             {STATEMENT_REPORTS.map((kind) => (
               <label key={kind} className={`bd-choice ${report === kind ? 'bd-choice--on' : ''}`} data-report={kind}>
                 <input type="radio" name="statement-report" value={kind} checked={report === kind} onChange={() => choose(kind)} />
                 <strong>{t(`report_${kind}`)}</strong>
-                <span className="money-caption">{t(`report_${kind}_hint`)}</span>
+                <span className="lt-muted">{t(`report_${kind}_hint`)}</span>
               </label>
             ))}
           </div>
         </fieldset>
         {report === 'statement' ? (
-          <label className="field">
+          <label className="lt-field">
             <span>{t('month')}</span>
             <input type="month" value={month} max={lastFullMonth(new Date())} onChange={(event) => changed(setMonth)(event.target.value)} />
           </label>
         ) : report === 'balances' ? (
-          <label className="field">
+          <label className="lt-field">
             <span>{t('asOf')}</span>
             <input type="date" value={asOf} onChange={(event) => changed(setAsOf)(event.target.value)} />
           </label>
         ) : (
           <div className="bd-choice-row">
-            <label className="field">
+            <label className="lt-field">
               <span>{t('from')}</span>
               <input type="date" value={days.from} onChange={(event) => changed(setDays)({ ...days, from: event.target.value })} />
             </label>
-            <label className="field">
+            <label className="lt-field">
               <span>{t('to')}</span>
               <input type="date" value={days.to} onChange={(event) => changed(setDays)({ ...days, to: event.target.value })} />
             </label>
           </div>
         )}
-        <label className="field">
+        <label className="lt-field">
           <span>{t('format')}</span>
           <select value={format} onChange={(event) => changed(setFormat)(event.target.value as 'pdf' | 'csv')}>
             <option value="pdf">PDF</option>
             <option value="csv">CSV</option>
           </select>
         </label>
-        <p className="money-caption">
+        <p className="lt-muted">
           {t('noBalance')} {t('utcNote')}
         </p>
-        <div className="actions">
+        <div className="lt-actions">
           <Button type="submit" variant="secondary" disabled={busy || problem !== null}>
             <Download size={16} aria-hidden="true" />
             {t('download')}

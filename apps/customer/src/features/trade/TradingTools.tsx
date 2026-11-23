@@ -8,12 +8,13 @@ import {
   tradeDate,
   TradeFailure as Failure,
 } from './copy';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { positionSchema, type Position } from '@intafaced/exchange-contract/schemas';
 import { useSession } from '../session';
 import { Button, DataTable, Dialog, EmptyState, Field, Loading, Page, Tabs } from '../../shared/ui';
 import { useResource } from '../../shared/resource';
+import { useEventListener, useMounted, useNow } from '../../shared/outside';
 import { decimalSchema, displayAmount, parseAmount, formatAmount } from '../../shared/money';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import type { Listing, TradeApi } from './trade-api';
@@ -50,22 +51,15 @@ function useWriteGuard() {
     ),
     [message, setMessage] = useState<ReactNode>(''),
     ref = useRef(false),
-    mounted = useRef(true);
-  useEffect(() => {
-    mounted.current = true;
-    const refresh = () => {
-      const stored = readMarker(key);
-      setLocked(stored.blocked);
-      setPending(stored.pending);
-    };
-    window.addEventListener('storage', refresh);
-    window.addEventListener('trade-pending-change', refresh);
-    return () => {
-      mounted.current = false;
-      window.removeEventListener('storage', refresh);
-      window.removeEventListener('trade-pending-change', refresh);
-    };
-  }, [key]);
+    mounted = useMounted();
+  // Another tab, or another tool in this one, may set or clear the pending marker: read it again for this account's key.
+  const refresh = () => {
+    const stored = readMarker(key);
+    setLocked(stored.blocked);
+    setPending(stored.pending);
+  };
+  useEventListener(window, 'storage', refresh);
+  useEventListener(window, 'trade-pending-change', refresh);
   function resolve(id: string, expected: Marker | null = pending) {
     const stored = readMarker(key);
     if (
@@ -177,7 +171,7 @@ function GuardResult({ guard }: { guard: ReturnType<typeof useWriteGuard> }) {
               {guard.pending.id}.{' '}
             </span>
           )}{' '}
-          <a href="/support" className="text-link">
+          <a href="/support" className="lt-link">
             <CopyText k="contactSupportWithTheOriginalRequestId" />
           </a>
         </p>
@@ -210,12 +204,12 @@ export function TradingTools({
       title={choiceNode(mode)}
       description={descriptions[mode]}
       actions={
-        <a className="text-link" href={`/exchange${simulation ? '?simulated=true' : ''}`}>
+        <a className="lt-link" href={`/exchange${simulation ? '?simulated=true' : ''}`}>
           <CopyText k="backToSpotDesk" />
         </a>
       }
     >
-      <div className="trade-tools">
+      <div className="lt-stack">
         {mode === 'Convert' ? (
           <Convert tools={tools} markets={markets} simulation={simulation} />
         ) : mode === 'Quote desk' ? (
@@ -243,7 +237,7 @@ const descriptions: Record<string, ReactNode> = {
 };
 function PairField({ markets, symbol, onChange }: { markets: Listing[]; symbol: string; onChange: (symbol: string) => void }) {
   return (
-    <label className="field">
+    <label className="lt-field">
       <CopyText k="market4af4ec" />
       <select value={symbol} onChange={(event) => onChange(event.target.value)}>
         <option value="">{copy.t('choosePublishedMarket')}</option>
@@ -262,13 +256,9 @@ function Convert({ tools, markets, simulation }: { tools: ToolApi; markets: List
     [side, setSide] = useState<'buy' | 'sell'>('buy'),
     [qty, setQty] = useState(''),
     [quote, setQuote] = useState<z.infer<typeof import('./tool-api').convertQuoteSchema> | null>(null),
-    [loading, setLoading] = useState(false),
-    [clock, setClock] = useState(Date.now());
+    [loading, setLoading] = useState(false);
+  const clock = useNow(1000);
   const guard = useWriteGuard();
-  useEffect(() => {
-    const timer = setInterval(() => setClock(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
   const requestIdentity = useRef('');
   requestIdentity.current = JSON.stringify({ symbol, side, qty });
   async function request() {
@@ -290,12 +280,15 @@ function Convert({ tools, markets, simulation }: { tools: ToolApi; markets: List
     else guard.setFailure(result.ok ? tradeRefusal('thisQuoteDoesNotMatchTheRequestedConversion', { reason: 'invalid_response' }) : result);
     setLoading(false);
   }
-  useEffect(() => {
+  // A market list or linked asset that arrives later still picks the linked asset's market when none is picked yet.
+  const [seenLink, setSeenLink] = useState({ markets, asset });
+  if (seenLink.markets !== markets || seenLink.asset !== asset) {
+    setSeenLink({ markets, asset });
     if (asset && !symbol) {
       const matched = markets.find((row) => row.base === asset);
       if (matched) setSymbol(matched.symbol);
     }
-  }, [markets, asset]);
+  }
   const expired = quote ? Date.parse(quote.expiresAt) <= clock : true;
   if (simulation)
     return (
@@ -315,7 +308,7 @@ function Convert({ tools, markets, simulation }: { tools: ToolApi; markets: List
             setQuote(null);
           }}
         />
-        <label className="field">
+        <label className="lt-field">
           <CopyText k="direction" />
           <select
             value={side}
@@ -451,6 +444,9 @@ function QuoteDesk({ tools, markets, simulation }: { tools: ToolApi; markets: Li
     const result = await tools.otcGet(id);
     if (lookupIdentity.current !== id) return;
     setLoading(false);
+    applyLookup(id, result);
+  }
+  function applyLookup(id: string, result: Awaited<ReturnType<ToolApi['otcGet']>>) {
     if (!result.ok) {
       guard.setFailure(result);
       return;
@@ -465,19 +461,40 @@ function QuoteDesk({ tools, markets, simulation }: { tools: ToolApi; markets: Li
     setQty(result.data.qty);
     setBound(result.data.lifecycle === 'bound');
   }
-  useEffect(() => {
-    if (linkedQuoteId && !simulation) {
-      setExistingId(linkedQuoteId);
-      void lookup(linkedQuoteId);
+  // A quote linked in the address (?quoteId=) is opened as the "Open quoted order" button would open it, again whenever
+  // the link changes or simulation is switched off.
+  const linkedKey = linkedQuoteId && !simulation ? linkedQuoteId : '';
+  const [seenLinkedKey, setSeenLinkedKey] = useState(linkedKey);
+  if (seenLinkedKey !== linkedKey) {
+    setSeenLinkedKey(linkedKey);
+    if (linkedKey) setExistingId(linkedKey);
+  }
+  const linked = useResource(
+    () => (linkedKey ? tools.otcGet(linkedKey) : Promise.resolve({ ok: true as const, data: null })),
+    `quote-desk-linked:${linkedKey}`,
+  );
+  const linkedLoading = linkedKey !== '' && linked.resource.status === 'loading';
+  // The settled reply is the resource's own stored object, so it is applied once.
+  const linkedReply = linked.resource.status === 'loading' ? null : linked.resource;
+  const [appliedLinked, setAppliedLinked] = useState<typeof linkedReply>(null);
+  if (appliedLinked !== linkedReply) {
+    setAppliedLinked(linkedReply);
+    if (linkedKey && linkedReply) {
+      lookupIdentity.current = linkedKey;
+      if (linkedReply.status === 'failed') applyLookup(linkedKey, linkedReply.failure);
+      else if (linkedReply.data) applyLookup(linkedKey, { ok: true, data: linkedReply.data });
     }
-  }, [linkedQuoteId, simulation]);
+  }
   // A provider the owner's list no longer holds is dropped from the pick, so the request asks only what is shown ticked.
   const listed = makers.resource.status === 'ready' ? makers.resource.data.makers.map((m) => m.id).join('\n') : null;
-  useEffect(() => {
-    if (listed == null) return;
-    const ids = listed.split('\n');
-    setPicked((current) => (current.every((id) => ids.includes(id)) ? current : current.filter((id) => ids.includes(id))));
-  }, [listed]);
+  const [prunedFor, setPrunedFor] = useState<string | null>(null);
+  if (prunedFor !== listed) {
+    setPrunedFor(listed);
+    if (listed != null) {
+      const ids = listed.split('\n');
+      setPicked((current) => (current.every((id) => ids.includes(id)) ? current : current.filter((id) => ids.includes(id))));
+    }
+  }
   const requestIdentity = useRef('');
   requestIdentity.current = JSON.stringify({ symbol, side, qty, picked });
   async function request() {
@@ -540,7 +557,7 @@ function QuoteDesk({ tools, markets, simulation }: { tools: ToolApi; markets: Li
       {!simulation && (
         <div className="trade-tool-form">
           <Field label={<CopyText k={'existingQuoteId'} />} value={existingId} onChange={(event) => setExistingId(event.target.value)} />
-          <Button variant="secondary" disabled={!existingId || loading} onClick={() => void lookup(existingId)}>
+          <Button variant="secondary" disabled={!existingId || loading || linkedLoading} onClick={() => void lookup(existingId)}>
             <CopyText k="openQuotedOrder" />
           </Button>
         </div>
@@ -576,7 +593,7 @@ function QuoteDesk({ tools, markets, simulation }: { tools: ToolApi; markets: Li
               setQuote(null);
             }}
           />
-          <label className="field">
+          <label className="lt-field">
             <CopyText k="side90eb04" />
             <select
               value={side}
@@ -628,6 +645,7 @@ function QuoteDesk({ tools, markets, simulation }: { tools: ToolApi; markets: Li
             disabled={
               !guard.authenticated ||
               loading ||
+              linkedLoading ||
               !symbol ||
               !positive(qty) ||
               status.resource.status !== 'ready' ||
@@ -787,10 +805,13 @@ function Futures({
     }
   }
   simulationRef.current = simulation;
-  useEffect(() => {
+  // Switching between simulation and live drops the preview and the chosen position: they belong to the other book.
+  const [previewFor, setPreviewFor] = useState(simulation);
+  if (previewFor !== simulation) {
+    setPreviewFor(simulation);
     setPreview(null);
     setSelected(null);
-  }, [simulation]);
+  }
   const requestIdentity = useRef('');
   requestIdentity.current = JSON.stringify({ symbol, side, size: positionSize, leverage, simulation });
   async function risk() {
@@ -855,7 +876,7 @@ function Futures({
             setSize('');
           }}
         />
-        <label className="field">
+        <label className="lt-field">
           <CopyText k="direction" />
           <select
             value={side}
@@ -898,7 +919,7 @@ function Futures({
             setPreview(null);
           }}
         />
-        <label className="field">
+        <label className="lt-field">
           <CopyText k="positionSizeUnits" />
           <select
             aria-label={copy.t('positionSizeUnits417a24')}
@@ -1146,7 +1167,7 @@ function Execution({ tools, simulation }: { tools: ToolApi; simulation: boolean 
           <Capability key={index} title={title ?? ''} detail={detail ?? ''} />
         ))}
       </div>
-      <a className="text-link" href={`/quant/studio${simulation ? '?simulated=true' : ''}`}>
+      <a className="lt-link" href={`/quant/studio${simulation ? '?simulated=true' : ''}`}>
         <CopyText k="openQuantStudio" />
       </a>
     </>
@@ -1207,11 +1228,11 @@ function Margin({ simulation }: { simulation: boolean }) {
           detail={<CopyText k={'aPerMarketBorrowAndRepaymentContractIsMissingSpotBuys'} />}
         />
       </div>
-      <div className="actions">
-        <a className="text-link" href={`/exchange${simulation ? '?simulated=true' : ''}`}>
+      <div className="lt-actions">
+        <a className="lt-link" href={`/exchange${simulation ? '?simulated=true' : ''}`}>
           <CopyText k="tradeFullyFundedSpot" />
         </a>
-        <a className="text-link" href={`/trade/futures${simulation ? '?simulated=true' : ''}`}>
+        <a className="lt-link" href={`/trade/futures${simulation ? '?simulated=true' : ''}`}>
           <CopyText k="viewIsolatedFuturesRisk" />
         </a>
       </div>

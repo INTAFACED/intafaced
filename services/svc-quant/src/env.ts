@@ -133,21 +133,12 @@ const schema = baseEnvSchema
        */
       QUANT_CHECK_MAX_OFFSET_SHIFT_PERCENT: blankable(z.string().regex(/^\d{1,6}(\.\d{1,4})?$/)),
       /**
-       * Simulated account (ENGINE RK-5): the highest leverage a margin backtest may use, from 1. The rules of the market
-       * simulated, published here until the futures engine publishes its own. NO DEFAULT: blank, a margin run refuses
-       * `quant.account_rule_unset` naming it; a cash run is unaffected.
-       */
-      QUANT_ACCOUNT_MAX_LEVERAGE: blankable(z.string().regex(/^\d{1,4}(\.\d{1,2})?$/)),
-      /**
-       * Simulated account (ENGINE RK-5): the margin level, equity over the margin used in percent, at which a margin
-       * backtest records a margin call. NO DEFAULT: blank, a margin run refuses `quant.account_rule_unset` naming it.
+       * Simulated account (ENGINE RK-5, J-algo-dev-02 #5): our own margin-call warning on a margin backtest, the margin
+       * level (equity over the margin used, in percent) it fires at, shown as ours beside the venue's published maximum
+       * leverage and maintenance level, which are read from the venue and never set here. NO DEFAULT: blank, a margin
+       * run refuses `quant.account_rule_unset` naming it; a cash run is unaffected.
        */
       QUANT_ACCOUNT_MARGIN_CALL_PERCENT: blankable(z.string().regex(/^\d{1,4}(\.\d{1,2})?$/)),
-      /**
-       * Simulated account (ENGINE RK-5): the margin level in percent at which a margin backtest closes the position (a
-       * stop-out), below the margin call level. NO DEFAULT: blank, a margin run refuses `quant.account_rule_unset` naming it.
-       */
-      QUANT_ACCOUNT_STOP_OUT_PERCENT: blankable(z.string().regex(/^\d{1,4}(\.\d{1,2})?$/)),
       /**
        * Public reads of a share link allowed in one window (AL-report-03). NO DEFAULT: blank refuses
        * `quant.share_rate_unset`. Zero is a real cap and refuses every public read.

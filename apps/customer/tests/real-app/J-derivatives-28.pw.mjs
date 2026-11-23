@@ -476,6 +476,7 @@ test(`${J} #3 confirms and signs: one signed order sent once to the chosen venue
 
 test(`${J} #5 retries after a network error: the same client order id is sent and the venue never holds a second order`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(300_000);
   const s = state();
@@ -507,14 +508,23 @@ test(`${J} #5 retries after a network error: the same client order id is sent an
   await expect(again).toBeVisible({ timeout: 20_000 });
   await again.click();
   await expect(sheet.getByTestId('venue-route-filled')).toBeVisible({ timeout: 20_000 });
+  // The step's picture: the review after the retry, with the client order id it held and the venue's one order id.
+  // From the top, so the bar that stays at the top of the page sits there in the whole-page picture.
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await stepPicture();
   // The same signed order under the same key, so the same client order id; the wallet was asked once.
   expect(submits).toHaveLength(2);
   expect(submits[1].actionKey).toBe(submits[0].actionKey);
   expect(submits[1].signature).toEqual(submits[0].signature);
   expect(wallet.requests).toHaveLength(before + 1);
-  // The venue holds one order under that client id, filled once.
+  // The client order id the review says it held for the retry is the key both sends carried.
+  await expect(line(sheet, 'client-id')).toHaveText(submits[0].actionKey);
+  // The venue holds one order under that client id, filled once, and the review names that order by the venue's own id.
   const placed = await byClientId(chosen, owner, p.venueClientOrderId);
   expect(placed.status).toBe('filled');
+  await expect(sheet.getByTestId('venue-route-filled')).toHaveText(
+    `Sent to ${chosen.displayName}. The venue’s order id: ${placed.venueOrderId}.`,
+  );
   expect(sameDecimal(filled(await fillsOf(chosen, owner, s.startedAt), p.venueClientOrderId), order.size)).toBe(true);
   expect(sameDecimal(placed.filled, order.size)).toBe(true);
   // No second order under any other id: every fill of this person's since the step began, on either venue, is that one
@@ -530,6 +540,56 @@ test(`${J} #5 retries after a network error: the same client order id is sent an
     expect(await openOrders(venue, owner)).toEqual([]);
   }
   await page.unroute('**/api/v1/venue/submit');
+  run.write({ lastVenueId: chosen.id });
+});
+
+test(`${J} money: a lost answer to the review's approval read never asks for a second approval: Confirm asks the venue again, the wallet signs only the order, and the venue holds one filled order`, async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  const s = state();
+  await ready(s, { approve: true });
+  const { wallet, owner } = await desk(page);
+  const v = await both();
+  // Each read of the approval this person already holds reaches the venue, and its answer is lost on the way back,
+  // until they press Open long.
+  let readsLost = 0;
+  let loseReads = true;
+  await page.route('**/api/v1/venue/builder-fee-approval?*', async (route) => {
+    if (!loseReads) return route.continue();
+    await route.fetch();
+    readsLost++;
+    await route.abort('failed');
+  });
+  const order = await sizeFor(v.a);
+  const t0 = new Date().toISOString();
+  const sheet = await reviewLong(page, order);
+  const chosen = await byId(await line(sheet, 'route-venue').getAttribute('data-venue'));
+  const before = wallet.requests.length;
+  const prepared = nextPrepare(page);
+  await expect.poll(() => readsLost).toBeGreaterThan(0);
+  await expect(sheet.getByRole('button', { name: 'Open long', exact: true })).toBeEnabled();
+  loseReads = false;
+  await sheet.getByRole('button', { name: 'Open long', exact: true }).click();
+  await continueInWallet(page);
+  const p = (await (await prepared).json()).prepared;
+  await expect(sheet.getByTestId('venue-route-filled')).toBeVisible({ timeout: 20_000 });
+  // The wallet signed the order alone: no second approval was asked.
+  expect(wallet.requests).toHaveLength(before + 1);
+  const placed = await byClientId(chosen, owner, p.venueClientOrderId);
+  expect(placed.status).toBe('filled');
+  expect(sameDecimal(placed.filled, order.size)).toBe(true);
+  for (const venue of [v.a, v.b]) {
+    const since = await fillsOf(venue, owner, t0);
+    if (venue.id === chosen.id) {
+      expect(new Set(since.map((f) => f.venueClientOrderId))).toEqual(new Set([p.venueClientOrderId]));
+      expect(sameDecimal(fromUnits(since.reduce((t, f) => t + toUnits(f.amount), 0n)), order.size)).toBe(true);
+    } else {
+      expect(since, `${venue.displayName} took nothing in this test`).toEqual([]);
+    }
+    expect(await openOrders(venue, owner)).toEqual([]);
+  }
+  await page.unroute('**/api/v1/venue/builder-fee-approval?*');
   run.write({ lastVenueId: chosen.id });
 });
 

@@ -86,6 +86,7 @@ export {
   type ChangeTextProps,
 } from './numbers.js';
 export { HeroNumber, type HeroNumberProps } from './hero-number.js';
+export { Text, type TextProps } from './text.js';
 export { Sparkline, sparklineGeometry, thinSeries, type SparklineProps, type SparklineGeometry } from './sparkline.js';
 export { CoinIcon, hasCoinArt, type CoinIconProps } from './coin-icon.js';
 export { StatusTag, type StatusKind, type StatusTagProps } from './status-tag.js';
@@ -115,7 +116,19 @@ export { Stat, type StatProps, type StatSize } from './stat.js';
 export { KeyValue, type KeyValueProps, type KeyValueItem } from './key-value.js';
 export { Badge, type BadgeProps, type BadgeTone, type BadgeVariant } from './badge.js';
 export { StatusChip, type StatusChipProps } from './status-chip.js';
-export { freshnessOf, formatAsOf, msUntilFreshnessChange, type Freshness, type FreshnessInput } from './freshness.js';
+export {
+  freshnessOf,
+  formatAsOf,
+  msUntilFreshnessChange,
+  heldStateOf,
+  totalFreshness,
+  type Freshness,
+  type FreshnessInput,
+  type HeldState,
+  type HeldStateInput,
+  type TotalFreshness,
+} from './freshness.js';
+export { HeldMark, type HeldMarkProps } from './held-mark.js';
 export { useFreshnessClock, type UseFreshnessClockOptions } from './use-freshness-clock.js';
 
 /* Pay portal components (feat/pay-portal-nav-options). */

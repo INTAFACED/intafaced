@@ -21,6 +21,8 @@ import { PayrollRun, payrollSpec } from './BusinessPayroll';
 import { changeRoleSpec, PayPerson, personPaymentSpec, removeMemberSpec, TeamList } from './BusinessPeople';
 import type { pendingApprovalSchema } from './contracts';
 import { refusal, sendReviewed, wire } from './write-flow';
+import { BANK_BUSINESS_SET_MEMBER_ROLE } from '@intafaced/contracts/bank-business-procedures';
+import { BANK_BUSINESS_RUN_PAYROLL } from '@intafaced/contracts/bank-business-2-procedures';
 
 const copy = businessCopy.forLocale('en');
 const account = {
@@ -91,7 +93,7 @@ describe('managing the team', () => {
   });
   const roleSpec = changeRoleSpec(copy, account, bob);
   it('confirms a role change by naming the person and the current role, and refuses an unchanged role', () => {
-    expect(roleSpec.procedure).toBe('business.setMemberRole');
+    expect(roleSpec.record).toBe(BANK_BUSINESS_SET_MEMBER_ROLE);
     expect(roleSpec.facts).toEqual([
       ['Team', '@bob'],
       ['Current role', 'Maker'],
@@ -186,7 +188,7 @@ describe('paying a person by handle or email', () => {
 describe('payroll', () => {
   const spec = payrollSpec(copy, account, source, lines, 30050n * 10n ** 16n);
   it('shows the source, every person with the exact amount, the total and the limit before anything is sent', () => {
-    expect(spec.procedure).toBe('business.runPayroll');
+    expect(spec.record).toBe(BANK_BUSINESS_RUN_PAYROLL);
     expect(spec.fields).toBeUndefined();
     expect(spec.facts).toEqual([
       ['Pay from', 'Main · 5,000.25 USDT'],

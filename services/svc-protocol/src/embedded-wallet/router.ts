@@ -1,5 +1,6 @@
-import { router, TRPCError } from '@intafaced/contracts';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import type { ProtocolEmbeddedWalletRefusal } from '@intafaced/contracts/protocol-embedded-wallet';
+import { gasSponsorFromSetting, type GasSponsorSetting } from './gas-sponsor.js';
 import { PROTOCOL_EMBEDDED_WALLET_CREATE, PROTOCOL_EMBEDDED_WALLET_STATUS } from '@intafaced/contracts/protocol-wallet-procedures';
 import { mountProtocolRecord } from '../record-mount.js';
 import {
@@ -23,6 +24,8 @@ import {
  */
 export interface EmbeddedWalletRouterDeps extends EmbeddedWalletDeps {
   now?: () => Date;
+  /** The owner's gas-sponsor setting, read once at boot (gas-sponsor.ts). Absent reads as the blank setting: no sponsor. */
+  gasSponsor?: GasSponsorSetting;
 }
 
 const HTTP_CODE: Record<ProtocolEmbeddedWalletRefusal, TRPCError['code']> = {
@@ -64,7 +67,11 @@ export function createEmbeddedWalletRouter(deps: EmbeddedWalletRouterDeps) {
     status: mountProtocolRecord(PROTOCOL_EMBEDDED_WALLET_STATUS, ({ ctx }) =>
       guarded(async () => {
         const { provider, wallet } = await embeddedWalletStatus(deps, ctx.principal.userId);
-        return { provider, wallet: wallet ? embeddedWalletOut(wallet) : null };
+        return {
+          provider,
+          wallet: wallet ? embeddedWalletOut(wallet) : null,
+          gasSponsor: deps.gasSponsor ?? gasSponsorFromSetting(undefined),
+        };
       }),
     ),
     create: mountProtocolRecord(PROTOCOL_EMBEDDED_WALLET_CREATE, ({ ctx, input }) =>

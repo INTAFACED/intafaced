@@ -1,21 +1,16 @@
 import { checkCaps, checkTradingOn, riskScreenOf } from '../risk/rules.js';
-import {
-  publicJurisdictionProcedure,
-  quantRiskScreenSchema,
-  quantRiskSetInputSchema,
-  quantRiskTradingInputSchema,
-  router,
-} from '@intafaced/contracts';
-import { z } from 'zod';
-import { toTrpc, accountField, type QuantCore } from './core.js';
+import { router } from '@intafaced/contracts/trpc';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { QUANT_RISK_GET, QUANT_RISK_SET, QUANT_RISK_TRADING } from '@intafaced/contracts/quant-strategy-settings-procedures';
+import { quantRefusal, toTrpc, type QuantCore } from './core.js';
 
+/** `quant.risk.*`, mounted from its records (`@intafaced/contracts/quant-strategy-settings-procedures`). */
 export function riskRoutes(core: QuantCore) {
   const { risk, liveStrategy, newestVersion, accountOf } = core;
   return router({
-    get: publicJurisdictionProcedure('quant', 'fiat')
-      .input(z.object({ strategyId: z.string().min(1).max(128), ...accountField }))
-      .output(quantRiskScreenSchema)
-      .query(async ({ input, ctx }) => {
+    get: mountRecord(
+      QUANT_RISK_GET,
+      async ({ input, ctx }) => {
         try {
           const accountId = accountOf(ctx, input.accountId);
           const found = await liveStrategy(accountId, input.strategyId);
@@ -23,11 +18,12 @@ export function riskRoutes(core: QuantCore) {
         } catch (err) {
           toTrpc(err);
         }
-      }),
-    set: publicJurisdictionProcedure('quant', 'fiat')
-      .input(quantRiskSetInputSchema.extend(accountField))
-      .output(quantRiskScreenSchema)
-      .mutation(async ({ input, ctx }) => {
+      },
+      quantRefusal,
+    ),
+    set: mountRecord(
+      QUANT_RISK_SET,
+      async ({ input, ctx }) => {
         try {
           const accountId = accountOf(ctx, input.accountId);
           const found = await liveStrategy(accountId, input.strategyId);
@@ -42,11 +38,12 @@ export function riskRoutes(core: QuantCore) {
         } catch (err) {
           toTrpc(err);
         }
-      }),
-    trading: publicJurisdictionProcedure('quant', 'fiat')
-      .input(quantRiskTradingInputSchema.extend(accountField))
-      .output(quantRiskScreenSchema)
-      .mutation(async ({ input, ctx }) => {
+      },
+      quantRefusal,
+    ),
+    trading: mountRecord(
+      QUANT_RISK_TRADING,
+      async ({ input, ctx }) => {
         try {
           const accountId = accountOf(ctx, input.accountId);
           const found = await liveStrategy(accountId, input.strategyId);
@@ -57,6 +54,8 @@ export function riskRoutes(core: QuantCore) {
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
   });
 }

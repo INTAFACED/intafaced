@@ -1,12 +1,5 @@
-import {
-  marketTargetId,
-  poolTargetId,
-  protocolOpsIdempotencyKey,
-  type ListingState,
-  type ProtocolOpsAction,
-  type ProtocolOpsActionResult,
-  PROTOCOL_OPS_TARGET_SERVICE,
-} from '@intafaced/contracts';
+import type { ListingState, ProtocolOpsAction, ProtocolOpsActionResult } from '@intafaced/contracts';
+import { marketTargetId, poolTargetId, protocolOpsIdempotencyKey, PROTOCOL_OPS_TARGET_SERVICE } from '@intafaced/contracts/protocol-ops';
 import { OPS_PROTOCOL_REASON_CODE_UNKNOWN, OPS_PROTOCOL_REASON_CODES_UNSET, OpsError } from '../codes.js';
 import { createHash } from 'node:crypto';
 import { consumeFounderApproval, type ApprovalConsumer } from '../operator-desks.js';

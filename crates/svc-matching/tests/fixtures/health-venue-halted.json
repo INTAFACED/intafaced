@@ -1,0 +1,12 @@
+{
+  "ok": true,
+  "service": "svc-matching",
+  "enabled": true,
+  "venueHalted": true,
+  "markets": 0,
+  "restingOrders": 0,
+  "journalRecords": 1,
+  "admissionOpen": true,
+  "admissionReason": null,
+  "holdHalted": []
+}

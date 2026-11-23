@@ -32,6 +32,14 @@ const fakeApi = (answer: () => unknown): ApiClient =>
       reads.push({ module, procedure, input });
       return answer();
     },
+    // A call by its record is the same read, named by the record's module and path.
+    async call(
+      this: { query: (m: string, p: string, i: unknown) => Promise<unknown> },
+      record: { module: string; path: string },
+      input: unknown,
+    ) {
+      return this.query(record.module, record.path, input);
+    },
   }) as unknown as ApiClient;
 async function mount(api: ApiClient, userId: string | null = USER) {
   root = createRoot(host);

@@ -7,15 +7,17 @@
  * job, `--release`), re-runs the newest deferred run of each branch, whose jobs then queue behind main's. It never gives
  * up on main (a deferred run starts only when main's shards are queued), never waits on a runner, never fails a run and
  * never touches a main run; an unreadable API lets the run go on at once. A targeted run (TARGETED: the touch job gave it
- * journey files, so the planner packs it into at most 10 shards, journey-shards.mjs TARGETED_MAX_SHARDS) never waits for
+ * journey files, so the planner packs it into at most 30 shards, journey-shards.mjs PR_MAX_SHARDS) never waits for
  * main: only a full run off main does (theo-01 part 0, project-state#2065, 11 Nov 2026: 20 of the 100 newest pull
  * request runs were deferred on their first attempt and re-run a median 39 minutes later, and the approved design had
- * struck main-first priority; main's 32 shards lose at most 10 runners to one such run). A hand-dispatched full run off main
+ * struck main-first priority; main's 32 shards lost at most 10 runners to one such run then; on 20 Nov 2026, with main
+ * at 90 shards and a pull request's run at up to 30, 526 shard jobs waited 2 seconds at the median, project-state#3035). A hand-dispatched full run off main
  * (DISPATCH_FULL) is also deferred while DISPATCH_CAP other hand-dispatched full runs run, and each of those, when it
  * ends, lets the deferred ones go too.
  *
- *   GH_TOKEN=... REPO=owner/name [TARGETED=true] [DISPATCH_FULL=true RUN_ID=…] node tooling/ci/main-first.mjs   (writes deferred=true|false)
- *   GH_TOKEN=... REPO=owner/name node tooling/ci/main-first.mjs --release                          (re-runs deferred runs)
+ *   REPO=owner/name [TARGETED=true] [DISPATCH_FULL=true RUN_ID=…] node tooling/ci/main-first.mjs   (writes deferred=true|false)
+ *   REPO=owner/name node tooling/ci/main-first.mjs --release                                  (re-runs deferred runs)
+ *   CI sets GH_TOKEN; run by hand, it reads through the logged-in gh (github-fetch.mjs).
  *
  * Why it never gives up (project-state#1906, the guide's round 2, 9 Nov 2026): with a 30-minute limit, branch runs went
  * on while main waited, so at 09:33 UTC main's run 2866 had been queued since 08:34 behind 13 hand-dispatched full runs
@@ -33,8 +35,10 @@
  * only unstarted job is waiting for a runner reads `queued` (42542683115, its scoreboard job, at 03:13 UTC); and a job
  * waiting on `needs` is not listed until it is created (42542683115's jobs at 02:49 UTC listed no scoreboard job).
  */
+import { runJobs } from './run-jobs.mjs';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { githubFetch, githubToken } from './github-fetch.mjs';
 
 export const WORKFLOW = 'real-app-journeys.yml';
 /** The touch job's step that marks a deferred run (real-app-journeys.yml; workflow-concurrency.test.mjs holds the
@@ -145,7 +149,7 @@ export async function toRelease(runs, jobsOf, now = Date.now()) {
 }
 
 async function api(repo, path, token, method = 'GET') {
-  const res = await fetch(`https://api.github.com/repos/${repo}${path}`, {
+  const res = await githubFetch(`https://api.github.com/repos/${repo}${path}`, {
     method,
     headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28' },
     signal: AbortSignal.timeout(30_000),
@@ -180,9 +184,10 @@ export async function decide(read) {
 }
 
 async function main() {
-  const { GH_TOKEN, REPO, DISPATCH_FULL, RUN_ID, RUN_ATTEMPT, TARGETED, GITHUB_OUTPUT } = process.env;
-  if (!GH_TOKEN || !REPO) return console.log('::notice::main-first has no GH_TOKEN or REPO; going on');
-  const jobsOf = async (id) => (await get(REPO, `/actions/runs/${id}/jobs?filter=latest&per_page=100`, GH_TOKEN))?.jobs;
+  const GH_TOKEN = githubToken();
+  const { REPO, DISPATCH_FULL, RUN_ID, RUN_ATTEMPT, TARGETED, GITHUB_OUTPUT } = process.env;
+  if (!REPO) return console.log('::notice::main-first has no REPO; going on');
+  const jobsOf = (id) => runJobs(`/actions/runs/${id}/jobs?filter=latest`, (p) => get(REPO, p, GH_TOKEN));
   if (process.argv.includes('--release')) {
     const list = await get(REPO, `/actions/workflows/${WORKFLOW}/runs?per_page=100`, GH_TOKEN);
     const ids = await toRelease(list?.workflow_runs, jobsOf);

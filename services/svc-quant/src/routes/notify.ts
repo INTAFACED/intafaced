@@ -1,15 +1,16 @@
 import { checkChannels } from '../notify/rules.js';
-import { publicJurisdictionProcedure, quantNotifySetInputSchema, quantNotifySettingsSchema, router } from '@intafaced/contracts';
-import { z } from 'zod';
-import { toTrpc, accountField, missingStrategy, type QuantCore } from './core.js';
+import { router } from '@intafaced/contracts/trpc';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { QUANT_NOTIFY_GET, QUANT_NOTIFY_SET } from '@intafaced/contracts/quant-strategy-settings-procedures';
+import { quantRefusal, toTrpc, missingStrategy, type QuantCore } from './core.js';
 
+/** `quant.notify.*`, mounted from its records (`@intafaced/contracts/quant-strategy-settings-procedures`). */
 export function notifyRoutes(core: QuantCore) {
   const { strategies, notify, accountOf } = core;
   return router({
-    get: publicJurisdictionProcedure('quant', 'fiat')
-      .input(z.object({ strategyId: z.string().min(1).max(128), ...accountField }))
-      .output(quantNotifySettingsSchema)
-      .query(async ({ input, ctx }) => {
+    get: mountRecord(
+      QUANT_NOTIFY_GET,
+      async ({ input, ctx }) => {
         try {
           const accountId = accountOf(ctx, input.accountId);
           const found = await strategies.get({ accountId, id: input.strategyId });
@@ -23,11 +24,12 @@ export function notifyRoutes(core: QuantCore) {
         } catch (err) {
           toTrpc(err);
         }
-      }),
-    set: publicJurisdictionProcedure('quant', 'fiat')
-      .input(quantNotifySetInputSchema.extend(accountField))
-      .output(quantNotifySettingsSchema)
-      .mutation(async ({ input, ctx }) => {
+      },
+      quantRefusal,
+    ),
+    set: mountRecord(
+      QUANT_NOTIFY_SET,
+      async ({ input, ctx }) => {
         try {
           const accountId = accountOf(ctx, input.accountId);
           const found = await strategies.get({ accountId, id: input.strategyId });
@@ -38,6 +40,8 @@ export function notifyRoutes(core: QuantCore) {
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
   });
 }

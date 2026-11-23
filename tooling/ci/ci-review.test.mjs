@@ -92,17 +92,21 @@ const SECURITY_PR = [
   'packages/config/src/freeze-authority.ts',
   'packages/db/src/migrate.ts',
 ];
-const SUPPLY_CHAIN_PR = ['pnpm-lock.yaml', '.github/actions/test-infra/action.yml', 'apps/customer/Dockerfile']; // security code under 2026-11-06
+const SUPPLY_CHAIN_PR = ['pnpm-lock.yaml', '.github/actions/test-infra/action.yml']; // security code under 2026-11-06
+// A change that draws a Customer room: the review judges the look gate's pictures of it, and the seal reads that verdict
+// (#9910 merged over a FAIL on /bank's rows, 22 Nov 2026).
+const ROOM_PR = ['apps/customer/src/features/money/bank-overview/AccountHome.tsx'];
 const sealRule = (reason) => {
   assert.match(reason(GATE_PR) ?? '', /^gate file: \.github\/workflows\/ci\.yml$/, 'a gate-file PR still needs item 8');
   assert.match(reason(BASELINE_PR) ?? '', /^look baseline: /, 'a look-baseline PR still needs item 8');
+  assert.match(reason(ROOM_PR) ?? '', /^draws a Customer room: /, 'a PR that draws a Customer room needs its pictures reviewed');
   for (const f of SUPPLY_CHAIN_PR) assert.equal(reason([f]), null, `a supply-chain PR (${f}) no longer needs item 8`);
   assert.equal(reason(MONEY_PR), null, 'a money-only PR no longer needs item 8');
   assert.equal(reason(SECURITY_PR), null, 'a security-only PR no longer needs item 8');
   assert.match(reason([]) ?? '', /no changed files/, 'an unreadable file list still fails closed');
 };
 
-test('a gate-file or look-baseline PR still needs item 8; a money-only, security-only or supply-chain PR does not', () => {
+test('a gate-file, look-baseline or Customer-room PR needs item 8; a money-only, security-only or supply-chain PR does not', () => {
   sealRule(reviewReason);
 });
 
@@ -123,6 +127,7 @@ test('fails on (planted): the seal rule with a check dropped, or the old money, 
   const mutants = {
     'gate-file check dropped': ['if (gate.length > 0) return `gate file: ${gate[0].file}`;', ''],
     'look-baseline check dropped': ['if (baseline) return `look baseline: ${baseline}`;', ''],
+    'Customer-room check dropped': ['if (room) return `draws a Customer room: ${room}`;', ''],
     'lockfile check put back': putBack("if (files.includes('pnpm-lock.yaml')) return 'supply chain';"),
     'money check put back': putBack("if (files.some((f) => f.startsWith('services/svc-pay/'))) return 'money';"),
     'security check put back': putBack("if (files.some((f) => f.startsWith('services/svc-edge/'))) return 'security';"),
@@ -867,6 +872,105 @@ test("the window ends when main's workflow last began to index, from its history
   );
 });
 
+// readIndexLive's GraphQL read (project-state#3718): the same versions as the REST walk's, from INDEX_HISTORY_QUERY's pages.
+const fakeGraph = (index, { size = 20, fail = null } = {}) => {
+  const asked = [];
+  const graph = async (query, vars) => {
+    asked.push(vars);
+    if (fail) throw new Error(fail);
+    const from = vars.after ? Number(vars.after) : 0;
+    const all = index.commits ?? [];
+    const nodes = all.slice(from, from + size).map((c) => ({
+      oid: c.sha,
+      parents: { totalCount: c.parents },
+      file: c.text == null ? null : { object: { text: c.text, isTruncated: false } },
+      associatedPullRequests: {
+        nodes:
+          c.pull === 'unreadable'
+            ? null
+            : c.pull
+              ? [{ mergeCommit: { oid: c.sha }, baseRefName: c.pull.base?.ref, mergedAt: c.pull.merged_at }]
+              : [],
+      },
+    }));
+    return {
+      repository: { object: { history: { pageInfo: { hasNextPage: from + size < all.length, endCursor: String(from + size) }, nodes } } },
+    };
+  };
+  return { graph, asked };
+};
+
+test("the window's end read by GraphQL is the REST walk's, in one read instead of two per edit; unread, it is read over REST", async () => {
+  const RESTORED = '2026-11-06T09:00:00Z';
+  const cases = {
+    live: INDEX,
+    reverted: { ...INDEX, commits: [version(4, RESTORED, WF), version(3, '2026-11-04T09:00:00Z', WF_BARE), ...INDEX.commits] },
+    late: { ...INDEX, commits: [version(2, '2026-11-04T10:00:00Z', WF, { committed: MERGED_AT }), INDEX.commits[1]] },
+    ...Object.fromEntries(
+      [
+        { parents: 2 },
+        { parents: 0 },
+        { pull: null },
+        { pull: { merged_at: MERGED_AT, base: { ref: 'side/b' } } },
+        { pull: { merged_at: null, base: { ref: 'main' } } },
+      ].map((odd) => [JSON.stringify(odd), { ...INDEX, commits: [version(2, MERGED_AT, WF, odd), INDEX.commits[1]] }]),
+    ),
+    bare: { ...INDEX, commits: [version(5, '2026-11-04T08:30:00Z', WF_BARE), ...INDEX.commits] },
+    deleted: { ...INDEX, commits: [version(5, '2026-11-04T08:30:00Z', null), ...INDEX.commits] },
+    // 45 indexing versions over three GraphQL pages (main had about 35 by 22 Nov 2026).
+    many: {
+      ...INDEX,
+      commits: [
+        ...Array.from({ length: 44 }, (_, i) =>
+          version(200 - i, `2026-11-${String(5 + Math.floor(i / 4)).padStart(2, '0')}T00:00:00Z`, WF),
+        ),
+        ...INDEX.commits,
+      ],
+    },
+  };
+  for (const [name, index] of Object.entries(cases)) {
+    const rest = fakeApi({ index });
+    const want = await readIndexLive('o/r', 't', rest.get);
+    const viaRest = rest.asked.filter((p) => p.includes('/contents/') || p.includes('/pulls') || p.includes('/commits?')).length;
+    const api = fakeApi({ index });
+    const g = fakeGraph(index);
+    assert.deepEqual(await readIndexLive('o/r', 't', api.get, g.graph), want, name);
+    // GraphQL reads none of the per-version REST paths: only the workflow, and one GraphQL read per 20 versions.
+    assert.deepEqual(
+      api.asked.filter((p) => !p.endsWith('/actions/workflows/ci-review.yml')),
+      [],
+      name,
+    );
+    assert.ok(g.asked.length <= Math.ceil((index.commits.length + 1) / 20), `${name}: ${g.asked.length} GraphQL reads`);
+    if (name === 'many') {
+      // The past mistake: two REST reads per edit since the index went live (74 a seal on 22 Nov), against 3 here.
+      assert.ok(viaRest >= 2 * 45, `REST walk read ${viaRest}`);
+      assert.equal(g.asked.length, 3);
+    }
+    // GraphQL unread (a spent GraphQL budget, an error, a cut answer): the REST walk decides, exactly as before.
+    for (const broken of [fakeGraph(index, { fail: 'GraphQL: RATE_LIMITED' }).graph, async () => ({ repository: null })]) {
+      const back = fakeApi({ index });
+      assert.deepEqual(await readIndexLive('o/r', 't', back.get, broken), want, name);
+      assert.equal(back.asked.filter((p) => p.includes('/commits?')).length, rest.asked.filter((p) => p.includes('/commits?')).length);
+    }
+  }
+  // A version's text GraphQL cut short, or its pull requests unreadable, is never read as an answer: REST decides.
+  const cut = fakeGraph(INDEX).graph;
+  const truncated = async (q, v) => {
+    const d = await cut(q, v);
+    d.repository.object.history.nodes[0].file.object.isTruncated = true;
+    return d;
+  };
+  const tr = fakeApi();
+  assert.deepEqual(await readIndexLive('o/r', 't', tr.get, truncated), await readIndexLive('o/r', 't', fakeApi().get));
+  assert.ok(tr.asked.some((p) => p.includes('/contents/')));
+  const unreadable = { ...INDEX, commits: [version(2, MERGED_AT, WF, { pull: 'unreadable' }), INDEX.commits[1]] };
+  await assert.rejects(
+    readIndexLive('o/r', 't', fakeApi({ index: unreadable }).get, fakeGraph(unreadable).graph),
+    /pull requests of .*not a list/,
+  );
+});
+
 test('a closed window is read once per seal, and its runs on this code again by id on every poll', async () => {
   const mine = run({ id: 3, head_sha: NEXT, head_commit: { tree_id: TREE }, jobs: [[reviewJob(NEXT, 'success')]] });
   const same = run({ id: 8, head_sha: OLDER, head_commit: { tree_id: TREE }, jobs: [[reviewJob(OLDER, 'success')]] });
@@ -1507,7 +1611,7 @@ test('a review-only call with images: input.jsonl carries prompt.txt whole, and 
   };
   const images = [{ path: 'apps/customer/look-baselines/home/phone.png', side: 'after', commit: HEAD, data: png('x').toString('base64') }];
   const { dir, said } = await inputs(images);
-  assert.match(said, /1 look-baseline image\(s\) attached$/);
+  assert.match(said, /1 image\(s\) attached$/);
   const prompt = fs.readFileSync(path.join(dir, 'prompt.txt'), 'utf8');
   assert.equal(prompt, buildPrompt({ brief: briefs.reviewBrief, diff: docs, pr: 7, head: HEAD }), 'prompt.txt as before');
   const content = JSON.parse(fs.readFileSync(path.join(dir, 'input.jsonl'), 'utf8')).message.content;
@@ -1569,10 +1673,11 @@ test('the Review step streams the call only when input.jsonl exists, and runs as
   assert.match(plain, /ask\(\) \{\n\s+schema="\$\(cat "\$1\/schema\.json"\)"\n/);
   assert.match(plain, /< "\$1\/prompt\.txt" > "\$1\/answer\.json" 2> "\$1\/answer\.json\.stderr"\n/);
   assert.match(plain, /wait "\$\{pids\[\$i\]\}" \|\| rc=\$\?\n\s+\[ "\$rc" = 0 \] && continue\n/);
-  // A failed part: the second key only for a key failure, once, and any other failure ends the step as one call did.
+  // A failed part: a spare key only for a key failure, each spare once, and any other failure ends the step as one call
+  // did (reviewer-error.test.mjs runs each case).
   assert.match(plain, /other_key "\$p\/answer\.json" "\$rc" \|\| failed "\$p\/answer\.json" "\$rc"\n/);
   assert.match(plain, /--key\)" = other \] \|\| failed "\$p\/answer\.json" "\$rc"\n/);
-  assert.match(plain, /ask "\$p" \|\| failed "\$p\/answer\.json" "\$\?"\n/);
+  assert.match(plain, /rc=0\n\s+ask "\$p" \|\| rc=\$\?\n\s+done\n/);
   // The same pinned model and effort either way.
   const pinned = (part) => /--model \S+ --effort \S+/.exec(part)?.[0];
   assert.ok(pinned(streamed) && pinned(streamed) === pinned(plain));

@@ -64,7 +64,7 @@ export function CalculatorTab({ market }: { market: FuturesListing | null }) {
     <section aria-label={t('Calc heading')} className="flex flex-col gap-3 px-3 py-2">
       <div>
         <h3 className="m-0 text-sm font-medium text-fg">{t('Calc heading')}</h3>
-        <p className="m-0 text-xs text-fg-2">{t('Calc intro')}</p>
+        <p className="lt-hint">{t('Calc intro')}</p>
       </div>
       <form
         className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5"
@@ -157,7 +157,7 @@ export function CalculatorTab({ market }: { market: FuturesListing | null }) {
         />
       ) : null}
       {result.status === 'ready' ? (
-        <div aria-label={t('Calc results')} className="flex flex-col gap-2">
+        <div aria-label={t('Calc results')} className="lt-stack">
           <KeyValue
             density="dense"
             unknownLabel={t('Unknown figure')}
@@ -183,7 +183,7 @@ export function CalculatorTab({ market }: { market: FuturesListing | null }) {
               </p>
             );
           })}
-          <p className="m-0 text-xs text-fg-2">{t('Calc basis')}</p>
+          <p className="lt-hint">{t('Calc basis')}</p>
           <h4 className="m-0 text-xs font-medium text-fg">{t('Calc formulas')}</h4>
           <ul aria-label={t('Calc formulas list')} className="m-0 flex list-none flex-col gap-1 p-0 text-xs text-fg-2">
             {FORMULA_ORDER.filter((key) => result.data.formulas[key]).map((key) => (

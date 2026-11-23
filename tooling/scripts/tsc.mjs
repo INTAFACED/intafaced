@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 /**
  * The one way to type-check in this repo: `node tooling/scripts/tsc.mjs <tsc's own arguments>`, a drop-in for `tsc`.
- * Every package's `typecheck` script calls it, tooling/ci/test-typecheck.mjs calls it for tsconfig.test.json, and the
- * worktree setup points every `node_modules/.bin/tsc` at it (installShims), so a hand-typed `npx tsc` takes it too.
+ * Every package.json script that type-checks or builds calls it, tooling/ci/test-typecheck.mjs calls it for
+ * tsconfig.test.json, and TypeScript's own `bin/tsc` runs it (patches/typescript@<version>.patch), so every
+ * `node_modules/.bin/tsc`, a hand-typed `npx tsc` and `pnpm exec tsc` take it too, after any install. This file runs
+ * the compiler's `lib/tsc.js` itself.
  *
  * A `--noEmit` check of one project becomes, with nothing else changed (same compiler, same config):
  *   - incremental: `--incremental --tsBuildInfoFile <project dir>/node_modules/.cache/tsc/<config>.tsbuildinfo`, so a
@@ -13,7 +15,26 @@
  *     kept in the clone's common git directory (`<git common dir>/intafaced-tsc-seed/`). The build-info records paths
  *     relative to itself and a hash of each file's text, so one made in another worktree is valid here: a file whose
  *     text differs is checked again, as after an edit.
- * Anything else (a build, a watch, files named on the command line, `--version`) runs tsc unchanged.
+ *   - the same answer as a full check: an error is printed only from checking its file in this run (the files that
+ *     failed last time are checked again), and on the one path where TypeScript 7.0 leaves dependents unchecked (a
+ *     changed file that declares globals, skippedDependents below) every file is checked again. On 20 Nov 2026 a check
+ *     made before the workspace packages were built kept 4 errors in two unchanged files of apps/customer after the
+ *     build, and the pre-push hook refused a push the real compiler passed (INTAFACED/intafaced#9253).
+ * A package build (`-p tsconfig.json`, emitting) runs as given, with no build-info or lock. Anything else (`--build`,
+ * a watch, files named on the command line, `--version`) runs tsc unchanged.
+ *
+ * Off CI, that check runs tsrs (oxc-project's Rust port of TypeScript 7, the checker t3code's packages run) in place of
+ * tsc, when it is installed: apps/customer cold took 4.97 GB and 42 s with tsc 7.0.2 and 1.31 GB and 9 to 18 s with
+ * tsrs, and 0.5 s at 0.43 GB warm (box, 21 Nov 2026, INTAFACED/project-state#3604). CI (`CI` set) keeps tsc, the judge.
+ * tsrs also reports declaration-emit errors (TS2883) under --noEmit, which tsc 7.0 does not, so its check turns
+ * declaration output off: the same answer as tsc on every package on 21 Nov. Its build-info and seed are its own.
+ * Off CI a package build runs tsrs too (build below): contracts' build peaked at 1.46 GB with tsc and 0.38 GB with
+ * tsrs. Of the 52 package builds on 21 Nov, 45 emitted the same .js and .d.ts bytes as tsc; the rest differ only by
+ * `import X, {} from` written `import X from`, and the order of union and intersection members, shown the same types
+ * by tsc (INTAFACED/project-state#3609). Every package.json script and every tool that type-checks or builds calls
+ * this file, never tsc itself (tsc.test.mjs stops a new one).
+ *
+ * Off CI, a check that still runs tsc (no tsrs, a pass-through, a build tsrs refused) runs it on one thread (threadsOf).
  *
  * Failure it prevents (INTAFACED/project-state#3374): builders ran bare `npx tsc` 527 times in four days, with no
  * incremental mode, no cache and no lock. One check of apps/customer took 10 s and 7 GB on the Mac, about 57 s and
@@ -21,25 +42,19 @@
  * the box. Incremental, a one-file change checks in about 2 s at under 2 GB, and three at once run one compiler.
  */
 import { spawn, spawnSync } from 'node:child_process';
-import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  realpathSync,
-  renameSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, '..', '..');
-const TSC = join(REPO, 'node_modules', 'typescript', 'bin', 'tsc');
+// lib/tsc.js, not bin/tsc: the patched bin/tsc runs this file.
+const TSC = join(REPO, 'node_modules', 'typescript', 'lib', 'tsc.js');
+const TSRS = join(REPO, 'node_modules', 'tsrs', 'bin', 'tsrs');
+
+/** The compiler a one-project check runs: tsc in CI or where tsrs is not installed, else tsrs. */
+export const checkerOf = (env = process.env) => (env.CI || !existsSync(TSRS) ? 'tsc' : 'tsrs');
 
 /** Flags that mean this is not a one-project check, or that the caller already chose its own build-info. */
 const PASS_THROUGH = new Set([
@@ -66,17 +81,21 @@ const PASS_THROUGH = new Set([
  * What to run for these arguments. `{ args }` alone runs tsc as given; `{ args, project, buildInfo }` is a check made
  * incremental and locked.
  */
-export function planOf(argv, cwd) {
-  if (!argv.includes('--noEmit') || argv.some((a) => PASS_THROUGH.has(a.split('=')[0]))) return { args: argv };
+export function planOf(argv, cwd, checker = 'tsc') {
+  if (argv.some((a) => PASS_THROUGH.has(a.split('=')[0]))) return { args: argv };
   if (argv.some((a) => !a.startsWith('-') && /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/.test(a))) return { args: argv };
+  // A package build (`-p tsconfig.json`, emitting) runs the same checker, unchanged: no build-info, no lock.
+  if (!argv.includes('--noEmit')) return checker === 'tsrs' ? { args: argv, checker } : { args: argv };
   const at = argv.findIndex((a) => a === '-p' || a === '--project');
   let project = at >= 0 ? argv[at + 1] : 'tsconfig.json';
   if (project === undefined) return { args: argv };
   project = isAbsolute(project) ? project : resolve(cwd, project);
   if (existsSync(project) && statSync(project).isDirectory()) project = join(project, 'tsconfig.json');
   if (!existsSync(project)) return { args: argv };
-  const buildInfo = join(dirname(project), 'node_modules', '.cache', 'tsc', `${basename(project, extname(project))}.tsbuildinfo`);
-  return { args: [...argv, '--incremental', '--tsBuildInfoFile', buildInfo], project, buildInfo };
+  const name = `${basename(project, extname(project))}${checker === 'tsrs' ? '.tsrs' : ''}.tsbuildinfo`;
+  const buildInfo = join(dirname(project), 'node_modules', '.cache', 'tsc', name);
+  const own = checker === 'tsrs' ? ['--declaration', 'false', '--declarationMap', 'false'] : [];
+  return { args: [...argv, ...own, '--incremental', '--tsBuildInfoFile', buildInfo], project, buildInfo, checker };
 }
 
 const git = (cwd, ...a) => {
@@ -85,13 +104,13 @@ const git = (cwd, ...a) => {
 };
 
 /** Where this project's shared seed lives on this machine, or null outside git. */
-export function seedOf(project) {
+export function seedOf(project, checker = 'tsc') {
   const cwd = dirname(project);
   const top = git(cwd, 'rev-parse', '--show-toplevel');
   const common = git(cwd, 'rev-parse', '--path-format=absolute', '--git-common-dir');
   if (!top || !common) return null;
   const key = relative(realpathSync(top), realpathSync(project)).split(/[\\/]/).join('%');
-  return join(common, 'intafaced-tsc-seed', `${key}.tsbuildinfo`);
+  return join(common, 'intafaced-tsc-seed', `${key}${checker === 'tsrs' ? '.tsrs' : ''}.tsbuildinfo`);
 }
 
 const alive = (pid) => {
@@ -144,24 +163,142 @@ function copyWhole(from, to) {
   renameSync(tmp, to);
 }
 
+const readJson = (file) => {
+  try {
+    return JSON.parse(readFileSync(file, 'utf8'));
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Rewrites the build-info so the next check re-checks files instead of repeating their stored answer: the files that
+ * had errors (a stored error is never printed again, only a fresh one), or with `every`, all files. A bare file id in
+ * `semanticDiagnosticsPerFile` is TypeScript's own "not checked yet".
+ */
+export function forgetAnswers(buildInfo, info, { every = false } = {}) {
+  const ids = every
+    ? info.fileNames.map((_, i) => i + 1)
+    : (info.semanticDiagnosticsPerFile ?? []).map((e) => (Array.isArray(e) ? e[0] : e));
+  const tmp = `${buildInfo}.${process.pid}.tmp`;
+  writeFileSync(tmp, JSON.stringify({ ...info, semanticDiagnosticsPerFile: ids }));
+  renameSync(tmp, buildInfo);
+}
+
+/**
+ * Did this check take TypeScript 7.0's path that leaves dependents unchecked? When a file that declares globals is
+ * itself changed (its text, or what its imports resolve to) and its declarations change, TypeScript marks "every file
+ * affected" and then re-checks only the changed files; every other file keeps its stored answer, stale errors and
+ * stale passes alike (typescript-go v7.0.2, internal/execute/incremental/affectedfileshandler.go, getFilesAffectedBy
+ * and handleDtsMayChangeOfAffectedFile). Read from the build-info before and after the check.
+ */
+export function skippedDependents(before, after) {
+  const sig = (fi) => (typeof fi === 'string' ? fi : fi.noSignature ? '' : fi.signature || fi.version);
+  const refsOf = (b) => {
+    const m = new Map();
+    for (const [file, list] of b.referencedMap ?? [])
+      m.set(
+        b.fileNames[file - 1],
+        b.fileIdsList[list - 1]
+          .map((i) => b.fileNames[i - 1])
+          .sort()
+          .join('\n'),
+      );
+    return m;
+  };
+  const old = new Map(before.fileNames.map((n, i) => [n, before.fileInfos[i]]));
+  let oldRefs, newRefs;
+  return after.fileNames.some((name, i) => {
+    const now = after.fileInfos[i];
+    if (typeof now === 'string' || !now.affectsGlobalScope) return false;
+    const was = old.get(name);
+    if (was === undefined) return true;
+    if (sig(was) === sig(now)) return false;
+    if ((typeof was === 'string' ? was : was.version) !== now.version) return true;
+    oldRefs ??= refsOf(before);
+    newRefs ??= refsOf(after);
+    return oldRefs.get(name) !== newRefs.get(name);
+  });
+}
+
+/**
+ * Off CI, tsc runs on one thread: TypeScript 7 otherwise starts a checker per core, and on the box (16 cores, up to 16
+ * builders) each check held 24 to 137 threads at load 125 on 22 Nov 2026 (INTAFACED/project-state row d99). The answer
+ * is the same; a caller that set its own `--singleThreaded`, `--checkers` or `--builders` keeps it. CI keeps tsc's own.
+ */
+export const threadsOf = (args, env = process.env) =>
+  env.CI || args.some((a) => ['--singleThreaded', '--checkers', '--builders'].includes(a.split('=')[0]))
+    ? args
+    : [...args, '--singleThreaded'];
+
+/** Runs the compiler; resolves to its exit code, and with `capture` to `{ code, out, err }` (its output held back). */
+function tsc(args, cwd, { capture = false, checker = 'tsc' } = {}) {
+  const child = spawn(process.execPath, checker === 'tsrs' ? [TSRS, ...args] : [TSC, ...threadsOf(args)], {
+    cwd,
+    stdio: capture ? ['inherit', 'pipe', 'pipe'] : 'inherit',
+  });
+  const out = [];
+  const err = [];
+  child.stdout?.on('data', (d) => out.push(d));
+  child.stderr?.on('data', (d) => err.push(d));
+  const forward = (sig) => child.kill(sig);
+  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, forward);
+  return new Promise((r) => {
+    child.on('error', () => r(1));
+    child.on('close', (c, sig) => r(c ?? (sig ? 1 : 0)));
+  }).then((code) => {
+    for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.off(sig, forward);
+    return capture ? { code, out: Buffer.concat(out), err: Buffer.concat(err) } : code;
+  });
+}
+
+/** The error lines of a compiler's output. */
+export const errorsOf = (text) => text.split('\n').filter((l) => /\berror TS\d+:/.test(l));
+
+/**
+ * A package build with tsrs. tsrs refuses some declarations tsc 7.0 emits (TS2883, "cannot be named without a
+ * reference to ..."): five services on 21 Nov. A build whose only errors are those is built again by tsc, so it ends
+ * as tsc ends; any other error is printed as tsrs found it, TS2883 lines too.
+ */
+async function build(args, cwd) {
+  const first = await tsc(args, cwd, { capture: true, checker: 'tsrs' });
+  const errors = errorsOf(`${first.out}${first.err}`);
+  if (first.code !== 0 && errors.length > 0 && errors.every((l) => /\berror TS2883:/.test(l))) {
+    console.error(`tsc: tsrs refused ${errors.length} declaration(s) tsc 7.0 emits (TS2883); building with tsc`);
+    return tsc(args, cwd);
+  }
+  process.stdout.write(first.out);
+  process.stderr.write(first.err);
+  return first.code;
+}
+
 /** Runs tsc for these arguments; resolves to its exit code. */
-export async function run(argv, { cwd = process.cwd(), stdio = 'inherit' } = {}) {
-  const plan = planOf(argv, cwd);
-  const release = plan.buildInfo ? await lock(plan.buildInfo, plan.project) : () => {};
-  const seed = plan.buildInfo ? seedOf(plan.project) : null;
+export async function run(argv, { cwd = process.cwd() } = {}) {
+  const plan = planOf(argv, cwd, checkerOf());
+  if (!plan.buildInfo && plan.checker !== 'tsrs') return tsc(plan.args, cwd);
+  if (!plan.buildInfo) return build(plan.args, cwd);
+  // The output is held until it is known to be the answer to keep; a terminal still gets tsc's colours.
+  const args = process.stdout.isTTY && !argv.some((a) => a.startsWith('--pretty')) ? [...plan.args, '--pretty'] : plan.args;
+  const release = await lock(plan.buildInfo, plan.project);
+  const seed = seedOf(plan.project, plan.checker);
   try {
     if (seed && !existsSync(plan.buildInfo) && existsSync(seed)) {
       copyWhole(seed, plan.buildInfo);
       console.error('typecheck: started from the last passing check of this project on this machine');
     }
-    const child = spawn(process.execPath, [TSC, ...plan.args], { cwd, stdio });
-    const forward = (sig) => child.kill(sig);
-    for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, forward);
-    const code = await new Promise((r) => {
-      child.on('error', () => r(1));
-      child.on('close', (c, sig) => r(c ?? (sig ? 1 : 0)));
-    });
-    for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.off(sig, forward);
+    // Every error printed comes from checking the file now: the files that failed last time are checked again.
+    const before = existsSync(plan.buildInfo) ? readJson(plan.buildInfo) : null;
+    if (before?.semanticDiagnosticsPerFile?.some(Array.isArray)) forgetAnswers(plan.buildInfo, before);
+    let result = await tsc(args, cwd, { capture: true, checker: plan.checker });
+    const after = before && readJson(plan.buildInfo);
+    if (after && skippedDependents(before, after)) {
+      console.error('typecheck: a file that declares globals changed, which TypeScript 7.0 does not follow; checking every file again');
+      forgetAnswers(plan.buildInfo, after, { every: true });
+      result = await tsc(args, cwd, { capture: true, checker: plan.checker });
+    }
+    process.stdout.write(result.out);
+    process.stderr.write(result.err);
+    const code = result.code;
     if (code === 0 && seed && existsSync(plan.buildInfo)) {
       try {
         copyWhole(plan.buildInfo, seed);
@@ -173,25 +310,6 @@ export async function run(argv, { cwd = process.cwd(), stdio = 'inherit' } = {})
   }
 }
 
-/**
- * Points the worktree's `node_modules/.bin/tsc` (the root's and each package's) at this file, so `npx tsc`,
- * `pnpm exec tsc` and a package script's bare `tsc` all come here. pnpm writes those files at install; this runs after.
- */
-export function installShims(root = REPO) {
-  const shim = `#!/bin/sh\n# Written by tooling/t3/setup-worktree.mjs: every tsc here goes through ${relative(root, fileURLToPath(import.meta.url))}.\nexec node "${fileURLToPath(import.meta.url)}" "$@"\n`;
-  const bins = [join(root, 'node_modules', '.bin', 'tsc')];
-  for (const area of ['apps', 'packages', 'services', 'tooling']) {
-    if (!existsSync(join(root, area))) continue;
-    for (const name of readdirSync(join(root, area))) bins.push(join(root, area, name, 'node_modules', '.bin', 'tsc'));
-  }
-  let n = 0;
-  for (const bin of bins) {
-    if (!existsSync(bin)) continue;
-    writeFileSync(bin, shim, { mode: 0o755 });
-    n += 1;
-  }
-  return n;
-}
-
+// exitCode, not exit(): a held-back report written to a pipe is flushed before the process ends.
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href)
-  process.exit(await run(process.argv.slice(2)));
+  process.exitCode = await run(process.argv.slice(2));

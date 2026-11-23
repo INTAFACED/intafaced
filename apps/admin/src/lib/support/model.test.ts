@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { recordReads } from './record-reply';
+import { SUPPORT_DESK_RATING } from '@intafaced/contracts/support-desk-procedures';
 import { SUPPORT_NOTE_MAX } from '@intafaced/contracts';
 import {
   allowedNextStatuses,
@@ -9,7 +11,6 @@ import {
   queueMetrics,
   readActionRequest,
   readQueueResult,
-  readRatingResult,
   internalNoteGate,
   INTERNAL_NOTE_MAX,
   DESK_COMMENTS_READ,
@@ -268,13 +269,14 @@ describe('the strict action reader', () => {
 describe('the rating reader', () => {
   const ok = { ticketId: T1, userId: U, score: 5, note: null, createdAt: '2026-10-17T02:00:00.000Z' };
   it('null is "not rated"; a good row is a rating; anything else is unreadable', () => {
-    expect(readRatingResult(null)).toEqual({ value: null });
-    expect(readRatingResult(ok)).toEqual({ value: ok });
-    expect(readRatingResult({ ...ok, score: 0 })).toBeNull();
-    expect(readRatingResult({ ...ok, score: 2.5 })).toBeNull();
-    expect(readRatingResult({ ...ok, note: 3 })).toBeNull();
-    expect(readRatingResult({ ...ok, userId: 'x' })).toBeNull();
-    expect(readRatingResult('5')).toBeNull();
+    // null is the record's own answer for "not rated", read as data (`founderRecordCall` boxes it), never as unreadable.
+    expect(SUPPORT_DESK_RATING.output.safeParse(null)).toMatchObject({ success: true, data: null });
+    expect(recordReads(SUPPORT_DESK_RATING, ok)).toEqual(ok);
+    expect(recordReads(SUPPORT_DESK_RATING, { ...ok, score: 0 })).toBeNull();
+    expect(recordReads(SUPPORT_DESK_RATING, { ...ok, score: 2.5 })).toBeNull();
+    expect(recordReads(SUPPORT_DESK_RATING, { ...ok, note: 3 })).toBeNull();
+    expect(recordReads(SUPPORT_DESK_RATING, { ...ok, userId: 'x' })).toBeNull();
+    expect(recordReads(SUPPORT_DESK_RATING, '5')).toBeNull();
   });
 });
 

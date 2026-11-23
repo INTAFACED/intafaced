@@ -70,6 +70,7 @@ test('the record call and look-alikes stay quiet; tests and services are out of 
     'const b = useBankCall(RECORD, {});',
     'open(bankAction(RECORD, spec));',
     'open({ title, procedure: tool.procedure });',
+    "const none = { toolId, procedure: '', edgePath: null };",
     "const copy = { 'menu.title': 'Cards', 'cards.list': 3 };",
     "const rows = await query('select 1', 'x');",
     "const c = founderCall(ctx, module, procedure, 'GET', {}, read);",
@@ -83,4 +84,64 @@ test('the record call and look-alikes stay quiet; tests and services are out of 
     'packages/sdk/src/client.ts': named,
   });
   assert.deepEqual(countOf(diagnostics, RULE), { total: 0, files: {} });
+});
+
+// project-state#3841: a helper given the call's name hid each of its callers. BankAccountRoom's `useAccountRead('onboarding', …)`
+// (a template sender) and BusinessTeamRoom's `useBank('businessTeam.roles', …)` and `change.run('businessTeam.approve', …)`
+// each counted only at the helper's sender.
+test("each caller that hands a helper the call's name by a string is a finding, the helper's own file or another", skip, () => {
+  const ROOM = 'apps/customer/src/features/money/bank-account/AccountRoom.tsx';
+  const BANNER = 'apps/customer/src/features/money/bank-overview/Banner.tsx';
+  const diagnostics = lint({
+    [ROOM]: [
+      'export function useAccountRead(procedure: string, schema: S, version: number) {',
+      "  return api.query('bank', `bankAccount.${procedure}`, {}, schema);",
+      '}',
+      'function useBank(procedure: string, input: unknown, schema: S, base: string, rev = 0) {',
+      "  return useResource(() => api.query('bank', procedure, input, schema), base);",
+      '}',
+      'function useOverview(name: string) { return useBank(name, {}, s, "-"); }',
+      'function useChange(after: () => void) {',
+      '  async function run(procedure: string, body: unknown, schema: S) {',
+      "    return api.mutate('bank', procedure, body, schema);",
+      '  }',
+      '  return { run, busy };',
+      '}',
+      "const a = useAccountRead('onboarding', s, 0);",
+      "const b = useBank('businessTeam.roles', input, s, key, rev);",
+      "const c = useOverview('businessTeam.overview');",
+      "function One() { const change = useChange(() => {}); change.run('businessTeam.approve', {}, s); }",
+      "function Two() { const change = useChange(() => {}); void change.run('businessTeam.reject', {}, s); }",
+      // Not by a string: nothing more to count.
+      'const d = useBank(name, input, s, key);',
+      "const e = useChange(() => {}).busy; const f = other.run('businessTeam.approve');",
+    ].join('\n'),
+    [BANNER]: [
+      "import { useAccountRead } from '../bank-account/AccountRoom';",
+      "const read = useAccountRead('onboarding', s, 0);",
+      // A helper of the same name declared twice in one file is not followed.
+      'function run(x: string) { return 1; }',
+    ].join('\n'),
+  });
+  const helper = diagnostics.filter((d) => d.message.startsWith("a helper given the call's name"));
+  assert.deepEqual(
+    helper.map((d) => `${d.filename} ${/`([^`]+)`/u.exec(d.message)[1]}`).sort(),
+    [`${BANNER} useAccountRead`, `${ROOM} run`, `${ROOM} run`, `${ROOM} useAccountRead`, `${ROOM} useBank`, `${ROOM} useOverview`].sort(),
+  );
+  // The senders still count once each, beside their callers.
+  assert.deepEqual(countOf(diagnostics, RULE), { total: 9, files: { [ROOM]: 8, [BANNER]: 1 } });
+  for (const d of helper) assert.match(d.message, /api\.call\(<RECORD>, input\)/u);
+});
+
+test('a name bound more than once in a file, or a helper that never sends its parameter, is not followed', skip, () => {
+  const diagnostics = lint({
+    [CUSTOMER]: [
+      "function useBank(procedure: string) { return api.query('bank', procedure, {}, s); }",
+      'function Other() { const useBank = (x: string) => x; }',
+      "const a = useBank('cards.list');",
+      'function label(procedure: string) { return t(procedure); }',
+      "const b = label('cards.list');",
+    ].join('\n'),
+  });
+  assert.equal(diagnostics.filter((d) => d.message.startsWith("a helper given the call's name")).length, 0);
 });

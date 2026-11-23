@@ -3,9 +3,10 @@ import { generateKeyPairSync } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
-import { api, journeyState, restartWith, signOutBrowser, stackUrl, tool } from './stack.mjs';
-import { PASSKEY_ORIGIN, virtualAuthenticator } from './identity-factors.mjs';
+import { api, journeyState, restartService, signOutBrowser, stackUrl, startService, stopService } from './stack.mjs';
+import { PASSKEY_ORIGIN } from './identity-factors.mjs';
 import { venueForThisFile, venueInfo, venueRecord } from './venue.mjs';
+import { device, openRoom, recorded } from './embedded-wallet.mjs';
 
 // J-wallet-22, in the running app: I get my own wallet when I sign up, without a seed phrase. One test per step, titled
 // "J-wallet-22 #<n>", run in order by one signed-up TEST person. The provider is the stack's labelled TEST embedded-wallet
@@ -32,7 +33,6 @@ const PROVIDER = 'TEST wallet provider';
 const KEPT_BY = `Your wallet’s key is kept by ${PROVIDER}. Only you can sign with it, after your passkey.`;
 /** The TEST region AA's reason while it is not served (TEST_BUSINESS_BLOCK_REASON in packages/config jurisdiction.ts). */
 const REGION_REASON = 'TEST region, not served at launch';
-const STATUS = '/api/protocol/trpc/embeddedWallet.status';
 
 test.describe.configure({ mode: 'default' });
 test.use({ baseURL: PASSKEY_ORIGIN });
@@ -64,13 +64,6 @@ function walletState() {
   return s;
 }
 
-/** svc-protocol's record of the person's wallet, through Edge, as the person. */
-async function recorded(who) {
-  const client = await api(who);
-  const { status, body } = await client.get(STATUS);
-  if (status !== 200) throw new Error(`embeddedWallet.status refused: ${status} ${JSON.stringify(body).slice(0, 300)}`);
-  return body.result.data;
-}
 async function venueConnections(who) {
   const client = await api(who);
   const { status, body } = await client.get('/api/protocol/trpc/venueWallet.status');
@@ -81,22 +74,6 @@ async function disconnectVenue(who, address) {
   const client = await api(who);
   const { status } = await client.post('/api/protocol/trpc/venueWallet.disconnect', { address });
   expect(status).toBe(200);
-}
-
-/** This page's device, with the given passkeys on it (none: a device that has never held one). */
-async function device(page, credentials = []) {
-  const auth = await virtualAuthenticator(page);
-  for (const credential of credentials)
-    await auth.cdp.send('WebAuthn.addCredential', { authenticatorId: auth.authenticatorId, credential });
-  const held = async () => (await auth.cdp.send('WebAuthn.getCredentials', { authenticatorId: auth.authenticatorId })).credentials;
-  return { ...auth, held };
-}
-
-async function openRoom(page, who) {
-  await signIn(page, who);
-  await page.goto('/wallet');
-  await page.getByRole('button', { name: 'My wallet', exact: true }).click();
-  await expect(page).toHaveURL(/\/wallet\/embedded$/);
 }
 
 const panel = (page) => page.locator('[data-panel="embedded-wallet"]');
@@ -113,7 +90,7 @@ test(`${J} #1 opens Wallet and presses Create my wallet: the provider is named; 
   // The provider setting blank: Create my wallet is refused by its code and no passkey or wallet is made.
   const blankPage = await page.context().newPage();
   try {
-    restartWith('protocol', 'LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET', false);
+    await restartService('protocol', { LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET: 'off' });
     const blankDevice = await device(blankPage);
     await openRoom(blankPage, who);
     await expect(panel(blankPage).locator('[data-embedded-provider]')).toHaveCount(0);
@@ -122,17 +99,21 @@ test(`${J} #1 opens Wallet and presses Create my wallet: the provider is named; 
     await expect(blankPage.getByText('No embedded-wallet provider is set, so no wallet can be made. Nothing was made.')).toBeVisible();
     await expect(blankPage.getByText('wallet.embedded_provider_unset')).toBeVisible();
     expect(await blankDevice.held()).toEqual([]);
-    expect(await recorded(who)).toEqual({ provider: null, wallet: null });
+    expect(await recorded(who)).toEqual({
+      provider: null,
+      wallet: null,
+      gasSponsor: { set: false, code: 'wallet.gas_sponsor_unset' },
+    });
   } finally {
     await blankPage.close();
-    restartWith('protocol', 'LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET', true);
+    await restartService('protocol', { LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET: undefined });
   }
 
   // A visitor from a blocked region is refused with its reason, before the provider is asked anything.
   const regionPage = await page.context().newPage();
   try {
-    restartWith('protocol', 'LOCAL_STACK_TEST_REGION_SERVED', false);
-    restartWith('edge', 'LOCAL_STACK_TEST_REGION_SERVED', false);
+    await restartService('protocol', { LOCAL_STACK_TEST_REGION_SERVED: 'off' });
+    await restartService('edge', { LOCAL_STACK_TEST_REGION_SERVED: 'off' });
     const regionDevice = await device(regionPage);
     await openRoom(regionPage, who);
     await expect(regionPage.getByText('Not available in your region', { exact: true })).toBeVisible({ timeout: 20_000 });
@@ -144,9 +125,9 @@ test(`${J} #1 opens Wallet and presses Create my wallet: the provider is named; 
   } finally {
     await regionPage.close();
     try {
-      restartWith('edge', 'LOCAL_STACK_TEST_REGION_SERVED', true);
+      await restartService('edge', { LOCAL_STACK_TEST_REGION_SERVED: undefined });
     } finally {
-      restartWith('protocol', 'LOCAL_STACK_TEST_REGION_SERVED', true);
+      await restartService('protocol', { LOCAL_STACK_TEST_REGION_SERVED: undefined });
     }
   }
   expect((await recorded(who)).wallet).toBeNull();
@@ -203,28 +184,49 @@ test(`${J} #2 creates it with a passkey: an address on the venue's network, labe
   run.write({ address: wallet.address, walletId: wallet.providerWalletId, credential: held[0] });
 });
 
-test(`${J} #3 presses Create my wallet again, or the request is replayed: the same wallet, never a second`, async ({ page }) => {
-  const { who, address, walletId, credential } = walletState();
-  const phone = await device(page, [credential]);
-  // A tab that read the room before the wallet existed still offers Create my wallet: its first read says none.
-  let stale = true;
-  await page.route('**/api/protocol/trpc/embeddedWallet.status**', async (route) => {
-    if (!stale) return route.continue();
-    stale = false;
-    const real = await route.fetch();
-    const body = await real.json();
-    body.result.data.wallet = null;
-    await route.fulfill({ response: real, json: body });
-  });
-  await openRoom(page, who);
-  await page.getByRole('button', { name: 'Create my wallet' }).click();
-  await expect(panel(page).locator('[data-embedded-address]')).toHaveText(address);
-  await expect(panel(page).locator('[data-embedded-wallet-id]')).toHaveText(walletId);
-  // No second passkey was made for it.
-  expect(await phone.held()).toHaveLength(1);
+test(`${J} #3 presses Create my wallet again, or the request is replayed: the same wallet, never a second, under the business key wallet:embedded:<personId>`, async ({
+  page,
+  browser,
+}) => {
+  const { who, address, walletId } = walletState();
 
-  // A replayed create, twice at once, with another passkey: the same wallet, created false, never a second.
+  // Pressing it again, for real: one new TEST person on two devices, each signed in and showing the room before the
+  // wallet exists, so both offer Create my wallet. The first makes the wallet; the second's press gets that same wallet
+  // back, with no passkey made on it.
+  const twice = await signUp(page, 'jwallet22again');
+  const first = page;
+  const firstDevice = await device(first);
+  const other = await browser.newContext({ baseURL: PASSKEY_ORIGIN });
+  try {
+    const second = await other.newPage();
+    const secondDevice = await device(second);
+    await openRoom(first, twice);
+    await openRoom(second, twice);
+    await expect(second.getByRole('button', { name: 'Create my wallet', exact: true })).toBeEnabled();
+    await expect(first.getByRole('button', { name: 'Create my wallet', exact: true })).toBeEnabled();
+    await first.getByRole('button', { name: 'Create my wallet', exact: true }).click();
+    const made = panel(first).locator('[data-embedded-address]');
+    await expect(made).toHaveText(/^0x[0-9a-fA-F]{40}$/, { timeout: 20_000 });
+    const madeId = await panel(first).locator('[data-embedded-wallet-id]').textContent();
+    await second.getByRole('button', { name: 'Create my wallet', exact: true }).click();
+    await expect(panel(second).locator('[data-embedded-address]')).toHaveText(await made.textContent(), { timeout: 20_000 });
+    await expect(panel(second).locator('[data-embedded-wallet-id]')).toHaveText(madeId);
+    expect(await firstDevice.held()).toHaveLength(1);
+    expect(await secondDevice.held(), 'the second press made no passkey').toEqual([]);
+    const twiceClient = await api(twice);
+    expect((await recorded(twice)).wallet).toMatchObject({
+      address: await made.textContent(),
+      providerWalletId: madeId,
+      idempotencyKey: `wallet:embedded:${twiceClient.userId}`,
+    });
+  } finally {
+    await other.close();
+  }
+
+  // A replayed create, twice at once, with another passkey, for the person of #2: the same wallet under the same business
+  // key, created false, never a second.
   const client = await api(who);
+  const key = `wallet:embedded:${client.userId}`;
   const { publicKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
   const passkey = {
     credentialId: 'cmVwbGF5ZWQ',
@@ -237,9 +239,9 @@ test(`${J} #3 presses Create my wallet again, or the request is replayed: the sa
   ]);
   for (const { status, body } of replies) {
     expect(status).toBe(200);
-    expect(body.result.data).toMatchObject({ created: false, wallet: { address, providerWalletId: walletId } });
+    expect(body.result.data).toMatchObject({ created: false, wallet: { address, providerWalletId: walletId, idempotencyKey: key } });
   }
-  expect((await recorded(who)).wallet).toMatchObject({ address, providerWalletId: walletId });
+  expect((await recorded(who)).wallet).toMatchObject({ address, providerWalletId: walletId, idempotencyKey: key });
 });
 
 test(`${J} #4 signs to connect it to the venue account: connected with its expiry, as J-wallet-09 #2, from the same address, after the passkey`, async ({
@@ -256,7 +258,7 @@ test(`${J} #4 signs to connect it to the venue account: connected with its expir
     await disconnectVenue(who, address);
     await page.reload();
   }
-  await page.getByRole('button', { name: 'Connect to the venue' }).click();
+  await page.getByRole('button', { name: 'Connect to the venue', exact: true }).click();
   const expires = page.getByTestId('embedded-venue-expires');
   await expect(expires).toBeVisible({ timeout: 20_000 });
   const expiresAt = await expires.getAttribute('datetime');
@@ -275,27 +277,45 @@ test(`${J} #4 signs to connect it to the venue account: connected with its expir
 test(`${J} #5 exports the key, or adds a recovery method, with step-up: the provider's own flow after the passkey; INTAFACED never receives the key`, async ({
   page,
 }) => {
-  const { who, address, credential } = walletState();
+  // One restart of svc-protocol for a provider that offers no export, and back.
+  test.setTimeout(300_000);
+  const { who, address, walletId, credential } = walletState();
   const phone = await device(page, [credential]);
   const toUs = [];
+  const exports = [];
   page.on('request', (r) => {
-    if (new URL(r.url()).pathname.startsWith('/api/')) toUs.push(`${r.url()} ${r.postData() ?? ''}`);
+    const path = new URL(r.url()).pathname;
+    if (path.startsWith('/api/')) toUs.push(`${r.url()} ${r.postData() ?? ''}`);
+    if (path === '/__test-wallet-provider/client/export') exports.push(r.postDataJSON());
   });
+  // The step-up: the provider exports nothing without a passkey assertion for this wallet.
+  const bare = await page.request.post(`${PASSKEY_ORIGIN}/__test-wallet-provider/client/export`, { data: { walletId } });
+  expect(bare.status(), 'an export with no passkey assertion is refused').toBeGreaterThanOrEqual(400);
+  expect(await bare.text()).not.toMatch(/0x[0-9a-f]{64}/i);
   await openRoom(page, who);
   await expect(page.getByText(`These run at ${PROVIDER}, after your passkey. INTAFACED never receives your key.`)).toBeVisible();
 
-  await page.getByRole('button', { name: 'Export my key' }).click();
+  const signCount = async () => (await phone.held()).find((c) => c.credentialId === credential.credentialId).signCount;
+  const before = await signCount();
+  await page.getByRole('button', { name: 'Export my key', exact: true }).click();
   const shown = page.locator('[data-exported-key]');
   await expect(shown).toHaveText(/^0x[0-9a-f]{64}$/, { timeout: 20_000 });
   const key = await shown.textContent();
+  // Opened by the person after one passkey assertion: the device signed once, and the one export the page sent the
+  // provider carried that assertion, from the wallet's bound passkey.
+  expect(await signCount()).toBe(before + 1);
+  expect(exports).toHaveLength(1);
+  // The device reports its credential id in base64, the page sends it in base64url.
+  const bound = Buffer.from(credential.credentialId, 'base64').toString('base64url');
+  expect(exports[0]).toMatchObject({ walletId, assertion: { credentialId: bound } });
   // The key the provider handed the person is this wallet's own.
   expect(privateKeyToAccount(key).address).toBe(address);
   await expect(page.getByText(`Your key, from ${PROVIDER}`)).toBeVisible();
-  await page.getByRole('button', { name: 'Hide my key' }).click();
+  await page.getByRole('button', { name: 'Hide my key', exact: true }).click();
   await expect(shown).toHaveCount(0);
 
   // A recovery passkey, approved with the passkey already bound, at the provider.
-  await page.getByRole('button', { name: 'Add a recovery passkey' }).click();
+  await page.getByRole('button', { name: 'Add a recovery passkey', exact: true }).click();
   await expect(page.getByText(`Recovery passkey added at ${PROVIDER}. Your wallet now answers to 2 passkeys.`)).toBeVisible({
     timeout: 20_000,
   });
@@ -307,6 +327,23 @@ test(`${J} #5 exports the key, or adds a recovery method, with step-up: the prov
   expect(toUs.length).toBeGreaterThan(0);
   for (const sent of toUs) expect(sent.toLowerCase()).not.toContain(key.slice(2).toLowerCase());
   expect(JSON.stringify(await recorded(who))).not.toContain(key.slice(2));
+
+  // Where the provider offers no export (the TEST provider standing in for one whose plan has none,
+  // `LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET=no-export`), the room says so and offers no button that would fail.
+  const noExportPage = await page.context().newPage();
+  try {
+    await restartService('protocol', { LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET: 'no-export' });
+    await device(noExportPage, [credential]);
+    await openRoom(noExportPage, who);
+    await expect(panel(noExportPage).locator('[data-embedded-address]')).toHaveText(address, { timeout: 20_000 });
+    await expect(noExportPage.getByText(`${PROVIDER} offers no key export.`, { exact: true })).toBeVisible();
+    await expect(noExportPage.getByRole('button', { name: 'Export my key', exact: true })).toHaveCount(0);
+    await expect(noExportPage.getByRole('button', { name: 'Add a recovery passkey', exact: true })).toBeVisible();
+    expect((await recorded(who)).provider.capabilities).toEqual({ export: false, recovery: true });
+  } finally {
+    await noExportPage.close();
+    await restartService('protocol', { LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET: undefined });
+  }
 });
 
 test(`${J} #6 signs in on a new device: the same wallet once the passkey or recovery check passes; a session that has not passed it cannot sign`, async ({
@@ -378,20 +415,22 @@ test(`${J} #7 asks for a signature while the provider is down: refused with the 
   const tried = [];
   page.on('response', (r) => {
     const p = new URL(r.url()).pathname;
-    if (p.startsWith('/__test-wallet-provider/')) tried.push([p, r.status()]);
+    // The wallet room's chain reads (`/client/rpc`, read-only: J-wallet-24's deposit panel) ask the provider for no
+    // signature and no passkey, so they are not counted; every other provider call is.
+    if (p.startsWith('/__test-wallet-provider/') && p !== '/__test-wallet-provider/client/rpc') tried.push([p, r.status()]);
   });
   await openRoom(page, who);
   await expect(panel(page).locator('[data-embedded-address]')).toHaveText(address);
   // The provider goes down on the stack: its process (local-test-stack.mjs `test-wallet-provider`) is stopped, so the
   // page's provider path finds nothing behind it. It is started again after, with its state file (the wallet) kept.
-  tool('local-test-stack.mjs', 'stop', 'test-wallet-provider');
+  await stopService('test-wallet-provider');
   try {
     await page.getByRole('button', { name: 'Connect to the venue' }).click();
     await expect(page.getByText('Your wallet provider is not answering', { exact: true })).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText(`${PROVIDER} is not answering. Nothing was made, signed or sent. Try again in a moment.`)).toBeVisible();
     await expect(page.getByText('wallet.embedded_provider_down')).toBeVisible();
   } finally {
-    tool('local-test-stack.mjs', 'start', '--only', 'test-wallet-provider');
+    await startService('test-wallet-provider');
   }
   // It stopped at the provider's first call, which found the provider gone: nothing was signed, and no connection was
   // asked for.
@@ -427,7 +466,8 @@ function walletPrompts(page) {
   const asked = [];
   page.on('request', (r) => {
     const p = new URL(r.url()).pathname;
-    if (p.startsWith('/__test-wallet-provider/client/') && !p.endsWith('/challenge')) asked.push(p);
+    // A chain read (`/client/rpc`, read-only) asks for no passkey, so it is no prompt.
+    if (p.startsWith('/__test-wallet-provider/client/') && !p.endsWith('/challenge') && !p.endsWith('/rpc')) asked.push(p);
   });
   return asked;
 }

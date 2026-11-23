@@ -1,7 +1,7 @@
 // node --test tooling/ci/journey-touch.test.mjs
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, normalize, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,10 +16,13 @@ import {
   ROOT_DEPLOY_FILE,
   RUN_FILE,
   STACK_FILE,
+  UNPLACED,
   PICK_ARTIFACT,
   afterReuse,
   checkoutJourneyTexts,
   currentPickArtifact,
+  firstPullRunAt,
+  touchStarted,
   pullRunsCover,
   dispatchTarget,
   reusableRuns,
@@ -31,7 +34,11 @@ import {
   CRATE,
   PR_MAX_FILES,
   pullPick,
+  roomReach,
+  DISPATCH_GROUP_MAX,
+  dispatchGroup,
 } from './journey-touch.mjs';
+import { mapChosenAt } from './journey-seal.mjs';
 import { JOURNEYS_WORKFLOW, JOURNEY_TEST, isSharedSetup, judgeTouchedRun, sealPull } from './journey-seal.mjs';
 import { reachSelect } from './journey-reach-map.mjs';
 
@@ -419,6 +426,7 @@ const touchedRun = (over) =>
     reportOf: async (r) =>
       ({ 1: rep(['J-bank-13.pw.mjs', 'J-bank-14.pw.mjs']), 2: rep(['J-bank-13.pw.mjs']), 3: rep(['J-bank-14.pw.mjs']) })[r.id],
     verdictOf: async () => clean,
+    branch: 'b1',
     ...over,
   });
 
@@ -431,7 +439,15 @@ test('judgeTouchedRun, planted: a missed touched file, a red step, an older head
   const miss = await touchedRun({ runs: [run(2)] });
   assert.equal(miss.ok, false, 'a run that missed a touched journey fails');
   assert.match(miss.lines.join('\n'), /ran J-bank-14\.pw\.mjs/);
-  assert.match(miss.lines.join('\n'), /-f journeys="J-bank-13\.pw\.mjs J-bank-14\.pw\.mjs"/);
+  // It names only what no run on the head ran, so the run it asks for runs just that.
+  assert.match(miss.lines.join('\n'), /--ref b1 -f journeys="J-bank-14\.pw\.mjs"; the seal re-runs/);
+  assert.doesNotMatch(miss.lines.join('\n'), /-f journeys="[^"]*J-bank-13/);
+  const many = Array.from({ length: 63 }, (_, i) => `J-ops-console-${String(i).padStart(2, '0')}-announcements.pw.mjs`);
+  const long = await touchedRun({ files: many, runs: [], branch: 'fix/ps-3298' });
+  const asked = [...long.lines.join('\n').matchAll(/--ref fix\/ps-3298 -f journeys="([^"]*)"/g)].map((m) => m[1]);
+  assert.ok(asked.length > 1, 'a list too long for one run is split');
+  assert.deepEqual(asked.join(' ').split(' '), many, 'the runs between them name every file once, in order');
+  for (const a of asked) assert.ok(dispatchGroup('fix/ps-3298', a).length <= DISPATCH_GROUP_MAX, a);
   assert.equal((await touchedRun({ runs: [] })).ok, false, 'no run fails');
   assert.equal((await touchedRun({ verdictOf: async () => red('J-bank-13#2') })).ok, false, 'a red step fails');
   const newerRed = await touchedRun({ runs: [run(1), run(2)], verdictOf: async (_r, r) => (r.id === 2 ? red('J-bank-13#1') : clean) });
@@ -442,6 +458,33 @@ test('judgeTouchedRun, planted: a missed touched file, a red step, an older head
   assert.equal((await touchedRun({ reportOf: async () => ({ error: 'no report' }) })).ok, false);
   assert.equal((await touchedRun({ reportOf: async () => Promise.reject(new Error('HTTP 500')) })).ok, false);
   assert.equal((await touchedRun({ verdictOf: async () => Promise.reject(new Error('HTTP 403')) })).ok, false);
+});
+
+// #9253 on 4bf99e5d, 20 Nov 2026: dispatch 44785010056 started no job (its concurrency group passed 400 characters), and
+// the seal failed closed on its missing report while five other runs on the head had run every needed journey clean.
+test('judgeTouchedRun: a finished run that started no job is passed over and named; one with jobs and no report still fails closed', async () => {
+  const noJob = run(4, { conclusion: 'failure', jobCount: 0, run_started_at: '2026-11-08T09:00:00Z' });
+  const noReport = async (r) =>
+    r.id === 4 ? { error: 'no real-app-journeys artifact from its current attempt' } : rep(['J-bank-13.pw.mjs', 'J-bank-14.pw.mjs']);
+  const skipped = await touchedRun({ runs: [run(1, { jobCount: 3 }), noJob], reportOf: noReport });
+  assert.equal(skipped.ok, true, 'the other runs prove the journeys');
+  assert.equal(
+    skipped.lines.filter((l) => /run 4 \(attempt 1\) started no job/.test(l)).length,
+    1,
+    'one printed line names the run passed over',
+  );
+  // Planted, each still red: the same run with jobs that lost its report, a run whose jobs were never counted, and a
+  // no-job run alone, which proves nothing.
+  const lost = await touchedRun({ runs: [run(1), { ...noJob, jobCount: 2 }], reportOf: noReport });
+  assert.equal(lost.ok, false);
+  assert.match(lost.lines[0], /run 4 \(attempt 1\)'s report couldn't be read .*fails closed/);
+  assert.equal((await touchedRun({ runs: [run(1), { ...noJob, jobCount: undefined }], reportOf: noReport })).ok, false);
+  const alone = await touchedRun({ runs: [noJob], reportOf: noReport });
+  assert.equal(alone.ok, false);
+  assert.match(alone.lines.join('\n'), /no finished Real-app journeys run on this exact head ran J-bank-13\.pw\.mjs, J-bank-14\.pw\.mjs/);
+  // A run still going, with no job listed yet, holds the seal as before.
+  const going = await touchedRun({ runs: [run(1), { ...noJob, status: 'queued', conclusion: null }], reportOf: noReport });
+  assert.equal(going.state, 'wait');
 });
 
 // ---- The seal on a pull request: the four planted cases the gate must hold, and their passing twins ----
@@ -823,15 +866,13 @@ test('14 Nov, #8322: a named change to venue-reads.mjs runs the journeys importi
   assert.equal(v.mode, 'files');
   assert.deepEqual(v.files, ['J-bank-13.pw.mjs', 'J-cex-spot-01.pw.mjs', 'J-cex-spot-03.pw.mjs']);
   assert.deepEqual(v.stack, [VENUE_READS]);
-  // The real folder: the journeys that import it (J-cex-spot-05 and J-copy-bots-otc-14 through venue.mjs, on the venue).
+  // The real folder: a direct importer (J-cex-spot-01) and one through venue.mjs (J-cex-spot-05) are found. Held as a
+  // subset, never the exact list: a new journey importing it is not a tooling change (#9174 and #9367 each lost a push
+  // to the exact list; weed project-state#3684).
   const real = checkoutJourneyTexts(ROOT);
-  assert.deepEqual(stackImporters([VENUE_READS], real), [
-    'J-cex-spot-01.pw.mjs',
-    'J-cex-spot-02.pw.mjs',
-    'J-cex-spot-03.pw.mjs',
-    'J-cex-spot-05.pw.mjs',
-    'J-copy-bots-otc-14.pw.mjs',
-  ]);
+  const found = stackImporters([VENUE_READS], real);
+  for (const f of ['J-cex-spot-01.pw.mjs', 'J-cex-spot-05.pw.mjs']) assert.ok(found.includes(f), `${f} imports venue-reads.mjs`);
+  assert.deepEqual(found, [...found].sort(), 'sorted');
 });
 
 test('14 Nov, #8310: a named change to look-fixtures.mjs with product code runs the named journey and its importers', () => {
@@ -1112,6 +1153,25 @@ test('--json --files-from: a pull request file list, judged against this checkou
   rmSync(dir, { recursive: true, force: true });
 });
 
+// 22 Nov 2026: tooling no rule places made the CLI import tooling-reach.mjs, which imports this file back; with main()
+// awaited at the top level the import waited on this file's own evaluation, so the run exited 13 and the journeys run
+// fell back to the CANARY while the seal demanded the bounded set (#9640). Run from an empty folder: the import cycle is
+// the same, and no tree is scanned, so the test costs well under a second of the tooling-tests gate's budget.
+test('--json --files-from: tooling no rule places is judged, not left unsettled (the tooling-reach import cycle)', () => {
+  const path = 'tooling/design/volt-count.mjs';
+  assert.equal(pathKind(path).why, UNPLACED, `${path} is a path no rule places, so the CLI imports tooling-reach.mjs`);
+  const dir = execFileSync('mktemp', ['-d'], { encoding: 'utf8' }).trim();
+  writeFileSync(join(dir, 'changed.txt'), `${path}\n`);
+  const r = spawnSync('node', [join(ROOT, 'tooling/ci/journey-touch.mjs'), '--json', '--files-from', 'changed.txt'], {
+    cwd: dir,
+    encoding: 'utf8',
+    timeout: 60_000,
+  });
+  rmSync(dir, { recursive: true, force: true });
+  assert.equal(r.status, 0, `exit ${r.status}\n${r.stderr}`);
+  assert.ok(['none', 'files'].includes(JSON.parse(r.stdout).mode), r.stdout);
+});
+
 test('real-app-journeys.yml runs on ready pull requests, tests their head, and an empty plan says nothing', () => {
   const t = readFileSync(join(ROOT, '.github/workflows/real-app-journeys.yml'), 'utf8');
   assert.match(t, /\n  pull_request:\n    types: \[opened, synchronize, reopened, ready_for_review\]\n/);
@@ -1390,6 +1450,24 @@ test("a pull request's run leaves out the journey files a targeted run by hand o
   );
 });
 
+test("project-state#3029: a hand-run file of a journey whose other file still runs here is not left out, so its steps don't read as missing", () => {
+  const atHead = new Set(['J-derivatives-01.pw.mjs', 'J-derivatives-01-venue.pw.mjs', 'J-derivatives-08.pw.mjs', 'J-c-03.pw.mjs']);
+  // #8835's hand run 44248216382 ran these two files; its own run 44248303203 still had J-derivatives-01.pw.mjs to run.
+  const r = reusableRuns([byHand(44248216382, 'Real-app journeys by hand, J-derivatives-08.pw.mjs J-derivatives-01-venue.pw.mjs')], {
+    sha: HEAD,
+    repo: REPO,
+    journeyFiles: atHead,
+    ranShards: new Set([44248216382]),
+  });
+  assert.deepEqual(afterReuse('J-c-03.pw.mjs J-derivatives-01-venue.pw.mjs J-derivatives-01.pw.mjs J-derivatives-08.pw.mjs', r), {
+    target: 'J-c-03.pw.mjs J-derivatives-01-venue.pw.mjs J-derivatives-01.pw.mjs',
+    mode: 'run',
+    why: '1 of its 4 journey file(s) already run by hand on this head (run 44248216382), so this run leaves them out',
+  });
+  // Every file of a journey reused: the whole journey is left out.
+  assert.equal(afterReuse('J-derivatives-01-venue.pw.mjs J-derivatives-08.pw.mjs', r).mode, 'none');
+});
+
 test('planted: nothing is left out for a full run, or a run by hand that ran no shard, is cancelled, or is not on this exact head', () => {
   const same = (runs, target = 'J-a-01.pw.mjs', ranShards) =>
     assert.deepEqual(afterReuse(target, reuse(runs, ranShards)), { target, mode: 'run', why: '' });
@@ -1610,6 +1688,18 @@ test('15 Nov: a run by hand that names one file of a journey runs every file of 
   // At this checkout: the real derivatives-01 pair.
   const real = new Set(readdirSync(join(ROOT, 'apps/customer/tests/real-app')));
   assert.equal(dispatchTarget('J-derivatives-01.pw.mjs', real), 'J-derivatives-01-venue.pw.mjs J-derivatives-01.pw.mjs');
+});
+
+test('20 Nov: a run by hand given a bare journey id runs every file of that journey (run 44808167679, #9286)', () => {
+  const head = new Set(['J-cex-spot-10.pw.mjs', 'J-cex-spot-10-venue.pw.mjs', 'J-home-ia-01-venue.pw.mjs', 'J-bank-13.pw.mjs']);
+  assert.equal(dispatchTarget('J-cex-spot-10', head), 'J-cex-spot-10-venue.pw.mjs J-cex-spot-10.pw.mjs');
+  assert.equal(dispatchTarget('J-bank-13 J-cex-spot-10', head), 'J-bank-13.pw.mjs J-cex-spot-10-venue.pw.mjs J-cex-spot-10.pw.mjs');
+  assert.equal(dispatchTarget('J-home-ia-01', head), 'J-home-ia-01-venue.pw.mjs', 'an id whose only file is a part file');
+  assert.equal(dispatchTarget('J-nope-01', head), 'J-nope-01', 'an id with no file at the head stays, so the run refuses it');
+  assert.equal(dispatchTarget('J-cex-spot-10', null), 'J-cex-spot-10', 'the head unknown: the input as given');
+  // At this checkout: the real cex-spot-10 pair.
+  const real = new Set(readdirSync(join(ROOT, 'apps/customer/tests/real-app')));
+  assert.equal(dispatchTarget('J-cex-spot-10', real), 'J-cex-spot-10-venue.pw.mjs J-cex-spot-10.pw.mjs');
 });
 
 // The named rule's reach (17 Nov 2026): four real pull requests that each named one journey, ran only it and the
@@ -1860,6 +1950,39 @@ test('pullPick: a pick past PR_MAX_FILES runs the bounded set, and keeps the jou
   assert.deepEqual(pullPick(['x'], { ...touch, files: at }).files, at, 'exactly at the bound: as it is');
 });
 
+test('pullPick: a change that draws a Customer room runs every journey the map records reaching what it changes, past the bound (#9960)', () => {
+  // Planted, the past mistake: #9960 changed a shared order table and a render record. The record is a path the map
+  // can't narrow, so the change was full and ran its bounded set, which left out J-home-ia-05, a journey the map records
+  // reaching the table; it broke on main (revert #10027).
+  const head = new Set([...BOUND_HEAD, 'J-home-ia-05.pw.mjs', 'J-other-01.pw.mjs']);
+  const journeys = [...BOUND_MAP.journeys, 'J-home-ia-05.pw.mjs', 'J-other-01.pw.mjs'];
+  const table = 'apps/customer/src/screens/trade/desk/OrderTables.tsx';
+  const map = { ...BOUND_MAP, journeys, customer: { [table]: [journeys.indexOf('J-home-ia-05.pw.mjs')] } };
+  const reach = { ...boundReach, map, journeyFiles: head };
+  const paths = [table, 'apps/customer/render-record/trade__orders.html'];
+  const touch = journeyTouch(paths, () => true, reach);
+  assert.equal(touch.mode, 'full', 'the render record still makes it full');
+  const pick = pullPick(paths, touch, { reach });
+  assert.ok(pick.files.includes('J-home-ia-05.pw.mjs'), 'the journey the map records reaching the table runs');
+  assert.ok(!pick.files.includes('J-other-01.pw.mjs'), 'a journey nothing it changes reaches does not');
+  for (const f of CANARY) assert.ok(pick.files.includes(f), f);
+  assert.match(
+    pick.bounded,
+    /the 1 journey file\(s\) the map records reaching the 1 path\(s\) it can narrow \(it draws a Customer room or kit part/,
+  );
+  // Main's rule before this change (a planted fault): the bounded set alone, without the table's journeys.
+  assert.ok(!pullPick(paths, touch, { reach: { ...reach, map: { ...map, customer: {} } } }).files.includes('J-home-ia-05.pw.mjs'));
+  // Past the bound: a room change runs every file its paths reach; a service change keeps the bounded set.
+  const many = Array.from({ length: PR_MAX_FILES + 1 }, (_, i) => `J-many-${String(i).padStart(3, '0')}.pw.mjs`);
+  const wide = { ...reach, map: { ...map, journeys: [...journeys, ...many] }, journeyFiles: new Set([...head, ...many]) };
+  const over = { mode: 'files', full: [], files: many, reach: [] };
+  assert.equal(pullPick([table], over, { reach: wide }).files.length, many.length);
+  assert.match(pullPick([table], over, { reach: wide }).room, /draws a Customer room or kit part .*all 101 journey files/);
+  assert.ok(pullPick(['services/svc-bank/src/a.ts'], over, { reach: wide }).files.length <= PR_MAX_FILES);
+  // A test of the room draws nothing: a journey test or a unit test beside a full path keeps the bounded set.
+  assert.equal(roomReach(['apps/customer/src/app/volt-count.test.ts', 'Cargo.lock'], reach), null);
+});
+
 test("the lint config, the lint plugins and the agents' files run no journeys; a crate is its service (project-state#3377 item 3)", () => {
   // Planted, the past mistake: on 19 Nov 2026 each of these was "a path no rule places", so a full run.
   for (const p of [
@@ -1928,9 +2051,9 @@ test("real-app-journeys.yml: a pull request's run is never the full suite", () =
 
 // The bar of project-state#3377: every pull request merged on 19 Nov 2026 (147, fixtures/journey-touch-19-nov.json),
 // replayed through the touch job's rules with the committed map and this checkout's journey files: none would run the
-// full suite or need more than 12 shards (planned with every step at UNTIMED_STEP_MS, as the planner counts an untimed
+// full suite or need more than PR_MAX_SHARDS (30) shards (planned with every step at UNTIMED_STEP_MS, as the planner counts an untimed
 // file), each still runs every journey it names, and a planted copy of the old rule (journeyTouch alone) fails.
-test('replay, 19 Nov 2026: no merged pull request picks the full suite or more than 12 shards, and each keeps the journeys it names', async () => {
+test('replay, 19 Nov 2026: no merged pull request picks the full suite or more than PR_MAX_SHARDS shards, and each keeps the journeys it names', async () => {
   const { loadMap } = await import('./journey-reach-map.mjs');
   const { PR_MAX_SHARDS, UNTIMED_STEP_MS, planShards, shardTarget, stepCounts, targetedShards } =
     await import('../scripts/journey-shards.mjs');
@@ -1957,11 +2080,63 @@ test('replay, 19 Nov 2026: no merged pull request picks the full suite or more t
     const n = targetedShards(files, durations, shardTarget(durations), limit, true);
     const plan = planShards(files, durations, n);
     const longest = Math.max(...plan.map((b) => b.ms));
-    assert.ok(n <= 12, `#${pr.number}: ${n} shards`);
+    assert.ok(n <= PR_MAX_SHARDS, `#${pr.number}: ${n} shards`);
     assert.ok(longest <= limit, `#${pr.number}: a shard of ${Math.round(longest / 60_000)} minutes`);
     worst = Math.max(worst, n);
   }
   // The planted twin: the old rule sent most of these to the full suite (the reader's replay: 110 of 149).
   assert.ok(full > 60, `the old rule picks full for ${full} of 147`);
   assert.ok(worst <= PR_MAX_SHARDS);
+});
+
+test("#9251 (20 Nov 2026): a ready run and the seal read the map at the head's first pull request run, not their own or the newest", () => {
+  const H = 'a'.repeat(40);
+  const W = '.github/workflows/real-app-journeys.yml';
+  const run = (id, created_at, over = {}) => ({ id, event: 'pull_request', head_sha: H, path: W, created_at, ...over });
+  // #9251's two runs on head 63a28a96: the draft's push at 15:15:35, its ready_for_review run at 15:49:19 UTC.
+  const push = run(44761467182, '2026-11-20T15:15:35Z');
+  const ready = run(44767108590, '2026-11-20T15:49:19Z');
+  const first = Date.parse('2026-11-20T15:15:35Z');
+  assert.equal(firstPullRunAt([push, ready], ready), first, "the ready run reads the push run's map");
+  assert.equal(firstPullRunAt([], push), first, 'the first run reads its own');
+  assert.equal(firstPullRunAt([ready], push), first, 'a list read before the later run exists');
+  assert.equal(
+    firstPullRunAt(
+      [
+        run(1, '2026-11-20T14:00:00Z', { head_sha: 'b'.repeat(40) }),
+        run(2, '2026-11-20T14:00:00Z', { path: '.github/workflows/ci.yml' }),
+        run(3, '2026-11-20T14:00:00Z', { event: 'workflow_dispatch' }),
+      ],
+      ready,
+    ),
+    Date.parse(ready.created_at),
+    'another head, workflow or event never counts',
+  );
+  // The seal reads the same runs (journey-seal.mjs runMap): the same time, whatever came after.
+  const byHand = { id: 9, event: 'workflow_dispatch', head_sha: H, path: W, created_at: '2026-11-20T16:30:00Z' };
+  assert.equal(mapChosenAt([push, ready, byHand]), first);
+  assert.equal(mapChosenAt([ready, push]), firstPullRunAt([push], ready), 'the run and the seal agree');
+  // A head with no pull request run (only runs by hand): the newest, as before; none at all: null.
+  assert.equal(mapChosenAt([byHand, { ...byHand, created_at: '2026-11-20T16:00:00Z' }]), Date.parse(byHand.created_at));
+  assert.equal(mapChosenAt([]), null);
+});
+
+test('#9255 (20 Nov 2026): a re-run of failed jobs keeps the pick its touch job made; a re-run of every job does not', () => {
+  // Run 44764109468: attempt 1 created 15:31:24, its touch job 15:31:27 to 15:32:05, the pick kept at 15:32:02; attempt 2
+  // re-ran one failed shard from 16:04:10, so its touch job (filter=latest) still started at 15:31:27.
+  const r = { id: 44764109468, created_at: '2026-11-20T15:31:24Z', run_started_at: '2026-11-20T16:04:10Z', run_attempt: 2 };
+  const pick = { id: 1, name: PICK_ARTIFACT, expired: false, created_at: '2026-11-20T15:32:02Z' };
+  const jobs = [
+    { name: 'Journeys (shard 5 of 17)', started_at: '2026-11-20T16:04:17Z' },
+    { name: 'What this run runs', started_at: '2026-11-20T15:31:27Z' },
+  ];
+  assert.equal(touchStarted(jobs), '2026-11-20T15:31:27Z');
+  assert.equal(currentPickArtifact(r, [pick], touchStarted(jobs))?.id, 1, 'the failed-jobs re-run keeps its pick');
+  // Every job re-run (or a deferred attempt): the touch job started again, so the older pick counts for nothing.
+  const again = [{ name: 'What this run runs', started_at: '2026-11-20T16:04:12Z' }];
+  assert.equal(currentPickArtifact(r, [pick], touchStarted(again)), null);
+  assert.equal(currentPickArtifact(r, [pick, { ...pick, id: 2, created_at: '2026-11-20T16:04:40Z' }], touchStarted(again))?.id, 2);
+  // Jobs unread: the attempt's start, as before.
+  assert.equal(touchStarted(null), null);
+  assert.equal(currentPickArtifact(r, [pick], null), null);
 });

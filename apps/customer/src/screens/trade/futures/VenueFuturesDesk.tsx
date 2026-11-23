@@ -1,3 +1,4 @@
+import { ActionLimitWarning } from '../../../features/trade';
 import { useMemo, useRef, useState } from 'react';
 import { Button, DataTable, Tabs } from '../../../shared/ui';
 import { displayAmount, formatAmount, parseAmount } from '../../../shared/money';
@@ -74,6 +75,8 @@ import { intervalText } from './venue-funding-logic';
 import { roomLeft, takenAssets } from './venue-risk-logic';
 import { canonical, protectionClientId } from './venue-protect-logic';
 import type { RoutePreview } from '../../../features/trade/venue-api';
+// The desk's own styles: this screen opens on its own, without the spot desk that also loads them.
+import '../desk/desk.css';
 
 /** Resting order types the futures desk names; any the venue does not list is shown with its refusal and sends nothing. */
 const RESTING_TYPES = ['stop', 'take_profit', 'trailing_stop'] as const;
@@ -99,8 +102,8 @@ function Desk({ status, requested }: { status: Extract<VenueMode, { mode: 'on' }
   const markets = usePolled((signal) => venue.markets(signal), 'venue-markets', 5_000);
   if (!status.available) {
     return (
-      <div data-testid="if-futures" className="if-desk" data-venue="on">
-        <p className="failure" role="alert" data-testid="venue-down">
+      <div data-testid="if-futures" className="if-desk if-desk--state" data-venue="on">
+        <p className="lt-refusal" role="alert" data-testid="venue-down">
           {v('Venue unavailable', { detail: status.refusal.detail })}
         </p>
       </div>
@@ -111,17 +114,21 @@ function Desk({ status, requested }: { status: Extract<VenueMode, { mode: 'on' }
   return (
     <div data-testid="if-futures" className="if-desk" data-venue="on">
       <VenueHeader status={status} title={t('Futures on venue')} />
-      {down || markets.failure ? <ReadProblem failure={markets.failure} venueName={status.venue.displayName} /> : null}
-      <section className="dk-panel" aria-label={t('Contracts')} data-testid="venue-contracts">
-        <h2 className="dk-tab-title">{t('Contracts')}</h2>
-        {markets.data && perps.length === 0 ? (
-          <div data-testid="venue-no-contract">
-            <p>{t('No contract')}</p>
-            <p className="muted">{t('No contract reason', { venue: status.venue.displayName })}</p>
-          </div>
-        ) : null}
-      </section>
-      <GatedList status={status} />
+      <ActionLimitWarning venueName={status.venue.displayName} />
+      {/* The contracts band: its titles and lists keep the desk's inner margin. */}
+      <div className="dk-venue-col dk-venue-col--inset">
+        {down || markets.failure ? <ReadProblem failure={markets.failure} venueName={status.venue.displayName} /> : null}
+        <section className="dk-panel" aria-label={t('Contracts')} data-testid="venue-contracts">
+          <h2 className="dk-tab-title">{t('Contracts')}</h2>
+          {markets.data && perps.length === 0 ? (
+            <div data-testid="venue-no-contract">
+              <p>{t('No contract')}</p>
+              <p className="lt-muted">{t('No contract reason', { venue: status.venue.displayName })}</p>
+            </div>
+          ) : null}
+        </section>
+        <GatedList status={status} />
+      </div>
       {markets.data && perps.length > 0 ? <Contracts status={status} perps={perps} requested={requested} /> : null}
     </div>
   );
@@ -144,7 +151,7 @@ function GatedList({ status }: { status: VenueUp }) {
         {t('Gated list')} <TestMark test={status.test} />
       </h2>
       <ReadProblem failure={gated.failure} venueName={status.venue.displayName} />
-      <ul className="form-stack">
+      <ul className="lt-stack">
         {rows.map((c) => (
           <li key={c.symbol} data-testid="venue-gate" data-symbol={c.symbol} data-open={c.open ? 'true' : 'false'}>
             <strong>{c.symbol}</strong> <span data-testid="venue-gate-state">{c.open ? t('Gated open') : t('Gated blocked')}</span>
@@ -161,7 +168,7 @@ function GatedList({ status }: { status: VenueUp }) {
         ))}
       </ul>
       {gated.data ? (
-        <p className="muted" data-testid="venue-gated-as-of">
+        <p className="lt-muted" data-testid="venue-gated-as-of">
           {asOfText(gated.data.asOf)}
         </p>
       ) : null}
@@ -180,50 +187,61 @@ function Contracts({ status, perps, requested }: { status: VenueUp; perps: Venue
   const [side, setSide] = useState<'buy' | 'sell'>('buy');
   return (
     <>
-      <ul className="form-stack" aria-label={t('Contracts')} data-testid="venue-contract-list">
-        {perps.map((m) => (
-          <li key={m.symbol}>
-            <Button
-              variant={m.symbol === market.symbol ? 'primary' : 'secondary'}
-              aria-pressed={m.symbol === market.symbol}
-              onClick={() => setChosen(m.symbol)}
-            >
-              {t('Contract on venue', { symbol: m.symbol, venue: status.venue.displayName })}
-            </Button>{' '}
-            <TestMark test={status.test} />
-          </li>
-        ))}
-      </ul>
-      <ContractStrip market={market} test={status.test} />
-      <MarketRules market={market} venueName={status.venue.displayName} test={status.test} />
-      <VenueTiers market={market} venueName={status.venue.displayName} test={status.test} />
-      <WalletBar />
-      <ReadProblem failure={account.balances.failure} venueName={status.venue.displayName} />
-      {owner ? <BalancesPanel balances={account.balances.data} test={status.test} /> : null}
-      {owner ? (
-        <VenueCollateral market={market} venueName={status.venue.displayName} balances={account.balances.data} test={status.test} />
-      ) : null}
-      {owner && market.marginAccount?.known ? (
-        <MarketMarginStep key={`mm:${market.symbol}`} market={market} owner={owner} run={run} test={status.test} />
-      ) : null}
-      {owner ? <MarginStep key={market.symbol} market={market} owner={owner} run={run} test={status.test} disabled={false} /> : null}
-      {owner ? (
-        <Ticket
-          key={`t:${market.symbol}`}
-          status={status}
-          market={market}
-          owner={owner}
-          account={account}
-          run={run}
-          resend={resend}
-          side={side}
-          setSide={setSide}
-          disabled={false}
-        />
-      ) : null}
-      {owner && status.routes ? <PrimaryLeverageRoutes symbol={market.symbol} owner={owner} side={side} run={run} /> : null}
-      {owner ? <Blotter status={status} market={market} owner={owner} account={account} run={run} /> : null}
-      {owner ? <VenueAccountPanel status={status} owner={owner} /> : null}
+      {/* The desk's two columns, as on the venue spot desk: the contract and its ticket in the centre; the wallet, the
+          margin and the venue's own rules beside. */}
+      <div className="dk-venue-grid">
+        <div className="dk-venue-col dk-venue-col--inset">
+          <ul className="lt-toolbar" aria-label={t('Contracts')} data-testid="venue-contract-list">
+            {perps.map((m) => (
+              <li key={m.symbol}>
+                <Button
+                  variant={m.symbol === market.symbol ? 'primary' : 'secondary'}
+                  aria-pressed={m.symbol === market.symbol}
+                  onClick={() => setChosen(m.symbol)}
+                >
+                  {t('Contract on venue', { symbol: m.symbol, venue: status.venue.displayName })}
+                </Button>{' '}
+                <TestMark test={status.test} />
+              </li>
+            ))}
+          </ul>
+          <ContractStrip market={market} test={status.test} />
+          {owner ? (
+            <Ticket
+              key={`t:${market.symbol}`}
+              status={status}
+              market={market}
+              owner={owner}
+              account={account}
+              run={run}
+              resend={resend}
+              side={side}
+              setSide={setSide}
+              disabled={false}
+            />
+          ) : null}
+          {owner ? (
+            <VenueCollateral market={market} venueName={status.venue.displayName} balances={account.balances.data} test={status.test} />
+          ) : null}
+          <VenueTiers market={market} venueName={status.venue.displayName} test={status.test} />
+        </div>
+        <div className="dk-venue-col dk-venue-col--inset">
+          <WalletBar />
+          <ReadProblem failure={account.balances.failure} venueName={status.venue.displayName} />
+          {owner ? <BalancesPanel balances={account.balances.data} test={status.test} /> : null}
+          {owner && market.marginAccount?.known ? (
+            <MarketMarginStep key={`mm:${market.symbol}`} market={market} owner={owner} run={run} test={status.test} />
+          ) : null}
+          {owner ? <MarginStep key={market.symbol} market={market} owner={owner} run={run} test={status.test} disabled={false} /> : null}
+          <MarketRules market={market} venueName={status.venue.displayName} test={status.test} />
+        </div>
+      </div>
+      {/* The wide tables keep the desk's whole width under the columns: the venues, the orders and the venue accounts. */}
+      <div className="dk-venue-col dk-venue-col--inset">
+        {owner && status.routes ? <PrimaryLeverageRoutes symbol={market.symbol} owner={owner} side={side} run={run} /> : null}
+        {owner ? <Blotter status={status} market={market} owner={owner} account={account} run={run} /> : null}
+        {owner ? <VenueAccountPanel status={status} owner={owner} /> : null}
+      </div>
     </>
   );
 }
@@ -254,7 +272,7 @@ function ContractStrip({ market, test }: { market: VenueMarket; test: boolean })
         </div>
         <div>
           <dt>{t('Contract size')}</dt>
-          <dd className="numeric" data-testid="venue-contract-size">
+          <dd className="lt-num" data-testid="venue-contract-size">
             {market.contractSize.known
               ? t('Contract size value', { size: market.contractSize.value, base: market.baseAsset })
               : t('Not published')}
@@ -262,21 +280,21 @@ function ContractStrip({ market, test }: { market: VenueMarket; test: boolean })
         </div>
         <div>
           <dt>{t('Lot size')}</dt>
-          <dd className="numeric">{t('Lot size value', { lot: market.lotSize, base: market.baseAsset })}</dd>
+          <dd className="lt-num">{t('Lot size value', { lot: market.lotSize, base: market.baseAsset })}</dd>
         </div>
         <div>
           <dt>{t('Tick size')}</dt>
-          <dd className="numeric">{market.tickSize}</dd>
+          <dd className="lt-num">{market.tickSize}</dd>
         </div>
         <div>
           <dt>{t('Max leverage')}</dt>
-          <dd className="numeric" data-testid="venue-max-leverage">
+          <dd className="lt-num" data-testid="venue-max-leverage">
             {market.maxLeverageBps === null ? <Known value={{ known: false }} /> : `${leverageTimes(market.maxLeverageBps)}x`}
           </dd>
         </div>
         <div>
           <dt>{t('Mark price')}</dt>
-          <dd className="numeric" data-testid="venue-mark" data-value={market.mark.known ? market.mark.value : undefined}>
+          <dd className="lt-num" data-testid="venue-mark" data-value={market.mark.known ? market.mark.value : undefined}>
             {market.mark.known ? displayAmount(market.mark.value) : t('Not published')}
           </dd>
         </div>
@@ -285,7 +303,7 @@ function ContractStrip({ market, test }: { market: VenueMarket; test: boolean })
           <dd data-testid="venue-funding" data-rate={funding?.rate}>
             {funding ? (
               <>
-                <span className="numeric" data-testid="venue-funding-rate">
+                <span className="lt-num" data-testid="venue-funding-rate">
                   {t('Funding rate value', { percent: percentOf(funding.rate), every: intervalText(funding.intervalSeconds) })}
                 </span>{' '}
                 {t('Funding next')}{' '}
@@ -380,13 +398,13 @@ function MarketRules({ market, venueName, test }: { market: VenueMarket; venueNa
           <>
             <div>
               <dt>{t('Open interest')}</dt>
-              <dd className="numeric" data-testid="venue-open-interest">
+              <dd className="lt-num" data-testid="venue-open-interest">
                 {t('Open interest value', { size: market.openInterest.value.size, base: market.baseAsset })}
               </dd>
             </div>
             <div>
               <dt>{t('Open interest cap')}</dt>
-              <dd className="numeric" data-testid="venue-open-interest-cap">
+              <dd className="lt-num" data-testid="venue-open-interest-cap">
                 {market.openInterest.value.capSize === null
                   ? t('Open interest no cap')
                   : market.listedBy.known && market.listedBy.value.kind === 'venue'
@@ -476,7 +494,7 @@ function SessionRules({ session, symbol, venueName }: { session: VenueSession; s
         </div>
         <div>
           <dt>{t('Off-hours leverage')}</dt>
-          <dd className="numeric" data-testid="venue-off-hours-leverage">
+          <dd className="lt-num" data-testid="venue-off-hours-leverage">
             {session.offHoursMaxLeverageBps === null
               ? t('Not published')
               : t('Off-hours leverage times', { times: String(leverageTimes(session.offHoursMaxLeverageBps)) })}
@@ -566,25 +584,25 @@ function MarketMarginStep({ market, owner, run, test }: { market: VenueMarket; o
         </div>
         <div>
           <dt>{t('Market margin free')}</dt>
-          <dd className="numeric" data-testid="venue-market-margin-free">
+          <dd className="lt-num" data-testid="venue-market-margin-free">
             {held ? held.free : ''}
           </dd>
         </div>
         <div>
           <dt>{t('Market margin used')}</dt>
-          <dd className="numeric" data-testid="venue-market-margin-used">
+          <dd className="lt-num" data-testid="venue-market-margin-used">
             {held ? held.locked : ''}
           </dd>
         </div>
         <div>
           <dt>{t('Market margin total')}</dt>
-          <dd className="numeric" data-testid="venue-market-margin-total">
+          <dd className="lt-num" data-testid="venue-market-margin-total">
             {held ? held.total : ''}
           </dd>
         </div>
       </dl>
       {read.data ? <AsOfLine asOf={read.data.asOf} /> : null}
-      <label className="field">
+      <label className="lt-field">
         <span>{t('Market margin amount', { asset: rule.collateralAsset })}</span>
         <input
           inputMode="decimal"
@@ -598,7 +616,7 @@ function MarketMarginStep({ market, owner, run, test }: { market: VenueMarket; o
         {t('Market margin out')}
       </Button>
       {problem ? (
-        <p className="failure" role="alert">
+        <p className="lt-refusal" role="alert">
           {problem}
         </p>
       ) : null}
@@ -657,7 +675,7 @@ function MarginStep({
         {MODES.map((m) => {
           const offered = market.marginModes.includes(m);
           return (
-            <label key={m} className="field" data-mode={m} data-offered={offered ? 'true' : 'false'}>
+            <label key={m} className="lt-field" data-mode={m} data-offered={offered ? 'true' : 'false'}>
               <input
                 type="radio"
                 name={`mode-${market.symbol}`}
@@ -681,7 +699,7 @@ function MarginStep({
             ? t('Leverage not set')
             : ''}
       </p>
-      <label className="field">
+      <label className="lt-field">
         <span>{t('Leverage x')}</span>
         <input inputMode="numeric" aria-label={t('Leverage x')} value={times} onChange={(e) => setTimes(e.target.value)} />
       </label>
@@ -689,7 +707,7 @@ function MarginStep({
         {t('Sign leverage')}
       </Button>
       {problem ? (
-        <p className="failure" role="alert">
+        <p className="lt-refusal" role="alert">
           {problem}
         </p>
       ) : null}
@@ -878,7 +896,7 @@ function Ticket({
           </Button>
         ))}
       </div>
-      <label className="field">
+      <label className="lt-field">
         <span>{t('Size', { asset: market.baseAsset })}</span>
         <input
           inputMode="decimal"
@@ -887,7 +905,7 @@ function Ticket({
           onChange={(e) => setSize(e.target.value)}
         />
       </label>
-      <label className="field">
+      <label className="lt-field">
         <span>{type === 'market' ? t('Worst price') : t('Price')}</span>
         <input
           inputMode="decimal"
@@ -896,7 +914,7 @@ function Ticket({
           onChange={(e) => setPrice(e.target.value)}
         />
       </label>
-      <label className="field">
+      <label className="lt-field">
         <span>{p('Take profit optional')}</span>
         <input
           inputMode="decimal"
@@ -905,19 +923,19 @@ function Ticket({
           onChange={(e) => setTakeProfit(e.target.value)}
         />
       </label>
-      <label className="field">
+      <label className="lt-field">
         <span>{p('Stop loss optional')}</span>
         <input inputMode="decimal" aria-label={p('Stop loss optional')} value={stopLoss} onChange={(e) => setStopLoss(e.target.value)} />
       </label>
-      <label className="field">
+      <label className="lt-field">
         <input type="checkbox" checked={reduceOnly} onChange={(e) => setReduceOnly(e.target.checked)} />
         <span>{p('Reduce-only')}</span>
       </label>
-      <label className="field">
+      <label className="lt-field">
         <span>{t('Label optional')}</span>
         <input aria-label={t('Label optional')} value={label} onChange={(e) => setLabel(e.target.value)} />
       </label>
-      <label className="field">
+      <label className="lt-field">
         <span>{t('Margin asset')}</span>
         <select aria-label={t('Margin asset')} value={marginAsset} onChange={(e) => setMarginAsset(e.target.value)}>
           {assets.map((a) => (
@@ -931,7 +949,7 @@ function Ticket({
         {side === 'buy' ? t('Review long') : t('Review short')}
       </Button>
       {problem ? (
-        <p className="failure" role="alert">
+        <p className="lt-refusal" role="alert">
           {problem}
         </p>
       ) : null}
@@ -977,13 +995,13 @@ function Ticket({
               <>
                 <div>
                   <dt>{t('Initial margin')}</dt>
-                  <dd className="numeric" data-line="initial-margin">
+                  <dd className="lt-num" data-line="initial-margin">
                     <Known value={perp.initialMargin} />
                   </dd>
                 </div>
                 <div>
                   <dt>{t('Liquidation price')}</dt>
-                  <dd className="numeric" data-line="liquidation">
+                  <dd className="lt-num" data-line="liquidation">
                     <Known value={perp.liquidationPrice} />
                   </dd>
                 </div>
@@ -995,7 +1013,7 @@ function Ticket({
                 </div>
                 <div>
                   <dt>{t('Total to commit')}</dt>
-                  <dd className="numeric" data-line="total">
+                  <dd className="lt-num" data-line="total">
                     <Known value={total === null ? { known: false } : { known: true, value: total }} /> {market.quoteAsset}
                   </dd>
                 </div>
@@ -1033,10 +1051,10 @@ function AttachedLine({ attached }: { attached: Attached }) {
           : '';
   if (attached.state === 'failed') {
     return (
-      <div role="alert" className="failure" data-testid="venue-attached-failed">
+      <div role="alert" className="lt-refusal" data-testid="venue-attached-failed">
         {attached.set.length > 0 ? <p>{setWords(attached.set, attached.filled)}</p> : null}
         <p>{t('Attach failed', { kind: t(`kind_${attached.kind}`).toLowerCase(), detail: attached.refusal.message })}</p>
-        {attached.refusal.code ? <p className="muted">{t('Code', { code: attached.refusal.code })}</p> : null}
+        {attached.refusal.code ? <p className="lt-muted">{t('Code', { code: attached.refusal.code })}</p> : null}
       </div>
     );
   }
@@ -1238,7 +1256,7 @@ function PositionsTable({
     <div data-testid="venue-positions">
       <TestMark test={test} />
       {rows.length === 0 ? (
-        <p className="muted">{t('No positions')}</p>
+        <p className="lt-muted">{t('No positions')}</p>
       ) : (
         <DataTable
           label={t('Positions')}
@@ -1259,25 +1277,25 @@ function PositionsTable({
             <tr key={row.symbol} data-symbol={row.symbol}>
               <td>{row.symbol}</td>
               <td>{word(v, 'side', row.side)}</td>
-              <td className="numeric" data-cell="size">
+              <td className="lt-num" data-cell="size">
                 {row.size}
               </td>
-              <td className="numeric" data-cell="entry">
+              <td className="lt-num" data-cell="entry">
                 {row.entryPrice}
               </td>
-              <td className="numeric" data-cell="mark">
+              <td className="lt-num" data-cell="mark">
                 {row.markPrice}
               </td>
-              <td className="numeric" data-cell="unrealised">
+              <td className="lt-num" data-cell="unrealised">
                 {row.unrealisedPnl}
               </td>
-              <td className="numeric" data-cell="margin">
+              <td className="lt-num" data-cell="margin">
                 {row.margin}
               </td>
-              <td className="numeric" data-cell="leverage">
+              <td className="lt-num" data-cell="leverage">
                 {`${leverageTimes(row.leverageBps)}x ${t(`mode_${row.marginMode}`)}`}
               </td>
-              <td className="numeric" data-cell="liquidation">
+              <td className="lt-num" data-cell="liquidation">
                 <Known value={row.liquidationPrice} render={(x) => x} />
               </td>
               <td>
@@ -1396,8 +1414,8 @@ function CloseControl({
   }
 
   return (
-    <div className="form-stack" data-testid="venue-close">
-      <label className="field">
+    <div className="lt-stack" data-testid="venue-close">
+      <label className="lt-field">
         <span>{t('Close percent', { symbol: position.symbol })}</span>
         <input
           inputMode="numeric"
@@ -1446,13 +1464,13 @@ function History({ fills, test }: { fills: AsOf<VenueFill[]> | null; test: boole
           {[...bySymbol.entries()].map(([symbol, list]) => (
             <tr key={symbol} data-closed={symbol}>
               <td>{symbol}</td>
-              <td className="numeric" data-cell="realised">
+              <td className="lt-num" data-cell="realised">
                 {sumSigned(list.filter((f) => f.realisedPnl !== null).map((f) => f.realisedPnl!))}
               </td>
-              <td className="numeric" data-cell="venue-fees">
+              <td className="lt-num" data-cell="venue-fees">
                 {sumSigned(list.map((f) => f.venueFee))}
               </td>
-              <td className="numeric" data-cell="builder-fees">
+              <td className="lt-num" data-cell="builder-fees">
                 {sumDecimals(list.map((f) => f.builderFee))}
               </td>
             </tr>
@@ -1498,16 +1516,16 @@ function Settlements({ owner, test }: { owner: string; test: boolean }) {
               {s.symbol} <TestMark test={test} />
             </td>
             <td data-cell="why">{t(`settlement_${s.kind}`)}</td>
-            <td className="numeric" data-cell="position">
+            <td className="lt-num" data-cell="position">
               {s.side === null ? t('Settlement no position') : t('Settlement position value', { side: t(`side_${s.side}`), size: s.size })}
             </td>
-            <td className="numeric" data-cell="price">
+            <td className="lt-num" data-cell="price">
               {s.price}
             </td>
-            <td className="numeric" data-cell="realised">
+            <td className="lt-num" data-cell="realised">
               {s.realisedPnl}
             </td>
-            <td className="numeric" data-cell="cancelled">
+            <td className="lt-num" data-cell="cancelled">
               {String(s.cancelledOrders.length)}
             </td>
             <td data-cell="time">

@@ -13,7 +13,25 @@ vi.mock('../../features/session/session', () => ({
   useSession: () => ({
     userId: USER,
     session: { accessToken: 'x', expiresAt: '2099-01-01T00:00:00Z', userId: USER },
-    api: { canWrite: () => true, query: () => new Promise(() => {}), mutate: () => new Promise(() => {}) },
+    api: {
+      canWrite: () => true,
+      query: () => new Promise(() => {}),
+      mutate: () => new Promise(() => {}),
+      call(
+        this: { query: (...args: never[]) => unknown; mutate: (...args: never[]) => unknown },
+        record: { kind: string; module: string; path: string; output: unknown },
+        input?: unknown,
+        opts?: unknown,
+      ) {
+        return Reflect.apply(record.kind === 'query' ? this.query : this.mutate, this, [
+          record.module,
+          record.path,
+          input,
+          record.output,
+          opts,
+        ]);
+      },
+    },
     profiles: { status: 'ready', businesses: [], active: 'personal', business: null, notice: null, reload: () => {} },
   }),
 }));

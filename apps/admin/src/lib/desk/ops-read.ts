@@ -1,4 +1,4 @@
-import type { OpsRead } from '@/lib/console-announcements/model';
+import type { OpsRead } from '@/lib/console-announcements';
 import type { FounderCallResult } from './founder-call';
 
 /**

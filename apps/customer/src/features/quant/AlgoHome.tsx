@@ -1,4 +1,3 @@
-import { quantQuickStartOutputSchema } from '@intafaced/contracts/quant-algo';
 import { useApi, useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { EmptyState, Panel } from '../../shared/ui';
@@ -7,13 +6,14 @@ import { Read, preservePaperHref } from '../more';
 import { algoCopy } from './algo-copy';
 import { QuantRooms } from './QuantRooms';
 import './algo.css';
+import { QUANT_QUICK_START } from '@intafaced/contracts/quant-quick-start-procedures';
 
 /** The Algo dev home: every room, the quick start ticked from the account's own stored rows, and its saved strategies. */
 export function AlgoHome({ paper = false }: { paper?: boolean }) {
   const { userId } = useSession();
   const { t } = algoCopy.useCopy();
   return (
-    <div className="more-grid">
+    <div className="lt-stack">
       <QuantRooms active="home" paper={paper} />
       <p className="more-badge">{t('simulated')}</p>
       {userId ? (
@@ -23,7 +23,7 @@ export function AlgoHome({ paper = false }: { paper?: boolean }) {
           <EmptyState
             title={t('signedOutTitle')}
             action={
-              <a className="button" href={`/login?redirect=${encodeURIComponent('/quant')}`}>
+              <a className="lt-button" href={`/login?redirect=${encodeURIComponent('/quant')}`}>
                 {t('signIn')}
               </a>
             }
@@ -39,10 +39,7 @@ export function AlgoHome({ paper = false }: { paper?: boolean }) {
 function SignedIn({ paper, userId }: { paper: boolean; userId: string }) {
   const api = useApi();
   const { t } = algoCopy.useCopy();
-  const progress = useResource(
-    (signal) => api.query('quant', 'quickStart', undefined, quantQuickStartOutputSchema, { signal }),
-    `quant-quick-start:${userId}`,
-  );
+  const progress = useResource((signal) => api.call(QUANT_QUICK_START, undefined, { signal }), `quant-quick-start:${userId}`);
   return (
     <div className="more-columns">
       <Panel title={t('quickStart')}>
@@ -62,14 +59,14 @@ function SignedIn({ paper, userId }: { paper: boolean; userId: string }) {
                   {steps.map((step) => (
                     <li key={step.href} data-done={step.done}>
                       <strong>{step.title}</strong> · <span>{step.done ? t('stepDone') : t('stepOpen')}</span>
-                      <p className="muted">{step.body}</p>
-                      <a className="text-link" href={preservePaperHref(step.href, paper)}>
+                      <p className="lt-muted">{step.body}</p>
+                      <a className="lt-link" href={preservePaperHref(step.href, paper)}>
                         {step.open}
                       </a>
                     </li>
                   ))}
                 </ol>
-                <a className="text-link" href="/academy">
+                <a className="lt-link" href="/academy">
                   {t('learn')}
                 </a>
               </>
@@ -85,7 +82,7 @@ function SignedIn({ paper, userId }: { paper: boolean; userId: string }) {
             <EmptyState
               title={t('strategiesNone')}
               action={
-                <a className="text-link" href={preservePaperHref('/quant/studio', paper)}>
+                <a className="lt-link" href={preservePaperHref('/quant/studio', paper)}>
                   {t('openStudio')}
                 </a>
               }

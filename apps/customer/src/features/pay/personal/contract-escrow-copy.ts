@@ -69,6 +69,7 @@ const en = {
   callReverted: '{step}: reverted on the chain. Nothing changed.',
   callPending: '{step}: no receipt from the chain after a minute. Check it in your wallet, then read the deal again.',
   noDealId: 'The opened deal’s id could not be read from its transaction.',
+  wrongNetwork: 'Your wallet is on another network, so nothing was sent: this deal opens only on {network}.',
   wrongWallet: 'Connect the wallet {address}, which opened this deal.',
 } as const;
 

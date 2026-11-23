@@ -1,16 +1,9 @@
+import { ActionLimitWarning } from '../../../features/trade';
 import { useMemo, useRef, useState } from 'react';
 import { useResource } from '../../../shared/resource';
 import { usePreferences } from '../../../shared/preferences';
 import { usePolled } from '../../../features/protocol/wallet/use-polled';
-import {
-  draftId,
-  keys,
-  type OrderIntent,
-  type VenueMarket,
-  type VenueOrder,
-  type VenueTimeInForce,
-  type VenueUp,
-} from '../../../features/trade/venue-api';
+import { draftId, keys, type OrderIntent, type VenueMarket, type VenueOrder, type VenueUp } from '../../../features/trade/venue-api';
 import {
   FillsTable,
   OrdersTable,
@@ -50,11 +43,13 @@ import { VenueMarketRules } from './VenueMarketRules';
 import { VenueCancelMany, VenueEditOrder } from './VenueOrderChanges';
 import { VenueDeadMan } from './VenueDeadMan';
 import { VenueStatement } from './VenueStatement';
+import { expiryIsFuture, expiryOf } from './tif';
 import {
   OTHER_ORDER_TYPES,
   pendingOrders,
   slippageLimit,
   type DepositRoute,
+  type DeskTif,
   type PendingOrder,
   type VenueOrderType,
   type VenueSide,
@@ -85,7 +80,10 @@ export function VenueSpotDesk({
   const { run, resend, keptSignature } = useVenueActions(owner);
   const access = useTradeAccess();
   const [type, setType] = useState<VenueOrderType>('limit');
-  const [tif, setTif] = useState<VenueTimeInForce>('GTC');
+  const [tif, setTif] = useState<DeskTif>('GTC');
+  // Good till date (J-cex-spot-03 #7): the expiry the person picks, as the field holds it; a past time places nothing.
+  const [expiry, setExpiry] = useState('');
+  const expireAt = tif === 'GTD' && expiryIsFuture(expiry, Date.now()) ? expiryOf(expiry) : null;
   const [tab, setTab] = useState<'open' | 'history' | 'positions'>('open');
   const [lastResult, setLastResult] = useState<ActionResult | null>(null);
   const [cancelledKeys, setCancelledKeys] = useState<Array<{ key: string; clientOrderId: string }>>([]);
@@ -269,159 +267,193 @@ export function VenueSpotDesk({
   return (
     <div data-testid="if-desk" className="if-desk" data-market={market.symbol} data-venue="on">
       <VenueHeader status={status} title={t('Spot on venue', { symbol: market.symbol })} feeLine={feeLine} />
-      <FeeCurrencyRow />
-      <VenueMarketPanel
-        market={market}
-        test={status.test}
-        venueName={status.venue.displayName}
-        chartTools={
-          <div className="dk-chips dk-chips--right">
-            {spotMarkets.length > 1 ? (
-              <label className="of-field">
-                <span>{f('Chart market')}</span>
-                <select value={market.symbol} onChange={(event) => navigate(`/trade/spot/${event.target.value}`)}>
-                  {spotMarkets.map((m) => (
-                    <option key={m.symbol} value={m.symbol}>
-                      {m.symbol}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : null}
-            <button type="button" aria-pressed={dom.open} data-testid="dk-open-dom" onClick={toggleDom}>
-              {dom.open ? f('Close DOM') : f('Open DOM')}
-            </button>
-          </div>
-        }
-        chartTrade={
-          <ChartTrade
-            market={flowMarket}
-            reference={reference}
-            amount={clickAmount}
-            onAmount={setClickAmount}
-            onTrade={onChartTrade}
-            refused={notOffered}
-          />
-        }
-        chartOrders={(host) => (
-          <VenueChartOrders
-            host={host}
+      <ActionLimitWarning venueName={status.venue.displayName} />
+      {/* The desk's two columns: the market, chart, DOM and ticket in the centre; the account and the rules beside. */}
+      <div className="dk-venue-grid">
+        <div className="dk-venue-col" data-testid="venue-centre">
+          <VenueMarketPanel
             market={market}
+            test={status.test}
             venueName={status.venue.displayName}
-            owner={owner}
-            openOrders={account.openOrders.data?.value ?? null}
-            run={run}
-            resend={(intent) => resend(intent)}
-            onPlaced={chartPlaced}
-            onChanged={account.reload}
-          />
-        )}
-      />
-      {dom.open ? (
-        <VenueOrderFlow
-          market={market}
-          test={status.test}
-          openOrders={account.openOrders.data?.value ?? null}
-          zone={timeZone}
-          setting={dom}
-          onSetting={setDom}
-          onPick={onLadderPick}
-          onClose={closeDom}
-          instant={instant.on}
-          oneClick={
-            <OneClickBar
-              market={flowMarket}
-              instant={instant}
-              zone={timeZone}
-              presets={quickSizes}
-              clickAmount={clickAmount}
-              onAmount={setClickAmount}
-              free={owner ? closable : null}
-              bestBid={bestBid}
-              onCloseAll={(amount, price) => pick('sell', 'limit', price, amount)}
-            />
-          }
-          cancelOne={cancel}
-          onCancelled={account.reload}
-        />
-      ) : null}
-      <ReadProblem failure={account.balances.failure} venueName={status.venue.displayName} />
-      <VenueAccountPanel
-        status={status}
-        market={market}
-        balances={account.balances.data}
-        onDeposit={() => setDialog('deposit')}
-        onWithdraw={() => setDialog('withdraw')}
-        onFlatten={(amount) => {
-          setType('market');
-          flattenHandle.current?.flatten(
-            amount,
-            cap?.known ? slippageLimit('sell', best.data?.value ?? null, cap.value, market.tickSize) : null,
-          );
-        }}
-        withdrawal={owner && withdrawalNonce ? <WithdrawalTracker owner={owner} nonce={withdrawalNonce} /> : null}
-      />
-      {owner ? (
-        <SubAccountsPanel owner={owner} balances={account.balances.data} test={status.test} run={run} onMoved={account.reload} />
-      ) : null}
-      {owner && pending.length > 0 ? (
-        <section className="dk-panel form-stack" data-testid="venue-pending" aria-label={t('Pending title')}>
-          <h2 className="dk-tab-title">{t('Pending title')}</h2>
-          {pending.map((entry) => (
-            <PendingCheck key={entry.clientOrderId} owner={owner} entry={entry} onFound={onFound} onSendAgain={sendAgain} />
-          ))}
-          <p className="dk-note" role="status">
-            {t('Pending wait')}
-          </p>
-        </section>
-      ) : found ? (
-        <p className="dk-note" role="status" data-testid="venue-pending-found">
-          {found}
-        </p>
-      ) : null}
-      <VenueMarketRules market={market} venueName={status.venue.displayName} />
-      <Tabs value={type} onValueChange={(value) => setType(value as VenueOrderType)} data-testid="dk-order" className="dk-panel dk-order">
-        <div className="dk-order-head">
-          <TabsList className="dk-tabs" aria-label={t('Order type')}>
-            {offeredTypes.map((x) => (
-              <TabsTab key={x} value={x}>
-                {x === 'limit' ? d('Limit') : d('Market')}
-              </TabsTab>
-            ))}
-          </TabsList>
-          <NotOfferedTypes market={market} />
-        </div>
-        <div className="dk-order-opts">
-          {type === 'limit' ? <VenueTifSelect market={market} tif={tif} onTif={setTif} /> : null}
-          <VenueSelfTradeSelect market={market} />
-        </div>
-        <TabsPanel value={type} className="dk-order-body">
-          <div className="dk-forms">
-            {(['buy', 'sell'] as const).map((side) => (
-              <VenueSideForm
-                key={`${side}:${owner ?? ''}`}
-                side={side}
-                type={type}
-                tif={tif}
-                protectionBps={cap?.known ? cap.value : null}
-                market={market}
-                status={status}
-                owner={owner}
-                access={access}
-                account={account}
-                worst={type === 'market' && cap?.known ? slippageLimit(side, best.data?.value ?? null, cap.value, market.tickSize) : null}
-                capSet={capSet}
-                run={run}
-                onPlaced={placed}
-                waiting={pending.length > 0}
-                settledKeys={settledKeys}
-                handle={side === 'sell' ? sellHandle : buyHandle}
+            chartTools={
+              <div className="dk-chips dk-chips--right">
+                {spotMarkets.length > 1 ? (
+                  <label className="of-field">
+                    <span>{f('Chart market')}</span>
+                    <select value={market.symbol} onChange={(event) => navigate(`/trade/spot/${event.target.value}`)}>
+                      {spotMarkets.map((m) => (
+                        <option key={m.symbol} value={m.symbol}>
+                          {m.symbol}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
+                <button type="button" aria-pressed={dom.open} data-testid="dk-open-dom" onClick={toggleDom}>
+                  {dom.open ? f('Close DOM') : f('Open DOM')}
+                </button>
+              </div>
+            }
+            chartTrade={
+              <ChartTrade
+                market={flowMarket}
+                reference={reference}
+                amount={clickAmount}
+                onAmount={setClickAmount}
+                onTrade={onChartTrade}
+                refused={notOffered}
               />
-            ))}
-          </div>
-        </TabsPanel>
-      </Tabs>
-      <VenueConditionalOrders market={market} owner={owner} venueName={status.venue.displayName} />
+            }
+            chartOrders={(host) => (
+              <VenueChartOrders
+                host={host}
+                market={market}
+                venueName={status.venue.displayName}
+                owner={owner}
+                openOrders={account.openOrders.data?.value ?? null}
+                run={run}
+                resend={(intent) => resend(intent)}
+                onPlaced={chartPlaced}
+                onChanged={account.reload}
+              />
+            )}
+          />
+          {dom.open ? (
+            <VenueOrderFlow
+              market={market}
+              test={status.test}
+              openOrders={account.openOrders.data?.value ?? null}
+              zone={timeZone}
+              setting={dom}
+              onSetting={setDom}
+              onPick={onLadderPick}
+              onClose={closeDom}
+              instant={instant.on}
+              oneClick={
+                <OneClickBar
+                  market={flowMarket}
+                  instant={instant}
+                  zone={timeZone}
+                  presets={quickSizes}
+                  clickAmount={clickAmount}
+                  onAmount={setClickAmount}
+                  free={owner ? closable : null}
+                  bestBid={bestBid}
+                  onCloseAll={(amount, price) => pick('sell', 'limit', price, amount)}
+                />
+              }
+              cancelOne={cancel}
+              onCancelled={account.reload}
+            />
+          ) : null}
+          <Tabs
+            value={type}
+            onValueChange={(value) => setType(value as VenueOrderType)}
+            data-testid="dk-order"
+            className="dk-panel dk-order"
+          >
+            <div className="dk-order-head">
+              <TabsList className="dk-tabs" aria-label={t('Order type')}>
+                {offeredTypes.map((x) => (
+                  <TabsTab key={x} value={x}>
+                    {x === 'limit' ? d('Limit') : d('Market')}
+                  </TabsTab>
+                ))}
+              </TabsList>
+              <NotOfferedTypes market={market} />
+            </div>
+            <div className="dk-order-opts">
+              {type === 'limit' ? <VenueTifSelect market={market} tif={tif} onTif={setTif} /> : null}
+              {type === 'limit' && tif === 'GTD' ? (
+                <label className="dk-tif dk-expiry">
+                  <span className="dk-tif-label">{t('Expires')}</span>
+                  <input
+                    type="datetime-local"
+                    className="dk-expiry-input"
+                    value={expiry}
+                    onChange={(event) => setExpiry(event.target.value)}
+                    aria-label={t('Expires')}
+                    aria-invalid={expiry !== '' && expireAt === null}
+                  />
+                  {expiry !== '' && expireAt === null ? (
+                    <span className="dk-expiry-note" role="note">
+                      {t('Expiry past')}
+                    </span>
+                  ) : null}
+                </label>
+              ) : null}
+              <VenueSelfTradeSelect market={market} />
+            </div>
+            <TabsPanel value={type} className="dk-order-body">
+              <div className="dk-forms">
+                {(['buy', 'sell'] as const).map((side) => (
+                  <VenueSideForm
+                    key={`${side}:${owner ?? ''}`}
+                    side={side}
+                    type={type}
+                    tif={type === 'limit' ? tif : 'GTC'}
+                    expireAt={expireAt}
+                    protectionBps={cap?.known ? cap.value : null}
+                    market={market}
+                    status={status}
+                    owner={owner}
+                    access={access}
+                    account={account}
+                    worst={
+                      type === 'market' && cap?.known ? slippageLimit(side, best.data?.value ?? null, cap.value, market.tickSize) : null
+                    }
+                    capSet={capSet}
+                    run={run}
+                    onPlaced={placed}
+                    waiting={pending.length > 0}
+                    settledKeys={settledKeys}
+                    handle={side === 'sell' ? sellHandle : buyHandle}
+                  />
+                ))}
+              </div>
+            </TabsPanel>
+          </Tabs>
+          <VenueConditionalOrders market={market} owner={owner} venueName={status.venue.displayName} />
+        </div>
+        <div className="dk-venue-col dk-venue-col--side" data-testid="venue-side">
+          <FeeCurrencyRow />
+          <ReadProblem failure={account.balances.failure} venueName={status.venue.displayName} />
+          <VenueAccountPanel
+            status={status}
+            market={market}
+            balances={account.balances.data}
+            onDeposit={() => setDialog('deposit')}
+            onWithdraw={() => setDialog('withdraw')}
+            onFlatten={(amount) => {
+              setType('market');
+              flattenHandle.current?.flatten(
+                amount,
+                cap?.known ? slippageLimit('sell', best.data?.value ?? null, cap.value, market.tickSize) : null,
+              );
+            }}
+            withdrawal={owner && withdrawalNonce ? <WithdrawalTracker owner={owner} nonce={withdrawalNonce} /> : null}
+          />
+          {owner ? (
+            <SubAccountsPanel owner={owner} balances={account.balances.data} test={status.test} run={run} onMoved={account.reload} />
+          ) : null}
+          {owner && pending.length > 0 ? (
+            <section className="dk-panel form-stack" data-testid="venue-pending" aria-label={t('Pending title')}>
+              <h2 className="dk-tab-title">{t('Pending title')}</h2>
+              {pending.map((entry) => (
+                <PendingCheck key={entry.clientOrderId} owner={owner} entry={entry} onFound={onFound} onSendAgain={sendAgain} />
+              ))}
+              <p className="lt-hint" role="status">
+                {t('Pending wait')}
+              </p>
+            </section>
+          ) : found ? (
+            <p className="lt-hint" role="status" data-testid="venue-pending-found">
+              {found}
+            </p>
+          ) : null}
+          <VenueMarketRules market={market} venueName={status.venue.displayName} />
+        </div>
+      </div>
       <Tabs value={tab} onValueChange={(x) => setTab(x as typeof tab)} className="dk-panel dk-bottom" data-testid="venue-bottom">
         <TabsList divider className="dk-tabs dk-tabs--grow" aria-label={v('Open orders')}>
           <TabsTab value="open">{v('Open orders')}</TabsTab>
@@ -429,7 +461,7 @@ export function VenueSpotDesk({
           <TabsTab value="positions">{v('Positions')}</TabsTab>
         </TabsList>
         <OutcomeLine result={lastResult} owner={owner} />
-        <a className="text-link" data-testid="venue-history-link" href="/trade/orders?product=venue">
+        <a className="lt-link" data-testid="venue-history-link" href="/trade/orders?product=venue">
           {orders('historyTitle')}
         </a>
         <VenueStatement status={status} owner={owner} />

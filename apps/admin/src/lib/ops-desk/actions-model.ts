@@ -1,4 +1,4 @@
-import type { VendorDecision } from '@/lib/desk/approval-packet';
+import type { VendorDecision } from '@/lib/desk';
 import { cellOfRow } from '@/lib/cell-of-row';
 import type { Row } from './types';
 

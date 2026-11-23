@@ -3,7 +3,6 @@ import { defineCopy } from '../../../shared/i18n';
 // The trading account room (J-derivatives-25). English source; curly apostrophes on purpose. No venue or partner brand is
 // written here: each name is the one its own source gives. Every figure is its source's own, with its time.
 export const tradingAccountCopy = defineCopy('trade.account', {
-  eyebrow: 'Trade',
   title: 'Trading account',
   lead: 'Your trading money on your venue accounts and your spending money at your partner bank, each as its own source reports it. INTAFACED holds neither and never adds them into one balance.',
   liquidationLine: 'Liquidation only ever uses your trading account. Your spending balances are never used.',
@@ -66,6 +65,8 @@ export const tradingAccountCopy = defineCopy('trade.account', {
   hDepositLeg: 'Wallet to venue',
   legNotYet: 'Not sent',
   legSent: 'Sent',
+  legClaimed: 'Sent, unconfirmed on chain',
+  legConfirmed: 'Confirmed on chain',
   marginCall:
     'Margin call on your trading account at {venue}: its equity is below the maintenance requirement, as {venue} reports it. Only your trading account can be liquidated; your spending balances are never used.',
   marginCallAction: 'Move money into your trading account',

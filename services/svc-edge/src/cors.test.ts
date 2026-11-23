@@ -550,11 +550,13 @@ describe('deliberately closed', () => {
 
   // RC-developer-03 re-took this decision: exactly the request id and the two server times, nothing else,
   // and only to an origin that may read the reply at all.
-  it('exposes exactly the request id and the two server times to an allowed origin, on answers and on refusals', async () => {
+  it('exposes exactly the request id, the two server times and the API version and advisory headers to an allowed origin, on answers and on refusals', async () => {
     const { app } = await edge();
     for (const url of ['/api/v1/markets', '/api/does-not-exist']) {
       const res = await app.inject({ method: 'GET', url, headers: { origin: APP } });
-      expect(res.headers['access-control-expose-headers']).toBe('x-request-id, x-server-received, x-server-sent');
+      expect(res.headers['access-control-expose-headers']).toBe(
+        'x-request-id, x-server-received, x-server-sent, intafaced-version, intafaced-version-source, intafaced-advisories, deprecation, link',
+      );
     }
   });
 

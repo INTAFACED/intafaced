@@ -31,7 +31,7 @@ export function MarketRulesList({ market }: { market: DeskMarket }) {
         ))}
       </dl>
       {/* The venue-wide rules behind these values (RC-cex-spot-08). */}
-      <a className="text-link" href="/rulebook">
+      <a className="lt-link" href="/rulebook">
         {t('Read the trading rulebook')}
       </a>
     </>

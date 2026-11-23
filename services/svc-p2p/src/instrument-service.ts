@@ -1,24 +1,26 @@
-import { P2P_DELIST_REASONS, type P2pDelistReason } from '@intafaced/contracts';
+import type { P2pDelistReason } from '@intafaced/contracts';
+import {
+  CASH_RELEASE_MAX_SECONDS,
+  CASH_RELEASE_MIN_SECONDS,
+  CASH_TEXT_MAX,
+  NOTE_FORBIDDEN_MAX_WORDS,
+  NOTE_FORBIDDEN_WORD_MAX,
+  NOTE_GUIDANCE_MAX,
+  SETTLEMENT_WINDOW_MAX_SECONDS,
+  SETTLEMENT_WINDOW_MIN_SECONDS,
+} from '@intafaced/contracts/p2p-procedures';
 import { P2pError } from './p2p-service.js';
 import type { Sql } from 'postgres';
 import { isSupportedFiat } from '@intafaced/config';
 import {
   ANY_COUNTRY,
-  CASH_RELEASE_MAX_SECONDS,
-  CASH_RELEASE_MIN_SECONDS,
-  CASH_TEXT_MAX,
   InstrumentError,
-  NOTE_FORBIDDEN_MAX_WORDS,
-  NOTE_FORBIDDEN_WORD_MAX,
-  NOTE_GUIDANCE_MAX,
   fingerprintDetails,
   methodIdKey,
   normaliseCountry,
   normaliseMethodId,
   parseFieldSpecs,
   pickSchema,
-  SETTLEMENT_WINDOW_MAX_SECONDS,
-  SETTLEMENT_WINDOW_MIN_SECONDS,
   takeRefused,
   validateDetails,
   type FieldSpec,
@@ -239,7 +241,6 @@ interface InstrumentRow {
 }
 
 /** Why an operator retired a payment method in a market: the one list in contracts, which customer copy words. */
-export const DELIST_REASONS = P2P_DELIST_REASONS;
 export type DelistReason = P2pDelistReason;
 
 interface SchemaRow {

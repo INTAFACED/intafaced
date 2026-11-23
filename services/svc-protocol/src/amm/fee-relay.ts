@@ -1,4 +1,12 @@
 import { TRPCError } from '@trpc/server';
+import type {
+  ProtocolFeeQuote,
+  ProtocolFeeSwapOrder,
+  ProtocolFeeSwapPlan,
+  ProtocolFeeSwapSubmitInput,
+  ProtocolFeeTokens,
+  ProtocolTypedData,
+} from '@intafaced/contracts';
 import {
   FEE_CHARGE_ABOVE_SIGNED,
   FEE_RELAY_REFUSED,
@@ -8,13 +16,7 @@ import {
   FEE_TOKEN_ORACLE_STALE,
   FEE_TOKEN_ORACLE_UNREAD,
   FEE_TOKEN_PERMIT_UNREAD,
-  type ProtocolFeeQuote,
-  type ProtocolFeeSwapOrder,
-  type ProtocolFeeSwapPlan,
-  type ProtocolFeeSwapSubmitInput,
-  type ProtocolFeeTokens,
-  type ProtocolTypedData,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/protocol-swap';
 import {
   BaseError,
   ContractFunctionRevertedError,

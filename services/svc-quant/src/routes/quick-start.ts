@@ -1,13 +1,12 @@
-import { publicJurisdictionProcedure, quantQuickStartOutputSchema } from '@intafaced/contracts';
-import { z } from 'zod';
-import { toTrpc, accountField, type QuantCore } from './core.js';
+import { toTrpc, type QuantCore, quantRefusal } from './core.js';
+import { QUANT_QUICK_START } from '@intafaced/contracts/quant-quick-start-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
 
 export function quickStartRoutes(core: QuantCore) {
   const { strategies, runs, accountOf } = core;
-  return publicJurisdictionProcedure('quant', 'fiat')
-    .input(z.object({ ...accountField }).optional())
-    .output(quantQuickStartOutputSchema)
-    .query(async ({ input, ctx }) => {
+  return mountRecord(
+    QUANT_QUICK_START,
+    async ({ input, ctx }) => {
       try {
         const accountId = accountOf(ctx, input?.accountId);
         const [saved, ran] = await Promise.all([
@@ -18,5 +17,7 @@ export function quickStartRoutes(core: QuantCore) {
       } catch (err) {
         toTrpc(err);
       }
-    });
+    },
+    quantRefusal,
+  );
 }

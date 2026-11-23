@@ -2,6 +2,7 @@
  * Saved strategies are per account. On main, studio.list() is one shared book,
  * so user B receives user A's source. These assertions fail there.
  */
+import { strategyMetadata } from '@intafaced/contracts/quant-call-schemas';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -160,9 +161,10 @@ describe('saved strategies are per account', () => {
       .map((rel) => readFileSync(join(HERE, rel), 'utf8'))
       .join('\n');
     expect(routerSrc).not.toMatch(/studio\.list\(\)/);
-    const metaSchema = routerSrc.slice(routerSrc.indexOf('const strategyMetadata'), routerSrc.indexOf('const accountField'));
-    expect(metaSchema).not.toMatch(/\bsource\b/);
-    expect(metaSchema).not.toMatch(/\bblocks\b/);
+    // The list's metadata (now its record's schema in contracts) carries neither the source nor the blocks.
+    expect(Object.keys(strategyMetadata.shape)).not.toContain('source');
+    expect(Object.keys(strategyMetadata.shape)).not.toContain('blocks');
+    expect(Object.keys(strategyMetadata.shape)).toContain('id');
 
     const closed = router();
     const outsider = closed.createCaller({ principal: null, service: 'svc-trade', region: 'DE', requestId: 's2s' });

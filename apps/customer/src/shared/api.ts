@@ -321,6 +321,31 @@ export function createApiClient(
 export type ApiClient = ReturnType<typeof createApiClient>;
 /** A record an app can call: a tRPC procedure the edge routes under a module. */
 export type AppProcedure = ProcedureRecord & TrpcTransport & { readonly module: string };
+/**
+ * `api.call`'s `accept` for a caller that reads the record's answer through its own, stricter schema (a field it shows
+ * must read as an amount, an id it keys on must not be blank): an answer the schema refuses reads as unverified.
+ */
+export const parsesAs =
+  (schema: ZodType) =>
+  (data: unknown): boolean =>
+    schema.safeParse(data).success;
+
+/**
+ * One call by its record, read through the caller's own stricter schema (a `.refine()`, or a schema built for this owner):
+ * an answer that schema refuses reads as unverified, and the caller gets what the schema parses, as when it called by name.
+ */
+export async function callAs<R extends AppProcedure, T>(
+  api: Pick<ApiClient, 'call'>,
+  record: R,
+  input: ProcedureInput<R>,
+  schema: ZodType<T>,
+  opts: RequestOptions = {},
+): Promise<ApiResult<T>> {
+  const result = await api.call(record, input, { ...opts, accept: parsesAs(schema) });
+  if (!result.ok) return result;
+  return { ok: true, data: schema.parse(result.data) };
+}
+
 export function unavailable<T = never>(message: string): ApiResult<T> {
   return { ok: false, reason: 'not_supported', message };
 }

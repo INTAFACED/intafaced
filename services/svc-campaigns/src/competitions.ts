@@ -52,6 +52,8 @@ export interface CompetitionFill {
   readonly quoteAsset: string;
   readonly notional: string;
   readonly builderFee: string;
+  /** The asset the builder fee was charged in, as the venue reports it; absent from an older read. */
+  readonly feeAsset?: string;
   readonly filledAt: string;
 }
 

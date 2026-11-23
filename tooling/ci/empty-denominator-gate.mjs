@@ -192,6 +192,11 @@ export const ENFORCED = {
     must: /CONFLICT KEYS FAILED: cannot find services\//,
     note: 'with no services/ it has no migrations or inserts to read and refuses by name, rather than passing over nothing.',
   },
+  'baseline-money': {
+    kind: 'guard',
+    must: /BASELINE MONEY FAILED: cannot read docs\/roadmap\/journeys\.json/,
+    note: 'with no journeys, slices or baseline it has no flag to check and refuses by name, rather than passing over nothing.',
+  },
   'published-routes': {
     kind: 'guard',
     must: /PUBLISHED ROUTES FAILED — services\/svc-trade\/src\/route-declarations\.test-harness\.ts is missing/,

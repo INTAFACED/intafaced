@@ -1,6 +1,6 @@
 import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
-import { TRPCError } from '@intafaced/contracts';
+import { TRPCError } from '@intafaced/contracts/trpc';
 import type { Amount } from '@intafaced/ledger-client';
 
 /**
@@ -319,6 +319,8 @@ export interface UserMoneyWithdrawalContext {
    */
   readonly fee?: Amount;
   readonly rail: string;
+  /** The network a send out of the platform goes on (J-wallet-05 #6); absent on a rail that has no networks. */
+  readonly networkId?: string | null;
   readonly destination: { readonly kind: string; readonly ref: string };
   readonly clientRef: string;
   /** True when this claim only places the hold and stops (approval hold at submission); the row is never sent by this call. */

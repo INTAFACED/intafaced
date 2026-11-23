@@ -1,7 +1,7 @@
 // World: restart
 import { test, expect } from './journey.mjs';
 import { EDGE, ORIGIN, api, restartWith } from './stack.mjs';
-import { codeOf, holderAgain, keyHolder, makeKey, signedHeaders, withKey } from './developer.mjs';
+import { VERSION_PIN, codeOf, holderAgain, keyHolder, makeKey, signedHeaders, withKey } from './developer.mjs';
 
 // J-developer-07, in the running app (docs/roadmap/journeys.json): rotate a key, revoke a key, and respond to a leaked
 // one. One test per unbuilt step, titled "J-developer-07 #<n>" (#4 passes on main's code and is in
@@ -42,6 +42,7 @@ async function callAs({ key, secret }, { method = 'GET', path, body } = {}) {
     headers: {
       origin: ORIGIN,
       authorization: `Bearer ${key}`,
+      ...VERSION_PIN,
       ...(raw ? { 'content-type': 'application/json' } : {}),
       ...signedHeaders(secret, { method, path, body: raw ?? '' }),
     },

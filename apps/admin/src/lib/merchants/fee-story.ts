@@ -1,5 +1,5 @@
 import type { FounderMerchantDrilldown } from '@intafaced/contracts';
-import { formatAmount } from './money';
+import { formatAmount } from '@/lib/money';
 
 /** 250 -> "2.5%", 150 -> "1.5%", 100 -> "1%". Integer arithmetic; a fee is shown as a percent, never as basis points. */
 export function percentText(bps: number): string {

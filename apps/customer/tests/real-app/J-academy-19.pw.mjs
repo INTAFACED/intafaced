@@ -142,9 +142,9 @@ test(`${J} #4 a specialist room page shows its pinned lessons in the host's orde
   });
   // The learner narrows the list to futures rooms and opens this one.
   await page.getByRole('combobox', { name: 'Show rooms', exact: true }).selectOption('futures');
-  const card = page.locator('article.more-room-link', { hasText: FUTURES.name });
+  const card = page.locator('article[data-testid="academy-room-card"]', { hasText: FUTURES.name });
   await expect(card).toContainText('futures');
-  await expect(page.locator('article.more-room-link', { hasText: CLINIC.name })).toHaveCount(0);
+  await expect(page.locator('article[data-testid="academy-room-card"]', { hasText: CLINIC.name })).toHaveCount(0);
   await card.getByRole('button', { name: openRoom(FUTURES), exact: true }).click();
   await expect(page.getByRole('heading', { level: 2, name: FUTURES.name, exact: true })).toBeVisible();
 
@@ -193,7 +193,7 @@ test(`${J} #4 a specialist room page shows its pinned lessons in the host's orde
   await page.goto('/academy/rooms');
   await page.getByRole('combobox', { name: 'Show rooms', exact: true }).selectOption('merchant_clinic');
   await page
-    .locator('article.more-room-link', { hasText: CLINIC.name })
+    .locator('article[data-testid="academy-room-card"]', { hasText: CLINIC.name })
     .getByRole('button', { name: openRoom(CLINIC), exact: true })
     .click();
   await expect(page.getByRole('heading', { level: 2, name: CLINIC.name, exact: true })).toBeVisible();

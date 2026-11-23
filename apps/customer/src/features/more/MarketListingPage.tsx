@@ -1,48 +1,26 @@
-// hand-declared-ok: svc-market's listing, review and purchase answers are declared only in services/svc-market/src/router.ts; packages/contracts has no market response schema yet.
+// volt-room: /market/:listingId
 import { useState } from 'react';
-import { z } from 'zod';
+import {
+  MARKET_LISTING,
+  MARKET_MY_PURCHASES,
+  MARKET_REVIEWS_LIST,
+  MARKET_REVIEWS_SUBMIT,
+  type MarketListingDetail,
+} from '@intafaced/contracts/market-procedures';
 import { useApi, useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { usePreferences } from '../../shared/preferences';
-import { decimalSchema, displayAmount } from '../../shared/money';
-import { Button, EmptyState, Failure, Panel } from '../../shared/ui';
+import { displayAmount } from '../../shared/money';
+import { Button } from '@intafaced/ui/lit';
+import { CatalogueTemplate, KeyValue } from '@intafaced/ui/lit/templates';
 import type { ApiResult } from '../../shared/api';
-import { Details, Read } from './common';
-import { listingSchema } from './Market';
+import { t as copyText } from './copy';
+import { moreRoomRoutesCopy } from './more-room-routes-copy';
+import { EmptyNote, FailureNote, KitRead, Section } from './volt-parts';
 import { periodUnit } from './market-explorer';
 import { marketExplorerCopy } from './market-explorer-copy';
 import { marketListingCopy } from './market-listing-copy';
 import { reviewablePurchase, reviewKey } from './market-listing';
-
-const uuid = z.string().guid();
-const time = z.string().datetime({ offset: true });
-
-/** svc-market `market.listing` (MC-market-01): public, with no seller user id; performance is unreported. */
-const listingDetailSchema = z.object({
-  listing: listingSchema,
-  vendor: z.object({ id: uuid, displayName: z.string(), description: z.string(), createdAt: time }),
-  activeListingCount: z.number().int().positive(),
-  reviews: z.object({ count: z.string().regex(/^(0|[1-9][0-9]*)$/), mean: decimalSchema.nullable(), meanRounding: z.string() }),
-  terms: z.object({
-    offerType: z.enum(['one_time', 'subscription']),
-    assetId: z.string().min(1),
-    price: decimalSchema,
-    periodSeconds: z.number().int().positive().nullable(),
-  }),
-  performance: z.object({ reported: z.literal(false) }),
-});
-type ListingDetail = z.infer<typeof listingDetailSchema>;
-const reviewRowSchema = z.object({
-  id: uuid,
-  listingId: uuid,
-  vendorId: uuid,
-  score: z.number().int(),
-  text: z.string().nullable(),
-  createdAt: time,
-});
-const reviewListSchema = z.object({ reviews: z.array(reviewRowSchema), nextCursor: z.string().nullable() });
-const myPurchaseSchema = z.object({ id: uuid, listingId: uuid, buyerId: uuid, status: z.string(), createdAt: time });
-const reviewOutSchema = z.object({ id: uuid, purchaseId: uuid, listingId: uuid, score: z.number().int(), text: z.string().nullable() });
 
 const SCORES = [5, 4, 3, 2, 1] as const;
 /** The most purchases one read returns (svc-market `myPurchases`, which has no cursor). */
@@ -54,12 +32,12 @@ export function MarketListingPage({ listingId }: { listingId: string }) {
   const { t } = marketListingCopy.useCopy();
   // An id that cannot be a listing is answered here, without asking the service. The service answers an unknown or
   // withdrawn listing 404 (`market.listing_not_found`, the only NOT_FOUND of its `listing` read).
-  const wellFormed = uuid.safeParse(listingId).success;
+  const wellFormed = MARKET_LISTING.input.safeParse({ listingId }).success;
   const detail = useResource(
     (signal) =>
       wellFormed
-        ? api.query('market', 'listing', { listingId }, listingDetailSchema, { signal })
-        : Promise.resolve<ApiResult<ListingDetail>>({
+        ? api.call(MARKET_LISTING, { listingId }, { signal })
+        : Promise.resolve<ApiResult<MarketListingDetail>>({
             ok: false,
             reason: 'not_mounted',
             message: 'market.listing_not_found',
@@ -68,29 +46,38 @@ export function MarketListingPage({ listingId }: { listingId: string }) {
     `market-listing:${listingId}`,
   );
   const back = (
-    <a className="text-link" href="/market">
+    <a className="lt-link" href="/market">
       {t('backToMarket')}
     </a>
   );
-  if (!wellFormed || (detail.resource.status === 'failed' && detail.resource.failure.status === 404))
-    return (
-      <Panel title={t('notFound')}>
-        <EmptyState title={t('notFound')} action={back}>
-          {t('notFoundBody')} <code lang="zxx">market.listing_not_found</code>
-        </EmptyState>
-      </Panel>
-    );
+  const missing = !wellFormed || (detail.resource.status === 'failed' && detail.resource.failure.status === 404);
   return (
-    <div className="more-grid">
-      {back}
-      <Read resource={detail.resource} retry={detail.reload}>
-        {(d) => <ListingBody detail={d} />}
-      </Read>
-    </div>
+    <CatalogueTemplate
+      title={moreRoomRoutesCopy.t('market')}
+      description={copyText('moreroutes.published.catalogue.terms.and.your.seller.workspace')}
+      state={{ kind: 'ready' }}
+      items={null}
+      item={
+        missing ? (
+          <Section title={t('notFound')}>
+            <EmptyNote title={t('notFound')} action={back}>
+              {t('notFoundBody')} <code lang="zxx">market.listing_not_found</code>
+            </EmptyNote>
+          </Section>
+        ) : (
+          <div>
+            {back}
+            <KitRead resource={detail.resource} retry={detail.reload}>
+              {(d) => <ListingBody detail={d} />}
+            </KitRead>
+          </div>
+        )
+      }
+    />
   );
 }
 
-function ListingBody({ detail }: { detail: ListingDetail }) {
+function ListingBody({ detail }: { detail: MarketListingDetail }) {
   const api = useApi();
   const { t } = marketListingCopy.useCopy();
   const explorer = marketExplorerCopy.useCopy();
@@ -103,23 +90,25 @@ function ListingBody({ detail }: { detail: ListingDetail }) {
   const [revision, setRevision] = useState(0);
   const period = terms.periodSeconds ? periodUnit(terms.periodSeconds) : null;
   return (
-    <Panel title={<span lang="und">{listing.title}</span>}>
-      <p data-testid="more-body" className="more-body" lang="und">
+    <Section title={<span lang="und">{listing.title}</span>}>
+      <p data-testid="more-body" lang="und">
         {listing.description}
       </p>
-      <div className="market-listing-regions">
+      <div className="lt-grid">
         <section aria-labelledby="market-listing-terms">
           <h3 id="market-listing-terms">{t('terms')}</h3>
-          <Details
-            items={[
-              [t('listingType'), terms.offerType === 'subscription' ? t('strategySubscription') : t('accessListing')],
-              [
-                t('price'),
-                <span key="price" lang="zxx">
-                  {displayAmount(terms.price)} {terms.assetId}
-                </span>,
-              ],
-              [t('period'), period ? explorer.t(`every_${period.unit}`, { value: period.value }) : t('periodNone')],
+          <KeyValue
+            rows={[
+              { label: t('listingType'), value: terms.offerType === 'subscription' ? t('strategySubscription') : t('accessListing') },
+              {
+                label: t('price'),
+                value: (
+                  <span lang="zxx">
+                    {displayAmount(terms.price)} {terms.assetId}
+                  </span>
+                ),
+              },
+              { label: t('period'), value: period ? explorer.t(`every_${period.unit}`, { value: period.value }) : t('periodNone') },
             ]}
           />
         </section>
@@ -127,20 +116,22 @@ function ListingBody({ detail }: { detail: ListingDetail }) {
           <h3 id="market-listing-seller">{t('seller')}</h3>
           <strong lang="und">{vendor.displayName}</strong>
           <p lang="und">{vendor.description}</p>
-          <p className="muted">
+          <p className="lt-hint">
             {t('sellerSince', { date: date(vendor.createdAt) })} · {t('activeListings', { count: detail.activeListingCount })}
           </p>
         </section>
         <section aria-labelledby="market-listing-reviews">
           <h3 id="market-listing-reviews">{t('reviews')}</h3>
           {reviews.count === '0' || reviews.mean === null ? (
-            <p role="status">{t('reviewsNone')}</p>
+            <p role="status" data-testid="market-review-summary">
+              {t('reviewsNone')}
+            </p>
           ) : (
             <>
               <p role="status" data-testid="market-review-summary">
                 {t('reviewsSummary', { count: displayAmount(reviews.count), mean: displayAmount(reviews.mean) })}
               </p>
-              <p className="muted">{t('reviewsRounding')}</p>
+              <p className="lt-hint">{t('reviewsRounding')}</p>
             </>
           )}
           {userId ? (
@@ -150,22 +141,22 @@ function ListingBody({ detail }: { detail: ListingDetail }) {
                 listingId={listing.id}
                 onPosted={async () => {
                   setRevision((n) => n + 1);
-                  const again = await api.query('market', 'listing', { listingId: listing.id }, listingDetailSchema);
+                  const again = await api.call(MARKET_LISTING, { listingId: listing.id });
                   if (again.ok) setReviews(again.data.reviews);
                 }}
               />
             </>
           ) : (
-            <p className="muted">{t('reviewsSignIn')}</p>
+            <p className="lt-hint">{t('reviewsSignIn')}</p>
           )}
         </section>
         <section aria-labelledby="market-listing-performance">
           <h3 id="market-listing-performance">{t('performance')}</h3>
           <p>{t('performanceNone')}</p>
-          <p className="muted">{t('performanceBasis')}</p>
+          <p className="lt-hint">{t('performanceBasis')}</p>
         </section>
       </div>
-    </Panel>
+    </Section>
   );
 }
 
@@ -173,20 +164,17 @@ function ReviewList({ listingId }: { listingId: string }) {
   const api = useApi();
   const { t } = marketListingCopy.useCopy();
   const preferences = usePreferences();
-  const list = useResource(
-    (signal) => api.query('market', 'reviews.list', { listingId, limit: 20 }, reviewListSchema, { signal }),
-    `market-reviews:${listingId}`,
-  );
+  const list = useResource((signal) => api.call(MARKET_REVIEWS_LIST, { listingId, limit: 20 }, { signal }), `market-reviews:${listingId}`);
   return (
-    <Read resource={list.resource} retry={list.reload}>
+    <KitRead resource={list.resource} retry={list.reload}>
       {({ reviews }) =>
         reviews.length === 0 ? null : (
-          <ul className="more-list" aria-label={t('reviews')}>
+          <ul aria-label={t('reviews')}>
             {reviews.map((review) => (
               <li key={review.id} data-review={review.id}>
                 <strong>{t('scoreOf', { score: review.score })}</strong>
                 {review.text ? <p lang="und">{review.text}</p> : null}
-                <small className="muted">
+                <small className="lt-hint">
                   {new Intl.DateTimeFormat(preferences.language, { dateStyle: 'medium' }).format(new Date(review.createdAt))}
                 </small>
               </li>
@@ -194,7 +182,7 @@ function ReviewList({ listingId }: { listingId: string }) {
           </ul>
         )
       }
-    </Read>
+    </KitRead>
   );
 }
 
@@ -226,11 +214,10 @@ function WriteReview({ listingId, onPosted }: { listingId: string; onPosted: () 
    * and posting it), or what stops the review.
    */
   async function purchase(): Promise<{ id: string } | Outcome> {
-    const mine = await api.query(
-      'market',
-      'myPurchases',
+    const mine = await api.call(
+      MARKET_MY_PURCHASES,
       { limit: PURCHASES_READ },
-      z.array(myPurchaseSchema).refine((rows) => rows.every((row) => row.buyerId === userId)),
+      { accept: (rows) => rows.every((row) => row.buyerId === userId) },
     );
     if (!mine.ok) return { kind: 'failed', result: mine };
     const found = reviewablePurchase(mine.data, listingId);
@@ -259,11 +246,10 @@ function WriteReview({ listingId, onPosted }: { listingId: string; onPosted: () 
       return;
     }
     const body = text.trim();
-    const result = await api.mutate(
-      'market',
-      'reviews.submit',
+    const result = await api.call(
+      MARKET_REVIEWS_SUBMIT,
       { purchaseId: found.id, score, text: body || undefined, clientRequestId: reviewKey(found.id, score, body) },
-      reviewOutSchema.refine((row) => row.purchaseId === found.id && row.listingId === listingId && row.score === score),
+      { accept: (row) => row.purchaseId === found.id && row.listingId === listingId && row.score === score },
     );
     setBusy(false);
     if (result.ok) {
@@ -277,23 +263,22 @@ function WriteReview({ listingId, onPosted }: { listingId: string; onPosted: () 
   }
 
   return (
-    <div className="market-review-form">
+    <div>
       {!open ? (
         <div>
-          <Button variant="secondary" disabled={busy} onClick={() => void begin()}>
+          <Button tone="secondary" disabled={busy} onClick={() => void begin()}>
             {t('writeReview')}
           </Button>
         </div>
       ) : (
         <form
           aria-label={t('yourReview')}
-          className="market-review-form"
           onSubmit={(event) => {
             event.preventDefault();
             void post();
           }}
         >
-          <label className="field">
+          <label className="lt-field">
             <span>{t('score')}</span>
             <select value={score} onChange={(event) => setScore(Number(event.target.value))}>
               {SCORES.map((value) => (
@@ -303,12 +288,12 @@ function WriteReview({ listingId, onPosted }: { listingId: string; onPosted: () 
               ))}
             </select>
           </label>
-          <label className="field">
+          <label className="lt-field">
             <span>{t('reviewText')}</span>
             <textarea value={text} maxLength={1_000} rows={4} onChange={(event) => setText(event.target.value)} />
           </label>
           <div>
-            <Button type="submit" disabled={busy}>
+            <Button tone="primary" type="submit" disabled={busy}>
               {t('postReview')}
             </Button>
           </div>
@@ -321,7 +306,7 @@ function WriteReview({ listingId, onPosted }: { listingId: string; onPosted: () 
         </p>
       ) : null}
       {outcome?.kind === 'unseen' ? <p role="status">{t('reviewUnseen', { count: PURCHASES_READ })}</p> : null}
-      {outcome?.kind === 'failed' ? <Failure result={outcome.result} /> : null}
+      {outcome?.kind === 'failed' ? <FailureNote result={outcome.result} /> : null}
     </div>
   );
 }

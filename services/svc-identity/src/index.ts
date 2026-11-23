@@ -12,7 +12,8 @@ import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import { mergeRouters, s2sFromEnv } from '@intafaced/contracts';
+import { s2sFromEnv } from '@intafaced/contracts/s2s-env';
+import { mergeRouters } from '@intafaced/contracts/trpc';
 import { serviceOfRequest } from './s2s-door.js';
 import { mintStreamToken, parseStreamTokenTtl, StreamTokenError } from './stream-token.js';
 import { readIdentityWatermark } from './restore-watermark.js';
@@ -105,6 +106,8 @@ import { createOperationIdentityRouter } from './controls/operation-identity-rou
 import { createLimitFeeTierRouter } from './limit-fee-tier-router.js';
 import { SavedRecipientService } from './saved-recipients.js';
 import { createSavedRecipientsRouter } from './saved-recipients.router.js';
+import { ApiVersionDefaults, createApiVersionRouter } from './api-version-default.js';
+import { createDeveloperSupportRouter } from './ops/developer-support.js';
 import { createHandleRouter } from './profile/handle-router.js';
 import { createReceiveContactsRouter } from './account/receive-contacts-router.js';
 import { ReceiveContactService, receiveContactSettings } from './account/receive-contacts.js';
@@ -767,6 +770,7 @@ const social = new SocialSignin(sql, { providers: new Map(), flowTtlSeconds: env
 export const appRouter = mergeRouters(
   createIdentityRouter(auth, rank, {
     registrationOpen: env.REGISTRATION_OPEN,
+    ...(env.REGISTRATION_EMAIL_ALLOWLIST ? { registrationAllowlist: env.REGISTRATION_EMAIL_ALLOWLIST } : {}),
     extraControlsMin: env.IDENTITY_EXTRA_CONTROLS_MIN,
     // One budget per person across every replica and restart (#4689).
     handleLookupLimiter: new PgHandleLookupLimiter(sql),
@@ -900,6 +904,8 @@ export const appRouter = mergeRouters(
   }),
   createLimitFeeTierRouter(sql, rank, actionApprovals),
   createSavedRecipientsRouter(new SavedRecipientService(sql)),
+  createApiVersionRouter(new ApiVersionDefaults(sql)),
+  createDeveloperSupportRouter(sql),
   createHandleRouter(new HandleSettingsService(sql, env.IDENTITY_HANDLE_CHANGE_MAX ?? null)),
   createReceiveContactsRouter(
     new ReceiveContactService({

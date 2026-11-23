@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { BANK_GLOBAL_PROCEDURES } from '@intafaced/contracts/bank-global-procedures';
+import { BANK_PERSONAL_REQUEST_PROCEDURES } from '@intafaced/contracts/bank-personal-request-procedures';
+import { NO_INPUT } from '@intafaced/contracts/procedure';
 import { BANK_SPACES_LIST } from '@intafaced/contracts/bank-spaces-list';
 import { createBankRouter } from './router.js';
 
@@ -22,11 +25,16 @@ function mountedProcedures(router: object): Record<string, Mounted> {
 describe('svc-bank serves its recorded calls from their records', () => {
   const procedures = mountedProcedures(createBankRouter({} as never));
 
-  it.each([BANK_SPACES_LIST])('$name is mounted at its path with its own input and output', (record) => {
-    expect(record.service).toBe('svc-bank');
-    const mounted = procedures[record.path];
-    expect(mounted, `${record.path} is not on svc-bank's router`).toBeDefined();
-    expect(mounted!._def.inputs).toContain(record.input);
-    expect(mounted!._def.output).toBe(record.output);
-  });
+  it.each([BANK_SPACES_LIST, ...BANK_PERSONAL_REQUEST_PROCEDURES, ...BANK_GLOBAL_PROCEDURES])(
+    '$name is mounted at its path with its own input and output',
+    (record) => {
+      expect(record.service).toBe('svc-bank');
+      const mounted = procedures[record.path];
+      expect(mounted, `${record.path} is not on svc-bank's router`).toBeDefined();
+      // A call that takes no input is mounted with no parser for one.
+      if (record.input === NO_INPUT) expect(mounted!._def.inputs).toEqual([]);
+      else expect(mounted!._def.inputs).toContain(record.input);
+      expect(mounted!._def.output).toBe(record.output);
+    },
+  );
 });

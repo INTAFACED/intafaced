@@ -5,8 +5,12 @@ ENV CI=true
 WORKDIR /app
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc tsconfig.base.json ./
+# The lockfile names these patches; `--frozen-lockfile` fails without them.
+COPY patches ./patches
 COPY packages ./packages
 COPY apps/customer ./apps/customer
+# Every package build calls the repo's one compiler entry; CI=true above makes it run tsc.
+COPY tooling/scripts/tsc.mjs ./tooling/scripts/tsc.mjs
 RUN pnpm install --frozen-lockfile --filter '@intafaced/customer...'
 ARG VITE_TEAM_URL
 ENV VITE_TEAM_URL=$VITE_TEAM_URL

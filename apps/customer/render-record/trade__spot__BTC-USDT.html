@@ -475,7 +475,7 @@
 <dd class="if-num">Not published</dd>
 </div>
 </dl>
-<a class="text-link" href="/rulebook">Read the trading rulebook</a>
+<a class="lt-link" href="/rulebook">Read the trading rulebook</a>
 </details>
 <div data-orientation="horizontal" data-activation-direction="none" id="base-ui-_r_12_" role="tabpanel" tabindex="0" data-index="0" data-slot="tabs-panel" class="flex-1 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus dk-order-body" aria-labelledby="base-ui-_r_11_">
 <div class="dk-forms">
@@ -718,49 +718,66 @@
 <a class="dk-viewall" href="/money/activity?tab=orders">View all</a>
 </div>
 <div data-orientation="horizontal" data-activation-direction="none" id="base-ui-_r_39_" role="tabpanel" tabindex="0" data-index="0" data-slot="tabs-panel" data-testid="dk-bottom-body" class="flex-1 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus dk-bottom-body" aria-labelledby="base-ui-_r_38_">
-<table data-testid="dk-table" class="dk-table">
+<table data-testid="dk-table" class="lt-table">
 <thead>
 <tr>
 <th>
-<span class="sr-only">Select</span>
+<span class="lt-sr">Select</span>
 </th>
 <th>Time</th>
 <th>Market</th>
 <th>Type</th>
 <th>Side</th>
-<th class="dk-num">Price</th>
-<th class="dk-num">Amount</th>
-<th class="dk-num">Filled</th>
-<th class="dk-num">Held</th>
+<th data-align="end">Price</th>
+<th data-align="end">Amount</th>
+<th data-align="end">Filled</th>
+<th data-align="end">Held</th>
 <th>Action</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td>
-<input class="dk-select" aria-label="Select buy order, 0.00008 BTC on BTC/USDT" type="checkbox">
+<label class="lt-field">
+<input aria-label="Select buy order, 0.00008 BTC on BTC/USDT" type="checkbox">
+<span>
+</span>
+</label>
 </td>
-<td class="if-num">
-<a data-testid="dk-order-link" class="dk-order-link" href="/trade/orders/o1" title="Open this order’s details">14 Oct, 09:00</a>
+<td data-label="Time">
+<a data-testid="dk-order-link" class="lt-link" href="/trade/orders/o1" title="Open this order’s details">14 Oct, 09:00</a>
 </td>
-<td>BTC/USDT</td>
-<td>Limit</td>
-<td>
-<span class="dk-side" data-side="buy">Buy</span>
+<td data-label="Market">BTC/USDT</td>
+<td data-label="Type">
+<span class="lt-actions">Limit</span>
 </td>
-<td class="dk-num if-num">62,500.00</td>
-<td class="dk-num if-num">0.0001</td>
-<td class="dk-num if-num">0</td>
-<td class="dk-num if-num">
+<td data-label="Side">
+<span data-side="buy">Buy</span>
+</td>
+<td data-align="end" data-label="Price">62,500.00</td>
+<td data-align="end" data-label="Amount">0.0001</td>
+<td data-align="end" data-label="Filled">0</td>
+<td data-align="end" data-label="Held">
 <span title="Not stated: the service did not say what this order holds">—</span>
 </td>
-<td>
-<span class="dk-bt-actions">
-<button type="button" tabindex="0" data-slot="button" data-variant="secondary" aria-label="Edit buy order for 0.00008 BTC" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-7 px-3 text-sm rounded-pill">Edit</button>
-<span class="dk-bt-cancel">
-<button type="button" tabindex="0" data-slot="button" data-variant="secondary" aria-label="Cancel buy order for 0.00008 BTC" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-7 px-3 text-sm rounded-pill">Cancel</button>
+<td data-label="Action">
+<span class="lt-actions">
+<button aria-label="Edit buy order for 0.00008 BTC" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Edit</button>
+<span class="lt-actions">
+<button aria-label="Cancel buy order for 0.00008 BTC" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Cancel</button>
 </span>
-</span> <button type="button" tabindex="0" data-base-ui-click-trigger="" id="base-ui-_r_45_" aria-haspopup="dialog" aria-expanded="false" data-slot="popover-trigger" class="dk-changes-trigger">Changes</button>
+</span> <details class="lit-fold">
+<summary>
+<span data-part="title">Changes</span>
+<span data-part="mark" aria-hidden="true">
+</span>
+</summary>
+<div data-part="body">
+<div class="lt-stack">
+<p class="lt-hint">Changes to this order</p>
+</div>
+</div>
+</details>
 </td>
 </tr>
 </tbody>

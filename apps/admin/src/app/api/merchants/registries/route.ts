@@ -1,7 +1,6 @@
-import { actionApprovalSchema } from '@intafaced/contracts';
 import { readAdminJson } from '@/lib/admin-json';
 import { adminSessionErrorResponse, AdminSessionError, authorizeAdminRequest } from '@/lib/founder-session';
-import { parseWith, payCall, type PayCallContext } from '@/lib/merchants/pay-call';
+import { payCall, type PayCallContext, payRecordCall } from '@/lib/merchants/pay-call';
 import {
   acceptChange,
   asNetwork,
@@ -15,6 +14,11 @@ import {
 } from '@/lib/merchants/registry-model';
 import { fromFailure, json } from '@/lib/merchants/bff';
 import { moduleDisabledResponse } from '@/lib/modules';
+import {
+  IDENTITY_ACTION_APPROVAL_REJECT,
+  IDENTITY_ACTION_APPROVAL_PROPOSE,
+  IDENTITY_ACTION_APPROVAL_APPROVE,
+} from '@intafaced/contracts/identity-action-approval-records';
 
 /**
  * Merchants panel BFF: registry preview, second-founder approval and save.
@@ -66,7 +70,7 @@ export async function POST(request: Request) {
     if (action === 'reject') {
       const approvalId = typeof body.approvalId === 'string' ? body.approvalId.trim() : '';
       if (approvalId === '' || approvalId.length > 128) throw new AdminSessionError('admin.merchants_input', 400);
-      const result = await payCall(ctx, 'actionApproval.reject', 'POST', { approvalId }, parseWith(actionApprovalSchema), 'identity');
+      const result = await payRecordCall(ctx, IDENTITY_ACTION_APPROVAL_REJECT, { approvalId });
       if (result.kind !== 'ok') return fromFailure(result);
       return json({ ok: true, approval: { approvalId: result.data.approvalId, status: result.data.status } });
     }
@@ -102,21 +106,14 @@ export async function POST(request: Request) {
         );
       }
       if (action === 'propose') {
-        const proposed = await payCall(
-          ctx,
-          'actionApproval.propose',
-          'POST',
-          {
-            actionType: hash.actionType,
-            targetService: 'svc-pay',
-            targetId: hash.actionType,
-            expectedVersion: '1',
-            payloadHash: hash.payloadHash,
-            policyVersion: 'v1',
-          },
-          parseWith(actionApprovalSchema),
-          'identity',
-        );
+        const proposed = await payRecordCall(ctx, IDENTITY_ACTION_APPROVAL_PROPOSE, {
+          actionType: hash.actionType,
+          targetService: 'svc-pay',
+          targetId: hash.actionType,
+          expectedVersion: '1',
+          payloadHash: hash.payloadHash,
+          policyVersion: 'v1',
+        });
         if (proposed.kind !== 'ok') return fromFailure(proposed);
         const a = proposed.data;
         return json({
@@ -133,14 +130,7 @@ export async function POST(request: Request) {
       const approvalId = typeof body.approvalId === 'string' ? body.approvalId.trim() : '';
       if (approvalId === '' || approvalId.length > 128) throw new AdminSessionError('admin.merchants_input', 400);
       // Bind the approval to the change this founder just reviewed: identity refuses unless its stored hash equals this one.
-      const approved = await payCall(
-        ctx,
-        'actionApproval.approve',
-        'POST',
-        { approvalId, expectedPayloadHash: hash.payloadHash },
-        parseWith(actionApprovalSchema),
-        'identity',
-      );
+      const approved = await payRecordCall(ctx, IDENTITY_ACTION_APPROVAL_APPROVE, { approvalId, expectedPayloadHash: hash.payloadHash });
       if (approved.kind !== 'ok') return fromFailure(approved);
       const a = approved.data;
       return json({

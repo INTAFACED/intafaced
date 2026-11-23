@@ -8,14 +8,13 @@
  */
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
-import {
-  OUTREACH_PUBLIC_SETTINGS,
-  outreachPublicSetKey,
-  type OutreachPublicErrorCode,
-  type OutreachPublicSetting,
-  type OutreachPublicSettings,
-  type OutreachPublicSettingsSetInput,
+import type {
+  OutreachPublicErrorCode,
+  OutreachPublicSetting,
+  OutreachPublicSettings,
+  OutreachPublicSettingsSetInput,
 } from '@intafaced/contracts';
+import { OUTREACH_PUBLIC_SETTINGS, outreachPublicSetKey } from '@intafaced/contracts/outreach-public';
 
 export type PublicValues = Pick<OutreachPublicSettings, OutreachPublicSetting>;
 

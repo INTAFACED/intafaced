@@ -541,11 +541,11 @@
   },
   "set backtest.accountRules valid anon": {
     "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":\"5\",\"marginCallPercent\":\"100\",\"stopOutPercent\":\"50\"}}}"
+    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"venueMarket\":\"BTC-PERP\",\"maxLeverage\":\"5\",\"maintenancePercent\":\"5\",\"marginCallPercent\":\"100\",\"test\":true}}}"
   },
   "set backtest.accountRules valid signed": {
     "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":\"5\",\"marginCallPercent\":\"100\",\"stopOutPercent\":\"50\"}}}"
+    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"venueMarket\":\"BTC-PERP\",\"maxLeverage\":\"5\",\"maintenancePercent\":\"5\",\"marginCallPercent\":\"100\",\"test\":true}}}"
   },
   "set backtest.accountRules valid signed-US": {
     "status": 403,
@@ -557,11 +557,11 @@
   },
   "set backtest.accountRules valid tier-none": {
     "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":\"5\",\"marginCallPercent\":\"100\",\"stopOutPercent\":\"50\"}}}"
+    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"venueMarket\":\"BTC-PERP\",\"maxLeverage\":\"5\",\"maintenancePercent\":\"5\",\"marginCallPercent\":\"100\",\"test\":true}}}"
   },
   "set backtest.accountRules valid member": {
     "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":\"5\",\"marginCallPercent\":\"100\",\"stopOutPercent\":\"50\"}}}"
+    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"venueMarket\":\"BTC-PERP\",\"maxLeverage\":\"5\",\"maintenancePercent\":\"5\",\"marginCallPercent\":\"100\",\"test\":true}}}"
   },
   "set backtest.accountRules valid key": {
     "status": 404,
@@ -569,59 +569,59 @@
   },
   "set backtest.accountRules valid ops": {
     "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":\"5\",\"marginCallPercent\":\"100\",\"stopOutPercent\":\"50\"}}}"
+    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"venueMarket\":\"BTC-PERP\",\"maxLeverage\":\"5\",\"maintenancePercent\":\"5\",\"marginCallPercent\":\"100\",\"test\":true}}}"
   },
   "set backtest.accountRules valid forged": {
     "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":\"5\",\"marginCallPercent\":\"100\",\"stopOutPercent\":\"50\"}}}"
+    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"venueMarket\":\"BTC-PERP\",\"maxLeverage\":\"5\",\"maintenancePercent\":\"5\",\"marginCallPercent\":\"100\",\"test\":true}}}"
   },
   "set backtest.accountRules absent signed": {
-    "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":\"5\",\"marginCallPercent\":\"100\",\"stopOutPercent\":\"50\"}}}"
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"backtest.accountRules\",\"requestId\":\"replay-request\"}}}"
   },
   "set backtest.accountRules absent ops": {
-    "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":\"5\",\"marginCallPercent\":\"100\",\"stopOutPercent\":\"50\"}}}"
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"backtest.accountRules\",\"requestId\":\"replay-request\"}}}"
   },
   "set backtest.accountRules null signed": {
-    "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":\"5\",\"marginCallPercent\":\"100\",\"stopOutPercent\":\"50\"}}}"
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"backtest.accountRules\",\"requestId\":\"replay-request\"}}}"
   },
   "set backtest.accountRules null ops": {
-    "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":\"5\",\"marginCallPercent\":\"100\",\"stopOutPercent\":\"50\"}}}"
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"backtest.accountRules\",\"requestId\":\"replay-request\"}}}"
   },
   "set backtest.accountRules wrong-type signed": {
-    "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":\"5\",\"marginCallPercent\":\"100\",\"stopOutPercent\":\"50\"}}}"
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"backtest.accountRules\",\"requestId\":\"replay-request\"}}}"
   },
   "set backtest.accountRules wrong-type ops": {
-    "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":\"5\",\"marginCallPercent\":\"100\",\"stopOutPercent\":\"50\"}}}"
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"backtest.accountRules\",\"requestId\":\"replay-request\"}}}"
   },
   "set backtest.accountRules empty signed": {
-    "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":\"5\",\"marginCallPercent\":\"100\",\"stopOutPercent\":\"50\"}}}"
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"symbol\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"backtest.accountRules\",\"requestId\":\"replay-request\"}}}"
   },
   "set backtest.accountRules empty ops": {
-    "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":\"5\",\"marginCallPercent\":\"100\",\"stopOutPercent\":\"50\"}}}"
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"symbol\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"backtest.accountRules\",\"requestId\":\"replay-request\"}}}"
   },
   "set backtest.accountRules extra-key signed": {
     "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":\"5\",\"marginCallPercent\":\"100\",\"stopOutPercent\":\"50\"}}}"
+    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"venueMarket\":\"BTC-PERP\",\"maxLeverage\":\"5\",\"maintenancePercent\":\"5\",\"marginCallPercent\":\"100\",\"test\":true}}}"
   },
   "set backtest.accountRules extra-key ops": {
     "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":\"5\",\"marginCallPercent\":\"100\",\"stopOutPercent\":\"50\"}}}"
+    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"venueMarket\":\"BTC-PERP\",\"maxLeverage\":\"5\",\"maintenancePercent\":\"5\",\"marginCallPercent\":\"100\",\"test\":true}}}"
   },
   "set backtest.accountRules all-null signed": {
-    "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":\"5\",\"marginCallPercent\":\"100\",\"stopOutPercent\":\"50\"}}}"
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"symbol\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"backtest.accountRules\",\"requestId\":\"replay-request\"}}}"
   },
   "set backtest.accountRules all-null ops": {
-    "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":\"5\",\"marginCallPercent\":\"100\",\"stopOutPercent\":\"50\"}}}"
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"symbol\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"backtest.accountRules\",\"requestId\":\"replay-request\"}}}"
   },
   "set backtest.fee valid anon": {
     "status": 200,
@@ -2840,16 +2840,16 @@
     "body": "{\"result\":{\"data\":{\"version\":2,\"createdAt\":\"<time>\",\"name\":\"Renamed\",\"language\":\"javascript\",\"source\":\"// Generated by the no-code builder from your signal rules. Simulated: backtest and paper only.\\nconst closes = bars(\\\"BTC/USDT\\\", \\\"1h\\\").close;\\nconst fast = sma(closes, 1);\\nconst slow = sma(closes, 2);\\n\\nif (crossesAbove(fast, slow) && position(\\\"BTC/USDT\\\").qty == 0) {\\n  oms.buy(\\\"BTC/USDT\\\", size.quantity(\\\"1\\\"));\\n}\\nif (crossesBelow(fast, slow) && position(\\\"BTC/USDT\\\").qty > 0) {\\n  oms.sell(\\\"BTC/USDT\\\", position(\\\"BTC/USDT\\\").qty);\\n}\",\"cash\":\"1000\",\"blocks\":[],\"modules\":{\"symbol\":\"BTC/USDT\",\"barSize\":\"1h\",\"signal\":{\"kind\":\"ma_cross\",\"average\":\"sma\",\"fast\":\"1\",\"slow\":\"2\"},\"sizing\":{\"kind\":\"quantity\",\"value\":\"1\"},\"exit\":{\"stopLossPercent\":\"\",\"takeProfitPercent\":\"\"}},\"risk\":{\"maxDrawdown\":\"500\",\"maxNotional\":\"10000\",\"kill\":\"100\"},\"releaseNote\":\"tighter risk\",\"environment\":\"paper\",\"kind\":\"paper\",\"claimLabel\":\"Paper — not live performance\",\"live\":false,\"simulated\":true,\"id\":\"studio_<uuid-4>\",\"accountId\":\"11111111-1111-4111-8111-111111111111\",\"clientStrategyId\":\"replay-seed\",\"deletedAt\":null,\"folder\":\"Replay\",\"description\":\"\",\"organised\":1,\"restores\":0,\"versions\":[{\"version\":1,\"createdAt\":\"<time>\",\"name\":\"Replay cross\",\"language\":\"javascript\",\"source\":\"// Generated by the no-code builder from your signal rules. Simulated: backtest and paper only.\\nconst closes = bars(\\\"BTC/USDT\\\", \\\"1h\\\").close;\\nconst fast = sma(closes, 1);\\nconst slow = sma(closes, 2);\\n\\nif (crossesAbove(fast, slow) && position(\\\"BTC/USDT\\\").qty == 0) {\\n  oms.buy(\\\"BTC/USDT\\\", size.quantity(\\\"1\\\"));\\n}\\nif (crossesBelow(fast, slow) && position(\\\"BTC/USDT\\\").qty > 0) {\\n  oms.sell(\\\"BTC/USDT\\\", position(\\\"BTC/USDT\\\").qty);\\n}\",\"cash\":\"1000\",\"blocks\":[],\"modules\":{\"symbol\":\"BTC/USDT\",\"barSize\":\"1h\",\"signal\":{\"kind\":\"ma_cross\",\"average\":\"sma\",\"fast\":\"1\",\"slow\":\"2\"},\"sizing\":{\"kind\":\"quantity\",\"value\":\"1\"},\"exit\":{\"stopLossPercent\":\"\",\"takeProfitPercent\":\"\"}},\"risk\":{\"maxDrawdown\":\"500\",\"maxNotional\":\"10000\",\"kill\":\"100\"},\"releaseNote\":\"\",\"environment\":\"paper\",\"kind\":\"paper\",\"claimLabel\":\"Paper — not live performance\",\"live\":false,\"simulated\":true},{\"version\":2,\"createdAt\":\"<time>\",\"name\":\"Replay cross\",\"language\":\"javascript\",\"source\":\"// Generated by the no-code builder from your signal rules. Simulated: backtest and paper only.\\nconst closes = bars(\\\"BTC/USDT\\\", \\\"1h\\\").close;\\nconst fast = sma(closes, 1);\\nconst slow = sma(closes, 2);\\n\\nif (crossesAbove(fast, slow) && position(\\\"BTC/USDT\\\").qty == 0) {\\n  oms.buy(\\\"BTC/USDT\\\", size.quantity(\\\"1\\\"));\\n}\\nif (crossesBelow(fast, slow) && position(\\\"BTC/USDT\\\").qty > 0) {\\n  oms.sell(\\\"BTC/USDT\\\", position(\\\"BTC/USDT\\\").qty);\\n}\",\"cash\":\"1000\",\"blocks\":[],\"modules\":{\"symbol\":\"BTC/USDT\",\"barSize\":\"1h\",\"signal\":{\"kind\":\"ma_cross\",\"average\":\"sma\",\"fast\":\"1\",\"slow\":\"2\"},\"sizing\":{\"kind\":\"quantity\",\"value\":\"1\"},\"exit\":{\"stopLossPercent\":\"\",\"takeProfitPercent\":\"\"}},\"risk\":{\"maxDrawdown\":\"500\",\"maxNotional\":\"10000\",\"kill\":\"100\"},\"releaseNote\":\"tighter risk\",\"environment\":\"paper\",\"kind\":\"paper\",\"claimLabel\":\"Paper — not live performance\",\"live\":false,\"simulated\":true}]}}}"
   },
   "set studio.organise valid member": {
-    "status": 500,
-    "body": "{\"error\":{\"message\":\"quant.studio_not_found — strategy not found\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"studio.organise\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.studio_not_found\"}}}}"
+    "status": 404,
+    "body": "{\"error\":{\"message\":\"quant.studio_not_found — strategy not found\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"<stack>\",\"path\":\"studio.organise\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.studio_not_found\"}}}}"
   },
   "set studio.organise valid key": {
     "status": 404,
     "body": "{\"error\":{\"message\":\"studio.organise is not in the strategy API; an API key can't call it (see /developers/quant)\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"<stack>\",\"path\":\"studio.organise\",\"cause\":{\"code\":\"quant.key_no_such_endpoint\"}}}}"
   },
   "set studio.organise valid ops": {
-    "status": 500,
-    "body": "{\"error\":{\"message\":\"quant.studio_not_found — strategy not found\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"studio.organise\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.studio_not_found\"}}}}"
+    "status": 404,
+    "body": "{\"error\":{\"message\":\"quant.studio_not_found — strategy not found\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"<stack>\",\"path\":\"studio.organise\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.studio_not_found\"}}}}"
   },
   "set studio.organise valid forged": {
     "status": 401,
@@ -2928,8 +2928,8 @@
     "body": "{\"result\":{\"data\":{\"version\":2,\"createdAt\":\"<time>\",\"name\":\"Renamed\",\"language\":\"javascript\",\"source\":\"// Generated by the no-code builder from your signal rules. Simulated: backtest and paper only.\\nconst closes = bars(\\\"BTC/USDT\\\", \\\"1h\\\").close;\\nconst fast = sma(closes, 1);\\nconst slow = sma(closes, 2);\\n\\nif (crossesAbove(fast, slow) && position(\\\"BTC/USDT\\\").qty == 0) {\\n  oms.buy(\\\"BTC/USDT\\\", size.quantity(\\\"1\\\"));\\n}\\nif (crossesBelow(fast, slow) && position(\\\"BTC/USDT\\\").qty > 0) {\\n  oms.sell(\\\"BTC/USDT\\\", position(\\\"BTC/USDT\\\").qty);\\n}\",\"cash\":\"1000\",\"blocks\":[],\"modules\":{\"symbol\":\"BTC/USDT\",\"barSize\":\"1h\",\"signal\":{\"kind\":\"ma_cross\",\"average\":\"sma\",\"fast\":\"1\",\"slow\":\"2\"},\"sizing\":{\"kind\":\"quantity\",\"value\":\"1\"},\"exit\":{\"stopLossPercent\":\"\",\"takeProfitPercent\":\"\"}},\"risk\":{\"maxDrawdown\":\"500\",\"maxNotional\":\"10000\",\"kill\":\"100\"},\"releaseNote\":\"tighter risk\",\"environment\":\"paper\",\"kind\":\"paper\",\"claimLabel\":\"Paper — not live performance\",\"live\":false,\"simulated\":true,\"id\":\"studio_<uuid-4>\",\"accountId\":\"11111111-1111-4111-8111-111111111111\",\"clientStrategyId\":\"replay-seed\",\"deletedAt\":null,\"folder\":\"Replay\",\"description\":\"\",\"organised\":1,\"restores\":0,\"versions\":[{\"version\":1,\"createdAt\":\"<time>\",\"name\":\"Replay cross\",\"language\":\"javascript\",\"source\":\"// Generated by the no-code builder from your signal rules. Simulated: backtest and paper only.\\nconst closes = bars(\\\"BTC/USDT\\\", \\\"1h\\\").close;\\nconst fast = sma(closes, 1);\\nconst slow = sma(closes, 2);\\n\\nif (crossesAbove(fast, slow) && position(\\\"BTC/USDT\\\").qty == 0) {\\n  oms.buy(\\\"BTC/USDT\\\", size.quantity(\\\"1\\\"));\\n}\\nif (crossesBelow(fast, slow) && position(\\\"BTC/USDT\\\").qty > 0) {\\n  oms.sell(\\\"BTC/USDT\\\", position(\\\"BTC/USDT\\\").qty);\\n}\",\"cash\":\"1000\",\"blocks\":[],\"modules\":{\"symbol\":\"BTC/USDT\",\"barSize\":\"1h\",\"signal\":{\"kind\":\"ma_cross\",\"average\":\"sma\",\"fast\":\"1\",\"slow\":\"2\"},\"sizing\":{\"kind\":\"quantity\",\"value\":\"1\"},\"exit\":{\"stopLossPercent\":\"\",\"takeProfitPercent\":\"\"}},\"risk\":{\"maxDrawdown\":\"500\",\"maxNotional\":\"10000\",\"kill\":\"100\"},\"releaseNote\":\"\",\"environment\":\"paper\",\"kind\":\"paper\",\"claimLabel\":\"Paper — not live performance\",\"live\":false,\"simulated\":true},{\"version\":2,\"createdAt\":\"<time>\",\"name\":\"Replay cross\",\"language\":\"javascript\",\"source\":\"// Generated by the no-code builder from your signal rules. Simulated: backtest and paper only.\\nconst closes = bars(\\\"BTC/USDT\\\", \\\"1h\\\").close;\\nconst fast = sma(closes, 1);\\nconst slow = sma(closes, 2);\\n\\nif (crossesAbove(fast, slow) && position(\\\"BTC/USDT\\\").qty == 0) {\\n  oms.buy(\\\"BTC/USDT\\\", size.quantity(\\\"1\\\"));\\n}\\nif (crossesBelow(fast, slow) && position(\\\"BTC/USDT\\\").qty > 0) {\\n  oms.sell(\\\"BTC/USDT\\\", position(\\\"BTC/USDT\\\").qty);\\n}\",\"cash\":\"1000\",\"blocks\":[],\"modules\":{\"symbol\":\"BTC/USDT\",\"barSize\":\"1h\",\"signal\":{\"kind\":\"ma_cross\",\"average\":\"sma\",\"fast\":\"1\",\"slow\":\"2\"},\"sizing\":{\"kind\":\"quantity\",\"value\":\"1\"},\"exit\":{\"stopLossPercent\":\"\",\"takeProfitPercent\":\"\"}},\"risk\":{\"maxDrawdown\":\"500\",\"maxNotional\":\"10000\",\"kill\":\"100\"},\"releaseNote\":\"tighter risk\",\"environment\":\"paper\",\"kind\":\"paper\",\"claimLabel\":\"Paper — not live performance\",\"live\":false,\"simulated\":true}]}}}"
   },
   "set studio.organise extra-key ops": {
-    "status": 500,
-    "body": "{\"error\":{\"message\":\"quant.studio_not_found — strategy not found\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"studio.organise\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.studio_not_found\"}}}}"
+    "status": 404,
+    "body": "{\"error\":{\"message\":\"quant.studio_not_found — strategy not found\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"<stack>\",\"path\":\"studio.organise\",\"requestId\":\"replay-request\",\"cause\":{\"code\":\"quant.studio_not_found\"}}}}"
   },
   "set studio.organise all-null signed": {
     "status": 400,

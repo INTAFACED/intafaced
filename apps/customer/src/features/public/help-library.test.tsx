@@ -20,6 +20,15 @@ vi.mock('../session', () => {
       return world.answer(procedure, input);
     },
     mutate: async () => ({ ok: false }),
+    // A call by its record reaches this double's query or mutate under the record's module and path.
+    call(record: { kind: string; module: string; path: string }, input?: unknown): Promise<unknown> {
+      const send = (record.kind === 'query' ? api.query : api.mutate) as (
+        module: string,
+        path: string,
+        input?: unknown,
+      ) => Promise<unknown>;
+      return send(record.module, record.path, input);
+    },
   };
   return { useApi: () => api, useSession: () => ({ api, userId: null, session: null }) };
 });
@@ -27,7 +36,8 @@ vi.mock('../more/support-contact', () => ({
   useSupportContact: () => ({ status: 'ready', email: null, phone: null, chatHours: null }),
 }));
 
-import { HelpLibrary, HelpLibraryNav } from './HelpLibrary';
+import { HelpLibraryNav } from './HelpLibrary';
+import { HelpLibraryRoom as HelpLibrary } from './help/HelpLibraryRoom';
 
 let host: HTMLDivElement, root: Root;
 async function mount(node: React.ReactNode) {
@@ -103,9 +113,9 @@ describe('the help library screens', () => {
     await mount(<HelpLibrary at={{ kind: 'section', id: 'withdrawals' }} />);
     expect(world.asked).toContainEqual(['kbSection', { sectionId: 'withdrawals', limit: 100 }]);
     expect(host.querySelector('h1')?.textContent).toBe('Withdrawals');
-    expect(host.querySelector('.help__row p')?.textContent).toBe('A <b>tag</b> stays text.');
+    expect(host.querySelector('[data-testid="help__row"] p')?.textContent).toBe('A <b>tag</b> stays text.');
     expect(host.querySelector('b')).toBeNull();
-    expect(host.querySelector('.help__row a')?.getAttribute('href')).toBe('/helpdetail?id=withdraw-time');
+    expect(host.querySelector('[data-testid="help__row"] a')?.getAttribute('href')).toBe('/helpdetail?id=withdraw-time');
   });
 
   it('an empty section says so; a missing topic and a switched-off help centre have their own words', async () => {

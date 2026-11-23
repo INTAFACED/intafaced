@@ -93,10 +93,17 @@ export const TEST_VENUE_DEPOSIT_ASSET = 'USDC';
 const TEST_USD_DECIMALS = 6;
 /**
  * The TEST venue's published deposit terms (J-dex-protocol-05 #1 and #2), all TEST: a transfer under 5 TEST USDC is never
- * credited, and one is credited after 3 confirmations on the TEST chain. The stack's anvil mines a block per transaction
+ * credited, one is credited after 3 confirmations on the TEST chain, and its warning names the one chain and token. The stack's anvil mines a block per transaction
  * only, so a journey that waits for confirmations mines the blocks itself (`evm_mine`, the TEST chain's own control).
  */
-export const TEST_VENUE_DEPOSIT_TERMS = { minimum: '5', confirmations: 3, network: 'TEST chain' };
+export const TEST_VENUE_DEPOSIT_TERMS = {
+  minimum: '5',
+  confirmations: 3,
+  network: 'TEST chain',
+  // The venue's own warning for a transfer on any other chain (J-wallet-24 #1), as a real bridge publishes one. TEST.
+  warning:
+    'TEST: send only TEST USDC on TEST chain to this address. A transfer on any other chain, or of any other token, is not credited.',
+};
 /**
  * The TEST chain's explorer is the app's own (/chain/tx/<hash>, which reads the stack's TEST chain), so the TEST venue links
  * each deposit there. A journey switches it off (`/test/switches {depositExplorerTxUrl: null}`) for a network with none.
@@ -129,7 +136,17 @@ export function testVenueDepositRoute({ rpcUrl, token }) {
  * Start the TEST venue and seed it, and, with a TEST chain, its deposit watcher. Resolves with the server and its URL.
  * `id` (testVenueId) names the venue; the second venue is then `<id>-b`. Null keeps the simulator's defaults.
  */
-export async function serveTestVenue({ host, port, appEnv, chainId, rpcUrl = '', depositToken = '', second = false, id = null }) {
+export async function serveTestVenue({
+  host,
+  port,
+  appEnv,
+  betaPosture,
+  chainId,
+  rpcUrl = '',
+  depositToken = '',
+  second = false,
+  id = null,
+}) {
   if (!fs.existsSync(VENUE_SIM_DIST)) {
     throw new Error(`${path.relative(REPO, VENUE_SIM_DIST)} is not built: pnpm --filter @intafaced/venue-sim... build`);
   }
@@ -145,7 +162,7 @@ export async function serveTestVenue({ host, port, appEnv, chainId, rpcUrl = '',
         // The first TEST venue has a scheduled cancel, as the venue it stands for does (J-cex-spot-07): at least 5 s ahead.
         scheduledCancelMinLeadMs: FIRST_TEST_VENUE_SCHEDULED_CANCEL_MIN_LEAD_MS,
       };
-  const started = await sim.startTestVenueServer({ host, port, appEnv, chainId, deposit, ...which });
+  const started = await sim.startTestVenueServer({ host, port, appEnv, betaPosture, chainId, deposit, ...which });
   const seeded = await sim.seedTestVenue(started.sim, second ? { levelSize: SECOND_TEST_VENUE.levelSize } : {});
   const log = (line) => process.stdout.write(`${JSON.stringify(line)}\n`);
   if (deposit) started.sim.switches.depositExplorerTxUrl = TEST_VENUE_DEPOSIT_EXPLORER;
@@ -160,6 +177,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     port: Number(process.env.TEST_VENUE_PORT ?? STACK_PORTS['test-venue']),
     // The RAW value: unset, blank and anything but dev or test refuse.
     appEnv: process.env.APP_ENV,
+    // The beta posture (APP_ENV staging, INTAFACED_BETA_POSTURE=test-networks) also lets the TEST venue run.
+    betaPosture: process.env.INTAFACED_BETA_POSTURE,
     chainId: testVenueChainId(process.env.TEST_VENUE_CHAIN_ID),
     rpcUrl: process.env.TEST_VENUE_RPC_URL,
     depositToken: process.env.TEST_VENUE_DEPOSIT_TOKEN,

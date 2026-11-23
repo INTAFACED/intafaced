@@ -1,5 +1,5 @@
 import 'server-only';
-import { founderCall, type FounderCallContext, type FounderCallResult, partFrom, type PartLabels, explainRefusal } from '@/lib/desk';
+import { type FounderCallContext, type FounderCallResult, partFrom, type PartLabels, explainRefusal, founderRecordRead } from '@/lib/desk';
 import { readDefinition } from './status-model';
 import {
   readChannels,
@@ -11,6 +11,16 @@ import {
   type SubscriberDeskView,
   type SubscriberState,
 } from './subscribers-model';
+import { NOTIFY_NOTICES } from '@intafaced/contracts/notify-notify-procedures';
+import {
+  NOTIFY_STATUS_PAGE_DEFINITION,
+  NOTIFY_STATUS_PAGE_SUBSCRIPTIONS_CHANNELS,
+  NOTIFY_STATUS_PAGE_SUBSCRIPTIONS_LIST,
+  NOTIFY_STATUS_PAGE_SUBSCRIPTIONS_DELIVERIES,
+  NOTIFY_STATUS_PAGE_SUBSCRIPTIONS_RESEND,
+  NOTIFY_STATUS_PAGE_SUBSCRIPTIONS_IMPORT,
+  NOTIFY_STATUS_PAGE_CONFIGURE,
+} from '@intafaced/contracts/notify-status-page-procedures';
 
 /**
  * The subscriber desk as the signed-in founder, all on svc-notify (`statusPage.subscriptions.*`, admin:write): the
@@ -31,11 +41,11 @@ export async function loadSubscriberDesk(
   { state, noticeId }: { state: SubscriberState | null; noticeId: string | null },
 ): Promise<SubscriberDeskView> {
   const [channels, subscribers, notices, definition, deliveries] = await Promise.all([
-    founderCall(ctx, 'notify', 'statusPage.subscriptions.channels', 'GET', undefined, readChannels),
-    founderCall(ctx, 'notify', 'statusPage.subscriptions.list', 'GET', { state, limit: LIST_LIMIT }, readSubscribers),
-    founderCall(ctx, 'notify', 'notify.notices', 'GET', { limit: NOTICES_LIMIT }, readPublishedNotices),
-    founderCall(ctx, 'notify', 'statusPage.definition', 'GET', undefined, readDefinition),
-    noticeId ? founderCall(ctx, 'notify', 'statusPage.subscriptions.deliveries', 'GET', { noticeId }, readEventDeliveries) : null,
+    founderRecordRead(ctx, NOTIFY_STATUS_PAGE_SUBSCRIPTIONS_CHANNELS, undefined, readChannels),
+    founderRecordRead(ctx, NOTIFY_STATUS_PAGE_SUBSCRIPTIONS_LIST, { state, limit: LIST_LIMIT }, readSubscribers),
+    founderRecordRead(ctx, NOTIFY_NOTICES, { limit: NOTICES_LIMIT }, readPublishedNotices),
+    founderRecordRead(ctx, NOTIFY_STATUS_PAGE_DEFINITION, undefined, readDefinition),
+    noticeId ? founderRecordRead(ctx, NOTIFY_STATUS_PAGE_SUBSCRIPTIONS_DELIVERIES, { noticeId }, readEventDeliveries) : null,
   ]);
   return {
     channels: partFrom(channels, (d) => d, LABELS),
@@ -76,15 +86,12 @@ function reply<T>(result: FounderCallResult<T>, what: string, extra: (data: T) =
 
 /** Tries the notice's pending and failed rows once more. Rows are keyed (notice, subscriber, channel), so none is doubled. */
 export async function resendNotice(ctx: FounderCallContext, noticeId: string) {
-  return reply(
-    await founderCall(ctx, 'notify', 'statusPage.subscriptions.resend', 'POST', { noticeId }, readEventDeliveries),
-    'sent again',
-  );
+  return reply(await founderRecordRead(ctx, NOTIFY_STATUS_PAGE_SUBSCRIPTIONS_RESEND, { noticeId }, readEventDeliveries), 'sent again');
 }
 
 export async function importSubscribers(ctx: FounderCallContext, source: string, emails: readonly string[]) {
   return reply(
-    await founderCall(ctx, 'notify', 'statusPage.subscriptions.import', 'POST', { source, emails }, readImportResult),
+    await founderRecordRead(ctx, NOTIFY_STATUS_PAGE_SUBSCRIPTIONS_IMPORT, { source, emails: [...emails] }, readImportResult),
     'imported',
     (imported) => ({ imported }),
   );
@@ -95,5 +102,5 @@ export async function setSafeguards(
   ctx: FounderCallContext,
   input: { challengeBits: number | null; subscribeRatePerHour: number | null; expectedRevision: number; reason: string },
 ) {
-  return reply(await founderCall(ctx, 'notify', 'statusPage.configure', 'POST', input, readDefinition), 'safeguards saved');
+  return reply(await founderRecordRead(ctx, NOTIFY_STATUS_PAGE_CONFIGURE, input, readDefinition), 'safeguards saved');
 }

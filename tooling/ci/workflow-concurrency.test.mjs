@@ -4,7 +4,7 @@
  * queued per finished journeys run (that workflow is gone since 9 Nov 2026: each seal input ends with a `Start the seal`
  * job, journey-seal.test.mjs).
  *
- * It holds four rules, each evaluated on the workflow's own `concurrency:` expressions with the event contexts that
+ * It holds these rules, each evaluated on the workflow's own `concurrency:` expressions with the event contexts that
  * matter (a tiny evaluator of GitHub's expression syntax below, so a rewrite that keeps the meaning still passes):
  *   1. Every workflow a pull request triggers keeps only the newest run per pull request: its group is one per pull
  *      request and its run cancels the older one (cancel-in-progress true on that event). The exceptions are named in
@@ -21,6 +21,8 @@
  *      of the touch job that never runs on main and can't fail the run, inside the job's time limit.
  *   7. Main bisect: a journeys revert, confirm or settle gets one group per red commit and broken steps, so two breaks in
  *      one main run never wait behind or replace each other, and the same break dispatched twice still shares one.
+ *   8. CI review (INTAFACED/project-state#3820): as rule 5 for the seal, and a ready-for-review joins the pull request's
+ *      group without cancelling, since it reviews the head being merged.
  * Planted faults at the bottom prove each rule fails on the shape it forbids. Run by tooling/scripts/tooling-tests.mjs.
  */
 import assert from 'node:assert/strict';
@@ -28,6 +30,7 @@ import { test } from 'node:test';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { BUILD_JOB, DEFER_MARK, DISPATCH_MARK, PLAN_JOB, RELEASE_JOB } from './main-first.mjs';
+import { DISPATCH_GROUP_MAX, dispatchBatches, dispatchGroup } from './journey-touch.mjs';
 
 const DIR = join(process.cwd(), '.github', 'workflows');
 const read = (f) => readFileSync(join(DIR, f), 'utf8');
@@ -213,12 +216,11 @@ const prEvent = (event_name, n, sha, extra = {}) => ({
 
 /**
  * Workflows a pull request triggers that don't cancel the older run, and why. Each keeps a bounded number of runs.
- *  - ci-review.yml: a change to the review job can't pass its own review and waits for the owner (intafaced AGENTS.md);
- *    its group is one per head, so an older head's review finishes but a newer one never waits for it.
- * merge-seal.yml is no exception since INTAFACED/project-state#1574 item 2: a push cancels the older head's seal, and
- * rule 5 below holds that nothing else is cancelled.
+ * None today. merge-seal.yml is no exception since INTAFACED/project-state#1574 item 2, and ci-review.yml none since
+ * INTAFACED/project-state#3820: a push cancels the older head's seal and review, and rules 5 and 8 below hold that
+ * nothing else is cancelled.
  */
-export const PR_EXCEPTIONS = new Set(['ci-review.yml']);
+export const PR_EXCEPTIONS = new Set([]);
 
 /** Problems with rule 1 in one workflow's text, or []. */
 export function prProblems(file, text) {
@@ -306,6 +308,44 @@ export function journeysProblems(text) {
   const run = (ref, j) => resolve(text, journeysRun('workflow_dispatch', ref, j)).group;
   if (run('refs/heads/x', 'J-a') === run('refs/heads/x-J', 'a'))
     problems.push('branch `x` with `J-a` and branch `x-J` with `a` share a group: nothing splits the branch from the selection');
+  // GitHub refuses to start a run whose group passes DISPATCH_GROUP_MAX characters, so the seal splits a long list into
+  // runs by hand that each stay within it (journey-touch.mjs dispatchBatches), measuring each by dispatchGroup: it must be this
+  // workflow's own group, or a split it prints may still not start (run 44766798876, 20 Nov 2026).
+  const sel = 'J-a-01.pw.mjs J-b-02.pw.mjs';
+  for (const b of ['fix/ps-3298', 'b1'])
+    if (run(`refs/heads/${b}`, sel) !== dispatchGroup(b, sel))
+      problems.push("journey-touch.mjs dispatchGroup is not the group a run by hand gets, so the seal's split runs may not start");
+  return problems;
+}
+
+// ---- rule 8: CI review ----------------------------------------------------------------------------------------------
+
+/** Problems with rule 8 in ci-review.yml's text, or []. */
+export function reviewProblems(text) {
+  if (!concurrency(text)) return ['ci-review.yml has no top-level concurrency group'];
+  const problems = [];
+  const at = (sha, extra) => resolve(text, prEvent('pull_request_target', 101, sha, extra));
+  const opened = at('aaa', { action: 'opened' });
+  const pushed = at('bbb', { action: 'synchronize' });
+  const ready = at('bbb', { action: 'ready_for_review' });
+  if (opened.group !== pushed.group || ready.group !== pushed.group || !pushed.cancel)
+    problems.push("a push doesn't cancel the review of the head it replaced");
+  if (pushed.group === at('ccc', { action: 'synchronize', number: 202 }).group) problems.push('two pull requests share a group');
+  // A ready-for-review run reviews the head being merged: it waits behind a running review rather than cancelling it.
+  if (ready.cancel) problems.push('a ready-for-review cancels a running review');
+  // Each of these reviews the head being merged, or runs no job; in the pull request's group it could replace a push's
+  // waiting review and leave the new head with none, and a re-run there of an old head's review would cancel the new one.
+  const own = {
+    'a title edit': at('bbb', { action: 'edited', changes: { title: { from: 'x' } } }),
+    'a base change': at('bbb', { action: 'edited', changes: { base: { ref: { from: 'x' } } } }),
+    'a reopen': at('bbb', { action: 'reopened' }),
+    "a push's re-run": at('aaa', { action: 'synchronize', attempt: '2' }),
+    "a ready-for-review's re-run": at('aaa', { action: 'ready_for_review', attempt: '2' }),
+  };
+  for (const [what, r] of Object.entries(own)) {
+    if (r.cancel) problems.push(`${what} cancels a running review`);
+    if (r.group === pushed.group) problems.push(`${what} shares the pull request's group, so a push could cancel or replace it`);
+  }
   return problems;
 }
 
@@ -537,6 +577,44 @@ test('Real-app journeys: main is never cancelled and shares one group; a superse
   assert.deepEqual(journeysProblems(read('real-app-journeys.yml')), []);
 });
 
+test("Real-app journeys: every run by hand the seal asks for fits GitHub's group limit, and the whole list did not", () => {
+  const t = read('real-app-journeys.yml');
+  // The 63 files the seal of #9250 named on 20 Nov 2026 (its run 44764722293), which failed to start as one run.
+  const files = `J-agents-12 J-campaigns-18 J-cex-spot-01 J-cex-spot-17 J-charts-desk-04-venue J-charts-desk-04 J-charts-desk-05
+    J-charts-desk-09-quota J-charts-desk-09 J-charts-desk-10 J-copy-bots-otc-10 J-derivatives-02-venue J-derivatives-02
+    J-derivatives-03 J-derivatives-07 J-derivatives-17 J-derivatives-21 J-derivatives-28 J-developer-03-detail J-developer-03
+    J-developer-06 J-developer-15 J-dex-protocol-01 J-dex-protocol-08 J-dex-protocol-11 J-dex-protocol-13 J-dex-protocol-20
+    J-home-ia-01-venue J-home-ia-01 J-home-ia-06 J-home-ia-11 J-identity-01 J-merchant-02-payouts J-merchant-02 J-merchant-04
+    J-more-catalogue-15 J-ops-console-01-announcements J-ops-console-01-health J-ops-console-01-maintenance
+    J-ops-console-01-ops-room J-ops-console-01-search J-ops-console-01-service-page J-ops-console-01-settings J-ops-console-01
+    J-ops-console-22 J-ops-console-27 J-p2p-01 J-pay-03-qr J-pay-03 J-portfolio-01-venue J-portfolio-01 J-portfolio-02-venue
+    J-portfolio-02 J-portfolio-03-venue J-portfolio-03 J-portfolio-04-venue J-portfolio-04 J-support-public-12
+    J-support-public-19 J-wallet-01 J-wallet-09 J-wallet-13 J-wallet-22`
+    .split(/\s+/)
+    .map((f) => `${f}.pw.mjs`);
+  assert.equal(files.length, 63);
+  const group = (branch, list) => resolve(t, journeysRun('workflow_dispatch', `refs/heads/${branch}`, list.join(' '))).group;
+  // Planted: the old instruction, one run of the whole list, is past the limit (it ended with no jobs).
+  assert.ok(group('fix/ps-3298', files).length > DISPATCH_GROUP_MAX);
+  for (const branch of ['fix/ps-3298', 'b1', `j/${'x'.repeat(120)}`]) {
+    const batches = dispatchBatches(branch, files);
+    assert.deepEqual(batches.flat(), files, `${branch}: every file once, in order`);
+    for (const b of batches) assert.ok(group(branch, b).length <= DISPATCH_GROUP_MAX, `${branch}: ${group(branch, b).length}`);
+    // As few runs as fit: no two neighbouring runs would fit as one.
+    for (let i = 1; i < batches.length; i++)
+      assert.ok(group(branch, [...batches[i - 1], ...batches[i]]).length > DISPATCH_GROUP_MAX, `${branch}: runs ${i - 1} and ${i}`);
+  }
+  // A short list stays one run, as before.
+  assert.deepEqual(dispatchBatches('b1', files.slice(0, 3)), [files.slice(0, 3)]);
+});
+
+test("planted: a dispatchGroup that is not the workflow's group fails", () => {
+  const t = read('real-app-journeys.yml');
+  const longer = t.replace("format('real-app-journeys-{0}:{1}'", "format('real-app-journeys-by-hand-{0}:{1}'");
+  assert.notEqual(longer, t);
+  assert.ok(journeysProblems(longer).some((p) => /dispatchGroup is not the group/.test(p)));
+});
+
 test('CI: a run on main is never cancelled', () => {
   const ci = read('ci.yml');
   for (const e of ['push', 'workflow_dispatch']) assert.equal(resolve(ci, journeysRun(e, MAIN)).cancel, false, e);
@@ -544,6 +622,37 @@ test('CI: a run on main is never cancelled', () => {
 
 test("CI merge seal: a push cancels the older head's seal; edits, reopens and re-runs are never cancelled and cancel nothing", () => {
   assert.deepEqual(sealProblems(read('merge-seal.yml')), []);
+});
+
+test("CI review: a push cancels the older head's review; edits, reopens and re-runs are never cancelled and cancel nothing", () => {
+  assert.deepEqual(reviewProblems(read('ci-review.yml')), []);
+});
+
+test("planted: yesterday's review (one group per head, never cancelled), and one where every run joins the group, fail rules 1 and 8", () => {
+  const t = read('ci-review.yml');
+  const c = concurrency(t);
+  const old = t
+    .replace(
+      c.group,
+      'ci-review-${{ github.event.pull_request.number }}-${{ github.event.pull_request.base.ref }}-${{ github.event.pull_request.head.sha }}',
+    )
+    .replace(`cancel-in-progress: ${c.cancel}`, 'cancel-in-progress: false');
+  assert.notEqual(old, t);
+  assert.match(prProblems('ci-review.yml', old).join(), /land in different groups/);
+  assert.ok(reviewProblems(old).some((p) => /a push doesn't cancel/.test(p)));
+  const all = t
+    .replace(c.group, 'ci-review-pr-${{ github.event.pull_request.number }}')
+    .replace(`cancel-in-progress: ${c.cancel}`, 'cancel-in-progress: true');
+  const p = reviewProblems(all);
+  for (const what of ['a title edit', 'a base change', 'a reopen', "a push's re-run", 'a ready-for-review cancels'])
+    assert.ok(
+      p.some((x) => x.startsWith(what)),
+      `${what}: ${p}`,
+    );
+  // Keyed on the event alone (no run_attempt), a re-run of an old head's review joins the group and cancels the new head's.
+  const noAttempt = t.replaceAll("github.run_attempt == '1' && ", '');
+  assert.notEqual(noAttempt, t);
+  assert.ok(reviewProblems(noAttempt).some((x) => x.startsWith("a push's re-run cancels")));
 });
 
 test("Real-app journeys: a run off main waits for main's jobs to get runners, and never fails or holds main", () => {

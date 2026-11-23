@@ -45,6 +45,8 @@ export const venueStatusSchema = z.union([
       .nullable()
       .optional(),
     builder: z.object({ address, feeBps: decimalSchema }).nullable(),
+    // J-derivatives-30 #1: our builder address alone, published even while the fee is blank (null: blank too).
+    builderAddress: address.nullable().optional(),
     // J-derivatives-03 #9: the most orders the venue takes in one signed action; above 1, a reverse is signed once.
     ordersPerAction: z.number().int().positive().optional(),
     // J-cex-spot-05: whether the venue lowers an order in place, and how many it cancels in one signed action (0: one each).
@@ -165,6 +167,8 @@ export const venueMarketSchema = z.object({
   marginTiers: maybeKnown(
     z.array(z.object({ fromNotional: decimalSchema, maxLeverageBps: z.number().int().positive(), maintenanceRate: decimalSchema })),
   ).optional(),
+  // A perpetual's one published maintenance rate, where the venue publishes no tiers (J-algo-dev-02 #5). Absent: not published.
+  maintenanceMarginRate: maybeKnown(decimalSchema).optional(),
   collateral: maybeKnown(z.array(z.object({ asset: z.string(), haircut: maybeKnown(decimalSchema) }))).optional(),
   // The venue's own trading state for the market, null where it reports none, and our listing's routing beside it
   // (J-charts-desk-15 #6: the chart refuses order entry naming either). Absent from an older door: not reported.
@@ -292,7 +296,16 @@ export const venueBalanceSchema = z.object({
   locked: decimalSchema,
   total: decimalSchema,
   /** What holds `locked`, as the venue splits it (J-portfolio-01 #4); absent when the venue reports no split. */
-  lockedBy: z.object({ inOrders: decimalSchema, margin: decimalSchema, staked: decimalSchema }).optional(),
+  // J-cex-spot-21 #8: delegated and unstaking are named apart where the account holds any.
+  lockedBy: z
+    .object({
+      inOrders: decimalSchema,
+      margin: decimalSchema,
+      staked: decimalSchema,
+      delegated: decimalSchema.optional(),
+      unstaking: decimalSchema.optional(),
+    })
+    .optional(),
 });
 export type VenueBalance = z.infer<typeof venueBalanceSchema>;
 
@@ -455,6 +468,101 @@ export const venueAccountSummarySchema = z.object({
 });
 export type VenueAccountSummary = z.infer<typeof venueAccountSummarySchema>;
 
+/**
+ * The account's mode as the venue reports it (J-derivatives-29): `null` where it does not report it; in standard mode
+ * its spot and perps balances apart; the day's action count against the mode's limit (`dailyLimit` null: none).
+ */
+export const venueAccountModeSchema = z.object({
+  mode: z.enum(['standard', 'unified', 'portfolio_margin']).nullable(),
+  spot: z.array(venueBalanceSchema).nullable(),
+  perps: z.array(venueBalanceSchema).nullable(),
+  actions: z.object({ usedToday: z.number().int().nonnegative(), dailyLimit: z.number().int().positive().nullable() }).nullable(),
+});
+export type VenueAccountModeRead = z.infer<typeof venueAccountModeSchema>;
+export type VenueAccountMode = NonNullable<VenueAccountModeRead['mode']>;
+
+// ── J-derivatives-31: the venue's vaults, a position in one, and its lock-up, each the venue's own figure ──────────
+
+/**
+ * One vault the venue lists (J-derivatives-31 #1): its lock-up in seconds, the leader's profit share in basis points, what
+ * it holds and its past return over `days` (basis points, negative a loss); each `null` where the venue does not publish it.
+ */
+export const venueVaultSchema = z.object({
+  address: z.string(),
+  name: z.string(),
+  kind: z.enum(['protocol', 'user']),
+  leader: z.string().nullable(),
+  asset: z.string(),
+  lockUpSeconds: z.number().int().nonnegative().nullable(),
+  profitShareBps: z.number().int().nonnegative().max(10_000).nullable(),
+  vaultValue: decimalSchema.nullable(),
+  pastReturn: z.object({ bps: z.number().int(), days: z.number().int().positive() }).nullable(),
+});
+export type VenueVault = z.infer<typeof venueVaultSchema>;
+
+/**
+ * The account's vault positions with their lock-up ends, its account value as the venue counts it (vault balances
+ * included; `null` where it publishes none), and its vault transfers, newest first (J-derivatives-31 #2 #3 #5).
+ */
+export const venueVaultHoldingsSchema = z.object({
+  positions: z.array(z.object({ vault: z.string(), name: z.string(), asset: z.string(), equity: decimalSchema, lockUpEndsAt: isoTime })),
+  accountValue: z.object({ asset: z.string(), amount: decimalSchema }).nullable(),
+  transfers: z.array(
+    z.object({
+      vault: z.string(),
+      direction: z.enum(['deposit', 'withdraw']),
+      amount: decimalSchema,
+      creditedAmount: decimalSchema,
+      leaderShare: decimalSchema.nullable(),
+      transferredAt: isoTime,
+      nonce: z.string(),
+    }),
+  ),
+});
+export type VenueVaultHoldings = z.infer<typeof venueVaultHoldingsSchema>;
+
+// ── J-cex-spot-21: staking on the venue, each figure the venue's own ──────────────────────────────────────────────
+
+/**
+ * The venue's staking terms (J-cex-spot-21 #1): its validators with their commission (basis points), stake and status, its
+ * yearly reward rate (basis points), discount tiers, delegation lock-up, unstaking queue and pending limit; each `null`
+ * where the venue does not publish it.
+ */
+export const venueStakingSchema = z.object({
+  asset: z.string(),
+  validators: z.array(
+    z.object({
+      address: z.string(),
+      name: z.string(),
+      commissionBps: z.number().int().nonnegative().max(10_000).nullable(),
+      totalStake: decimalSchema.nullable(),
+      status: z.enum(['active', 'jailed', 'inactive']),
+    }),
+  ),
+  rewardRateBps: z.number().int().nonnegative().nullable(),
+  discountTiers: z
+    .array(z.object({ name: z.string(), fromStaked: decimalSchema, discountBps: z.number().int().nonnegative().max(10_000) }))
+    .nullable(),
+  delegationLockUpSeconds: z.number().int().nonnegative().nullable(),
+  unstakingQueueSeconds: z.number().int().nonnegative().nullable(),
+  maxPendingWithdrawals: z.number().int().positive().nullable(),
+});
+export type VenueStaking = z.infer<typeof venueStakingSchema>;
+
+/** The account's staking (J-cex-spot-21 #2 #3 #6 #7 #8): balance, delegations, queued and arrived withdrawals, rewards. */
+export const venueStakingAccountSchema = z.object({
+  asset: z.string(),
+  staked: decimalSchema,
+  delegations: z.array(z.object({ validator: z.string(), name: z.string(), amount: decimalSchema, lockUpEndsAt: isoTime })),
+  pending: z.array(z.object({ amount: decimalSchema, requestedAt: isoTime, arrivesAt: isoTime, nonce: z.string() })),
+  arrived: z.array(z.object({ amount: decimalSchema, requestedAt: isoTime, arrivedAt: isoTime, nonce: z.string() })),
+  rewards: z.object({
+    total: decimalSchema,
+    recent: z.array(z.object({ validator: z.string(), amount: decimalSchema, rewardedAt: isoTime })),
+  }),
+});
+export type VenueStakingAccount = z.infer<typeof venueStakingAccountSchema>;
+
 // ── J-derivatives-07: a liquidation and its aftermath, each the venue's own figure ────────────────────────────────
 
 /** One part of a liquidation the venue carried out, with its own id, size, price and fee. */
@@ -590,6 +698,19 @@ export const venueFeeTierSchema = asOf(
         spot: feeRatesSchema,
         perpetual: feeRatesSchema,
         tierUpdatedAt: isoTime.nullable(),
+        // J-cex-spot-21 #4: the venue's staking discount on its own fee, with each market's venue rates before and after.
+        stakingDiscount: z
+          .object({
+            asset: z.string(),
+            countedStake: decimalSchema,
+            tierName: z.string().nullable(),
+            discountBps: z.number().int().nonnegative().max(10_000),
+            markets: z.array(
+              z.object({ symbol: z.string(), kind: z.enum(['spot', 'perpetual']), before: feeRatesSchema, after: feeRatesSchema }),
+            ),
+          })
+          .nullable()
+          .optional(),
       })
       .nullable(),
   }),
@@ -825,6 +946,12 @@ export interface ProtectionRequest {
 
 export const SPOT_CONDITIONAL_KINDS = ['stop_limit', 'stop_market', 'oco', 'bracket', 'oto'] as const;
 export type SpotConditionalKind = (typeof SPOT_CONDITIONAL_KINDS)[number];
+/**
+ * Every kind our engine keeps: the conditional kinds, and a good-till-date order (J-cex-spot-03 #7), which the desk's
+ * own ticket places (the person's limit on the venue, cancelled by our engine at its expiry).
+ */
+export const SPOT_ORDER_KINDS = [...SPOT_CONDITIONAL_KINDS, 'gtd'] as const;
+export type SpotOrderKind = (typeof SPOT_ORDER_KINDS)[number];
 export const SPOT_LEG_ROLES = ['stop', 'take_profit', 'stop_loss', 'entry', 'close'] as const;
 export type SpotLegRole = (typeof SPOT_LEG_ROLES)[number];
 
@@ -850,11 +977,11 @@ export type SpotLegView = z.infer<typeof spotLegSchema>;
 export const spotConditionalSchema = z.object({
   id: z.string(),
   clientOrderId: z.string(),
-  kind: z.enum(SPOT_CONDITIONAL_KINDS),
+  kind: z.enum(SPOT_ORDER_KINDS),
   symbol: z.string(),
   side: z.enum(['buy', 'sell']),
   quantity: decimalSchema,
-  status: z.enum(['entry', 'placing', 'open', 'armed', 'firing', 'cancelling', 'fired', 'filled', 'failed', 'cancelled']),
+  status: z.enum(['entry', 'placing', 'open', 'armed', 'firing', 'cancelling', 'fired', 'filled', 'failed', 'cancelled', 'expired']),
   restsOn: z.literal('engine'),
   label: z.string(),
   agentPermission: z.object({ agentAddress: z.string() }),
@@ -866,6 +993,8 @@ export const spotConditionalSchema = z.object({
   entryTif: z.enum(['GTC', 'IOC']).nullable(),
   closePrice: decimalSchema.nullable(),
   exitQuantity: decimalSchema.nullable(),
+  /** A good-till-date order's expiry (ISO), when our engine cancels it on the venue; null for every other kind. */
+  expireAt: z.string().nullable(),
   referencePrice: decimalSchema.nullable(),
   failure: z.string().nullable(),
   cancelReason: z.string().nullable(),
@@ -939,3 +1068,143 @@ export const protectionListSchema = z.object({ protections: z.array(protectionVi
 export const spotConditionalListSchema = z.object({ orders: z.array(spotConditionalSchema) });
 /** `POST /venue/spot-orders/review` (J-cex-spot-08). */
 export const spotFeeReviewSchema = z.object({ legs: z.array(spotFeeLegSchema) });
+
+/**
+ * `/venue/convert/*`: Convert on the person's own venue account (J-cex-spot-11). These follow
+ * `services/svc-trade/src/venue/venue-convert.ts` presentPairs, presentConvertQuote and presentConversion field for field.
+ */
+const convertAssetAmount = z.object({ asset: z.string(), amount: decimalSchema });
+
+/** A cash convert's first leg as the partner records it (J-cex-spot-11 #11): svc-bank `convertCash.leg`, passed on. */
+export const venueConvertCashLegSchema = z.object({
+  legKey: z.string(),
+  cash: z.string(),
+  coin: z.string(),
+  paid: decimalSchema,
+  delivered: decimalSchema,
+  rate: decimalSchema,
+  venue: z.object({ venueId: z.string(), owner: z.string() }),
+  state: z.enum(['sending', 'delivered']),
+  moveId: z.string(),
+  movedAt: isoTime,
+  deliveredAt: isoTime.nullable(),
+  label: z.string(),
+  test: z.boolean(),
+});
+
+/** `/venue/convert/accept`: the quote's one venue order for the wallet, after a cash convert's partner leg (#11). */
+export const venueConvertAcceptSchema = preparedAnswerSchema.extend({ cashLeg: venueConvertCashLegSchema.optional() });
+
+export const venueConvertPairsSchema = z.object({
+  venueId: z.string(),
+  test: z.boolean(),
+  paused: z.boolean(),
+  assets: z.array(z.string()),
+  restricted: z.array(z.string()),
+  /** Cash currencies the partner converts through a coin for this person now (#11); `cashReason` says why none is. */
+  cash: z
+    .array(
+      z.object({
+        asset: z.string(),
+        via: z.string(),
+        rate: decimalSchema,
+        available: decimalSchema.nullable(),
+        label: z.string(),
+        test: z.boolean(),
+      }),
+    )
+    .default([]),
+  cashReason: z.string().nullable().default(null),
+  pairs: z.array(
+    z.object({
+      symbol: z.string(),
+      base: z.string(),
+      quote: z.string(),
+      maxPerConvert: convertAssetAmount.nullable(),
+      minOrderNotional: decimalSchema.nullable(),
+      lotSize: decimalSchema,
+      tickSize: decimalSchema,
+    }),
+  ),
+});
+
+/** `/venue/convert/route`: the one direct market a pair converts through. */
+export const venueConvertRouteSchema = z.union([
+  z.object({ kind: z.literal('direct'), symbol: z.string(), side: z.enum(['buy', 'sell']) }),
+  /** Two linked legs (#11): the partner's cash for `via`, then `via` for the coin on `symbol`. */
+  z.object({
+    kind: z.literal('linked'),
+    symbol: z.string(),
+    side: z.enum(['buy', 'sell']),
+    cash: z.object({ asset: z.string(), via: z.string(), label: z.string(), test: z.boolean() }),
+  }),
+]);
+
+/** `/venue/convert/quote`: holds nothing and locks nothing (`held: false`). */
+export const venueConvertQuoteSchema = z.object({
+  quoteId: z.string(),
+  venueId: z.string(),
+  test: z.boolean(),
+  owner: z.string(),
+  market: z.string(),
+  side: z.enum(['buy', 'sell']),
+  from: z.string(),
+  to: z.string(),
+  spend: decimalSchema,
+  size: decimalSchema,
+  maxCost: decimalSchema,
+  bestPrice: z.object({ price: decimalSchema, asOf: isoTime }),
+  limitPrice: decimalSchema,
+  slippageBps: z.number().int(),
+  builderFee: z.union([
+    z.object({ kind: z.literal('none'), reason: z.literal('buy') }),
+    z.object({ kind: z.literal('quote_asset'), bps: decimalSchema, amount: maybeKnown(decimalSchema) }),
+  ]),
+  venueFee: z.union([
+    z.object({ known: z.literal(true), asset: z.string(), amount: decimalSchema }),
+    z.object({ known: z.literal(false) }),
+  ]),
+  fill: z.union([
+    z.object({ known: z.literal(true), amount: decimalSchema, averagePrice: decimalSchema.nullable() }),
+    z.object({ known: z.literal(false) }),
+  ]),
+  held: z.literal(false),
+  freshUntil: isoTime,
+  createdAt: isoTime,
+  /** A cash convert's first leg (#11): the partner's cash for `coin`, which the venue order then spends. */
+  cashLeg: z
+    .object({ cash: z.string(), coin: z.string(), rate: decimalSchema, coinSpend: decimalSchema, label: z.string(), test: z.boolean() })
+    .nullable()
+    .default(null),
+});
+
+/** One conversion, its paid and received amounts read from the venue's own fills. */
+export const venueConversionSchema = z.object({
+  actionKey: z.string(),
+  kind: z.enum(['instant', 'limit']),
+  quoteId: z.string().nullable(),
+  market: z.string(),
+  side: z.enum(['buy', 'sell']),
+  from: z.string(),
+  to: z.string(),
+  venueClientOrderId: z.string().nullable(),
+  limitPrice: decimalSchema,
+  state: z.enum(['filled', 'partially_filled', 'resting', 'not_filled', 'rejected', 'unknown']),
+  paid: convertAssetAmount,
+  received: convertAssetAmount,
+  venueFee: convertAssetAmount.nullable(),
+  builderFee: convertAssetAmount.nullable(),
+  fills: z.number().int(),
+  filledAt: isoTime.nullable(),
+  acceptedAt: isoTime,
+  /** A cash convert (#11) is one record of two linked legs: the partner's, then the venue order (null until signed). */
+  legs: z
+    .object({
+      cash: z.union([venueConvertCashLegSchema, z.object({ unread: z.literal(true) })]),
+      venue: z.object({ state: z.string(), paid: convertAssetAmount, received: convertAssetAmount }).nullable(),
+    })
+    .optional(),
+});
+
+/** `/venue/convert/history`. */
+export const venueConvertHistorySchema = z.object({ conversions: z.array(venueConversionSchema), asOf: isoTime.nullable() });

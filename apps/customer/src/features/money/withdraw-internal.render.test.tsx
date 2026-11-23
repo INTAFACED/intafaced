@@ -17,7 +17,15 @@ const route = (module: string, procedure: string, ...rest: unknown[]) =>
       : Promise.resolve({ ok: false, reason: 'unreachable', message: 'not in this test' });
 vi.mock('../session', async (original) => ({
   ...(await original<typeof import('../session')>()),
-  useSession: () => ({ userId: 'u1', api: { query: route, mutate } }),
+  useSession: () => ({
+    userId: 'u1',
+    api: {
+      query: route,
+      mutate,
+      call: (record: { kind: string; module: string; path: string; output: unknown }, input: unknown, options?: unknown) =>
+        (record.kind === 'query' ? route : mutate)(record.module, record.path, input, record.output, options),
+    },
+  }),
 }));
 vi.mock('./holdings', () => ({
   useHoldings: () => ({
@@ -99,7 +107,7 @@ function setValue(input: HTMLInputElement, value: string) {
   input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 const input = (label: string) =>
-  [...document.querySelectorAll('label.field')].find((l) => l.querySelector('span')?.textContent === label)!.querySelector('input')!;
+  [...document.querySelectorAll('label.lt-field')].find((l) => l.querySelector('span')?.textContent === label)!.querySelector('input')!;
 const button = (name: string) =>
   [...document.querySelectorAll('button')].find((b) => b.textContent === name) as HTMLButtonElement | undefined;
 const click = async (name: string) => act(async () => void button(name)!.click());

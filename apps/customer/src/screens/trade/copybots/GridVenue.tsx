@@ -5,7 +5,7 @@ import { displayAmount } from '../../../shared/money';
 import { useResource } from '../../../shared/resource';
 import { useWallet } from '../../../features/protocol/wallet/WalletProvider';
 import { TestMark, WalletBar, useOwner, useVenueApi } from '../../../features/trade/venue/VenueKit';
-import { keys, preparedAnswerSchema, walletTypedData, type PreparedAnswer, type VenueUp } from '../../../features/trade/venue-api';
+import { draftId, keys, preparedAnswerSchema, walletTypedData, type PreparedAnswer, type VenueUp } from '../../../features/trade/venue-api';
 import type { ApiResult } from '../../../shared/api';
 import type { createRoomApi, GridBot, GridRequest } from './api';
 import { roomCopy } from './copy';
@@ -70,6 +70,8 @@ export function useVenueGrid(api: RoomApi, status: VenueUp, symbol: string) {
   const venue = useVenueApi();
   const owner = useOwner();
   const sign = useSigner();
+  // The draft this wizard's builder approval is asked under (keys.builderApproval).
+  const [approvalDraft] = useState(() => draftId());
   const markets = useResource((signal) => venue.markets(signal), 'grid-venue-markets');
   const spot = useMemo(
     () =>
@@ -94,7 +96,7 @@ export function useVenueGrid(api: RoomApi, status: VenueUp, symbol: string) {
     const prepared = await venue.prepare({
       owner,
       intent: { kind: 'approve_builder_fee', builder: builder.address, maxFeeBps: builder.feeBps },
-      actionKey: keys.builderApproval(owner, builder.address, builder.feeBps),
+      actionKey: keys.builderApproval(owner, builder.address, builder.feeBps, undefined, approvalDraft),
     });
     if (!prepared.ok) return prepared;
     if (prepared.data.lastOutcome?.definite && prepared.data.lastOutcome.accepted) return null;
@@ -170,7 +172,7 @@ export function VenueGridFacts({ bot, api, onDone }: { bot: GridBot; api: RoomAp
       />
       <TestMark test={venue.test} />
       {bot.status === 'signing' ? (
-        <div className="cb-action-row">
+        <div className="lt-actions">
           <InfoNote>{t('Nothing is placed until your wallet signs the agent permission.')}</InfoNote>
           <Button onClick={() => void signNow()} disabled={!owner || busy}>
             {t('Sign the agent permission')}
@@ -212,7 +214,7 @@ export function VenueGridWithdraw({ bot, api }: { bot: GridBot; api: RoomApi }) 
   return (
     <section aria-label={t('Withdraw')}>
       <InfoNote>{t('You withdraw from the venue with your own wallet. The bot’s agent permission can’t withdraw.')}</InfoNote>
-      <div className="cb-action-row">
+      <div className="lt-actions">
         <Button variant="secondary" onClick={() => void ask()} disabled={busy}>
           {t('Withdraw through the bot')}
         </Button>

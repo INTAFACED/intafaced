@@ -73,6 +73,21 @@ describe('the owner’s provider setting', () => {
       capabilities: { export: true, recovery: true },
     });
     expect(embeddedWalletFromSetting('TEST:test', URL, 'dev').kind).toBe('ready');
+    // The same TEST provider standing in for one whose plan offers no key export (J-wallet-22 #5).
+    const noExport = embeddedWalletFromSetting('TEST:test-no-export', URL, 'test');
+    expect(noExport.kind === 'ready' && noExport.adapter.info.capabilities).toEqual({ export: false, recovery: true });
+    expect(() => embeddedWalletFromSetting('TEST:test-no-export', URL, 'production')).toThrow(/TEST value .* Refusing to boot/);
+  });
+
+  it('boots the TEST provider in the beta posture (staging, INTAFACED_BETA_POSTURE test-networks), loopback URL still required', () => {
+    expect(embeddedWalletFromSetting('TEST:test', URL, 'staging', fetch, 'test-networks').kind).toBe('ready');
+    expect(() => embeddedWalletFromSetting('TEST:test', 'https://provider.example', 'staging', fetch, 'test-networks')).toThrow(/loopback/);
+    for (const [env, beta] of [
+      ['prod', 'test-networks'],
+      ['staging', 'mainnet'],
+      ['staging', undefined],
+    ] as const)
+      expect(() => embeddedWalletFromSetting('TEST:test', URL, env, fetch, beta)).toThrow(/TEST value .* Refusing to boot/);
   });
 
   it('refuses to boot on a TEST provider outside dev or test, a missing or non-loopback URL, or an unknown provider', () => {
@@ -256,6 +271,8 @@ describe('embeddedWallet.* mounted', () => {
     expect(await alice.embeddedWallet.status()).toEqual({
       provider: { id: 'test', displayName: 'TEST wallet provider', test: true, capabilities: { export: true, recovery: true } },
       wallet: null,
+      // The owner's gas-sponsor setting is blank (J-wallet-24 #2): no sponsored deposit is offered.
+      gasSponsor: { set: false, code: 'wallet.gas_sponsor_unset' },
     });
     const made = await alice.embeddedWallet.create({ passkey: PASSKEY });
     expect(made).toEqual({
@@ -281,7 +298,11 @@ describe('embeddedWallet.* mounted', () => {
       code: 'PRECONDITION_FAILED',
       message: expect.stringMatching(/^wallet\.embedded_provider_unset:/),
     });
-    expect(await caller(undefined).embeddedWallet.status()).toEqual({ provider: null, wallet: null });
+    expect(await caller(undefined).embeddedWallet.status()).toEqual({
+      provider: null,
+      wallet: null,
+      gasSponsor: { set: false, code: 'wallet.gas_sponsor_unset' },
+    });
     const down = deps({
       kind: 'ready',
       adapter: fakeProvider({

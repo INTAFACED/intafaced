@@ -41,6 +41,10 @@ const trade = (status: Trade['status'] = 'fiat_sent', escrowedAt: string | null 
   escrowedAt,
   resolvedAt: null,
   settledAt: null,
+  sharedFrom: false,
+  releaseWindowSeconds: null,
+  escrowKind: 'ledger',
+  contract: null,
   mismatch: null,
 });
 /** A pay client whose own-case read answers `own` (none by default). */
@@ -67,6 +71,8 @@ const methodRow = (methodId: string, noteRules: { guidance: string; forbidden: s
   label: 'TEST bank transfer',
   fields: [],
   enabled: true,
+  settlement: { instant: true as const },
+  kind: 'transfer' as const,
   noteRules,
   cashRules: null,
 });

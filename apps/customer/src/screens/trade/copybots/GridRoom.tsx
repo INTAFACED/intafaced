@@ -28,7 +28,7 @@ import { displayAmount } from '../../../shared/money';
 import { createRoomApi, type GridBot, type GridRequest } from './api';
 import { roomCopy } from './copy';
 import { useWriteGuard } from './guard';
-import { GridSettings, GridTopUp } from './GridManage';
+import { GridExits, GridIdleYield, GridSettings, GridTopUp } from './GridManage';
 import { GridWithdraw } from './GridWithdraw';
 import { GridWallet, VenueGridFacts, VenueGridWithdraw, WALLET_CODES, useVenueGrid, venueFeeItems } from './GridVenue';
 import { parseGridCount, previewGridPrices } from './grid-plan';
@@ -52,6 +52,9 @@ export const GRID_TONE: Record<GridBot['status'], BadgeTone> = {
   initialization_failed: 'warn',
   stopped: 'neutral',
 };
+
+/** Why a grid stopped, in words: its own exit, or the person. */
+const STOP_WORD: Readonly<Record<string, string>> = { price_exit: 'Price exit', owner_stop: 'You stopped it' };
 
 // One key per intent: kept while a reply is lost (so a resend is the same request), renewed after any definite answer.
 const newRequestKey = () => `grid-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -173,7 +176,7 @@ export function GridRoom({ path }: { path: string }) {
         }
       />
       <PendingBanner guard={guard} check={() => void check()} checking={checking} verdict={verdict} onDismiss={() => setVerdict(null)} />
-      <div className="cb-action-row">
+      <div className="lt-actions">
         <Button variant="ghost" size={28} onClick={() => navigate('/trade/bots')}>
           {t('Back to Bots')}
         </Button>
@@ -255,7 +258,7 @@ function GridWizard({
   return (
     <form
       aria-label={t('Spot grid')}
-      className="cb-form"
+      className="lt-stack"
       onSubmit={(event) => {
         event.preventDefault();
         create();
@@ -267,7 +270,7 @@ function GridWizard({
           <TabsTab value="presets">{t('Presets')}</TabsTab>
         </TabsList>
         <TabsPanel value="setup">
-          <PageSection title={t('Set up')} headingLevel={2}>
+          <div className="lt-stack">
             <SelectField
               label={t('Market')}
               value={symbol}
@@ -320,15 +323,15 @@ function GridWizard({
               <InfoNote>{t('Enter both prices and a grid count in the allowed range to see the levels.')}</InfoNote>
             )}
             {guard.failure ? <RefusalNote failure={guard.failure} /> : null}
-            <div className="cb-action-row">
+            <div className="lt-actions">
               <Button type="submit" disabled={guard.busy || guard.locked}>
                 {guard.busy ? t('Starting') : t('Create bot')}
               </Button>
             </div>
-          </PageSection>
+          </div>
         </TabsPanel>
         <TabsPanel value="presets">
-          <PageSection title={t('Presets')} headingLevel={2}>
+          <div className="lt-stack">
             {presets.status === 'ready' && presets.data ? (
               <KeyValue items={[{ label: t('Backtested presets'), value: t('Not set') }]} />
             ) : presets.failure ? (
@@ -337,7 +340,7 @@ function GridWizard({
               <InfoNote>{t('Checking')}</InfoNote>
             )}
             <InfoNote>{t('No backtest source is connected, so no preset and no APR is shown.')}</InfoNote>
-          </PageSection>
+          </div>
         </TabsPanel>
       </Tabs>
     </form>
@@ -414,13 +417,30 @@ function GridDetail({
                 : `${displayAmount(data.reserve.amount)} ${data.reserve.asset}`
               : t('None'),
           },
+          // A grid on our own book shows its exits: each price, or Not set; the RSI exit is always Not set (no RSI source).
+          ...(data.exits
+            ? [
+                {
+                  label: t('Stop when the price falls to'),
+                  value: data.exits.stopBelow ? `${displayAmount(data.exits.stopBelow)} ${data.quoteAsset}` : t('Not set'),
+                },
+                {
+                  label: t('Stop when the price rises to'),
+                  value: data.exits.stopAbove ? `${displayAmount(data.exits.stopAbove)} ${data.quoteAsset}` : t('Not set'),
+                },
+                { label: t('RSI exit'), value: t('Not set') },
+              ]
+            : []),
+          ...(data.status === 'stopped' && data.statusReason && STOP_WORD[data.statusReason]
+            ? [{ label: t('Stopped by'), value: t(STOP_WORD[data.statusReason] as 'Price exit') }]
+            : []),
           { label: t('Bot ID'), value: data.botId },
         ]}
       />
       {data.venue && venue ? <VenueGridFacts bot={data} api={api} onDone={bot.reload} /> : null}
       {guard.failure ? <RefusalNote failure={guard.failure} /> : null}
       {data.status === 'signing' || data.status === 'initializing' || data.status === 'running' || data.status === 'paused_range' ? (
-        <div className="cb-action-row">
+        <div className="lt-actions">
           <Button variant="secondary" onClick={stop} disabled={guard.busy || guard.locked}>
             {t('Stop bot')}
           </Button>
@@ -428,6 +448,8 @@ function GridDetail({
             <>
               <GridTopUp bot={data} api={api} onDone={bot.reload} />
               <GridSettings bot={data} api={api} />
+              <GridExits bot={data} api={api} onDone={bot.reload} />
+              <GridIdleYield bot={data} api={api} />
             </>
           ) : null}
         </div>

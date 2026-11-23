@@ -8,6 +8,7 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { tsImport } from 'tsx/esm/api';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const OXLINT = join(ROOT, 'node_modules', '.bin', 'oxlint');
@@ -193,10 +194,39 @@ test('no-unsealed-claim: the words and cases the deleted marketing-language gate
   assert.equal(claimScope('/home/runner/work/intafaced/packages/i18n/src/locale-files.generated.ts'), true);
   assert.equal(claimScope('packages/i18n/src/i18n.test.ts'), false);
   assert.equal(claimScope('packages/i18n/scripts/build-locale-index.mjs'), false);
-  // The law module (packages/config/src/marketing-language.ts) names the same words and seal.
-  const law = readFileSync(join(ROOT, 'packages', 'config', 'src', 'marketing-language.ts'), 'utf8');
-  assert.match(law, new RegExp(`MARKETING_BAN_WORDS = \\[${CLAIM_WORDS.map((w) => `'${w}'`).join(', ')}\\]`));
-  assert.ok(law.includes("OWNER_SEAL_MARKER = 'OWNER-SEAL(§8.9)'"));
+});
+
+test('no-unsealed-claim: the words and the seal are the law module’s, and both judge every line alike', async () => {
+  // The law module, imported (tsx runs its source, so no build is needed).
+  const law = await tsImport('../../../packages/config/src/marketing-language.ts', import.meta.url);
+  assert.deepEqual(CLAIM_WORDS, [...law.MARKETING_BAN_WORDS]);
+  // The rule's message names this seal: it is the law's marker, and the marker silences both.
+  assert.equal(law.OWNER_SEAL_MARKER, 'OWNER-SEAL(§8.9)');
+  assert.deepEqual(unsealedClaims(`Guaranteed yield ${law.OWNER_SEAL_MARKER}`), []);
+  assert.deepEqual(unsealedClaims('Guaranteed yield', `// ${law.OWNER_SEAL_MARKER}`), []);
+  const lines = [
+    ['Fully audited and insured deposits'],
+    ['guaranteed yield', '// OWNER-SEAL(§8.9)'],
+    ['Guaranteed yield OWNER-SEAL( § 8.9 )'],
+    ['Guaranteed yield owner-seal(8.9)'],
+    ['guaranteed yield OWNER-SEAL(§8.8)'],
+    ['unaudited code'],
+    ['non-insured'],
+    ['never been externally audited'],
+    ['not a guaranteed yield'],
+    ['audited: false'],
+    ["  audited: 'Audit status',"],
+    ['audited: true'],
+    ['Insured, audited, guaranteed.'],
+    ['an auditor reviewed it'],
+    ['nothing to see'],
+  ];
+  for (const [line, previous = ''] of lines)
+    assert.deepEqual(
+      unsealedClaims(line, previous),
+      law.findUnsealedMarketingClaims(line, previous).map((hit) => hit.word),
+      line,
+    );
 });
 
 test('no-promise-copy: every promise the deleted copy-promises test planted is caught', () => {

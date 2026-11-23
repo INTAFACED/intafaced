@@ -1,5 +1,6 @@
 import { ArrowLeft, Check } from 'lucide-react';
-import { Amount, Button, fmtAmount, navigate, refusalCopy, Skeleton, StateBlock } from './deps';
+import { Amount, Button, Skeleton, StateBlock } from './ui-deps';
+import { fmtAmount, navigate, refusalCopy } from './deps';
 import { moneyCopy } from './copy';
 import { stamp } from './time';
 import { usePreferences } from '../../shared/preferences';
@@ -99,7 +100,7 @@ export default function BalanceEntries({ rawAsset, search }: { rawAsset: string;
     );
   } else if (state.status === 'loading') {
     body = (
-      <div aria-busy="true" role="status" aria-label={t('Loading entries')} className="money-detail__skeleton">
+      <div aria-busy="true" role="status" aria-label={t('Loading entries')} className="lt-stack">
         <Skeleton width={260} height={28} className="bg-field" />
         <Skeleton width={200} height={20} className="bg-field" />
       </div>
@@ -161,7 +162,7 @@ export default function BalanceEntries({ rawAsset, search }: { rawAsset: string;
             </tbody>
           </table>
         </section>
-        {state.moreFailed && <p className="money-detail__note">{t('Couldn’t load more')}</p>}
+        {state.moreFailed && <p className="lt-hint">{t('Couldn’t load more')}</p>}
         {state.hasMore && (
           <Button variant="secondary" size={40} onClick={state.loadMore} disabled={state.loadingMore}>
             {t('Load more')}
@@ -185,9 +186,9 @@ export default function BalanceEntries({ rawAsset, search }: { rawAsset: string;
         <ArrowLeft size={16} aria-hidden="true" />
         {t('Back to your money')}
       </a>
-      <header className="money-detail__head">
+      <header className="lt-stack">
         <h1 className="money-title">{t('Balance entries title', { asset })}</h1>
-        <p className="money-detail__note">{t('Balance entries intro', { asset })}</p>
+        <p className="lt-hint">{t('Balance entries intro', { asset })}</p>
       </header>
       <div className="money-alloc__switch" role="group" aria-label={t('Entries account scope')}>
         {scope(null, t('Entries all accounts'))}

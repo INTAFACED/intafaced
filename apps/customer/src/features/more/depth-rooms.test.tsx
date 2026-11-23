@@ -26,8 +26,8 @@ vi.mock('../../shared/preferences', async (original) => {
 });
 
 // The signed-out overview inside Campaigns reads the session.
-vi.mock('../session/session', async (original) => {
-  const real = await original<typeof import('../session/session')>();
+vi.mock('../session', async (original) => {
+  const real = await original<typeof import('../session')>();
   const api = { query: () => new Promise(() => undefined), canWrite: () => true };
   return {
     ...real,
@@ -108,8 +108,8 @@ describe('rooms with no backing service', () => {
     expect(html).not.toMatch(/H\/s|hashes per second\b(?!,)/);
     expect(html).not.toContain('no_shares_in_window');
     // Opens /mining/workers and sets a minimum difficulty: the set minimum, "Automatic" where none, and a blank default says so.
-    expect(html).toMatch(/<td class="numeric">512<\/td>/);
-    expect(html).toMatch(/<td class="numeric">Automatic<\/td>/);
+    expect(html).toMatch(/<td class="lt-num">512<\/td>/);
+    expect(html).toMatch(/<td class="lt-num">Automatic<\/td>/);
     expect(html).toContain('The pool has no published default difficulty.');
     expect(html).toContain('type="search"');
     expect(html).toContain('Next page');
