@@ -1,4 +1,5 @@
-import { StatusTag } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
+import { StatusChip } from '@intafaced/ui/lit/templates';
 import {
   KYC_LADDER_LEVELS,
   type KycLadderFeatureState,
@@ -9,7 +10,7 @@ import type { PayWithdrawalTierLimits } from '@intafaced/contracts/pay-withdrawa
 import { PAY_WITHDRAWAL_TIER_LIMITS } from '@intafaced/contracts/pay-withdrawal-procedures';
 import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
-import { Button, Failure, Loading } from '../../shared/ui';
+import { Failure, Loading } from './kit-parts';
 import { verificationLadderCopy as copy } from './verification-ladder-copy';
 import { IDENTITY_KYC_LEVELS_DESCRIBE } from '@intafaced/contracts/identity-kyc-procedures';
 
@@ -57,7 +58,7 @@ export function VerificationLadder({
   if (resource.status === 'loading') return <Loading />;
   if (resource.status === 'failed')
     return (
-      <section className="verification__ladder" aria-label={t('title')}>
+      <section className="lt-stack" aria-label={t('title')}>
         <h2>
           <Copy k="failedTitle" />
         </h2>
@@ -78,7 +79,7 @@ export function VerificationLadder({
     return (
       <li
         key={f.feature}
-        className="verification__feature"
+        className="lt-title-row"
         data-feature={f.feature}
         data-state={f.state}
         {...(f.state === 'needs_level' ? { 'data-needs': f.level } : {})}
@@ -87,42 +88,42 @@ export function VerificationLadder({
         <span>
           <Copy k={f.feature} />
         </span>
-        <StatusTag status={f.state === 'allowed' ? 'filled' : f.state === 'needs_level' ? 'pending' : 'cancelled'} label={label} />
+        <StatusChip status={f.state === 'allowed' ? 'done' : f.state === 'needs_level' ? 'pending' : 'failed'} label={label} />
       </li>
     );
   };
   return (
-    <section className="verification__ladder" aria-label={t('title')}>
+    <section className="lt-stack" aria-label={t('title')}>
       <h2>
         <Copy k="title" />
       </h2>
       <p className="lt-muted">
         <Copy k="intro" /> {ladder.regionResolved ? <Copy k="region" params={{ region: ladder.region }} /> : <Copy k="regionUnknown" />}
       </p>
-      <ol className="verification__rungs">
+      <ol className="lt-sections">
         {ladder.levels.map((rung) => (
           <li
             key={rung.level}
             data-testid="verification__rung"
-            className={rung.current ? 'verification__rung verification__rung--current' : 'verification__rung'}
+            className="lt-stack"
             data-level={rung.level}
             aria-current={rung.current ? 'step' : undefined}
           >
-            <div className="verification__rung-head">
+            <div className="lt-title-row">
               <h3>
                 <Copy k={rung.level} />
               </h3>
-              {rung.current && <StatusTag status="filled" label={t('yourLevel')} />}
+              {rung.current && <StatusChip status="done" label={t('yourLevel')} />}
             </div>
             <h4>
               <Copy k="unlocks" />
             </h4>
-            <ul className="verification__features">{rung.features.map((f) => feature(rung, f))}</ul>
+            <ul className="lt-list">{rung.features.map((f) => feature(rung, f))}</ul>
             <h4>
               <Copy k="asks" />
             </h4>
             {rung.requirements.published ? (
-              <ul data-testid="verification__requirements" className="verification__requirements" data-published="true">
+              <ul data-testid="verification__requirements" className="lt-list" data-published="true">
                 {rung.requirements.keys.map((key) => (
                   <li key={key} data-requirement={key}>
                     <Copy k={key} />
@@ -130,26 +131,26 @@ export function VerificationLadder({
                 ))}
               </ul>
             ) : (
-              <p data-testid="verification__requirements" className="verification__requirements muted" data-published="false">
+              <p data-testid="verification__requirements" className="lt-muted" data-published="false">
                 <Copy k="notPublished" />
               </p>
             )}
             {rung.reviewHours === null ? (
-              <p data-testid="verification__review-time" className="verification__review-time muted" data-stated="false">
+              <p data-testid="verification__review-time" className="lt-muted" data-stated="false">
                 <Copy k="noReviewTime" />{' '}
-                <a className="text-link" href="/support">
-                  <Copy k="noReviewTimeHelp" /> →
+                <a className="lt-link" href="/support">
+                  <Copy k="noReviewTimeHelp" /> <span className="lt-arrow lt-arrow-go" aria-hidden="true" />
                 </a>
               </p>
             ) : (
-              <p data-testid="verification__review-time" className="verification__review-time" data-stated="true">
+              <p data-testid="verification__review-time" data-stated="true">
                 {rung.reviewHours === 1 ? <Copy k="reviewTimeOne" /> : <Copy k="reviewTime" params={{ hours: String(rung.reviewHours) }} />}
               </p>
             )}
             <h4>
               <Copy k="limitsTitle" />
             </h4>
-            <div className="verification__limits" data-level={rung.level}>
+            <div data-testid="verification__limits" data-level={rung.level}>
               {limits.status === 'loading' ? (
                 <p className="lt-muted">
                   <Copy k="limitsReading" />
@@ -186,7 +187,7 @@ export function VerificationLadder({
               )}
             </div>
             {rank(rung.level) > rank(ladder.held) && offered.includes(rung.level) && (
-              <Button variant="secondary" disabled={verifyDisabled} onClick={() => onVerify(rung.level)}>
+              <Button tone="secondary" disabled={verifyDisabled} onClick={() => onVerify(rung.level)}>
                 <Copy k="verify" />
               </Button>
             )}

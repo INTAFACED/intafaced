@@ -89,7 +89,7 @@ describe('composeVenueStatement (J-cex-spot-07 #5)', () => {
     expect(ids('deposit')).toEqual(['chain:statement:inside']);
     expect(ids('withdrawal')).toEqual([out.prepared.nonce]);
     expect(rows.find((r) => r.record === 'withdrawal')).toMatchObject({ direction: 'out', amount: '10', asset: 'USDC' });
-    expect(built).toMatchObject({ orders: 2, trades: myFills.length, movements: 2 });
+    expect(built).toMatchObject({ orders: 2, trades: myFills.length, movements: 2, liquidations: 0 });
   });
 
   it('fails as incomplete where the venue keeps no order history, rather than leave orders out', async () => {
@@ -98,5 +98,76 @@ describe('composeVenueStatement (J-cex-spot-07 #5)', () => {
     await expect(
       composeVenueStatement({ venue, account: w.me.account, withdrawalNonces: [] }, { from: new Date(T0), to: new Date(T0 + HOUR) }),
     ).rejects.toThrow('keeps no order history');
+  });
+
+  it("lists each part of each liquidation the venue reports in the range, with the venue's fee and ids (J-derivatives-26 #7)", async () => {
+    const w = world();
+    const part = (partId: string, at: number, fee: string) => ({
+      partId,
+      size: a('50'),
+      price: a('95.29'),
+      fee: a(fee),
+      feeAsset: 'USDC',
+      liquidatedAt: new Date(at),
+    });
+    const reported = [
+      {
+        liquidationId: 'liq-0',
+        symbol: 'XCRS-PERP',
+        side: 'long',
+        state: 'done',
+        parts: [part('liq-0-1', T0 - HOUR, '1')],
+        startedAt: new Date(T0 - HOUR),
+      },
+      {
+        liquidationId: 'liq-1',
+        symbol: 'XCRS-PERP',
+        side: 'long',
+        state: 'done',
+        parts: [part('liq-1-1', T0 + HOUR, '47.645')],
+        startedAt: new Date(T0 + HOUR),
+      },
+    ] as const;
+    const asked: Date[] = [];
+    const venue = Object.assign(Object.create(Object.getPrototypeOf(w.sim)), w.sim, {
+      liquidations: async (_account: UserVenueAccount, since: Date) => {
+        asked.push(since);
+        return { value: reported.filter((l) => l.startedAt.getTime() >= since.getTime()), asOf: new Date(T0 + 2 * HOUR) };
+      },
+    });
+    const built = await composeVenueStatement(
+      { venue, account: w.me.account, withdrawalNonces: [] },
+      { from: new Date(T0), to: new Date(T0 + 24 * HOUR) },
+    );
+    expect(asked).toEqual([new Date(T0)]);
+    const rows = parse(built.csv).filter((r) => r.record === 'liquidation');
+    expect(rows).toEqual([
+      expect.objectContaining({
+        record: 'liquidation',
+        id: 'liq-1-1',
+        time: new Date(T0 + HOUR).toISOString(),
+        source: w.sim.venue.displayName,
+        market: 'XCRS-PERP',
+        side: 'long',
+        status: 'done',
+        price: '95.29',
+        amount: '50',
+        fee: '47.645',
+        fee_asset: 'USDC',
+        source_ref: 'liq-1',
+      }),
+    ]);
+    expect(built.liquidations).toBe(1);
+  });
+
+  it('lists no liquidation where the venue reports none', async () => {
+    const w = world();
+    const venue = Object.assign(Object.create(Object.getPrototypeOf(w.sim)), w.sim, { liquidations: undefined });
+    const built = await composeVenueStatement(
+      { venue, account: w.me.account, withdrawalNonces: [] },
+      { from: new Date(T0), to: new Date(T0 + HOUR) },
+    );
+    expect(built.liquidations).toBe(0);
+    expect(parse(built.csv).filter((r) => r.record === 'liquidation')).toEqual([]);
   });
 });

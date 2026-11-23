@@ -7,6 +7,7 @@ import { currentRoute, subscribeRoute } from '../../shared/route-watch';
 import { BLUEPRINT_EXPORT } from '@intafaced/contracts/blueprint-procedures';
 import { crewExportOwnedBy, crewProjection, type CrewEnvelope, type CrewRead } from './blueprint-crew-codec';
 import { blueprintCrewCopy } from './blueprint-crew-copy';
+import { BlueprintMentorCardAction } from './BlueprintSharedCard';
 import { Section } from './volt-parts';
 
 type Lease = Readonly<{ api: ApiClient; owner: string | null; session: object | null; route: ReturnType<typeof currentRoute> }>;
@@ -166,6 +167,8 @@ export function BlueprintCrew() {
                   </strong>
                   <span lang="zxx">{member.userId}</span>
                   <span className="lt-hint">{t('joined', { time: date(member.joinedAt) })}</span>
+                  {/* The crewmate is picked here, so nobody has to copy their account code into the card viewer. */}
+                  {member.own ? null : <BlueprintMentorCardAction subject={member.userId} available={admits} />}
                 </li>
               ))}
             </ul>

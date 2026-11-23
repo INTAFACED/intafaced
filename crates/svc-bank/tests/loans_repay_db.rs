@@ -434,7 +434,7 @@ fn a_repayment_that_settles_during_the_quote_is_not_sold_at_the_pre_repayment_de
     let repaid = repaid.unwrap();
     let result = result.unwrap();
     assert_eq!(repaid.principal_paid, amt("4500"));
-    assert_eq!(repaid.interest_paid, 0);
+    assert_eq!(repaid.interest_paid, Amount::ZERO);
     assert!(result.refused.is_empty(), "{:?}", result.refused);
     assert_eq!(posts(&k, "loanLiquidate", &loan.id), 0);
     assert_eq!(k.debt(&loan.id).principal, amt("500"));
@@ -728,14 +728,14 @@ fn two_overlapping_repayments_with_different_event_ids_do_not_each_pay_the_full_
     };
     assert_eq!(code(&refused), "bank.loan_closed");
     assert_eq!(paid.principal_paid, amt("5000"));
-    assert_eq!(paid.interest_paid, 0);
+    assert_eq!(paid.interest_paid, Amount::ZERO);
     assert!(paid.closed);
     assert_eq!(all_posts(&k, "loanRepay"), 1);
     assert_eq!(all_posts(&k, "loanCollateralRelease"), 1);
     assert_eq!(k.ledger.available(BORROWER, "USDT"), "5000");
     assert_eq!(collateral(&k, &loan), "0");
     assert_eq!(k.status(&loan.id), "repaid");
-    assert_eq!(k.debt(&loan.id).total, 0);
+    assert_eq!(k.debt(&loan.id).total, Amount::ZERO);
 
     let winner = if a_won { &event_a } else { &event_b };
     let again = repay(&k, &loan.id, "5000", winner).unwrap();
@@ -1093,7 +1093,7 @@ fn books_the_bad_debt_cover_when_a_closing_sale_is_finished_after_its_receipt_wa
     ));
     assert_eq!(rungs[0][0].as_deref(), Some("settled"));
     assert_ne!(rungs[0][1].as_deref(), Some("0"));
-    assert_eq!(k.debt(&loan.id).total, 0);
+    assert_eq!(k.debt(&loan.id).total, Amount::ZERO);
     assert_eq!(k.status(&loan.id), "liquidated");
 }
 
@@ -1831,7 +1831,7 @@ fn create_product_refuses_a_blank_floor_before_any_insert() {
 #[test]
 fn create_product_stores_an_explicit_0n() {
     let Some(k) = kit() else { return };
-    let p = k.product_with(|p| p.min_principal = Some(0));
+    let p = k.product_with(|p| p.min_principal = Some(Amount::ZERO));
     assert_eq!(products(&k), 1);
     assert_eq!(
         k.one(&format!(
@@ -1841,7 +1841,7 @@ fn create_product_stores_an_explicit_0n() {
         .as_deref(),
         Some("true")
     );
-    assert_eq!(p.min_principal, 0);
+    assert_eq!(p.min_principal, Amount::ZERO);
 }
 
 #[test]
@@ -1858,7 +1858,7 @@ fn create_product_once_refuses_a_blank_floor_before_any_insert_and_still_accepts
     })
     .unwrap();
     assert!(!replayed);
-    assert_eq!(product.min_principal, 0);
+    assert_eq!(product.min_principal, Amount::ZERO);
     assert_eq!(products(&k), 1);
 }
 
@@ -1872,7 +1872,7 @@ fn assert_loan_params_names_a_blank_floor_and_still_allows_0n() {
     );
     assert!(model::assert_loan_params(&new_product()).is_ok());
     let e = err(model::assert_loan_params(&NewProduct {
-        min_principal: Some(-1),
+        min_principal: Some(-Amount::from_scaled(1)),
         ..new_product()
     }));
     assert!(
@@ -1901,12 +1901,12 @@ fn reading_a_stored_blank_floor_is_a_typed_refusal_not_0() {
 #[test]
 fn reading_a_stored_number_keeps_that_number_including_0() {
     let Some(k) = kit() else { return };
-    let zero = k.product_with(|p| p.min_principal = Some(0));
+    let zero = k.product_with(|p| p.min_principal = Some(Amount::ZERO));
     assert_eq!(
         space::with(&k.store, |c| model::product(c, &zero.id))
             .unwrap()
             .min_principal,
-        0
+        Amount::ZERO
     );
     let floor = k.product_with(|p| p.min_principal = Some(amt("12.5")));
     assert_eq!(

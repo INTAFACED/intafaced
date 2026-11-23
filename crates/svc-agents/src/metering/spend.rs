@@ -129,7 +129,7 @@ pub fn parse_spend_amount(raw: Option<&str>, field: &str) -> Result<Amount, Spen
         return Err(unset(field));
     };
     match parse_amount(js_trim(raw)) {
-        Ok(a) if a >= 0 => Ok(a),
+        Ok(a) if a >= Amount::ZERO => Ok(a),
         _ => Err(invalid(field)),
     }
 }
@@ -423,9 +423,9 @@ mod tests {
         i.per_session = Some("0.5".to_owned());
         i.per_period = Some("2.0".to_owned());
         let (l, _) = parse_limit_input(&i).unwrap();
-        assert_eq!(l.per_call, 0);
-        assert_eq!(l.per_session, 5 * 10_i128.pow(17));
-        assert_eq!(l.per_period, 2 * 10_i128.pow(18));
+        assert_eq!(l.per_call, Amount::ZERO);
+        assert_eq!(l.per_session, Amount::from_scaled(5 * 10_i128.pow(17)));
+        assert_eq!(l.per_period, Amount::whole(2));
         assert_eq!(l.period, "day");
     }
 
@@ -454,24 +454,62 @@ mod tests {
     fn cap() -> Limits {
         Limits {
             asset_id: "IFC".to_owned(),
-            per_call: 10,
-            per_session: 15,
-            per_period: 20,
+            per_call: Amount::from_scaled(10),
+            per_session: Amount::from_scaled(15),
+            per_period: Amount::from_scaled(20),
             period: "day".to_owned(),
         }
     }
 
     #[test]
     fn allows_a_call_that_lands_on_each_cap() {
-        assert_eq!(decide_reservation(&cap(), 0, 0, 10), Ok(()));
-        assert_eq!(decide_reservation(&cap(), 5, 0, 10), Ok(()));
-        assert_eq!(decide_reservation(&cap(), 0, 10, 10), Ok(()));
+        assert_eq!(
+            decide_reservation(&cap(), Amount::ZERO, Amount::ZERO, Amount::from_scaled(10)),
+            Ok(())
+        );
+        assert_eq!(
+            decide_reservation(
+                &cap(),
+                Amount::from_scaled(5),
+                Amount::ZERO,
+                Amount::from_scaled(10)
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            decide_reservation(
+                &cap(),
+                Amount::ZERO,
+                Amount::from_scaled(10),
+                Amount::from_scaled(10)
+            ),
+            Ok(())
+        );
     }
 
     #[test]
     fn names_the_cap_that_would_be_exceeded() {
-        assert_eq!(decide_reservation(&cap(), 0, 0, 11), Err(("call", 10)));
-        assert_eq!(decide_reservation(&cap(), 6, 0, 10), Err(("session", 15)));
-        assert_eq!(decide_reservation(&cap(), 0, 11, 10), Err(("period", 20)));
+        assert_eq!(
+            decide_reservation(&cap(), Amount::ZERO, Amount::ZERO, Amount::from_scaled(11)),
+            Err(("call", Amount::from_scaled(10)))
+        );
+        assert_eq!(
+            decide_reservation(
+                &cap(),
+                Amount::from_scaled(6),
+                Amount::ZERO,
+                Amount::from_scaled(10)
+            ),
+            Err(("session", Amount::from_scaled(15)))
+        );
+        assert_eq!(
+            decide_reservation(
+                &cap(),
+                Amount::ZERO,
+                Amount::from_scaled(11),
+                Amount::from_scaled(10)
+            ),
+            Err(("period", Amount::from_scaled(20)))
+        );
     }
 }

@@ -271,7 +271,7 @@ export function LinksView({
                             <a className="lt-link" href={`/pay/links/${encodeURIComponent(link.id)}`}>
                               {link.label}
                             </a>
-                            <small data-testid="pp-mono" className="pay-cell-note pp-mono">
+                            <small data-testid="pp-mono" className="lt-hint lt-mono">
                               {link.prefix}
                             </small>
                           </>
@@ -793,7 +793,7 @@ export function PaymentLinkForm({ pay, merchantId, portal }: { pay: BusinessPayA
           {t('linkOwnerOnly')}
         </p>
       )}
-      <div data-testid="form-stack" className="form-stack pp-form">
+      <div data-testid="form-stack" className="lt-stack">
         <fieldset className="pp-group">
           <legend>{t('groupCheckout')}</legend>
           {portal && (

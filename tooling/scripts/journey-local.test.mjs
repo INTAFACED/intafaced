@@ -6,7 +6,17 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { journeyFiles, journeyLocal, onlyReady, parseArgs, readReport, refusal, workTree } from './journey-local.mjs';
+import {
+  JOURNEY_DIR,
+  consoleNeeded,
+  journeyFiles,
+  journeyLocal,
+  onlyReady,
+  parseArgs,
+  readReport,
+  refusal,
+  workTree,
+} from './journey-local.mjs';
 
 const ALL_HELD =
   '\nlocal-test-stack: refusing: every slot is held (0: /w/a (pid 1); 1: /w/b (pid 2); 2: /w/c (pid 3); 3: /w/d (pid 4)); stop one with `local-test-stack.mjs stop` in its checkout\n';
@@ -24,8 +34,9 @@ const report = (tests) => ({
 });
 
 /** A fake world: `answers` maps a command's first words to { code, text }; every call is recorded. */
-function world({ answers = {}, hadStack = false, rep = report([['J-x-01 #1 opens', 'expected']]), pw = 0 } = {}) {
+function world({ answers = {}, hadStack = false, rep = report([['J-x-01 #1 opens', 'expected']]), pw = 0, console = true } = {}) {
   const calls = [];
+  const starts = [];
   const said = [];
   let signal;
   const io = {
@@ -35,6 +46,7 @@ function world({ answers = {}, hadStack = false, rep = report([['J-x-01 #1 opens
     say: (l) => said.push(l),
     branch: 'j/J-x-01',
     ourStack: () => hadStack,
+    consoleNeeded: () => console,
     slot: () => 2,
     state: () => '/s',
     readJson: () => rep,
@@ -45,6 +57,7 @@ function world({ answers = {}, hadStack = false, rep = report([['J-x-01 #1 opens
         .map((a) => a.split('/').pop())
         .join(' ');
       calls.push(key);
+      if (key === 'local-test-stack.mjs start') starts.push(argv.slice(2));
       if (argv[0] === 'pnpm') return { code: pw, text: '' };
       return answers[key] ?? { code: 0, text: key.endsWith('custody') ? 'on\n' : '' };
     },
@@ -54,7 +67,7 @@ function world({ answers = {}, hadStack = false, rep = report([['J-x-01 #1 opens
     },
     waitForTaker: async () => {},
   };
-  return { io, calls, said, signal: () => signal() };
+  return { io, calls, said, starts, signal: () => signal() };
 }
 
 test('every slot held: one line naming GitHub run instead, exit 3, nothing stopped', async () => {
@@ -245,4 +258,47 @@ test('workTree: the tree git add -A would commit, untracked files in, ignored on
   assert.equal(git('rev-parse', 'HEAD^{tree}'), withB);
   assert.equal(workTree(path.join(os.tmpdir(), 'no-such-dir-jl'), path.join(d, '.jr')), null);
   fs.rmSync(d, { recursive: true, force: true });
+});
+
+test('the console is built and started only when a file the run runs reaches it (project-state #3674)', async () => {
+  const off = world({ console: false });
+  assert.equal(await journeyLocal({ ids: ['J-x-01'] }, off.io), 0);
+  assert.deepEqual(off.starts, [['start', '--no-admin']]);
+  assert.ok(off.said.includes('local:stack journey: no file here reaches the founder console, so it is neither built nor started'));
+  const on = world();
+  assert.equal(await journeyLocal({ ids: ['J-x-01'], only: 'bank' }, on.io), 0);
+  assert.deepEqual(on.starts, [['start', '--only', 'bank']]);
+});
+
+test('consoleNeeded: each way a journey file reaches the console, through its local imports', () => {
+  const files = {
+    'J-plain.pw.mjs': "import { test } from './journey.mjs';\nimport { EDGE } from './stack.mjs';\nconst price = '3100';",
+    'journey.mjs': "// founders.console(key) signs in\nconst { founderSignIn } = await import('./admin.mjs');",
+    'stack.mjs': "export const stackUrl = (n) => n; // stackUrl('admin')",
+    'admin.mjs': 'export const ADMIN = 1;',
+    'staff.mjs': "import { ADMIN } from './admin.mjs';",
+    'J-helper.pw.mjs': "import { test } from './journey.mjs';\nimport { hire } from './staff.mjs';",
+    'J-dynamic.pw.mjs': "const { ADMIN } = await import('./admin.mjs');",
+    'J-fixture.pw.mjs': "test('a', async ({ founders }) => { const { page } = await founders.console('b'); });",
+    'J-url.pw.mjs': "const url = stackUrl('admin');",
+    'J-tls.pw.mjs': "expect(href).toBe(`https://127.0.0.1:${STACK_PORTS['team-tls']}/ops`);",
+    'J-cookie.pw.mjs': "await tool('local-test-gates.mjs', 'scoped-session', '--without', 'x');",
+  };
+  const read = (f) => files[path.basename(f)] ?? null;
+  const needs = (f) => consoleNeeded([f], '/j', read);
+  assert.equal(needs('J-plain.pw.mjs'), false, 'journey.mjs and stack.mjs alone never reach it');
+  for (const f of ['J-helper.pw.mjs', 'J-dynamic.pw.mjs', 'J-fixture.pw.mjs', 'J-url.pw.mjs', 'J-tls.pw.mjs', 'J-cookie.pw.mjs'])
+    assert.equal(needs(f), true, f);
+  assert.equal(consoleNeeded(['J-plain.pw.mjs', 'J-url.pw.mjs'], '/j', read), true, 'one file of the run is enough');
+});
+
+test('consoleNeeded on this tree: every journey that names the console needs it, and most journeys do not', () => {
+  const names = fs.readdirSync(JOURNEY_DIR).filter((f) => /^J-.*\.pw\.mjs$/.test(f));
+  const named = names.filter((f) =>
+    /admin\.mjs|founders\.console|stackUrl\('admin'\)|team-tls/.test(fs.readFileSync(path.join(JOURNEY_DIR, f), 'utf8')),
+  );
+  assert.ok(named.length > 0);
+  for (const f of named) assert.equal(consoleNeeded([f]), true, f);
+  // The run that started this (project-state #3674): every local journey built the console, though most never open it.
+  assert.ok(names.filter((f) => !consoleNeeded([f])).length > names.length / 2);
 });

@@ -132,6 +132,31 @@ test('planted: a Rust service posting a customer-balance recipe outside the inve
   }
 });
 
+test("planted: a Rust file posting a customer-balance recipe through its crate's recipe wrapper fails", () => {
+  const dir = sandbox();
+  try {
+    mkdirSync(join(dir, 'crates/svc-planted/src'), { recursive: true });
+    // The wrapper: one fn that posts whatever recipe it is handed (svc-bank's loans::service::post).
+    writeFileSync(
+      join(dir, 'crates/svc-planted/src/post.rs'),
+      'pub fn post(l: &dyn Ledger, recipe: &str, input: &Json) {\n    l.post_recipe(recipe, input, key);\n}\n',
+    );
+    assert.deepEqual(runCustodyLayerCheck(dir).violations, []);
+    const file = join(dir, 'crates/svc-planted/src/sweep.rs');
+    writeFileSync(file, 'pub fn sweep(l: &dyn Ledger) {\n    post(l, "loanLiquidate", &input)?;\n}\n');
+    let v = runCustodyLayerCheck(dir).violations;
+    assert.deepEqual(
+      v.map((x) => [x.check, x.file, x.reason.split(',')[0]]),
+      [['customer-balance-posting', 'crates/svc-planted/src/sweep.rs', 'posts loanLiquidate']],
+    );
+    // A method of the same name on something else is not the wrapper.
+    writeFileSync(file, 'pub fn sweep(c: &Client) {\n    c.post("loanLiquidate");\n}\n');
+    assert.deepEqual(runCustodyLayerCheck(dir).violations, []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('planted: turning the default on, or removing the runtime refusal, fails', () => {
   for (const [file, from, to] of [
     [

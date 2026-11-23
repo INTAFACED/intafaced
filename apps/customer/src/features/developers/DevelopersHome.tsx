@@ -93,7 +93,7 @@ function DocsSearch() {
   return (
     <section aria-labelledby="dev-search">
       <h2 id="dev-search">{t('searchTitle')}</h2>
-      <form role="search" className="lt-actions" onSubmit={submit}>
+      <form role="search" className="lt-field-row" onSubmit={submit}>
         <Field
           type="search"
           label={t('searchLabel')}

@@ -88,7 +88,10 @@ describe('the money calendar', () => {
     );
     expect(html).toContain('Failed');
     expect(html).toContain('There was not enough money. Nothing was taken.');
-    expect(html).toContain('Reference: ledger.insufficient_funds');
+    // The reason's code is the item's attribute, never words a customer reads.
+    expect(html).toContain('data-code="ledger.insufficient_funds"');
+    expect(html).not.toContain('ledger.insufficient_funds<');
+    expect(html).not.toMatch(/>[^<]*ledger\.insufficient_funds/);
     expect(html).toContain('Paused');
   });
 
@@ -101,7 +104,10 @@ describe('the money calendar', () => {
     expect(html).toContain('Bills: no bill payment partner is connected');
     expect(html).toContain('Loans: repayment dates are not published, so no loan shows on the calendar. Open loans: 2.');
     expect(html).toContain('Fixed-term earn could not be read just now. Everything else is shown.');
-    expect(html).toContain('Reference: bank.calendar_source_unavailable');
-    expect(html).toMatch(/data-testid="cal-source-earn" data-state="unavailable" role="note"/);
+    // The code is the row's attribute, never words a customer reads.
+    expect(html).toMatch(/data-testid="cal-source-earn" data-state="unavailable" data-code="bank.calendar_source_unavailable" role="note"/);
+    expect(html).toMatch(/data-testid="cal-source-loans" data-state="not_set" data-code="bank.loan_schedule_unset"/);
+    expect(html).not.toMatch(/>[^<]*bank\.[a-z_]+/);
+    expect(html).not.toContain('in this build');
   });
 });

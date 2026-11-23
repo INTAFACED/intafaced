@@ -889,7 +889,7 @@ fn a_team_hold_refuses_a_run_on_a_team_session_from_any_route_but_the_team_run_r
         hold_code(w.reserve(ANA, ANA_SESSION, "plain", "0.5", true)).0,
         "agents.session_not_found"
     );
-    assert_eq!(w.held(), 0);
+    assert_eq!(w.held(), Amount::ZERO);
     assert_eq!(
         w.reserve(ANA, ANA_SESSION, "team:a1", "0.5", true)
             .unwrap()
@@ -931,7 +931,7 @@ fn a_team_hold_refuses_a_member_with_no_allocation_and_a_hold_the_team_run_route
         hold_code(w.reserve(ANA, ANA_SESSION, "plain-key", "0.1", true)).0,
         "agents.session_not_found"
     );
-    assert_eq!(w.held(), 0);
+    assert_eq!(w.held(), Amount::ZERO);
 }
 
 #[test]
@@ -1117,7 +1117,7 @@ fn a_removed_member_is_refused_at_their_next_run_before_anything_is_held() {
         ),
         "agents.team_not_member"
     );
-    assert_eq!(w.held(), 0);
+    assert_eq!(w.held(), Amount::ZERO);
 }
 
 // ---- runs.test.ts: usage

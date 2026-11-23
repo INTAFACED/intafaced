@@ -568,7 +568,9 @@ test(`${J} #4 blocks a direct debit mandate: the block is sent to the partner, n
   const failed = page.getByTestId(`dd-collection-${tag}-ten`);
   await expect(failed).toContainText('Failed');
   await expect(failed).toContainText('The partner bank reported too little money in your main balance. Nothing was taken.');
-  await expect(failed).toContainText('bank.partner_insufficient_funds');
+  // A Bank refusal no step names ends in plain words; its code stays on data-code.
+  await expect(failed.locator('[data-code="bank.partner_insufficient_funds"]')).toBeAttached();
+  await expect(failed).not.toContainText('bank.partner_insufficient_funds');
   await expect(failed).toContainText('Not set. No fee was charged.');
   // Its refund path: nothing was taken, and a debit that was taken is asked back from this list.
   await expect(failed).toContainText('Nothing was taken, so nothing needs refunding.');
@@ -699,17 +701,20 @@ test(`${J} #5 opens the calendar: standing orders and direct debits on their dat
   // Where the dates come from: loans publish none and bills have no partner, each named; the rest are counted.
   const sources = page.getByTestId('cal-sources');
   await expect(sources.getByTestId('cal-source-loans')).toContainText('repayment dates are not published');
-  await expect(sources.getByTestId('cal-source-loans')).toContainText('bank.loan_schedule_unset');
+  await expect(sources.getByTestId('cal-source-loans')).toHaveAttribute('data-code', 'bank.loan_schedule_unset');
+  // A code is the row's attribute, never words a customer reads.
+  await expect(sources).not.toContainText('bank.');
   await expect(sources.getByTestId('cal-source-bills')).toContainText('no bill payment partner is connected');
   await expect(sources.getByTestId('cal-source-standing_orders')).toHaveAttribute('data-state', 'ok');
   await expect(sources.getByTestId('cal-source-direct_debits')).toHaveAttribute('data-state', 'ok');
 
-  // The list: each run with its status, and a failed one with its reason in words and by code.
+  // The list: each run with its status, and a failed one with its reason in words, its code on the row.
   await page.getByRole('button', { name: 'List', exact: true }).click();
   const failedRow = page.getByTestId(`cal-row-${short}:0`);
   await expect(failedRow).toContainText('Failed');
   await expect(failedRow).toContainText('There was not enough money. Nothing was taken.');
-  await expect(failedRow).toContainText('bank.partner_insufficient_funds');
+  await expect(failedRow.locator('[data-status="failed"]')).toHaveAttribute('data-code', 'bank.partner_insufficient_funds');
+  await expect(failedRow).not.toContainText('bank.partner_insufficient_funds');
   await expect(page.getByTestId(`cal-row-${due}:0`)).toContainText('Done');
 
   // Filter by kind: direct debits off leaves the standing orders showing.
@@ -787,7 +792,7 @@ test(`${J} #6 saves a payment reminder rule under its business key: a replay is 
   // A rule that moves money: every field there, and saving it is refused with the missing terms. Nothing is stored.
   await page.reload();
   const money = page.getByTestId('rules-money');
-  await expect(page.getByTestId('rules-money-not-set')).toContainText('bank.rule_terms_unset');
+  await expect(page.getByTestId('rules-money-not-set').locator('[data-code="bank.rule_terms_unset"]')).toBeAttached();
   const rows = await spaces(who);
   await money.getByLabel('Rule name').fill('Sweep TEST');
   await money.getByRole('combobox', { name: /^From/ }).selectOption(main(rows).id);
@@ -797,7 +802,7 @@ test(`${J} #6 saves a payment reminder rule under its business key: a replay is 
   await money.getByLabel('Amount to move').fill('10');
   await money.getByRole('button', { name: 'Save rule' }).click();
   await expect(money.getByRole('alert')).toContainText('Not saved: rules that move money by themselves are not open');
-  await expect(money.getByRole('alert')).toContainText('bank.rule_terms_unset');
+  await expect(money.getByRole('alert')).not.toContainText('bank.rule_terms_unset');
   const refused = await api.mutate('rules.createMoneyRule', {
     name: 'Sweep TEST',
     fromSpaceId: main(rows).id,
@@ -928,7 +933,7 @@ test(`${J} #8 with one source failing (TEST switch), opens the calendar: the fai
       expect(broken.sources.find((s) => s.source === source)).toEqual(whole.sources.find((s) => s.source === source));
     expect(broken.items.find((i) => i.key === `${due}:0`)).toMatchObject({ source: 'standing_orders', status: 'done' });
 
-    // In the app: the failing kind is named in words and by code, and the standing orders still show on their days.
+    // In the app: the failing kind is named in words, its code on the row, and the standing orders still show on their days.
     await signIn(page, who);
     await page.goto('/bank/calendar');
     await calendarMonth(page, ranMonth);
@@ -936,7 +941,8 @@ test(`${J} #8 with one source failing (TEST switch), opens the calendar: the fai
     const failing = sources.getByTestId('cal-source-direct_debits');
     await expect(failing).toHaveAttribute('data-state', 'unavailable');
     await expect(failing).toContainText('Direct debits could not be read just now. Everything else is shown.');
-    await expect(failing).toContainText('bank.calendar_source_unavailable');
+    await expect(failing).toHaveAttribute('data-code', 'bank.calendar_source_unavailable');
+    await expect(sources).not.toContainText('bank.');
     await expect(sources.getByTestId('cal-source-standing_orders')).toHaveAttribute('data-state', 'ok');
     await expect(sources.getByTestId('cal-source-loans')).toContainText('repayment dates are not published');
     await expect(sources.getByTestId('cal-source-bills')).toContainText('no bill payment partner is connected');

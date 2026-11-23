@@ -3,6 +3,7 @@
 //! draft's validator and the findings that stop publishing. A blank spend cap stays blank.
 
 use service_kit::json::Json;
+use service_kit::money::Amount;
 use service_kit::money::{format_amount, parse_amount};
 use service_kit::s2s::js_length;
 use service_kit::schema::js_trim;
@@ -506,7 +507,7 @@ fn parse_cap(cap: Option<&str>) -> Result<Option<String>, OwnRefusal> {
         return Ok(None);
     }
     match parse_amount(text) {
-        Ok(a) if a > 0 => Ok(Some(format_amount(a))),
+        Ok(a) if a > Amount::ZERO => Ok(Some(format_amount(a))),
         _ => Err(OwnRefusal::new("agents.own.cap_invalid")),
     }
 }

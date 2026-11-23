@@ -592,8 +592,10 @@ impl TaxService {
             {
                 continue;
             }
-            if row.amount > 0 {
-                *held.entry(row.account.asset_id.clone()).or_insert(0) += row.amount;
+            if row.amount > Amount::ZERO {
+                *held
+                    .entry(row.account.asset_id.clone())
+                    .or_insert(Amount::ZERO) += row.amount;
             }
         }
         let override_prices = prices_of(&active)?;
@@ -1267,7 +1269,7 @@ fn sub_account_year(
             .then_with(|| locale_compare(&a.id, &b.id))
     });
     let missing = kept.iter().any(|l| l.cost_basis.is_none());
-    let mut sum: Amount = 0;
+    let mut sum: Amount = Amount::ZERO;
     let mut any = false;
     let mut lines = Vec::new();
     for l in &kept {

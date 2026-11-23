@@ -107,7 +107,7 @@ pub fn to_base_units(amount: &str, decimals: i64) -> Result<u128, String> {
         return Err(format!("token decimals must be 0 to {LEDGER_DECIMALS}"));
     };
     let scaled = parse_amount(service_kit::schema::js_trim(amount))?;
-    let Ok(scaled) = u128::try_from(scaled) else {
+    let Ok(scaled) = u128::try_from(scaled.scaled()) else {
         return Err(format!("not a decimal amount: {amount}"));
     };
     let step = 10u128.pow(LEDGER_DECIMALS - d);

@@ -155,12 +155,12 @@ function VenueQueue({
   const fillWindow = ownerValue(owner, 'queueFillWindowSeconds');
   const resting = mine.filter((row) => row.order.type === 'limit');
   return (
-    <section className="of-section" aria-label={t('My queue')} data-testid="of-queue">
+    <section className="lt-stack" aria-label={t('My queue')} data-testid="of-queue">
       <h3 className="of-title">{t('My queue')}</h3>
       {resting.length === 0 ? (
-        <p className="of-note">{t('My queue none')}</p>
+        <p className="lt-muted">{t('My queue none')}</p>
       ) : (
-        <ul className="of-queue">
+        <ul className="lt-stack">
           {resting.map((row) => (
             <VenueQueueRow
               key={row.id}
@@ -206,7 +206,7 @@ function VenueQueueRow({
     return (
       <li className="of-queue-row" data-testid="of-queue-row" data-order-id={row.id} data-state="loading">
         <span className="of-queue-head">{head}</span>
-        <span className="of-note">{t('My queue loading')}</span>
+        <span className="lt-muted">{t('My queue loading')}</span>
       </li>
     );
   const windowSeconds = fillWindow.ok ? fillWindow.value : null;
@@ -225,7 +225,7 @@ function VenueQueueRow({
     return (
       <li className="of-queue-row" data-testid="of-queue-row" data-order-id={row.id} data-state="not-in-book">
         <span className="of-queue-head">{head}</span>
-        <span className="of-note" role="status">
+        <span className="lt-muted" role="status">
           {t('My queue venue past book')}
         </span>
       </li>
@@ -260,7 +260,7 @@ function VenueQueueRow({
       <span data-testid="of-queue-chance">
         {chance ? t('My queue chance', { pct: fmtPct(chance.ratio, { signed: false }) }) : t('My queue chance unset')}
       </span>
-      <span className="of-note" data-testid="of-queue-basis">
+      <span className="lt-muted" data-testid="of-queue-basis">
         {chance
           ? t('My queue venue basis', {
               traded: size(chance.tradedThrough),

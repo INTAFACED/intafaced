@@ -113,25 +113,25 @@ export function VenueMarketPanel({
       <ReadProblem failure={failure} venueName={venueName} />
       <dl className="dk-stats dk-venue-ticker" data-testid="venue-ticker">
         <div className="dk-stat">
-          <dt className="dk-stat-label">{t('Last price')}</dt>
+          <dt className="lt-hint">{t('Last price')}</dt>
           <dd className="dk-stat-value numeric" data-testid="venue-last" data-trade-id={last?.tradeId}>
             {last ? `${price(last.price)} ${market.quoteAsset}` : t('No print')}
           </dd>
         </div>
         <div className="dk-stat">
-          <dt className="dk-stat-label">{t('Best bid')}</dt>
+          <dt className="lt-hint">{t('Best bid')}</dt>
           <dd className="dk-stat-value numeric" data-testid="venue-best-bid">
             {bid ? price(bid.price) : t('Side empty')}
           </dd>
         </div>
         <div className="dk-stat">
-          <dt className="dk-stat-label">{t('Best ask')}</dt>
+          <dt className="lt-hint">{t('Best ask')}</dt>
           <dd className="dk-stat-value numeric" data-testid="venue-best-ask">
             {ask ? price(ask.price) : t('Side empty')}
           </dd>
         </div>
         <div className="dk-stat">
-          <dt className="dk-stat-label">{t('Market data as of')}</dt>
+          <dt className="lt-hint">{t('Market data as of')}</dt>
           <dd className="dk-stat-value" data-testid="venue-market-as-of">
             {book.data ? asOfText(book.data.asOf) : '…'}
           </dd>

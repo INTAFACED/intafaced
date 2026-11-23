@@ -1,11 +1,13 @@
 //! Settling a window, as the runtime does it (`AgentRuntime.settleWindow` and `settleSession` in `runtime.ts`): the
 //! session read, the metering-off law, the meter's seal and charge, then, for a settlement that happened, one
-//! `usage_settlement` row in the session's action log and, for one that billed, one `agentUsageSettled` event.
+//! `usage_settlement` row in the session's action log and, for one that billed, one `agentUsageSettled` event, written
+//! in the outbox with the charge's record and sent from there.
 //!
 //! Metering off (`AGENTS_METERING_ENABLED`, law D26-P1-A6): nothing is sealed or posted, leftover windows included;
 //! the answer is the stub (`meteringOffSettlementStub`): amount 0, no charge, not settled.
 
 use postgres::IsolationLevel;
+use service_kit::money::Amount;
 
 use service_kit::json::Json;
 use service_kit::money::format_amount;
@@ -52,7 +54,7 @@ pub fn metering_off_stub(session_id: &str, window_id: &str) -> Settlement {
         session_id: session_id.to_owned(),
         window_id: window_id.to_owned(),
         charge_key: charge_key_for(session_id, window_id),
-        amount: 0,
+        amount: Amount::ZERO,
         charge_tx_id: None,
         settled: false,
     }
@@ -122,10 +124,10 @@ pub fn settle_window(
     if !m.enabled {
         return Ok(metering_off_stub(session_id, window_id));
     }
-    let result = meter::settle(m, pool, session_id, &session.user_id, window_id)?;
+    let result = meter::settle(m, pool, session_id, &session.user_id, window_id, now)?;
     // Only a settlement that happened is logged: a repeat finds the window sealed and appends nothing.
     if result.settled {
-        let (key, params) = if result.amount > 0 {
+        let (key, params) = if result.amount > Amount::ZERO {
             (
                 "agents.usage.settled",
                 vec![
@@ -150,13 +152,12 @@ pub fn settle_window(
         db::transaction_retrying(pool, IsolationLevel::ReadCommitted, 5, |tx| {
             audit::append(tx, &entry, now).map(|_| ())
         })?;
-        if result.amount > 0 {
-            let envelope = usage_settled_envelope(m, &result, &session.user_id, now)
-                .map_err(|e| MeterError::Store(StoreError::new(e, None)))?;
-            m.bus
-                .publish(USAGE_SETTLED, &result.charge_key, &envelope)
-                .map_err(|e| MeterError::Store(StoreError::new(e, None)))?;
-        }
+    }
+    // The settlement's event was written with its charge (`meter::record_charge`); it leaves now, and a retry of a
+    // window whose event the bus refused sends it then. A bus fault never fails the settle: the event is owed on disk
+    // and the timer's relay sends it.
+    if result.amount > Amount::ZERO {
+        let _ = db::OUTBOX.send(pool, m.bus.as_ref(), &result.charge_key);
     }
     Ok(result)
 }

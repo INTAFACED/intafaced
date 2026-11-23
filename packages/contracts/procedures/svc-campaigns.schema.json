@@ -1,6 +1,2149 @@
 {
   "$comment": "Written by `procedures:write`; held by its drift test. Do not edit by hand.",
   "procedures": {
+    "campaigns.catalogue.get": {
+      "service": "svc-campaigns",
+      "module": "campaigns",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "catalogue.get",
+      "access": {
+        "caller": "scope",
+        "scope": "campaigns:read",
+        "module": "campaigns",
+        "plane": "fiat"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": ["id"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "referral",
+              "task",
+              "voucher",
+              "competition",
+              "milestone",
+              "draw",
+              "pool",
+              "distribution",
+              "trial_pass",
+              "gift_card",
+              "points",
+              "welcome"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": ["scheduled", "active", "paused", "ended", "closed"]
+          },
+          "rules": {
+            "type": "string"
+          },
+          "startsAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "endsAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "timeZone": {
+            "type": "string"
+          },
+          "windows": {
+            "type": "object",
+            "properties": {
+              "weekdays": {
+                "anyOf": [
+                  {
+                    "minItems": 1,
+                    "maxItems": 7,
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 7
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "hours": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "from": {
+                        "type": "string",
+                        "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                      },
+                      "to": {
+                        "type": "string",
+                        "pattern": "^(([01]\\d|2[0-3]):[0-5]\\d|24:00)$"
+                      }
+                    },
+                    "required": ["from", "to"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["weekdays", "hours"],
+            "additionalProperties": false
+          },
+          "participation": {
+            "type": "object",
+            "properties": {
+              "exclusions": {
+                "maxItems": 4,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": ["business", "institution", "market_maker", "staff"]
+                }
+              },
+              "regionScope": {
+                "type": "string",
+                "enum": ["platform", "listed"]
+              },
+              "restrictedRegions": {
+                "default": null,
+                "anyOf": [
+                  {
+                    "maxItems": 300,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[A-Z]{2}$"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "rule": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 120
+                      },
+                      "revision": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "tree": {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "group"
+                          },
+                          "op": {
+                            "type": "string",
+                            "enum": ["and", "or"]
+                          },
+                          "parts": {
+                            "maxItems": 50,
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/$defs/__schema0"
+                            }
+                          }
+                        },
+                        "required": ["kind", "op", "parts"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": ["name", "revision", "tree"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["exclusions", "regionScope", "restrictedRegions"],
+            "additionalProperties": false
+          },
+          "budget": {
+            "type": "object",
+            "properties": {
+              "asset": {
+                "type": "string",
+                "pattern": "^[A-Z0-9]{2,12}$"
+              },
+              "limit": {
+                "type": "string",
+                "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+              },
+              "left": {
+                "type": "string",
+                "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+              }
+            },
+            "required": ["asset", "limit", "left"],
+            "additionalProperties": false
+          },
+          "reward": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "asset": {
+                    "type": "string",
+                    "pattern": "^[A-Z0-9]{2,12}$"
+                  },
+                  "amount": {
+                    "type": "string",
+                    "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                  }
+                },
+                "required": ["asset", "amount"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tasks": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "steps": {
+                    "minItems": 1,
+                    "maxItems": 10,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "title": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 120
+                        },
+                        "event": {
+                          "type": "string",
+                          "enum": ["trade.fill", "identity.verified", "pay.deposit"]
+                        },
+                        "market": {
+                          "default": null,
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "pattern": "^[A-Z0-9]{2,12}\\/[A-Z0-9]{2,12}$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "side": {
+                          "default": null,
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": ["buy", "sell"]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "count": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 1000
+                        },
+                        "streakDays": {
+                          "default": null,
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 2,
+                              "maximum": 365
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "reward": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "asset": {
+                                  "type": "string",
+                                  "pattern": "^[A-Z0-9]{2,12}$"
+                                },
+                                "amount": {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                                }
+                              },
+                              "required": ["asset", "amount"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": ["title", "event", "market", "side", "count", "streakDays"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "claimWindowSeconds": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 31536000
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "holdSeconds": {
+                    "default": null,
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 31536000
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "lock": {
+                    "default": null,
+                    "anyOf": [
+                      {
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "locked"
+                              },
+                              "seconds": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": 60,
+                                    "maximum": 31536000
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "step": {
+                                "type": "object",
+                                "properties": {
+                                  "title": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 120
+                                  },
+                                  "event": {
+                                    "type": "string",
+                                    "enum": ["trade.fill", "identity.verified", "pay.deposit"]
+                                  },
+                                  "market": {
+                                    "default": null,
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "pattern": "^[A-Z0-9]{2,12}\\/[A-Z0-9]{2,12}$"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "side": {
+                                    "default": null,
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "enum": ["buy", "sell"]
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "count": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 1000
+                                  },
+                                  "streakDays": {
+                                    "default": null,
+                                    "type": "null"
+                                  },
+                                  "reward": {
+                                    "anyOf": [
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "asset": {
+                                            "type": "string",
+                                            "pattern": "^[A-Z0-9]{2,12}$"
+                                          },
+                                          "amount": {
+                                            "type": "string",
+                                            "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                                          }
+                                        },
+                                        "required": ["asset", "amount"],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  }
+                                },
+                                "required": ["title", "event", "market", "side", "count", "streakDays"],
+                                "additionalProperties": false
+                              }
+                            },
+                            "required": ["kind", "seconds", "step"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "bonus"
+                              },
+                              "expirySeconds": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": 60,
+                                    "maximum": 31536000
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "appliesTo": {
+                                "maxItems": 5,
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "enum": ["derivatives", "copy_trading", "bots", "fiat", "other"]
+                                }
+                              }
+                            },
+                            "required": ["kind", "expirySeconds", "appliesTo"],
+                            "additionalProperties": false
+                          }
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "kycGate": {
+                    "type": "string",
+                    "enum": ["none", "basic", "full"]
+                  },
+                  "welcomeWindowSeconds": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 31536000
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": ["steps", "claimWindowSeconds", "holdSeconds", "lock", "kycGate"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "competition": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "basis": {
+                    "type": "string",
+                    "enum": ["volume", "returns"]
+                  },
+                  "volumeAsset": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Z0-9]{2,12}$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "threshold": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "seats": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 100000
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "prizes": {
+                    "maxItems": 100,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "rank": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 100
+                        },
+                        "amount": {
+                          "type": "string",
+                          "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                        }
+                      },
+                      "required": ["rank", "amount"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "milestones": {
+                    "maxItems": 10,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "volume": {
+                          "type": "string",
+                          "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                        },
+                        "amount": {
+                          "type": "string",
+                          "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                        }
+                      },
+                      "required": ["volume", "amount"],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": ["basis", "volumeAsset", "threshold", "seats", "prizes", "milestones"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "draw": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "chancesPerFill": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 100
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "caps": {
+                    "maxItems": 4,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "userType": {
+                          "type": "string",
+                          "enum": ["none", "basic", "full", "institutional"]
+                        },
+                        "cap": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 10000
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": ["userType", "cap"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "prizes": {
+                    "maxItems": 100,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "rank": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 100
+                        },
+                        "amount": {
+                          "type": "string",
+                          "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                        }
+                      },
+                      "required": ["rank", "amount"],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": ["chancesPerFill", "caps", "prizes"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "distribution": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": ["airdrop", "dividend"]
+                  },
+                  "snapshotAt": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "equityAsset": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Z0-9]{2,12}$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": ["kind", "snapshotAt", "equityAsset"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pool": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "activityAsset": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Z0-9]{2,12}$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "dailySlice": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "perUserCap": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "minBalance": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "daySeconds": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 60,
+                        "maximum": 2678400
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": ["activityAsset", "dailySlice", "perUserCap", "minBalance", "daySeconds"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "trialPass": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "tierId": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9_.-]{1,64}$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "seconds": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 60,
+                        "maximum": 31622400
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": ["tierId", "seconds"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mine": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "campaignId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "participationKey": {
+                    "type": "string"
+                  },
+                  "revision": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "joinedAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  }
+                },
+                "required": ["campaignId", "participationKey", "revision", "joinedAt"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "eligibility": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "state": {
+                    "type": "string",
+                    "enum": ["eligible", "not_eligible", "region_blocked", "unread"]
+                  },
+                  "review": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "requestedAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                          }
+                        },
+                        "required": ["requestedAt"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": ["state", "review"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "type",
+          "state",
+          "rules",
+          "startsAt",
+          "endsAt",
+          "timeZone",
+          "windows",
+          "participation",
+          "budget",
+          "reward",
+          "tasks",
+          "mine",
+          "eligibility"
+        ],
+        "additionalProperties": false,
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "group"
+                  },
+                  "op": {
+                    "type": "string",
+                    "enum": ["and", "or"]
+                  },
+                  "parts": {
+                    "maxItems": 50,
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/__schema0"
+                    }
+                  }
+                },
+                "required": ["kind", "op", "parts"],
+                "additionalProperties": false
+              },
+              {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "condition"
+                      },
+                      "field": {
+                        "type": "string",
+                        "const": "accountType"
+                      },
+                      "is": {
+                        "type": "string",
+                        "enum": ["individual", "business"]
+                      }
+                    },
+                    "required": ["kind", "field", "is"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "condition"
+                      },
+                      "field": {
+                        "type": "string",
+                        "const": "region"
+                      },
+                      "test": {
+                        "type": "string",
+                        "enum": ["in", "not_in"]
+                      },
+                      "regions": {
+                        "minItems": 1,
+                        "maxItems": 300,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Z]{2}$"
+                        }
+                      }
+                    },
+                    "required": ["kind", "field", "test", "regions"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "condition"
+                      },
+                      "field": {
+                        "type": "string",
+                        "const": "kycTier"
+                      },
+                      "atLeast": {
+                        "type": "string",
+                        "enum": ["none", "basic", "full", "institutional"]
+                      }
+                    },
+                    "required": ["kind", "field", "atLeast"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "condition"
+                      },
+                      "field": {
+                        "type": "string",
+                        "const": "status"
+                      },
+                      "is": {
+                        "type": "string",
+                        "enum": ["active", "frozen", "closed"]
+                      }
+                    },
+                    "required": ["kind", "field", "is"],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "outputChecks": {
+        "tier_id_holds": {
+          "at": "output.trialPass.tierId",
+          "says": "a pass grants a tier above regular"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "id": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "campaigns.catalogue.list": {
+      "service": "svc-campaigns",
+      "module": "campaigns",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "catalogue.list",
+      "access": {
+        "caller": "scope",
+        "scope": "campaigns:read",
+        "module": "campaigns",
+        "plane": "fiat"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "types": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "referral",
+                    "task",
+                    "voucher",
+                    "competition",
+                    "milestone",
+                    "draw",
+                    "pool",
+                    "distribution",
+                    "trial_pass",
+                    "gift_card",
+                    "points",
+                    "welcome"
+                  ]
+                },
+                "blocker": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "const": "owner.decision"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["type", "blocker"],
+              "additionalProperties": false
+            }
+          },
+          "campaigns": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "name": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "referral",
+                    "task",
+                    "voucher",
+                    "competition",
+                    "milestone",
+                    "draw",
+                    "pool",
+                    "distribution",
+                    "trial_pass",
+                    "gift_card",
+                    "points",
+                    "welcome"
+                  ]
+                },
+                "state": {
+                  "type": "string",
+                  "enum": ["scheduled", "active", "paused", "ended", "closed"]
+                },
+                "rules": {
+                  "type": "string"
+                },
+                "startsAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "endsAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "timeZone": {
+                  "type": "string"
+                },
+                "windows": {
+                  "type": "object",
+                  "properties": {
+                    "weekdays": {
+                      "anyOf": [
+                        {
+                          "minItems": 1,
+                          "maxItems": 7,
+                          "type": "array",
+                          "items": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 7
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "hours": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "from": {
+                              "type": "string",
+                              "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                            },
+                            "to": {
+                              "type": "string",
+                              "pattern": "^(([01]\\d|2[0-3]):[0-5]\\d|24:00)$"
+                            }
+                          },
+                          "required": ["from", "to"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["weekdays", "hours"],
+                  "additionalProperties": false
+                },
+                "participation": {
+                  "type": "object",
+                  "properties": {
+                    "exclusions": {
+                      "maxItems": 4,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": ["business", "institution", "market_maker", "staff"]
+                      }
+                    },
+                    "regionScope": {
+                      "type": "string",
+                      "enum": ["platform", "listed"]
+                    },
+                    "restrictedRegions": {
+                      "default": null,
+                      "anyOf": [
+                        {
+                          "maxItems": 300,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "pattern": "^[A-Z]{2}$"
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "rule": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 120
+                            },
+                            "revision": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "tree": {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "group"
+                                },
+                                "op": {
+                                  "type": "string",
+                                  "enum": ["and", "or"]
+                                },
+                                "parts": {
+                                  "maxItems": 50,
+                                  "type": "array",
+                                  "items": {
+                                    "$ref": "#/$defs/__schema0"
+                                  }
+                                }
+                              },
+                              "required": ["kind", "op", "parts"],
+                              "additionalProperties": false
+                            }
+                          },
+                          "required": ["name", "revision", "tree"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["exclusions", "regionScope", "restrictedRegions"],
+                  "additionalProperties": false
+                },
+                "budget": {
+                  "type": "object",
+                  "properties": {
+                    "asset": {
+                      "type": "string",
+                      "pattern": "^[A-Z0-9]{2,12}$"
+                    },
+                    "limit": {
+                      "type": "string",
+                      "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                    },
+                    "left": {
+                      "type": "string",
+                      "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                    }
+                  },
+                  "required": ["asset", "limit", "left"],
+                  "additionalProperties": false
+                },
+                "reward": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "asset": {
+                          "type": "string",
+                          "pattern": "^[A-Z0-9]{2,12}$"
+                        },
+                        "amount": {
+                          "type": "string",
+                          "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                        }
+                      },
+                      "required": ["asset", "amount"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "tasks": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "steps": {
+                          "minItems": 1,
+                          "maxItems": 10,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "title": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 120
+                              },
+                              "event": {
+                                "type": "string",
+                                "enum": ["trade.fill", "identity.verified", "pay.deposit"]
+                              },
+                              "market": {
+                                "default": null,
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "pattern": "^[A-Z0-9]{2,12}\\/[A-Z0-9]{2,12}$"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "side": {
+                                "default": null,
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": ["buy", "sell"]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "count": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 1000
+                              },
+                              "streakDays": {
+                                "default": null,
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": 2,
+                                    "maximum": 365
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "reward": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "asset": {
+                                        "type": "string",
+                                        "pattern": "^[A-Z0-9]{2,12}$"
+                                      },
+                                      "amount": {
+                                        "type": "string",
+                                        "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                                      }
+                                    },
+                                    "required": ["asset", "amount"],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": ["title", "event", "market", "side", "count", "streakDays"],
+                            "additionalProperties": false
+                          }
+                        },
+                        "claimWindowSeconds": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 31536000
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "holdSeconds": {
+                          "default": null,
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 31536000
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "lock": {
+                          "default": null,
+                          "anyOf": [
+                            {
+                              "oneOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "kind": {
+                                      "type": "string",
+                                      "const": "locked"
+                                    },
+                                    "seconds": {
+                                      "anyOf": [
+                                        {
+                                          "type": "integer",
+                                          "minimum": 60,
+                                          "maximum": 31536000
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "step": {
+                                      "type": "object",
+                                      "properties": {
+                                        "title": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 120
+                                        },
+                                        "event": {
+                                          "type": "string",
+                                          "enum": ["trade.fill", "identity.verified", "pay.deposit"]
+                                        },
+                                        "market": {
+                                          "default": null,
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "pattern": "^[A-Z0-9]{2,12}\\/[A-Z0-9]{2,12}$"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "side": {
+                                          "default": null,
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "enum": ["buy", "sell"]
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "count": {
+                                          "type": "integer",
+                                          "minimum": 1,
+                                          "maximum": 1000
+                                        },
+                                        "streakDays": {
+                                          "default": null,
+                                          "type": "null"
+                                        },
+                                        "reward": {
+                                          "anyOf": [
+                                            {
+                                              "type": "object",
+                                              "properties": {
+                                                "asset": {
+                                                  "type": "string",
+                                                  "pattern": "^[A-Z0-9]{2,12}$"
+                                                },
+                                                "amount": {
+                                                  "type": "string",
+                                                  "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                                                }
+                                              },
+                                              "required": ["asset", "amount"],
+                                              "additionalProperties": false
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      "required": ["title", "event", "market", "side", "count", "streakDays"],
+                                      "additionalProperties": false
+                                    }
+                                  },
+                                  "required": ["kind", "seconds", "step"],
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "kind": {
+                                      "type": "string",
+                                      "const": "bonus"
+                                    },
+                                    "expirySeconds": {
+                                      "anyOf": [
+                                        {
+                                          "type": "integer",
+                                          "minimum": 60,
+                                          "maximum": 31536000
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "appliesTo": {
+                                      "maxItems": 5,
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "enum": ["derivatives", "copy_trading", "bots", "fiat", "other"]
+                                      }
+                                    }
+                                  },
+                                  "required": ["kind", "expirySeconds", "appliesTo"],
+                                  "additionalProperties": false
+                                }
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "kycGate": {
+                          "type": "string",
+                          "enum": ["none", "basic", "full"]
+                        },
+                        "welcomeWindowSeconds": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 31536000
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": ["steps", "claimWindowSeconds", "holdSeconds", "lock", "kycGate"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "competition": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "basis": {
+                          "type": "string",
+                          "enum": ["volume", "returns"]
+                        },
+                        "volumeAsset": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "pattern": "^[A-Z0-9]{2,12}$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "threshold": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "seats": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 100000
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "prizes": {
+                          "maxItems": 100,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "rank": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 100
+                              },
+                              "amount": {
+                                "type": "string",
+                                "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                              }
+                            },
+                            "required": ["rank", "amount"],
+                            "additionalProperties": false
+                          }
+                        },
+                        "milestones": {
+                          "maxItems": 10,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "volume": {
+                                "type": "string",
+                                "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                              },
+                              "amount": {
+                                "type": "string",
+                                "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                              }
+                            },
+                            "required": ["volume", "amount"],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": ["basis", "volumeAsset", "threshold", "seats", "prizes", "milestones"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "draw": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "chancesPerFill": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 100
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "caps": {
+                          "maxItems": 4,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "userType": {
+                                "type": "string",
+                                "enum": ["none", "basic", "full", "institutional"]
+                              },
+                              "cap": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 10000
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": ["userType", "cap"],
+                            "additionalProperties": false
+                          }
+                        },
+                        "prizes": {
+                          "maxItems": 100,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "rank": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 100
+                              },
+                              "amount": {
+                                "type": "string",
+                                "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                              }
+                            },
+                            "required": ["rank", "amount"],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": ["chancesPerFill", "caps", "prizes"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "distribution": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": ["airdrop", "dividend"]
+                        },
+                        "snapshotAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "equityAsset": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "pattern": "^[A-Z0-9]{2,12}$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": ["kind", "snapshotAt", "equityAsset"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "pool": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "activityAsset": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "pattern": "^[A-Z0-9]{2,12}$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "dailySlice": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "perUserCap": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "minBalance": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "daySeconds": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 60,
+                              "maximum": 2678400
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": ["activityAsset", "dailySlice", "perUserCap", "minBalance", "daySeconds"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "trialPass": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "tierId": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9_.-]{1,64}$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "seconds": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 60,
+                              "maximum": 31622400
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": ["tierId", "seconds"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "mine": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "campaignId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        },
+                        "participationKey": {
+                          "type": "string"
+                        },
+                        "revision": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "joinedAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        }
+                      },
+                      "required": ["campaignId", "participationKey", "revision", "joinedAt"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "eligibility": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "enum": ["eligible", "not_eligible", "region_blocked", "unread"]
+                        },
+                        "review": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "requestedAt": {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                }
+                              },
+                              "required": ["requestedAt"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": ["state", "review"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "type",
+                "state",
+                "rules",
+                "startsAt",
+                "endsAt",
+                "timeZone",
+                "windows",
+                "participation",
+                "budget",
+                "reward",
+                "tasks",
+                "mine",
+                "eligibility"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["types", "campaigns"],
+        "additionalProperties": false,
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "group"
+                  },
+                  "op": {
+                    "type": "string",
+                    "enum": ["and", "or"]
+                  },
+                  "parts": {
+                    "maxItems": 50,
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/__schema0"
+                    }
+                  }
+                },
+                "required": ["kind", "op", "parts"],
+                "additionalProperties": false
+              },
+              {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "condition"
+                      },
+                      "field": {
+                        "type": "string",
+                        "const": "accountType"
+                      },
+                      "is": {
+                        "type": "string",
+                        "enum": ["individual", "business"]
+                      }
+                    },
+                    "required": ["kind", "field", "is"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "condition"
+                      },
+                      "field": {
+                        "type": "string",
+                        "const": "region"
+                      },
+                      "test": {
+                        "type": "string",
+                        "enum": ["in", "not_in"]
+                      },
+                      "regions": {
+                        "minItems": 1,
+                        "maxItems": 300,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Z]{2}$"
+                        }
+                      }
+                    },
+                    "required": ["kind", "field", "test", "regions"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "condition"
+                      },
+                      "field": {
+                        "type": "string",
+                        "const": "kycTier"
+                      },
+                      "atLeast": {
+                        "type": "string",
+                        "enum": ["none", "basic", "full", "institutional"]
+                      }
+                    },
+                    "required": ["kind", "field", "atLeast"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "condition"
+                      },
+                      "field": {
+                        "type": "string",
+                        "const": "status"
+                      },
+                      "is": {
+                        "type": "string",
+                        "enum": ["active", "frozen", "closed"]
+                      }
+                    },
+                    "required": ["kind", "field", "is"],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "outputChecks": {
+        "tier_id_holds": {
+          "at": "output.campaigns[].trialPass.tierId",
+          "says": "a pass grants a tier above regular"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
     "campaigns.competition.board": {
       "service": "svc-campaigns",
       "module": "campaigns",
@@ -5575,6 +7718,1086 @@
         {
           "verdict": "refuse",
           "input": {}
+        }
+      ]
+    },
+    "campaigns.participation.mine": {
+      "service": "svc-campaigns",
+      "module": "campaigns",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "participation.mine",
+      "access": {
+        "caller": "scope",
+        "scope": "campaigns:read",
+        "module": "campaigns",
+        "plane": "fiat"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "campaigns": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "campaign": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "referral",
+                        "task",
+                        "voucher",
+                        "competition",
+                        "milestone",
+                        "draw",
+                        "pool",
+                        "distribution",
+                        "trial_pass",
+                        "gift_card",
+                        "points",
+                        "welcome"
+                      ]
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": ["scheduled", "active", "paused", "ended", "closed"]
+                    },
+                    "rules": {
+                      "type": "string"
+                    },
+                    "startsAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                    },
+                    "endsAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                    },
+                    "timeZone": {
+                      "type": "string"
+                    },
+                    "windows": {
+                      "type": "object",
+                      "properties": {
+                        "weekdays": {
+                          "anyOf": [
+                            {
+                              "minItems": 1,
+                              "maxItems": 7,
+                              "type": "array",
+                              "items": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 7
+                              }
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "hours": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "from": {
+                                  "type": "string",
+                                  "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                                },
+                                "to": {
+                                  "type": "string",
+                                  "pattern": "^(([01]\\d|2[0-3]):[0-5]\\d|24:00)$"
+                                }
+                              },
+                              "required": ["from", "to"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": ["weekdays", "hours"],
+                      "additionalProperties": false
+                    },
+                    "participation": {
+                      "type": "object",
+                      "properties": {
+                        "exclusions": {
+                          "maxItems": 4,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "enum": ["business", "institution", "market_maker", "staff"]
+                          }
+                        },
+                        "regionScope": {
+                          "type": "string",
+                          "enum": ["platform", "listed"]
+                        },
+                        "restrictedRegions": {
+                          "default": null,
+                          "anyOf": [
+                            {
+                              "maxItems": 300,
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "pattern": "^[A-Z]{2}$"
+                              }
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "rule": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "name": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 120
+                                },
+                                "revision": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "tree": {
+                                  "type": "object",
+                                  "properties": {
+                                    "kind": {
+                                      "type": "string",
+                                      "const": "group"
+                                    },
+                                    "op": {
+                                      "type": "string",
+                                      "enum": ["and", "or"]
+                                    },
+                                    "parts": {
+                                      "maxItems": 50,
+                                      "type": "array",
+                                      "items": {
+                                        "$ref": "#/$defs/__schema0"
+                                      }
+                                    }
+                                  },
+                                  "required": ["kind", "op", "parts"],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "required": ["name", "revision", "tree"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": ["exclusions", "regionScope", "restrictedRegions"],
+                      "additionalProperties": false
+                    },
+                    "budget": {
+                      "type": "object",
+                      "properties": {
+                        "asset": {
+                          "type": "string",
+                          "pattern": "^[A-Z0-9]{2,12}$"
+                        },
+                        "limit": {
+                          "type": "string",
+                          "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                        },
+                        "left": {
+                          "type": "string",
+                          "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                        }
+                      },
+                      "required": ["asset", "limit", "left"],
+                      "additionalProperties": false
+                    },
+                    "reward": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "asset": {
+                              "type": "string",
+                              "pattern": "^[A-Z0-9]{2,12}$"
+                            },
+                            "amount": {
+                              "type": "string",
+                              "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                            }
+                          },
+                          "required": ["asset", "amount"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "tasks": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "steps": {
+                              "minItems": 1,
+                              "maxItems": 10,
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "title": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 120
+                                  },
+                                  "event": {
+                                    "type": "string",
+                                    "enum": ["trade.fill", "identity.verified", "pay.deposit"]
+                                  },
+                                  "market": {
+                                    "default": null,
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "pattern": "^[A-Z0-9]{2,12}\\/[A-Z0-9]{2,12}$"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "side": {
+                                    "default": null,
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "enum": ["buy", "sell"]
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "count": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 1000
+                                  },
+                                  "streakDays": {
+                                    "default": null,
+                                    "anyOf": [
+                                      {
+                                        "type": "integer",
+                                        "minimum": 2,
+                                        "maximum": 365
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "reward": {
+                                    "anyOf": [
+                                      {
+                                        "type": "object",
+                                        "properties": {
+                                          "asset": {
+                                            "type": "string",
+                                            "pattern": "^[A-Z0-9]{2,12}$"
+                                          },
+                                          "amount": {
+                                            "type": "string",
+                                            "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                                          }
+                                        },
+                                        "required": ["asset", "amount"],
+                                        "additionalProperties": false
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  }
+                                },
+                                "required": ["title", "event", "market", "side", "count", "streakDays"],
+                                "additionalProperties": false
+                              }
+                            },
+                            "claimWindowSeconds": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": 1,
+                                  "maximum": 31536000
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "holdSeconds": {
+                              "default": null,
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 31536000
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "lock": {
+                              "default": null,
+                              "anyOf": [
+                                {
+                                  "oneOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "kind": {
+                                          "type": "string",
+                                          "const": "locked"
+                                        },
+                                        "seconds": {
+                                          "anyOf": [
+                                            {
+                                              "type": "integer",
+                                              "minimum": 60,
+                                              "maximum": 31536000
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "step": {
+                                          "type": "object",
+                                          "properties": {
+                                            "title": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 120
+                                            },
+                                            "event": {
+                                              "type": "string",
+                                              "enum": ["trade.fill", "identity.verified", "pay.deposit"]
+                                            },
+                                            "market": {
+                                              "default": null,
+                                              "anyOf": [
+                                                {
+                                                  "type": "string",
+                                                  "pattern": "^[A-Z0-9]{2,12}\\/[A-Z0-9]{2,12}$"
+                                                },
+                                                {
+                                                  "type": "null"
+                                                }
+                                              ]
+                                            },
+                                            "side": {
+                                              "default": null,
+                                              "anyOf": [
+                                                {
+                                                  "type": "string",
+                                                  "enum": ["buy", "sell"]
+                                                },
+                                                {
+                                                  "type": "null"
+                                                }
+                                              ]
+                                            },
+                                            "count": {
+                                              "type": "integer",
+                                              "minimum": 1,
+                                              "maximum": 1000
+                                            },
+                                            "streakDays": {
+                                              "default": null,
+                                              "type": "null"
+                                            },
+                                            "reward": {
+                                              "anyOf": [
+                                                {
+                                                  "type": "object",
+                                                  "properties": {
+                                                    "asset": {
+                                                      "type": "string",
+                                                      "pattern": "^[A-Z0-9]{2,12}$"
+                                                    },
+                                                    "amount": {
+                                                      "type": "string",
+                                                      "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                                                    }
+                                                  },
+                                                  "required": ["asset", "amount"],
+                                                  "additionalProperties": false
+                                                },
+                                                {
+                                                  "type": "null"
+                                                }
+                                              ]
+                                            }
+                                          },
+                                          "required": ["title", "event", "market", "side", "count", "streakDays"],
+                                          "additionalProperties": false
+                                        }
+                                      },
+                                      "required": ["kind", "seconds", "step"],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "kind": {
+                                          "type": "string",
+                                          "const": "bonus"
+                                        },
+                                        "expirySeconds": {
+                                          "anyOf": [
+                                            {
+                                              "type": "integer",
+                                              "minimum": 60,
+                                              "maximum": 31536000
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "appliesTo": {
+                                          "maxItems": 5,
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string",
+                                            "enum": ["derivatives", "copy_trading", "bots", "fiat", "other"]
+                                          }
+                                        }
+                                      },
+                                      "required": ["kind", "expirySeconds", "appliesTo"],
+                                      "additionalProperties": false
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "kycGate": {
+                              "type": "string",
+                              "enum": ["none", "basic", "full"]
+                            },
+                            "welcomeWindowSeconds": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": 1,
+                                  "maximum": 31536000
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": ["steps", "claimWindowSeconds", "holdSeconds", "lock", "kycGate"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "competition": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "basis": {
+                              "type": "string",
+                              "enum": ["volume", "returns"]
+                            },
+                            "volumeAsset": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "pattern": "^[A-Z0-9]{2,12}$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "threshold": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "seats": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": 1,
+                                  "maximum": 100000
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "prizes": {
+                              "maxItems": 100,
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "rank": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 100
+                                  },
+                                  "amount": {
+                                    "type": "string",
+                                    "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                                  }
+                                },
+                                "required": ["rank", "amount"],
+                                "additionalProperties": false
+                              }
+                            },
+                            "milestones": {
+                              "maxItems": 10,
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "volume": {
+                                    "type": "string",
+                                    "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                                  },
+                                  "amount": {
+                                    "type": "string",
+                                    "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                                  }
+                                },
+                                "required": ["volume", "amount"],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "required": ["basis", "volumeAsset", "threshold", "seats", "prizes", "milestones"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "draw": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "chancesPerFill": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": 1,
+                                  "maximum": 100
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "caps": {
+                              "maxItems": 4,
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "userType": {
+                                    "type": "string",
+                                    "enum": ["none", "basic", "full", "institutional"]
+                                  },
+                                  "cap": {
+                                    "anyOf": [
+                                      {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 10000
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  }
+                                },
+                                "required": ["userType", "cap"],
+                                "additionalProperties": false
+                              }
+                            },
+                            "prizes": {
+                              "maxItems": 100,
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "rank": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 100
+                                  },
+                                  "amount": {
+                                    "type": "string",
+                                    "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                                  }
+                                },
+                                "required": ["rank", "amount"],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "required": ["chancesPerFill", "caps", "prizes"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "distribution": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": ["airdrop", "dividend"]
+                            },
+                            "snapshotAt": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "equityAsset": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "pattern": "^[A-Z0-9]{2,12}$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": ["kind", "snapshotAt", "equityAsset"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "pool": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "activityAsset": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "pattern": "^[A-Z0-9]{2,12}$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "dailySlice": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "perUserCap": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "minBalance": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "pattern": "^(0|[1-9]\\d{0,19})(\\.\\d{1,18})?$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "daySeconds": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": 60,
+                                  "maximum": 2678400
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": ["activityAsset", "dailySlice", "perUserCap", "minBalance", "daySeconds"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "trialPass": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "tierId": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "pattern": "^[A-Za-z0-9_.-]{1,64}$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "seconds": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": 60,
+                                  "maximum": 31622400
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": ["tierId", "seconds"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "mine": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "campaignId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "participationKey": {
+                              "type": "string"
+                            },
+                            "revision": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "joinedAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            }
+                          },
+                          "required": ["campaignId", "participationKey", "revision", "joinedAt"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "eligibility": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "state": {
+                              "type": "string",
+                              "enum": ["eligible", "not_eligible", "region_blocked", "unread"]
+                            },
+                            "review": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "requestedAt": {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    }
+                                  },
+                                  "required": ["requestedAt"],
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": ["state", "review"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "type",
+                    "state",
+                    "rules",
+                    "startsAt",
+                    "endsAt",
+                    "timeZone",
+                    "windows",
+                    "participation",
+                    "budget",
+                    "reward",
+                    "tasks",
+                    "mine",
+                    "eligibility"
+                  ],
+                  "additionalProperties": false
+                },
+                "participation": {
+                  "type": "object",
+                  "properties": {
+                    "campaignId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    },
+                    "participationKey": {
+                      "type": "string"
+                    },
+                    "revision": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "joinedAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                    }
+                  },
+                  "required": ["campaignId", "participationKey", "revision", "joinedAt"],
+                  "additionalProperties": false
+                }
+              },
+              "required": ["campaign", "participation"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["campaigns"],
+        "additionalProperties": false,
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "group"
+                  },
+                  "op": {
+                    "type": "string",
+                    "enum": ["and", "or"]
+                  },
+                  "parts": {
+                    "maxItems": 50,
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/__schema0"
+                    }
+                  }
+                },
+                "required": ["kind", "op", "parts"],
+                "additionalProperties": false
+              },
+              {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "condition"
+                      },
+                      "field": {
+                        "type": "string",
+                        "const": "accountType"
+                      },
+                      "is": {
+                        "type": "string",
+                        "enum": ["individual", "business"]
+                      }
+                    },
+                    "required": ["kind", "field", "is"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "condition"
+                      },
+                      "field": {
+                        "type": "string",
+                        "const": "region"
+                      },
+                      "test": {
+                        "type": "string",
+                        "enum": ["in", "not_in"]
+                      },
+                      "regions": {
+                        "minItems": 1,
+                        "maxItems": 300,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Z]{2}$"
+                        }
+                      }
+                    },
+                    "required": ["kind", "field", "test", "regions"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "condition"
+                      },
+                      "field": {
+                        "type": "string",
+                        "const": "kycTier"
+                      },
+                      "atLeast": {
+                        "type": "string",
+                        "enum": ["none", "basic", "full", "institutional"]
+                      }
+                    },
+                    "required": ["kind", "field", "atLeast"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "condition"
+                      },
+                      "field": {
+                        "type": "string",
+                        "const": "status"
+                      },
+                      "is": {
+                        "type": "string",
+                        "enum": ["active", "frozen", "closed"]
+                      }
+                    },
+                    "required": ["kind", "field", "is"],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "outputChecks": {
+        "tier_id_holds": {
+          "at": "output.campaigns[].campaign.trialPass.tierId",
+          "says": "a pass grants a tier above regular"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept"
         }
       ]
     },

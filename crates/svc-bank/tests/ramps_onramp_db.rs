@@ -138,7 +138,7 @@ impl Book {
             .available
             .get(&(user.to_owned(), "USDT".to_owned()))
             .copied()
-            .unwrap_or(0)
+            .unwrap_or(Amount::ZERO)
     }
     fn asked(&self) -> usize {
         self.0.lock().unwrap().asked
@@ -154,7 +154,7 @@ impl Ledger for Book {
             .available
             .get(&(a.owner_id.clone(), a.asset_id.clone()))
             .copied()
-            .unwrap_or(0))
+            .unwrap_or(Amount::ZERO))
     }
     fn balances(&self, _t: &str, _o: &str) -> Result<Vec<LedgerBalance>, String> {
         Ok(Vec::new())
@@ -1768,7 +1768,7 @@ fn paid_with_its_on_chain_transfer_is_delivered_once_crediting_nothing_anywhere_
     assert_eq!(second, first);
     assert_eq!(third, first);
     assert!(b.ledger.journal().is_empty());
-    assert_eq!(b.ledger.available(ADA), 0);
+    assert_eq!(b.ledger.available(ADA), Amount::ZERO);
     matches(&request_of(&door, ADA, &id).ok(), &without_onramp(&first));
 }
 
@@ -2449,7 +2449,7 @@ fn with_the_custodial_layer_off_a_credit_refuses_no_partner_bank_before_svc_ledg
         "bank.no_partner_bank"
     );
     assert_eq!(b.ledger.asked(), 0);
-    assert_eq!(b.ledger.available(USER), 0);
+    assert_eq!(b.ledger.available(USER), Amount::ZERO);
 }
 
 #[test]
@@ -2522,7 +2522,7 @@ fn refuses_a_blank_or_whitespace_asset_before_any_row_or_ledger_post() {
         "BAD_REQUEST"
     );
     assert_eq!(onramp_rows(&b), 0);
-    assert_eq!(b.ledger.available(USER), 0);
+    assert_eq!(b.ledger.available(USER), Amount::ZERO);
 }
 
 #[test]

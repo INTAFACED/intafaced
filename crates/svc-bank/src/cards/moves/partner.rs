@@ -17,7 +17,7 @@ use crate::errors::Refusal;
 use crate::partner::refuse;
 use crate::spaces::space::{in_tx, pg, with};
 
-const ONE: Amount = 1_000_000_000_000_000_000;
+const ONE: Amount = Amount::whole(1);
 
 /// `partnerCardKey`.
 pub fn key(instruction: &str, authorization_id: &str) -> String {
@@ -191,7 +191,7 @@ fn mark_order_hold(
     order: &[String],
 ) -> Result<Auth, Refusal> {
     let asset = hold.asset_id.clone().unwrap_or_default();
-    let positive = |s: &str| parse_amount(s).is_ok_and(|a| a > 0);
+    let positive = |s: &str| parse_amount(s).is_ok_and(|a| a > Amount::ZERO);
     if c.settlement_asset_id != card.settlement_asset_id
         || parse_amount(&c.settlement_amount).ok() != Some(merchant)
         || !order.contains(&asset)
@@ -375,7 +375,7 @@ pub fn capture_partner_held(
     authorization: &Auth,
     merchant: Amount,
 ) -> Result<Captured, Refusal> {
-    if merchant <= 0 {
+    if merchant <= Amount::ZERO {
         return Err(refuse(
             "bank.card_capture_exceeds_authorization",
             format!("Capture of {} is not above zero", format_amount(merchant)),
@@ -408,7 +408,7 @@ pub fn capture_partner_held(
         )
     })?;
     let remainder = authorization.amount - funding;
-    let released = if remainder > 0 {
+    let released = if remainder > Amount::ZERO {
         Some(partner_settlement(
             m,
             authorization,
@@ -589,7 +589,7 @@ pub fn refund(
             "A refund on a card held in INTAFACED\u{2019}s own ledger is not built. Nothing moved.",
         ));
     }
-    if amount <= 0 {
+    if amount <= Amount::ZERO {
         return Err(refund_conflict());
     }
     let credit = match authorization
@@ -600,7 +600,7 @@ pub fn refund(
         Some(c) => mul_div(amount, ONE, c.rate, Rounding::Floor),
         None => amount,
     };
-    if credit <= 0 {
+    if credit <= Amount::ZERO {
         return Err(refund_conflict());
     }
     let captured = with(m.store(), |c| {

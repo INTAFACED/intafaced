@@ -326,7 +326,7 @@ test(`${J} #2 enters an order the first venue's shown depth can't fill at the sh
   const why = line(sheet, 'route-why');
   await expect(why).toContainText(`${v.a.displayName}'s shown depth fills`);
   await expect(why).toContainText(`at its shown price`);
-  expect(sameDecimal(plain(await why.innerText()).match(/shown depth fills ([\d.]+) of/)[1], ask.amount)).toBe(true);
+  await expect.poll(async () => sameDecimal(plain(await why.innerText()).match(/shown depth fills ([\d.]+) of/)[1], ask.amount)).toBe(true);
   await expect(why).toContainText(`${v.b.displayName} fills all of it at the lowest total cost`);
   await expect(sheet.getByTestId('venue-route-others').locator(`li[data-venue="${v.a.id}"]`)).toContainText(v.a.displayName);
   await closeReview(sheet);
@@ -476,6 +476,7 @@ test(`${J} #3 confirms and signs: one signed order sent once to the chosen venue
 
 test(`${J} #5 retries after a network error: the same client order id is sent and the venue never holds a second order`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(300_000);
   const s = state();
@@ -507,14 +508,23 @@ test(`${J} #5 retries after a network error: the same client order id is sent an
   await expect(again).toBeVisible({ timeout: 20_000 });
   await again.click();
   await expect(sheet.getByTestId('venue-route-filled')).toBeVisible({ timeout: 20_000 });
+  // The step's picture: the review after the retry, with the client order id it held and the venue's one order id.
+  // From the top, so the bar that stays at the top of the page sits there in the whole-page picture.
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await stepPicture();
   // The same signed order under the same key, so the same client order id; the wallet was asked once.
   expect(submits).toHaveLength(2);
   expect(submits[1].actionKey).toBe(submits[0].actionKey);
   expect(submits[1].signature).toEqual(submits[0].signature);
   expect(wallet.requests).toHaveLength(before + 1);
-  // The venue holds one order under that client id, filled once.
+  // The client order id the review says it held for the retry is the key both sends carried.
+  await expect(line(sheet, 'client-id')).toHaveText(submits[0].actionKey);
+  // The venue holds one order under that client id, filled once, and the review names that order by the venue's own id.
   const placed = await byClientId(chosen, owner, p.venueClientOrderId);
   expect(placed.status).toBe('filled');
+  await expect(sheet.getByTestId('venue-route-filled')).toHaveText(
+    `Sent to ${chosen.displayName}. The venue’s order id: ${placed.venueOrderId}.`,
+  );
   expect(sameDecimal(filled(await fillsOf(chosen, owner, s.startedAt), p.venueClientOrderId), order.size)).toBe(true);
   expect(sameDecimal(placed.filled, order.size)).toBe(true);
   // No second order under any other id: every fill of this person's since the step began, on either venue, is that one
@@ -674,8 +684,10 @@ test(`${J} #6 an operator opens the routing view: our users' routed volume and b
       await expect(r).toHaveAttribute('data-state', 'up');
       expect(fromUnits(await cell(r, 'volume')), `${venue.displayName} volume`).toBe(fromUnits(volume));
       expect(fromUnits(await cell(r, 'builder-fees')), `${venue.displayName} builder fees`).toBe(fromUnits(fees));
-      expect(Number(await r.locator('[data-cell="fills"]').innerText())).toBe(fills.length);
-      expect(Number(await r.locator('[data-cell="orders"]').innerText())).toBe(new Set(fills.map((f) => f.venueClientOrderId)).size);
+      await expect.poll(async () => Number(await r.locator('[data-cell="fills"]').innerText())).toBe(fills.length);
+      await expect
+        .poll(async () => Number(await r.locator('[data-cell="orders"]').innerText()))
+        .toBe(new Set(fills.map((f) => f.venueClientOrderId)).size);
       ours = { fills: ours.fills + fills.length, volume: ours.volume + volume, fees: ours.fees + fees };
     }
     expect(ours.fees > 0n, 'our builder fee was charged on the routed fills').toBe(true);

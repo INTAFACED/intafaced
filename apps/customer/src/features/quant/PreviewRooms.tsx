@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
-import { Button } from '../../shared/ui';
+import { Button, Panel } from '../../shared/ui';
 import { preservePaperHref } from '../more';
 import { useApi, useSession } from '../session';
 import { QuantRooms } from './QuantRooms';
@@ -65,17 +65,16 @@ function PreviewRefusalAlert({ refusal }: { refusal: ReturnType<typeof useEngine
   );
 }
 
-/** The shell every Preview room shares: the label, the sample note, and the room switch. */
+/** The shell every Preview room shares: the label and the room switch. The sample note is the room's description, said once. */
 function PreviewShell({ room, paper, children }: { room: PreviewRoomId; paper: boolean; children: ReactNode }) {
   const { t } = previewCopy.useCopy();
   return (
     <>
-      <QuantRooms active={room} paper={paper} />
+      <QuantRooms paper={paper} />
       <div data-testid="quant-preview" data-room={room} className="quant-preview">
         <p className="badge" role="note">
           <strong>{t('label')}</strong>
         </p>
-        <p className="lt-muted">{t('sampleNote')}</p>
         {children}
       </div>
     </>
@@ -100,10 +99,9 @@ function EnginePanel({ name, children }: { name: string; children: ReactNode }) 
 
 function Region({ name, children }: { name: string; children: ReactNode }) {
   return (
-    <section aria-label={name} className="panel">
-      <h3>{name}</h3>
+    <Panel title={name} aria-label={name}>
       {children}
-    </section>
+    </Panel>
   );
 }
 
@@ -190,7 +188,7 @@ export function EditorRoom({ paper }: { paper: boolean }) {
                     aria-pressed={state.breakpoints.includes(line)}
                     onClick={() => save({ ...state, breakpoints: toggle(state.breakpoints, line) })}
                   >
-                    {state.breakpoints.includes(line) ? '●' : '○'}
+                    <span aria-hidden="true">{state.breakpoints.includes(line) ? '●' : line}</span>
                   </button>
                   {opens && (
                     <button
@@ -362,8 +360,12 @@ export function OptimiseRoom({ paper }: { paper: boolean }) {
             <option value="loss">{t('lossPasses')}</option>
           </select>
         </label>
+        <EnginePanel name={t('bestParameters')}>
+          <p lang="zxx">TEST {t('bestRow', { fast: 10, slow: 30 })}</p>
+        </EnginePanel>
         <p role="note">{t('sortNote')}</p>
-        <EnginePanel name={t('passes')}>
+        {/* The passes are sample rows the person filters and sorts here, so they stay readable; only the engine's output is blurred. */}
+        <div data-testid="optimise-passes">
           <table aria-label={t('passes')}>
             <thead>
               <tr>
@@ -394,7 +396,7 @@ export function OptimiseRoom({ paper }: { paper: boolean }) {
               ))}
             </tbody>
           </table>
-        </EnginePanel>
+        </div>
         <Button variant="secondary" onClick={() => setWalkOpen((open) => !open)}>
           {t('walkForward')}
         </Button>

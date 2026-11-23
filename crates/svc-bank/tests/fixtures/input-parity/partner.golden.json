@@ -107,7 +107,7 @@
     "{\"fundId\":\"placeholder\",\"assetId\":\"ABC\",\"amount\":\"0\"}",
     "{\"accountId\":\"33333333-3333-4333-8333-333333333333\",\"fundId\":\"placeholder\",\"amount\":\"0\"}",
     "{\"kind\":\"request\",\"id\":\"placeholder\",\"dueDays\":1}",
-    "{\"fee\":\"known\",\"reserve\":\"none\",\"down\":true,\"figures\":\"live\",\"rampQuote\":\"live\",\"rampFee\":\"known\",\"custody\":\"on\",\"nextReply\":\"answered\",\"cardHold\":\"live\",\"cardDecline\":\"none\",\"accountDetails\":\"none\",\"purchaseHolds\":\"reported\",\"purchaseHold\":\"live\",\"legalHold\":\"none\",\"identityCase\":\"accepted\",\"bankRail\":\"none\",\"holderName\":null,\"payIn\":\"answered\",\"openOrder\":\"ABC\"}",
+    "{\"fee\":\"known\",\"reserve\":\"none\",\"down\":true,\"figures\":\"live\",\"rampQuote\":\"live\",\"rampFee\":\"known\",\"custody\":\"on\",\"nextReply\":\"answered\",\"cardHold\":\"live\",\"cardDecline\":\"none\",\"accountDetails\":\"none\",\"purchaseHolds\":\"reported\",\"purchaseHold\":\"live\",\"legalHold\":\"none\",\"identityCase\":\"accepted\",\"bankRail\":\"none\",\"holderName\":null,\"payIn\":\"answered\",\"openOrder\":\"ABC\",\"calendarSource\":\"standing_orders\"}",
     "{\"paymentId\":\"33333333-3333-4333-8333-333333333333\"}",
     "{\"spendId\":\"placeholder\",\"assetId\":\"ABC\",\"amount\":\"0\",\"kind\":\"payment\"}",
     "{\"action\":\"read\",\"userId\":\"33333333-3333-4333-8333-333333333333\",\"assetId\":\"ABC\"}"
@@ -499,17 +499,17 @@
     ["testPartner.set", "{}", 23],
     [
       "testPartner.set",
-      "{\"fee\":\"known\",\"reserve\":\"none\",\"down\":true,\"figures\":\"live\",\"rampQuote\":\"live\",\"rampFee\":\"known\",\"custody\":\"on\",\"nextReply\":\"answered\",\"cardHold\":\"live\",\"cardDecline\":\"none\",\"accountDetails\":\"none\",\"purchaseHolds\":\"reported\",\"purchaseHold\":\"live\",\"legalHold\":\"none\",\"identityCase\":\"accepted\",\"bankRail\":\"none\",\"holderName\":null,\"payIn\":\"answered\",\"openOrder\":\"ABC\"}",
+      "{\"fee\":\"known\",\"reserve\":\"none\",\"down\":true,\"figures\":\"live\",\"rampQuote\":\"live\",\"rampFee\":\"known\",\"custody\":\"on\",\"nextReply\":\"answered\",\"cardHold\":\"live\",\"cardDecline\":\"none\",\"accountDetails\":\"none\",\"purchaseHolds\":\"reported\",\"purchaseHold\":\"live\",\"legalHold\":\"none\",\"identityCase\":\"accepted\",\"bankRail\":\"none\",\"holderName\":null,\"payIn\":\"answered\",\"openOrder\":\"ABC\",\"calendarSource\":\"standing_orders\"}",
       23
     ],
     [
       "testPartner.set",
-      "{\"fee\":\"known\",\"reserve\":\"none\",\"down\":true,\"figures\":\"live\",\"rampQuote\":\"live\",\"rampFee\":\"known\",\"custody\":\"on\",\"nextReply\":\"answered\",\"cardHold\":\"live\",\"cardDecline\":\"none\",\"accountDetails\":\"none\",\"purchaseHolds\":\"reported\",\"purchaseHold\":\"live\",\"legalHold\":\"none\",\"identityCase\":\"accepted\",\"bankRail\":\"none\",\"holderName\":null,\"payIn\":\"answered\",\"openOrder\":\"ABC\",\"extra\":1}",
+      "{\"fee\":\"known\",\"reserve\":\"none\",\"down\":true,\"figures\":\"live\",\"rampQuote\":\"live\",\"rampFee\":\"known\",\"custody\":\"on\",\"nextReply\":\"answered\",\"cardHold\":\"live\",\"cardDecline\":\"none\",\"accountDetails\":\"none\",\"purchaseHolds\":\"reported\",\"purchaseHold\":\"live\",\"legalHold\":\"none\",\"identityCase\":\"accepted\",\"bankRail\":\"none\",\"holderName\":null,\"payIn\":\"answered\",\"openOrder\":\"ABC\",\"calendarSource\":\"standing_orders\",\"extra\":1}",
       24
     ],
     [
       "testPartner.set",
-      "{\"1\":4,\"2\":2,\"b\":1,\"fee\":\"known\",\"reserve\":\"none\",\"down\":true,\"figures\":\"live\",\"rampQuote\":\"live\",\"rampFee\":\"known\",\"custody\":\"on\",\"nextReply\":\"answered\",\"cardHold\":\"live\",\"cardDecline\":\"none\",\"accountDetails\":\"none\",\"purchaseHolds\":\"reported\",\"purchaseHold\":\"live\",\"legalHold\":\"none\",\"identityCase\":\"accepted\",\"bankRail\":\"none\",\"holderName\":null,\"payIn\":\"answered\",\"openOrder\":\"ABC\",\"a\":3}",
+      "{\"1\":4,\"2\":2,\"b\":1,\"fee\":\"known\",\"reserve\":\"none\",\"down\":true,\"figures\":\"live\",\"rampQuote\":\"live\",\"rampFee\":\"known\",\"custody\":\"on\",\"nextReply\":\"answered\",\"cardHold\":\"live\",\"cardDecline\":\"none\",\"accountDetails\":\"none\",\"purchaseHolds\":\"reported\",\"purchaseHold\":\"live\",\"legalHold\":\"none\",\"identityCase\":\"accepted\",\"bankRail\":\"none\",\"holderName\":null,\"payIn\":\"answered\",\"openOrder\":\"ABC\",\"calendarSource\":\"standing_orders\",\"a\":3}",
       25
     ],
     ["testPartner.set", [7, ["openOrder"], "\"  padded  \""], 66],
@@ -543,7 +543,7 @@
     ["testPartner.set", [7, ["openOrder"], "\"0.5\""], 66],
     [
       "testPartner.set",
-      "{\"fee\":\"known\",\"reserve\":\"none\",\"down\":true,\"figures\":\"live\",\"rampQuote\":\"live\",\"rampFee\":\"known\",\"custody\":\"on\",\"nextReply\":\"answered\",\"cardHold\":\"live\",\"cardDecline\":\"none\",\"accountDetails\":\"none\",\"purchaseHolds\":\"reported\",\"purchaseHold\":\"live\",\"legalHold\":\"none\",\"identityCase\":\"accepted\",\"bankRail\":\"none\",\"holderName\":null,\"payIn\":\"answered\",\"openOrder\":null,\"notOffered\":7}",
+      "{\"fee\":\"known\",\"reserve\":\"none\",\"down\":true,\"figures\":\"live\",\"rampQuote\":\"live\",\"rampFee\":\"known\",\"custody\":\"on\",\"nextReply\":\"answered\",\"cardHold\":\"live\",\"cardDecline\":\"none\",\"accountDetails\":\"none\",\"purchaseHolds\":\"reported\",\"purchaseHold\":\"live\",\"legalHold\":\"none\",\"identityCase\":\"accepted\",\"bankRail\":\"none\",\"holderName\":null,\"payIn\":\"answered\",\"openOrder\":\"ABC\",\"calendarSource\":null,\"notOffered\":7}",
       74
     ],
     ["testPartner.settlePayment", null, 0],

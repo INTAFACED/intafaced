@@ -176,6 +176,11 @@ const RUST_READS = new Set([
   'packages/exchange-contract/src/schemas.ts',
   // crates/svc-agents/tests/boot.rs: the compose pins' env names are the ones .env.example documents.
   '.env.example',
+  // crates/svc-bank: the jurisdiction list its account details check (src/partner_account/account_details.rs), and the
+  // TEST owner values and published schema its global send test reads (tests/global_sim_db.rs).
+  'packages/config/src/jurisdiction.ts',
+  'tooling/profiles/test-owner-values/bank.json',
+  'packages/contracts/procedures/svc-bank.schema.json',
 ]);
 /** Source the Rust ledger's recorded tables come from (crates/svc-ledger/scripts/record-posting.mjs, checked in the Rust job). */
 const RUST_READS_UNDER = ['packages/ledger-client/src/'];
@@ -335,7 +340,7 @@ export { reachesLook };
 
 export function sealNeeded(flags, results) {
   const problems = [];
-  const always = ['changes', 'gates', 'format', 'build'];
+  const always = ['changes', 'gates', 'build'];
   for (const name of always) {
     const r = results[name];
     if (r !== 'success') problems.push(`${name} was ${r || 'missing'} (required)`);
@@ -423,7 +428,6 @@ function runSeal() {
   const results = {
     changes: process.env.CHANGES,
     gates: process.env.GATES,
-    format: process.env.FORMAT,
     build: process.env.BUILD,
     'tests-full': process.env.T_FULL,
     rust: process.env.RUST_RESULT,

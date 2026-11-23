@@ -121,9 +121,7 @@ export function RequestForm({ api, writer, desk, pairs, makers, picked, onPick, 
           {t('Pairs unreadable retry')}
         </Button>
       ) : null}
-      {pairs.status === 'empty' || (pairs.status === 'ready' && options.length === 0) ? (
-        <p className="m-0 text-sm text-fg-2">{t('No pairs')}</p>
-      ) : null}
+      {pairs.status === 'empty' || (pairs.status === 'ready' && options.length === 0) ? <p className="lt-hint">{t('No pairs')}</p> : null}
       {options.length > 0 ? (
         <>
           <Field label={t('Pair')}>
@@ -170,7 +168,7 @@ export function RequestForm({ api, writer, desk, pairs, makers, picked, onPick, 
                 {t('Providers unreadable retry')}
               </Button>
             ) : null}
-            {makers.status === 'ready' && !makers.data.published ? <p className="m-0 text-sm text-fg-2">{t('No providers set')}</p> : null}
+            {makers.status === 'ready' && !makers.data.published ? <p className="lt-hint">{t('No providers set')}</p> : null}
             {makers.status === 'ready' && makers.data.published ? (
               <>
                 {makers.data.makers.map((m) => (
@@ -183,17 +181,17 @@ export function RequestForm({ api, writer, desk, pairs, makers, picked, onPick, 
                   </label>
                 ))}
                 {makers.data.selectCap != null ? (
-                  <p className="m-0 text-xs text-fg-2">{t('Providers hint', { cap: String(makers.data.selectCap) })}</p>
+                  <p className="lt-hint">{t('Providers hint', { cap: String(makers.data.selectCap) })}</p>
                 ) : null}
               </>
             ) : null}
           </fieldset>
-          <p className="m-0 text-xs text-fg-2">{t('Desk names the price')}</p>
+          <p className="lt-hint">{t('Desk names the price')}</p>
           <Button variant="primary" size={40} loading={writer.busy} disabled={block !== null} onClick={() => void submit()}>
             {t('Request price')}
           </Button>
           {block !== null ? (
-            <p className="m-0 text-xs text-fg-2" data-testid="request-block">
+            <p className="lt-hint" data-testid="request-block">
               {t(BLOCK_KEY[block])}
             </p>
           ) : null}

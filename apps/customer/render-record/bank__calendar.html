@@ -109,16 +109,15 @@
 </a>
 </div>
 </header>
-<div class="lt-body">
-<section class="lt-region" data-region="actions" aria-label="Actions">
+<div class="lt-room-section">
 <div data-testid="money-bank-nav">
 <p class="lt-hint">
 <span lang="en" dir="ltr" data-i18n="customer.money.rooms.money.bank">Money / Bank</span>
 </p>
-<nav class="lt-tabs" aria-label="Bank rooms">
+<nav class="lt-tabs" aria-label="Bank rooms" data-region="section-tabs">
 <a href="/bank" class="lt-tab">Overview</a>
 <a href="/bank/spaces" class="lt-tab">Spaces</a>
-<a href="/bank/transfers" class="lt-tab" aria-current="page">Transfers</a>
+<a href="/bank/transfers" class="lt-tab">Transfers</a>
 <a href="/bank/earn" class="lt-tab">Earn</a>
 <a href="/bank/loans" class="lt-tab">Loans</a>
 <a href="/bank/cards" class="lt-tab">Cards</a>
@@ -127,18 +126,21 @@
 <a href="/bank/business" class="lt-tab">Business</a>
 </nav>
 </div>
-</section>
+</div>
+<div class="lt-body">
 <div class="lt-grid lt-grid-main-side">
 <div class="lt-col-main">
 <section class="lt-region" data-region="panels" aria-label="Details">
 <div class="lt-stack">
 <p role="note">The calendar only reads. Open an item to change it in its own room.</p>
+<strong data-testid="cal-month-name" data-month="2026-10">October 2026</strong>
 <div class="lt-actions" role="group" aria-label="October 2026">
 <button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Previous month</button>
-<strong data-testid="cal-month-name" data-month="2026-10">October 2026</strong>
 <button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Next month</button>
-<button aria-pressed="true" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Month</button>
-<button aria-pressed="false" type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">List</button>
+</div>
+<div class="lit-segmented" role="group" aria-label="Show as">
+<button type="button" aria-pressed="true">Month</button>
+<button type="button" aria-pressed="false">List</button>
 </div>
 <div class="lt-actions" role="group" aria-label="Show">
 <span class="lt-hint">Show</span>

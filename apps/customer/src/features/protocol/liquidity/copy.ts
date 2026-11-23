@@ -83,6 +83,7 @@ const en = {
 
   positionsTitle: 'Your positions',
   positionsEmpty: 'This wallet holds no pool shares on {network}.',
+  positionsNoWallet: 'Pool shares are read from your wallet. Add one in the wallet room to see them here.',
   positionsUnread: 'The positions were not read: {reason}',
   hdrPool: 'Pool',
   hdrShares: 'LP shares',

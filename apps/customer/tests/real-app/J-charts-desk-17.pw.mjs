@@ -229,7 +229,12 @@ test(`${J} #2 turns percent mode on and every series is rebased to the same star
   await expect(item).toHaveAttribute('data-first-percent', '0.00');
 });
 
-test(`${J} #4 takes a snapshot, copies a share link and prints, with no account detail`, async ({ page, context, stepPicture }) => {
+test(`${J} #4 takes a snapshot, copies a share link and prints, with no account detail`, async ({
+  page,
+  context,
+  browser,
+  stepPicture,
+}) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   // Signed in, so there is an account the snapshot and the link could leak.
   const who = await signUp(page, 'cs');
@@ -237,7 +242,10 @@ test(`${J} #4 takes a snapshot, copies a share link and prints, with no account 
   await signOutBrowser(page.context());
   await signIn(page, who);
   await openChart(page, `${CHART}?interval=1h`);
-  const [png] = await Promise.all([page.waitForEvent('download'), tools(page).getByRole('button', { name: 'Snapshot (PNG)' }).click()]);
+  const [png] = await Promise.all([
+    page.waitForEvent('download'),
+    tools(page).getByRole('button', { name: 'Snapshot (PNG)', exact: true }).click(),
+  ]);
   expect(png.suggestedFilename()).toBe('chart-BTC-USDT-1h.png');
   const bytes = readFileSync(await png.path());
   expect(bytes.subarray(1, 4).toString()).toBe('PNG');
@@ -269,11 +277,63 @@ test(`${J} #4 takes a snapshot, copies a share link and prints, with no account 
   for (const detail of details) expect(asText).not.toContain(detail);
   const drawnText = await canvas(page).evaluate((el) => el.textContent ?? '');
   for (const detail of details) expect(drawnText).not.toContain(detail);
+  // Nor is any drawn into the image's pixels: a second account, with its own handle, email and id, snapshots the same
+  // chart at the same moment, and the two decoded images are the same pixel for pixel. Anything of either account drawn
+  // on the image (a watermark, a legend, a label) would make them differ. The pair is taken again until the market
+  // holds still between the two clicks; each image is the snapshot button's own download.
+  const other = await browser.newContext({ viewport: page.viewportSize() });
+  const otherPage = await other.newPage();
+  const second = await signUp(otherPage, 'cs');
+  expect(second.handle).not.toBe(who.handle);
+  await signOutBrowser(other);
+  await signIn(otherPage, second);
+  await openChart(otherPage, `${CHART}?interval=1h`);
+  const snap = async (p) => {
+    const [file] = await Promise.all([
+      p.waitForEvent('download'),
+      tools(p).getByRole('button', { name: 'Snapshot (PNG)', exact: true }).click(),
+    ]);
+    return readFileSync(await file.path()).toString('base64');
+  };
+  const differing = async () => {
+    const [mine, theirs] = await Promise.all([snap(page), snap(otherPage)]);
+    return page.evaluate(
+      async ([a, b]) => {
+        const pixelsOf = async (b64) => {
+          const img = new Image();
+          img.src = `data:image/png;base64,${b64}`;
+          await img.decode();
+          const c = document.createElement('canvas');
+          [c.width, c.height] = [img.width, img.height];
+          const ctx = c.getContext('2d');
+          ctx.drawImage(img, 0, 0);
+          return { size: `${img.width}x${img.height}`, data: ctx.getImageData(0, 0, c.width, c.height).data };
+        };
+        const [x, y] = [await pixelsOf(a), await pixelsOf(b)];
+        if (x.size !== y.size) return `sizes ${x.size} and ${y.size}`;
+        let n = 0;
+        for (let i = 0; i < x.data.length; i += 4)
+          if (
+            x.data[i] !== y.data[i] ||
+            x.data[i + 1] !== y.data[i + 1] ||
+            x.data[i + 2] !== y.data[i + 2] ||
+            x.data[i + 3] !== y.data[i + 3]
+          )
+            n += 1;
+        return n;
+      },
+      [mine, theirs],
+    );
+  };
+  await expect
+    .poll(differing, { timeout: 60_000, intervals: [500], message: "pixels differing between the two accounts' snapshots" })
+    .toBe(0);
+  await other.close();
   await tools(page).getByRole('button', { name: 'Copy link' }).click();
   await expect(page.getByTestId('compare-note')).toContainText('/charts/BTC-USDT?interval=1h&style=candles');
   // The link is the one on the clipboard, as copied, and the note shows that same link.
   const link = await page.evaluate(() => navigator.clipboard.readText());
-  expect((await page.getByTestId('compare-note').textContent()).replace(/^.*?(http\S+)$/, '$1')).toBe(link);
+  await expect.poll(async () => (await page.getByTestId('compare-note').textContent()).replace(/^.*?(http\S+)$/, '$1')).toBe(link);
   for (const detail of details) expect(link).not.toContain(detail);
   expect(link).not.toMatch(/user|account|email|token|session/i);
   // Nothing of the signed-in account: not its handle, its email or its id.
