@@ -103,8 +103,8 @@ async function openCatalogue(page) {
   await expect(page.getByTestId('campaign-catalogue').getByRole('status')).toHaveCount(0, { timeout: 30_000 });
 }
 
-/** A time as the detail page writes it for a reader in Tokyo (en, the zone named). */
-const tokyo = (iso) =>
+/** A time as the campaign pages write it for a reader in `timeZone` (en, the zone named). */
+const shown = (iso, timeZone) =>
   new Intl.DateTimeFormat('en', {
     year: 'numeric',
     month: 'short',
@@ -112,8 +112,9 @@ const tokyo = (iso) =>
     hour: '2-digit',
     minute: '2-digit',
     timeZoneName: 'short',
-    timeZone: 'Asia/Tokyo',
+    timeZone,
   }).format(new Date(iso));
+const tokyo = (iso) => shown(iso, 'Asia/Tokyo');
 
 const card = (page, id) => page.locator(`[data-testid="campaign-card"][data-campaign-id="${id}"]`);
 
@@ -158,12 +159,15 @@ test(`${J} #2 two active campaigns show their state, time frame and who can join
   const page = await customer(browser);
   await signIn(page, me);
   await openCatalogue(page);
+  // Each card's time frame is the stored one, read in my zone (UTC here).
+  const listed = (await catalogueOf(me)).campaigns;
   for (const c of [first, second]) {
     const row = card(page, c.id);
+    const stored = listed.find((x) => x.id === c.id);
     await expect(row).toBeVisible();
     await expect(row.getByRole('link', { name: c.name, exact: true })).toBeVisible();
     await expect(row.getByTestId('campaign-state')).toHaveText('Active');
-    await expect(row.getByTestId('campaign-window')).toContainText(' to ');
+    await expect(row.getByTestId('campaign-window')).toHaveText(`${shown(stored.startsAt, 'UTC')} to ${shown(stored.endsAt, 'UTC')}`);
     await expect(row.getByTestId('campaign-who')).toHaveText('Every signed-in account');
   }
   // The gift-card and points types are visible and name their blocker.
