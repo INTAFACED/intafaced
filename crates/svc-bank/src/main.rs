@@ -23,6 +23,7 @@ use service_kit::telemetry::{Logger, Telemetry};
 
 use svc_bank::activity;
 use svc_bank::automations;
+use svc_bank::bills;
 use svc_bank::cards;
 use svc_bank::db::{self, Store};
 use svc_bank::door::{BankDoor, DoorConfig, ServiceAuth, system_now};
@@ -548,6 +549,27 @@ fn cards_wiring(env: &BankEnv) -> Result<cards::Wiring, String> {
     })
 }
 
+/// Slice `bills`' wiring from the environment, one part each.
+fn bills_wiring(env: &BankEnv) -> Result<bills::Wiring, String> {
+    let raw = |k: &str| env.raw.get(k).map(String::as_str);
+    let mut w = bills::Wiring::none();
+    // `composeRailSendsArea`: `payeeCoolingHours: env.BANK_PAYEE_COOLING_HOURS`, the owner's window, blank refuses.
+    w.rail_sends = bills::rail_sends::Wiring {
+        cooling_hours: env.str("BANK_PAYEE_COOLING_HOURS").map(str::to_owned),
+    };
+    // `directDebitSchemeFor(env.BANK_DD_SCHEME, env.BANK_DD_SIM_JSON, raw APP_ENV and NODE_ENV)` and the run's switch.
+    w.direct_debits = bills::direct_debits::Wiring {
+        scheme: bills::direct_debits::scheme::scheme_for(
+            env.str("BANK_DD_SCHEME").unwrap_or("none"),
+            env.str("BANK_DD_SIM_JSON"),
+            raw("APP_ENV"),
+            raw("NODE_ENV"),
+        )?,
+        collections_enabled: env.flag("BANK_DD_COLLECTIONS_ENABLED").unwrap_or(true),
+    };
+    Ok(w)
+}
+
 /// Slice `global`'s wiring (`index.ts`'s `global` and its owner values): unset ports unless the TEST stand-in was
 /// chosen, which refuses to start outside dev or test (the raw `APP_ENV` and `NODE_ENV`).
 fn global_wiring(env: &BankEnv) -> Result<svc_bank::global::Wiring, String> {
@@ -760,7 +782,8 @@ fn door(env: &BankEnv, store: Store, bus: &Arc<JetStream>) -> Result<BankDoor, S
     .with_ramps(ramps_wiring(env)?)
     .with_activity(activity_wiring(env)?)
     .with_global(global_wiring(env)?)
-    .with_automations(automations_wiring(env)?);
+    .with_automations(automations_wiring(env)?)
+    .with_bills(bills_wiring(env)?);
     Ok(match env.str("EDGE_PRINCIPAL_PUBLIC_KEY") {
         None => door,
         Some(key) => door.with_edge_key(EdgeKey::from_env(
