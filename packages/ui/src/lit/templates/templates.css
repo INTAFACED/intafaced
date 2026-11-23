@@ -703,6 +703,19 @@
   flex-wrap: wrap;
 }
 
+/* A field and the one button that acts on it (search, check): the field takes the row, the button sits on its
+   baseline, beside it on a computer and under it when the row is too narrow. */
+.lt-field-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--lit-gap-item);
+  align-items: flex-end;
+}
+
+.lt-field-row > .lit-field-control {
+  flex: 1 1 16rem;
+}
+
 /* Equal weight: same size, style and level. */
 .lt-equal > .lt-button {
   flex: 1 1 0;
@@ -870,7 +883,7 @@
   flex-direction: column;
 }
 
-.lt-kv > div {
+.lt-kv > :is(div, section) {
   display: flex;
   justify-content: space-between;
   gap: var(--lit-gap-item);
@@ -881,6 +894,18 @@
 
 .lt-kv dt {
   color: var(--lit-text-2);
+}
+
+/* A labelled row whose value is a paragraph (a published text section): its heading reads as the row's label. */
+.lt-kv > section > :is(h2, h3, h4) {
+  margin: 0;
+  font: inherit;
+  color: var(--lit-text-2);
+}
+
+.lt-kv > section > p {
+  margin: 0;
+  text-align: end;
 }
 
 .lt-kv dd {
@@ -1165,6 +1190,11 @@ button.lt-tab {
 
 .lt-table [data-align='end'] {
   text-align: end;
+}
+
+/* Words, not figures: a last column of prose reads from its start, even inside an old room whose tables end-align it. */
+.lt-table [data-align='start'] {
+  text-align: start;
 }
 
 .lt-table tr[data-selected] td {
@@ -2194,6 +2224,21 @@ button.lt-tab {
   color: var(--lt-on-brand, var(--lit-text-1));
 }
 
+/* ---- doors: a short list of entry points to other rooms, each a card, as many to a row as fit ---- */
+
+.lt-doors {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--lit-gap-item);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+}
+
+.lt-doors > li > * {
+  block-size: 100%;
+}
+
 /* ---- record rows: a list of records, one per row, each with its own stacked lines ---- */
 
 /* A list of records drawn as rows (a notification, an alert, a firing): no bullets, a line between rows, each row's
@@ -2210,6 +2255,28 @@ button.lt-tab {
   gap: calc(var(--lit-gap-item) / 2);
   padding-block: var(--lit-gap-item);
   border-block-end: 1px solid var(--lit-line);
+}
+
+/* One record on one line: a leading mark, the record's lines taking the room, and its end part (a time, a mark) kept
+   together at the end of the first line, never pushed under the words. */
+.lt-record-line {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--lit-gap-item);
+  inline-size: 100%;
+  text-align: start;
+}
+
+.lt-record-line > .lt-lines {
+  flex: 1 1 auto;
+}
+
+.lt-record-line > [data-part='end'] {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--lit-gap-item) / 2);
+  color: var(--lit-text-2);
 }
 
 /* A record's own lines, stacked: its name first, then each line under it. */

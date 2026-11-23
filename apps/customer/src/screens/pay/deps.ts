@@ -32,6 +32,7 @@ export {
   useHideBalances,
   HIDDEN_MASK,
 } from '@intafaced/ui';
+export { Field } from '@intafaced/ui/lit';
 
 export { createActivityFeed, fmtAmount, refusalCopy, withDeviceHandles } from '../../data';
 export type { ActivityFeed, ActivityItem, Loadable } from '../../data';

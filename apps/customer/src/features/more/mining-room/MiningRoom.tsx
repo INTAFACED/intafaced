@@ -159,15 +159,17 @@ function OverviewView({ read }: { read: Read<PoolOverview> }) {
   return (
     <Section title={t('overviewTitle')}>
       {data?.what ? <p>{data.what}</p> : null}
-      {SECTIONS.map(({ key, field }) => {
-        const text = data ? data[field] : null;
-        return (
-          <section key={key} aria-label={t(key)} data-state={text === null ? 'unset' : 'set'}>
-            <h3>{t(key)}</h3>
-            {text === null ? <p className="lt-hint">{t('notSet')}</p> : <p>{text}</p>}
-          </section>
-        );
-      })}
+      <div className="lt-kv">
+        {SECTIONS.map(({ key, field }) => {
+          const text = data ? data[field] : null;
+          return (
+            <section key={key} aria-label={t(key)} data-state={text === null ? 'unset' : 'set'}>
+              <h3>{t(key)}</h3>
+              {text === null ? <p className="lt-hint">{t('notSet')}</p> : <p>{text}</p>}
+            </section>
+          );
+        })}
+      </div>
       {data ? <p className="lt-hint">{t('overviewVersion', { version: data.version })}</p> : null}
     </Section>
   );
@@ -302,9 +304,16 @@ function CopyLine({
     <div>
       <dt>{label}</dt>
       <dd>
-        <code className="lt-mono" data-testid={id} lang="und" dir="ltr">
-          {value ?? empty ?? t('notSet')}
-        </code>{' '}
+        {/* A value is code; its absence is words, so the hint reads as a hint and not as a value to copy. */}
+        {value === null ? (
+          <span className="lt-hint" data-testid={id}>
+            {empty ?? t('notSet')}
+          </span>
+        ) : (
+          <code className="lt-mono" data-testid={id} lang="und" dir="ltr">
+            {value}
+          </code>
+        )}{' '}
         <Button tone="secondary" aria-label={copyLabel} disabled={value === null} onClick={() => void copy()}>
           {state === 'done' ? t('copied') : copyLabel}
         </Button>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react';
-import { AccountDetailsByCurrency, AmountInput, Button, confirmWithStepUp, refusalCopy, useSession } from './deps';
+import { AccountDetailsByCurrency, AmountInput, Button, confirmWithStepUp, Field, refusalCopy, useSession } from './deps';
 import type { ApiResult } from './deps';
 import { payCopy } from './copy';
 import { personalCopy } from './personal-copy';
@@ -684,30 +684,29 @@ export function GlobalCard() {
             ) : null}
           </div>
           <div className="pay-field">
-            <label className="lt-hint" htmlFor="global-country-check">
-              {g('checkLabel')}
-            </label>
-            <input
-              id="global-country-check"
-              className="pay-text"
-              type="text"
-              autoComplete="off"
-              maxLength={2}
-              value={typedCountry}
-              onChange={(event) => {
-                setTypedCountry(event.target.value);
-                setChecked(null);
-              }}
-            />
-            <Button
-              type="button"
-              variant="secondary"
-              data-testid="global-country-check"
-              disabled={!typedCountry.trim() || corridors.state !== 'ready'}
-              onClick={() => corridors.state === 'ready' && setChecked(corridorFor(corridors.data, typedCountry))}
-            >
-              {g('checkButton')}
-            </Button>
+            <div className="lt-field-row">
+              <Field
+                id="global-country-check"
+                label={g('checkLabel')}
+                type="text"
+                autoComplete="off"
+                maxLength={2}
+                value={typedCountry}
+                onChange={(event) => {
+                  setTypedCountry(event.target.value);
+                  setChecked(null);
+                }}
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                data-testid="global-country-check"
+                disabled={!typedCountry.trim() || corridors.state !== 'ready'}
+                onClick={() => corridors.state === 'ready' && setChecked(corridorFor(corridors.data, typedCountry))}
+              >
+                {g('checkButton')}
+              </Button>
+            </div>
             {checked ? (
               <p className="lt-hint" role="note" data-testid={`global-country-${checked.state}`}>
                 {checked.state === 'bad'
