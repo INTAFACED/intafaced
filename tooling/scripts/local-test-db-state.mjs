@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 /** Crash durability off: CI's service database and the tests' own containers run the same way (#9610). */
-export const PG_THROWAWAY_FLAGS = '-c fsync=off -c synchronous_commit=off -c full_page_writes=off';
+const PG_THROWAWAY_FLAGS = '-c fsync=off -c synchronous_commit=off -c full_page_writes=off';
 
 /** True when this stack keeps its database through a crash or restart: durable writes, and an unclean stop is recovered. */
 export const pgDurable = (env = process.env) => env.LOCAL_STACK_PG_DURABLE === '1';
@@ -22,7 +22,7 @@ export const pgDurable = (env = process.env) => env.LOCAL_STACK_PG_DURABLE === '
 export const pgServerFlags = (env = process.env) => (pgDurable(env) ? '' : PG_THROWAWAY_FLAGS);
 
 /** The state files that name identity accounts, with the account ids each names and the files that go with it. */
-export const ACCOUNT_FILES = [
+const ACCOUNT_FILES = [
   {
     file: 'founders.json',
     ids: (json) => (Array.isArray(json?.founders) ? json.founders.map((f) => f?.userId) : []),
@@ -38,7 +38,7 @@ export const ACCOUNT_FILES = [
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** The account ids a state file names (valid UUIDs only), or none when the file is missing or unreadable. */
-export function namedAccountIds(stateDir, entry, { read = (f) => fs.readFileSync(f, 'utf8') } = {}) {
+function namedAccountIds(stateDir, entry, { read = (f) => fs.readFileSync(f, 'utf8') } = {}) {
   let json;
   try {
     json = JSON.parse(read(path.join(stateDir, entry.file)));
