@@ -91,6 +91,28 @@ describe('step picture from the top', () => {
     await close();
   });
 
+  it('under an open modal dialog the page still goes to the top, and the dialog keeps its focus', async (t) => {
+    if (!browser) return t.skip(`no Chromium to drive: ${why}`);
+    const { page, close } = await pageOf(
+      '<div role="dialog" aria-modal="true" style="position:fixed;top:100px;left:0;width:200px;height:100px;background:#0f0"><button id="in">OK</button></div>',
+    );
+    await page.evaluate(() => window.scrollTo(0, 1500));
+    await page.focus('#in');
+    expect(await fromTop(page)).toBe('scrolled, dialog kept open');
+    expect(await page.evaluate(() => [window.scrollY, document.activeElement.id])).toEqual([0, 'in']);
+    expect(await pixel(page, 300, 10)).toEqual(BAR);
+    await close();
+  });
+
+  it('an open dialog that is not modal keeps the page as the step left it', async (t) => {
+    if (!browser) return t.skip(`no Chromium to drive: ${why}`);
+    const { page, close } = await pageOf('<div role="dialog" style="position:absolute;top:1520px">Note</div>');
+    await page.evaluate(() => window.scrollTo(0, 1500));
+    expect(await fromTop(page)).toBe('kept: something open');
+    expect(await page.evaluate(() => window.scrollY)).toBe(1500);
+    await close();
+  });
+
   it('a focused field stays focused while the page goes to the top', async (t) => {
     if (!browser) return t.skip(`no Chromium to drive: ${why}`);
     const { page, close } = await pageOf();
