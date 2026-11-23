@@ -3,9 +3,18 @@
  * this module only parses and refuses. Never logs the key.
  */
 import { getContractAddress, isAddress, type Address, type Hex } from 'viem';
-import { assertNotDevKey } from './deploy-suite.js';
+import { KNOWN_DEV_PRIVATE_KEYS } from '@intafaced/config';
 
 export const SEPOLIA_CHAIN_ID = 84532;
+
+const DEV_KEYS = new Set<string>(KNOWN_DEV_PRIVATE_KEYS.map((k) => k.toLowerCase()));
+
+/** Whoever holds a public Anvil/Hardhat key owns what it deploys: refuse it on any chain we publish to. */
+export function assertNotDevKey(key: Hex): void {
+  if (DEV_KEYS.has(key.toLowerCase())) {
+    throw new Error('deploy refused: PROTOCOL_DEPLOYER_KEY is a public Anvil/Hardhat key; deploy with a fresh key');
+  }
+}
 export const CIRCLE_USDC_BASE_SEPOLIA = '0x036CbD53842c5426634e7929541eC2318f3dCF7e' as Address;
 export const ENTRYPOINT_V07 = '0x0000000071727De22E5E9d8BAf0edAc6f37da032' as Address;
 export const BANNED_LIVE_CHAIN_IDS = [5042, 31337, 8453] as const;

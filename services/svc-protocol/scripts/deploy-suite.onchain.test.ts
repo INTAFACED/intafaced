@@ -8,13 +8,13 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import type { Address, Hex } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { KNOWN_DEV_PRIVATE_KEYS } from '@intafaced/config';
-import { loadArtifact } from '../chain/artifacts.js';
+import { loadArtifact } from '../src/chain/artifacts.js';
 import { deployEnvLines, deployProtocolSuite, SUITE_MARKET_ID, type DeployTarget } from './deploy-suite.js';
-import { ENTRYPOINT_V07 } from './sepolia-deploy-env.js';
+import { ENTRYPOINT_V07 } from '../src/deployments/sepolia-deploy-env.js';
 
 const devChainMod = await (async () => {
   try {
-    return await import('../../scripts/dev-chain.js');
+    return await import('./dev-chain.js');
   } catch {
     return null;
   }

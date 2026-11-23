@@ -11,12 +11,12 @@
  * The key must be a fresh one funded from a faucet: a public Anvil/Hardhat key is refused. The RPC must be http(s):
  * svc-indexer reads it over HTTP. Writes deployments/base-sepolia.json, then prints `KEY=value` lines for
  * PROTOCOL_* and INDEXER_* on stdout. Never prints or writes the key. The deploy itself is
- * `src/deployments/deploy-suite.ts`, which the on-chain test runs against the local dev chain.
+ * `deploy-suite.ts`, which the on-chain test runs against the local dev chain.
  */
 import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { deployEnvLines, deployProtocolSuite, type DeployedSuite, type DeployTarget } from '../src/deployments/deploy-suite.js';
+import { deployEnvLines, deployProtocolSuite, type DeployedSuite, type DeployTarget } from './deploy-suite.js';
 import { assertSepoliaRegistry } from '../src/deployments/registry.js';
 import { parseSepoliaDeployEnv, SEPOLIA_CHAIN_ID } from './sepolia-deploy-env.js';
 

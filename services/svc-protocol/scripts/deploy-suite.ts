@@ -1,7 +1,7 @@
 /**
  * The Protocol suite's deploy, written once for every chain it goes to.
  *
- * `scripts/deploy-sepolia.ts` is the CLI: it reads its env (`sepolia-deploy-env.ts`, which holds it to Base Sepolia,
+ * `deploy-sepolia.ts` is the CLI: it reads its env (`sepolia-deploy-env.ts`, which holds it to Base Sepolia,
  * Circle USDC and the canonical EntryPoint), calls `deployProtocolSuite`, writes the registry and prints
  * `deployEnvLines`. The on-chain test calls the same function against the local dev chain, so the code a public test
  * chain runs is the code CI runs.
@@ -10,11 +10,11 @@
  * deploys), a node whose chain id is not the target's, a quote token with no code or not 6 decimals, and an empty
  * deployer balance. Never logs the key.
  */
-import { KNOWN_DEV_PRIVATE_KEYS } from '@intafaced/config';
 import { createPublicClient, createWalletClient, defineChain, http, isAddress, keccak256, stringToHex, type Address, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { loadArtifact, type ArtifactName } from '../chain/artifacts.js';
-import type { DeploymentRegistry } from './registry.js';
+import { loadArtifact, type ArtifactName } from '../src/chain/artifacts.js';
+import type { DeploymentRegistry } from '../src/deployments/registry.js';
+import { assertNotDevKey } from './sepolia-deploy-env.js';
 
 /** The venue's one market: TEST base against the chain's USDC. `svc-indexer` aliases this hash to `TEST/USDC`. */
 export const SUITE_MARKET_ID = keccak256(stringToHex('TEST/USDC'));
@@ -42,14 +42,6 @@ class DeployRefusedError extends Error {
   constructor(message: string) {
     super(`deploy refused: ${message}`);
     this.name = 'DeployRefusedError';
-  }
-}
-
-const DEV_KEYS = new Set<string>(KNOWN_DEV_PRIVATE_KEYS.map((k) => k.toLowerCase()));
-
-export function assertNotDevKey(key: Hex): void {
-  if (DEV_KEYS.has(key.toLowerCase())) {
-    throw new DeployRefusedError('PROTOCOL_DEPLOYER_KEY is a public Anvil/Hardhat key; deploy with a fresh key');
   }
 }
 
