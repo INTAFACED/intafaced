@@ -13,7 +13,20 @@ vi.mock('../../../shared/preferences', async (original) => {
 // test sees what the merchant would see inside the dialog. `PortalReview` is the real one: it supplies the exact scope.
 vi.mock('../components', async (original) => {
   const real = await original<typeof import('../components')>();
-  return { ...real, ReviewedAction: ({ review }: { review?: ReactNode }) => <div data-review>{review}</div> };
+  return {
+    ...real,
+    ReviewedAction: ({ review }: { review?: ReactNode }) => <div data-review>{review}</div>,
+    // A page on its Volt template confirms through `volt/Review`, which draws its review only while it is open: open it here.
+    useReviewedAction: () => ({
+      opened: true,
+      busy: false,
+      result: null,
+      unknown: false,
+      open: () => {},
+      close: () => {},
+      confirm: async () => {},
+    }),
+  };
 });
 
 import { ApprovalDecision, CancelRequest } from './money/Approvals';
