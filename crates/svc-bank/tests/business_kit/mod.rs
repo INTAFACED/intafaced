@@ -118,7 +118,7 @@ fn legs(recipe: &str, input: &Json) -> Result<Vec<(Acct, Acct, Amount)>, String>
         other => panic!("approvalId: {other:?}"),
     };
     let positive = |a: Amount| {
-        if a > 0 {
+        if a > Amount::ZERO {
             Ok(a)
         } else {
             Err("amount must be positive".to_owned())
@@ -235,7 +235,7 @@ impl Book {
                 .balances
                 .get(&acct(a))
                 .copied()
-                .unwrap_or(0),
+                .unwrap_or(Amount::ZERO),
         )
     }
     /// `availableOf(userId, assetId)`.
@@ -252,7 +252,7 @@ impl Book {
                 .balances
                 .get(&h)
                 .copied()
-                .unwrap_or(0),
+                .unwrap_or(Amount::ZERO),
         )
     }
     /// The keys booked, in order.
@@ -292,7 +292,7 @@ impl Book {
         for (k, v) in &st.balances {
             *by_asset.entry(&k.2).or_default() += *v;
         }
-        by_asset.values().all(|v| *v == 0)
+        by_asset.values().all(|v| *v == Amount::ZERO)
             && st.journal.iter().all(|(_, _, _, t)| {
                 let side = |d: &str| -> Amount {
                     t.entries
@@ -330,7 +330,7 @@ impl Ledger for Book {
             .balances
             .get(&acct(a))
             .copied()
-            .unwrap_or(0))
+            .unwrap_or(Amount::ZERO))
     }
     fn balances(&self, owner_type: &str, owner: &str) -> Result<Vec<LedgerBalance>, String> {
         Ok(self
@@ -431,9 +431,9 @@ impl Ledger for Book {
                     );
                 }
                 for (from, _, _) in &legs {
-                    let left = next.get(from).copied().unwrap_or(0);
-                    if from.0 != "system" && left < 0 {
-                        let had = st.balances.get(from).copied().unwrap_or(0);
+                    let left = next.get(from).copied().unwrap_or(Amount::ZERO);
+                    if from.0 != "system" && left < Amount::ZERO {
+                        let had = st.balances.get(from).copied().unwrap_or(Amount::ZERO);
                         return Err(coded(
                             "ledger.insufficient_funds",
                             format!("Insufficient funds: {}", format_amount(had)),
@@ -697,6 +697,8 @@ pub struct Mount {
     pub custody_layer: &'static str,
     /// `BANK_STEP_UP_MONEY_OUT=required`.
     pub step_up: bool,
+    /// `BANK_TEST_PARTNER=test`: the TEST partner bank holds the money of whoever turns its custody off.
+    pub test_partner: bool,
 }
 
 impl Default for Mount {
@@ -704,6 +706,7 @@ impl Default for Mount {
         Mount {
             custody_layer: "on",
             step_up: false,
+            test_partner: false,
         }
     }
 }
@@ -782,7 +785,9 @@ pub fn door_over(
     })
     .unwrap()
     .with_partner(PartnerWiring {
-        partner: None,
+        partner: m
+            .test_partner
+            .then(|| svc_bank::partner::TestPartner::new().unwrap()),
         freeze: Box::new(Open),
         custody_layer: m.custody_layer.to_owned(),
         cash_legs: None,

@@ -227,6 +227,16 @@ export function App() {
   // otherwise draw its signed-out view and run its reads as signed out, then swap. The rooms never read `restoring`.
   const content = redirectTo ? null : restoring ? (
     fallback
+  ) : room?.area === 'public' && session && !room.publicFrame ? (
+    // A signed-in person reading help, status, notices, fees or the developer pages keeps the app header.
+    <Shell door={undefined} path={path}>
+      {ribbon}
+      <div className="legacy-room">
+        <Suspense fallback={fallback}>
+          <PublicRoutes path={path} SharedResult={SharedResultRoute} framed />
+        </Suspense>
+      </div>
+    </Shell>
   ) : room?.area === 'public' || guestRequest ? (
     <div className="legacy-room">
       {ribbon}

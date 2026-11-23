@@ -57,7 +57,7 @@ import { existsSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { judgeRunsFor, leftToJudge } from './judged-paths.mjs';
 import { BASELINE, roomOf } from './look-baselines.mjs';
-import { countCall } from './api-count.mjs';
+import { githubFetch } from './github-fetch.mjs';
 
 const TEST_FILE = /(?:\.(?:test|spec)\.(?:[cm]?[jt]sx?)$|\.pw\.mjs$|\/__tests__\/)/;
 const BROWSER_TEST = /\.pw\.mjs$/;
@@ -99,6 +99,9 @@ const STRONG_MATCHER =
 // `threshold` is a common business word, so it counts only in browser tests and their configs.
 const TOLERANCE = /\b(maxDiffPixels|maxDiffPixelRatio)\s*:\s*([\d.]+)/g;
 const BROWSER_TOLERANCE = /\b(maxDiffPixels|maxDiffPixelRatio|threshold)\s*:\s*([\d.]+)/g;
+/** What an undeclared finding tells the builder: the CI step reads the live description, but only on a run. */
+export const UNDECLARED_HINT =
+  'If a change is intended, say why in the PR description on a line starting "Test-change:", then re-run the Doctrine gates job: an edit to the description starts no CI run.';
 export const DECLARED = /^\s*Test-change:\s*\S.{7,}$/m;
 const BASELINE_DECLARED = /^\s*Baseline-change:\s*(\S+)\s+[—–:-]+\s*(\S.{7,})$/gm;
 
@@ -242,15 +245,30 @@ export async function earlierFailures({ repo, headRepo = repo, branch, headSha }
   return out;
 }
 
-/** A REST reader on GITHUB_TOKEN; a refusal or a limit throws with the exact status, never retried. */
-function restReader(token) {
+/** How long the reader waits before each retry of a GitHub server error (5xx): two more tries, then it throws. */
+export const SERVER_ERROR_WAITS_MS = [2_000, 6_000];
+
+/**
+ * A REST reader on GITHUB_TOKEN. A refusal or a limit (any 4xx, 403 and 429 included) throws with the exact status, never
+ * retried. A server error (5xx: GitHub's own 502 Bad Gateway on a long PR's earlier runs) is tried again after each wait in
+ * `waits`, then throws with its status, so one passing outage on one of dozens of reads does not fail the guard.
+ */
+export function restReader(
+  token,
+  { fetchImpl = githubFetch, waits = SERVER_ERROR_WAITS_MS, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {},
+) {
   const get = async (path) => {
-    const res = await fetch(`https://api.github.com${path}`, {
-      headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28' },
-    });
-    countCall(res);
-    if (!res.ok) throw new Error(`GitHub ${res.status} ${res.statusText} on ${path}`);
-    return res;
+    for (let attempt = 0; ; attempt++) {
+      const res = await fetchImpl(`https://api.github.com${path}`, {
+        headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28' },
+      });
+      if (res.ok) return res;
+      if (res.status >= 500 && attempt < waits.length) {
+        await sleep(waits[attempt]);
+        continue;
+      }
+      throw new Error(`GitHub ${res.status} ${res.statusText} on ${path}`);
+    }
   };
   return { api: async (p) => (await get(p)).json(), text: async (p) => (await get(p)).text() };
 }
@@ -414,7 +432,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
   console.error(`\n${head} — ${problems.length} finding(s)\n`);
   for (const p of problems) console.error(`  ${p.path}\n    → ${p.why}\n`);
   if (!declared) {
-    console.error('  If a change is intended, say why in the PR description on a line starting "Test-change:".');
+    console.error(`  ${UNDECLARED_HINT}`);
     failed = true;
   }
   process.exit(failed ? 1 : 0);

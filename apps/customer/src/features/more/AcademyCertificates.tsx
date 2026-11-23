@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Field, Loading, Panel } from '../../shared/ui';
+import { Section, Waiting } from './volt-parts';
 import { usePreferences } from '../../shared/preferences';
 import { useApi, useSession } from '../session';
 import { Details, Read } from './common';
@@ -72,7 +73,7 @@ function Shelf({
   const view = cards.find((c) => c.definition.id === viewId);
   return (
     <div className="lt-stack">
-      <Panel title={t('shelfTitle')}>
+      <Section title={t('shelfTitle')}>
         <section className="lt-stack" data-certificates="courses" aria-labelledby="academy-course-certificates">
           <h3 id="academy-course-certificates">{t('coursesTitle')}</h3>
           <p role="status">
@@ -93,7 +94,7 @@ function Shelf({
           <h3 id="academy-programme-certificates">{t('programmeCertsTitle')}</h3>
           <ProgrammeCertificates />
         </section>
-      </Panel>
+      </Section>
       {view && <CertificateSheet card={view} lessons={lessons} onCheckCode={onCheckCode} />}
     </div>
   );
@@ -106,7 +107,7 @@ function Shelf({
 function UnpublishedPaths() {
   const api = useApi();
   const answer = useResource((signal) => api.call(ACADEMY_CERT_PATHS, undefined, { signal }), 'cert-paths');
-  if (answer.resource.status === 'loading') return <Loading />;
+  if (answer.resource.status === 'loading') return <Waiting />;
   if (answer.resource.status === 'failed') return <AcademyRefusal failure={answer.resource.failure} retry={answer.reload} />;
   return (
     <>
@@ -220,7 +221,7 @@ function CertificateSheet({
   const doc = userId ? certificateDocument(card, userId) : null;
   if (!doc)
     return (
-      <Panel title={card.definition.title}>
+      <Section title={card.definition.title}>
         <div className="lt-stack">
           <p>
             <Copy k="sheetNotIssued" />
@@ -235,10 +236,10 @@ function CertificateSheet({
             ))}
           </ul>
         </div>
-      </Panel>
+      </Section>
     );
   return (
-    <Panel title={t('sheetPanel')}>
+    <Section title={t('sheetPanel')}>
       <div className="lt-stack" data-certificate-sheet={doc.certId}>
         <article
           className="academy-cert-sheet"
@@ -295,7 +296,7 @@ function CertificateSheet({
           />
         </details>
       </div>
-    </Panel>
+    </Section>
   );
 }
 
@@ -342,7 +343,7 @@ function CertificateXp({ certId }: { certId: string }) {
   const api = useApi();
   const { t } = copy.useCopy();
   const plane = useResource((signal) => api.call(ACADEMY_CERT_XP_PLANE, undefined, { signal }), 'cert-xp-plane');
-  if (plane.resource.status === 'loading') return <Loading />;
+  if (plane.resource.status === 'loading') return <Waiting />;
   if (plane.resource.status === 'failed') return <AcademyRefusal failure={plane.resource.failure} retry={plane.reload} />;
   const xp = certificateXp(plane.resource.data, certId);
   return (
@@ -504,7 +505,7 @@ export function VerifyPanel({ reference, onReference }: { reference: string; onR
 
   const reason = lookup.status === 'checking' ? t('verifyChecking') : parsed.kind === 'code' ? null : t('verifyNeedCode');
   return (
-    <Panel title={t('verifyTitle')}>
+    <Section title={t('verifyTitle')}>
       <form
         className="lt-stack"
         onSubmit={(event) => {
@@ -535,10 +536,10 @@ export function VerifyPanel({ reference, onReference }: { reference: string; onR
         <GuardedButton type="submit" reasonId="academy-verify-reason" reason={reason}>
           {t('verifyAction')}
         </GuardedButton>
-        {lookup.status === 'checking' && <Loading label={t('verifyChecking')} />}
+        {lookup.status === 'checking' && <Waiting label={t('verifyChecking')} />}
         {lookup.status === 'done' && !lookup.result.ok && <AcademyRefusal failure={lookup.result} retry={() => void check(lookup.code)} />}
         {lookup.status === 'done' && lookup.result.ok && <VerifyResult code={lookup.code} certificate={lookup.result.data} />}
       </form>
-    </Panel>
+    </Section>
   );
 }

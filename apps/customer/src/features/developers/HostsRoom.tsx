@@ -45,9 +45,9 @@ export function HostsRoom() {
                   <tbody>
                     {hostRows(hostTable(view.read)).map((row) => (
                       <tr key={`${row.protocol}:${row.environment}`} data-host-state={row.cell.state}>
-                        <td>{t(`protocol_${row.protocol}` as const)}</td>
-                        <td>{t(`environment_${row.environment}` as const)}</td>
-                        <td>{row.cell.state === 'set' ? <code>{row.cell.host}</code> : t('hostUnset')}</td>
+                        <td data-label={t('colProtocol')}>{t(`protocol_${row.protocol}` as const)}</td>
+                        <td data-label={t('colEnvironment')}>{t(`environment_${row.environment}` as const)}</td>
+                        <td data-label={t('colHost')}>{row.cell.state === 'set' ? <code>{row.cell.host}</code> : t('hostUnset')}</td>
                       </tr>
                     ))}
                   </tbody>

@@ -454,7 +454,7 @@ async function scenario(browser, name, run, width = 1440, height = 1000) {
   }
 }
 async function enterTransfers(page) {
-  await main(page).locator('.money-bank-nav a[href="/bank/transfers"]').click();
+  await main(page).locator('[data-testid="money-bank-nav"] a[href="/bank/transfers"]').click();
   await expect.poll(() => currentURL(page)).toBe('/bank/transfers');
 }
 async function viewLocale(page, requested) {
@@ -568,7 +568,7 @@ test('four widths identify the current instruction and readable outcomes through
         await enterTransfers(page);
         expect(
           await main(page)
-            .locator('.money-bank-nav a')
+            .locator('[data-testid="money-bank-nav"] a')
             .evaluateAll((nodes) => nodes.map((node) => node.getAttribute('href'))),
         ).toEqual(paths);
         await inspect(page, row, locale, width >= 768);
@@ -588,13 +588,13 @@ test('four widths identify the current instruction and readable outcomes through
         await inspect(page, b, locale);
         await ready(page, b, state.results.get(b.id), locale, false, requested);
         expect(executionReads(state).at(-1).input).toEqual({ scheduleId: b.id, limit: 50 });
-        await main(page).locator('.money-bank-nav a[href="/bank"]').click();
+        await main(page).locator('[data-testid="money-bank-nav"] a[href="/bank"]').click();
         await main(page).getByRole('button', { name: ui[locale].hide, exact: true }).click();
         await enterTransfers(page);
         await inspect(page, row, locale);
         await ready(page, row, results, locale, true, requested);
         await snapshot(page, state, `standing-${width}-${requested}-hidden`, locale);
-        await main(page).locator('.money-bank-nav a[href="/bank"]').click();
+        await main(page).locator('[data-testid="money-bank-nav"] a[href="/bank"]').click();
         await main(page).getByRole('button', { name: ui[locale].show, exact: true }).click();
         await enterTransfers(page);
         await inspect(page, row, locale);
@@ -905,7 +905,7 @@ test('late and retired instruction controls preserve current URL, actor, dialog 
         expect(await readBankOriginalRaw(page)).toBe(bankOriginalRaw);
         await snapshot(page, state, `standing-original-${unreadable ? 'unreadable' : 'unknown'}-guard`);
         await restoreOriginalRead(page);
-        await main(page).locator('.money-bank-nav a[href="/bank"]').click();
+        await main(page).locator('[data-testid="money-bank-nav"] a[href="/bank"]').click();
         await enterTransfers(page);
         await inspect(page, row);
         await ready(page, row, state.results.get(row.id));

@@ -36,7 +36,7 @@ export function AcademyPublic({ route }: { route: AcademyRoute }) {
           : '';
   const { t } = copy.useCopy();
   return (
-    <div className="more-grid" data-academy-visitor="true">
+    <div className="lt-stack" data-academy-visitor="true">
       <Tabs
         items={academyTabs.map(([name]) => name)}
         labels={{

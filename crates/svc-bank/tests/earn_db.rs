@@ -221,7 +221,7 @@ fn invalid(message: &str) -> PostFailure {
 fn positive(j: &Json, k: &str) -> Result<Amount, PostFailure> {
     let raw = field(j, k);
     let a = parse_amount(&raw).map_err(|e| invalid(&e))?;
-    if a <= 0 {
+    if a <= Amount::ZERO {
         return Err(invalid(&format!("{k} must be positive, got {raw}")));
     }
     Ok(a)
@@ -240,7 +240,13 @@ impl Book {
         self.add(fees("USDT"), amount);
     }
     fn of(&self, a: &Acct) -> Amount {
-        self.0.lock().unwrap().balances.get(a).copied().unwrap_or(0)
+        self.0
+            .lock()
+            .unwrap()
+            .balances
+            .get(a)
+            .copied()
+            .unwrap_or(Amount::ZERO)
     }
     /// `userAvailable(user, 'USDT')`, formatted.
     fn main(&self, user: &str) -> String {
@@ -440,10 +446,10 @@ impl Ledger for Book {
         }
         let mut staged = st.balances.clone();
         for (from, to, a) in &legs {
-            *staged.entry(from.clone()).or_default() -= a;
-            *staged.entry(to.clone()).or_default() += a;
+            *staged.entry(from.clone()).or_default() -= *a;
+            *staged.entry(to.clone()).or_default() += *a;
         }
-        if let Some((short, held)) = staged.iter().find(|(_, v)| **v < 0) {
+        if let Some((short, held)) = staged.iter().find(|(_, v)| **v < Amount::ZERO) {
             // The memory ledger's refusal carries no single-attempt stamp: the code alone makes it definite.
             return Err(PostFailure::Coded {
                 code: "ledger.insufficient_funds".to_owned(),
@@ -2655,7 +2661,7 @@ fn a_held_saving_keeps_accruing_in_a_closed_pool_unbonds_once_earns_no_later_day
 
     // The day after it was asked pays it nothing.
     let r = b.accrue(&pool, plus(midnight(asked), DAY + HOUR));
-    assert_eq!((r.paid, r.recipients), (0, 0));
+    assert_eq!((r.paid, r.recipients), (Amount::ZERO, 0));
 
     // The release job: nothing before the end by the bank's clock, whatever time a caller names.
     let empty = r#"{"released":[],"skipped":[],"next":null}"#;

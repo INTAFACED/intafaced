@@ -94,7 +94,8 @@ test(`${J} #3 The read-only preset ticks only read scopes and says what the key 
   // Withdrawal is never offered, and the room says why.
   await expect(page.locator('input[name=scope][value="trade:withdraw"]')).toHaveCount(0);
   await expect(page.getByTestId('api-keys__blocked')).toContainText(
-    'trade:withdraw: Only while you are signed in on a device, never by a key.',
+    // The form names each permission in plain words: trade:withdraw is "Trading: withdraw".
+    'Trading: withdraw — Only while you are signed in on a device, never by a key.',
   );
 });
 

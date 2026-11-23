@@ -146,7 +146,7 @@ test(`${J} #4 Connect wallet lists the browser wallet by its own name; connectin
   await expect(page.locator('[data-wallet-address]')).toHaveText(wallet.address);
   await expect(page.locator('[data-wallet-network="ok"]')).toHaveText('Base Sepolia test network. Testnet only.');
   await expect(walletChip(page)).toHaveText(`${TEST_WALLET.name} · ${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}`);
-  expect((await walletChip(page).textContent()).split(' · ')[1]).toMatch(SHORT);
+  await expect.poll(async () => (await walletChip(page).textContent()).split(' · ')[1]).toMatch(SHORT);
 });
 
 test(`${J} #5 a wallet switched to Ethereum mainnet reads "Wrong network" with a switch request; switching back restores the label`, async ({

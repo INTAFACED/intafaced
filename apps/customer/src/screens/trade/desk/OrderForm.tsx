@@ -86,6 +86,7 @@ import { problemText } from './problem-text';
 import { draftOf } from './draft-of';
 import { reviewIdFor } from './review-id';
 import { expiryIsFuture, expiryOf, outcomeOf, tifLabelKey, tifOfDraft, tifFor, TYPE_TAB_KEY, type Tif } from './tif';
+import { DateInput } from '@intafaced/ui/lit';
 
 const PERCENTS = [25, 50, 75, 100] as const;
 
@@ -1512,7 +1513,7 @@ export const OrderPanel = memo(function OrderPanel({
         {market.open && tif === 'GTD' ? (
           <label className="dk-tif dk-expiry">
             <span className="dk-tif-label">{t('Order expires')}</span>
-            <input
+            <DateInput
               type="datetime-local"
               className="dk-expiry-input"
               value={expiry}
@@ -1551,7 +1552,7 @@ export const OrderPanel = memo(function OrderPanel({
               <p className="dk-note-title">{t('Checking your order')}</p>
               <p>{t('Checking your order body')}</p>
               {pending.value.kind === 'place' ? (
-                <div className="dk-note-actions">
+                <div className="lt-actions">
                   <button type="button" className="dk-link" disabled={checking || resending} onClick={() => void check()}>
                     {t('Check order')}
                   </button>

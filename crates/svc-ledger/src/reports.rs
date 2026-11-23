@@ -14,7 +14,7 @@
 use std::collections::BTreeSet;
 
 use service_kit::json::Json;
-use service_kit::money::{Amount, format_amount, mul, parse_amount};
+use service_kit::money::{Amount, format_amount, format_difference, mul, parse_amount};
 use service_kit::schema::Value;
 use service_kit::time::js_date;
 
@@ -304,14 +304,14 @@ fn compose(input: &Value, lots: &Value) -> Result<Json, Failure> {
         ));
     }
 
-    let mut realized: Amount = 0;
+    let mut realized: Amount = Amount::ZERO;
     for lot in closed {
         let proceeds = amount(string(lot, "proceeds").unwrap_or_default())?;
         let basis = amount(string(lot, "costBasis").unwrap_or_default())?;
         realized = add(realized, sub(proceeds, basis)?)?;
     }
-    let mut unrealized: Amount = 0;
-    let mut marked_open: Amount = 0;
+    let mut unrealized: Amount = Amount::ZERO;
+    let mut marked_open: Amount = Amount::ZERO;
     for lot in open {
         let qty = amount(string(lot, "qtyRemaining").unwrap_or_default())?;
         let price = match mark(
@@ -542,7 +542,7 @@ fn custody(input: &Value, now_ms: i64) -> Result<Json, Failure> {
         ));
     };
     let adapter = amount(adapter)?;
-    let difference = difference(adapter, amount(book)?);
+    let difference = format_difference(adapter, amount(book)?);
     let Some(break_id) = break_id else {
         return Ok(custody_refused(
             "break",
@@ -575,24 +575,6 @@ fn custody(input: &Value, now_ms: i64) -> Result<Json, Failure> {
         ("breakId", Json::str(break_id)),
         ("difference", Json::str(difference)),
     ]))
-}
-
-/// `formatAmount(adapter - book)`, exact: two amounts inside `numeric(38,18)` differ by at most twice its largest,
-/// which `i128` may not hold but its magnitude does.
-fn difference(adapter: Amount, book: Amount) -> String {
-    if let Some(d) = adapter.checked_sub(book) {
-        return format_amount(d);
-    }
-    // Only opposite signs overflow, so the magnitude is the two magnitudes summed.
-    let magnitude = adapter.unsigned_abs() + book.unsigned_abs();
-    let scale = 1_000_000_000_000_000_000_u128;
-    let (whole, frac) = (magnitude / scale, magnitude % scale);
-    let sign = if adapter < book { "-" } else { "" };
-    if frac == 0 {
-        return format!("{sign}{whole}");
-    }
-    let frac = format!("{frac:018}");
-    format!("{sign}{whole}.{}", frac.trim_end_matches('0'))
 }
 
 // ── financeClose ───────────────────────────────────────────────────────────────────────────────────────────────────

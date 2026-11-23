@@ -120,7 +120,7 @@ function ParkedBotRoom({ title, reason }: { title: string; reason: string }) {
   const { t } = roomCopy.useCopy();
   return (
     <Page width="full" className="cb-page" landmark={false}>
-      <ModeNav active="bots" />
+      <ModeNav />
       <PageHeader title={t(title as 'Spot grid')} description={t('This bot can’t be set up here.')} />
       <EmptyState
         variant="refused"
@@ -341,21 +341,24 @@ function BotsHub({ path }: { path: string }) {
               {t('See strategies')}
             </Button>
           );
+        // A bot that can't be set up now says so in words a person can read (the status beside it says why); a faded
+        // button there was unreadable once the catalogue stacks on a phone.
+        if (!s.ready) return <span className="text-fg-2">{t('Not available')}</span>;
         if (r.id === 'twap' || r.id === 'vwap' || r.id === 'pov')
           return (
-            <Button size={28} disabled={!s.ready || !session} onClick={() => setWizard({ open: true, kind: r.id as BotKind })}>
+            <Button size={28} disabled={!session} onClick={() => setWizard({ open: true, kind: r.id as BotKind })}>
               {t('Set up')}
             </Button>
           );
         if (r.id === 'grid')
           return (
-            <Button size={28} disabled={!s.ready} onClick={() => navigate(TYPE_LINK.grid.href)}>
+            <Button size={28} onClick={() => navigate(TYPE_LINK.grid.href)}>
               {t('Set up')}
             </Button>
           );
         // The recurring buy: its room lists the person's rules; a new one is set up from a coin page.
         return (
-          <Button size={28} disabled={!s.ready} onClick={() => navigate(TYPE_LINK.dca.href)}>
+          <Button size={28} onClick={() => navigate(TYPE_LINK.dca.href)}>
             {t('Set up')}
           </Button>
         );
@@ -371,13 +374,13 @@ function BotsHub({ path }: { path: string }) {
       value: nameOf,
       cell: (r) => <a href={`/trade/bots?${tab === 'catalogue' ? '' : `tab=${tab}&`}bot=${encodeURIComponent(r.id)}`}>{nameOf(r)}</a>,
       pin: 'start',
-      width: 200,
     },
-    { id: 'side', header: t('Side'), value: (r) => (r.side === 'buy' ? t('Buy') : t('Sell')) },
+    { id: 'side', header: t('Side'), value: (r) => (r.side === 'buy' ? t('Buy') : t('Sell')), width: 88 },
     {
       id: 'status',
       header: t('State'),
       cell: (r) => <Badge tone={BOT_TONE[r.status] ?? 'neutral'}>{t((BOT_WORD[r.status] ?? 'Unknown state') as 'Running')}</Badge>,
+      width: 140,
     },
     {
       id: 'progress',
@@ -385,13 +388,15 @@ function BotsHub({ path }: { path: string }) {
       value: (r) => percentFilled(r.filledQty, r.totalQty)?.replace('%', '') ?? null,
       numeric: true,
       cell: (r) => percentFilled(r.filledQty, r.totalQty) ?? '—',
+      width: 112,
     },
-    { id: 'total', header: t('Total'), value: (r) => r.totalQty, numeric: true, cell: (r) => displayAmount(r.totalQty) },
+    { id: 'total', header: t('Total'), value: (r) => r.totalQty, numeric: true, cell: (r) => displayAmount(r.totalQty), width: 140 },
     { id: 'created', header: t('Started'), value: (r) => new Date(r.created).toLocaleString(), width: 200 },
     {
       id: 'open',
       header: t('Manage'),
       headerLabel: t('Manage'),
+      width: 120,
       cell: (r) => (
         <Button variant="secondary" size={28} onClick={() => setOpenId(r.id)}>
           {t('Manage')}
@@ -463,7 +468,7 @@ function BotsHub({ path }: { path: string }) {
   const schedulerOff = policy.data !== null && !policy.data.capability.jobsEnabled;
   return (
     <Page width="full" className="cb-page" landmark={false}>
-      <ModeNav active="bots" />
+      <ModeNav />
       <PageHeader
         title={t('Bots')}
         description={t('Pick a bot, set its size and limits, see what it will cost before it starts, and stop it any time.')}
@@ -566,7 +571,7 @@ function BotsHub({ path }: { path: string }) {
                 minWidth={940}
               />
             ) : null}
-            <InfoNote>{t('My bots lists the bots you started in the last 3 months. Open an older one by its ID.')}</InfoNote>
+            <InfoNote>{t('My bots lists the bots you started in the last 3 months. Open an older one below with its reference.')}</InfoNote>
             {moreMine ? (
               <div className="lt-actions">
                 {mineLimit < BOT_LIST_MAX ? (
@@ -585,7 +590,7 @@ function BotsHub({ path }: { path: string }) {
                 openById();
               }}
             >
-              <Field label={t('Open a bot by ID')}>
+              <Field label={t('Open a bot that isn’t listed')}>
                 <Input kind="text" value={byId} onValueChange={setById} autoComplete="off" />
               </Field>
               <Button type="submit" variant="secondary" disabled={!byId.trim()}>

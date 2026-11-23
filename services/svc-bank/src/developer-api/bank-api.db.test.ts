@@ -19,7 +19,7 @@ import { MemoryLedger } from '@intafaced/ledger-client';
 import { createBankServices, memoryRecipientState } from '../bank-service.js';
 import { memoryLedgerHistory } from '../analytics/ledger-history.js';
 import { createBankRouter } from '../router.js';
-import { testPartner, type TestPartner } from '../partner/test-partner.js';
+import { TEST_PARTNER_SEND_FEE, testPartner, type TestPartner } from '../partner/test-partner.js';
 import { memoryBusinessDirectory, type DirectoryPerson } from '../business/business-directory.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -239,6 +239,22 @@ describe('the bank API (J-bank-24)', () => {
     expect(await refused(as(MEMBER).bankApi.quoteMove({ fromAccountId: joint.id, toAccountId: main.id, amount: '1' }))).toBe(
       'bank.space_forbidden',
     );
+    expect(ledger.journal()).toEqual([]);
+  });
+
+  it('a send quote names the network fee the partner holding the money reports, and "not known" (null) when it says none (#10436)', async () => {
+    const { owner } = await start();
+    await sql`
+      INSERT INTO bank.personal_transfer_terms (asset_id, per_transfer_limit, daily_limit, fee)
+      VALUES ('EUR', 1000, 5000, 0)
+      ON CONFLICT (asset_id) DO UPDATE SET per_transfer_limit = 1000, daily_limit = 5000, fee = 0
+    `;
+    expect(await owner.transfers.quote({ assetId: 'EUR', amount: '25' })).toMatchObject({
+      networkFee: TEST_PARTNER_SEND_FEE,
+      withinPerTransfer: true,
+    });
+    await owner.testPartner.set({ fee: 'unknown' });
+    expect(await owner.transfers.quote({ assetId: 'EUR', amount: '25' })).toMatchObject({ networkFee: null });
     expect(ledger.journal()).toEqual([]);
   });
 

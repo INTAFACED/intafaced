@@ -416,6 +416,7 @@ describe('personal send and request (Postgres)', () => {
       remainingToday: '100',
       fee: '0',
       feeBlocker: null,
+      networkFee: '0',
       withinPerTransfer: true,
       withinDaily: true,
     });

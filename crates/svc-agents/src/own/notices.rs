@@ -100,9 +100,11 @@ fn publish_one(pool: &Pool, m: &Metering, now: Instant, id: &str) -> Result<bool
             let key = approval_notice_key(id);
             let env = envelope(m, APPROVAL_REQUESTED, &key, payload, now)
                 .map_err(|e| StoreError::new(e, None))?;
-            m.bus
-                .publish(APPROVAL_REQUESTED, &key, &env)
-                .map_err(|e| StoreError::new(e, None))?;
+            db::OUTBOX.write(tx, &env)?;
+            // Sent under the request's lock; a bus refusal rolls the request back to unpublished for the next sweep.
+            if !db::OUTBOX.send_in(tx, m.bus.as_ref(), &key)? {
+                return Err(StoreError::new(format!("the bus did not take {key}"), None));
+            }
         }
         tx.execute(
             "UPDATE agents.own_agent_approval_requests SET published_at = now() WHERE id = $1::text::uuid",
@@ -114,8 +116,8 @@ fn publish_one(pool: &Pool, m: &Metering, now: Instant, id: &str) -> Result<bool
 }
 
 /// The `unpublished sweep` timer (`index.ts`, `sweepUnpublished`): the recorded usage alerts, then every held call not
-/// yet announced. Each half runs whatever the other did; a failure of either, or a request that could not be
-/// published, is the run's error, which the timer logs (the next tick retries).
+/// yet announced, then the outbox's relay of every event still owed. Each part runs whatever the others did; a failure
+/// of any, or a request that could not be published, is the run's error, which the timer logs (the next tick retries).
 pub fn sweep_unpublished(door: &crate::door::AgentsDoor) -> Result<(), String> {
     let pool = door.store().pool().map_err(|e| e.message)?;
     let x = crate::runtime::Rt {
@@ -147,6 +149,12 @@ pub fn sweep_unpublished(door: &crate::door::AgentsDoor) -> Result<(), String> {
         errors.push(format!("approval request sweep failed: {}", e.message));
     }
     errors.extend(failed.into_inner());
+    // Then every event the outbox still owes, whichever path wrote it: one the bus refused after its commit goes again.
+    match crate::db::OUTBOX.relay(pool, x.m.bus.as_ref(), crate::db::RELAY_BATCH) {
+        Ok(r) if r.failed > 0 => errors.push(format!("{} owed events not published", r.failed)),
+        Ok(_) => {}
+        Err(e) => errors.push(format!("event outbox relay failed: {e}")),
+    }
     if errors.is_empty() {
         Ok(())
     } else {

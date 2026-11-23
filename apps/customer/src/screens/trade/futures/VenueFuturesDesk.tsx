@@ -60,7 +60,10 @@ import {
 import { ReviewDialog } from '../../../features/trade/venue/VenueReview';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { futuresVenueCopy } from './venue-copy';
-import { slippageLimit } from '../desk/venue-desk';
+import { slippageLimit, venueSelfTrade } from '../desk/venue-desk';
+import { useApi } from '../../../features/session';
+import { readRateCosts } from '../../../features/developers';
+import { useResource } from '../../../shared/resource';
 import { VenueCancelMany, VenueEditOrder } from '../desk/VenueOrderChanges';
 import { VenueDeadMan } from '../desk/VenueDeadMan';
 import { spotVenueCopy } from '../desk/venue-copy';
@@ -75,6 +78,8 @@ import { intervalText } from './venue-funding-logic';
 import { roomLeft, takenAssets } from './venue-risk-logic';
 import { canonical, protectionClientId } from './venue-protect-logic';
 import type { RoutePreview } from '../../../features/trade/venue-api';
+// The desk's own styles: this screen opens on its own, without the spot desk that also loads them.
+import '../desk/desk.css';
 
 /** Resting order types the futures desk names; any the venue does not list is shown with its refusal and sends nothing. */
 const RESTING_TYPES = ['stop', 'take_profit', 'trailing_stop'] as const;
@@ -100,7 +105,7 @@ function Desk({ status, requested }: { status: Extract<VenueMode, { mode: 'on' }
   const markets = usePolled((signal) => venue.markets(signal), 'venue-markets', 5_000);
   if (!status.available) {
     return (
-      <div data-testid="if-futures" className="if-desk" data-venue="on">
+      <div data-testid="if-futures" className="if-desk if-desk--state" data-venue="on">
         <p className="lt-refusal" role="alert" data-testid="venue-down">
           {v('Venue unavailable', { detail: status.refusal.detail })}
         </p>
@@ -113,17 +118,20 @@ function Desk({ status, requested }: { status: Extract<VenueMode, { mode: 'on' }
     <div data-testid="if-futures" className="if-desk" data-venue="on">
       <VenueHeader status={status} title={t('Futures on venue')} />
       <ActionLimitWarning venueName={status.venue.displayName} />
-      {down || markets.failure ? <ReadProblem failure={markets.failure} venueName={status.venue.displayName} /> : null}
-      <section className="dk-panel" aria-label={t('Contracts')} data-testid="venue-contracts">
-        <h2 className="dk-tab-title">{t('Contracts')}</h2>
-        {markets.data && perps.length === 0 ? (
-          <div data-testid="venue-no-contract">
-            <p>{t('No contract')}</p>
-            <p className="lt-muted">{t('No contract reason', { venue: status.venue.displayName })}</p>
-          </div>
-        ) : null}
-      </section>
-      <GatedList status={status} />
+      {/* The contracts band: its titles and lists keep the desk's inner margin. */}
+      <div className="dk-venue-col dk-venue-col--inset">
+        {down || markets.failure ? <ReadProblem failure={markets.failure} venueName={status.venue.displayName} /> : null}
+        <section className="dk-panel" aria-label={t('Contracts')} data-testid="venue-contracts">
+          <h2 className="dk-tab-title">{t('Contracts')}</h2>
+          {markets.data && perps.length === 0 ? (
+            <div data-testid="venue-no-contract">
+              <p>{t('No contract')}</p>
+              <p className="lt-muted">{t('No contract reason', { venue: status.venue.displayName })}</p>
+            </div>
+          ) : null}
+        </section>
+        <GatedList status={status} />
+      </div>
       {markets.data && perps.length > 0 ? <Contracts status={status} perps={perps} requested={requested} /> : null}
     </div>
   );
@@ -182,50 +190,61 @@ function Contracts({ status, perps, requested }: { status: VenueUp; perps: Venue
   const [side, setSide] = useState<'buy' | 'sell'>('buy');
   return (
     <>
-      <ul className="lt-stack" aria-label={t('Contracts')} data-testid="venue-contract-list">
-        {perps.map((m) => (
-          <li key={m.symbol}>
-            <Button
-              variant={m.symbol === market.symbol ? 'primary' : 'secondary'}
-              aria-pressed={m.symbol === market.symbol}
-              onClick={() => setChosen(m.symbol)}
-            >
-              {t('Contract on venue', { symbol: m.symbol, venue: status.venue.displayName })}
-            </Button>{' '}
-            <TestMark test={status.test} />
-          </li>
-        ))}
-      </ul>
-      <ContractStrip market={market} test={status.test} />
-      <MarketRules market={market} venueName={status.venue.displayName} test={status.test} />
-      <VenueTiers market={market} venueName={status.venue.displayName} test={status.test} />
-      <WalletBar />
-      <ReadProblem failure={account.balances.failure} venueName={status.venue.displayName} />
-      {owner ? <BalancesPanel balances={account.balances.data} test={status.test} /> : null}
-      {owner ? (
-        <VenueCollateral market={market} venueName={status.venue.displayName} balances={account.balances.data} test={status.test} />
-      ) : null}
-      {owner && market.marginAccount?.known ? (
-        <MarketMarginStep key={`mm:${market.symbol}`} market={market} owner={owner} run={run} test={status.test} />
-      ) : null}
-      {owner ? <MarginStep key={market.symbol} market={market} owner={owner} run={run} test={status.test} disabled={false} /> : null}
-      {owner ? (
-        <Ticket
-          key={`t:${market.symbol}`}
-          status={status}
-          market={market}
-          owner={owner}
-          account={account}
-          run={run}
-          resend={resend}
-          side={side}
-          setSide={setSide}
-          disabled={false}
-        />
-      ) : null}
-      {owner && status.routes ? <PrimaryLeverageRoutes symbol={market.symbol} owner={owner} side={side} run={run} /> : null}
-      {owner ? <Blotter status={status} market={market} owner={owner} account={account} run={run} /> : null}
-      {owner ? <VenueAccountPanel status={status} owner={owner} /> : null}
+      {/* The desk's two columns, as on the venue spot desk: the contract and its ticket in the centre; the wallet, the
+          margin and the venue's own rules beside. */}
+      <div className="dk-venue-grid">
+        <div className="dk-venue-col dk-venue-col--inset">
+          <ul className="lt-toolbar" aria-label={t('Contracts')} data-testid="venue-contract-list">
+            {perps.map((m) => (
+              <li key={m.symbol}>
+                <Button
+                  variant={m.symbol === market.symbol ? 'primary' : 'secondary'}
+                  aria-pressed={m.symbol === market.symbol}
+                  onClick={() => setChosen(m.symbol)}
+                >
+                  {t('Contract on venue', { symbol: m.symbol, venue: status.venue.displayName })}
+                </Button>{' '}
+                <TestMark test={status.test} />
+              </li>
+            ))}
+          </ul>
+          <ContractStrip market={market} test={status.test} />
+          {owner ? (
+            <Ticket
+              key={`t:${market.symbol}`}
+              status={status}
+              market={market}
+              owner={owner}
+              account={account}
+              run={run}
+              resend={resend}
+              side={side}
+              setSide={setSide}
+              disabled={false}
+            />
+          ) : null}
+          {owner ? (
+            <VenueCollateral market={market} venueName={status.venue.displayName} balances={account.balances.data} test={status.test} />
+          ) : null}
+          <VenueTiers market={market} venueName={status.venue.displayName} test={status.test} />
+        </div>
+        <div className="dk-venue-col dk-venue-col--inset">
+          <WalletBar />
+          <ReadProblem failure={account.balances.failure} venueName={status.venue.displayName} />
+          {owner ? <BalancesPanel balances={account.balances.data} test={status.test} /> : null}
+          {owner && market.marginAccount?.known ? (
+            <MarketMarginStep key={`mm:${market.symbol}`} market={market} owner={owner} run={run} test={status.test} />
+          ) : null}
+          {owner ? <MarginStep key={market.symbol} market={market} owner={owner} run={run} test={status.test} disabled={false} /> : null}
+          <MarketRules market={market} venueName={status.venue.displayName} test={status.test} />
+        </div>
+      </div>
+      {/* The wide tables keep the desk's whole width under the columns: the venues, the orders and the venue accounts. */}
+      <div className="dk-venue-col dk-venue-col--inset">
+        {owner && status.routes ? <PrimaryLeverageRoutes symbol={market.symbol} owner={owner} side={side} run={run} /> : null}
+        {owner ? <Blotter status={status} market={market} owner={owner} account={account} run={run} /> : null}
+        {owner ? <VenueAccountPanel status={status} owner={owner} /> : null}
+      </div>
     </>
   );
 }
@@ -317,6 +336,43 @@ export function percentOf(fraction: string): string {
 }
 
 /**
+ * The order rate that applies on a venue market (J-derivatives-04 #7). The venue publishes none to this desk, so the
+ * limit in force is the INTAFACED edge's own per-address limit, read from the edge as it enforces it, and the row says
+ * so; an edge with its limiter off says that no limit of ours applies. Never "unlimited", never a typed figure.
+ */
+function OrderRate() {
+  const { t } = futuresVenueCopy.useCopy();
+  const api = useApi();
+  const read = useResource((signal) => readRateCosts(api, signal), 'edge-rate-costs').resource;
+  if (read.status === 'loading')
+    return (
+      <dd data-testid="venue-order-rate" data-state="loading">
+        {t('rate_loading')}
+      </dd>
+    );
+  const limit = read.status === 'ready' ? read.data.edgeLimit : undefined;
+  if (limit === undefined)
+    return (
+      <dd data-testid="venue-order-rate" data-state="unknown">
+        {t('rate_edge_unknown')}
+      </dd>
+    );
+  if (limit === null)
+    return (
+      <dd data-testid="venue-order-rate" data-state="edge-off">
+        {t('rate_edge_off')}
+      </dd>
+    );
+  const window =
+    limit.windowMs % 1000 === 0 ? t('window_seconds', { n: String(limit.windowMs / 1000) }) : t('window_ms', { n: String(limit.windowMs) });
+  return (
+    <dd data-testid="venue-order-rate" data-state="edge" data-max={limit.max} data-window-ms={limit.windowMs}>
+      {t('rate_edge', { max: String(limit.max), window })}
+    </dd>
+  );
+}
+
+/**
  * The market's own published rules, read from the venue (J-derivatives-21 #1, #4): who lists it, the oracle and mark
  * rules it is priced by, its trading hours, and its price feed's state with the venue's rule while it is stale. Each is
  * the venue's text as published, or "not published by this venue"; nothing here is ours, and nothing claims a
@@ -324,8 +380,10 @@ export function percentOf(fraction: string): string {
  */
 function MarketRules({ market, venueName, test }: { market: VenueMarket; venueName: string; test: boolean }) {
   const { t } = futuresVenueCopy.useCopy();
+  const v = venueCopy.useCopy().t;
   const text = (value: MaybeKnown<string>) => (value.known ? value.value : t('Not published'));
   const feed = market.feed.known ? market.feed.value : null;
+  const selfTrade = venueSelfTrade(market);
   return (
     <section className="dk-panel" aria-label={t('Market rules', { symbol: market.symbol })} data-testid="venue-market-rules">
       <h2 className="dk-tab-title">
@@ -377,6 +435,16 @@ function MarketRules({ market, venueName, test }: { market: VenueMarket; venueNa
         <div>
           <dt>{t('Stale rule')}</dt>
           <dd data-testid="venue-stale-rule">{feed ? text(feed.staleRule) : t('Not published')}</dd>
+        </div>
+        <div>
+          <dt>{t('Self trade rule')}</dt>
+          <dd data-testid="venue-self-trade-rule" data-mode={selfTrade ?? 'unknown'}>
+            {selfTrade ? word(v, 'stp', selfTrade) : t('Not published')}
+          </dd>
+        </div>
+        <div>
+          <dt>{t('Order rate')}</dt>
+          <OrderRate />
         </div>
         {market.openInterest?.known ? (
           <>

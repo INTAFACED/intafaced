@@ -256,6 +256,8 @@ class FakeVenue {
     const sig = body.signature as { r: string; s: string; v: number };
     const signature = `${sig.r}${sig.s.slice(2)}${sig.v.toString(16)}`;
     let typed: HlTypedData;
+    // The venue checks a user-signed action under the chain the action names (`signatureChainId`).
+    const chain = typeof action.signatureChainId === 'string' ? action.signatureChainId : undefined;
     switch (action.type) {
       case 'order':
       case 'cancelByCloid':
@@ -269,14 +271,22 @@ class FakeVenue {
         typed = usdClassTransferAction(String(action.amount), action.toPerp === true, BigInt(nonce)).typedData;
         break;
       case 'withdraw3':
-        typed = userSignedTypedData('HyperliquidTransaction:Withdraw', USER_SIGNED_TYPES['HyperliquidTransaction:Withdraw'], {
-          hyperliquidChain: 'Testnet',
-          destination: String(action.destination),
-          amount: String(action.amount),
-          time: BigInt(nonce),
-        });
-        // The probe's builder must sign the same bytes the fake checks.
-        expect(withdraw3Action(String(action.destination), String(action.amount), BigInt(nonce)).typedData).toEqual(typed);
+        typed = userSignedTypedData(
+          'HyperliquidTransaction:Withdraw',
+          USER_SIGNED_TYPES['HyperliquidTransaction:Withdraw'],
+          {
+            hyperliquidChain: 'Testnet',
+            destination: String(action.destination),
+            amount: String(action.amount),
+            time: BigInt(nonce),
+          },
+          chain,
+        );
+        // The probe's builder must sign the same fields the fake checks; the domain's chain is whichever the action names.
+        expect({
+          ...withdraw3Action(String(action.destination), String(action.amount), BigInt(nonce)).typedData,
+          domain: typed.domain,
+        }).toEqual(typed);
         break;
       case 'spotSend':
         typed = spotSendAction(String(action.destination), String(action.token), String(action.amount), BigInt(nonce)).typedData;
@@ -295,12 +305,17 @@ class FakeVenue {
         ).typedData;
         break;
       case 'approveAgent':
-        typed = userSignedTypedData('HyperliquidTransaction:ApproveAgent', USER_SIGNED_TYPES['HyperliquidTransaction:ApproveAgent'], {
-          hyperliquidChain: 'Testnet',
-          agentAddress: String(action.agentAddress),
-          agentName: String(action.agentName),
-          nonce: BigInt(nonce),
-        });
+        typed = userSignedTypedData(
+          'HyperliquidTransaction:ApproveAgent',
+          USER_SIGNED_TYPES['HyperliquidTransaction:ApproveAgent'],
+          {
+            hyperliquidChain: 'Testnet',
+            agentAddress: String(action.agentAddress),
+            agentName: String(action.agentName),
+            nonce: BigInt(nonce),
+          },
+          chain,
+        );
         break;
       case 'approveBuilderFee':
         typed = userSignedTypedData(
@@ -312,6 +327,7 @@ class FakeVenue {
             builder: String(action.builder),
             nonce: BigInt(nonce),
           },
+          chain,
         );
         break;
       default:
