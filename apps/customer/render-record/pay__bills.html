@@ -108,7 +108,7 @@
 </p>
 </section>
 <div class="pay-recent" data-testid="pay-recent">
-<section class="pay-recent__section" aria-labelledby="pay-recent-payments" data-testid="recent-payments">
+<section class="lt-stack" aria-labelledby="pay-recent-payments" data-testid="recent-payments">
 <header class="pay-recent__head">
 <h2 id="pay-recent-payments">Recent payments</h2>
 <button type="button" class="pay-recent__link">Refresh</button>
@@ -154,7 +154,7 @@
 <button type="button" class="pay-recent__link">Look further back</button>
 <a class="pay-recent__link" href="/money/activity?tab=transfers">See all activity</a>
 </section>
-<section class="pay-recent__section" aria-labelledby="pay-recent-recipients" data-testid="recent-recipients">
+<section class="lt-stack" aria-labelledby="pay-recent-recipients" data-testid="recent-recipients">
 <header class="pay-recent__head">
 <h2 id="pay-recent-recipients">Recent recipients</h2>
 </header>
@@ -188,7 +188,7 @@
 </div>
 </div>
 <div hidden="" data-testid="receive-panel">
-<div class="pay-body" data-testid="receive-card">
+<div class="lt-stack" data-testid="receive-card">
 <div class="pay-receive">
 <h2 class="pay-receive__label">Your handle</h2>
 <p class="pay-receive__value" data-testid="receive-value">@test_friend</p>
@@ -264,7 +264,7 @@
 </div>
 </div>
 <div data-testid="bills-panel">
-<div class="pay-body" data-testid="bills-card">
+<div class="lt-stack" data-testid="bills-card">
 <div class="pay-reason" role="note" data-testid="pay-reason">
 <p class="pay-reason__title">Bill pay isn’t connected</p>
 <p class="pay-reason__body">No biller network or bill-payment service is connected, so there are no billers to search and no bill can be paid. Nothing here is a sample: these are the steps bill pay needs, and none of them can start.</p>
@@ -276,18 +276,18 @@
 <li>Review and pay</li>
 <li>Follow the status</li>
 </ol>
-<form class="pay-body" novalidate="">
+<form class="lt-stack" novalidate="">
 <fieldset class="pay-fieldset" disabled="">
 <div class="pay-field">
-<label class="pay-field__label" for="bill-biller">Biller</label>
+<label class="lt-hint" for="bill-biller">Biller</label>
 <input id="bill-biller" class="pay-text" placeholder="Search billers" type="search">
 </div>
 <div class="pay-field">
-<label class="pay-field__label" for="bill-reference">Bill reference or account number</label>
+<label class="lt-hint" for="bill-reference">Bill reference or account number</label>
 <input id="bill-reference" class="pay-text" placeholder="As shown on the bill" type="text">
 </div>
 <div class="pay-field">
-<span class="pay-field__label">Amount</span>
+<span class="lt-hint">Amount</span>
 <div data-disabled="" data-slot="amount-input" data-size="desk" class="flex min-w-0 flex-col gap-1">
 <div class="flex items-center gap-2 h-10 rounded-sm bg-field px-3 transition-colors duration-(--if-t-fast) ease-if hover:bg-raised has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-focus opacity-40">
 <input data-disabled="" id="base-ui-_r_16_" disabled="" inputmode="decimal" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done" aria-label="Amount" placeholder="0" class="if-num min-w-0 bg-transparent tabular-nums text-fg outline-none placeholder:text-fg-3 flex-1 text-right text-md" type="text" value="">
@@ -295,7 +295,7 @@
 </div>
 </div>
 <div class="pay-field">
-<label class="pay-field__label" for="bill-from">Pay from</label>
+<label class="lt-hint" for="bill-from">Pay from</label>
 <select id="bill-from" class="pay-text">
 <option value="">No balance to pay from</option>
 </select>

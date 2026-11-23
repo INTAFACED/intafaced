@@ -168,7 +168,7 @@ export function OrderHistoryRoom({ path }: { path: string }) {
         </Button>
       }
     >
-      <div className="orders-room">
+      <div className="lt-stack">
         <ProductSwitch product="spot" />
         <form className="orders-filters" role="search" aria-label={t('historyTitle')} onSubmit={(event) => event.preventDefault()}>
           <Pick

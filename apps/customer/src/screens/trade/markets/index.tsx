@@ -296,7 +296,7 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
         <div data-testid="mkt-notice" className="mkt-notice" role="status">
           <span>
             {t('Couldn’t load prices')} {refusalCopy(tickers.code).title}. {refusalCopy(tickers.code).body}{' '}
-            <span className="mkt-muted">{tickers.code}</span>
+            <span className="lt-muted">{tickers.code}</span>
           </span>
         </div>
       ) : null}
@@ -331,11 +331,11 @@ function NotOffered() {
       <h2 id="mkt-not-offered">{t('Not offered here')}</h2>
       <ul>
         <li data-testid="mkt-not-offered-equity">
-          <strong>{t('Tokenized equities')}</strong> <span className="mkt-muted">{t('Not available: licence not named')}</span>
+          <strong>{t('Tokenized equities')}</strong> <span className="lt-muted">{t('Not available: licence not named')}</span>
         </li>
         <li data-testid="mkt-not-offered-rpi">
           <strong>{t('Retail price improvement')}</strong>{' '}
-          <span className="mkt-muted">{t('Not available: priority class not specified')}</span>
+          <span className="lt-muted">{t('Not available: priority class not specified')}</span>
         </li>
       </ul>
     </section>

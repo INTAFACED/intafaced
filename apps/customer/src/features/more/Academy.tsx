@@ -74,7 +74,7 @@ function Academy({ route }: { route: AcademyRoute }) {
   // The course-team inbox is a record list on its Volt template: it draws its own title row and the Academy's tabs.
   if (route.kind === 'messages' && !route.conversationId) return <AcademyInboxRoom />;
   return (
-    <div className="more-grid">
+    <div className="lt-stack">
       <Tabs
         items={academyTabs.map(([name]) => name)}
         labels={{
@@ -227,7 +227,7 @@ function Certificates({ action, selected, setSelected }: { action: AcademyAction
           </Button>
           <Read resource={definitions.resource} retry={definitions.reload} empty={copyText('academy.no.certificate.paths.are.published')}>
             {(rows) => (
-              <div className="more-grid">
+              <div className="lt-stack">
                 {rows.map((c) => (
                   <article key={c.id}>
                     <h3 lang="und">{c.title}</h3>

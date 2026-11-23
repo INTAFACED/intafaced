@@ -28,7 +28,7 @@ export function Mining({ tab: first = 'Overview' }: { tab?: MiningTab }) {
   const probe = usePoolProbe();
   const depth = miningDepthCopy.useCopy();
   return (
-    <div className="more-grid">
+    <div className="lt-stack">
       <Tabs
         items={TABS}
         value={tab}
@@ -53,7 +53,7 @@ function MiningStatusRoom({ status }: { status: Status }) {
   return (
     <div className="mining-room" lang={languageFor('unavailableTitle')} dir={directionFor('unavailableTitle')}>
       <section className="mining-room-primary">
-        <div className="mining-room-status">
+        <div className="lt-stack">
           <h2>
             <Copy k="unavailableTitle" />
           </h2>

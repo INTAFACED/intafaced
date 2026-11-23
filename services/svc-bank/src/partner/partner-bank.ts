@@ -56,6 +56,27 @@ export function partnerPayInsAccount(assetId: string): PartnerAccountRef {
   return { userId: PARTNER_PAY_INS_OWNER, assetId, spaceId: null };
 }
 
+/**
+ * The partner's own card accounts in one currency: a card hold leaves the person's main balance into the card
+ * holds account, a release or a hold time running out comes back from it, a capture goes on from it to the card network
+ * account, and a refund comes back from that into the main balance, each one move under the card instruction's key. They
+ * are the partner's, never a person's, so they are on no person's list of balances; `moves` never lists a card move,
+ * because the card's own list of payments is where a person reads it, but the account's statement counts it.
+ */
+const PARTNER_CARD_HOLDS_OWNER = 'partner:card-holds';
+const PARTNER_CARD_NETWORK_OWNER = 'partner:card-network';
+export function partnerCardHoldsAccount(assetId: string): PartnerAccountRef {
+  return { userId: PARTNER_CARD_HOLDS_OWNER, assetId, spaceId: null };
+}
+export function partnerCardNetworkAccount(assetId: string): PartnerAccountRef {
+  return { userId: PARTNER_CARD_NETWORK_OWNER, assetId, spaceId: null };
+}
+/** A move between a person's account and the partner's card accounts. */
+export function isPartnerCardMove(move: { readonly from: PartnerAccountRef; readonly to: PartnerAccountRef }): boolean {
+  const card = (owner: string) => owner === PARTNER_CARD_HOLDS_OWNER || owner === PARTNER_CARD_NETWORK_OWNER;
+  return card(move.from.userId) || card(move.to.userId);
+}
+
 /** The partner's account a fee it takes for us goes to. It is the partner's, never a person's, like its payouts account. */
 export const PARTNER_FEES_OWNER = 'partner:fees';
 export function partnerFeesAccount(assetId: string): PartnerAccountRef {

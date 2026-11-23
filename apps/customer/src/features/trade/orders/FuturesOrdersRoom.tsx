@@ -332,7 +332,7 @@ export function FuturesOrdersRoom({ path }: { path: string }) {
         </Button>
       }
     >
-      <div className="orders-room">
+      <div className="lt-stack">
         <ProductSwitch product="futures" />
         <ChoiceGroup
           items={VIEWS}
