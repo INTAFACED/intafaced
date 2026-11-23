@@ -2007,6 +2007,45 @@
         }
       ]
     },
+    "bank.autoInvest.policy": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "autoInvest.policy",
+      "access": {
+        "caller": "public"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "convertWired": {
+            "type": "boolean"
+          },
+          "dcaRequiresConvert": {
+            "type": "boolean",
+            "const": true
+          },
+          "inventsRates": {
+            "type": "boolean",
+            "const": false
+          }
+        },
+        "required": ["enabled", "convertWired", "dcaRequiresConvert", "inventsRates"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
     "bank.autoInvest.resume": {
       "service": "svc-bank",
       "module": "bank",

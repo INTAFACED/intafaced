@@ -2513,6 +2513,35 @@ test("a caller's answer schema read through a namespace import (`p.teamSchema`) 
   );
 });
 
+test("a caller reading its answer schema from the map by name (`bankReads['x']`) parses with the schema useBankRead('x') does: one schema, the map's entry (#3755)", () => {
+  const money = 'apps/customer/src/features/money';
+  const repo = plantRepo('call-records-keyed-read-', {
+    [`${money}/contracts-earn.ts`]: [
+      "import { z } from 'zod';",
+      "export const earnReads = { 'autoInvest.policy': z.object({ enabled: z.boolean() }) } as const;",
+    ],
+    [`${money}/contracts.ts`]: ["import { earnReads } from './contracts-earn';", 'export const bankReads = { ...earnReads } as const;'],
+    [`${money}/components.tsx`]: [
+      "import { bankReads } from './contracts';",
+      'export function useBankRead(p, i, e = true) { return bankReads[p]; }',
+    ],
+    [`${money}/Earn.tsx`]: [
+      "import { useBankRead } from './components';",
+      "import { bankReads } from './contracts';",
+      "export const a = () => useBankRead('autoInvest.policy', undefined);",
+      "export const b = (api) => api.query('bank', 'autoInvest.policy', undefined, bankReads['autoInvest.policy']);",
+    ],
+  });
+  const sites = findSites(repo).filter((s) => s.path === 'autoInvest.policy' && s.shape !== 'keyed-schema');
+  assert.equal(sites.length, 2);
+  for (const order of [sites, [...sites].reverse()]) {
+    const taken = answerFromCallers(repo, order, { schemaOf: schemaArgOf, checksOf: answerChecks });
+    assert.ok(taken.output, taken.why);
+    assert.equal(taken.output.p.file, join(repo, money, 'contracts-earn.ts'), 'the record takes the entry, never the map read');
+    assert.match(text(taken.output.p, taken.output.node), /^z\.object\(\{ enabled/);
+  }
+});
+
 test('a helper that would move under a name the group imports from contracts is that copy when it reads the same, and a clash when not', () => {
   const app = 'apps/customer/src/features/pay';
   const repo = plantRepo('call-records-contracts-name-', {

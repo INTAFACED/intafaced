@@ -464,6 +464,7 @@ import {
   BANK_AUTO_INVEST_PAUSE,
   BANK_AUTO_INVEST_RESUME,
   BANK_AUTO_INVEST_CANCEL,
+  BANK_AUTO_INVEST_POLICY,
 } from './bank-auto-invest-procedures.js';
 
 import { BANK_BILLS_OPS_SUMMARY, BANK_BILLS_OPS_FAILED } from './bank-bills-procedures.js';
@@ -2715,6 +2716,7 @@ const part_bank_auto_invest_procedures: readonly ProcedureRecord[] = [
   BANK_AUTO_INVEST_PAUSE,
   BANK_AUTO_INVEST_RESUME,
   BANK_AUTO_INVEST_CANCEL,
+  BANK_AUTO_INVEST_POLICY,
 ];
 
 const part_bank_bills_procedures: readonly ProcedureRecord[] = [BANK_BILLS_OPS_SUMMARY, BANK_BILLS_OPS_FAILED];

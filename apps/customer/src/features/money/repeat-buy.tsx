@@ -6,7 +6,7 @@ import { parseAmount } from '../../shared/money';
 import type { ApiResult } from '../../shared/api';
 import { useSession, useApi } from '../session';
 import { createMoneyClient } from './client';
-import { bankReads, ruleSchema } from './contracts';
+import { ruleSchema } from './contracts';
 import { t } from './repeat-buy-copy';
 import { AutoInvestRules } from './earn/AutoInvestRules';
 import {
@@ -19,7 +19,6 @@ import {
   ResourceView,
   Section,
   startsField,
-  useBankRead,
   usePageLimit,
   type ActionSpec,
   useBankRecord,
@@ -29,6 +28,7 @@ import {
   BANK_AUTO_INVEST_PAUSE,
   BANK_AUTO_INVEST_RESUME,
   BANK_AUTO_INVEST_CANCEL,
+  BANK_AUTO_INVEST_POLICY,
 } from '@intafaced/contracts/bank-auto-invest-procedures';
 import { BANK_AUTO_INVEST_CREATE_DCA } from '@intafaced/contracts/bank-auto-invest-2-procedures';
 
@@ -93,7 +93,7 @@ export function useAutoInvestRules() {
         // Missing from this bounded read cannot establish cancellation or an outcome.
         if (!current || JSON.stringify(current) !== JSON.stringify(rule)) return refusal(t('contextChanged'));
         if (action === 'resume') {
-          const policy = await api.query('bank', 'autoInvest.policy', undefined, bankReads['autoInvest.policy']);
+          const policy = await api.call(BANK_AUTO_INVEST_POLICY, undefined);
           if (!policy.ok) return readRefusal(t('policySubject'));
           if (!policy.data.enabled || (rule.kind === 'dca' && !policy.data.convertWired)) return refusal(t('contextChanged'));
         }
@@ -137,10 +137,7 @@ function SpendingSource({ asset, open }: { asset: string; open: (spec: ActionSpe
             preflight: async (input) => {
               if (!spendAsset || spendAsset === asset) return refusal(t('contextChanged'));
               if (typeof input.startsAt !== 'string' || Date.parse(input.startsAt) <= Date.now()) return refusal(t('startExpired'));
-              const [policy, fresh] = await Promise.all([
-                api.query('bank', 'autoInvest.policy', undefined, bankReads['autoInvest.policy']),
-                createMoneyClient(api).balances(),
-              ]);
+              const [policy, fresh] = await Promise.all([api.call(BANK_AUTO_INVEST_POLICY, undefined), createMoneyClient(api).balances()]);
               if (!policy.ok) return readRefusal(t('policySubject'));
               if (!fresh.ok) return readRefusal(t('sourceSubject'));
               if (!policy.data.enabled || !policy.data.convertWired || !Object.hasOwn(fresh.data.balances, spendAsset))
@@ -178,7 +175,7 @@ function SpendingSource({ asset, open }: { asset: string; open: (spec: ActionSpe
 }
 
 function PersonalRepeatBuy({ asset, open }: { asset: string; open: (spec: ActionSpec) => void }) {
-  const { resource, reload } = useBankRead('autoInvest.policy', undefined);
+  const { resource, reload } = useBankRecord(BANK_AUTO_INVEST_POLICY, undefined);
   return (
     <Page
       eyebrow={t('eyebrow')}
