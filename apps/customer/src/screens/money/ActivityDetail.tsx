@@ -1,3 +1,4 @@
+import { ShortReference } from '../../shared/ShortReference';
 import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Check, Copy } from 'lucide-react';
 import { Amount, Button, Skeleton, StateBlock } from './ui-deps';
@@ -11,6 +12,8 @@ import { usePreferences } from '../../shared/preferences';
 import { useSession } from '../../features/session/session';
 import { readSent, requestPath } from '../../features/pay/personal/personal-model';
 import { withDeviceHandle } from '../../data';
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type Copy = ReturnType<typeof moneyCopy.useCopy>;
 
@@ -186,10 +189,8 @@ export default function ActivityDetail({ rawId }: { rawId: string }) {
               <time dateTime={item.postedAt}>{stamp(item.postedAt, timeZone)}</time>
             </Fact>
             <Fact label={t('Reference')}>
-              <code className="money-code">{item.txId}</code>
-            </Fact>
-            <Fact label={t('Record number')}>
-              <code className="money-code">{item.id}</code>
+              {/* A chain hash is read whole (an explorer needs it); our own ids read as their short reference. */}
+              <code className="money-code">{UUID.test(item.txId) ? <ShortReference id={item.txId} /> : item.txId}</code>
             </Fact>
           </dl>
           <p className="lt-hint">{t('Reference note')}</p>

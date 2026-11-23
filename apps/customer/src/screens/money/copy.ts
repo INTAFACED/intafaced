@@ -573,7 +573,6 @@ const messages = {
   Asset: 'Coin',
   Direction: 'Direction',
   Reference: 'Reference',
-  'Record number': 'Record number',
   'Reference note': 'Quote the reference if you contact support about this transaction.',
   'Copy reference': 'Copy reference',
   Copied: 'Copied',

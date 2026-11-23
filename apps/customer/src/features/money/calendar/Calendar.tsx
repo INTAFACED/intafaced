@@ -247,8 +247,14 @@ export function Sources({ view, items = view.items }: { view: CalendarView; item
         if (!s.complete && s.state !== 'refused' && s.state !== 'unavailable')
           words = `${words} ${t('sourcePartial', { limit: String(PAGE) })}`;
         return (
-          <li key={s.source} data-testid={`cal-source-${s.source}`} data-state={s.state} role={s.state === 'ok' ? undefined : 'note'}>
-            {words} {s.code && <small className="lt-hint">{t('reference', { code: s.code })}</small>}
+          <li
+            key={s.source}
+            data-testid={`cal-source-${s.source}`}
+            data-state={s.state}
+            data-code={s.code ?? undefined}
+            role={s.state === 'ok' ? undefined : 'note'}
+          >
+            {words}
           </li>
         );
       })}

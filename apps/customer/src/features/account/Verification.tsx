@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { StatusTag } from '@intafaced/ui';
 import { useSession } from '../session';
+import { ShortReference } from '../../shared/ShortReference';
 import type { ApiClient } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Dialog, EmptyState, Failure, Field, Loading, Page } from '../../shared/ui';
@@ -320,8 +321,8 @@ export function Verification() {
         <h3>
           <Copy k={row.tier} /> · <span lang="zxx">{row.jurisdiction}</span>
         </h3>
-        <p className="verification__ref" lang="zxx">
-          {row.id}
+        <p className="verification__ref">
+          <ShortReference id={row.id} />
         </p>
         <dl>
           <div>
@@ -374,8 +375,8 @@ export function Verification() {
       <Page title={t('title')} description={t('description')}>
         <p className="verification__identity">
           <Copy k="owner" /> ·{' '}
-          <span className="verification__ref" lang="zxx">
-            {userId}
+          <span className="verification__ref">
+            <ShortReference id={userId} />
           </span>
         </p>
         {privateVisible && (journal.records.length > 0 || visibleKnown.length > 0) && (
@@ -405,8 +406,8 @@ export function Verification() {
                   <p>
                     <Copy k="reference" />
                   </p>
-                  <p className="verification__ref" lang="zxx">
-                    {local.requestId}
+                  <p className="verification__ref">
+                    <ShortReference id={local.requestId} />
                   </p>
                   <p>
                     <Copy k="paused" />
@@ -459,8 +460,8 @@ export function Verification() {
                     <p>
                       <Copy k="reference" />
                     </p>
-                    <p className="verification__ref" lang="zxx">
-                      {receipt.local.requestId}
+                    <p className="verification__ref">
+                      <ShortReference id={receipt.local.requestId} />
                     </p>
                     <Button variant="secondary" disabled={busy} onClick={() => void finalize(receipt)}>
                       <Copy k="finish" />
@@ -550,8 +551,8 @@ export function Verification() {
                               <Copy k="inspect" /> →
                             </Button>
                           </div>
-                          <p className="verification__ref muted" lang="zxx">
-                            {row.id}
+                          <p className="verification__ref muted">
+                            <ShortReference id={row.id} />
                           </p>
                         </li>
                       ))}
@@ -713,8 +714,8 @@ export function Verification() {
               <p>
                 <Copy k="owner" />
               </p>
-              <p className="verification__ref" lang="zxx">
-                {review.owner}
+              <p className="verification__ref">
+                <ShortReference id={review.owner} />
               </p>
               <h3>
                 <Copy k={review.tier} /> · <span lang="zxx">{review.country}</span>
