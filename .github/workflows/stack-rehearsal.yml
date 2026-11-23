@@ -24,6 +24,10 @@ on:
       - 'docker-compose*.yml'
       - 'tooling/infra/**'
       - .env.example
+      # What the customer site image builds with beyond its Dockerfile.
+      - apps/customer/vite.config.ts
+      - apps/customer/tsconfig.build.json
+      - apps/customer/package.json
       - .github/workflows/stack-rehearsal.yml
 
 concurrency:
