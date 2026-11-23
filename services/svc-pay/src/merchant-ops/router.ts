@@ -40,7 +40,7 @@ import { DELIVERY_STATUSES, WebhookOps, type WebhookRetryLimit, type WebhookSett
 import type { WebhookResolver } from '../webhook-url-guard.js';
 import { MERCHANT_WEBHOOK_EVENT_TYPES } from '../merchant-webhooks.js';
 import { ownMerchantRead } from '../own-merchant-read.js';
-import { invitationAccept, membershipExit, ownPreferenceWrite, teamMemberWrite } from '../team-member-write.js';
+import { membershipExit, teamMemberWrite } from '../team-member-write.js';
 import {
   id,
   PAY_FOUNDER_ADMIN_OPS_NOTES_ADD,
@@ -164,9 +164,6 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
   const { need } = makeParts(deps);
   /** pay:write, or pay:onboard for an active member of a verified business: see team-member-write.ts. */
   const memberWrite = teamMemberWrite(() => need().sql);
-  /** A person's own notification preferences: no KYB gate, the role table decides (team-member-write.ts). */
-  const ownPreference = ownPreferenceWrite();
-  const accept = invitationAccept();
   const exit = membershipExit();
   const kick =
     deps.exportKick ??

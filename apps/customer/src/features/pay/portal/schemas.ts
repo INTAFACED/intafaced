@@ -35,7 +35,6 @@ import {
 import {
   teamRoles,
   memberRoleSchema,
-  teamMeSchema,
   evidenceKinds,
   timestamp,
   evidenceSchema,
@@ -44,7 +43,6 @@ import {
   kybCurrentSchema,
   invitationSchema,
   memberSchema,
-  unreadSchema,
   notificationKinds,
   preferenceSchema,
 } from '@intafaced/contracts/pay-merchant-ops-procedures';
