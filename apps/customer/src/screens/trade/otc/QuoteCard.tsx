@@ -266,8 +266,8 @@ export function QuoteCard({ api, writer, quote, readAt, now, providers, onCheck,
           {t('Quote mismatch')}
         </p>
       ) : null}
-      {lockedWhy ? <p className="m-0 text-xs text-fg-2">{lockedWhy}</p> : null}
-      <p className="m-0 text-xs text-fg-2">{t('Buttons note')}</p>
+      {lockedWhy ? <p className="lt-hint">{lockedWhy}</p> : null}
+      <p className="lt-hint">{t('Buttons note')}</p>
       <ConfirmDialog
         action={confirming}
         quote={quote}

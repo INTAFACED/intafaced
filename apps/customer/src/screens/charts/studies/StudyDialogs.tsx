@@ -140,7 +140,7 @@ export function StudySettings({
       <DialogContent className="st-dialog" closeLabel={t('Cancel')}>
         <DialogTitle>{word(def.name)}</DialogTitle>
         <form
-          className="st-settings"
+          className="lt-stack"
           onSubmit={(event) => {
             event.preventDefault();
             if (refusal !== null) return;

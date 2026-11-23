@@ -351,7 +351,7 @@ export function VerificationSelfie({ recordsKey, disabled }: { recordsKey: strin
                 ) : (
                   <>
                     <PhoneCode value={phoneLink} label={t('qrLabel')} failed={t('qrFailed')} />
-                    <p className="verification__selfie-link">
+                    <p className="lt-wrap">
                       <a href={phoneLink} data-testid="verification__selfie-link">
                         {phoneLink}
                       </a>

@@ -71,7 +71,7 @@ export function ProductImport({ portal }: { portal: PortalApi }) {
     return <EmptyState title={t('importTitle')}>{t(may.unverified ? 'emptyBodyUnverified' : 'emptyBodyReadOnly')}</EmptyState>;
   return (
     <PaySection title={t('importTitle')} description={t('importPurpose')}>
-      <div data-testid="form-stack" className="form-stack pp-form">
+      <div data-testid="form-stack" className="lt-stack">
         {mode === 'test' && (
           <p className="pp-callout" role="note">
             {t('testCatalogueImportNote')}

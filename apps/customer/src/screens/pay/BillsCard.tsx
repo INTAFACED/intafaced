@@ -11,29 +11,29 @@ export function BillsCard() {
   const { t } = personalCopy.useCopy();
   const { sources, state } = useSources();
   return (
-    <div className="pay-body" data-testid="bills-card">
+    <div className="lt-stack" data-testid="bills-card">
       <Reason title={t('billsReasonTitle')}>{t('billsReasonBody')}</Reason>
       <Steps items={[t('stepBiller'), t('stepReference'), t('stepAmount'), t('stepReview'), t('stepStatus')]} />
-      <form className="pay-body" noValidate onSubmit={(event) => event.preventDefault()}>
+      <form className="lt-stack" noValidate onSubmit={(event) => event.preventDefault()}>
         <fieldset className="pay-fieldset" disabled>
           <div className="pay-field">
-            <label className="pay-field__label" htmlFor="bill-biller">
+            <label className="lt-hint" htmlFor="bill-biller">
               {t('billerLabel')}
             </label>
             <input id="bill-biller" className="pay-text" type="search" placeholder={t('billerPlaceholder')} />
           </div>
           <div className="pay-field">
-            <label className="pay-field__label" htmlFor="bill-reference">
+            <label className="lt-hint" htmlFor="bill-reference">
               {t('billReferenceLabel')}
             </label>
             <input id="bill-reference" className="pay-text" type="text" placeholder={t('billReferencePlaceholder')} />
           </div>
           <div className="pay-field">
-            <span className="pay-field__label">{payCopy.t('Amount')}</span>
+            <span className="lt-hint">{payCopy.t('Amount')}</span>
             <AmountInput aria-label={payCopy.t('Amount')} value="" onValueChange={() => {}} precision={18} placeholder="0" disabled />
           </div>
           <div className="pay-field">
-            <label className="pay-field__label" htmlFor="bill-from">
+            <label className="lt-hint" htmlFor="bill-from">
               {t('payFrom')}
             </label>
             <select id="bill-from" className="pay-text" defaultValue="">
