@@ -354,32 +354,12 @@ export function Account() {
   }
   const unknowns = journal.records.filter((record) => !visibleReceipts.some((receipt) => receipt.record.requestId === record.requestId));
   const visibleReview = review && same(review) ? review : null;
-  const sectionLinks: readonly (readonly [string, string])[] = [
-    ['#account-id', t('owner')],
-    ['#account-status', statusCopy.t('title')],
-    ['#rank-perks', rankCopy.t('title')],
-    ['#membership', memberCopy.t('title')],
-    ...(showSubaccounts ? ([['#subaccounts', t('list')]] as const) : []),
-  ];
   return (
     <div lang={languageFor('title')}>
       <SettingsTemplate
         title={t('title')}
         description={t('description')}
         state={{ kind: 'ready' }}
-        index={
-          <nav aria-label={t('sectionsLabel')}>
-            <ul>
-              {sectionLinks.map(([href, label]) => (
-                <li key={href}>
-                  <a className="lt-link" href={href}>
-                    {label}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </nav>
-        }
         explain={<p>{t('explain')}</p>}
         sections={
           <>

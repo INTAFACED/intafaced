@@ -207,13 +207,6 @@ export function ApiKeyDetail({ keyId }: { keyId: string }) {
       )}
     </>
   );
-  const index: readonly (readonly [string, string])[] = [
-    ['api-key-detail', t('detailRegion')],
-    ['api-key-usage', usageTitle],
-    ['api-key-expiry-form', t('setExpiryTitle')],
-    ['api-key-call-log', callLogTitle],
-  ];
-
   return (
     <div lang={languageFor('detailTitle')}>
       <SettingsTemplate
@@ -223,19 +216,6 @@ export function ApiKeyDetail({ keyId }: { keyId: string }) {
           <a className="lt-link" href="/uc/safe/api-keys">
             {t('backToKeys')}
           </a>
-        }
-        index={
-          <nav aria-label={t('detailSectionsLabel')}>
-            <ul>
-              {index.map(([id, label]) => (
-                <li key={id}>
-                  <a className="lt-link" href={`#${id}`}>
-                    {label}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </nav>
         }
         sections={sections}
         explain={<p>{t('detailExplain')}</p>}

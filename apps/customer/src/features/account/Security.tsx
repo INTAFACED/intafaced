@@ -96,40 +96,6 @@ type Response = {
 };
 const emptyJournal: SecurityJournal = { records: [], failed: false };
 
-/** The room's sections, each a link to its part of the page. */
-function SecurityIndex() {
-  const { t } = copy.useCopy();
-  const names = passkeyNamesCopy.useCopy().t;
-  const methods = signinMethodsCopy.useCopy().t;
-  const password = changePasswordCopy.useCopy().t;
-  const recovery = recoveryKeysCopy.useCopy().t;
-  const sessions = identitySessionCopy.useCopy().t;
-  const records = accountCopy.useCopy().t;
-  const links: readonly (readonly [string, string])[] = [
-    ['passkeys', t('passkeys')],
-    ['authenticator', t('authenticator')],
-    ['passkey-names', names('title')],
-    ['signin-methods', methods('title')],
-    ['password', password('title')],
-    ['recovery-keys', recovery('title')],
-    ['sessions', sessions('title')],
-    ['api-key-records', records('api.records.title')],
-  ];
-  return (
-    <nav aria-label={t('sectionsLabel')}>
-      <ul>
-        {links.map(([id, label]) => (
-          <li key={id}>
-            <a className="lt-link" href={`#security-${id}`}>
-              {label}
-            </a>
-          </li>
-        ))}
-      </ul>
-    </nav>
-  );
-}
-
 export function Security() {
   const { api, userId, clear } = useSession();
   const { t, Copy, languageFor, requestedLocale } = copy.useCopy();
@@ -627,12 +593,7 @@ export function Security() {
         title={t('title')}
         description={t('description')}
         state={{ kind: 'ready' }}
-        index={
-          <>
-            <SecurityIndex />
-            <StaffAccessLink />
-          </>
-        }
+        roomAction={<StaffAccessLink />}
         explain={<p>{t('explain')}</p>}
         sections={
           <>

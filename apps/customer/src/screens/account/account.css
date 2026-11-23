@@ -327,6 +327,7 @@
     .acct-nav ul {
       flex-direction: row;
       overflow-x: auto;
+      scrollbar-width: none;
     }
     .acct-nav a {
       white-space: nowrap;

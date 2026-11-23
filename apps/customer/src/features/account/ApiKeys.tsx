@@ -302,30 +302,9 @@ export function ApiKeys() {
             {t('create')}
           </a>
         }
-        index={
-          <nav aria-label={t('sectionsLabel')}>
-            <ul>
-              {INDEX.map(([id, label]) => (
-                <li key={id}>
-                  <a className="lt-link" href={`#${id}`}>
-                    {label === 'versionTitle' ? versionTitle : t(label)}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </nav>
-        }
         sections={sections}
         explain={<p>{t('explain')}</p>}
       />
     </div>
   );
 }
-
-/** The room's sections, each a link to its heading. */
-const INDEX = [
-  ['api-keys-safety', 'safetyTitle'],
-  ['api-keys-cap', 'capTitle'],
-  ['api-version-title', 'versionTitle'],
-  ['api-keys-apps', 'appsTitle'],
-] as const;

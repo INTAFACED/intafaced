@@ -194,7 +194,6 @@ const messages = {
   'view.futures.cooling.off.and.shared.drawings.require':
     'Futures cooling-off and shared drawings need account-level controls. A setting on this device can’t enforce them.',
   'view.restore.defaults': 'Restore defaults',
-  'view.sections': 'Display sections',
   'view.explain': 'Each choice is saved as you make it. Restore defaults puts every choice back to how the app starts.',
   'accountroutes.no.purpose.supplied': 'No purpose supplied.',
   'accountroutes.transport.not.published': 'Transport not published',
