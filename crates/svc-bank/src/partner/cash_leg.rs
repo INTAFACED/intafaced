@@ -27,7 +27,7 @@ use super::{AccountRef, MoveRequest, money_held_by, payouts_account, refuse};
 use crate::errors::Refusal;
 
 /// The coin's smallest unit the partner pays in: 6 places, as USDC is.
-const COIN_STEP: Amount = 1_000_000_000_000;
+const COIN_STEP: Amount = Amount::from_scaled(1_000_000_000_000);
 /// The most legs the TEST partner keeps (`MAX_LEGS`).
 const MAX_LEGS: usize = 50_000;
 /// Nothing offered on a deployment with no partner giving a cash leg (`NO_CASH_LEGS`).
@@ -123,7 +123,7 @@ pub fn parse_rates(raw: Option<&str>) -> Result<Option<Vec<Rate>>, String> {
             return Err(bad());
         }
         let value = parse_amount(rate).map_err(|_| bad())?;
-        if value <= 0 {
+        if value <= Amount::ZERO {
             return Err(format!(
                 "BANK_TEST_CASH_LEG_RATES \"{part}\" needs a rate above zero"
             ));
@@ -415,7 +415,7 @@ impl CashLegs {
                 "A cash leg is named by its convert key.",
             ));
         }
-        if ask.spend <= 0 || ask.least <= 0 {
+        if ask.spend <= Amount::ZERO || ask.least <= Amount::ZERO {
             return Err(refuse(
                 "bank.cash_leg_invalid",
                 "A cash leg pays and receives above zero.",
@@ -453,8 +453,10 @@ impl CashLegs {
                 ask.cash, ask.coin
             )));
         };
-        let delivered = (mul_rounded(ask.spend, rate.rate, Rounding::Floor) / COIN_STEP)
-            .saturating_mul(COIN_STEP);
+        // Whole coin steps only: the count of steps the spend buys, times the step.
+        let steps =
+            mul_rounded(ask.spend, rate.rate, Rounding::Floor).scaled() / COIN_STEP.scaled();
+        let delivered = COIN_STEP.saturating_times(steps);
         if delivered < ask.least {
             return Err(refuse(
                 "bank.cash_leg_rate_moved",

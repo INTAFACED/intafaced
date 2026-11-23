@@ -23,7 +23,7 @@
     reason = "a test: a failure is the point"
 )]
 
-mod support;
+use crate::support;
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -202,8 +202,8 @@ impl Ledger for FakeLedger {
                 message: format!("Insufficient funds: requested {}", format_amount(*amount)),
             });
         }
-        b.available -= amount;
-        b.house += amount;
+        b.available -= *amount;
+        b.house += *amount;
         let tx = format!("tx-{}", b.by_key.len() + 1);
         b.by_key.insert(key, tx.clone());
         Ok(tx)
@@ -699,7 +699,7 @@ fn admits_a_run_under_the_caps_with_its_exact_cost_the_same_request_id_twice_is_
     let session = p.session(&id);
     let ran = p.run(&id, &session, "own-run-1").data();
     assert_eq!(text(&ran, "assetId"), FEE);
-    assert!(cost_of(&ran) > 0);
+    assert!(cost_of(&ran) > Amount::ZERO);
     assert!(cost_of(&ran) <= worst_of(TABLE));
     assert_eq!(
         p.run(&id, &session, "own-run-1").message(),
@@ -722,7 +722,12 @@ fn refuses_a_run_whose_worst_case_passes_the_per_call_cap_before_the_engine() {
     let w = world_or_skip!();
     let p = w.people();
     let id = p.agent_with(Some("1"));
-    w.limits_set(&id, &format_amount(worst_of(TABLE) - 1), "0.02", "5");
+    w.limits_set(
+        &id,
+        &format_amount(worst_of(TABLE) - Amount::from_scaled(1)),
+        "0.02",
+        "5",
+    );
     let session = p.session(&id);
     assert_eq!(
         p.run(&id, &session, "own-call").refused(),
@@ -792,10 +797,15 @@ fn counts_every_session_of_the_agent_this_month_against_the_per_month_cap() {
         .unwrap()
         .get(0);
     let used = amt(&spent);
-    assert!(used > 0);
+    assert!(used > Amount::ZERO);
     // A fresh session has spent nothing, so one worst case fits the month only if the first session is not counted.
     let second = p.session(&id);
-    w.limits_set(&id, "0.012", "0.02", &format_amount(used + worst - 1));
+    w.limits_set(
+        &id,
+        "0.012",
+        "0.02",
+        &format_amount(used + worst - Amount::from_scaled(1)),
+    );
     assert_eq!(
         p.run(&id, &second, "own-month-2").message(),
         "agents.spend.cap_exceeded"
@@ -815,7 +825,10 @@ fn applies_the_agents_cap_as_it_stands_at_run_time_below_the_persons_per_session
     let id = p.agent_with(Some("1"));
     w.limits_set(&id, "0.012", "0.02", "5");
     let session = p.session(&id);
-    p.save(&id, s(&format_amount(worst_of(TABLE) - 1)));
+    p.save(
+        &id,
+        s(&format_amount(worst_of(TABLE) - Amount::from_scaled(1))),
+    );
     assert_eq!(
         p.run(&id, &session, "own-live-cap").message(),
         "agents.spend.cap_exceeded"
@@ -855,7 +868,7 @@ fn refuses_a_delegated_key_it_cannot_open_a_session_or_run() {
 #[test]
 fn refuses_a_run_the_available_balance_cannot_cover() {
     let w = world_or_skip!();
-    w.ledger.set(worst_of(TABLE) - 1);
+    w.ledger.set(worst_of(TABLE) - Amount::from_scaled(1));
     let p = w.people();
     let id = p.agent_with(Some("1"));
     w.limits_set(&id, "0.012", "0.02", "5");
@@ -960,7 +973,7 @@ fn close_unpaid<'w>(
     session: &str,
     cost: Amount,
 ) -> impl Fn() + 'w {
-    let give_back = withdraw_all_but(w, cost - 1);
+    let give_back = withdraw_all_but(w, cost - Amount::from_scaled(1));
     assert_eq!(
         p.close(id, session).refused(),
         ("BAD_REQUEST".to_owned(), "agents.window_unpaid".to_owned())
@@ -1013,8 +1026,8 @@ fn keeps_the_session_open_and_the_window_unpaid_on_its_charge_key_nothing_moves(
     let key = window.charge_key.clone().unwrap();
     assert_eq!(key, format!("agent.usage:{session}:{}", window.window_id));
     assert_eq!(w.ledger.tx_of(&format!("fee:agents:{key}")), None);
-    assert_eq!(w.ledger.balance(), cost - 1);
-    assert_eq!(w.ledger.house(), 0);
+    assert_eq!(w.ledger.balance(), cost - Amount::from_scaled(1));
+    assert_eq!(w.ledger.house(), Amount::ZERO);
 }
 
 /// "with the grace blank, the next run refuses agents.overage_grace_unset before the engine: no claim, no hold, bills
@@ -1053,8 +1066,8 @@ fn with_the_grace_blank_the_next_run_refuses_overage_grace_unset_before_the_engi
         refused_params(&w, &next),
         sorted([("owed", s(&format_amount(cost))), ("asset", s(FEE))])
     );
-    assert_eq!(w.ledger.balance(), cost - 1);
-    assert_eq!(w.ledger.house(), 0);
+    assert_eq!(w.ledger.balance(), cost - Amount::from_scaled(1));
+    assert_eq!(w.ledger.house(), Amount::ZERO);
 }
 
 /// "with funds back, the next run retries the window on its same charge key first, charges it once, then runs".
@@ -1121,7 +1134,7 @@ fn with_a_grace_that_covers_what_is_owed_a_run_the_balance_covers_starts_the_win
     // A balance that covers one run's worst case but not the window: the ledger refuses the window for funds.
     assert!(owed > worst_of(TINY));
     let _held = close_unpaid(&w, &p, &id, &session, owed);
-    assert_eq!(w.ledger.balance(), owed - 1);
+    assert_eq!(w.ledger.balance(), owed - Amount::from_scaled(1));
     let graced = w.build(TINY, Some(owed), 0);
     let next = graced.session(&id);
     let ran = graced.run(&id, &next, "unpaid-run-2").data();
@@ -1134,7 +1147,7 @@ fn with_a_grace_that_covers_what_is_owed_a_run_the_balance_covers_starts_the_win
         .unwrap();
     assert_eq!(old.state, "unpaid");
     assert_eq!(old.amount, Some(owed));
-    assert_eq!(w.ledger.house(), 0);
+    assert_eq!(w.ledger.house(), Amount::ZERO);
 }
 
 /// "a grace never covers the run itself: a balance below its worst case refuses agents.funds_insufficient".
@@ -1145,8 +1158,8 @@ fn a_grace_never_covers_the_run_itself() {
     let (id, session, cost) = ran_once(&w, &p, "1");
     let _held = close_unpaid(&w, &p, &id, &session, cost);
     // What is left is below the next run's worst case, whatever the grace forgives of the old window.
-    assert_eq!(w.ledger.balance(), cost - 1);
-    assert!(cost - 1 < worst_of(TINY));
+    assert_eq!(w.ledger.balance(), cost - Amount::from_scaled(1));
+    assert!(cost - Amount::from_scaled(1) < worst_of(TINY));
     let graced = w.build(TINY, Some(cost), 0);
     let next = graced.session(&id);
     assert_eq!(
@@ -1157,7 +1170,7 @@ fn a_grace_never_covers_the_run_itself() {
         )
     );
     assert_eq!(w.calls(), 1);
-    assert_eq!(w.ledger.house(), 0);
+    assert_eq!(w.ledger.house(), Amount::ZERO);
 }
 
 /// "two settles of one unpaid window at once charge it once and log one settlement".
@@ -1196,7 +1209,7 @@ fn with_a_grace_below_what_is_owed_the_next_run_refuses_overage_grace_exceeded()
     let p = w.people();
     let (id, session, cost) = ran_once(&w, &p, "1");
     let _held = close_unpaid(&w, &p, &id, &session, cost);
-    let graced = w.build(TABLE, Some(cost - 1), 0);
+    let graced = w.build(TABLE, Some(cost - Amount::from_scaled(1)), 0);
     let next = graced.session(&id);
     assert_eq!(
         graced.run(&id, &next, "unpaid-run-2").refused(),
@@ -1210,7 +1223,7 @@ fn with_a_grace_below_what_is_owed_the_next_run_refuses_overage_grace_exceeded()
         refused_params(&w, &next),
         sorted([
             ("owed", s(&format_amount(cost))),
-            ("grace", s(&format_amount(cost - 1))),
+            ("grace", s(&format_amount(cost - Amount::from_scaled(1)))),
             ("asset", s(FEE)),
         ])
     );
@@ -1247,7 +1260,7 @@ fn a_ledger_fault_other_than_funds_on_the_retry_counts_the_window_as_owed() {
         .find(|v| v.session_id == session)
         .unwrap();
     assert_eq!(old.state, "unpaid");
-    assert_eq!(w.ledger.house(), 0);
+    assert_eq!(w.ledger.house(), Amount::ZERO);
 }
 
 /// "a run in a session whose current window is sealed refuses agents.window_sealed before the engine".

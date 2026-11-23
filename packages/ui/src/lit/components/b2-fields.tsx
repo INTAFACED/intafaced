@@ -5,6 +5,7 @@
  * own keyboard, form and screen-reader behaviour stay.
  */
 import * as React from 'react';
+import { DateOrInput } from './date-input.js';
 
 export interface ChoiceOption {
   value: string;
@@ -103,7 +104,13 @@ export function TextField({ label, value, onChange, hint, id, ...rest }: TextFie
   return (
     <div className="lt-field">
       <label htmlFor={ids.controlId}>{label}</label>
-      <input {...rest} id={ids.controlId} aria-describedby={ids.describedBy} value={value} onChange={(e) => onChange(e.target.value)} />
+      <DateOrInput
+        {...rest}
+        id={ids.controlId}
+        aria-describedby={ids.describedBy}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
       <Hint id={ids.hintId} hint={hint} />
     </div>
   );

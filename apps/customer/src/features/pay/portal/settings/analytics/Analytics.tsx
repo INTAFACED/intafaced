@@ -1,12 +1,9 @@
-import { useState } from 'react';
-import { EmptyState } from '../../../ui-kit';
-import { PaySection } from '../../../components';
-import { PortalFailure, PortalLoading } from '../../components';
-import { Freshness } from '../../ui/Freshness';
+// volt-room: /pay/analytics
+// volt-room: portal:analytics
+import { Bars as KitBars } from '@intafaced/ui/lit/templates';
 import { useDayText } from '../../ui/DateTime';
-import { KpiStrip } from '../../ui/Kpi';
-import { MoneyText } from '../../ui/MoneyText';
-import { EntityList } from '../../ui/EntityList';
+import { Empty, EntityList, Failure, Freshness, KpiStrip, Loading, MoneyText, Section } from '../../volt/parts';
+import { MonitorRoom } from '../../volt/MonitorRoom';
 import { isNotLive } from '../../refusal';
 import { useResource, type Resource } from '../../../../../shared/resource';
 import type { ApiResult } from '../../../../../shared/api';
@@ -14,7 +11,7 @@ import type { SettingsBApi } from '../b-client';
 import { analyticsCopy as c } from './copy';
 import { Declines } from './Declines';
 import { AnalyticsControls, useAnalyticsState, type AnalyticsState } from './Controls';
-import { assetsOf, barsFor, busiest, periodsWithSales, readAll, sumByAsset, totalCount, type Point } from './model';
+import { assetsOf, busiest, periodsWithSales, readAll, sumByAsset, totalCount, type Point } from './model';
 
 type Loaded = {
   points: Point[];
@@ -23,8 +20,13 @@ type Loaded = {
   source: 'analytics' | 'daily';
 };
 
+/** `/pay/analytics` on the monitor template: the business's captured volume and its declines, for the account the access resolved. */
+export function AnalyticsRoom({ api, test }: { api: SettingsBApi; test: boolean }) {
+  return <MonitorRoom>{({ merchantId }) => ({ panels: <Analytics api={api} merchantId={merchantId} test={test} /> })}</MonitorRoom>;
+}
+
 /** Captured volume over time: today, 7 or 30 days, or your own dates; by day or week; for one asset or all of them. */
-export function Analytics({
+function Analytics({
   api,
   merchantId,
   test = false,
@@ -57,7 +59,7 @@ export function Analytics({
     return { ok: true, data: { points, complete: true, freshness: daily.data.freshness, source: 'daily' } };
   }, key);
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <AnalyticsView state={state} resource={w ? data.resource : null} reload={data.reload} test={test} />
       <Declines api={api} merchantId={merchantId} state={state} test={test} />
     </div>
@@ -79,16 +81,16 @@ export function AnalyticsView({
   const loaded = resource?.status === 'ready' ? resource.data : null;
   const assets = loaded ? assetsOf(loaded.points) : [];
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <AnalyticsControls state={state} assets={assets} />
       {!resource ? (
-        <p className="muted" role="status">
+        <p className="lt-hint" role="status">
           {t('pickDates')}
         </p>
       ) : resource.status === 'loading' ? (
-        <PortalLoading rows={4} />
+        <Loading rows={4} />
       ) : resource.status === 'failed' ? (
-        <PortalFailure result={resource.failure} retry={reload} />
+        <Failure result={resource.failure} retry={reload} />
       ) : (
         <VolumeBody data={resource.data} state={state} test={test} />
       )}
@@ -104,7 +106,7 @@ function VolumeBody({ data, state, test }: { data: Loaded; state: AnalyticsState
     return (
       <>
         <Freshness asOf={data.freshness.asOf} lagSeconds={data.freshness.lagSeconds ?? 0} />
-        <EmptyState title={t('emptyTitle')}>{t('emptyBody')}</EmptyState>
+        <Empty title={t('emptyTitle')}>{t('emptyBody')}</Empty>
       </>
     );
   const period = state.preset === 'custom' ? t('yourDates') : t(`period_${state.preset}`);
@@ -120,7 +122,7 @@ function VolumeBody({ data, state, test }: { data: Loaded; state: AnalyticsState
     <>
       <Freshness asOf={data.freshness.asOf} lagSeconds={data.freshness.lagSeconds ?? 0} />
       {!open && (
-        <p className="pp-callout" role="status">
+        <p className="lt-held" role="status">
           {t('cutShort')}
         </p>
       )}
@@ -132,7 +134,7 @@ function VolumeBody({ data, state, test }: { data: Loaded; state: AnalyticsState
             period,
             href: link('payments'),
             value: open ? (
-              <span className="pp-stack">
+              <span className="lt-stack">
                 {sums.map((s) => (
                   <MoneyText key={s.assetCode} value={s.total} asset={s.assetCode} test={test} />
                 ))}
@@ -160,78 +162,54 @@ function VolumeBody({ data, state, test }: { data: Loaded; state: AnalyticsState
         ]}
       />
       {assetsOf(points).map((asset) => (
-        <PaySection key={asset} title={t('chartTitle', { asset })} description={t(state.bucket === 'week' ? 'chartWeekly' : 'chartDaily')}>
+        <Section key={asset} title={t('chartTitle', { asset })} description={t(state.bucket === 'week' ? 'chartWeekly' : 'chartDaily')}>
           <Bars points={points} asset={asset} />
-        </PaySection>
+        </Section>
       ))}
-      <PaySection title={t('tableTitle')} description={t('tableBody')}>
+      <Section title={t('tableTitle')} description={t('tableBody')}>
         <EntityList
           label={t('tableTitle')}
           rows={points}
           rowKey={(p) => `${p.period}:${p.assetCode}`}
           columns={[
-            { header: state.bucket === 'week' ? t('colWeek') : t('colDay'), cell: (p) => dayText(p.period) },
+            {
+              header: state.bucket === 'week' ? t('colWeek') : t('colDay'),
+              cell: (p) => (state.bucket === 'week' ? t('weekOf', { date: dayText(p.period) }) : dayText(p.period)),
+            },
             { header: t('colAsset'), cell: (p) => p.assetCode },
             { header: t('colCaptured'), cell: (p) => <MoneyText value={p.volume} asset={p.assetCode} test={test} /> },
             { header: t('colPayments'), cell: (p) => (p.count === null ? '—' : p.count) },
           ]}
-          card={(p) => ({
-            title: state.bucket === 'week' ? t('weekOf', { date: dayText(p.period) }) : dayText(p.period),
-            time: p.count === null ? undefined : t('capturesCount', { n: p.count }),
-            amount: <MoneyText value={p.volume} asset={p.assetCode} test={test} />,
-          })}
         />
-        {data.source === 'daily' && <p className="muted">{t('dailyOnly')}</p>}
-      </PaySection>
+        {data.source === 'daily' && <p className="lt-hint">{t('dailyOnly')}</p>}
+      </Section>
     </>
   );
 }
 
-const H = 96;
-/** One bar per period, tallest to scale. The table below holds every exact amount; this is a picture of it. */
+/**
+ * One bar per period, the kit's bar chart, oldest first. The table below holds every exact amount; this is a picture of
+ * it, and the chart carries the same amounts as its own text equivalent.
+ */
 export function Bars({ points, asset }: { points: readonly Point[]; asset: string }) {
   const { t } = c.useCopy();
   const dayText = useDayText();
-  const bars = barsFor(points, asset, H);
-  const [hover, setHover] = useState<number | null>(null);
-  const w = 100 / Math.max(1, bars.length);
-  const first = bars[0];
-  const last = bars[bars.length - 1];
+  const rows = points.filter((p) => p.assetCode === asset).sort((a, b) => a.period.localeCompare(b.period));
+  const first = rows[0];
+  const last = rows[rows.length - 1];
   return (
-    <figure className="pp-chart">
-      <svg
-        viewBox={`0 0 100 ${H}`}
-        preserveAspectRatio="none"
-        role="img"
-        aria-label={t('chartAlt', {
+    <div className="lt-stack">
+      <KitBars
+        label={t('chartAlt', {
           asset,
-          n: bars.length,
+          n: rows.length,
           from: first ? dayText(first.period) : '',
           to: last ? dayText(last.period) : '',
         })}
-      >
-        {bars.map((b, i) => (
-          <rect
-            key={b.period}
-            className="pp-bar"
-            x={i * w + w * 0.1}
-            width={w * 0.8}
-            y={H - b.h}
-            height={b.h}
-            onMouseEnter={() => setHover(i)}
-            onMouseLeave={() => setHover(null)}
-          >
-            <title>{`${dayText(b.period)}: ${b.volume} ${asset}`}</title>
-          </rect>
-        ))}
-      </svg>
-      <figcaption className="muted">
-        {hover !== null && bars[hover]
-          ? `${dayText(bars[hover]!.period)} · ${bars[hover]!.volume} ${asset}`
-          : first && last
-            ? `${dayText(first.period)} – ${dayText(last.period)}`
-            : ''}
-      </figcaption>
-    </figure>
+        bars={rows.map((p) => ({ label: dayText(p.period), value: p.volume }))}
+        asset={asset}
+      />
+      <p className="lt-hint">{first && last ? `${dayText(first.period)} – ${dayText(last.period)}` : ''}</p>
+    </div>
   );
 }

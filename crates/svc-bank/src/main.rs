@@ -21,19 +21,29 @@ use service_kit::s2s_verify::{BodyBind, ServiceVerifier};
 use service_kit::server::{self, App};
 use service_kit::telemetry::{Logger, Telemetry};
 
+use svc_bank::activity;
+use svc_bank::automations;
+use svc_bank::bank_api;
+use svc_bank::bills;
+use svc_bank::cards;
 use svc_bank::db::{self, Store};
 use svc_bank::door::{BankDoor, DoorConfig, ServiceAuth, system_now};
+use svc_bank::earn;
 use svc_bank::env::{self, BankEnv, DEFAULT_PORT};
+use svc_bank::loans;
 use svc_bank::migrate;
 use svc_bank::partner::custody::LedgerFreeze;
 use svc_bank::partner::router::Wiring;
 use svc_bank::partner::{TestPartner, cash_leg, pay_in};
+use svc_bank::ramps;
 use svc_bank::ready;
 use svc_bank::recovery::{self, AdvisoryLock, RecoveryCounts};
 use svc_bank::spaces;
 use svc_bank::spaces::ports::{DirectoryHttp, LedgerHttp, Lookups, NoDirectory};
 use svc_bank::test_age;
 use svc_bank::timers::{self, Timer};
+use svc_bank::transfers;
+use svc_bank::transfers::ports::{IdentityHttp, JetStreamBus, NoIdentity};
 
 fn process_env() -> BTreeMap<String, String> {
     std::env::vars_os()
@@ -50,6 +60,8 @@ fn main() -> ExitCode {
             args.iter().any(|a| a == "--down"),
             &mut std::io::stdout(),
         )
+    } else if args.first().map(String::as_str) == Some("test-seed") {
+        test_seed(args.get(1).map_or("", String::as_str))
     } else {
         run()
     };
@@ -58,6 +70,30 @@ fn main() -> ExitCode {
         Err(e) => {
             eprintln!("{e}");
             ExitCode::FAILURE
+        }
+    }
+}
+
+/// `svc-bank test-seed <op>`: one seed operation on a TEST stack's bank schema (`test_seed`), its input on stdin and
+/// its answer on stdout.
+fn test_seed(op: &str) -> Result<(), String> {
+    let raw: BTreeMap<String, String> = std::env::vars().collect();
+    svc_bank::test_seed::allowed(&raw)?;
+    let mut input = String::new();
+    std::io::Read::read_to_string(&mut std::io::stdin(), &mut input).map_err(|e| e.to_string())?;
+    let url = raw
+        .get("DATABASE_URL")
+        .cloned()
+        .unwrap_or_else(|| migrate::DEFAULT_URL.to_owned());
+    let store = db::open(&url, "svc-bank-test-seed", 1, false)?;
+    match svc_bank::test_seed::run(store, raw, op, &input) {
+        Ok(answer) => {
+            println!("{}", answer.compact());
+            Ok(())
+        }
+        Err(refused) => {
+            println!("{}", refused.compact());
+            Err(format!("svc-bank test-seed {op} refused"))
         }
     }
 }
@@ -77,6 +113,11 @@ fn jobs<'a>(door: &'a BankDoor, _env: &'a BankEnv) -> Vec<(&'static str, Job<'a>
             Box::new(move || rail.poll(partner, || door.now())),
         ));
     }
+    // Slice `activity`: the statement export worker makes queued exports, a batch a pass.
+    out.push((
+        "statement export worker",
+        Box::new(move || activity::statements::run_statement_jobs(door, door.now())),
+    ));
     out
 }
 
@@ -178,12 +219,162 @@ fn spaces_wiring(env: &BankEnv) -> Result<spaces::Wiring, String> {
     })
 }
 
+/// Slice `transfers`'s wiring (`index.ts`): svc-identity's recipient state, security lock, handles and extra checks and
+/// its approvals (none without `IDENTITY_URL`, so each refuses as unset), the bus for the slice's notices, and the owner's
+/// values as published.
+fn transfers_wiring(env: &BankEnv, bus: &Arc<JetStream>) -> Result<transfers::Wiring, String> {
+    // `onCreditPosted: (credit) => made.sorter.sortCredit(credit)`.
+    let sorter = sorter_wiring(env);
+    let s2s = s2s_from_env(
+        env.str("S2S_AUTH_MODE").unwrap_or("off"),
+        env.str("S2S_KEYRING"),
+        env.str("S2S_SIGNING_KID"),
+        env.str("S2S_SIGNING_KEY"),
+        "svc-bank",
+    )?;
+    let keyed = match (s2s.signer, s2s.mode) {
+        (Some(signer), Some(mode)) => Some((signer, mode)),
+        _ => None,
+    };
+    let secret = env
+        .str("INTERNAL_SERVICE_SECRET")
+        .unwrap_or_default()
+        .to_owned();
+    let identity = |url: &str| {
+        IdentityHttp::new(
+            url,
+            CallSigner::new("svc-bank", "svc-identity", &secret, keyed.clone()),
+            Box::new(UreqFetch::new()),
+        )
+    };
+    let owned = |k: &str| env.raw.get(k).cloned().filter(|v| !v.trim().is_empty());
+    let settings = transfers::Settings {
+        send_review: owned("BANK_PERSONAL_SEND_REVIEW_JSON"),
+        remind_policy: owned("BANK_REQUEST_REMIND_POLICY_JSON"),
+        stranger_hold_days: env
+            .str("BANK_STRANGER_HOLD_DAYS")
+            .and_then(|d| d.trim().parse().ok()),
+        schedule_edit_cutoff: owned("BANK_SCHEDULE_EDIT_CUTOFF_MINUTES"),
+        step_up_required: env.str("BANK_STEP_UP_MONEY_OUT") == Some("required"),
+        blocked_region_notice: owned("BANK_BLOCKED_REGION_NOTICE"),
+        scheduled_transfers: env.flag("SCHEDULED_TRANSFERS_ENABLED").unwrap_or(false),
+        batch_size: env.int("TRANSFER_BATCH_SIZE"),
+        producer: env.str("SERVICE_NAME").unwrap_or("svc-bank").to_owned(),
+        business_invite_minutes: owned("BANK_BUSINESS_INVITE_MINUTES"),
+        bill_reader: env.str("BANK_BILL_READER").map(str::to_owned),
+    };
+    let bus: Box<dyn transfers::ports::Bus> = Box::new(JetStreamBus(bus.clone()));
+    Ok(match env.str("IDENTITY_URL") {
+        Some(url) => transfers::Wiring {
+            recipients: Box::new(identity(url)),
+            lock: Box::new(identity(url)),
+            handles: Some(Box::new(identity(url))),
+            extras: Box::new(identity(url)),
+            approvals: Box::new(service_kit::approvals::IdentityClient::new(
+                "svc-bank",
+                url,
+                &secret,
+                Arc::new(UreqFetch::new()),
+                system_seconds,
+            )),
+            bus,
+            settings,
+            credit_posted: Some(Box::new(sorter.hand_off())),
+        },
+        None => transfers::Wiring {
+            recipients: Box::new(NoIdentity),
+            lock: Box::new(NoIdentity),
+            handles: None,
+            extras: Box::new(NoIdentity),
+            approvals: Box::new(transfers::NoApprovals),
+            bus,
+            settings,
+            credit_posted: Some(Box::new(sorter.hand_off())),
+        },
+    })
+}
+
+/// A pass's rows as the timer counts them: `completed`, or `failed` when the row stays owed.
+fn outcomes(rows: Vec<Result<(), String>>) -> Vec<String> {
+    rows.into_iter()
+        .map(|r| if r.is_ok() { "completed" } else { "failed" }.to_owned())
+        .collect()
+}
+
 /// The recovery jobs whose work is ported, in `recovery::JOBS`' order. Each comes with its slice.
 fn recovery_jobs<'a>(
-    _door: &'a BankDoor,
+    door: &'a BankDoor,
     _env: &'a BankEnv,
 ) -> Vec<(&'static str, recovery::Job<'a>)> {
-    Vec::new()
+    let loan_outcomes = |rows: Vec<loans::service::Resumed>| -> Vec<String> {
+        rows.into_iter().map(|r| r.outcome.to_owned()).collect()
+    };
+    vec![
+        (
+            "bank.recovery.resume_pending_loans",
+            Box::new(move |batch| {
+                let now = door.now();
+                door.loans_deps(now, |d| {
+                    loans::service::resume_pending(d, Some(f64::from(batch)))
+                        .map(loan_outcomes)
+                        .map_err(|e| format!("{e:?}"))
+                })
+            }),
+        ),
+        (
+            "bank.recovery.recover_loan_repayments",
+            Box::new(move |batch| {
+                let now = door.now();
+                door.loans_deps(now, |d| {
+                    loans::service::recover_repayments(d, Some(f64::from(batch)))
+                        .map(loan_outcomes)
+                        .map_err(|e| format!("{e:?}"))
+                })
+            }),
+        ),
+        (
+            "bank.recovery.resume_pending_earn",
+            Box::new(move |batch| {
+                let now = door.now();
+                door.earn_deps(now, |d| {
+                    earn::service::resume_pending(d, Some(f64::from(batch)))
+                        .map(|rows| rows.into_iter().map(|r| r.outcome.to_owned()).collect())
+                        .map_err(|e| format!("{e:?}"))
+                })
+            }),
+        ),
+        (
+            "bank.recovery.announce_posted_transfers",
+            Box::new(move |batch| {
+                door.transfers_deps(|d| {
+                    transfers::personal::announce_unannounced(d, i64::from(batch))
+                        .map(outcomes)
+                        .map_err(|e| format!("{e:?}"))
+                })
+            }),
+        ),
+        (
+            "bank.recovery.sweep_received_holds",
+            Box::new(move |batch| {
+                door.transfers_deps(|d| Ok(outcomes(transfers::holds::sweep(d, i64::from(batch)))))
+            }),
+        ),
+        (
+            "bank.recovery.deliver_bank_api_webhooks",
+            Box::new(move |batch| {
+                door.bank_api_deps(door.now(), |d| {
+                    bank_api::drain(d, i64::from(batch)).map_err(|e| format!("{e:?}"))
+                })
+            }),
+        ),
+        // Slice `partner-account`: cash-outs left before their hold or the partner's acceptance, driven on.
+        (
+            "bank.recovery.redrive_cash_outs",
+            Box::new(move |batch| {
+                svc_bank::partner_account::cash_out::recovery(&door.partner_account(), batch)
+            }),
+        ),
+    ]
 }
 
 /// The recovery timer's log lines, as `index.ts` writes them.
@@ -246,13 +437,395 @@ fn service_auth(env: &BankEnv) -> Result<ServiceAuth, String> {
     })
 }
 
+/// Slice `loans`'s wiring (`index.ts`'s `loans` options): svc-trade's ticker for marks, the platform's market maker as
+/// the venue, svc-identity's affiliate legs (none without `IDENTITY_URL`), margin calls on the bus, and the owner's
+/// values as published. The statement is signed with the activity cursor's secret, as the TypeScript composes it.
+fn loans_wiring(env: &BankEnv) -> Result<loans::Wiring, String> {
+    let s2s = s2s_from_env(
+        env.str("S2S_AUTH_MODE").unwrap_or("off"),
+        env.str("S2S_KEYRING"),
+        env.str("S2S_SIGNING_KID"),
+        env.str("S2S_SIGNING_KEY"),
+        "svc-bank",
+    )?;
+    let keyed = match (s2s.signer, s2s.mode) {
+        (Some(signer), Some(mode)) => Some((signer, mode)),
+        _ => None,
+    };
+    let secret = env
+        .str("INTERNAL_SERVICE_SECRET")
+        .unwrap_or_default()
+        .to_owned();
+    let owned = |k: &str| env.raw.get(k).cloned();
+    #[allow(clippy::cast_precision_loss, reason = "a batch size of at most 10000")]
+    let sweep_batch = env.int("LOAN_SWEEP_BATCH_SIZE").map(|b| b as f64);
+    Ok(loans::Wiring {
+        settings: loans::ports::Settings {
+            module_enabled: env.flag("BANK_LOANS_ENABLED").unwrap_or(true),
+            accrual_enabled: env.flag("LOAN_ACCRUAL_ENABLED").unwrap_or(true),
+            risk_sweep_enabled: env.flag("LOAN_RISK_SWEEP_ENABLED").unwrap_or(false),
+            sweep_batch,
+            payoff_fee: owned("BANK_LOAN_PAYOFF_FEE"),
+            origination_fee_bps: owned("BANK_LOAN_ORIGINATION_FEE_BPS"),
+            payoff_window_minutes: owned("BANK_LOAN_PAYOFF_WINDOW_MINUTES"),
+            statement_secret: Some(secret.clone()),
+            ..loans::ports::Settings::default()
+        },
+        prices: Box::new(loans::prices::TickerPriceSource::new(
+            env.str("TRADE_URL").unwrap_or("http://localhost:4004"),
+            Box::new(UreqFetch::new()),
+            None,
+            Box::new(system_now),
+        )),
+        venue: Box::new(loans::ports::MarketMaker),
+        affiliates: match env.str("IDENTITY_URL") {
+            Some(url) => Box::new(loans::ports::AffiliatesHttp::new(
+                url,
+                CallSigner::new("svc-bank", "svc-identity", &secret, keyed),
+                Box::new(UreqFetch::new()),
+            )),
+            None => Box::new(loans::ports::NoAffiliates),
+        },
+        publish_margin_calls: true,
+    })
+}
+
+/// Slice `activity`'s wiring (`index.ts`'s `activity`, `statementJobs` and `portfolio` options, `taxEffectsFor`): each
+/// call out signed as svc-bank.
+fn activity_wiring(env: &BankEnv) -> Result<activity::Wiring, String> {
+    let s2s = s2s_from_env(
+        env.str("S2S_AUTH_MODE").unwrap_or("off"),
+        env.str("S2S_KEYRING"),
+        env.str("S2S_SIGNING_KID"),
+        env.str("S2S_SIGNING_KEY"),
+        "svc-bank",
+    )?;
+    let keyed = match (s2s.signer, s2s.mode) {
+        (Some(signer), Some(mode)) => Some((signer, mode)),
+        _ => None,
+    };
+    let secret = env
+        .str("INTERNAL_SERVICE_SECRET")
+        .unwrap_or_default()
+        .to_owned();
+    let signer = |audience: &str| CallSigner::new("svc-bank", audience, &secret, keyed.clone());
+    let fetch = || -> Box<dyn Fetch> { Box::new(UreqFetch::new()) };
+    activity::wiring(&activity::Build {
+        env,
+        signer: &signer,
+        fetch: &fetch,
+    })
+}
+
+/// Slice `earn`'s owner values (`index.ts`): the asset svc-token stakes, the staking risk wording as published, and
+/// whether interest accrues.
+fn earn_settings(env: &BankEnv) -> earn::Settings {
+    earn::Settings {
+        native_asset_id: env.str("TOKEN_ASSET_ID").unwrap_or("IFC").to_owned(),
+        risk_wording: env
+            .raw
+            .get("BANK_EARN_RISK_WORDING_JSON")
+            .cloned()
+            .filter(|v| !v.trim().is_empty()),
+        interest_accrual: env.flag("INTEREST_ACCRUAL_ENABLED").unwrap_or(true),
+    }
+}
+
+/// One signer for svc-bank's calls to `audience`: the shared secret, and the keyring's key when one is published.
+fn call_signer(env: &BankEnv, audience: &str) -> Result<CallSigner, String> {
+    let s2s = s2s_from_env(
+        env.str("S2S_AUTH_MODE").unwrap_or("off"),
+        env.str("S2S_KEYRING"),
+        env.str("S2S_SIGNING_KID"),
+        env.str("S2S_SIGNING_KEY"),
+        "svc-bank",
+    )?;
+    let keyed = match (s2s.signer, s2s.mode) {
+        (Some(signer), Some(mode)) => Some((signer, mode)),
+        _ => None,
+    };
+    let secret = env.str("INTERNAL_SERVICE_SECRET").unwrap_or_default();
+    Ok(CallSigner::new("svc-bank", audience, secret, keyed))
+}
+
+/// Slice `cards`' wiring (`index.ts`'s `cardIssuerFor` and `cards` options): the issuer (`none` unless chosen; the
+/// simulator refused in a live posture), the TEST partner card's switches and the simulator's cashback (each refused at
+/// boot outside dev or test), and the owner's card values, blank where unset.
+fn cards_wiring(env: &BankEnv) -> Result<cards::Wiring, String> {
+    let raw = |k: &str| env.raw.get(k).map(String::as_str);
+    let app_env = env.str("APP_ENV");
+    let node_env = raw("NODE_ENV");
+    let partner =
+        cards::terms::sim_partner_for(raw("BANK_CARD_SIM_PARTNER_JSON"), raw("APP_ENV"), node_env)?;
+    let live = node_env == Some("production") || matches!(app_env, Some("staging" | "prod"));
+    let simulator_pays = cards::terms::sim_cashback_for(
+        env.str("BANK_CARD_SIM_CASHBACK"),
+        raw("APP_ENV"),
+        node_env,
+    )?;
+    Ok(cards::Wiring {
+        issuer: cards::issuer::Issuer::for_setting(
+            env.str("BANK_CARD_ISSUER").unwrap_or("none"),
+            live,
+            partner,
+        ),
+        rank: match env.str("IDENTITY_URL") {
+            Some(url) => Box::new(cards::reads::IdentityRankTier::new(
+                url,
+                call_signer(env, "svc-identity")?,
+                Box::new(UreqFetch::new()),
+            )),
+            None => Box::new(cards::NoRankTier),
+        },
+        holds: Default::default(),
+        settings: cards::Settings {
+            module_enabled: env.flag("BANK_CARDS_ENABLED").unwrap_or(true),
+            programme: cards::terms::parse_programme(raw("BANK_CARD_PROGRAMME_JSON")),
+            cashback_rates: cards::terms::parse_cashback_rates(raw(
+                "BANK_CARD_CASHBACK_RATES_JSON",
+            )),
+            simulator_pays,
+            spend_assets: cards::terms::parse_spend_assets(raw("BANK_CARD_SPEND_ASSETS")),
+            pin_try_limit: cards::terms::parse_try_limit(raw("BANK_CARD_PIN_TRY_LIMIT")),
+            three_ds_try_limit: cards::terms::parse_try_limit(raw("BANK_CARD_3DS_TRY_LIMIT")),
+            dispute_cap: cards::terms::parse_dispute_cap(raw("BANK_CARD_DISPUTE_CAP_JSON"))?,
+        },
+    })
+}
+
+/// Slice `bills`' wiring from the environment, one part each.
+fn bills_wiring(env: &BankEnv) -> Result<bills::Wiring, String> {
+    let raw = |k: &str| env.raw.get(k).map(String::as_str);
+    let mut w = bills::Wiring::none();
+    // `composeRailSendsArea`: `payeeCoolingHours: env.BANK_PAYEE_COOLING_HOURS`, the owner's window, blank refuses.
+    w.rail_sends = bills::rail_sends::Wiring {
+        cooling_hours: env.str("BANK_PAYEE_COOLING_HOURS").map(str::to_owned),
+    };
+    // `directDebitSchemeFor(env.BANK_DD_SCHEME, env.BANK_DD_SIM_JSON, raw APP_ENV and NODE_ENV)` and the run's switch.
+    w.direct_debits = bills::direct_debits::Wiring {
+        scheme: bills::direct_debits::scheme::scheme_for(
+            env.str("BANK_DD_SCHEME").unwrap_or("none"),
+            env.str("BANK_DD_SIM_JSON"),
+            raw("APP_ENV"),
+            raw("NODE_ENV"),
+        )?,
+        collections_enabled: env.flag("BANK_DD_COLLECTIONS_ENABLED").unwrap_or(true),
+    };
+    Ok(w)
+}
+
+/// Slice `card-programme`'s wiring (`index.ts`'s `cardProgramme` options, `receiptSecret` and the cards' `rates`): the
+/// owner's cardholder sanctions list, the simulator on a dev or test stack alone, the export secret and svc-trade's ticker.
+fn card_programme_wiring(env: &BankEnv) -> svc_bank::card_programme::Wiring {
+    let raw = |k: &str| env.raw.get(k).map(String::as_str);
+    svc_bank::card_programme::Wiring {
+        sanctions: raw("BANK_CARDHOLDER_SANCTIONS").map(str::to_owned),
+        simulator_allowed: cards::terms::dev_or_test(env.str("APP_ENV"), raw("NODE_ENV")),
+        export_secret: env.str("INTERNAL_SERVICE_SECRET").map(str::to_owned),
+        rates: Box::new(loans::prices::TickerPriceSource::new(
+            env.str("TRADE_URL").unwrap_or("http://localhost:4004"),
+            Box::new(UreqFetch::new()),
+            None,
+            Box::new(system_now),
+        )),
+    }
+}
+
+/// Slice `global`'s wiring (`index.ts`'s `global` and its owner values): unset ports unless the TEST stand-in was
+/// chosen, which refuses to start outside dev or test (the raw `APP_ENV` and `NODE_ENV`).
+fn global_wiring(env: &BankEnv) -> Result<svc_bank::global::Wiring, String> {
+    let raw = |k: &str| env.raw.get(k).map(String::as_str);
+    let own = |k: &str| env.str(k).map(str::to_owned);
+    Ok(svc_bank::global::Wiring {
+        ports: svc_bank::global::sim::ports_for(
+            env.str("BANK_GLOBAL_PARTNER").unwrap_or("none"),
+            env.str("BANK_GLOBAL_SIM_JSON"),
+            raw("APP_ENV"),
+            raw("NODE_ENV"),
+            system_now,
+        )?,
+        settings: svc_bank::global::Settings {
+            send_field_rules: own("BANK_SEND_FIELD_RULES_JSON"),
+            payee_controls: own("BANK_PAYEE_CONTROLS_JSON"),
+            exchange_allowance: own("BANK_EXCHANGE_ALLOWANCE_JSON"),
+            proof_limits: own("BANK_PROOF_LIMITS_JSON"),
+            hold_cancel_hours: own("BANK_GLOBAL_HOLD_CANCEL_HOURS"),
+            refund_fee: own("BANK_GLOBAL_REFUND_FEE"),
+            receipt_secret: own("INTERNAL_SERVICE_SECRET"),
+        },
+    })
+}
+
+/// Slice `ramps`' address book: identity's mail and trusted devices, from the environment.
+fn ramps_book_wiring(env: &BankEnv) -> Result<ramps::book::Wiring, String> {
+    let Some(url) = env.str("IDENTITY_URL") else {
+        return Ok(ramps::book::Wiring::none());
+    };
+    let s2s = s2s_from_env(
+        env.str("S2S_AUTH_MODE").unwrap_or("off"),
+        env.str("S2S_KEYRING"),
+        env.str("S2S_SIGNING_KID"),
+        env.str("S2S_SIGNING_KEY"),
+        "svc-bank",
+    )?;
+    let keyed = match (s2s.signer, s2s.mode) {
+        (Some(signer), Some(mode)) => Some((signer, mode)),
+        _ => None,
+    };
+    let secret = env.str("INTERNAL_SERVICE_SECRET").unwrap_or_default();
+    let identity = || {
+        ramps::book::ports::IdentityHttp::new(
+            url,
+            CallSigner::new("svc-bank", "svc-identity", secret, keyed.clone()),
+            Box::new(UreqFetch::new()),
+        )
+    };
+    Ok(ramps::book::Wiring {
+        mail: Box::new(identity()),
+        devices: Box::new(identity()),
+    })
+}
+
+/// Slice `ramps`' on-ramp: the programme, the rate source and the pay-in partner, from the environment.
+fn ramps_onramp_wiring(env: &BankEnv) -> Result<ramps::onramp::Wiring, String> {
+    use ramps::onramp::{payin, rails, sim};
+    let raw = |k: &str| env.raw.get(k).map(String::as_str);
+    let refused = |(code, words): (&str, &str)| format!("{words} ({code})");
+    let stand_in = sim::stand_in_for(
+        raw("BANK_ONRAMP_RATES"),
+        raw("BANK_ONRAMP_SIM_JSON"),
+        raw("APP_ENV"),
+        raw("NODE_ENV"),
+    )
+    .map_err(refused)?;
+    let partner = payin::partner_for(
+        raw("BANK_ONRAMP_PARTNER"),
+        &payin::Config {
+            catalogue: raw("BANK_PAYIN_SIM_JSON"),
+            page_url: raw("BANK_PAYIN_SIM_PAGE_URL"),
+            return_url: raw("BANK_PAYIN_SIM_RETURN_URL"),
+            deliver_url: raw("BANK_PAYIN_SIM_DELIVER_URL"),
+        },
+        raw("APP_ENV"),
+        raw("NODE_ENV"),
+        || Box::new(UreqFetch::new()) as Box<dyn Fetch>,
+    )
+    .map_err(refused)?;
+    Ok(ramps::onramp::Wiring {
+        programme: rails::programme_for(raw("BANK_RAMP_MODE")),
+        stand_in,
+        partner,
+        ..ramps::onramp::Wiring::none()
+    })
+}
+
+/// Slice `ramps`' wiring: the owner's values as the TypeScript reads them, and each part's own.
+fn ramps_wiring(env: &BankEnv) -> Result<ramps::Wiring, String> {
+    let owned = |k: &str| env.raw.get(k).cloned().filter(|v| !v.trim().is_empty());
+    Ok(ramps::Wiring {
+        settings: ramps::Settings {
+            ramp_mode: owned("BANK_RAMP_MODE"),
+            offramp_cooling_hours: owned("BANK_OFFRAMP_COOLING_HOURS"),
+            address_book_cap: owned("BANK_ADDRESS_BOOK_CAP"),
+            destination_sanctions: owned("BANK_DESTINATION_SANCTIONS"),
+            wallet_proof_window_minutes: owned("BANK_WALLET_PROOF_WINDOW_MINUTES"),
+            wallet_proof_valid_days: owned("BANK_WALLET_PROOF_VALID_DAYS"),
+            address_approval_link_minutes: owned("BANK_ADDRESS_APPROVAL_LINK_MINUTES"),
+            app_env: owned("APP_ENV"),
+            node_env: owned("NODE_ENV"),
+        },
+        book: ramps_book_wiring(env)?,
+        onramp: ramps_onramp_wiring(env)?,
+    })
+}
+
+/// Slice `automations`' wiring from the environment. Only the parts ported here; the others are `none()` until theirs.
+fn automations_wiring(env: &BankEnv) -> Result<automations::Wiring, String> {
+    let mut w = automations::Wiring::none();
+    w.auto_invest = auto_invest_wiring(env)?;
+    // `scheduledNotices: eventScheduledNotices(bus)`: the notices go out on the bus the transfers slice holds.
+    w.rules = automations::rules::Wiring::on_the_bus();
+    w.sorter = sorter_wiring(env);
+    pay_and_own_moves_wiring(env, w)
+}
+
+/// `incomeSorterMinCredit: env.BANK_INCOME_SORTER_MIN_CREDIT`, read by the sorter and by the send's hand-off to it.
+fn sorter_wiring(env: &BankEnv) -> automations::sorter::Wiring {
+    automations::sorter::Wiring {
+        min_credit: env.raw.get("BANK_INCOME_SORTER_MIN_CREDIT").cloned(),
+    }
+}
+
+/// Part `auto_invest` of slice `automations` (`index.ts`'s `autoInvest` options): the kill switch, and svc-trade's convert
+/// port when `TRADE_URL` is usable (`usableTradeConvertUrl`), signed as svc-bank with the owner's markets page size;
+/// without it every DCA refuses `bank.auto_invest_rate_unset`. Its batch is the job's, never the service's own.
+fn auto_invest_wiring(env: &BankEnv) -> Result<automations::auto_invest::Wiring, String> {
+    let trade = env.str("TRADE_URL").unwrap_or("http://localhost:4004");
+    let convert: Option<Box<dyn automations::auto_invest::convert::ConvertPort>> =
+        if ready::usable_trade_convert_url(Some(trade)) {
+            Some(Box::new(
+                automations::auto_invest::convert::TradeConvert::new(
+                    trade,
+                    call_signer(env, "svc-trade")?,
+                    Box::new(UreqFetch::new()),
+                    env.int("CONVERT_MARKETS_LIMIT"),
+                ),
+            ))
+        } else {
+            None
+        };
+    Ok(automations::auto_invest::Wiring {
+        enabled: env.flag("AUTO_INVEST_ENABLED").unwrap_or(true),
+        convert,
+        batch_size: None,
+    })
+}
+
+/// Parts `pay_yourself` and `own_moves` of slice `automations` (`index.ts`).
+///
+/// - `pay_yourself`: svc-trade's realised read (`createRealisedSource`), signed as svc-bank, five seconds a read.
+/// - `own_moves`: the pay-in partner's send to a wallet (`onrampPartnerFor`'s `deliver`: only the TEST stand-in on a dev
+///   or test stack with a loopback delivery address), the owner's destination sanctions list as published, and no
+///   deposit read (`index.ts` wires none).
+fn pay_and_own_moves_wiring(
+    env: &BankEnv,
+    mut wiring: automations::Wiring,
+) -> Result<automations::Wiring, String> {
+    let raw = |k: &str| env.raw.get(k).map(String::as_str);
+    let deliver = automations::own_moves::delivery::for_stack(
+        env.str("BANK_ONRAMP_PARTNER"),
+        env.str("BANK_PAYIN_SIM_DELIVER_URL"),
+        raw("APP_ENV"),
+        raw("NODE_ENV"),
+        Box::new(UreqFetch::new()),
+    )?;
+    wiring.pay_yourself = automations::pay_yourself::Wiring {
+        realised: Some(Box::new(
+            automations::pay_yourself::realised::TradeRealised::new(
+                env.str("TRADE_URL").unwrap_or_default(),
+                call_signer(env, "svc-trade")?,
+                Box::new(UreqFetch::new()),
+            ),
+        )),
+    };
+    wiring.own_moves = automations::own_moves::Wiring {
+        deliver: deliver
+            .map(|d| Box::new(d) as Box<dyn automations::own_moves::delivery::Delivery>),
+        sanctions: env.str("BANK_DESTINATION_SANCTIONS").map(str::to_owned),
+        deposits: None,
+    };
+    Ok(wiring)
+}
+
 /// The door, built once from the environment, with the store.
-fn door(env: &BankEnv, store: Store) -> Result<BankDoor, String> {
+fn door(env: &BankEnv, store: Store, bus: &Arc<JetStream>) -> Result<BankDoor, String> {
     let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
     let raw = |k: &str| env.raw.get(k).map(String::as_str);
     let test_age = test_age::open(raw(test_age::ENV), raw("APP_ENV"), raw("NODE_ENV"))?;
     let partner = partner_wiring(env)?;
     let spaces = spaces_wiring(env)?;
+    let transfers = transfers_wiring(env, bus)?;
+    let cards = cards_wiring(env)?;
     let door = BankDoor::new(DoorConfig {
         edge_secret: str_of("EDGE_PRINCIPAL_SECRET"),
         services: service_auth(env)?,
@@ -262,7 +835,20 @@ fn door(env: &BankEnv, store: Store) -> Result<BankDoor, String> {
     })?
     .with_test_age(test_age)
     .with_partner(partner)
-    .with_spaces(spaces);
+    .with_spaces(spaces)
+    .with_transfers(transfers)
+    .with_earn(earn_settings(env))
+    .with_cards(cards)
+    .with_loans(loans_wiring(env)?)
+    .with_ramps(ramps_wiring(env)?)
+    .with_activity(activity_wiring(env)?)
+    .with_global(global_wiring(env)?)
+    .with_card_programme(card_programme_wiring(env))
+    .with_bank_api(bank_api::Wiring::new(
+        matches!(raw("APP_ENV"), Some("dev" | "test")) && raw("NODE_ENV") != Some("production"),
+    ))
+    .with_automations(automations_wiring(env)?)
+    .with_bills(bills_wiring(env)?);
     Ok(match env.str("EDGE_PRINCIPAL_PUBLIC_KEY") {
         None => door,
         Some(key) => door.with_edge_key(EdgeKey::from_env(
@@ -319,7 +905,8 @@ fn serve(env: &BankEnv, log: &Logger, telemetry: &Telemetry) -> Result<(), Strin
     })
     .map_err(|e| e.0)?;
     let ready_body = ready::body(env);
-    let door = door(env, store)?;
+    let bus = Arc::new(bus);
+    let door = door(env, store, &bus)?;
 
     let app = App {
         wire: door,
@@ -369,6 +956,15 @@ fn serve(env: &BankEnv, log: &Logger, telemetry: &Telemetry) -> Result<(), Strin
         }
     }
 
+    let statement_jobs = table
+        .iter()
+        .any(|t| t.name == "statement export worker" && t.every.is_some());
+    if !statement_jobs {
+        log.warn(
+            Vec::new(),
+            "BANK_STATEMENT_JOBS_INTERVAL_MS or BANK_STATEMENT_JOBS_LEASE_MS is blank: background exports are off and asking for one refuses bank.statement_jobs_unset",
+        );
+    }
     if env.str("IDENTITY_URL").is_none() {
         log.warn(
             Vec::new(),
@@ -410,7 +1006,7 @@ fn serve(env: &BankEnv, log: &Logger, telemetry: &Telemetry) -> Result<(), Strin
             ("rampFiatLeg", field(&ramp, "fiatLeg")),
             ("rampFiatVia", field(&ramp, "fiatVia")),
             ("recoveryJobs", Json::Bool(recovery_lock.is_some())),
-            ("statementJobs", Json::Bool(false)),
+            ("statementJobs", Json::Bool(statement_jobs)),
         ],
         "svc-bank ready",
     );
@@ -444,6 +1040,12 @@ fn serve(env: &BankEnv, log: &Logger, telemetry: &Telemetry) -> Result<(), Strin
                     );
                 });
             });
+        }
+        // Slice `bank-api`: a recorded state change's webhook deliveries, posted after the request that recorded it.
+        {
+            let stop = &stop;
+            let door = &app.wire;
+            scope.spawn(move || bank_api::run_kicked(door, stop));
         }
         server::serve(&server, &app, log, telemetry, &stop);
     });

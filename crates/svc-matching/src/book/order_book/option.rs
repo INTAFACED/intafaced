@@ -95,7 +95,7 @@ fn bump(
     delta: Amount,
     sequence: u64,
 ) {
-    if delta == 0 {
+    if delta == Amount::ZERO {
         return;
     }
     if !contracts.iter().any(|(k, _)| k == key) {
@@ -111,15 +111,15 @@ fn bump(
         .unwrap_or_default();
     let mut next: Vec<Lot> = Vec::new();
     // The quantity left to place, and whether it opens long (+) or short (-).
-    let opening_short = delta < 0;
+    let opening_short = delta < Amount::ZERO;
     let mut left = delta.saturating_abs();
     for lot in prev {
         let against = if opening_short {
-            lot.qty > 0
+            lot.qty > Amount::ZERO
         } else {
-            lot.qty < 0
+            lot.qty < Amount::ZERO
         };
-        if left == 0 || !against {
+        if left == Amount::ZERO || !against {
             next.push(lot);
             continue;
         }
@@ -131,12 +131,12 @@ fn bump(
                 lot.qty + left
             };
             next.push(Lot { qty, ..lot });
-            left = 0;
+            left = Amount::ZERO;
         } else {
             left -= avail;
         }
     }
-    if left > 0 {
+    if left > Amount::ZERO {
         next.push(Lot {
             qty: if opening_short { -left } else { left },
             order_id: order_id.to_owned(),
@@ -180,7 +180,7 @@ fn apply_fills(contracts: &mut Contracts, fills: &[Fill], strike: Amount, expiry
 
 /// Caller strike: null or not positive is missing, never invented from last, mid, best or mark.
 fn read_strike(strike: &Opt<Amount>) -> Option<Amount> {
-    strike.get().filter(|s| *s > 0)
+    strike.get().filter(|s| *s > Amount::ZERO)
 }
 
 /// Caller expiry: null or blank is missing, never invented.
@@ -255,8 +255,8 @@ struct SweepFill {
 /// Qty a reduce-only maker can print: a sell reduces a long, a buy a short.
 fn open_qty(net: Amount, side: Side) -> Amount {
     match side {
-        Side::Sell => net.max(0),
-        Side::Buy => (-net).max(0),
+        Side::Sell => net.max(Amount::ZERO),
+        Side::Buy => (-net).max(Amount::ZERO),
     }
 }
 
@@ -292,7 +292,7 @@ impl OrderBook {
             return SubmitResult::refused(expiry_refuse());
         };
         let price = match order.price {
-            Some(p) if p > 0 => p,
+            Some(p) if p > Amount::ZERO => p,
             _ => {
                 return refused(
                     "invalid_price",
@@ -301,7 +301,7 @@ impl OrderBook {
             }
         };
         if let Some(n) = now
-            && order.qty > 0
+            && order.qty > Amount::ZERO
             && due_at(&expiry, n)
         {
             return self.expire_incoming_due(order, n);
@@ -337,7 +337,7 @@ impl OrderBook {
             Ok(t) => t,
             Err(r) => return SubmitResult::refused(r),
         };
-        if order.qty <= 0 {
+        if order.qty <= Amount::ZERO {
             return refused(
                 "invalid_qty",
                 "an option cover requires a qty; the engine does not invent a mark",
@@ -396,7 +396,7 @@ impl OrderBook {
             Ok(t) => t,
             Err(r) => return SubmitResult::refused(r),
         };
-        if order.qty <= 0 {
+        if order.qty <= Amount::ZERO {
             return refused(
                 "invalid_qty",
                 "an option exercise requires a qty; the engine does not invent a mark",
@@ -404,9 +404,10 @@ impl OrderBook {
         }
         let key = contract_key(strike, &expiry);
         let lots = lots_of(&self.option.open, &key);
-        let long: Amount = account_lots(lots, &order.account_id)
-            .map_or(0, |l| l.iter().fold(0, |t, lot| t + lot.qty));
-        if long <= 0 || long < order.qty {
+        let long: Amount = account_lots(lots, &order.account_id).map_or(Amount::ZERO, |l| {
+            l.iter().fold(Amount::ZERO, |t, lot| t + lot.qty)
+        });
+        if long <= Amount::ZERO || long < order.qty {
             return refused(
                 "position_flat",
                 "exercise is a long option; the engine does not invent a mark",
@@ -533,7 +534,7 @@ impl OrderBook {
             };
             if let Some((side, quote)) = self.resting_quote(&cmd.order_id) {
                 let price = cmd.price.unwrap_or(quote);
-                if price > 0
+                if price > Amount::ZERO
                     && let Some(d) = self.take_disagrees(side, price, rec.0, &rec.1)
                 {
                     return AmendResult::refused(&cmd.order_id, d);
@@ -604,12 +605,12 @@ impl OrderBook {
 
     /// `crossingLimit`: the limit a non-option would match at now.
     fn crossing_limit(&self, order: &EngineOrder) -> CrossingLimit {
-        if order.qty <= 0 {
+        if order.qty <= Amount::ZERO {
             return None;
         }
         match order.order_type {
             OrderType::Limit => match (order.price, order.stop_price) {
-                (Some(p), None) if p > 0 => Some(Some(p)),
+                (Some(p), None) if p > Amount::ZERO => Some(Some(p)),
                 _ => None,
             },
             OrderType::Market => match (order.price, order.stop_price) {
@@ -617,11 +618,13 @@ impl OrderBook {
                 _ => None,
             },
             OrderType::Stop | OrderType::StopLimit => {
-                let stop = order.stop_price.filter(|s| *s > 0)?;
+                let stop = order.stop_price.filter(|s| *s > Amount::ZERO)?;
                 if order.order_type == OrderType::Stop && order.price.is_some() {
                     return None;
                 }
-                if order.order_type == OrderType::StopLimit && !order.price.is_some_and(|p| p > 0) {
+                if order.order_type == OrderType::StopLimit
+                    && !order.price.is_some_and(|p| p > Amount::ZERO)
+                {
                     return None;
                 }
                 let last = self.last_trade_price?;
@@ -658,7 +661,7 @@ impl OrderBook {
         let mut pulled: Vec<String> = Vec::new();
         let mut sweep: Vec<SweepFill> = Vec::new();
         for level in self.levels(maker_side) {
-            if need <= 0 {
+            if need <= Amount::ZERO {
                 return false;
             }
             if let Some(l) = limit
@@ -667,7 +670,7 @@ impl OrderBook {
                 break;
             }
             for rest in &level.orders {
-                if need <= 0 {
+                if need <= Amount::ZERO {
                     return false;
                 }
                 if pulled.contains(&rest.order_id) {
@@ -677,7 +680,7 @@ impl OrderBook {
                     continue;
                 }
                 let visible = rest.display_remaining.unwrap_or(rest.remaining);
-                if visible <= 0 {
+                if visible <= Amount::ZERO {
                     continue;
                 }
                 let is_option = self.option.rest_of(&rest.order_id).is_some();
@@ -691,18 +694,22 @@ impl OrderBook {
                 if rest.reduce_only {
                     let net = self.net_after_sweep(&sweep, &rest.account_id);
                     let open = open_qty(net, maker_side);
-                    if open <= 0 {
+                    if open <= Amount::ZERO {
                         continue;
                     }
                     print = print.min(open);
                 }
-                if print <= 0 {
+                if print <= Amount::ZERO {
                     continue;
                 }
                 if is_option {
                     return true;
                 }
-                need = if need > print { need - print } else { 0 };
+                need = if need > print {
+                    need - print
+                } else {
+                    Amount::ZERO
+                };
                 sweep.push(SweepFill {
                     taker: order.account_id.clone(),
                     maker: rest.account_id.clone(),
@@ -722,7 +729,7 @@ impl OrderBook {
 
     /// The account's fill net after the fills this sweep already counted.
     fn net_after_sweep(&self, sweep: &[SweepFill], account: &str) -> Amount {
-        let mut net = self.positions.get(account).copied().unwrap_or(0);
+        let mut net = self.positions.get(account).copied().unwrap_or(Amount::ZERO);
         for f in sweep {
             let signed = if f.taker_side == Side::Buy {
                 f.qty
@@ -869,7 +876,9 @@ impl OrderBook {
             lots_of(&self.option.open, &contract_key(strike, expiry)),
             account_id,
         )
-        .map_or(0, |l| l.iter().fold(0, |t, lot| t + lot.qty))
+        .map_or(Amount::ZERO, |l| {
+            l.iter().fold(Amount::ZERO, |t, lot| t + lot.qty)
+        })
     }
 }
 
@@ -894,7 +903,7 @@ fn option_amend_patch(
         let r = expiry_refuse();
         return Err(amend_refused(id, &r.code, &r.message));
     };
-    if cmd.price.is_some_and(|p| p <= 0) {
+    if cmd.price.is_some_and(|p| p <= Amount::ZERO) {
         return Err(amend_refused(
             id,
             PRICE_MISSING,
@@ -903,7 +912,7 @@ fn option_amend_patch(
     }
     let qty_bad = match (cmd.price, cmd.qty) {
         (None, None) => true,
-        (_, Some(q)) => q <= 0,
+        (_, Some(q)) => q <= Amount::ZERO,
         (Some(_), None) => false,
     };
     if qty_bad {
@@ -950,12 +959,12 @@ struct Clip {
 /// Positive lots, earliest first; none when there is not enough, never an invented order id.
 fn clip_positive(account: &str, lots: Option<&[Lot]>, qty: Amount) -> Option<Vec<Clip>> {
     let lots = lots?;
-    if qty <= 0 {
+    if qty <= Amount::ZERO {
         return None;
     }
     let mut need = qty;
     let mut clips = Vec::new();
-    for lot in lots.iter().filter(|l| l.qty > 0) {
+    for lot in lots.iter().filter(|l| l.qty > Amount::ZERO) {
         let clip = lot.qty.min(need);
         clips.push(Clip {
             account_id: account.to_owned(),
@@ -963,7 +972,7 @@ fn clip_positive(account: &str, lots: Option<&[Lot]>, qty: Amount) -> Option<Vec
             qty: clip,
         });
         need -= clip;
-        if need == 0 {
+        if need == Amount::ZERO {
             return Some(clips);
         }
     }
@@ -973,7 +982,7 @@ fn clip_positive(account: &str, lots: Option<&[Lot]>, qty: Amount) -> Option<Vec
 /// Earliest short fill first, each clip under that fill's order id; none when there is not enough short.
 fn assign_shorts(lots: Option<&Lots>, holder: &str, qty: Amount) -> Option<Vec<Clip>> {
     let lots = lots?;
-    if qty <= 0 {
+    if qty <= Amount::ZERO {
         return None;
     }
     let mut shorts: Vec<(&str, &Lot)> = lots
@@ -981,7 +990,7 @@ fn assign_shorts(lots: Option<&Lots>, holder: &str, qty: Amount) -> Option<Vec<C
         .filter(|(a, _)| a != holder)
         .flat_map(|(a, l)| {
             l.iter()
-                .filter(|lot| lot.qty < 0)
+                .filter(|lot| lot.qty < Amount::ZERO)
                 .map(move |lot| (a.as_str(), lot))
         })
         .collect();
@@ -996,7 +1005,7 @@ fn assign_shorts(lots: Option<&Lots>, holder: &str, qty: Amount) -> Option<Vec<C
             qty: clip,
         });
         need -= clip;
-        if need == 0 {
+        if need == Amount::ZERO {
             return Some(clips);
         }
     }
@@ -1010,16 +1019,22 @@ mod tests {
     #[test]
     fn a_reduction_consumes_the_earliest_lot_and_a_flip_opens_under_the_new_id() {
         let mut c: Contracts = Vec::new();
-        bump(&mut c, "k", "a", "o1", -5, 1);
-        bump(&mut c, "k", "a", "o2", -3, 2);
-        bump(&mut c, "k", "a", "o3", 6, 3);
+        bump(&mut c, "k", "a", "o1", -Amount::from_scaled(5), 1);
+        bump(&mut c, "k", "a", "o2", -Amount::from_scaled(3), 2);
+        bump(&mut c, "k", "a", "o3", Amount::from_scaled(6), 3);
         let lots = account_lots(lots_of(&c, "k"), "a").unwrap();
         assert_eq!(lots.len(), 1);
-        assert_eq!((lots[0].qty, lots[0].order_id.as_str()), (-2, "o2"));
-        bump(&mut c, "k", "a", "o4", 5, 4);
+        assert_eq!(
+            (lots[0].qty, lots[0].order_id.as_str()),
+            (-Amount::from_scaled(2), "o2")
+        );
+        bump(&mut c, "k", "a", "o4", Amount::from_scaled(5), 4);
         let lots = account_lots(lots_of(&c, "k"), "a").unwrap();
-        assert_eq!((lots[0].qty, lots[0].order_id.as_str()), (3, "o4"));
-        bump(&mut c, "k", "a", "o5", -3, 5);
+        assert_eq!(
+            (lots[0].qty, lots[0].order_id.as_str()),
+            (Amount::from_scaled(3), "o4")
+        );
+        bump(&mut c, "k", "a", "o5", -Amount::from_scaled(3), 5);
         assert!(lots_of(&c, "k").is_none());
     }
 }

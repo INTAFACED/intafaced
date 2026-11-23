@@ -871,6 +871,22 @@ describe('public REST routes', () => {
       await app.close();
     });
 
+    it('/tickers and /ticker read the stats after the last print and name its time, so the rollups include it (J-cex-spot-14 #8)', async () => {
+      const seen: Array<ReadonlyMap<string, number> | undefined> = [];
+      const app = await build(
+        deps({
+          tickerStats: async (_ids, _now, newestPrintMs) => {
+            seen.push(newestPrintMs);
+            return new Map([['m-btc', stats()]]);
+          },
+        }),
+      );
+      expect((await app.inject({ method: 'GET', url: '/api/v1/tickers?limit=500' })).statusCode).toBe(200);
+      expect((await app.inject({ method: 'GET', url: '/api/v1/ticker/BTC%2FUSDT' })).statusCode).toBe(200);
+      expect(seen.map((m) => (m ? Object.fromEntries(m) : m))).toEqual([{ 'm-btc': print.ts.getTime() }, { 'm-btc': print.ts.getTime() }]);
+      await app.close();
+    });
+
     it('GET /api/v1/ticker/:symbol carries the rollups and windowStart but no sparkline', async () => {
       const app = await build(deps({ tickerStats: async () => new Map([['m-btc', stats()]]) }));
       const res = await app.inject({ method: 'GET', url: '/api/v1/ticker/BTC%2FUSDT' });

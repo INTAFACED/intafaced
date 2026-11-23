@@ -171,7 +171,7 @@ test(`${J} #1 opens matching and trade health: venue health from the engine; a m
       .locator(`[data-metric=latency-submit-market][data-market-id="${marketId}"]`);
     await expect(read).toHaveAttribute('data-state', 'read');
     await expect(read).not.toContainText('matching_metrics_unread');
-    expect(Number(await read.getAttribute('data-count'))).toBe(after.metrics.submitByMarket[marketId].count);
+    await expect.poll(async () => Number(await read.getAttribute('data-count'))).toBe(after.metrics.submitByMarket[marketId].count);
     await expect(read).toContainText(`p99 ≤ ${after.metrics.submitByMarket[marketId].p99Ms} ms`);
   } finally {
     const res = await (await api(customer)).delete(`/api/v1/orders/${order.id}`);

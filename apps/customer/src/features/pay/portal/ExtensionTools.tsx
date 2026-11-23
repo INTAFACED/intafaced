@@ -12,7 +12,7 @@ export function Arrives({ reason, children }: { reason: string; children: ReactN
 }
 export function PortalBack({ href = '/pay/merchant', children }: { href?: string; children?: ReactNode }) {
   return (
-    <a className="text-link" href={href}>
+    <a className="lt-link" href={href}>
       {children ?? c.t('backHome')}
     </a>
   );

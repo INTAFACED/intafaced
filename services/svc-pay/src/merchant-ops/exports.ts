@@ -445,7 +445,7 @@ export class ExportService {
                      to_char(s.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_ts
                 FROM pay.settlements s
                WHERE s.merchant_id = ${merchantId}
-                 ${kind === 'payouts' ? sql`AND (s.payout_method IS NOT NULL OR s.status = 'paid_out')` : sql``}
+                 ${kind === 'payouts' ? sql`AND s.status = 'paid_out'` : sql``}
                  ${filters.from ? sql`AND s.created_at >= (${filters.from}::text)::timestamptz` : sql``}
                  ${filters.to ? sql`AND s.created_at < (${filters.to}::text)::timestamptz` : sql``}
                  ${filters.status ? sql`AND s.status = ${filters.status}::pay.settlement_status` : sql``}

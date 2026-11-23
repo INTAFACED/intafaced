@@ -374,7 +374,7 @@ impl Ports {
     /// Every stand-in: a stack with nothing wired. Nothing is sold, streamed, approved or published.
     pub fn unwired() -> Ports {
         Ports {
-            stake: Box::new(FixedStake(0)),
+            stake: Box::new(FixedStake(Amount::ZERO)),
             host_rights: Box::new(BaseHostRights),
             stream: Box::new(NullStream),
             stream_configured: None,

@@ -95,37 +95,14 @@
 </div>
 </header>
 <main id="main" tabindex="-1">
-<div data-testid="if-home" class="if-home">
-<h1 class="if-sr">Home</h1>
-<div class="home-grid">
-<div data-testid="home-main" class="home-main">
-<div data-testid="home-label" class="home-label">
-<span>Est. total value</span>
-<button type="button" class="home-eye" aria-label="Hide balances">
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-eye" aria-hidden="true">
-<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0">
-</path>
-<circle cx="12" cy="12" r="3">
-</circle>
-</svg>
-</button>
-<button type="button" aria-label="How the total is worked out" aria-describedby="_r_3_" id="base-ui-_r_4_" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" data-testid="if-tip" class="if-tip">
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-info" aria-hidden="true">
-<circle cx="12" cy="12" r="10">
-</circle>
-<path d="M12 16v-4">
-</path>
-<path d="M12 8h.01">
-</path>
-</svg>
-</button>
-<span id="_r_3_" class="if-sr">USDT and USDC count as 1 USD. Other assets are valued at their last price against USDT, or USDC if there is no USDT market. Assets without a price are not counted.</span>
-<a class="home-tile-link" href="/money">Assets<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-right" aria-hidden="true">
-<path d="m9 18 6-6-6-6">
-</path>
-</svg>
-</a>
-<button type="button" class="home-customise">
+<div data-testid="if-home">
+<div class="lt-room" data-template="overview" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
+<div>
+<h1 class="lt-title">Home</h1>
+</div>
+<div class="lt-room-action">
+<button type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-sliders-horizontal" aria-hidden="true">
 <path d="M10 5H3">
 </path>
@@ -147,170 +124,209 @@
 </path>
 </svg>Customise Home</button>
 </div>
-<div data-testid="home-total" class="home-total">
-<span data-slot="hero-number" class="if-num inline-flex items-baseline gap-2 font-bold text-fg tabular-nums text-hero" dir="ltr" data-ltr="">
-<span role="img" aria-label="$12,481.91" class="inline-flex">
-<number-flow-react>
-</number-flow-react>
-</span>
-</span>
-</div>
-<p data-testid="home-change" class="home-change">
-<span data-slot="change-text" data-direction="up" class="inline-flex items-baseline gap-1.5">
-<span dir="ltr" data-ltr="" class="if-num inline-flex items-center gap-1 whitespace-nowrap tabular-nums text-up-text">
-<span aria-hidden="true" class="text-[0.7em] leading-none">▲</span>+$206.26 (+1.68%)</span>
-<span class="text-fg-2">Today</span>
-</span>
-</p>
-<p data-testid="home-unpriced-note" class="home-note">Excludes 1 coin (no USD price)<button type="button" aria-label="Assets not counted" aria-describedby="_r_5_" id="base-ui-_r_6_" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" data-testid="if-tip" class="if-tip">
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-info" aria-hidden="true">
-<circle cx="12" cy="12" r="10">
-</circle>
-<path d="M12 16v-4">
+</header>
+<div class="lt-body">
+<section class="lt-region" data-region="rooms">
+</section>
+<div class="lt-grid lt-grid-main-side">
+<div class="lt-col-main">
+<section class="lt-region" data-region="hero" data-reserve="" style="--lt-reserve: 2;" aria-label="Balance">
+<div class="lt-stack">
+<div data-testid="home-label" class="lt-actions">
+<span>Est. total value</span>
+<button aria-label="Hide balances" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-eye" aria-hidden="true">
+<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0">
 </path>
-<path d="M12 8h.01">
+<circle cx="12" cy="12" r="3">
+</circle>
+</svg>
+</button>
+<span class="lit-tip" data-side="end">
+<button type="button" class="lit-tip__button" data-testid="if-tip" aria-label="How the total is worked out" aria-describedby="_r_3_-text" aria-expanded="false">
+<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true">
+<circle cx="12" cy="12" r="9">
+</circle>
+<path d="M12 11v5M12 8h.01">
 </path>
 </svg>
 </button>
-<span id="_r_5_" class="if-sr">Not counted: ZED</span>
-</p>
-<nav data-testid="home-actions" class="home-actions" aria-label="Actions">
-<a href="/trade/buy" role="button" tabindex="0" data-slot="button" data-variant="primary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-lime text-on-lime hover:bg-lime-hover active:bg-lime-press h-10 px-5 text-base rounded-pill">Buy</a>
-<a href="/trade/buy?side=sell" role="button" tabindex="0" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill">Sell</a>
-<a href="/trade/convert" role="button" tabindex="0" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill">Convert</a>
-<a href="/pay/send" role="button" tabindex="0" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill">Send</a>
-<a href="/pay/receive" role="button" tabindex="0" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill">Receive</a>
-</nav>
-<section class="home-section home-work" aria-labelledby="home-work-title">
-<div class="home-section__head">
-<h2 class="home-h2" id="home-work-title">Needs you</h2>
+<span id="_r_3_-text" class="lit-sr">USDT and USDC count as 1 USD. Other assets are valued at their last price against USDT, or USDC if there is no USDT market. Assets without a price are not counted.</span>
+</span>
+<a class="lt-link" href="/money">Assets<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-right" aria-hidden="true">
+<path d="m9 18 6-6-6-6">
+</path>
+</svg>
+</a>
 </div>
-<p class="home-work__none" data-complete="true">
+<div data-testid="home-total" class="lt-actions">
+<span data-slot="hero-number" class="lt-figure lt-figure-hero" dir="ltr" data-ltr="">
+<span role="img" aria-label="$12,481.91">$12,481.91</span>
+</span>
+</div>
+<p data-testid="home-change">
+<span data-slot="change-text" data-direction="up">
+<span dir="ltr" data-ltr="" data-dir="up">
+<span class="lt-arrow lt-arrow-up" aria-hidden="true" data-arrow="up">
+</span> +$206.26 (+1.68%)</span>
+<span class="lt-hint"> Today</span>
+</span>
+</p>
+<p data-testid="home-unpriced-note" class="lt-hint">Excludes 1 coin (no USD price)<span class="lit-tip" data-side="below">
+<button type="button" class="lit-tip__button" data-testid="if-tip" aria-label="Assets not counted" aria-describedby="_r_4_-text" aria-expanded="false">
+<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true">
+<circle cx="12" cy="12" r="9">
+</circle>
+<path d="M12 11v5M12 8h.01">
+</path>
+</svg>
+</button>
+<span id="_r_4_-text" class="lit-sr">Not counted: ZED</span>
+</span>
+</p>
+</div>
+</section>
+<section class="lt-region" data-region="actions" aria-label="Actions">
+<nav data-testid="home-actions" aria-label="Actions" class="lt-actions">
+<a class="lt-button lt-button-primary" href="/trade/buy">Buy</a>
+<a class="lt-button lt-button-secondary" href="/trade/buy?side=sell">Sell</a>
+<a class="lt-button lt-button-secondary" href="/trade/convert">Convert</a>
+<a class="lt-button lt-button-secondary" href="/pay/send">Send</a>
+<a class="lt-button lt-button-secondary" href="/pay/receive">Receive</a>
+</nav>
+</section>
+<section class="lt-region" data-region="needs-you" aria-label="Needs you">
+<section class="lt-stack" aria-labelledby="home-work-title">
+<h2 id="home-work-title">Needs you</h2>
+<p class="lt-hint" data-complete="true">
 <span lang="en" dir="ltr" data-i18n="customer.home.Work nothing">Nothing needs you right now.</span>
 </p>
 </section>
-<section class="volt-stack" data-testid="volt-stack" aria-label="Your holdings">
-<a class="volt-card volt-card--back" href="/money#crypto">
-<span class="volt-card__label">Crypto</span>
-<span data-slot="money" class="if-num whitespace-nowrap tabular-nums volt-card__peek" dir="ltr" data-ltr="">$8,381.91</span>
+</section>
+<section class="lt-region" data-region="sections" aria-label="Activity">
+<div data-testid="home-main" class="lt-stack">
+<section data-testid="volt-stack" class="lit-stack" aria-label="Your holdings">
+<a class="lit-stack__card" data-card="back" href="/money#crypto">
+<span data-part="label">Crypto</span>
+<span data-part="peek">
+<span data-slot="money" dir="ltr" data-ltr="">$8,381.91</span>
+</span>
 </a>
-<a class="volt-card volt-card--front" href="/money#cash">
-<span class="volt-card__top">
-<svg data-slot="brand-mark" data-drawing="small" class="volt-card__mark" viewBox="0 0 1000 1000" width="24" height="24" fill="currentColor" focusable="false" aria-hidden="true">
+<a class="lit-stack__card" data-card="front" href="/money#cash">
+<span data-part="top">
+<span data-part="mark">
+<span class="lit-logo">
+<svg data-slot="brand-mark" data-drawing="small" viewBox="0 0 1000 1000" width="24" height="24" fill="currentColor" focusable="false" role="img" aria-label="INTAFACED">
 <path d="M142.9 166.4 L433.4 70.5 L523.4 170.4 L588 301.6 L382.6 251.3 L238.1 206.5 L369.5 231.3 L448.6 198.1 L143.4 166.6Z M483.4 11.6 L756.7 149.2 L749.6 283.5 L702.5 421.9 L592.9 241.2 L522.3 107.3 L597.7 217.7 L677.1 250.2 L483.6 12.1Z M833.6 142.9 L929.5 433.4 L829.6 523.4 L698.4 588 L748.7 382.6 L793.5 238.1 L768.7 369.5 L801.9 448.6 L833.4 143.4Z M988.4 483.4 L850.8 756.7 L716.5 749.6 L578.1 702.5 L758.8 592.9 L892.7 522.3 L782.3 597.7 L749.8 677.1 L987.9 483.6Z M857.1 833.6 L566.6 929.5 L476.6 829.6 L412 698.4 L617.4 748.7 L761.9 793.5 L630.5 768.7 L551.4 801.9 L856.6 833.4Z M516.6 988.4 L243.3 850.8 L250.4 716.5 L297.5 578.1 L407.1 758.8 L477.7 892.7 L402.3 782.3 L322.9 749.8 L516.4 987.9Z M166.4 857.1 L70.5 566.6 L170.4 476.6 L301.6 412 L251.3 617.4 L206.5 761.9 L231.3 630.5 L198.1 551.4 L166.6 856.6Z M11.6 516.6 L149.2 243.3 L283.5 250.4 L421.9 297.5 L241.2 407.1 L107.3 477.7 L217.7 402.3 L250.2 322.9 L12.1 516.4Z">
 </path>
 </svg>
-<span class="volt-card__label">Cash</span>
 </span>
-<span data-slot="money" class="if-num whitespace-nowrap tabular-nums volt-card__figure" dir="ltr" data-ltr="">$4,100.00</span>
+</span>
+<span data-part="label">Cash</span>
+</span>
+<span data-part="figure">
+<span data-slot="money" dir="ltr" data-ltr="">$4,100.00</span>
+</span>
 </a>
 </section>
-<section class="home-section" aria-labelledby="home-markets-title">
-<div class="home-section__head">
-<h2 class="home-h2" id="home-markets-title">Markets</h2>
-<p data-testid="home-fresh" class="home-fresh">Prices updated 12:00</p>
+<section class="lt-stack" aria-labelledby="home-markets-title">
+<div class="lt-title-row">
+<h2 id="home-markets-title">Markets</h2>
+<p data-testid="home-fresh" class="lt-hint">Prices updated 12:00</p>
 </div>
-<div data-testid="home-cards" class="home-cards">
-<div class="home-card-wrap">
-<a data-testid="home-card" class="home-card" href="/coin/BTC">
-<span class="home-card__name">
-<span data-testid="home-card__ticker" class="home-card__ticker">BTC</span>
-<span class="home-card__full">Bitcoin</span>
+<div data-testid="home-cards" class="lt-tiles">
+<div class="lt-stack">
+<a data-testid="home-card" class="lt-lines" href="/coin/BTC">
+<span>
+<span data-testid="home-card__ticker">BTC</span>
+<span class="lt-hint"> Bitcoin</span>
 </span>
-<svg data-slot="sparkline" width="154" height="56" viewBox="0 0 154 56" aria-hidden="true" class="block shrink-0 overflow-visible">
-<line x1="0" x2="154" y1="45.93" y2="45.93" stroke-width="1" stroke-dasharray="1 3" class="stroke-fg-3">
-</line>
-<polyline points="3,45.93 9.43,44.79 15.87,47.97 22.3,52.2 28.74,53 35.17,48.07 41.61,39.07 48.04,30.45 54.48,26.24 60.91,27.18 67.35,30.31 73.78,31.33 80.22,27.97 86.65,21.67 93.09,16.5 99.52,15.89 105.96,19.97 112.39,25.24 118.83,27.06 125.26,23.09 131.7,14.94 138.13,6.95 144.57,3 151,3.67" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="stroke-up-text">
-</polyline>
-<circle cx="151" cy="3.67" r="3" class="fill-up-text">
-</circle>
+<figure class="lt-chart lt-spark" data-size="card" data-tone="up">
+<svg viewBox="0 0 600 200" preserveAspectRatio="none" role="img" aria-label="BTC price trend">
+<path class="lt-chart-line" d="M8.0,166.0 L33.4,161.8 L58.8,173.5 L84.2,189.1 L109.6,192.0 L135.0,173.9 L160.3,140.7 L185.7,109.0 L211.1,93.5 L236.5,97.0 L261.9,108.5 L287.3,112.3 L312.7,99.9 L338.1,76.7 L363.5,57.7 L388.9,55.4 L414.3,70.5 L439.7,89.8 L465.0,96.6 L490.4,81.9 L515.8,51.9 L541.2,22.5 L566.6,8.0 L592.0,10.5" vector-effect="non-scaling-stroke">
+</path>
 </svg>
-<span class="home-card__figures">
-<span data-testid="home-card__price" class="home-card__price" data-money="true">$67,812.40</span>
-<span data-slot="pct" data-direction="up" class="if-num inline-flex items-center gap-1 whitespace-nowrap tabular-nums text-up-text" dir="ltr" data-ltr="">
-<span aria-hidden="true" class="text-[0.7em] leading-none">▲</span>+2.75%</span>
+</figure>
+<span>
+<span data-testid="home-card__price" class="lt-figure" data-money="true">$67,812.40</span> <span data-slot="pct" data-direction="up" data-dir="up" dir="ltr" data-ltr="">
+<span class="lt-arrow lt-arrow-up" aria-hidden="true" data-arrow="up">
+</span> +2.75%</span>
 </span>
 </a>
-<button type="button" class="home-star  home-card__star" aria-pressed="false" aria-label="Add BTC to watchlist">
+<button aria-pressed="false" aria-label="Add BTC to watchlist" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-star" aria-hidden="true">
 <path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z">
 </path>
 </svg>
 </button>
 </div>
-<div class="home-card-wrap">
-<a data-testid="home-card" class="home-card" href="/coin/ETH">
-<span class="home-card__name">
-<span data-testid="home-card__ticker" class="home-card__ticker">ETH</span>
-<span class="home-card__full">Ethereum</span>
+<div class="lt-stack">
+<a data-testid="home-card" class="lt-lines" href="/coin/ETH">
+<span>
+<span data-testid="home-card__ticker">ETH</span>
+<span class="lt-hint"> Ethereum</span>
 </span>
-<svg data-slot="sparkline" width="154" height="56" viewBox="0 0 154 56" aria-hidden="true" class="block shrink-0 overflow-visible">
-<line x1="0" x2="154" y1="49.8" y2="49.8" stroke-width="1" stroke-dasharray="1 3" class="stroke-fg-3">
-</line>
-<polyline points="3,49.8 9.43,50.9 15.87,53 22.3,52.03 28.74,46.26 35.17,37.8 41.61,31.14 48.04,29.79 54.48,33.69 60.91,39.17 67.35,41.62 73.78,38.84 80.22,32.51 86.65,26.8 93.09,25.04 99.52,27.16 105.96,29.75 112.39,28.66 118.83,22.3 125.26,12.99 131.7,5.35 138.13,3 144.57,5.9 151,10.48" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="stroke-up-text">
-</polyline>
-<circle cx="151" cy="10.48" r="3" class="fill-up-text">
-</circle>
+<figure class="lt-chart lt-spark" data-size="card" data-tone="up">
+<svg viewBox="0 0 600 200" preserveAspectRatio="none" role="img" aria-label="ETH price trend">
+<path class="lt-chart-line" d="M8.0,180.2 L33.4,184.3 L58.8,192.0 L84.2,188.4 L109.6,167.2 L135.0,136.1 L160.3,111.5 L185.7,106.6 L211.1,120.9 L236.5,141.1 L261.9,150.1 L287.3,139.9 L312.7,116.6 L338.1,95.6 L363.5,89.1 L388.9,96.9 L414.3,106.4 L439.7,102.4 L465.0,79.0 L490.4,44.8 L515.8,16.7 L541.2,8.0 L566.6,18.7 L592.0,35.5" vector-effect="non-scaling-stroke">
+</path>
 </svg>
-<span class="home-card__figures">
-<span data-testid="home-card__price" class="home-card__price" data-money="true">$3,200.10</span>
-<span data-slot="pct" data-direction="up" class="if-num inline-flex items-center gap-1 whitespace-nowrap tabular-nums text-up-text" dir="ltr" data-ltr="">
-<span aria-hidden="true" class="text-[0.7em] leading-none">▲</span>+1.59%</span>
+</figure>
+<span>
+<span data-testid="home-card__price" class="lt-figure" data-money="true">$3,200.10</span> <span data-slot="pct" data-direction="up" data-dir="up" dir="ltr" data-ltr="">
+<span class="lt-arrow lt-arrow-up" aria-hidden="true" data-arrow="up">
+</span> +1.59%</span>
 </span>
 </a>
-<button type="button" class="home-star  home-card__star" aria-pressed="false" aria-label="Add ETH to watchlist">
+<button aria-pressed="false" aria-label="Add ETH to watchlist" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-star" aria-hidden="true">
 <path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z">
 </path>
 </svg>
 </button>
 </div>
-<div class="home-card-wrap">
-<a data-testid="home-card" class="home-card" href="/coin/IFC">
-<span class="home-card__name">
-<span data-testid="home-card__ticker" class="home-card__ticker">IFC</span>
+<div class="lt-stack">
+<a data-testid="home-card" class="lt-lines" href="/coin/IFC">
+<span>
+<span data-testid="home-card__ticker">IFC</span>
 </span>
-<svg data-slot="sparkline" width="154" height="56" viewBox="0 0 154 56" aria-hidden="true" class="block shrink-0 overflow-visible">
-<line x1="0" x2="154" y1="3" y2="3" stroke-width="1" stroke-dasharray="1 3" class="stroke-fg-3">
-</line>
-<polyline points="3,3 9.43,9.2 15.87,13.03 22.3,13.06 28.74,11.08 35.17,10.6 41.61,14.09 48.04,20.97 54.48,27.9 60.91,31.21 67.35,29.62 73.78,25.21 80.22,21.87 86.65,22.51 93.09,26.92 99.52,32.15 105.96,34.8 112.39,33.75 118.83,31.03 125.26,30.27 131.7,33.93 138.13,41.3 144.57,48.9 151,53" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="stroke-down-text">
-</polyline>
-<circle cx="151" cy="53" r="3" class="fill-down-text">
-</circle>
+<figure class="lt-chart lt-spark" data-size="card" data-tone="down">
+<svg viewBox="0 0 600 200" preserveAspectRatio="none" role="img" aria-label="IFC price trend">
+<path class="lt-chart-line" d="M8.0,8.0 L33.4,30.8 L58.8,44.9 L84.2,45.0 L109.6,37.7 L135.0,36.0 L160.3,48.8 L185.7,74.1 L211.1,99.6 L236.5,111.8 L261.9,106.0 L287.3,89.7 L312.7,77.5 L338.1,79.8 L363.5,96.0 L388.9,115.3 L414.3,125.0 L439.7,121.2 L465.0,111.1 L490.4,108.4 L515.8,121.8 L541.2,148.9 L566.6,176.9 L592.0,192.0" vector-effect="non-scaling-stroke">
+</path>
 </svg>
-<span class="home-card__figures">
-<span data-testid="home-card__price" class="home-card__price" data-money="true">$0.4120</span>
-<span data-slot="pct" data-direction="down" class="if-num inline-flex items-center gap-1 whitespace-nowrap tabular-nums text-down-text" dir="ltr" data-ltr="">
-<span aria-hidden="true" class="text-[0.7em] leading-none">▼</span>−2.14%</span>
+</figure>
+<span>
+<span data-testid="home-card__price" class="lt-figure" data-money="true">$0.4120</span> <span data-slot="pct" data-direction="down" data-dir="down" dir="ltr" data-ltr="">
+<span class="lt-arrow lt-arrow-down" aria-hidden="true" data-arrow="down">
+</span> −2.14%</span>
 </span>
 </a>
-<button type="button" class="home-star  home-card__star" aria-pressed="false" aria-label="Add IFC to watchlist">
+<button aria-pressed="false" aria-label="Add IFC to watchlist" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-star" aria-hidden="true">
 <path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z">
 </path>
 </svg>
 </button>
 </div>
-<div class="home-card-wrap">
-<a data-testid="home-card" class="home-card" href="/coin/SOL">
-<span class="home-card__name">
-<span data-testid="home-card__ticker" class="home-card__ticker">SOL</span>
+<div class="lt-stack">
+<a data-testid="home-card" class="lt-lines" href="/coin/SOL">
+<span>
+<span data-testid="home-card__ticker">SOL</span>
 </span>
-<svg data-slot="sparkline" width="154" height="56" viewBox="0 0 154 56" aria-hidden="true" class="block shrink-0 overflow-visible">
-<line x1="0" x2="154" y1="51.59" y2="51.59" stroke-width="1" stroke-dasharray="1 3" class="stroke-fg-3">
-</line>
-<polyline points="3,51.59 9.43,53 15.87,48.69 22.3,41.24 28.74,35.25 35.17,33.78 41.61,36.01 48.04,37.94 54.48,35.57 60.91,28.03 67.35,18.47 73.78,11.84 80.22,11.23 86.65,15.63 93.09,20.69 99.52,21.91 105.96,17.93 112.39,11.39 118.83,6.76 125.26,6.76 131.7,10.24 138.13,12.94 144.57,10.78 151,3" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="stroke-up-text">
-</polyline>
-<circle cx="151" cy="3" r="3" class="fill-up-text">
-</circle>
+<figure class="lt-chart lt-spark" data-size="card" data-tone="up">
+<svg viewBox="0 0 600 200" preserveAspectRatio="none" role="img" aria-label="SOL price trend">
+<path class="lt-chart-line" d="M8.0,186.8 L33.4,192.0 L58.8,176.1 L84.2,148.7 L109.6,126.7 L135.0,121.3 L160.3,129.5 L185.7,136.6 L211.1,127.9 L236.5,100.1 L261.9,64.9 L287.3,40.5 L312.7,38.3 L338.1,54.5 L363.5,73.1 L388.9,77.6 L414.3,62.9 L439.7,38.9 L465.0,21.8 L490.4,21.8 L515.8,34.6 L541.2,44.6 L566.6,36.6 L592.0,8.0" vector-effect="non-scaling-stroke">
+</path>
 </svg>
-<span class="home-card__figures">
-<span data-testid="home-card__price" class="home-card__price" data-money="true">$142.55</span>
-<span data-slot="pct" data-direction="up" class="if-num inline-flex items-center gap-1 whitespace-nowrap tabular-nums text-up-text" dir="ltr" data-ltr="">
-<span aria-hidden="true" class="text-[0.7em] leading-none">▲</span>+1.75%</span>
+</figure>
+<span>
+<span data-testid="home-card__price" class="lt-figure" data-money="true">$142.55</span> <span data-slot="pct" data-direction="up" data-dir="up" dir="ltr" data-ltr="">
+<span class="lt-arrow lt-arrow-up" aria-hidden="true" data-arrow="up">
+</span> +1.75%</span>
 </span>
 </a>
-<button type="button" class="home-star  home-card__star" aria-pressed="false" aria-label="Add SOL to watchlist">
+<button aria-pressed="false" aria-label="Add SOL to watchlist" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-star" aria-hidden="true">
 <path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z">
 </path>
@@ -319,154 +335,164 @@
 </div>
 </div>
 </section>
-<section class="home-section home-section--movers">
-<h2 class="home-h2">Top movers<button type="button" aria-label="About top movers" aria-describedby="_r_7_" id="base-ui-_r_8_" data-base-ui-tooltip-trigger="" data-slot="tooltip-trigger" data-testid="if-tip" class="if-tip">
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-info" aria-hidden="true">
-<circle cx="12" cy="12" r="10">
+<section class="lt-stack">
+<h2>Top movers<span class="lit-tip" data-side="below">
+<button type="button" class="lit-tip__button" data-testid="if-tip" aria-label="About top movers" aria-describedby="_r_5_-text" aria-expanded="false">
+<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true">
+<circle cx="12" cy="12" r="9">
 </circle>
-<path d="M12 16v-4">
-</path>
-<path d="M12 8h.01">
+<path d="M12 11v5M12 8h.01">
 </path>
 </svg>
 </button>
-<span id="_r_7_" class="if-sr">Biggest price moves in the last 24 hours</span>
+<span id="_r_5_-text" class="lit-sr">Biggest price moves in the last 24 hours</span>
+</span>
 </h2>
-<ul data-testid="home-pills" class="home-pills">
+<ul data-testid="home-pills" class="lt-actions">
 <li>
-<a data-testid="home-pill" class="home-pill" href="/coin/DOGE">
+<a data-testid="home-pill" class="lt-button lt-button-secondary" href="/coin/DOGE">
 <span>DOGE</span>
-<span data-slot="pct" data-direction="down" class="if-num inline-flex items-center gap-1 whitespace-nowrap tabular-nums text-down-text" dir="ltr" data-ltr="">
-<span aria-hidden="true" class="text-[0.7em] leading-none">▼</span>−4.94%</span>
+<span data-slot="pct" data-direction="down" data-dir="down" dir="ltr" data-ltr="">
+<span class="lt-arrow lt-arrow-down" aria-hidden="true" data-arrow="down">
+</span> −4.94%</span>
 </a>
 </li>
 <li>
-<a data-testid="home-pill" class="home-pill" href="/coin/BTC">
+<a data-testid="home-pill" class="lt-button lt-button-secondary" href="/coin/BTC">
 <span>BTC</span>
-<span data-slot="pct" data-direction="up" class="if-num inline-flex items-center gap-1 whitespace-nowrap tabular-nums text-up-text" dir="ltr" data-ltr="">
-<span aria-hidden="true" class="text-[0.7em] leading-none">▲</span>+2.75%</span>
+<span data-slot="pct" data-direction="up" data-dir="up" dir="ltr" data-ltr="">
+<span class="lt-arrow lt-arrow-up" aria-hidden="true" data-arrow="up">
+</span> +2.75%</span>
 </a>
 </li>
 <li>
-<a data-testid="home-pill" class="home-pill" href="/coin/XRP">
+<a data-testid="home-pill" class="lt-button lt-button-secondary" href="/coin/XRP">
 <span>XRP</span>
-<span data-slot="pct" data-direction="up" class="if-num inline-flex items-center gap-1 whitespace-nowrap tabular-nums text-up-text" dir="ltr" data-ltr="">
-<span aria-hidden="true" class="text-[0.7em] leading-none">▲</span>+2.15%</span>
+<span data-slot="pct" data-direction="up" data-dir="up" dir="ltr" data-ltr="">
+<span class="lt-arrow lt-arrow-up" aria-hidden="true" data-arrow="up">
+</span> +2.15%</span>
 </a>
 </li>
 <li>
-<a data-testid="home-pill" class="home-pill" href="/coin/IFC">
+<a data-testid="home-pill" class="lt-button lt-button-secondary" href="/coin/IFC">
 <span>IFC</span>
-<span data-slot="pct" data-direction="down" class="if-num inline-flex items-center gap-1 whitespace-nowrap tabular-nums text-down-text" dir="ltr" data-ltr="">
-<span aria-hidden="true" class="text-[0.7em] leading-none">▼</span>−2.14%</span>
+<span data-slot="pct" data-direction="down" data-dir="down" dir="ltr" data-ltr="">
+<span class="lt-arrow lt-arrow-down" aria-hidden="true" data-arrow="down">
+</span> −2.14%</span>
 </a>
 </li>
 <li>
-<a data-testid="home-pill" class="home-pill" href="/coin/SOL">
+<a data-testid="home-pill" class="lt-button lt-button-secondary" href="/coin/SOL">
 <span>SOL</span>
-<span data-slot="pct" data-direction="up" class="if-num inline-flex items-center gap-1 whitespace-nowrap tabular-nums text-up-text" dir="ltr" data-ltr="">
-<span aria-hidden="true" class="text-[0.7em] leading-none">▲</span>+1.75%</span>
+<span data-slot="pct" data-direction="up" data-dir="up" dir="ltr" data-ltr="">
+<span class="lt-arrow lt-arrow-up" aria-hidden="true" data-arrow="up">
+</span> +1.75%</span>
 </a>
 </li>
 <li>
-<a data-testid="home-pill" class="home-pill" href="/coin/ETH">
+<a data-testid="home-pill" class="lt-button lt-button-secondary" href="/coin/ETH">
 <span>ETH</span>
-<span data-slot="pct" data-direction="up" class="if-num inline-flex items-center gap-1 whitespace-nowrap tabular-nums text-up-text" dir="ltr" data-ltr="">
-<span aria-hidden="true" class="text-[0.7em] leading-none">▲</span>+1.59%</span>
+<span data-slot="pct" data-direction="up" data-dir="up" dir="ltr" data-ltr="">
+<span class="lt-arrow lt-arrow-up" aria-hidden="true" data-arrow="up">
+</span> +1.59%</span>
 </a>
 </li>
 </ul>
 </section>
-<section class="home-section" aria-labelledby="home-activity-title">
-<div class="home-section__head">
-<h2 class="home-h2" id="home-activity-title">Recent activity</h2>
-<a class="home-link" href="/money/activity">See all</a>
+<section class="lt-stack" aria-labelledby="home-activity-title">
+<div class="lt-title-row">
+<h2 id="home-activity-title">Recent activity</h2>
+<a class="lt-link" href="/money/activity">See all</a>
 </div>
-<ul data-testid="home-activity" class="home-activity">
+<ul data-testid="home-activity" class="lt-rows">
 <li>
-<a data-testid="home-activity__row" class="home-activity__row" href="/money/activity/a1">
-<span class="home-activity__what">
-<span data-testid="home-activity__kind" class="home-activity__kind">Received</span>
-<span data-testid="home-activity__when" class="home-activity__when">14 Oct, 09:15</span>
+<a data-testid="home-activity__row" class="lt-row-link" href="/money/activity/a1">
+<span class="lt-lines">
+<span data-testid="home-activity__kind">Received</span>
+<span data-testid="home-activity__when" class="lt-hint">14 Oct, 09:15</span>
 </span>
-<span data-slot="amount" class="if-num whitespace-nowrap tabular-nums home-activity__amount" data-testid="home-activity__amount" dir="ltr" data-ltr="">+50 USDT</span>
+<span data-slot="amount" data-testid="home-activity__amount" dir="ltr" data-ltr="">+50 USDT</span>
 </a>
 </li>
 <li>
-<a data-testid="home-activity__row" class="home-activity__row" href="/money/activity/order%3Aord-1">
-<span class="home-activity__what">
-<span data-testid="home-activity__kind" class="home-activity__kind">Trade</span>
-<span data-testid="home-activity__when" class="home-activity__when">14 Oct, 08:02</span>
+<a data-testid="home-activity__row" class="lt-row-link" href="/money/activity/order%3Aord-1">
+<span class="lt-lines">
+<span data-testid="home-activity__kind">Trade</span>
+<span data-testid="home-activity__when" class="lt-hint">14 Oct, 08:02</span>
 </span>
-<span data-slot="amount" class="if-num whitespace-nowrap tabular-nums home-activity__amount" data-testid="home-activity__amount" dir="ltr" data-ltr="">+0.01 BTC</span>
+<span data-slot="amount" data-testid="home-activity__amount" dir="ltr" data-ltr="">+0.01 BTC</span>
 </a>
 </li>
 <li>
-<a data-testid="home-activity__row" class="home-activity__row" href="/money/activity/a5">
-<span class="home-activity__what">
-<span data-testid="home-activity__kind" class="home-activity__kind">Sent</span>
-<span data-testid="home-activity__when" class="home-activity__when">13 Oct, 17:40</span>
+<a data-testid="home-activity__row" class="lt-row-link" href="/money/activity/a5">
+<span class="lt-lines">
+<span data-testid="home-activity__kind">Sent</span>
+<span data-testid="home-activity__when" class="lt-hint">13 Oct, 17:40</span>
 </span>
-<span data-slot="amount" class="if-num whitespace-nowrap tabular-nums home-activity__amount" data-testid="home-activity__amount" dir="ltr" data-ltr="">−20 USDT</span>
+<span data-slot="amount" data-testid="home-activity__amount" dir="ltr" data-ltr="">−20 USDT</span>
 </a>
 </li>
 </ul>
 </section>
-<section class="home-section" aria-labelledby="home-learn-title">
-<div class="home-section__head">
-<h2 class="home-h2" id="home-learn-title">Learn</h2>
-<a class="home-link" href="/academy">Open Academy</a>
+<section class="lt-stack" aria-labelledby="home-learn-title">
+<div class="lt-title-row">
+<h2 id="home-learn-title">Learn</h2>
+<a class="lt-link" href="/academy">Open Academy</a>
 </div>
-<ul class="home-learn">
+<ul class="lt-rows">
 <li>
-<a data-testid="home-learn__card" class="home-learn__card" href="/academy">
-<span class="home-learn__title">Crypto basics<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-up-right" aria-hidden="true">
+<a data-testid="home-learn__card" class="lt-lines" href="/academy">
+<span>Crypto basics<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-up-right" aria-hidden="true">
 <path d="M7 7h10v10">
 </path>
 <path d="M7 17 17 7">
 </path>
 </svg>
 </span>
-<span class="home-learn__body">What coins, wallets and markets are.</span>
+<span class="lt-hint">What coins, wallets and markets are.</span>
 </a>
 </li>
 <li>
-<a data-testid="home-learn__card" class="home-learn__card" href="/academy">
-<span class="home-learn__title">Staying safe<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-up-right" aria-hidden="true">
+<a data-testid="home-learn__card" class="lt-lines" href="/academy">
+<span>Staying safe<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-up-right" aria-hidden="true">
 <path d="M7 7h10v10">
 </path>
 <path d="M7 17 17 7">
 </path>
 </svg>
 </span>
-<span class="home-learn__body">Passkeys, scams and protecting your money.</span>
+<span class="lt-hint">Passkeys, scams and protecting your money.</span>
 </a>
 </li>
 <li>
-<a data-testid="home-learn__card" class="home-learn__card" href="/academy">
-<span class="home-learn__title">Reading a chart<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-up-right" aria-hidden="true">
+<a data-testid="home-learn__card" class="lt-lines" href="/academy">
+<span>Reading a chart<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-up-right" aria-hidden="true">
 <path d="M7 7h10v10">
 </path>
 <path d="M7 17 17 7">
 </path>
 </svg>
 </span>
-<span class="home-learn__body">Prices, candles and what moves them.</span>
+<span class="lt-hint">Prices, candles and what moves them.</span>
 </a>
 </li>
 </ul>
 </section>
 </div>
-<aside data-testid="home-side" class="home-side">
-<section data-testid="home-yours" class="home-watch home-yours" aria-labelledby="home-yours-title">
-<div data-testid="home-watch__head" class="home-watch__head">
+</section>
+</div>
+<div class="lt-col-side">
+<section class="lt-region" data-region="watching" aria-label="Watching">
+<aside data-testid="home-side" class="lt-stack">
+<section data-testid="home-yours" class="lt-stack" aria-labelledby="home-yours-title">
+<div data-testid="home-watch__head" class="lt-title-row">
 <h2 id="home-yours-title">Your crypto</h2>
 </div>
-<ul class="home-watch__list">
-<li class="home-watch__item">
-<a data-testid="home-watch__row" class="home-watch__row" href="/coin/BTC">
-<span data-slot="coin-icon" data-asset="BTC" style="width: 28px; height: 28px;" class="inline-block shrink-0 overflow-hidden rounded-pill bg-raised">
-<span aria-hidden="true" class="block size-full [&amp;>svg]:block [&amp;>svg]:size-full">
+<ul class="lt-rows">
+<li>
+<a data-testid="home-watch__row" class="lt-row-link" href="/coin/BTC">
+<span aria-hidden="true" class="lit-asset" data-slot="asset-icon" data-asset="BTC" data-size="md">
+<span class="lit-asset__art">
 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
 <path d="M24 0H0V24H24V0Z" fill="#F7931A">
 </path>
@@ -475,20 +501,20 @@
 </svg>
 </span>
 </span>
-<span class="home-watch__name">
-<span data-testid="home-watch__ticker" class="home-watch__ticker">BTC · Bitcoin</span>
-<span data-slot="amount" class="if-num whitespace-nowrap tabular-nums home-yours__amount" dir="ltr" data-ltr="">0.1 BTC</span>
+<span class="lt-lines">
+<span data-testid="home-watch__ticker">BTC · Bitcoin</span>
+<span data-slot="amount" dir="ltr" data-ltr="">0.1 BTC</span>
 </span>
-<span class="home-watch__figures">
-<span data-slot="money" class="if-num whitespace-nowrap tabular-nums home-watch__price" dir="ltr" data-ltr="">$6,781.24</span>
-<span data-slot="pct" data-direction="up" class="if-num inline-flex items-center gap-1 whitespace-nowrap tabular-nums text-up-text home-watch__pct" dir="ltr" data-ltr="">+2.75%</span>
+<span class="lt-lines">
+<span data-slot="money" dir="ltr" data-ltr="">$6,781.24</span>
+<span data-slot="pct" data-direction="up" data-dir="up" dir="ltr" data-ltr="">+2.75%</span>
 </span>
 </a>
 </li>
-<li class="home-watch__item">
-<a data-testid="home-watch__row" class="home-watch__row" href="/coin/ETH">
-<span data-slot="coin-icon" data-asset="ETH" style="width: 28px; height: 28px;" class="inline-block shrink-0 overflow-hidden rounded-pill bg-raised">
-<span aria-hidden="true" class="block size-full [&amp;>svg]:block [&amp;>svg]:size-full">
+<li>
+<a data-testid="home-watch__row" class="lt-row-link" href="/coin/ETH">
+<span aria-hidden="true" class="lit-asset" data-slot="asset-icon" data-asset="ETH" data-size="md">
+<span class="lit-asset__art">
 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
 <path d="M24 0H0V24H24V0Z" fill="black">
 </path>
@@ -511,92 +537,92 @@
 </svg>
 </span>
 </span>
-<span class="home-watch__name">
-<span data-testid="home-watch__ticker" class="home-watch__ticker">ETH · Ethereum</span>
-<span data-slot="amount" class="if-num whitespace-nowrap tabular-nums home-yours__amount" dir="ltr" data-ltr="">0.5 ETH</span>
+<span class="lt-lines">
+<span data-testid="home-watch__ticker">ETH · Ethereum</span>
+<span data-slot="amount" dir="ltr" data-ltr="">0.5 ETH</span>
 </span>
-<span class="home-watch__figures">
-<span data-slot="money" class="if-num whitespace-nowrap tabular-nums home-watch__price" dir="ltr" data-ltr="">$1,600.05</span>
-<span data-slot="pct" data-direction="up" class="if-num inline-flex items-center gap-1 whitespace-nowrap tabular-nums text-up-text home-watch__pct" dir="ltr" data-ltr="">+1.59%</span>
-</span>
-</a>
-</li>
-<li class="home-watch__item">
-<a data-testid="home-watch__row" class="home-watch__row" href="/coin/DOGE">
-<span data-slot="coin-icon" data-asset="DOGE" data-fallback="lettered" aria-hidden="true" style="width: 28px; height: 28px; font-size: 12px;" class="inline-flex shrink-0 select-none items-center justify-center rounded-pill font-semibold leading-none bg-raised text-fg">D</span>
-<span class="home-watch__name">
-<span data-testid="home-watch__ticker" class="home-watch__ticker">DOGE</span>
-<span data-slot="amount" class="if-num whitespace-nowrap tabular-nums home-yours__amount" dir="ltr" data-ltr="">5 DOGE</span>
-</span>
-<span class="home-watch__figures">
-<span data-slot="money" class="if-num whitespace-nowrap tabular-nums home-watch__price" dir="ltr" data-ltr="">$0.6173</span>
-<span data-slot="pct" data-direction="down" class="if-num inline-flex items-center gap-1 whitespace-nowrap tabular-nums text-down-text home-watch__pct" dir="ltr" data-ltr="">−4.94%</span>
+<span class="lt-lines">
+<span data-slot="money" dir="ltr" data-ltr="">$1,600.05</span>
+<span data-slot="pct" data-direction="up" data-dir="up" dir="ltr" data-ltr="">+1.59%</span>
 </span>
 </a>
 </li>
-<li class="home-watch__item">
-<a data-testid="home-watch__row" class="home-watch__row" href="/coin/ZED">
-<span data-slot="coin-icon" data-asset="ZED" data-fallback="lettered" aria-hidden="true" style="width: 28px; height: 28px; font-size: 12px;" class="inline-flex shrink-0 select-none items-center justify-center rounded-pill font-semibold leading-none bg-raised text-fg">Z</span>
-<span class="home-watch__name">
-<span data-testid="home-watch__ticker" class="home-watch__ticker">ZED</span>
-<span data-slot="amount" class="if-num whitespace-nowrap tabular-nums home-yours__amount" dir="ltr" data-ltr="">12 ZED</span>
+<li>
+<a data-testid="home-watch__row" class="lt-row-link" href="/coin/DOGE">
+<span aria-hidden="true" class="lit-asset" data-slot="asset-icon" data-asset="DOGE" data-size="md" data-fallback="lettered">D</span>
+<span class="lt-lines">
+<span data-testid="home-watch__ticker">DOGE</span>
+<span data-slot="amount" dir="ltr" data-ltr="">5 DOGE</span>
 </span>
-<span class="home-watch__figures">
-<span data-slot="money" class="if-num whitespace-nowrap tabular-nums text-fg-2 home-watch__price" dir="ltr" data-ltr="">—</span>
-<span data-slot="pct" data-direction="flat" class="if-num inline-flex items-center gap-1 whitespace-nowrap tabular-nums text-fg-2 home-watch__pct" dir="ltr" data-ltr="">—</span>
+<span class="lt-lines">
+<span data-slot="money" dir="ltr" data-ltr="">$0.6173</span>
+<span data-slot="pct" data-direction="down" data-dir="down" dir="ltr" data-ltr="">−4.94%</span>
+</span>
+</a>
+</li>
+<li>
+<a data-testid="home-watch__row" class="lt-row-link" href="/coin/ZED">
+<span aria-hidden="true" class="lit-asset" data-slot="asset-icon" data-asset="ZED" data-size="md" data-fallback="lettered">Z</span>
+<span class="lt-lines">
+<span data-testid="home-watch__ticker">ZED</span>
+<span data-slot="amount" dir="ltr" data-ltr="">12 ZED</span>
+</span>
+<span class="lt-lines">
+<span data-slot="money" dir="ltr" data-ltr="">—</span>
+<span data-slot="pct" data-direction="flat" dir="ltr" data-ltr="">—</span>
 </span>
 </a>
 </li>
 </ul>
 </section>
-<section data-testid="home-watch" class="home-watch" aria-labelledby="home-watch-title">
-<div data-testid="home-watch__head" class="home-watch__head">
+<section data-testid="home-watch" class="lt-stack" aria-labelledby="home-watch-title">
+<div data-testid="home-watch__head" class="lt-title-row">
 <h2 id="home-watch-title">Popular</h2>
 </div>
-<p data-testid="home-side__empty--hint" class="home-side__empty home-side__empty--hint">Star a coin to build your own watchlist.</p>
-<ul class="home-watch__list">
-<li class="home-watch__item">
-<a data-testid="home-watch__row" class="home-watch__row" href="/coin/XRP">
-<span data-slot="coin-icon" data-asset="XRP" data-fallback="lettered" aria-hidden="true" style="width: 28px; height: 28px; font-size: 12px;" class="inline-flex shrink-0 select-none items-center justify-center rounded-pill font-semibold leading-none bg-raised text-fg">X</span>
-<span class="home-watch__name">
-<span data-testid="home-watch__ticker" class="home-watch__ticker">XRP</span>
+<p data-testid="home-side__empty--hint" class="lt-hint">Star a coin to build your own watchlist.</p>
+<ul class="lt-rows">
+<li class="lt-actions">
+<a data-testid="home-watch__row" class="lt-row-link" href="/coin/XRP">
+<span aria-hidden="true" class="lit-asset" data-slot="asset-icon" data-asset="XRP" data-size="md" data-fallback="lettered">X</span>
+<span class="lt-lines">
+<span data-testid="home-watch__ticker">XRP</span>
 </span>
-<svg data-slot="sparkline" width="64" height="24" viewBox="0 0 64 24" aria-hidden="true" class="block shrink-0 overflow-visible">
-<line x1="0" x2="64" y1="21" y2="21" stroke-width="1" stroke-dasharray="1 3" class="stroke-fg-3">
-</line>
-<polyline points="3,21 5.52,18.92 8.04,16.16 10.57,14.1 13.09,13.57 15.61,14.26 18.13,15.02 20.65,14.73 23.17,13.22 25.7,11.34 28.22,10.33 30.74,10.83 33.26,12.37 35.78,13.64 38.3,13.47 40.83,11.67 43.35,9.15 45.87,7.26 48.39,6.76 50.91,7.31 53.43,7.77 55.96,7.09 58.48,5.19 61,3" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="stroke-up-text">
-</polyline>
+<figure class="lt-chart lt-spark" data-size="row" data-tone="up">
+<svg viewBox="0 0 600 200" preserveAspectRatio="none" role="img" aria-label="XRP price trend">
+<path class="lt-chart-line" d="M8.0,192.0 L33.4,170.7 L58.8,142.5 L84.2,121.5 L109.6,116.1 L135.0,123.1 L160.3,130.8 L185.7,128.0 L211.1,112.5 L236.5,93.2 L261.9,82.9 L287.3,88.1 L312.7,103.8 L338.1,116.7 L363.5,115.0 L388.9,96.6 L414.3,70.8 L439.7,51.5 L465.0,46.4 L490.4,52.1 L515.8,56.7 L541.2,49.8 L566.6,30.4 L592.0,8.0" vector-effect="non-scaling-stroke">
+</path>
 </svg>
-<span class="home-watch__figures">
-<span class="home-watch__price" data-money="true">$0.5230</span>
-<span data-slot="pct" data-direction="up" class="if-num inline-flex items-center gap-1 whitespace-nowrap tabular-nums text-up-text home-watch__pct" dir="ltr" data-ltr="">+2.15%</span>
+</figure>
+<span class="lt-lines">
+<span data-money="true">$0.5230</span>
+<span data-slot="pct" data-direction="up" dir="ltr" data-ltr="" data-dir="up">+2.15%</span>
 </span>
 </a>
-<button type="button" class="home-star  " aria-pressed="false" aria-label="Add XRP to watchlist">
+<button aria-pressed="false" aria-label="Add XRP to watchlist" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-star" aria-hidden="true">
 <path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z">
 </path>
 </svg>
 </button>
 </li>
-<li class="home-watch__item">
-<a data-testid="home-watch__row" class="home-watch__row" href="/coin/DOGE">
-<span data-slot="coin-icon" data-asset="DOGE" data-fallback="lettered" aria-hidden="true" style="width: 28px; height: 28px; font-size: 12px;" class="inline-flex shrink-0 select-none items-center justify-center rounded-pill font-semibold leading-none bg-raised text-fg">D</span>
-<span class="home-watch__name">
-<span data-testid="home-watch__ticker" class="home-watch__ticker">DOGE</span>
+<li class="lt-actions">
+<a data-testid="home-watch__row" class="lt-row-link" href="/coin/DOGE">
+<span aria-hidden="true" class="lit-asset" data-slot="asset-icon" data-asset="DOGE" data-size="md" data-fallback="lettered">D</span>
+<span class="lt-lines">
+<span data-testid="home-watch__ticker">DOGE</span>
 </span>
-<svg data-slot="sparkline" width="64" height="24" viewBox="0 0 64 24" aria-hidden="true" class="block shrink-0 overflow-visible">
-<line x1="0" x2="64" y1="5" y2="5" stroke-width="1" stroke-dasharray="1 3" class="stroke-fg-3">
-</line>
-<polyline points="3,5 5.52,3.33 8.04,3 10.57,4.79 13.09,8.03 15.61,11.08 18.13,12.52 20.65,12.17 23.17,11.17 25.7,11.05 28.22,12.54 30.74,14.99 33.26,16.89 35.78,17.01 38.3,15.4 40.83,13.41 43.35,12.73 45.87,14.15 48.39,17.02 50.91,19.75 53.43,21 55.96,20.66 58.48,19.89 61,20.18" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="stroke-down-text">
-</polyline>
+<figure class="lt-chart lt-spark" data-size="row" data-tone="down">
+<svg viewBox="0 0 600 200" preserveAspectRatio="none" role="img" aria-label="DOGE price trend">
+<path class="lt-chart-line" d="M8.0,28.4 L33.4,11.4 L58.8,8.0 L84.2,26.3 L109.6,59.5 L135.0,90.6 L160.3,105.3 L185.7,101.7 L211.1,91.5 L236.5,90.3 L261.9,105.5 L287.3,130.6 L312.7,150.0 L338.1,151.2 L363.5,134.8 L388.9,114.5 L414.3,107.5 L439.7,122.0 L465.0,151.4 L490.4,179.3 L515.8,192.0 L541.2,188.5 L566.6,180.6 L592.0,183.6" vector-effect="non-scaling-stroke">
+</path>
 </svg>
-<span class="home-watch__figures">
-<span class="home-watch__price" data-money="true">$0.12345</span>
-<span data-slot="pct" data-direction="down" class="if-num inline-flex items-center gap-1 whitespace-nowrap tabular-nums text-down-text home-watch__pct" dir="ltr" data-ltr="">−4.94%</span>
+</figure>
+<span class="lt-lines">
+<span data-money="true">$0.12345</span>
+<span data-slot="pct" data-direction="down" dir="ltr" data-ltr="" data-dir="down">−4.94%</span>
 </span>
 </a>
-<button type="button" class="home-star  " aria-pressed="false" aria-label="Add DOGE to watchlist">
+<button aria-pressed="false" aria-label="Add DOGE to watchlist" type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-star" aria-hidden="true">
 <path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z">
 </path>
@@ -606,6 +632,10 @@
 </ul>
 </section>
 </aside>
+</section>
+</div>
+</div>
+</div>
 </div>
 </div>
 </main>

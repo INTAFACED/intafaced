@@ -1,12 +1,14 @@
 import { useState, type FormEvent } from 'react';
 import { Button, Loading } from '../../shared/ui';
 import type { ApiResult } from '../../shared/api';
-import { amount, bps, date, positiveMoney, useBankRead, type ActionSpec, useBankRecord } from './components';
+import { amount, bps, date, positiveMoney, type ActionSpec, useBankRecord } from './components';
 import { LOAN_ELIGIBILITY_KEYS, type LoanEligibility, type LoanFees, type LoanQuote } from './contracts';
 import { DepthPanel, DisabledAction } from './DepthParts';
 import { loanApplyCopy } from './loan-apply-copy';
 import './bank-depth.css';
 import { BANK_LOANS_PRODUCTS, BANK_LOANS_ELIGIBILITY } from '@intafaced/contracts/bank-loans-procedures';
+import { BANK_LOANS_QUOTE, BANK_LOANS_FEES } from '@intafaced/contracts/bank-loans-2-procedures';
+import { BANK_LOANS_OPEN } from '@intafaced/contracts/bank-loans-3-procedures';
 
 /**
  * `/bank/loans/apply?product=<id>` (J-bank-09 #1 to #4, BK-loan-01): choose a loan, see its limits, work out the
@@ -53,7 +55,7 @@ function QuoteFigures({ quote }: { quote: LoanQuote }) {
   const { t } = loanApplyCopy.useCopy();
   return (
     <div
-      className="bd-stack"
+      className="lt-stack"
       data-testid="loan-apply-quote"
       data-principal={quote.principal}
       data-collateral={quote.requiredCollateral}
@@ -74,7 +76,7 @@ function QuoteFigures({ quote }: { quote: LoanQuote }) {
           <dd>{t('calcPriceUnit', { price: quote.liquidationPrice, quote: quote.quoteAssetId, asset: quote.collateralAssetId })}</dd>
         </div>
       </dl>
-      <p className="money-caption">
+      <p className="lt-muted">
         {t('calcPrices', {
           debt: quote.debtAssetId,
           debtPrice: quote.debtPrice,
@@ -92,7 +94,7 @@ function EligibilityList({ eligibility }: { eligibility: LoanEligibility }) {
   const { t } = loanApplyCopy.useCopy();
   const byKey = new Map(eligibility.reasons.map((reason) => [reason.key, reason]));
   return (
-    <div className="bd-stack" data-testid="loan-apply-eligibility" data-eligible={String(eligibility.eligible)}>
+    <div className="lt-stack" data-testid="loan-apply-eligibility" data-eligible={String(eligibility.eligible)}>
       <dl className="detail-list">
         {LOAN_ELIGIBILITY_KEYS.map((key) => {
           const reason = byKey.get(key);
@@ -108,7 +110,7 @@ function EligibilityList({ eligibility }: { eligibility: LoanEligibility }) {
           );
         })}
       </dl>
-      {byKey.get('jurisdiction_rules')?.state === 'not_set' && <p className="money-caption">{t('jurisdictionNotSet')}</p>}
+      {byKey.get('jurisdiction_rules')?.state === 'not_set' && <p className="lt-muted">{t('jurisdictionNotSet')}</p>}
       <p role="status">{eligibility.eligible ? t('eligOpen') : t('eligClosed')}</p>
     </div>
   );
@@ -125,7 +127,7 @@ function FeeLines({ fees, principal }: { fees: LoanFees; principal: string | nul
     );
   }
   return (
-    <div className="bd-stack" data-testid="loan-apply-fee" data-state="published" data-bps={String(fee.bps)} data-amount={fee.amount ?? ''}>
+    <div className="lt-stack" data-testid="loan-apply-fee" data-state="published" data-bps={String(fee.bps)} data-amount={fee.amount ?? ''}>
       <dl className="detail-list">
         <div>
           <dt>{t('feeRate')}</dt>
@@ -138,7 +140,7 @@ function FeeLines({ fees, principal }: { fees: LoanFees; principal: string | nul
           </div>
         )}
       </dl>
-      {fee.bps === 0 && <p className="money-caption">{t('feeZero')}</p>}
+      {fee.bps === 0 && <p className="lt-muted">{t('feeZero')}</p>}
       {!fee.collectable && (
         <p role="alert" className="error-text">
           {t('feeUncollectable')}
@@ -154,9 +156,9 @@ function ProductApplication({ productId, open }: { productId: string; open: (spe
   const [typed, setTyped] = useState('');
   const [asked, setAsked] = useState<string | null>(null);
   const [invalid, setInvalid] = useState(false);
-  const quote = useBankRead('loans.quote', { productId, principal: asked ?? '0' }, asked !== null);
+  const quote = useBankRecord(BANK_LOANS_QUOTE, { productId, principal: asked ?? '0' }, asked !== null);
   const eligibility = useBankRecord(BANK_LOANS_ELIGIBILITY, { productId });
-  const fees = useBankRead('loans.fees', asked === null ? { productId } : { productId, principal: asked });
+  const fees = useBankRecord(BANK_LOANS_FEES, asked === null ? { productId } : { productId, principal: asked });
 
   if (products.resource.status === 'loading') return <Loading />;
   if (products.resource.status === 'failed') return <Refused failure={products.resource.failure} retry={products.reload} />;
@@ -220,12 +222,12 @@ function ProductApplication({ productId, open }: { productId: string; open: (spe
         </dl>
       </DepthPanel>
       <DepthPanel title={t('calcTitle')} lead={t('calcLead')}>
-        <form className="bd-stack" onSubmit={show} noValidate>
-          <label className="field">
+        <form className="lt-stack" onSubmit={show} noValidate>
+          <label className="lt-field">
             <span>{t('calcAmount', { asset: product.debtAssetId })}</span>
             <input name="principal" value={typed} inputMode="decimal" onChange={(event) => setTyped(event.target.value)} />
           </label>
-          <div className="actions">
+          <div className="lt-actions">
             <Button type="submit" variant="secondary">
               {t('calcShow')}
             </Button>
@@ -236,7 +238,7 @@ function ProductApplication({ productId, open }: { productId: string; open: (spe
             </p>
           )}
         </form>
-        {asked === null && <p className="money-caption">{t('calcAsk')}</p>}
+        {asked === null && <p className="lt-muted">{t('calcAsk')}</p>}
         {asked !== null && quote.resource.status === 'loading' && <Loading />}
         {asked !== null && quote.resource.status === 'failed' && <Refused failure={quote.resource.failure} retry={quote.reload} />}
         {ready && <QuoteFigures quote={ready} />}
@@ -252,12 +254,12 @@ function ProductApplication({ productId, open }: { productId: string; open: (spe
         {fees.resource.status === 'ready' && <FeeLines fees={fees.resource.data} principal={asked} />}
       </DepthPanel>
       {ready && eligible ? (
-        <div className="actions">
+        <div className="lt-actions">
           <Button
             onClick={() =>
               open({
                 title: t('open'),
-                procedure: 'loans.open',
+                record: BANK_LOANS_OPEN,
                 fields: [
                   positiveMoney(product.debtAssetId, 'principal', t('principal')),
                   positiveMoney(product.collateralAssetId, 'collateralAmount', t('collateral')),
@@ -299,7 +301,7 @@ export function LoanApply({ productId, open }: { productId: string | null; open:
   const products = useBankRecord(BANK_LOANS_PRODUCTS, { limit: 200 });
   const [chosen, setChosen] = useState<string | null>(productId);
   return (
-    <div className="bd-stack" data-testid="loan-apply">
+    <div className="lt-stack" data-testid="loan-apply">
       <DepthPanel title={t('chooseTitle')}>
         {products.resource.status === 'loading' && <Loading />}
         {products.resource.status === 'failed' && <Refused failure={products.resource.failure} retry={products.reload} />}
@@ -307,10 +309,10 @@ export function LoanApply({ productId, open }: { productId: string | null; open:
           (products.resource.data.length === 0 ? (
             <p>{t('chooseNone')}</p>
           ) : (
-            <label className="field">
+            <label className="lt-field">
               <span>{t('chooseLabel')}</span>
               <select value={chosen ?? ''} onChange={(event) => setChosen(event.target.value === '' ? null : event.target.value)}>
-                <option value="">—</option>
+                <option value="">{t('choosePlaceholder')}</option>
                 {products.resource.data.map((one) => (
                   <option key={one.id} value={one.id}>
                     {one.name}
@@ -319,10 +321,15 @@ export function LoanApply({ productId, open }: { productId: string | null; open:
               </select>
             </label>
           ))}
+        {products.resource.status === 'ready' && products.resource.data.length > 0 && !chosen && (
+          <p className="lt-muted" data-testid="loan-apply-hint">
+            {t('chooseHint')}
+          </p>
+        )}
       </DepthPanel>
       {chosen && <ProductApplication key={chosen} productId={chosen} open={open} />}
       <p>
-        <a className="text-link" href="/bank/loans">
+        <a className="lt-link" href="/bank/loans">
           {t('back')}
         </a>
       </p>

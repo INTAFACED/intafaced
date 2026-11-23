@@ -2,6 +2,12 @@ import { createHash } from 'node:crypto';
 import { CONSOLE_MODE_TARGET_ID, CONSOLE_MODE_TARGET_SERVICE, consoleModeApprovalFields } from '@intafaced/contracts/ops-console-mode';
 import { OPS_ALERT_ACCEPT_ACTION, opsAlertAcceptFields } from '@intafaced/contracts/ops-reconciliation-alerts';
 import {
+  OPS_LEDGER_REVERSE_ACTION,
+  OPS_LEDGER_REVERSE_TARGET_SERVICE,
+  opsReversalApprovalFields,
+  opsReversalTargetId,
+} from '@intafaced/contracts/ops-ledger-reversals';
+import {
   OPS_CAPITAL_TARGET_SERVICE,
   OPS_CAPITAL_THRESHOLD_ACTION,
   opsCapitalThresholdFields,
@@ -45,6 +51,8 @@ export const LAUNCH_EVENT_MOVE = 'token.launch.event.move';
 export const KYC_DOCUMENT_GET = 'kyc.doc.get';
 /** The verb svc-identity binds a selfie decision to (`kyc.selfie.decide`). */
 export const KYC_SELFIE_DECIDE = 'kyc.selfie.decide';
+/** The verb svc-identity binds a verification approval to (`kyc.approve`). */
+const KYC_APPROVE = 'kyc.approve';
 
 /**
  * How a console request becomes an identity approval, and how the target service recomputes the same hash.
@@ -218,6 +226,9 @@ export function payloadHashFor(request: DeskRequest): string {
     // svc-identity `consumePrivileged(…, 'kyc.selfie.decide', { selfieId, decision })`, in this order.
     case 'identity.kyc_selfie.decide':
       return shaIdentity(KYC_SELFIE_DECIDE, { selfieId: request.selfieId, decision: request.decision });
+    // svc-identity `consumePrivileged(…, 'kyc.approve', { recordId })`.
+    case 'identity.kyc.approve':
+      return shaIdentity(KYC_APPROVE, { recordId: request.recordId });
     // svc-identity `waitlist.waves.release`: { targetId: 'waitlist.wave.release', wave, size }, in this order.
     case 'campaigns.waitlist.wave_release':
       return shaIdentity(WAVE_RELEASE_TARGET, { wave: request.wave, size: request.size });
@@ -235,6 +246,9 @@ export function payloadHashFor(request: DeskRequest): string {
     // svc-ops `approvalPayloadHash('ops.reconciliation_alert.accept', opsAlertAcceptFields(alertId, note, evidenceHash))`.
     case 'ops.reconciliation_alert.accept':
       return sha(OPS_ALERT_ACCEPT_ACTION, opsAlertAcceptFields(request.alertId, request.reason, request.evidenceHash));
+    // svc-ops `approvalPayloadHash('ops.ledger.reverse', opsReversalApprovalFields({ requestNo, originalTxId, reason, caseRef }))`.
+    case 'ops.ledger.reverse':
+      return sha(OPS_LEDGER_REVERSE_ACTION, opsReversalApprovalFields(request));
     // svc-ops `approvalPayloadHash('ops.capital.threshold.set', opsCapitalThresholdFields(asset, minimum, contact, reason))`.
     case 'ops.capital.threshold.set':
       return sha(
@@ -491,6 +505,16 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
         payloadHash,
         policyVersion: 'v1',
       };
+    // svc-identity consumes a verification approval against its own verb as the target id, at version 1.
+    case 'identity.kyc.approve':
+      return {
+        actionType: KYC_APPROVE,
+        targetService: 'svc-identity',
+        targetId: KYC_APPROVE,
+        expectedVersion: '1',
+        payloadHash,
+        policyVersion: 'v1',
+      };
     // svc-identity consumes a wave release against its own verb as the target id, at version 1.
     case 'campaigns.waitlist.wave_release':
       return {
@@ -571,6 +595,17 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
         actionType: OPS_ALERT_ACCEPT_ACTION,
         targetService: 'svc-ops',
         targetId: opsAlertAcceptFields(request.alertId, request.reason, request.evidenceHash).targetId,
+        expectedVersion: '1',
+        payloadHash,
+        policyVersion: 'v1',
+      };
+    // A governed type: identity judges it by its owner policy row (one founder other than the requester on the test stack) and
+    // only svc-ops, the row's applier, spends it against the reversal request.
+    case 'ops.ledger.reverse':
+      return {
+        actionType: OPS_LEDGER_REVERSE_ACTION,
+        targetService: OPS_LEDGER_REVERSE_TARGET_SERVICE,
+        targetId: opsReversalTargetId(request.requestNo),
         expectedVersion: '1',
         payloadHash,
         policyVersion: 'v1',

@@ -5,7 +5,8 @@ import { z } from 'zod';
 import { Field } from '@intafaced/ui/lit';
 import { type Resource, useResource } from '../../../../shared/resource';
 import { useSession } from '../../../session';
-import { validatedMutation } from '../../BusinessPay';
+import { validatedRecordMutation } from '../../BusinessPay';
+import { PAY_MERCHANT_PROFILE } from '@intafaced/contracts/pay-merchant-procedures';
 import { createBusinessPayApi, type PayBusinessAuthority } from '../../pay-api';
 import * as shared from '../../schemas';
 import type { PortalApi } from '../api';
@@ -162,12 +163,11 @@ function NewProfile({
           review={<Facts items={[[c.t('cs_domains'), list.join(', ')]]} />}
           perform={async () =>
             definite(
-              await validatedMutation(
+              await validatedRecordMutation(
                 pay,
-                'merchant.profile',
+                PAY_MERCHANT_PROFILE,
                 { merchantId, domains: list },
                 z.object({ merchantId: shared.id, domains: z.array(z.string().min(1)).min(1) }),
-                z.object({ id: shared.id, merchantId: shared.id }),
                 'pay:write',
                 'profile-create',
               ),

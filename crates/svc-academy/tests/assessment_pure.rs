@@ -10,10 +10,10 @@
 )]
 
 use service_kit::json::{self, Json};
-use service_kit::money::format_amount;
+
 use svc_academy::assessment::csv::{GradeRow, read_grade_file};
 use svc_academy::assessment::gradebook::{
-    fraction_of, late_score, policy_of, type_average, weight_sum, weighted_total,
+    format_fraction, fraction_of, late_score, policy_of, type_average, weight_sum, weighted_total,
 };
 use svc_academy::assessment::score::{answer_fits, scaled_decimal, score_attempt, score_question};
 use svc_academy::errors::Refusal;
@@ -229,7 +229,7 @@ fn the_lowest_is_dropped_before_averaging_never_the_last_score() {
         ("c".to_owned(), f("8", "10")),
     ];
     let (average, counted, dropped) = type_average(&scores, 1);
-    assert_eq!(format_amount(average.unwrap()), "0.9");
+    assert_eq!(format_fraction(average.unwrap()), "0.9");
     assert_eq!(
         (counted, dropped),
         (vec!["a".to_owned(), "c".to_owned()], vec!["b".to_owned()])
@@ -246,7 +246,7 @@ fn the_lowest_is_dropped_before_averaging_never_the_last_score() {
 fn types_with_an_average_are_weighted_and_thirds_are_cut() {
     let w = |s: &str| s.to_owned();
     assert_eq!(
-        format_amount(
+        format_fraction(
             weighted_total(&[
                 (w("0.6"), Some(f("9", "10"))),
                 (w("0.4"), Some(f("1", "1")))
@@ -256,11 +256,13 @@ fn types_with_an_average_are_weighted_and_thirds_are_cut() {
         "0.94"
     );
     assert_eq!(
-        format_amount(weighted_total(&[(w("0.6"), Some(f("9", "10"))), (w("0.4"), None)]).unwrap()),
+        format_fraction(
+            weighted_total(&[(w("0.6"), Some(f("9", "10"))), (w("0.4"), None)]).unwrap()
+        ),
         "0.9"
     );
     assert_eq!(weighted_total(&[(w("1"), None)]), None);
-    assert_eq!(format_amount(f("1", "3")), "0.333333333333333333");
+    assert_eq!(format_fraction(f("1", "3")), "0.333333333333333333");
 }
 
 // ── course-quiz-score.test.ts ───────────────────────────────────────────────────────────────────────────────────────

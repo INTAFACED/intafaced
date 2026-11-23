@@ -14,7 +14,7 @@
     reason = "a test: a failure is the point"
 )]
 
-mod support;
+use crate::support;
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -838,4 +838,55 @@ fn the_clock_door_answers_412_unset_503_past_the_bound_and_200_within_it() {
     let (status, b) = call(&d, "GET", "/operator/integrity/clock", treasury(), "");
     assert_eq!((status, b.get("ok")), (200, Some(&Json::Bool(true))));
     assert_eq!(b.get("code"), Some(&Json::Null));
+}
+
+// The approving founder may submit the action the other founder proposed: the confirming operator is then the
+// proposer, never the caller a second time (#10113).
+const PROPOSER: &str = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+
+#[test]
+fn a_thaw_submitted_by_the_approving_founder_names_the_proposer_and_thaws() {
+    let Some(db) = migrated() else { return };
+    let d = door(
+        &db,
+        Arc::default(),
+        Box::new(Shared(stub(Some(OPERATOR), Some(true)))),
+        None,
+        system_ms,
+    );
+    freeze::write(d.store(), halt("drift", CHECKER)).unwrap();
+    let (status, body) = call(
+        &d,
+        "POST",
+        "/operator/unfreeze",
+        treasury(),
+        r#"{"approvalId":"appr-1","operationId":"op-1"}"#,
+    );
+    assert_eq!(status, 200, "{body:?}");
+    assert_eq!(body.get("confirmOperatorId"), Some(&Json::str(PROPOSER)));
+    assert_eq!(body.get("frozen"), Some(&Json::Bool(false)));
+    assert!(!state(d.store()).frozen);
+}
+
+#[test]
+fn a_freeze_submitted_by_the_approver_names_the_proposer_as_the_confirming_operator() {
+    let Some(db) = migrated() else { return };
+    let d = door(
+        &db,
+        Arc::default(),
+        Box::new(Shared(stub(Some(OPERATOR), None))),
+        None,
+        system_ms,
+    );
+    let (status, body) = call(
+        &d,
+        "POST",
+        "/operator/freeze",
+        treasury(),
+        r#"{"reason":"suspected USDT chain drift","approvalId":"appr-1","operationId":"op-1"}"#,
+    );
+    assert_eq!(status, 200, "{body:?}");
+    assert_eq!(body.get("actor"), Some(&Json::str(OPERATOR)));
+    assert_eq!(body.get("confirmOperatorId"), Some(&Json::str(PROPOSER)));
+    assert!(state(d.store()).frozen);
 }

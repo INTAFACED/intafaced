@@ -92,10 +92,12 @@ fn answer(ctx: &Ctx<'_>, d: &Deps<'_>) -> Result<Json, OwnError> {
         }
         "own.usageLimits.get" => {
             let pool = pool_of(d.store)?;
-            // Reading also publishes any of the person's alerts a fault left unpublished; a bus fault never fails it.
+            // Reading also publishes any of the person's alerts a fault left unpublished, the one this read caught up
+            // included (intafaced#10107), so it runs after the read; a bus fault never fails it.
+            let view = usage_limits::get(pool, user, id, asset, ctx.now);
             let x = rt(ctx, d, pool);
             let _ = publish_usage_alerts(&x, Some(user));
-            usage_limits::get(pool, user, id, asset, ctx.now)
+            view
         }
         "own.usageLimits.set" => usage_limits::set(
             pool_of(d.store)?,

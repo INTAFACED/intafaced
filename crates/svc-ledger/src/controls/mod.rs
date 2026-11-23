@@ -1068,7 +1068,7 @@ fn accounts_in_set(
 type Amounts = Vec<(String, Amount)>;
 
 fn amounts(rows: &[postgres::Row], ids: &[String]) -> Result<Amounts, String> {
-    let mut out: Amounts = ids.iter().map(|id| (id.clone(), 0)).collect();
+    let mut out: Amounts = ids.iter().map(|id| (id.clone(), Amount::ZERO)).collect();
     for r in rows {
         let id: String = r.try_get(0).map_err(|e| e.to_string())?;
         let v: String = r.try_get(1).map_err(|e| e.to_string())?;
@@ -1389,11 +1389,18 @@ fn evaluate(
 }
 
 fn amount_of(list: &Amounts) -> impl Fn(&str) -> Amount + '_ {
-    move |id| list.iter().find(|(k, _)| k == id).map_or(0, |(_, v)| *v)
+    move |id| {
+        list.iter()
+            .find(|(k, _)| k == id)
+            .map_or(Amount::ZERO, |(_, v)| *v)
+    }
 }
 
 fn zeros(totals: &Totals) -> Totals {
-    totals.iter().map(|(a, _)| (a.clone(), 0)).collect()
+    totals
+        .iter()
+        .map(|(a, _)| (a.clone(), Amount::ZERO))
+        .collect()
 }
 
 #[expect(

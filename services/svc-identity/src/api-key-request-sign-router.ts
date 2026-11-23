@@ -1,11 +1,14 @@
 import type { Queryable } from '@intafaced/db';
-import { z } from 'zod';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts/trpc';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import type { Sql } from 'postgres';
 import { AuthError, assertDelegateCannotGrant } from './auth/auth-service.js';
-import { optionalFactorProof, guardedApiKeyAction, type ApiKeyFactorGate } from './auth/api-key-fresh-factor.js';
+import { guardedApiKeyAction, type ApiKeyFactorGate } from './auth/api-key-fresh-factor.js';
 import { ApiKeyRequestSignError, rotateSigningSecret, setApiKeyRequestSigning } from './auth/api-key-request-sign.js';
 import { signsByDefault } from './auth/api-key-signs-by-default.js';
+import { IDENTITY_ROTATE_SIGNING_SECRET } from '@intafaced/contracts/identity-rotate-signing-secret-procedures';
+import { IDENTITY_SET_API_KEY_REQUEST_SIGNING } from '@intafaced/contracts/identity-set-api-key-request-signing-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from './record-refusal.js';
 
 /**
  * Top-level opt-in (not nested under apiKeys) so mergeRouters cannot replace
@@ -39,26 +42,9 @@ export function createApiKeyRequestSignRouter(
   signingOptional = false,
 ) {
   return router({
-    setApiKeyRequestSigning: scopedProcedure('identity:write')
-      .input(
-        z
-          .object({
-            keyId: z.string().guid(),
-            requireSignature: z.boolean().optional(),
-            requireNonEmptyIpAllowlist: z.boolean().optional(),
-            factorProof: optionalFactorProof,
-          })
-          .refine((value) => value.requireSignature !== undefined || value.requireNonEmptyIpAllowlist !== undefined),
-      )
-      .output(
-        z.object({
-          id: z.string().guid(),
-          requireSignature: z.boolean(),
-          requireNonEmptyIpAllowlist: z.boolean(),
-          signingSecret: z.string().nullable(),
-        }),
-      )
-      .mutation(async ({ ctx, input }) => {
+    setApiKeyRequestSigning: mountRecord(
+      IDENTITY_SET_API_KEY_REQUEST_SIGNING,
+      async ({ ctx, input }) => {
         try {
           assertDelegateCannotGrant(ctx.principal.kid);
           const set = (db: Queryable) =>
@@ -81,8 +67,8 @@ export function createApiKeyRequestSignRouter(
           // (the write then answers not found).
           const placesOrders = async () => {
             const rows = await sql<Array<{ scopes: string[] }>>`
-              SELECT scopes FROM api_keys WHERE id = ${input.keyId} AND user_id = ${ctx.principal.userId}
-            `;
+                SELECT scopes FROM api_keys WHERE id = ${input.keyId} AND user_id = ${ctx.principal.userId}
+              `;
             return rows[0] ? signsByDefault(rows[0].scopes) : true;
           };
           const guarded =
@@ -98,16 +84,17 @@ export function createApiKeyRequestSignRouter(
         } catch (err) {
           mapSignError(err);
         }
-      }),
+      },
+      codedRefusal,
+    ),
     /**
      * Replace the HMAC secret without turning the requirement off.
      * One transaction, so the key never accepts an unsigned call in between.
      * The new secret is returned once. identity:write, and the caller must own the key.
      */
-    rotateSigningSecret: scopedProcedure('identity:write')
-      .input(z.object({ keyId: z.string().guid(), factorProof: optionalFactorProof }))
-      .output(z.object({ id: z.string().guid(), signingSecret: z.string() }))
-      .mutation(async ({ ctx, input }) => {
+    rotateSigningSecret: mountRecord(
+      IDENTITY_ROTATE_SIGNING_SECRET,
+      async ({ ctx, input }) => {
         try {
           assertDelegateCannotGrant(ctx.principal.kid);
           return await guardedApiKeyAction(
@@ -120,6 +107,8 @@ export function createApiKeyRequestSignRouter(
         } catch (err) {
           mapSignError(err);
         }
-      }),
+      },
+      codedRefusal,
+    ),
   });
 }

@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import type { ProtocolEmbeddedWalletRecord } from '@intafaced/contracts/protocol-embedded-wallet';
 import type { ApiClient } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
@@ -304,7 +304,7 @@ export function VenueDeposit(props: {
                 {t('amount', { asset: route.asset })}{' '}
                 <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
               </label>{' '}
-              <Button variant="primary" disabled={busy !== null || !client} onClick={() => void deposit()}>
+              <Button tone="primary" disabled={busy !== null || !client} onClick={() => void deposit()}>
                 {t('deposit')}
               </Button>
               {busy ? <p role="status">{busy === 'checking' ? t('checking') : t('signing')}</p> : null}

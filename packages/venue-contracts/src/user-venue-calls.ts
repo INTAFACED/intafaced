@@ -57,6 +57,7 @@ export const USER_VENUE_READS = {
   isolatedMargin: { path: '/isolated-margin', args: ['account', 'symbol'] },
   accountSummary: { path: '/account-summary', args: ['account'] },
   accountMode: { path: '/account-mode', args: ['account'] },
+  positionMode: { path: '/position-mode', args: ['account', 'symbol'] },
   vaults: { path: '/vaults', args: [] },
   vaultHoldings: { path: '/vault-holdings', args: ['account'] },
   staking: { path: '/staking', args: [] },

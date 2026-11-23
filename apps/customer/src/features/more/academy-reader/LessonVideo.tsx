@@ -205,8 +205,8 @@ function TranscriptList({
   );
 }
 
-/** One video, read from Academy, then the player. */
-function LessonVideoReads({ videoSlug, onCompleted }: { videoSlug: string; onCompleted?: (items: string[]) => void }) {
+/** One video, read from Academy, then the player; the Videos room plays the one chosen with it too. */
+export function LessonVideoReads({ videoSlug, onCompleted }: { videoSlug: string; onCompleted?: (items: string[]) => void }) {
   const { player, playback, position, save } = useVideoReads(videoSlug);
   for (const read of [player, playback, position]) {
     if (read.resource.status === 'failed') return <AcademyRefusal failure={read.resource.failure} retry={read.reload} />;

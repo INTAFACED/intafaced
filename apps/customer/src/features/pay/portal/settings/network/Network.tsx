@@ -17,7 +17,6 @@ import type { SubMerchant } from '../account/schemas';
 import { ReadGate } from '../account/ui';
 
 import { NotPlatform } from './NotPlatform';
-export { NotPlatform };
 
 /** `/pay/network`: the businesses under this platform account, and a way to add one. */
 export function Network({ portal, merchantId, mode }: { portal: PortalApi; merchantId: string; mode: string | null }) {
@@ -43,7 +42,7 @@ export function NetworkView({
   const { t } = accountCopy.useCopy();
   const { t: p } = portalCopy.useCopy();
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <PaySection title={t('netListTitle')} description={t('netListBody')}>
         <ReadGate
           resource={subs}
@@ -92,7 +91,7 @@ function CreateSub({ portal, merchantId, allowed, done }: { portal: PortalApi; m
   const why = !allowed ? t('netOwnerOnly') : userId.trim() === '' ? t('netNeedUser') : bps === null ? t('netNeedFee') : undefined;
   return (
     <PaySection title={t('netCreateTitle')} description={t('netCreateBody')}>
-      <div data-testid="form-stack" className="form-stack pp-form">
+      <div data-testid="form-stack" className="lt-stack">
         <Field
           label={`${t('netUserLabel')} *`}
           value={userId}

@@ -519,7 +519,7 @@ pub fn set_goal(
     user_id: &str,
     goal: Option<Amount>,
 ) -> Result<Space, Refusal> {
-    if goal.is_some_and(|g| g <= 0) {
+    if goal.is_some_and(|g| g <= Amount::ZERO) {
         return Err(refuse(
             "bank.space_change_invalid",
             "A goal is an amount above zero; clear it to have none",
@@ -733,6 +733,45 @@ pub fn reported(b: &Balance) -> Result<Amount, Refusal> {
     }
 }
 
+/// One space's figure as the partner holding the person's money reports it (`partnerFigure` in `overview`): its label,
+/// the amount, its as-of time and whether it is older than `STALE_AFTER_MS`. The partner's list for the person is read
+/// once by the caller (`reports`); an account it did not list is asked for by itself. A figure the partner has not
+/// reported, or one dated ahead of now by more than the stale window, refuses by name: never shown, never 0.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HeldFigure {
+    pub label: &'static str,
+    pub amount: Amount,
+    pub as_of: Instant,
+    pub stale: bool,
+}
+
+pub fn held_figure(
+    partner: &Held<'_>,
+    reports: &[Balance],
+    space: &Space,
+    now: Instant,
+) -> Result<HeldFigure, Refusal> {
+    let account = space.partner_account();
+    let reported = reports
+        .iter()
+        .find(|b| b.account.asset_id == account.asset_id && b.account.space_id == account.space_id)
+        .cloned()
+        .unwrap_or_else(|| partner.balance(&account, now));
+    let (Some(amount), Some(as_of)) = (reported.amount, reported.as_of) else {
+        return Err(balance_not_known(reported.label));
+    };
+    let age = now.0 - as_of.0;
+    if age < -crate::partner::STALE_AFTER_MS {
+        return Err(balance_not_known(reported.label));
+    }
+    Ok(HeldFigure {
+        label: reported.label,
+        amount,
+        as_of,
+        stale: age > crate::partner::STALE_AFTER_MS,
+    })
+}
+
 impl Money<'_> {
     pub fn held(&self, user_id: &str) -> Option<Held<'_>> {
         self.custody.bank_for(user_id)
@@ -761,7 +800,7 @@ impl Money<'_> {
                     continue;
                 }
                 let amount = reported(&b)?;
-                if amount > 0 {
+                if amount > Amount::ZERO {
                     out.push((b.account.asset_id.clone(), amount));
                 }
             }
@@ -772,7 +811,10 @@ impl Money<'_> {
             .balances("user", user_id)
             .map_err(Refusal::Other)?
         {
-            if b.kind == "available" && b.amount > 0 && asset.is_none_or(|a| a == b.asset_id) {
+            if b.kind == "available"
+                && b.amount > Amount::ZERO
+                && asset.is_none_or(|a| a == b.asset_id)
+            {
                 out.push((b.asset_id, b.amount));
             }
         }
@@ -865,7 +907,7 @@ fn rows_of(
 }
 
 /// `fundedArchived`: archived named spaces whose balance is still above zero.
-fn funded_archived(
+pub fn funded_archived(
     pool: &Store,
     money: &Money<'_>,
     user_id: &str,
@@ -889,7 +931,7 @@ fn funded_archived(
     })?;
     let mut out = Vec::new();
     for s in rows {
-        if money.balance_of(&s)? > 0 {
+        if money.balance_of(&s)? > Amount::ZERO {
             out.push(s);
         }
     }

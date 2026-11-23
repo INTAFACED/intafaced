@@ -9,7 +9,7 @@
 use std::cmp::Ordering;
 
 use service_kit::json::Json;
-use service_kit::money::{Amount, cmp_products, parse_amount};
+use service_kit::money::{Amount, cmp_times, parse_amount};
 
 use crate::errors::Failure;
 use crate::posting::PostError;
@@ -98,8 +98,8 @@ fn is_floor_bps(amount: Amount, paid: Amount, bps: f64) -> bool {
         reason = "a whole, non-negative rate; past i128 it saturates, far above any rate below a stored taker rate"
     )]
     let bps = bps as i128;
-    cmp_products(amount, 10_000, paid, bps) != Ordering::Greater
-        && cmp_products(paid, bps, amount + 1, 10_000) == Ordering::Less
+    cmp_times(amount, 10_000, paid, bps) != Ordering::Greater
+        && cmp_times(paid, bps, amount + Amount::UNIT, 10_000) == Ordering::Less
 }
 
 /// `assertMakerRebateBound`: a maker rebate is paid only against the fill it rebates (SP-fees-vip-01).
@@ -365,7 +365,7 @@ fn fee_of(fee: Option<&Json>) -> Result<Option<Amount>, PostError> {
             "meta.fee is not a decimal string",
         );
     };
-    if fee <= 0 {
+    if fee <= Amount::ZERO {
         return refuse(WITHDRAW_FEE_UNBOUND, LEAD, "meta.fee is not above zero");
     }
     Ok(Some(fee))

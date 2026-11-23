@@ -29,7 +29,7 @@ fn parse_limit(value: Option<&str>) -> Result<Amount, OwnRefusal> {
         return Err(OwnRefusal::new("agents.spend.cap_unset"));
     }
     match parse_amount(text) {
-        Ok(a) if a >= 0 => Ok(a),
+        Ok(a) if a >= Amount::ZERO => Ok(a),
         _ => Err(OwnRefusal::new("agents.own.cap_invalid")),
     }
 }
@@ -212,6 +212,6 @@ mod tests {
                 "{bad}"
             );
         }
-        assert_eq!(parse_limit(Some(" 0 ")), Ok(0));
+        assert_eq!(parse_limit(Some(" 0 ")), Ok(Amount::ZERO));
     }
 }

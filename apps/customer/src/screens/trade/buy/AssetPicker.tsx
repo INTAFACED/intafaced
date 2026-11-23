@@ -1,6 +1,7 @@
-import { useId, useMemo, useState, type ReactNode } from 'react';
-import { Search } from 'lucide-react';
-import { CoinIcon, Dialog, DialogContent, DialogHeader, DialogTitle } from './deps';
+import { useMemo, useState, type ReactNode } from 'react';
+import { AssetIcon, Button } from '@intafaced/ui/lit';
+import { TextField } from '@intafaced/ui/lit/templates';
+import { KitDialog } from '../kit-parts';
 
 export interface PickerItem {
   asset: string;
@@ -14,7 +15,7 @@ export interface PickerItem {
 }
 
 /**
- * Search-and-pick list in a kit Dialog (UI-SPEC 5.9 item 3). Used for the coin on Buy and for From and To on Convert.
+ * Search-and-pick list in a kit dialog, drawn while `open` (UI-SPEC 5.9 item 3). Used for the coin on Buy and for From and To on Convert.
  * Rows are real buttons; the first match is reachable with Tab from the search box.
  */
 export function AssetPicker({
@@ -38,72 +39,53 @@ export function AssetPicker({
   onPick: (asset: string) => void;
 }) {
   const [query, setQuery] = useState('');
-  const inputId = useId();
   const shown = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return needle
       ? items.filter((item) => item.asset.toLowerCase().includes(needle) || (item.name ?? '').toLowerCase().includes(needle))
       : items;
   }, [items, query]);
+  if (!open) return null;
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        if (!next) setQuery('');
-        onOpenChange(next);
-      }}
-    >
-      <DialogContent className="picker">
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-        </DialogHeader>
-        <label className="picker__search" htmlFor={inputId}>
-          <Search size={16} aria-hidden="true" />
-          <input
-            id={inputId}
-            type="text"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder={searchLabel}
-            aria-label={searchLabel}
-            autoComplete="off"
-            spellCheck={false}
-          />
-        </label>
-        <ul data-testid="picker__list" className="picker__list">
-          {shown.map((item) => (
-            <li key={item.asset}>
-              <button
-                type="button"
-                data-testid="picker__row"
-                className="picker__row"
-                aria-pressed={item.asset === selected}
-                disabled={item.disabled}
-                onClick={() => {
-                  onPick(item.asset);
-                  setQuery('');
-                  onOpenChange(false);
-                }}
-              >
-                <CoinIcon asset={item.asset} size={32} />
-                <span className="picker__names">
-                  <span data-testid="picker__ticker" className="picker__ticker">
-                    {item.asset}
-                  </span>
-                  {item.name ? <span className="picker__name">{item.name}</span> : null}
-                  {item.note ? <span className="picker__name">{item.note}</span> : null}
-                </span>
-                {item.detail ? <span className="picker__detail">{item.detail}</span> : null}
-              </button>
-            </li>
-          ))}
-        </ul>
-        {shown.length === 0 ? (
-          <p data-testid="picker__none" className="picker__none">
-            {noMatch(query.trim())}
-          </p>
-        ) : null}
-      </DialogContent>
-    </Dialog>
+    <KitDialog title={title} onClose={() => onOpenChange(false)}>
+      <TextField
+        type="search"
+        label={searchLabel}
+        value={query}
+        onChange={setQuery}
+        placeholder={searchLabel}
+        autoComplete="off"
+        spellCheck={false}
+      />
+      <ul data-testid="picker__list" className="lt-stack">
+        {shown.map((item) => (
+          <li key={item.asset}>
+            <Button
+              data-testid="picker__row"
+              block
+              aria-pressed={item.asset === selected}
+              disabled={item.disabled}
+              onClick={() => {
+                onPick(item.asset);
+                onOpenChange(false);
+              }}
+            >
+              <AssetIcon asset={item.asset} size="md" />
+              <span className="lt-stack">
+                <span data-testid="picker__ticker">{item.asset}</span>
+                {item.name ? <span className="lt-hint">{item.name}</span> : null}
+                {item.note ? <span className="lt-hint">{item.note}</span> : null}
+              </span>
+              {item.detail ? <span className="lt-mono">{item.detail}</span> : null}
+            </Button>
+          </li>
+        ))}
+      </ul>
+      {shown.length === 0 ? (
+        <p data-testid="picker__none" className="lt-hint">
+          {noMatch(query.trim())}
+        </p>
+      ) : null}
+    </KitDialog>
   );
 }

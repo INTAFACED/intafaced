@@ -110,19 +110,23 @@
 <section class="lt-region" data-region="step" aria-label="This step">
 <div>
 <form aria-label="Report a death">
-<label class="field">
+<label class="lt-field">
 <span>Full name of the person who died</span>
 <input maxlength="200" autocomplete="off" value="" name="deceasedName">
 </label>
-<label class="field">
+<label class="lt-field">
 <span>Their email or handle, if you know it (optional)</span>
 <input maxlength="200" autocomplete="off" value="" name="deceasedContact">
 </label>
-<label class="field">
+<label class="lt-field">
 <span>Date of death</span>
+<span class="lit-date" data-empty="">
 <input max="2026-10-21" type="date" value="" name="dateOfDeath">
+<span data-part="shown" aria-hidden="true" data-shown="mo day, yr" style="inset-inline-start: calc(0px + 0px); font: 16px &quot;Times New Roman&quot;;">
+</span>
+</span>
 </label>
-<label class="field">
+<label class="lt-field">
 <span>Your relation to them</span>
 <select name="relation">
 <option value="spouse_or_partner">Spouse or partner</option>
@@ -134,21 +138,21 @@
 <option value="other">Other</option>
 </select>
 </label>
-<label class="field">
+<label class="lt-field">
 <span>Your full name</span>
 <input maxlength="200" autocomplete="name" value="" name="reporterName">
 </label>
-<label class="field">
+<label class="lt-field">
 <span>How we can reach you</span>
 <input maxlength="200" autocomplete="email" aria-describedby="bereavement-contact-hint" value="" name="reporterContact">
 <small id="bereavement-contact-hint">An email address or phone number.</small>
 </label>
-<label class="field">
+<label class="lt-field">
 <span>Anything else we should know (optional)</span>
 <textarea name="details" maxlength="5000" rows="4">
 </textarea>
 </label>
-<button type="submit" data-disabled="" tabindex="0" disabled="" data-slot="button" data-variant="primary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-lime text-on-lime hover:bg-lime-hover active:bg-lime-press h-10 px-5 text-base rounded-pill">Send report</button>
+<button disabled="" type="submit" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">Send report</button>
 </form>
 </div>
 </section>

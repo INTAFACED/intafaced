@@ -56,7 +56,7 @@ async function open(search = '') {
   await act(async () => mounted.render(<Deposit />));
 }
 const field = (label: string) =>
-  [...host.querySelectorAll('label.field')].find((node) => node.querySelector('span')?.textContent === label)!;
+  [...host.querySelectorAll('label.lt-field')].find((node) => node.querySelector('span')?.textContent === label)!;
 const select = (label: string) => field(label).querySelector('select')!;
 const type = (label: string, value: string) =>
   act(async () => {

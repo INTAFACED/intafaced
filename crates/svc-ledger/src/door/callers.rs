@@ -3,7 +3,7 @@
 //! A door with no caller refuses every key.
 
 /// `(door, callers)`, in the gate's order.
-pub const DOOR_CALLERS: [(&str, &[&str]); 22] = [
+pub const DOOR_CALLERS: [(&str, &[&str]); 23] = [
     (
         "post",
         &[
@@ -21,7 +21,7 @@ pub const DOOR_CALLERS: [(&str, &[&str]); 22] = [
             "svc-trade",
         ],
     ),
-    ("postRecipe", &["svc-academy", "svc-agents"]),
+    ("postRecipe", &["svc-academy", "svc-agents", "svc-bank"]),
     (
         "balance",
         &[
@@ -159,6 +159,7 @@ pub const DOOR_CALLERS: [(&str, &[&str]); 22] = [
     ("restoreWatermark", &["svc-ops"]),
     ("reconciliationEvaluations", &["svc-ops"]),
     ("transactionsExist", &["svc-ops"]),
+    ("operatorReverse", &["svc-ops"]),
     ("portfolio", &[]),
     ("statementPnl", &[]),
     ("reportExport", &[]),

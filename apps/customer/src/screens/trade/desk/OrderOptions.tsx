@@ -45,7 +45,7 @@ export function SelfTradeSelect() {
   const items = Object.fromEntries(SELF_TRADE.map(([mode, key]) => [mode, t(key)]));
   return (
     <div className="dk-tif dk-opt">
-      <span className="dk-tif-label" id="dk-stp-label">
+      <span className="lt-hint lt-nowrap" id="dk-stp-label">
         {t('Self trade')}
       </span>
       <Select items={items} value="cancel_maker">
@@ -83,7 +83,7 @@ export function TagField({ value, onChange }: { value: string; onChange: (next: 
   const { t } = deskCopy.useCopy();
   return (
     <label className="dk-tif dk-opt" title={t('Order tag help')}>
-      <span className="dk-tif-label">{t('Order tag')}</span>
+      <span className="lt-hint lt-nowrap">{t('Order tag')}</span>
       <input
         type="text"
         className="dk-expiry-input dk-tag-input"
@@ -105,7 +105,7 @@ export function TifSelect({ type, tif, onTif }: { type: OrderType; tif: Tif; onT
   const help = t(`${tifLabelKey(type, tif)} help` as TifHelpKey);
   return (
     <div className="dk-tif">
-      <span className="dk-tif-label" id="dk-tif-label">
+      <span className="lt-hint lt-nowrap" id="dk-tif-label">
         {t('Time in force')}
       </span>
       <Select items={items} value={tif} onValueChange={(next) => (next && next !== tif ? onTif(next as Tif) : undefined)}>

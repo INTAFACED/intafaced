@@ -41,6 +41,7 @@ export const venueOrdersCopy = defineCopy('trade.venue-orders', {
   reasonPositionClosed: 'The position it closed is gone, so the venue cancelled it',
   reasonRejected: 'The venue refused it: {failure}',
   reasonLinked: 'The other order attached to the same entry filled first',
+  reasonSelfTrade: 'Your own new order would have traded with it, so the venue’s self-trade rule cancelled this one',
   fills: 'Fills',
   noFills: 'Nothing has filled.',
   fillSummary: '{amount} at {price}, {role}, {time}',

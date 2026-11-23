@@ -20,6 +20,7 @@ import {
   PAY_FOUNDER_ADMIN_CUSTODY_APPROVERS_LIST,
   PAY_FOUNDER_ADMIN_DEPOSIT_OPEN_ITEMS_LIST,
   PAY_FOUNDER_ADMIN_CUSTODY_TASKS_GET,
+  PAY_FOUNDER_ADMIN_CUSTODY_TASKS_CANCEL,
 } from '@intafaced/contracts/pay-founder-admin-procedures';
 
 /**
@@ -80,6 +81,8 @@ export async function decideTask(
   taskId: string,
   payloadHash: string | null,
 ): Promise<FounderCallResult<CustodyTask>> {
-  const input = decision === 'cancel' ? { taskId } : { taskId, payloadHash };
-  return founderCall(ctx, 'pay', `founderAdmin.custody.tasks.${decision}`, 'POST', input, parseWith(custodyTaskViewSchema));
+  const read = parseWith(custodyTaskViewSchema);
+  if (decision === 'cancel') return founderRecordRead(ctx, PAY_FOUNDER_ADMIN_CUSTODY_TASKS_CANCEL, { taskId }, read);
+  const choice: 'approve' | 'reject' = decision;
+  return founderCall(ctx, 'pay', `founderAdmin.custody.tasks.${choice}`, 'POST', { taskId, payloadHash }, read);
 }

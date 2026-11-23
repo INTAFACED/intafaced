@@ -258,7 +258,7 @@ test(`${J} #1 opens the payout board: intents by state, owed, pending funding, s
   for (const s of ['owed', 'pending_funding', 'sending', 'paid', 'failed']) {
     const count = page.locator(`[data-testid="payout-count"][data-board="${s}"]`);
     await expect(count).toBeVisible();
-    expect(Number(await count.getAttribute('data-count'))).toBeGreaterThanOrEqual(1);
+    await expect.poll(async () => Number(await count.getAttribute('data-count'))).toBeGreaterThanOrEqual(1);
   }
   for (const heading of ['Owed', 'Pending funding', 'Sending', 'Paid', 'Failed']) {
     await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible();

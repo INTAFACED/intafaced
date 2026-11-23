@@ -1,5 +1,5 @@
 import { useRef, useState, type ReactNode } from 'react';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import { Field } from '../../../ui-kit';
 import { useResource, type Resource } from '../../../../../shared/resource';
 import type { ApiResult } from '../../../../../shared/api';
@@ -175,7 +175,7 @@ export function ApplicationView(props: ApplicationViewProps) {
               if (application && !turnedDown) return <Started {...props} types={types} application={application} />;
               if (turnedDown)
                 return (
-                  <div className="stack">
+                  <div className="lt-stack">
                     <Started {...props} types={types} application={application} />
                     <h3 className="pp-sub">{t('againTitle')}</h3>
                     {start}
@@ -247,7 +247,7 @@ function StartForm({ portal, merchant, types, onChanged }: Omit<ApplicationViewP
   const [country, setCountry] = useState(types[0]!.countries[0] ?? '');
   const saver = useSaver();
   return (
-    <div data-testid="form-stack" className="form-stack pp-form">
+    <div data-testid="form-stack" className="lt-stack">
       <TypeAndCountry
         types={types}
         entityType={entityType}
@@ -258,9 +258,9 @@ function StartForm({ portal, merchant, types, onChanged }: Omit<ApplicationViewP
         }}
       />
       <p className="muted pp-note">{t('startBody')}</p>
-      <div className="pp-actions">
+      <div className="lt-actions">
         <Button
-          variant="primary"
+          tone="primary"
           disabled={saver.busy}
           onClick={() =>
             saver.run(
@@ -296,7 +296,7 @@ function Started(props: Inner) {
         : t('statusSubmitted');
   const published = props.types.find((type) => type.entityType === application.entityType);
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <Facts
         items={[
           [t('statusLabel'), <strong>{status}</strong>],
@@ -355,7 +355,7 @@ function SectionPanel(props: Inner & { section: Section; published: EntityType |
   return (
     <section className="sa-group" aria-label={title}>
       <h3 className="pp-sub">
-        {title} · <span className="muted">{state}</span>
+        {title} · <span className="lt-muted">{state}</span>
       </h3>
       {body}
     </section>
@@ -399,7 +399,7 @@ function CompanyDetails(props: Inner & { section: Section }) {
   return (
     <form
       data-testid="form-stack"
-      className="form-stack pp-form"
+      className="lt-stack"
       noValidate
       onSubmit={(e) => {
         e.preventDefault();
@@ -464,14 +464,14 @@ function People(props: Inner & { section: Section; roles: string[] }) {
   return (
     <form
       data-testid="form-stack"
-      className="form-stack pp-form"
+      className="lt-stack"
       noValidate
       onSubmit={(e) => {
         e.preventDefault();
         save(done, answers);
       }}
     >
-      <p className="muted">{t('peopleBody')}</p>
+      <p className="lt-muted">{t('peopleBody')}</p>
       {missingRoles.length > 0 && (
         <p className="pp-callout" role="note">
           {t('peopleRolesNeeded', { roles: missingRoles.map(keyWords).join(', ') })}
@@ -500,7 +500,7 @@ function People(props: Inner & { section: Section; roles: string[] }) {
             hint={t('hOwnership')}
           />
           {draft && people.length > 1 && (
-            <Button variant="secondary" type="button" onClick={() => setPeople(people.filter((_, j) => j !== i))}>
+            <Button tone="secondary" type="button" onClick={() => setPeople(people.filter((_, j) => j !== i))}>
               {t('removePerson')}
             </Button>
           )}
@@ -508,8 +508,8 @@ function People(props: Inner & { section: Section; roles: string[] }) {
       ))}
       {draft &&
         (people.length < MAX_PEOPLE ? (
-          <div className="pp-actions">
-            <Button variant="secondary" type="button" onClick={() => setPeople([...people, emptyPerson(missingRoles[0] ?? roles[0])])}>
+          <div className="lt-actions">
+            <Button tone="secondary" type="button" onClick={() => setPeople([...people, emptyPerson(missingRoles[0] ?? roles[0])])}>
               {t('addPerson')}
             </Button>
           </div>
@@ -535,14 +535,14 @@ function Questions(props: Inner & { section: Section; keys: string[] }) {
   return (
     <form
       data-testid="form-stack"
-      className="form-stack pp-form"
+      className="lt-stack"
       noValidate
       onSubmit={(e) => {
         e.preventDefault();
         save(done, Object.fromEntries(keys.filter((k) => (answers[k] ?? '').trim()).map((k) => [k, answers[k]!.trim()])));
       }}
     >
-      <p className="muted">{t('questionsBody')}</p>
+      <p className="lt-muted">{t('questionsBody')}</p>
       {keys.map((key) => (
         <Field
           key={key}
@@ -574,8 +574,8 @@ function Documents(props: Inner & { section: Section }) {
         const rules = checklist.uploadRules;
         const allSent = checklist.rows.every(usable);
         return (
-          <div data-testid="form-stack" className="form-stack pp-form">
-            <p className="muted">{t('docsBody')}</p>
+          <div data-testid="form-stack" className="lt-stack">
+            <p className="lt-muted">{t('docsBody')}</p>
             {checklist.vendorCheck.status === 'not_connected' && (
               <Blocker reason={t('docsVendorReason')} needs="automatic document check" title={t('docsVendorTitle')}>
                 {t('docsVendor')}
@@ -590,7 +590,7 @@ function Documents(props: Inner & { section: Section }) {
                 {t('docsRulesBody')}
               </Blocker>
             )}
-            <table className="pp-table">
+            <table>
               <thead>
                 <tr>
                   <th scope="col">{t('docName')}</th>
@@ -611,8 +611,8 @@ function Documents(props: Inner & { section: Section }) {
             </table>
             {draft && props.section.state !== 'complete' && (
               <>
-                <div className="pp-actions">
-                  <Button variant="primary" disabled={!allSent || saver.busy} onClick={() => save(true, {})}>
+                <div className="lt-actions">
+                  <Button tone="primary" disabled={!allSent || saver.busy} onClick={() => save(true, {})}>
                     {t('docsConfirm')}
                   </Button>
                 </div>
@@ -639,15 +639,15 @@ function DocumentLine({ portal, application, row, rules, reloadDocuments }: Inne
       <td>
         <strong>{t(`docState_${row.state}` as 'docState_missing')}</strong>
         {row.state === 'rejected' && row.rejectionReason && (
-          <small className="pay-cell-note">{t('docReason', { reason: row.rejectionReason })}</small>
+          <small className="lt-hint">{t('docReason', { reason: row.rejectionReason })}</small>
         )}
-        {row.document && <small className="pay-cell-note">{t('docSent', { size: formatBytes(String(row.document.byteLength)) })}</small>}
+        {row.document && <small className="lt-hint">{t('docSent', { size: formatBytes(String(row.document.byteLength)) })}</small>}
       </td>
       <td>
         {rules && (
-          <div data-testid="form-stack" className="form-stack">
-            <label className="field">
-              <span className="sr-only">{t('chooseFile', { name })}</span>
+          <div data-testid="form-stack" className="lt-stack">
+            <label className="lt-field">
+              <span className="lt-sr">{t('chooseFile', { name })}</span>
               <input
                 type="file"
                 aria-label={t('chooseFile', { name })}
@@ -665,7 +665,7 @@ function DocumentLine({ portal, application, row, rules, reloadDocuments }: Inne
               </small>
             )}
             <Button
-              variant="secondary"
+              tone="secondary"
               disabled={!file || Boolean(problem) || saver.busy}
               onClick={() =>
                 file &&
@@ -693,7 +693,7 @@ function DocumentLine({ portal, application, row, rules, reloadDocuments }: Inne
 function Submit({ portal, application, onChanged, onSubmitted }: Inner) {
   const { t } = applicationCopy.useCopy();
   return (
-    <div className="pp-actions">
+    <div className="lt-actions">
       <PortalReview
         title={t('submit')}
         variant="primary"
@@ -720,7 +720,7 @@ function ChangeType({ portal, application, types, onChanged }: Inner) {
   return (
     <section className="sa-group" aria-label={t('changeTitle')}>
       <h3 className="pp-sub">{t('changeTitle')}</h3>
-      <p className="muted">{t('changeBody')}</p>
+      <p className="lt-muted">{t('changeBody')}</p>
       {types.length > 0 && (
         <TypeAndCountry
           types={types}
@@ -733,7 +733,7 @@ function ChangeType({ portal, application, types, onChanged }: Inner) {
           }}
         />
       )}
-      <div className="pp-actions">
+      <div className="lt-actions">
         <PortalReview
           title={t('changeButton')}
           variant="secondary"
@@ -805,8 +805,8 @@ function SaveRow({ saver, done }: { saver: Saver; done: boolean }) {
   const { t } = applicationCopy.useCopy();
   return (
     <>
-      <div className="pp-actions">
-        <Button variant="primary" type="submit" disabled={saver.busy}>
+      <div className="lt-actions">
+        <Button tone="primary" type="submit" disabled={saver.busy}>
           {t('save')}
         </Button>
       </div>

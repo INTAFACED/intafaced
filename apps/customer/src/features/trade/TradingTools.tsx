@@ -171,7 +171,7 @@ function GuardResult({ guard }: { guard: ReturnType<typeof useWriteGuard> }) {
               {guard.pending.id}.{' '}
             </span>
           )}{' '}
-          <a href="/support" className="text-link">
+          <a href="/support" className="lt-link">
             <CopyText k="contactSupportWithTheOriginalRequestId" />
           </a>
         </p>
@@ -204,12 +204,12 @@ export function TradingTools({
       title={choiceNode(mode)}
       description={descriptions[mode]}
       actions={
-        <a className="text-link" href={`/exchange${simulation ? '?simulated=true' : ''}`}>
+        <a className="lt-link" href={`/exchange${simulation ? '?simulated=true' : ''}`}>
           <CopyText k="backToSpotDesk" />
         </a>
       }
     >
-      <div className="trade-tools">
+      <div className="lt-stack">
         {mode === 'Convert' ? (
           <Convert tools={tools} markets={markets} simulation={simulation} />
         ) : mode === 'Quote desk' ? (
@@ -237,7 +237,7 @@ const descriptions: Record<string, ReactNode> = {
 };
 function PairField({ markets, symbol, onChange }: { markets: Listing[]; symbol: string; onChange: (symbol: string) => void }) {
   return (
-    <label className="field">
+    <label className="lt-field">
       <CopyText k="market4af4ec" />
       <select value={symbol} onChange={(event) => onChange(event.target.value)}>
         <option value="">{copy.t('choosePublishedMarket')}</option>
@@ -308,7 +308,7 @@ function Convert({ tools, markets, simulation }: { tools: ToolApi; markets: List
             setQuote(null);
           }}
         />
-        <label className="field">
+        <label className="lt-field">
           <CopyText k="direction" />
           <select
             value={side}
@@ -593,7 +593,7 @@ function QuoteDesk({ tools, markets, simulation }: { tools: ToolApi; markets: Li
               setQuote(null);
             }}
           />
-          <label className="field">
+          <label className="lt-field">
             <CopyText k="side90eb04" />
             <select
               value={side}
@@ -876,7 +876,7 @@ function Futures({
             setSize('');
           }}
         />
-        <label className="field">
+        <label className="lt-field">
           <CopyText k="direction" />
           <select
             value={side}
@@ -919,7 +919,7 @@ function Futures({
             setPreview(null);
           }}
         />
-        <label className="field">
+        <label className="lt-field">
           <CopyText k="positionSizeUnits" />
           <select
             aria-label={copy.t('positionSizeUnits417a24')}
@@ -1167,7 +1167,7 @@ function Execution({ tools, simulation }: { tools: ToolApi; simulation: boolean 
           <Capability key={index} title={title ?? ''} detail={detail ?? ''} />
         ))}
       </div>
-      <a className="text-link" href={`/quant/studio${simulation ? '?simulated=true' : ''}`}>
+      <a className="lt-link" href={`/quant/studio${simulation ? '?simulated=true' : ''}`}>
         <CopyText k="openQuantStudio" />
       </a>
     </>
@@ -1228,11 +1228,11 @@ function Margin({ simulation }: { simulation: boolean }) {
           detail={<CopyText k={'aPerMarketBorrowAndRepaymentContractIsMissingSpotBuys'} />}
         />
       </div>
-      <div className="actions">
-        <a className="text-link" href={`/exchange${simulation ? '?simulated=true' : ''}`}>
+      <div className="lt-actions">
+        <a className="lt-link" href={`/exchange${simulation ? '?simulated=true' : ''}`}>
           <CopyText k="tradeFullyFundedSpot" />
         </a>
-        <a className="text-link" href={`/trade/futures${simulation ? '?simulated=true' : ''}`}>
+        <a className="lt-link" href={`/trade/futures${simulation ? '?simulated=true' : ''}`}>
           <CopyText k="viewIsolatedFuturesRisk" />
         </a>
       </div>

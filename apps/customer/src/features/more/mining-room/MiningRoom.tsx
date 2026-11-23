@@ -26,6 +26,7 @@ import type { MiningHealth } from '../mining-journey';
 import { miningDepthCopy } from '../mining-depth-copy';
 import { CONNECTION_UNSET, OVERVIEW_UNSET, PROBE_REFUSALS, SECTIONS } from '../mining-pool-codes';
 import { miningPoolCopy } from '../mining-pool-copy';
+import { isPlaceholderAddress, shortReference } from '../../../shared/reference';
 import { preservePaperHref } from '../trade-context';
 import { EmptyNote, FailureNote, Section, Waiting } from '../volt-parts';
 
@@ -159,22 +160,24 @@ function OverviewView({ read }: { read: Read<PoolOverview> }) {
   return (
     <Section title={t('overviewTitle')}>
       {data?.what ? <p>{data.what}</p> : null}
-      {SECTIONS.map(({ key, field }) => {
-        const text = data ? data[field] : null;
-        return (
-          <section key={key} aria-label={t(key)} data-state={text === null ? 'unset' : 'set'}>
-            <h3>{t(key)}</h3>
-            {text === null ? <p className="lt-hint">{t('notSet')}</p> : <p>{text}</p>}
-          </section>
-        );
-      })}
+      <div className="lt-kv">
+        {SECTIONS.map(({ key, field }) => {
+          const text = data ? data[field] : null;
+          return (
+            <section key={key} aria-label={t(key)} data-state={text === null ? 'unset' : 'set'}>
+              <h3>{t(key)}</h3>
+              {text === null ? <p className="lt-hint">{t('notSet')}</p> : <p>{text}</p>}
+            </section>
+          );
+        })}
+      </div>
       {data ? <p className="lt-hint">{t('overviewVersion', { version: data.version })}</p> : null}
     </Section>
   );
 }
 
 /** How to point a rig at the pool: each value with its copy button, and the worker name for the rig typed here. */
-function ConnectView({ read }: { read: Read<PoolConnection> }) {
+export function ConnectView({ read }: { read: Read<PoolConnection> }) {
   const { t } = miningPoolCopy.useCopy();
   const [rig, setRig] = useState('');
   const { resource } = read;
@@ -198,14 +201,22 @@ function ConnectView({ read }: { read: Read<PoolConnection> }) {
               label={t('poolAddress')}
               copyLabel={t('copyPoolAddress')}
               value={`${resource.data.host}:${resource.data.port}`}
+              shown={isPlaceholderAddress(resource.data.host) ? t('testAddress') : undefined}
             />
-            <CopyLine id="mining-account-id" label={t('accountId')} copyLabel={t('copyAccountId')} value={resource.data.accountId} />
+            <CopyLine
+              id="mining-account-id"
+              label={t('accountId')}
+              copyLabel={t('copyAccountId')}
+              value={resource.data.accountId}
+              shown={shortReference(resource.data.accountId)}
+            />
             {resource.data.secureUrl === null ? null : (
               <CopyLine
                 id="mining-secure-address"
                 label={t('secureAddress')}
                 copyLabel={t('copySecureAddress')}
                 value={resource.data.secureUrl}
+                shown={isPlaceholderAddress(resource.data.secureUrl) ? t('testAddress') : undefined}
               />
             )}
             <CopyLine
@@ -287,12 +298,16 @@ function CopyLine({
   label,
   copyLabel,
   value,
+  shown,
   empty,
 }: {
   id: string;
   label: string;
   copyLabel: string;
   value: string | null;
+  /** What the line reads when the value itself is no text for a person (a long id, a test machine's address); the copy
+   *  button still copies `value`. */
+  shown?: string;
   /** What shows in place of a missing value; "Not set" unless said. */
   empty?: string;
 }) {
@@ -302,9 +317,16 @@ function CopyLine({
     <div>
       <dt>{label}</dt>
       <dd>
-        <code className="lt-mono" data-testid={id} lang="und" dir="ltr">
-          {value ?? empty ?? t('notSet')}
-        </code>{' '}
+        {/* A value is code; its absence is words, so the hint reads as a hint and not as a value to copy. */}
+        {value === null ? (
+          <span className="lt-hint" data-testid={id}>
+            {empty ?? t('notSet')}
+          </span>
+        ) : (
+          <code className="lt-mono" data-testid={id} lang="und" dir="ltr" title={shown ? value : undefined}>
+            {shown ?? value}
+          </code>
+        )}{' '}
         <Button tone="secondary" aria-label={copyLabel} disabled={value === null} onClick={() => void copy()}>
           {state === 'done' ? t('copied') : copyLabel}
         </Button>
@@ -317,7 +339,7 @@ function CopyLine({
 }
 
 /** The reachability test: one connect from the pool's own network to its published address; the last answer stays shown. */
-function ProbeView({ state, onPress }: { state: ProbeState; onPress: () => void }) {
+export function ProbeView({ state, onPress }: { state: ProbeState; onPress: () => void }) {
   const { t } = miningPoolCopy.useCopy();
   const code = state.status === 'failed' ? state.failure.code : undefined;
   const refusal = code !== undefined && Object.hasOwn(PROBE_REFUSALS, code) ? PROBE_REFUSALS[code] : undefined;

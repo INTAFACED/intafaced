@@ -95,7 +95,7 @@ function InstantSwitch({ instant, zone }: { instant: InstantControl; zone: Zone 
       >
         {t('Instant placement')}
       </button>
-      <span className="of-note" role="status" data-testid="of-instant-status" data-agreed-at={agreedAt ?? ''}>
+      <span className="lt-muted" role="status" data-testid="of-instant-status" data-agreed-at={agreedAt ?? ''}>
         {status}
       </span>
       {note ? (
@@ -169,7 +169,7 @@ export function OneClickBar({
       <InstantSwitch instant={instant} zone={zone} />
       <div className="of-presets" role="group" aria-label={t('Size presets')}>
         {presets.length === 0 ? (
-          <span className="of-note" data-testid="of-presets-empty">
+          <span className="lt-muted" data-testid="of-presets-empty">
             {t('Presets none')}
           </span>
         ) : (
@@ -205,7 +205,7 @@ export function OneClickBar({
             })
           : t('Close none', { asset: market.base })}
       </button>
-      <p className="of-note">{instant.on ? t('One click instant hint') : t('One click review hint')}</p>
+      <p className="lt-muted">{instant.on ? t('One click instant hint') : t('One click review hint')}</p>
     </section>
   );
 }

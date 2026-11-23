@@ -987,3 +987,22 @@ export const BANK_CARDS_PARTNER_HELD = defineProcedure({
     { verdict: 'refuse', input: 42 },
   ],
 });
+
+/**
+ * Freeze, unfreeze or close. The gesture a user reaches for first when
+ * something is wrong, so it is user surface and not an operator ticket.
+ */
+export const BANK_CARDS_SET_STATUS = defineProcedure({
+  ...base,
+  name: 'bank.cards.setStatus',
+  kind: 'mutation',
+  path: 'cards.setStatus',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({ cardId: z.string().guid(), status: z.enum(['active', 'frozen', 'closed']), stepUpApprovalId: stepUpApprovalField }),
+  output: z.object({ id: z.string(), status: z.string() }),
+  samples: [
+    { verdict: 'accept', input: { cardId: '11111111-1111-4111-8111-111111111111', status: 'active' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
