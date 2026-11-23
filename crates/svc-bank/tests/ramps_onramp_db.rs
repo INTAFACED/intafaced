@@ -55,7 +55,7 @@ use service_kit::json::{self, Json};
 use service_kit::money::{Amount, parse_amount};
 use service_kit::s2s::{self, system_seconds};
 use service_kit::s2s_verify::BodyBind;
-use service_kit::server::Request;
+use service_kit::server::{Answer as Served, Door, Request};
 use service_kit::time::Instant;
 use sha3::{Digest, Keccak256};
 use svc_bank::door::{self, BankDoor, DoorConfig, Kind, ServiceAuth};
@@ -632,17 +632,34 @@ fn send(
     body: &str,
     headers: &[(String, String)],
 ) -> (u16, String) {
-    let res = door.handle_from(
-        &Request {
-            method,
-            url,
-            headers,
-            body,
-        },
-        "req-ramps-onramp-db",
-        "127.0.0.1",
-    );
+    let res = served(door, method, url, body, headers);
     (res.status, res.body)
+}
+
+/// One request from loopback as the kit's server routes it: a page answer first (`Door::page`), else the door's JSON.
+fn served(
+    door: &BankDoor,
+    method: &str,
+    url: &str,
+    body: &str,
+    headers: &[(String, String)],
+) -> Served {
+    let req = Request {
+        method,
+        url,
+        headers,
+        body,
+    };
+    if let Some(page) = Door::page(door, &req, "127.0.0.1") {
+        return page;
+    }
+    let res = door.handle_from(&req, "req-ramps-onramp-db", "127.0.0.1");
+    Served {
+        status: res.status,
+        content_type: "application/json; charset=utf-8",
+        headers: Vec::new(),
+        body: res.body,
+    }
 }
 
 fn call(door: &BankDoor, user: &str, scopes: &[&str], path: &str, input: &Json) -> Answer {
@@ -1581,7 +1598,27 @@ fn approved_on_the_page_is_pending_and_sends_the_payer_back_approving_again_chan
         opened_view(&door, &id).unwrap().return_url,
         format!("http://127.0.0.1:3210/bank/ramps/new?request={id}")
     );
-    assert_eq!(approve(&door, &id).0, 303);
+    // The approve sends the browser back to that address (J-bank-02 #3 "back here pending").
+    let back = served(
+        &door,
+        "POST",
+        &format!("/test/payin-sim/pay/{id}/approve"),
+        "",
+        &[(
+            "content-type".to_owned(),
+            "application/x-www-form-urlencoded".to_owned(),
+        )],
+    );
+    assert_eq!(
+        (back.status, back.headers),
+        (
+            303,
+            vec![(
+                "location",
+                format!("http://127.0.0.1:3210/bank/ramps/new?request={id}")
+            )]
+        )
+    );
     let first = request_of(&door, ADA, &id).ok();
     matches(
         &first,
@@ -3342,8 +3379,23 @@ fn the_test_page_shows_the_payment_labelled_test_and_refuses_a_bad_id() {
     let door = b.door(stack());
     let (_q, request) = opened(&door, ADA);
     let id = s(&request, "requestId");
-    let (status, page) = send(&door, "GET", &format!("/test/payin-sim/pay/{id}"), "", &[]);
+    let served_page = served(&door, "GET", &format!("/test/payin-sim/pay/{id}"), "", &[]);
+    let (status, page) = (served_page.status, served_page.body.clone());
     assert_eq!(status, 200);
+    // A browser draws it as a page (J-bank-02 #3 found no label while it went out as JSON), never caches it, and the
+    // approve form may post only here and to the app.
+    assert_eq!(served_page.content_type, "text/html; charset=utf-8");
+    assert_eq!(
+        served_page.headers,
+        vec![
+            ("cache-control", "no-store".to_owned()),
+            (
+                "content-security-policy",
+                "default-src 'none'; form-action 'self' http://127.0.0.1:3210; frame-ancestors 'none'"
+                    .to_owned()
+            ),
+        ]
+    );
     assert!(
         page.contains("<p data-testid=\"payin-sim-label\">TEST pay-in stand-in</p>"),
         "{page}"

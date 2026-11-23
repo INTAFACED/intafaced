@@ -51,6 +51,13 @@ pub trait Door: Sync {
         let _ = req;
         None
     }
+    /// An answer that is not JSON, from the TCP peer `peer`: a page with its own content type, or a redirect, each with
+    /// the headers it needs (a Fastify route's `reply.headers`). `None`, the default, sends the request on to
+    /// `handle_from`.
+    fn page(&self, req: &Request<'_>, peer: &str) -> Option<Answer> {
+        let _ = (req, peer);
+        None
+    }
     /// The process's request metrics (a service's `registerMetrics`). `Some`: the server serves `GET /metrics` and
     /// observes every reply it sends there. `None`, the default: no such route, nothing observed.
     fn metrics(&self) -> Option<&Metrics> {
@@ -87,11 +94,13 @@ impl RequestIds {
 /// Requests served at once.
 pub const WORKERS: usize = 16;
 
-/// One answer: status, content type, body.
+/// One answer: status, content type, any other headers, body.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Answer {
     pub status: u16,
     pub content_type: &'static str,
+    /// Headers besides the content type (`cache-control`, `location`, ...), names in lower case.
+    pub headers: Vec<(&'static str, String)>,
     pub body: String,
 }
 
@@ -131,6 +140,7 @@ impl<D: Door> App<D> {
         let json = |status: u16, body: String| Answer {
             status,
             content_type: FASTIFY_JSON,
+            headers: Vec::new(),
             body,
         };
         if matches!(method, "GET" | "HEAD")
@@ -146,6 +156,7 @@ impl<D: Door> App<D> {
             return Answer {
                 status: 200,
                 content_type: metrics::PROMETHEUS_CONTENT_TYPE,
+                headers: Vec::new(),
                 body: registry.render() + &extra,
             };
         }
@@ -172,16 +183,16 @@ impl<D: Door> App<D> {
                 return json(200, self.ready_body.clone());
             }
         }
-        let res = self.wire.handle_from(
-            &Request {
-                method,
-                url,
-                headers,
-                body,
-            },
-            request_id,
-            peer,
-        );
+        let req = Request {
+            method,
+            url,
+            headers,
+            body,
+        };
+        if let Some(page) = self.wire.page(&req, peer) {
+            return page;
+        }
+        let res = self.wire.handle_from(&req, request_id, peer);
         Answer {
             status: res.status,
             content_type: if path.starts_with("/trpc/") {
@@ -189,6 +200,7 @@ impl<D: Door> App<D> {
             } else {
                 FASTIFY_JSON
             },
+            headers: Vec::new(),
             body: res.body,
         }
     }
@@ -301,6 +313,11 @@ fn answer<D: Door>(mut req: tiny_http::Request, app: &App<D>, log: &Logger, tele
     let mut response = tiny_http::Response::from_data(content).with_status_code(status);
     if let Ok(h) = tiny_http::Header::from_bytes("content-type", out.content_type) {
         response = response.with_header(h);
+    }
+    for (name, value) in &out.headers {
+        if let Ok(h) = tiny_http::Header::from_bytes(*name, value.as_bytes()) {
+            response = response.with_header(h);
+        }
     }
     if method == "HEAD"
         && let Ok(h) = tiny_http::Header::from_bytes("content-length", out.body.len().to_string())

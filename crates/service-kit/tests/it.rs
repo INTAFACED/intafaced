@@ -20,6 +20,8 @@ mod one_outbox;
 mod outbox_db;
 #[path = "server_connections.rs"]
 mod server_connections;
+#[path = "server_page.rs"]
+mod server_page;
 
 /// A `tests/*.rs` or `tests/*/main.rs` file this root does not list would never run.
 #[test]

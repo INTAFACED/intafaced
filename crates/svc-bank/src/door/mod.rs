@@ -36,7 +36,7 @@ use service_kit::json::Json;
 use service_kit::s2s::Mode;
 use service_kit::s2s_verify::{self, BodyBind, Incoming, ServiceVerifier};
 use service_kit::schema::Value;
-use service_kit::server::{Door, Request, RequestIds, Response};
+use service_kit::server::{Answer, Door, Request, RequestIds, Response};
 use service_kit::time::Instant;
 use service_kit::trpc::{self, TrpcError};
 
@@ -1017,5 +1017,10 @@ impl Door for BankDoor {
     /// read once at boot (`ready::body`).
     fn status(&self, _req: &Request<'_>) -> Option<Response> {
         None
+    }
+
+    /// The pay-in stand-in's TEST page and approve redirect, which are not JSON.
+    fn page(&self, req: &Request<'_>, _peer: &str) -> Option<Answer> {
+        crate::ramps::onramp::page_doors(self, req)
     }
 }

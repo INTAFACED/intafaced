@@ -23,7 +23,7 @@ pub mod sim;
 
 use service_kit::json::Json;
 use service_kit::schema::Value;
-use service_kit::server::{Request, Response};
+use service_kit::server::{Answer, Request, Response};
 use service_kit::trpc::TrpcError;
 
 use crate::door::{BankDoor, Ctx};
@@ -422,16 +422,27 @@ fn decoded(raw: &str) -> String {
 
 const PAGE_BASE: &str = "/test/payin-sim/pay/";
 
-/// The TEST page and its approve button. Mounted only with the pay-in partner.
-///
-/// GAP: the kit's `Response` carries a status and a body only, so the page goes without its `text/html` content type,
-/// `cache-control: no-store` and content security policy, and the approve's 303 without its `Location`.
+/// Fastify's JSON content type, which the page's refusals keep.
+const JSON_TYPE: &str = "application/json; charset=utf-8";
+
+/// A JSON refusal as a page answer.
+fn json_answer(res: Response) -> Answer {
+    Answer {
+        status: res.status,
+        content_type: JSON_TYPE,
+        headers: Vec::new(),
+        body: res.body,
+    }
+}
+
+/// The TEST page and its approve button (`payin-sim-page.ts`): the page in `text/html` with `cache-control: no-store`
+/// and its content security policy, the approve a 303 to the app's return address. Mounted only with the pay-in partner.
 fn page_door(
     door: &BankDoor,
     partner: &payin::PayinSim,
     req: &Request<'_>,
     path: &str,
-) -> Option<Response> {
+) -> Option<Answer> {
     let rest = path.strip_prefix(PAGE_BASE)?;
     let (raw, approve) = match rest.strip_suffix("/approve") {
         Some(id) => (id, true),
@@ -450,12 +461,16 @@ fn page_door(
                 .starts_with("application/x-www-form-urlencoded")
         });
         if !form && let Err(res) = crate::door::rest::read_body(req) {
-            return Some(res);
+            return Some(json_answer(res));
         }
     }
     let id = decoded(raw);
     if !shape::uuid(&id) {
-        return Some(reply(400, "not a payment id", "bank.validation_failed"));
+        return Some(json_answer(reply(
+            400,
+            "not a payment id",
+            "bank.validation_failed",
+        )));
     }
     let now = door.now();
     let res = door.ramps_deps(now, |d| {
@@ -468,11 +483,21 @@ fn page_door(
     });
     let answer = match res {
         Ok(a) => a,
-        Err(e) => return Some(page_refuse(e)),
+        Err(e) => return Some(json_answer(page_refuse(e))),
     };
     if !approve {
-        return Some(Response {
+        // The approve form posts here and is redirected to the app, so the app's origin is a form target too.
+        let policy = format!(
+            "default-src 'none'; form-action 'self' {}; frame-ancestors 'none'",
+            partner.return_origin()
+        );
+        return Some(Answer {
             status: 200,
+            content_type: "text/html; charset=utf-8",
+            headers: vec![
+                ("cache-control", "no-store".to_owned()),
+                ("content-security-policy", policy),
+            ],
             body: page(partner.label(), &answer.viewed, &answer.return_url),
         });
     }
@@ -481,8 +506,10 @@ fn page_door(
         // The TS delivers after the reply; here it delivers before it. A failure leaves the request pending.
         deliver(door, partner, &answer.viewed);
     }
-    Some(Response {
+    Some(Answer {
         status: 303,
+        content_type: JSON_TYPE,
+        headers: vec![("location", answer.return_url.clone())],
         body: String::new(),
     })
 }
@@ -551,12 +578,18 @@ fn record_door(
     })
 }
 
-/// The pay-in stand-in's TEST page (`/test/payin-sim/pay/:onrampId`, `.../approve`) and the loopback TEST ramp
-/// partner's record doors (`/test-ramp-partner/{venue,report,age}`); `None` for any other request, and for all of them
-/// with no pay-in partner.
+/// The loopback TEST ramp partner's record doors (`/test-ramp-partner/{venue,report,age}`); `None` for any other
+/// request, and for all of them with no pay-in partner.
 pub fn doors(door: &BankDoor, req: &Request<'_>, peer: &str) -> Option<Response> {
     let partner = door.ramps().onramp.partner.as_ref()?;
     let path = req.url.split_once('?').map_or(req.url, |(p, _)| p);
+    record_door(partner, req, path, peer, door.now())
+}
+
+/// The pay-in stand-in's TEST page (`/test/payin-sim/pay/:onrampId`) and its approve (`.../approve`), each with the
+/// headers a browser needs (the kit's `Door::page`); `None` for any other request, and for both with no pay-in partner.
+pub fn page_doors(door: &BankDoor, req: &Request<'_>) -> Option<Answer> {
+    let partner = door.ramps().onramp.partner.as_ref()?;
+    let path = req.url.split_once('?').map_or(req.url, |(p, _)| p);
     page_door(door, partner, req, path)
-        .or_else(|| record_door(partner, req, path, peer, door.now()))
 }
