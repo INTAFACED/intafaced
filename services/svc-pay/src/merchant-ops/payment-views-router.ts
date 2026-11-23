@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { router } from '@intafaced/contracts/trpc';
+import { anyScopeProcedure, router } from '@intafaced/contracts/trpc';
 import {
   paymentUnmaskedSchema,
   paymentUnmaskInputSchema,
@@ -12,7 +12,7 @@ import {
   paymentViewUpdateInputSchema,
 } from '@intafaced/contracts/pay-payment-views';
 import { ownMerchantRead } from '../own-merchant-read.js';
-import { teamMemberWrite } from '../team-member-write.js';
+import { PAY_OR_ONBOARD, teamMemberCheck } from '../team-member-write.js';
 import { MerchantOpsError, wrapOps } from './errors.js';
 import { PaymentPrivacy, PaymentViews } from './payment-views.js';
 import { resolveMerchantCaller } from './roles.js';
@@ -33,7 +33,8 @@ export function paymentPrivacyProcedures(sql: Sql | null, privacy: PaymentPrivac
   };
   const read = ownMerchantRead();
   // A view and an unmask belong to a person on a business: pay:write for the owner, pay:onboard for an active member.
-  const write = teamMemberWrite(() => need().sql);
+  const teamMember = teamMemberCheck(() => need().sql);
+  const write = anyScopeProcedure(PAY_OR_ONBOARD, { module: 'pay', check: teamMember });
   const callerOf = (ctx: { principal: { userId: string; kid?: string | undefined; mfa?: boolean; sub_account?: string | undefined } }) =>
     resolveMerchantCaller(need().sql, ctx.principal);
   return {

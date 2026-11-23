@@ -31,12 +31,12 @@ import {
   storeListSchema,
   storeSchema,
 } from '@intafaced/contracts/merchant-stores';
-import { router } from '@intafaced/contracts/trpc';
+import { anyScopeProcedure, router } from '@intafaced/contracts/trpc';
 import { z } from 'zod';
 import { MerchantOpsError, wrapOps } from '../merchant-ops/errors.js';
 import { resolveMerchantCaller } from '../merchant-ops/roles.js';
 import { ownMerchantRead } from '../own-merchant-read.js';
-import { teamMemberWrite } from '../team-member-write.js';
+import { PAY_OR_ONBOARD, teamMemberCheck } from '../team-member-write.js';
 import type { ProductImageRule } from './image-rules.js';
 import { MerchantStores } from '../stores/stores.js';
 import { ProductAvailabilities } from './availability.js';
@@ -66,7 +66,7 @@ export interface CatalogMountDeps {
  * M-adv-payments-core-20, the import, test catalogue, copy and availability of M-adv-payments-core-21) and its stores
  * (`merchantStores.*`, M-adv-org-access-05). The business is the caller's own, resolved
  * from the signed principal and never taken from the request. Reads take the merchant read scope; writes take
- * `pay:write`, or `pay:onboard` for an active member of a verified business (`teamMemberWrite`), and then the role
+ * `pay:write`, or `pay:onboard` for an active member of a verified business (`teamMemberCheck`), and then the role
  * table (`products.manage`). Without a database every procedure refuses `pay.merchant_ops_unavailable`.
  */
 export function createMerchantCatalogRouter(deps: CatalogMountDeps | undefined) {
@@ -82,7 +82,8 @@ export function createMerchantCatalogRouter(deps: CatalogMountDeps | undefined) 
     return { catalog, prices, imports, copier, availability, stores, sql: deps.sql };
   };
   const read = ownMerchantRead();
-  const write = teamMemberWrite(() => need().sql);
+  const teamMember = teamMemberCheck(() => need().sql);
+  const write = anyScopeProcedure(PAY_OR_ONBOARD, { module: 'pay', check: teamMember });
   const callerOf = (ctx: { principal: { userId: string; kid?: string | undefined; mfa?: boolean; sub_account?: string | undefined } }) =>
     resolveMerchantCaller(need().sql, ctx.principal);
   return router({

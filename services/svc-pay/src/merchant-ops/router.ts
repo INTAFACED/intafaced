@@ -2,7 +2,7 @@ import type { Sql } from 'postgres';
 import { z } from 'zod';
 import { payPageSchema } from '@intafaced/contracts/pay-merchant-reads';
 import { PAY_EXPORT_KINDS, payExportJobSchema, payPayoutListItemSchema } from '@intafaced/contracts/pay-portal-reads';
-import { router, TRPCError } from '@intafaced/contracts/trpc';
+import { anyScopeProcedure, router, signedInProcedure, TRPCError } from '@intafaced/contracts/trpc';
 import { defaultDisputeCaseStore, type DisputeCaseStore } from '../fraud/dispute-case.js';
 import type { FounderAuthority } from '../founder-authority.js';
 import { founderProcedure } from '../namespaces/founder-procedure.js';
@@ -40,7 +40,7 @@ import { DELIVERY_STATUSES, WebhookOps, type WebhookRetryLimit, type WebhookSett
 import type { WebhookResolver } from '../webhook-url-guard.js';
 import { MERCHANT_WEBHOOK_EVENT_TYPES } from '../merchant-webhooks.js';
 import { ownMerchantRead } from '../own-merchant-read.js';
-import { invitationAccept, membershipExit, ownPreferenceWrite, teamMemberWrite } from '../team-member-write.js';
+import { invitationAccept, membershipExit, ownPreferenceWrite, PAY_OR_ONBOARD, teamMemberCheck } from '../team-member-write.js';
 import {
   id,
   PAY_FOUNDER_ADMIN_OPS_NOTES_ADD,
@@ -147,11 +147,12 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
   const onboardOrRead = ownMerchantRead();
   const { need } = makeParts(deps);
   /** pay:write, or pay:onboard for an active member of a verified business: see team-member-write.ts. */
-  const memberWrite = teamMemberWrite(() => need().sql);
+  const teamMember = teamMemberCheck(() => need().sql);
+  const memberWrite = anyScopeProcedure(PAY_OR_ONBOARD, { module: 'pay', check: teamMember });
   /** A person's own notification preferences: no KYB gate, the role table decides (team-member-write.ts). */
   const ownPreference = ownPreferenceWrite();
   const accept = invitationAccept();
-  const exit = membershipExit();
+  const exit = signedInProcedure({ check: membershipExit });
   const kick =
     deps.exportKick ??
     ((_jobId: string, run: () => Promise<boolean>) => {

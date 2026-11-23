@@ -1,9 +1,9 @@
 import type { Sql } from 'postgres';
 import { receivingWalletSavedSchema, receivingWalletSaveInputSchema } from '@intafaced/contracts/merchant-receiving-wallet';
-import { router } from '@intafaced/contracts/trpc';
+import { anyScopeProcedure, router } from '@intafaced/contracts/trpc';
 import { MerchantOpsError, wrapOps } from '../merchant-ops/errors.js';
 import { resolveMerchantCaller } from '../merchant-ops/roles.js';
-import { teamMemberWrite } from '../team-member-write.js';
+import { PAY_OR_ONBOARD, teamMemberCheck } from '../team-member-write.js';
 import { ReceivingWallets } from './wallet.js';
 import { outsideFundsOf } from './outside-funds.js';
 import {
@@ -29,7 +29,8 @@ export function createReceivingWalletRouter(deps: ReceivingWalletMountDeps | und
     if (!wallets || !deps) throw new MerchantOpsError('pay.merchant_ops_unavailable', 'unavailable');
     return { wallets, sql: deps.sql };
   };
-  const write = teamMemberWrite(() => need().sql);
+  const teamMember = teamMemberCheck(() => need().sql);
+  const write = anyScopeProcedure(PAY_OR_ONBOARD, { module: 'pay', check: teamMember });
   const callerOf = (ctx: { principal: { userId: string; kid?: string | undefined; mfa?: boolean; sub_account?: string | undefined } }) =>
     resolveMerchantCaller(need().sql, ctx.principal);
   return router({
