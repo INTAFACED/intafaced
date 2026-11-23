@@ -76,7 +76,7 @@ fn positive_amount(raw: &str, code: &'static str, zero_ok: bool) -> Result<Amoun
             format!("Amount {} is not a decimal", Json::str(raw).compact()),
         )
     })?;
-    if value < 0 || (!zero_ok && value == 0) {
+    if value < Amount::ZERO || (!zero_ok && value == Amount::ZERO) {
         return Err(team_error(code, "Amount must be above zero"));
     }
     Ok(value)
@@ -336,7 +336,7 @@ impl TeamStore<'_> {
         let (grants, pool, allocations, projects, project_members, spent) = out;
 
         let mut used_of: Vec<(String, Amount)> = Vec::new();
-        let mut used: Amount = 0;
+        let mut used: Amount = Amount::ZERO;
         for r in &spent {
             let member: String = r.try_get(0)?;
             let total: String = r.try_get(1)?;
@@ -345,7 +345,7 @@ impl TeamStore<'_> {
             used_of.push((member, amount));
         }
         let mut allocation_of: Vec<(String, String)> = Vec::new();
-        let mut allocated: Amount = 0;
+        let mut allocated: Amount = Amount::ZERO;
         for r in &allocations {
             let member: String = r.try_get(0)?;
             let amount: String = r.try_get(1)?;
@@ -406,7 +406,10 @@ impl TeamStore<'_> {
                     (
                         "used",
                         Json::str(format_amount(
-                            used_of.iter().find(|u| u.0 == m.user_id).map_or(0, |u| u.1),
+                            used_of
+                                .iter()
+                                .find(|u| u.0 == m.user_id)
+                                .map_or(Amount::ZERO, |u| u.1),
                         )),
                     ),
                 ])
@@ -808,7 +811,7 @@ mod tests {
         );
         assert_eq!(
             positive_amount("0", "agents.pool_allocation_invalid", true).unwrap(),
-            0
+            Amount::ZERO
         );
         assert_eq!(
             positive_amount("ten", "agents.project_limit_invalid", false)

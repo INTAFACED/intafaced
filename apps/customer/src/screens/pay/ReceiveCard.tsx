@@ -53,7 +53,7 @@ export function ReceiveCard({ identity, payQr }: { identity: IdentityState; payQ
   }
 
   return (
-    <div className="pay-body" data-testid="receive-card">
+    <div className="lt-stack" data-testid="receive-card">
       <div className="pay-receive">
         <h2 className="pay-receive__label">{byHandle ? payCopy.t('Your handle') : payCopy.t('Your account ID')}</h2>
         <p className="pay-receive__value" data-mono={byHandle ? undefined : ''} data-testid="receive-value">

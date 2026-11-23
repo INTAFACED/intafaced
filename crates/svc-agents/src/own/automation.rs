@@ -79,7 +79,7 @@ fn cap_of(text: &str) -> Result<Option<Amount>, OwnRefusal> {
         return Ok(None);
     }
     match parse_amount(value) {
-        Ok(a) if a >= 0 => Ok(Some(a)),
+        Ok(a) if a >= Amount::ZERO => Ok(Some(a)),
         _ => Err(OwnRefusal::new("agents.own.cap_invalid")),
     }
 }

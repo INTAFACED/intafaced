@@ -436,7 +436,7 @@ fn the_same_event_id_sent_at_once_no_23505_one_row_one_ledger_lock_the_same_answ
             1
         );
     }
-    let rounds = Amount::try_from(ROUNDS).unwrap();
+    let rounds = i128::try_from(ROUNDS).unwrap();
     assert_eq!(
         k.d(|d| service::collateral_of(d, &l)).unwrap(),
         before + amt("0.01") * rounds
@@ -477,7 +477,7 @@ fn different_top_ups_at_once_each_takes_its_own_sequence_and_every_one_locks() {
         seqs.dedup();
         assert_eq!(seqs.len(), WIDTH);
     }
-    let all = Amount::try_from(ROUNDS * WIDTH).unwrap();
+    let all = i128::try_from(ROUNDS * WIDTH).unwrap();
     assert_eq!(
         k.d(|d| service::collateral_of(d, &l)).unwrap(),
         before + amt("0.01") * all
@@ -1024,7 +1024,7 @@ fn with_an_insolvency_mark_posts_loan_liquidated_no_invented_rate() {
     for f in ["collateralSold", "proceeds", "principalRepaid"] {
         assert!(decimal(&s(&data, f)), "{f}: {}", data.compact());
     }
-    assert!(amt(&s(&data, "collateralSold")) > 0);
+    assert!(amt(&s(&data, "collateralSold")) > Amount::ZERO);
     let journal = k.ledger.journal();
     let draw_at = journal.iter().position(|b| b.recipe == "loanDraw").unwrap();
     let liq_at = journal

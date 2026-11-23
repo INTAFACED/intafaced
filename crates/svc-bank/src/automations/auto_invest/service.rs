@@ -87,11 +87,15 @@ pub fn batch_limit(limit: Option<f64>) -> Result<i64, Refusal> {
 
 /// `spareChange`: the next multiple of `granularity` minus `captured`; an exact multiple, or a non-positive input, is 0.
 pub fn spare_change(captured: Amount, granularity: Amount) -> Amount {
-    if granularity <= 0 || captured <= 0 {
-        return 0;
+    if granularity <= Amount::ZERO || captured <= Amount::ZERO {
+        return Amount::ZERO;
     }
     let rem = captured % granularity;
-    if rem == 0 { 0 } else { granularity - rem }
+    if rem == Amount::ZERO {
+        Amount::ZERO
+    } else {
+        granularity - rem
+    }
 }
 
 /// `advanceCadence`: one step; a month keeps the day, clamped to the month's last.
@@ -271,7 +275,7 @@ pub fn create_threshold_sweep(
     threshold: Amount,
     pool_id: &str,
 ) -> Result<Rule, Refusal> {
-    if threshold <= 0 {
+    if threshold <= Amount::ZERO {
         return Err(refuse(
             "bank.auto_invest_invalid_threshold",
             "A threshold sweep needs a positive keep-amount",
@@ -304,7 +308,7 @@ pub fn create_dca(d: &Deps<'_>, ask: &DcaAsk<'_>) -> Result<Rule, Refusal> {
     if d.w.auto_invest.convert.is_none() {
         return Err(refuse(RATE_UNSET, DCA_RATE_UNSET));
     }
-    if ask.amount <= 0 {
+    if ask.amount <= Amount::ZERO {
         return Err(refuse(
             "bank.below_minimum",
             "A DCA schedule needs a positive amount",
@@ -361,7 +365,7 @@ pub fn create_round_up(d: &Deps<'_>, ask: &RoundUpAsk<'_>) -> Result<Rule, Refus
             "Card round-up into another asset needs a convert rate counterparty — rates are not invented here (§8 / bank.auto_invest_rate_unset)",
         ));
     }
-    if ask.granularity <= 0 {
+    if ask.granularity <= Amount::ZERO {
         return Err(refuse(
             "bank.auto_invest_invalid_threshold",
             "A card round-up needs a positive granularity",
@@ -949,7 +953,7 @@ impl RoundUpOutcome {
 
     pub fn amount(&self) -> Amount {
         match self {
-            RoundUpOutcome::None => 0,
+            RoundUpOutcome::None => Amount::ZERO,
             RoundUpOutcome::Skipped { amount, .. }
             | RoundUpOutcome::SettledPool { amount, .. }
             | RoundUpOutcome::SettledSpace { amount, .. }
@@ -1026,7 +1030,7 @@ pub struct Capture<'a> {
 pub fn apply_round_up(d: &Deps<'_>, cap: &Capture<'_>) -> Result<RoundUpOutcome, Refusal> {
     if !d.w.auto_invest.enabled {
         return Ok(RoundUpOutcome::Skipped {
-            amount: 0,
+            amount: Amount::ZERO,
             reason: DISABLED.to_owned(),
         });
     }
@@ -1048,12 +1052,12 @@ pub fn apply_round_up(d: &Deps<'_>, cap: &Capture<'_>) -> Result<RoundUpOutcome,
     };
     let spare = spare_change(cap.captured, rule.amount.unwrap_or_default());
     let client_run_id = format!("roundup:{}:{}", rule.id, cap.authorization_id);
-    if spare <= 0 {
+    if spare <= Amount::ZERO {
         with(d.store(), |c| {
             record_skipped(c, &rule.id, &client_run_id, NO_SPARE)
         })?;
         return Ok(RoundUpOutcome::Skipped {
-            amount: 0,
+            amount: Amount::ZERO,
             reason: NO_SPARE.to_owned(),
         });
     }
@@ -1394,12 +1398,12 @@ mod tests {
 
     #[test]
     fn spare_change_of_an_exact_multiple_is_zero_nothing_to_sweep() {
-        assert_eq!(spare_change(amt("5"), amt("1")), 0);
+        assert_eq!(spare_change(amt("5"), amt("1")), Amount::ZERO);
     }
 
     #[test]
     fn spare_change_with_a_non_positive_granularity_is_zero_rather_than_inventing_a_unit() {
-        assert_eq!(spare_change(amt("4.30"), 0), 0);
+        assert_eq!(spare_change(amt("4.30"), Amount::ZERO), Amount::ZERO);
     }
 
     #[test]

@@ -260,7 +260,7 @@ export function AlgoList({
   return (
     <Gate load={load}>
       {(rows, asOf) => (
-        <div className="flex flex-col gap-2">
+        <div className="lt-stack">
           <div className="flex items-center gap-2 text-sm text-fg-2">
             <Freshness asOf={asOf} />
             <span>{t('Schedules re-read every 10 s')}</span>
@@ -268,7 +268,7 @@ export function AlgoList({
           {listing.status === 'refused' || listing.status === 'error' ? (
             <Why code={listing.status === 'refused' ? listing.code : undefined}>{t('Schedule list unread')}</Why>
           ) : (
-            <p className="m-0 text-sm text-fg-2">{t('Schedule list window')}</p>
+            <p className="lt-hint">{t('Schedule list window')}</p>
           )}
           <Table
             label={t('Schedules')}
@@ -392,7 +392,7 @@ export function AlgoDetail({ row, onClone }: { row: ParentRead; onClone: (parent
         ]}
       />
       {blocked ? <Why>{blocked}</Why> : null}
-      <p className="m-0 text-sm text-fg-2">{t('Children note')}</p>
+      <p className="lt-hint">{t('Children note')}</p>
       <div className="flex flex-wrap items-center gap-3">
         <Button variant="secondary" size={32} onClick={() => onClone(parent)}>
           {t('Create new with these numbers')}

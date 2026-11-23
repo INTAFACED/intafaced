@@ -51,7 +51,9 @@ export function createCustodyPolicyGuards(deps: { readonly sql: Sql; readonly mo
           initiator: ctx.userId,
           assetId: ctx.assetId,
           amount: ctx.amount,
-          network: ctx.rail,
+          // A rule's `networks` names chain networks (`ethereum`), so the withdrawal's own network is what it matches; a rail
+          // with no networks (a bank or card rail) is matched as its own network, as `simulate` is asked for one.
+          network: ctx.networkId ?? ctx.rail,
           destinationKind: ctx.destination.kind,
           destinationRef: ctx.destination.ref,
           txType: 'transfer',

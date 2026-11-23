@@ -160,7 +160,13 @@ impl Book {
         self.credit(house("fees:bank", asset), amount);
     }
     fn bal(&self, a: &Account) -> Amount {
-        self.0.lock().unwrap().balances.get(a).copied().unwrap_or(0)
+        self.0
+            .lock()
+            .unwrap()
+            .balances
+            .get(a)
+            .copied()
+            .unwrap_or(Amount::ZERO)
     }
     pub fn available(&self, who: &str, asset: &str) -> String {
         format_amount(self.bal(&user(who, asset, "available", None)))
@@ -352,7 +358,7 @@ impl Ledger for Book {
         }
         let (from, to) = Book::legs(recipe, input);
         let amount = amt(&s(input, "amount"));
-        let have = st.balances.get(&from).copied().unwrap_or(0);
+        let have = st.balances.get(&from).copied().unwrap_or(Amount::ZERO);
         if have < amount {
             return Err(PostFailure::Coded {
                 code: "ledger.insufficient_funds".to_owned(),

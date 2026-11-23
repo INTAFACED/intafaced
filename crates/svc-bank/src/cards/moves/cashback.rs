@@ -55,7 +55,7 @@ impl Outcome {
     /// The router's `cashback` object: `reason` on a refusal, and on an owed one when it names one.
     pub fn json(&self) -> Json {
         let (status, amount, reason) = match self {
-            Outcome::None => ("none", 0, None),
+            Outcome::None => ("none", Amount::ZERO, None),
             Outcome::Paid { amount, .. } => ("paid", *amount, None),
             Outcome::Owed { amount, reason, .. } => ("owed", *amount, reason.clone()),
             Outcome::Refused { amount, reason } => ("refused", *amount, Some(reason.clone())),
@@ -74,9 +74,15 @@ impl Outcome {
 /// `cashbackOn`: floor, so no rounding unit is paid that the pot never earned.
 pub fn cashback_on(captured: Amount, rate_bps: i64) -> Amount {
     if rate_bps <= 0 {
-        return 0;
+        return Amount::ZERO;
     }
-    mul_div(captured, Amount::from(rate_bps), 10_000, Rounding::Floor)
+    // `captured * rate_bps / 10_000`: the rate is a count of basis points, carried as a scaled factor.
+    mul_div(
+        captured,
+        Amount::from_scaled(i128::from(rate_bps)),
+        Amount::from_scaled(10_000),
+        Rounding::Floor,
+    )
 }
 
 /// `rewardsEngine(assetId)`: the pot cashback is paid from.
@@ -165,17 +171,17 @@ pub fn pay(
         None => {
             if !issuer_connected(m, card) {
                 let own = cashback_on(captured, card.cashback_bps);
-                if own <= 0 && !tier_applies(m, card) {
+                if own <= Amount::ZERO && !tier_applies(m, card) {
                     return Ok(Outcome::None);
                 }
                 return Ok(Outcome::refused(own, "bank.rewards_issuer_unset"));
             }
             let (bps, _) = match rate(m, card) {
                 Ok(r) => r,
-                Err(code) => return Ok(Outcome::refused(0, &code)),
+                Err(code) => return Ok(Outcome::refused(Amount::ZERO, &code)),
             };
             let amount = cashback_on(captured, bps);
-            if amount <= 0 {
+            if amount <= Amount::ZERO {
                 return Ok(Outcome::None);
             }
             with(m.store(), |c| {
@@ -348,14 +354,14 @@ pub fn owe_wallet(
                 if card.cashback_bps <= 0 && !tier_applies(m, card) {
                     return Ok(Outcome::None);
                 }
-                return Ok(Outcome::refused(0, "bank.rewards_issuer_unset"));
+                return Ok(Outcome::refused(Amount::ZERO, "bank.rewards_issuer_unset"));
             }
             let (bps, tier) = match rate(m, card) {
                 Ok(r) => r,
-                Err(code) => return Ok(Outcome::refused(0, &code)),
+                Err(code) => return Ok(Outcome::refused(Amount::ZERO, &code)),
             };
             let amount = cashback_on(captured, bps);
-            if amount <= 0 {
+            if amount <= Amount::ZERO {
                 return Ok(Outcome::None);
             }
             let tier = tier.unwrap_or_else(|| "card".to_owned());
@@ -508,7 +514,7 @@ pub fn apply_round_up(
         partner_held,
     };
     hook(&cap).unwrap_or_else(|e| RoundUpOutcome::Refused {
-        amount: 0,
+        amount: Amount::ZERO,
         reason: code_of(&e)
             .unwrap_or("bank.auto_invest_run_failed")
             .to_owned(),
@@ -563,9 +569,12 @@ mod tests {
         assert_eq!(cashback_on(amt("100"), 100), amt("1"));
         assert_eq!(format_amount(cashback_on(amt("250"), 50)), "1.25");
         assert_eq!(cashback_on(amt("1"), 10_000), amt("1"));
-        assert_eq!(cashback_on(1, 100), 0);
-        assert_eq!(cashback_on(amt("0.000000000000000199"), 100), 1);
-        assert_eq!(cashback_on(amt("100"), 0), 0);
-        assert_eq!(cashback_on(amt("100"), -1), 0);
+        assert_eq!(cashback_on(Amount::from_scaled(1), 100), Amount::ZERO);
+        assert_eq!(
+            cashback_on(amt("0.000000000000000199"), 100),
+            Amount::from_scaled(1)
+        );
+        assert_eq!(cashback_on(amt("100"), 0), Amount::ZERO);
+        assert_eq!(cashback_on(amt("100"), -1), Amount::ZERO);
     }
 }

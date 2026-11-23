@@ -136,7 +136,17 @@ export function testVenueDepositRoute({ rpcUrl, token }) {
  * Start the TEST venue and seed it, and, with a TEST chain, its deposit watcher. Resolves with the server and its URL.
  * `id` (testVenueId) names the venue; the second venue is then `<id>-b`. Null keeps the simulator's defaults.
  */
-export async function serveTestVenue({ host, port, appEnv, chainId, rpcUrl = '', depositToken = '', second = false, id = null }) {
+export async function serveTestVenue({
+  host,
+  port,
+  appEnv,
+  betaPosture,
+  chainId,
+  rpcUrl = '',
+  depositToken = '',
+  second = false,
+  id = null,
+}) {
   if (!fs.existsSync(VENUE_SIM_DIST)) {
     throw new Error(`${path.relative(REPO, VENUE_SIM_DIST)} is not built: pnpm --filter @intafaced/venue-sim... build`);
   }
@@ -152,7 +162,7 @@ export async function serveTestVenue({ host, port, appEnv, chainId, rpcUrl = '',
         // The first TEST venue has a scheduled cancel, as the venue it stands for does (J-cex-spot-07): at least 5 s ahead.
         scheduledCancelMinLeadMs: FIRST_TEST_VENUE_SCHEDULED_CANCEL_MIN_LEAD_MS,
       };
-  const started = await sim.startTestVenueServer({ host, port, appEnv, chainId, deposit, ...which });
+  const started = await sim.startTestVenueServer({ host, port, appEnv, betaPosture, chainId, deposit, ...which });
   const seeded = await sim.seedTestVenue(started.sim, second ? { levelSize: SECOND_TEST_VENUE.levelSize } : {});
   const log = (line) => process.stdout.write(`${JSON.stringify(line)}\n`);
   if (deposit) started.sim.switches.depositExplorerTxUrl = TEST_VENUE_DEPOSIT_EXPLORER;
@@ -167,6 +177,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     port: Number(process.env.TEST_VENUE_PORT ?? STACK_PORTS['test-venue']),
     // The RAW value: unset, blank and anything but dev or test refuse.
     appEnv: process.env.APP_ENV,
+    // The beta posture (APP_ENV staging, INTAFACED_BETA_POSTURE=test-networks) also lets the TEST venue run.
+    betaPosture: process.env.INTAFACED_BETA_POSTURE,
     chainId: testVenueChainId(process.env.TEST_VENUE_CHAIN_ID),
     rpcUrl: process.env.TEST_VENUE_RPC_URL,
     depositToken: process.env.TEST_VENUE_DEPOSIT_TOKEN,

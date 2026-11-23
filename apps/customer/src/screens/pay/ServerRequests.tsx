@@ -197,7 +197,7 @@ export function AskAPerson({ assets, onSent }: { assets: string[]; onSent: () =>
       <h3 className="pay-section-title">{t('askTitle')}</h3>
       <p className="lt-hint">{t('askIntro')}</p>
       <div className="pay-field">
-        <label className="pay-field__label" htmlFor="request-ask-who">
+        <label className="lt-hint" htmlFor="request-ask-who">
           {t('askWho')}
         </label>
         <input
@@ -213,7 +213,7 @@ export function AskAPerson({ assets, onSent }: { assets: string[]; onSent: () =>
         />
       </div>
       <div className="pay-field">
-        <label className="pay-field__label" htmlFor="request-ask-asset">
+        <label className="lt-hint" htmlFor="request-ask-asset">
           {t('askAsset')}
         </label>
         <select id="request-ask-asset" className="pay-text" value={chosen} onChange={(event) => setAsset(event.target.value)}>
@@ -225,7 +225,7 @@ export function AskAPerson({ assets, onSent }: { assets: string[]; onSent: () =>
         </select>
       </div>
       <div className="pay-field">
-        <label className="pay-field__label" htmlFor="request-ask-amount">
+        <label className="lt-hint" htmlFor="request-ask-amount">
           {t('askAmount')}
         </label>
         <input
@@ -240,7 +240,7 @@ export function AskAPerson({ assets, onSent }: { assets: string[]; onSent: () =>
         />
       </div>
       <div className="pay-field">
-        <label className="pay-field__label" htmlFor="request-ask-note">
+        <label className="lt-hint" htmlFor="request-ask-note">
           {t('askNote')}
         </label>
         <input
@@ -254,7 +254,7 @@ export function AskAPerson({ assets, onSent }: { assets: string[]; onSent: () =>
         />
       </div>
       <div className="pay-field">
-        <label className="pay-field__label" htmlFor="request-ask-expiry">
+        <label className="lt-hint" htmlFor="request-ask-expiry">
           {t('askExpiry')}
         </label>
         <select id="request-ask-expiry" className="pay-text" value={days} onChange={(event) => setDays(Number(event.target.value))}>
@@ -519,7 +519,7 @@ export function ServerRequestRoom({ id, onMissing }: { id: string; onMissing?: (
   }
 
   return (
-    <div className="pay-body" data-testid="request-room" data-request-id={request.requestId} data-status={request.status}>
+    <div className="lt-stack" data-testid="request-room" data-request-id={request.requestId} data-status={request.status}>
       <p className="lt-hint">{iPay ? t('roomLineIncoming', { handle: payee }) : t('roomLineOutgoing', { handle: payer })}</p>
       <dl className="pay-quote" data-testid="request-facts">
         <div>
@@ -621,7 +621,7 @@ export function ServerRequestRoom({ id, onMissing }: { id: string; onMissing?: (
           <p className="lt-hint">{t('payReview', { handle: payee, amount: shownAmount, asset: request.assetId })}</p>
           {stepUp ? (
             <div className="pay-field">
-              <label className="pay-field__label" htmlFor="request-step-up">
+              <label className="lt-hint" htmlFor="request-step-up">
                 {t('stepUpCode')}
               </label>
               <input
@@ -659,7 +659,7 @@ export function ServerRequestRoom({ id, onMissing }: { id: string; onMissing?: (
           <h3 className="pay-section-title">{t('reportTitle')}</h3>
           <p className="lt-hint">{t('reportBody', { handle: payee })}</p>
           <div className="pay-field">
-            <label className="pay-field__label" htmlFor="request-report-reason">
+            <label className="lt-hint" htmlFor="request-report-reason">
               {t('reportReason')}
             </label>
             <select

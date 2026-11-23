@@ -255,13 +255,15 @@ pub fn serves(path: &str) -> bool {
 
 /// The answer of one of the slice's calls, by its path; `None` for a path outside it.
 /// `freeze_card` is slice `cards`' freeze of a pot's card by its holder (`bank.cards.setStatus(cardId, 'frozen', userId)`):
-/// the card id and the caller, answered with the pot's view of the card.
+/// the card id and the caller, answered with the pot's view of the card. `card_held` is slice `cards`' partner figure
+/// of what is held on a person's card in one asset (`cardHolds.figures(...).held`), `None` when the partner gives none.
 pub fn answer(
     w: &Wiring,
     partner: &PartnerWiring,
     store: &Store,
     ctx: &Ctx<'_>,
     freeze_card: &dyn Fn(&str, &str) -> Result<Json, Refusal>,
+    card_held: &home::CardHeld<'_>,
 ) -> Option<Result<Option<Json>, TrpcError>> {
     if !serves(ctx.call.path) {
         return None;
@@ -488,7 +490,7 @@ pub fn answer(
         "currencies.remove" => {
             offers(partner, user, "currencies")?;
             home::personal_only(store, user, profile())?;
-            home::currencies_remove(store, &money, user, text(input, "assetId"))
+            home::currencies_remove(store, &money, card_held, user, text(input, "assetId"))
         }
         "plans.list" => home::plans_list(t.plans.as_deref()),
         "fees.account" => Ok(home::account_fees(t.fees.as_deref())),

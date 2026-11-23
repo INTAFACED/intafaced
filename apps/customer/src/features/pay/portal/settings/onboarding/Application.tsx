@@ -247,7 +247,7 @@ function StartForm({ portal, merchant, types, onChanged }: Omit<ApplicationViewP
   const [country, setCountry] = useState(types[0]!.countries[0] ?? '');
   const saver = useSaver();
   return (
-    <div data-testid="form-stack" className="form-stack pp-form">
+    <div data-testid="form-stack" className="lt-stack">
       <TypeAndCountry
         types={types}
         entityType={entityType}
@@ -399,7 +399,7 @@ function CompanyDetails(props: Inner & { section: Section }) {
   return (
     <form
       data-testid="form-stack"
-      className="form-stack pp-form"
+      className="lt-stack"
       noValidate
       onSubmit={(e) => {
         e.preventDefault();
@@ -464,7 +464,7 @@ function People(props: Inner & { section: Section; roles: string[] }) {
   return (
     <form
       data-testid="form-stack"
-      className="form-stack pp-form"
+      className="lt-stack"
       noValidate
       onSubmit={(e) => {
         e.preventDefault();
@@ -535,7 +535,7 @@ function Questions(props: Inner & { section: Section; keys: string[] }) {
   return (
     <form
       data-testid="form-stack"
-      className="form-stack pp-form"
+      className="lt-stack"
       noValidate
       onSubmit={(e) => {
         e.preventDefault();
@@ -574,7 +574,7 @@ function Documents(props: Inner & { section: Section }) {
         const rules = checklist.uploadRules;
         const allSent = checklist.rows.every(usable);
         return (
-          <div data-testid="form-stack" className="form-stack pp-form">
+          <div data-testid="form-stack" className="lt-stack">
             <p className="lt-muted">{t('docsBody')}</p>
             {checklist.vendorCheck.status === 'not_connected' && (
               <Blocker reason={t('docsVendorReason')} needs="automatic document check" title={t('docsVendorTitle')}>
@@ -590,7 +590,7 @@ function Documents(props: Inner & { section: Section }) {
                 {t('docsRulesBody')}
               </Blocker>
             )}
-            <table className="pp-table">
+            <table>
               <thead>
                 <tr>
                   <th scope="col">{t('docName')}</th>

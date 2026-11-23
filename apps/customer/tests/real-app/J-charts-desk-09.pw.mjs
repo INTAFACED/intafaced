@@ -624,7 +624,7 @@ const watchlists = () => page.getByRole('region', { name: 'Watchlists' });
 async function addToWatchlist(symbol) {
   await page.goto(CHART);
   await expect(watchlists()).toHaveAttribute('data-status', /^(ready|error)$/);
-  expect(await watchlists().getAttribute('data-status'), "the person's saved lists were read").toBe('ready');
+  await expect.poll(async () => await watchlists().getAttribute('data-status'), "the person's saved lists were read").toBe('ready');
   const saved = page.waitForResponse((res) => /preferences/.test(res.url()) && res.request().method() !== 'GET' && res.ok());
   await watchlists().getByRole('searchbox', { name: 'Add a market' }).fill(symbol.split('/')[0].toLowerCase());
   await watchlists()

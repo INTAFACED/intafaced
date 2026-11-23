@@ -8,7 +8,7 @@ export function CopyReference({ value, what }: { value: string; what?: string })
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
   return (
     <div className="lt-actions">
-      <code className="pp-wrap">{value}</code>
+      <code className="lt-wrap">{value}</code>
       <Button
         tone="quiet"
         aria-label={what ? t('copyLabel', { what }) : undefined}

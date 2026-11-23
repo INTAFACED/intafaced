@@ -5,7 +5,7 @@ import { SUPPORT_DESK_ACCOUNT_STATE } from '@intafaced/contracts/support-desk-pr
 import { readData } from '@/lib/ops-desk';
 import { codeWords } from '@/lib/code-words';
 import { moduleForPage } from '@/lib/modules';
-import { CUSTOMER_TABS, INDICATOR_STRIP, RISK_CARD, customerId, customerTab, requestIdQuery, tabPlan } from './record';
+import { CUSTOMER_TABS, INDICATOR_STRIP, RISK_CARD, customerId, customerTab, kycCasesRead, requestIdQuery, tabPlan } from './record';
 
 const USER = '0b6f7a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b';
 const service = (path: string) => readFileSync(fileURLToPath(new URL(`../../../../../services/${path}`, import.meta.url)), 'utf8');
@@ -30,6 +30,10 @@ describe('customer record address', () => {
 });
 
 describe('what each tab reads', () => {
+  it('a verification case row carries the two-founder approve (kyc.approve), on the documents tab and the case page', () => {
+    expect(tabPlan('documents', USER).reads.find((r) => r.id === 'identity.kyc-cases')?.rowAction).toBe('identity.kyc.approve');
+    expect(kycCasesRead(USER, USER).rowAction).toBe('identity.kyc.approve');
+  });
   it('reads only for the account in the path, and says what it cannot read on every tab without a read', () => {
     for (const tab of CUSTOMER_TABS) {
       const plan = tabPlan(tab, USER);

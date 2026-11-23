@@ -1952,7 +1952,7 @@
       },
       "body": "{\"subject\":\"loan\",\"id\":\"cccccccc-cccc-4ccc-8ccc-cccccccccccc\",\"ms\":1000}",
       "status": 400,
-      "answer": "{\"error\":\"test_age.invalid\",\"message\":\"subject must be one of shared-pot-invite, business-invite, pay-yourself-rule\"}"
+      "answer": "{\"error\":\"test_age.invalid\",\"message\":\"subject must be one of shared-pot-invite, business-invite, pay-yourself-rule, scheduled-transfer\"}"
     },
     {
       "name": "a body out of shape",

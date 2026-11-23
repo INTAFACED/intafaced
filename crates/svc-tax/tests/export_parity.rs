@@ -33,8 +33,10 @@ fn s(v: &Json, key: &str) -> String {
 fn amount(text: &str) -> Amount {
     let (neg, digits) = text.strip_prefix('-').map_or((false, text), |d| (true, d));
     let (whole, frac) = digits.split_once('.').unwrap_or((digits, ""));
-    let v: Amount = whole.parse::<Amount>().unwrap() * 10i128.pow(18)
-        + format!("{frac:0<18}").parse::<Amount>().unwrap();
+    let v = Amount::from_scaled(
+        whole.parse::<i128>().unwrap() * 10i128.pow(18)
+            + format!("{frac:0<18}").parse::<i128>().unwrap(),
+    );
     if neg { -v } else { v }
 }
 

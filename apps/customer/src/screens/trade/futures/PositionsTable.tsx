@@ -247,7 +247,7 @@ export function PositionsTable({
     );
 
   return (
-    <section aria-label={t('Positions table label')} className="flex flex-col gap-2">
+    <section aria-label={t('Positions table label')} className="lt-stack">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <StatusChip
           kind={positions.status === 'refused' ? 'refused' : undefined}
