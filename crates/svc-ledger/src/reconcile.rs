@@ -25,7 +25,7 @@
 
 use postgres::{Client, GenericClient, IsolationLevel, NoTls};
 use service_kit::json::Json;
-use service_kit::money::{Amount, format_amount, parse_amount};
+use service_kit::money::{Amount, format_amount, format_difference, parse_amount};
 use service_kit::time::Instant;
 
 use crate::chain::{HashEntry, HashTx, hash_tx};
@@ -420,7 +420,7 @@ pub fn reconcile_balances(c: &mut impl GenericClient) -> Result<Balances, ProofE
                 asset_id: row.try_get(1)?,
                 cached: format_amount(cached),
                 replayed: format_amount(replayed),
-                difference: format_amount(cached.saturating_sub(replayed)),
+                difference: format_difference(cached, replayed),
             });
         }
     }
@@ -1409,7 +1409,7 @@ pub fn read_last_verified(store: &Store) -> Result<LastVerified, StoreError> {
             "SELECT floor(extract(epoch FROM finished_at) * 1000)::bigint, through_seq::text
                FROM ledger.reconcile_runs
               WHERE outcome = 'ok'
-              ORDER BY through_seq DESC, id DESC
+              ORDER BY reconcile_runs.through_seq DESC, id DESC
               LIMIT 1",
             &[],
         )?;
