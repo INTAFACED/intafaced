@@ -139,7 +139,7 @@
 </div>
 <div class="cvt-fields">
 <div class="cvt-field" data-testid="from-field">
-<span class="cvt-field__label">From</span>
+<span class="lt-hint">From</span>
 <div class="cvt-field__main">
 <button type="button" class="cvt-asset" aria-label="Change the From asset">
 <span data-slot="coin-icon" data-asset="USDT" style="width: 28px; height: 28px;" class="inline-block shrink-0 overflow-hidden rounded-pill bg-raised">
@@ -182,7 +182,7 @@
 </svg>
 </button>
 <div class="cvt-field" data-testid="to-field">
-<span class="cvt-field__label">To</span>
+<span class="lt-hint">To</span>
 <div class="cvt-field__main">
 <button type="button" class="cvt-asset" aria-label="Change the To asset">
 <span data-slot="coin-icon" data-asset="BTC" style="width: 28px; height: 28px;" class="inline-block shrink-0 overflow-hidden rounded-pill bg-raised">
@@ -216,10 +216,10 @@
 </div>
 <section id="cvt-otc" tabindex="-1" aria-label="Large conversions at the desk price" class="flex flex-col gap-3 rounded-md border border-line bg-panel p-3">
 <h2 class="m-0 text-md font-medium text-fg">Large conversions at the desk price</h2>
-<p class="m-0 text-sm text-fg-2">For a large amount, the quote desk names one firm price for the whole size. You confirm it, and it settles.</p>
+<p class="lt-hint">For a large amount, the quote desk names one firm price for the whole size. You confirm it, and it settles.</p>
 <div data-testid="convert-otc-range" class="flex flex-wrap items-center gap-2 text-sm text-fg-2">Desk size range:<span>Couldn’t read the size range.</span>
 </div>
-<div class="flex flex-col gap-3">
+<div class="lt-stack">
 <div data-slot="field" data-density="comfortable" data-orientation="vertical" class="flex min-w-0 flex-col gap-1.5" data-dirty="" data-filled="">
 <div data-slot="field-label-row" class="flex min-w-0 items-center justify-between gap-2">
 <label id="base-ui-_r_7_" for="base-ui-_r_8_" data-slot="field-label" class="min-w-0 font-medium text-fg-2 data-disabled:opacity-40 text-sm" data-dirty="" data-filled="">Desk pair</label>
@@ -257,7 +257,7 @@
 </div>
 <button type="button" data-disabled="" tabindex="0" disabled="" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill">Get desk price</button>
 </div>
-<div class="flex flex-col gap-2" aria-live="polite">
+<div class="lt-stack" aria-live="polite">
 </div>
 </section>
 <section class="cvt-recent" aria-labelledby="cvt-recent-title" data-testid="cvt-recent">

@@ -2,8 +2,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { parseSync } from 'oxc-parser';
-import { readFileSync } from 'node:fs';
-import { CLASSES, recipe } from './volt-recipe.mjs';
+import { readdirSync, readFileSync } from 'node:fs';
+import { CLASSES, GONE, ONE_RULE, classesIn, classesTestsFind, rank, recipe, WHOLE } from './volt-recipe.mjs';
 
 test('moves the old Button, its variants and loading, and the three classes onto the kit', () => {
   const { text, left } = recipe(
@@ -225,4 +225,151 @@ test("every class the map moves to is the kit's own", () => {
   const css = readFileSync(new URL('../../packages/ui/src/lit/templates/templates.css', import.meta.url), 'utf8');
   const missing = [...new Set(Object.values(CLASSES))].filter((kit) => !new RegExp(`\\.${kit}[\\s,{:]`).test(css));
   assert.deepEqual(missing, []);
+});
+
+test('the second map: moves a class whose one rule is the kit class, and drops a class no stylesheet names', () => {
+  const { text, left, changed } = recipe(
+    [
+      'export const a = <div className="more-grid">x</div>;',
+      'export const b = <span className="pp-sr">y</span>;',
+      'export const c = <form className="form-stack pp-form" onSubmit={send}>z</form>;',
+      'export const d = <ul className="pp-table" data-testid="rows">w</ul>;',
+      'export const e = <p className="mkt-muted pp-count">v</p>;',
+      '',
+    ].join('\n'),
+  );
+  assert.deepEqual(left, []);
+  assert.equal(changed, 5);
+  assert.match(text, /<div className="lt-stack">x/);
+  assert.match(text, /<span className="lt-sr">y/);
+  assert.match(text, /<form className="lt-stack" onSubmit=\{send\}>z/);
+  // A className with nothing left goes with its one space; the test id beside it stays.
+  assert.match(text, /<ul data-testid="rows">w/);
+  assert.match(text, /<p className="lt-muted">v/);
+});
+
+test('leaves a dropped class alone on its line, or beside a class with no recipe', () => {
+  const source = [
+    'export const a = (',
+    '  <ul',
+    '    className="pp-table"',
+    '    data-testid="rows"',
+    '  />',
+    ');',
+    'export const b = <p className="pp-form pay-total">x</p>;',
+    '',
+  ].join('\n');
+  const { text, left } = recipe(source);
+  assert.equal(text, source);
+  assert.deepEqual(left, [
+    '3: className "pp-table" (no stylesheet names it: delete the attribute and its line)',
+    '7: className "pp-form pay-total" (pay-total has no recipe)',
+  ]);
+});
+
+test('leaves a class a test or a journey finds an element by', () => {
+  const source = [
+    'export const a = <div className="more-grid">x</div>;',
+    'export const b = <span className="pp-sr">y</span>;',
+    'export const c = <form className="form-stack pp-form">z</form>;',
+    '',
+  ].join('\n');
+  const found = new Set(classesIn("await page.locator('.more-grid > a').click(); expect(el.querySelector('form.pp-form')).toBeNull();"));
+  const { text, left } = recipe(source, { found });
+  assert.deepEqual(left, [
+    '1: className "more-grid" (a test finds an element by more-grid, needs judgement)',
+    '3: className "form-stack pp-form" (a test finds an element by pp-form, needs judgement)',
+  ]);
+  assert.match(text, /<div className="more-grid">x/);
+  assert.match(text, /<span className="lt-sr">y/);
+  assert.match(text, /<form className="form-stack pp-form">z/);
+});
+
+test('reads the classes a test selects by, and not a property access or a selector that takes either name', () => {
+  const names = classesIn(
+    [
+      'page.locator(\'.pp-detail-head [data-testid="pp-chip"]\');',
+      'cell.locator(\'[data-study="rsi-1"] .st-row-formula\');',
+      "el.querySelector('tr.pe-row > td');",
+      'expect(error.stack).toBeDefined(); list.actions.push(1);',
+      "dialog.locator(':is(.form-stack, .lt-stack) > button');",
+      "page.locator(':is(.form-stack, .other) > button');",
+    ].join('\n'),
+  );
+  for (const name of ['pp-detail-head', 'st-row-formula', 'pe-row', 'other']) assert.ok(names.includes(name), name);
+  for (const name of ['stack', 'actions']) assert.ok(!names.includes(name), name);
+  // Named with its kit twin in one :is(), the old class is free to move; named with anything else, it is held.
+  assert.equal(new Set(names).has('form-stack'), true);
+  assert.deepEqual(classesIn("dialog.locator(':is(.form-stack, .lt-stack) > button');"), []);
+  // Over the app's own tests: a class the journeys find by is held, on the real files.
+  const found = classesTestsFind();
+  for (const name of ['pp-detail-head', 'dk-kv-row', 'p2p-order-identity']) assert.ok(found.has(name), name);
+});
+
+/** The selector of every rule in the customer app's and the kit's stylesheets. */
+function selectors() {
+  const out = [];
+  for (const dir of ['../../apps/customer/src/', '../../packages/ui/src/']) {
+    const root = new URL(dir, import.meta.url).pathname;
+    for (const f of readdirSync(root, { recursive: true }).filter((f) => f.endsWith('.css'))) {
+      const css = readFileSync(`${root}${f}`, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+      for (const m of css.matchAll(/([^{};]+)\{/g)) out.push(...m[1].split(',').map((s) => s.trim()));
+    }
+  }
+  return out;
+}
+const naming = (selector, name) => new RegExp(`\\.${name}(?![\\w-])`).test(selector);
+/** Whether the rule draws the class's own element and nothing else: its last part is the class alone (`.pp .pp-sr`). */
+const onItself = (selector, name) => selector.split(/[\s>+~]+/).pop() === `.${name}` && selector.split(`.${name}`).length === 2;
+
+test('no rule reaches another element through a class of the second map, and no stylesheet names a dropped class', () => {
+  const all = selectors();
+  const reaching = Object.keys(ONE_RULE).flatMap((name) =>
+    all.filter((s) => naming(s, name) && !onItself(s, name)).map((s) => `${name}: ${s}`),
+  );
+  assert.deepEqual(reaching, []);
+  const named = [...GONE].flatMap((name) => all.filter((s) => naming(s, name)).map((s) => `${name}: ${s}`));
+  assert.deepEqual(named, []);
+  // No class is in two tables, so one name has one outcome.
+  assert.deepEqual(
+    [...GONE].filter((name) => Object.hasOwn(CLASSES, name)),
+    [],
+  );
+});
+
+test('ranks the classes and parts left, commonest first', () => {
+  const { classes, parts } = rank([
+    '4: className "muted pay-total" (pay-total has no recipe)',
+    '9: className "pay-total row" (pay-total row has no recipe)',
+    '1: imports Card, Input from @intafaced/ui (Card: no recipe; Input: no recipe)',
+    '2: imports Input from @intafaced/ui (Input: no recipe)',
+    '5: className={…}, computed, needs judgement',
+  ]);
+  assert.deepEqual(classes, ['2 pay-total', '1 row']);
+  assert.deepEqual(parts, ['2 Input', '1 Card']);
+});
+
+test('says why the commonest parts left have no twin', () => {
+  const { left } = recipe('import { EmptyState, KeyValue, Table } from \'@intafaced/ui\';\nexport const a = <EmptyState title="t" />;\n');
+  assert.equal(left.length, 1);
+  assert.match(left[0], /^1: imports EmptyState, KeyValue, Table from @intafaced\/ui \(EmptyState: it takes its action as data/);
+  assert.match(left[0], /KeyValue: it takes items/);
+  assert.match(left[0], /Table: its columns are/);
+});
+
+test('a whole string of utilities moves to its one kit class, and only whole', () => {
+  const { text, left } = recipe(
+    'export const a = (\n  <div>\n    <p className="m-0 text-sm text-fg-2">x</p>\n    <div className="flex flex-col gap-2">y</div>\n    <p className="text-sm text-fg-2">z</p>\n    <div className="flex flex-col gap-2 p-3">w</div>\n  </div>\n);\n',
+  );
+  assert.match(text, /<p className="lt-hint">x/);
+  assert.match(text, /<div className="lt-stack">y/);
+  // Not in WHOLE as written: left whole, never half-moved.
+  assert.match(text, /<p className="text-sm text-fg-2">z/);
+  assert.match(text, /<div className="flex flex-col gap-2 p-3">w/);
+  assert.equal(left.length, 2);
+  // A utility a test finds an element by holds the whole string.
+  const held = recipe('export const a = <div className="flex flex-col gap-2" />;\n', { found: new Set(['flex-col']) });
+  assert.match(held.text, /flex flex-col gap-2/);
+  assert.match(held.left[0], /a test finds an element by flex-col/);
+  for (const kit of Object.values(WHOLE)) assert.match(kit, /^lt-[a-z-]+$/);
 });

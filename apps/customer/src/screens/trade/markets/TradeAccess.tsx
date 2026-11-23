@@ -77,13 +77,13 @@ export function TradeAccess() {
     return (
       <div data-testid="trade-access" data-state="verified" data-level={state.level} className="mkt-access">
         <strong>{t('Verified to trade')}</strong>
-        <span className="mkt-muted">{t('Access level', { level: t(LEVEL_WORD[state.level]) })}</span>
+        <span className="lt-muted">{t('Access level', { level: t(LEVEL_WORD[state.level]) })}</span>
       </div>
     );
   return (
     <div data-testid="trade-access" data-state={state.kind} className="mkt-access">
       <strong>{t(state.kind === 'pending' ? 'Verification pending' : 'Verify to trade')}</strong>
-      <span className="mkt-muted">{t(state.kind === 'pending' ? 'Access pending body' : 'Access verify body')}</span>
+      <span className="lt-muted">{t(state.kind === 'pending' ? 'Access pending body' : 'Access verify body')}</span>
       <a className="mkt-access__link" href="/verification">
         {t(state.kind === 'pending' ? 'See your request' : 'Verify now')}
       </a>

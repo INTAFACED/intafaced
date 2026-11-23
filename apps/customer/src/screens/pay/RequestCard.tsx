@@ -86,7 +86,7 @@ export function RequestCard({ identity }: { identity: IdentityState }) {
     );
   const payeeId = identity.status === 'handles' ? identity.handle : (userId ?? '');
   return (
-    <div className="pay-body" data-testid="request-card">
+    <div className="lt-stack" data-testid="request-card">
       {loaded.length === 0 ? null : <AskAPerson assets={loaded} onSent={() => setRevision((n) => n + 1)} />}
       <RequestLists revision={revision} />
       <p className="lt-hint">{t('reqIntro')}</p>
@@ -184,7 +184,7 @@ function CreateRequest({ userId, payeeId, assets }: { userId: string; payeeId: s
         </div>
       ) : (
         <form
-          className="pay-body"
+          className="lt-stack"
           noValidate
           onSubmit={(event) => {
             event.preventDefault();
@@ -192,7 +192,7 @@ function CreateRequest({ userId, payeeId, assets }: { userId: string; payeeId: s
           }}
         >
           <div className="pay-field" data-testid="request-amount-field">
-            <span className="pay-field__label">{t('reqAmount')}</span>
+            <span className="lt-hint">{t('reqAmount')}</span>
             <div className="pay-field__main">
               <Select items={items} value={chosen} onValueChange={(value) => typeof value === 'string' && setAsset(value)}>
                 <SelectTrigger className="pay-asset" aria-label={t('reqAsset')}>
@@ -219,7 +219,7 @@ function CreateRequest({ userId, payeeId, assets }: { userId: string; payeeId: s
             </div>
           </div>
           <div className="pay-field">
-            <label className="pay-field__label" htmlFor="request-note">
+            <label className="lt-hint" htmlFor="request-note">
               {t('reqNote')}
             </label>
             <input
@@ -313,7 +313,7 @@ function PayARequest() {
       <h3 className="pay-section-title">{t('reqPayTitle')}</h3>
       <p className="lt-hint">{t('reqPayIntro')}</p>
       <div className="pay-field">
-        <label className="pay-field__label" htmlFor="request-pay-link">
+        <label className="lt-hint" htmlFor="request-pay-link">
           {t('reqPayLabel')}
         </label>
         <input
