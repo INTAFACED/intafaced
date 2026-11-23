@@ -1969,7 +1969,7 @@ export interface UserVenueDescriptor extends VenueDescriptor {
 
 /** How a venue holds positions on one contract: one net position, or a long and a short side by side. */
 export type VenuePositionMode = 'one_way' | 'hedge';
-export const VENUE_POSITION_MODES: readonly VenuePositionMode[] = ['one_way', 'hedge'];
+const VENUE_POSITION_MODES: readonly VenuePositionMode[] = ['one_way', 'hedge'];
 
 /** The position modes `venue` offers: what it declares, or one-way only when it declares none. */
 export function positionModesOf(venue: UserVenueDescriptor): readonly VenuePositionMode[] {

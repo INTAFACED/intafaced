@@ -42,6 +42,7 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *        /builder-account-mode {builder}   the address's account mode and the mode required to accrue builder fees
  *        /leverage {account,symbol}, /leverage-change {account,symbol,leverageBps,marginMode},
  *        /isolated-margin {account,symbol}, /account-summary {account}, /account-mode {account}, /vaults, /vault-holdings {account}, /book {symbol,depth},
+ *        /position-mode {account,symbol}   the position mode the account holds one perpetual in (J-derivatives-05 #3)
  *        /fee-status {account?}   the published fee tiers, and with an account its tier, counted volume and rates
  *        /sub-accounts {account}, /transfer {account,nonce}   (UserVenueSubAccountReads, on the main account)
  *        /market-margin {account,symbol}                  the owner's balance in a market deployer's own margin account
