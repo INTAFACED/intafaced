@@ -418,6 +418,7 @@ export class SqlAutoTopUpStore implements AutoTopUpStore {
     const cap = formatAmount(input.cap);
     const rows = SettingRow.array().parse(
       await this.sql`
+      -- conflict-keys-ok: user_venue_auto_top_ups_pkey — the id is a fresh random uuid made for each save (auto-top-up.ts), so two saves never share one; the row is named by (user_id, venue_id, owner, symbol), the key this statement absorbs
       INSERT INTO trade.user_venue_auto_top_ups
         (id, user_id, venue_id, owner, symbol, trigger_level, amount_each, cap, enabled, run, armed, stopped, next_sequence,
          created_at, updated_at)
