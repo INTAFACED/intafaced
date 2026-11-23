@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parseAmount } from '@intafaced/ledger-client';
 import {
   NO_CASH_LEGS,
@@ -30,7 +30,7 @@ const ask = (over: Partial<CashLegAsk> = {}): CashLegAsk => ({
   ...over,
 });
 
-function world(opts: { failPayouts?: number } = {}) {
+function world(opts: { failPayouts?: number; held?: (() => void)[] } = {}) {
   const partner = testPartner();
   partner.set('u1', { custody: 'off' });
   partner.fund('u1', { fundId: 'f1', assetId: 'EUR', amount: parseAmount('100') });
@@ -42,6 +42,8 @@ function world(opts: { failPayouts?: number } = {}) {
         failures -= 1;
         throw new Error('lost');
       }
+      // A held payout answers only when the test lets it.
+      if (opts.held) await new Promise<void>((answer) => opts.held!.push(answer));
       // The venue credits a reference once.
       if (!paid.some((p) => p.ref === ref)) paid.push({ ref, amount });
     },
@@ -59,6 +61,10 @@ function world(opts: { failPayouts?: number } = {}) {
 }
 
 describe('the partner cash leg', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('offers the cash it holds for a person, with its rate and what can move', async () => {
     const { legs } = world();
     const read = await legs.offers('u1');
@@ -83,6 +89,25 @@ describe('the partner cash leg', () => {
     expect(paid).toEqual([{ ref: KEY, amount: parseAmount('21.6') }]);
     expect(await legs.leg('u1', KEY)).toEqual(c);
     expect(await legs.leg('u2', KEY)).toBeNull();
+  });
+
+  it('two carries of one key at once get the one stored leg, however the clock moves between their answers', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const held: (() => void)[] = [];
+    const { legs, paid, moves } = world({ held });
+    const both = Promise.all([legs.carry('u1', ask()), legs.carry('u1', ask())]);
+    const settle = () => new Promise((done) => setImmediate(done));
+    // Each payout that went out answers a millisecond after the one before.
+    for (let i = 0; i < 4; i += 1) {
+      await settle();
+      held.shift()?.();
+      vi.setSystemTime(Date.now() + 1);
+    }
+    const [a, b] = await both;
+    expect(a).toEqual(b);
+    expect(await legs.leg('u1', KEY)).toEqual(a);
+    expect(moves()).toHaveLength(1);
+    expect(paid).toHaveLength(1);
   });
 
   it('rounds the coin down to its smallest unit', async () => {
