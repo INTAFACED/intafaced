@@ -6,9 +6,8 @@
 //!
 //! The TypeScript swaps the service's own `quote` for one priced before a drain; these write the request as that quote
 //! left it (`processing`, priced, held at the partner, nothing taken) and drive it with the same request, which is the
-//! same drive. Not ported: "a request refused while its lock was lost never leaves the money taken", which holds the
-//! partner's move and the lock's connection mid-call, and the sweep's count of which keys the partner was asked about
-//! (each sweep test checks the same through what was given back and when each request was last checked).
+//! same drive. Not ported: the sweep's count of which keys the partner was asked about (each sweep test checks the same
+//! through what was given back and when each request was last checked).
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -22,12 +21,15 @@ use crate::support;
 use service_kit::json::{self, Json};
 use service_kit::money::{Amount, format_amount};
 use service_kit::time::Instant;
+use std::sync::{Mutex, mpsc};
 use support::TestDb;
 use svc_bank::door::BankDoor;
+use svc_bank::errors::Refusal;
 use svc_bank::partner::{AccountRef, Funding, LABEL, MoveRequest, payouts_account};
 use svc_bank::partner_account::cash_out::ledger::{Recipe, Withdrawal};
 use svc_bank::partner_account::cash_out::payout_sim::{Partner, RAIL};
 use svc_bank::partner_account::cash_out::receipt::{hkdf_sha256_32, hmac_sha256};
+use svc_bank::partner_account::cash_out::security_lock::{LockState, SecurityLock};
 use svc_bank::partner_account::cash_out::{self, Outcome};
 
 struct Suite {
@@ -333,9 +335,8 @@ fn move_by_key(d: &BankDoor, key: &str) -> Option<String> {
         .map(|m| m.id.clone())
 }
 
-/// A partner-held request as a quote read before the drain left it (priced, held at the partner, nothing taken), driven
-/// on by asking again with the same request: the drive is refused for funds. Its refusal and creation are `ago` old.
-fn drive_refused(s: &Suite, d: &BankDoor, account: &str, ago: &str) -> String {
+/// A partner-held request as a quote read before the drain left it: priced, held at the partner, nothing taken.
+fn priced(s: &Suite, account: &str) -> String {
     let request = uuid();
     s.db.client()
         .execute(
@@ -345,6 +346,13 @@ fn drive_refused(s: &Suite, d: &BankDoor, account: &str, ago: &str) -> String {
             &[&request, &ADA, &account, &RAIL, &LABEL],
         )
         .unwrap();
+    request
+}
+
+/// [`priced`], driven on by asking again with the same request: the drive is refused for funds. Its refusal and
+/// creation are `ago` old.
+fn drive_refused(s: &Suite, d: &BankDoor, account: &str, ago: &str) -> String {
+    let request = priced(s, account);
     let kept = start(d, account, "20", &request);
     matches(
         &kept,
@@ -1060,6 +1068,101 @@ fn a_partner_balance_that_moved_after_the_quote_keeps_the_request_refused_nothin
     drain(&d);
     drive_refused(&s, &d, &id, "0 minutes");
     assert_eq!(at_partner(&d), "5");
+}
+
+/// The owner's lock, open; the n-th read (the n-th driver's, just before its partner move) says it arrived, then waits
+/// until the test lets that driver on.
+struct Gated {
+    calls: std::sync::atomic::AtomicUsize,
+    reached: Mutex<mpsc::Sender<usize>>,
+    open: Vec<Mutex<mpsc::Receiver<()>>>,
+}
+
+impl SecurityLock for Gated {
+    fn read(&self, _user_id: &str) -> Result<LockState, Refusal> {
+        let n = self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.reached.lock().unwrap().send(n).unwrap();
+        self.open[n].lock().unwrap().recv().unwrap();
+        Ok(OPEN)
+    }
+}
+
+// The request's session lock lives on one connection. If that connection drops while the body runs (a failover, a reset
+// socket), Postgres frees the lock at once and the body carries on, on the pool's other connections. A replay of the
+// same request then drives it at the same time. A partner refusal keeps nothing under its key, so the replay's move
+// under that same key can be made after the first driver was refused.
+#[test]
+fn a_request_refused_while_its_lock_was_lost_never_leaves_the_money_taken_a_refused_request_took_nothing()
+ {
+    let Some(s) = Suite::new() else { return };
+    let (reached_tx, reached) = mpsc::channel();
+    let (go_a, wait_a) = mpsc::channel();
+    let (go_b, wait_b) = mpsc::channel();
+    let gated = Gated {
+        calls: 0.into(),
+        reached: Mutex::new(reached_tx),
+        open: vec![Mutex::new(wait_a), Mutex::new(wait_b)],
+    };
+    // Room in the pool and the lock gate for two drivers at once, as two instances would have.
+    let d = door(
+        &s.db,
+        &s.ledger,
+        &s.lock,
+        Setup {
+            partner: Some(sim(None)),
+            partner_bank: true,
+            pool_max: 4,
+            security_lock: Some(Box::new(gated)),
+            ..Setup::default()
+        },
+    );
+    custody(&d, "off");
+    partner_fund(&d, "cash-out-partner-fund-ada", "50");
+    let id = s.usable(&d);
+    drain(&d);
+    let request = priced(&s, &id);
+    let drive = || mutate(&d, ADA, STEPPED, "cashOut.start", &ask(&request, "20", &id));
+    std::thread::scope(|t| {
+        // Driver A holds the request's lock and is about to ask the partner.
+        let a = t.spawn(drive);
+        assert_eq!(reached.recv(), Ok(0));
+        // A's lock connection drops: Postgres frees the lock, and A's body carries on.
+        let dropped = s.db.count(
+            "SELECT count(pg_terminate_backend(pid)) FROM pg_locks WHERE locktype = 'advisory' AND granted \
+               AND database = (SELECT oid FROM pg_database WHERE datname = current_database())",
+        );
+        assert_eq!(dropped, 1);
+        // A replay of the same request takes the freed lock and finds it still processing.
+        let b = t.spawn(drive);
+        assert_eq!(reached.recv(), Ok(1));
+        // A's move is refused for funds and recorded so; then the money arrives and the replay makes its move under
+        // the same key.
+        go_a.send(()).unwrap();
+        drop(a.join().unwrap());
+        partner_fund(&d, "cash-out-partner-fund-ada-3", "20");
+        go_b.send(()).unwrap();
+        drop(b.join().unwrap());
+    });
+    let row = s
+        .db
+        .client()
+        .query_one(
+            "SELECT status, partner_move_id FROM bank.cash_out_requests WHERE id = $1::text::uuid",
+            &[&request],
+        )
+        .unwrap();
+    let (status, recorded): (String, Option<String>) = (row.get(0), row.get(1));
+    let moved = move_by_key(&d, &cash_out::move_key(&request));
+    let found = (status, moved.is_some() && recorded == moved, at_partner(&d));
+    // Either the request took the money and says so, or it was refused and the money is still the customer's.
+    assert!(
+        [
+            ("processing".to_owned(), true, "5".to_owned()),
+            ("refused".to_owned(), false, "25".to_owned()),
+        ]
+        .contains(&found),
+        "{found:?}"
+    );
 }
 
 #[test]
