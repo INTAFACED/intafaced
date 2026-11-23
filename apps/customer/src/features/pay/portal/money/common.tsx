@@ -11,7 +11,7 @@ import { NotLiveCard } from '../chrome/NotLiveCard';
 import { reason, type ReasonKey } from '../chrome/copy';
 import { mc } from './copy';
 import { isStatementBusy } from './money-words';
-export { localRefusal, shortDay } from './money-words';
+export { shortDay } from './money-words';
 
 /** A refusal with its plain words and a retry; a busy statement is a calm wait, not an error. */
 export function MoneyFailure({ result, retry }: { result: Extract<ApiResult<unknown>, { ok: false }>; retry?: () => void }) {
@@ -87,64 +87,5 @@ export function LoadMore({ state, onMore }: { state: ListState<unknown>; onMore:
         </p>
       )}
     </div>
-  );
-}
-
-/**
- * Loading, refused, empty and filled, for any list here. `blocked` is what to show when the list's service is not
- * released yet; without it a refusal is shown with its plain words and a retry.
- */
-export function ListBody<T>({
-  state,
-  retry,
-  onMore,
-  empty,
-  filtered,
-  label,
-  rowKey,
-  columns,
-  card,
-  href,
-  blocked,
-}: {
-  state: ListState<T>;
-  retry: () => void;
-  onMore: () => void;
-  empty: { title: string; body: string; action?: ReactNode };
-  /** Filters are on: an empty result then offers to clear them instead of explaining what the list is. */
-  filtered?: { clear: () => void; active: boolean };
-  label: string;
-  rowKey: (row: T) => string;
-  columns: readonly EntityColumn<T>[];
-  card: (row: T) => EntityCard;
-  href?: (row: T) => string;
-  blocked?: ReactNode;
-}) {
-  const { t } = mc.useCopy();
-  if (state.status === 'loading') return <PortalLoading rows={4} />;
-  if (state.status === 'failed')
-    return blocked && isNotLive(state.failure) ? <>{blocked}</> : <MoneyFailure result={state.failure} retry={retry} />;
-  if (state.items.length === 0)
-    return filtered?.active ? (
-      <EmptyState
-        title={t('mnNoMatchTitle')}
-        action={
-          <Button variant="secondary" onClick={filtered.clear}>
-            {t('clearFilters')}
-          </Button>
-        }
-      >
-        {t('mnNoMatchBody')}
-      </EmptyState>
-    ) : (
-      <EmptyState title={empty.title} action={empty.action}>
-        {empty.body}
-      </EmptyState>
-    );
-  return (
-    <>
-      <EntityList label={label} rows={state.items} rowKey={rowKey} columns={columns} card={card} href={href} />
-      <LoadMore state={state} onMore={onMore} />
-    </>
   );
 }
