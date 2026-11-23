@@ -90,7 +90,15 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
           </KitRead>
         </Section>
         <Section title={copyText('academyrooms.room.and.sessions')} className="lt-stack">
-          <KitRead resource={detail.resource} retry={detail.reload} empty={copyText('academyrooms.choose.a.room')}>
+          <KitRead
+            resource={detail.resource}
+            retry={detail.reload}
+            empty={copyText(
+              rooms.resource.status === 'ready' && rooms.resource.data.length === 0
+                ? 'academyrooms.no.room.no.sessions'
+                : 'academyrooms.choose.a.room',
+            )}
+          >
             {(data) =>
               data ? (
                 <>
