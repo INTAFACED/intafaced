@@ -63,8 +63,8 @@ export function partnerPayInsAccount(assetId: string): PartnerAccountRef {
  * are the partner's, never a person's, so they are on no person's list of balances; `moves` never lists a card move,
  * because the card's own list of payments is where a person reads it, but the account's statement counts it.
  */
-export const PARTNER_CARD_HOLDS_OWNER = 'partner:card-holds';
-export const PARTNER_CARD_NETWORK_OWNER = 'partner:card-network';
+const PARTNER_CARD_HOLDS_OWNER = 'partner:card-holds';
+const PARTNER_CARD_NETWORK_OWNER = 'partner:card-network';
 export function partnerCardHoldsAccount(assetId: string): PartnerAccountRef {
   return { userId: PARTNER_CARD_HOLDS_OWNER, assetId, spaceId: null };
 }
