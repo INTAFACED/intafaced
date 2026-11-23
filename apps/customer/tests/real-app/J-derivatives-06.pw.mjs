@@ -4,12 +4,14 @@ import { api, bestPrices, journeyState, tool, toUnits, fromUnits } from './stack
 import { fundedTrader, signIn } from './desk.mjs';
 import { HOLD_MAX_MS } from '../../../../tooling/scripts/local-test-market.mjs';
 
-// J-derivatives-06, in the running app (docs/roadmap/journeys.json): watch and top up the margin on an isolated position.
-// One test per step, titled "J-derivatives-06 #<n>", run in order on one TEST account funded with TEST USDT. The contract
-// is the TEST perpetual `local-test-gates.mjs futures` lists; its maintenance tiers are the stack's LOCAL TEST ladder. The
-// mark follows the stack's TEST book, which the TEST market maker walks, so every figure that needs the mark is compared
-// with the service's own answer read at the same moment. Not here yet: #3, #4, #6 and #7 (each lands with its own
-// slice; #3's floor waits on an owner decision).
+// J-derivatives-06, in the running app (docs/roadmap/journeys.json): watch and top up the margin on an isolated position,
+// on our own futures engine and ledger (the custodial layer, kept and switched off at launch), run in order on one TEST
+// account funded with TEST USDT. Steps #1 to #3 are proven on the person's own venue account in
+// J-derivatives-06-venue.pw.mjs (the launch money model), so the two tests here that check the same screens on our own
+// ledger are titled "part of #<n>, checked on our own ledger" and are no step's proof; #5 is titled as its step. The
+// contract is the TEST perpetual `local-test-gates.mjs futures` lists; its maintenance tiers are the stack's LOCAL TEST
+// ladder. The mark follows the stack's TEST book, which the TEST market maker walks, so every figure that needs the mark
+// is compared with the service's own answer read at the same moment. Not here yet: #4, #6 and #7.
 const J = 'J-derivatives-06';
 const DESK = '/trade/futures';
 const SYMBOL = 'BTC/USDT:USDT';
@@ -21,7 +23,7 @@ test.describe.configure({ mode: 'default' });
 
 function account() {
   const who = run.read().account;
-  if (!who) throw new Error(`${J} #1 made no account, so this step has no one to act as`);
+  if (!who) throw new Error(`${J}'s first test made no account, so this step has no one to act as`);
   return who;
 }
 
@@ -113,7 +115,9 @@ const expected = (s) => ({
   ratio: exactPct(s.marginRatio),
 });
 
-test(`${J} #1 opens Account metrics: equity, available, used margin and margin ratio as exact decimals`, async ({ page }) => {
+test(`${J}, part of #1, checked on our own ledger: opens Account metrics: equity, available, used margin and margin ratio as exact decimals`, async ({
+  page,
+}) => {
   const who = await fundedTrader(page, 'jd6', '1000');
   run.reset({ account: who });
   const me = await api(who);
@@ -176,11 +180,13 @@ test(`${J} #1 opens Account metrics: equity, available, used margin and margin r
   await expect(region.getByRole('status')).toHaveCount(0);
 });
 
-test(`${J} #2 adds margin to a position: the margin and liquidation price after, from the service`, async ({ page }) => {
+test(`${J}, part of #2, checked on our own ledger: adds margin to a position: the margin and liquidation price after, from the service`, async ({
+  page,
+}) => {
   const who = account();
   const me = await api(who);
   const { positionId } = run.read();
-  if (!positionId) throw new Error(`${J} #1 opened no position, so there is nothing to add margin to`);
+  if (!positionId) throw new Error(`${J}'s first test opened no position, so there is nothing to add margin to`);
   const before = (await me.get('/api/v1/positions')).body.find((p) => p.id === positionId);
   expect(before?.status).toBe('open');
   expect(before.liquidationPrice, JSON.stringify(before.fieldReasons)).toMatch(/^\d+(\.\d+)?$/);
@@ -245,7 +251,7 @@ test(`${J} #5 sets a pre-liquidation stop: a close order at the maintenance leve
   const who = account();
   const me = await api(who);
   const { positionId } = run.read();
-  if (!positionId) throw new Error(`${J} #1 opened no position, so there is nothing to set a stop on`);
+  if (!positionId) throw new Error(`${J}'s first test opened no position, so there is nothing to set a stop on`);
   const route = `/api/v1/positions/${positionId}/risk-stop`;
   const before = await me.get(route);
   expect(before.status, JSON.stringify(before.body)).toBe(200);
