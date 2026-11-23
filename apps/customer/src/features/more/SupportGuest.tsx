@@ -13,6 +13,7 @@ import { guestCopy } from './support-guest-copy';
 import { guestCreate, guestRefusalWords, guestVerify, keptToken, refusalCode } from './support-guest';
 import '../../shared/support-desk.css';
 import '../../shared/public-pages.css';
+import { leaveTo } from '../../app/location';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -25,7 +26,7 @@ function GuestRefusal({ refusal, t }: { refusal: Refusal; t: GuestT }) {
     return (
       <div role="alert" data-testid="support-guest-not-connected">
         <ServiceOffNotice code="vendor.email" action={t('verifyAction')} />
-        <p className="muted">{t('pendingBody')}</p>
+        <p className="lt-muted">{t('pendingBody')}</p>
       </div>
     );
   const sentence = words.key === 'unset' ? t('unset', { setting: words.setting }) : t(words.key);
@@ -101,7 +102,7 @@ export function GuestNewRequest() {
         <h1>{copy.t('pageNewRequest')}</h1>
       </header>
       <form onSubmit={(event) => void send(event)}>
-        <p className="muted">{t('intro')}</p>
+        <p className="lt-muted">{t('intro')}</p>
         <p className="support-warning" role="note">
           {copy.t('newWarning')}
         </p>
@@ -129,7 +130,7 @@ export function GuestNewRequest() {
           required
           maxLength={200}
         />
-        <label className="field">
+        <label className="lt-field">
           <span>{copy.t('messageField')}</span>
           <textarea lang="und" value={body} onChange={(event) => setBody(event.target.value)} maxLength={10000} rows={7} />
           <small>{copy.t('characters', { count: body.length, max: 10000 })}</small>
@@ -140,7 +141,7 @@ export function GuestNewRequest() {
         </Button>
       </form>
       <p>
-        <a className="text-link" href="/login">
+        <a className="lt-link" href="/login">
           {t('signInInstead')}
         </a>
       </p>
@@ -166,7 +167,7 @@ export function GuestVerify() {
     setRefusal(null);
     const answer = await writeContract(api, guestVerify, { token });
     setBusy(false);
-    if (answer.ok) location.assign(`${SUPPORT_GUEST_REQUEST_PATH}#access=${answer.data.access}`);
+    if (answer.ok) leaveTo(`${SUPPORT_GUEST_REQUEST_PATH}#access=${answer.data.access}`);
     else setRefusal(answer);
   }
 
@@ -185,7 +186,7 @@ export function GuestVerify() {
         </div>
       ) : (
         <>
-          <p className="muted">{t('verifyIntro')}</p>
+          <p className="lt-muted">{t('verifyIntro')}</p>
           <Button onClick={() => void open()} disabled={busy}>
             {busy ? t('verifying') : t('verifyButton')}
           </Button>
@@ -193,7 +194,7 @@ export function GuestVerify() {
         </>
       )}
       <p>
-        <a className="text-link" href="/support/new" data-testid="support-guest-back">
+        <a className="lt-link" href="/support/new" data-testid="support-guest-back">
           {t('backToForm')}
         </a>
       </p>

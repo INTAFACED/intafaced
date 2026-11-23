@@ -2,7 +2,8 @@ import { useMemo, useRef, useState } from 'react';
 import type { ProtocolListingChallenge, ProtocolListingProof } from '@intafaced/contracts/protocol-listing';
 import { PROTOCOL_LISTING_OWNERSHIP_CHALLENGE, PROTOCOL_LISTING_VERIFY_OWNERSHIP } from '@intafaced/contracts/protocol-procedures';
 import type { ApiResult } from '../../../shared/api';
-import { Button, Dialog, Failure, Loading } from '../../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { Dialog, Failure, Loading } from '../volt/parts';
 import { useApi } from '../../session';
 import { createProtocolApi, type RepresentationStatus } from '../api';
 import { RepresentationPanel, type RepresentationEnd } from '../wallet/RepresentationPanel';
@@ -83,7 +84,7 @@ export function InfoUpdate({ token, t }: { token: string; t: TokensTranslate }) 
 
   return (
     <>
-      <Button variant="secondary" onClick={() => void open()}>
+      <Button tone="secondary" onClick={() => void open()}>
         {t('updateRequest')}
       </Button>
       {state && (
@@ -93,12 +94,12 @@ export function InfoUpdate({ token, t }: { token: string; t: TokensTranslate }) 
           {(state.step === 'challenge' || state.step === 'checking') && (
             <>
               <p>{t('updateSignIntro')}</p>
-              <pre className="tokens-challenge" data-testid="token-update-challenge">
+              <pre className="lt-code" data-testid="token-update-challenge">
                 {state.challenge.message}
               </pre>
               {state.step === 'challenge' && state.problem && <p role="alert">{state.problem}</p>}
               {wallet.address ? (
-                <Button disabled={state.step === 'checking'} onClick={() => void sign(state.challenge)}>
+                <Button tone="primary" disabled={state.step === 'checking'} onClick={() => void sign(state.challenge)}>
                   {t('updateSign')}
                 </Button>
               ) : (
@@ -129,7 +130,7 @@ export function InfoUpdate({ token, t }: { token: string; t: TokensTranslate }) 
           {state.step === 'proven' && (
             <div role="status">
               <p>{t('updateProven', { signer: state.proof.signer, block: state.proof.blockNumber })}</p>
-              <p className="muted" data-blocker="owner.decision">
+              <p className="lt-hint" data-blocker="owner.decision">
                 {t('updateFormBlocked')}
               </p>
             </div>

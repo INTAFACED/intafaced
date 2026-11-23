@@ -431,6 +431,46 @@
 .bd-table .bd-num {
   text-align: right;
 }
+/* Phone: a table whose every cell names its column (`data-label`) stacks each row as a block, each value beside its
+   name, so nothing is cut off at the edge or scrolls sideways. A table without labels keeps its columns. */
+@media (max-width: 599px) {
+  .bd-table:not(:has(tbody td:not([data-label]))) thead {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .bd-table:not(:has(tbody td:not([data-label]))) thead th {
+    clip-path: inset(50%);
+  }
+  .bd-table:not(:has(tbody td:not([data-label]))),
+  .bd-table:not(:has(tbody td:not([data-label]))) :is(tbody, tr) {
+    display: block;
+  }
+  .bd-table:not(:has(tbody td:not([data-label]))) tr {
+    padding-block: var(--if-space-2);
+    border-block-start: 1px solid var(--if-line);
+  }
+  .bd-table:not(:has(tbody td:not([data-label]))) td {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--if-space-3);
+    padding-inline: 0;
+    padding-block: var(--if-space-1);
+    border: 0;
+    text-align: end;
+    overflow-wrap: anywhere;
+  }
+  .bd-table:not(:has(tbody td:not([data-label]))) td::before {
+    content: attr(data-label);
+    flex: none;
+    max-inline-size: 50%;
+    color: var(--if-fg-2);
+    text-align: start;
+  }
+}
 .badge[data-state='live'] {
   border-color: var(--if-lime);
   color: var(--if-accent-text);

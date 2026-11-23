@@ -171,7 +171,7 @@ for (const identifier of ['', '   ']) {
     await expect(email).toHaveAttribute('aria-invalid', 'true');
     await expect(email).toHaveAccessibleDescription('Enter your email or handle before using a passkey.');
     await expect(email).toBeFocused();
-    await expect(page.locator('.failure')).toHaveCount(0);
+    await expect(page.locator(':is(.failure, .lt-refusal)')).toHaveCount(0);
     await expect(page.getByLabel('Password', { exact: true })).toHaveValue('');
     expect(state.writes).toEqual([]);
     expect(await journal(page)).toBeNull();

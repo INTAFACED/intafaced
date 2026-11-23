@@ -1,4 +1,5 @@
 import type { VenueStatements } from './venue/venue-statements.js';
+import type { VenueMarginSamples } from './venue/venue-margin-samples.js';
 import { attachApiKeyRotationRoutes, type ApiKeyRotationClient } from './account/api-key-rotation-rest.js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { requireScope, tradeTier, type Principal } from '@intafaced/auth';
@@ -257,6 +258,8 @@ export interface PrivateRestDeps {
   venueConverts?: VenueConverts | null;
   /** The statement export on the venue's own records (J-cex-spot-07 #5). Absent: its routes answer 503. */
   venueStatements?: VenueStatements | null;
+  /** The venue's margin readings, kept for a founder's ratio history (J-derivatives-26 #8). */
+  venueMarginSamples?: VenueMarginSamples | null;
   /** Each person's acknowledged version of a venue's auto-deleveraging rules (J-derivatives-07 #5). */
   venueAdlAcks?: VenueAdlAcks | null;
   /** One person's builder fees on one venue account with their ledger transactions (J-derivatives-12 #4). */
@@ -1495,6 +1498,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     sellQuotes: deps.venueSellQuotes ?? null,
     converts: deps.venueConverts ?? null,
     venueStatements: deps.venueStatements ?? null,
+    marginSamples: deps.venueMarginSamples ?? null,
     venueAdlAcks: deps.venueAdlAcks ?? null,
     builderFeesOf: deps.venueBuilderFees ?? null,
     agentKeyConfined,

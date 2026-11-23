@@ -1,7 +1,7 @@
 import './settings.css';
 import { extensionCopy, portalCopy } from './copy';
 import type { RoomTable } from '../rooms-model';
-import { NotificationPreferencesRoom, Notifications } from './Notifications';
+import { NotificationPreferencesRoom, NotificationsRoom } from './Notifications';
 import { LinkButton } from '../volt/parts';
 import { accountRooms } from './account/rooms';
 import { analyticsRooms } from './analytics/rooms';
@@ -35,6 +35,7 @@ export const settingsRooms: RoomTable = {
   ...analyticsRooms,
   notifications: {
     header: () => ({ title: t('pageNotifications'), purpose: t('purposeNotifications') }),
-    render: (_route, { portal }) => <Notifications portal={portal} />,
+    ownTitle: true,
+    render: (_route, { portal }) => <NotificationsRoom portal={portal} />,
   },
 };

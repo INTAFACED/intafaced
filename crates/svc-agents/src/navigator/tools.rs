@@ -3,6 +3,7 @@
 //! `data-tools.ts` and `action-audit.ts`. None reads or writes anything; each answers as the TypeScript does.
 
 use service_kit::json::Json;
+use service_kit::money::Amount;
 use service_kit::money::parse_amount;
 use service_kit::time::{Instant, es_date_at_midnight, zod_datetime};
 
@@ -468,7 +469,7 @@ fn unsigned_decimal(s: &str) -> bool {
     if !digits(int) || frac.is_some_and(|f| !digits(f) || f.len() > 18) {
         return false;
     }
-    parse_amount(s).is_ok_and(|a| a >= 0)
+    parse_amount(s).is_ok_and(|a| a >= Amount::ZERO)
 }
 
 /// `Date.parse` for the forms a quote's `asOf` takes: an ISO date-time with `Z` or an offset, or a bare date.

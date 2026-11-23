@@ -97,39 +97,45 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div class="promotions">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div class="lt-room" data-template="overview" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<h1>Promotions &amp; invitations</h1>
-<p class="muted">Your invitation link and referral records. Visits are not sign-ups or commission payments.</p>
+<h1 class="lt-title">Promotions &amp; invitations</h1>
+<p class="lt-description">Your invitation link and referral records. Visits are not sign-ups or commission payments.</p>
 </div>
 </header>
-<nav class="promotions__tabs" aria-label="Promotion sections">
-<a href="/uc/promotion">Overview</a>
-<a href="/uc/promotion/mycards">Invitation link</a>
-<a href="/uc/promotion/mypromotion">Referral records</a>
-<a href="/uc/promotion/points">Points programme</a>
-<a href="/uc/promotion/perks" aria-current="page">Tier and perks</a>
+<div class="lt-body">
+<section class="lt-region" data-region="rooms">
+<nav class="lt-tabs" aria-label="Promotion sections" data-region="section-tabs">
+<a href="/uc/promotion" class="lt-tab">Overview</a>
+<a href="/uc/promotion/mycards" class="lt-tab">Invitation link</a>
+<a href="/uc/promotion/mypromotion" class="lt-tab">Referral records</a>
+<a href="/uc/promotion/points" class="lt-tab">Points programme</a>
+<a href="/uc/promotion/perks" class="lt-tab" aria-current="page">Tier and perks</a>
 </nav>
-<section class="perks" aria-label="Tier and perks" data-testid="perks" data-state="error">
-<section class="if-panel" data-live="false">
-<header class="if-panel__header">
-<h2 class="if-panel__title">Tier and perks</h2>
-</header>
-<div class="if-panel__body">
-<p class="muted">Read from the trading service each time you open this page, and every few seconds while it is open.</p>
-<p role="alert" data-testid="perks-failed">Couldn’t read your tier. <button type="button" class="text-link">Try again</button>
+</section>
+<div class="lt-grid lt-grid-main-side">
+<div class="lt-col-main">
+<section class="lt-region" data-region="sections" aria-label="Activity">
+<section aria-label="Tier and perks" data-testid="perks" data-state="error">
+<div class="lt-stack">
+<h2>Tier and perks</h2>
+<p class="lt-hint">Your tier sets the fee you pay on each order. It stays up to date while this page is open.</p>
+<p role="alert" data-testid="perks-failed">Couldn’t load your tier. <button type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">Try again</button>
 </p>
 <section aria-label="A tier on points" data-testid="perks-points-tier" data-code="owner.decision">
 <h3>A tier on points</h3>
 <p role="note">
-<strong>Waiting for an owner decision:</strong> <span data-testid="perks-points-question">Should a loyalty tier be reached on points, and with which thresholds and point values? Until the owner decides, tiers are reached on spend only.</span>
+<strong>Not offered. INTAFACED still has to decide:</strong> <span data-testid="perks-points-question">Should a loyalty tier be reached on points, and with which thresholds and point values? Until the owner decides, tiers are reached on spend only.</span>
 </p>
 </section>
 </div>
 </section>
 </section>
+</div>
+<div class="lt-col-side">
+</div>
+</div>
 </div>
 </div>
 </div>

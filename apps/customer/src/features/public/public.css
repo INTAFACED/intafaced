@@ -21,6 +21,41 @@
   gap: var(--if-space-4);
   padding: var(--if-space-2-5) 0;
 }
+.public-signin {
+  white-space: nowrap;
+}
+.public-header .brand-compact {
+  display: none;
+}
+.public-menu {
+  display: none;
+  position: relative;
+}
+.public-menu > summary {
+  cursor: pointer;
+  list-style: none;
+  padding-block: var(--if-space-2-5);
+  color: var(--color-muted);
+}
+.public-menu > summary::-webkit-details-marker {
+  display: none;
+}
+.public-menu[open] > summary {
+  color: var(--color-text);
+}
+.public-menu > nav {
+  position: absolute;
+  inset-block-start: 100%;
+  inset-inline-start: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: var(--if-space-5);
+  min-inline-size: 10rem;
+  padding: var(--if-space-5);
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider);
+}
 .public-signin span {
   color: var(--if-accent-text);
   font-size: 22px;
@@ -231,8 +266,24 @@
     gap: var(--if-space-5);
     padding-inline: var(--if-space-5);
   }
-  .public-header nav {
+  .public-header {
+    block-size: auto;
+    min-block-size: 4rem;
+    flex-wrap: wrap;
+    row-gap: var(--if-space-2-5);
+    padding-block: var(--if-space-2-5);
+  }
+  .public-header .brand-full {
     display: none;
+  }
+  .public-header .brand-compact {
+    display: block;
+  }
+  .public-header > nav {
+    display: none;
+  }
+  .public-menu {
+    display: block;
   }
   .home-hero {
     padding: var(--if-space-12) var(--if-space-5) var(--if-space-7);

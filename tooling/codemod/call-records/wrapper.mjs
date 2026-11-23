@@ -13,6 +13,7 @@
 // Anything else the wrapper does with the name (compares it, hands the wrapper on, takes it from a request) stays, named.
 import { join, relative } from 'node:path';
 import { bindingOf, load, resolveRelative, text, walk } from './ast.mjs';
+import { hasRecordForm } from './tool-forms.mjs';
 
 const CUSTOMER_SRC = '/apps/customer/src/';
 const SENDERS = new Set(['query', 'mutate']);
@@ -136,6 +137,10 @@ function paramWrapper(p, site, files) {
   // A closed set of strings is fan.mjs's: one site per value, in the one call.
   if (ann && ann.type !== 'TSStringKeyword') return undefined;
   const fname = nameOf(p, param.fn) ?? 'it';
+  // A tool with its record form beside it: each caller is its own site (tool-forms.mjs, pay-business.mjs), named with
+  // its own reason while it stays; the tool's sender is left only until its last caller moves.
+  if (hasRecordForm(p.file, fname))
+    return { why: `its tool ${fname} has a record form its callers move to one by one, and stays while a caller is left` };
   // Every read of the name is one sender's call name, all to one service and of one kind.
   const reads = readsOf(
     p,

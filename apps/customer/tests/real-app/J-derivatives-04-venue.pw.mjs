@@ -2,7 +2,7 @@
 import { randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { api, journeyState, restartService, toUnits } from './stack.mjs';
+import { EDGE, api, fromUnits, journeyState, restartService, toUnits } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import {
@@ -16,11 +16,13 @@ import {
   venueInfo,
   venueRecord,
 } from './venue.mjs';
+import { venueBook } from './venue-reads.mjs';
 
 // J-derivatives-04's venue steps on the person's own venue account (the launch money model: the venue holds the margin
 // and the orders, the ledger posts nothing), in the running app against the stack's TEST venue simulator
 // (packages/venue-sim). #3 and #5 are the steps CUSTODY-DELTA marks Adapted (amend, cancel-on-disconnect); #4 and #6 are
-// proven here on the venue too, since trading on our own engine is out at launch. One test per step,
+// proven here on the venue too, since trading on our own engine is out at launch; #7 crosses the person's own resting
+// order between the TEST book's best bid and ask, so it meets no one else. One test per step,
 // titled "J-derivatives-04 #<n>", run in order on one TEST account; #1 and #2 are in J-derivatives-04.pw.mjs.
 //
 // Every order, lock, schedule and answer is read from the TEST venue itself, never the page. #3 to #5 rest TEST buys on
@@ -122,16 +124,18 @@ async function ordersTab(page) {
   await expect(page.getByTestId('venue-open-orders')).toBeVisible();
 }
 
-/** The desk's own ticket: a TEST limit buy of `size` at `price`, reviewed, confirmed and signed; its venue client id. */
-async function restFromDesk(page, owner, size, price, label = '') {
+/** The desk's own ticket: a TEST limit order (a long buys, a short sells) of `size` at `price`, reviewed, confirmed and
+ *  signed; its venue client id. */
+async function restFromDesk(page, owner, size, price, label = '', side = 'long') {
   const before = new Set((await venueOpen(owner)).map((o) => o.venueClientOrderId));
   const t = ticket(page);
-  await t.getByRole('button', { name: 'Long', exact: true }).click();
+  const Side = side === 'long' ? 'Long' : 'Short';
+  await t.getByRole('button', { name: Side, exact: true }).click();
   await t.getByRole('button', { name: 'Limit', exact: true }).click();
   await t.getByRole('textbox', { name: 'Size (BTC)', exact: true }).fill(size);
   await t.getByRole('textbox', { name: 'Price', exact: true }).fill(price);
   await t.getByRole('textbox', { name: 'Label (optional)', exact: true }).fill(label);
-  await t.getByRole('button', { name: 'Review long', exact: true }).click();
+  await t.getByRole('button', { name: `Review ${side}`, exact: true }).click();
   const sheet = page.getByTestId('venue-review');
   await expect(sheet).toBeVisible({ timeout: 20_000 });
   const approval = sheet.locator('[data-line="builder-approval"]');
@@ -140,13 +144,13 @@ async function restFromDesk(page, owner, size, price, label = '') {
     await continueInWallet(page);
     await expect(approval).toHaveText(/Signed, up to/, { timeout: 15_000 });
   }
-  await sheet.getByRole('button', { name: 'Open long', exact: true }).click();
+  await sheet.getByRole('button', { name: `Open ${side}`, exact: true }).click();
   await continueInWallet(page);
   await expect(sheet.getByTestId('venue-outcome').last()).toContainText('Open on the venue.', { timeout: 15_000 });
   await sheet.getByRole('button', { name: 'Back', exact: true }).click();
   const placed = (await venueOpen(owner)).filter((o) => !before.has(o.venueClientOrderId));
   expect(placed, 'one new order rests on the venue').toHaveLength(1);
-  expect(placed[0]).toMatchObject({ symbol: PERP, side: 'buy', status: 'open' });
+  expect(placed[0]).toMatchObject({ symbol: PERP, side: side === 'long' ? 'buy' : 'sell', status: 'open' });
   return placed[0].venueClientOrderId;
 }
 
@@ -480,6 +484,7 @@ test(`${J} #5 arms cancel-on-disconnect: armed on the venue's scheduled cancel w
 
 test(`${J} #6 with a take-profit and a stop-loss for the whole position resting, places another order that would close the whole position: refused; partial ones don't count`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(480_000);
   const s = state();
@@ -554,6 +559,9 @@ test(`${J} #6 with a take-profit and a stop-loss for the whole position resting,
     await expect(page.getByRole('dialog', { name: 'Check before you sign', exact: true })).toHaveCount(0);
   }
   expect(await triggers()).toEqual(before);
+  // The step's picture: the refusal in the exit orders dialog, over the desk, with the whole take profit and stop loss
+  // and the part one listed under it, taken from the top so the bar that stays at the top covers nothing.
+  await stepPicture(page);
 
   // A part one still rests: parts don't count toward the one of each.
   await armOnVenue('Stop loss', '0.05', '2750');
@@ -576,5 +584,75 @@ test(`${J} #6 with a take-profit and a stop-loss for the whole position resting,
     builderFee: null,
   });
   expect(closed).toMatchObject({ accepted: true });
+  await ledgerUntouched(s);
+});
+
+test(`${J} #7 exercises the order-flow protections: the self-trade mode applied and logged; a blank order rate falls back to the edge limit and says so`, async ({
+  page,
+  stepPicture,
+}) => {
+  test.setTimeout(480_000);
+  const s = state();
+  // The venue's own self-trade rule on BTC-PERP, as its market record publishes it.
+  const markets = await testVenue('/markets', {});
+  expect(markets.status, JSON.stringify(markets.body).slice(0, 300)).toBe(200);
+  const market = markets.body.value.find((m) => m.symbol === PERP);
+  expect(market.selfTrade).toEqual({ known: true, value: 'cancel_resting' });
+  // The edge's own per-address limit, as the edge enforces it: what applies where the venue publishes no order rate.
+  const edge = await fetch(`${EDGE}/api/edge/rate-limits/costs`);
+  expect(edge.status).toBe(200);
+  const { edgeLimit } = await edge.json();
+  expect(Number.isInteger(edgeLimit?.max) && edgeLimit.max > 0, `the edge limit is in force: ${JSON.stringify(edgeLimit)}`).toBe(true);
+  expect(Number.isInteger(edgeLimit.windowMs) && edgeLimit.windowMs > 0).toBe(true);
+  const window = edgeLimit.windowMs % 1000 === 0 ? `${edgeLimit.windowMs / 1000} seconds` : `${edgeLimit.windowMs} milliseconds`;
+
+  await openVenueDesk(page, s.account, DESK, s.walletKey);
+  await expect(page.getByTestId('venue-contract-strip').getByRole('heading')).toContainText(PERP, { timeout: 20_000 });
+  const rules = page.getByTestId('venue-market-rules');
+  // The mode the desk applies is the venue's own, named in its words.
+  await expect(rules.getByTestId('venue-self-trade-rule')).toHaveText('Cancel my resting order', { timeout: 20_000 });
+  await expect(rules.getByTestId('venue-self-trade-rule')).toHaveAttribute('data-mode', 'cancel_resting');
+  // The venue publishes no order rate: the edge's limit applies, and the row says so with its figures; never "unlimited".
+  const rate = rules.getByTestId('venue-order-rate');
+  await expect(rate).toHaveAttribute('data-state', 'edge', { timeout: 20_000 });
+  await expect(rate).toHaveText(
+    `This venue publishes no order rate limit, so the INTAFACED edge limit applies: ${edgeLimit.max} requests per ${window} from one address`,
+  );
+  await expect(rate).not.toContainText(/unlimited/i);
+
+  // Their own short rests between the venue's best bid and ask, so it meets no one else.
+  const { bid, ask } = await venueBook(PERP);
+  const tick = toUnits(market.tickSize);
+  expect(ask - bid >= 3n * tick, 'the TEST book has room between its best bid and ask').toBe(true);
+  const mid = fromUnits(((bid + ask) / 2n / tick) * tick);
+  const since = new Date(Date.now() - 1_000);
+  const resting = await restFromDesk(page, s.owner, '0.001', mid, 'stp-rest', 'short');
+  // Their long at the same price crosses it: the venue's rule cancels the resting short, and the two never trade.
+  const crossing = await restFromDesk(page, s.owner, '0.001', mid, 'stp-cross', 'long');
+  await expect.poll(async () => (await venueOrder(s.owner, resting)).status, { timeout: 20_000 }).toBe('canceled');
+  const gone = await venueOrder(s.owner, resting);
+  expect(gone.cancelReason).toBe('self_trade');
+  expect(toUnits(gone.filled)).toBe(0n);
+  expect(toUnits(gone.locked)).toBe(0n);
+  expect(await venueOrder(s.owner, crossing)).toMatchObject({ status: 'open', side: 'buy', symbol: PERP });
+  expect((await venueRecord(s.owner, '/fills', { since: since.toISOString() })).value, 'nothing traded').toEqual([]);
+
+  // Logged: the orders room records the cancel and names the self-trade rule as why it ended.
+  await page.goto(`/trade/orders/${resting}`);
+  const heading = page.getByTestId('venue-order-heading');
+  await expect(heading.locator('[data-cell="status"]')).toHaveText('Cancelled', { timeout: 20_000 });
+  const why = page
+    .getByTestId('venue-order-facts')
+    .getByTestId('venue-order-row')
+    .filter({ has: page.locator('dt', { hasText: /^Why it ended$/ }) })
+    .locator('dd');
+  await expect(why).toHaveText('Your own new order would have traded with it, so the venue’s self-trade rule cancelled this one');
+  await expect(page.getByText('Nothing has filled.', { exact: true })).toBeVisible();
+  // The step's picture: the cancelled order in the orders room, with the self-trade rule named as why it ended.
+  await stepPicture(page);
+
+  // The crossing long is cancelled again, from another device, so the book and this account are left as they were found.
+  const left = await ownRun(s.walletKey, { kind: 'cancel_orders', orders: [{ symbol: PERP, venueClientOrderId: crossing }] });
+  expect(left.legs[0]).toMatchObject({ accepted: true });
   await ledgerUntouched(s);
 });

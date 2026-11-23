@@ -7,7 +7,8 @@ import {
 } from '@intafaced/contracts/protocol-address-risk';
 import type { ProtocolAddressRisk } from '@intafaced/contracts/protocol-address-risk';
 import { safeReturnTo } from '../../../app/navigation';
-import { Button, Dialog, Failure, Panel } from '../../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { Dialog, Failure, Panel } from '../volt/parts';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
 import { useApi, useSession } from '../../session';
@@ -44,7 +45,7 @@ export function AddressRisk({ address }: { address: string }) {
               <strong>{t('reputation', { level: t(`rep_${risk.reputation}`) })}</strong>
             </p>
             {risk.labels.length === 0 ? (
-              <p className="muted">{t('noLabels')}</p>
+              <p className="lt-hint">{t('noLabels')}</p>
             ) : (
               <ul>
                 {risk.labels.map((label) => (
@@ -65,16 +66,16 @@ export function AddressRisk({ address }: { address: string }) {
                 : risk.openReports === 1
                   ? t('reportsOne')
                   : t('reportsMany', { count: String(risk.openReports) })}{' '}
-              <span className="muted">{t('reportsNote')}</span>
+              <span className="lt-hint">{t('reportsNote')}</span>
             </p>
             <p data-code={risk.screening.code ?? undefined}>
               {risk.screening.status === 'not_loaded' ? t('screeningNotLoaded') : t('screeningLoaded')}
             </p>
-            <p className="muted">{t('verdict')}</p>
+            <p className="lt-hint">{t('verdict')}</p>
           </>
         )}
         {userId ? (
-          <Button variant="secondary" onClick={() => setOpen(true)}>
+          <Button tone="secondary" onClick={() => setOpen(true)}>
             {t('report')}
           </Button>
         ) : (
@@ -136,8 +137,8 @@ export function ReportDialog({ address, api, onClose, onSent }: { address: strin
   }
   return (
     <Dialog title={t('report')} onClose={onClose}>
-      <form className="protocol-quote" onSubmit={send}>
-        <label>
+      <form onSubmit={send}>
+        <label className="lt-field">
           <span>{t('reason')}</span>
           <select value={kind} onChange={(event) => setKind(event.target.value as AddressReportKind)}>
             {ADDRESS_REPORT_KINDS.map((option) => (
@@ -147,7 +148,7 @@ export function ReportDialog({ address, api, onClose, onSent }: { address: strin
             ))}
           </select>
         </label>
-        <label>
+        <label className="lt-field">
           <span>{t('evidenceLabel')}</span>
           <input
             type="url"
@@ -156,19 +157,19 @@ export function ReportDialog({ address, api, onClose, onSent }: { address: strin
             onChange={(event) => setEvidence(event.target.value)}
           />
         </label>
-        <label>
+        <label className="lt-field">
           <span>{t('noteLabel')}</span>
           <textarea value={note} maxLength={ADDRESS_REPORT_NOTE_MAX} onChange={(event) => setNote(event.target.value)} />
         </label>
-        <small className="muted">{t('noteHint')}</small>
+        <small className="lt-hint">{t('noteHint')}</small>
         {state === 'duplicate' && <p role="alert">{t('duplicate')}</p>}
         {state === 'evidence' && <p role="alert">{t('evidenceInvalid')}</p>}
         {state === 'failed' && <p role="alert">{t('failed')}</p>}
-        <div className="actions">
-          <Button type="submit" disabled={state === 'sending'}>
+        <div className="lt-actions">
+          <Button type="submit" tone="primary" disabled={state === 'sending'}>
             {state === 'sending' ? t('sending') : t('send')}
           </Button>
-          <Button variant="secondary" onClick={onClose}>
+          <Button tone="secondary" onClick={onClose}>
             {t('cancel')}
           </Button>
         </div>

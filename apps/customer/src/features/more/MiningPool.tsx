@@ -13,6 +13,7 @@ import { useResource } from '../../shared/resource';
 import { stamp } from '../../screens/money/time';
 import { Button, EmptyState, Failure, Field, Loading, Panel } from '../../shared/ui';
 import { miningPoolCopy } from './mining-pool-copy';
+import { isPlaceholderAddress, shortReference } from '../../shared/reference';
 import type { ApiResult } from '../../shared/api';
 import type { Resource } from '../../shared/resource';
 import type { MiningHealth } from './mining-journey';
@@ -84,11 +85,11 @@ export function PoolOverviewView({ read }: { read: Read<PoolOverview> }) {
         const text = data ? data[field] : null;
         return (
           <Panel key={key} title={t(key)} aria-label={t(key)} data-state={text === null ? 'unset' : 'set'}>
-            {text === null ? <p className="muted">{t('notSet')}</p> : <p>{text}</p>}
+            {text === null ? <p className="lt-muted">{t('notSet')}</p> : <p>{text}</p>}
           </Panel>
         );
       })}
-      {data ? <p className="muted">{t('overviewVersion', { version: data.version })}</p> : null}
+      {data ? <p className="lt-muted">{t('overviewVersion', { version: data.version })}</p> : null}
     </Panel>
   );
 }
@@ -117,14 +118,22 @@ export function PoolConnectView({ read }: { read: Read<PoolConnection> }) {
               label={t('poolAddress')}
               copyLabel={t('copyPoolAddress')}
               value={`${resource.data.host}:${resource.data.port}`}
+              shown={isPlaceholderAddress(resource.data.host) ? t('testAddress') : undefined}
             />
-            <CopyLine id="mining-account-id" label={t('accountId')} copyLabel={t('copyAccountId')} value={resource.data.accountId} />
+            <CopyLine
+              id="mining-account-id"
+              label={t('accountId')}
+              copyLabel={t('copyAccountId')}
+              value={resource.data.accountId}
+              shown={shortReference(resource.data.accountId)}
+            />
             {resource.data.secureUrl === null ? null : (
               <CopyLine
                 id="mining-secure-address"
                 label={t('secureAddress')}
                 copyLabel={t('copySecureAddress')}
                 value={resource.data.secureUrl}
+                shown={isPlaceholderAddress(resource.data.secureUrl) ? t('testAddress') : undefined}
               />
             )}
             <CopyLine
@@ -142,7 +151,7 @@ export function PoolConnectView({ read }: { read: Read<PoolConnection> }) {
             maxLength={64}
             onChange={(event) => setRig(event.target.value.replace(/[^A-Za-z0-9_-]/g, ''))}
           />
-          <p className="muted">{t('accountIdNote')}</p>
+          <p className="lt-muted">{t('accountIdNote')}</p>
         </>
       )}
     </Panel>
@@ -199,7 +208,7 @@ export function MinerSecretView({
           <p data-testid="mining-miner-secret-issued" data-state={issuedAt ? 'issued' : 'none'}>
             {issuedAt ? t('secretIssuedOn', { at: stamp(issuedAt, timeZone) }) : t('secretNone')}
           </p>
-          <p className="muted">{t('secretNote')}</p>
+          <p className="lt-muted">{t('secretNote')}</p>
           {failure ? <Failure result={failure} /> : null}
           <Button variant="secondary" disabled={busy} onClick={() => void press()}>
             {issuedAt ? t('secretReissue') : t('secretIssue')}
@@ -234,12 +243,16 @@ function CopyLine({
   label,
   copyLabel,
   value,
+  shown,
   empty,
 }: {
   id: string;
   label: string;
   copyLabel: string;
   value: string | null;
+  /** What the line reads when the value itself is no text for a person (a long id, a test machine's address); the copy
+   *  button still copies `value`. */
+  shown?: string;
   /** What shows in place of a missing value; "Not set" unless said. */
   empty?: string;
 }) {
@@ -249,13 +262,13 @@ function CopyLine({
     <div>
       <dt>{label}</dt>
       <dd>
-        <code data-testid={id} lang="und" dir="ltr">
-          {value ?? empty ?? t('notSet')}
+        <code data-testid={id} lang="und" dir="ltr" title={shown && value ? value : undefined}>
+          {value === null ? (empty ?? t('notSet')) : (shown ?? value)}
         </code>{' '}
         <Button variant="secondary" aria-label={copyLabel} disabled={value === null} onClick={() => void copy()}>
           {state === 'done' ? t('copied') : copyLabel}
         </Button>
-        <span role="status" className="muted">
+        <span role="status" className="lt-muted">
           {state === 'done' ? t('copied') : state === 'failed' ? t('copyFailed') : ''}
         </span>
       </dd>
@@ -306,8 +319,8 @@ export function PoolProbeView({ state, onPress }: { state: ProbeState; onPress: 
       <p data-testid="mining-reachability" data-result={shown ? shown.result : 'none'}>
         {shown ? t(`probe_${shown.result}`, { ms: shown.roundTripMs }) : t('probeNone')}
       </p>
-      {shown ? <p className="muted">{t('probeViewpoint')}</p> : null}
-      {state.status === 'busy' ? <p className="muted">{t('probeBusy')}</p> : null}
+      {shown ? <p className="lt-muted">{t('probeViewpoint')}</p> : null}
+      {state.status === 'busy' ? <p className="lt-muted">{t('probeBusy')}</p> : null}
       {state.status === 'failed' ? (
         refusal ? (
           <p role="alert" data-code={state.failure.code}>
@@ -335,7 +348,7 @@ export function MiningPoolStatus({ health, probe }: { health: Read<MiningHealth>
           <p data-testid="mining-pool-status" data-state={state}>
             {t(`status_${state}`)}
           </p>
-          <p className="muted">{t('statusNote')}</p>
+          <p className="lt-muted">{t('statusNote')}</p>
         </Panel>
       </div>
       <div>

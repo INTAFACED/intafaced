@@ -15,6 +15,7 @@ import { venueCopy } from '../venue/venue-copy';
 import { ProductSwitch } from './FuturesOrdersRoom';
 import { venueOrdersCopy } from './venue-orders-copy';
 import './orders.css';
+import { DateInput } from '@intafaced/ui/lit';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -105,7 +106,7 @@ function VenueOrdersFrame({
         <EmptyState
           title={t('signedOutTitle')}
           action={
-            <a className="button button--primary" href={`/login?redirect=${encodeURIComponent(location.pathname + location.search)}`}>
+            <a className="lt-button lt-button-primary" href={`/login?redirect=${encodeURIComponent(location.pathname + location.search)}`}>
               {t('signIn')}
             </a>
           }
@@ -141,7 +142,7 @@ function VenueOrdersFrame({
 function Owned({ children }: { children: (owner: string) => ReactNode }) {
   const { t } = venueOrdersCopy.useCopy();
   const owner = useOwner();
-  if (!owner) return <p className="muted">{t('connectFirst')}</p>;
+  if (!owner) return <p className="lt-muted">{t('connectFirst')}</p>;
   return <>{children(owner)}</>;
 }
 
@@ -162,7 +163,7 @@ export function VenueOrdersRoom({ path }: { path: string }) {
     <VenueOrdersFrame
       title={t('historyTitle')}
       actions={
-        <a className="text-link" href="/trade/spot/BTC-USDC">
+        <a className="lt-link" href="/trade/spot/BTC-USDC">
           {t('deskLink')}
         </a>
       }
@@ -214,7 +215,7 @@ function VenueHistory({ path, owner, test }: { path: string; owner: string; test
   }
 
   const select = (label: string, value: string, options: [string, string][], onChange: (value: string) => void) => (
-    <label className="field">
+    <label className="lt-field">
       <span>{label}</span>
       <select aria-label={label} value={value} onChange={(e) => onChange(e.target.value)}>
         {options.map(([key, text]) => (
@@ -229,7 +230,7 @@ function VenueHistory({ path, owner, test }: { path: string; owner: string; test
   return (
     <section data-testid="venue-history">
       <ProductSwitch product="venue" />
-      <p className="muted">{t('historyLead')}</p>
+      <p className="lt-muted">{t('historyLead')}</p>
       <div className="orders-filters" role="group" aria-label={t('historyTitle')}>
         {select(
           v('Side'),
@@ -247,13 +248,13 @@ function VenueHistory({ path, owner, test }: { path: string; owner: string; test
           [['', t('allStates')], ...states.map((s): [string, string] => [s, word(v, 'status', s)])],
           (status) => set({ status }),
         )}
-        <label className="field">
+        <label className="lt-field">
           <span>{t('from')}</span>
-          <input type="date" aria-label={t('from')} value={params.from} onChange={(e) => set({ from: e.target.value })} />
+          <DateInput type="date" aria-label={t('from')} value={params.from} onChange={(e) => set({ from: e.target.value })} />
         </label>
-        <label className="field">
+        <label className="lt-field">
           <span>{t('to')}</span>
-          <input type="date" aria-label={t('to')} value={params.to} onChange={(e) => set({ to: e.target.value })} />
+          <DateInput type="date" aria-label={t('to')} value={params.to} onChange={(e) => set({ to: e.target.value })} />
         </label>
         {select(
           t('perPage'),
@@ -268,7 +269,7 @@ function VenueHistory({ path, owner, test }: { path: string; owner: string; test
       </div>
       {state.status === 'loading' ? <Loading label={t('historyTitle')} /> : null}
       {state.status === 'refused' ? (
-        <div role="alert" className="failure">
+        <div role="alert" className="lt-refusal">
           <strong>{t('refusedTitle')}</strong>
           <p>{state.words}</p>
         </div>
@@ -276,7 +277,7 @@ function VenueHistory({ path, owner, test }: { path: string; owner: string; test
       {state.status === 'failed' ? <Failure result={state.failure} retry={() => setRound((n) => n + 1)} /> : null}
       {state.status === 'ready' ? (
         state.rows.length === 0 ? (
-          <p className="muted">{t('none')}</p>
+          <p className="lt-muted">{t('none')}</p>
         ) : (
           <>
             <TestMark test={test} />
@@ -290,13 +291,13 @@ function VenueHistory({ path, owner, test }: { path: string; owner: string; test
                   <td>{o.symbol}</td>
                   <td>{word(v, 'side', o.side)}</td>
                   <td>{word(v, 'type', o.type)}</td>
-                  <td className="numeric">{displayAmount(o.price)}</td>
-                  <td className="numeric">{displayAmount(o.amount)}</td>
-                  <td className="numeric">{displayAmount(o.filled)}</td>
+                  <td className="lt-num">{displayAmount(o.price)}</td>
+                  <td className="lt-num">{displayAmount(o.amount)}</td>
+                  <td className="lt-num">{displayAmount(o.filled)}</td>
                   <td data-cell="status">{word(v, 'status', o.status)}</td>
                   <td>
                     {o.venueClientOrderId ? (
-                      <a className="text-link" data-testid="venue-order-link" href={`/trade/orders/${o.venueClientOrderId}`}>
+                      <a className="lt-link" data-testid="venue-order-link" href={`/trade/orders/${o.venueClientOrderId}`}>
                         {t('open')}
                       </a>
                     ) : null}
@@ -310,7 +311,7 @@ function VenueHistory({ path, owner, test }: { path: string; owner: string; test
                 {t('older')}
               </Button>
             ) : (
-              <p className="muted">{t('end')}</p>
+              <p className="lt-muted">{t('end')}</p>
             )}
             <AsOfLine asOf={state.asOf} />
           </>
@@ -342,7 +343,7 @@ export function VenueOrderDetail({ clientOrderId }: { clientOrderId: string }) {
     <VenueOrdersFrame
       title={t('historyTitle')}
       actions={
-        <a className="text-link" href="/trade/orders?product=venue">
+        <a className="lt-link" href="/trade/orders?product=venue">
           {t('historyTitle')}
         </a>
       }
@@ -393,9 +394,11 @@ function VenueOrderBody({ owner, clientOrderId, test }: { owner: string; clientO
       ? t('reasonPositionClosed')
       : o.cancelReason === 'linked'
         ? t('reasonLinked')
-        : o.status === 'rejected' && o.trigger?.failure
-          ? t('reasonRejected', { failure: o.trigger.failure })
-          : t('reasonNotRecorded');
+        : o.cancelReason === 'self_trade'
+          ? t('reasonSelfTrade')
+          : o.status === 'rejected' && o.trigger?.failure
+            ? t('reasonRejected', { failure: o.trigger.failure })
+            : t('reasonNotRecorded');
   return (
     <article data-testid="venue-order">
       <h2 data-testid="venue-order-heading">
@@ -420,7 +423,7 @@ function VenueOrderBody({ owner, clientOrderId, test }: { owner: string; clientO
       {fills.status === 'failed' ? <Failure result={fills.failure} retry={retry} /> : null}
       {fills.status === 'ready' ? (
         fills.data.length === 0 ? (
-          <p className="muted">{t('noFills')}</p>
+          <p className="lt-muted">{t('noFills')}</p>
         ) : (
           <ul className="orders-fills">
             {fills.data.map((f) => (
@@ -451,7 +454,7 @@ function VenueOrderBody({ owner, clientOrderId, test }: { owner: string; clientO
       ) : null}
       <h3>{t('changes')}</h3>
       {ours.amendments.length === 0 ? (
-        <p className="muted">{t('noChanges')}</p>
+        <p className="lt-muted">{t('noChanges')}</p>
       ) : (
         <ol data-testid="venue-order-changes">
           {ours.amendments.map((a) => (

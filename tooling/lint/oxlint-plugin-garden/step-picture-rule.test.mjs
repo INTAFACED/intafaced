@@ -148,3 +148,57 @@ test('a download link, a goto, and a last action that stays on the screen pass',
 test('a file outside the journeys is not judged', skip, () => {
   assert.deepEqual(findings({ 'apps/customer/src/x.test.mjs': ALGO_15_3(false) }), []);
 });
+
+// [no-page]: J-agents-21 #4 as main has it: an API call and its refusal, with no page and no picture.
+const AGENTS_21_4 = (fixtures, extra = '') =>
+  lines(
+    HEAD,
+    "const J = 'J-agents-21';",
+    `test(\`\${J} #4 Funds 100 more: refused agents.account_cap_exceeded; nothing moves\`, async (${fixtures}) => {`,
+    '  const { session } = await person();',
+    "  const res = refused(await session.post(`${BASE}/a/fund`, { amount: '100' }), 422, 'agents.account_cap_exceeded');",
+    "  expect(res.message).toContain('50 USDC of room');",
+    extra,
+    '});',
+  );
+
+test('a step test with no page and no stepPicture fires [no-page], naming the fix', skip, () => {
+  const got = findings({
+    [at('J-agents-21')]: AGENTS_21_4(''),
+    [at('J-x-03')]: lines(HEAD, "test('J-x-03 #2 reads the list by API', async () => {", '  expect(await list()).toEqual([]);', '});'),
+  });
+  assert.equal(got.length, 2, got.join('\n'));
+  const f = got.find((l) => l.startsWith(`${at('J-agents-21')}:3:`));
+  assert.ok(f, got.join('\n'));
+  assert.ok(f.includes("[no-page] this step's test takes no page and never calls `stepPicture`"), f);
+  assert.ok(f.includes('`await stepPicture()` once that screen is checked'), f);
+  assert.ok(
+    got.some((l) => l.startsWith(`${at('J-x-03')}:2:`)),
+    got.join('\n'),
+  );
+});
+
+test('a step test taking a page, or calling stepPicture on a page it got elsewhere, passes', skip, () => {
+  const ok = {
+    [at('J-agents-21')]: AGENTS_21_4('{ page }', "  await expect(page.getByText('50 USDC of room')).toBeVisible();"),
+    [at('J-x-04')]: AGENTS_21_4('{ stepPicture }', '  const otherPage = await openAs(who);\n  await stepPicture(otherPage);'),
+    [at('J-x-05')]: AGENTS_21_4('{ browser }', '  const p = await (await browser.newContext()).newPage();\n  await p.goto("/agents");'),
+  };
+  assert.deepEqual(findings(ok), []);
+});
+
+test('a setup test, and a file whose steps share one page opened in a hook, are not judged by [no-page]', skip, () => {
+  const setup = lines(HEAD, 'test(`${J} starts: a verified TEST account`, async () => {', '  await seed();', '});');
+  const shared = lines(
+    HEAD,
+    'let page;',
+    'test.beforeAll(async ({ browser }) => {',
+    '  page = await (await browser.newContext()).newPage();',
+    '});',
+    "const notes = () => page.getByTestId('notes');",
+    'test(`${J} #2 turns on push: the notice names it`, async () => {',
+    "  await expect(notes()).toContainText('push');",
+    '});',
+  );
+  assert.deepEqual(findings({ [at('J-x-06')]: setup, [at('J-x-07')]: shared }), []);
+});

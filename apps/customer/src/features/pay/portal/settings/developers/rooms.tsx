@@ -1,16 +1,13 @@
 import './developers.css';
 import type { ReactNode } from 'react';
-import { WithAccount } from '../../access/WithAccount';
 import type { RoomDef, RoomTable } from '../../rooms-model';
 import type { PortalRoom, PortalRoute } from '../../routes';
 import { useSettingsBApi, type SettingsBApi } from '../b-client';
 import { developersCopy as c } from './copy';
-import { DeveloperNav } from './DeveloperNav';
-import { DeliveryList } from './Deliveries';
+import { DeliveriesRoom } from './Deliveries';
 import { DocsRoom } from './DocsRoom';
-import { EndpointPage } from './Endpoint';
+import { EndpointRoom } from './Endpoint';
 import { KeysRoom } from './Keys';
-import { canManageWebhooks } from './model';
 import { SandboxRoom } from './Sandbox';
 import { SigningRoom } from './Signing';
 import { WebhooksRoom } from './Webhooks';
@@ -34,38 +31,12 @@ const words: Record<string, () => Words> = {
   'developer-docs': () => ({ title: c.t('docsTitle'), purpose: c.t('docsPurpose') }),
 };
 
-function Frame({ room, children }: { room: PortalRoom; children: ReactNode }) {
-  return (
-    <div className="stack">
-      <DeveloperNav room={room} />
-      {children}
-    </div>
-  );
-}
-
 /** The signed-in client, built once; a page takes it as a prop so a test can hand it a fake. */
 function Live({ children }: { children: (api: SettingsBApi) => ReactNode }) {
   return <>{children(useSettingsBApi())}</>;
 }
 
-const def = (
-  room: PortalRoom,
-  body: (route: PortalRoute, api: SettingsBApi, ctx: { role: string; scopes: readonly string[] }) => ReactNode,
-): RoomDef => ({
-  header: () => words[room]!(),
-  here: '/pay/developer/keys',
-  render: (route, { authority }) => (
-    <WithAccount>
-      {({ role }) => (
-        <Frame room={room}>
-          <Live>{(api) => body(route, api, { role, scopes: authority?.scopes ?? [] })}</Live>
-        </Frame>
-      )}
-    </WithAccount>
-  ),
-});
-
-/** A developer page on the settings template: it draws its own title row, its index and its sections. */
+/** A developer page on its Volt template (settings or record-list): it draws its own title row, its index and its sections. */
 const volt = (room: PortalRoom, body: (route: PortalRoute, ctx: { scopes: readonly string[] }) => ReactNode): RoomDef => ({
   header: () => words[room]!(),
   here: '/pay/developer/keys',
@@ -77,12 +48,8 @@ export const developersRooms: RoomTable = {
   'developer-keys': volt('developer-keys', (_r, { scopes }) => <KeysRoom scopes={scopes} />),
   'developer-signing': volt('developer-signing', () => <SigningRoom />),
   'developer-webhooks': volt('developer-webhooks', () => <WebhooksRoom />),
-  'developer-endpoint': def('developer-endpoint', (route, api, { role }) => (
-    <EndpointPage api={api} endpointId={route.param ?? ''} canManage={canManageWebhooks(role)} />
-  )),
-  'developer-deliveries': def('developer-deliveries', (_r, api, { role }) => (
-    <DeliveryList api={api} canManage={canManageWebhooks(role)} />
-  )),
+  'developer-endpoint': volt('developer-endpoint', (route) => <EndpointRoom endpointId={route.param ?? ''} />),
+  'developer-deliveries': volt('developer-deliveries', () => <DeliveriesRoom />),
   'developer-sandbox': volt('developer-sandbox', () => <SandboxRoom />),
   // The guide draws on its own reading template, with its own title, the developer pages as links and the account's
   // states (DocsRoom.tsx), so it takes neither the frame's heading nor the row above.

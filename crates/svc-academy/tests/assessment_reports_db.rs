@@ -13,7 +13,7 @@
     reason = "a test: a failure is the point"
 )]
 
-mod support;
+use crate::support;
 
 use service_kit::json::Json;
 use service_kit::server::Request;

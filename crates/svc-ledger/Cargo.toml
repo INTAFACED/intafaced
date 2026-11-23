@@ -5,6 +5,7 @@ description = "svc-ledger: the one ledger. The Rust port: its doors, who may cal
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
+autotests = false
 
 [lints]
 workspace = true
@@ -23,5 +24,11 @@ url = "2"
 [dev-dependencies]
 # svc-agents' own ledger client (`metering::ports::LedgerHttp`), held to this door in `tests/agents_ledger_http_pg.rs`.
 svc-agents = { path = "../svc-agents" }
+# svc-bank's own ledger client (`spaces::ports::LedgerHttp`), held to this door in `tests/bank_ledger_http_pg.rs`.
+svc-bank = { path = "../svc-bank" }
 ed25519-dalek = { version = "2", features = ["pkcs8"] }
 hmac = "0.12"
+
+[[test]]
+name = "it"
+path = "tests/it.rs"

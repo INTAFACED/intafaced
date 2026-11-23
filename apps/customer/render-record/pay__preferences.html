@@ -104,15 +104,6 @@
 </header>
 <div class="lt-body">
 <div class="lt-grid lt-grid-settings">
-<section class="lt-region" data-region="index" aria-label="Sections">
-<nav aria-label="Room sections">
-<ul>
-<li>
-<a class="lt-link" href="#pay-room-preferences">Paying and getting paid</a>
-</li>
-</ul>
-</nav>
-</section>
 <section class="lt-region" data-region="sections" aria-label="Settings">
 <section id="pay-room-preferences" aria-labelledby="pay-room-preferences-title">
 <h2 id="pay-room-preferences-title">Paying and getting paid</h2>
@@ -120,8 +111,8 @@
 <fieldset disabled="" aria-describedby="pay-room-reason">
 <legend class="lt-sr">Pay preferences</legend>
 <label class="lt-field">
-<span>Pay from</span>
-<select id="pay-pref-source">
+<span id="_r_3_-label">Pay from</span>
+<select aria-labelledby="_r_3_-label" id="pay-pref-source">
 <option value="">Not set</option>
 </select>
 <small>The balance a payment comes out of first.</small>
@@ -151,6 +142,8 @@
 </section>
 </div>
 </div>
+</div>
+<div class="lit-toasts" role="status" aria-live="polite" data-slot="toast-region">
 </div>
 </main>
 <nav class="mobile-doors" data-obscures="bottom" aria-label="Customer doors on phone">

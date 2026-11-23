@@ -1,5 +1,10 @@
 import { useEffect, useState } from 'react';
-import { BANK_BUSINESS_LIST } from '@intafaced/contracts/bank-business-procedures';
+import {
+  BANK_BUSINESS_LIST,
+  BANK_BUSINESS_APPROVE,
+  BANK_BUSINESS_REJECT,
+  BANK_BUSINESS_CANCEL,
+} from '@intafaced/contracts/bank-business-procedures';
 import { BANK_BUSINESS_MY_ROLE } from '@intafaced/contracts/bank-business-procedures';
 import { BANK_BUSINESS_PENDING } from '@intafaced/contracts/bank-business-procedures';
 import type { z } from 'zod';
@@ -36,6 +41,7 @@ import {
 import { myRoleSchema, pendingApprovalsSchema, type businessSchema, type pendingApprovalSchema } from '../contracts';
 import { assetSelectField, useHoldings } from '../holdings';
 import { t as copyText } from '../copy';
+import { BANK_BUSINESS_PROPOSE_TRANSFER, BANK_BUSINESS_CREATE } from '@intafaced/contracts/bank-business-2-procedures';
 
 type Business = z.infer<typeof businessSchema>;
 type Approval = z.infer<typeof pendingApprovalSchema>;
@@ -84,7 +90,7 @@ export function ApprovalRow({
   const act = (action: ApprovalAction) =>
     open({
       title: action === 'approve' ? t('approveTitle') : action === 'reject' ? t('rejectTitle') : t('cancelTitle'),
-      procedure: action === 'approve' ? 'business.approve' : action === 'reject' ? 'business.reject' : 'business.cancel',
+      record: action === 'approve' ? BANK_BUSINESS_APPROVE : action === 'reject' ? BANK_BUSINESS_REJECT : BANK_BUSINESS_CANCEL,
       facts: [
         // The decision is about this exact figure, so the confirmation never masks it.
         [t('amountLabel'), exactAmount(approval.amount, approval.assetId)],
@@ -224,7 +230,7 @@ function AccountCard({ account, spaces, open }: { account: Business; spaces: rea
   const send = () =>
     open({
       title: t('sendMoney'),
-      procedure: 'business.proposeTransfer',
+      record: BANK_BUSINESS_PROPOSE_TRANSFER,
       fields: [
         {
           name: 'fromSpaceId',
@@ -319,7 +325,7 @@ export function BusinessSections({ open }: { open: (spec: ActionSpec) => void })
   const create = () =>
     open({
       title: t('openTitle'),
-      procedure: 'business.create',
+      record: BANK_BUSINESS_CREATE,
       fields: [
         {
           name: 'name',

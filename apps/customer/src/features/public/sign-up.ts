@@ -23,7 +23,20 @@ export type Channel = 'email' | 'phone';
 /** Region codes that name no country. The service refuses the same list. */
 const NOT_COUNTRIES = new Set(['EU', 'EZ', 'UN', 'QO', 'XA', 'XB', 'ZZ']);
 
-/** Every ISO country the browser can name, sorted by its name in `locale`. The service checks each one again. */
+/** True when `code` is the region's current code, not a retired alias (UK for GB, YU and CS for RS, DD for DE). */
+function isCurrentRegion(code: string): boolean {
+  try {
+    return Intl.getCanonicalLocales(`und-${code}`)[0] === `und-${code}`;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Every ISO country the browser can name, once each, sorted by its name in `locale`. A retired code that
+ * names the same country as its current one (UK and GB both "United Kingdom") is left out, and no two
+ * options ever share a name. The service checks each one again.
+ */
 export function countryOptions(locale: string): Array<{ code: string; name: string }> {
   let names: Intl.DisplayNames;
   try {
@@ -32,12 +45,15 @@ export function countryOptions(locale: string): Array<{ code: string; name: stri
     names = new Intl.DisplayNames(['en'], { type: 'region', fallback: 'code' });
   }
   const out: Array<{ code: string; name: string }> = [];
+  const seen = new Set<string>();
   for (let a = 65; a <= 90; a++) {
     for (let b = 65; b <= 90; b++) {
       const code = String.fromCharCode(a, b);
-      if (NOT_COUNTRIES.has(code)) continue;
+      if (NOT_COUNTRIES.has(code) || !isCurrentRegion(code)) continue;
       const name = names.of(code);
-      if (name && name !== code) out.push({ code, name });
+      if (!name || name === code || seen.has(name)) continue;
+      seen.add(name);
+      out.push({ code, name });
     }
   }
   return out.sort((x, y) => x.name.localeCompare(y.name, locale));

@@ -9,6 +9,7 @@ import { DepthPanel } from './DepthParts';
 import { railSendCopy } from './rail-send-copy';
 import { WithdrawStepUp } from './WithdrawStepUp';
 import { BANK_RAIL_SENDS_INVITE_PAYEE, BANK_RAIL_SENDS_REMOVE_PAYEE } from '@intafaced/contracts/bank-rail-sends-procedures';
+import { RefusalCode } from '../../shared/RefusalCode';
 
 /**
  * The recipient book for bank rails (J-bank-04 #2): save an account by its country (which picks the forms it takes), see
@@ -24,7 +25,7 @@ export function CoolingWords({ payee }: { payee: RailPayee }) {
   if (payee.cooling.state === 'open') return <>{t('coolingOpen')}</>;
   return (
     <>
-      {t('coolingUnset')} <small className="muted">{t('reference', { code: 'bank.payee_cooling_unset' })}</small>
+      {t('coolingUnset')} <RefusalCode className="lt-muted" code="bank.payee_cooling_unset" line={(code) => t('reference', { code })} />
     </>
   );
 }
@@ -54,9 +55,9 @@ function Invite() {
     if (!result.ok) setAnswer({ code: result.code, message: result.message });
   }
   return (
-    <div className="bd-stack" data-testid="payee-invite">
+    <div className="lt-stack" data-testid="payee-invite">
       <h3>{t('inviteTitle')}</h3>
-      <p className="money-caption">{t('inviteLead')}</p>
+      <p className="lt-muted">{t('inviteLead')}</p>
       <Field
         label={t('inviteEmail')}
         type="email"
@@ -67,15 +68,15 @@ function Invite() {
           setEmail(event.target.value);
         }}
       />
-      <div className="actions">
+      <div className="lt-actions">
         <Button disabled={busy || !email.trim()} onClick={() => void invite()}>
           {t('invite')}
         </Button>
       </div>
       {answer && (
-        <p className="failure" role="alert" data-testid="payee-invite-answer">
+        <p className="lt-refusal" role="alert" data-testid="payee-invite-answer">
           {answer.code === 'bank.payee_invite_unwired' ? t('inviteUnwired') : answer.message}{' '}
-          {answer.code && <small className="muted">{t('reference', { code: answer.code })}</small>}
+          {answer.code && <RefusalCode className="lt-muted" code={answer.code} line={(code) => t('reference', { code })} />}
         </p>
       )}
     </div>
@@ -150,12 +151,12 @@ export function RecipientBook({
 
   return (
     <DepthPanel title={t('bookTitle')} lead={t('bookLead')}>
-      <div className="bd-stack" data-testid="payee-book">
+      <div className="lt-stack" data-testid="payee-book">
         <div data-testid="payee-list">
           {failure ? (
             <Failure result={failure} retry={retry} />
           ) : payees === null ? null : payees.length === 0 ? (
-            <p className="money-caption">{t('noPayees')}</p>
+            <p className="lt-muted">{t('noPayees')}</p>
           ) : (
             payees.map((payee) => (
               <div className="money-space-row" key={payee.payeeId} data-testid="payee-row" data-cooling={payee.cooling.state}>
@@ -171,7 +172,7 @@ export function RecipientBook({
                     <CoolingWords payee={payee} />
                   </span>
                   <br />
-                  <small className="muted" data-testid="payee-name-check">
+                  <small className="lt-muted" data-testid="payee-name-check">
                     {t('nameCheck')} {t('reference', { code: payee.verificationRail })}
                   </small>
                 </span>
@@ -181,7 +182,7 @@ export function RecipientBook({
               </div>
             ))
           )}
-          {payees !== null && payees.length >= PAYEE_PAGE && <p className="money-caption">{t('bookMore', { count: PAYEE_PAGE })}</p>}
+          {payees !== null && payees.length >= PAYEE_PAGE && <p className="lt-muted">{t('bookMore', { count: PAYEE_PAGE })}</p>}
           {removeProblem && (
             <p className="error-text" role="alert" data-testid="payee-remove-problem">
               {removeProblem}
@@ -189,7 +190,7 @@ export function RecipientBook({
           )}
         </div>
 
-        <label className="field" htmlFor={countryField}>
+        <label className="lt-field" htmlFor={countryField}>
           <span>{t('country')}</span>
           <select
             id={countryField}
@@ -211,7 +212,7 @@ export function RecipientBook({
           </select>
         </label>
         {country && (
-          <label className="field" htmlFor={railField}>
+          <label className="lt-field" htmlFor={railField}>
             <span>{t('howPaid')}</span>
             <select
               id={railField}
@@ -234,7 +235,7 @@ export function RecipientBook({
         )}
         {rail && (
           <>
-            <div className="bd-stack" data-testid="payee-form" data-rail={rail.rail}>
+            <div className="lt-stack" data-testid="payee-form" data-rail={rail.rail}>
               <RailForm
                 rail={rail}
                 values={values}
@@ -252,7 +253,7 @@ export function RecipientBook({
                 {problem}
               </p>
             )}
-            <div className="actions">
+            <div className="lt-actions">
               <Button variant="primary" disabled={checking || !nickname.trim()} onClick={() => void save()}>
                 {t('save')}
               </Button>

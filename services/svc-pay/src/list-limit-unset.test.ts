@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { PAY_PAYMENT_HISTORY } from '@intafaced/contracts/pay-payment-procedures';
 import { PAY_MERCHANT_LIST_LINKS } from '@intafaced/contracts/pay-merchant-procedures';
+import { PAY_ACCOUNT_CONTROLS_HISTORY } from '@intafaced/contracts/pay-account-controls-procedures';
+import { accountControlHistoryInputSchema } from '@intafaced/contracts/account-controls';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -350,7 +352,13 @@ describe('svc-pay list/history limit unset refuse', () => {
     expect(kybR).not.toMatch(/\?\? 50/);
 
     const stateR = readFileSync(join(ROOT, 'services/svc-pay/src/merchant-state-router.ts'), 'utf8');
-    expect(stateR).toContain('.input(accountControlHistoryInputSchema)');
+    expect(stateR).toContain('mountRecord(PAY_ACCOUNT_CONTROLS_HISTORY,');
+    // The record's input is the shared history input: limit is required and never defaulted, so an omitted one is refused.
+    expect(PAY_ACCOUNT_CONTROLS_HISTORY.input).toBe(accountControlHistoryInputSchema);
+    expect(
+      PAY_ACCOUNT_CONTROLS_HISTORY.input.safeParse({ target: { area: 'merchant', merchantId: '11111111-1111-4111-8111-111111111111' } })
+        .success,
+    ).toBe(false);
     expect(stateR).toContain('available().history(ctx, input)');
     expect(stateR).not.toMatch(/\?\? 50/);
 
@@ -384,7 +392,7 @@ describe('svc-pay list/history limit unset refuse', () => {
     expect(subRouter).toContain('limit: input.limit');
     expect(subRouter).not.toMatch(/\?\? 50/);
     const cyclesProc = subRouter.slice(
-      subRouter.lastIndexOf('cycles: ownMerchantRead'),
+      subRouter.lastIndexOf('cycles: mountRecord'),
       subRouter.lastIndexOf('export type SubscriptionRouter'),
     );
     expect(cyclesProc).toContain('listCycles(input.subscriptionId, { limit: input.limit })');

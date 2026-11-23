@@ -160,7 +160,7 @@ async function createKey(page, name, scope) {
   await page.getByLabel('Key name').fill(name);
   // The read-only preset ticks every read scope, agents:read among them, so each key's one scope is chosen by hand.
   await page.getByLabel('Choose', { exact: true }).check();
-  await page.getByRole('checkbox', { name: new RegExp(`^${scope}`) }).check();
+  await page.locator(`input[name="scope"][value="${scope}"]`).check();
   await page.getByRole('button', { name: 'Create with a passkey', exact: true }).click();
   const key = (await page.getByTestId('api-keys__key').textContent())?.trim();
   expect(key).toMatch(/^ifc_[A-Za-z0-9_-]{20,}$/);
@@ -277,9 +277,10 @@ test(`${J} starts: a funded TEST account with a passkey and two keys; two Naviga
     ]);
     await page.goto('/uc/safe/api-keys/new');
     await page.getByLabel('Choose', { exact: true }).check();
-    await expect(page.getByRole('checkbox', { name: /^agents:execute/ })).toHaveCount(0);
-    await expect(page.getByTestId('api-keys__blocked').getByRole('listitem').filter({ hasText: 'agents:execute' })).toHaveText(
-      'agents:execute: Only while you are signed in on a device, never by a key.',
+    await expect(page.locator('input[name="scope"][value="agents:execute"]')).toHaveCount(0);
+    // The form names each permission in plain words: agents:execute is "Agents: run agents".
+    await expect(page.getByTestId('api-keys__blocked').getByRole('listitem').filter({ hasText: 'Agents: run agents' })).toHaveText(
+      'Agents: run agents — Only while you are signed in on a device, never by a key.',
     );
 
     // The rates the service publishes are exactly the stack's TEST rate card.

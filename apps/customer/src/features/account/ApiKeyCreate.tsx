@@ -5,7 +5,7 @@ import { useResource } from '../../shared/resource';
 import { Button, Checkbox, Field, Radio } from '@intafaced/ui/lit';
 import { useSession } from '../session';
 import { Failure, Loading } from './kit-parts';
-import { apiKeysCopy as copy, type ApiKeysPlainKey } from './api-keys-copy';
+import { apiKeysCopy as copy, scopeWords, type ApiKeysPlainKey } from './api-keys-copy';
 import { KeySafety } from './ApiKeys';
 import type { Subaccount } from './subaccount-guards';
 import {
@@ -21,6 +21,7 @@ import {
   type Factor,
   type Preset,
 } from './developer-keys-api';
+import { leaveTo } from '../../app/location';
 
 const PRESETS: readonly Preset[] = ['read', 'trade', 'lead', 'copy', 'custom'];
 const PRESET_LABEL: Record<Preset, ApiKeysPlainKey> = {
@@ -146,7 +147,7 @@ export function ApiKeyCreate() {
   if (made)
     return (
       <div>
-        <ShownOnce made={made} onDone={() => window.location.assign('/uc/safe/api-keys')} />
+        <ShownOnce made={made} onDone={() => leaveTo('/uc/safe/api-keys')} />
       </div>
     );
   const { keys, scopes, subaccounts } = resource.data;
@@ -275,7 +276,10 @@ export function ApiKeyCreate() {
                     setTicked((current) => (on ? [...current, entry.scope] : current.filter((scope) => scope !== entry.scope)));
                   }}
                 >
-                  <code lang="und">{entry.scope}</code>{' '}
+                  {scopeWords(t, entry.scope)}{' '}
+                  <code lang="und" className="lt-hint">
+                    {entry.scope}
+                  </code>{' '}
                   <span className="lt-hint">{t(entry.access === 'read' ? 'accessRead' : 'accessWrite')}</span>
                 </Checkbox>
               </li>
@@ -287,7 +291,7 @@ export function ApiKeyCreate() {
               <ul>
                 {blocked.map((entry) => (
                   <li key={entry.scope}>
-                    <code lang="und">{entry.scope}</code>: {t(`blocked_${entry.blockedBy ?? 'interactive_only'}`)}
+                    {scopeWords(t, entry.scope)} — {t(`blocked_${entry.blockedBy ?? 'interactive_only'}`)}
                   </li>
                 ))}
               </ul>

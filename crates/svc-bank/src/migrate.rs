@@ -1083,24 +1083,4 @@ mod tests {
         built.sort();
         assert!(built == on_disk, "FILES is not the migrations folder");
     }
-
-    /// While the TypeScript service runs, its `drizzle` folder and this crate's `migrations` are one set of files.
-    #[test]
-    fn the_migrations_are_the_typescript_services_byte_for_byte() {
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-        let ts = root.join("../../services/svc-bank/drizzle");
-        if !ts.exists() {
-            return;
-        }
-        let ours = sql_files(&root.join("migrations"));
-        let theirs = sql_files(&ts);
-        let names = |v: &[(String, Vec<u8>)]| v.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>();
-        assert_eq!(names(&ours), names(&theirs), "the same file names");
-        for ((name, a), (_, b)) in ours.iter().zip(&theirs) {
-            assert!(
-                a == b,
-                "{name} differs from services/svc-bank/drizzle/{name}"
-            );
-        }
-    }
 }

@@ -146,7 +146,7 @@ describe('LoanApply', () => {
     await act(async () => button('Review and open').click());
     expect(opened).toHaveLength(1);
     const spec = opened[0]!;
-    expect(spec.procedure).toBe('loans.open');
+    expect(spec.record?.path).toBe('loans.open');
     expect(spec.initial).toEqual({ principal: '1000', collateralAmount: '0.033333333333333334' });
     expect(spec.input({ principal: '1000', collateralAmount: '0.033333333333333334' }, 'req-1')).toEqual({
       loanId: 'req-1',
@@ -197,7 +197,8 @@ describe('LoanApply', () => {
     await mount();
     const policy = testId('loan-apply-eligibility')!.querySelector('[data-key="lending_policy"]')!;
     expect(policy.getAttribute('data-state')).toBe('unmet');
-    expect(policy.textContent).toContain('Reference: bank.loans_disabled');
+    expect(policy.getAttribute('data-code')).toBe('bank.loans_disabled');
+    expect(policy.textContent).not.toContain('bank.loans_disabled');
     await work('1000');
     expect(host.querySelector('[role="alert"][data-code="bank.loans_disabled"]')?.textContent).toContain('Lending is closed');
     expect(button('Review and open').disabled).toBe(true);

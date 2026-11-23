@@ -8,11 +8,32 @@
     reason = "a test helper: each test file uses part of it, and a failure is the point"
 )]
 
-use std::process::Command;
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use postgres::{Client, NoTls};
 use service_kit::pg::Pool;
+
+/// The migrated template each test's database is copied from.
+#[path = "../../../service-kit/tests/support/pg_template.rs"]
+pub mod pg_template;
+
+/// The database bootstrap's part (tooling/infra/postgres-init): the extensions and the schema.
+const BOOTSTRAP: &str = "CREATE EXTENSION IF NOT EXISTS \"pgcrypto\"; CREATE EXTENSION IF NOT EXISTS \"citext\"; CREATE SCHEMA IF NOT EXISTS \"academy\"";
+
+/// This process's migrated template (`pg_template::template`: `svc-academy migrate` once), made once.
+fn template(admin: &str) -> &'static str {
+    static NAME: OnceLock<String> = OnceLock::new();
+    NAME.get_or_init(|| {
+        pg_template::template(
+            admin,
+            "academy",
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations"),
+            env!("CARGO_BIN_EXE_svc-academy"),
+            BOOTSTRAP,
+        )
+    })
+}
 
 fn admin_url() -> Option<String> {
     let pick = |k: &str| {
@@ -64,32 +85,15 @@ impl TestDb {
             std::process::id(),
             COUNTER.fetch_add(1, Ordering::SeqCst)
         );
-        a.batch_execute(&format!("CREATE DATABASE \"{name}\""))
-            .unwrap();
         let mut parsed = url::Url::parse(&admin).unwrap();
         parsed.set_path(&format!("/{name}"));
+        pg_template::copy(&admin, &name, template(&admin));
         let db = TestDb {
             admin,
             name,
             url: parsed.to_string(),
         };
-        let mut c = db.client();
-        assert_test_database(&mut c);
-        c.batch_execute(
-            "CREATE EXTENSION IF NOT EXISTS \"pgcrypto\"; CREATE EXTENSION IF NOT EXISTS \"citext\"; CREATE SCHEMA IF NOT EXISTS \"academy\"",
-        )
-        .unwrap();
-        let out = Command::new(env!("CARGO_BIN_EXE_svc-academy"))
-            .arg("migrate")
-            .env("DATABASE_URL", &db.url)
-            .output()
-            .unwrap();
-        assert!(
-            out.status.success(),
-            "migrate: {}{}",
-            String::from_utf8_lossy(&out.stdout),
-            String::from_utf8_lossy(&out.stderr)
-        );
+        assert_test_database(&mut db.client());
         Some(db)
     }
 

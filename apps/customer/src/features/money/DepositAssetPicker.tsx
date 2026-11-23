@@ -27,7 +27,7 @@ export function DepositAssetPicker({
   const shown = asset && !matches.includes(asset) && assets.includes(asset) ? [asset, ...matches] : matches;
   return (
     <>
-      <label className="field">
+      <label className="lt-field">
         <span>{t('assetSearch')}</span>
         <input
           type="search"
@@ -45,7 +45,7 @@ export function DepositAssetPicker({
               : t('assetSearchCount', { shown: matches.length, total: assets.length })}
         </small>
       </label>
-      <label className="field">
+      <label className="lt-field">
         <span>{t('asset')}</span>
         <select value={asset} onChange={(event) => onAsset(event.target.value)} disabled={assets.length === 0}>
           {assets.length === 0 && <option value="">—</option>}

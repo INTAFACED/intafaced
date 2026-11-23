@@ -40,7 +40,7 @@ export function HistoryFilters({ filter, onFilter }: { filter: HistoryFilter; on
         const id = `dk-hfilter-${key}`;
         return (
           <div className="dk-hfilter" key={key}>
-            <span className="dk-tif-label" id={id}>
+            <span className="lt-hint lt-nowrap" id={id}>
               {heading[key]}
             </span>
             <Select

@@ -115,7 +115,7 @@ function NotificationRoom({ userId }: { userId: string }) {
               <h2>
                 <Copy k="inbox" />
               </h2>
-              <div className="actions">
+              <div className="lt-actions">
                 <Button
                   variant="secondary"
                   aria-pressed={unread}
@@ -162,9 +162,9 @@ function NotificationRoom({ userId }: { userId: string }) {
                           {!item.title || item.title === item.titleKey ? <Copy k="titleAbsent" /> : item.title}
                         </h3>
                         <p lang="und">{!item.body || item.body === item.bodyKey ? <Copy k="bodyAbsent" /> : item.body}</p>
-                        <div className="actions" lang={languageFor('inspect')}>
+                        <div className="lt-actions" lang={languageFor('inspect')}>
                           {customerRoomHref(item.href) && (
-                            <a className="text-link" href={customerRoomHref(item.href)}>
+                            <a className="lt-link" href={customerRoomHref(item.href)}>
                               <Copy k="related" />
                             </a>
                           )}
@@ -197,10 +197,10 @@ function NotificationRoom({ userId }: { userId: string }) {
                 <h3>
                   <Copy k="selection" />
                 </h3>
-                <p className="muted">
+                <p className="lt-muted">
                   <Copy k="selectedId" />
                 </p>
-                <p className="numeric" lang="zxx">
+                <p className="lt-num" lang="zxx">
                   {selected}
                 </p>
                 <p>
@@ -211,7 +211,7 @@ function NotificationRoom({ userId }: { userId: string }) {
                 </Button>
               </section>
             )}
-            <p className="muted">
+            <p className="lt-muted">
               <Copy k="window" />
             </p>
             <div className="notifications-controls">
@@ -249,13 +249,13 @@ function DeliveryDetails({ item }: { item: Notification }) {
       <h4>
         <Copy k="delivery" />
       </h4>
-      <p className="muted">
+      <p className="lt-muted">
         <Copy k="selectedId" />:{' '}
-        <span className="numeric" lang="zxx">
+        <span className="lt-num" lang="zxx">
           {item.id}
         </span>
       </p>
-      <p className="muted">
+      <p className="lt-muted">
         <Copy k="deliveryMeaning" />
       </p>
       <Read resource={records.resource} retry={records.reload}>
@@ -382,7 +382,7 @@ function NotificationSettings({ userId }: { userId: string }) {
           <Copy k="settings" />
         </h2>
       </header>
-      <p className="muted">
+      <p className="lt-muted">
         <Copy k="policy" />
       </p>
       {blocked && (
@@ -434,14 +434,14 @@ function NotificationSettings({ userId }: { userId: string }) {
                       )}
                     </Button>
                   </div>
-                  <p className="muted">
+                  <p className="lt-muted">
                     <Copy k={preference ? (preference.muted ? 'muted' : 'unmuted') : 'preferenceAbsent'} />
                   </p>
                   <Read resource={status.resource} retry={refresh}>
                     {(rows) => {
                       const row = rows.find((item) => item.channel === id);
                       return (
-                        <p className="muted">
+                        <p className="lt-muted">
                           <Copy
                             k={!row ? 'channelAbsent' : !row.configured ? 'notConnected' : row.available ? 'available' : 'configured'}
                           />

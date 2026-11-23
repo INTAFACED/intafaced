@@ -69,6 +69,8 @@ import { createIncidentsRouter } from './incidents/router.js';
 import type { IncidentStore } from './incidents/store.js';
 import { StaffHoldDesk } from './staff-holds/desk.js';
 import { createStaffHoldsRouter } from './staff-holds/router.js';
+import { LedgerReversalDesk } from './ledger-reversals/desk.js';
+import { createLedgerReversalsRouter } from './ledger-reversals/router.js';
 import type { ServiceRecordStore } from './service-records/store.js';
 import { createProtocolListingRouter } from './protocol-listing/router.js';
 import type { ListingDesk } from './protocol-listing/wiring.js';
@@ -266,6 +268,8 @@ export interface OperatorDeskConfig {
   readonly incidentSeverities?: readonly string[] | null;
   /** Staff holds on funds. Absent means every call refuses `ops.hold_storage_unconfigured`. */
   readonly staffHolds?: StaffHoldDesk;
+  /** Operator reversals of posted ledger transactions. Absent means every call refuses `ops.reversal_storage_unconfigured`. */
+  readonly ledgerReversals?: LedgerReversalDesk;
   /** Home's owner values for the public `home.config` read. Absent means every value is blank. */
   readonly homeConfig?: HomeConfig;
   /** The prices Home and Assets value holdings with (`valuation.prices`); absent is unpublished. */
@@ -879,6 +883,11 @@ export function createOpsRouter(
           settings: { confirmAccount: null, expiryMaxHours: null },
           now: () => new Date(),
         }),
+    ),
+
+    ledgerReversals: createLedgerReversalsRouter(
+      desks.ledgerReversals ??
+        new LedgerReversalDesk({ store: undefined, ledger: undefined, approvals: desks.approvals, now: () => new Date() }),
     ),
 
     alerts: router({

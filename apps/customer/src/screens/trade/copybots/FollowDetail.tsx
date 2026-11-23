@@ -148,7 +148,7 @@ export function FollowActions({
   };
   return (
     <div className="cb-actions">
-      <div className="cb-action-row">
+      <div className="lt-actions">
         {order.map((action) => (
           <Button
             key={action}
@@ -245,7 +245,7 @@ function CopyingSwitch({ follow, api, guard, onDone }: { follow: Follow; api: Ro
             ? t('Each new trade the leader makes is copied for you, within your limits.')
             : t('Trades are not copied for you until you turn on automatic copying.')}
       </p>
-      <div className="cb-action-row">
+      <div className="lt-actions">
         <Button variant="secondary" size={32} disabled={blocked !== null || guard.busy || guard.locked} onClick={send}>
           {on ? t('Turn off automatic copying') : t('Turn on automatic copying')}
         </Button>
@@ -338,7 +338,7 @@ export function EditLimits({
       onDone,
     );
   return (
-    <section ref={takeFocus} tabIndex={-1} aria-label={t('Edit limits')} className="cb-form">
+    <section ref={takeFocus} tabIndex={-1} aria-label={t('Edit limits')} className="lt-stack">
       {guard.failure ? <RefusalNote failure={guard.failure} /> : null}
       <SizingChoices value={sizing} onChange={setSizing} name={`sizing-${follow.followId}`} />
       <Field label={t('Most per contract ({asset})', { asset })} hint={t('Optional. The most copied into one market.')}>
@@ -353,7 +353,7 @@ export function EditLimits({
           : t('The platform hasn’t set a minimum investment, so no copy can start.')}
       </InfoNote>
       <InfoNote>{t('Spot copying uses no leverage, so there is no leverage limit to set.')}</InfoNote>
-      <div className="cb-action-row">
+      <div className="lt-actions">
         <Button size={32} onClick={save} loading={guard.busy} disabled={guard.locked}>
           {t('Save changes')}
         </Button>
@@ -388,8 +388,8 @@ export function FollowDetail({
   const [editing, setEditing] = useState(false);
   return (
     <Dialog open={follow !== null} onOpenChange={(open) => !open && onClose()}>
-      {/* Wide enough for the Positions tab's tables, which the dialog's narrow default cuts off. */}
-      <DialogContent className="cb-dialog max-w-5xl">
+      {/* Wide enough for the Positions tab's tables to show every cell whole: at 5xl their profit share and fee cells were cut short. */}
+      <DialogContent className="cb-dialog max-w-7xl">
         {follow ? (
           <>
             <DialogHeader>

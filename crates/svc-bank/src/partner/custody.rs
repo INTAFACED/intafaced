@@ -255,9 +255,36 @@ impl Held<'_> {
         self.partner.lock().purchase_holds(user_id, now)
     }
 
+    /// `openCurrency`: opens a currency account at the partner; moves no money, so asks no guard.
+    pub fn open_currency(
+        &self,
+        user_id: &str,
+        asset_id: &str,
+        now: Instant,
+    ) -> Result<Balance, Refusal> {
+        self.partner.lock().open_currency(user_id, asset_id, now)
+    }
+
     /// `openOrders`.
     pub fn open_orders(&self, user_id: &str) -> Vec<super::OpenOrder> {
         self.partner.lock().open_orders(user_id)
+    }
+
+    /// `quoteMove`: the partner's quote for a move between the person's own accounts; asks no guard, as it moves
+    /// nothing.
+    pub fn quote_move(
+        &self,
+        from: &AccountRef,
+        to: &AccountRef,
+        amount: service_kit::money::Amount,
+        now: Instant,
+    ) -> Result<super::MoveQuote, Refusal> {
+        self.partner.lock().quote_move(from, to, amount, now)
+    }
+
+    /// `payments.paymentByKey`: a payment as the partner holds it now.
+    pub fn payment_by_key(&self, key: &str) -> Option<Payment> {
+        self.partner.lock().payment_by_key(key)
     }
 
     /// `moveByKey`.

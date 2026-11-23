@@ -900,7 +900,7 @@ test('self-trade: the one mode the engine has is picked and sent; the others are
   await stp.click();
   await expect(page.getByRole('option', { name: 'Cancel this order' })).toHaveAttribute('aria-disabled', 'true');
   await expect(page.getByRole('option', { name: 'Cancel both orders' })).toHaveAttribute('aria-disabled', 'true');
-  await expect(page.getByText('the matching engine only cancels the resting order')).toBeVisible();
+  await expect(page.getByText('Only this choice is offered here: your resting order is the one cancelled.')).toBeVisible();
   await shotBoth(page, 'desk-self-trade');
   await page.keyboard.press('Escape');
   await fillBuy(page, { price: '63999.9', amount: '0.0001' });

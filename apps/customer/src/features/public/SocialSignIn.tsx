@@ -5,6 +5,7 @@ import { Button, Failure } from '../../shared/ui';
 import { socialSignInCopy } from './social-sign-in-copy';
 import './social-sign-in.css';
 import { IDENTITY_AUTH_OAUTH_START } from '@intafaced/contracts/identity-auth-procedures';
+import { leaveTo } from '../../app/location';
 
 // hand-declared-ok: svc-identity's auth.oauthStart answer has no browser-safe schema in packages/contracts yet
 
@@ -40,7 +41,7 @@ export function SocialSignIn({ onWallet }: { onWallet?: () => Promise<boolean> }
     const target = answer.ok ? new URL(answer.data.authorizationUrl) : null;
     if (target?.protocol === 'https:') {
       // The buttons stay busy while the browser leaves, so a second press cannot start a second flow.
-      location.assign(target.href);
+      leaveTo(target.href);
       return;
     }
     running.current = false;
@@ -51,7 +52,7 @@ export function SocialSignIn({ onWallet }: { onWallet?: () => Promise<boolean> }
   const code = (WORDED as readonly string[]).includes(refusal?.code ?? '') ? (refusal!.code as (typeof WORDED)[number]) : undefined;
   return (
     <div className="public-auth-social">
-      <p className="muted">{t('or')}</p>
+      <p className="lt-muted">{t('or')}</p>
       {(['social', 'wallet'] as const).map((kind) => (
         <Button key={kind} variant="secondary" disabled={busy !== null} onClick={() => void start(kind)}>
           {busy === kind ? t('starting') : t(kind)}

@@ -70,6 +70,8 @@ export const venueStatusSchema = z.union([
           test: z.boolean(),
           health: z.object({ state: z.string() }).passthrough(),
           positionModes: z.array(z.enum(['one_way', 'hedge'])).optional(),
+          // J-derivatives-05 #7: true when the venue moves an open position between the main account and a sub-account.
+          positionMoves: z.boolean().optional(),
         }),
       )
       .optional(),
@@ -212,7 +214,15 @@ export const venueStatementJobSchema = z.object({
   from: isoTime,
   to: isoTime,
   status: z.enum(['pending', 'finished', 'failed']),
-  rows: z.object({ orders: z.number().int(), trades: z.number().int(), movements: z.number().int() }).nullable(),
+  rows: z
+    .object({
+      orders: z.number().int(),
+      trades: z.number().int(),
+      movements: z.number().int(),
+      /** Liquidation parts the file lists (J-derivatives-26 #7); null for a job built before they were listed. */
+      liquidations: z.number().int().nullable(),
+    })
+    .nullable(),
   sha256: z.string().nullable(),
   error: z.string().nullable(),
   createdAt: isoTime,
@@ -337,7 +347,7 @@ export const venueOrderSchema = z.object({
     })
     .nullable()
     .optional(),
-  /** Why the venue cancelled it, where it says (`position_closed`, `linked`). */
+  /** Why the venue cancelled it, where it says (`position_closed`, `linked`, `scheduled_cancel`, `self_trade`). */
   cancelReason: z.string().nullable().optional(),
 });
 export type VenueOrder = z.infer<typeof venueOrderSchema>;
@@ -480,6 +490,10 @@ export const venueAccountModeSchema = z.object({
 });
 export type VenueAccountModeRead = z.infer<typeof venueAccountModeSchema>;
 export type VenueAccountMode = NonNullable<VenueAccountModeRead['mode']>;
+
+/** The position mode the account holds one perpetual in, as the venue reports it (J-derivatives-05 #3). */
+export const venuePositionModeSchema = z.enum(['one_way', 'hedge']);
+export type VenuePositionMode = z.infer<typeof venuePositionModeSchema>;
 
 // ── J-derivatives-31: the venue's vaults, a position in one, and its lock-up, each the venue's own figure ──────────
 
@@ -1208,3 +1222,74 @@ export const venueConversionSchema = z.object({
 
 /** `/venue/convert/history`. */
 export const venueConvertHistorySchema = z.object({ conversions: z.array(venueConversionSchema), asOf: isoTime.nullable() });
+
+// ── The person's agent accounts and their assistant's connection (`/venue/agent-accounts/*`, J-agents-21) ───────────
+// These follow `services/svc-trade/src/venue/agent-account.ts`, `agent-orders.ts` and `agent-order-calls.ts`.
+
+/** The person's own caps on the assistant's orders on one agent account (#16); null is not set. */
+export const venueAgentLimitsSchema = z.object({
+  maxOrderNotional: decimalSchema.nullable(),
+  /** A whole number of times, as a string (`"2"` is 2x). */
+  maxLeverage: z.string().nullable(),
+  maxDailyLoss: decimalSchema.nullable(),
+});
+
+/** A connected key's end date as identity holds it (#19): null is none; not known when identity could not be asked. */
+export const venueAgentKeyExpirySchema = z.union([
+  z.object({ known: z.literal(true), expiresAt: isoTime.nullable() }),
+  z.object({ known: z.literal(false) }),
+]);
+
+/** One call made with the assistant's key (#11): the tool it used or the route it called, and how it was answered. */
+export const venueAgentActivityRowSchema = z.object({
+  at: isoTime,
+  tool: z.string(),
+  outcome: z.enum(['accepted', 'refused', 'failed']),
+  /** The status the edge answered the call with. */
+  status: z.number().int(),
+  /** The refusal code svc-trade answered, when svc-trade answered the call and refused it. */
+  code: z.string().nullable(),
+  /** The assistant's id for the order the call named, and the venue's, when the call named an order. */
+  order: z.object({ clientOrderId: z.string(), venueOrderId: z.string().nullable() }).nullable(),
+  requestId: z.string(),
+});
+export type VenueAgentActivityRow = z.infer<typeof venueAgentActivityRowSchema>;
+
+/** `/venue/agent-accounts/connections/:keyId/activity`: newest first. */
+export const venueAgentActivitySchema = z.object({
+  keyId: z.string(),
+  accountId: z.string(),
+  asOf: isoTime,
+  rows: z.array(venueAgentActivityRowSchema),
+});
+export type VenueAgentActivity = z.infer<typeof venueAgentActivitySchema>;
+
+/** `/venue/agent-accounts/connections/:keyId/revoke` (#12): the assistant revoked, and the venue's revoke for the wallet. */
+export const venueAgentRevokeSchema = z.object({
+  keyId: z.string(),
+  accountId: z.string(),
+  endedAt: isoTime,
+  /** The assistant's orders resting when it was revoked, each cancelled once on the venue, as the venue answered. */
+  cancels: z.array(
+    z.object({
+      orderKey: z.string(),
+      venueClientOrderId: z.string().nullable(),
+      symbol: z.string(),
+      state: z.enum(['cancelled', 'refused', 'unknown']),
+    }),
+  ),
+  /** True once our copy of the account's venue agent key is dropped. */
+  agentKeyDropped: z.boolean(),
+  /** The venue agent behind the key, and whether the venue still lists it on the agent account. */
+  agent: z.object({ address: z.string(), onVenue: z.boolean() }),
+  /** The venue's revoke of that agent, for the person's wallet to sign, until the venue no longer lists it. */
+  next: z
+    .object({
+      actionKey: z.string(),
+      step: z.string(),
+      signed: z.boolean(),
+      prepared: z.object({ typedData: typedDataSchema, digest: z.string() }),
+    })
+    .nullable(),
+});
+export type VenueAgentRevoke = z.infer<typeof venueAgentRevokeSchema>;

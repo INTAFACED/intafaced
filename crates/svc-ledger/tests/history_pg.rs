@@ -14,7 +14,7 @@
     reason = "a test: a failure is the point"
 )]
 
-mod support;
+use crate::support;
 
 use std::collections::BTreeSet;
 use std::sync::LazyLock;
@@ -1333,7 +1333,7 @@ fn a_fills_receiving_line_names_its_own_fee_and_every_other_line_none() {
     let free = by_reason(&lines(&store, oid::FREE), "trade.fill");
     assert_eq!(
         (free[0].asset_id.as_str(), free[0].entry.amount, free[0].fee),
-        ("BTC", amt("0.5"), Some(0))
+        ("BTC", amt("0.5"), Some(Amount::ZERO))
     );
     let free_maker = by_reason(&lines(&store, oid::FREE_MAKER), "trade.fill");
     assert_eq!(
@@ -1342,7 +1342,7 @@ fn a_fills_receiving_line_names_its_own_fee_and_every_other_line_none() {
             free_maker[0].entry.amount,
             free_maker[0].fee
         ),
-        ("USDT", amt("300"), Some(0))
+        ("USDT", amt("300"), Some(Amount::ZERO))
     );
     // Every other line: none, the paying leg on an order-hold page included.
     assert!(
@@ -1467,7 +1467,7 @@ fn held_of(read: &HoldingsHistory, asset: &str) -> Amount {
     read.holdings
         .iter()
         .find(|h| h.asset_id == asset)
-        .map_or(0, |h| h.amount)
+        .map_or(Amount::ZERO, |h| h.amount)
 }
 
 /// `[inflow, outflow, fee]` of each row under one asset and reason.
@@ -1507,8 +1507,16 @@ fn holdings_are_every_account_of_the_owner_locks_included_and_replay_to_nothing(
     // Holdings less every movement since before the first one is zero.
     let maker = holdings(&store, H_MAKER);
     for asset in ["USDT", "BTC"] {
-        assert_eq!(held_of(&got, asset) - net_of(&got, asset), 0, "{asset}");
-        assert_eq!(held_of(&maker, asset) - net_of(&maker, asset), 0, "{asset}");
+        assert_eq!(
+            held_of(&got, asset) - net_of(&got, asset),
+            Amount::ZERO,
+            "{asset}"
+        );
+        assert_eq!(
+            held_of(&maker, asset) - net_of(&maker, asset),
+            Amount::ZERO,
+            "{asset}"
+        );
     }
     store.end();
 }
@@ -1535,7 +1543,12 @@ fn holdings_leave_out_moves_between_the_owners_own_accounts() {
     let deposits: Vec<String> = got
         .movements
         .iter()
-        .filter(|m| m.asset_id == "USDT" && m.module != "trade" && m.inflow > 0 && m.outflow == 0)
+        .filter(|m| {
+            m.asset_id == "USDT"
+                && m.module != "trade"
+                && m.inflow > Amount::ZERO
+                && m.outflow == Amount::ZERO
+        })
         .map(|m| format_amount(m.inflow))
         .collect();
     assert_eq!(deposits, ["1000"]);
@@ -1583,7 +1596,7 @@ fn holdings_name_the_same_fee_as_the_page_and_only_on_the_receiving_line() {
     assert_eq!(Some(fill.fee), line.fee);
     for m in &got.movements {
         if !(m.asset_id == "BTC" && m.reason == "trade.fill") {
-            assert_eq!(m.fee, 0, "{} {}", m.asset_id, m.reason);
+            assert_eq!(m.fee, Amount::ZERO, "{} {}", m.asset_id, m.reason);
         }
     }
     store.end();
@@ -1605,7 +1618,11 @@ fn holdings_of_a_buyback_maker_and_never_another_owner() {
         [row("0", "0.5", "0")]
     );
     for asset in ["USDT", "BTC"] {
-        assert_eq!(held_of(&bb, asset) - net_of(&bb, asset), 0, "{asset}");
+        assert_eq!(
+            held_of(&bb, asset) - net_of(&bb, asset),
+            Amount::ZERO,
+            "{asset}"
+        );
     }
     let taker = holdings(&store, H_TAKER);
     let maker = holdings(&store, H_MAKER);
@@ -1619,7 +1636,7 @@ fn holdings_of_a_buyback_maker_and_never_another_owner() {
         .filter(|m| m.asset_id == "BTC" && m.reason == "trade.fill")
         .map(|m| m.fee)
         .collect();
-    assert_eq!(maker_fees, [0]);
+    assert_eq!(maker_fees, [Amount::ZERO]);
     store.end();
 }
 

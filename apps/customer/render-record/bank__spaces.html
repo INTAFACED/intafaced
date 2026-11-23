@@ -97,71 +97,66 @@
 <main id="main" tabindex="-1">
 <div class="legacy-room">
 <div lang="en" style="display: contents;">
-<div data-testid="page" class="page">
-<header data-testid="page-heading" class="page-heading">
+<div class="lt-room" data-template="overview" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
 <div>
-<p class="eyebrow">Money / Bank</p>
-<h1>Spaces</h1>
-<p class="muted">Give an asset a purpose inside the same ledger.</p>
+<h1 class="lt-title">Spaces</h1>
+<p class="lt-description">Give an asset a purpose inside the same ledger.</p>
 </div>
-<div class="actions">
-<a class="button button--secondary" href="/bank">
+<div class="lt-room-action">
+<a class="lt-button lt-button-secondary" href="/bank">
 <span lang="en" dir="ltr" data-i18n="customer.money.rooms.bank.overview">Bank overview</span>
 </a>
 </div>
 </header>
-<nav data-testid="money-bank-nav" class="money-bank-nav" aria-label="Bank rooms">
-<a href="/bank">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.overview">Overview</span>
-</a>
-<a href="/bank/spaces" aria-current="page">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.spaces">Spaces</span>
-</a>
-<a href="/bank/transfers">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.transfers">Transfers</span>
-</a>
-<a href="/bank/earn">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.earn">Earn</span>
-</a>
-<a href="/bank/loans">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.loans">Loans</span>
-</a>
-<a href="/bank/cards">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.cards">Cards</span>
-</a>
-<a href="/bank/ramps">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.ramps">Ramps</span>
-</a>
-<a href="/bank/analytics">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.analytics">Analytics</span>
-</a>
-<a href="/bank/business">
-<span lang="en" dir="ltr" data-i18n="customer.money.nav.business">Business</span>
-</a>
+<div class="lt-room-section">
+<div data-testid="money-bank-nav">
+<p class="lt-hint">
+<span lang="en" dir="ltr" data-i18n="customer.money.rooms.money.bank">Money / Bank</span>
+</p>
+<nav class="lt-tabs" aria-label="Bank rooms" data-region="section-tabs">
+<a href="/bank" class="lt-tab">Overview</a>
+<a href="/bank/spaces" class="lt-tab" aria-current="page">Spaces</a>
+<a href="/bank/transfers" class="lt-tab">Transfers</a>
+<a href="/bank/earn" class="lt-tab">Earn</a>
+<a href="/bank/loans" class="lt-tab">Loans</a>
+<a href="/bank/cards" class="lt-tab">Cards</a>
+<a href="/bank/ramps" class="lt-tab">Ramps</a>
+<a href="/bank/analytics" class="lt-tab">Analytics</a>
+<a href="/bank/business" class="lt-tab">Business</a>
 </nav>
-<section class="money-section">
-<header>
+</div>
+</div>
+<div class="lt-body">
+<div class="lt-grid lt-grid-main-side">
+<div class="lt-col-main">
+<section class="lt-region" data-region="hero" aria-label="Balance">
+<div class="lt-body">
+<section>
+<header class="lt-title-row lt-title-row-wrap">
 <div>
 <h2>Your spaces</h2>
 </div>
-<div class="actions">
-<button type="button" class="button button--ghost ">
+<div class="lt-actions">
+<button type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
 <span lang="en" dir="ltr" data-i18n="customer.money.rooms.refresh">Refresh</span>
 </button>
-<button type="button" class="button button--primary ">
+<button type="button" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="customer.money.rooms.create.space">Create space</span>
 </button>
 </div>
 </header>
-<article class="money-record">
-<header>
-<div>
+<ul class="lt-rows">
+<li>
+<article class="lt-stack">
+<header class="lt-title-row">
+<div class="lt-lines">
 <h3>Main</h3>
-<p>USDT · Primary · included in your account balances</p>
+<p class="lt-hint">USDT · Primary · included in your account balances</p>
 </div>
-<strong class="numeric">3,800.00 USDT</strong>
+<strong class="lt-mono lt-nowrap">3,800.00 USDT</strong>
 </header>
-<dl class="detail-list">
+<dl class="lt-kv">
 <div>
 <dt>
 <span lang="en" dir="ltr" data-i18n="customer.money.rooms.target">Target</span>
@@ -188,21 +183,23 @@
 </dd>
 </div>
 </dl>
-<div class="actions">
-<a class="button button--secondary" href="/bank/transfers?from=s0">
+<div class="lt-actions">
+<a class="lt-button lt-button-secondary" href="/bank/transfers?from=s0">
 <span lang="en" dir="ltr" data-i18n="customer.money.rooms.transfer">Transfer</span>
 </a>
 </div>
 </article>
-<article class="money-record">
-<header>
-<div>
+</li>
+<li>
+<article class="lt-stack">
+<header class="lt-title-row">
+<div class="lt-lines">
 <h3>Rent</h3>
-<p>USDT · Named ledger subaccount</p>
+<p class="lt-hint">USDT · Named ledger subaccount</p>
 </div>
-<strong class="numeric">300.00 USDT</strong>
+<strong class="lt-mono lt-nowrap">300.00 USDT</strong>
 </header>
-<dl class="detail-list">
+<dl class="lt-kv">
 <div>
 <dt>
 <span lang="en" dir="ltr" data-i18n="customer.money.rooms.target">Target</span>
@@ -229,27 +226,29 @@
 </dd>
 </div>
 </dl>
-<div class="actions">
-<a class="button button--secondary" href="/bank/transfers?from=s1">
+<div class="lt-actions">
+<a class="lt-button lt-button-secondary" href="/bank/transfers?from=s1">
 <span lang="en" dir="ltr" data-i18n="customer.money.rooms.transfer">Transfer</span>
 </a>
-<button type="button" class="button button--ghost ">Set goal</button>
-<button type="button" class="button button--ghost ">Lock</button>
-<button type="button" class="button button--ghost ">Pay bills from this pot</button>
-<button type="button" class="button button--ghost ">
+<button type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">Set goal</button>
+<button type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">Lock</button>
+<button type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">Pay bills from this pot</button>
+<button type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
 <span lang="en" dir="ltr" data-i18n="customer.money.rooms.archive.label">Archive label</span>
 </button>
 </div>
 </article>
-<article class="money-record">
-<header>
-<div>
+</li>
+<li>
+<article class="lt-stack">
+<header class="lt-title-row">
+<div class="lt-lines">
 <h3>Long term</h3>
-<p>BTC · Named ledger subaccount</p>
+<p class="lt-hint">BTC · Named ledger subaccount</p>
 </div>
-<strong class="numeric">0.04 BTC</strong>
+<strong class="lt-mono lt-nowrap">0.04 BTC</strong>
 </header>
-<dl class="detail-list">
+<dl class="lt-kv">
 <div>
 <dt>
 <span lang="en" dir="ltr" data-i18n="customer.money.rooms.target">Target</span>
@@ -276,99 +275,112 @@
 </dd>
 </div>
 </dl>
-<div class="actions">
-<a class="button button--secondary" href="/bank/transfers?from=s2">
+<div class="lt-actions">
+<a class="lt-button lt-button-secondary" href="/bank/transfers?from=s2">
 <span lang="en" dir="ltr" data-i18n="customer.money.rooms.transfer">Transfer</span>
 </a>
-<button type="button" class="button button--ghost ">Set goal</button>
-<button type="button" class="button button--ghost ">Lock</button>
-<button type="button" class="button button--ghost ">Pay bills from this pot</button>
-<button type="button" class="button button--ghost ">
+<button type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">Set goal</button>
+<button type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">Lock</button>
+<button type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">Pay bills from this pot</button>
+<button type="button" class="lit-button" data-slot="button" data-variant="ghost" data-tone="quiet" data-size="md">
 <span lang="en" dir="ltr" data-i18n="customer.money.rooms.archive.label">Archive label</span>
 </button>
 </div>
 </article>
-<div class="money-continuation">
-<span>3<span lang="en" dir="ltr" data-i18n="customer.money.components.records.returned.requested.limit"> shown</span>. That is the whole list.</span>
+</li>
+</ul>
+<div class="lt-actions">
+<p class="lt-hint">3<span lang="en" dir="ltr" data-i18n="customer.money.components.records.returned.requested.limit"> shown</span>. That is the whole list.</p>
 </div>
 </section>
+</div>
+</section>
+<section class="lt-region" data-region="sections" aria-label="Activity">
+<div class="lt-body">
 <div data-testid="income-sorter">
-<section class="money-section">
-<header>
+<section>
+<header class="lt-title-row lt-title-row-wrap">
 <div>
 <h2>Income sorter</h2>
-<p class="muted">Split each payment you get from another person across your spaces by percentage. Each payment is split once, right after it arrives. What is not sorted stays in your account.</p>
+<p class="lt-description">Split each payment you get from another person across your spaces by percentage. Each payment is split once, right after it arrives. What is not sorted stays in your account.</p>
 </div>
 </header>
-<div data-testid="failure" class="failure" role="status">
-<h3>
+<div data-testid="failure" class="lt-refusal" data-refusal="unreachable" role="status">
+<p class="lt-refusal-title">
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
+</p>
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
 </button>
 </div>
 </section>
 </div>
 <div data-testid="instant-savings">
-<section class="money-section">
-<header>
+<section>
+<header class="lt-title-row lt-title-row-wrap">
 <div>
 <h2>Instant-access savings</h2>
-<p class="muted">Savings that earn interest every day and that you can take back to your account at any time, without a penalty. The rate and every day of interest come from the bank.</p>
+<p class="lt-description">Savings that earn interest every day and that you can take back to your account at any time, without a penalty. The rate and every day of interest come from the bank.</p>
 </div>
 </header>
-<div data-testid="failure" class="failure" role="status">
-<h3>
+<div data-testid="failure" class="lt-refusal" data-refusal="unreachable" role="status">
+<p class="lt-refusal-title">
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
+</p>
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
 </button>
 </div>
 </section>
 </div>
 <div data-testid="shared-pots">
-<section class="money-section">
-<header>
+<section>
+<header class="lt-title-row lt-title-row-wrap">
 <div>
 <h2>Shared pots</h2>
-<p class="muted">Share one of your pots with people you choose. A viewer sees the pot and its money; a contributor can also add money to it. Only you take money out, and the pot stays yours.</p>
+<p class="lt-description">Share one of your pots with people you choose. A viewer sees the pot and its money; a contributor can also add money to it. Only you take money out, and the pot stays yours.</p>
 </div>
-<div class="actions">
-<button type="button" class="button button--primary ">Share a pot</button>
+<div class="lt-actions">
+<button type="button" class="lit-button" data-slot="button" data-variant="primary" data-tone="primary" data-size="md">Share a pot</button>
 </div>
 </header>
-<div data-testid="failure" class="failure" role="status">
-<h3>
+<div data-testid="failure" class="lt-refusal" data-refusal="unreachable" role="status">
+<p class="lt-refusal-title">
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
+</p>
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
 </button>
 </div>
 </section>
 </div>
-<section class="money-section">
-<header>
+<section>
+<header class="lt-title-row lt-title-row-wrap">
 <div>
 <h2>Assets without a space</h2>
-<p class="muted">Available funds without a space label. These are already included in your main account balances.</p>
+<p class="lt-description">Available funds without a space label. These are already included in your main account balances.</p>
 </div>
 </header>
-<div data-testid="failure" class="failure" role="status">
-<h3>
+<div data-testid="failure" class="lt-refusal" data-refusal="unreachable" role="status">
+<p class="lt-refusal-title">
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
-</h3>
-<p>No services run in the look gate.</p>
-<button type="button" class="button button--secondary ">
+</p>
+<p class="lt-refusal-body">No services run in the look gate.</p>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
 </button>
 </div>
 </section>
+</div>
+</section>
+</div>
+<div class="lt-col-side">
+</div>
+</div>
+</div>
 </div>
 </div>
 </div>

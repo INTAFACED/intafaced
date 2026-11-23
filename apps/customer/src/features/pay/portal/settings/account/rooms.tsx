@@ -1,18 +1,17 @@
 import './account.css';
 import { Button } from '@intafaced/ui';
-import { WithAccount } from '../../access/WithAccount';
 import { readyAccess, useMerchantAccess } from '../../access/MerchantAccess';
 import { Gate } from '../../components';
 import type { RoomTable } from '../../rooms-model';
-import { Activity } from '../activity/Activity';
+import { ActivityRoom } from '../activity/Activity';
 import { ComplianceRoom } from '../onboarding/Compliance';
 import { Onboarding } from '../onboarding/Onboarding';
 import { BusinessSettingsRoom } from '../profile/BusinessSettings';
 import { Security } from '../security/Security';
 import { InvitationsOnly, TeamRoom } from '../team/Team';
 import { NoBusiness } from '../../access/NoBusiness';
-import { Network } from '../network/Network';
-import { NetworkChild } from '../network/NetworkChild';
+import { NetworkRoom as NetworkList } from '../network/Network';
+import { NetworkChildRoom } from '../network/NetworkChild';
 import { PermissionsRoom as PermissionsSettings } from '../network/Permissions';
 import { LinkButton } from '../../volt/parts';
 import { extensionCopy, portalCopy, settingsCopy } from '../copy';
@@ -36,12 +35,10 @@ function useMode(): string | null {
   return readyAccess(useMerchantAccess())?.mode ?? null;
 }
 function NetworkRoom({ portal }: { portal: PortalApi }) {
-  const mode = useMode();
-  return <WithAccount>{({ merchantId }) => <Network portal={portal} merchantId={merchantId} mode={mode} />}</WithAccount>;
+  return <NetworkList portal={portal} mode={useMode()} />;
 }
-function NetworkChildRoom({ portal, child }: { portal: PortalApi; child: string }) {
-  const mode = useMode();
-  return <WithAccount>{() => <NetworkChild portal={portal} childId={child} mode={mode} />}</WithAccount>;
+function NetworkChildPage({ portal, child }: { portal: PortalApi; child: string }) {
+  return <NetworkChildRoom portal={portal} childId={child} mode={useMode()} />;
 }
 function PermissionsRoom({ portal }: { portal: PortalApi }) {
   return <PermissionsSettings portal={portal} mode={useMode()} />;
@@ -115,16 +112,19 @@ export const accountRooms: RoomTable = {
   },
   activity: {
     header: () => ({ title: settingsCopy.t('activityTitle'), purpose: settingsCopy.t('activityPurpose') }),
-    render: (_route, { portal }) => <WithAccount>{() => <Activity portal={portal} />}</WithAccount>,
+    ownTitle: true,
+    render: (_route, { portal }) => <ActivityRoom portal={portal} />,
   },
   network: {
     header: () => ({ title: settingsCopy.t('networkTitle'), purpose: settingsCopy.t('networkPurpose') }),
+    ownTitle: true,
     render: (_route, { portal }) => <NetworkRoom portal={portal} />,
   },
   'network-child': {
     header: () => ({ title: settingsCopy.t('networkChildTitle'), purpose: settingsCopy.t('networkChildPurpose') }),
     here: '/pay/network',
-    render: (route, { portal }) => <NetworkChildRoom portal={portal} child={route.param ?? ''} />,
+    ownTitle: true,
+    render: (route, { portal }) => <NetworkChildPage portal={portal} child={route.param ?? ''} />,
   },
   permissions: {
     header: () => ({ title: settingsCopy.t('permissionsTitle'), purpose: settingsCopy.t('permissionsPurpose') }),

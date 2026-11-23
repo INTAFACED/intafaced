@@ -2,10 +2,11 @@
 // (tooling/lint/oxlint-plugin-garden/call-by-name-rule.js), each with what a rewrite needs, or the reason it can't be.
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
-import { bindingOf, calleeName, keyOf, literal, load, resolveRelative, walk } from './ast.mjs';
-import { fanOut } from './fan.mjs';
+import { bindingOf, calleeName, keyedEntry, keyOf, literal, load, walk } from './ast.mjs';
+import { fanOut, valuesOf } from './fan.mjs';
 import { handSchemas } from './dead-hand-schemas.mjs';
 import { businessSite } from './pay-business.mjs';
+import { toolSite } from './tool-forms.mjs';
 import { wrapperOut } from './wrapper.mjs';
 
 const TEST_FILE = /(\.(test|spec|testkit)\.[cm]?[jt]sx?$)|(\.pw\.[cm]?[jt]s$)|(\/(test|tests|__tests__|__fixtures__)\/)/u;
@@ -31,6 +32,12 @@ export function findSites(repo) {
     const line = (n) => p.src.slice(0, n.start).split('\n').length;
     walk(p.program, (n) => {
       if (n.type === 'CallExpression') {
+        // A portal tool called bare, by name: its record form is beside it (tool-forms.mjs).
+        const tool = toolSite(p, n);
+        if (tool) {
+          out.push({ file, line: line(n), node: n, ...tool });
+          return;
+        }
         const name = calleeName(n);
         if (!name || !Object.hasOwn(NAMED_AT, name)) return;
         if ((name === 'query' || name === 'mutate') && n.callee.type !== 'MemberExpression') return;
@@ -82,7 +89,11 @@ export function findSites(repo) {
           }
         }
         if (name === 'founderCall' && a[2]?.type === 'MemberExpression' && !a[2].computed && a[2].property.name === 'procedure')
-          Object.assign(site, { shape: 'ops-dispatch', problem: 'sends the call its table entry names: it moves with the table' });
+          Object.assign(site, {
+            shape: 'ops-dispatch',
+            problem:
+              "sends the call its table entry names: it moves with the table once the table sits in this file, read as `const spec = TABLE[key]; founderCall(ctx, '<service>', spec.procedure, ...)`",
+          });
         // A call named by its wrapper's parameter or spec: a site per caller's string, or the wrapper named with why (wrapper.mjs).
         const w = !site.problem && site.module && !site.path ? wrapperOut(p, site, files, wrappers) : undefined;
         if (Array.isArray(w)) out.push(...w);
@@ -97,7 +108,7 @@ export function findSites(repo) {
         const entry = key === 'procedure' && !desk ? opsEntry(p, n) : undefined;
         const spec = key === 'procedure' && !desk && !entry ? writeSpec(p, n) : undefined;
         if (desk) out.push({ file, line: line(n), node: n, shape: 'desk-read', ...desk });
-        else if (spec) out.push({ file, line: line(n), node: n, shape: 'write-spec', ...spec });
+        else if (spec) for (const one of spec) out.push({ file, line: line(n), node: n, shape: 'write-spec', ...one });
         else if (entry) out.push({ file, line: line(n), node: n, shape: 'ops-entry', ...entry });
         else if (key === 'procedure' && isString(n.value) && n.value.value !== '')
           out.push({
@@ -132,37 +143,7 @@ function isSchemaParse(n) {
  * imported from, through `bankReads`' import and the spreads it is composed of. `{ p, node }`, or undefined.
  */
 function bankReadSchema(p, useBankRead, path) {
-  // `./components` may be a .tsx file, which resolveRelative does not try without an extension.
-  const fileOf = (q, b) =>
-    b?.kind === 'import' && b.from.startsWith('.')
-      ? (resolveRelative(q.file, b.from) ?? resolveRelative(q.file, `${b.from}.tsx`))
-      : undefined;
-  const declared = (file, name, seen = new Set()) => {
-    if (!file || seen.has(`${file}#${name}`)) return undefined;
-    seen.add(`${file}#${name}`);
-    const q = load(file);
-    // A top-level name, asked from the file's first statement (the program itself has no enclosing scope).
-    const d = bindingOf(q, q.program.body[0] ?? q.program, name);
-    if (d.kind === 'import') return declared(fileOf(q, d), d.imported, seen);
-    return d.kind === 'var' && d.declarator.init ? { q, init: d.declarator.init } : undefined;
-  };
-  const inObject = (q, obj, seen) => {
-    while (obj && (obj.type === 'TSAsExpression' || obj.type === 'TSSatisfiesExpression')) obj = obj.expression;
-    if (obj?.type !== 'ObjectExpression') return undefined;
-    let found;
-    for (const prop of obj.properties) {
-      if (prop.type === 'SpreadElement' && prop.argument.type === 'Identifier') {
-        const b = bindingOf(q, prop.argument, prop.argument.name);
-        const d =
-          b.kind === 'import' ? declared(fileOf(q, b), b.imported, seen) : b.kind === 'var' ? { q, init: b.declarator.init } : undefined;
-        const inner = d && inObject(d.q, d.init, seen);
-        if (inner) found = inner;
-      } else if (prop.type === 'Property' && keyOf(prop) === path) found = { p: q, node: prop.value };
-    }
-    return found;
-  };
-  const reads = declared(fileOf(p, useBankRead), 'bankReads');
-  return reads && inObject(reads.q, reads.init, new Set());
+  return keyedEntry(p, useBankRead, 'bankReads', path);
 }
 
 /**
@@ -215,16 +196,24 @@ const SPEC_KEYS = ['title', 'notes', 'input'];
  * Its answer schema is the hand one the dialog held it to, `bankWrites[path]` (`schema`), so a check there is not lost.
  */
 function writeSpec(p, n) {
-  const path = literal(n.value);
   const obj = p.parents.get(n);
-  if (!path || obj?.type !== 'ObjectExpression' || bindingOf(p, n, 'ActionSpec').kind === 'global') return undefined;
+  if (obj?.type !== 'ObjectExpression' || bindingOf(p, n, 'ActionSpec').kind === 'global') return undefined;
   const keys = new Set(obj.properties.map((pr) => (pr.type === 'Property' ? keyOf(pr) : undefined)));
   if (!SPEC_KEYS.every((k) => keys.has(k))) return undefined;
-  const site = { module: 'bank', path, kind: 'mutation' };
+  // A `procedure:` picked by a `? :` (`approve ? 'business.approve' : 'business.reject'`) is one site per call, written
+  // as one `record: approve ? A : B` once every call has its record (fan.mjs's `fanIn`).
+  const path = literal(n.value);
+  const set = path ? { values: [{ value: path }] } : n.value.type === 'ConditionalExpression' ? valuesOf(p, n.value) : undefined;
+  if (!set?.values) return undefined;
   const repo = p.file.slice(0, p.file.indexOf('/apps/customer/src/'));
-  const hand = repo ? handSchemas(repo).find((h) => h.map.endsWith('Writes') && h.name === path) : undefined;
-  if (hand) site.schema = { p: hand.p, node: hand.prop.value };
-  return site;
+  const hands = repo ? handSchemas(repo) : [];
+  return set.values.map((v, at) => {
+    const site = { module: 'bank', path: v.value, kind: 'mutation' };
+    if (set.values.length > 1) site.fan = { key: n, at, size: set.values.length, test: v.test };
+    const hand = hands.find((h) => h.map.endsWith('Writes') && h.name === v.value);
+    if (hand) site.schema = { p: hand.p, node: hand.prop.value };
+    return site;
+  });
 }
 
 /** The ops-desk reads in one parsed file. */

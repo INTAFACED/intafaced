@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { defineProcedure } from './procedure.js';
 import { amountString } from './bank-earn-procedures.js';
 import { assetIdSchema } from './asset-id.js';
+import { stepUpApprovalField } from './bank-cards-procedures.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-bank `business.*`, one record per call, written from its router while its Rust port is in flight: every app caller calls it by its record, and the router keeps its own schemas until the port's switch. */
@@ -164,6 +165,123 @@ export const BANK_BUSINESS_MEMBERS = defineProcedure({
   }),
   samples: [
     { verdict: 'accept', input: { accountId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_BUSINESS_SET_MEMBER_ROLE = defineProcedure({
+  ...base,
+  name: 'bank.business.setMemberRole',
+  kind: 'mutation',
+  path: 'business.setMemberRole',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({
+    accountId: z.string().guid(),
+    userId: z.string().min(1),
+    role: z.enum(BUSINESS_ROLES),
+    requestId: z.string().guid(),
+    stepUpApprovalId: stepUpApprovalField,
+  }),
+  output: z.object({ accountId: z.string(), userId: z.string(), role: z.enum(BUSINESS_ROLES) }),
+  samples: [
+    {
+      verdict: 'accept',
+      input: {
+        accountId: '11111111-1111-4111-8111-111111111111',
+        userId: 'USDC',
+        role: 'admin',
+        requestId: '11111111-1111-4111-8111-111111111111',
+      },
+    },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_BUSINESS_REMOVE_MEMBER = defineProcedure({
+  ...base,
+  name: 'bank.business.removeMember',
+  kind: 'mutation',
+  path: 'business.removeMember',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({
+    accountId: z.string().guid(),
+    userId: z.string().min(1),
+    requestId: z.string().guid(),
+    stepUpApprovalId: stepUpApprovalField,
+  }),
+  output: z.object({ accountId: z.string(), userId: z.string(), removed: z.literal(true) }),
+  samples: [
+    {
+      verdict: 'accept',
+      input: { accountId: '11111111-1111-4111-8111-111111111111', userId: 'USDC', requestId: '11111111-1111-4111-8111-111111111111' },
+    },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_BUSINESS_ADD_MEMBER = defineProcedure({
+  ...base,
+  name: 'bank.business.addMember',
+  kind: 'mutation',
+  path: 'business.addMember',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({
+    accountId: z.string().guid(),
+    userId: z.string().min(1),
+    role: z.enum(BUSINESS_ROLES),
+    stepUpApprovalId: stepUpApprovalField,
+  }),
+  output: z.object({ accountId: z.string(), userId: z.string(), role: z.enum(BUSINESS_ROLES) }),
+  samples: [
+    { verdict: 'accept', input: { accountId: '11111111-1111-4111-8111-111111111111', userId: 'USDC', role: 'admin' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_BUSINESS_APPROVE = defineProcedure({
+  ...base,
+  name: 'bank.business.approve',
+  kind: 'mutation',
+  path: 'business.approve',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({ approvalId: z.string().guid(), stepUpApprovalId: stepUpApprovalField }),
+  output: z.object({ transferId: z.string(), ledgerTxId: z.string() }),
+  samples: [
+    { verdict: 'accept', input: { approvalId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_BUSINESS_REJECT = defineProcedure({
+  ...base,
+  name: 'bank.business.reject',
+  kind: 'mutation',
+  path: 'business.reject',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({ approvalId: z.string().guid() }),
+  output: z.object({ ok: z.literal(true) }),
+  samples: [
+    { verdict: 'accept', input: { approvalId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const BANK_BUSINESS_CANCEL = defineProcedure({
+  ...base,
+  name: 'bank.business.cancel',
+  kind: 'mutation',
+  path: 'business.cancel',
+  access: { caller: 'scope', scope: 'bank:write', module: 'bank' },
+  refusals: {},
+  input: z.object({ approvalId: z.string().guid() }),
+  output: z.object({ ok: z.literal(true) }),
+  samples: [
+    { verdict: 'accept', input: { approvalId: '11111111-1111-4111-8111-111111111111' } },
     { verdict: 'refuse', input: 42 },
   ],
 });

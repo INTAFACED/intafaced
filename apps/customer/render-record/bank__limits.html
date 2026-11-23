@@ -107,11 +107,13 @@
 <a class="lt-button lt-button-secondary" href="/bank">Bank overview</a>
 </div>
 </header>
-<div class="lt-body">
-<div class="lt-grid lt-grid-settings">
-<section class="lt-region" data-region="index" aria-label="Sections">
-<nav class="lt-tabs" aria-label="Bank rooms">
-<a href="/bank" class="lt-tab" aria-current="page">Overview</a>
+<div class="lt-room-section">
+<div data-testid="money-bank-nav">
+<p class="lt-hint">
+<span lang="en" dir="ltr" data-i18n="customer.money.rooms.money.bank">Money / Bank</span>
+</p>
+<nav class="lt-tabs" aria-label="Bank rooms" data-region="section-tabs">
+<a href="/bank" class="lt-tab">Overview</a>
 <a href="/bank/spaces" class="lt-tab">Spaces</a>
 <a href="/bank/transfers" class="lt-tab">Transfers</a>
 <a href="/bank/earn" class="lt-tab">Earn</a>
@@ -121,6 +123,11 @@
 <a href="/bank/analytics" class="lt-tab">Analytics</a>
 <a href="/bank/business" class="lt-tab">Business</a>
 </nav>
+</div>
+</div>
+<div class="lt-body">
+<div class="lt-grid lt-grid-settings">
+<section class="lt-region" data-region="index" aria-label="Sections">
 <nav aria-label="Limits sections">
 <ul>
 <li>
@@ -141,8 +148,8 @@
 <h2 id="_r_3_">Sending limits</h2>
 <p class="lt-hint">What the bank lets you send to people today, from its own quote. Limits refresh at 00:00 UTC.</p>
 <label class="lt-field">
-<span>Coin</span>
-<select>
+<span id="_r_4_-label">Coin</span>
+<select aria-labelledby="_r_4_-label">
 <option value="USDT">USDT</option>
 <option value="BTC">BTC</option>
 <option value="ETH">ETH</option>
@@ -150,13 +157,13 @@
 </label>
 <p role="alert" data-code="">No services run in the look gate.</p>
 </section>
-<section aria-labelledby="_r_4_" id="limits-fees">
-<h2 id="_r_4_">Fees</h2>
+<section aria-labelledby="_r_5_" id="limits-fees">
+<h2 id="_r_5_">Fees</h2>
 <p role="alert" data-code="">No services run in the look gate.</p>
 <p role="alert" data-code="">No services run in the look gate.</p>
 </section>
-<section aria-labelledby="_r_5_" id="limits-plan">
-<h2 id="_r_5_">Your plan</h2>
+<section aria-labelledby="_r_6_" id="limits-plan">
+<h2 id="_r_6_">Your plan</h2>
 <p class="lt-hint">This plan fee is our own, separate from anything the bank partner charges.</p>
 <p role="alert" data-code="">No services run in the look gate.</p>
 </section>

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
-import { Failure, Loading } from '../../shared/ui';
+import { Failure, Loading } from './kit-parts';
 import { verificationAttemptsCopy as copy } from './verification-attempts-copy';
 import { IDENTITY_KYC_ATTEMPTS_READ } from '@intafaced/contracts/identity-kyc-procedures';
 
@@ -14,7 +14,8 @@ import { IDENTITY_KYC_ATTEMPTS_READ } from '@intafaced/contracts/identity-kyc-pr
  */
 export function VerificationAttempts({ recordsKey, onLocked }: { recordsKey: string; onLocked: (locked: boolean) => void }) {
   const { api, userId } = useSession();
-  const { Copy } = copy.useCopy();
+  const { t, Copy } = copy.useCopy();
+  const hours = (n: number) => (n === 1 ? t('hourOne') : t('hoursMany', { n: String(n) }));
   const { resource, reload } = useResource(
     (signal) => api.call(IDENTITY_KYC_ATTEMPTS_READ, undefined, { signal }),
     `verification-attempts:${userId}:${recordsKey}`,
@@ -38,7 +39,7 @@ export function VerificationAttempts({ recordsKey, onLocked }: { recordsKey: str
   if (resource.status === 'loading') return <Loading />;
   if (resource.status === 'failed')
     return (
-      <div className="verification__attempts" data-testid="verification__attempts" data-state="unread">
+      <div className="lt-stack" data-testid="verification__attempts" data-state="unread">
         <h3>
           <Copy k="failedTitle" />
         </h3>
@@ -47,12 +48,12 @@ export function VerificationAttempts({ recordsKey, onLocked }: { recordsKey: str
     );
   const { limit, denialsInWindow } = resource.data;
   return (
-    <div className="verification__attempts" data-testid="verification__attempts" data-state={!limit ? 'unset' : locked ? 'locked' : 'open'}>
+    <div className="lt-stack" data-testid="verification__attempts" data-state={!limit ? 'unset' : locked ? 'locked' : 'open'}>
       <h3>
         <Copy k="title" />
       </h3>
       {!limit ? (
-        <p className="muted">
+        <p className="lt-muted">
           <Copy k="unset" />
         </p>
       ) : locked ? (
@@ -60,19 +61,19 @@ export function VerificationAttempts({ recordsKey, onLocked }: { recordsKey: str
           <p data-testid="verification__attempts-locked" data-locked-until={lockedUntil}>
             <Copy k="locked" params={{ seconds: String(seconds) }} />
           </p>
-          <p className="muted">
+          <p className="lt-muted">
             <Copy k="lockedHelp" />
           </p>
         </>
       ) : (
-        <p className="muted">
+        <p className="lt-muted">
           <Copy
             k="standing"
             params={{
               count: String(denialsInWindow ?? 0),
               max: String(limit.maxDenials),
-              window: String(limit.windowHours),
-              lockout: String(limit.lockoutHours),
+              window: hours(limit.windowHours),
+              lockout: hours(limit.lockoutHours),
             }}
           />
         </p>

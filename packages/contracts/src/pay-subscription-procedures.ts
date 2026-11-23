@@ -322,3 +322,50 @@ export const PAY_SUBSCRIPTION_CREATE = defineProcedure({
     { verdict: 'refuse', input: 42 },
   ],
 });
+
+/** One recorded period. The journal, not a status word. */
+export const cycleView = z.object({
+  occurrence: z.number().int().nonnegative(),
+  amount: amountSchema,
+  status: z.enum(['pending', 'invoiced', 'settled', 'rejected', 'skipped']),
+  /**
+   * The business idempotency key of the PERIOD. Exposed deliberately: "was this
+   * period charged twice" is answerable by reading two keys, and a key that
+   * changed between attempts is visible rather than inferred.
+   */
+  idempotencyKey: z.string().nullable(),
+  attemptCount: z.number().int().positive(),
+  rejectionCode: z.string().nullable(),
+  paymentId: z.string().guid().nullable(),
+  exhausted: z.boolean(),
+  settledAt: z.string().datetime({ offset: true }).nullable(),
+  notifyStatus: z.enum(['attempted', 'skipped_unwired', 'failed']).nullable(),
+  notifyCode: z.string().nullable(),
+});
+
+/**
+ * The period journal. Read-only, and the honest answer to "did you charge
+ * me twice" — two periods carry two keys, one period retried carries one.
+ */
+export const PAY_SUBSCRIPTION_CYCLES = defineProcedure({
+  ...base,
+  name: 'pay.subscription.cycles',
+  kind: 'query',
+  path: 'subscription.cycles',
+  access: { caller: 'anyScope', scopes: ['pay:onboard', 'pay:read'], module: 'pay' },
+  refusals: {},
+  input: z.object({
+    subscriptionId: z.string().guid(),
+    /**
+     * Page size. Optional so omit reaches `pay.subscription_cycle_list_limit_unset`.
+     * Blank is not 50; pass 50 explicitly.
+     */
+    limit: z.number().int().min(1).max(200).optional(),
+  }),
+  output: z.object({ subscriptionId: z.string().guid(), cycles: z.array(cycleView) }),
+  outputChecks: { amount_holds: { at: 'output.cycles[].amount', says: 'scientific notation refused' } },
+  samples: [
+    { verdict: 'accept', input: { subscriptionId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});

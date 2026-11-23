@@ -295,18 +295,21 @@ for (const mode of Object.keys(modes))
           await expect(page.locator('.more-success')).toHaveAttribute('lang', locale);
           expect(await page.evaluate((key) => localStorage.getItem(key), markerKey)).toBeNull();
         } else if (outcome === 'refused') {
-          const message = page.locator('.failure p').filter({ hasText: provider });
+          const message = page.locator(':is(.failure, .lt-refusal) p').filter({ hasText: provider });
           await expect(message).toHaveText(provider);
           expect(await message.evaluate((x) => x.closest('[lang]').lang)).toBe('und');
           expect(await page.evaluate((key) => localStorage.getItem(key), markerKey)).toBeNull();
         } else {
           expect(JSON.parse(await page.evaluate((key) => localStorage.getItem(key), markerKey))).toEqual(originalMarker);
           if (mode === 'purchase') {
-            const explanation = page.locator('.failure p').filter({ hasText: provider });
+            const explanation = page.locator(':is(.failure, .lt-refusal) p').filter({ hasText: provider });
             await expect(explanation).toHaveText(provider);
             expect(await explanation.evaluate((x) => x.closest('[lang]').lang)).toBe('und');
           }
-          await expect(page.locator('.failure').getByText(originalMarker.title, { exact: true })).toHaveAttribute('lang', 'und');
+          await expect(page.locator(':is(.failure, .lt-refusal)').getByText(originalMarker.title, { exact: true })).toHaveAttribute(
+            'lang',
+            'und',
+          );
           await expect(page.locator('.more-success')).toHaveCount(0);
           await expect(page.getByRole('button', { name: catalogs[locale]['common.check.original.outcome'], exact: true })).toHaveCount(
             mode === 'purchase' ? 1 : 0,
@@ -331,13 +334,13 @@ test('native changed purchase terms refuses locally and follows View without dis
     .getByRole('dialog')
     .getByRole('button', { name: text('en', 'confirm.purchase'), exact: true })
     .click();
-  await expect(page.locator('.failure')).toContainText(text('en', 'the.listing.terms.changed.reload.the.catalogue'));
+  await expect(page.locator(':is(.failure, .lt-refusal)')).toContainText(text('en', 'the.listing.terms.changed.reload.the.catalogue'));
   const view = await context.newPage();
   await login(view, '/view');
   for (const locale of ['es', 'fr']) {
     await language(view, page, locale);
-    await expect(page.locator('.failure')).toContainText(text(locale, 'the.listing.terms.changed.reload.the.catalogue'));
-    expect(await page.locator('.failure p').evaluate((x) => x.closest('[lang]').lang)).toBe(locale);
+    await expect(page.locator(':is(.failure, .lt-refusal)')).toContainText(text(locale, 'the.listing.terms.changed.reload.the.catalogue'));
+    expect(await page.locator(':is(.failure, .lt-refusal) p').evaluate((x) => x.closest('[lang]').lang)).toBe(locale);
   }
   expect(calls.writes).toEqual([]);
   expect(await page.evaluate((key) => localStorage.getItem(key), markerKey)).toBeNull();
@@ -505,7 +508,7 @@ for (const [mode, field, value] of mismatches)
     await expect.poll(() => calls.writes.length).toBe(1);
     await page.screenshot({ path: dir + '/binding-' + mode + '-' + field + '.png', fullPage: true });
     await expect(page.locator('.more-success')).toHaveCount(0);
-    await expect(page.locator('.failure[role="alert"]').first()).toBeVisible();
+    await expect(page.locator(':is(.failure, .lt-refusal)[role="alert"]').first()).toBeVisible();
     const marker = JSON.parse(calls.journals[0]);
     expect(JSON.parse(await page.evaluate((key) => localStorage.getItem(key), markerKey))).toEqual(marker);
     expect(marker.title).toBe(text('en', modes[mode].review));
@@ -564,7 +567,7 @@ for (const outcome of ['pending', 'incomplete', 'missing', 'rejected', 'settled'
         await expect(page.locator('.more-success')).toHaveText(catalogs[locale]['common.original.outcome.verified']);
         expect(await page.evaluate((key) => localStorage.getItem(key), markerKey)).toBeNull();
       } else {
-        await expect(page.locator('.failure').first()).toContainText(text(locale, key));
+        await expect(page.locator(':is(.failure, .lt-refusal)').first()).toContainText(text(locale, key));
         expect(JSON.parse(await page.evaluate((key) => localStorage.getItem(key), markerKey))).toEqual(marker);
         await expect(page.getByText(marker.title, { exact: true })).toHaveAttribute('lang', 'und');
         await expect(page.locator('.more-success')).toHaveCount(0);
@@ -587,7 +590,7 @@ test('native changed seller before purchase dispatch refuses original listing te
     .getByRole('dialog')
     .getByRole('button', { name: text('en', 'confirm.purchase'), exact: true })
     .click();
-  await expect(page.locator('.failure')).toContainText(text('en', 'the.listing.terms.changed.reload.the.catalogue'));
+  await expect(page.locator(':is(.failure, .lt-refusal)')).toContainText(text('en', 'the.listing.terms.changed.reload.the.catalogue'));
   expect(calls.writes).toEqual([]);
   expect(await page.evaluate((key) => localStorage.getItem(key), markerKey)).toBeNull();
 });
@@ -614,7 +617,9 @@ test('native cross-tab Web Lock refuses dispatch and retains localized authored 
     .click();
   for (const locale of ['en', 'es', 'fr']) {
     if (locale !== 'en') await language(view, page, locale);
-    await expect(page.locator('.failure')).toContainText(catalogs[locale]['common.this.account.has.an.action.running.in']);
+    await expect(page.locator(':is(.failure, .lt-refusal)')).toContainText(
+      catalogs[locale]['common.this.account.has.an.action.running.in'],
+    );
     expect(await page.evaluate((key) => localStorage.getItem(key), markerKey)).toBeNull();
   }
   expect(calls.writes).toEqual([]);

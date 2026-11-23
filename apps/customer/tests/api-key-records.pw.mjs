@@ -83,7 +83,7 @@ async function network(context) {
 }
 async function login(page, destination = '/uc/safe', newDocument = true) {
   if (newDocument) await page.goto('/login?redirect=' + encodeURIComponent(destination));
-  else await page.locator('a.button[href^="/login?redirect="]').click();
+  else await page.locator(':is(a.button, a.lt-button)[href^="/login?redirect="]').click();
   await page.locator('input[name="identifier"]').fill('isolated-owner');
   await page.locator('input[autocomplete="current-password"]').fill('isolated-password');
   await page.locator('form:has(input[name="identifier"]) button[type="submit"]').click();
@@ -280,14 +280,14 @@ test('401 retires private rows and actual Login/Register preserves complete quer
   state.respond = async () => ({ status: 401 });
   await readButton(page).click();
   await expect(section(page)).toHaveCount(0);
-  const signIn = page.locator('a.button[href^="/login?redirect="]');
+  const signIn = page.locator(':is(a.button, a.lt-button)[href^="/login?redirect="]');
   await expect(signIn).toHaveAttribute('href', '/login?redirect=' + encodeURIComponent(destination));
   await signIn.click();
-  const register = page.locator('a.text-link[href^="/register?redirect="]');
+  const register = page.locator(':is(a.text-link, a.lt-link)[href^="/register?redirect="]');
   await expect(register).toBeVisible();
   await register.click();
   expect(new URL(page.url()).searchParams.get('redirect')).toBe(destination);
-  await page.locator('a.text-link[href^="/login?redirect="]').click();
+  await page.locator(':is(a.text-link, a.lt-link)[href^="/login?redirect="]').click();
   expect(new URL(page.url()).searchParams.get('redirect')).toBe(destination);
   await page.locator('input[name="identifier"]').fill('isolated-owner');
   await page.locator('input[autocomplete="current-password"]').fill('isolated-password');

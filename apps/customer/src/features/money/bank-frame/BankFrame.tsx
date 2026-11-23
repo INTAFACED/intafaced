@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { Button } from '@intafaced/ui/lit';
 import { Tabs } from '@intafaced/ui/lit/templates';
 import { t as copyText, Text } from '../copy';
-import { bankLabels, bankRoomHref, bankRooms } from './bank-rooms';
+import { bankLabels, bankRoomHref, bankRooms, shownBankRooms } from './bank-rooms';
 
 /**
  * The Bank's frame for a room on a Volt template, drawn from the kit: the same words and controls as the old `BankPage`
@@ -24,17 +24,18 @@ export function bankRoomProps(room: BankRoom, description: string, title?: strin
   };
 }
 
-/** Where the room sits ("Money / Bank") and the Bank's nine rooms, the open one marked. */
-export function BankTabs({ current }: { current: BankRoom }) {
+/** Where the room sits ("Money / Bank", unless the page's eyebrow says it: `where`) and the Bank's nine rooms, the route's own lit (none on a room it does not list). */
+export function BankTabs({ where = true }: { where?: boolean }) {
   return (
     <div data-testid="money-bank-nav">
-      <p className="lt-hint">
-        <Text k="rooms.money.bank" />
-      </p>
+      {where ? (
+        <p className="lt-hint">
+          <Text k="rooms.money.bank" />
+        </p>
+      ) : null}
       <Tabs
         label={copyText('rooms.bank.rooms')}
-        current={bankRoomHref(current)}
-        items={bankRooms.map((room) => ({ label: copyText(bankLabels[room]), href: bankRoomHref(room) }))}
+        items={shownBankRooms().map((room) => ({ label: copyText(bankLabels[room]), href: bankRoomHref(room) }))}
       />
     </div>
   );
@@ -57,7 +58,7 @@ export function BankSection({
 }) {
   return (
     <section aria-label={label}>
-      <header className="lt-title-row">
+      <header className="lt-title-row lt-title-row-wrap">
         <div>
           <h2>{title}</h2>
           {description && <p className="lt-description">{description}</p>}

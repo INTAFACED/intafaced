@@ -2,7 +2,7 @@
 import { z } from 'zod';
 import { decimalSchema as money } from '../../shared/money';
 import { linkedAccountSchema } from './contracts-accounts';
-import { BANK_TRANSFERS_LIST_SCHEDULES, BANK_TRANSFERS_TO_USER } from '@intafaced/contracts/bank-transfers-procedures';
+import { BANK_TRANSFERS_TO_USER } from '@intafaced/contracts/bank-transfers-procedures';
 
 export const scheduleSchema = z.object({
   id: z.string(),
@@ -254,8 +254,6 @@ export const railPayeeCheckSchema = z.object({
 /** This area's reads of svc-bank `bank.*`, composed into `bankReads` in contracts.ts. */
 export const paymentsReads = {
   'calendar.window': calendarViewSchema,
-  // Read by name through Activity's source table; its schema is the record's own, so it cannot drift from the bank's.
-  'transfers.listSchedules': BANK_TRANSFERS_LIST_SCHEDULES.output,
 } as const;
 
 /** This area's writes to svc-bank `bank.*`, composed into `bankWrites` in contracts.ts. */
@@ -275,16 +273,5 @@ export const paymentsWrites = {
   // The ActionSpec dispatch table names this write; its reply schema is the record's own (the send itself goes through
   // the money client's transfer, which checks the reply against the review).
   'transfers.toUser': BANK_TRANSFERS_TO_USER.output,
-  'transfers.schedule': z.object({ id: z.string(), nextRunAt: z.string() }),
   'transfers.scheduleToUser': z.object({ id: z.string(), nextRunAt: z.string() }),
-  'transfers.pause': z.object({ status: z.string(), nextRunAt: z.string() }),
-  'transfers.resume': z.object({ status: z.string(), nextRunAt: z.string(), skipped: z.array(z.number().int()) }),
-  'transfers.cancel': z.object({ cancelled: z.literal(true) }),
-  'transfers.updateSchedule': z.object({
-    id: z.string(),
-    revision: z.number().int(),
-    amount: money,
-    endsAt: z.string().nullable(),
-    nextRunAt: z.string(),
-  }),
 } as const;
