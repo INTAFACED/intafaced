@@ -30,6 +30,7 @@ import { useOwner, useVenueApi } from '../venue/VenueKit';
 import { TestMark, VenueFrame, WalletBar } from '../venue/volt/VoltVenue';
 import { tradingAccountCopy } from './trading-account-copy';
 import { AccountModePanel } from './AccountMode';
+import { TradingStatement } from './TradingStatement';
 import { depositRoute, routeOf } from './move-route';
 import { BANK_CARDS_LIST, BANK_CARDS_PARTNER_HELD } from '@intafaced/contracts/bank-cards-procedures';
 import { BANK_OWN_MOVES_LIST, BANK_OWN_MOVES_MESSAGE } from '@intafaced/contracts/bank-own-moves-procedures';
@@ -225,6 +226,7 @@ function VenueAccount({
       <AccountModePanel owner={owner} venue={venue} balances={rows} onChanged={balances.reload} />
       <CrossMargin owner={owner} venue={venue} revision={revision} onMoveIn={onMoveIn} />
       <Liquidations owner={owner} venue={venue} revision={revision} />
+      <TradingStatement owner={owner} venueId={venue.id} venueName={venue.name} />
     </div>
   );
 }

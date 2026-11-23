@@ -7,7 +7,7 @@ import { signUp, verify } from './desk.mjs';
 import { partnerBookMoves, partnerMainBalance, personDoor } from './person-door.mjs';
 import { CHAIN_ID, connectWhenAsked } from './dex.mjs';
 import { installTestWallet, testWalletKey } from './test-wallet.mjs';
-import { otherTraderKey, sameDecimal, testDeposit, venueForThisFile, venueRecord } from './venue.mjs';
+import { otherTraderKey, sameDecimal, testDeposit, venueBalance, venueForThisFile, venueRecord } from './venue.mjs';
 import { signedOnVenue, venueAt, venueNow } from './venue-door.mjs';
 
 // J-derivatives-26, in the running app (docs/roadmap/journeys.json): my spending money stays untouched when my cross
@@ -282,10 +282,26 @@ test(`${J} #4 opens the spending balances: the partner balance 400.00 and the sp
   page,
 }) => {
   test.setTimeout(300_000);
-  const { ledger, spaceId } = run.read();
+  const { owner, ledger, spaceId } = run.read();
   await openAccount(page, one, run);
   await spendingUntouched(page, run);
   await expect(spending(page)).not.toContainText(/liquidat/i);
+  // The venue's own record has the liquidation: none of its ids is on a spending account, and what the venue left after
+  // it is the trading group's figure, the venue's own, while the partner's two figures above are the ones from the start.
+  const [liquidation, ...more] = await liquidationsOf(owner);
+  expect(more).toEqual([]);
+  expect(liquidation.parts.length).toBeGreaterThan(0);
+  for (const id of [liquidation.liquidationId, ...liquidation.parts.map((part) => part.partId)])
+    await expect(spending(page)).not.toContainText(id);
+  const left = await venueBalance(owner, 'USDC');
+  expect(toUnits(left.total) < toUnits(VENUE_USDC), 'the venue took the loss and its fee from the venue account').toBe(true);
+  const tradingTotal = page.getByTestId('group-trading').locator('tr[data-asset="USDC"] [data-cell="total"]');
+  await expect
+    .poll(async () => sameDecimal(await tradingTotal.innerText(), left.total), {
+      message: `the trading group reads the venue's ${left.total}`,
+      timeout: 30_000,
+    })
+    .toBe(true);
   // The bank's own read of the same two accounts: the partner's figures, and the partner holds both.
   const spaces = await one.bankGet('spaces.list', { limit: 200 });
   const main = spaces.find((s) => s.kind === 'primary' && s.assetId === 'USDC');
@@ -328,4 +344,60 @@ test(`${J} #6 for the second TEST person, the mark gaps past the account's bankr
   await spendingUntouched(page, second);
   // INTAFACED posts nothing.
   expect(await (await two.door()).balances()).toEqual(ledger);
+});
+
+test(`${J} #7 opens the trading account statement: the venue's liquidation and fee, with the venue's ids`, async ({
+  page,
+  stepPicture,
+}) => {
+  test.setTimeout(300_000);
+  const { owner, ledger } = run.read();
+  // The venue's own record of the first person's account: one liquidation, each part with its fee, and the trade that opened the long.
+  const [liquidation, ...more] = await liquidationsOf(owner);
+  expect(more).toEqual([]);
+  expect(liquidation.parts.length).toBeGreaterThan(0);
+  expect(
+    liquidation.parts.every((part) => toUnits(part.fee) > 0n),
+    'the venue charged a liquidation fee',
+  ).toBe(true);
+  const fills = (await venueRecord(owner, '/fills', { since: new Date(0).toISOString() })).value;
+  expect(fills.length).toBeGreaterThan(0);
+  const venue = await venueNow();
+
+  await openAccount(page, one, run);
+  const statement = page.getByTestId('trading-statement');
+  await expect(statement.locator('tr[data-record]')).toHaveCount(0);
+  await statement.getByRole('button', { name: 'Open statement', exact: true }).click();
+  await expect(statement.getByTestId('statement-source')).toContainText(venue.name, { timeout: 30_000 });
+
+  // The venue's liquidation: each part it closed, with its size and price, under the venue's liquidation id and part id.
+  await expect(statement.locator('tr[data-record="liquidation"]')).toHaveCount(liquidation.parts.length);
+  // The venue's fee: one line for each part, with the amount the venue charged, under the same ids.
+  await expect(statement.locator('tr[data-record="liquidation-fee"]')).toHaveCount(liquidation.parts.length);
+  for (const part of liquidation.parts) {
+    const ids = `${liquidation.liquidationId} · ${part.partId}`;
+    const closed = statement.locator(`tr[data-record="liquidation"][data-ref="${part.partId}"]`);
+    await expect(closed).toHaveAttribute('data-liquidation', liquidation.liquidationId);
+    await expect(closed.locator('[data-cell="record"]')).toHaveText('Liquidation');
+    await expect(closed.locator('[data-cell="market"]')).toHaveText(`${XCRS} · long`);
+    await expect(closed.locator('[data-cell="size"]')).toHaveText(part.size);
+    await expect(closed.locator('[data-cell="price"]')).toHaveText(part.price);
+    await expect(closed.locator('[data-cell="id"]')).toHaveText(ids);
+    const fee = statement.locator(`tr[data-record="liquidation-fee"][data-ref="${part.partId}"]`);
+    await expect(fee).toHaveAttribute('data-liquidation', liquidation.liquidationId);
+    await expect(fee.locator('[data-cell="record"]')).toHaveText('Liquidation fee');
+    await expect(fee.locator('[data-cell="amount"]')).toHaveText(`${part.fee} ${part.feeAsset}`);
+    await expect(fee.locator('[data-cell="id"]')).toHaveText(ids);
+  }
+  // The rest of the statement is the venue's too: every trade it reports on the account, under the venue's fill id.
+  await expect(statement.locator('tr[data-record="trade"]')).toHaveCount(fills.length);
+  for (const fill of fills) {
+    const trade = statement.locator(`tr[data-record="trade"][data-ref="${fill.fillId}"]`);
+    await expect(trade.locator('[data-cell="id"]')).toHaveText(fill.fillId);
+    await expect.poll(async () => sameDecimal(await trade.locator('[data-cell="size"]').innerText(), fill.amount)).toBe(true);
+    await expect.poll(async () => sameDecimal(await trade.locator('[data-cell="price"]').innerText(), fill.price)).toBe(true);
+  }
+  await stepPicture();
+  // A statement of the venue's records: INTAFACED's ledger holds none of it, as before the liquidation.
+  expect(await (await one.door()).balances()).toEqual(ledger);
 });
