@@ -286,6 +286,7 @@ test('a helper name taken in the record file or the shared file never lands twic
       "import { z } from 'zod';",
       "import { schedulesRouter } from './schedules.js';",
       "import { feeProcedures } from './fees.js';",
+      "import { voidProcedures } from './voids.js';",
       "import { amountSchema } from '@intafaced/contracts/agents-amounts';",
       'const idInput = z.object({ id: z.string().min(1) });',
       'const tagInput = z.object({ tag: z.string() });',
@@ -296,6 +297,7 @@ test('a helper name taken in the record file or the shared file never lands twic
       "    stats: scopedProcedure('agents:read').input(z.object({ amount: amountSchema })).output(z.string()).query(() => ''),",
       '    schedules: schedulesRouter,',
       '    ...feeProcedures(),',
+      '    ...voidProcedures(),',
       '  }) });',
       '}',
       '',
@@ -319,6 +321,16 @@ test('a helper name taken in the record file or the shared file never lands twic
       '}',
       '',
     ].join('\n'),
+    // A fourth, read by a call with no sub-area whose name is taken in its area's second file too: it goes on to the
+    // third (svc-bank's loans writes read a third amountString, #3755).
+    'services/svc-agents/src/voids.ts': [
+      "import { z } from 'zod';",
+      'const idInput = z.object({ id: z.string().url() });',
+      'export function voidProcedures() {',
+      "  return { void: scopedProcedure('agents:write').input(idInput).output(z.string()).mutation(() => '') };",
+      '}',
+      '',
+    ].join('\n'),
     'crates/svc-agents/src/lib.rs': '// the port\n',
     'apps/customer/src/features/agents/agent.ts': [
       "import { z } from 'zod';",
@@ -328,6 +340,7 @@ test('a helper name taken in the record file or the shared file never lands twic
       "export const d = (api) => api.query('agents', 'own.stats', { amount: '1' }, z.string());",
       "export const e = (api) => api.query('agents', 'own.fee', { id: 'a@b.c' }, z.string());",
       "export const f = (api) => api.mutate('agents', 'own.feeRefund', { id: 'a@b.c' }, z.string());",
+      "export const g = (api) => api.mutate('agents', 'own.void', { id: 'https://x' }, z.string());",
       '',
     ].join('\n'),
     // An earlier run's record file, already holding tagInput as the router writes it.
@@ -369,6 +382,7 @@ test('a helper name taken in the record file or the shared file never lands twic
     'AGENTS_OWN_SCHEDULES_LIST',
     'AGENTS_OWN_STATS',
     'AGENTS_OWN_TAGS',
+    'AGENTS_OWN_VOID',
   ]);
   const read = (f) => readFileSync(join(root, 'packages/contracts/src', f), 'utf8');
   // Each file binds each name once: never declared and imported, never declared twice.
@@ -376,6 +390,7 @@ test('a helper name taken in the record file or the shared file never lands twic
     'agents-own-procedures.ts',
     'agents-own-schedules-procedures.ts',
     'agents-own-2-procedures.ts',
+    'agents-own-3-procedures.ts',
     'agents-call-schemas.ts',
   ]) {
     const src = read(f);
@@ -408,6 +423,10 @@ test('a helper name taken in the record file or the shared file never lands twic
   assert.match(second, /export const AGENTS_OWN_FEE = [\s\S]*export const AGENTS_OWN_FEE_REFUND = /);
   assert.equal(idInputOf('agents-own-2-procedures.ts'), 'email', "the fee records read their own router's idInput");
   assert.match(second, /svc-agents `own\.\*`/, 'its header names the area, not one call');
+  const third = read('agents-own-3-procedures.ts');
+  assert.match(third, /export const AGENTS_OWN_VOID = /);
+  assert.doesNotMatch(second, /AGENTS_OWN_VOID/);
+  assert.equal(idInputOf('agents-own-3-procedures.ts'), 'url', "the void record reads its own router's idInput, in the third file");
   assert.doesNotMatch(
     read('agents-call-schemas.ts'),
     /agents-amounts/,

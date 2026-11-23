@@ -631,6 +631,14 @@ import {
 } from './bank-loans-2-procedures.js';
 
 import {
+  BANK_LOANS_OPEN,
+  BANK_LOANS_REPAY,
+  BANK_LOANS_ADD_COLLATERAL,
+  BANK_LOANS_RELEASE_EXCESS,
+  BANK_LOANS_CLOSE,
+} from './bank-loans-3-procedures.js';
+
+import {
   BANK_LOANS_PRODUCTS,
   BANK_LOANS_ELIGIBILITY,
   BANK_LOANS_LIST,
@@ -2901,6 +2909,14 @@ const part_bank_loans_2_procedures: readonly ProcedureRecord[] = [
   BANK_LOANS_STATEMENT,
 ];
 
+const part_bank_loans_3_procedures: readonly ProcedureRecord[] = [
+  BANK_LOANS_OPEN,
+  BANK_LOANS_REPAY,
+  BANK_LOANS_ADD_COLLATERAL,
+  BANK_LOANS_RELEASE_EXCESS,
+  BANK_LOANS_CLOSE,
+];
+
 const part_bank_loans_procedures: readonly ProcedureRecord[] = [
   BANK_LOANS_PRODUCTS,
   BANK_LOANS_ELIGIBILITY,
@@ -4701,6 +4717,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ...part_bank_holds_procedures,
   ...part_bank_linked_accounts_procedures,
   ...part_bank_loans_2_procedures,
+  ...part_bank_loans_3_procedures,
   ...part_bank_loans_procedures,
   ...part_bank_ops_2_procedures,
   ...part_bank_ops_procedures,
