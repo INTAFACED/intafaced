@@ -56,6 +56,11 @@ export const TEST_STAND_INS = {
   INDEXER_START_HEIGHT: '0',
   INDEXER_FINALITY_DEPTH: '2',
   INDEXER_BATCH_SIZE: '50',
+  // A staging identity mails through a gateway. `.invalid` names never resolve (RFC 2606), so no mail can leave the runner.
+  IDENTITY_MAIL_TRANSPORT: 'http-gateway',
+  IDENTITY_MAIL_GATEWAY_URL: 'https://mail-gateway.invalid/send',
+  IDENTITY_MAIL_FROM: 'rehearsal@example.invalid',
+  IDENTITY_MAIL_LINK_BASE: 'https://rehearsal.invalid/',
   LITELLM_CONFIG_PATH: '/dev/null',
   LITELLM_MASTER_KEY: 'TEST-rehearsal-gateway-not-started',
 };
@@ -78,7 +83,7 @@ export const TEST_NETWORK = {
 };
 
 /** Deployment keys a staging boot requires and no file holds: made fresh on the runner like every dev-only secret. */
-export const DEPLOY_KEYS = ['API_KEY_SIGNING_ENC_KEY'];
+export const DEPLOY_KEYS = ['API_KEY_SIGNING_ENC_KEY', 'IDENTITY_MAIL_GATEWAY_KEY'];
 
 const LINE = /^([A-Z][A-Z0-9_]*)=(.*)$/;
 const DB_PASSWORD = /\$\{(SVC_([A-Z0-9_]+)_DB_PASSWORD):-/g;
