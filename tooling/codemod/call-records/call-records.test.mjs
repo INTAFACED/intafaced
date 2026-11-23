@@ -2595,3 +2595,47 @@ test('an assetId field the codemod appends to contracts starts from assetIdSchem
   const own = "import { z } from 'zod';\nconst assetIdSchema = z.string();\nexport const a = z.object({ assetId: z.string() });\n";
   assert.equal(brandAssetIds(own), own);
 });
+
+test('the router reader follows an optional part (`...ext?.merchant`) and a property of a switch-built object (`ready ? build() : null`), and names a member it cannot read', async () => {
+  const { procedures } = await import('./router.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-svc-'));
+  mkdirSync(join(dir, 'src'), { recursive: true });
+  writeFileSync(
+    join(dir, 'src/portal.ts'),
+    [
+      'export function portalParts(deps: unknown) {',
+      '  const merchant = { myAccess: p.query(h), terms: router({ accept: p.mutation(h) }) };',
+      '  return { merchant, analytics: router({ fees: p.query(h) }) };',
+      '}',
+      '',
+    ].join('\n'),
+  );
+  writeFileSync(
+    join(dir, 'src/router.ts'),
+    [
+      "import { portalParts } from './portal.js';",
+      'export function createSvcRouter(sql: unknown, mounts: { ops?: unknown }) {',
+      '  const portal = sql ? portalParts({ sql }) : null;',
+      '  return router({',
+      '    merchant: router({ ...portal?.merchant, me: p.query(h) }),',
+      '    ...(portal ? { merchantAnalytics: portal.analytics } : {}),',
+      '    ops: mounts.ops ?? router({ note: p.query(h) }),',
+      '  });',
+      '}',
+      '',
+    ].join('\n'),
+  );
+  const { procedures: found, unread } = procedures(dir);
+  assert.deepEqual([...found.keys()].sort(), [
+    'merchant.me',
+    'merchant.myAccess',
+    'merchant.terms.accept',
+    'merchantAnalytics.fees',
+    'ops.note',
+  ]);
+  // `mounts.ops` is a supplied router nothing in the service builds: named, never guessed, beside the branch it reads.
+  assert.deepEqual(
+    unread.map((u) => `${u.path}: ${u.why}`),
+    ['ops.*: MemberExpression not followed'],
+  );
+});
