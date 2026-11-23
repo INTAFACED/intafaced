@@ -113,7 +113,29 @@ const BETA_VOLT = fileURLToPath(new URL('./src/app/beta-volt.ts', import.meta.ur
  * (src/app/beta-volt.ts). Off, nothing is defined and every room shows, as on the test stack and in CI.
  */
 export function betaVolt(env: Record<string, string | undefined> = process.env): Plugin {
-  return { name: 'intafaced-beta-volt', config: async () => ({ define: await betaVoltDefine(env) }) };
+  const on = env.INTAFACED_BETA_VOLT_ONLY === '1';
+  return {
+    name: 'intafaced-beta-volt',
+    enforce: 'pre',
+    config: async () => ({ define: await betaVoltDefine(env) }),
+    // On, every module's JSX (the rooms' and the kit's) gets the beta's runtime, which draws no link to a hidden room
+    // (src/app/beta-links.ts); that runtime alone reaches React's own. Off, nothing is swapped.
+    resolveId: (source, importer) => (on && JSX_RUNTIMES.includes(source) && !importer?.startsWith(BETA_JSX) ? BETA_JSX + source : null),
+    load: (id) => (id.startsWith(BETA_JSX) ? betaJsxSource(id.slice(BETA_JSX.length)) : null),
+  };
+}
+const JSX_RUNTIMES = ['react/jsx-runtime', 'react/jsx-dev-runtime'];
+const BETA_JSX = '\0intafaced-beta:';
+const BETA_LINKS = fileURLToPath(new URL('./src/app/beta-links.ts', import.meta.url));
+export function betaJsxSource(runtime: string): string {
+  const names = runtime === 'react/jsx-dev-runtime' ? ['jsxDEV'] : ['jsx', 'jsxs'];
+  return [
+    `import * as real from ${JSON.stringify(runtime)};`,
+    `import { betaRuntime } from ${JSON.stringify(BETA_LINKS)};`,
+    `const runtime = betaRuntime({ ${names.map((name) => `${name}: real.${name}`).join(', ')}, Fragment: real.Fragment });`,
+    ...names.map((name) => `export const ${name} = runtime.${name};`),
+    'export const Fragment = runtime.Fragment;',
+  ].join('\n');
 }
 export async function betaVoltDefine(env: Record<string, string | undefined> = process.env): Promise<Record<string, string>> {
   if (env.INTAFACED_BETA_VOLT_ONLY !== '1') return {};
