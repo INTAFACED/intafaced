@@ -211,7 +211,7 @@ const promtool = (dir, args) => run(['run', '--rm', '--entrypoint', 'promtool', 
 test('promtool loads prometheus.yaml with its alert rules, and the rules pass their unit tests', () => {
   const config = promtool(INFRA, ['check', 'config', 'prometheus.yaml']);
   assert.equal(config.status, 0, config.stdout + config.stderr);
-  assert.match(config.stdout, /SUCCESS: 6 rules found/);
+  assert.match(config.stdout, /SUCCESS: 7 rules found/);
   const rules = promtool(INFRA, ['test', 'rules', 'prometheus-alerts.test.yaml']);
   assert.equal(rules.status, 0, rules.stdout + rules.stderr);
 });
@@ -222,7 +222,10 @@ test('the rule tests fail on a planted fault: a down service waiting 10 minutes 
   try {
     copyFileSync(join(INFRA, 'prometheus-alerts.test.yaml'), join(dir, 'prometheus-alerts.test.yaml'));
     const rules = readFileSync(join(INFRA, 'prometheus-alerts.yaml'), 'utf8');
-    const planted = rules.replace(/(expr: up\{job!="prometheus"\} == 0\n\s+for: )2m/, '$110m');
+    const planted = rules.replace(
+      /(expr: up\{job!~"prometheus\|app-health"\} == 0 or probe_success\{job="app-health"\} == 0\n\s+for: )2m/,
+      '$110m',
+    );
     assert.notEqual(planted, rules, 'the plant did not apply');
     writeFileSync(join(dir, 'prometheus-alerts.yaml'), planted);
     const r = promtool(dir, ['test', 'rules', 'prometheus-alerts.test.yaml']);
