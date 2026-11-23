@@ -1,13 +1,8 @@
 import 'server-only';
-import {
-  opsCapitalScenarioSchema,
-  opsCapitalSnapshotSchema,
-  type OpsCapitalScenario,
-  type OpsCapitalScenarioInput,
-  type OpsCapitalSnapshot,
-} from '@intafaced/contracts/ops-capital';
-import { founderCall, parseWith, type FounderCallContext, partFrom, type Part } from '@/lib/desk';
+import { type OpsCapitalScenario, type OpsCapitalScenarioInput, type OpsCapitalSnapshot } from '@intafaced/contracts/ops-capital';
+import { type FounderCallContext, partFrom, type Part, founderRecordCall } from '@/lib/desk';
 import { CAPITAL_REFUSAL_WORDS } from './model';
+import { OPS_CAPITAL_SNAPSHOT, OPS_CAPITAL_SCENARIO } from '@intafaced/contracts/ops-capital-procedures';
 
 const labels = (what: string) => ({
   service: 'svc-ops',
@@ -18,12 +13,12 @@ const labels = (what: string) => ({
 
 /** The monitor, evaluated by svc-ops now, as the signed-in founder. A failed read shows no figures. */
 export async function readCapital(ctx: FounderCallContext): Promise<Part<OpsCapitalSnapshot>> {
-  const result = await founderCall(ctx, 'ops', 'capital.snapshot', 'GET', undefined, parseWith(opsCapitalSnapshotSchema));
+  const result = await founderRecordCall(ctx, OPS_CAPITAL_SNAPSHOT, undefined);
   return partFrom(result, (d) => d, labels('capital monitor'));
 }
 
 /** One counterparty-default scenario. svc-ops refuses it by name when an input is blank or the ledger cannot be read. */
 export async function readScenario(ctx: FounderCallContext, input: OpsCapitalScenarioInput): Promise<Part<OpsCapitalScenario>> {
-  const result = await founderCall(ctx, 'ops', 'capital.scenario', 'GET', input, parseWith(opsCapitalScenarioSchema));
+  const result = await founderRecordCall(ctx, OPS_CAPITAL_SCENARIO, input);
   return partFrom(result, (d) => d, labels('scenario'));
 }

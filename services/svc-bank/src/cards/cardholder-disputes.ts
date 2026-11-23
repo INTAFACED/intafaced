@@ -5,7 +5,7 @@
  * (them or support, never an operator's id), the partner's provisional credit and its reversal as the partner reports
  * them, and the decision with its reason. Nothing here posts to the ledger.
  */
-import { router, scopedProcedure } from '@intafaced/contracts';
+import { router, scopedProcedure } from '@intafaced/contracts/trpc';
 import { z } from 'zod';
 import { assertSelf } from '../assert-self.js';
 import type { BankServices } from '../bank-service.js';

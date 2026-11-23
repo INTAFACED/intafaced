@@ -1,4 +1,4 @@
-//! The navigator slice (`PORT.md`): `router.ts`'s `navigator` router and `navigator/`. The pure Stage-1 and Stage-2
+//! The navigator slice (`README.md`): `router.ts`'s `navigator` router and `navigator/`. The pure Stage-1 and Stage-2
 //! tools (`tools`: the declared toolset, the plane, the tier gate, tool selection, the data tools and their audit
 //! row), the live reads of svc-trade and svc-identity (`ports`), the metered answer run through the runtime's `act`
 //! (`run`), the on-chain session key with the orders the Navigator places through it (`onchain`), and a research

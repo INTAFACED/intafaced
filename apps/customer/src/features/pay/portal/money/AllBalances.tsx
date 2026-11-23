@@ -1,9 +1,6 @@
 import type { Resource } from '../../../../shared/resource';
-import { PaySection } from '../../components';
-import { PortalLoading } from '../components';
-import { EntityList } from '../ui/EntityList';
-import { MoneyText } from '../ui/MoneyText';
-import { MoneyFailure } from './common';
+import { EntityList, Loading, MoneyText, Section } from '../volt/parts';
+import { MoneyFailure } from './kit-parts';
 import { mc } from './copy';
 import type { SettlementAssets } from './settlement-assets-api';
 import type { PartnerTerms } from './partner-terms-api';
@@ -37,7 +34,7 @@ export function AllBalances({
   const extra = enabled.status === 'ready' ? enabled.data.assets.filter((a) => !held.some((h) => h.assetCode === a.assetCode)) : [];
   const rows = [...held, ...extra];
   return (
-    <PaySection title={t('balAllTitle')} description={held.length === 0 && enabled.status === 'ready' ? t('balAllZeroBody') : undefined}>
+    <Section title={t('balAllTitle')} description={held.length === 0 && enabled.status === 'ready' ? t('balAllZeroBody') : undefined}>
       {rows.length > 0 && (
         <EntityList
           label={t('balAllTitle')}
@@ -48,20 +45,11 @@ export function AllBalances({
             { header: t('balAvailable'), cell: (b) => <MoneyText value={b.available} asset={b.assetCode} test={test} /> },
             { header: t('balClearing'), cell: (b) => <MoneyText value={b.clearing} asset={b.assetCode} test={test} /> },
           ]}
-          card={(b) => ({
-            title: b.assetCode,
-            amount: <MoneyText value={b.available} asset={b.assetCode} test={test} />,
-            status: (
-              <span className="muted">
-                {t('balClearing')} <MoneyText value={b.clearing} asset={b.assetCode} test={test} />
-              </span>
-            ),
-          })}
         />
       )}
       {partner && <PartnerCurrencyNotes terms={partner} assets={rows.map((r) => r.assetCode)} />}
-      {enabled.status === 'loading' && held.length === 0 && <PortalLoading rows={2} />}
+      {enabled.status === 'loading' && held.length === 0 && <Loading rows={2} />}
       {enabled.status === 'failed' && <MoneyFailure result={enabled.failure} retry={retry} />}
-    </PaySection>
+    </Section>
   );
 }

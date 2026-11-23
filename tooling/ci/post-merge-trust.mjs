@@ -46,11 +46,13 @@
  *   (CI) GH_TOKEN GITHUB_REPOSITORY WORKFLOW_ID WORKFLOW_NAME RUN_ID RUN_ATTEMPT CONCLUSION HEAD_SHA
  *        node tooling/ci/post-merge-trust.mjs
  */
+import { runJobs } from './run-jobs.mjs';
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readReport } from './journey-verdict.mjs';
+import { countCall } from './api-count.mjs';
 
 export const JOURNEYS_WORKFLOW = 'Real-app journeys';
 export const JOURNEYS_ARTIFACT = 'real-app-journeys';
@@ -268,6 +270,7 @@ async function gh(method, path, body, { alreadyRunningOk = false } = {}) {
     },
     body: body ? JSON.stringify(body) : undefined,
   });
+  countCall(res);
   const text = await res.text();
   // AGENTS.md's one exception: "403 This workflow is already running" on a re-run only means the run is in progress.
   if (alreadyRunningOk && res.status === 403 && /already running/i.test(text)) return { status: 403, json: null, alreadyRunning: true };
@@ -323,21 +326,21 @@ export function shardRerun({ attempt, conclusion, jobs, missing }) {
 }
 
 async function missingShardReports(repo, runId) {
-  const { json: jobs } = await gh('GET', `/repos/${repo}/actions/runs/${runId}/jobs?filter=latest&per_page=100`);
+  const jobs = await runJobs(`/repos/${repo}/actions/runs/${runId}/jobs?filter=latest`, async (p) => (await gh('GET', p)).json);
   const { json: arts } = await gh('GET', `/repos/${repo}/actions/runs/${runId}/artifacts?per_page=100`);
-  if (!Array.isArray(jobs?.jobs) || !Array.isArray(arts?.artifacts)) throw new Error(`could not read run ${runId}'s jobs or artifacts`);
+  if (!Array.isArray(jobs) || !Array.isArray(arts?.artifacts)) throw new Error(`could not read run ${runId}'s jobs or artifacts`);
   const missing = shardsWithoutReport(
-    jobs.jobs,
+    jobs,
     arts.artifacts.filter((a) => !a.expired).map((a) => a.name),
   );
-  return { missing, jobs: jobs.jobs };
+  return { missing, jobs };
 }
 
 /** The names of a run's jobs (latest attempt) that hit their time limit. */
 async function timedOutJobs(repo, runId) {
-  const { json } = await gh('GET', `/repos/${repo}/actions/runs/${runId}/jobs?per_page=100`);
+  const all = await runJobs(`/repos/${repo}/actions/runs/${runId}/jobs`, async (p) => (await gh('GET', p)).json);
   const jobs = [];
-  for (const job of json?.jobs ?? []) {
+  for (const job of all ?? []) {
     if (job.conclusion === 'success' || job.conclusion === 'skipped') continue;
     const { json: annotations } = await gh('GET', `/repos/${repo}/check-runs/${job.id}/annotations?per_page=50`);
     jobs.push({ name: job.name, annotations: annotations ?? [] });

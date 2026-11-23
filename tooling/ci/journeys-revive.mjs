@@ -49,6 +49,7 @@
  *                                              get a fresh head (heldTick; FACTORY_APP_KEY, after each journeys run on main)
  * Its tests: tooling/ci/journeys-revive.test.mjs.
  */
+import { runJobs } from './run-jobs.mjs';
 import { downloadReport, isMainRun, JOURNEYS_FILE } from './journey-verdict.mjs';
 import { JOURNEY_TEST, journeyOf } from './journey-seal.mjs';
 import { budgetSpentUntil, refusalDetail } from './refusal.mjs';
@@ -427,15 +428,15 @@ export function notUpdated(r) {
   return `GitHub did not update it (${r.status}${m ? `: ${m.slice(0, 120)}` : ''})`;
 }
 
-/** The App token the held pass writes with: update a branch (contents), read pull requests and runs; workflows so a
- *  merge from main that carries main's own workflow changes is not refused. */
+/** The App token the held pass updates a branch with (contents, pull requests); workflows so a merge from main that
+ *  carries main's own workflow changes is not refused. Its reads go on the job's own token. */
 export const HELD_TOKEN = {
   repositories: ['intafaced'],
-  permissions: { actions: 'read', contents: 'write', pull_requests: 'write', workflows: 'write' },
+  permissions: { contents: 'write', pull_requests: 'write', workflows: 'write' },
 };
 
 // ── GitHub ─────────────────────────────────────────────────────────────────
-async function gh(method, path, body, raw = false) {
+async function gh(method, path, body, raw = false, token = githubToken()) {
   if (process.env.DRY_RUN === '1' && method !== 'GET') {
     console.log(`DRY_RUN ${method} ${path}`);
     return { status: 0, json: null };
@@ -443,7 +444,7 @@ async function gh(method, path, body, raw = false) {
   const res = await githubFetch(`https://api.github.com${path}`, {
     method,
     headers: {
-      authorization: `Bearer ${githubToken()}`,
+      authorization: `Bearer ${token}`,
       accept: 'application/vnd.github+json',
       'x-github-api-version': '2022-11-28',
       'content-type': 'application/json',
@@ -463,23 +464,16 @@ async function gh(method, path, body, raw = false) {
   return { status: res.status, json: text ? JSON.parse(text) : null };
 }
 
-// A run's jobs in pages of JOBS_PAGE. GitHub answered 502 on every try for the 71 jobs of run 44350969050's attempt 2
-// at per_page=100 and 200 at 50 (18 Nov 2026), and that one 502 stopped every tick of Main trust for every pull request,
-// main's dead runs among them (factory red project-state#2548). Pages also keep a run of more than one page whole.
-export const JOBS_PAGE = 50;
-export async function runJobs(getPage) {
-  const out = [];
-  for (let page = 1; ; page++) {
-    const { json } = await getPage(page);
-    out.push(...(json?.jobs ?? []));
-    if ((json?.jobs ?? []).length < JOBS_PAGE || out.length >= (json?.total_count ?? 0)) return out;
-  }
-}
-
 /** A refused request (gh above): it stops the tick. */
 export const isRefusal = (e) => /^GitHub (403|429) on /.test(e?.message ?? '');
 
-export function githubIo(repo) {
+/**
+ * Every call reads and writes with the job's own token (GH_TOKEN), except a branch update, which goes on `writeToken()`
+ * when one is given: the held pass's App token, minted only when a branch is to be updated, so its reads never spend the
+ * App's hourly budget, which every agent's reads share (project-state #3718: at 10:47 UTC on 22 Nov the held pass
+ * stopped on "API rate limit exceeded for installation" of the App while its reads went on the App's token).
+ */
+export function githubIo(repo, { writeToken } = {}) {
   return {
     listRuns: async () =>
       (await gh('GET', `/repos/${repo}/actions/workflows/${JOURNEYS_FILE}/runs?branch=main&per_page=100`)).json.workflow_runs,
@@ -511,8 +505,8 @@ export function githubIo(repo) {
     headRuns: async (sha) =>
       (await gh('GET', `/repos/${repo}/actions/workflows/${JOURNEYS_FILE}/runs?head_sha=${sha}&per_page=100`)).json.workflow_runs,
     jobs: (run) =>
-      runJobs((page) =>
-        gh('GET', `/repos/${repo}/actions/runs/${run.id}/attempts/${run.run_attempt || 1}/jobs?per_page=${JOBS_PAGE}&page=${page}`),
+      runJobs(`/repos/${repo}/actions/runs/${run.id}/attempts/${run.run_attempt || 1}/jobs`, async (p) => (await gh('GET', p)).json).then(
+        (jobs) => jobs ?? [],
       ),
     // GET /rate_limit spends no budget.
     budget: async () => (await gh('GET', '/rate_limit')).json.resources.core,
@@ -520,7 +514,8 @@ export function githubIo(repo) {
     openPulls: async () => (await gh('GET', `/repos/${repo}/pulls?state=open&per_page=100`)).json,
     // A merge commit from main onto the branch; expected_head_sha so a head that moved since is not touched (422).
     updateBranch: async (pr) => {
-      const r = await gh('PUT', `/repos/${repo}/pulls/${pr.number}/update-branch`, { expected_head_sha: pr.head.sha });
+      const token = writeToken ? await writeToken() : githubToken();
+      const r = await gh('PUT', `/repos/${repo}/pulls/${pr.number}/update-branch`, { expected_head_sha: pr.head.sha }, false, token);
       return { ok: r.status === 0 || (r.status >= 200 && r.status < 300), status: r.status, message: r.json?.message };
     },
     // The journeys (of `ids`) whose test files on main at `mainSha` were changed by a commit `head` doesn't hold.
@@ -564,22 +559,28 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     console.error('✖ journeys-revive: GITHUB_REPOSITORY is required');
     process.exit(1);
   }
-  const io = githubIo(repo);
-  const issuesToken = process.env.GH_TOKEN;
   const mode = process.argv[2] ?? 'all';
   if (!['all', 'main', 'prs', 'held'].includes(mode)) {
     console.error(`✖ journeys-revive: unknown mode ${mode} (all, main, prs or held)`);
     process.exit(1);
   }
+  // The held pass updates branches with an App token (a branch updated with GITHUB_TOKEN starts no workflow, so its
+  // checks and seal would never run), minted once, at its first update; everything else stays on GH_TOKEN.
+  let minted;
+  const writeToken =
+    mode === 'held' && process.env.DRY_RUN !== '1'
+      ? () =>
+          (minted ??= (async () => {
+            if (!process.env.FACTORY_APP_KEY) throw new Error('FACTORY_APP_KEY is required for held');
+            const { mintToken } = await import('./app-token.mjs');
+            const token = await mintToken({ pem: process.env.FACTORY_APP_KEY, repo, spec: HELD_TOKEN });
+            console.log(`::add-mask::${token}`);
+            return token;
+          })())
+      : undefined;
+  const io = githubIo(repo, { writeToken });
   (async () => {
     if (mode === 'held') {
-      // An App token: a branch updated with GITHUB_TOKEN starts no workflow, so its checks and seal would never run.
-      if (process.env.DRY_RUN !== '1') {
-        if (!process.env.FACTORY_APP_KEY) throw new Error('FACTORY_APP_KEY is required for held');
-        const { mintToken } = await import('./app-token.mjs');
-        process.env.GH_TOKEN = await mintToken({ pem: process.env.FACTORY_APP_KEY, repo, spec: HELD_TOKEN });
-        console.log(`::add-mask::${process.env.GH_TOKEN}`);
-      }
       const lines = await heldTick({ repo, now: Date.now(), io });
       console.log(lines.length ? lines.join('\n') : 'no open armed pull request is held by a red main has since lost');
       return;
@@ -593,7 +594,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     console.log(lines.length ? lines.join('\n') : 'no pull request journeys run in the window is red only on the verdict');
   })().catch(async (e) => {
     console.error(`✖ journeys-revive: ${e.message}`);
-    process.env.GH_TOKEN = issuesToken; // the held pass's App token can't write issues
     if (isRefusal(e)) await nameRefusal(io, e);
     process.exit(1);
   });

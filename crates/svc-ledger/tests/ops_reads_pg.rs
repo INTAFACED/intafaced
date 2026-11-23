@@ -16,14 +16,14 @@
     reason = "a test: a failure is the point"
 )]
 
-mod support;
+use crate::support;
 
 use std::sync::mpsc;
 use std::time::Duration;
 
 use postgres::Client;
 use service_kit::json::{self, Json};
-use service_kit::money::format_amount;
+use service_kit::money::{Amount, format_amount};
 use service_kit::schema::{Outcome, Value};
 use service_kit::time::Instant;
 use support::TestDb;
@@ -530,7 +530,7 @@ fn own_funds_refuses_rather_than_count_a_customer_row_or_a_place_that_is_not_one
         asset_id: "USDT".to_owned(),
         kind: "available".to_owned(),
         purpose: String::new(),
-        balance: 1,
+        balance: Amount::from_scaled(1),
     };
     let read = |rows: Vec<OwnFundsRow>, places: Vec<OwnFundsPlaceRow>| OwnFunds {
         as_of: "2026-01-01T00:00:00.000Z".to_owned(),
@@ -554,9 +554,9 @@ fn own_funds_refuses_rather_than_count_a_customer_row_or_a_place_that_is_not_one
         balance,
     };
     for p in [
-        place("rail:x", -1),
-        place("treasury-wallet:w", 1),
-        place("partner-reserve:", -1),
+        place("rail:x", -Amount::from_scaled(1)),
+        place("treasury-wallet:w", Amount::from_scaled(1)),
+        place("partner-reserve:", -Amount::from_scaled(1)),
     ] {
         assert_eq!(
             ops_reads::own_funds_reply(&read(vec![], vec![p])),
@@ -566,10 +566,10 @@ fn own_funds_refuses_rather_than_count_a_customer_row_or_a_place_that_is_not_one
     // A place at zero is answered; an account at zero is not.
     let ok = ops_reads::own_funds_reply(&read(
         vec![OwnFundsRow {
-            balance: 0,
+            balance: Amount::ZERO,
             ..row("house", "fees:trade")
         }],
-        vec![place("treasury-wallet:w", 0)],
+        vec![place("treasury-wallet:w", Amount::ZERO)],
     ))
     .unwrap();
     assert_eq!(

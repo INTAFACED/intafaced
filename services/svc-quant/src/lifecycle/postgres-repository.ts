@@ -1,5 +1,6 @@
 import type { Sql, TransactionSql } from 'postgres';
-import { QUANT_OWNER_CRITERIA, type QuantOwnerCriterion } from '@intafaced/contracts';
+import type { QuantOwnerCriterion } from '@intafaced/contracts';
+import { QUANT_OWNER_CRITERIA } from '@intafaced/contracts/quant-algo';
 import { QuantError } from '../errors.js';
 import type { LifecycleRepository, OwnerCriterionRow, RecordPromotion } from './repository.js';
 

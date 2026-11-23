@@ -16,6 +16,7 @@
 //! - [\`slice\`]: the eighteen calls.
 
 pub mod act;
+pub mod chain_balance;
 pub mod copy_intel;
 pub mod eligibility;
 pub mod funds;
@@ -25,7 +26,7 @@ pub mod reads;
 pub mod runs;
 pub mod slice;
 
-use postgres::IsolationLevel;
+use postgres::{GenericClient, IsolationLevel};
 
 use service_kit::json::{self, Json};
 use service_kit::money::{Amount, format_amount};
@@ -589,9 +590,30 @@ pub const ACTION_COMPLETED: &str = "intafaced.agents.action.completed";
 pub const ACTION_REJECTED: &str = "intafaced.agents.action.rejected";
 pub const USAGE_ALERT_CROSSED: &str = "intafaced.agents.usage_alert.crossed";
 
-fn publish(x: &Rt<'_>, subject: &str, key: &str, payload: Json) -> Result<(), RunError> {
+/// The event, in the outbox inside the caller's transaction: it commits with the change it announces.
+fn owe(
+    x: &Rt<'_>,
+    tx: &mut impl GenericClient,
+    subject: &str,
+    key: &str,
+    payload: Json,
+) -> Result<(), RunError> {
     let env = envelope(x.m, subject, key, payload, x.now).map_err(RunError::Other)?;
-    x.m.bus.publish(subject, key, &env).map_err(RunError::Other)
+    db::OUTBOX.write(tx, &env)?;
+    Ok(())
+}
+
+/// After the commit: the event under `key` leaves now. A bus fault never fails the call: the event stays owed and the
+/// timer's relay sends it.
+fn send(x: &Rt<'_>, key: &str) {
+    let _ = sent(x, key);
+}
+
+/// [`send`], answering whether the bus has the event now.
+fn sent(x: &Rt<'_>, key: &str) -> bool {
+    db::OUTBOX
+        .send(x.pool, x.m.bus.as_ref(), key)
+        .unwrap_or(false)
 }
 
 fn opt(v: Option<&str>) -> Json {
@@ -642,22 +664,25 @@ fn append_refusal_inner(
         ..audit::Entry::default()
     };
     let action = db::transaction_retrying(x.pool, IsolationLevel::ReadCommitted, 5, |tx| {
-        audit::append(tx, &entry, x.now)
+        let action = audit::append(tx, &entry, x.now)?;
+        owe(
+            x,
+            tx,
+            ACTION_REJECTED,
+            &action_key(&action),
+            Json::obj([
+                ("sessionId", Json::str(s.id.clone())),
+                ("userId", Json::str(s.user_id.clone())),
+                ("agentId", Json::str(s.agent_id.clone())),
+                ("sequence", Json::int(action.sequence)),
+                ("refusalCode", Json::str(refusal.code.clone())),
+                ("tool", opt(action.tool.as_deref())),
+                ("task", opt(action.task.as_deref())),
+            ]),
+        )?;
+        Ok::<_, RunError>(action)
     })?;
-    publish(
-        x,
-        ACTION_REJECTED,
-        &format!("agents.action:{}:{}", s.id, action.sequence),
-        Json::obj([
-            ("sessionId", Json::str(s.id.clone())),
-            ("userId", Json::str(s.user_id.clone())),
-            ("agentId", Json::str(s.agent_id.clone())),
-            ("sequence", Json::int(action.sequence)),
-            ("refusalCode", Json::str(refusal.code.clone())),
-            ("tool", opt(action.tool.as_deref())),
-            ("task", opt(action.task.as_deref())),
-        ]),
-    )?;
+    send(x, &action_key(&action));
     Ok(action)
 }
 
@@ -693,12 +718,23 @@ pub fn append_failure(
     }
 }
 
-/// \`publishCompleted\`.
-fn publish_completed(x: &Rt<'_>, a: &Action, usage: TokenUsage) -> Result<(), RunError> {
-    publish(
+/// An action's event key: `agents.action:<session>:<sequence>`.
+fn action_key(a: &Action) -> String {
+    format!("agents.action:{}:{}", a.session_id, a.sequence)
+}
+
+/// \`publishCompleted\`: owed in the transaction that appends the action, sent after its commit.
+fn owe_completed(
+    x: &Rt<'_>,
+    tx: &mut impl GenericClient,
+    a: &Action,
+    usage: TokenUsage,
+) -> Result<(), RunError> {
+    owe(
         x,
+        tx,
         ACTION_COMPLETED,
-        &format!("agents.action:{}:{}", a.session_id, a.sequence),
+        &action_key(a),
         Json::obj([
             ("sessionId", Json::str(a.session_id.clone())),
             ("userId", Json::str(a.user_id.clone())),
@@ -829,6 +865,15 @@ pub fn act(
                 )));
             }
         }
+        owe_completed(
+            x,
+            tx,
+            &row,
+            TokenUsage {
+                input_tokens: 0,
+                output_tokens: 0,
+            },
+        )?;
         Ok(row)
     });
     let action = match written {
@@ -836,14 +881,7 @@ pub fn act(
         Err(e) if claimed => return Err(append_failure(x, &session, cx, None, e)),
         Err(e) => return Err(e),
     };
-    publish_completed(
-        x,
-        &action,
-        TokenUsage {
-            input_tokens: 0,
-            output_tokens: 0,
-        },
-    )?;
+    send(x, &action_key(&action));
     Ok(ActResult {
         result,
         action,
@@ -947,8 +985,9 @@ fn release_place_claim(
     Ok(())
 }
 
-/// \`publishPendingUsageAlerts\`: recorded alerts not yet published, one person's or everyone's; a row the bus refuses
-/// stays unpublished for the next sweep and never holds back the ones after it.
+/// \`publishPendingUsageAlerts\`: recorded alerts not yet published, one person's or everyone's, each handed to the
+/// outbox, sent, and marked published once the bus has it; one the bus refuses stays owed there and unpublished here,
+/// and never holds back the ones after it.
 pub fn publish_usage_alerts(x: &Rt<'_>, owner: Option<&str>) -> Result<i64, RunError> {
     let rows = db::with_client(x.pool, |c| {
         Ok(c.query(
@@ -979,7 +1018,12 @@ pub fn publish_usage_alerts(x: &Rt<'_>, owner: Option<&str>) -> Result<i64, RunE
             ("assetId", Json::str(r.try_get::<_, String>(6)?)),
             ("email", Json::Bool(r.try_get(7)?)),
         ]);
-        if publish(x, USAGE_ALERT_CROSSED, &key, payload).is_err() {
+        // Owed in the outbox (a second sweep's write keeps the first), sent, and marked published once the bus has it.
+        db::with_client(x.pool, |c| {
+            owe(x, c, USAGE_ALERT_CROSSED, &key, payload)
+                .map_err(|e| StoreError::new(format!("{e:?}"), None))
+        })?;
+        if !sent(x, &key) {
             continue;
         }
         db::with_client(x.pool, |c| {
@@ -998,7 +1042,7 @@ pub fn publish_usage_alerts(x: &Rt<'_>, owner: Option<&str>) -> Result<i64, RunE
 /// \`retryUnpaidWindows\`: the person's sealed, unpaid windows retried smallest first on their own keys; the first the
 /// ledger does not take stops the retry, and it and every larger one stay owed.
 pub fn retry_unpaid_windows(x: &Rt<'_>, user_id: &str) -> Result<Amount, RunError> {
-    let mut owed = 0;
+    let mut owed = Amount::ZERO;
     let mut stopped = false;
     for (session_id, window_id, amount) in meter::unpaid_windows(x.pool, user_id)? {
         if !stopped {
@@ -1042,7 +1086,7 @@ pub fn usage_cost(
     output_tokens: i64,
     price: &Price,
 ) -> Result<Amount, RunError> {
-    let cost = |t: i64, p: Amount| token_cost(Amount::from(t), p).map_err(|e| RunError::Other(e.0));
+    let cost = |t: i64, p: Amount| token_cost(i128::from(t), p).map_err(|e| RunError::Other(e.0));
     Ok(cost(input_tokens, price.input_per_million)?
         + cost(output_tokens, price.output_per_million)?)
 }
@@ -1211,7 +1255,7 @@ pub fn think(x: &Rt<'_>, input: &ThinkInput<'_>) -> Result<ThinkResult, RunError
     if should_meter {
         let owed = retry_unpaid_windows(x, &s.user_id)?;
         let grace = x.rt.overage_grace;
-        if owed > 0 && grace.is_none_or(|g| owed > g) {
+        if owed > Amount::ZERO && grace.is_none_or(|g| owed > g) {
             let refusal = match grace {
                 None => refuse(
                     "agents.overage_grace_unset",
@@ -1250,12 +1294,15 @@ pub fn think(x: &Rt<'_>, input: &ThinkInput<'_>) -> Result<ThinkResult, RunError
     }
 
     // 2a · Funds, only for a runtime wired without a spend gate (with one, the hold checks them under its lock).
-    let funds = x.rt.funds.as_deref().filter(|_| should_meter && worst > 0);
+    let funds =
+        x.rt.funds
+            .as_deref()
+            .filter(|_| should_meter && worst > Amount::ZERO);
     if !x.rt.spend
         && let Some(f) = funds
     {
         let outcome = match f.available(x.pool, &s.user_id, fee, &s.agent_id, &s.id) {
-            Ok(reading) => funds::shortfall(&reading, 0, worst),
+            Ok(reading) => funds::shortfall(&reading, Amount::ZERO, worst),
             Err(u) => Some(Outcome::Unread(u)),
         };
         if let Some(o) = outcome {
@@ -1460,7 +1507,7 @@ pub fn think(x: &Rt<'_>, input: &ThinkInput<'_>) -> Result<ThinkResult, RunError
                 model: Some(&route.model),
                 input_tokens: usage.input_tokens,
                 output_tokens: usage.output_tokens,
-                cost: if recorded { cost } else { 0 },
+                cost: if recorded { cost } else { Amount::ZERO },
                 user_message_key: "agents.action.completed",
                 user_message_params: vec![audit::param("task", input.task)],
                 input_digest: Some(&input_digest),
@@ -1481,6 +1528,7 @@ pub fn think(x: &Rt<'_>, input: &ThinkInput<'_>) -> Result<ThinkResult, RunError
             // The cap counts this call's cost even when metering is off; the row's zero is the bill, not the cap.
             holds::commit_in(tx, &s.user_id, &key, cost).map_err(RunError::from)?;
         }
+        owe_completed(x, tx, &action, usage)?;
         Ok((action, recorded, window))
     });
     let (action, metered, window_id) = match committed {
@@ -1504,14 +1552,14 @@ pub fn think(x: &Rt<'_>, input: &ThinkInput<'_>) -> Result<ThinkResult, RunError
         }
     };
 
-    publish_completed(x, &action, usage)?;
+    send(x, &action_key(&action));
     if reserved.is_some() && own {
         let _ = publish_usage_alerts(x, Some(&s.user_id));
     }
     Ok(ThinkResult {
         text: done.result.text,
         usage,
-        cost: if metered { cost } else { 0 },
+        cost: if metered { cost } else { Amount::ZERO },
         metered,
         window_id,
         route,

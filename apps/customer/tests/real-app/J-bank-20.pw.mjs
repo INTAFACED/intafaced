@@ -1,8 +1,10 @@
 // World: stack
 import { randomBytes, randomUUID } from 'node:crypto';
 import { test, expect } from './journey.mjs';
-import { DEVICE_KEY, EDGE, ORIGIN, api as ledgerApi, journeyState, json, signOutBrowser, signUpInBrowser } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, api as ledgerApi, journeyState, json, signOutBrowser, signUpInBrowser, toUnits } from './stack.mjs';
 import { signIn, verify } from './desk.mjs';
+import { STACK_PORTS } from '../../../../tooling/scripts/local-test-facts.mjs';
+import { venueBalance, venueRecord } from './venue.mjs';
 
 // J-bank-20, in the running app (docs/roadmap/journeys.json): I pay my suppliers' bills. Tests titled "J-bank-20 #<n>"
 // prove a step.
@@ -23,6 +25,10 @@ const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const PARTNER_BANK = 'TEST partner bank';
 const FUNDED = '1000';
 const VENDOR = 'TEST Paper Co';
+/** The TEST partner bank's own record, on loopback (svc-bank src/partner/test-partner-record.ts), as J-bank-19 reads it. */
+const PARTNER_RECORD = `http://127.0.0.1:${STACK_PORTS.bank}/test-partner`;
+/** The business's own account on the partner's book (svc-bank business-team.ts businessPartnerAccount). */
+const partnerOwner = (accountId) => `business:${accountId}`;
 /** The step's TEST Bill Pay limits, when a step does not set them itself (step 2 sets these in the app). */
 const LIMITS = { perPayment: '5000', daily: '8000', monthly: '9000' };
 
@@ -175,6 +181,28 @@ async function inBusiness(page, who, name, path = '/bank/business/bills') {
   }
   await expect(page.getByTestId('bills-business')).toHaveText(name);
   if (path !== '/bank/business/bills') await page.goto(path);
+}
+
+/**
+ * What the partner's own book says the business holds in USDT, read straight from the TEST partner bank's record through
+ * the outside record read (venue.mjs venueBalance), never through the business's bank API; and the app's figure equals it.
+ */
+async function partnerHolds(own, accountId) {
+  const theirs = (await venueBalance(partnerOwner(accountId), 'USDT', PARTNER_RECORD)).total;
+  expect(toUnits(await held(own, accountId))).toBe(toUnits(theirs));
+  return theirs;
+}
+
+/** Every line on the partner's own book of the business's account under `key`, oldest first. */
+async function partnerLines(accountId, key) {
+  const moves = (await venueRecord(partnerOwner(accountId), '/moves', {}, PARTNER_RECORD, null)).value;
+  return moves.filter((m) => m.key === key);
+}
+
+/** Every line on the partner's own book of the business's account under any attempt to pay `billId`. */
+async function partnerBillLines(accountId, billId) {
+  const moves = (await venueRecord(partnerOwner(accountId), '/moves', {}, PARTNER_RECORD, null)).value;
+  return moves.filter((m) => m.key.startsWith(`bank.business.bill-pay:${billId}:`));
 }
 
 async function ledgerUnchanged(w) {
@@ -335,7 +363,8 @@ test(`${J} #3 categorises or splits a bill at payment: the split is our record b
   // Lines that do not add up are refused, and nothing reaches the partner.
   await expect(page.getByTestId('bills-refusal')).toHaveAttribute('data-code', 'bank.split_total_mismatch');
   expect(ok(await own.query('businessBills.get', { billId: bill.id })).payments).toEqual([]);
-  expect(await held(own, accountId)).toBe(FUNDED);
+  expect(await partnerBillLines(accountId, bill.id)).toEqual([]);
+  expect(toUnits(await partnerHolds(own, accountId))).toBe(toUnits(FUNDED));
 
   await pay.getByLabel('Line amount').nth(1).fill('100.00');
   await pay.getByRole('button', { name: 'Pay now' }).click();
@@ -358,6 +387,17 @@ test(`${J} #3 categorises or splits a bill at payment: the split is our record b
     ],
   });
   expect(paid.payments[0].partnerMoveId).toBeTruthy();
+  // The partner's own book: exactly one instruction for this bill, the one the app names, the whole 250 out of the
+  // business's account, with no line per category; the business holds 250 less there, the figure the app shows.
+  const theirs = await partnerBillLines(accountId, bill.id);
+  expect(theirs).toHaveLength(1);
+  expect(theirs[0]).toMatchObject({
+    id: paid.payments[0].partnerMoveId,
+    key: paid.payments[0].partnerKey,
+    from: { owner: partnerOwner(accountId), assetId: 'USDT', spaceId: null },
+  });
+  expect(toUnits(theirs[0].amount)).toBe(toUnits('250'));
+  expect(toUnits(await partnerHolds(own, accountId))).toBe(toUnits('750'));
   expect(await held(own, accountId)).toBe('750');
   await ledgerUnchanged(w);
 });
@@ -396,6 +436,11 @@ test(`${J} #4 schedules a payment and cancels before send: the instruction never
   });
   // A second cancel changes nothing.
   expect(ok(await own.mutate('businessBills.cancel', { paymentId: after.payments[0].id })).payments).toHaveLength(1);
+  // The partner's own book: no instruction under the payment's key or any attempt for this bill, and the business's
+  // money there untouched.
+  expect(await partnerLines(accountId, after.payments[0].partnerKey)).toEqual([]);
+  expect(await partnerBillLines(accountId, bill.id)).toEqual([]);
+  expect(toUnits(await partnerHolds(own, accountId))).toBe(toUnits(FUNDED));
   expect(await held(own, accountId)).toBe(FUNDED);
   await ledgerUnchanged(w);
 });
@@ -420,7 +465,9 @@ test(`${J} #5 sees a declined or returned bill payment: the partner's reason and
   await expect(page.getByTestId('bill-payment')).toHaveAttribute('data-status', 'declined');
   const declined = ok(await own.query('businessBills.get', { billId: big.id }));
   expect(declined).toMatchObject({ status: 'inbox', round: 2, approvals: [], payments: [{ status: 'declined', partnerMoveId: null }] });
-  expect(await held(own, accountId)).toBe(FUNDED);
+  // The partner's own book: it refused, so nothing for this bill and the business's money there untouched.
+  expect(await partnerBillLines(accountId, big.id)).toEqual([]);
+  expect(toUnits(await partnerHolds(own, accountId))).toBe(toUnits(FUNDED));
   await page.goto('/bank/business/bills');
   await expect(page.locator(`[data-testid="bill-row"][data-id="${big.id}"]`)).toHaveAttribute('data-status', 'inbox');
 
@@ -429,13 +476,28 @@ test(`${J} #5 sees a declined or returned bill payment: the partner's reason and
   ok(await own.mutate('businessBills.submit', { billId: bill.id }));
   const paid = ok(await own.mutate('businessBills.pay', { billId: bill.id, paymentId: randomUUID(), scheduledFor: null, splits: [] }));
   expect(paid.status).toBe('paid');
-  expect(await held(own, accountId)).toBe('880');
+  expect(toUnits(await partnerHolds(own, accountId))).toBe(toUnits('880'));
   const paymentId = paid.payments[0].id;
+  const { partnerKey, returnKey } = paid.payments[0];
   const back = await job('returned', { paymentId, reason: 'account_closed' });
   expect(back).toMatchObject({ status: 'inbox', payments: [{ status: 'returned', partnerReason: 'account_closed' }] });
-  expect(await held(own, accountId)).toBe(FUNDED);
-  // The same report again credits nothing more.
+  // The partner's own book: the one payment out, and one line of 120 back into the business's account under the return
+  // key; the business holds the full 1000 there again, the figure the app shows.
+  const returnedAtPartner = async () => {
+    const out = await partnerLines(accountId, partnerKey);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ id: paid.payments[0].partnerMoveId, from: { owner: partnerOwner(accountId), assetId: 'USDT' } });
+    expect(toUnits(out[0].amount)).toBe(toUnits('120'));
+    const credit = await partnerLines(accountId, returnKey);
+    expect(credit).toHaveLength(1);
+    expect(credit[0]).toMatchObject({ to: { owner: partnerOwner(accountId), assetId: 'USDT', spaceId: null } });
+    expect(toUnits(credit[0].amount)).toBe(toUnits('120'));
+    expect(toUnits(await partnerHolds(own, accountId))).toBe(toUnits(FUNDED));
+  };
+  await returnedAtPartner();
+  // The same report again credits nothing more, at the partner or in the app.
   await job('returned', { paymentId, reason: 'account_closed' });
+  await returnedAtPartner();
   expect(await held(own, accountId)).toBe(FUNDED);
 
   await page.goto(`/bank/business/bill?id=${bill.id}`);

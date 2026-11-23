@@ -1,4 +1,5 @@
 import type { VenueStatements } from './venue/venue-statements.js';
+import type { VenueMarginSamples } from './venue/venue-margin-samples.js';
 import { attachApiKeyRotationRoutes, type ApiKeyRotationClient } from './account/api-key-rotation-rest.js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { requireScope, tradeTier, type Principal } from '@intafaced/auth';
@@ -13,7 +14,8 @@ import { attachAlgoRestRoutes, type AlgoRestPort } from './algo/algo-rest.js';
 import { attachRfqExportRoute } from './otc/rfq-history-rest.js';
 import { attachIcebergDisplay, readRawDisplayQty, TRADE_ICEBERG_DISPLAY_INVALID, type IcebergDisplayStore } from './spot/iceberg-door.js';
 import { checkAccess } from '@intafaced/config';
-import { createEdgeContext, type Context, type EdgeRequest } from '@intafaced/contracts';
+import type { Context, EdgeRequest } from '@intafaced/contracts';
+import { createEdgeContext } from '@intafaced/contracts/edge';
 import { createOrderRequestSchema, type CreateOrderRequest } from '@intafaced/exchange-contract';
 import {
   ZERO,
@@ -256,6 +258,8 @@ export interface PrivateRestDeps {
   venueConverts?: VenueConverts | null;
   /** The statement export on the venue's own records (J-cex-spot-07 #5). Absent: its routes answer 503. */
   venueStatements?: VenueStatements | null;
+  /** The venue's margin readings, kept for a founder's ratio history (J-derivatives-26 #8). */
+  venueMarginSamples?: VenueMarginSamples | null;
   /** Each person's acknowledged version of a venue's auto-deleveraging rules (J-derivatives-07 #5). */
   venueAdlAcks?: VenueAdlAcks | null;
   /** One person's builder fees on one venue account with their ledger transactions (J-derivatives-12 #4). */
@@ -1494,6 +1498,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     sellQuotes: deps.venueSellQuotes ?? null,
     converts: deps.venueConverts ?? null,
     venueStatements: deps.venueStatements ?? null,
+    marginSamples: deps.venueMarginSamples ?? null,
     venueAdlAcks: deps.venueAdlAcks ?? null,
     builderFeesOf: deps.venueBuilderFees ?? null,
     agentKeyConfined,

@@ -1,8 +1,9 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import { EmptyState } from '@intafaced/ui/lit';
 import { fmtAmount, fmtPrice } from '../../../data/format';
 import type { ApiResult } from '../../../shared/api';
 import { usePreferences } from '../../../shared/preferences';
-import { EmptyState, Failure, Loading, Page } from '../../../shared/ui';
+import { FailureNote } from '../../../shared/failure-note';
 import { dayTime } from '../../../screens/trade/desk/time';
 import type { FuturesExecution, FuturesOrder } from '../../../screens/trade/futures/api';
 import { useFuturesApi } from '../../../screens/trade/futures/data';
@@ -10,7 +11,7 @@ import { FuturesOrderOrigin, FuturesOrderStatus } from '../../../screens/trade/f
 import { useSession } from '../../session';
 import { futuresOrdersCopy, type FuturesOrdersT } from './futures-orders-copy';
 import { ordersCopy } from './orders-copy';
-import './orders.css';
+import { OrderPageFrame, SignedOut, WaitingRows } from './orders-parts';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 type Read<T> = { status: 'loading' } | { status: 'failed'; failure: Refusal } | { status: 'missing' } | { status: 'ready'; data: T };
@@ -19,7 +20,7 @@ const FILLS_SHOWN = 200;
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="orders-row">
+    <div>
       <dt>{label}</dt>
       <dd>{children}</dd>
     </div>
@@ -69,60 +70,48 @@ export function FuturesOrderDetail({ orderId }: { orderId: string }) {
   }, [orderId, userId, revision]);
 
   const back = (
-    <a className="text-link" href="/trade/orders?product=futures">
+    <a className="lt-link" href="/trade/orders?product=futures">
       {t('back')}
     </a>
   );
   if (!userId)
     return (
-      <Page eyebrow={orders('eyebrow')} title={t('detailTitle')}>
-        <EmptyState
+      <OrderPageFrame title={t('detailTitle')}>
+        <SignedOut
           title={orders('signedOutTitle')}
-          action={
-            <a
-              className="button button--primary"
-              href={`/login?redirect=${encodeURIComponent(`/trade/orders/${orderId}?product=futures`)}`}
-            >
-              {orders('signIn')}
-            </a>
-          }
-        >
-          {orders('signedOutBody')}
-        </EmptyState>
-      </Page>
+          body={orders('signedOutBody')}
+          signIn={orders('signIn')}
+          back={`/trade/orders/${orderId}?product=futures`}
+        />
+      </OrderPageFrame>
     );
   if (order.status === 'loading')
     return (
-      <Page eyebrow={orders('eyebrow')} title={t('detailTitle')}>
-        <Loading label={t('detailLoading')} />
-      </Page>
+      <OrderPageFrame title={t('detailTitle')}>
+        <WaitingRows label={t('detailLoading')} />
+      </OrderPageFrame>
     );
   if (order.status === 'missing')
     return (
-      <Page eyebrow={orders('eyebrow')} title={t('detailTitle')}>
-        <EmptyState title={t('notFoundTitle')} action={back}>
-          {t('notFoundBody')}
-        </EmptyState>
-      </Page>
+      <OrderPageFrame title={t('detailTitle')}>
+        <EmptyState title={t('notFoundTitle')} body={t('notFoundBody')} action={back} />
+      </OrderPageFrame>
     );
   if (order.status === 'failed')
     return (
-      <Page eyebrow={orders('eyebrow')} title={t('detailTitle')}>
-        <Failure result={order.failure} retry={() => setRevision((n) => n + 1)} />
-      </Page>
+      <OrderPageFrame title={t('detailTitle')}>
+        <FailureNote result={order.failure} retry={() => setRevision((n) => n + 1)} />
+      </OrderPageFrame>
     );
 
   const o = order.data;
   const amount = (value: string, places = 8) => fmtAmount(value, { places });
   const ref = originRef(o, t);
   return (
-    <Page
-      eyebrow={orders('eyebrow')}
-      title={t('heading', { side: o.side === 'buy' ? t('buy') : t('sell'), symbol: o.symbol ?? o.marketId })}
-      actions={back}
-    >
-      <div className="orders-room">
-        <dl className="orders-list" aria-label={t('detailTitle')}>
+    <OrderPageFrame title={t('heading', { side: o.side === 'buy' ? t('buy') : t('sell'), symbol: o.symbol ?? o.marketId })}>
+      {back}
+      <div className="lt-stack">
+        <dl className="lt-kv" aria-label={t('detailTitle')}>
           <Row label={t('fieldOrigin')}>
             <FuturesOrderOrigin origin={o.origin} />
           </Row>
@@ -152,13 +141,13 @@ export function FuturesOrderDetail({ orderId }: { orderId: string }) {
           <Row label={t('fieldOrderId')}>{o.orderId}</Row>
           {o.clientOrderId ? <Row label={t('fieldClientId')}>{o.clientOrderId}</Row> : null}
         </dl>
-        <section className="orders-section" aria-label={t('executionsHeading')}>
+        <section className="lt-stack" aria-label={t('executionsHeading')}>
           <h3>{t('executionsHeading')}</h3>
-          {fills.status === 'loading' ? <Loading /> : null}
+          {fills.status === 'loading' ? <WaitingRows label={t('executionsHeading')} /> : null}
           {fills.status === 'failed' ? <p role="alert">{t('executionsFailed')}</p> : null}
-          {fills.status === 'ready' && fills.data.length === 0 ? <p className="muted">{t('executionsNone')}</p> : null}
+          {fills.status === 'ready' && fills.data.length === 0 ? <p className="lt-muted">{t('executionsNone')}</p> : null}
           {fills.status === 'ready' && fills.data.length > 0 ? (
-            <ul className="orders-list">
+            <ul className="lt-rows">
               {fills.data.map((fill) => (
                 <li key={fill.id}>
                   {dayTime(Date.parse(fill.at), timeZone)}:{' '}
@@ -167,9 +156,9 @@ export function FuturesOrderDetail({ orderId }: { orderId: string }) {
               ))}
             </ul>
           ) : null}
-          {fills.status === 'ready' && moreFills ? <p className="muted">{t('executionsMore', { count: FILLS_SHOWN })}</p> : null}
+          {fills.status === 'ready' && moreFills ? <p className="lt-muted">{t('executionsMore', { count: FILLS_SHOWN })}</p> : null}
         </section>
       </div>
-    </Page>
+    </OrderPageFrame>
   );
 }

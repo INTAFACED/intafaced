@@ -68,7 +68,7 @@ export function DepositAddressesView({
 
   if (list.status !== 'ready') {
     return (
-      <section className="bd-addresses" aria-label={t('title', { network: network.label })} data-testid="deposit-addresses">
+      <section aria-label={t('title', { network: network.label })} data-testid="deposit-addresses">
         <h4>{t('title', { network: network.label })}</h4>
         {list.status === 'loading' ? (
           <p role="status">{t('loading')}</p>
@@ -112,7 +112,7 @@ export function DepositAddressesView({
   }
 
   return (
-    <section className="bd-addresses" aria-label={t('title', { network: network.label })} data-testid="deposit-addresses">
+    <section aria-label={t('title', { network: network.label })} data-testid="deposit-addresses">
       <h4>{t('title', { network: network.label })}</h4>
       <p>{t('lead')}</p>
       <ul className="bd-address-list">
@@ -124,7 +124,7 @@ export function DepositAddressesView({
         {cap === null ? t('capUnset') : t('open', { open, cap })}
         {cap !== null && (expiryDays === null ? ` ${t('expiryUnset')}` : ` ${t('windowNote', { days: expiryDays })}`)}
       </p>
-      <label className="field">
+      <label className="lt-field">
         <span>{t('newLabel')}</span>
         <input value={label} maxLength={LABEL_MAX} onChange={(event) => setLabel(event.target.value)} />
       </label>
@@ -182,7 +182,7 @@ function AddressRow({
       <strong lang="und">{name}</strong>
       {row.label !== null && <small> {fallback}</small>}
       <p>
-        <span data-testid="numeric" className="numeric" style={{ overflowWrap: 'anywhere' }}>
+        <span data-testid="numeric" className="lt-num" style={{ overflowWrap: 'anywhere' }}>
           {row.address}
         </span>
       </p>
@@ -191,7 +191,7 @@ function AddressRow({
       {row.memo && (
         <div role="note">
           <strong>{t('memoTitle')}</strong>
-          <p data-testid="numeric" className="numeric">
+          <p data-testid="numeric" className="lt-num">
             {row.memo}
           </p>
           <CopyButton value={row.memo} label={t('copyMemo')} />
@@ -199,7 +199,7 @@ function AddressRow({
       )}
       {editing ? (
         <div>
-          <label className="field">
+          <label className="lt-field">
             <span>{t('renameLabel', { name: fallback })}</span>
             <input value={draft} maxLength={LABEL_MAX} onChange={(event) => setDraft(event.target.value)} />
             <small>{t('clearHint')}</small>

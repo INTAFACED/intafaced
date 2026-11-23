@@ -2,27 +2,55 @@
 // reads a fact takes in none of the stack's code, and every script that kept one of these names hands out the same
 // value from here (docs/runbooks/harness-rewrite-plan.md, piece 3). Run: node tooling/scripts/local-test-facts.test.mjs
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { registerHooks } from 'node:module';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const FACTS = fileURLToPath(new URL('./local-test-facts.mjs', import.meta.url));
 
-/** The module specifiers a source imports, static or dynamic. */
-export function importsOf(src) {
-  const out = [];
-  for (const m of src.matchAll(
-    /(?:^|[\s;])(?:import|export)\s[^'"`;]*?from\s*['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)|(?:^|[\s;])import\s*['"]([^'"]+)['"]/g,
-  ))
-    out.push(m[1] ?? m[2] ?? m[3]);
-  return out;
+/** Every module the file at `url` asks for while it loads, seen by a resolve hook: what it really takes in. */
+async function importsWhenLoaded(url) {
+  const asked = [];
+  const hooks = registerHooks({
+    resolve(specifier, context, nextResolve) {
+      if (context.parentURL === url) asked.push(specifier);
+      return nextResolve(specifier, context);
+    },
+  });
+  try {
+    await import(url);
+  } finally {
+    hooks.deregister();
+  }
+  return asked;
 }
+const stray = (asked) => asked.filter((s) => !s.startsWith('node:'));
 
-const stray = (src) => importsOf(src).filter((s) => !s.startsWith('node:'));
-assert.deepEqual(stray(readFileSync(FACTS, 'utf8')), [], 'local-test-facts.mjs imports node built-ins only');
-// Planted faults the rule must catch.
-assert.deepEqual(stray("import { loadProfile } from '../owner-settings.mjs';\n"), ['../owner-settings.mjs']);
-assert.deepEqual(stray("const x = await import('./local-test-state.mjs');\n"), ['./local-test-state.mjs']);
-assert.deepEqual(stray("export { a } from './local-test-chain.mjs';\n"), ['./local-test-chain.mjs']);
+const factsImports = await importsWhenLoaded(pathToFileURL(FACTS).href);
+assert.ok(factsImports.includes('node:fs'), 'the hook saw local-test-facts.mjs load its imports');
+assert.deepEqual(stray(factsImports), [], 'local-test-facts.mjs imports node built-ins only');
+// Planted faults the check must catch: a static import, a re-export and a top-level dynamic import of stack code.
+{
+  const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = mkdtempSync(join(tmpdir(), 'facts-imports-'));
+  try {
+    for (const leaf of ['owner-settings.mjs', 'local-test-chain.mjs', 'local-test-state.mjs'])
+      writeFileSync(join(dir, leaf), 'export const a = 1;\n');
+    writeFileSync(
+      join(dir, 'planted.mjs'),
+      "import fs from 'node:fs';\nimport { a } from './owner-settings.mjs';\nexport { a as b } from './local-test-chain.mjs';\n" +
+        "await import('./local-test-state.mjs');\nexport const c = [fs, a];\n",
+    );
+    assert.deepEqual(stray(await importsWhenLoaded(pathToFileURL(join(dir, 'planted.mjs')).href)).sort(), [
+      './local-test-chain.mjs',
+      './local-test-state.mjs',
+      './owner-settings.mjs',
+    ]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 // Every script that kept a name hands out the facts' own value.
 const facts = await import('./local-test-facts.mjs');
@@ -33,11 +61,12 @@ const kept = {
   './local-test-entry.mjs': ['OUTBOX_NAME'],
   './local-test-chain.mjs': ['TEST_CHAIN_ID', 'CHAIN_PORTS', 'GATE_URL', 'chainRecordPath'],
   './local-test-home.mjs': [
-    'HOME_ASSET',
-    'HOME_NETWORK',
-    'HOME_DEPOSIT_AMOUNT',
-    'HOME_DEPOSIT_CONFIRMATIONS',
-    'HOME_DEPOSIT_LABEL',
+    'HOME_PARTNER_ASSET',
+    'HOME_PARTNER_AMOUNT',
+    'HOME_SENDER_AMOUNT',
+    'HOME_TRANSFER_AMOUNT',
+    'HOME_VENUE_ASSET',
+    'HOME_VENUE_AMOUNT',
     'HOME_NOTICE_TITLE',
     'HOME_NOTICE_BODY',
     'HOME_NOTICE_DAYS',

@@ -1,9 +1,10 @@
 import { z } from 'zod';
 import { Button } from '../../shared/ui';
-import { funds, ResourceView, Section, useBankRead, usePageLimit } from './components';
+import { funds, ResourceView, Section, usePageLimit, useBankRecord } from './components';
 import type { scheduleSchema } from './contracts';
 import { standingCopy } from './standing-copy';
 import { ReportedTime, currentOwnerRecord, useBankView } from './bank-context';
+import { BANK_TRANSFERS_EXECUTIONS } from '@intafaced/contracts/bank-transfers-procedures';
 
 export type StandingInstruction = z.infer<typeof scheduleSchema>;
 
@@ -17,7 +18,7 @@ export function StandingFacts({ instruction }: { instruction: StandingInstructio
         <dt>
           <Copy k="amount" />
         </dt>
-        <dd className="numeric" lang="zxx" dir="ltr">
+        <dd className="lt-num" lang="zxx" dir="ltr">
           {funds(instruction.amount, instruction.assetId)}
         </dd>
       </div>
@@ -92,7 +93,7 @@ function ExecutionRead({ id, asset, refreshInstructions }: { id: string; asset: 
   const { Copy, t, languageFor, directionFor } = standingCopy.useCopy();
   const current = useBankView();
   const [limit, setLimit] = usePageLimit();
-  const query = useBankRead('transfers.executions', { scheduleId: id, limit });
+  const query = useBankRecord(BANK_TRANSFERS_EXECUTIONS, { scheduleId: id, limit });
   const retry = () => {
     if (current()) query.reload();
   };
@@ -110,7 +111,7 @@ function ExecutionRead({ id, asset, refreshInstructions }: { id: string; asset: 
         <h3>
           <Copy k="returned" />
         </h3>
-        <p className="money-caption">
+        <p className="lt-muted">
           <Copy k="oldest" params={{ limit }} />
         </p>
       </header>
@@ -158,7 +159,7 @@ function ExecutionRead({ id, asset, refreshInstructions }: { id: string; asset: 
                             <Copy k="occurrence" params={{ occurrence: row.occurrence }} />
                           </h4>
                           <dl className="money-execution-status">
-                            <dt className="money-execution-label">
+                            <dt className="lt-sr">
                               <Copy k="status" />
                             </dt>
                             <dd lang="und" dir="auto">
@@ -167,25 +168,25 @@ function ExecutionRead({ id, asset, refreshInstructions }: { id: string; asset: 
                           </dl>
                         </header>
                         <dl className="money-execution-quantity">
-                          <dt className="money-execution-label">
+                          <dt className="lt-sr">
                             <Copy k="quantity" />
                           </dt>
-                          <dd className="numeric" lang="zxx" dir="ltr">
+                          <dd className="lt-num" lang="zxx" dir="ltr">
                             {funds(row.amount, asset)}
                           </dd>
                         </dl>
                         {row.rejectionCode !== null && (
                           <dl className="money-execution-refusal">
-                            <dt className="money-visually-hidden">
+                            <dt className="lt-sr">
                               <Copy k="refusal" />
                             </dt>
-                            <dd className="money-caption" lang="zxx" dir="ltr">
+                            <dd className="lt-muted" lang="zxx" dir="ltr">
                               {row.rejectionCode === '' ? <Copy k="emptyReference" /> : row.rejectionCode}
                             </dd>
                           </dl>
                         )}
                         {row.partnerMoveId !== null && (
-                          <dl className="money-execution-ledger" data-testid="money-execution-partner">
+                          <dl className="money-execution-partner" data-testid="money-execution-partner">
                             <dt>
                               <Copy k="partnerMove" />
                             </dt>
@@ -223,10 +224,10 @@ function ExecutionRead({ id, asset, refreshInstructions }: { id: string; asset: 
                 </div>
               )}
               <div className="money-execution-continuation">
-                <p className="money-caption" role="status">
+                <p className="lt-muted" role="status">
                   <Copy k="count" params={{ count: rows.length, limit }} />
                 </p>
-                <p className="money-caption">
+                <p className="lt-muted">
                   <Copy k="window" />
                 </p>
                 {rows.length >= limit &&
@@ -240,7 +241,7 @@ function ExecutionRead({ id, asset, refreshInstructions }: { id: string; asset: 
                       <Copy k="more" params={{ limit: limit + 50 }} />
                     </Button>
                   ) : (
-                    <p className="money-caption">
+                    <p className="lt-muted">
                       <Copy k="cap" />
                     </p>
                   ))}

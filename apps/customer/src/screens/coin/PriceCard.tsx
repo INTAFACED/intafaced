@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Segmented } from '@intafaced/ui/lit';
+import { ChartBox, Skeleton } from '@intafaced/ui/lit/templates';
 import { CoinChart } from './CoinChart';
 import { QuotePicker } from './QuotePicker';
 import { coinCopy } from './copy';
@@ -7,14 +9,11 @@ import {
   ChangeText,
   fmtChangeLine,
   fmtPrice,
-  HeroNumber,
+  HeroFigure,
+  KitState,
   partialWindowStart,
   refusalCopy,
-  Skeleton,
   stepOf,
-  StateBlock,
-  ToggleGroup,
-  ToggleGroupItem,
   useTicker,
   usePreferences,
   zoneName,
@@ -45,15 +44,19 @@ const RANGE_SUFFIX = {
   All: 'All time',
 } as const satisfies Record<RangeSpec['id'], Parameters<Copy>[0]>;
 
-/** The big number: HeroNumber (counts when the price ticks) live, plain digits of the same size under the crosshair. */
+/** The big number: the kit's hero figure live (a price, never masked), plain digits of the same size under the crosshair. */
 function Price({ value, decimals, scrubText }: { value: string | null; decimals: number; scrubText: string | null }) {
   if (scrubText !== null)
     return (
-      <span className="if-num inline-flex items-baseline gap-2 text-hero font-bold text-fg tabular-nums" data-testid="scrub-price">
+      <span className="lt-figure lt-figure-hero lt-num" data-testid="scrub-price">
         {scrubText}
       </span>
     );
-  return <HeroNumber value={value} decimals={decimals} prefix="$" sensitive={false} data-testid="price" />;
+  return (
+    <span data-testid="price">
+      <HeroFigure value={value} decimals={decimals} prefix="$" hidden={false} />
+    </span>
+  );
 }
 
 export function PriceCard({
@@ -118,25 +121,19 @@ export function PriceCard({
   const updated = ticker.status === 'ready' ? ticker.asOf : null;
 
   return (
-    <section data-testid="coin-price-card" className="coin-card coin-price-card" aria-label={t('{name} price', { name: asset })}>
-      <div className="coin-price-card__head">
-        <div data-testid="coin-price-card__figure" className="coin-price-card__figure">
+    <section data-testid="coin-price-card" className="lt-stack" aria-label={t('{name} price', { name: asset })}>
+      {/* The price never breaks across lines: its block is at least as wide as the price, so on a phone the quote picker
+          moves under it instead. */}
+      <div className="lt-title-row lt-title-row-wrap">
+        <div data-testid="coin-price-card__figure" className="lt-stack lt-unbroken">
           {ticker.status === 'loading' ? (
-            <>
-              <Skeleton height={56} width={260} className="bg-field" />
-              <Skeleton height={20} width={200} className="bg-field" />
-            </>
+            <Skeleton shape="figure" />
           ) : ticker.status === 'ready' ? (
             <>
               <Price value={hero.value} decimals={hero.decimals} scrubText={scrub ? `$${fmtPrice(scrub.c, tickSize)}` : null} />
-              <ChangeText
-                sensitive={false}
-                className="coin-change"
-                data-testid="change"
-                value={move ? fmtChangeLine(move.change, move.changeRatio) : null}
-                direction={move?.direction}
-                suffix={suffix}
-              />
+              <span data-testid="change">
+                <ChangeText value={move ? fmtChangeLine(move.change, move.changeRatio) : null} hidden={false} suffix={suffix} />
+              </span>
             </>
           ) : (
             <TickerProblem ticker={ticker} />
@@ -145,7 +142,7 @@ export function PriceCard({
         <QuotePicker quotes={quotes} quote={quote} onQuote={onQuote} />
       </div>
 
-      <div className="coin-price-card__chart" data-testid="chart-area">
+      <ChartBox marks={{ 'data-testid': 'chart-area' }}>
         <ChartBody
           asset={asset}
           candles={candles}
@@ -155,24 +152,17 @@ export function PriceCard({
           timeZone={zoneName(timeZone)}
           onScrub={setScrub}
         />
-      </div>
+      </ChartBox>
 
-      <ToggleGroup
-        variant="pill"
-        data-testid="coin-ranges"
-        className="coin-ranges"
-        aria-label={t('Chart range')}
+      <Segmented
+        label={t('Chart range')}
+        marks={{ 'data-testid': 'coin-ranges' }}
+        options={RANGES.map((r) => ({ value: r.id, label: r.id, name: t(RANGE_LABEL[r.id]) }))}
         value={rangeId}
-        onValueChange={(next) => setRangeId(rangeById(next).id)}
-      >
-        {RANGES.map((item) => (
-          <ToggleGroupItem key={item.id} value={item.id} aria-label={t(RANGE_LABEL[item.id])} title={t(RANGE_LABEL[item.id])}>
-            {item.id}
-          </ToggleGroupItem>
-        ))}
-      </ToggleGroup>
+        onChange={(next) => setRangeId(rangeById(next).id)}
+      />
 
-      <p className="coin-updated" data-testid="updated">
+      <p className="lt-hint" data-testid="updated">
         {updated !== null ? t('Last updated {time}', { time: updatedAt(updated, timeZone) }) : ''}
       </p>
     </section>
@@ -182,12 +172,12 @@ export function PriceCard({
 function TickerProblem({ ticker }: { ticker: Loadable<TickerRow> }) {
   const { t } = coinCopy.useCopy();
   if (ticker.status === 'error')
-    return <StateBlock kind="error" title={t('Couldn’t load the price')} onRetry={ticker.retry} retryLabel={t('Try again')} />;
+    return <KitState kind="error" title={t('Couldn’t load the price')} onRetry={ticker.retry} retryLabel={t('Try again')} />;
   if (ticker.status === 'refused') {
     const words = refusalCopy(ticker.code);
-    return <StateBlock kind="refused" title={words.title} body={words.body} code={words.reference} action={words.action} />;
+    return <KitState kind="refused" title={words.title} body={words.body} code={words.reference} action={words.action} />;
   }
-  return <StateBlock kind="empty" title={t('Couldn’t load the price')} />;
+  return <KitState kind="empty" title={t('Couldn’t load the price')} />;
 }
 
 function ChartBody({
@@ -210,20 +200,20 @@ function ChartBody({
   const { t } = coinCopy.useCopy();
   if (candles.status === 'loading')
     return (
-      <div className="coin-chart-loading" aria-busy="true" role="status">
-        <Skeleton height={360} className="bg-field" />
-        <span className="coin-chart-loading__label">{t('Loading the chart')}</span>
+      <div aria-busy="true" role="status">
+        <Skeleton shape="chart" />
+        <span className="lt-hint">{t('Loading the chart')}</span>
       </div>
     );
   if (candles.status === 'error')
-    return <StateBlock kind="error" title={t('Couldn’t load the chart')} onRetry={candles.retry} retryLabel={t('Try again')} />;
+    return <KitState kind="error" title={t('Couldn’t load the chart')} onRetry={candles.retry} retryLabel={t('Try again')} />;
   if (candles.status === 'refused') {
     const words = refusalCopy(candles.code);
-    return <StateBlock kind="refused" title={words.title} body={words.body} code={words.reference} action={words.action} />;
+    return <KitState kind="refused" title={words.title} body={words.body} code={words.reference} action={words.action} />;
   }
   if (candles.status === 'empty' || candles.data.length < 2)
     return (
-      <div className="coin-chart-empty" data-testid="chart-empty">
+      <div className="lt-empty" data-testid="chart-empty">
         {t('No trades yet')}
       </div>
     );

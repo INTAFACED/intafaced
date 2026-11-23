@@ -15,7 +15,7 @@ vi.mock('../more', async (original) => {
 });
 
 import { SessionProvider } from '../session';
-import { ContactSupport } from './ContactSupport';
+import { ContactSupport } from './help/ContactSupport';
 
 const html = () =>
   renderToString(

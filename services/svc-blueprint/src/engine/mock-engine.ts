@@ -1,12 +1,5 @@
-import {
-  blueprintProfileSchema,
-  type BlueprintProfile,
-  type CrewRole,
-  type DecisionStyle,
-  type EnergyRhythm,
-  type LearningMode,
-  type RiskTemperament,
-} from '@intafaced/contracts';
+import type { BlueprintProfile, CrewRole, DecisionStyle, EnergyRhythm, LearningMode, RiskTemperament } from '@intafaced/contracts';
+import { blueprintProfileSchema } from '@intafaced/contracts/blueprint';
 import { digest, pick, windowAt } from '../deterministic.js';
 import {
   EngineUnavailableError,

@@ -66,11 +66,11 @@ test('the faults it was written for, planted: a new unused export and a new unus
 test('a deleted keeper fails before knip runs', () => {
   const dir = fixture();
   try {
-    rmSync(join(dir, 'services/svc-agents/src/navigator/money-deny-honesty.ts'));
+    rmSync(join(dir, 'services/svc-notify/src/channels/refusal-code-honesty.ts'));
     const r = run(dir);
     assert.equal(r.status, 1);
     assert.match(r.stderr, /DEAD CODE - 1 protected module\(s\) were deleted/);
-    assert.match(r.stderr, /navigator\/money-deny-honesty\.ts/);
+    assert.match(r.stderr, /channels\/refusal-code-honesty\.ts/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -1,13 +1,11 @@
 import { assertPartnerAnswering, assertPartnerOffers, partnerFeeKnown } from '../partner/test-partner.js';
 import { z } from 'zod';
 import {
-  router,
-  scopedProcedure,
-  serviceProcedureFor,
   BANK_INTERNAL_WITHDRAWAL_CALLERS,
   bankInternalWithdrawalInputSchema,
   bankInternalWithdrawalSchema,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/bank-internal-withdrawal';
+import { router, scopedProcedure, serviceProcedureFor } from '@intafaced/contracts/trpc';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { activityFailure } from '../activity/activity.router.js';
 import { assertSelf } from '../assert-self.js';
@@ -408,8 +406,9 @@ export function createTransfersRouter(c: BankRouterContext) {
           fee: amountString,
           feeBlocker: z.string().nullable(),
           /**
-           * The partner's fee on the move (CUSTODY-DELTA §1.3). Absent: no partner reports one for this send. Null: the
-           * partner moves it and has not said what it costs, read as "not known", never 0.
+           * The network fee on the move (CUSTODY-DELTA §1.3): what the partner bank that holds the sender's money says it
+           * charges for a send; "0" for a send on our own book, which crosses no network. Null: the partner moves it and has
+           * not said what it costs, read as "not known", never 0. Absent only from an older service.
            */
           networkFee: amountString.nullable().optional(),
           withinPerTransfer: z.boolean(),

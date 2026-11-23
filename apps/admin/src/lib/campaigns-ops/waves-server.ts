@@ -5,13 +5,14 @@ import {
   type ExecuteReply,
   explainRefusal,
   failureRefusal,
-  founderCall,
   type FounderCallContext,
   isKnownCode,
   type Part,
   partFrom,
+  founderRecordRead,
 } from '@/lib/desk';
 import { readWave, readWavesState, type Wave, type WavesState } from './waves-model';
+import { IDENTITY_WAITLIST_WAVES_LIST, IDENTITY_WAITLIST_WAVES_RELEASE } from '@intafaced/contracts/identity-waitlist-procedures';
 
 export interface WavesView {
   readonly asOf: string;
@@ -21,7 +22,7 @@ export interface WavesView {
 const FORBIDDEN = 'svc-identity did not accept your founder session for this read (it needs admin:read).';
 
 export async function loadWaves(ctx: FounderCallContext): Promise<WavesView> {
-  const result = await founderCall(ctx, 'identity', 'waitlist.waves.list', 'GET', undefined, readWavesState);
+  const result = await founderRecordRead(ctx, IDENTITY_WAITLIST_WAVES_LIST, undefined, readWavesState);
   return {
     asOf: new Date().toISOString(),
     state: partFrom(result, (d) => d, { service: 'svc-identity', forbiddenMessage: FORBIDDEN }),
@@ -43,14 +44,7 @@ export function wavesExecute(ctx: FounderCallContext): ExecuteFn {
     if (request.kind !== 'campaigns.waitlist.wave_release') {
       return { ok: false, refusal: explainRefusal('admin.request_invalid', 400, false) };
     }
-    const result = await founderCall(
-      ctx,
-      'identity',
-      'waitlist.waves.release',
-      'POST',
-      { waveNumber: Number(request.wave), ...ids },
-      readRelease,
-    );
+    const result = await founderRecordRead(ctx, IDENTITY_WAITLIST_WAVES_RELEASE, { waveNumber: Number(request.wave), ...ids }, readRelease);
     if (result.kind === 'refused' || result.kind === 'forbidden') {
       const code = result.refusal.code ?? codeInText(result.refusal.message);
       return { ok: false, refusal: explainRefusal(isKnownCode(code) ? code : null, result.refusal.status, false) };

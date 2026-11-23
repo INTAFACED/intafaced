@@ -33,6 +33,8 @@ import {
   venueAccountModeSchema,
   venueVaultSchema,
   venueVaultHoldingsSchema,
+  venueStakingSchema,
+  venueStakingAccountSchema,
   venueLiquidationSchema,
   venueLiquidationStatusSchema,
   venueInsuranceFundSchema,
@@ -194,7 +196,11 @@ export type VenueIntent =
   | { kind: 'spot_perps_transfer'; direction: 'perps_to_spot' | 'spot_to_perps'; asset: string; amount: string; moveKey: string }
   | { kind: 'set_account_mode'; mode: VenueAccountMode; changeKey: string }
   // J-derivatives-31 #2 #5: USDC put into a venue vault or taken out of it, the person's own signed venue transfer.
-  | { kind: 'vault_transfer'; vault: string; direction: 'deposit' | 'withdraw'; asset: string; amount: string; moveKey: string };
+  | { kind: 'vault_transfer'; vault: string; direction: 'deposit' | 'withdraw'; asset: string; amount: string; moveKey: string }
+  // J-cex-spot-21: HYPE moved between spot and staking, and delegated to or undelegated from a validator, each the person's
+  // own signed venue action.
+  | { kind: 'staking_transfer'; direction: 'to_staking' | 'to_spot'; asset: string; amount: string; moveKey: string }
+  | { kind: 'staking_delegate'; validator: string; direction: 'delegate' | 'undelegate'; asset: string; amount: string; moveKey: string };
 
 // ── Business keys ──────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -257,6 +263,12 @@ export const keys = {
   /** One reviewed move into or out of a vault (J-derivatives-31 #2 #5): the same move sent again is the same key. */
   vaultMove: (owner: string, vault: string, direction: 'deposit' | 'withdraw', draft: string) =>
     `vault-move:${part(owner)}:${part(vault)}:${direction}:${draft}`,
+  /** One reviewed move between spot and staking (J-cex-spot-21 #2 #7 #9): the same move sent again is the same key. */
+  stakeMove: (owner: string, direction: 'to_staking' | 'to_spot', draft: string) =>
+    `stake-move:${part(owner)}:${direction === 'to_staking' ? 'to-staking' : 'to-spot'}:${draft}`,
+  /** One reviewed delegation or undelegation (J-cex-spot-21 #3 #6). */
+  delegation: (owner: string, validator: string, direction: 'delegate' | 'undelegate', draft: string) =>
+    `delegation:${part(owner)}:${part(validator)}:${direction}:${draft}`,
 };
 
 // ── Figures ───────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -404,6 +416,11 @@ export function venueApi(api: ApiClient) {
     /** The account's vault positions, its account value as the venue counts it, and its vault transfers (J-derivatives-31). */
     vaultHoldings: (owner: string, signal?: AbortSignal, venueId?: string) =>
       read('/vault-holdings', asOf(venueVaultHoldingsSchema), { owner, venueId }, signal),
+    /** The venue's staking terms: validators, reward rate, discount tiers, lock-up, queue and limit (J-cex-spot-21 #1). */
+    staking: (signal?: AbortSignal, venueId?: string) => read('/staking', asOf(venueStakingSchema), { venueId }, signal),
+    /** The account's staking balance, delegations, queued and arrived withdrawals and rewards (J-cex-spot-21). */
+    stakingAccount: (owner: string, signal?: AbortSignal, venueId?: string) =>
+      read('/staking-account', asOf(venueStakingAccountSchema), { owner, venueId }, signal),
     /** The venue's public liquidation and auto-deleveraging alerts, newest first (J-derivatives-07 #7). */
     liquidationAlerts: (q: { symbol?: string; limit?: number; venueId?: string }, signal?: AbortSignal) =>
       read(

@@ -43,6 +43,7 @@ function primarySpace(): SpaceRecord {
 function analytics(history: LedgerHistory): SpendAnalytics {
   const spaces = {
     namedSpaces: async () => [primarySpace()],
+    allNamedSpaces: async () => [],
   } as unknown as SpaceService;
   return new SpendAnalytics(spaces, history);
 }

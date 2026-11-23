@@ -56,6 +56,27 @@ export function partnerPayInsAccount(assetId: string): PartnerAccountRef {
   return { userId: PARTNER_PAY_INS_OWNER, assetId, spaceId: null };
 }
 
+/**
+ * The partner's own card accounts in one currency: a card hold leaves the person's main balance into the card
+ * holds account, a release or a hold time running out comes back from it, a capture goes on from it to the card network
+ * account, and a refund comes back from that into the main balance, each one move under the card instruction's key. They
+ * are the partner's, never a person's, so they are on no person's list of balances; `moves` never lists a card move,
+ * because the card's own list of payments is where a person reads it, but the account's statement counts it.
+ */
+const PARTNER_CARD_HOLDS_OWNER = 'partner:card-holds';
+const PARTNER_CARD_NETWORK_OWNER = 'partner:card-network';
+export function partnerCardHoldsAccount(assetId: string): PartnerAccountRef {
+  return { userId: PARTNER_CARD_HOLDS_OWNER, assetId, spaceId: null };
+}
+export function partnerCardNetworkAccount(assetId: string): PartnerAccountRef {
+  return { userId: PARTNER_CARD_NETWORK_OWNER, assetId, spaceId: null };
+}
+/** A move between a person's account and the partner's card accounts. */
+export function isPartnerCardMove(move: { readonly from: PartnerAccountRef; readonly to: PartnerAccountRef }): boolean {
+  const card = (owner: string) => owner === PARTNER_CARD_HOLDS_OWNER || owner === PARTNER_CARD_NETWORK_OWNER;
+  return card(move.from.userId) || card(move.to.userId);
+}
+
 /** The partner's account a fee it takes for us goes to. It is the partner's, never a person's, like its payouts account. */
 export const PARTNER_FEES_OWNER = 'partner:fees';
 export function partnerFeesAccount(assetId: string): PartnerAccountRef {
@@ -154,6 +175,12 @@ export interface PartnerBank {
   balance(account: PartnerAccountRef): Promise<PartnerBalance>;
   /** Every account the partner holds for the person, in every currency. */
   balances(userId: string): Promise<PartnerBalance[]>;
+  /**
+   * Opens the person's main account in one currency at the partner (J-bank-01 #3), once: asking again answers the same
+   * account and opens no second one. Refuses `bank.partner_unavailable` when down, nothing opened. A partner that opens
+   * accounts on first credit leaves it out.
+   */
+  openCurrency?(userId: string, assetId: string): Promise<PartnerBalance>;
   /**
    * Make one move under its key. Refuses before anything moves: `bank.partner_unavailable` (not answering),
    * `bank.partner_insufficient_funds` (the source does not hold it), `bank.partner_move_conflict` (another move under
@@ -405,6 +432,8 @@ export function freezeGuardedCustody(custody: PartnerCustody, freeze: PostingFre
         moves: (userId: string, query: PartnerMovesQuery) => bank.moves(userId, query),
         limits: (userId: string, assetId: string) => bank.limits(userId, assetId),
         ...(bank.openOrders ? { openOrders: (userId: string) => bank.openOrders!(userId) } : {}),
+        // Opening a currency account moves nothing, so it stays open (J-bank-01 #3).
+        ...(bank.openCurrency ? { openCurrency: bank.openCurrency.bind(bank) } : {}),
         ...(bank.statement
           ? { statement: (account: PartnerAccountRef, range: { from: Date; to: Date }) => bank.statement!(account, range) }
           : {}),

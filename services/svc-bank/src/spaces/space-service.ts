@@ -435,7 +435,7 @@ export class SpaceService {
 
   /**
    * Work set of every space that can still hold a visible balance.
-   * unnamedAssets / spendSummary — not a list page. A page here would hide
+   * unnamedAssets / spendSummary's primary space — not a list page. A page here would hide
    * named assets and invent unnamed ones.
    *
    * Live rows always. An archived named space stays only while its ledger
@@ -460,7 +460,7 @@ export class SpaceService {
 
   /**
    * EVERY named space this user has ever owned, archived or not, funded or not.
-   * For history reads (`bank.activity.list`), which must still see a closed
+   * For history reads (`bank.activity.list`, `spendSummary`), which must still see a closed
    * Space's postings: a move into one is a move between the user's own pots,
    * not a payment to a stranger. Filtered by `user_id`, so never another user's.
    */
@@ -576,6 +576,34 @@ export class SpaceService {
       }
     }
     return views;
+  }
+
+  /**
+   * J-derivatives-26 #8, for the founder console: the person's spaces with the figure the partner holding their money
+   * reports, each exactly as `overview` builds it (same label, as-of time, stale rule and refusal when not known).
+   * `null` when no partner holds this person's money: no ledger figure is ever read here. Writes nothing (no
+   * `ensureHeldPrimaries`), so a main balance whose label row the owner has not read into being yet is not listed.
+   */
+  async partnerHeldFigures(userId: string): Promise<Array<{
+    space: SpaceRecord;
+    label: string;
+    figure: ReportedFigureWire;
+  }> | null> {
+    const partner = this.custody.bankFor(userId);
+    if (!partner) return null;
+    // The owner list's cap: the console reads one page, the same most the owner can ask for.
+    const spaces = await this.list(userId, undefined, 200);
+    const reports = new Map<string, PartnerBalance>();
+    for (const b of await partner.balances(userId)) reports.set(`${b.account.assetId}|${b.account.spaceId ?? ''}`, b);
+    const out: Array<{ space: SpaceRecord; label: string; figure: ReportedFigureWire }> = [];
+    for (const space of spaces) {
+      const account = partnerAccountFor(space);
+      const reported = reports.get(`${account.assetId}|${account.spaceId ?? ''}`) ?? (await partner.balance(account));
+      const figure = partnerFigure(reported, partner.staleAfterMs, new Date());
+      if (figure.state === 'unknown') throw partnerBalanceNotKnown(reported.label);
+      out.push({ space, label: reported.label, figure: heldFigureWire(figure) });
+    }
+    return out;
   }
 
   /**

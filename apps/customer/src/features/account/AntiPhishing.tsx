@@ -2,19 +2,14 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button, Failure, Field, Loading } from '../../shared/ui';
+import { Button, Field } from '@intafaced/ui/lit';
+import { Failure, Loading } from './kit-parts';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import { antiPhishingCopy as copy } from './anti-phishing-copy';
-import {
-  antiPhishingCodeSchema,
-  antiPhishingRefusal,
-  antiPhishingSetResultSchema,
-  antiPhishingStepUp,
-  cleanAntiPhishingCode,
-  type AntiPhishingRefusal,
-} from './anti-phishing';
+import { antiPhishingRefusal, antiPhishingStepUp, cleanAntiPhishingCode, type AntiPhishingRefusal } from './anti-phishing';
 import { confirmWithStepUp, type StepUpMethod } from './security-step-up';
+import { IDENTITY_PROFILE_ANTI_PHISHING_GET, IDENTITY_PROFILE_ANTI_PHISHING_SET } from '@intafaced/contracts/identity-profile-procedures';
 
 type Mode = 'view' | 'set' | 'remove';
 
@@ -42,9 +37,7 @@ export function AntiPhishing() {
   }, []);
   const { resource, reload } = useResource(
     (signal) =>
-      userId
-        ? api.query('identity', 'profile.antiPhishing.get', undefined, antiPhishingCodeSchema, { signal })
-        : Promise.resolve({ ok: true as const, data: null }),
+      userId ? api.call(IDENTITY_PROFILE_ANTI_PHISHING_GET, undefined, { signal }) : Promise.resolve({ ok: true as const, data: null }),
     `anti-phishing:${userId}`,
   );
 
@@ -64,12 +57,11 @@ export function AntiPhishing() {
       const how: StepUpMethod = method === 'code' ? { totpCode: otp } : { passkey: true };
       const approval = await confirmWithStepUp(api, antiPhishingStepUp(code, requestId), how);
       const answer = approval.ok
-        ? await api.mutate(
-            'identity',
-            'profile.antiPhishing.set',
-            { code, clientRequestId: requestId, stepUpApprovalId: approval.data.stepUpApprovalId },
-            antiPhishingSetResultSchema,
-          )
+        ? await api.call(IDENTITY_PROFILE_ANTI_PHISHING_SET, {
+            code,
+            clientRequestId: requestId,
+            stepUpApprovalId: approval.data.stepUpApprovalId,
+          })
         : approval;
       if (!mounted.current) return;
       if (!answer.ok) {
@@ -103,19 +95,13 @@ export function AntiPhishing() {
     return (
       <section
         data-testid="security__anti-phishing"
-        className="security__anti-phishing security__card"
+
         aria-label={t('title')}
         lang={languageFor('title')}
       >
         <h2>{t('title')}</h2>
         <p>{t('body')}</p>
-        {refusal ? (
-          <p className="error-text" role="status">
-            {t(refusal)}
-          </p>
-        ) : (
-          <Failure result={resource.failure} retry={reload} />
-        )}
+        {refusal ? <p role="status">{t(refusal)}</p> : <Failure result={resource.failure} retry={reload} />}
       </section>
     );
   }
@@ -125,45 +111,41 @@ export function AntiPhishing() {
   return (
     <section
       data-testid="security__anti-phishing"
-      className="security__anti-phishing security__card"
+
       aria-label={t('title')}
       lang={languageFor('title')}
     >
       <h2>{t('title')}</h2>
       <p>{t('body')}</p>
-      <p className="muted">{t('carried')}</p>
+      <p className="lt-hint">{t('carried')}</p>
       {unreadable ? (
-        <p className="error-text">{t('refusedUnreadable')}</p>
+        <p>{t('refusedUnreadable')}</p>
       ) : view.code ? (
         <p>
           <strong>{t('current', { code: view.code })}</strong>
-          {view.updatedAt && <span className="muted"> · {t('setAt', { time: stamp(view.updatedAt, timeZone) })}</span>}
+          {view.updatedAt && <span className="lt-hint"> · {t('setAt', { time: stamp(view.updatedAt, timeZone) })}</span>}
         </p>
       ) : (
-        <p className="muted">{t('none')}</p>
+        <p className="lt-hint">{t('none')}</p>
       )}
-      <figure data-testid="security__mail-preview" className="security__mail-preview" aria-label={t('previewTitle')}>
+      <figure data-testid="security__mail-preview" aria-label={t('previewTitle')}>
         <figcaption>
           {t('previewTitle')}{' '}
-          <span data-testid="security__ref" className="security__ref">
+          <span data-testid="security__ref" className="lt-ref">
             {t('previewSample')}
           </span>
         </figcaption>
         <p>{view.code ? t('previewLine', { code: view.code }) : t('previewNone')}</p>
       </figure>
-      {note && (
-        <p className="notice" role="status">
-          {note}
-        </p>
-      )}
+      {note && <p role="status">{note}</p>}
       {failure && <Failure result={failure} />}
       {mode === 'view' ? (
-        <div className="row">
-          <Button variant="secondary" onClick={() => open('set')}>
+        <div className="lt-actions">
+          <Button tone="secondary" onClick={() => open('set')}>
             {view.code ? t('change') : t('setCode')}
           </Button>
           {(view.code || unreadable) && (
-            <Button variant="ghost" onClick={() => open('remove')}>
+            <Button tone="quiet" onClick={() => open('remove')}>
               {t('remove')}
             </Button>
           )}
@@ -171,7 +153,7 @@ export function AntiPhishing() {
       ) : (
         <form
           ref={form}
-          className="stack"
+
           noValidate
           aria-label={mode === 'remove' ? t('removeTitle') : t('title')}
           onSubmit={(event: FormEvent<HTMLFormElement>) => {
@@ -203,19 +185,15 @@ export function AntiPhishing() {
             disabled={busy}
             data-security-sensitive="true"
           />
-          {problemText && (
-            <p className="error-text" role="alert">
-              {problemText}
-            </p>
-          )}
-          <div className="row">
-            <Button type="submit" disabled={busy}>
+          {problemText && <p role="alert">{problemText}</p>}
+          <div className="lt-actions">
+            <Button tone="primary" type="submit" disabled={busy}>
               {busy ? t('working') : mode === 'remove' ? t('removeCode') : t('save')}
             </Button>
-            <Button variant="secondary" disabled={busy} onClick={() => form.current && void save('passkey', form.current)}>
+            <Button tone="secondary" disabled={busy} onClick={() => form.current && void save('passkey', form.current)}>
               {mode === 'remove' ? t('removePasskey') : t('savePasskey')}
             </Button>
-            <Button variant="ghost" disabled={busy} onClick={() => open('view')}>
+            <Button tone="quiet" disabled={busy} onClick={() => open('view')}>
               {t('cancel')}
             </Button>
           </div>

@@ -34,7 +34,8 @@ export const pendingKey = (userId: string) => 'intafaced.customer.bank-unconfirm
 const unreadable = (): PendingOutcome => ({
   reference: 'unreadable',
   title: copyText('pending-outcomes.bank.recovery.metadata.is.unavailable.or.unreadable'),
-  procedure: 'recovery.required',
+  // An unreadable entry names no call: the room shows it as recovery required by its reference.
+  procedure: '',
   recordRefs: {},
 });
 

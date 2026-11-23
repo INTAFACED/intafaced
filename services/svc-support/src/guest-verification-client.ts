@@ -1,20 +1,22 @@
+import type {
+  GuestVerificationCode,
+  GuestVerificationEraseReceipt,
+  GuestVerificationReceipt,
+  GuestVerificationSendInput,
+  ServiceAuthMode,
+  ServiceSigner,
+} from '@intafaced/contracts';
+import { unwrapTrpcData } from '@intafaced/contracts/action-approval-client';
 import {
   GUEST_VERIFICATION_PROCEDURES,
-  serviceCallSigner,
   guestVerificationCodeSchema,
   guestVerificationEraseInputSchema,
   guestVerificationEraseReceiptSchema,
   guestVerificationGetInputSchema,
   guestVerificationReceiptSchema,
   guestVerificationSendInputSchema,
-  type GuestVerificationCode,
-  type GuestVerificationEraseReceipt,
-  type GuestVerificationReceipt,
-  type GuestVerificationSendInput,
-  type ServiceAuthMode,
-  type ServiceSigner,
-  unwrapTrpcData,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/guest-verification';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 
 /** svc-notify answered with one of the door's typed refusals. */
 export class GuestVerificationRefusal extends Error {

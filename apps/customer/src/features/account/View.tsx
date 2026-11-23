@@ -1,8 +1,9 @@
+// volt-room: /view
 import { copy, t as copyText, Text } from './copy';
 import { useLayoutEffect, useMemo, useState } from 'react';
-import { SegmentedControl } from '@intafaced/ui';
+import { Button, Checkbox, Segmented } from '@intafaced/ui/lit';
+import { SettingsTemplate } from '@intafaced/ui/lit/templates';
 import { UI_DISPLAY_CURRENCIES, type UiDisplayCurrency } from '@intafaced/contracts/ui-view-preferences';
-import { Page, Button } from '../../shared/ui';
 import {
   usePreferences,
   useResolvedTheme,
@@ -14,6 +15,7 @@ import {
   usePreferenceObservation,
 } from '../../shared/preferences';
 import { TradingSettings } from './TradingSettings';
+import { tradingSettingsCopy } from './trading-settings-copy';
 import { useAccountViewStatus } from './ViewSync';
 import { customerCopyCoverage, renderedUiLanguage, useCopyRevision } from '../../shared/i18n';
 import { canonicalUiLocale, uiLocales, uiLocaleDescriptor, uiDirection } from '../../shared/locale';
@@ -76,182 +78,206 @@ export function View() {
       <Text k="view.language.visit.only" />
     ) : null;
   return (
-    <div lang={current.renderedLocale} dir={uiDirection(current.renderedLocale)} style={{ display: 'contents' }}>
-      <Page title={copyText('view.view')} description={copyText('view.choose.how.the.product.feels.on.this')}>
-        <div className="settings-grid">
-          <section className="settings-section">
-            <h2>
-              <Text k="view.display" />
-            </h2>
-            <label className="field">
-              <span>
-                <Text k="view.language" />
-              </span>
-              <select
-                aria-label={copyText('view.language')}
-                value={preferences.language}
-                onChange={(event) => {
-                  const language = canonicalUiLocale(event.target.value);
-                  if (language) save({ language });
-                }}
-              >
-                {offeredLocales.map((language) => (
-                  <option key={language.code} value={language.code} lang={language.code} dir={uiDirection(language.code)}>
-                    {language.nativeName}
-                  </option>
-                ))}
-              </select>
-              <small>
-                {!hasWritten ? (
-                  <Text k="view.language.fallback" params={{ language: descriptor.englishName }} />
-                ) : hasFallback ? (
-                  <Text k="view.language.partial" params={{ language: descriptor.englishName }} />
-                ) : (
-                  <Text k="view.published.translations.are.used.where.available.new" />
+    <div lang={current.renderedLocale} dir={uiDirection(current.renderedLocale)}>
+      <SettingsTemplate
+        title={copyText('view.view')}
+        description={copyText('view.choose.how.the.product.feels.on.this')}
+        state={{ kind: 'ready' }}
+        index={
+          <nav aria-label={copyText('view.sections')}>
+            <ul>
+              <li>
+                <a className="lt-link" href="#view-display">
+                  <Text k="view.display" />
+                </a>
+              </li>
+              <li>
+                <a className="lt-link" href="#view-trading">
+                  <tradingSettingsCopy.Copy k="title" />
+                </a>
+              </li>
+            </ul>
+          </nav>
+        }
+        explain={
+          <p>
+            <Text k="view.explain" />
+          </p>
+        }
+        sections={
+          <>
+            <section id="view-display">
+              <h2>
+                <Text k="view.display" />
+              </h2>
+              <label className="lt-field">
+                <span>
+                  <Text k="view.language" />
+                </span>
+                <select
+                  aria-label={copyText('view.language')}
+                  value={preferences.language}
+                  onChange={(event) => {
+                    const language = canonicalUiLocale(event.target.value);
+                    if (language) save({ language });
+                  }}
+                >
+                  {offeredLocales.map((language) => (
+                    <option key={language.code} value={language.code} lang={language.code} dir={uiDirection(language.code)}>
+                      {language.nativeName}
+                    </option>
+                  ))}
+                </select>
+                <small>
+                  {!hasWritten ? (
+                    <Text k="view.language.fallback" params={{ language: descriptor.englishName }} />
+                  ) : hasFallback ? (
+                    <Text k="view.language.partial" params={{ language: descriptor.englishName }} />
+                  ) : (
+                    <Text k="view.published.translations.are.used.where.available.new" />
+                  )}
+                </small>
+                {currentSave?.language && (
+                  <p role="status" className="lt-hint">
+                    {acknowledgement}
+                  </p>
                 )}
-              </small>
-              {currentSave?.language && (
-                <p role="status" className="muted">
-                  {acknowledgement}
-                </p>
-              )}
-            </label>
-            <label className="field">
-              <span>
-                <Text k="view.up.and.down.colors" />
-              </span>
-              <select
-                aria-label={copyText('view.up.and.down.colors')}
-                value={preferences.upColor}
-                onChange={(event) => {
-                  save({ upColor: event.target.value as 'green' | 'red' });
-                }}
-              >
-                <option value="green" lang={copy.forLocale(preferences.language).languageFor('view.green.up.red.down')}>
-                  {copyText('view.green.up.red.down')}
-                </option>
-                <option value="red" lang={copy.forLocale(preferences.language).languageFor('view.red.up.green.down')}>
-                  {copyText('view.red.up.green.down')}
-                </option>
-              </select>
-            </label>
-            <div className="field">
-              <span>
-                <Text k="view.default.view" />
-              </span>
-              <SegmentedControl
-                aria-label={copyText('view.default.view')}
-                size={32}
-                value={preferences.layoutMode}
-                items={[
-                  { value: 'simple', label: copyText('view.simple') },
-                  { value: 'pro', label: copyText('view.pro') },
-                ]}
-                onValueChange={(value) => {
-                  if (value === 'simple' || value === 'pro') save({ layoutMode: value });
+              </label>
+              <label className="lt-field">
+                <span>
+                  <Text k="view.up.and.down.colors" />
+                </span>
+                <select
+                  aria-label={copyText('view.up.and.down.colors')}
+                  value={preferences.upColor}
+                  onChange={(event) => {
+                    save({ upColor: event.target.value as 'green' | 'red' });
+                  }}
+                >
+                  <option value="green" lang={copy.forLocale(preferences.language).languageFor('view.green.up.red.down')}>
+                    {copyText('view.green.up.red.down')}
+                  </option>
+                  <option value="red" lang={copy.forLocale(preferences.language).languageFor('view.red.up.green.down')}>
+                    {copyText('view.red.up.green.down')}
+                  </option>
+                </select>
+              </label>
+              <div className="lt-field">
+                <span>
+                  <Text k="view.default.view" />
+                </span>
+                <Segmented
+                  label={copyText('view.default.view')}
+                  value={preferences.layoutMode}
+                  options={[
+                    { value: 'simple', label: copyText('view.simple') },
+                    { value: 'pro', label: copyText('view.pro') },
+                  ]}
+                  onChange={(value) => {
+                    if (value === 'simple' || value === 'pro') save({ layoutMode: value });
+                  }}
+                />
+                <small>
+                  <Text k="view.default.view.hint" />
+                </small>
+              </div>
+              <Toggle
+                label={copyText('view.hide.balance.values')}
+                checked={preferences.hideBalances}
+                onChange={(value) => {
+                  save({ hideBalances: value });
                 }}
               />
-              <small>
-                <Text k="view.default.view.hint" />
-              </small>
-            </div>
-            <Toggle
-              label={copyText('view.hide.balance.values')}
-              checked={preferences.hideBalances}
-              onChange={(value) => {
-                save({ hideBalances: value });
-              }}
-            />
-            <label className="field">
-              <span>
-                <Text k="view.display.currency" />
-              </span>
-              <select
-                aria-label={copyText('view.display.currency')}
-                value={preferences.displayCurrency}
-                onChange={(event) => {
-                  save({ displayCurrency: event.target.value as UiDisplayCurrency });
-                }}
-              >
-                {UI_DISPLAY_CURRENCIES.map((code) => (
-                  <option key={code} value={code}>
-                    {code}
+              <label className="lt-field">
+                <span>
+                  <Text k="view.display.currency" />
+                </span>
+                <select
+                  aria-label={copyText('view.display.currency')}
+                  value={preferences.displayCurrency}
+                  onChange={(event) => {
+                    save({ displayCurrency: event.target.value as UiDisplayCurrency });
+                  }}
+                >
+                  {UI_DISPLAY_CURRENCIES.map((code) => (
+                    <option key={code} value={code}>
+                      {code}
+                    </option>
+                  ))}
+                </select>
+                <small>
+                  <Text k="view.display.currency.hint" />
+                </small>
+              </label>
+              <label className="lt-field">
+                <span>
+                  <Text k="view.time.zone" />
+                </span>
+                <select
+                  aria-label={copyText('view.time.zone')}
+                  value={preferences.timeZone}
+                  onChange={(event) => {
+                    save({ timeZone: event.target.value as 'UTC' | 'UTC+8' | 'device' });
+                  }}
+                >
+                  <option value="UTC">UTC</option>
+                  <option value="UTC+8">UTC+8</option>
+                  <option value="device" lang={copy.forLocale(preferences.language).languageFor('view.device.time.zone')}>
+                    {copyText('view.device.time.zone')}
                   </option>
-                ))}
-              </select>
-              <small>
-                <Text k="view.display.currency.hint" />
-              </small>
-            </label>
-            <label className="field">
-              <span>
-                <Text k="view.time.zone" />
-              </span>
-              <select
-                aria-label={copyText('view.time.zone')}
-                value={preferences.timeZone}
-                onChange={(event) => {
-                  save({ timeZone: event.target.value as 'UTC' | 'UTC+8' | 'device' });
+                </select>
+                <small>
+                  <Text k="view.daily.labels.independent" />
+                </small>
+              </label>
+            </section>
+            <TradingSettings />
+            <div className="lt-actions">
+              <Button
+                tone="secondary"
+                onClick={() => {
+                  save({
+                    theme: 'dark',
+                    layoutMode: 'simple',
+                    language: 'en',
+                    hideBalances: false,
+                    displayCurrency: 'USD',
+                    phoneChart: 'top',
+                    upColor: 'green',
+                    timeZone: 'device',
+                    dailyStart: 'nativeUTC',
+                    dailyZone: 'America/New_York',
+                    showOrders: true,
+                    showFills: false,
+                    confirmSend: true,
+                    confirmCancel: true,
+                    resetSizeOnSubmit: true,
+                    quickSizes: [],
+                    favoritesView: 'list',
+                  });
                 }}
               >
-                <option value="UTC">UTC</option>
-                <option value="UTC+8">UTC+8</option>
-                <option value="device" lang={copy.forLocale(preferences.language).languageFor('view.device.time.zone')}>
-                  {copyText('view.device.time.zone')}
-                </option>
-              </select>
-              <small>
-                <Text k="view.daily.labels.independent" />
-              </small>
-            </label>
-          </section>
-        </div>
-        <TradingSettings />
-        <div className="actions section">
-          <Button
-            variant="secondary"
-            onClick={() => {
-              save({
-                theme: 'dark',
-                layoutMode: 'simple',
-                language: 'en',
-                hideBalances: false,
-                displayCurrency: 'USD',
-                phoneChart: 'top',
-                upColor: 'green',
-                timeZone: 'device',
-                dailyStart: 'nativeUTC',
-                dailyZone: 'America/New_York',
-                showOrders: true,
-                showFills: false,
-                confirmSend: true,
-                confirmCancel: true,
-                resetSizeOnSubmit: true,
-                quickSizes: [],
-                favoritesView: 'list',
-              });
-            }}
-          >
-            <Text k="view.restore.defaults" />
-          </Button>
-          <p role="status" className="muted">
-            {!currentSave?.language && acknowledgement}
-          </p>
-          {accountStatus === 'not-saved' && (
-            <p role="status" className="muted" data-view-sync="not-saved">
-              <Text k="view.account.sync.not.saved" />
-            </p>
-          )}
-        </div>
-      </Page>
+                <Text k="view.restore.defaults" />
+              </Button>
+              <p role="status" className="lt-hint">
+                {!currentSave?.language && acknowledgement}
+              </p>
+              {accountStatus === 'not-saved' && (
+                <p role="status" className="lt-hint" data-view-sync="not-saved">
+                  <Text k="view.account.sync.not.saved" />
+                </p>
+              )}
+            </div>
+          </>
+        }
+      />
     </div>
   );
 }
 function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
   return (
-    <label className="toggle-row">
-      <span>{label}</span>
-      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
-    </label>
+    <Checkbox checked={checked} onCheckedChange={onChange}>
+      {label}
+    </Checkbox>
   );
 }

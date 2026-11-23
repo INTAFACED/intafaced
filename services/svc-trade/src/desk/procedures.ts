@@ -1,11 +1,14 @@
 import { z } from 'zod';
-import { scopedProcedure, router, TRPCError } from '@intafaced/contracts';
+import { scopedProcedure, router, TRPCError } from '@intafaced/contracts/trpc';
 import { AuthError } from '@intafaced/auth';
 import { InsufficientFundsError } from '@intafaced/ledger-client';
 import type { TradeService } from '../spot/trade-service.js';
 import { TradeError } from '../spot/types.js';
-import { algoListAnswer, rfqBoardAnswer } from './answers.js';
+import { rfqBoardAnswer } from './answers.js';
 import { deskTrpcError } from './errors.js';
+import { TRADE_ALGO_LIST } from '@intafaced/contracts/trade-algo-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { tradeRefusal } from '../record-refusal.js';
 
 async function asTrpc<T>(fn: () => Promise<T>): Promise<T> {
   try {
@@ -37,18 +40,7 @@ function jobsEnabled(): boolean {
 
 export function algoDeskProcedures(trade: TradeService) {
   return {
-    list: scopedProcedure('trade:read')
-      .input(
-        z.object({
-          status: z.string().optional(),
-          kind: z.string().optional(),
-          from: z.string().optional(),
-          limit: z.number().int().optional(),
-          cursor: z.string().optional(),
-        }),
-      )
-      .output(algoListAnswer)
-      .query(({ ctx, input }) => asTrpc(() => trade.algoList(ctx.principal, input))),
+    list: mountRecord(TRADE_ALGO_LIST, ({ ctx, input }) => asTrpc(() => trade.algoList(ctx.principal, input)), tradeRefusal),
 
     reports: scopedProcedure('trade:read')
       .input(z.object({ algoId: z.string().min(1), limit: z.number().int().optional(), cursor: z.string().optional() }))

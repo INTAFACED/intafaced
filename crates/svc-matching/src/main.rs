@@ -1,9 +1,6 @@
-//! The svc-matching process, started as `services/svc-matching/src/index.ts` starts: the journal first, the bus, the
+//! The svc-matching process, started as the TypeScript `index.ts` it replaced started: the journal first, the bus, the
 //! engine, the scrape and `/health`, the doors, then the cold start: replay the journal, confirm every resting order's
 //! ledger hold, and only then listen. Then the expiry sweep; on SIGTERM or SIGINT, the drain.
-//!
-//! The TypeScript service stays the one that runs until the switch; until each slice is ported its calls answer 503
-//! `matching.not_ported`, and a cold start stops on a journal holding what a later slice owns.
 
 use std::collections::BTreeMap;
 use std::process::ExitCode;
@@ -151,6 +148,8 @@ fn serve(
         snapshot_every: u64::try_from(env.int("MATCHING_SNAPSHOT_EVERY").unwrap_or(0)).unwrap_or(0),
         sink: Box::new(MemorySnapshotSink::default()),
         enabled: env.flag("MATCHING_ENGINE_ENABLED"),
+        // `spreadFillPublisherFor(bus)`: spread fills go out on the same bus, as `matching.spread.filled`.
+        spread_fills: true,
     });
 
     let keys = s2s(env)?;
@@ -172,11 +171,13 @@ fn serve(
             edge_secret: env.str("EDGE_PRINCIPAL_SECRET").map(str::to_owned),
             edge_key,
             clock: now_ms,
-            // `createIdentityApprovalClient(IDENTITY_URL, ...)`, or the unwired consumer, which refuses every spend.
+            // `createIdentityApprovalClient(IDENTITY_URL, INTERNAL_SERVICE_SECRET, s2sKey)`, or the unwired consumer,
+            // which refuses every spend.
             approvals: match env.str("IDENTITY_URL") {
                 Some(url) => Box::new(svc_matching::approval::Identity::new(
                     url,
                     &str_of("INTERNAL_SERVICE_SECRET"),
+                    keys.signer.clone(),
                     fetch.clone(),
                     || now_ms().div_euclid(1000),
                 )),

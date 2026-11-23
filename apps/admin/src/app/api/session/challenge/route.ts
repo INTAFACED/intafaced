@@ -4,8 +4,9 @@ import {
   adminSessionConfig,
   adminSessionErrorResponse,
   assertAdminOrigin,
-  founderEdgeCall,
+  founderEdgeRecordCall,
 } from '@/lib/founder-session';
+import { IDENTITY_AUTH_CHALLENGE } from '@intafaced/contracts/identity-auth-procedures';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,7 +18,7 @@ export async function POST(request: Request) {
   try {
     const config = adminSessionConfig();
     assertAdminOrigin(request, config, true);
-    const parsed = signInChallengeSchema.safeParse(await founderEdgeCall(config, 'identity', 'auth.challenge', 'POST', {}));
+    const parsed = signInChallengeSchema.safeParse(await founderEdgeRecordCall(config, IDENTITY_AUTH_CHALLENGE, undefined));
     if (!parsed.success) throw new AdminSessionError('admin.upstream_invalid', 502);
     return Response.json(parsed.data, { headers: { 'cache-control': 'no-store' } });
   } catch (error) {

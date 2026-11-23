@@ -9,7 +9,7 @@ export function RoomSignIn({ children, returnTo }: { children: ReactNode; return
   const current = useReturnLocation();
   return (
     <a
-      className="button button--primary"
+      className="lt-button lt-button-primary"
       href={`/login?redirect=${encodeURIComponent(safeReturnTo(returnTo ?? current))}`}
       onClick={(event) => {
         // Native hashchange is queued; capture again at link activation.

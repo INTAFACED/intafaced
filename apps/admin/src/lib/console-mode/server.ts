@@ -1,6 +1,7 @@
 import 'server-only';
 import { consoleModeSetOutputSchema } from '@intafaced/contracts/ops-console-mode';
-import { type ExecuteFn, type ExecuteReply, explainRefusal, failureRefusal, founderCall, type FounderCallContext } from '@/lib/desk';
+import { type ExecuteFn, type ExecuteReply, explainRefusal, failureRefusal, type FounderCallContext, founderRecordRead } from '@/lib/desk';
+import { OPS_CONSOLE_MODE_SET } from '@intafaced/contracts/ops-console-mode-procedures';
 export { loadConsoleMode, type ConsoleModeRead } from './read';
 
 const WRONG_STATE: ExecuteReply = { ok: false, refusal: explainRefusal('admin.ops_invalid_response', 502, true) };
@@ -13,7 +14,7 @@ export function consoleModeExecute(ctx: FounderCallContext): ExecuteFn {
     }
     const input =
       request.kind === 'ops.console_mode.on' ? { action: request.kind, reason: request.reason, ...ids } : { action: request.kind, ...ids };
-    const result = await founderCall(ctx, 'ops', 'consoleMode.set', 'POST', input, (raw) => {
+    const result = await founderRecordRead(ctx, OPS_CONSOLE_MODE_SET, input, (raw) => {
       const parsed = consoleModeSetOutputSchema.safeParse(raw);
       return parsed.success ? parsed.data : null;
     });

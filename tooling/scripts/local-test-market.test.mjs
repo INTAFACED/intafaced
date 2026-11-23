@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { once } from 'node:events';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -16,6 +17,8 @@ import {
   bandEdgeQuote,
   crossingQuote,
   marketStatus,
+  staleAfterMs,
+  startArgs,
   buildLadder,
   createPriceWalk,
   crossingSide,
@@ -678,6 +681,12 @@ try {
   assert.equal(st.pid, fake.pid);
   assert.equal(marketStatus({ home: sup, now: old.getTime() + 119_000 }).state, 'ok');
   assert.equal(marketStatus({ home: sup, now: old.getTime() + 121_000 }).state, 'stale');
+  // A maker started with a longer interval (the beta's LOCAL_STACK_MARKET_INTERVAL) is stale two minutes past its sleep.
+  assert.equal(staleAfterMs(), 120_000);
+  assert.equal(staleAfterMs(['--interval', '300']), 412_000);
+  assert.deepEqual(startArgs(['--levels', '2'], {}), ['--levels', '2']);
+  assert.deepEqual(startArgs([], { LOCAL_STACK_MARKET_INTERVAL: '300' }), ['--interval', '300']);
+  assert.deepEqual(startArgs(['--interval', '9'], { LOCAL_STACK_MARKET_INTERVAL: '300' }), ['--interval', '9']);
 
   // 9c. Never twice: start and ensure see the running copy and leave its pid alone; a start already in progress also blocks.
   for (const cmd of ['start', 'ensure']) {
@@ -944,15 +953,49 @@ assert.equal(shiftedMid(toScaled('1'), undefined, toScaled('0.0001')), toScaled(
   console.log('local-test-market: stop waits for the market to exit, up to its cap, and fails by name after it');
 }
 
-// The `stop` command itself: when the wait fails, it exits non-zero and names the pid; it never prints success.
+// The `stop` command itself: when the wait fails, it exits non-zero and names the pid; it never prints success. The
+// planted market ignores SIGTERM, and the command runs on a clock that moves 30 s each time it is read, so its 90 s wait
+// runs out in a moment; nothing else in the command reads the clock.
 {
-  const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'local-test-market.mjs'), 'utf8');
-  const stop = src.slice(src.indexOf("if (cmd === 'stop') {"), src.indexOf("if (cmd === 'status') {"));
-  assert.match(
-    stop,
-    /if \(!\(await waitForExit\(\(\) => Boolean\(runningPid\(p\)\)\)\)\)\s+die\(`pid \$\{pid\} is still cancelling orders/,
+  const home = mkdtempSync(join(tmpdir(), 'local-test-market-stop-'));
+  const st = join(home, '.intafaced', 'local-test-stack');
+  mkdirSync(join(st, 'run'), { recursive: true });
+  mkdirSync(join(st, 'logs'), { recursive: true });
+  writeFileSync(join(st, 'LOCAL-TEST-STACK.json'), marker());
+  const fastClock = `data:text/javascript,${encodeURIComponent('const real = Date.now; let skew = 0; Date.now = () => real() + (skew += 30_000);')}`;
+  const stubborn = spawn(
+    process.execPath,
+    ['-e', "process.on('SIGTERM', () => {}); setInterval(() => {}, 1e3)", 'local-test-market.mjs', '__run'],
+    { stdio: 'ignore' },
   );
-  assert.doesNotMatch(stop, /return console\.log\(`pid \$\{pid\} is still cancelling/, 'no exit-0 line while it runs');
+  try {
+    await once(stubborn, 'spawn');
+    const id = readProcessIdentity(stubborn.pid);
+    const rec = {
+      pid: stubborn.pid,
+      startedAt: new Date(id.startedAt).toISOString(),
+      argv: stubborn.spawnargs,
+      kernelStart: id.kernelStart,
+    };
+    writeFileSync(join(st, 'run', 'processes.json'), JSON.stringify({ 'market-maker': rec }));
+    const r = spawnSync(process.execPath, ['--import', fastClock, script, 'stop'], {
+      env: { ...process.env, HOME: home },
+      encoding: 'utf8',
+      timeout: 30_000,
+    });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stderr, new RegExp(`pid ${stubborn.pid} is still cancelling orders after 90 s; it has not stopped`));
+    assert.doesNotMatch(r.stdout, /stopped/, 'no success line while it runs');
+    assert.equal(stubborn.exitCode, null, 'the market is still running');
+    assert.equal(
+      JSON.parse(readFileSync(join(st, 'run', 'processes.json'), 'utf8'))['market-maker']?.pid,
+      stubborn.pid,
+      'a stop that did not stop keeps the record',
+    );
+  } finally {
+    stubborn.kill('SIGKILL');
+    rmSync(home, { recursive: true, force: true });
+  }
   console.log('local-test-market: a stop that times out exits non-zero by name');
 }
 

@@ -1,7 +1,10 @@
-import { z } from 'zod';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import type { Sql } from 'postgres';
 import { syncNavigatorSessionClosed } from './agents/navigator-session-projection-sync.js';
+import { IDENTITY_REVOKE_SESSION_FAMILY } from '@intafaced/contracts/identity-revoke-session-family-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from './record-refusal.js';
+import { IDENTITY_REVOKE_OTHER_SESSIONS } from '@intafaced/contracts/identity-revoke-other-sessions-procedures';
 
 /**
  * Sign-in families (ENGINE SES-1, SES-5). Top-level, not nested under auth, so mergeRouters cannot
@@ -24,10 +27,9 @@ async function closeNavigatorRows(sql: Sql, ids: readonly string[]): Promise<voi
 export function createSessionFamiliesRouter(sql: Sql) {
   return router({
     /** Ends every sign-in except the one making the call. Idempotent: a second call ends nothing. */
-    revokeOtherSessions: scopedProcedure('identity:write')
-      .input(z.object({}).strict())
-      .output(z.object({ revokedFamilies: z.number().int() }).strict())
-      .mutation(async ({ ctx }) => {
+    revokeOtherSessions: mountRecord(
+      IDENTITY_REVOKE_OTHER_SESSIONS,
+      async ({ ctx }) => {
         const own = await callerFamily(sql, ctx.principal.userId, ctx.principal.sid);
         const ended = await sql<Array<{ id: string; family_id: string }>>`
           UPDATE sessions SET revoked = true
@@ -39,13 +41,14 @@ export function createSessionFamiliesRouter(sql: Sql) {
           ended.map((row) => row.id),
         );
         return { revokedFamilies: new Set(ended.map((row) => row.family_id)).size };
-      }),
+      },
+      codedRefusal,
+    ),
 
     /** Ends one sign-in by its family id. Another account's family answers like one that does not exist. */
-    revokeSessionFamily: scopedProcedure('identity:write')
-      .input(z.object({ familyId: z.string().guid() }).strict())
-      .output(z.object({ familyId: z.string().guid(), revoked: z.boolean() }).strict())
-      .mutation(async ({ ctx, input }) => {
+    revokeSessionFamily: mountRecord(
+      IDENTITY_REVOKE_SESSION_FAMILY,
+      async ({ ctx, input }) => {
         const own = await callerFamily(sql, ctx.principal.userId, ctx.principal.sid);
         if (input.familyId === own) {
           throw new TRPCError({
@@ -65,6 +68,8 @@ export function createSessionFamiliesRouter(sql: Sql) {
           ended.map((row) => row.id),
         );
         return { familyId: input.familyId, revoked: ended.length > 0 };
-      }),
+      },
+      codedRefusal,
+    ),
   });
 }

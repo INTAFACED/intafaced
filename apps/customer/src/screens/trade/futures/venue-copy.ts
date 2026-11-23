@@ -19,6 +19,16 @@ export const MARKET_RULE_WORDS = {
   'Stale rule': 'The venue’s rule while its feed is stale',
   'Feed stale notice': '{venue} reports the {symbol} price feed stale. The venue’s own rule: {rule}',
   'Not published': 'not published by this venue',
+  // The order-flow protections on this market (J-derivatives-04 #7): the venue's self-trade rule, and the order rate
+  // that applies where the venue publishes none (the INTAFACED edge's own limit, as it is in force).
+  'Self trade rule': 'When your order meets your own resting order',
+  'Order rate': 'Order rate limit',
+  rate_edge: 'This venue publishes no order rate limit, so the INTAFACED edge limit applies: {max} requests per {window} from one address',
+  rate_edge_off: 'This venue publishes no order rate limit, and the INTAFACED edge limit is switched off, so no limit of ours applies',
+  rate_edge_unknown: 'This venue publishes no order rate limit; the INTAFACED edge did not say its own limit',
+  rate_loading: 'Reading the INTAFACED edge limit',
+  window_seconds: '{n} seconds',
+  window_ms: '{n} milliseconds',
   // A stock perpetual's home market and the venue's off-hours mode (J-derivatives-27): the venue's words, labelled.
   'Home market': 'Home market',
   session_open: '{home}: open, as the venue reports it',

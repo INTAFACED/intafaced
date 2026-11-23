@@ -1,4 +1,4 @@
-import { router, TRPCError, payHaltStatusInputSchema, payHaltStatusSchema } from '@intafaced/contracts';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import {
   PAY_HALTS_HISTORY,
   PAY_HALTS_OPERATOR_STATUS,
@@ -14,8 +14,8 @@ import type { MerchantTeamRead } from '../merchant-team-read.js';
 import { assertMerchantOwnership, type MerchantOwnerLookup } from '../merchant-ownership.js';
 import { founderProcedure } from './founder-procedure.js';
 import { payRefusal } from '../record-refusal.js';
-import { ownMerchantRead } from '../own-merchant-read.js';
 import { hasScope } from '@intafaced/auth';
+import { PAY_PAY_HALTS_STATUS } from '@intafaced/contracts/pay-pay-halts-procedures';
 
 /**
  * `payHalts.*` (W5).
@@ -70,15 +70,13 @@ function mapError(error: unknown): never {
 }
 
 export function createPayHaltsRouter(founderAuthority: FounderAuthority, deps?: PayHaltsDeps) {
-  const read = ownMerchantRead();
   // The founder guard runs before any input is parsed; each operator door is mounted behind it.
   const parts = { refusalOf: payRefusal, founder: founderProcedure(founderAuthority) };
   return router({
     payHalts: router({
-      status: read
-        .input(payHaltStatusInputSchema)
-        .output(payHaltStatusSchema)
-        .query(async ({ ctx, input }) => {
+      status: mountRecord(
+        PAY_PAY_HALTS_STATUS,
+        async ({ ctx, input }) => {
           if (!deps) return unavailable();
           // The platform-wide answer stays with acquiring merchants; an owner still onboarding asks about its own.
           if (!input.merchantId && !hasScope(ctx.principal.scopes, 'pay:read')) {
@@ -101,7 +99,9 @@ export function createPayHaltsRouter(founderAuthority: FounderAuthority, deps?: 
             }
           }
           return deps.store.status(input.merchantId);
-        }),
+        },
+        payRefusal,
+      ),
       operatorStatus: mountRecord(
         PAY_HALTS_OPERATOR_STATUS,
         async () => {

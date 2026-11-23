@@ -15,8 +15,9 @@ import { useWallet } from '../../features/protocol/wallet/WalletProvider';
 import { usePolled } from '../../features/protocol/wallet/use-polled';
 import { useResource } from '../../shared/resource';
 import { useVenueApi } from '../../features/trade/venue/VenueKit';
-import type { VenueVaultHoldings } from '../../features/trade/venue-api';
+import type { VenueStakingAccount, VenueVaultHoldings } from '../../features/trade/venue-api';
 import { formatAmount, parseAmount } from '../../shared/money';
+import { isTestBuild } from '../../shared/test-build';
 import { readWallet, venueRows, type NodeRead, type VenueRow, type WalletRead, type WalletToken } from './where-it-sits';
 import { standing, type PartRead } from './standing';
 
@@ -53,10 +54,18 @@ export function useWalletRead(owner: string, chainId: number) {
  */
 export type VenueVaults = { read: true; asOf: string; holdings: VenueVaultHoldings } | { read: false; detail: string };
 
+/**
+ * The venue's staking read (J-cex-spot-21 #8): its rewards and its queue, with its own time, or why it was not read (a
+ * venue that reports no staking, or one that did not answer). The staked, delegated and unstaking coins themselves are in
+ * the balances' own lock split.
+ */
+export type VenueStakingRead = { read: true; asOf: string; account: VenueStakingAccount } | { read: false; detail: string };
+
 export interface VenueRead {
   asOf: string;
   rows: VenueRow[];
   vaults: VenueVaults;
+  staking: VenueStakingRead;
 }
 
 /** The venue account: the venue's balances with the open orders that lock them, its vault positions, and its times. */
@@ -64,10 +73,11 @@ export function useVenueRead(owner: string) {
   const venue = useVenueApi();
   return usePolled<VenueRead>(
     async (signal) => {
-      const [balances, orders, vaults] = await Promise.all([
+      const [balances, orders, vaults, staking] = await Promise.all([
         venue.balances(owner, signal),
         venue.openOrders(owner, signal),
         venue.vaultHoldings(owner, signal),
+        venue.stakingAccount(owner, signal),
       ]);
       if (!balances.ok) return balances;
       if (!orders.ok) return orders;
@@ -79,6 +89,9 @@ export function useVenueRead(owner: string) {
           vaults: vaults.ok
             ? { read: true, asOf: vaults.data.asOf, holdings: vaults.data.value }
             : { read: false, detail: vaults.message ?? '' },
+          staking: staking.ok
+            ? { read: true, asOf: staking.data.asOf, account: staking.data.value }
+            : { read: false, detail: staking.message ?? '' },
         },
       };
     },
@@ -174,7 +187,9 @@ export function useStanding(
   const { prices, failed } = useValuationPrices();
   const result = standing(
     [
-      { id: 'wallet', label: names.network, read: walletPart(wallet) },
+      // On a test build the wallet's chain and the partner are the stack's TEST adapters (J-home-ia-11 #3): their figures are
+      // TEST figures, as every amount on a test build is. The venue says so itself.
+      { id: 'wallet', label: names.network, read: walletPart(wallet), test: isTestBuild() },
       { id: 'venue', label: names.venue, read: venuePart(venue), test: names.venueTest },
       ...(partner.state === 'none'
         ? []
@@ -182,6 +197,7 @@ export function useStanding(
             {
               id: 'partner' as const,
               label: partner.state === 'read' ? partner.label : '',
+              test: isTestBuild(),
               read: partner.state === 'read' ? { state: 'read' as const, asOf: partner.asOf, rows: partner.rows } : partner,
             },
           ]),

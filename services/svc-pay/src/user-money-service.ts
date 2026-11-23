@@ -32,12 +32,9 @@ import {
   type WithdrawalAllowanceView,
   type WithdrawalLimitReader,
 } from './limits/reader.js';
-import {
-  bankInternalWithdrawalInputSchema,
-  internalWithdrawalTransferId,
-  type BankInternalWithdrawalPort,
-  asAssetId,
-} from '@intafaced/contracts';
+import type { BankInternalWithdrawalPort } from '@intafaced/contracts';
+import { asAssetId } from '@intafaced/contracts/asset-id';
+import { bankInternalWithdrawalInputSchema, internalWithdrawalTransferId } from '@intafaced/contracts/bank-internal-withdrawal';
 import {
   INTERNAL_RAIL,
   publicUnavailableReason,
@@ -870,9 +867,22 @@ export class UserMoneyService {
           // anything else leaves the hold and answers outcome-unknown.
           let queriedRef: string | null = null;
           if (railRetryWhileRequested(prior[0]?.outcome) === 'unknown') {
-            const queried = await this.queryRequestedWithdrawal(adapter, instruction, claimed.id);
-            if (queried.status === 'not_sent') {
-              const code = 'rail.not_sent';
+            let queried = await this.queryRequestedWithdrawal(adapter, instruction, claimed.id);
+            // A send the chain mined and reverted moved nothing, so it never settles. Under the advance worker it is taken
+            // on as accepted, and the depth read below gives the hold back at the owner's settle depth (ENGINE W-3). Without
+            // it, the hold goes back once the revert is final on the rail, and stays until then.
+            if (queried.status === 'reverted') {
+              if (this.confirmLater && confirmsAtDepth && claimed.networkId !== null) {
+                queried = { status: 'sent', railRef: queried.railRef };
+              } else if (!queried.final) {
+                throw new PayError('The chain reverted the requested attempt, not final yet; the hold stays', 'pay.rail_outcome_unknown', {
+                  withdrawalId: claimed.id,
+                  state: 'requested',
+                });
+              }
+            }
+            if (queried.status === 'not_sent' || queried.status === 'reverted') {
+              const code = queried.status === 'reverted' ? 'rail.reverted' : 'rail.not_sent';
               await connection`
             UPDATE pay.withdrawal_rail_attempts SET outcome = 'refused'
              WHERE withdrawal_id = ${claimed.id} AND attempt = ${attempt} AND outcome = 'requested'
@@ -884,10 +894,16 @@ export class UserMoneyService {
           `;
               await this.finalizeRailRefusal({ ...claimed, failureCode: code }, code, connection);
               await this.noteUserWithdrawal(connection, claimed, 'refused', code, `withdraw:${claimed.id}:${attempt}`);
-              throw new PayError('Rail status query confirmed the withdrawal was not sent', 'pay.rail_failed', {
-                failureCode: code,
-                withdrawalId: claimed.id,
-              });
+              throw new PayError(
+                code === 'rail.reverted'
+                  ? 'The chain reverted the send; the hold went back'
+                  : 'Rail status query confirmed the withdrawal was not sent',
+                'pay.rail_failed',
+                {
+                  failureCode: code,
+                  withdrawalId: claimed.id,
+                },
+              );
             }
             await connection`
           UPDATE pay.withdrawal_rail_attempts SET outcome = 'accepted', rail_ref = ${queried.railRef}
@@ -1499,7 +1515,7 @@ export class UserMoneyService {
     adapter: RailAdapter,
     instruction: SettlementInstruction,
     withdrawalId: string,
-  ): Promise<{ status: 'sent'; railRef: string } | { status: 'not_sent' }> {
+  ): Promise<{ status: 'sent'; railRef: string } | { status: 'not_sent' } | { status: 'reverted'; railRef: string; final: boolean }> {
     const unknown = (message: string): never => {
       throw new PayError(message, 'pay.rail_outcome_unknown', { withdrawalId, state: 'requested' });
     };
@@ -1513,6 +1529,10 @@ export class UserMoneyService {
       return unknown('Rail status query failed for the requested attempt; the hold stays');
     }
     if (queried.status === 'not_sent') return { status: 'not_sent' };
+    if (queried.status === 'reverted') {
+      if (!queried.railRef.trim()) return unknown('Rail reported a revert with no reference; the hold stays');
+      return { status: 'reverted', railRef: queried.railRef, final: queried.final };
+    }
     if (queried.status !== 'sent') return unknown('Rail cannot say whether the requested attempt was sent; the hold stays');
     if (
       !queried.railRef?.trim() ||

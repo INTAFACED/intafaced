@@ -83,8 +83,11 @@ async function mount(panel: 'book' | 'send') {
   });
 }
 const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
-const input = (label: string) =>
-  [...host.querySelectorAll('label.field')].find((l) => l.querySelector('span')?.textContent === label)!.querySelector('input')!;
+/** The input a field's label names, whichever kit drew the field: the label wraps it, or points at it. */
+const input = (label: string) => {
+  const found = [...host.querySelectorAll('label')].find((l) => (l.querySelector('span') ?? l).textContent === label)!;
+  return (found.querySelector('input') ?? host.ownerDocument.getElementById(found.htmlFor)) as HTMLInputElement;
+};
 function type(field: HTMLInputElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
   setter.call(field, value);

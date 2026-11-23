@@ -8,14 +8,14 @@
  */
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
-import {
-  statusPageConfigureKey,
-  type NoticeCategory,
-  type StatusComponentDefinition,
-  type StatusPageConfigureInput,
-  type StatusPageErrorCode,
-  type StatusReadingState,
+import type {
+  NoticeCategory,
+  StatusComponentDefinition,
+  StatusPageConfigureInput,
+  StatusPageErrorCode,
+  StatusReadingState,
 } from '@intafaced/contracts';
+import { statusPageConfigureKey } from '@intafaced/contracts/status-page';
 
 /** Readings ahead of the service clock by more than this are refused: a source cannot report the future. */
 export const STATUS_READING_SKEW_MS = 60_000;

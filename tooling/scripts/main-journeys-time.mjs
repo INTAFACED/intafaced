@@ -13,6 +13,7 @@
 //   wall         created -> last job ended.
 // Read only: it calls `gh api` and writes nothing.
 
+import { runJobsSync } from '../ci/run-jobs.mjs';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
@@ -116,12 +117,8 @@ async function main(argv) {
   }
   const rows = [];
   for (const run of runs) {
-    const jobs = [];
-    for (let page = 1; ; page += 1) {
-      const got = gh(`repos/${r}/actions/runs/${run.id}/attempts/1/jobs?per_page=100&page=${page}`).jobs;
-      jobs.push(...got);
-      if (got.length < 100) break;
-    }
+    const jobs = runJobsSync(`repos/${r}/actions/runs/${run.id}/attempts/1/jobs`, gh);
+    if (!jobs) throw new Error(`run ${run.id}'s jobs: not a list`);
     rows.push(runTimes(run, jobs));
   }
   const s = summarise(rows);
