@@ -234,12 +234,21 @@ function Part({ part, hidden, t, asOfText }: { part: ValuedPart; hidden: boolean
         {part.test ? (
           <>
             {' '}
-            <span className="lt-test">{t('TEST')}</span>
+            <span className="lt-test" data-testid="standing-part-test">
+              {t('TEST')}
+            </span>
           </>
         ) : null}
       </span>
       <span className="lt-hint">
         <span data-testid="standing-part-source">{t(PART_SOURCE[part.id])}</span>
+        {/* A TEST part names the TEST adapter its figures come from (J-home-ia-11 #3): the source's own name. */}
+        {part.test && part.label ? (
+          <>
+            {', '}
+            <span data-testid="standing-part-adapter">{t('Source TEST adapter', { name: part.label })}</span>
+          </>
+        ) : null}
         {held !== null && held !== 'unknown' && part.asOf ? (
           <>
             {' · '}
