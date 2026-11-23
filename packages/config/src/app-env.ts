@@ -51,3 +51,28 @@ export function isUserAssignedRegionCode(code: string): boolean {
   if (upper === 'XK') return false;
   return upper === 'AA' || upper === 'ZZ' || /^Q[M-Z]$/.test(upper) || /^X[A-Z]$/.test(upper);
 }
+
+/**
+ * THE BETA POSTURE (owner decision, 23 Nov 2026): a hosted beta on real TEST networks. It is `APP_ENV=staging` plus
+ * `INTAFACED_BETA_POSTURE=test-networks`, so everything staging enforces stays in force (production posture: no dev
+ * keys, real generated secrets, blank values refuse, screening fail-closed). The one thing it opens is TEST networks
+ * and labelled TEST stand-ins; `assertBetaPosture` (beta-posture.ts) refuses to boot it with any mainnet, real bank or
+ * real card route configured. Any other value of the switch, or the switch under another APP_ENV, refuses to boot.
+ */
+export const BETA_POSTURE_ENV = 'INTAFACED_BETA_POSTURE' as const;
+export const BETA_POSTURE_VALUE = 'test-networks' as const;
+
+/** True only when the RAW `APP_ENV` is exactly `staging` and the beta switch is exactly `test-networks`. */
+export function isBetaPosture(appEnv: string | null | undefined, betaPosture: string | null | undefined): boolean {
+  return appEnv === 'staging' && betaPosture === BETA_POSTURE_VALUE;
+}
+
+/** `isBetaPosture` over the RAW env map (defaults to `process.env`). */
+export function isBetaPostureEnv(env: Record<string, string | undefined> = process.env): boolean {
+  return isBetaPosture(env.APP_ENV, env[BETA_POSTURE_ENV]);
+}
+
+/** True when a TEST network or a labelled TEST stand-in may run: explicit dev/test, or the beta posture. */
+export function testNetworksAllowed(env: Record<string, string | undefined> = process.env): boolean {
+  return isExplicitDevOrTest(env.APP_ENV) || isBetaPostureEnv(env);
+}

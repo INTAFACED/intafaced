@@ -384,7 +384,7 @@ describe('svc-pay list/history limit unset refuse', () => {
     expect(subRouter).toContain('limit: input.limit');
     expect(subRouter).not.toMatch(/\?\? 50/);
     const cyclesProc = subRouter.slice(
-      subRouter.lastIndexOf('cycles: ownMerchantRead'),
+      subRouter.lastIndexOf('cycles: mountRecord'),
       subRouter.lastIndexOf('export type SubscriptionRouter'),
     );
     expect(cyclesProc).toContain('listCycles(input.subscriptionId, { limit: input.limit })');

@@ -7,7 +7,7 @@ import {
   type SandboxKeyCreateOutput,
   type SandboxList,
 } from '@intafaced/contracts/developer-sandboxes';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import { DataTable, EmptyState, Failure, Field, Loading, Page } from '../../../shared/ui';
 import { useResource } from '../../../shared/resource';
 import { useSession } from '../../session';
@@ -25,7 +25,7 @@ function SignedOut({ t, back }: { t: T; back: string }) {
       <EmptyState
         title={t('signedOutTitle')}
         action={
-          <a className="button button--primary" href={`/login?redirect=${encodeURIComponent(back)}`}>
+          <a className="lt-button lt-button-primary" href={`/login?redirect=${encodeURIComponent(back)}`}>
             {t('signIn')}
           </a>
         }
@@ -68,7 +68,7 @@ function CreateForm({ listed, onMade, t }: { listed: SandboxList['sandboxes']; o
       />
       {refused ? <Refused failure={refused} t={t} /> : null}
       {said ? <p role="status">{said}</p> : null}
-      <Button type="submit" disabled={busy}>
+      <Button tone="primary" type="submit" disabled={busy}>
         {busy ? t('submitting') : t('submit')}
       </Button>
     </form>
@@ -112,7 +112,7 @@ function SandboxList() {
                   {resource.data.sandboxes.map((sandbox) => (
                     <tr key={sandbox.id} data-sandbox-id={sandbox.id}>
                       <td>
-                        <a className="text-link" href={`/developers/sandbox/${sandbox.id}`}>
+                        <a className="lt-link" href={`/developers/sandbox/${sandbox.id}`}>
                           <bdi lang="und">{sandbox.name}</bdi>
                         </a>
                       </td>
@@ -154,7 +154,7 @@ function SandboxRead({ id, children }: { id: string; children: (detail: SandboxD
           <EmptyState
             title={t('notFoundTitle')}
             action={
-              <a className="text-link" href="/developers/sandbox">
+              <a className="lt-link" href="/developers/sandbox">
                 {t('back')}
               </a>
             }
@@ -186,7 +186,7 @@ function ShownOnce({ made, sandboxId, t }: { made: Made; sandboxId: string; t: T
       </output>
       <BaseUrl baseUrl={made.baseUrl} t={t} />
       <Button
-        variant="secondary"
+        tone="secondary"
         onClick={() => {
           const write = navigator.clipboard?.writeText(made.key) ?? Promise.reject(new Error('no clipboard'));
           write.then(
@@ -201,7 +201,7 @@ function ShownOnce({ made, sandboxId, t }: { made: Made; sandboxId: string; t: T
       <label>
         <input type="checkbox" checked={stored} onChange={(event) => setStored(event.currentTarget.checked)} /> {t('stored')}
       </label>
-      <Button disabled={!stored} onClick={() => window.location.assign(`/developers/sandbox/${sandboxId}`)}>
+      <Button tone="primary" disabled={!stored} onClick={() => window.location.assign(`/developers/sandbox/${sandboxId}`)}>
         {t('done')}
       </Button>
     </section>
@@ -249,7 +249,7 @@ function KeyForm({ detail, t }: { detail: SandboxDetail; t: T }) {
   return (
     <form className="apps-form" onSubmit={submit} noValidate aria-labelledby="sandbox-key-form">
       <h2 id="sandbox-key-form">{t('keyFormHeading')}</h2>
-      <p className="muted">{t('keyFormLead')}</p>
+      <p className="lt-muted">{t('keyFormLead')}</p>
       <Field
         label={t('keyName')}
         value={name}
@@ -264,13 +264,13 @@ function KeyForm({ detail, t }: { detail: SandboxDetail; t: T }) {
             <input type="radio" name="preset" checked={preset === choice} onChange={() => setPreset(choice)} /> {t(labels[choice])}
           </label>
         ))}
-        <p className="muted">
+        <p className="lt-muted">
           {t(notes[preset])} <code lang="und">{KEY_PRESETS[preset].join(' ')}</code>
         </p>
       </fieldset>
       {refused ? <Refused failure={refused} t={t} /> : null}
       {replayed ? <p role="status">{replayed}</p> : null}
-      <Button type="submit" disabled={busy}>
+      <Button tone="primary" type="submit" disabled={busy}>
         {busy ? t('working') : t('submitPasskey')}
       </Button>
     </form>

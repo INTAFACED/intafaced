@@ -7,7 +7,7 @@
     reason = "a test: a failure is the point"
 )]
 
-mod common;
+use crate::common;
 
 use std::collections::HashMap;
 
@@ -28,7 +28,7 @@ use svc_tax::venue_book::{
 };
 
 const OWNER: &str = "0x00000000000000000000000000000000000000a1";
-const ONE: Amount = 1_000_000_000_000_000_000;
+const ONE: Amount = Amount::whole(1);
 
 fn account() -> String {
     format!("venue:test-venue:{OWNER}")
@@ -192,19 +192,36 @@ fn expected_realised(buys: &[VenueFill], sells: &[VenueFill]) -> String {
         .iter()
         .map(|f| {
             (
-                u(&f.amount) - if f.fee_asset == "BTC" { u(&f.fee) } else { 0 },
-                usd(&f.price, &f.amount) + if f.fee_asset == "USDC" { u(&f.fee) } else { 0 },
+                u(&f.amount)
+                    - if f.fee_asset == "BTC" {
+                        u(&f.fee)
+                    } else {
+                        Amount::ZERO
+                    },
+                usd(&f.price, &f.amount)
+                    + if f.fee_asset == "USDC" {
+                        u(&f.fee)
+                    } else {
+                        Amount::ZERO
+                    },
             )
         })
         .collect();
     let mut left: Amount = sells.iter().map(|f| u(&f.amount)).sum();
     let proceeds: Amount = sells
         .iter()
-        .map(|f| usd(&f.price, &f.amount) - if f.fee_asset == "USDC" { u(&f.fee) } else { 0 })
+        .map(|f| {
+            usd(&f.price, &f.amount)
+                - if f.fee_asset == "USDC" {
+                    u(&f.fee)
+                } else {
+                    Amount::ZERO
+                }
+        })
         .sum();
-    let mut used = 0;
+    let mut used = Amount::ZERO;
     for (qty, cost) in lots {
-        if left == 0 {
+        if left == Amount::ZERO {
             break;
         }
         let take = left.min(qty);
@@ -234,7 +251,7 @@ fn ledger_fill(tx: &str, at: &str, received: (&str, &str), paid: (&str, &str)) -
             asset_id: paid.0.to_owned(),
             amount: u(paid.1),
         }),
-        fee: Some(0),
+        fee: Some(Amount::ZERO),
         fee_asset_id: None,
     }
 }
@@ -386,7 +403,7 @@ fn after_the_sale_the_result_is_fifo_over_the_venue_fills() {
     );
     let open: Vec<_> = list(&j, "lots")
         .iter()
-        .filter(|l| u(&text(l, "remaining").unwrap()) > 0)
+        .filter(|l| u(&text(l, "remaining").unwrap()) > Amount::ZERO)
         .map(|l| (text(l, "id"), text(l, "remaining")))
         .collect();
     assert_eq!(

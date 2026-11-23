@@ -1,13 +1,16 @@
 // World: book, restart
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { journeyState, toUnits } from './stack.mjs';
+import { MINUTE, minuteStart, utcDay } from './clock.mjs';
 import { signUp, verify } from './desk.mjs';
 import { partnerBookMoves, partnerMainBalance, personDoor } from './person-door.mjs';
+import { staffDoors } from './bank-desk.mjs';
+import { ADMIN } from './admin.mjs';
 import { CHAIN_ID, connectWhenAsked } from './dex.mjs';
 import { installTestWallet, testWalletKey } from './test-wallet.mjs';
-import { otherTraderKey, sameDecimal, testDeposit, venueForThisFile, venueRecord } from './venue.mjs';
+import { doorOk, otherTraderKey, sameDecimal, testDeposit, venueForThisFile, venueRecord, walletDoorAct } from './venue.mjs';
 import { signedOnVenue, venueAt, venueNow } from './venue-door.mjs';
 
 // J-derivatives-26, in the running app (docs/roadmap/journeys.json): my spending money stays untouched when my cross
@@ -29,6 +32,8 @@ const VENUE_USDC = '300';
 const PAID_IN = '500';
 const TO_SPACE = '100';
 const MAIN_LEFT = '400';
+const CARD_PAY = '20';
+const AFTER_CARD = '380';
 const SPACE_NAME = 'TEST Savings';
 const LONG = '50';
 const runId = process.env.JOURNEY_RUN_ID ?? 'local';
@@ -39,6 +44,7 @@ test.describe.configure({ mode: 'default' });
 venueForThisFile(test);
 
 const one = personDoor(J, run, test);
+const { cardEvent } = staffDoors();
 const two = personDoor(`${J} #6`, second, test);
 
 // ── the TEST venue ──
@@ -115,15 +121,31 @@ async function startsFor(page, door, store, tag) {
     clientOrderKey: `order:${tag}:${randomBytes(4).toString('hex')}:ask`,
     builderFee: null,
   });
+  // The person's own actions go through our door, signed by their wallet, as the app sends them: the door then knows
+  // this venue account is theirs (the founder's read in #8 finds it there). A market listed a moment ago may not be in
+  // the door's list yet, so the same action, under the same key, is asked again until the door takes it.
   const key = privateKeyToAccount(walletKey);
-  await signedOnVenue(venue, key, cross);
-  await signedOnVenue(venue, key, {
-    ...ask,
-    side: 'buy',
-    timeInForce: 'IOC',
-    reduceOnly: false,
-    clientOrderKey: `order:${tag}:${randomBytes(4).toString('hex')}:open`,
-    builderFee: null,
+  const session = await door.door();
+  await expect(() => walletDoorAct(session, key, { intent: cross, actionKey: `leverage:${owner}:${XCRS}:cross` })).toPass({
+    timeout: 30_000,
+    intervals: [2_000],
+  });
+  // Our builder fee rides on every order sent through the door: the wallet approves it once on the account.
+  const status = doorOk(await session.get('/api/v1/venue/status'));
+  expect(status.builder, 'the TEST builder fee is set on the door').toBeTruthy();
+  await walletDoorAct(session, key, {
+    intent: { kind: 'approve_builder_fee', builder: status.builder.address, maxFeeBps: status.builder.feeBps },
+    actionKey: `approve-builder:${owner}:${tag}`,
+  });
+  await walletDoorAct(session, key, {
+    intent: {
+      ...ask,
+      side: 'buy',
+      timeInForce: 'IOC',
+      reduceOnly: false,
+      clientOrderKey: `order:${tag}:${randomBytes(4).toString('hex')}:open`,
+      builderFee: null,
+    },
   });
   const position = (await venueRecord(owner, '/positions')).value.find((p) => p.symbol === XCRS);
   expect(position).toMatchObject({ side: 'long', marginMode: 'cross' });
@@ -204,6 +226,8 @@ test(`${J} #1 waits while the TEST mark moves against the long, to below the acc
   await expect(cross.locator('[data-line="ratio"] dd')).toHaveText(venueSays.marginRatio.value);
   await expect(cross.locator('[data-line="equity"]')).toHaveAttribute('data-value', venueSays.equity);
   await expect(cross.locator('[data-line="maintenance"]')).toHaveAttribute('data-value', venueSays.maintenanceMargin);
+  // The venue's margin-call reading, for the founder's ratio history in #8.
+  run.write({ marginCall: { ratio: venueSays.marginRatio.value, equity: venueSays.equity, maintenance: venueSays.maintenanceMargin } });
   // Nothing moved: the venue holds what it held, and spending reads as before, from the partner.
   expect(await usdcOn(owner)).toEqual(usdcBefore);
   expect(await liquidationsOf(owner)).toEqual([]);
@@ -297,6 +321,40 @@ test(`${J} #4 opens the spending balances: the partner balance 400.00 and the sp
   expect(await (await one.door()).balances()).toEqual(ledger);
 });
 
+test(`${J} #5 pays TEST 20.00 by card right after the liquidation (TEST partner card network call): the partner's TEST card approves from the partner balance, which reads 380.00 as the partner reports it`, async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  const { owner, userId, cardId, spaceId, ledger } = run.read();
+  // Right after the liquidation #3 saw: the venue closed the account once.
+  expect(await liquidationsOf(owner)).toHaveLength(1);
+  expect(sameDecimal(await partnerMain(userId), MAIN_LEFT)).toBe(true);
+  // The TEST partner card network's authorisation, through the bank's card door as card-sim takes it. Its reference is
+  // the card's own, so a retry of this step is the same payment, decided once.
+  const payment = { cardId, authorizationRef: `${J}-5-${cardId}`.slice(0, 64), amount: CARD_PAY };
+  expect(await cardEvent('bank.card_authorize', 'ops.cardAuthorize', payment)).toMatchObject({ decision: 'approved', declineCode: null });
+  // Approved from the partner balance: the partner's own book reads 380 in the account, and holds the 20 for the card.
+  expect(sameDecimal(await partnerMain(userId), AFTER_CARD)).toBe(true);
+  const cardMoves = (await partnerMoves(userId)).filter((m) => m.key.startsWith('card.partner.'));
+  expect(cardMoves).toMatchObject([
+    { from: { owner: userId, assetId: 'USDC', spaceId: null }, to: { owner: 'partner:card-holds' }, amount: CARD_PAY },
+  ]);
+  expect(await partnerSpace(userId, spaceId)).toBe(toUnits(TO_SPACE));
+  // The card's figures, from the partner: 380 available, 20 held.
+  const held = await one.bankGet('cards.partnerHeld', { cardId, limit: 1 });
+  expect(held.heldBy).toBe('partner');
+  expect(sameDecimal(held.figures.available, AFTER_CARD)).toBe(true);
+  expect(sameDecimal(held.figures.held, CARD_PAY)).toBe(true);
+  // The person reads it in their spending balances, as the partner reports it; the space is untouched.
+  await openAccount(page, one, run);
+  await expect(mainCell(page)).toHaveText('380.00 USDC', { timeout: 30_000 });
+  await expect(spaceCell(page, spaceId)).toHaveText('100.00 USDC');
+  const spaces = await one.bankGet('spaces.list', { limit: 200 });
+  expect(sameDecimal(spaces.find((s) => s.kind === 'primary' && s.assetId === 'USDC').balance, AFTER_CARD)).toBe(true);
+  // The partner holds the money: our ledger posts nothing for the card payment.
+  expect(await (await one.door()).balances()).toEqual(ledger);
+});
+
 test(`${J} #6 for the second TEST person, the mark gaps past the account's bankruptcy level in one step: the venue account ends at 0.00 and never below, as the venue reports it; any shortfall is the venue's under its own rules and INTAFACED posts nothing; that person's spending balances are unchanged`, async ({
   page,
 }) => {
@@ -328,4 +386,160 @@ test(`${J} #6 for the second TEST person, the mark gaps past the account's bankr
   await spendingUntouched(page, second);
   // INTAFACED posts nothing.
   expect(await (await two.door()).balances()).toEqual(ledger);
+});
+
+/** The file a Playwright download saved, as text. */
+async function downloaded(saved) {
+  const stream = await saved.createReadStream();
+  const parts = [];
+  for await (const chunk of stream) parts.push(chunk);
+  return Buffer.concat(parts).toString('utf8');
+}
+/** A statement file's rows, by column name. The venue's ids, symbols and decimals hold no comma or quote. */
+function csvRows(text) {
+  const [head, ...lines] = text.trimEnd().split('\n');
+  const cols = head.split(',');
+  return lines.map((line) => Object.fromEntries(line.split(',').map((v, i) => [cols[i], v])));
+}
+
+test(`${J} #7 opens the trading account statement: the venue's liquidation and fee, with the venue's ids`, async ({
+  page,
+  stepPicture,
+}) => {
+  test.setTimeout(300_000);
+  const { owner, ledger } = run.read();
+  // The one liquidation #3 saw, as the venue reports it.
+  const [liquidation, ...more] = await liquidationsOf(owner);
+  expect(more, 'the venue liquidated the account once').toEqual([]);
+  expect(liquidation.parts.length).toBeGreaterThan(0);
+  const lastPart = Math.max(...liquidation.parts.map((p) => Date.parse(p.liquidatedAt)));
+  // A statement that ends today ends at the last whole minute that has been over for a minute: wait until that end is
+  // past the liquidation, so it is inside the range.
+  await expect.poll(() => minuteStart(Date.now() - MINUTE), { timeout: 130_000, intervals: [1000] }).toBeGreaterThan(lastPart);
+  const today = utcDay(lastPart);
+
+  await openAccount(page, one, run);
+  const statement = page.getByTestId('trading-statement');
+  const venue = await venueNow();
+  await expect(statement).toContainText(`liquidations and money movements for the days you pick, as ${venue.name} records them.`);
+  await statement.getByLabel('From', { exact: true }).fill(today);
+  await statement.getByLabel('To (included)', { exact: true }).fill(today);
+  const asked = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/statements' && r.request().method() === 'POST');
+  await statement.getByRole('button', { name: 'Make statement', exact: true }).click();
+  const job = await (await asked).json();
+  expect(job).toMatchObject({ status: 'finished', owner, from: `${today}T00:00:00.000Z` });
+  expect(job.rows.liquidations).toBe(liquidation.parts.length);
+  await expect(statement.getByTestId('statement-job')).toHaveText(
+    `Statement ${job.id}: ${job.rows.orders} orders, ${job.rows.trades} trades, ${liquidation.parts.length} liquidation parts and ${job.rows.movements} money movements, from ${venue.name}’s records.`,
+    { timeout: 30_000 },
+  );
+
+  // The statement shows each part of the venue's liquidation, with its fee and the venue's part and liquidation ids.
+  const shown = statement.getByTestId('statement-liquidations');
+  await expect(shown).toContainText(`${liquidation.parts.length} liquidation parts, with ${venue.name}’s fee and ids:`);
+  await expect(shown.locator('tr[data-part]')).toHaveCount(liquidation.parts.length);
+  for (const part of liquidation.parts) {
+    const row = shown.locator(`tr[data-part="${part.partId}"]`);
+    await expect(row.locator('[data-cell="id"]')).toHaveText(part.partId);
+    await expect(row.locator('[data-cell="liquidation"]')).toHaveText(liquidation.liquidationId);
+    await expect(row.locator('[data-cell="market"]')).toHaveText(`${XCRS} · ${liquidation.side}`);
+    await expect.poll(async () => sameDecimal(await row.locator('[data-cell="size"]').innerText(), part.size)).toBe(true);
+    await expect.poll(async () => sameDecimal(await row.locator('[data-cell="price"]').innerText(), part.price)).toBe(true);
+    await expect(row.locator('[data-cell="fee"]')).toHaveText(new RegExp(` ${part.feeAsset}$`));
+    await expect.poll(async () => sameDecimal((await row.locator('[data-cell="fee"]').innerText()).split(' ')[0], part.fee)).toBe(true);
+  }
+  await stepPicture();
+
+  // The file itself, the one the job fingerprinted, lists exactly the venue's parts with the venue's fee and ids.
+  const download = page.waitForEvent('download');
+  await statement.getByRole('button', { name: 'Download', exact: true }).click();
+  const saved = await download;
+  expect(saved.suggestedFilename()).toBe(`statement-${today}-${today}.csv`);
+  const text = await downloaded(saved);
+  expect(createHash('sha256').update(text, 'utf8').digest('hex')).toBe(job.sha256);
+  const rows = csvRows(text).filter((r) => r.record === 'liquidation');
+  expect(rows.map((r) => r.id).sort()).toEqual(liquidation.parts.map((p) => p.partId).sort());
+  for (const part of liquidation.parts) {
+    const row = rows.find((r) => r.id === part.partId);
+    expect(row).toMatchObject({ source: venue.name, market: XCRS, side: liquidation.side, source_ref: liquidation.liquidationId });
+    expect(sameDecimal(row.fee, part.fee) && row.fee_asset === part.feeAsset).toBe(true);
+    expect(sameDecimal(row.amount, part.size) && sameDecimal(row.price, part.price)).toBe(true);
+  }
+  // A statement moves nothing, and our ledger posted nothing for the liquidation.
+  expect(await (await one.door()).balances()).toEqual(ledger);
+});
+
+test(`${J} #8 a founder opens /trade-ops/accounts: the person's venue account with its ratio history and their partner balance side by side, read-only, each with its source and as-of time`, async ({
+  founders,
+  stepPicture,
+}) => {
+  test.setTimeout(300_000);
+  const { owner, userId, spaceId, ledger, marginCall } = run.read();
+  expect(marginCall, '#1 kept the venue’s margin-call reading').toBeTruthy();
+  const venue = await venueNow();
+  // What each source reports now: the venue's margin summary, and the partner's own book and label.
+  const summary = (await venueRecord(owner, '/account-summary')).value;
+  const partnerLabel = (await one.bankGet('spaces.list', { limit: 200 })).find((x) => x.kind === 'primary' && x.assetId === 'USDC').heldAt
+    .label;
+  const mainNow = await partnerMain(userId);
+  expect(sameDecimal(mainNow, AFTER_CARD)).toBe(true);
+
+  const { page } = await founders.console('a');
+  await page.goto(`${ADMIN}/trade-ops/accounts`);
+  await page.getByLabel('Person (user id)', { exact: true }).fill(userId);
+  await page.getByRole('button', { name: 'Look up', exact: true }).click();
+  const room = page.getByTestId('accounts-side-by-side');
+  await expect(room).toHaveAttribute('data-user', userId, { timeout: 30_000 });
+
+  // The venue side: the person's own venue account, its margin now as the venue reports it, with the venue as source.
+  const venueSide = room.getByTestId('venue-side');
+  await expect(venueSide.getByTestId('venue-source')).toHaveAttribute('data-source', venue.name);
+  const account = venueSide.locator(`[data-testid="venue-account"][data-owner="${owner}"]`);
+  await expect(venueSide.getByTestId('venue-account')).toHaveCount(1);
+  await expect(account).toHaveCount(1);
+  const now = account.getByTestId('venue-now');
+  await expect(now.locator('[data-cell="state"]')).toHaveText(
+    summary.cross ? (summary.cross.state === 'healthy' ? 'Healthy' : 'Margin call') : 'No cross position',
+  );
+  await expect
+    .poll(async () => sameDecimal((await now.locator('[data-cell="equity"]').innerText()).split(' ')[0], (summary.cross ?? summary).equity))
+    .toBe(true);
+  await expect(now.locator('[data-cell="as-of"]')).toHaveText(/^\d{4}-\d\d-\d\dT/);
+  // The ratio history, newest first, each reading the venue's with its time: it holds the margin call #1 saw, exact, and
+  // the healthy account before it.
+  const history = account.getByTestId('ratio-history').locator('tbody tr');
+  await expect(history.first()).toBeVisible();
+  const rows = await history.evaluateAll((trs) =>
+    trs.map((tr) =>
+      Object.fromEntries([...tr.querySelectorAll('[data-cell]')].map((td) => [td.getAttribute('data-cell'), td.textContent])),
+    ),
+  );
+  const times = rows.map((r) => Date.parse(r['as-of']));
+  expect(times.every((t) => Number.isFinite(t))).toBe(true);
+  expect([...times].sort((a, b) => b - a)).toEqual(times);
+  expect(rows.every((r) => r.source === venue.name)).toBe(true);
+  const called = rows.filter((r) => r.state === 'Margin call');
+  expect(called.some((r) => sameDecimal(r.ratio, marginCall.ratio) && sameDecimal(r.equity.split(' ')[0], marginCall.equity))).toBe(true);
+  const firstCall = Math.min(...called.map((r) => Date.parse(r['as-of'])));
+  expect(rows.some((r) => r.state === 'Healthy' && Date.parse(r['as-of']) < firstCall)).toBe(true);
+
+  // The partner side: the spending balances as the partner reports them, with the partner's label and time.
+  const partnerSide = room.getByTestId('partner-side');
+  const main = partnerSide.locator('tr[data-kind="primary"]').filter({ hasText: 'Main USDC' });
+  await expect(main.locator('[data-cell="balance"]')).toHaveText(/ USDC$/);
+  await expect.poll(async () => sameDecimal((await main.locator('[data-cell="balance"]').innerText()).split(' ')[0], mainNow)).toBe(true);
+  await expect(main.locator('[data-cell="source"]')).toHaveText(partnerLabel);
+  await expect(main.locator('[data-cell="as-of"]')).toHaveText(/^\d{4}-\d\d-\d\dT/);
+  const space = partnerSide.locator(`tr[data-space="${spaceId}"]`);
+  await expect(space.locator('[data-cell="balance"]')).toHaveText(/^100(\.0+)? USDC$/);
+  await expect(space.locator('[data-cell="source"]')).toHaveText(partnerLabel);
+  expect(await partnerSpace(userId, spaceId)).toBe(toUnits(TO_SPACE));
+
+  // Read-only: the room offers nothing to act with but the look-up itself.
+  await expect(room.getByRole('button')).toHaveCount(0);
+  await expect(room.getByRole('textbox')).toHaveCount(0);
+  await stepPicture(page);
+  // Nothing moved: the partner's figures and our ledger are as before the look.
+  expect(sameDecimal(await partnerMain(userId), mainNow)).toBe(true);
+  expect(await (await one.door()).balances()).toEqual(ledger);
 });

@@ -451,6 +451,8 @@ export interface UserVenueDoorDeps {
   readonly connect: () => Promise<ConnectedUserVenue>;
   /** The RAW `process.env.APP_ENV`. */
   readonly appEnv: string | undefined;
+  /** The RAW `process.env.INTAFACED_BETA_POSTURE`: `test-networks` beside APP_ENV `staging` also lets a TEST venue run (the beta posture). */
+  readonly betaPosture?: string;
   readonly store: PreparedActionStore;
   readonly stepUp: StepUpCheck;
   readonly builder: BuilderFeeValue | null;
@@ -756,7 +758,7 @@ export class UserVenueDoor {
   async venue(): Promise<ConnectedUserVenue> {
     if (!this.venuePromise) {
       this.venuePromise = this.deps.connect().then((v) => {
-        refuseTestVenueOutsideTest(v.venue, this.deps.appEnv);
+        refuseTestVenueOutsideTest(v.venue, this.deps.appEnv, this.deps.betaPosture);
         this.connectedVenueId = v.venue.id;
         return v;
       });
@@ -1481,7 +1483,8 @@ export class UserVenueDoor {
    * together; a part one doesn't count. A new resting order that would close the whole position is refused when a
    * whole-position order of its own role already rests, and a resting whole close that is neither (a reduce-only limit)
    * is refused when both rest. An immediate close (IOC, a market close) is never refused here: it rests nothing. A
-   * replacement is judged without the order it replaces. Nothing is prepared or stored when refused.
+   * replacement is judged without the order it replaces. In a batch, each order is judged as if the batch's earlier
+   * orders already rest beside what the venue holds. Nothing is prepared or stored when refused.
    */
   private async assertOneWholeClose(venue: UserVenue, account: UserVenueAccount, intent: VenueIntent): Promise<void> {
     const orders =
@@ -1496,6 +1499,14 @@ export class UserVenueDoor {
     if (closes.length === 0) return;
     const positions = (await venue.positions(account)).value;
     let resting: readonly UserVenueOrder[] | null = null;
+    // The batch's earlier whole closes, judged as resting beside the venue's own (a batch is one placement).
+    const siblings: {
+      symbol: string;
+      side: string;
+      role: 'take_profit' | 'stop_loss' | null;
+      remaining: bigint;
+      venueClientOrderId: string;
+    }[] = [];
     for (const order of closes) {
       const position = positions.find((p) => p.symbol === order.symbol && p.size !== 0n);
       // Closing only: the order is on the other side of the position, and covers all of it.
@@ -1511,12 +1522,22 @@ export class UserVenueDoor {
           (o.status === 'open' || o.status === 'partially_filled') &&
           o.remaining >= position.size,
       );
+      const batched = siblings.filter((o) => o.symbol === order.symbol && o.side === order.side && o.remaining >= position.size);
       const roleOf = (o: { trigger?: { role: 'take_profit' | 'stop_loss' } | null }) => o.trigger?.role ?? null;
-      const tp = whole.find((o) => roleOf(o) === 'take_profit');
-      const sl = whole.find((o) => roleOf(o) === 'stop_loss');
+      const tp = whole.find((o) => roleOf(o) === 'take_profit') ?? batched.find((o) => o.role === 'take_profit');
+      const sl = whole.find((o) => roleOf(o) === 'stop_loss') ?? batched.find((o) => o.role === 'stop_loss');
       const role = roleOf(order);
       const taken = role === 'take_profit' ? tp : role === 'stop_loss' ? sl : tp && sl ? tp : undefined;
-      if (!taken) continue;
+      if (!taken) {
+        siblings.push({
+          symbol: order.symbol,
+          side: order.side,
+          role,
+          remaining: order.amount,
+          venueClientOrderId: `${order.clientOrderKey}, earlier in this batch`,
+        });
+        continue;
+      }
       throw new UserVenueDoorError(
         `one take profit and one stop loss for the whole position may rest together on ${order.symbol}, and ${
           role === null ? 'both' : `a ${role === 'take_profit' ? 'take profit' : 'stop loss'} for the whole ${formatAmount(position.size)}`

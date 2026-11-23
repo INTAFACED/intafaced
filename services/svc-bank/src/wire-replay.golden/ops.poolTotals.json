@@ -4,7 +4,7 @@
   },
   "bodies": [
     "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"ops.poolTotals\",\"requestId\":\"replay-request\"}}}",
-    "{\"error\":{\"message\":\"One of admin:read, admin:treasury is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"ops.poolTotals\",\"requestId\":\"replay-request\"}}}",
+    "{\"error\":{\"message\":\"One of admin:read, admin:treasury is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"ops.poolTotals\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}",
     "{\"error\":{\"message\":\"Bank operation failed (ref <ref>)\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"ops.poolTotals\",\"requestId\":\"replay-request\"}}}"
   ],
   "answers": {

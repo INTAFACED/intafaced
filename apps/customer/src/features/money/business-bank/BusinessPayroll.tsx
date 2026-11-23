@@ -17,6 +17,7 @@ import {
 import { PersonFinder, roleOf, type FoundPerson, type RoleState } from './BusinessPeople';
 import { amount as exactAmount, funds, type ActionSpec } from '../components';
 import type { businessSchema } from '../contracts';
+import { BANK_BUSINESS_RUN_PAYROLL } from '@intafaced/contracts/bank-business-2-procedures';
 
 type Business = z.infer<typeof businessSchema>;
 type OwnSpace = { id: string; name: string; assetId: string; balance: string };
@@ -38,7 +39,7 @@ export function payrollSpec(
   const exact = (value: string | null) => exactAmount(value, account.assetId);
   return {
     title: t('payrollTitle'),
-    procedure: 'business.runPayroll',
+    record: BANK_BUSINESS_RUN_PAYROLL,
     facts: [
       [t('payrollSource'), `${source.name} · ${exact(source.balance)}`],
       ...sent.map((line): [string, string] => [`@${line.handle}`, exact(line.amount)]),

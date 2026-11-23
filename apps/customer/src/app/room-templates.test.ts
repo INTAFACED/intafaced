@@ -24,11 +24,13 @@ const routes = rooms.filter((r) => !r.alias).map((r) => r.path);
  */
 const SAMPLE_PARAMS: Readonly<Record<string, string>> = {
   ':pair': 'BTC-USDT',
+  ':asset': 'BTC',
   ':runId': '00000000-0000-4000-8000-000000000001',
   ':id': 'test-1',
   ':campaignId': 'cmp_TEST',
   ':listingId': 'TEST-listing',
   ':projectId': 'TEST-launch',
+  ':poolId': `0x${'9'.repeat(40)}`,
 };
 const opened = (route: string) => route.replace(/:[A-Za-z]+/g, (param) => SAMPLE_PARAMS[param] ?? param);
 const isRoom = (v: RoomTemplate | string): v is RoomTemplate => typeof v === 'object';

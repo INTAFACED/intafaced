@@ -1,21 +1,22 @@
+// volt-room: /protocol/contracts/:address
 import { useMemo, useRef, useState, type FormEvent } from 'react';
 import type { ContractFunction, ContractSource, ProtocolContractInspect } from '@intafaced/contracts/protocol-contract-source';
 import { navigate } from '../../../app/location';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
-import { Button, EmptyState, Failure, Field, Loading, Page, Panel } from '../../../shared/ui';
+import { Button, Tag } from '@intafaced/ui/lit';
+import { MonitorTemplate } from '@intafaced/ui/lit/templates';
 import { useApi } from '../../session';
 import { createProtocolApi, type ProtocolApi } from '../api';
 import { protocolCopy } from '../copy';
 import { ADDRESS_SHAPE } from '../routes';
+import { EmptyState, Failure, Field, Loading, Panel } from '../volt/parts';
 import { TabList } from '../tokens/TabList';
 import { RepresentationPanel } from '../wallet/RepresentationPanel';
 import { signingGate, type SigningGate } from '../wallet/signing-gate';
 import { walletCopy } from '../wallet/copy';
 import { useWallet, waitMined } from '../wallet/WalletProvider';
 import { contractCopy, type ContractTranslate } from './copy';
-import '../protocol.css';
-import '../tokens/tokens.css';
 
 type Tab = 'read' | 'write';
 
@@ -38,14 +39,14 @@ function SourcePanel({ data, t }: { data: ProtocolContractInspect; t: ContractTr
       <p data-testid="contract-source-status" data-status={source.status}>
         {sourceLine(source, t)}
       </p>
-      <p className="muted" data-testid="contract-source-reason">
+      <p className="lt-hint" data-testid="contract-source-reason">
         {sourceReason(source, t)}
       </p>
       {source.status !== 'unverified' && (
-        <dl className="protocol-facts">
+        <dl className="lt-kv">
           <div>
             <dt>{t('sourceHash')}</dt>
-            <dd className="numeric">{source.sourceHash}</dd>
+            <dd className="lt-mono">{source.sourceHash}</dd>
           </div>
         </dl>
       )}
@@ -62,7 +63,7 @@ function SourcePanel({ data, t }: { data: ProtocolContractInspect; t: ContractTr
           </p>
         </section>
       )}
-      <p className="muted" data-testid="contract-read-at">
+      <p className="lt-hint" data-testid="contract-read-at">
         {t('readAt', { block: data.blockNumber })}
       </p>
     </Panel>
@@ -114,10 +115,10 @@ function ReadFunction({ address, fn, api, t }: { address: string; fn: ContractFu
     setAnswer({ block: result.data.blockNumber, outputs: result.data.outputs });
   };
   return (
-    <form aria-label={fn.signature} className="contract-function" onSubmit={(event) => void submit(event)}>
-      <h4 className="numeric">{fn.signature}</h4>
+    <form aria-label={fn.signature} onSubmit={(event) => void submit(event)}>
+      <h4 className="lt-mono">{fn.signature}</h4>
       <ArgumentFields fn={fn} values={values} onChange={setValues} t={t} />
-      <Button type="submit" variant="secondary" disabled={busy}>
+      <Button type="submit" tone="secondary" disabled={busy}>
         {t('query')}
       </Button>
       {problem && <p role="alert">{problem}</p>}
@@ -125,13 +126,13 @@ function ReadFunction({ address, fn, api, t }: { address: string; fn: ContractFu
         <output data-testid="contract-read-result" data-block={answer.block}>
           <ul>
             {answer.outputs.map((out, i) => (
-              <li key={i} data-type={out.type} className="numeric">
+              <li key={i} data-type={out.type} className="lt-mono">
                 {out.name ? `${out.name} ` : ''}
                 {out.type}: <span data-testid="contract-read-value">{out.value}</span>
               </li>
             ))}
           </ul>
-          <span className="muted">{t('resultAt', { block: answer.block })}</span>
+          <span className="lt-hint">{t('resultAt', { block: answer.block })}</span>
         </output>
       )}
     </form>
@@ -213,8 +214,8 @@ function WriteFunction({ address, fn, api, t }: { address: string; fn: ContractF
           }}
         />
       )}
-      <form aria-label={fn.signature} className="contract-function" onSubmit={(event) => void submit(event)}>
-        <h4 className="numeric">{fn.signature}</h4>
+      <form aria-label={fn.signature} onSubmit={(event) => void submit(event)}>
+        <h4 className="lt-mono">{fn.signature}</h4>
         <ArgumentFields fn={fn} values={values} onChange={setValues} t={t} />
         {fn.stateMutability === 'payable' && (
           <Field
@@ -253,7 +254,7 @@ function Tabs({ data, api, t }: { data: ProtocolContractInspect; api: ProtocolAp
     </p>
   ) : null;
   const intro = face ? (
-    <p className="muted" data-testid="contract-interface" data-from={face.from}>
+    <p className="lt-hint" data-testid="contract-interface" data-from={face.from}>
       {t(face.from === 'implementation' ? 'interface_implementation' : 'interface_contract', { name: face.name })}
     </p>
   ) : null;
@@ -279,7 +280,7 @@ function Tabs({ data, api, t }: { data: ProtocolContractInspect; api: ProtocolAp
             ) : wallet.guard?.ok !== true ? (
               <p role="status">{t('writeWrongChain')}</p>
             ) : (
-              <p className="muted">{t('writeNote')}</p>
+              <p className="lt-hint">{t('writeNote')}</p>
             )}
             {face!.write.length === 0 ? (
               <EmptyState title={t('noWrites')} />
@@ -315,24 +316,31 @@ export function ContractPage({ address }: { address: string | undefined }) {
   const room = protocolCopy.forLocale(language).t;
   const valid = address !== undefined && ADDRESS_SHAPE.test(address);
   return (
-    <div className="legacy-room protocol-room tokens-room" lang={renderedLocale} data-route="contractDetail">
-      <Page
+    <div lang={renderedLocale} data-route="contractDetail">
+      <MonitorTemplate
         title={valid ? t('pageTitle', { address }) : t('notFoundTitle')}
-        eyebrow={<span className="badge protocol-pill">{room('bannerPill')}</span>}
-      >
-        {valid ? (
-          <ContractBody key={address.toLowerCase()} address={address} t={t} />
-        ) : (
-          <Panel title={t('notFoundTitle')}>
-            <div data-code="protocol.not_found" role="status">
-              <EmptyState title={t('notFoundBody')} />
-            </div>
-          </Panel>
-        )}
-        <Button variant="secondary" onClick={() => navigate('/protocol/contracts')}>
-          {t('back')}
-        </Button>
-      </Page>
+        state={{ kind: 'ready' }}
+        figures={[]}
+        panels={
+          <>
+            <p className="lt-hint">
+              <Tag>{room('bannerPill')}</Tag>
+            </p>
+            {valid ? (
+              <ContractBody key={address.toLowerCase()} address={address} t={t} />
+            ) : (
+              <Panel title={t('notFoundTitle')}>
+                <div data-code="protocol.not_found" role="status">
+                  <EmptyState title={t('notFoundBody')} />
+                </div>
+              </Panel>
+            )}
+            <Button tone="secondary" onClick={() => navigate('/protocol/contracts')}>
+              {t('back')}
+            </Button>
+          </>
+        }
+      />
     </div>
   );
 }

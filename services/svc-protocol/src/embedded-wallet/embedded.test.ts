@@ -79,6 +79,17 @@ describe('the owner’s provider setting', () => {
     expect(() => embeddedWalletFromSetting('TEST:test-no-export', URL, 'production')).toThrow(/TEST value .* Refusing to boot/);
   });
 
+  it('boots the TEST provider in the beta posture (staging, INTAFACED_BETA_POSTURE test-networks), loopback URL still required', () => {
+    expect(embeddedWalletFromSetting('TEST:test', URL, 'staging', fetch, 'test-networks').kind).toBe('ready');
+    expect(() => embeddedWalletFromSetting('TEST:test', 'https://provider.example', 'staging', fetch, 'test-networks')).toThrow(/loopback/);
+    for (const [env, beta] of [
+      ['prod', 'test-networks'],
+      ['staging', 'mainnet'],
+      ['staging', undefined],
+    ] as const)
+      expect(() => embeddedWalletFromSetting('TEST:test', URL, env, fetch, beta)).toThrow(/TEST value .* Refusing to boot/);
+  });
+
   it('refuses to boot on a TEST provider outside dev or test, a missing or non-loopback URL, or an unknown provider', () => {
     for (const env of ['production', 'staging', undefined, 'DEV'])
       expect(() => embeddedWalletFromSetting('TEST:test', URL, env)).toThrow(/TEST value .* Refusing to boot/);

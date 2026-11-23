@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { PaymentCell } from '../payments/PaymentCell';
 import { RefundsIssuedValue } from '../payments/RefundsIssued';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import { EmptyState, Field } from '../../ui-kit';
 import { useSession } from '../../../session';
 import { useResource } from '../../../../shared/resource';
@@ -106,7 +106,7 @@ export function Refunds({ portal, merchantId }: { portal: PortalApi; merchantId:
   const done = n ? n.items.filter((r) => r.status !== 'reversed') : [];
   const reversed = n ? n.items.length - done.length : 0;
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <TestBanner />
       <Freshness asOf={snap?.freshness.asOf ?? readAt} lagSeconds={snap?.freshness.lagSeconds ?? 0} />
       <KpiStrip
@@ -159,11 +159,11 @@ export function Refunds({ portal, merchantId }: { portal: PortalApi; merchantId:
       {isUuid(paymentFilter) && (
         <p className="muted pp-note">
           {t('rfForPayment')}{' '}
-          <a className="text-link" href={`/pay/payments/${encodeURIComponent(paymentFilter)}`}>
+          <a className="lt-link" href={`/pay/payments/${encodeURIComponent(paymentFilter)}`}>
             {t('rfOpenPayment')}
           </a>{' '}
           ·{' '}
-          <a className="text-link" href="/pay/refunds">
+          <a className="lt-link" href="/pay/refunds">
             {t('rfShowAll')}
           </a>
         </p>
@@ -175,7 +175,7 @@ export function Refunds({ portal, merchantId }: { portal: PortalApi; merchantId:
           query={query}
           fallback={
             <Button
-              variant="secondary"
+              tone="secondary"
               disabled={rows.length === 0}
               onClick={() =>
                 downloadText(
@@ -252,7 +252,7 @@ export function RefundDetail({ portal, refundId }: { portal: PortalApi; refundId
   const readAt = useReadAt(refund.resource.status === 'ready', refund.resource);
   const r = refund.resource;
   return (
-    <div className="stack">
+    <div className="lt-stack">
       <Gate resource={r} retry={refund.reload} rows={4}>
         {(x) => {
           const events = [
@@ -282,9 +282,9 @@ export function RefundDetail({ portal, refundId }: { portal: PortalApi; refundId
                     [t('rfFrom'), sourceWords(t, x.source ?? null)],
                     [
                       t('rfLedger'),
-                      x.ledgerEffect?.recorded ? potWords(t, x.ledgerEffect.pot) : <span className="muted">{t('rfLedgerNone')}</span>,
+                      x.ledgerEffect?.recorded ? potWords(t, x.ledgerEffect.pot) : <span className="lt-muted">{t('rfLedgerNone')}</span>,
                     ],
-                    [t('rfReason'), x.reason ? x.reason : <span className="muted">{t('rfReasonNone')}</span>],
+                    [t('rfReason'), x.reason ? x.reason : <span className="lt-muted">{t('rfReasonNone')}</span>],
                     [t('mnColCreated'), <DateTime value={x.createdAt} />],
                     [t('rfReference'), <CopyReference value={x.refundId} what={t('rfReference')} />],
                   ]}
@@ -323,8 +323,8 @@ export function RefundNew({
   const { t } = mc.useCopy();
   const [paymentId, setPaymentId] = useUrlParam('payment', '');
   return (
-    <div className="stack">
-      <a className="text-link" href="/pay/refunds">
+    <div className="lt-stack">
+      <a className="lt-link" href="/pay/refunds">
         {t('backRefunds')}
       </a>
       <TestBanner />
@@ -358,7 +358,7 @@ function PickPayment({ portal, merchantId, onPick }: { portal: PortalApi; mercha
         }}
       >
         <Field label={t('rnSearch')} value={typed} onChange={(e) => setTyped(e.target.value)} hint={t('rnSearchHint')} />
-        <Button type="submit" variant="secondary">
+        <Button type="submit" tone="secondary">
           {t('rnFind')}
         </Button>
       </form>
@@ -384,13 +384,13 @@ function PickPayment({ portal, merchantId, onPick }: { portal: PortalApi; mercha
                   {p.customerRef?.trim() || p.description?.trim() || t('paymentName', { when: shortDay(p.createdAt, locale) })}
                 </strong>
                 <MoneyText value={p.capturedAmount} asset={p.assetId} test={test} />
-                <small className="muted">
+                <small className="lt-muted">
                   {t('rnRefundable')}{' '}
                   <MoneyText value={refundableAmount(p.capturedAmount, p.refundedAmount)} asset={p.assetId} test={test} />
                 </small>
                 <DateTime value={p.createdAt} />
               </div>
-              <Button variant="secondary" disabled={off !== null} onClick={() => onPick(p.id)}>
+              <Button tone="secondary" disabled={off !== null} onClick={() => onPick(p.id)}>
                 {t('rnChoose')}
               </Button>
             </li>
@@ -430,7 +430,7 @@ function RefundStep({
                   items={[
                     [
                       t('mnColPayment'),
-                      <a className="text-link" href={`/pay/payments/${encodeURIComponent(p.id)}`}>
+                      <a className="lt-link" href={`/pay/payments/${encodeURIComponent(p.id)}`}>
                         {p.customerRef?.trim() || p.description?.trim() || t('rnOpenPayment')}
                       </a>,
                     ],
@@ -441,7 +441,7 @@ function RefundStep({
                   ]}
                 />
                 <p className="muted pp-note">{t('rnReasonNote')}</p>
-                <Button variant="ghost" onClick={onChange}>
+                <Button tone="quiet" onClick={onChange}>
                   {t('rnChangePayment')}
                 </Button>
               </>

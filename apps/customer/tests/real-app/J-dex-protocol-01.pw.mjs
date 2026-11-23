@@ -146,7 +146,7 @@ test(`${J} #4 Connect wallet lists the browser wallet by its own name; connectin
   await expect(page.locator('[data-wallet-address]')).toHaveText(wallet.address);
   await expect(page.locator('[data-wallet-network="ok"]')).toHaveText('Base Sepolia test network. Testnet only.');
   await expect(walletChip(page)).toHaveText(`${TEST_WALLET.name} · ${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}`);
-  expect((await walletChip(page).textContent()).split(' · ')[1]).toMatch(SHORT);
+  await expect.poll(async () => (await walletChip(page).textContent()).split(' · ')[1]).toMatch(SHORT);
 });
 
 test(`${J} #5 a wallet switched to Ethereum mainnet reads "Wrong network" with a switch request; switching back restores the label`, async ({
@@ -192,7 +192,12 @@ async function withPublishedNetworks(body) {
   }
 }
 
-const networkCard = (page) => page.locator('main section').filter({ has: page.getByRole('heading', { name: 'Network', exact: true }) });
+// The card itself, not the page's Details region that holds it: the innermost section with the heading.
+const networkCard = (page) =>
+  page
+    .locator('main section')
+    .filter({ has: page.getByRole('heading', { name: 'Network', exact: true }) })
+    .filter({ hasNot: page.locator('section') });
 const fact = (page, label) =>
   networkCard(page)
     .locator('dl div')

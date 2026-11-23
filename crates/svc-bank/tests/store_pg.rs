@@ -25,7 +25,7 @@ use svc_bank::migrate::MIGRATIONS;
 use svc_bank::recovery::{AdvisoryLock, Lock};
 use svc_bank::restore_watermark;
 
-mod support;
+use crate::support;
 use support::TestDb;
 
 const INTERNAL: &str = "placeholder-bank-store-pg-internal-secret-0";
@@ -109,7 +109,7 @@ fn the_binary_applies_every_migration_once_then_skips_them_then_reverses_them() 
 #[test]
 fn a_reversal_skips_a_file_the_record_does_not_name() {
     let Some(db) = TestDb::new() else { return };
-    db.migrated();
+    db.migrated_in_place();
     let ups: Vec<&str> = MIGRATIONS.ups().into_iter().map(|(n, _)| n).collect();
     let latest = *ups.last().unwrap();
     // The latest file reversed by hand and its record gone: as if it had never been applied.
@@ -139,7 +139,7 @@ fn the_schema_check_refuses_until_the_migrations_ran() {
     let Some(db) = TestDb::new() else { return };
     let store = db.store();
     assert_eq!(db::check_schema(&store), Err(SCHEMA_MISSING.to_owned()));
-    db.migrated();
+    db.migrated_in_place();
     assert_eq!(db::check_schema(&store), Ok(()));
     store.end();
 }
@@ -147,7 +147,7 @@ fn the_schema_check_refuses_until_the_migrations_ran() {
 #[test]
 fn every_pooled_connection_carries_the_banks_session_settings() {
     let Some(db) = TestDb::new() else { return };
-    db.migrated();
+    db.migrated_in_place();
     let store = db.store();
     let (name, path): (String, String) = with_client(store.pool().unwrap(), |c| {
         let r = c.query_one(
@@ -171,7 +171,7 @@ fn every_pooled_connection_carries_the_banks_session_settings() {
 #[test]
 fn the_watermark_is_svc_ops_alone_and_counts_every_bank_row() {
     let Some(db) = TestDb::new() else { return };
-    db.migrated();
+    db.migrated_in_place();
     let d = door(db.store());
 
     assert_eq!(post(&d, "/internal/restore/watermark", None).0, 401);
@@ -239,24 +239,24 @@ fn the_watermark_is_svc_ops_alone_and_counts_every_bank_row() {
     // A read changes nothing.
     assert_eq!(db.count("SELECT count(*) FROM bank.spaces"), 2);
 
-    // The capital read is svc-ops' too, and the card-ops slice's past that.
+    // The capital read is svc-ops' too, and the card-ops slice's past that: a deployment with no partner adapter lists
+    // none (`card_ops_desk_programme_db.rs` holds the partners' rows).
     assert_eq!(
         post(&d, "/internal/capital/partner-reserves", Some("svc-pay")).0,
         403
     );
     let (status, body) = post(&d, "/internal/capital/partner-reserves", Some("svc-ops"));
-    assert_eq!(status, 500);
-    assert_eq!(
-        body.compact(),
-        r#"{"error":"svc-bank in Rust: the card-ops slice is not ported"}"#
-    );
+    assert_eq!(status, 200, "{}", body.compact());
+    assert_eq!(body.get("partners"), Some(&Json::Array(vec![])));
     d.end();
 }
 
 #[test]
-fn a_job_door_answers_401_unsigned_then_names_its_slice() {
+/// Unsigned, a job door answers 401; signed, the call reaches its slice, whose own body check answers (every slice is
+/// ported, so none answers "not ported").
+fn a_job_door_answers_401_unsigned_then_its_slice_checks_the_body() {
     let Some(db) = TestDb::new() else { return };
-    db.migrated();
+    db.migrated_in_place();
     let d = door(db.store());
     let (status, body) = post(&d, "/internal/jobs/run-due-transfers", None);
     assert_eq!(status, 401);
@@ -264,11 +264,11 @@ fn a_job_door_answers_401_unsigned_then_names_its_slice() {
         body.compact(),
         r#"{"error":"service credentials required","code":"bank.unauthenticated"}"#
     );
-    let (status, body) = post(&d, "/internal/jobs/accrue-loan-interest", Some("svc-bank"));
-    assert_eq!(status, 500);
+    let (status, body) = post(&d, "/internal/jobs/bill-pay/run-due", Some("svc-bank"));
+    assert_eq!(status, 400);
     assert_eq!(
         body.compact(),
-        r#"{"error":"svc-bank in Rust: the loans slice is not ported"}"#
+        r#"{"error":"body not in shape","code":"bank.validation_failed"}"#
     );
     d.end();
 }
@@ -308,7 +308,7 @@ fn a_second_replica_skips_the_recovery_pass_while_the_first_holds_its_lock() {
 #[test]
 fn health_and_ready_answer_through_the_server() {
     let Some(db) = TestDb::new() else { return };
-    db.migrated();
+    db.migrated_in_place();
     let app = App {
         wire: door(db.store()),
         service_name: "svc-bank".to_owned(),

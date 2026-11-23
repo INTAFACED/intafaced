@@ -176,7 +176,7 @@ function MoneyRooms({ path }: { path: string }) {
               ))}
             </p>
           ))}
-          <a className="button button--secondary" href="/support">
+          <a className="lt-button lt-button-secondary" href="/support">
             <Text k="index.open.support" />
           </a>
         </div>

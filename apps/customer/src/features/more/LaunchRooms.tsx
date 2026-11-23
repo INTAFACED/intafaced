@@ -37,16 +37,16 @@ export function LaunchJourney({ onTab }: { onTab: (tab: 'Check') => void }) {
     };
   });
   return (
-    <div className="more-grid">
+    <div className="lt-stack">
       <Panel title={t('journeyTitle')}>
-        <p className="muted">
+        <p className="lt-muted">
           <Copy k="journeyIntro" />
         </p>
         <Journey steps={steps} label={t('journeyLabel')} />
       </Panel>
       {open ? (
         <Panel title={t('detailsTitle')}>
-          <p className="muted">
+          <p className="lt-muted">
             <Copy k="detailsNote" />
           </p>
           <div className="depth-filters">
@@ -118,7 +118,7 @@ export function LaunchCheck() {
   }
   return (
     <Panel title={t('checkTitle')}>
-      <p className="muted">
+      <p className="lt-muted">
         <Copy k="checkIntro" />
       </p>
       <form
@@ -181,7 +181,7 @@ export function LaunchParticipation() {
   const { Copy, t } = launchDepthCopy.useCopy();
   return (
     <Panel title={t('participationTitle')}>
-      <p className="muted">
+      <p className="lt-muted">
         <Copy k="participationBody" />
       </p>
       <div className="depth-filters">

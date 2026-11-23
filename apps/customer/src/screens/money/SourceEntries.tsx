@@ -66,11 +66,11 @@ export function SourceEntries({ status, rawAsset, search }: { status: VenueUp; r
         <ArrowLeft size={16} aria-hidden="true" />
         {t('Records back')}
       </Link>
-      <header className="money-detail__head">
+      <header className="lt-stack">
         <h1 className="money-title" data-testid="source-records-title" data-asset={asset} data-source={source ?? ''}>
           {source ? t('Records title source', { asset, source: sourceName(source) }) : t('Records title', { asset })}
         </h1>
-        <p className="money-detail__note">{t('Records intro')}</p>
+        <p className="lt-hint">{t('Records intro')}</p>
       </header>
       <div className="money-alloc__switch" role="group" aria-label={t('Source')}>
         <Link href={`${balanceEntriesHref(asset)}?source=all`} current={source === null}>

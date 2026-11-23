@@ -18,7 +18,7 @@
     reason = "a test: a failure is the point"
 )]
 
-mod support;
+use crate::support;
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -1910,7 +1910,10 @@ fn reconciles_one_rails_boundary_against_that_rails_own_statement_equal_is_pass_
         at(&fail, "assets"),
         r#"[{"assetId":"USDT","observed":"-7","expected":"-6.99"}]"#,
     );
-    assert_ne!(amt(&st(&arr(&fail, "assets")[0], "difference")), 0);
+    assert_ne!(
+        amt(&st(&arr(&fail, "assets")[0], "difference")),
+        Amount::ZERO
+    );
 
     // No URL for this rail: UNSET with the typed code, even when the whole-book snapshot URL is set and would match.
     let unset = run(&http(

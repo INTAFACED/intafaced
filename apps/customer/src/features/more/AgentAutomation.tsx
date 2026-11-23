@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useApi } from '../session';
 import type { ApiResult } from '../../shared/api';
-import { Button, DataTable, Failure, Field, Panel } from '../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { DataTable, Failure, Field, Panel } from './agent-room/parts';
 import { agentAutomationCopy, hasAutomationWords } from './agent-automation-copy';
 import {
   OWN_AGENT_AUTOMATION_LIMITS,
@@ -117,9 +118,9 @@ export function SchedulesPage({ agent }: { agent: OwnAgent }) {
   const { data, failed, reload } = usePolled(() => api.call(AGENTS_OWN_SCHEDULES_LIST, { id: agent.id }));
   return (
     <Panel title={t('schedulesTitle')}>
-      <p className="muted">{t('schedulesIntro')}</p>
+      <p className="lt-muted">{t('schedulesIntro')}</p>
       {failed && !data ? <Failure result={failed} retry={reload} /> : null}
-      {data ? <Schedules agent={agent} held={data} onChanged={reload} /> : failed ? null : <p className="muted">{t('loading')}</p>}
+      {data ? <Schedules agent={agent} held={data} onChanged={reload} /> : failed ? null : <p className="lt-muted">{t('loading')}</p>}
     </Panel>
   );
 }
@@ -177,7 +178,7 @@ function Schedules({ agent, held, onChanged }: { agent: OwnAgent; held: OwnAgent
         }}
       >
         <h3>{t('newSchedule')}</h3>
-        <label className="field" htmlFor={`schedule-repeat-${agent.id}`}>
+        <label className="lt-field" htmlFor={`schedule-repeat-${agent.id}`}>
           <span>{t('repeat')}</span>
           <select
             id={`schedule-repeat-${agent.id}`}
@@ -225,7 +226,7 @@ function Schedules({ agent, held, onChanged }: { agent: OwnAgent; held: OwnAgent
             setAsk(event.target.value);
           }}
         />
-        <Button type="submit" disabled={busy}>
+        <Button tone="primary" type="submit" disabled={busy}>
           {t('createSchedule')}
         </Button>
         {refused ? <Answer failed={refused} /> : null}
@@ -247,11 +248,11 @@ function Schedules({ agent, held, onChanged }: { agent: OwnAgent; held: OwnAgent
             <td data-testid="schedule-status">{t(`status_${schedule.state}`)}</td>
             <td data-testid="next-occurrence">{when(schedule.nextDueAt) ?? t('none')}</td>
             <td>
-              <Button variant="secondary" onClick={() => setOpen(schedule.id)}>
+              <Button tone="secondary" onClick={() => setOpen(schedule.id)}>
                 {t('recentRuns')}
               </Button>
               {schedule.state === 'active' ? (
-                <Button variant="ghost" disabled={busy} onClick={() => void cancel(schedule)}>
+                <Button tone="quiet" disabled={busy} onClick={() => void cancel(schedule)}>
                   {t('cancel')}
                 </Button>
               ) : null}
@@ -259,13 +260,13 @@ function Schedules({ agent, held, onChanged }: { agent: OwnAgent; held: OwnAgent
           </tr>
         ))}
       </DataTable>
-      {held.schedules.length === 0 ? <p className="muted">{t('noSchedules')}</p> : null}
+      {held.schedules.length === 0 ? <p className="lt-muted">{t('noSchedules')}</p> : null}
       {cancelRefused ? <Answer failed={cancelRefused} /> : null}
 
       {shown ? (
         <section aria-label={t('occurrencesTitle')}>
           <h3>{t('occurrencesTitle')}</h3>
-          <p className="muted">{t('occurrencesIntro')}</p>
+          <p className="lt-muted">{t('occurrencesIntro')}</p>
           <DataTable
             label={t('occurrencesTitle')}
             headers={[t('colOccurrence'), t('colDue'), t('colOutcome'), t('colRuns'), t('colWakes'), t('colCost')]}
@@ -283,7 +284,7 @@ function Schedules({ agent, held, onChanged }: { agent: OwnAgent; held: OwnAgent
               </tr>
             ))}
           </DataTable>
-          {shown.recent.length === 0 ? <p className="muted">{t('noOccurrences')}</p> : null}
+          {shown.recent.length === 0 ? <p className="lt-muted">{t('noOccurrences')}</p> : null}
         </section>
       ) : null}
     </>
@@ -296,9 +297,9 @@ export function TriggersPage({ agent }: { agent: OwnAgent }) {
   const { data, failed, reload } = usePolled(() => api.call(AGENTS_OWN_TRIGGERS_LIST, { id: agent.id }));
   return (
     <Panel title={t('triggersTitle')}>
-      <p className="muted">{t('triggersIntro')}</p>
+      <p className="lt-muted">{t('triggersIntro')}</p>
       {failed && !data ? <Failure result={failed} retry={reload} /> : null}
-      {data ? <Triggers agent={agent} held={data} onChanged={reload} /> : failed ? null : <p className="muted">{t('loading')}</p>}
+      {data ? <Triggers agent={agent} held={data} onChanged={reload} /> : failed ? null : <p className="lt-muted">{t('loading')}</p>}
     </Panel>
   );
 }
@@ -342,7 +343,7 @@ function Triggers({ agent, held, onChanged }: { agent: OwnAgent; held: OwnAgentT
         }}
       >
         <h3>{t('newTrigger')}</h3>
-        <label className="field" htmlFor={`trigger-subject-${agent.id}`}>
+        <label className="lt-field" htmlFor={`trigger-subject-${agent.id}`}>
           <span>{t('when')}</span>
           <select
             id={`trigger-subject-${agent.id}`}
@@ -381,7 +382,7 @@ function Triggers({ agent, held, onChanged }: { agent: OwnAgent; held: OwnAgentT
             setAsk(event.target.value);
           }}
         />
-        <Button type="submit" disabled={busy}>
+        <Button tone="primary" type="submit" disabled={busy}>
           {t('addTrigger')}
         </Button>
         {refused ? <Answer failed={refused} /> : null}
@@ -399,10 +400,10 @@ function Triggers({ agent, held, onChanged }: { agent: OwnAgent; held: OwnAgentT
           </tr>
         ))}
       </DataTable>
-      {held.length === 0 ? <p className="muted">{t('noTriggers')}</p> : null}
+      {held.length === 0 ? <p className="lt-muted">{t('noTriggers')}</p> : null}
 
       <h3>{t('triggerRunsTitle')}</h3>
-      <p className="muted">{t('triggerRunsIntro')}</p>
+      <p className="lt-muted">{t('triggerRunsIntro')}</p>
       <DataTable label={t('triggerRunsTitle')} headers={[t('colReceived'), t('colEvent'), t('colOutcome'), t('colRuns'), t('colCost')]}>
         {deliveries.map(({ trigger, delivery, run }) => (
           <tr key={`${trigger.id}:${delivery.envelopeId}`}>
@@ -420,7 +421,7 @@ function Triggers({ agent, held, onChanged }: { agent: OwnAgent; held: OwnAgentT
           </tr>
         ))}
       </DataTable>
-      {deliveries.length === 0 ? <p className="muted">{t('noDeliveries')}</p> : null}
+      {deliveries.length === 0 ? <p className="lt-muted">{t('noDeliveries')}</p> : null}
     </>
   );
 }

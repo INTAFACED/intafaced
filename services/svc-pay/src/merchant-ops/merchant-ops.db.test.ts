@@ -454,6 +454,20 @@ describe('W15 merchant operations (Postgres)', () => {
       expect(bOnly.file.content).not.toContain(settlementsA[0]!);
     });
 
+    it('excludes ledger-only settlements from payout CSVs', async () => {
+      // Posting writes payout_method = 'ledger' (settlement-status.ts); that is not a payout.
+      const unpaid = settlementsA[1]!;
+      await sql`UPDATE pay.settlements SET payout_method = 'ledger' WHERE id = ${unpaid}`;
+      try {
+        const { file } = await exportCsv(userA, 'payouts');
+        expect(file.content).toContain(settlementsA[0]!);
+        expect(file.content).not.toContain(unpaid);
+        expect(file.rowCount).toBe(1);
+      } finally {
+        await sql`UPDATE pay.settlements SET payout_method = NULL WHERE id = ${unpaid}`;
+      }
+    });
+
     it('filters narrow the file and a bad filter is a typed refusal', async () => {
       const { file } = await exportCsv(userA, 'payments', { status: 'captured', assetId: 'USDT' });
       expect(file.rowCount).toBe(paymentsA.length);

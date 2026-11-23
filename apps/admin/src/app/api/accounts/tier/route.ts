@@ -16,7 +16,10 @@ import {
 } from '@/lib/founder-session';
 import { tierExecute } from '@/lib/accounts/tier';
 import { handleStep } from '@/lib/desk/step-route';
-import { IDENTITY_ACCOUNT_CONTROLS_TIERS } from '@intafaced/contracts/identity-account-controls-procedures';
+import {
+  IDENTITY_ACCOUNT_CONTROLS_TIERS,
+  IDENTITY_ACCOUNT_CONTROLS_TIER_STATE,
+} from '@intafaced/contracts/identity-account-controls-procedures';
 
 /**
  * Account product tiers (J-ops-console-04 #11).
@@ -43,31 +46,29 @@ export async function GET(request: Request) {
       return Response.json(data, { headers: { 'cache-control': 'no-store' } });
     }
     const userId = params.get('id')?.toLowerCase();
-    const history = params.get('history') === 'true';
-    const parsed = history
-      ? accountTierHistoryInputSchema.safeParse({ userId, limit: Number(params.get('limit')) })
-      : accountTierLookupInputSchema.safeParse({ userId });
-    if (!parsed.success) throw new AdminSessionError('admin.accounts_input', 400);
-    const data = await founderEdgeCall(
-      config,
-      'identity',
-      history ? 'accountControls.tierHistory' : 'accountControls.tierState',
-      'GET',
-      parsed.data,
-      session.accessToken,
-    );
-    const valid = history
-      ? Array.isArray(data) &&
+    if (params.get('history') === 'true') {
+      const parsed = accountTierHistoryInputSchema.safeParse({ userId, limit: Number(params.get('limit')) });
+      if (!parsed.success) throw new AdminSessionError('admin.accounts_input', 400);
+      const data = await founderEdgeCall(config, 'identity', 'accountControls.tierHistory', 'GET', parsed.data, session.accessToken);
+      const valid =
+        Array.isArray(data) &&
         data.length <= Number(params.get('limit')) &&
         data.every((row) => {
           const parsedRow = accountTierResultSchema.safeParse(row);
           return parsedRow.success && parsedRow.data.userId === parsed.data.userId;
-        })
-      : data === null ||
-        (() => {
-          const state = accountTierStateSchema.safeParse(data);
-          return state.success && state.data.userId === parsed.data.userId;
-        })();
+        });
+      if (!valid) throw new AdminSessionError('admin.upstream_invalid', 502);
+      return Response.json(data, { headers: { 'cache-control': 'no-store' } });
+    }
+    const parsed = accountTierLookupInputSchema.safeParse({ userId });
+    if (!parsed.success) throw new AdminSessionError('admin.accounts_input', 400);
+    const data = await founderEdgeRecordCall(config, IDENTITY_ACCOUNT_CONTROLS_TIER_STATE, parsed.data, session.accessToken);
+    const valid =
+      data === null ||
+      (() => {
+        const state = accountTierStateSchema.safeParse(data);
+        return state.success && state.data.userId === parsed.data.userId;
+      })();
     if (!valid) throw new AdminSessionError('admin.upstream_invalid', 502);
     return Response.json(data, { headers: { 'cache-control': 'no-store' } });
   } catch (error) {

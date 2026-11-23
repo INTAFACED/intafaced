@@ -36,6 +36,7 @@ import {
 import { myRoleSchema, pendingApprovalsSchema, type businessSchema, type pendingApprovalSchema } from '../contracts';
 import { assetSelectField, useHoldings } from '../holdings';
 import { t as copyText } from '../copy';
+import { BANK_BUSINESS_PROPOSE_TRANSFER, BANK_BUSINESS_CREATE } from '@intafaced/contracts/bank-business-2-procedures';
 
 type Business = z.infer<typeof businessSchema>;
 type Approval = z.infer<typeof pendingApprovalSchema>;
@@ -224,7 +225,7 @@ function AccountCard({ account, spaces, open }: { account: Business; spaces: rea
   const send = () =>
     open({
       title: t('sendMoney'),
-      procedure: 'business.proposeTransfer',
+      record: BANK_BUSINESS_PROPOSE_TRANSFER,
       fields: [
         {
           name: 'fromSpaceId',
@@ -319,7 +320,7 @@ export function BusinessSections({ open }: { open: (spec: ActionSpec) => void })
   const create = () =>
     open({
       title: t('openTitle'),
-      procedure: 'business.create',
+      record: BANK_BUSINESS_CREATE,
       fields: [
         {
           name: 'name',

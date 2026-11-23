@@ -1,8 +1,6 @@
 import { z } from 'zod';
 import {
   payAmountStringSchema,
-  payAssetCodeSchema,
-  payMerchantIdSchema,
   payPricingRuleSchema,
   payReasonSchema,
   payRequestIdSchema,
@@ -61,29 +59,6 @@ export const controlConfigureResultSchema = z
 export type ControlConfigureResult = z.infer<typeof controlConfigureResultSchema>;
 
 // ── merchant-facing extras ──────────────────────────────────────────────────
-
-export const pricingPreviewInputSchema = z
-  .object({
-    merchantId: payMerchantIdSchema,
-    assetCode: payAssetCodeSchema,
-    amount: payAmountStringSchema,
-    /** Volume already done this month, to pick the band. Omit to use the merchant's real month-to-date. */
-    monthlyVolume: payAmountStringSchema.optional(),
-    /** USD to USDT conversion: includes the spread. */
-    conversion: z.boolean().optional(),
-  })
-  .strict();
-
-export const usageInputSchema = z.object({ merchantId: payMerchantIdSchema }).strict();
-
-export const approvalRequestInputSchema = z
-  .object({
-    merchantId: payMerchantIdSchema,
-    settlementId: z.string().guid(),
-    railId: z.string().min(1).max(64),
-  })
-  .strict();
-export const approvalCancelInputSchema = z.object({ approvalId: z.string().guid(), reason: payReasonSchema }).strict();
 
 /** A founder decision on an above-founder-threshold payout; the first and the second founder both call this. */
 export const founderApprovalDecideInputSchema = z

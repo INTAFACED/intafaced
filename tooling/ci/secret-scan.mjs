@@ -637,6 +637,16 @@ const FILE_PATH_LIST = new RegExp(String.raw`^\[\s*${FILE_PATH_ELEMENT}(?:\s*,\s
 const isFilePathList = (key, rawValue) => /^tokens$/i.test(key) && FILE_PATH_LIST.test(rawValue.trim());
 
 /**
+ * A venue's spot pair naming its two tokens by index under a key literally named `tokens`: `"tokens": [1, 0]`, as the
+ * Hyperliquid test network's `spotMeta` answers it (packages/venue-hyperliquid recordings/). Both must hold: the key is
+ * exactly `tokens`, and the value is a list of exactly two whole numbers of at most five digits. A string, one number,
+ * a longer number or a longer list is still a finding.
+ * @param {string} key the assignment key, unquoted
+ * @param {string} rawValue the text after the `:` / `=`, trailing comma allowed
+ */
+const isTokenIndexPair = (key, rawValue) => /^tokens$/i.test(key) && /^\[\s*\d{1,5}\s*,\s*\d{1,5}\s*\]\s*,?$/.test(rawValue.trim());
+
+/**
  * A source constant that holds the NAME of an environment variable, or a URL
  * route, not a credential.
  *
@@ -766,7 +776,12 @@ for (const rel of TRACKED_FILES) {
         assignmentsChecked++;
         if (declaredUsernames.has(value.toLowerCase()) && value.trim() !== '') {
           // password === a username declared in this same file: the dev convention.
-        } else if (!isPlaceholder(value) && !isRecordSchemaPublic(rel, key, value) && !isFilePathList(key, rawValue)) {
+        } else if (
+          !isPlaceholder(value) &&
+          !isRecordSchemaPublic(rel, key, value) &&
+          !isFilePathList(key, rawValue) &&
+          !isTokenIndexPair(key, rawValue)
+        ) {
           violations.push({
             check: 'committed-credential',
             file: rel,

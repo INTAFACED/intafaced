@@ -15,7 +15,7 @@
     reason = "a test: a failure is the point"
 )]
 
-mod support;
+use crate::support;
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -64,14 +64,14 @@ impl Ledger for FakeLedger {
             user_id, amount, ..
         } = recipe
         {
-            let have = b.1.get(user_id).copied().unwrap_or(0);
+            let have = b.1.get(user_id).copied().unwrap_or(Amount::ZERO);
             if have < *amount {
                 return Err(LedgerError {
                     code: Some("ledger.insufficient_funds".to_owned()),
                     message: "Insufficient funds".to_owned(),
                 });
             }
-            *b.1.entry(user_id.clone()).or_default() -= amount;
+            *b.1.entry(user_id.clone()).or_default() -= *amount;
         }
         let tx = format!("tx-{}", b.0.len() + 1);
         b.0.insert(key, tx.clone());

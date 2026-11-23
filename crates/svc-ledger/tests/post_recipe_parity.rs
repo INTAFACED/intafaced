@@ -1,5 +1,10 @@
 //! The `post-recipe` slice's door against what the TypeScript answered (`tests/fixtures/post-recipe.golden.jsonl`,
-//! written by `scripts/record-door.mjs`): for each recorded body and each caller, `handleS2sPostRecipe`'s refusal on the
+//! written by `scripts/record-door.mjs` before the TypeScript service was deleted, and
+//! `tests/fixtures/post-recipe-bank.golden.jsonl` and `post-recipe-bank-2.golden.jsonl`, svc-bank's recipes (its
+//! transfer, holds on received funds and earn pools; then its loans, business approvals and payroll, ramps, card holds
+//! and cashback), written by `scripts/record-post-recipe.mjs` from
+//! the ledger client's record and recipes through a stand-in of the deleted door that replays the first file exactly):
+//! for each recorded body and each caller, `handleS2sPostRecipe`'s refusal on the
 //! wire, or the post it handed the ledger once `postChecked` had run the caller binding and the recipe gate. The Rust
 //! door must refuse the same bodies with the same status and body, and build the same post from the rest: the same key,
 //! module, reason, meta and legs, so a booking through either door is the same booking.
@@ -21,6 +26,8 @@ use svc_ledger::posting::recipe_door::{self, NAMES};
 use svc_ledger::posting::rules;
 
 const GOLDEN: &str = include_str!("fixtures/post-recipe.golden.jsonl");
+const BANK: &str = include_str!("fixtures/post-recipe-bank.golden.jsonl");
+const BANK_2: &str = include_str!("fixtures/post-recipe-bank-2.golden.jsonl");
 
 /// A recorded caller (`{ kind, service }`, `{ kind, claimed }`, or `null` for a direct call).
 fn caller_of(c: &Json) -> Option<Caller> {
@@ -87,21 +94,28 @@ fn rust_answer(caller: Option<&Caller>, body: Option<&Json>) -> Json {
     Json::obj([("post", prepared.post)])
 }
 
-#[test]
-fn the_door_refuses_and_builds_what_the_typescript_door_does() {
-    let mut lines = GOLDEN.lines();
+/// One recording held: the recipes it was made for, and its answers that differ from the Rust door's.
+struct Held {
+    recipes: Vec<String>,
+    cases: usize,
+    posts: usize,
+    differ: Vec<String>,
+}
+
+/// `superseded`: recipes a later recording holds; a body naming one is judged there, not here.
+fn hold(golden: &str, superseded: &[String]) -> Held {
+    let mut lines = golden.lines();
     let head = json::parse(lines.next().unwrap()).unwrap();
     let Some(Json::Array(recipes)) = head.get("recipes") else {
         panic!("no recipes")
     };
-    assert_eq!(
-        recipes.iter().map(Json::compact).collect::<Vec<_>>(),
-        NAMES
-            .iter()
-            .map(|n| Json::str(*n).compact())
-            .collect::<Vec<_>>(),
-        "the door posts the recipes the TypeScript door posts"
-    );
+    let recipes = recipes
+        .iter()
+        .map(|r| match r {
+            Json::String(s) => s.clone(),
+            _ => panic!("a recipe is its name"),
+        })
+        .collect();
     let Some(Json::Array(callers)) = head.get("callers") else {
         panic!("no callers")
     };
@@ -128,6 +142,13 @@ fn the_door_refuses_and_builds_what_the_typescript_door_does() {
             Json::Null => None,
             _ => panic!("a body is its JSON text"),
         };
+        if let Some(Json::String(r)) = body.as_ref().and_then(|b| match b {
+            Json::Object(_) => b.get("recipe"),
+            _ => None,
+        }) && superseded.contains(r)
+        {
+            continue;
+        }
         let Json::Array(said) = &case[1] else {
             panic!("answers per caller")
         };
@@ -157,12 +178,57 @@ fn the_door_refuses_and_builds_what_the_typescript_door_does() {
             }
         }
     }
-    assert!(posts > 0, "no recorded body reached the ledger");
-    assert!(
-        differ.is_empty(),
-        "{} of {cases} answers differ:\n{}",
-        differ.len(),
-        differ.join("\n")
+    Held {
+        recipes,
+        cases,
+        posts,
+        differ,
+    }
+}
+
+#[test]
+fn the_door_refuses_and_builds_what_the_typescript_door_does() {
+    let bank = hold(BANK, &[]);
+    let bank_2 = hold(BANK_2, &[]);
+    // The deleted service did not post `deposit`: its frozen answers for that name are the door before it took it, and
+    // the svc-bank recordings hold those bodies now.
+    let superseded: Vec<String> = bank
+        .recipes
+        .iter()
+        .chain(&bank_2.recipes)
+        .cloned()
+        .collect();
+    let frozen = hold(GOLDEN, &superseded);
+    assert_eq!(
+        frozen
+            .recipes
+            .iter()
+            .chain(&bank.recipes)
+            .chain(&bank_2.recipes)
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        NAMES,
+        "the door posts the recipes the TypeScript door posts"
     );
-    println!("post-recipe parity: {cases} answers, {posts} of them posts, all the same");
+    for (name, held) in [
+        ("post-recipe", &frozen),
+        ("post-recipe-bank", &bank),
+        ("post-recipe-bank-2", &bank_2),
+    ] {
+        assert!(
+            held.posts > 0,
+            "{name}: no recorded body reached the ledger"
+        );
+        assert!(
+            held.differ.is_empty(),
+            "{name}: {} of {} answers differ:\n{}",
+            held.differ.len(),
+            held.cases,
+            held.differ.join("\n")
+        );
+        println!(
+            "{name} parity: {} answers, {} of them posts, all the same",
+            held.cases, held.posts
+        );
+    }
 }

@@ -832,9 +832,11 @@ export interface UserVenueOrder {
    * Why the venue cancelled it, where it says: `position_closed` when the position it closed is gone (a trigger order
    * or a reduce-only order is cancelled with it, so the other leg of a pair never fires on nothing); `linked` when the
    * other trigger order attached to the same entry filled first, so this one never closes what that one already did;
-   * `scheduled_cancel` when the account's scheduled cancel (`schedule_cancel`, J-cex-spot-07) reached its time.
+   * `scheduled_cancel` when the account's scheduled cancel (`schedule_cancel`, J-cex-spot-07) reached its time;
+   * `self_trade` when the account's own new order would have traded with it and the venue's self-trade rule
+   * (`selfTrade`, `cancel_resting`) cancelled it instead (J-derivatives-04 #7).
    */
-  readonly cancelReason?: 'position_closed' | 'linked' | 'scheduled_cancel' | null;
+  readonly cancelReason?: 'position_closed' | 'linked' | 'scheduled_cancel' | 'self_trade' | null;
 }
 
 /**
@@ -2407,15 +2409,23 @@ export function assertSignatureMatches(prepared: PreparedVenueAction, signature:
  * A TEST venue (simulator, testnet, partner sandbox) is refused unless
  * `appEnv` is exactly `dev` or `test` — the same rule as `isExplicitDevOrTest`
  * (packages/config/src/app-env.ts), restated here so this package keeps no
- * config dependency. Pass the RAW `process.env.APP_ENV`, never a parsed config
- * value that defaults to `dev`: unset, blank and anything else count as live.
+ * config dependency — or the process is in the beta posture: `appEnv` exactly
+ * `staging` and `betaPosture` (raw `INTAFACED_BETA_POSTURE`) exactly
+ * `test-networks` (`isBetaPosture`, same file). Pass the RAW values, never a
+ * parsed config value that defaults to `dev`: unset, blank and anything else
+ * count as live.
  */
-export function refuseTestVenueOutsideTest(venue: UserVenueDescriptor, appEnv: string | null | undefined): void {
-  if (isTestVenue(venue) && appEnv !== 'dev' && appEnv !== 'test') {
+export function refuseTestVenueOutsideTest(
+  venue: UserVenueDescriptor,
+  appEnv: string | null | undefined,
+  betaPosture?: string | null,
+): void {
+  const beta = appEnv === 'staging' && betaPosture === 'test-networks';
+  if (isTestVenue(venue) && appEnv !== 'dev' && appEnv !== 'test' && !beta) {
     throw new VenueRefusalError({
       venueId: venue.id,
       code: 'test_venue_outside_test',
-      detail: `${venue.displayName} is a TEST venue and is refused outside APP_ENV dev or test (APP_ENV: ${appEnv ?? 'unset'})`,
+      detail: `${venue.displayName} is a TEST venue and is refused outside APP_ENV dev or test and the beta posture (APP_ENV: ${appEnv ?? 'unset'})`,
     });
   }
 }

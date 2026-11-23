@@ -59,6 +59,7 @@ import { FeeCurrencyRow } from './VenueReviewRows';
 import { DepositDialog, VenueAccountPanel, WithdrawalTracker, WithdrawDialog, flattenable } from './VenueAccountPanel';
 import { VenueSideForm, type TicketHandle } from './VenueSideForm';
 import { PendingCheck } from './VenuePending';
+import { DateInput } from '@intafaced/ui/lit';
 
 export function VenueSpotDesk({
   status,
@@ -367,7 +368,7 @@ export function VenueSpotDesk({
               {type === 'limit' && tif === 'GTD' ? (
                 <label className="dk-tif dk-expiry">
                   <span className="dk-tif-label">{t('Expires')}</span>
-                  <input
+                  <DateInput
                     type="datetime-local"
                     className="dk-expiry-input"
                     value={expiry}
@@ -442,12 +443,12 @@ export function VenueSpotDesk({
               {pending.map((entry) => (
                 <PendingCheck key={entry.clientOrderId} owner={owner} entry={entry} onFound={onFound} onSendAgain={sendAgain} />
               ))}
-              <p className="dk-note" role="status">
+              <p className="lt-hint" role="status">
                 {t('Pending wait')}
               </p>
             </section>
           ) : found ? (
-            <p className="dk-note" role="status" data-testid="venue-pending-found">
+            <p className="lt-hint" role="status" data-testid="venue-pending-found">
               {found}
             </p>
           ) : null}
@@ -461,7 +462,7 @@ export function VenueSpotDesk({
           <TabsTab value="positions">{v('Positions')}</TabsTab>
         </TabsList>
         <OutcomeLine result={lastResult} owner={owner} />
-        <a className="text-link" data-testid="venue-history-link" href="/trade/orders?product=venue">
+        <a className="lt-link" data-testid="venue-history-link" href="/trade/orders?product=venue">
           {orders('historyTitle')}
         </a>
         <VenueStatement status={status} owner={owner} />

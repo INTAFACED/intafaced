@@ -59,7 +59,7 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *                                                         the day's action count, the mode withheld from reads, a mode
  *                                                         switch the venue refuses with that reason (null: takes it)
  *        /staking, /staking-account {account}             the venue's staking terms, and one account's staking (J-cex-spot-21)
- *        /test/staking-published {rewardRate}             the venue withholds its staking reward rate, or publishes it again
+ *        /test/staking-published {rewardRate?,tiers?}     the venue withholds its staking reward rate or discount tiers, or publishes them again
  *        /test/staking {account,passLockUp?,passQueue?,reward?,fillPending?}   one account's staking, moved as the venue's
  *                                                         clock or the venue would (a lock-up passed, the queue arrived, a
  *                                                         reward paid, withdrawals queued up to the venue's limit)
@@ -1240,9 +1240,16 @@ async function route(
       return { label: 'TEST', lockUpEndsAt: endedAt.toISOString(), ...(await sim.vaultHoldings(account(body))) };
     }
     case '/test/staking-published': {
-      // J-cex-spot-21 #1: the venue withholds its reward rate (rewardRate: false) or publishes it again (true).
-      if (typeof body.rewardRate !== 'boolean') throw new VenueWireError('rewardRate must be true or false');
-      sim.testStakingPublished({ rewardRate: body.rewardRate });
+      // J-cex-spot-21 #1: the venue withholds its reward rate or its discount tiers (false) or publishes them again (true).
+      const set: { rewardRate?: boolean; tiers?: boolean } = {};
+      for (const k of ['rewardRate', 'tiers'] as const) {
+        const v: unknown = body[k];
+        if (v === undefined) continue;
+        if (typeof v !== 'boolean') throw new VenueWireError(`${k} must be true or false`);
+        set[k] = v;
+      }
+      if (Object.keys(set).length === 0) throw new VenueWireError('rewardRate or tiers must be true or false');
+      sim.testStakingPublished(set);
       return { label: 'TEST', ...(await sim.staking()) };
     }
     case '/test/staking': {
@@ -1512,6 +1519,8 @@ export interface StartTestVenueOptions {
   readonly port: number;
   /** The RAW `process.env.APP_ENV`. Anything but `dev` or `test` refuses to start. */
   readonly appEnv: string | undefined;
+  /** The RAW `process.env.INTAFACED_BETA_POSTURE`: `test-networks` beside APP_ENV `staging` also lets a TEST venue run (the beta posture). */
+  readonly betaPosture?: string;
   readonly chainId?: number;
   readonly clock?: () => Date;
   /** The venue's id and name, so a stack can run two TEST venues side by side (J-derivatives-28). Defaults: the simulator's. */
@@ -1553,7 +1562,7 @@ export async function startTestVenueServer(
     ...(opts.cancelsPerAction !== undefined ? { cancelsPerAction: opts.cancelsPerAction } : {}),
     ...(opts.scheduledCancelMinLeadMs !== undefined ? { scheduledCancelMinLeadMs: opts.scheduledCancelMinLeadMs } : {}),
   });
-  refuseTestVenueOutsideTest(sim.venue, opts.appEnv);
+  refuseTestVenueOutsideTest(sim.venue, opts.appEnv, opts.betaPosture);
   const server = http.createServer(testVenueHandler(sim, opts.deposit ?? null));
   // A scheduled cancel fires on the venue's own clock, when nobody is talking to it (J-cex-spot-07 #3).
   const sweep = setInterval(() => {

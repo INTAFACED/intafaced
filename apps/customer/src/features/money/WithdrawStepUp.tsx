@@ -30,13 +30,13 @@ export function WithdrawStepUp({
         if (!busy) onCancel();
       }}
     >
-      <div className="form-stack">
-        <p className="muted">{why ?? t('why')}</p>
+      <div className="lt-stack">
+        <p className="lt-muted">{why ?? t('why')}</p>
         <Button variant="secondary" disabled={busy !== null} onClick={withPasskey}>
           {busy === 'passkey' ? t('passkeyWaiting') : t('passkey')}
         </Button>
-        <p className="muted">{t('or')}</p>
-        <form className="form-stack" onSubmit={withCode} noValidate>
+        <p className="lt-muted">{t('or')}</p>
+        <form className="lt-stack" onSubmit={withCode} noValidate>
           <Field
             label={t('code')}
             hint={t('codeHint')}
@@ -52,7 +52,7 @@ export function WithdrawStepUp({
           </Button>
         </form>
         {problem && (
-          <p data-testid="failure" className="failure" role="alert">
+          <p data-testid="failure" className="lt-refusal" role="alert">
             {problem}
           </p>
         )}

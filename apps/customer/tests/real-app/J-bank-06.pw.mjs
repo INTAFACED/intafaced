@@ -1,8 +1,10 @@
 // World: none
 import { randomUUID } from 'node:crypto';
 import { test, expect } from './journey.mjs';
-import { DEVICE_KEY, EDGE, ORIGIN, api as stackApi, fromUnits, journeyState, toUnits } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, STACK_PORTS, api as stackApi, fromUnits, journeyState, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
+import { venueBalance, venueRecord } from './venue.mjs';
+import { ageRecord } from './test-age.mjs';
 
 // J-bank-06, in the running app (docs/roadmap/journeys.json): I schedule payments and standing orders. The person's bank
 // money is held at the TEST partner bank (`testPartner.set({ custody: 'off' })`, the launch model, OWNER 226), funded
@@ -25,6 +27,8 @@ const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const PARTNER_BANK = 'TEST partner bank';
 /** The TEST partner's own reason code for a collection on a mandate the person blocked with it. */
 const PARTNER_DD_BLOCKED = 'test_partner.dd_mandate_blocked';
+/** The TEST partner bank's own record, on loopback (svc-bank src/partner/test-partner-record.ts): its book, not our doors. */
+const PARTNER_RECORD = `http://127.0.0.1:${STACK_PORTS.bank}/test-partner`;
 
 test.describe.configure({ mode: 'default' });
 
@@ -106,6 +110,26 @@ function person() {
   return who;
 }
 const main = (rows) => rows.find((s) => s.kind === 'primary' && s.assetId === 'USDT');
+/** The person's user id, the owner the partner keeps their book under. */
+async function userIdOf(who) {
+  const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
+    method: 'POST',
+    headers: { origin: ORIGIN, 'content-type': 'application/json' },
+    body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password }),
+  }).then((r) => r.json());
+  const owner = login?.result?.data?.userId;
+  expect(owner).toBeTruthy();
+  return owner;
+}
+/** Every move on the person's record at the TEST partner, oldest first, as its own book lists it. */
+const partnerMoves = async (owner) => (await venueRecord(owner, '/moves', {}, PARTNER_RECORD, null)).value;
+/** The person's main USDT balance as the TEST partner's own book holds it. */
+const partnerMain = async (owner) => (await venueBalance(owner, 'USDT', PARTNER_RECORD)).total;
+/** The partner's own direct debit book: its mandates and the collections it refused, for this person only. */
+async function partnerDirectDebits(owner) {
+  const { value } = await venueRecord(owner, '/direct-debits', {}, PARTNER_RECORD, null);
+  return { mandates: value.mandates.filter((m) => m.owner === owner), failures: value.failures.filter((f) => f.owner === owner) };
+}
 /**
  * The journey's start at the TEST partner bank: the person's bank money held there (`custody: 'off'`) and TEST 100 USDT
  * paid in there, the partner's figure and no ledger post. The TEST partner keeps its book in memory for one svc-bank
@@ -172,7 +196,8 @@ test(`${J} #1 schedules a one-off for tomorrow: on its date the partner is instr
   const who = await signUp(page, 'jb6');
   await verify(page, who);
   await atPartner(who);
-  run.reset({ who, ledger: await ledgerUsdt(who) });
+  const owner = await userIdOf(who);
+  run.reset({ who, owner, ledger: await ledgerUsdt(who) });
   const api = await bank(who);
   expect((await api.mutate('spaces.create', { assetId: 'USDT', name: TRIP })).ok).toBe(true);
   expect((await api.mutate('spaces.create', { assetId: 'USDT', name: EMPTY })).ok).toBe(true);
@@ -203,20 +228,29 @@ test(`${J} #1 schedules a one-off for tomorrow: on its date the partner is instr
   await runDue();
   expect(await executions(who, once.id)).toEqual([]);
   expect(main(await spaces(who)).balance).toBe(main(start).balance);
+  // The partner's own book: no instruction for it yet, and its main balance is the one the app shows.
+  const sentFor = async (id) => (await partnerMoves(owner)).filter((m) => m.key.startsWith(`bank.transfer.sched:${id}:`));
+  expect(await sentFor(once.id)).toEqual([]);
+  expect(toUnits(await partnerMain(owner))).toBe(toUnits(main(start).balance));
 
-  // On its date: a one-off whose date has come (made the same way, through the person's own API, dated a minute ago).
-  // The partner makes the move and its answer is lost once (the TEST switch), so the runner must send the same key
-  // again: the partner answers with the move it made, and the money moves once.
-  const due = randomUUID();
-  const made = await api.mutate('transfers.schedule', {
-    scheduleId: due,
-    fromSpaceId: main(start).id,
-    toSpaceId: named(start, TRIP).id,
-    amount: '7',
-    cadence: 'once',
-    startsAt: new Date(Date.now() - 60_000).toISOString(),
-  });
-  expect(made.ok).toBe(true);
+  // On its date: a second one-off scheduled in the app for tomorrow, then its date comes (the TEST age door moves its
+  // start and next run back by the day, as the wait would have). The first stays tomorrow's, for the calendar and the
+  // reminder. The partner makes the move and its answer is lost once (the TEST switch), so the runner must send the same
+  // key again: the partner answers with the move it made, and the money moves once.
+  const second = await scheduleInApp(page, { cadence: 'One-off', amount: '7', startsAt: tomorrow });
+  await second.getByRole('button', { name: 'Confirm', exact: true }).click();
+  await expect(second.getByText('Confirmed by the service', { exact: true })).toBeVisible({ timeout: 30_000 });
+  const scheduled = (await schedules(who)).find((s) => s.cadence === 'once' && s.amount === '7');
+  expect(scheduled).toMatchObject({ status: 'active', endsAt: null, revision: 1 });
+  const due = scheduled.id;
+  await page.goto('/bank/transfers');
+  await expect(row(page, due)).toContainText('once · active');
+  expect(await executions(who, due)).toEqual([]);
+  expect(await sentFor(due)).toEqual([]);
+  const DAY = 86_400_000;
+  for (let left = Date.parse(scheduled.nextRunAt) - Date.now() + 1_000; left > 0; left -= DAY)
+    await ageRecord('bank', 'scheduled-transfer', due, Math.min(left, DAY));
+  expect(Date.parse((await schedules(who)).find((s) => s.id === due).nextRunAt)).toBeLessThanOrEqual(Date.now());
   expect(await api.mutate('testPartner.set', { nextReply: 'lost' })).toMatchObject({ ok: true });
   const passes = await runDue();
   expect(passes.failures.some((f) => f.scheduleId === due && f.code === 'bank.partner_reply_lost')).toBe(true);
@@ -226,11 +260,25 @@ test(`${J} #1 schedules a one-off for tomorrow: on its date the partner is instr
   const [instructed] = await executions(who, due);
   expect(instructed).toMatchObject({ occurrence: 0, amount: '7', status: 'settled', rejectionCode: null, ledgerTxId: null });
   expect(instructed.partnerMoveId).toBeTruthy();
-  // The schedule ends, and another pass instructs nothing more.
+  // The partner's own book: one instruction under the occurrence's retry-safe key, although the runner sent it twice,
+  // the move the app names, main balance to the trip space, and the partner's main balance the one the app shows.
+  const [atPartnerMove, ...extra] = await sentFor(due);
+  expect(extra).toEqual([]);
+  expect(atPartnerMove).toMatchObject({
+    id: instructed.partnerMoveId,
+    key: `bank.transfer.sched:${due}:0`,
+    from: { owner, assetId: 'USDT', spaceId: null },
+    to: { owner, assetId: 'USDT', spaceId: named(start, TRIP).id },
+  });
+  expect(toUnits(atPartnerMove.amount)).toBe(toUnits('7'));
+  expect(toUnits(await partnerMain(owner))).toBe(toUnits(main(after).balance));
+  // The schedule ends, and another pass instructs nothing more, at the partner too.
   expect((await schedules(who)).find((s) => s.id === due)).toMatchObject({ status: 'completed' });
   await runDue();
   expect(await executions(who, due)).toHaveLength(1);
   expect(main(await spaces(who)).balance).toBe(main(after).balance);
+  expect(await sentFor(due)).toHaveLength(1);
+  expect(toUnits(await partnerMain(owner))).toBe(toUnits(main(after).balance));
   // The ledger posted nothing: the money is the partner's.
   expect(await ledgerUsdt(who)).toEqual(run.read().ledger);
 
@@ -343,8 +391,11 @@ test(`${J} #3 a run with too little money: the partner's refusal is recorded as 
 }) => {
   test.setTimeout(240_000);
   const who = person();
+  const { owner } = run.read();
   const api = await bank(who);
   const before = await spaces(who);
+  const partnerBefore = await partnerMoves(owner);
+  expect(toUnits(await partnerMain(owner))).toBe(toUnits(main(before).balance));
   // A weekly order for more than the main balance holds, due a minute ago, so the next runner pass finds it due.
   const big = randomUUID();
   const more = fromUnits(toUnits(main(before).balance) + toUnits('1000'));
@@ -372,10 +423,20 @@ test(`${J} #3 a run with too little money: the partner's refusal is recorded as 
   const after = await spaces(who);
   for (const space of before) expect(after.find((s) => s.id === space.id)?.balance).toBe(space.balance);
   expect(await ledgerUsdt(who)).toEqual(run.read().ledger);
+  // Nothing sent, in the partner's own book: no move under the order's key, its moves as they were, its main balance
+  // unchanged and still the one the app shows.
+  const unsent = async () => {
+    const moves = await partnerMoves(owner);
+    expect(moves.filter((m) => m.key.startsWith(`bank.transfer.sched:${big}:`))).toEqual([]);
+    expect(moves).toEqual(partnerBefore);
+    expect(toUnits(await partnerMain(owner))).toBe(toUnits(main(before).balance));
+  };
+  await unsent();
   // A second pass sends nothing for the same occurrence: the failed run is recorded once.
   await runDue();
   expect(await executions(who, big)).toHaveLength(1);
   expect(main(await spaces(who)).balance).toBe(main(before).balance);
+  await unsent();
 
   await signIn(page, who);
   await page.goto('/bank/transfers');
@@ -395,13 +456,7 @@ test(`${J} #4 blocks a direct debit mandate: the block is sent to the partner, n
   test.setTimeout(300_000);
   const who = person();
   const api = await bank(who);
-  const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
-    method: 'POST',
-    headers: { origin: ORIGIN, 'content-type': 'application/json' },
-    body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password }),
-  }).then((r) => r.json());
-  const owner = login?.result?.data?.userId;
-  expect(owner).toBeTruthy();
+  const owner = await userIdOf(who);
   const tag = randomUUID().slice(0, 8);
   const gym = `TEST-GYM-${tag}`,
     power = `TEST-POWER-${tag}`;
@@ -446,6 +501,14 @@ test(`${J} #4 blocks a direct debit mandate: the block is sent to the partner, n
   // A new collection it presents while blocked is rejected with the reason the partner reports.
   const late = await scheme('dd-sim/collection', { mandateId: power, collectionId: `${tag}-late`, amount: '3', dueAt: at(2) });
   expect(late).toMatchObject({ status: 'rejected', failureCode: PARTNER_DD_BLOCKED, ledgerTxId: null, partnerMoveId: null });
+  // The partner's own direct debit book: the block is its own, with its time, the gym's mandate untouched, and the late
+  // collection is one it refused with the reason the app shows.
+  const ddBook = await partnerDirectDebits(owner);
+  expect(ddBook.mandates.find((m) => m.mandateId === power)).toMatchObject({ state: 'blocked', blockedAt: expect.any(String) });
+  expect(ddBook.mandates.find((m) => m.mandateId === gym)).toMatchObject({ state: 'active', blockedAt: null });
+  expect(ddBook.failures.filter((f) => f.mandateId === power)).toEqual([
+    { owner, mandateId: power, collectionId: `${tag}-late`, code: PARTNER_DD_BLOCKED },
+  ]);
 
   // The collection run: the gym's due 5 is taken once by the partner, and nothing is posted on the ledger.
   // Other journeys' collections share this stack, so the run is passed until this person's due one is decided.
@@ -489,6 +552,13 @@ test(`${J} #4 blocks a direct debit mandate: the block is sent to the partner, n
     refund: { state: 'none' },
   });
   expect(await ledgerUsdt(who)).toEqual(run.read().ledger);
+  // The partner's own book: the collected 5 is its one move under the collection's key, the move the app names, out of
+  // the main balance; the refused and failed collections moved nothing there; its main balance is the app's 4.
+  const ddMoves = (await partnerMoves(owner)).filter((m) => m.key.startsWith('bank.dd.collection:') && m.key.includes(tag));
+  expect(ddMoves.map((m) => m.key)).toEqual([`bank.dd.collection:${gym}:${tag}-due`]);
+  expect(ddMoves[0]).toMatchObject({ id: byId('due').partnerMoveId, from: { owner, assetId: 'USDT', spaceId: null } });
+  expect(toUnits(ddMoves[0].amount)).toBe(toUnits('5'));
+  expect(toUnits(await partnerMain(owner))).toBe(toUnits('4'));
 
   await page.reload();
   const collected = page.getByTestId(`dd-collection-${tag}-due`);
@@ -528,6 +598,10 @@ test(`${J} #4 blocks a direct debit mandate: the block is sent to the partner, n
   await page.getByRole('dialog').getByRole('button', { name: 'Unblock mandate' }).click();
   await expect(powerRow).toContainText('Active');
   await expect(refused).toContainText('Refused');
+  expect((await partnerDirectDebits(owner)).mandates.find((m) => m.mandateId === power)).toMatchObject({
+    state: 'active',
+    blockedAt: null,
+  });
 });
 
 /** The calendar's month, moved with its own buttons until it shows `month` (`YYYY-MM`). */
@@ -625,17 +699,20 @@ test(`${J} #5 opens the calendar: standing orders and direct debits on their dat
   // Where the dates come from: loans publish none and bills have no partner, each named; the rest are counted.
   const sources = page.getByTestId('cal-sources');
   await expect(sources.getByTestId('cal-source-loans')).toContainText('repayment dates are not published');
-  await expect(sources.getByTestId('cal-source-loans')).toContainText('bank.loan_schedule_unset');
+  await expect(sources.getByTestId('cal-source-loans')).toHaveAttribute('data-code', 'bank.loan_schedule_unset');
+  // A code is the row's attribute, never words a customer reads.
+  await expect(sources).not.toContainText('bank.');
   await expect(sources.getByTestId('cal-source-bills')).toContainText('no bill payment partner is connected');
   await expect(sources.getByTestId('cal-source-standing_orders')).toHaveAttribute('data-state', 'ok');
   await expect(sources.getByTestId('cal-source-direct_debits')).toHaveAttribute('data-state', 'ok');
 
-  // The list: each run with its status, and a failed one with its reason in words and by code.
+  // The list: each run with its status, and a failed one with its reason in words, its code on the row.
   await page.getByRole('button', { name: 'List', exact: true }).click();
   const failedRow = page.getByTestId(`cal-row-${short}:0`);
   await expect(failedRow).toContainText('Failed');
   await expect(failedRow).toContainText('There was not enough money. Nothing was taken.');
-  await expect(failedRow).toContainText('bank.partner_insufficient_funds');
+  await expect(failedRow.locator('[data-status="failed"]')).toHaveAttribute('data-code', 'bank.partner_insufficient_funds');
+  await expect(failedRow).not.toContainText('bank.partner_insufficient_funds');
   await expect(page.getByTestId(`cal-row-${due}:0`)).toContainText('Done');
 
   // Filter by kind: direct debits off leaves the standing orders showing.
@@ -854,7 +931,7 @@ test(`${J} #8 with one source failing (TEST switch), opens the calendar: the fai
       expect(broken.sources.find((s) => s.source === source)).toEqual(whole.sources.find((s) => s.source === source));
     expect(broken.items.find((i) => i.key === `${due}:0`)).toMatchObject({ source: 'standing_orders', status: 'done' });
 
-    // In the app: the failing kind is named in words and by code, and the standing orders still show on their days.
+    // In the app: the failing kind is named in words, its code on the row, and the standing orders still show on their days.
     await signIn(page, who);
     await page.goto('/bank/calendar');
     await calendarMonth(page, ranMonth);
@@ -862,7 +939,8 @@ test(`${J} #8 with one source failing (TEST switch), opens the calendar: the fai
     const failing = sources.getByTestId('cal-source-direct_debits');
     await expect(failing).toHaveAttribute('data-state', 'unavailable');
     await expect(failing).toContainText('Direct debits could not be read just now. Everything else is shown.');
-    await expect(failing).toContainText('bank.calendar_source_unavailable');
+    await expect(failing).toHaveAttribute('data-code', 'bank.calendar_source_unavailable');
+    await expect(sources).not.toContainText('bank.');
     await expect(sources.getByTestId('cal-source-standing_orders')).toHaveAttribute('data-state', 'ok');
     await expect(sources.getByTestId('cal-source-loans')).toContainText('repayment dates are not published');
     await expect(sources.getByTestId('cal-source-bills')).toContainText('no bill payment partner is connected');

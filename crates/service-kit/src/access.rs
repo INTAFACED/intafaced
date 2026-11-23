@@ -532,6 +532,18 @@ impl Jurisdiction {
         Ok(())
     }
 
+    /// `AccessDecision.blockedBy`: which authority refuses the region, `screening` winning when both name it; none for a
+    /// region neither names (so none for any refusal but `denied.region_blocked`).
+    pub fn blocked_by(&self, region: &str) -> Option<&'static str> {
+        if Self::hit(&self.screening.regions, region).is_some() {
+            Some("screening")
+        } else if Self::hit(&self.business, region).is_some() {
+            Some("business")
+        } else {
+            None
+        }
+    }
+
     /// `checkAccess({ module, plane: 'fiat', region, kycTier })` for a fiat module whose rule is open everywhere at
     /// `min_tier` (no region of the matrix names the module: `ruleFor` is its default rule): the checks of
     /// [`Jurisdiction::check_open`], then `denied.kyc_required` when the caller's tier does not satisfy it
@@ -584,6 +596,9 @@ mod tests {
             "denied.region_blocked"
         );
         assert_eq!(test.check_open("CA-QC"), Ok(()));
+        assert_eq!(test.blocked_by("US"), Some("business"));
+        assert_eq!(test.blocked_by("IR"), Some("screening"));
+        assert_eq!(test.blocked_by("DE"), None);
         assert!(
             test.check_open("UA-43")
                 .unwrap_err()

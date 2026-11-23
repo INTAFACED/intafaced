@@ -157,8 +157,8 @@ fn venue_account_book(
     let mut held: HashMap<String, Amount> = HashMap::new();
     for b in &activity.balances {
         let total = amount(&b.total)?;
-        if total > 0 {
-            *held.entry(b.asset.clone()).or_insert(0) += total;
+        if total > Amount::ZERO {
+            *held.entry(b.asset.clone()).or_insert(Amount::ZERO) += total;
         }
     }
     let moves = venue_own_moves(activity)?;
@@ -294,7 +294,7 @@ pub fn venue_books(
 
 /// `sumOrNull`.
 fn sum_or_null(values: impl Iterator<Item = Option<Amount>>) -> Option<Amount> {
-    let mut total: Amount = 0;
+    let mut total: Amount = Amount::ZERO;
     for v in values {
         total += v?;
     }
