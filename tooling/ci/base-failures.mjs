@@ -9,16 +9,25 @@
  *
  * What it excuses, and only on a pull request (main's own runs fail on every failing test, as before): a failing test
  * whose id (package, file, full name) and reason (its first error's first line) main's own Tests jobs recorded on the
- * commit this pull request merges into (its base: the merge commit's first parent). Never excused:
+ * commit this pull request merges into (its base: the merge commit's first parent) or, when main has no finished record
+ * there, on the nearest commit before it on main's first-parent line that has one (nearestRecord, at most WALK commits
+ * back). Main's CI runs one run at a time and a newer push cancels a queued one (ci.yml `concurrency`), so most of main's
+ * commits never get a record: on 23 Nov, 11 of 12 pushes in 07:42-08:33 UTC were cancelled. Never excused:
  *   - a failure main did not record, or recorded for another reason;
  *   - a test of money, custody, sign-in or permissions, or a journey test (owner decision d76, ci-review/REVIEW.md):
  *     every test in money code (moneyDirsOf, the repo's money code list, at the head or the base), in packages/auth or
  *     apps/admin, any test whose file or name says money, sign-in or permissions (PROTECTED_WORDS), and any journey test;
  *   - a package whose failure is not read test by test: a run that crashed or reported nothing, an unhandled error, a
  *     command after its tests that did not run, a build or other task that failed, a test script this can't read;
- *   - anything when main's record is unknown: no run of main on that commit, a run not finished (waited for up to
- *     WAIT_MIN minutes), cancelled, a Tests job without its record, or a record for another commit.
- * The Tests job stays red for anything held, and its output names each failure excused, why, and main's run.
+ *   - a failure in a package whose folder a commit of main after that record changed (git diff record..base): what
+ *     the record said about that package may no longer hold on the base;
+ *   - anything when main's record is unknown: a base not on main, or none of the base and the WALK - 1 commits before it
+ *     with a finished record (each has no run of main, a run not finished, cancelled, a Tests job without its record,
+ *     or a record for another commit). While a run of main on a commit newer than the record it found (or on any of
+ *     them, when it found none) is not finished, and that run could still excuse what is held, it waits for it, up to
+ *     WAIT_MIN minutes; it does not wait when the record it has already excuses every failure.
+ * The Tests job stays red for anything held, and its output names each failure excused, why, the commit whose record
+ * it used, and main's run on it.
  *
  *   node tooling/ci/base-failures.mjs record --results <dir> --turbo <dir> --outcome <success|failure> --shard <s> --out <file>
  *       (every Tests job; GITHUB_SHA, GITHUB_EVENT_NAME, GITHUB_RUN_ATTEMPT): what this job failed, as data. On main it is
@@ -43,6 +52,8 @@ import { REPORT_VERSION } from './test-results-reporter.mjs';
 export const RECORD_VERSION = 1;
 export const WORKFLOW = 'ci.yml';
 export const WAIT_MIN = 20;
+/** How far back main's first-parent line is read for a finished record: the base and the 39 commits before it. */
+export const WALK = 40;
 const POLL_MS = 60_000;
 const TESTS_JOB = /^Tests \((.+)\)$/;
 
@@ -295,11 +306,20 @@ export function compare({ pr, main, moneyDirs }) {
       const prot = protectedWhy(f, { moneyDirs });
       if (prot) held.push({ f, what: failureId(f), why: `never excused: ${prot}` });
       else if (!pkg.explained) held.push({ f, what: failureId(f), why: 'its package is held (above)' });
-      else if (!main?.known) held.push({ f, what: failureId(f), why: `main's result is unknown: ${main?.why ?? 'not read'}` });
+      // byMain: a newer record of main could still change this one (needsMain)
+      else if (!main?.known)
+        held.push({ f, byMain: true, what: failureId(f), why: `main's result is unknown: ${main?.why ?? 'not read'}` });
       else if (!main.failures.has(failureId(f)))
-        held.push({ f, what: failureId(f), why: 'main did not fail it: only this pull request does' });
+        held.push({ f, byMain: true, what: failureId(f), why: 'main did not fail it: only this pull request does' });
       else if (main.failures.get(failureId(f)) !== f.reason)
-        held.push({ f, what: failureId(f), why: `main failed it for another reason: ${main.failures.get(failureId(f))}` });
+        held.push({ f, byMain: true, what: failureId(f), why: `main failed it for another reason: ${main.failures.get(failureId(f))}` });
+      else if (main.changed?.has(f.dir))
+        held.push({
+          f,
+          byMain: true,
+          what: failureId(f),
+          why: `main changed ${f.dir} after the record it has (${main.sha}), so that record may not hold on the base`,
+        });
       else excused.push({ f, mainReason: main.failures.get(failureId(f)) });
     }
   }
@@ -308,15 +328,44 @@ export function compare({ pr, main, moneyDirs }) {
 }
 
 /** Whether main's record could still change the verdict: every held item waits only on main. */
-export const needsMain = (held) => held.length > 0 && held.every((h) => h.f && h.why.startsWith("main's result is unknown"));
+export const needsMain = (held) => held.length > 0 && held.every((h) => h.f && h.byMain);
+
+/**
+ * Main's nearest finished record at or before the base: `line` is the base and the commits before it on main's
+ * first-parent line, newest first (at most WALK); `readAt(sha)` is mainState's answer for that commit. Returns the first
+ * known one, as mainState gives it, with `sha`, `run` and `behind` (how many commits before the base), or
+ * { known: false, why }. Either way `pending` names the newest commit above the record (or anywhere on the line, when
+ * none was found) whose run of main is not finished yet, or is null.
+ */
+export async function nearestRecord({ base, line, readAt }) {
+  if (line[0] !== base) return { known: false, pending: null, why: `main's line was not read from ${base}` };
+  let pending = null;
+  const seen = [];
+  for (const [behind, sha] of line.slice(0, WALK).entries()) {
+    const { state, run } = await readAt(sha);
+    if (state.known) return { ...state, sha, run, behind, pending };
+    if (state.waiting && !pending) pending = { sha, run, why: state.why };
+    seen.push(state.why);
+  }
+  const n = Math.min(line.length, WALK);
+  return {
+    known: false,
+    pending,
+    why: `none of ${base} and the ${n - 1} commit(s) before it on main has a finished record of main's tests (${seen.slice(0, 3).join('; ')}${seen.length > 3 ? '; …' : ''})`,
+  };
+}
 
 /** The verdict as lines for the log and the step summary. */
-export function verdictText({ verdict, base, runUrl }) {
+export function verdictText({ verdict, base, runUrl, record = { sha: base, behind: 0 } }) {
   const out = [];
-  const main = runUrl ? `main's run ${runUrl}` : `main's record on ${base}`;
+  const main = runUrl ? `main's run ${runUrl}` : `main's record on ${record.sha}`;
+  const where =
+    record.sha === base
+      ? `${base}, the commit this pull request merges into`
+      : `${record.sha}, ${record.behind} commit(s) before ${base}, the commit this pull request merges into (the nearest commit of main with a finished record: the commits between have none, their runs cancelled or not finished)`;
   if (verdict.excused.length) {
     out.push(
-      `Excused: ${verdict.excused.length} failure(s) that ${main} recorded the same way on ${base}, the commit this pull request merges into (the owner's decision of 23 Nov 2026: a failure main already has does not hold a pull request; main's own run stays red for it):`,
+      `Excused: ${verdict.excused.length} failure(s) that ${main} recorded the same way on ${where} (the owner's decision of 23 Nov 2026: a failure main already has does not hold a pull request; main's own run stays red for it):`,
     );
     for (const e of verdict.excused) out.push(`  - ${failureId(e.f)}: ${e.f.reason}`);
   }
@@ -372,11 +421,78 @@ function downloadRecords(repo, runId) {
   return records;
 }
 
-async function readMain(repo, base) {
-  const run = await findMainRun(repo, base);
-  if (!run || run.status !== 'completed') return { state: mainState({ base, run, jobs: [], records: new Map() }), run };
-  const jobs = await runJobs(`/repos/${repo}/actions/runs/${run.id}/jobs?filter=latest`, getJson);
-  return { state: mainState({ base, run, jobs, records: downloadRecords(repo, run.id) }), run };
+/**
+ * mainState on one commit of main, read from GitHub: { state, run }. A finished answer is kept in `cache` (a later poll
+ * reads again only the commits whose runs were not finished); a run that ended in neither success nor failure, or kept
+ * no record, is not read further.
+ */
+async function readAt(repo, sha, cache, recent) {
+  if (cache.has(sha)) return cache.get(sha);
+  const run = recent.has(sha) ? recent.get(sha) : await findMainRun(repo, sha);
+  const empty = { base: sha, run, jobs: [], records: new Map() };
+  let out;
+  if (!run || run.status !== 'completed' || (run.conclusion !== 'success' && run.conclusion !== 'failure'))
+    out = { state: mainState(empty), run };
+  else {
+    const records = downloadRecords(repo, run.id);
+    if (!records.size) out = { state: { known: false, why: `main's run ${run.id} on ${sha} kept no test record` }, run };
+    else {
+      const jobs = await runJobs(`/repos/${repo}/actions/runs/${run.id}/jobs?filter=latest`, getJson);
+      out = { state: mainState({ ...empty, jobs, records }), run };
+    }
+  }
+  if (!out.state.waiting) cache.set(sha, out);
+  return out;
+}
+
+const defaultGit = (args) => execFileSync('git', args, { encoding: 'utf8', maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'pipe'] });
+
+/** The base and the commits before it on main's first-parent line, newest first, at most WALK; throws when the base is not on main. */
+export function mainLine(base, git = defaultGit) {
+  try {
+    git(['merge-base', '--is-ancestor', base, 'origin/main']);
+  } catch {
+    throw new Error(`${base} is not on origin/main, so main's records say nothing about it`);
+  }
+  return git(['rev-list', '--first-parent', `--max-count=${WALK}`, base])
+    .split('\n')
+    .filter(Boolean);
+}
+
+/** Which of `dirs` a commit after `from`, up to `to`, changed; a folder git can't compare counts as changed. */
+export function changedDirs(from, to, dirs, git = defaultGit) {
+  const out = new Set();
+  if (from === to) return out;
+  for (const d of new Set(dirs)) {
+    try {
+      git(['diff', '--quiet', from, to, '--', d]);
+    } catch {
+      out.add(d);
+    }
+  }
+  return out;
+}
+
+/**
+ * Main's newest push runs of ci.yml, the newest per commit, by commit: one call instead of one per commit of the walk
+ * (a Tests job's token has 1,000 calls an hour for the repo, shared by every job). When a commit has a run among the
+ * newest RECENT, its newest run is among them too; a commit with none there is asked by itself (findMainRun).
+ */
+const RECENT = 100;
+export async function recentMainRuns(repo, get = getJson) {
+  const j = await get(`/repos/${repo}/actions/workflows/${WORKFLOW}/runs?branch=main&event=push&per_page=${RECENT}`);
+  const by = new Map();
+  for (const r of [...(j.workflow_runs ?? [])].sort((a, b) => b.id - a.id)) if (!by.has(r.head_sha)) by.set(r.head_sha, r);
+  return by;
+}
+
+/** Main's nearest finished record for `base`, with the folders of `dirs` main changed after it (state.changed). */
+export async function readMain(repo, base, dirs, cache, git = defaultGit) {
+  const line = mainLine(base, git);
+  const recent = await recentMainRuns(repo);
+  const state = await nearestRecord({ base, line, readAt: (sha) => readAt(repo, sha, cache, recent) });
+  if (state.known) state.changed = changedDirs(state.sha, base, dirs, git);
+  return { state, run: state.run ?? null };
 }
 
 const PACKAGE_JSON = /^((?:apps|services|packages|tooling)\/[^/]+)\/package\.json$/;
@@ -422,29 +538,52 @@ async function verdictMain(args) {
     return 1;
   }
   const moneyDirs = new Set([...moneyDirsOf(manifestsOf(process.cwd())), ...moneyDirsOf(manifestsAtRev(base))]);
+  const { verdict, runUrl, record } = await judge({ repo, base, pr, moneyDirs });
+  for (const e of verdict.excused)
+    console.log(`::warning title=Excused: main fails it too::${failureId(e.f)}: ${e.f.reason} (${runUrl ?? record.sha})`);
+  for (const h of verdict.held) console.log(`::error title=Held::${h.what}: ${h.why}`);
+  say(verdictText({ verdict, base, runUrl, record }));
+  return verdict.pass ? 0 : 1;
+}
+
+/**
+ * The verdict on `pr` (a record) against main's nearest finished record for `base`, reading GitHub and git; waits while
+ * a newer run of main could still excuse what is held (WAIT_MIN). { verdict, runUrl, record: { sha, behind } }.
+ */
+export async function judge({
+  repo,
+  base,
+  pr,
+  moneyDirs,
+  waitMin = Number(process.env.BASE_FAILURES_WAIT_MIN) || WAIT_MIN,
+  read: readFn = (dirs, cache) => readMain(repo, base, dirs, cache),
+  sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
+}) {
   let verdict = compare({ pr, main: null, moneyDirs });
   let runUrl = null;
-  if (needsMain(verdict.held)) {
-    const deadline = Date.now() + (Number(process.env.BASE_FAILURES_WAIT_MIN) || WAIT_MIN) * 60_000;
+  let record = { sha: base, behind: 0 };
+  if (!needsMain(verdict.held)) return { verdict, runUrl, record };
+  const dirs = pr.packages.map((p) => p.dir);
+  const cache = new Map();
+  const deadline = Date.now() + waitMin * 60_000;
+  for (;;) {
     let read;
-    for (;;) {
-      try {
-        read = await readMain(repo, base);
-      } catch (e) {
-        read = { state: { known: false, why: e.message } };
-      }
-      if (!read.state.waiting || Date.now() + POLL_MS > deadline) break;
-      console.log(`${read.state.why}: waiting for it (until ${new Date(deadline).toISOString()})`);
-      await new Promise((r) => setTimeout(r, POLL_MS));
+    try {
+      read = await readFn(dirs, cache);
+    } catch (e) {
+      read = { state: { known: false, why: e.message } };
     }
-    if (read.run) runUrl = `${process.env.GITHUB_SERVER_URL ?? 'https://github.com'}/${repo}/actions/runs/${read.run.id}`;
     verdict = compare({ pr, main: read.state, moneyDirs });
+    runUrl = read.run ? `${process.env.GITHUB_SERVER_URL ?? 'https://github.com'}/${repo}/actions/runs/${read.run.id}` : null;
+    record = read.state.known ? { sha: read.state.sha, behind: read.state.behind } : { sha: base, behind: 0 };
+    const pending = read.state.pending;
+    // needsMain is false once nothing is held, so a record that already excuses every failure ends it without a wait
+    if (!needsMain(verdict.held) || !pending || Date.now() + POLL_MS > deadline) break;
+    console.log(`${pending.why}, newer than any record found: waiting for it (until ${new Date(deadline).toISOString()})`);
+    await sleep(POLL_MS);
   }
-  for (const e of verdict.excused)
-    console.log(`::warning title=Excused: main fails it too::${failureId(e.f)}: ${e.f.reason} (${runUrl ?? base})`);
-  for (const h of verdict.held) console.log(`::error title=Held::${h.what}: ${h.why}`);
-  say(verdictText({ verdict, base, runUrl }));
-  return verdict.pass ? 0 : 1;
+  if (record.sha !== base) console.log(`main's record used: ${record.sha}, ${record.behind} commit(s) before the base ${base} (${runUrl})`);
+  return { verdict, runUrl, record };
 }
 
 function recordMain(args) {

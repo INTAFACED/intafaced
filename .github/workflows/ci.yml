@@ -609,12 +609,12 @@ jobs:
       matrix:
         shard: ${{ fromJSON(needs.changes.outputs.shards) }}
     runs-on: ubuntu-24.04
-    # healthy run: 11-20 min; a pull request's red one may wait up to 20 more for main's run on its base
+    # healthy run: 11-20 min; a pull request's red one may wait up to 20 more for a run of main on or near its base
     # (tooling/ci/base-failures.mjs WAIT_MIN)
     timeout-minutes: 60
     permissions:
       contents: read
-      actions: read # main's run on this pull request's base: its jobs and its test-results artifacts (base-failures.mjs)
+      actions: read # main's runs on and before this pull request's base: jobs and test-results artifacts (base-failures.mjs)
 
     services:
       postgres:
@@ -766,9 +766,11 @@ jobs:
           if-no-files-found: error
 
       # The owner's decision of 23 Nov 2026: a failing unit test that main's own run recorded the same way (test id and
-      # reason) on the commit this pull request merges into doesn't hold it. Never a test of money, custody, sign-in or
-      # permissions, nor a journey test; nothing when main's result is unknown. It names each failure it excused, and
-      # main's run. Only on a pull request; only when its tests failed.
+      # reason) on the commit this pull request merges into, or on the nearest commit before it that has a finished
+      # record (main's runs are one at a time, so most of its commits have none), doesn't hold it. Never a test of money,
+      # custody, sign-in or permissions, nor a journey test, nor one in a package main changed after that record; nothing
+      # when main's result is unknown. It names each failure it excused, the commit and main's run. Only on a pull
+      # request; only when its tests failed.
       - name: Failures main already has
         if: (success() || failure()) && github.event_name == 'pull_request' && steps.test.outcome == 'failure'
         env:
