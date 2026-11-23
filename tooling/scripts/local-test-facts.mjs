@@ -350,14 +350,18 @@ export const chainRecordPath = (state = localStackState()) => path.join(state, '
 
 // ── Seeded TEST values ──────────────────────────────────────────────────────
 
-// The founder's Home content (local-test-home.mjs, HM-desks-03, J-home-ia-11 #3).
-export const HOME_ASSET = 'USDT';
-export const HOME_NETWORK = 'ethereum';
-export const HOME_DEPOSIT_AMOUNT = '100';
-/** The published minimum on TEST Ethereum is 6 confirmations (local-test-gates.mjs TEST_DEPOSIT_TERMS). */
-export const HOME_DEPOSIT_CONFIRMATIONS = 6;
-/** One fixed transfer: the same label to the same address is the same chain event (local-test-stack.mjs chainTxHash). */
-export const HOME_DEPOSIT_LABEL = 'LOCAL-TEST-seed-home-deposit-v1';
+// The founder's Home content (local-test-home.mjs, HM-desks-03, J-home-ia-11 #3): nothing on our ledger. Founder a's
+// TEST wallet holds TEST venue funds at the TEST venue and a TEST balance at the TEST partner bank, and founder b pays
+// founder a a TEST amount there, which files founder a's one inbox row. Every figure is an illustrative TEST value.
+/** What the TEST partner bank holds for founder a (its own figure, `testPartner.fund`), before founder b's payment. */
+export const HOME_PARTNER_ASSET = 'USDT';
+export const HOME_PARTNER_AMOUNT = '50';
+/** Founder b's TEST balance at the partner, and what founder b pays founder a from it (a partner move, no ledger post). */
+export const HOME_SENDER_AMOUNT = '20';
+export const HOME_TRANSFER_AMOUNT = '5';
+/** What the TEST venue holds for founder a's TEST wallet (its TEST deposit control). */
+export const HOME_VENUE_ASSET = 'USDC';
+export const HOME_VENUE_AMOUNT = '500';
 export const HOME_NOTICE_TITLE = 'TEST · This is a test build';
 export const HOME_NOTICE_BODY = 'TEST notice from the tester seed. Balances here are TEST funds, not real money.';
 /** The TEST notice stays open as long as a test stack is likely to live, unless the caller asks for a shorter window. */

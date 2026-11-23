@@ -506,7 +506,10 @@ Direct `NEXT_PUBLIC_WS_URL` / `apps/web` wiring is not the compose path for the 
 ## Private stream (`/private/stream`)
 
 JWT-authenticated, push-only. Query `?access_token=` (or `Authorization: Bearer`). Requires `trade:read` or
-`trade:write`. Disabled (403) when `JWT_ACCESS_SECRET` is unset; missing/invalid identity
+`trade:write`. `?channel=` names one of `orders`, `fills`, `positions` or `balances`; omitted, it opens the
+first three. `balances` carries one `{ channel: "balances", type: "balance" }` frame per change in the person's own venue
+balance (svc-trade's `venueBalanceChanged`: its source, the change and the venue's new total), and drops a change id
+it has already sent that person. Disabled (403) when `JWT_ACCESS_SECRET` is unset; missing/invalid identity
 configuration refuses private upgrades with 503. Public depth/tape are unaffected.
 
 **Stream tokens** (identity `POST /api/v1/stream/token`, audience `<JWT_AUDIENCE>.stream`) open this door too, and

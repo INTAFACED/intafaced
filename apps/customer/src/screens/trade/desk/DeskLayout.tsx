@@ -276,7 +276,7 @@ export function DeskLayoutMenu({
             </label>
           ))}
         </fieldset>
-        {isUntouched(desk.layout) ? null : <p className="dk-layouts-note">{t('Arranged on this device')}</p>}
+        {isUntouched(desk.layout) ? null : <p className="lt-hint">{t('Arranged on this device')}</p>}
         <div className="dk-layouts-actions">
           <button
             type="button"
@@ -322,11 +322,11 @@ export function DeskLayoutMenu({
             {l('My layouts')}
           </h3>
           {saved.status === 'signed-out' ? (
-            <p className="dk-layouts-note">{l('Layouts signed out')}</p>
+            <p className="lt-hint">{l('Layouts signed out')}</p>
           ) : saved.status === 'loading' ? (
-            <p className="dk-layouts-note">{l('Layouts loading')}</p>
+            <p className="lt-hint">{l('Layouts loading')}</p>
           ) : saved.status === 'failed' ? (
-            <p className="dk-layouts-note">
+            <p className="lt-hint">
               {l('Layouts failed')}{' '}
               <button type="button" className="dk-saved-link" onClick={saved.reload}>
                 {l('Try again')}
@@ -335,7 +335,7 @@ export function DeskLayoutMenu({
           ) : (
             <>
               {saved.value.layouts.length === 0 ? (
-                <p className="dk-layouts-note">{l('No layouts')}</p>
+                <p className="lt-hint">{l('No layouts')}</p>
               ) : (
                 <ul className="dk-saved-list">
                   {saved.value.layouts.map((layout) => (
@@ -440,7 +440,7 @@ export function DeskLayoutMenu({
               </div>
               {showDeleted ? (
                 saved.value.deleted.length === 0 ? (
-                  <p className="dk-layouts-note">{l('Nothing deleted')}</p>
+                  <p className="lt-hint">{l('Nothing deleted')}</p>
                 ) : (
                   <ul className="dk-saved-list" aria-label={l('Recently deleted')}>
                     {saved.value.deleted.map((layout) => (
@@ -470,7 +470,7 @@ export function DeskLayoutMenu({
             </p>
           ) : null}
           {noteText ? (
-            <p role="status" className="dk-layouts-note">
+            <p role="status" className="lt-hint">
               {noteText}
             </p>
           ) : null}

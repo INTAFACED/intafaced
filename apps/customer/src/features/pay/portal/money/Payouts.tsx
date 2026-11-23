@@ -264,7 +264,7 @@ export function Payouts({ portal, merchantId }: { portal: PortalApi; merchantId:
             header: t('colTransaction'),
             cell: (r) =>
               r.payoutReference ? (
-                <span data-testid="pp-mono" className="pp-mono">
+                <span data-testid="pp-mono" className="lt-mono">
                   {r.payoutReference}
                 </span>
               ) : (

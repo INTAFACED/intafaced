@@ -1,11 +1,14 @@
 // World: book, restart
+import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { api, journeyState } from './stack.mjs';
+import { api, journeyState, STACK_PORTS } from './stack.mjs';
 import { keyHolder, makeKey, withKey } from './developer.mjs';
 import { testWalletKey } from './test-wallet.mjs';
-import { testDeposit, venueForThisFile, venueRecord } from './venue.mjs';
+import { openVenueDesk, sameDecimal, shownBalance, testDeposit, venueBalance, venueForThisFile, venueRecord } from './venue.mjs';
 
 // J-cex-spot-15, the steps a developer's bot takes through our API on the venue (docs/roadmap/journeys.json): one test
 // per step, titled "J-cex-spot-15 #<n>". The journey's start is made once, as TEST setup: a verified TEST account with
@@ -187,4 +190,122 @@ test(`${J} #5 places an order with a client id through our API, looks it up by c
   expect(withdraw.prepared.body.intafacedCode).toBe('scope.interactive_only');
   expect(withdraw.sent).toBeNull();
   expect((await venueRecord(s.owner, '/balances')).value.find((b) => b.asset === 'USDC')).toEqual(usdcBefore);
+});
+
+/** A chain-transfer-shaped TEST deposit reference of its own (`<chainId>:<txHash>:<logIndex>`). */
+const depositRef = () => `84532:0x${randomBytes(32).toString('hex')}:0`;
+
+/**
+ * The bot's own private stream: a stream token its API key asks identity for, then a WebSocket straight to the stream
+ * service with `?channel=balances`. Keeps every frame, parsed.
+ */
+async function openBalances(key) {
+  const minted = await withKey(key, { method: 'POST', path: '/api/v1/stream/token', body: {} });
+  expect(minted.status, `the key gets a stream token: ${JSON.stringify(minted.body).slice(0, 300)}`).toBe(200);
+  const url = `ws://127.0.0.1:${STACK_PORTS.ws}/private/stream?access_token=${encodeURIComponent(minted.body.token)}&channel=balances`;
+  const socket = new WebSocket(url);
+  const frames = [];
+  socket.addEventListener('message', (event) => frames.push(JSON.parse(String(event.data))));
+  await new Promise((resolve, reject) => {
+    socket.addEventListener('open', resolve, { once: true });
+    socket.addEventListener('error', () => reject(new Error('the private balances stream did not open')), { once: true });
+  });
+  return { frames, close: () => socket.close() };
+}
+
+/**
+ * The person's newest venue balance change delivered to the stream once more: their newest trade.venue_balance.updated on
+ * the stack's bus, published again with its payload unchanged (the same change id) under a new envelope key, so the bus
+ * does not drop it as its own duplicate and the stream is what must ignore it. Returns the payload.
+ */
+function redeliverBalanceChange(userId) {
+  const code = `
+    import { connect } from 'nats';
+    import { EVENT_CATALOG, JetStreamEventBus, decodeEnvelope, streamName } from '@intafaced/events';
+    const { NATS_URL: servers, NATS_STREAM_PREFIX: prefix, USER_ID: userId } = process.env;
+    const subject = EVENT_CATALOG.venueBalanceChanged.subject;
+    const nc = await connect({ servers });
+    const jsm = await nc.jetstreamManager();
+    const stream = streamName(EVENT_CATALOG.venueBalanceChanged.service, prefix);
+    const { state } = await jsm.streams.info(stream);
+    let payload;
+    for (let seq = state.last_seq; seq >= state.first_seq && !payload; seq -= 1) {
+      const m = await jsm.streams.getMessage(stream, { seq }).catch(() => null);
+      if (m?.subject !== subject) continue;
+      const env = decodeEnvelope(m.data);
+      if (env.payload.userId === userId) payload = env.payload;
+    }
+    await nc.close();
+    if (!payload) throw new Error('no ' + subject + ' for ' + userId + ' in ' + stream);
+    const bus = await JetStreamEventBus.connect({ servers, producer: 'svc-trade', streamPrefix: prefix });
+    await bus.publish('venueBalanceChanged', payload, { idempotencyKey: payload.changeId + ':again:' + Date.now() });
+    await bus.close();
+    console.log(JSON.stringify(payload));`;
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], {
+    cwd: path.join(root, 'packages', 'events'),
+    env: { ...process.env, NATS_URL: `nats://127.0.0.1:${STACK_PORTS.nats}`, NATS_STREAM_PREFIX: 'LOCAL_TEST', USER_ID: userId },
+    encoding: 'utf8',
+    timeout: 60_000,
+  });
+  if (r.status !== 0) throw new Error(`delivering the balance change again failed: ${(r.stderr || r.stdout).slice(0, 500)}`);
+  return JSON.parse(r.stdout.trim().split('\n').at(-1));
+}
+
+test(`${J} #9 subscribes to the private balances stream: one event per change in the venue balance, with its source and the new total; a duplicate id is ignored`, async ({
+  page,
+  stepPicture,
+}) => {
+  test.setTimeout(240_000);
+  const s = state();
+  const person = await api(s.who);
+  const stream = await openBalances(s.key);
+  try {
+    // The channel the bot named is the one it gets, with the stream's bus attached.
+    await expect.poll(() => stream.frames.find((f) => f.channel === 'balances' && f.type === 'ready')?.bus, { timeout: 15_000 }).toBe(true);
+    const changes = () => stream.frames.filter((f) => f.channel === 'balances' && f.type === 'balance');
+
+    // ── One change: a TEST deposit to the person's venue account. One event, its source the deposit, its total the venue's
+    const first = depositRef();
+    expect(await testDeposit(s.owner, 'USDC', '25', first)).toBe(true);
+    await expect.poll(() => changes().length, { timeout: 30_000, message: 'the deposit arrives on the stream' }).toBe(1);
+    const afterFirst = await venueBalance(s.owner, 'USDC');
+    const one = changes()[0];
+    expect(one).toMatchObject({
+      userId: person.userId,
+      owner: s.owner,
+      subAccount: null,
+      asset: 'USDC',
+      source: 'deposit',
+      sourceId: first,
+    });
+    expect(sameDecimal(one.change, '25'), `change ${one.change}`).toBe(true);
+    expect(sameDecimal(one.total, afterFirst.total), `the event's total ${one.total} is the venue's ${afterFirst.total}`).toBe(true);
+    expect(one.changeId).toContain(first);
+
+    // ── The same change delivered again on the bus, the same id: ignored ────────────────────────────────────────────
+    const again = redeliverBalanceChange(person.userId);
+    expect(again.changeId).toBe(one.changeId);
+
+    // ── A second change: the next event is that change, never the repeat, with the venue's new total ───────────────
+    const second = depositRef();
+    expect(await testDeposit(s.owner, 'USDC', '5', second)).toBe(true);
+    await expect
+      .poll(() => changes().length, { timeout: 30_000, message: 'the second deposit arrives on the stream' })
+      .toBeGreaterThanOrEqual(2);
+    const afterSecond = await venueBalance(s.owner, 'USDC');
+    expect(changes().map((c) => c.sourceId)).toEqual([first, second]);
+    expect(new Set(changes().map((c) => c.changeId)).size).toBe(2);
+    const two = changes()[1];
+    expect(two).toMatchObject({ source: 'deposit', asset: 'USDC' });
+    expect(sameDecimal(two.change, '5')).toBe(true);
+    expect(sameDecimal(two.total, afterSecond.total), `the event's total ${two.total} is the venue's ${afterSecond.total}`).toBe(true);
+
+    // ── What the person sees of it: their desk's venue balance reads the stream's last total ─────────────────────────
+    await openVenueDesk(page, s.who, '/trade/futures', s.walletKey);
+    await expect.poll(async () => sameDecimal((await shownBalance(page, 'USDC')).total, two.total), { timeout: 15_000 }).toBe(true);
+    await stepPicture();
+  } finally {
+    stream.close();
+  }
 });

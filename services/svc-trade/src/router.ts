@@ -5,6 +5,8 @@ import type { VenueAutoTopUp } from './venue/auto-top-up.js';
 import { autoTopUpRouter } from './venue/auto-top-up-router.js';
 import { builderFeeAdminRouter, type BuilderFeeReconReader } from './builder-fee/builder-fee-admin.js';
 import { agentDeskAdminRouter } from './venue/agent-desk-admin.js';
+import { venueAccountAdminRouter } from './admin/venue-account-admin.js';
+import type { VenueAccountReadDeps } from './admin/venue-account-read.js';
 import { quantLiveAdminRouter } from './quant/live-run/halts-admin.js';
 import type { StrategyHaltDesk } from './quant/live-run/halts.js';
 import type { AgentDesk } from './venue/agent-desk.js';
@@ -795,6 +797,7 @@ export function createTradeRouter(
   venueGrid?: VenueGrid | null,
   recurring?: RecurringBuys | null,
   autoTopUp?: VenueAutoTopUp | null,
+  venueAccounts?: VenueAccountReadDeps | null,
 ) {
   const placeAttempts = new PlaceAttemptBook();
   /** The lead desk's refusals carry their code at the end of the message, where the console reads it. */
@@ -845,6 +848,7 @@ export function createTradeRouter(
       insuranceAdminRouter(insuranceTopups),
       builderFeeAdminRouter(builderFees),
       agentDeskAdminRouter(agentDesk),
+      venueAccountAdminRouter(venueAccounts),
       quantLiveAdminRouter(quantHalts),
     ),
     /**

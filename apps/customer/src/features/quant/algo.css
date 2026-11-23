@@ -167,20 +167,20 @@
 
 /* The optimiser's sample passes fit a phone: headers may wrap, cells keep a small inline gap, figures end-aligned
    under their headers. */
-.preview-engine .preview-passes {
+table.preview-passes {
   inline-size: 100%;
   border-collapse: collapse;
   font-variant-numeric: tabular-nums;
 }
-.preview-engine .preview-passes :is(th, td) {
+.preview-passes :is(th, td) {
   padding-inline: var(--if-space-1);
   white-space: normal;
   text-align: end;
 }
-.preview-engine .preview-passes :is(th, td):first-child {
+.preview-passes :is(th, td):first-child {
   padding-inline-start: 0;
   text-align: start;
 }
-.preview-engine .preview-passes :is(th, td):last-child {
+.preview-passes :is(th, td):last-child {
   padding-inline-end: 0;
 }
