@@ -9,6 +9,9 @@
 // or a press of Escape, and that checks nothing after it but where it arrived (`toHaveURL`, a heading shown, a value read
 // once). Not judged: a `goto`, whose next screen is the state as often as not, and a test that goes on to check another
 // screen (J-wallet-01 #5 read the list, then Withdraw): only the read sees those.
+// [no-page]: a step's test (titled `J-<id> #<n>`, `${J} #<n>` included) that takes no page of its own (`page`, or
+// `browser` or `context` to open one) and never calls `stepPicture` attaches no picture, and the reader answers NOT READ
+// for a step that holds, which the proof count never counts (J-agents-21 #4: an API call and its refusal, no screen).
 // Judged by the lint ratchet: a new copy fails, the copies on main are the baseline (tooling/ci/lint-ratchet.mjs).
 const JOURNEY_FILE = /(^|\/)apps\/customer\/tests\/real-app\/.*\.pw\.[cm]?js$/u;
 const STEP_CALLS = new Set(['test', 'test.only', 'test.fixme', 'test.fail', 'test.slow']);
@@ -126,6 +129,54 @@ function helperOn(call, page) {
   return call.arguments.some((a) => a.type === 'Identifier' && (a.name === page || a.name === 'page'));
 }
 
+// A step's title: `J-agents-21 #4 …`, or a template whose first part is an expression (`${J} #4 …`, `${J} #${n} …`).
+const STEP_TITLE = /^(?:J-[a-z0-9]+(?:-[a-z0-9]+)*-\d+|\0) ?#(?:\d|\0)/u;
+function titleText(n) {
+  if (n?.type === 'Literal' && typeof n.value === 'string') return n.value;
+  if (n?.type === 'TemplateLiteral') return n.quasis.map((q, i) => (i ? '\0' : '') + (q.value.cooked ?? q.value.raw)).join('');
+  return undefined;
+}
+
+/** The names `node` reads (not a property after a dot, nor an object key), with whether a `newPage()` is called. */
+function namesIn(node, out = new Set(), key = '', parent = null) {
+  if (!node || typeof node !== 'object') return out;
+  if (node.type === 'Identifier') {
+    const prop = key === 'property' && parent?.type === 'MemberExpression' && !parent.computed;
+    const objKey = key === 'key' && parent?.type === 'Property' && !parent.computed && !parent.shorthand;
+    if (!prop && !objKey) out.add(node.name);
+  }
+  if (method(node) === 'newPage') out.add('newPage()');
+  for (const [k, v] of Object.entries(node)) {
+    if (k === 'parent') continue;
+    if (Array.isArray(v)) for (const c of v) namesIn(c, out, k, node);
+    else if (v && typeof v.type === 'string') namesIn(v, out, k, node);
+  }
+  return out;
+}
+const PAGE_NAMES = ['page', 'browser', 'context', 'newPage()'];
+
+/** Whether the file keeps one page for all its steps (`let page;` at the top, `page = await context.newPage()` in a hook):
+ *  its steps reach that page through helpers, and the run keeps that page's window as their picture. */
+function sharesPage(program) {
+  const top = new Set();
+  for (const s of program.body ?? [])
+    if (s.type === 'VariableDeclaration' && s.kind !== 'const')
+      for (const d of s.declarations) if (d.id?.type === 'Identifier') top.add(d.id.name);
+  const assigned = (n) => {
+    if (!n || typeof n !== 'object') return false;
+    if (n.type === 'AssignmentExpression' && n.left?.type === 'Identifier' && top.has(n.left.name)) {
+      const r = n.right?.type === 'AwaitExpression' ? n.right.argument : n.right;
+      if (method(r) === 'newPage') return true;
+    }
+    for (const [k, v] of Object.entries(n)) {
+      if (k === 'parent') continue;
+      if (Array.isArray(v) ? v.some(assigned) : v && typeof v.type === 'string' && assigned(v)) return true;
+    }
+    return false;
+  };
+  return top.size > 0 && assigned(program);
+}
+
 const stepPictureBeforeLeaving = {
   meta: { type: 'problem', docs: { description: "A step's test takes its picture before it leaves the step's screen." } },
   create(context) {
@@ -133,6 +184,7 @@ const stepPictureBeforeLeaving = {
       .split('\\')
       .join('/');
     if (!JOURNEY_FILE.test(file)) return {};
+    let shared;
     return {
       CallExpression(node) {
         if (!STEP_CALLS.has(dotted(node.callee))) return;
@@ -140,6 +192,28 @@ const stepPictureBeforeLeaving = {
         if (!isFn(cb)) return;
         const calls = callsIn(cb.body);
         if (calls.some((c) => c.callee?.type === 'Identifier' && c.callee.name === 'stepPicture')) return;
+        const title = titleText(node.arguments[0]);
+        if (title !== undefined && STEP_TITLE.test(title)) {
+          let program = node;
+          while (program.parent) program = program.parent;
+          shared ??= sharesPage(program);
+        }
+        if (title !== undefined && STEP_TITLE.test(title) && !shared) {
+          // A helper handed `stepPicture` takes the picture itself.
+          const body = namesIn(cb.body);
+          const names = namesIn({ type: 'Params', params: cb.params }, new Set(body));
+          if (!body.has('stepPicture') && !PAGE_NAMES.some((n) => names.has(n))) {
+            context.report({
+              node: node.arguments[0],
+              message:
+                "[no-page] this step's test takes no page and never calls `stepPicture`, so it attaches no picture of the " +
+                'screen the step ends on, and the proof reader answers NOT READ, which never counts as proven (J-agents-21 #4). ' +
+                'End the test on the screen the step\'s "They see" names: take `page` (or open one) and `stepPicture` in its ' +
+                'fixtures, and `await stepPicture()` once that screen is checked (apps/customer/tests/real-app/journey.mjs)',
+            });
+            return;
+          }
+        }
         const last = calls
           .filter((c) => ACTIONS.has(method(c)))
           .sort((a, b) => pos(a) - pos(b))
