@@ -77,6 +77,8 @@ export interface HyperliquidTestnetOptions {
   readonly baseUrl?: string;
   /** The RAW `process.env.APP_ENV`. A TEST venue is refused unless it is exactly `dev` or `test`. */
   readonly appEnv: string | null | undefined;
+  /** The RAW `process.env.INTAFACED_BETA_POSTURE`: `test-networks` beside APP_ENV `staging` also lets a TEST venue run (the beta posture). */
+  readonly betaPosture?: string | null;
   readonly fetch?: FetchLike;
   readonly clock?: () => Date;
   /** How long a request may take before it counts as a timeout. */
@@ -180,7 +182,7 @@ export abstract class HyperliquidCore {
       // publishes no such limit, so this adapter declares ours: a minute, the same as the TEST venue's.
       figureStaleAfterMs: 60_000,
     };
-    refuseTestVenueOutsideTest(this.venue, options.appEnv);
+    refuseTestVenueOutsideTest(this.venue, options.appEnv, options.betaPosture);
     this.fetchImpl = options.fetch ?? (globalThis.fetch as unknown as FetchLike);
     this.clock = options.clock ?? (() => new Date());
     this.timeoutMs = options.timeoutMs ?? 10_000;
