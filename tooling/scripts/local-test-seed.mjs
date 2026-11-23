@@ -33,7 +33,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
-import { HOME_NOTICE_DAYS, applyHome, homeStatus } from './local-test-home.mjs';
+import { GATE_URL, stackUrl } from './local-test-facts.mjs';
+import { HOME_NOTICE_DAYS, HOME_WALLET_FILE, applyHome, homeStatus } from './local-test-home.mjs';
 import { custodyLayerOf, custodyOffRefusal, localStackState } from './local-test-state.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
@@ -753,6 +754,81 @@ export function resolvePostgres(repo) {
   }
 }
 
+/** One call to the stack's own TEST venue on loopback (local-test-venue.mjs): its status, JSON answer and text. */
+async function testVenueCall(route, body) {
+  const res = await fetch(`${stackUrl('test-venue')}${route}`, {
+    method: body === undefined ? 'GET' : 'POST',
+    headers: body === undefined ? {} : { 'content-type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    signal: AbortSignal.timeout(30_000),
+  });
+  const text = await res.text();
+  let json = null;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    /* a refusal that is not JSON */
+  }
+  return { status: res.status, json, text };
+}
+
+/**
+ * Founder a's TEST wallet on the launch model: its address, from its file in the state folder. `create` makes the file
+ * once, with a fresh TEST key (mode 600, as the founder vault is kept); without it a stack that was never seeded has no
+ * wallet (null). The key is never printed or returned: a tester imports it into their own browser wallet from the file.
+ */
+export async function homeWallet(stateDir, { create }, { io = fs, accounts = null } = {}) {
+  const file = path.join(stateDir, HOME_WALLET_FILE);
+  if (io.existsSync(file)) {
+    const kept = readJson(io, file, HOME_WALLET_FILE);
+    if (kept?.label !== 'TEST' || !/^0x[0-9a-f]{40}$/.test(String(kept.address ?? ''))) {
+      throw new GuardError(`refusing: ${file} is not a TEST wallet file this seed wrote`);
+    }
+    return { address: kept.address, created: false };
+  }
+  if (!create) return null;
+  const { generatePrivateKey, privateKeyToAccount } = accounts ?? (await (await import('./local-test-wallet-provider.mjs')).loadViemAccounts());
+  const privateKey = generatePrivateKey();
+  const address = privateKeyToAccount(privateKey).address.toLowerCase();
+  const text = `${JSON.stringify({ label: 'TEST', note: 'A TEST wallet for the tester seed. It holds nothing real.', address, privateKey }, null, 2)}\n`;
+  io.writeFileSync(file, text, { mode: 0o600 });
+  io.chmodSync(file, 0o600);
+  return { address, created: true };
+}
+
+/**
+ * TEST coins for the TEST wallet on the stack's TEST chain (`local-test-chain.mjs fund <address> venue`: TEST ETH for gas
+ * and TEST USD), once: a wallet the chain already reports TEST ETH for is not funded again. A stack with no TEST chain,
+ * or one whose gate is closed, leaves the wallet unfunded and says so; Home then reads that the wallet holds nothing.
+ */
+async function fundHomeWallet(stateDir, address) {
+  const chainTool = path.join(REPO, 'tooling/scripts/local-test-chain.mjs');
+  const run = (args) =>
+    execFileSync(process.execPath, [chainTool, ...args], {
+      cwd: REPO,
+      env: { ...process.env, LOCAL_STACK_STATE: stateDir },
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 120_000,
+    });
+  try {
+    const status = JSON.parse(run(['status']));
+    if (status.chain !== 'running') return 'not funded (this stack runs no TEST chain)';
+    if (status.gate !== 'open') return 'not funded (the TEST chain gate is closed)';
+    const res = await fetch(GATE_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_getBalance', params: [address, 'latest'] }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (BigInt((await res.json()).result) > 0n) return 'already funded';
+    run(['fund', address, 'venue']);
+    return 'funded with TEST ETH and TEST USD';
+  } catch (err) {
+    return `not funded (${String(err.stderr || err.message).trim().split('\n')[0].slice(0, 200)})`;
+  }
+}
+
 /**
  * Home's live wiring on this stack, or null when its founder pair is not enrolled: founder a's and b's sessions through
  * Edge (local-test-gates.mjs), and the stack's own `chain-deposit` tool for the TEST transfer. The gates refuse a state
@@ -771,7 +847,8 @@ function homeDeps(plan) {
         import('./local-test-stack.mjs'),
       ]);
       // A draft vault (the stack wrote it, enrolment has not run or failed) is no founder pair: Home is not seeded.
-      if (!founders.enrolledFounderPair(JSON.parse(fs.readFileSync(vault, 'utf8')))) return null;
+      const enrolled = founders.enrolledFounderPair(JSON.parse(fs.readFileSync(vault, 'utf8')));
+      if (!enrolled) return null;
       const ctx = await gates.makeContext({ log: () => {} });
       if (path.resolve(ctx.paths.stateDir) !== path.resolve(plan.stateDir)) {
         throw new GuardError(`refusing: the gates read ${ctx.paths.stateDir}, not ${plan.stateDir}; set LOCAL_STACK_STATE to it`);
@@ -780,7 +857,20 @@ function homeDeps(plan) {
       if (!founders.isLocalTestFounderHandle(pair.a.op.handle)) throw new GuardError('refusing: Home is seeded for the founder pair only');
       return {
         edge: ctx.edge,
-        founder: { handle: pair.a.op.handle, token: pair.a.token },
+        founder: { handle: pair.a.op.handle, userId: enrolled[0].userId, token: pair.a.token },
+        // The launch model's wiring (local-test-home.mjs): founder b, who sends founder a TEST money at the TEST partner
+        // bank; svc-trade's user-venue door, asked as founder a; the stack's own TEST venue on loopback; and the TEST wallet.
+        sender: { handle: pair.b.op.handle, token: pair.b.token },
+        async venueDoor() {
+          const res = await ctx.edge.call('GET', '/api/v1/venue/status', undefined, pair.a.token);
+          if (res.status !== 200 || !res.json) {
+            throw new Error(`svc-trade's user-venue door did not answer (${res.status}): ${res.text.slice(0, 300)}`);
+          }
+          return res.json;
+        },
+        testVenue: (route, body) => testVenueCall(route, body),
+        wallet: (options) => homeWallet(plan.stateDir, options),
+        fundWallet: (address) => fundHomeWallet(plan.stateDir, address),
         async draftNotice(input, key) {
           const res = await ctx.edge.mutate(
             'notify',

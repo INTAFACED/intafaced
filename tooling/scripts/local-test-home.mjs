@@ -10,6 +10,17 @@
  * and published by founder a, as the notice desk does; while a published one with the same title is open, none is
  * drafted. Each window (30 days unless the caller sets one) has its own draft key, so once the notice has ended the next run drafts a
  * fresh one.
+ *
+ * ON THE LAUNCH MODEL (OWNER 226: INTAFACED holds no customer money). With svc-trade's user-venue door on, Home shows
+ * where the person stands, and the deposit above is not made: nothing here or behind it posts to our ledger. Founder a
+ * gets instead, each from a labelled TEST adapter and each once per business key:
+ *   - a TEST wallet: a fresh key kept in the stack's state folder (mode 600, never printed), funded on the stack's TEST
+ *     chain when one runs;
+ *   - TEST funds in that wallet's account on the TEST venue, by the venue's own TEST deposit control;
+ *   - a TEST balance at the TEST partner bank: the partner pays TEST money in to founder b, and founder b sends it to
+ *     founder a through the bank's own send, which the partner moves; svc-notify's consumer of posted sends files founder
+ *     a's inbox row.
+ * The seed asks the door itself which model the stack runs, and refuses a venue that is not TEST.
  * Every figure here is an illustrative TEST value.
  */
 
@@ -23,6 +34,14 @@ import {
   HOME_NOTICE_TITLE,
   HOME_NOTICE_BODY,
   HOME_NOTICE_DAYS,
+  HOME_WALLET_FILE,
+  HOME_VENUE_ASSET,
+  HOME_VENUE_AMOUNT,
+  HOME_VENUE_DEPOSIT_LABEL,
+  HOME_PARTNER_AMOUNT,
+  HOME_PARTNER_FUND_ID,
+  HOME_PARTNER_TRANSFER_ID,
+  HOME_PARTNER_NOTE,
 } from './local-test-facts.mjs';
 
 export {
@@ -34,9 +53,19 @@ export {
   HOME_NOTICE_TITLE,
   HOME_NOTICE_BODY,
   HOME_NOTICE_DAYS,
+  HOME_WALLET_FILE,
+  HOME_VENUE_ASSET,
+  HOME_VENUE_AMOUNT,
+  HOME_VENUE_DEPOSIT_LABEL,
+  HOME_PARTNER_AMOUNT,
+  HOME_PARTNER_FUND_ID,
+  HOME_PARTNER_TRANSFER_ID,
+  HOME_PARTNER_NOTE,
 };
 /** svc-notify's inbox row for a credited deposit (services/svc-notify/src/deposit-credit-notice.ts). */
 export const DEPOSIT_CREDITED_KIND = 'bank.deposit.credited';
+/** svc-notify's inbox row for the person a posted send paid (services/svc-notify/src/events.ts, `personalTransferPosted`). */
+export const TRANSFER_RECEIVED_KIND = 'pay.transfer_received';
 export const NOTICE_WINDOW_MS = HOME_NOTICE_DAYS * 24 * 60 * 60_000;
 /** How long apply waits for svc-pay's credit and svc-notify's row after the transfer is delivered. */
 const WAIT_MS = 150_000;
@@ -102,6 +131,154 @@ async function depositRecord(home, address) {
   return rows[0] ?? null;
 }
 
+// ── The launch model: a TEST wallet, TEST venue funds and a TEST partner balance ─────────────────────────────────────
+
+/**
+ * The TEST venue behind svc-trade's user-venue door, or null while the door is off (the stack then runs the custodial
+ * layer, and Home's content is the TEST deposit). Asked of the door itself, as Home asks it. A door whose venue does not
+ * answer, is not TEST, or is not the stack's own TEST venue refuses: the seed funds nothing anywhere else.
+ */
+async function launchVenue(home) {
+  if (!home.venueDoor) return null;
+  const door = await home.venueDoor();
+  if (door?.enabled !== true) return null;
+  if (door.available !== true) {
+    throw new Error(`home: the user-venue door is on and its venue is not answering (${door.refusal?.code ?? 'no reason given'})`);
+  }
+  if (door.test !== true) throw new Error('refusing: the venue behind the user-venue door is not a TEST venue, so the seed funds nothing on it');
+  const at = await home.testVenue('/venue');
+  if (at.status !== 200 || at.json?.label !== 'TEST' || at.json?.venue?.id !== door.venue.id) {
+    throw new Error(`refusing: the stack's TEST venue is not the venue behind the user-venue door (${door.venue.id})`);
+  }
+  const chainId = door.chainId ?? at.json.chainId;
+  if (!Number.isSafeInteger(chainId)) throw new Error('refusing: the TEST venue names no chain, so its TEST deposit has no reference');
+  return { id: door.venue.id, name: door.venue.displayName, chainId };
+}
+
+const venueAccount = (venue, owner) => ({ venueId: venue.id, owner: owner.toLowerCase(), subAccount: null });
+
+/** What the TEST venue's own record holds of the seeded asset for `owner`, as a decimal string. */
+async function venueTotal(home, venue, owner) {
+  const res = await home.testVenue('/balances', { account: venueAccount(venue, owner) });
+  if (res.status !== 200) throw new Error(`the TEST venue refused its balance read (${res.status}): ${String(res.text).slice(0, 300)}`);
+  return res.json.value.find((row) => row.asset === HOME_VENUE_ASSET)?.total ?? '0';
+}
+
+/**
+ * TEST funds in the wallet's account on the TEST venue, by the venue's TEST deposit control. The reference has the shape
+ * of a chain transfer's id (`<chainId>:<txHash>:<logIndex>`) and is fixed for this wallet, so the venue credits it once.
+ */
+async function applyVenueFunds(home, venue, owner) {
+  const depositRef = `${venue.chainId}:${home.txHash(owner, HOME_VENUE_DEPOSIT_LABEL)}:0`;
+  const res = await home.testVenue('/test/deposit', {
+    account: venueAccount(venue, owner),
+    asset: HOME_VENUE_ASSET,
+    amount: HOME_VENUE_AMOUNT,
+    depositRef,
+  });
+  if (res.status !== 200 || typeof res.json?.credited !== 'boolean') {
+    throw new Error(`the TEST venue refused the TEST home deposit (${res.status}): ${String(res.text).slice(0, 300)}`);
+  }
+  return { credited: res.json.credited, total: await venueTotal(home, venue, owner) };
+}
+
+/** The person's main balance of the seeded asset as the partner bank holds it (`heldAt`), or null when it holds none. */
+async function partnerBalance(home, token, whose) {
+  const spaces = data(await home.edge.query('bank', 'spaces.list', { limit: 200 }, token), `bank spaces.list (${whose})`);
+  return spaces.find((space) => space.kind === 'primary' && space.assetId === HOME_ASSET && space.heldAt) ?? null;
+}
+
+/** Puts one founder's bank money at the TEST partner bank (its `custody: 'off'` switch): our ledger never holds it. */
+async function heldAtPartner(home, token, whose) {
+  const now = data(await home.edge.mutate('bank', 'testPartner.set', { custody: 'off' }, token), `bank testPartner.set (${whose})`);
+  if (now.custody !== 'off') throw new Error(`the TEST partner bank does not hold ${whose}'s money (custody ${now.custody})`);
+  return now.label;
+}
+
+/**
+ * Founder a's TEST balance at the TEST partner bank: the partner pays TEST money in to founder b (once per fund id), and
+ * founder b sends it to founder a through the bank's own send (once per transfer id), which the partner moves. A send
+ * that the ledger posted instead is an error: on the launch model nothing of a person's is on our ledger.
+ */
+async function applyPartnerBalance(home) {
+  const label = await heldAtPartner(home, home.founder.token, home.founder.handle);
+  await heldAtPartner(home, home.sender.token, home.sender.handle);
+  data(
+    await home.edge.mutate(
+      'bank',
+      'testPartner.fund',
+      { fundId: HOME_PARTNER_FUND_ID, assetId: HOME_ASSET, amount: HOME_PARTNER_AMOUNT },
+      home.sender.token,
+    ),
+    'bank testPartner.fund',
+  );
+  const from = await partnerBalance(home, home.sender.token, home.sender.handle);
+  if (!from) throw new Error(`the TEST partner bank holds no ${HOME_ASSET} balance for ${home.sender.handle} to send from`);
+  const sent = data(
+    await home.edge.mutate(
+      'bank',
+      'transfers.toUser',
+      {
+        transferId: HOME_PARTNER_TRANSFER_ID,
+        fromSpaceId: from.id,
+        toUserId: home.founder.userId,
+        amount: HOME_PARTNER_AMOUNT,
+        note: HOME_PARTNER_NOTE,
+      },
+      home.sender.token,
+    ),
+    'bank transfers.toUser',
+  );
+  if (!sent.partnerMove || sent.ledgerTxId !== null) {
+    throw new Error('the TEST home send was not moved by the TEST partner bank (it has no partner move, or the ledger posted it)');
+  }
+  const held = await partnerBalance(home, home.founder.token, home.founder.handle);
+  if (!held) throw new Error(`the TEST partner bank holds no ${HOME_ASSET} balance for ${home.founder.handle} after the TEST home send`);
+  return { label, move: sent.partnerMove.id, balance: held.balance };
+}
+
+/** The transfer-received rows in founder a's inbox that svc-notify filed for the seeded send. */
+async function receivedRows(home) {
+  const page = data(await home.edge.query('notify', 'notify.list', { limit: 100 }, home.founder.token), 'notify.list');
+  return page.items.filter((item) => item.kind === TRANSFER_RECEIVED_KIND && item.params?.transferId === HOME_PARTNER_TRANSFER_ID);
+}
+
+/** Home's TEST content on the launch model, in order: the wallet, its venue funds, the partner balance and its inbox row. */
+async function applyLaunch(home, venue) {
+  const wallet = await home.wallet({ create: true });
+  const onChain = await home.fundWallet(wallet.address);
+  const funds = await applyVenueFunds(home, venue, wallet.address);
+  const partner = await applyPartnerBalance(home);
+  const rows = await until(
+    home,
+    () => receivedRows(home),
+    (found) => found.length > 0,
+  );
+  if (rows.length !== 1) throw new Error(`founder a's inbox has ${rows.length} transfer-received rows for the TEST home send, not 1`);
+  return {
+    lines: [
+      `home wallet: TEST wallet ${wallet.address} for ${home.founder.handle}, ${wallet.created ? 'made' : 'kept'} (its TEST key is in ${HOME_WALLET_FILE}, never shown); on the TEST chain: ${onChain}`,
+      `home venue: ${HOME_VENUE_AMOUNT} ${HOME_VENUE_ASSET} to ${wallet.address} at ${venue.name} (TEST), ${funds.credited ? 'credited' : 'already credited'}; the venue reports ${funds.total} ${HOME_VENUE_ASSET}`,
+      `home partner: ${HOME_PARTNER_AMOUNT} ${HOME_ASSET} from ${home.sender.handle} to ${home.founder.handle} at ${partner.label} (TEST), partner move ${partner.move}; the partner reports ${partner.balance} ${HOME_ASSET}`,
+    ],
+    inbox: `home inbox: ${rows.length} transfer-received row for ${home.founder.handle}`,
+  };
+}
+
+/** What the launch model's TEST content is on this stack, read back from each source; nothing is written. */
+async function launchStatus(home, venue) {
+  const wallet = await home.wallet({ create: false });
+  const total = wallet ? await venueTotal(home, venue, wallet.address) : null;
+  const held = await partnerBalance(home, home.founder.token, home.founder.handle);
+  const rows = await receivedRows(home);
+  return [
+    `  wallet  ${wallet ? `TEST wallet ${wallet.address}` : 'none'}  ${home.founder.handle}`,
+    `  venue  ${wallet ? `${total} ${HOME_VENUE_ASSET} at ${venue.name}` : 'none'}`,
+    `  partner  ${held ? `${held.balance} ${HOME_ASSET} at ${held.heldAt.label}` : 'none'}  ${home.founder.handle}`,
+    `  inbox  ${rows.length} transfer-received row${rows.length === 1 ? '' : 's'}  ${home.founder.handle}`,
+  ];
+}
+
 async function applyNotice(home, noticeMs) {
   const existing = await seededNotice(home);
   if (existing) return { notice: 'skipped', id: existing.id };
@@ -122,13 +299,21 @@ async function applyNotice(home, noticeMs) {
 }
 
 /**
- * Makes Home's TEST content and waits for the inbox row. Returns report lines. `home` is the live wiring
+ * Makes Home's TEST content and waits for the inbox row: the launch model's when the user-venue door is on, else the
+ * custodial layer's TEST deposit. Returns report lines. `home` is the live wiring
  * (`homeDeps` in local-test-seed.mjs) or a test's stand-in. `noticeMs` is how long a newly drafted notice stays open
  * (a journey passes minutes, so the board it shares with other journeys empties soon after).
  */
 export async function applyHome(home, { noticeMs = NOTICE_WINDOW_MS } = {}) {
   if (!Number.isSafeInteger(noticeMs) || noticeMs < 60_000 || noticeMs > NOTICE_WINDOW_MS) {
     throw new Error(`the TEST notice window must be a whole number of ms from 1 minute to ${HOME_NOTICE_DAYS} days`);
+  }
+  // The launch model: no deposit and nothing on our ledger. The notice is published last here too.
+  const venue = await launchVenue(home);
+  if (venue) {
+    const launch = await applyLaunch(home, venue);
+    const published = await applyNotice(home, noticeMs);
+    return [...launch.lines, `home notice: ${HOME_NOTICE_TITLE} ${published.notice}`, launch.inbox];
   }
   const address = await depositAddress(home);
   home.chainDeposit(address, HOME_ASSET, HOME_DEPOSIT_AMOUNT, HOME_DEPOSIT_CONFIRMATIONS, HOME_DEPOSIT_LABEL);
@@ -158,6 +343,12 @@ export async function applyHome(home, { noticeMs = NOTICE_WINDOW_MS } = {}) {
 
 /** What Home's TEST content is on this stack, read back from the services; no content is written (the founders sign in). */
 export async function homeStatus(home) {
+  const venue = await launchVenue(home);
+  if (venue) {
+    const [wallet, funds, partner, inbox] = await launchStatus(home, venue);
+    const open = await seededNotice(home);
+    return ['home:', wallet, funds, partner, `  notice  ${open ? `${open.title}  published` : 'none'}`, inbox];
+  }
   const address = await knownAddress(home);
   const record = address ? await depositRecord(home, address) : null;
   const notice = await seededNotice(home);

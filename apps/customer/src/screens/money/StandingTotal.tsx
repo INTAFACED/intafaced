@@ -236,6 +236,14 @@ function Part({ part, hidden, t, asOfText }: { part: ValuedPart; hidden: boolean
       ) : null}
       {' · '}
       <span data-testid="standing-part-source">{t(PART_SOURCE[part.id])}</span>
+      {part.test && part.adapter ? (
+        <>
+          {' · '}
+          <span data-testid="standing-part-adapter">
+            {t('TEST source', { name: part.id === 'wallet' ? t('TEST chain', { chainId: part.adapter }) : part.adapter })}
+          </span>
+        </>
+      ) : null}
       {held !== null && held !== 'unknown' && part.asOf ? (
         <>
           {' · '}

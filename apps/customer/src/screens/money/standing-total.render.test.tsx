@@ -54,6 +54,25 @@ describe('Where you stand: each figure’s state and the total’s time', () => 
     expect(html).toContain('data-total-usd="510.00"');
     expect(html).toMatch(new RegExp(`data-testid="standing-as-of" data-held="stale"[^]*dateTime="${OLD}"`));
   });
+  it('a TEST part says TEST and names the TEST adapter its figures come from; a part that is not TEST names none', () => {
+    const read = { state: 'read', asOf: FRESH, rows: [{ asset: 'USDC', amount: '1' }] } as const;
+    const html = draw([
+      { id: 'wallet', label: 'Base Sepolia test network', test: true, adapter: '84532', read },
+      { id: 'venue', label: 'TEST venue simulator', test: true, adapter: 'TEST venue simulator', read },
+      { id: 'partner', label: 'A bank', adapter: 'A bank', read },
+    ]);
+    const row = (id: string) => {
+      const from = html.slice(html.indexOf(`data-part="${id}"`));
+      return from.slice(0, from.indexOf('</li>'));
+    };
+    expect(row('wallet')).toContain('<span class="lt-test">TEST</span>');
+    expect(row('wallet')).toContain('data-testid="standing-part-adapter">TEST source: TEST chain 84532</span>');
+    expect(row('venue')).toContain('<span class="lt-test">TEST</span>');
+    expect(row('venue')).toContain('data-testid="standing-part-adapter">TEST source: TEST venue simulator</span>');
+    // Not TEST: no TEST label and no adapter, whatever name it was given.
+    expect(row('partner')).not.toContain('lt-test');
+    expect(row('partner')).not.toContain('standing-part-adapter');
+  });
   it('with every part fresh, the total is known at its oldest part’s time', () => {
     const older = new Date(NOW - 10_000).toISOString();
     const html = draw([

@@ -13,7 +13,16 @@ import {
   HOME_DEPOSIT_LABEL,
   HOME_NETWORK,
   HOME_NOTICE_TITLE,
+  HOME_PARTNER_AMOUNT,
+  HOME_PARTNER_FUND_ID,
+  HOME_PARTNER_NOTE,
+  HOME_PARTNER_TRANSFER_ID,
+  HOME_VENUE_AMOUNT,
+  HOME_VENUE_ASSET,
+  HOME_VENUE_DEPOSIT_LABEL,
+  HOME_WALLET_FILE,
   NOTICE_WINDOW_MS,
+  TRANSFER_RECEIVED_KIND,
   applyHome,
   homeStatus,
 } from './local-test-home.mjs';
@@ -210,4 +219,209 @@ test('status reads back without writing, before and after apply', async () => {
     '  inbox  1 deposit-credited row  local_test_founder_a',
   ]);
   assert.deepEqual(state.writes, []);
+});
+
+// ── The launch model (OWNER 226): the user-venue door is on ──────────────────────────────────────────────────────────
+
+const WALLET = `0x${'ab'.repeat(20)}`;
+const VENUE = { id: 'test-venue-sim', displayName: 'TEST venue simulator', proofLevel: 'simulator' };
+const PARTNER = 'TEST partner bank';
+
+/**
+ * The same stand-in on the launch model: svc-trade's door answers with a TEST venue, the TEST venue credits a deposit
+ * once per reference, the TEST partner bank pays in once per fund id and moves a send once per transfer id, and
+ * svc-notify files one row for the person a send paid. Amounts are whole TEST units, held as bigints.
+ */
+function launchStack({ door = {}, venueId = VENUE.id, fileRow = true, postedByLedger = false } = {}) {
+  const { home, state } = stack();
+  Object.assign(state, {
+    wallet: null,
+    chainFunds: 0,
+    refs: new Set(),
+    venue: new Map(),
+    custody: new Map(),
+    partner: new Map(),
+    funds: new Set(),
+    sends: new Map(),
+  });
+  const who = { 'tok-a': 'user-a', 'tok-b': 'user-b' };
+  const credit = (book, key, amount) => book.set(key, (book.get(key) ?? 0n) + BigInt(amount));
+  home.founder.userId = 'user-a';
+  home.sender = { handle: 'local_test_founder_b', token: 'tok-b' };
+  home.venueDoor = async () => ({ enabled: true, available: true, venue: VENUE, test: true, chainId: 84532, builder: null, ...door });
+  home.testVenue = async (route, body) => {
+    if (route === '/venue') return { status: 200, json: { label: 'TEST', venue: { ...VENUE, id: venueId }, chainId: 84532 }, text: '' };
+    assert.deepEqual(body.account, { venueId: VENUE.id, owner: WALLET, subAccount: null });
+    if (route === '/test/deposit') {
+      state.writes.push('venue /test/deposit');
+      assert.deepEqual([body.asset, body.amount], [HOME_VENUE_ASSET, HOME_VENUE_AMOUNT]);
+      assert.equal(body.depositRef, `84532:tx:${WALLET}:${HOME_VENUE_DEPOSIT_LABEL}:0`);
+      const credited = !state.refs.has(body.depositRef);
+      if (credited) credit(state.venue, WALLET, body.amount);
+      state.refs.add(body.depositRef);
+      return { status: 200, json: { credited }, text: '' };
+    }
+    if (route === '/balances') {
+      const total = state.venue.get(WALLET);
+      const value = total === undefined ? [] : [{ asset: HOME_VENUE_ASSET, free: String(total), locked: '0', total: String(total) }];
+      return { status: 200, json: { venueId: VENUE.id, value, asOf: new Date(state.t).toISOString() }, text: '' };
+    }
+    throw new Error(`unexpected TEST venue call ${route}`);
+  };
+  home.wallet = async ({ create }) => {
+    if (state.wallet) return { address: state.wallet, created: false };
+    if (!create) return null;
+    state.writes.push('wallet file');
+    state.wallet = WALLET;
+    return { address: WALLET, created: true };
+  };
+  home.fundWallet = async (address) => {
+    assert.equal(address, WALLET);
+    state.chainFunds += 1;
+    return state.chainFunds === 1 ? 'funded with TEST ETH and TEST USD' : 'already funded';
+  };
+  const base = home.edge;
+  home.edge = {
+    async mutate(mod, proc, input, token) {
+      const user = who[token];
+      if (proc === 'testPartner.set') {
+        state.writes.push(`bank ${proc} ${user}`);
+        assert.deepEqual(input, { custody: 'off' });
+        state.custody.set(user, 'off');
+        return ok({ label: PARTNER, custody: 'off' });
+      }
+      if (proc === 'testPartner.fund') {
+        state.writes.push(`bank ${proc} ${user}`);
+        assert.deepEqual([user, input], ['user-b', { fundId: HOME_PARTNER_FUND_ID, assetId: HOME_ASSET, amount: HOME_PARTNER_AMOUNT }]);
+        if (!state.funds.has(input.fundId)) credit(state.partner, user, input.amount);
+        state.funds.add(input.fundId);
+        return ok({ label: PARTNER, assetId: HOME_ASSET, balance: String(state.partner.get(user)), asOf: new Date(state.t).toISOString() });
+      }
+      if (proc === 'transfers.toUser') {
+        state.writes.push(`bank ${proc} ${user}`);
+        assert.deepEqual(
+          [user, input],
+          [
+            'user-b',
+            {
+              transferId: HOME_PARTNER_TRANSFER_ID,
+              fromSpaceId: 'space-user-b',
+              toUserId: 'user-a',
+              amount: HOME_PARTNER_AMOUNT,
+              note: HOME_PARTNER_NOTE,
+            },
+          ],
+        );
+        if (!state.sends.has(input.transferId)) {
+          credit(state.partner, 'user-b', `-${input.amount}`);
+          credit(state.partner, 'user-a', input.amount);
+          state.sends.set(input.transferId, 'TEST-move-1');
+          if (fileRow) state.inbox.push({ id: 'n-send', kind: TRANSFER_RECEIVED_KIND, params: { transferId: input.transferId, amount: input.amount } });
+        }
+        return ok({
+          ledgerTxId: postedByLedger ? 'ledger-tx-1' : null,
+          partnerMove: postedByLedger ? null : { id: state.sends.get(input.transferId), label: PARTNER },
+          amount: input.amount,
+          note: input.note,
+          reference: null,
+          requestId: null,
+        });
+      }
+      return base.mutate(mod, proc, input, token);
+    },
+    async query(mod, proc, input, token) {
+      if (proc !== 'spaces.list') return base.query(mod, proc, input, token);
+      const user = who[token];
+      const amount = state.partner.get(user);
+      if (amount === undefined) return ok([]);
+      const heldAt = state.custody.get(user) === 'off' ? { label: PARTNER, asOf: new Date(state.t).toISOString() } : null;
+      return ok([{ id: `space-${user}`, kind: 'primary', assetId: HOME_ASSET, balance: String(amount), heldAt }]);
+    },
+  };
+  return { home, state };
+}
+
+test('launch model: apply makes a TEST wallet, TEST venue funds, a TEST partner balance, a TEST notice and one inbox row, and no deposit', async () => {
+  const { home, state } = launchStack();
+  assert.deepEqual(await applyHome(home), [
+    `home wallet: TEST wallet ${WALLET} for local_test_founder_a, made (its TEST key is in ${HOME_WALLET_FILE}, never shown); on the TEST chain: funded with TEST ETH and TEST USD`,
+    `home venue: ${HOME_VENUE_AMOUNT} ${HOME_VENUE_ASSET} to ${WALLET} at ${VENUE.displayName} (TEST), credited; the venue reports ${HOME_VENUE_AMOUNT} ${HOME_VENUE_ASSET}`,
+    `home partner: ${HOME_PARTNER_AMOUNT} ${HOME_ASSET} from local_test_founder_b to local_test_founder_a at ${PARTNER} (TEST), partner move TEST-move-1; the partner reports ${HOME_PARTNER_AMOUNT} ${HOME_ASSET}`,
+    `home notice: ${HOME_NOTICE_TITLE} published`,
+    'home inbox: 1 transfer-received row for local_test_founder_a',
+  ]);
+  // Nothing of the custodial layer ran: no deposit address was asked for and no chain transfer was delivered to svc-pay.
+  assert.equal(state.deliveries, 0);
+  assert.equal(state.deposits.size, 0);
+  assert.ok(!state.writes.includes('bank deposits.address'));
+  assert.equal(state.venue.get(WALLET), 500n);
+  assert.deepEqual([state.partner.get('user-a'), state.partner.get('user-b')], [25n, 0n]);
+  assert.equal(state.notices.length, 1);
+});
+
+test('launch model: a second apply credits, pays in, sends, files and publishes nothing new', async () => {
+  const { home, state } = launchStack();
+  await applyHome(home);
+  const again = await applyHome(home);
+  assert.match(again[0], /, kept \(.*\); on the TEST chain: already funded$/);
+  assert.match(again[1], new RegExp(`, already credited; the venue reports ${HOME_VENUE_AMOUNT} ${HOME_VENUE_ASSET}$`));
+  assert.match(again[2], new RegExp(`partner move TEST-move-1; the partner reports ${HOME_PARTNER_AMOUNT} ${HOME_ASSET}$`));
+  assert.equal(again[3], `home notice: ${HOME_NOTICE_TITLE} skipped`);
+  assert.equal(state.venue.get(WALLET), 500n);
+  assert.deepEqual([state.partner.get('user-a'), state.partner.get('user-b')], [25n, 0n]);
+  assert.deepEqual([state.funds.size, state.sends.size, state.inbox.length, state.drafts.length], [1, 1, 1, 1]);
+});
+
+test('launch model: a venue behind the door that is not TEST, not answering or not the stack’s own is refused before anything is made', async () => {
+  for (const [options, message] of [
+    [{ door: { test: false } }, /refusing: the venue behind the user-venue door is not a TEST venue/],
+    [{ door: { available: false, refusal: { code: 'venue.down', detail: '' } } }, /the user-venue door is on and its venue is not answering \(venue\.down\)/],
+    [{ venueId: 'some-other-venue' }, /refusing: the stack's TEST venue is not the venue behind the user-venue door \(test-venue-sim\)/],
+  ]) {
+    const { home, state } = launchStack(options);
+    await assert.rejects(applyHome(home), message);
+    assert.deepEqual(state.writes, []);
+    assert.deepEqual(state.drafts, []);
+  }
+});
+
+test('launch model: a send the ledger posted, or no inbox row for it, fails by name before any notice is drafted', async () => {
+  const posted = launchStack({ postedByLedger: true });
+  await assert.rejects(applyHome(posted.home), /the TEST home send was not moved by the TEST partner bank/);
+  assert.deepEqual(posted.state.drafts, []);
+  const silent = launchStack({ fileRow: false });
+  await assert.rejects(applyHome(silent.home), { message: "founder a's inbox has 0 transfer-received rows for the TEST home send, not 1" });
+  assert.deepEqual(silent.state.drafts, []);
+});
+
+test('launch model: status reads each source back without writing, before and after apply', async () => {
+  const { home, state } = launchStack();
+  assert.deepEqual(await homeStatus(home), [
+    'home:',
+    '  wallet  none  local_test_founder_a',
+    '  venue  none',
+    '  partner  none  local_test_founder_a',
+    '  notice  none',
+    '  inbox  0 transfer-received rows  local_test_founder_a',
+  ]);
+  assert.deepEqual(state.writes, []);
+  await applyHome(home);
+  state.writes = [];
+  assert.deepEqual(await homeStatus(home), [
+    'home:',
+    `  wallet  TEST wallet ${WALLET}  local_test_founder_a`,
+    `  venue  ${HOME_VENUE_AMOUNT} ${HOME_VENUE_ASSET} at ${VENUE.displayName}`,
+    `  partner  ${HOME_PARTNER_AMOUNT} ${HOME_ASSET} at ${PARTNER}  local_test_founder_a`,
+    `  notice  ${HOME_NOTICE_TITLE}  published`,
+    '  inbox  1 transfer-received row  local_test_founder_a',
+  ]);
+  assert.deepEqual(state.writes, []);
+});
+
+test('with the door off, a stack wired for the launch model still seeds the custodial TEST deposit and nothing else', async () => {
+  const { home, state } = launchStack({ door: { enabled: false } });
+  const lines = await applyHome(home);
+  assert.equal(lines[0], `home deposit: ${HOME_DEPOSIT_AMOUNT} ${HOME_ASSET} on TEST ${HOME_NETWORK} to local_test_founder_a, credited`);
+  assert.deepEqual(state.writes, ['bank deposits.address']);
+  assert.equal(state.wallet, null);
 });

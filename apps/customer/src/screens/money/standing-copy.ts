@@ -23,6 +23,8 @@ export const standingCopy = defineCopy('money.standing', {
   'Source wallet': 'read from the chain',
   'Source venue': 'the venue’s own figures',
   'Source partner': 'the partner’s own figures',
+  'TEST source': 'TEST source: {name}',
+  'TEST chain': 'TEST chain {chainId}',
   'Part reading': 'Reading…',
   'Part unread': 'Couldn’t be read, so it is left out of the total.',
   'Part not valued': 'Not valued: no published price',

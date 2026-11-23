@@ -17,6 +17,7 @@ import { useResource } from '../../shared/resource';
 import { useVenueApi } from '../../features/trade/venue/VenueKit';
 import type { VenueStakingAccount, VenueVaultHoldings } from '../../features/trade/venue-api';
 import { formatAmount, parseAmount } from '../../shared/money';
+import { isTestBuild } from '../../shared/test-build';
 import { readWallet, venueRows, type NodeRead, type VenueRow, type WalletRead, type WalletToken } from './where-it-sits';
 import { standing, type PartRead } from './standing';
 
@@ -184,10 +185,14 @@ export function useStanding(
   const venue = useVenueRead(owner);
   const partner = usePartnerRead();
   const { prices, failed } = useValuationPrices();
+  // On a test build (the stack's TEST banner) the wallet is read from the stack's TEST chain and the partner is the TEST
+  // partner bank, so each part says TEST and names the TEST adapter its figures come from (J-home-ia-11 #3); a venue says
+  // so itself (`venueTest`). On any other build nothing here is labelled.
+  const testBuild = isTestBuild();
   const result = standing(
     [
-      { id: 'wallet', label: names.network, read: walletPart(wallet) },
-      { id: 'venue', label: names.venue, read: venuePart(venue), test: names.venueTest },
+      { id: 'wallet', label: names.network, read: walletPart(wallet), test: testBuild, adapter: String(chainId) },
+      { id: 'venue', label: names.venue, read: venuePart(venue), test: names.venueTest, adapter: names.venue },
       ...(partner.state === 'none'
         ? []
         : [
@@ -195,6 +200,8 @@ export function useStanding(
               id: 'partner' as const,
               label: partner.state === 'read' ? partner.label : '',
               read: partner.state === 'read' ? { state: 'read' as const, asOf: partner.asOf, rows: partner.rows } : partner,
+              test: testBuild,
+              ...(partner.state === 'read' ? { adapter: partner.label } : {}),
             },
           ]),
     ],

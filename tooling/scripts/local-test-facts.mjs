@@ -363,5 +363,20 @@ export const HOME_NOTICE_BODY = 'TEST notice from the tester seed. Balances here
 /** The TEST notice stays open as long as a test stack is likely to live, unless the caller asks for a shorter window. */
 export const HOME_NOTICE_DAYS = 30;
 
+// The founder's Home on the launch model (OWNER 226; J-home-ia-11 #3): with svc-trade's user-venue door on, nothing is
+// posted to our ledger. The tester gets a TEST wallet, TEST funds in its account on the TEST venue, and a TEST balance at
+// the TEST partner bank that founder b sends them there. Every figure is an illustrative TEST value.
+/** The TEST wallet's file in the stack's state folder (mode 600): its address and its TEST key, which no tool prints. */
+export const HOME_WALLET_FILE = 'home-test-wallet.json';
+export const HOME_VENUE_ASSET = 'USDC';
+export const HOME_VENUE_AMOUNT = '500';
+/** One fixed TEST deposit at the TEST venue: the same label for the same wallet is the same deposit, credited once. */
+export const HOME_VENUE_DEPOSIT_LABEL = 'LOCAL-TEST-seed-home-venue-deposit-v1';
+export const HOME_PARTNER_AMOUNT = '25';
+/** The TEST partner bank's pay-in to founder b and founder b's send to founder a: each happens once per key. */
+export const HOME_PARTNER_FUND_ID = 'local-test-seed-home-partner-fund-v1';
+export const HOME_PARTNER_TRANSFER_ID = 'local-test-seed-home-partner-send-v1';
+export const HOME_PARTNER_NOTE = 'TEST money from the tester seed';
+
 /** LOCAL TEST sanctioned destination, not a real list (J-wallet-05 #2; local-stack-services/bank.mjs). */
 export const LOCAL_TEST_SANCTIONED_ADDRESS = '0x5a7c7100000000000000000000000000000ba5ed';

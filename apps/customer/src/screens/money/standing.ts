@@ -44,6 +44,11 @@ export interface PartInput {
   read: PartRead;
   /** The source's figures are TEST figures. */
   test?: boolean;
+  /**
+   * The TEST adapter a TEST part's figures come from (J-home-ia-11 #3): a TEST venue's or the TEST partner's own name,
+   * or for a wallet the id of the TEST chain it is read from. Never set for a part that is not TEST.
+   */
+  adapter?: string;
 }
 
 export interface ValuedRow extends SourceRow {
@@ -59,6 +64,8 @@ export interface ValuedPart {
   id: PartId;
   label: string;
   test: boolean;
+  /** The TEST adapter a TEST part's figures come from, as `PartInput.adapter` gives it; null for any other part. */
+  adapter: string | null;
   state: PartRead['state'];
   asOf: string | null;
   rows: ValuedRow[];
@@ -105,7 +112,8 @@ export function standing(parts: PartInput[], prices: ValuationPrices | null, uni
   const unpriced: string[] = [];
   const priced: Amount[] = [];
   const valued = parts.map((part): ValuedPart => {
-    const base = { id: part.id, label: part.label, test: part.test ?? false, state: part.read.state };
+    const test = part.test ?? false;
+    const base = { id: part.id, label: part.label, test, adapter: test ? (part.adapter ?? null) : null, state: part.read.state };
     if (part.read.state !== 'read') return { ...base, asOf: null, rows: [], valueUsd: null };
     const values: Amount[] = [];
     const rows = part.read.rows

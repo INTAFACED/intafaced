@@ -1,19 +1,31 @@
-// World: stack
+// World: restart, stack
 import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { founderTotp, makeContext, stackFounderScopes } from '../../../../tooling/scripts/local-test-gates.mjs';
+import { founderSession, founderTotp, makeContext, stackFounderScopes } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { LOCAL_TEST_DEVICE_KEY } from '../../../../tooling/scripts/local-test-device.mjs';
 import { FOUNDER_VAULT_NAME, foundersEnrolled } from '../../../../tooling/scripts/local-test-founders.mjs';
 import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
 import { deviceCodesMailedTo, OUTBOX_NAME } from '../../../../tooling/scripts/local-test-entry.mjs';
-import { HOME_ASSET, HOME_DEPOSIT_AMOUNT, HOME_NOTICE_TITLE } from '../../../../tooling/scripts/local-test-home.mjs';
+import {
+  HOME_ASSET,
+  HOME_NOTICE_TITLE,
+  HOME_PARTNER_AMOUNT,
+  HOME_VENUE_AMOUNT,
+  HOME_VENUE_ASSET,
+  HOME_WALLET_FILE,
+} from '../../../../tooling/scripts/local-test-home.mjs';
 import { ADMIN, assertAdminUp } from './admin.mjs';
+import { CHAIN_ID, connectWhenAsked, testChain } from './dex.mjs';
 import { COMPOSE, composeSteps, run, seedService } from './tester-compose.mjs';
 import { NOTICE_DRAIN_MINUTES } from './notices.mjs';
-import { EDGE, ORIGIN as CUSTOMER, ROOT, stackUrl } from './stack.mjs';
+import { partnerMainBalance } from './partner.mjs';
+import { EDGE, ORIGIN as CUSTOMER, ROOT, restartWithSetting, stackUrl, toUnits } from './stack.mjs';
+import { installTestWallet } from './test-wallet.mjs';
+import { sameDecimal, venueBalance, venueForThisFile, venueInfo } from './venue.mjs';
 
 // J-home-ia-11, in the running app (docs/roadmap/journeys.json): I bring up a test build and sign in as a founder (tester
 // entry). Tests titled "J-home-ia-11 #<n>" prove a whole step. The journey starts from a compose up with the `tester`
@@ -74,15 +86,45 @@ function vault() {
 // alone, which makes no Home content, so every other journey starts from an empty notice board (J-home-ia-06). Here the
 // notice is open for NOTICE_MINUTES rather than the tester's 30 days, inside the NOTICE_DRAIN_MINUTES that J-home-ia-06
 // waits for leftover notices, so in either order in a shard it waits this one out. The seed publishes it last, after the
-// deposit and its inbox row. The run may take as long as `home`'s own waits (150 s each for the credit and the row).
+// inbox row. The run may take as long as `home`'s own wait for that row (150 s).
+//
+// The launch model (OWNER 226): the journey's money line is "none on our ledger", so this file runs with svc-trade's
+// user-venue door on (venueForThisFile), as a launch stack does, and the seed then makes Home's content from the labelled
+// TEST adapters only: a TEST wallet, TEST funds on the TEST venue and a TEST balance at the TEST partner bank. svc-ops
+// publishes its TEST price list for this file (`LOCAL_STACK_VALUATION_PRICES=test`), so Home can value them. Both are put
+// back after the file, and so is where the founder pair's bank money is held.
 const NOTICE_MINUTES = String(NOTICE_DRAIN_MINUTES - 2);
 const SEED_ENTRY = 'tooling/scripts/local-tester-seed.mjs';
+/** svc-bank's TEST partner bank's own name (`partner/test-partner.ts`). */
+const PARTNER_BANK = 'TEST partner bank';
+const WALLET_FILE = path.join(STATE, HOME_WALLET_FILE);
+/** The TEST wallet the seed made for founder a, from its file in the state folder. Its TEST key is never printed here. */
+function seededWallet() {
+  const kept = JSON.parse(readFileSync(WALLET_FILE, 'utf8'));
+  return { address: kept.address, privateKey: kept.privateKey, label: kept.label };
+}
+/** One founder's balances on our ledger, read through Edge with that founder's own session. */
+async function ledgerOf(ctx, session) {
+  const res = await ctx.edge.call('GET', '/api/v1/account/balance', undefined, session.token);
+  if (res.status !== 200 || !res.json?.balances) throw new Error(`balance read refused (${res.status}): ${res.text.slice(0, 300)}`);
+  return res.json.balances;
+}
 let contentSteps;
 let seedRun;
-test.beforeAll(() => {
-  test.setTimeout(8 * 60_000);
+let walletWasThere;
+// What our ledger held for each founder just before the seed ran and just after it: the money line's own proof.
+let ledger;
+venueForThisFile(test);
+test.beforeAll(async () => {
+  test.setTimeout(12 * 60_000);
+  restartWithSetting('ops', 'LOCAL_STACK_VALUATION_PRICES', 'test');
   const seed = seedService();
   contentSteps = seed ? composeSteps(seed.block).filter((step) => step.startsWith('local-test-seed.mjs ')) : [];
+  walletWasThere = existsSync(WALLET_FILE);
+  const ctx = await makeContext({ log: () => {} });
+  const sessions = { a: await founderSession(ctx, 'a'), b: await founderSession(ctx, 'b') };
+  const read = async () => ({ a: await ledgerOf(ctx, sessions.a), b: await ledgerOf(ctx, sessions.b) });
+  const before = await read();
   // As the service runs it: the state folder from LOCAL_STACK_STATE and NODE_ENV development (its compose environment).
   seedRun = run(
     SEED_ENTRY,
@@ -90,6 +132,19 @@ test.beforeAll(() => {
     { APP_ENV: 'test', NODE_ENV: 'development', LOCAL_STACK_STATE: STATE },
     { timeout: 7 * 60_000 },
   );
+  // A read that fails here is kept as its error, so #1 fails on it by name instead of the whole file failing to start.
+  ledger = { before, after: await read().catch((err) => ({ unread: String(err?.message ?? err) })) };
+});
+test.afterAll(async () => {
+  test.setTimeout(6 * 60_000);
+  restartWithSetting('ops', 'LOCAL_STACK_VALUATION_PRICES', null);
+  // The founder pair is the whole stack's: their bank money goes back to where every other journey file expects it.
+  const ctx = await makeContext({ log: () => {} });
+  for (const key of ['a', 'b']) {
+    const session = await founderSession(ctx, key);
+    const res = await ctx.edge.mutate('bank', 'testPartner.set', { custody: 'on' }, session.token);
+    expect(res.status, res.text.slice(0, 300)).toBe(200);
+  }
 });
 
 test(`${J} #1 the tester profile starts healthy services, and its seed service runs once and reports what it made`, async () => {
