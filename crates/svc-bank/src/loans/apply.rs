@@ -7,8 +7,9 @@ use service_kit::money::{Amount, Rounding, mul_div, mul_rounded};
 
 use super::risk::{Round, ltv_bps};
 
-const ONE: Amount = 1_000_000_000_000_000_000;
-const BPS: Amount = 10_000;
+const ONE: Amount = Amount::whole(1);
+/// Basis points in a whole: a count, not money.
+const BPS: i128 = 10_000;
 
 /// `quoteValue`: `quantity` at `price` in the quote asset, debt rounded up, collateral down. The one rounding `open`
 /// and the quote share.
@@ -30,7 +31,7 @@ pub fn minimum_collateral(
     collateral_price: Amount,
     max_ltv_bps: i64,
 ) -> Result<Amount, String> {
-    if debt_value <= 0 || collateral_price <= 0 || max_ltv_bps <= 0 {
+    if debt_value <= Amount::ZERO || collateral_price <= Amount::ZERO || max_ltv_bps <= 0 {
         return Err("minimumCollateral needs a positive debt value, price and LTV cap".to_owned());
     }
     let fits = |c: Amount| {
@@ -39,9 +40,16 @@ pub fn minimum_collateral(
     // The closed-form estimate, then grown until it fits: a starting point, never the answer.
     // ceil(debt·BPS·ONE / (cap·price)) = ceil(ceil(debt·BPS·ONE / price) / cap) for positive integers.
     let per_price = mul_div(debt_value, BPS * ONE, collateral_price, Rounding::Ceil);
-    let mut hi = mul_div(per_price, 1, Amount::from(max_ltv_bps), Rounding::Ceil).saturating_add(1);
+    // `per_price / cap`, rounded up: the cap is a count of basis points, carried here as a scaled divisor.
+    let mut hi = mul_div(
+        per_price,
+        Amount::UNIT,
+        Amount::from_scaled(i128::from(max_ltv_bps)),
+        Rounding::Ceil,
+    )
+    .saturating_add(Amount::UNIT);
     while !fits(hi) {
-        match hi.checked_mul(2) {
+        match hi.checked_times(2) {
             Some(next) => hi = next,
             // Past an i128 the pledge cannot be held anywhere; the largest is the answer the search can give.
             None => {
@@ -50,13 +58,13 @@ pub fn minimum_collateral(
             }
         }
     }
-    let mut lo: Amount = 1;
+    let mut lo: Amount = Amount::from_scaled(1);
     while lo < hi {
         let mid = lo + (hi - lo) / 2;
         if fits(mid) {
             hi = mid;
         } else {
-            lo = mid + 1;
+            lo = mid + Amount::from_scaled(1);
         }
     }
     Ok(lo)
@@ -70,15 +78,15 @@ pub fn liquidation_price(
     collateral: Amount,
     liquidation_ltv_bps: i64,
 ) -> Result<Amount, String> {
-    if collateral == 0 || liquidation_ltv_bps == 0 {
+    if collateral == Amount::ZERO || liquidation_ltv_bps == 0 {
         return Err("Division by zero".to_owned());
     }
     // ceil(debt·BPS·ONE / (ltv·collateral)), taken as ceil(ceil(debt·BPS·ONE / collateral) / ltv).
     let per_collateral = mul_div(debt_value, BPS * ONE, collateral, Rounding::Ceil);
     Ok(mul_div(
         per_collateral,
-        1,
-        Amount::from(liquidation_ltv_bps),
+        Amount::UNIT,
+        Amount::from_scaled(i128::from(liquidation_ltv_bps)),
         Rounding::Ceil,
     ))
 }
@@ -106,7 +114,13 @@ pub fn origination_fee(raw: Option<&str>) -> OriginationFee {
 
 /// `originationFeeOn`: the fee on `principal` at `bps`, rounded up in the debt asset.
 pub fn origination_fee_on(principal: Amount, bps: i64) -> Amount {
-    mul_div(principal, Amount::from(bps), BPS, Rounding::Ceil)
+    // `principal * bps / BPS`: both factors past the principal are counts of basis points.
+    mul_div(
+        principal,
+        Amount::from_scaled(i128::from(bps)),
+        Amount::from_scaled(BPS),
+        Rounding::Ceil,
+    )
 }
 
 #[cfg(test)]
@@ -136,15 +150,24 @@ mod tests {
             let (d, p) = (amt(debt), amt(price));
             let c = minimum_collateral(d, p, cap).unwrap();
             assert!(opens_at(d, c, p, cap), "{debt} {price} {cap}");
-            assert!(!opens_at(d, c - 1, p, cap), "{debt} {price} {cap}");
+            assert!(
+                !opens_at(d, c - Amount::from_scaled(1), p, cap),
+                "{debt} {price} {cap}"
+            );
         }
     }
 
     #[test]
     fn minimum_collateral_refuses_a_zero_debt_price_or_cap() {
         let msg = "minimumCollateral needs a positive debt value, price and LTV cap";
-        assert_eq!(minimum_collateral(0, ONE, 5_000).unwrap_err(), msg);
-        assert_eq!(minimum_collateral(ONE, 0, 5_000).unwrap_err(), msg);
+        assert_eq!(
+            minimum_collateral(Amount::ZERO, ONE, 5_000).unwrap_err(),
+            msg
+        );
+        assert_eq!(
+            minimum_collateral(ONE, Amount::ZERO, 5_000).unwrap_err(),
+            msg
+        );
         assert_eq!(minimum_collateral(ONE, ONE, 0).unwrap_err(), msg);
     }
 
@@ -153,7 +176,7 @@ mod tests {
         // `loans.quote`'s figures: the exact pledge, its LTV and the liquidation price.
         let debt_value = quote_value(amt("1000"), ONE, Round::Ceil);
         let required = minimum_collateral(debt_value, amt("60000"), 5_000).unwrap();
-        assert_eq!(required, 33_333_333_333_333_334);
+        assert_eq!(required, Amount::from_scaled(33_333_333_333_333_334));
         assert_eq!(
             ltv_bps(
                 debt_value,
@@ -169,10 +192,10 @@ mod tests {
                 DEFAULT_LIQUIDATION_POLICY.liquidation_ltv_bps
             )
             .unwrap(),
-            35_294_117_647_058_822_823_530
+            Amount::from_scaled(35_294_117_647_058_822_823_530)
         );
         assert_eq!(
-            liquidation_price(1, 0, 8_500).unwrap_err(),
+            liquidation_price(Amount::from_scaled(1), Amount::ZERO, 8_500).unwrap_err(),
             "Division by zero"
         );
     }
@@ -199,6 +222,9 @@ mod tests {
             OriginationFee::Published { bps: 50 }
         );
         assert_eq!(origination_fee_on(amt("1000"), 50), amt("5"));
-        assert_eq!(origination_fee_on(1, 1), 1);
+        assert_eq!(
+            origination_fee_on(Amount::from_scaled(1), 1),
+            Amount::from_scaled(1)
+        );
     }
 }

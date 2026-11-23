@@ -10,7 +10,6 @@ import { z } from 'zod';
 import * as p from '../schemas';
 import { type PortalTools } from '../api-tools';
 import { pageOrArray } from '../ui/page';
-import { feeRatesReadSchema } from './fee-rate-schema';
 import { PAY_PAYMENT_REFUNDS_GET } from '@intafaced/contracts/pay-payment-procedures';
 import {
   PAY_MERCHANT_CONTROL_GET,
@@ -44,6 +43,7 @@ import {
   PAY_CONVERSION_QUOTE,
   PAY_CONVERSION_EXECUTE,
 } from '@intafaced/contracts/pay-conversion-procedures';
+import { PAY_MERCHANT_ANALYTICS_FEES } from '@intafaced/contracts/pay-merchant-analytics-procedures';
 
 /** The filters a list sends to the service. A blank one is left out, never sent empty. */
 export type ListQuery = { status?: string; assetId?: string; from?: string; to?: string; search?: string };
@@ -145,7 +145,7 @@ export const moneyApi = ({ query, mutate, queryRecord, mutateRecord }: PortalToo
 
   /** The effective fee rate per asset over a window (fees ÷ gross, by INTAFACED). One small page: only `rates` is read. */
   feeRates: (input: { merchantId: string; from: string; to: string; assetId?: string }, signal?: AbortSignal) =>
-    query('merchantAnalytics.fees', { ...input, bucket: 'day', limit: 1 }, feeRatesReadSchema, signal),
+    queryRecord(PAY_MERCHANT_ANALYTICS_FEES, { ...input, bucket: 'day', limit: 1 }, signal),
 
   // ---- conversion (sandbox) ------------------------------------------------------------------------
   conversionList: (merchantId: string, signal?: AbortSignal) => queryRecord(PAY_CONVERSION_LIST, { merchantId, limit: 50 }, signal),

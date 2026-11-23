@@ -86,7 +86,7 @@ fn pick_index(open: &[Open], method: LotMethod) -> Option<usize> {
 fn split(total: Option<Amount>, qty: Amount, take: Amount) -> (Option<Amount>, Option<Amount>) {
     match total {
         None => (None, None),
-        Some(t) if take == qty => (Some(t), Some(0)),
+        Some(t) if take == qty => (Some(t), Some(Amount::ZERO)),
         Some(t) => {
             let taken = crate::money::share(t, qty, take);
             (Some(taken), Some(t - taken))
@@ -101,7 +101,7 @@ fn money(v: Option<Amount>) -> Json {
 /// `runLots`.
 pub fn run_lots(movements: &[LotMovement], method: LotMethod) -> LotRun {
     let mut by_asset: Vec<(&str, Vec<&LotMovement>)> = Vec::new();
-    for m in movements.iter().filter(|m| m.qty != 0) {
+    for m in movements.iter().filter(|m| m.qty != Amount::ZERO) {
         match by_asset.iter_mut().find(|(a, _)| *a == m.asset_id) {
             Some((_, list)) => list.push(m),
             None => by_asset.push((&m.asset_id, vec![m])),
@@ -110,7 +110,7 @@ pub fn run_lots(movements: &[LotMovement], method: LotMethod) -> LotRun {
     let mut lots_closed = Vec::new();
     let mut lots_open = Vec::new();
     let mut residuals: Vec<&'static str> = Vec::new();
-    let mut realized_sum: Option<Amount> = Some(0);
+    let mut realized_sum: Option<Amount> = Some(Amount::ZERO);
     let mut any_closed = false;
 
     for (_, mut list) in by_asset {
@@ -133,7 +133,7 @@ pub fn run_lots(movements: &[LotMovement], method: LotMethod) -> LotRun {
             }
             let mut remaining = m.qty;
             let mut proceeds_left = m.proceeds;
-            while remaining > 0 && !open.is_empty() {
+            while remaining > Amount::ZERO && !open.is_empty() {
                 if open.iter().any(|l| l.cost_basis.is_none()) {
                     residuals.push(TAX_COST_BASIS_UNAVAILABLE);
                     realized_sum = None;
@@ -183,11 +183,11 @@ pub fn run_lots(movements: &[LotMovement], method: LotMethod) -> LotRun {
                 proceeds_left = proceeds_rest;
                 lot.qty_remaining -= take;
                 lot.cost_basis = cost_left;
-                if lot.qty_remaining == 0 {
+                if lot.qty_remaining == Amount::ZERO {
                     open.remove(idx);
                 }
             }
-            if remaining > 0 && open.is_empty() {
+            if remaining > Amount::ZERO && open.is_empty() {
                 residuals.push(TAX_LOT_UNDERFLOW);
             }
         }

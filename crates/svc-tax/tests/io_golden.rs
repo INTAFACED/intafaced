@@ -21,6 +21,7 @@ use svc_tax::clients::prices::TradePrices;
 use svc_tax::clients::venue::TradeVenueActivity;
 use svc_tax::http::{FETCH_FAILED, Fetch, FetchError, HttpRequest, HttpResponse};
 use svc_tax::json::{self, Json};
+use svc_tax::money::Amount;
 use svc_tax::ports::{
     AccountLine, CloseSeriesSource, Ledger, OwnSpaces, PriceAtTime, SeriesTimeframe, TradeFills,
     VenueActivity, VenueActivitySource,
@@ -210,8 +211,9 @@ fn call_signer(v: &Json, mode: Option<Mode>) -> CallSigner {
 
 // ── Results, in the TypeScript's canonical form ─────────────────────────────────────────────────────────────────────
 
-fn amount(a: i128) -> Json {
-    Json::str(a.to_string())
+/// The golden file records an amount as its scaled integer.
+fn amount(a: Amount) -> Json {
+    Json::str(a.scaled().to_string())
 }
 
 fn failure(f: &Failure) -> Json {
@@ -257,7 +259,7 @@ fn fills(t: TradeFills) -> Json {
                 t.fills
                     .iter()
                     .map(|f| {
-                        let leg = |asset: &str, a: i128| {
+                        let leg = |asset: &str, a: Amount| {
                             Json::obj([("assetId", Json::str(asset)), ("amount", amount(a))])
                         };
                         let mut o = vec![

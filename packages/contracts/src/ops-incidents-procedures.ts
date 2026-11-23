@@ -5,6 +5,11 @@ import {
   incidentListInputSchema,
   incidentListOutputSchema,
   incidentMetricsSchema,
+  incidentDeclareInputSchema,
+  incidentNoteInputSchema,
+  incidentInviteInputSchema,
+  incidentTaskInputSchema,
+  incidentResolveInputSchema,
 } from './ops-incidents.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
@@ -50,6 +55,84 @@ export const OPS_INCIDENTS_GET = defineProcedure({
   output: incidentDetailSchema,
   samples: [
     { verdict: 'accept', input: { incidentId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const OPS_INCIDENTS_DECLARE = defineProcedure({
+  ...base,
+  name: 'ops.incidents.declare',
+  kind: 'mutation',
+  path: 'incidents.declare',
+  access: { caller: 'scope', scope: 'admin:write', module: 'core-ops', plane: 'fiat' },
+  refusals: {},
+  input: incidentDeclareInputSchema,
+  output: incidentDetailSchema,
+  samples: [
+    { verdict: 'accept', input: { requestKey: 'ethereum', title: 'USDC' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const OPS_INCIDENTS_NOTE = defineProcedure({
+  ...base,
+  name: 'ops.incidents.note',
+  kind: 'mutation',
+  path: 'incidents.note',
+  access: { caller: 'scope', scope: 'admin:write', module: 'core-ops', plane: 'fiat' },
+  refusals: {},
+  input: incidentNoteInputSchema,
+  output: incidentDetailSchema,
+  samples: [
+    { verdict: 'accept', input: { incidentId: '11111111-1111-4111-8111-111111111111', requestKey: 'ethereum', body: 'USDC' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const OPS_INCIDENTS_INVITE = defineProcedure({
+  ...base,
+  name: 'ops.incidents.invite',
+  kind: 'mutation',
+  path: 'incidents.invite',
+  access: { caller: 'scope', scope: 'admin:write', module: 'core-ops', plane: 'fiat' },
+  refusals: {},
+  input: incidentInviteInputSchema,
+  output: incidentDetailSchema,
+  samples: [
+    { verdict: 'accept', input: { incidentId: '11111111-1111-4111-8111-111111111111', requestKey: 'ethereum', userId: 'USDC' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const OPS_INCIDENTS_TASK = defineProcedure({
+  ...base,
+  name: 'ops.incidents.task',
+  kind: 'mutation',
+  path: 'incidents.task',
+  access: { caller: 'scope', scope: 'admin:write', module: 'core-ops', plane: 'fiat' },
+  refusals: {},
+  input: incidentTaskInputSchema,
+  output: incidentDetailSchema,
+  samples: [
+    {
+      verdict: 'accept',
+      input: { incidentId: '11111111-1111-4111-8111-111111111111', requestKey: 'ethereum', title: 'USDC', assigneeId: 'USDC' },
+    },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const OPS_INCIDENTS_RESOLVE = defineProcedure({
+  ...base,
+  name: 'ops.incidents.resolve',
+  kind: 'mutation',
+  path: 'incidents.resolve',
+  access: { caller: 'scope', scope: 'admin:write', module: 'core-ops', plane: 'fiat' },
+  refusals: {},
+  input: incidentResolveInputSchema,
+  output: incidentDetailSchema,
+  samples: [
+    { verdict: 'accept', input: { incidentId: '11111111-1111-4111-8111-111111111111', requestKey: 'ethereum' } },
     { verdict: 'refuse', input: 42 },
   ],
 });

@@ -30,6 +30,7 @@ async function loadWith(overrides: Record<string, string | undefined> = {}) {
   vi.unstubAllEnvs();
   vi.stubEnv('NODE_ENV', 'test');
   vi.stubEnv('REGISTRATION_OPEN', undefined);
+  vi.stubEnv('REGISTRATION_EMAIL_ALLOWLIST', undefined);
   for (const [key, value] of Object.entries({ ...BASE_ENV, ...overrides })) {
     vi.stubEnv(key, value);
   }
@@ -75,5 +76,15 @@ describe('REGISTRATION_OPEN refuse-closed', () => {
 
   it('garbage refuses boot (does not invent open)', async () => {
     await expect(loadWith({ REGISTRATION_OPEN: 'garbage' })).rejects.toThrow(/REGISTRATION_OPEN/);
+  });
+});
+
+describe('REGISTRATION_EMAIL_ALLOWLIST at boot (#9167)', () => {
+  it('unset or blank is no list; a list parses lowercased; a non-address refuses boot', async () => {
+    expect((await loadWith({})).REGISTRATION_EMAIL_ALLOWLIST).toBeUndefined();
+    expect((await loadWith({ REGISTRATION_EMAIL_ALLOWLIST: '  ' })).REGISTRATION_EMAIL_ALLOWLIST).toBeUndefined();
+    const listed = await loadWith({ REGISTRATION_OPEN: 'false', REGISTRATION_EMAIL_ALLOWLIST: 'A@example.com,b@example.com' });
+    expect([...(listed.REGISTRATION_EMAIL_ALLOWLIST ?? [])]).toEqual(['a@example.com', 'b@example.com']);
+    await expect(loadWith({ REGISTRATION_EMAIL_ALLOWLIST: 'a@example.com,oops' })).rejects.toThrow(/REGISTRATION_EMAIL_ALLOWLIST/);
   });
 });

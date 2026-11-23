@@ -111,7 +111,7 @@ pub fn last_verified(store: &Store) -> Result<Option<(String, String)>, StoreErr
             "SELECT to_char(finished_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'), through_seq::text
                FROM ledger.reconcile_runs
               WHERE outcome = 'ok'
-              ORDER BY through_seq DESC, id DESC
+              ORDER BY reconcile_runs.through_seq DESC, id DESC
               LIMIT 1",
             &[],
         )?;

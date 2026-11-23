@@ -318,7 +318,7 @@ pub fn session_detail(
         };
         let paid = tx_id.as_deref().is_some_and(|t| !t.is_empty())
             && sealed
-            && amount.is_some_and(|a| a > 0);
+            && amount.is_some_and(|a| a > Amount::ZERO);
         windows.push(Json::obj([
             ("windowId", Json::str(r.try_get::<_, String>(0)?)),
             ("openedAt", Json::str(Instant(r.try_get(1)?).iso())),

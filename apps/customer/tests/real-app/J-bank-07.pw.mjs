@@ -19,7 +19,7 @@ import {
   toUnits,
 } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
-import { withPartner } from './partner.mjs';
+import { partnerBookAccounts, partnerBookMoves, withPartner } from './partner.mjs';
 import { agePast } from './test-age.mjs';
 import { bankPerson, close, local, spacesOf, staffDoors } from './bank-desk.mjs';
 
@@ -165,6 +165,26 @@ async function ledgerUsdt(who) {
 async function ledgerUnchanged(who, start) {
   expect(await ledgerUsdt(who), `${who.email}: the ledger posted for money the partner holds`).toEqual(start);
 }
+/** The moves the partner's book lists for the person after the `before` it listed earlier, pay-ins left out. */
+async function partnerMovesSince(userId, before) {
+  const seen = new Set(before.map((m) => m.id));
+  return (await partnerBookMoves(userId)).filter((m) => !seen.has(m.id) && m.from.owner !== 'partner:incoming-payments');
+}
+/**
+ * The app's figure for each of the person's own spaces held at the partner is what the partner's own book holds in that
+ * account, and the book holds nothing the app does not show. Answers the book: `<asset>:<space id, or main>` -> units.
+ */
+async function sameAsPartner(who, userId) {
+  const book = new Map((await partnerBookAccounts(userId)).map((a) => [`${a.asset}:${a.spaceId ?? 'main'}`, toUnits(a.amount)]));
+  const held = (await spaces(who)).filter((s) => s.heldAt?.label === PARTNER_BANK);
+  expect(held.length, `${who.email} holds nothing at the partner`).toBeGreaterThan(0);
+  const shown = new Map(held.map((s) => [`${s.assetId}:${s.kind === 'primary' ? 'main' : s.id}`, toUnits(s.balance)]));
+  for (const [key, units] of book)
+    if (units !== 0n) expect(shown.get(key), `${who.email} ${key}: the partner holds it, the app does not show it`).toBe(units);
+  for (const [key, units] of shown) expect(book.get(key) ?? 0n, `${who.email} ${key}: the app's figure is not the partner's`).toBe(units);
+  return book;
+}
+
 /** The second TEST person of steps 4 and 5, whose money is on the ledger (the partner paths are not built yet). */
 async function ledgerPerson(page) {
   const kept = run.read().onLedger;
@@ -267,6 +287,9 @@ test(`${J} #2 locks the space: a debit refuses bank.space_locked, a standing ord
   if (!pot) throw new Error(`${J} #1 made no space, so this step has nothing to lock`);
   const api = await bank(who);
   const mainId = main(await spaces(who)).id;
+  // The partner's own book before the lock: what it lists now is all it lists at the end of this step.
+  const movesAtStart = await partnerBookMoves(api.userId);
+  expect((await sameAsPartner(who, api.userId)).get(`USDT:${pot}`)).toBe(toUnits('20'));
 
   await signIn(page, who);
   await page.goto(`/bank/spaces?space=${pot}`);
@@ -288,6 +311,9 @@ test(`${J} #2 locks the space: a debit refuses bank.space_locked, a standing ord
   });
   expect(refused).toMatchObject({ ok: false, code: 'bank.space_locked' });
   expect(toUnits(named(await spaces(who), POT).balance)).toBe(toUnits('20'));
+  // Nothing moved at the partner either: its own book lists no new move and still holds 20 in the pot.
+  expect(await partnerMovesSince(api.userId, movesAtStart)).toEqual([]);
+  expect((await sameAsPartner(who, api.userId)).get(`USDT:${pot}`)).toBe(toUnits('20'));
 
   // A lock can only get longer here: an earlier date is refused, to be asked for as an early unlock.
   const shorter = await api.mutate('spaces.setLock', { spaceId: pot, lockedUntil: new Date(Date.now() + 24 * 3600_000).toISOString() });
@@ -358,6 +384,10 @@ test(`${J} #2 locks the space: a debit refuses bank.space_locked, a standing ord
     expect(refused).toMatchObject({ ok: false, code: 'bank.not_offered_by_partner' });
     expect(named(await spaces(who), POT)).toMatchObject({ lockedUntil: before.lockedUntil, unlocksAt: before.unlocksAt });
   });
+  // Every refusal of this step, the standing order's included, moved nothing at the partner: its book lists no new move,
+  // and the pot still holds 20 there, the figure the app shows.
+  expect(await partnerMovesSince(api.userId, movesAtStart)).toEqual([]);
+  expect((await sameAsPartner(who, api.userId)).get(`USDT:${pot}`)).toBe(toUnits('20'));
   await ledgerUnchanged(who, run.read().ledger);
 });
 
@@ -369,6 +399,7 @@ test(`${J} #3 money flows into the space on its own: a standing order and a card
   const { pot } = run.read();
   if (!pot) throw new Error(`${J} #1 made no space, so this step has nowhere to save into`);
   const api = await bank(who);
+  const movesAtStart = await partnerBookMoves(api.userId);
   const before = named(await spaces(who), POT);
   const mainBefore = main(await spaces(who)).balance;
 
@@ -460,6 +491,26 @@ test(`${J} #3 money flows into the space on its own: a standing order and a card
   expect(toUnits(named(after, CHANGE).balance)).toBe(toUnits(changeBefore) + toUnits('0.7'));
   await ledgerUnchanged(who, run.read().ledger);
 
+  // The partner's own book: the round-up and the order's run are its only two moves of this step, each once, between
+  // the person's own accounts there; the figures the app shows for every space are the partner's.
+  const made = await partnerMovesSince(api.userId, movesAtStart);
+  expect(made.map((m) => m.id).sort()).toEqual([captured.roundUp.partnerMoveId, orderRun.partnerMoveId].sort());
+  const roundUpMove = made.find((m) => m.id === captured.roundUp.partnerMoveId);
+  expect(roundUpMove).toMatchObject({
+    from: { owner: api.userId, assetId: 'USDC', spaceId: null },
+    to: { owner: api.userId, assetId: 'USDC', spaceId: change.id },
+    amount: '0.7',
+  });
+  const orderMove = made.find((m) => m.id === orderRun.partnerMoveId);
+  expect(orderMove).toMatchObject({
+    from: { owner: api.userId, assetId: 'USDT', spaceId: null },
+    to: { owner: api.userId, assetId: 'USDT', spaceId: pot },
+    amount: '5',
+  });
+  const book = await sameAsPartner(who, api.userId);
+  expect(book.get(`USDT:${pot}`)).toBe(toUnits(before.balance) + toUnits('5'));
+  expect(book.get(`USDC:${change.id}`)).toBe(toUnits(changeBefore) + toUnits('0.7'));
+
   // Each pot's own statement, this month so far: the order's run in the space, the round-up in the spare-change pot, once
   // each, and nothing else's lines.
   const statementOf = async (spaceId, name) => {
@@ -495,6 +546,8 @@ test(`${J} #3 money flows into the space on its own: a standing order and a card
     const rules = await api.query('autoInvest.list', { limit: 50, targetSpaceId: pot });
     expect(rules).toMatchObject({ ok: true, data: [] });
   });
+  // The refused round-up moved nothing at the partner: its book still lists only the step's two moves.
+  expect((await partnerMovesSince(api.userId, movesAtStart)).map((m) => m.id).sort()).toEqual(made.map((m) => m.id).sort());
 });
 
 test(`${J} #4 sets an income sorter: one over 100% is refused, and a TEST 100 payment from another person splits 60 and 40, once`, async ({
@@ -867,6 +920,7 @@ test(`${J} #6 shares a pot: invites by handle, an invite that expires, a contrib
   await expect(asPartner).toHaveAttribute('data-role', 'contributor');
   const before = await potBalance();
   const partnerBefore = await mainOf(partner);
+  const partnerMovesBefore = await partnerBookMoves(partnerApi.userId);
   await expect(asPartner.getByTestId('shared-pot-balance')).toHaveAttribute('data-amount', fromUnits(before));
   await asPartner.getByRole('button', { name: 'Add money', exact: true }).click();
   const add = page.getByRole('dialog');
@@ -877,6 +931,17 @@ test(`${J} #6 shares a pot: invites by handle, an invite that expires, a contrib
   expect(await potBalance()).toBe(before + toUnits('5'));
   expect(await mainOf(partner)).toBe(partnerBefore - toUnits('5'));
   await ledgerUnchanged(partner, partnerLedger);
+  // The partner's own book: one move of 5, once, from the contributor's account there into the owner's pot; the pot and
+  // the contributor's account hold there what the app shows.
+  const added = await partnerMovesSince(partnerApi.userId, partnerMovesBefore);
+  expect(added).toHaveLength(1);
+  expect(added[0]).toMatchObject({
+    from: { owner: partnerApi.userId, assetId: 'USDT', spaceId: null },
+    to: { owner: api.userId, assetId: 'USDT', spaceId: pot.id },
+    amount: '5',
+  });
+  expect((await sameAsPartner(who, api.userId)).get(`USDT:${pot.id}`)).toBe(before + toUnits('5'));
+  expect((await sameAsPartner(partner, partnerApi.userId)).get('USDT:main')).toBe(partnerBefore - toUnits('5'));
 
   // The viewer's invite has outlived the TEST two minutes: it shows as ended, and accepting it is refused by name. The
   // TEST age door makes that one invite two minutes older instead of waiting them out; no clock moves.
@@ -914,6 +979,8 @@ test(`${J} #6 shares a pot: invites by handle, an invite that expires, a contrib
   await expect(asViewer).toHaveAttribute('data-role', 'viewer');
   const held = await potBalance();
   const viewerHeld = await mainOf(viewer);
+  const viewerMovesBefore = await partnerBookMoves(viewerApi.userId);
+  const ownerMovesBefore = await partnerBookMoves(api.userId);
   await expect(asViewer.getByTestId('shared-pot-balance')).toHaveAttribute('data-amount', fromUnits(held));
   await asViewer.getByRole('button', { name: 'Add money', exact: true }).click();
   const tried = page.getByRole('dialog');
@@ -938,6 +1005,11 @@ test(`${J} #6 shares a pot: invites by handle, an invite that expires, a contrib
   expect(out).toMatchObject({ ok: false, code: 'bank.space_forbidden' });
   expect(await potBalance()).toBe(held);
   expect(await mainOf(viewer)).toBe(viewerHeld);
+  // Nor at the partner: neither the viewer's record nor the owner's lists a new move, and both hold what the app shows.
+  expect(await partnerMovesSince(viewerApi.userId, viewerMovesBefore)).toEqual([]);
+  expect(await partnerMovesSince(api.userId, ownerMovesBefore)).toEqual([]);
+  expect((await sameAsPartner(who, api.userId)).get(`USDT:${pot.id}`)).toBe(held);
+  expect((await sameAsPartner(viewer, viewerApi.userId)).get('USDT:main')).toBe(viewerHeld);
 
   // The owner links a TEST card to the pot from the Spaces page, so the pot's holders can freeze it.
   const cardId = randomUUID();
