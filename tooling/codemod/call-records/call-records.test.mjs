@@ -3054,3 +3054,46 @@ test('the router reader follows an optional part (`...ext?.merchant`) and a prop
     ['ops.*: MemberExpression not followed'],
   );
 });
+
+test("a run's new type error is owned by the moved call whose caller is in its file, or in a file it reaches by imports; one with neither is owned by none", async () => {
+  const { ownersOf } = await import('./run.mjs');
+  const moved = [
+    { path: 'copy.list', files: ['apps/customer/src/screens/trade/copybots/api.ts'] },
+    { path: 'grid.get', files: ['apps/customer/src/screens/trade/copybots/GridRoom.tsx'] },
+    { path: 'otc.quote', files: ['apps/customer/src/screens/trade/otc/data.ts'] },
+  ];
+  const sources = {
+    'apps/customer/src/screens/trade/copybots/CopyRoom.tsx': "import { listCopies } from './api.js';\n",
+    'apps/customer/src/shared/view-sync.ts': "import { x } from '../features/other.js';\n",
+    'apps/customer/src/screens/trade/otc/model.test.ts': "import { quote } from './model.js';\n",
+    'apps/customer/src/screens/trade/otc/model.ts': "import type { Quote } from './data';\n",
+    'apps/customer/src/screens/trade/otc/data.ts': '',
+    'apps/customer/src/screens/trade/terminal/index.tsx': "import { createRoomApi } from '../copybots/api';\n",
+    'apps/customer/src/screens/trade/copybots/api.ts': '',
+  };
+  const err = (file, msg) => ({ file, key: `${file}: ${msg}`, text: `${file}(3,7): ${msg}` });
+  const owners = ownersOf(
+    [
+      err('apps/customer/src/screens/trade/copybots/GridRoom.tsx', "error TS2339: Property 'exits' does not exist"),
+      err('apps/customer/src/screens/trade/copybots/CopyRoom.tsx', 'error TS2322: Type A is not assignable to type B'),
+      err('apps/customer/src/shared/view-sync.ts', 'error TS2322: Type C is not assignable to type D'),
+      err('apps/customer/src/screens/trade/otc/model.test.ts', 'error TS2345: Argument of type E'),
+      err('apps/customer/src/screens/trade/terminal/index.tsx', 'error TS2322: Type F'),
+    ],
+    moved,
+    (f) => {
+      if (!(f in sources)) throw new Error(`ENOENT: ${f}`);
+      return sources[f];
+    },
+  );
+  assert.deepEqual(
+    [...owners.get('apps/customer/src/screens/trade/copybots/GridRoom.tsx')],
+    [['grid.get', "error TS2339: Property 'exits' does not exist"]],
+  );
+  assert.deepEqual([...owners.get('apps/customer/src/screens/trade/copybots/CopyRoom.tsx').keys()], ['copy.list']);
+  assert.equal(owners.has('apps/customer/src/shared/view-sync.ts'), false);
+  // Two imports away: the test reads the model, which reads the moved file's type.
+  assert.deepEqual([...owners.get('apps/customer/src/screens/trade/otc/model.test.ts').keys()], ['otc.quote']);
+  // A folder's index.tsx resolves its imports from its own folder.
+  assert.deepEqual([...owners.get('apps/customer/src/screens/trade/terminal/index.tsx').keys()], ['copy.list']);
+});
