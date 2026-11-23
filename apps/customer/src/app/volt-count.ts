@@ -24,6 +24,13 @@
  *     - `own-class`: a class name written in `className` that is not the kit's (`lt-…`).
  * A room that fails 1 is `not-migrated` (or `no-template` when the registry has no row for it); one that fails 2 is
  * `off-kit`, with each finding named by file and line.
+ *
+ * A room that passes both still doesn't count when it shows only a placeholder (`placeholder`): its screen file and the
+ * files it reaches inside its folder read nothing (call no hook but React's own, `useCopy` and `usePreferences`), list
+ * nothing (no `.map(`) and draw an empty state (`kind: 'empty'` or the kit's `EmptyState`), so every visit shows the same
+ * "nothing here" panel (/mining/workers/:workerId, /token/governance/:proposalId and /chain/validators/:validatorId
+ * counted on 22 Nov 2026 that way). It is on the kit, so the ratchet doesn't hold it as off
+ * the kit; it stays in a batch until it shows the room's own records.
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -31,7 +38,7 @@ import { PORTAL_ROOMS } from '../features/pay/portal/routes';
 import { rooms } from './navigation';
 import { PORTAL_TEMPLATES, ROUTE_TEMPLATES, type RoomTemplate } from './room-templates';
 
-export type VoltState = 'volt' | 'off-kit' | 'not-migrated' | 'no-template';
+export type VoltState = 'volt' | 'placeholder' | 'off-kit' | 'not-migrated' | 'no-template';
 export type FindingKind = 'stylesheet' | 'inline-style' | 'old-kit' | 'outside-component' | 'own-class';
 export interface Finding {
   kind: FindingKind;
@@ -67,7 +74,7 @@ export interface VoltCount {
 }
 
 const VOLT_RULE =
-  "In Volt: a screen file carries the room's `// volt-room: <route>` line, it imports @intafaced/ui/lit, and it and the files it reaches by relative import inside its own folder import no stylesheet, set no style=, import nothing from @intafaced/ui outside /lit nor from shared/ui, import no component (a capitalised name) from a .tsx outside the folder, directly or through a .ts barrel's re-exports, unless that file passes this same rule, and write no className that is not the kit's lt- class.";
+  "In Volt: a screen file carries the room's `// volt-room: <route>` line, it imports @intafaced/ui/lit, and it and the files it reaches by relative import inside its own folder import no stylesheet, set no style=, import nothing from @intafaced/ui outside /lit nor from shared/ui, import no component (a capitalised name) from a .tsx outside the folder, directly or through a .ts barrel's re-exports, unless that file passes this same rule, and write no className that is not the kit's lt- class. A room that reads nothing, lists nothing and draws an empty state shows only a placeholder and doesn't count.";
 
 const APP_SRC = resolve(dirname(new URL(import.meta.url).pathname), '..');
 
@@ -254,6 +261,41 @@ export function offKitFindings(entry: string, judged: Map<string, Finding[]> = n
   return findings;
 }
 
+/** Hooks that read no room data: React's own, the copy and the preferences. Any other hook call is a read. */
+const DATA_FREE_HOOK = /^use(State|Effect|LayoutEffect|Memo|Ref|Callback|Id|Context|Reducer|Copy|Preferences)$/;
+
+/** The screen file `entry` (absolute) and every file it reaches by a relative import inside its own folder, tests aside. */
+function roomFiles(entry: string): string[] {
+  const folder = dirname(entry);
+  const seen = new Set<string>();
+  const queue = [entry];
+  while (queue.length > 0) {
+    const file = queue.shift()!;
+    if (seen.has(file)) continue;
+    seen.add(file);
+    for (const { spec } of imports(readFileSync(file, 'utf8'))) {
+      if (!spec.startsWith('.')) continue;
+      const target = resolveImport(file, spec);
+      if (target && target.startsWith(folder + '/') && /\.tsx?$/.test(target) && !/\.test\.tsx?$/.test(target)) queue.push(target);
+    }
+  }
+  return [...seen];
+}
+
+/**
+ * Why the room whose screen file is `entry` (absolute) shows only a placeholder, or null when it shows something of its
+ * own: it reads nothing (no hook call but DATA_FREE_HOOK), lists nothing (no `.map(`) and draws an empty state.
+ */
+export function placeholderOnly(entry: string): string | null {
+  const text = roomFiles(entry)
+    .map((f) => readFileSync(f, 'utf8'))
+    .join('\n');
+  const reads = [...text.matchAll(/\b(use[A-Z]\w*)\s*\(/g)].some((m) => !DATA_FREE_HOOK.test(m[1]!));
+  const empty = /\bkind:\s*['"]empty['"]|<EmptyState\b/.test(text);
+  if (reads || !empty || /\.map\(/.test(text)) return null;
+  return 'on its template and the kit, but it shows only a placeholder: it reads nothing, lists nothing and draws an empty state';
+}
+
 function judge(
   src: string,
   entry: RoomTemplate | undefined,
@@ -275,7 +317,11 @@ function judge(
   if (!/from\s+['"]@intafaced\/ui\/lit(\/templates)?['"]/.test(readFileSync(path, 'utf8')))
     return { template, file, state: 'not-migrated', reason: `${file} does not import the kit`, findings: [] };
   const findings = offKitFindings(path, new Map(), src);
-  if (findings.length === 0) return { template, file, state: 'volt', reason: 'drawn only from the kit', findings };
+  if (findings.length === 0) {
+    const placeholder = placeholderOnly(path);
+    if (placeholder) return { template, file, state: 'placeholder', reason: placeholder, findings };
+    return { template, file, state: 'volt', reason: 'drawn only from the kit', findings };
+  }
   const kinds = [...new Set(findings.map((f) => f.kind))];
   return { template, file, state: 'off-kit', reason: `on its template, but draws off the kit: ${kinds.join(', ')}`, findings };
 }
@@ -341,18 +387,21 @@ export function voltCount(source: VoltSource = APP_SOURCE): VoltCount {
  */
 export const intoVoltLayer = (env: Record<string, string | undefined> = process.env) => (env.GITHUB_BASE_REF ?? '').startsWith('volt/');
 
+/** Whether a room is drawn on its template from the kit: in Volt, or a placeholder there. */
+export const onKit = (room: VoltRoom) => room.state === 'volt' || room.state === 'placeholder';
+
 /**
- * What breaks the ratchet against `allowed` (the rooms volt-off-kit.json allows off the kit): a room not in Volt that the
- * list does not allow (`off`), a bad `volt-room` line (`mark`), and, unless `staleAllowed`, a listed room now in Volt or gone
- * (`stale`).
+ * What breaks the ratchet against `allowed` (the rooms volt-off-kit.json allows off the kit): a room off the kit that the
+ * list does not allow (`off`), a bad `volt-room` line (`mark`), and, unless `staleAllowed`, a listed room now on the kit or
+ * gone (`stale`). A placeholder is on the kit: the list never names it, and the count leaves it out.
  */
 export function ratchet(count: VoltCount, allowed: readonly string[], staleAllowed = false): string[] {
   const allow = new Set(allowed);
-  const offRooms = new Set(count.rooms.filter((r) => r.state !== 'volt').map((r) => r.key));
+  const offRooms = new Set(count.rooms.filter((r) => !onKit(r)).map((r) => r.key));
   return [
     ...count.markErrors.map((e) => `mark: ${e}`),
     ...count.rooms
-      .filter((r) => r.state !== 'volt' && !allow.has(r.key))
+      .filter((r) => !onKit(r) && !allow.has(r.key))
       .map((r) => `off: ${r.key}: ${r.reason}${r.findings.map((f) => `\n    ${f.kind} at ${f.at}: ${f.text}`).join('')}`),
     ...(staleAllowed
       ? []

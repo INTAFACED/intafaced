@@ -7,7 +7,7 @@
 // Needs the workspace packages built (`pnpm turbo run build --filter=@intafaced/customer^...`), as the customer tests do.
 //   node tooling/design/volt-count.mjs            the whole count: n, N, the rule, every room with its state and reason, the batches
 //   node tooling/design/volt-count.mjs --summary  n of N and the batches with their sizes
-//   node tooling/design/volt-count.mjs --write    drops from volt-off-kit.json each room now in Volt or gone; it never adds one
+//   node tooling/design/volt-count.mjs --write    drops from volt-off-kit.json each room now on the kit (in Volt or a placeholder) or gone; it never adds one
 import { readFileSync, writeFileSync } from 'node:fs';
 import { tsImport } from 'tsx/esm/api';
 
@@ -15,7 +15,7 @@ const { voltCount } = await tsImport('../../apps/customer/src/app/volt-count.ts'
 const count = voltCount();
 if (process.argv.includes('--write')) {
   const file = new URL('../../apps/customer/src/app/volt-off-kit.json', import.meta.url);
-  const off = new Set(count.rooms.filter((r) => r.state !== 'volt').map((r) => r.key));
+  const off = new Set(count.rooms.filter((r) => r.state !== 'volt' && r.state !== 'placeholder').map((r) => r.key));
   const before = JSON.parse(readFileSync(file, 'utf8'));
   const after = before.filter((key) => off.has(key));
   writeFileSync(file, `${JSON.stringify(after, null, 2)}\n`);
