@@ -76,3 +76,11 @@
 .preview-code code {
   font-family: var(--lit-font-mono);
 }
+
+/* A backtest's report prints on A4. The kit's report template names its own A4 page too, but the browser keeps a named
+   page only when nothing around the report breaks the page's flow, which a desk's frame sometimes does; this rule holds
+   A4 whatever the frame. */
+@page {
+  size: A4;
+  margin: 1.5rem;
+}

@@ -142,14 +142,19 @@ export function VenueAccountPanel({
                 </div>
                 <div>
                   <dt>{t('Free')}</dt>
-                  <dd className="lt-num" data-cell="free">
-                    {displayAmount(row?.free ?? '0')} {asset}
+                  {/* Only the figure keeps to one line: the asset wraps under it in a narrow column, so the panel never widens the desk. */}
+                  <dd data-cell="free">
+                    <span>
+                      <span className="lt-num">{displayAmount(row?.free ?? '0')}</span> {asset}
+                    </span>
                   </dd>
                 </div>
                 <div>
                   <dt>{t('Used')}</dt>
-                  <dd className="lt-num" data-cell="used">
-                    {displayAmount(row?.locked ?? '0')} {asset}
+                  <dd data-cell="used">
+                    <span>
+                      <span className="lt-num">{displayAmount(row?.locked ?? '0')}</span> {asset}
+                    </span>
                   </dd>
                 </div>
                 <div>
