@@ -1646,7 +1646,7 @@ test('portable: an answer refinement with a message is named in the record, once
   );
 });
 
-test("portable: an input refinement with a message is named in the record's checks, with a placeholder sample per check; a .superRefine is left, named", async () => {
+test("portable: an input refinement with a message is named in the record's checks, with a placeholder sample per check; a .superRefine with no written message is left, named", async () => {
   const { plan } = await import('./portable.mjs');
   const dir = mkdtempSync(join(tmpdir(), 'call-records-portable-'));
   writeFileSync(
@@ -1680,12 +1680,71 @@ test("portable: an input refinement with a message is named in the record's chec
     },
     [record],
   );
-  assert.deepEqual(left, [{ record: 'x.note', at: 'input.note', why: 'a .superRefine names no rule in words' }]);
+  assert.deepEqual(left, [{ record: 'x.note', at: 'input.note', why: 'its .superRefine raises no issue the codemod can read' }]);
   assert.deepEqual(
     [...edits.get(record).edits.values()].map((e) => e.text),
     [
       ', checks: { review_input_holds: { at: "input", says: "a rejection needs a reason" }, reason_holds: { at: "input.reason", says: "a reason is 3 or more characters" } }',
       ", { verdict: 'refuse', input: 42, by: 'review_input_holds' }, { verdict: 'refuse', input: 42, by: 'reason_holds' }",
+    ],
+  );
+});
+
+test('portable: a .superRefine is named in the words of each issue it raises, its function inline, local or imported; one issue with no written words leaves it', async () => {
+  const { plan } = await import('./portable.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-portable-'));
+  writeFileSync(
+    join(dir, 'rules.ts'),
+    [
+      'export function windowRules(v: { from: number; to: number }, ctx: any) {',
+      "  if (v.to < v.from) ctx.addIssue({ code: 'custom', message: 'a window ends after it starts', path: ['to'] });",
+      "  if (v.to - v.from > 90) ctx.addIssue({ code: 'custom', message: 'a window is at most 90 days' });",
+      '}',
+      '',
+    ].join('\n'),
+  );
+  writeFileSync(
+    join(dir, 'window.ts'),
+    [
+      "import { z } from 'zod';",
+      "import { windowRules } from './rules.js';",
+      'export const windowSchema = z.object({ from: z.number(), to: z.number() }).superRefine(windowRules);',
+      "export const tagSchema = z.object({ tag: z.string().superRefine((t, ctx) => { if (t === 'x') ctx.addIssue({ code: 'custom', message: 'a tag is never x' }); }) });",
+      "export const loudSchema = z.object({ n: z.string().superRefine((t, ctx) => { ctx.addIssue({ code: 'custom', message: `bad ${t}` }); }) });",
+      '',
+    ].join('\n'),
+  );
+  const record = join(dir, 'window-procedures.ts');
+  const placeholder = "samples: [{ verdict: 'accept', input: {} }]";
+  writeFileSync(
+    record,
+    [
+      "import { windowSchema, tagSchema, loudSchema } from './window.js';",
+      `export const W = defineProcedure({ name: 'x.window', input: windowSchema, output: NO_INPUT, ${placeholder} });`,
+      `export const T = defineProcedure({ name: 'x.tag', input: tagSchema, output: NO_INPUT, ${placeholder} });`,
+      `export const L = defineProcedure({ name: 'x.loud', input: loudSchema, output: NO_INPUT, ${placeholder} });`,
+      '',
+    ].join('\n'),
+  );
+  const refine = '(.refine/.superRefine (a TypeScript predicate the export drops))';
+  const { edits, left } = plan(
+    {
+      window: `x.window.input cannot be exported without losing meaning: input ${refine}`,
+      tag: `x.tag.input cannot be exported without losing meaning: input.tag ${refine}`,
+      loud: `x.loud.input cannot be exported without losing meaning: input.n ${refine}`,
+    },
+    [record],
+  );
+  assert.deepEqual(left, [
+    { record: 'x.loud', at: 'input.n', why: 'its .superRefine raises an issue with no message written as a string' },
+  ]);
+  assert.deepEqual(
+    [...edits.get(record).edits.values()].map((e) => e.text),
+    [
+      ', checks: { window_holds: { at: "input", says: "a window ends after it starts; a window is at most 90 days" } }',
+      ", { verdict: 'refuse', input: 42, by: 'window_holds' }",
+      ', checks: { tag_holds: { at: "input.tag", says: "a tag is never x" } }',
+      ", { verdict: 'refuse', input: 42, by: 'tag_holds' }",
     ],
   );
 });
