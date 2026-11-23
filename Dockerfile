@@ -92,7 +92,6 @@ COPY packages/venue-contracts/package.json   packages/venue-contracts/
 COPY packages/venue-sim/package.json         packages/venue-sim/
 COPY packages/venue-hyperliquid/package.json packages/venue-hyperliquid/
 
-COPY services/svc-bank/package.json          services/svc-bank/
 COPY services/svc-blueprint/package.json     services/svc-blueprint/
 COPY services/svc-identity/package.json      services/svc-identity/
 COPY services/svc-mining-pool/package.json  services/svc-mining-pool/

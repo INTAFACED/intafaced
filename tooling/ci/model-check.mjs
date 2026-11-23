@@ -2,8 +2,8 @@
 /**
  * Which TLA+ models a change is checked against (.github/workflows/model-check.yml, #8645).
  *
- * The models are found, never listed: every tracked `*.tla` file must sit in `services/<service>/model/` beside an
- * executable `check.sh`, or the plan fails naming it. A change is checked when it touches a service that has a model,
+ * The models are found, never listed: every tracked `*.tla` file must sit in `services/<service>/model/` (or a Rust
+ * service's `crates/<service>/model/`) beside an executable `check.sh`, or the plan fails naming it. A change is checked when it touches a service that has a model,
  * a file under `services/`, `packages/` or `crates/` that one of a model's COVERS files names (the OneHold model covers
  * svc-matching's book and the ledger recipes that build its fill and release keys), the workflow or this script. A checked change runs every model in the repo, not only the touched one.
  *
@@ -18,7 +18,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const SELF = ['.github/workflows/model-check.yml', 'tooling/ci/model-check.mjs'];
-const MODEL_FILE = /^(services\/[^/]+)\/model\/([^/]+)\.tla$/;
+const MODEL_FILE = /^((?:services|crates)\/[^/]+)\/model\/([^/]+)\.tla$/;
 const NAMED_PATH = /(?:services|packages|crates)\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)+/g;
 
 /** The repo's tracked files, relative to root. */
@@ -39,7 +39,7 @@ export function findModels(root, files = trackedFiles(root)) {
   for (const f of files.filter((p) => p.endsWith('.tla')).sort()) {
     const m = f.match(MODEL_FILE);
     if (!m) {
-      errors.push(`${f} is a model outside services/<service>/model/, so no run checks it`);
+      errors.push(`${f} is a model outside services/<service>/model/ or crates/<service>/model/, so no run checks it`);
       continue;
     }
     const dir = `${m[1]}/model`;

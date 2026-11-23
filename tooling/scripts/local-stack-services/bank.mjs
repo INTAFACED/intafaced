@@ -79,7 +79,7 @@ function originationFee() {
 }
 
 /**
- * The TEST partner card adapter's switches (CUSTODY-DELTA §4, `services/svc-bank/src/cards/partner-terms.ts`): the
+ * The TEST partner card adapter's switches (CUSTODY-DELTA §4, `crates/svc-bank/src/cards/terms.rs`): the
  * profile's TEST partner (holds the crypto; spends USDC, BTC and USD; liability, reserve and funder not known), or on a
  * restart `LOCAL_STACK_BANK_CARD_PARTNER`:
  *   · `wallet_pull`: the same partner, but the card pulls from the person's own wallet (J-bank-29 in its second mode);
@@ -258,6 +258,9 @@ function depositCustody(urlOf) {
 
 export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN, testChain }) => ({
   name: 'bank',
+  // The Rust binary (crates/svc-bank), built by the stack (ensureRustBinaries); it applies its own migrations
+  // (`svc-bank migrate`).
+  rust: true,
   env: () => ({
     ...c('svc-bank', PORTS.bank),
     DATABASE_URL: dbUrl('svc_bank', secrets),

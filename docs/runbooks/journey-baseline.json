@@ -3271,7 +3271,7 @@
       "file": "apps/customer/tests/real-app/J-home-ia-11.pw.mjs",
       "state": "regression",
       "money": false,
-      "issue": 6853,
+      "issue": 10520,
       "why": "BLOCKED compose_seed: the tester profile's seed service did not seed a fresh compose stack:"
     },
     {
