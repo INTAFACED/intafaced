@@ -228,20 +228,6 @@ async function stage(page, mode) {
     await page.getByRole('button', { name: text('en', 'cancel.access'), exact: true }).click();
   } else await page.getByRole('button', { name: text('en', mode === 'release' ? 'release.2' : 'archive'), exact: true }).click();
 }
-function expected(mode, input) {
-  if (mode === 'purchase') return { listingId, purchaseId: input.purchaseId };
-  if (mode === 'application') return { displayName: rawTitle, description: rawDescription };
-  if (mode === 'release') return { ref: listingId };
-  if (mode === 'archive' || mode === 'cancel') return { listingId };
-  return {
-    title: rawTitle,
-    description: rawDescription,
-    assetId: asset,
-    price: exactPrice,
-    periodSeconds: 3600,
-    ...(mode === 'listing' ? { offerType: 'subscription' } : {}),
-  };
-}
 
 const observations = [];
 test.beforeEach(async ({ page }, info) => {
@@ -300,7 +286,7 @@ test('preserved getItem-only fault keeps original bytes and refuses ordinary Buy
     Storage.prototype.getItem = window.__moreGetter;
   });
   await page.getByRole('button', { name: 'Retry recovery storage', exact: true }).click();
-  await expect(page.locator('.failure').filter({ hasText: originalId })).toBeVisible();
+  await expect(page.locator(':is(.failure, .lt-refusal)').filter({ hasText: originalId })).toBeVisible();
   await page.getByRole('button', { name: 'Check original outcome', exact: true }).click();
   await expect.poll(() => rawSaved(page)).toBeNull();
   await expect(buyButton(page)).toBeEnabled();

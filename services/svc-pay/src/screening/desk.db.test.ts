@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SESSION_SCOPES, type Principal } from '@intafaced/auth';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import { type Principal } from '@intafaced/auth';
+import { testPostgres } from '@intafaced/db/test-postgres';
 import type { Sql, TransactionSql } from 'postgres';
 import type { ActionApprovalConsumeInput } from '@intafaced/contracts';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
@@ -35,7 +35,7 @@ const migrations = readdirSync(drizzleDir)
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
   const envUrl = process.env.TEST_DATABASE_URL?.trim();
   if (envUrl) return { url: envUrl, stop: async () => undefined };
-  const container = await new PostgreSqlContainer('postgres:16-alpine')
+  const container = await testPostgres('postgres:16-alpine')
     .withDatabase('intafaced_screening_desk_test')
     .withUsername('intafaced')
     .withPassword('intafaced')
@@ -95,7 +95,7 @@ describe('screening desk (real Postgres)', () => {
     const g = guards();
     try {
       await g.beforeUserMoneyWithdrawal!({
-        tx: (over.tx ?? db.sql) as unknown as Sql,
+        tx: (over.tx ?? db.sql) as Sql,
         userId: over.userId ?? USER,
         assetId: 'USDT',
         amount: over.amount ?? 5n * 10n ** 18n,

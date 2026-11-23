@@ -79,7 +79,7 @@
 import type { Amount } from '@intafaced/ledger-client';
 import { formatAmount } from '@intafaced/ledger-client';
 import { PayError } from '../payment-service.js';
-import { dueOccurrence, lastOccurrenceBefore, occurrenceStart, type Cadence } from './schedule.js';
+import { lastOccurrenceBefore, occurrenceStart, type Cadence } from './schedule.js';
 import { MAX_FEE_BPS } from '../fee-bps-bound.js';
 
 /**

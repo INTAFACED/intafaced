@@ -101,6 +101,11 @@
       "value": "TEST:300",
       "note": "TEST lifetime of a contract ownership challenge. Blank in production refuses protocol.listing.challenge_ttl_unset."
     },
+    "PROTOCOL_BRIDGE_ATTESTER_URL": {
+      "service": "protocol",
+      "value": "http://127.0.0.1:14535/bridge-attestation",
+      "note": "LOCAL TEST ONLY, served only with LOCAL_STACK_PROTOCOL_BRIDGE=on: the TEST bridge attester local-test-chain.mjs serves, beside the TEST route table (PROTOCOL_BRIDGE_ROUTES=TEST), the TEST bridge token on both TEST chains (PROTOCOL_BRIDGE_TOKEN_ADDRESS) and their gates (PROTOCOL_BRIDGE_RPC_URLS). No provider is chosen in production: blank refuses bridge.provider_unset."
+    },
     "PROTOCOL_FEE_RELAY_URL": {
       "service": "protocol",
       "value": "http://127.0.0.1:14535/relay",

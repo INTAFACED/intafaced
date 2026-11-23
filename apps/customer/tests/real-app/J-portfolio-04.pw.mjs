@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
+import { HOUR, closedMinute, minuteStart, utcDay } from './clock.mjs';
 import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
 import { DEVICE_KEY, EDGE, ORIGIN, ROOT, api, bestPrices, fromUnits, fund, journeyState, toUnits } from './stack.mjs';
 import { confirm, deskPath, fundedTrader, held, reviewLimit, signIn } from './desk.mjs';
@@ -203,6 +204,7 @@ test(`${J} #4 chooses FIFO, LIFO, HIFO or average cost for the account or one co
 
 test(`${J} #5 picks the lot for one sale and sets a method for one day: that sale uses that lot, the other keeps its method`, async ({
   page,
+  stepPicture,
 }) => {
   const who = account();
   const buys = run.read().buys.map((b) => ({ cost: toUnits(b.cost), qty: toUnits(b.qty) }));
@@ -229,7 +231,7 @@ test(`${J} #5 picks the lot for one sale and sets a method for one day: that sal
 
   // A method for today (UTC), every coin: HIFO. The picked sale still uses its lot; the other sale follows the day.
   const choices = page.getByRole('region', { name: 'Your matching choices' });
-  const day = new Date().toISOString().slice(0, 10);
+  const day = utcDay(Date.now());
   await choices.getByLabel('Day (UTC)').fill(day);
   await choices.getByRole('combobox', { name: 'Method for that day' }).selectOption('HIFO');
   await choices.getByRole('button', { name: 'Save day method' }).click();
@@ -241,6 +243,8 @@ test(`${J} #5 picks the lot for one sale and sets a method for one day: that sal
   // The newest sale keeps its picked lot whatever the day's method: the older lot, unless HIFO's first sale drew on it.
   const left0 = hifoCost === share(buys[0].cost, buys[0].qty, take) ? { cost: buys[0].cost - hifoCost, qty: buys[0].qty - take } : buys[0];
   await expect(newest.locator('td').nth(2)).toHaveText(usd(share(left0.cost, left0.qty, take)));
+  // The step's picture: the picked lot and the day's method both on screen, before the choices are put back for the steps after.
+  await stepPicture();
 
   // Back to FIFO with no pick and no day method: both sales oldest first, as the standard method does.
   await choices.getByRole('list', { name: 'Saved day methods' }).getByRole('button', { name: 'Remove' }).click();
@@ -259,25 +263,13 @@ test(`${J} #5 picks the lot for one sale and sets a method for one day: that sal
 
 /** The close of the last one-minute candle that started at or before `t`, from the public candles of `symbol`. */
 async function closesAround(symbol, before, after) {
-  const res = await fetch(
-    `${EDGE}/api/v1/ohlcv/${encodeURIComponent(symbol)}?timeframe=1m&since=${Math.floor(before / 60_000) * 60_000 - 3_600_000}&limit=720`,
-    { headers: { origin: ORIGIN } },
-  );
+  const res = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent(symbol)}?timeframe=1m&since=${minuteStart(before) - HOUR}&limit=720`, {
+    headers: { origin: ORIGIN },
+  });
   expect(res.status).toBe(200);
   const candles = await res.json();
   const lastAt = (t) => candles.filter((c) => c[0] <= t).at(-1)?.[4];
   return [...new Set([lastAt(before), lastAt(after)].filter(Boolean))];
-}
-
-/**
- * Waits until the minute `t` falls in has ended and that minute's fills are in. An open candle's close moves with every
- * trade, so the screen's read of it and the hand count's read a moment later need not agree; once it has ended, both
- * read the same final close.
- */
-async function minuteEnded(page, t) {
-  const final = (Math.floor(t / 60_000) + 1) * 60_000 + 2_000;
-  const left = final - Date.now();
-  if (left > 0) await page.waitForTimeout(left);
 }
 
 /** The screen's dollar text for `qty` coins at each candle close: what the arrival is worth at that price. */
@@ -373,7 +365,7 @@ test(`${J} #3 reads a deposit: valued at the time it arrived, with the price sou
   const before = Date.now();
   expect(fund(who.email, 'BTC', '0.004').tx).toBeTruthy();
   const after = Date.now();
-  await minuteEnded(page, after);
+  await closedMinute(page, after);
   await signIn(page, who);
   const lots = await lotsPage(page);
   const row = lots.locator('tbody tr[data-source="deposit"]');
@@ -434,7 +426,7 @@ test(`${J} #3 reads a deposit: valued at the time it arrived, with the price sou
     expect(history.days.map((d) => d.amount)).toEqual([REWARD]);
     // The saving goes back whole; the interest stays with the person.
     await bank.mutate('earn.withdraw', { positionId });
-    await minuteEnded(page, paidBy);
+    await closedMinute(page, paidBy);
 
     // The reward's lot: its own row, sourced "Reward", the amount paid, valued at the ETH/USDT candle of when it arrived.
     const ethLots = await lotsPage(page, 'ETH');

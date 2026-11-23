@@ -1,0 +1,660 @@
+{
+  "nodes": [
+    {
+      "t": "object",
+      "shape": [
+        ["orderId", 1],
+        ["accountId", 2],
+        ["type", 3],
+        ["side", 4],
+        ["qty", 5],
+        ["price", 6],
+        ["stopPrice", 8],
+        ["stopPx", 10],
+        ["tif", 12],
+        ["ocoSiblingId", 13],
+        ["oco", 15],
+        ["takeProfit", 17],
+        ["stopLoss", 19],
+        ["stopLossLimit", 21],
+        ["expireAt", 23],
+        ["sessionId", 25],
+        ["reduceOnly", 27],
+        ["postOnly", 29],
+        ["iceberg", 31],
+        ["displayQty", 33],
+        ["trail", 34],
+        ["mark", 36],
+        ["strike", 38],
+        ["expiry", 40],
+        ["minQty", 43],
+        ["aon", 45],
+        ["peg", 47],
+        ["midpoint", 49],
+        ["relative", 51],
+        ["reference", 53],
+        ["offset", 55],
+        ["auction", 58],
+        ["benchmark", 60],
+        ["collar", 62],
+        ["min", 64],
+        ["max", 66],
+        ["minNotional", 68],
+        ["combo", 70],
+        ["legs", 72],
+        ["lifecycleProof", 86]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 128 }
+      ]
+    },
+    { "t": "enum", "values": ["market", "limit", "stop", "stop_limit"] },
+    { "t": "enum", "values": ["buy", "sell"] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "regex", "src": "/^\\d+(\\.\\d{1,18})?$/", "msg": "amounts are positive decimal strings with at most 18 decimal places" }
+      ]
+    },
+    { "t": "optional", "in": 7 },
+    { "t": "nullable", "in": 5 },
+    { "t": "optional", "in": 9 },
+    { "t": "nullable", "in": 5 },
+    { "t": "optional", "in": 11 },
+    { "t": "nullable", "in": 5 },
+    { "t": "enum", "values": ["GTC", "IOC", "FOK", "PO", "MOC", "GTD", "GTT"] },
+    { "t": "optional", "in": 14 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "optional", "in": 16 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 18 },
+    { "t": "nullable", "in": 5 },
+    { "t": "optional", "in": 20 },
+    { "t": "nullable", "in": 5 },
+    { "t": "optional", "in": 22 },
+    { "t": "nullable", "in": 5 },
+    { "t": "optional", "in": 24 },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "optional", "in": 26 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
+    { "t": "optional", "in": 28 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 30 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 32 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 5 },
+    { "t": "optional", "in": 35 },
+    { "t": "nullable", "in": 5 },
+    { "t": "optional", "in": 37 },
+    { "t": "nullable", "in": 5 },
+    { "t": "optional", "in": 39 },
+    { "t": "nullable", "in": 5 },
+    { "t": "optional", "in": 41 },
+    { "t": "nullable", "in": 42 },
+    { "t": "string" },
+    { "t": "optional", "in": 44 },
+    { "t": "nullable", "in": 5 },
+    { "t": "optional", "in": 46 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 48 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 50 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 52 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 54 },
+    { "t": "nullable", "in": 5 },
+    { "t": "optional", "in": 56 },
+    { "t": "nullable", "in": 57 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "regex", "src": "/^-?\\d+(\\.\\d{1,18})?$/", "msg": "offsets are signed decimal strings with at most 18 decimal places" }
+      ]
+    },
+    { "t": "optional", "in": 59 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 61 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 63 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 65 },
+    { "t": "nullable", "in": 5 },
+    { "t": "optional", "in": 67 },
+    { "t": "nullable", "in": 5 },
+    { "t": "optional", "in": 69 },
+    { "t": "nullable", "in": 5 },
+    { "t": "optional", "in": 71 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 73 },
+    { "t": "nullable", "in": 74 },
+    { "t": "array", "el": 75 },
+    {
+      "t": "object",
+      "shape": [
+        ["name", 76],
+        ["ratio", 79],
+        ["strike", 81],
+        ["expiry", 83]
+      ]
+    },
+    { "t": "optional", "in": 77 },
+    { "t": "nullable", "in": 78 },
+    { "t": "string" },
+    { "t": "optional", "in": 80 },
+    { "t": "nullable", "in": 57 },
+    { "t": "optional", "in": 82 },
+    { "t": "nullable", "in": 5 },
+    { "t": "optional", "in": 84 },
+    { "t": "nullable", "in": 85 },
+    { "t": "string" },
+    {
+      "t": "object",
+      "shape": [
+        ["action", 87],
+        ["decision", 88],
+        ["checkedAt", 89],
+        ["snapshotId", 90],
+        ["transitionId", 91],
+        ["evidenceRefs", 92],
+        ["snapshot", 94]
+      ],
+      "checks": [{ "k": "super", "id": "lifecycle_proof" }]
+    },
+    { "t": "enum", "values": ["PLACE", "PLACE_POST_ONLY", "AMEND"] },
+    { "t": "literal", "values": ["ELIGIBLE"] },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^trade\\.lifecycle\\.snapshot:[a-f0-9]{64}$/" }] },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "array", "el": 93 },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["marketId", 95],
+        ["ruleVersion", 95],
+        ["instrumentId", 95],
+        ["instrumentVersion", 95],
+        ["state", 96],
+        ["reasonCategory", 97],
+        ["reasonCode", 95],
+        ["effectiveAt", 98],
+        ["observedAt", 99],
+        ["lastGoodState", 100],
+        ["allowedActions", 101],
+        ["transitionId", 95],
+        ["evidenceRefs", 103]
+      ],
+      "checks": [{ "k": "super", "id": "snapshot_actions" }]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 200 },
+        { "k": "refine", "id": "spine_id", "msg": "identifier must be trimmed and contain no control characters" }
+      ]
+    },
+    {
+      "t": "enum",
+      "values": [
+        "DRAFT",
+        "REVIEW",
+        "APPROVED",
+        "PRELAUNCH",
+        "AUCTION",
+        "OPEN",
+        "POST_ONLY",
+        "LIMIT_ONLY",
+        "CANCEL_ONLY",
+        "REDUCE_ONLY",
+        "HALTED",
+        "EXPIRING",
+        "EXPIRED",
+        "SETTLING",
+        "SETTLED",
+        "DELISTING",
+        "REFUSED",
+        "ARCHIVED"
+      ]
+    },
+    {
+      "t": "enum",
+      "values": [
+        "NORMAL",
+        "REGULATORY",
+        "TECHNICAL",
+        "ORACLE_INDEX",
+        "CUSTODY_CHAIN",
+        "LIQUIDITY_DISORDERLY_MARKET",
+        "SECURITY",
+        "SETTLEMENT",
+        "OPERATOR",
+        "WIND_DOWN"
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    { "t": "nullable", "in": 96 },
+    { "t": "array", "el": 102, "checks": [{ "k": "max_length", "n": 9 }] },
+    { "t": "enum", "values": ["PLACE", "PLACE_POST_ONLY", "AMEND", "CANCEL", "REDUCE", "CLOSE", "TRIGGER", "QUOTE", "RFQ"] },
+    { "t": "array", "el": 95, "checks": [{ "k": "min_length", "n": 1 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["orderId", 105],
+        ["accountId", 106],
+        ["lifecycleProof", 86]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 128 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["expectedVersion", 108],
+        ["qty", 109],
+        ["price", 111],
+        ["stopPrice", 112],
+        ["tif", 113],
+        ["lifecycleProof", 86]
+      ],
+      "checks": [{ "k": "super", "id": "amend_changes_something" }]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": false }] },
+    { "t": "optional", "in": 110 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "regex", "src": "/^\\d+(\\.\\d{1,18})?$/", "msg": "amounts are positive decimal strings with at most 18 decimal places" }
+      ]
+    },
+    { "t": "optional", "in": 110 },
+    { "t": "optional", "in": 110 },
+    { "t": "optional", "in": 12 },
+    { "t": "object", "shape": [["mark", 110]] },
+    {
+      "t": "object",
+      "shape": [
+        ["accountId", 116],
+        ["sessionId", 117],
+        ["side", 120]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 128 }
+      ]
+    },
+    { "t": "optional", "in": 118 },
+    { "t": "nullable", "in": 119 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
+    { "t": "optional", "in": 121 },
+    { "t": "nullable", "in": 4 },
+    {
+      "t": "object",
+      "shape": [
+        ["setId", 123],
+        ["accountId", 124],
+        ["oneSided", 125],
+        ["bid", 127],
+        ["ask", 142],
+        ["lifecycleProof", 86],
+        ["mmp", 133],
+        ["mmpMaxQuote", 135],
+        ["mmpMaxPosition", 135],
+        ["mmpMaxLoss", 135],
+        ["mmpMaxDelta", 135],
+        ["mmpMaxVega", 135],
+        ["mmpVendor", 138],
+        ["sidecar", 140]
+      ]
+    },
+    { "t": "string" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 128 }
+      ]
+    },
+    { "t": "optional", "in": 126 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 128 },
+    { "t": "nullable", "in": 129 },
+    {
+      "t": "object",
+      "shape": [
+        ["orderId", 130],
+        ["type", 3],
+        ["qty", 110],
+        ["price", 131],
+        ["tif", 12],
+        ["mmp", 133],
+        ["mmpMaxQuote", 135],
+        ["mmpMaxPosition", 135],
+        ["mmpMaxLoss", 135],
+        ["mmpMaxDelta", 135],
+        ["mmpMaxVega", 135],
+        ["mmpVendor", 138],
+        ["sidecar", 140]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "optional", "in": 132 },
+    { "t": "nullable", "in": 110 },
+    { "t": "optional", "in": 134 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 136 },
+    { "t": "nullable", "in": 137 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "regex", "src": "/^(?:\\d+(?:\\.\\d{1,18})?)?$/", "msg": "MMP magnitudes are decimal strings or blank — never JSON numbers" }
+      ]
+    },
+    { "t": "optional", "in": 139 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 141 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 143 },
+    { "t": "nullable", "in": 129 },
+    {
+      "t": "object",
+      "shape": [
+        ["operatorId", 145],
+        ["confirmOperatorId", 146],
+        ["approvalId", 149],
+        ["operationId", 152]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 128 }
+      ]
+    },
+    { "t": "optional", "in": 147 },
+    { "t": "nullable", "in": 148 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
+    { "t": "optional", "in": 150 },
+    { "t": "nullable", "in": 151 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
+    { "t": "optional", "in": 153 },
+    { "t": "nullable", "in": 154 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
+    { "t": "object", "shape": [["sessionId", 156]] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 128 }
+      ]
+    },
+    { "t": "object", "shape": [["orders", 158]] },
+    { "t": "array", "el": 159, "checks": [{ "k": "max_length", "n": 10000 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["orderId", 160],
+        ["marketId", 161],
+        ["state", 162],
+        ["remaining", 110],
+        ["funded", 163],
+        ["detail", 164]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 128 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 128 }
+      ]
+    },
+    { "t": "enum", "values": ["pending", "open", "terminal"] },
+    { "t": "boolean" },
+    { "t": "optional", "in": 165 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 256 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["kind", 167],
+        ["legs", 170],
+        ["tick", 183],
+        ["lot", 186],
+        ["operatorId", 189],
+        ["confirmOperatorId", 190],
+        ["approvalId", 193],
+        ["operationId", 196]
+      ]
+    },
+    { "t": "optional", "in": 168 },
+    { "t": "nullable", "in": 169 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 32 }] },
+    { "t": "optional", "in": 171 },
+    { "t": "nullable", "in": 172 },
+    { "t": "array", "el": 173, "checks": [{ "k": "max_length", "n": 8 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["symbol", 174],
+        ["side", 177],
+        ["ratio", 180]
+      ]
+    },
+    { "t": "optional", "in": 175 },
+    { "t": "nullable", "in": 176 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
+    { "t": "optional", "in": 178 },
+    { "t": "nullable", "in": 179 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 8 }] },
+    { "t": "optional", "in": 181 },
+    { "t": "nullable", "in": 182 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 64 }] },
+    { "t": "optional", "in": 184 },
+    { "t": "nullable", "in": 185 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 64 }] },
+    { "t": "optional", "in": 187 },
+    { "t": "nullable", "in": 188 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 64 }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 128 }
+      ]
+    },
+    { "t": "optional", "in": 191 },
+    { "t": "nullable", "in": 192 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
+    { "t": "optional", "in": 194 },
+    { "t": "nullable", "in": 195 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
+    { "t": "optional", "in": 197 },
+    { "t": "nullable", "in": 198 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["orderId", 200],
+        ["accountId", 201],
+        ["side", 4],
+        ["qty", 110],
+        ["price", 202],
+        ["tif", 12],
+        ["anchorReference", 203],
+        ["clientOrderId", 205],
+        ["environment", 207],
+        ["sessionId", 209],
+        ["lifecycleProof", 86]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 128 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "regex", "src": "/^-?\\d+(\\.\\d{1,18})?$/", "msg": "offsets are signed decimal strings with at most 18 decimal places" }
+      ]
+    },
+    { "t": "optional", "in": 204 },
+    { "t": "nullable", "in": 110 },
+    { "t": "optional", "in": 206 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 128 }
+      ]
+    },
+    { "t": "optional", "in": 208 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 64 }] },
+    { "t": "optional", "in": 210 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["marketId", 212],
+        ["approvalId", 214],
+        ["operationId", 215],
+        ["idempotencyKey", 216]
+      ]
+    },
+    { "t": "optional", "in": 213 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
+    { "t": "string" },
+    {
+      "t": "object",
+      "shape": [
+        ["version", 218],
+        ["effectiveAt", 220],
+        ["sections", 222]
+      ]
+    },
+    { "t": "optional", "in": 219 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 200 }] },
+    { "t": "optional", "in": 221 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 64 }] },
+    { "t": "optional", "in": 223 },
+    { "t": "record", "key": 224, "value": 225 },
+    { "t": "string" },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 40000 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["version", 218],
+        ["effectiveAt", 220],
+        ["sections", 222],
+        ["approvalId", 227],
+        ["operationId", 228]
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] }
+  ],
+  "inputs": {
+    "submit": 0,
+    "closePosition": 104,
+    "amend": 107,
+    "mark": 114,
+    "massCancel": 115,
+    "massQuote": 122,
+    "venueKill": 144,
+    "sessionDead": 155,
+    "reconcile": 157,
+    "spreadList": 166,
+    "spreadOrder": 199,
+    "founder": 211,
+    "rulebookDraft": 217,
+    "rulebookPublish": 226,
+    "snapshot": 94
+  }
+}

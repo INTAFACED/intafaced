@@ -1,6 +1,18 @@
-import { P2P_DELIST_REASONS } from '@intafaced/contracts/p2p-delist';
-import { P2P_FIELD_KEY, P2P_RULE_CLASS } from '@intafaced/contracts/p2p-rule-class';
-import { z, type ZodType } from 'zod';
+import {
+  replyAccepted,
+  type ProcedureInput,
+  type ProcedureOutput,
+  type ProcedureRecord,
+  type TrpcTransport,
+} from '@intafaced/contracts/procedure';
+import {
+  deviceAuthorisationSchema,
+  errorEnvelopeSchema,
+  p2pLimitSchema,
+  resultEnvelopeSchema,
+  secondStepSchema,
+} from '@intafaced/contracts/wire-envelope';
+import type { z, ZodType } from 'zod';
 import { uiMessage, type UiMessage } from './ui-copy';
 
 export type RefusalReason =
@@ -27,57 +39,8 @@ export type ApiResult<T> =
       secondStep?: SecondStep;
     };
 
-/** A new-device sign-in waiting for approval (svc-identity I-signin-sessions-07, contracts `deviceAuthorisationOf`). */
-export const deviceAuthorisationSchema = z.object({
-  flowId: z.string().guid(),
-  secret: z.string().min(16).max(128),
-  expiresAt: z.string().datetime({ offset: true }),
-  mailed: z.boolean(),
-  /** Only when this sign-in's second step spent a recovery code: how many are left (I-signin-sessions-12). */
-  recoveryCodesLeft: z.number().int().min(0).optional(),
-});
 export type DeviceAuthorisation = z.infer<typeof deviceAuthorisationSchema>;
-
-/** The second steps a sign-in may answer with, and the passkey challenge when one does (contracts `secondStepOf`). */
-export const secondStepSchema = z.object({
-  totp: z.boolean(),
-  passkey: z
-    .object({
-      challenge: z.string().min(1),
-      timeout: z.number().optional(),
-      rpId: z.string().optional(),
-      allowCredentials: z
-        .array(z.object({ id: z.string().min(1), type: z.literal('public-key'), transports: z.array(z.string()).optional() }))
-        .min(1),
-      userVerification: z.enum(['required', 'preferred', 'discouraged']).optional(),
-    })
-    .nullable(),
-});
 export type SecondStep = z.infer<typeof secondStepSchema>;
-
-const limitDecimal = z.string().regex(/^(0|[1-9]\d*)(\.\d+)?$/);
-/** The figures behind a P2P take limit, as svc-p2p sends them (contracts `p2pLimitOf`). Anything malformed is dropped. */
-export const p2pLimitSchema = z.object({
-  until: z.string().datetime().nullable(),
-  cap: limitDecimal.optional(),
-  min: limitDecimal.optional(),
-  max: limitDecimal.optional(),
-  remaining: limitDecimal.optional(),
-  windowHours: limitDecimal.optional(),
-  available: limitDecimal.optional(),
-  shortBy: limitDecimal.optional(),
-  currency: z
-    .string()
-    .regex(/^[A-Z]{3}$/)
-    .optional(),
-  openTradeIds: z.array(z.string().guid()).max(50).optional(),
-  /** On `p2p.offer_has_open_trades`: how many orders on the ad are open. */
-  openTrades: limitDecimal.optional(),
-  reason: z.enum(P2P_DELIST_REASONS).optional(),
-  ruleClass: z.string().regex(P2P_RULE_CLASS).optional(),
-  /** The field a refused payment-method detail is about (`p2p.account_format_invalid`, field missing or invalid). */
-  field: z.string().regex(P2P_FIELD_KEY).optional(),
-});
 export type P2pLimit = z.infer<typeof p2pLimitSchema>;
 export type RequestOptions = {
   signal?: AbortSignal;
@@ -114,42 +77,6 @@ export function authoredRefusal(reason: RefusalReason, messageCopy: UiMessage, s
   return { ok: false, reason, message: uiMessage(messageCopy), messageCopy, ...(status === undefined ? {} : { status }) };
 }
 
-const errorEnvelope = z
-  .object({
-    error: z
-      .union([
-        z.string(),
-        z
-          .object({
-            message: z.string().optional(),
-            code: z.union([z.string(), z.number()]).optional(),
-            data: z
-              .object({
-                code: z.string().optional(),
-                intafacedCode: z.string().optional(),
-                requestId: z.string().optional(),
-                retryAfterSeconds: z.number().int().positive().optional(),
-                accountState: z.enum(['frozen', 'closed']).optional().catch(undefined),
-                p2pLimit: p2pLimitSchema.optional().catch(undefined),
-                deviceAuthorisation: deviceAuthorisationSchema.optional().catch(undefined),
-                secondStep: secondStepSchema.optional().catch(undefined),
-                cause: z.object({ code: z.string().optional() }).passthrough().optional(),
-              })
-              .passthrough()
-              .optional(),
-          })
-          .passthrough(),
-      ])
-      .optional(),
-    message: z.string().optional(),
-    code: z.string().optional(),
-    // The public market routes answer in the exchange error shape: `code` is a broad class such as "ExchangeError" and the
-    // specific reason, such as `trade.no_book`, sits beside it.
-    intafacedCode: z.string().optional(),
-    name: z.string().optional(),
-  })
-  .passthrough();
-
 /** Picks a bearer for one call by procedure name. Set by the feature that holds such tokens; none by default. */
 export type ScopedBearer = (module: string, procedure: string) => string | undefined;
 let scopedBearer: ScopedBearer | null = null;
@@ -163,8 +90,11 @@ export function createApiClient(
     token?: () => string | undefined;
     canWrite?: () => boolean;
     fetch?: typeof fetch;
-    /** `same-origin` unless a caller must send or receive the refresh cookie across origins (session restore). */
-    credentials?: 'same-origin' | 'include';
+    /**
+     * `same-origin` unless a caller must send or receive the refresh cookie across origins (session restore), or must
+     * send nothing that names the person (`omit`: the address tracker's public reads carry no cookie).
+     */
+    credentials?: 'same-origin' | 'include' | 'omit';
     /** Per-request timeout. Default 15 s; session refresh uses a shorter one (see session-restore.ts). */
     timeoutMs?: number;
     onUnauthorized?: (requestToken: string | undefined) => void;
@@ -240,7 +170,7 @@ export function createApiClient(
         );
       }
       if (!response.ok) {
-        const parsed = errorEnvelope.safeParse(body);
+        const parsed = errorEnvelopeSchema.safeParse(body);
         const data = parsed.success ? parsed.data : undefined;
         const error = typeof data?.error === 'object' ? data.error : undefined;
         const code =
@@ -289,7 +219,7 @@ export function createApiClient(
           ...(code === 'auth.mfa_required' && error?.data?.secondStep ? { secondStep: error.data.secondStep } : {}),
         };
       }
-      const envelope = z.object({ result: z.object({ data: z.unknown() }) }).safeParse(body);
+      const envelope = resultEnvelopeSchema.safeParse(body);
       if (!raw && !envelope.success)
         return authoredRefusal(
           method === 'GET' ? 'invalid_response' : 'uncertain',
@@ -304,7 +234,7 @@ export function createApiClient(
           response.status,
         );
       return { ok: true, data: data.data };
-    } catch (error) {
+    } catch {
       if (method === 'GET' && requestOptions.signal?.aborted) return authoredRefusal('aborted', { key: 'stopped' });
       return authoredRefusal(method === 'GET' ? 'unreachable' : 'uncertain', {
         key: method === 'GET' ? 'serviceUnreachable' : 'connectionUncertain',
@@ -319,6 +249,35 @@ export function createApiClient(
      * Async review checks use the same immediate guard as HTTP dispatch. */
     canWrite() {
       return options.canWrite?.() ?? true;
+    },
+    /**
+     * One call by its written record (`@intafaced/contracts/procedure`): the path, the input type and the reply parser all
+     * come from the record the service mounts, so this caller cannot drift from it.
+     */
+    call<R extends AppProcedure>(
+      record: R,
+      input: ProcedureInput<R>,
+      opts: RequestOptions & {
+        /** This caller's own check over the record's answer; an answer it refuses reads as an unverified one. */
+        accept?: (data: ProcedureOutput<R>) => boolean;
+      } = {},
+    ): Promise<ApiResult<ProcedureOutput<R>>> {
+      const { accept, ...rest } = opts;
+      const output = record.output as ZodType<ProcedureOutput<R>>;
+      // The record's own `accept` checks (every caller's), then this caller's: a reply either refuses reads as unverified.
+      const schema = output.refine((data) => replyAccepted(record, data) && (accept === undefined || accept(data)));
+      const base = `/api/${encodeURIComponent(record.module)}/trpc/${encodeURIComponent(record.path)}`;
+      if (record.kind === 'query')
+        return request(
+          `${base}${input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`}`,
+          'GET',
+          schema,
+          undefined,
+          false,
+          rest,
+        );
+      const bearer = rest.bearer ?? scopedBearer?.(record.module, record.path);
+      return request(base, 'POST', schema, input ?? {}, false, bearer === undefined ? rest : { ...rest, bearer });
     },
     query<T>(module: string, procedure: string, input: unknown, schema: ZodType<T>, opts: RequestOptions = {}) {
       const url = `/api/${encodeURIComponent(module)}/trpc/${encodeURIComponent(procedure)}${input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`}`;
@@ -360,6 +319,33 @@ export function createApiClient(
 }
 
 export type ApiClient = ReturnType<typeof createApiClient>;
+/** A record an app can call: a tRPC procedure the edge routes under a module. */
+export type AppProcedure = ProcedureRecord & TrpcTransport & { readonly module: string };
+/**
+ * `api.call`'s `accept` for a caller that reads the record's answer through its own, stricter schema (a field it shows
+ * must read as an amount, an id it keys on must not be blank): an answer the schema refuses reads as unverified.
+ */
+export const parsesAs =
+  (schema: ZodType) =>
+  (data: unknown): boolean =>
+    schema.safeParse(data).success;
+
+/**
+ * One call by its record, read through the caller's own stricter schema (a `.refine()`, or a schema built for this owner):
+ * an answer that schema refuses reads as unverified, and the caller gets what the schema parses, as when it called by name.
+ */
+export async function callAs<R extends AppProcedure, T>(
+  api: Pick<ApiClient, 'call'>,
+  record: R,
+  input: ProcedureInput<R>,
+  schema: ZodType<T>,
+  opts: RequestOptions = {},
+): Promise<ApiResult<T>> {
+  const result = await api.call(record, input, { ...opts, accept: parsesAs(schema) });
+  if (!result.ok) return result;
+  return { ok: true, data: schema.parse(result.data) };
+}
+
 export function unavailable<T = never>(message: string): ApiResult<T> {
   return { ok: false, reason: 'not_supported', message };
 }

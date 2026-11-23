@@ -9,22 +9,24 @@
  *
  * No kind carries money, an account or an identity copy; a decimal answer is a decimal string with no currency.
  */
-import type { Sql } from 'postgres';
+import { type Queryable, requireConnection } from '@intafaced/db';
+import type {
+  SupportCreateForm,
+  SupportField,
+  SupportFieldDefineInput,
+  SupportFieldKind,
+  SupportFieldValue,
+  SupportForm,
+  SupportFormDefineInput,
+  SupportRequestForms,
+  SupportTicketFieldValues,
+} from '@intafaced/contracts';
 import {
   SUPPORT_FIELD_KINDS,
   supportFieldDefinitionProblem,
   supportFormValuesProblem,
   supportFormValuesTrimmed,
-  type SupportCreateForm,
-  type SupportField,
-  type SupportFieldDefineInput,
-  type SupportFieldKind,
-  type SupportFieldValue,
-  type SupportForm,
-  type SupportFormDefineInput,
-  type SupportRequestForms,
-  type SupportTicketFieldValues,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/support-forms';
 
 export class RequestFormError extends Error {
   constructor(
@@ -300,15 +302,15 @@ const DEFINITIONS_LOCK = 'support.request_definitions';
 export class SqlFormsStore implements FormsStore {
   /** `locked`: this store runs inside `exclusive`'s transaction, which already holds the definitions lock. */
   constructor(
-    private readonly sql: Sql,
+    private readonly sql: Queryable,
     private readonly locked = false,
   ) {}
 
   exclusive<R>(work: (store: FormsStore) => Promise<R>): Promise<R> {
     if (this.locked) return work(this);
-    return this.sql.begin(async (tx) => {
+    return requireConnection(this.sql).begin(async (tx) => {
       await tx`SELECT pg_advisory_xact_lock(hashtext(${DEFINITIONS_LOCK}))`;
-      return work(new SqlFormsStore(tx as unknown as Sql, true));
+      return work(new SqlFormsStore(tx, true));
     }) as Promise<R>;
   }
 

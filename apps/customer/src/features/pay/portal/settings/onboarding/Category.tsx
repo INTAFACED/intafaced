@@ -1,14 +1,13 @@
 import { useState } from 'react';
-import { Button } from '@intafaced/ui';
 import { useResource, type Resource } from '../../../../../shared/resource';
 import type { ApiResult } from '../../../../../shared/api';
-import { PaySection } from '../../../components';
-import { Gate, SelectField } from '../../components';
 import type { PortalApi } from '../../api';
 import type { MemberRole } from '../../schemas';
 import { DateTime } from '../../ui/DateTime';
 import { categoryCopy } from './category-copy';
 import type { CategoryTerms, CategoryView } from './category-api';
+import { Gate, Section, SelectField } from '../../volt/parts';
+import { Button } from '@intafaced/ui/lit';
 
 export type ChooseCategory = (categoryKey: string, expectedTableVersion: number) => Promise<ApiResult<CategoryView>>;
 
@@ -43,16 +42,16 @@ export function BusinessCategoryView({
   // Kept here, outside the Gate, so the saved or refused line survives the reload that follows a choice.
   const [outcome, setOutcome] = useState<Outcome>(null);
   return (
-    <PaySection title={t('title')} description={t('body')}>
+    <Section title={t('title')} description={t('body')}>
       <Gate resource={resource} retry={reload} rows={2}>
         {(view) =>
           view.policy.categories.length === 0 ? (
-            <div className="stack" data-testid="category-no-rule">
+            <div data-testid="category-no-rule">
               <h4>{t('noRule')}</h4>
-              <p className="muted">{t('noRuleBody')}</p>
+              <p className="lt-hint">{t('noRuleBody')}</p>
             </div>
           ) : (
-            <div className="stack">
+            <div>
               {view.chosen ? (
                 <div data-testid="category-chosen">
                   <h4>{t('yours')}</h4>
@@ -60,22 +59,22 @@ export function BusinessCategoryView({
                     <strong>{view.chosen.category.label}</strong>
                   </p>
                   <CategoryFacts category={view.chosen.category} />
-                  <p className="muted pp-note">
+                  <p className="lt-hint">
                     {t('chosenOn')}: <DateTime value={view.chosen.chosenAt} />
                   </p>
                 </div>
               ) : (
-                <p className="pp-callout">{t('notChosen')}</p>
+                <p className="lt-hint">{t('notChosen')}</p>
               )}
               {view.locked ? (
-                <p className="muted">{t('locked')}</p>
+                <p className="lt-hint">{t('locked')}</p>
               ) : canChoose ? (
                 <ChooseForm view={view} choose={choose} reload={reload} onOutcome={setOutcome} />
               ) : (
-                <p className="muted">{t('ownerOnly')}</p>
+                <p className="lt-hint">{t('ownerOnly')}</p>
               )}
               <h4>{t('allCategories')}</h4>
-              <ul className="sa-list" aria-label={t('allCategories')}>
+              <ul aria-label={t('allCategories')}>
                 {view.policy.categories.map((category) => (
                   <li key={category.key} aria-label={category.label}>
                     <strong>{category.label}</strong>
@@ -89,15 +88,15 @@ export function BusinessCategoryView({
       </Gate>
       {outcome &&
         (outcome.ok ? (
-          <p className="pp-confirmed" role="status">
+          <p className="lt-hint" role="status">
             {outcome.text}
           </p>
         ) : (
-          <p className="pp-callout" role="alert">
+          <p className="lt-hint" role="alert">
             {outcome.text}
           </p>
         ))}
-    </PaySection>
+    </Section>
   );
 }
 
@@ -105,7 +104,7 @@ export function BusinessCategoryView({
 export function CategoryFacts({ category }: { category: CategoryTerms }) {
   const { t } = categoryCopy.useCopy();
   return (
-    <dl data-testid="pp-facts" className="pp-facts">
+    <dl data-testid="pp-facts" className="lt-kv">
       <div>
         <dt>{t('classLabel')}</dt>
         <dd>{t(`class_${category.class}`)}</dd>
@@ -174,15 +173,15 @@ function ChooseForm({
     }
   }
   return (
-    <div data-testid="form-stack" className="form-stack pp-form">
+    <div data-testid="form-stack">
       <SelectField
         label={t('chooseLabel')}
         value={key}
         onChange={setKey}
         options={[['', t('choosePlaceholder')] as const, ...view.policy.categories.map((c) => [c.key, c.label] as const)]}
       />
-      <div className="pp-actions">
-        <Button variant="primary" disabled={unchanged || busy} onClick={() => void save()}>
+      <div className="lt-actions">
+        <Button tone="primary" disabled={unchanged || busy} onClick={() => void save()}>
           {busy ? t('choosing') : t('choose')}
         </Button>
       </div>

@@ -1,24 +1,20 @@
 import type { Sql } from 'postgres';
-import { router } from '@intafaced/contracts';
+import { anyScopeProcedure, router } from '@intafaced/contracts/trpc';
 import {
-  paymentUnmaskedSchema,
-  paymentUnmaskInputSchema,
   paymentUnmaskReadPageSchema,
   paymentUnmaskReadsInputSchema,
   paymentViewCreateInputSchema,
-  paymentViewDeletedSchema,
-  paymentViewDeleteInputSchema,
-  paymentViewListSchema,
   paymentViewSchema,
   paymentViewUpdateInputSchema,
 } from '@intafaced/contracts/pay-payment-views';
-import { z } from 'zod';
 import { ownMerchantRead } from '../own-merchant-read.js';
-import { teamMemberWrite } from '../team-member-write.js';
+import { PAY_OR_ONBOARD, teamMemberCheck } from '../team-member-write.js';
 import { MerchantOpsError, wrapOps } from './errors.js';
-import { cursorInput, limitInput } from './pagination.js';
 import { PaymentPrivacy, PaymentViews } from './payment-views.js';
 import { resolveMerchantCaller } from './roles.js';
+import { PAY_PAYMENT_VIEWS_LIST, PAY_PAYMENT_VIEWS_DELETE, PAY_PAYMENT_UNMASK } from '@intafaced/contracts/pay-payment-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { payRefusal } from '../record-refusal.js';
 
 /**
  * `payment.views.*`, `payment.unmask` and `payment.unmaskReads` (M-adv-payments-core-01), spread into the `payment`
@@ -33,15 +29,17 @@ export function paymentPrivacyProcedures(sql: Sql | null, privacy: PaymentPrivac
   };
   const read = ownMerchantRead();
   // A view and an unmask belong to a person on a business: pay:write for the owner, pay:onboard for an active member.
-  const write = teamMemberWrite(() => need().sql);
+  const teamMember = teamMemberCheck(() => need().sql);
+  const write = anyScopeProcedure(PAY_OR_ONBOARD, { module: 'pay', check: teamMember });
   const callerOf = (ctx: { principal: { userId: string; kid?: string | undefined; mfa?: boolean; sub_account?: string | undefined } }) =>
     resolveMerchantCaller(need().sql, ctx.principal);
   return {
     views: router({
-      list: read
-        .input(z.object({ limit: limitInput, cursor: cursorInput }).strict())
-        .output(paymentViewListSchema)
-        .query(({ ctx, input }) => wrapOps(async () => need().views.list(await callerOf(ctx), input))),
+      list: mountRecord(
+        PAY_PAYMENT_VIEWS_LIST,
+        ({ ctx, input }) => wrapOps(async () => need().views.list(await callerOf(ctx), input)),
+        payRefusal,
+      ),
       create: write
         .input(paymentViewCreateInputSchema)
         .output(paymentViewSchema)
@@ -50,16 +48,17 @@ export function paymentPrivacyProcedures(sql: Sql | null, privacy: PaymentPrivac
         .input(paymentViewUpdateInputSchema)
         .output(paymentViewSchema)
         .mutation(({ ctx, input }) => wrapOps(async () => need().views.update(await callerOf(ctx), input))),
-      delete: write
-        .input(paymentViewDeleteInputSchema)
-        .output(paymentViewDeletedSchema)
-        .mutation(({ ctx, input }) => wrapOps(async () => need().views.remove(await callerOf(ctx), input))),
+      delete: mountRecord(
+        PAY_PAYMENT_VIEWS_DELETE,
+        ({ ctx, input }) => wrapOps(async () => need().views.remove(await callerOf(ctx), input)),
+        { refusalOf: payRefusal, checks: { teamMember } },
+      ),
     }),
     /** One clear payer detail, with a reason, written to the audit first. */
-    unmask: write
-      .input(paymentUnmaskInputSchema)
-      .output(paymentUnmaskedSchema)
-      .mutation(({ ctx, input }) => wrapOps(async () => need().privacy.unmask(await callerOf(ctx), input))),
+    unmask: mountRecord(PAY_PAYMENT_UNMASK, ({ ctx, input }) => wrapOps(async () => need().privacy.unmask(await callerOf(ctx), input)), {
+      refusalOf: payRefusal,
+      checks: { teamMember },
+    }),
     /** The audit of clear values shown: who, which payment, which field, why. Owner and admins. */
     unmaskReads: read
       .input(paymentUnmaskReadsInputSchema)

@@ -171,6 +171,18 @@ type BracketHost = {
   now: () => Date;
 };
 
+/** The service's own store and market reads the bracket code runs on; `sql`, `requireMarket` and `now` are private to it. */
+function hostOf(service: TradeService): BracketHost {
+  return {
+    sql: service['sql'],
+    placeOrder: (principal, input) => service.placeOrder(principal, input),
+    requireMarket: (input) => service['requireMarket'](input),
+    marketById: (id) => service.marketById(id),
+    cancelOrder: (principal, orderId) => service.cancelOrder(principal, orderId),
+    now: () => service['now'](),
+  };
+}
+
 /** What a sweep pass did. `unavailable` = an entry with fills whose stored grant was gone, so no exit was placed. */
 export interface BracketSweepResult {
   readonly examined: number;
@@ -266,7 +278,7 @@ const PLAIN_BODY_FIELDS = new Set([
   'close',
 ]);
 
-function firstExtra(rec: Readonly<Record<string, unknown>>, allowed: ReadonlySet<string>): string | null {
+function firstExtra(rec: object, allowed: ReadonlySet<string>): string | null {
   for (const [key, value] of Object.entries(rec)) {
     if (allowed.has(key)) continue;
     if (value === undefined || value === null || value === false) continue;
@@ -281,7 +293,7 @@ function firstExtra(rec: Readonly<Record<string, unknown>>, allowed: ReadonlySet
 
 export function deferredEntryField(input: PlaceOrderInput): string | null {
   if (input.type !== 'market' && input.type !== 'limit') return `type ${String(input.type)}`;
-  const own = firstExtra(input as unknown as Record<string, unknown>, PLAIN_ENTRY_FIELDS);
+  const own = firstExtra(input, PLAIN_ENTRY_FIELDS);
   if (own !== null) return own;
   const body = carriedPlacementBody(input);
   if (body === null) return null;
@@ -302,7 +314,7 @@ async function placeBracketExit(
   takeProfit: Amount,
   stopLoss: Amount | null,
 ): Promise<boolean> {
-  const host = service as unknown as BracketHost;
+  const host = hostOf(service);
   const done = await host.sql<Array<{ exit_order_id: string | null }>>`
     SELECT exit_order_id FROM trade.order_bracket_intent WHERE order_id = ${entryId}
   `;
@@ -393,7 +405,7 @@ async function settleIntent(
   row: IntentRow,
   mode: 'sweep' | 'fill',
 ): Promise<{ readonly placed: boolean; readonly cancelled: boolean; readonly unavailable: boolean }> {
-  const host = service as unknown as BracketHost;
+  const host = hostOf(service);
   const now = host.now();
   const grant = parseAlgoPlaceGrant(row.grant_claims);
   let principal: Principal | null = null;
@@ -440,7 +452,7 @@ async function settleIntent(
  *    covered by minting a principal from a user id.
  */
 async function sweepBracketExits(service: TradeService, graceMs: number, limit = 50): Promise<BracketSweepResult> {
-  const host = service as unknown as BracketHost;
+  const host = hostOf(service);
   let examined = 0;
   let placed = 0;
   let cancelledEntries = 0;
@@ -490,7 +502,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 async function placeExitsAfterFills(service: TradeService, orderIds: readonly string[]): Promise<void> {
   const ids = [...new Set(orderIds.filter((id) => UUID.test(id)))];
   if (ids.length === 0) return;
-  const host = service as unknown as BracketHost;
+  const host = hostOf(service);
   try {
     const rows = await host.sql<IntentRow[]>`
       SELECT i.order_id, i.user_id, o.market_id, o.status, i.take_profit::text, i.stop_loss::text, i.grant_claims, i.grant_expires_at
@@ -512,31 +524,25 @@ async function placeExitsAfterFills(service: TradeService, orderIds: readonly st
   }
 }
 
+/** What the bracket code adds to TradeService's prototype, next to the methods it wraps. */
+type BracketAdds = {
+  sweepBracketExits?: (graceMs: number, limit?: number) => Promise<BracketSweepResult>;
+  [FLAG]?: true;
+};
+
 export function installBracketPlace(ctor: typeof TradeService): void {
-  const proto = ctor.prototype as unknown as {
-    placeOrder: (principal: Principal, input: PlaceOrderInput) => Promise<{ id: string; status: string; rejectCode?: string }>;
-    [FLAG]?: true;
-  };
+  const proto: TradeService & BracketAdds = ctor.prototype;
   if (proto[FLAG]) return;
   proto[FLAG] = true;
 
-  (proto as unknown as { sweepBracketExits: (graceMs: number, limit?: number) => Promise<BracketSweepResult> }).sweepBracketExits =
-    function (this: TradeService, graceMs: number, limit?: number) {
-      return sweepBracketExits(this, graceMs, limit);
-    };
+  proto.sweepBracketExits = function (this: TradeService, graceMs: number, limit?: number) {
+    return sweepBracketExits(this, graceMs, limit);
+  };
 
   // A resting entry that a fill ends gets its exit at once, whichever path settled the fill: the taker's own request
   // (settleOutcome) or the matching event (settleFillEvent). The sweep stays the backstop.
-  const settling = proto as unknown as {
-    settleOutcome: (
-      market: unknown,
-      fills: readonly { makerOrderId: string; takerOrderId: string }[],
-      cancellations: unknown,
-    ) => Promise<void>;
-    settleFillEvent: (input: { makerOrderId: string; takerOrderId: string }) => Promise<void>;
-  };
-  const origSettleOutcome = settling.settleOutcome;
-  settling.settleOutcome = async function (this: TradeService, market, fills, cancellations) {
+  const origSettleOutcome = proto['settleOutcome'];
+  proto['settleOutcome'] = async function (this: TradeService, market, fills, cancellations) {
     await origSettleOutcome.call(this, market, fills, cancellations);
     if (fills.length > 0)
       await placeExitsAfterFills(
@@ -544,21 +550,18 @@ export function installBracketPlace(ctor: typeof TradeService): void {
         fills.flatMap((fill) => [fill.makerOrderId, fill.takerOrderId]),
       );
   };
-  const origSettleFillEvent = settling.settleFillEvent;
-  settling.settleFillEvent = async function (this: TradeService, input) {
+  const origSettleFillEvent = proto.settleFillEvent;
+  proto.settleFillEvent = async function (this: TradeService, input) {
     await origSettleFillEvent.call(this, input);
     await placeExitsAfterFills(this, [input.makerOrderId, input.takerOrderId]);
   };
 
   // A replacement is a new order under a new id: the intent stays with the cancelled entry and its exit would never
   // be placed. An entry whose exit is still to come is therefore cancelled and placed again, never replaced.
-  const changing = proto as unknown as {
-    replaceOrder: (principal: Principal, originalOrderId: string, input: PlaceOrderInput) => Promise<unknown>;
-  };
-  const origReplace = changing.replaceOrder;
-  changing.replaceOrder = async function (this: TradeService, principal: Principal, originalOrderId: string, input: PlaceOrderInput) {
+  const origReplace = proto.replaceOrder;
+  proto.replaceOrder = async function (this: TradeService, principal: Principal, originalOrderId: string, input: PlaceOrderInput) {
     if (UUID.test(originalOrderId)) {
-      const host = this as unknown as BracketHost;
+      const host = hostOf(this);
       const [pending] = await host.sql<Array<{ kind: string }>>`
         SELECT kind FROM trade.order_bracket_intent WHERE order_id = ${originalOrderId} AND user_id = ${principal.userId} AND exit_order_id IS NULL
       `;
@@ -618,7 +621,7 @@ export function installBracketPlace(ctor: typeof TradeService): void {
           'trade.order_type_unsupported',
         );
       }
-      if (!(principal.expiresAt instanceof Date) || principal.expiresAt.getTime() <= (this as unknown as BracketHost).now().getTime()) {
+      if (!(principal.expiresAt instanceof Date) || principal.expiresAt.getTime() <= hostOf(this).now().getTime()) {
         throw new TradeError(
           `a resting ${oto ? 'OTO' : 'bracket'} entry needs a credential with a known, future expiry to store a place grant`,
           'trade.order_type_unsupported',
@@ -634,7 +637,7 @@ export function installBracketPlace(ctor: typeof TradeService): void {
       throw new TradeError('an OTO close must be above its entry price', 'trade.invalid_price');
     }
 
-    const host = this as unknown as BracketHost;
+    const host = hostOf(this);
     const market = await host.requireMarket({ symbol: bound.symbol, marketId: bound.marketId });
     // The exit is placed later with no caller present: a price off the market's grid would be refused then, leaving the
     // bought base with no exit. It is refused now, before anything is held.

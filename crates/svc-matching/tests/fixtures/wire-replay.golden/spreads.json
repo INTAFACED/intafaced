@@ -1,0 +1,92 @@
+{
+  "blank GET /spreads valid anon": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"instruments\":[]}"
+  },
+  "blank GET /spreads valid svc-trade": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"instruments\":[]}"
+  },
+  "blank GET /spreads valid svc-execution": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"instruments\":[]}"
+  },
+  "blank GET /spreads valid svc-ledger": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"instruments\":[]}"
+  },
+  "blank GET /spreads valid svc-trade-unbound": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"instruments\":[]}"
+  },
+  "blank GET /spreads valid svc-trade-wrong-secret": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"instruments\":[]}"
+  },
+  "blank GET /spreads valid founder": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"instruments\":[]}"
+  },
+  "blank GET /spreads valid reader": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"instruments\":[]}"
+  },
+  "blank GET /spreads valid founder-wrong-secret": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"instruments\":[]}"
+  },
+  "set GET /spreads valid anon": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"instruments\":[]}"
+  },
+  "set GET /spreads valid svc-trade": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"instruments\":[]}"
+  },
+  "set GET /spreads valid svc-execution": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"instruments\":[]}"
+  },
+  "set GET /spreads valid svc-ledger": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"instruments\":[]}"
+  },
+  "set GET /spreads valid svc-trade-unbound": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"instruments\":[]}"
+  },
+  "set GET /spreads valid svc-trade-wrong-secret": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"instruments\":[]}"
+  },
+  "set GET /spreads valid founder": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"instruments\":[]}"
+  },
+  "set GET /spreads valid reader": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"instruments\":[]}"
+  },
+  "set GET /spreads valid founder-wrong-secret": {
+    "status": 200,
+    "type": "application/json; charset=utf-8",
+    "body": "{\"instruments\":[]}"
+  }
+}

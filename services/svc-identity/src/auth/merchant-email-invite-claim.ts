@@ -8,7 +8,8 @@
  * Sign-in does not wait on it. Confirmation may. A refusal or a timeout does
  * not fail the session.
  */
-import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 
 export interface MerchantEmailInviteClaim {
   readonly userId: string;

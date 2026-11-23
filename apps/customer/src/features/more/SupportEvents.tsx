@@ -1,51 +1,31 @@
 import { useId, useState } from 'react';
-import { z } from 'zod';
-import { useSession } from '../session/session';
+import { SUPPORT_EVENTS } from '@intafaced/contracts/support-customer-procedures';
+import type { SupportTicketEvent } from '@intafaced/contracts/support';
+import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
-import { Button, EmptyState, Failure, Loading } from '../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
 import { supportEventsCopy } from './support-events-copy';
-import './support-events.css';
+import { EmptyNote, FailureNote, Waiting } from './volt-parts';
 
-const statusSchema = z.enum(['open', 'pending', 'on_hold', 'resolved', 'closed']);
-// Local browser schema matches the mounted support.events output. No server
-// contract import, delivery state, or operator-only case-file read is needed.
-const eventSchema = z
-  .object({
-    id: z.string().guid(),
-    ticketId: z.string().guid(),
-    sequence: z.number().int().positive(),
-    kind: z.enum(['opened', 'assigned', 'status_changed', 'grounding_read', 'escalated', 'merged']),
-    actorId: z.string().guid(),
-    actorRole: z.enum(['user', 'operator']),
-    fromStatus: statusSchema.nullable(),
-    toStatus: statusSchema.nullable(),
-    note: z.string().max(500).nullable(),
-    occurredAt: z.string().datetime(),
-  })
-  .refine(
-    (event) =>
-      event.kind === 'status_changed'
-        ? event.fromStatus !== null && event.toStatus !== null && event.fromStatus !== event.toStatus
-        : event.fromStatus === null && event.toStatus === null,
-    { error: () => supportEventsCopy.t('invalidTransition') },
-  );
-export type SupportEvent = z.infer<typeof eventSchema>;
+export type SupportEvent = SupportTicketEvent;
 
-export function supportEventsSchema(ticketId: string, limit: number, ownerId: string) {
-  return z
-    .array(eventSchema)
-    .max(limit)
-    .refine(
-      (rows) => rows.every((row) => row.ticketId === ticketId && (row.actorRole !== 'user' || row.actorId === ownerId)),
-      supportEventsCopy.t('ownership'),
-    )
-    .refine(
-      (rows) =>
-        new Set(rows.map((row) => row.id)).size === rows.length &&
-        rows.every((row, index) => index === 0 || row.sequence > rows[index - 1]!.sequence),
-      supportEventsCopy.t('invalidOrder'),
+/**
+ * What this page believes of the history it is sent, over the record's reply: no more rows than asked for, each on this
+ * ticket and, when a customer acted, by its owner; each once, in rising order; and a status on a row only when it is a
+ * real status change. An answer that breaks any of these reads as unverified and nothing of it is shown.
+ */
+export const supportEventsAccepted =
+  (ticketId: string, limit: number, ownerId: string) =>
+  (rows: readonly SupportTicketEvent[]): boolean =>
+    rows.length <= limit &&
+    rows.every((row) => row.ticketId === ticketId && (row.actorRole !== 'user' || row.actorId === ownerId)) &&
+    new Set(rows.map((row) => row.id)).size === rows.length &&
+    rows.every((row, index) => index === 0 || row.sequence > rows[index - 1]!.sequence) &&
+    rows.every((row) =>
+      row.kind === 'status_changed'
+        ? row.fromStatus !== null && row.toStatus !== null && row.fromStatus !== row.toStatus
+        : row.fromStatus === null && row.toStatus === null,
     );
-}
 
 export function hasSupportEventGap(rows: SupportEvent[]) {
   return rows.some((row, index) => row.sequence !== (index === 0 ? 1 : rows[index - 1]!.sequence + 1));
@@ -61,52 +41,52 @@ export function SupportEvents({ ticketId, ticketUpdatedAt }: { ticketId: string;
   const [limit, setLimit] = useState(50);
   const { resource, reload } = useResource(async (signal) => {
     if (!userId) return { ok: false, reason: 'unauthorized', message: t('signIn') };
-    return api.query('support', 'events', { ticketId, limit }, supportEventsSchema(ticketId, limit, userId), { signal });
+    return api.call(SUPPORT_EVENTS, { ticketId, limit }, { signal, accept: supportEventsAccepted(ticketId, limit, userId) });
   }, `support-events:${userId}:${ticketId}:${ticketUpdatedAt}:${limit}`);
 
   return (
-    <section className="support-history" aria-labelledby={headingId} lang={languageFor('history')}>
-      <header className="support-history-heading">
+    <section className="lt-stack" aria-labelledby={headingId} lang={languageFor('history')}>
+      <header className="lt-toolbar">
         <h3 id={headingId}>
           <Copy k="history" />
         </h3>
-        <Button variant="secondary" onClick={reload} disabled={resource.status === 'loading'}>
+        <Button tone="secondary" onClick={reload} disabled={resource.status === 'loading'}>
           <Copy k="refresh" />
         </Button>
       </header>
-      <p className="support-history-description">
+      <p className="lt-hint">
         <Copy k="description" />
       </p>
       {resource.status === 'loading' ? (
-        <Loading label={t('loading')} />
+        <Waiting label={t('loading')} />
       ) : resource.status === 'failed' ? (
         <div lang="und">
-          <Failure result={resource.failure} retry={reload} />
+          <FailureNote result={resource.failure} retry={reload} />
         </div>
       ) : (
         <>
           {resource.data.length === 0 ? (
-            <EmptyState title={t('empty')}>
+            <EmptyNote title={t('empty')}>
               <Copy k="emptyDetail" />
-            </EmptyState>
+            </EmptyNote>
           ) : (
             <>
               {hasSupportEventGap(resource.data) && (
-                <p className="notice" role="status">
+                <p role="status">
                   <Copy k="gap" />
                 </p>
               )}
-              <ol className="support-event-list" aria-label={t('history')}>
+              <ol className="lt-stack" aria-label={t('history')}>
                 {resource.data.map((event) => (
-                  <li className="support-event" key={event.id}>
-                    <span className="support-event-sequence" aria-label={t('sequence')}>
+                  <li className="lt-toolbar" key={event.id}>
+                    <span className="lt-mono" aria-label={t('sequence')}>
                       {event.sequence}
                     </span>
-                    <div className="support-event-body">
+                    <div className="lt-stack">
                       <h4>
                         <Copy k={event.kind} />
                       </h4>
-                      <p className="support-event-meta">
+                      <p className="lt-hint">
                         <Copy k={event.actorRole === 'operator' ? 'operator' : event.actorId === userId ? 'you' : 'user'} />
                         {' · '}
                         <time dateTime={event.occurredAt} lang={requestedLocale}>
@@ -114,18 +94,18 @@ export function SupportEvents({ ticketId, ticketUpdatedAt }: { ticketId: string;
                         </time>
                       </p>
                       {event.kind === 'status_changed' && event.fromStatus && event.toStatus && (
-                        <p className="support-event-transition">{t('transition', { from: t(event.fromStatus), to: t(event.toStatus) })}</p>
+                        <p>{t('transition', { from: t(event.fromStatus), to: t(event.toStatus) })}</p>
                       )}
                       {event.note !== null && (
-                        <p className="support-event-note" lang="und">
+                        <p className="lt-pre-wrap" lang="und">
                           {event.note}
                         </p>
                       )}
-                      <details className="support-event-reference">
+                      <details>
                         <summary>
                           <Copy k="showReference" params={{ sequence: event.sequence }} />
                         </summary>
-                        <dl>
+                        <dl className="lt-kv">
                           <div>
                             <dt>
                               <Copy k="eventReference" />
@@ -152,7 +132,7 @@ export function SupportEvents({ ticketId, ticketUpdatedAt }: { ticketId: string;
               </ol>
             </>
           )}
-          <div className="support-history-coverage">
+          <div className="lt-stack">
             <p>
               <Copy k="returned" params={{ count: resource.data.length, limit }} />
             </p>
@@ -162,7 +142,7 @@ export function SupportEvents({ ticketId, ticketUpdatedAt }: { ticketId: string;
                   <p>
                     <Copy k="more" />
                   </p>
-                  <Button variant="secondary" onClick={() => setLimit(Math.min(500, limit + 50))}>
+                  <Button tone="secondary" onClick={() => setLimit(Math.min(500, limit + 50))}>
                     <Copy k="loadMore" params={{ limit: Math.min(500, limit + 50) }} />
                   </Button>
                 </>

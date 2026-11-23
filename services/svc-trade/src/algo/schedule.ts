@@ -1,5 +1,6 @@
 import type { Amount } from '@intafaced/ledger-client';
 import { TradeError } from '../spot/types.js';
+import { MAX_ALGO_SEED } from '@intafaced/contracts/trade-call-schemas';
 
 /**
  * TWAP slice plan — pure schedule math. No I/O, no fills, no prices.
@@ -16,9 +17,6 @@ export interface TwapSlicePlan {
   /** Portion of totalQty that could not form a lot-aligned slice. */
   readonly droppedQty: Amount;
 }
-
-/** Largest seed a schedule accepts: an unsigned 32-bit integer, the PRNG's whole state. */
-export const MAX_ALGO_SEED = 0xffff_ffff;
 
 export function planTwapSlices(input: {
   totalQty: Amount;
@@ -118,3 +116,4 @@ function mulberry32(seed: number): () => number {
     return (t ^ (t >>> 14)) >>> 0;
   };
 }
+export { MAX_ALGO_SEED };

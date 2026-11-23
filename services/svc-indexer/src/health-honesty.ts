@@ -11,7 +11,7 @@ import { clobHonesty, clobHonestySchema, type ClobHonesty } from './clob-honesty
  */
 export const INDEXER_CHAIN_UNPROBED = 'indexer.chain_unprobed' as const;
 
-export const indexerHealthHonestySchema = z.object({
+const indexerHealthHonestySchema = z.object({
   ok: z.literal(true),
   service: z.literal('svc-indexer'),
   ingestEnabled: z.boolean(),

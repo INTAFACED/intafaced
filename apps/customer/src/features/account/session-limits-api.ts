@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 // hand-declared-ok: sessionSettings and setIdleSignout are declared in svc-identity (auth/session-limits.ts), not in packages/contracts yet
-export const sessionSettings = z.object({
+const sessionSettings = z.object({
   owner: z.object({ idleSeconds: z.number().int().nullable(), maxDevices: z.number().int().nullable() }),
   own: z.object({ idleSeconds: z.number().int().nullable() }),
   range: z.object({ minSeconds: z.number().int(), maxSeconds: z.number().int() }),

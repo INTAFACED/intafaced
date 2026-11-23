@@ -119,7 +119,7 @@ function stubTrade(overrides: Partial<TradeService> = {}): TradeService {
       throw new Error('cancelAlgo not stubbed');
     },
     ...overrides,
-  } as unknown as TradeService;
+  } as TradeService;
 }
 
 async function mountTrpc(opts?: {

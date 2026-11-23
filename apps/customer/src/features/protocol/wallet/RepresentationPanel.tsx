@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Panel } from '../../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { Checkbox } from '@intafaced/ui/lit/templates';
+import { Panel } from '../volt/parts';
 import { usePreferences } from '../../../shared/preferences';
 import type { ProtocolApi, RepresentationStatus } from '../api';
-import { REGION_BLOCKED_CODE } from '../region';
+import { isRegionBlocked } from '../region';
 import { walletCopy } from './copy';
 import { useWallet } from './WalletProvider';
 
@@ -54,7 +56,7 @@ export function RepresentationPanel({
         return end({ kind: 'failed', message: signed.status === 'failed' ? signed.message : t('reprFailed') });
       const stored = await api.representationAccept({ address, version: status.version, signature: signed.signature });
       if (stored.ok) return end({ kind: 'accepted' });
-      if (stored.code === REGION_BLOCKED_CODE) return end({ kind: 'region' });
+      if (isRegionBlocked(stored.code)) return end({ kind: 'region' });
       if (stored.code === 'compliance.representation_version_stale') return end({ kind: 'failed', message: t('reprStale') });
       if (stored.code === 'compliance.representation_signature_not_owner') return end({ kind: 'failed', message: t('reprNotOwner') });
       end({ kind: 'failed', message: t('reprNotRecorded') });
@@ -66,14 +68,11 @@ export function RepresentationPanel({
   return (
     <Panel title={t('reprTitle')}>
       <div data-panel="representation" data-version={status.version}>
-        <p className="muted">{t('reprNote')}</p>
+        <p className="lt-hint">{t('reprNote')}</p>
         <blockquote data-representation-text>{status.text}</blockquote>
-        <p className="muted">{t('reprVersion', { version: status.version })}</p>
-        <label className="field field--inline">
-          <input type="checkbox" checked={agreed} onChange={(event) => setAgreed(event.target.checked)} />
-          <span>{t('reprAgree')}</span>
-        </label>
-        <Button disabled={!agreed || busy} onClick={() => void accept()}>
+        <p className="lt-hint">{t('reprVersion', { version: status.version })}</p>
+        <Checkbox label={t('reprAgree')} checked={agreed} onChange={(event) => setAgreed(event.target.checked)} />
+        <Button tone="primary" disabled={!agreed || busy} onClick={() => void accept()}>
           {t('reprAccept')}
         </Button>
       </div>

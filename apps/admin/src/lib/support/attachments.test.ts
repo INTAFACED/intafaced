@@ -14,9 +14,17 @@ import {
   attachmentGate,
   parseTypeList,
   readAttachmentSetRequest,
-  readAttachmentStatus,
+  piecesInOrder,
   type AttachmentLimits,
 } from './attachments';
+import { replyAccepted } from '@intafaced/contracts/procedure';
+import { SUPPORT_DESK_ATTACHMENT_STATUS } from '@intafaced/contracts/support-desk-settings-procedures';
+
+/** The status read as the desk reads it: the record's output and its reply checks, then the desk's own order. */
+function readAttachmentStatus(raw: unknown) {
+  const parsed = SUPPORT_DESK_ATTACHMENT_STATUS.output.safeParse(raw);
+  return parsed.success && replyAccepted(SUPPORT_DESK_ATTACHMENT_STATUS, parsed.data) && piecesInOrder(parsed.data) ? parsed.data : null;
+}
 
 const limits = (over: Partial<AttachmentLimits> = {}): AttachmentLimits => ({
   maxBytes: null,

@@ -55,6 +55,16 @@
       "service": "notify",
       "value": "99",
       "note": "Bell badge ceiling (J-home-ia-05)."
+    },
+    "NOTIFY_ALERT_WEBHOOK_PORTS": {
+      "service": "notify",
+      "value": "443,14590",
+      "note": "Ports an alert webhook may use: 443, and the port the J-charts-desk-10 journey's own TEST endpoint listens on."
+    },
+    "NOTIFY_ALERT_WEBHOOK_RETRY_SECONDS": {
+      "service": "notify",
+      "value": "5,5,5",
+      "note": "Alert webhook resends: three, 5 s apart (the reference schedule in C-alerts-scan-04)."
     }
   }
 }

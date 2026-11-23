@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Candle } from '../../data/types';
 import type { ChartInterval } from '../trade/chart/candles';
+import { isRecord } from '@intafaced/contracts/guards';
 
 /** The intervals the stream serves (services/svc-ws/src/mux/protocol.ts MUX_INTERVALS). Every other interval is polled. */
 export const STREAM_INTERVALS = ['1m', '5m', '15m', '1h', '4h', '1d'] as const;
@@ -28,7 +29,6 @@ export type Incoming =
   | { kind: 'unavailable' }
   | { kind: 'other' };
 
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const DECIMAL = /^-?\d+(\.\d+)?$/;
 const isDecimal = (value: unknown): value is string => typeof value === 'string' && DECIMAL.test(value);
 

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { mergeTokenWatchlists } from '@intafaced/contracts/protocol-watch-preferences';
-import { Button, Dialog } from '../../../shared/ui';
+import { Button } from '@intafaced/ui/lit';
+import { Dialog } from '../volt/parts';
 import { useAccountTokenWatchlist } from '../watch/account-lists';
 import type { TokensTranslate } from './copy';
 import { readWatchlist } from './storage';
@@ -43,7 +44,7 @@ export function ImportWatchlist({ t }: { t: TokensTranslate }) {
   return (
     <Dialog title={t('importTitle')} onClose={close}>
       <p>{t('importBody', { count: String(missing.length) })}</p>
-      <ul className="tokens-import">
+      <ul>
         {missing.map((entry) => (
           <li key={entry}>{entry}</li>
         ))}
@@ -51,8 +52,9 @@ export function ImportWatchlist({ t }: { t: TokensTranslate }) {
       {state === 'not-saved' && <p role="alert">{t('importFailed')}</p>}
       {state === 'full' && <p role="alert">{t('importFull')}</p>}
       {state === 'unknown' && <p role="alert">{t('importUnknown')}</p>}
-      <div className="actions">
+      <div className="lt-actions">
         <Button
+          tone="primary"
           disabled={state === 'saving'}
           onClick={async () => {
             setState('saving');
@@ -63,7 +65,7 @@ export function ImportWatchlist({ t }: { t: TokensTranslate }) {
         >
           {t('importConfirm')}
         </Button>
-        <Button variant="secondary" onClick={close}>
+        <Button tone="secondary" onClick={close}>
           {t('importLater')}
         </Button>
       </div>

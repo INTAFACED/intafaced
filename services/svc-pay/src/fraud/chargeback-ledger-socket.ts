@@ -25,8 +25,12 @@ export const CHARGEBACK_NOTHING_TO_REVERSE_CODE = 'pay.chargeback_nothing_to_rev
 /** Merchant pots are short and the insurance fund cannot cover the rest. */
 export const CHARGEBACK_SHORTFALL_UNFUNDED_CODE = 'pay.chargeback_shortfall_unfunded' as const;
 
+/** Paid to the business's own wallet or held by the partner: nothing of it is in our book. */
+const CHARGEBACK_NOT_IN_OUR_CUSTODY_CODE = 'pay.payment_not_in_our_custody' as const;
+
 export type ChargebackLedgerRefuseCode =
   | typeof CHARGEBACK_LEDGER_REFUSE_CODE
+  | typeof CHARGEBACK_NOT_IN_OUR_CUSTODY_CODE
   | typeof CHARGEBACK_LEDGER_UNCOVERED_CODE
   | typeof CHARGEBACK_LEDGER_PLAN_CONFLICT_CODE
   | typeof CHARGEBACK_NOTHING_TO_REVERSE_CODE
@@ -46,6 +50,22 @@ export function refuseChargebackLedgerPost(input: { readonly disputeId: string; 
     code: CHARGEBACK_LEDGER_REFUSE_CODE,
     socket: CHARGEBACK_LEDGER_SOCKET_ID,
     message: 'Chargeback ledger port absent ' + `(${CHARGEBACK_LEDGER_SOCKET_ID}). Dispute case recorded; no value moved.`,
+    disputeId: input.disputeId,
+    paymentId: input.paymentId,
+  };
+}
+
+/**
+ * The payment's money is in the business's own wallet or with the partner, never in our book. The dispute is recorded and
+ * nothing is debited: clearing is pooled per merchant, so a debit here would take other payments' money.
+ */
+export function refuseChargebackNotInOurCustody(input: { readonly disputeId: string; readonly paymentId: string }): ChargebackLedgerRefuse {
+  return {
+    code: CHARGEBACK_NOT_IN_OUR_CUSTODY_CODE,
+    socket: CHARGEBACK_LEDGER_SOCKET_ID,
+    message:
+      'This payment was paid to the business’s own wallet or the partner, so the chargeback is taken from there ' +
+      `(${CHARGEBACK_LEDGER_SOCKET_ID}). Dispute case recorded; no value moved.`,
     disputeId: input.disputeId,
     paymentId: input.paymentId,
   };

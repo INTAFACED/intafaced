@@ -1,14 +1,9 @@
-/**
- * Candles and markers turned into what the vendored Lightweight Charts draws.
- *
- * This is the one place in the desk where decimal strings become JS numbers, because a canvas needs coordinates:
- * `Number()` here is for drawing only (UI-SPEC principle 5). Text shown to the person (legend, prices) is still
- * produced from the decimal strings by `data/format.ts`, never from these numbers.
- */
+/** Candles and markers turned into what the vendored Lightweight Charts draws. */
 import { TIMEFRAME_MS } from '@intafaced/exchange-contract/schemas';
 import { dec, decOrNull, fractionDigits, ratio, sub } from '../../../data/decimal';
 import { fmtPct, fmtPrice } from '../../../data/format';
 import type { Candle, Decimal } from '../../../data/types';
+import { chartValue } from '../../../shared/chart-value';
 
 /** Seconds since the epoch: what the chart wants as `time`. */
 export const toSeconds = (ms: number): number => Math.floor(ms / 1000);
@@ -23,26 +18,23 @@ export interface Bar {
 
 export const toBar = (c: Candle): Bar => ({
   time: toSeconds(c.t),
-  open: Number(c.o),
-  high: Number(c.h),
-  low: Number(c.l),
-  close: Number(c.c),
+  open: chartValue(c.o),
+  high: chartValue(c.h),
+  low: chartValue(c.l),
+  close: chartValue(c.c),
 });
 
-/** A price as a chart coordinate (an order's price line). */
-export const priceCoordinate = (price: Decimal): number => Number(price);
-
-export const toLinePoint = (c: Candle): { time: number; value: number } => ({ time: toSeconds(c.t), value: Number(c.c) });
+export const toLinePoint = (c: Candle): { time: number; value: number } => ({ time: toSeconds(c.t), value: chartValue(c.c) });
 
 export function toVolumeBar(c: Candle, colors: { up: string; down: string }): { time: number; value: number; color: string } {
-  return { time: toSeconds(c.t), value: Number(c.v), color: Number(c.c) >= Number(c.o) ? colors.up : colors.down };
+  return { time: toSeconds(c.t), value: chartValue(c.v), color: chartValue(c.c) >= chartValue(c.o) ? colors.up : colors.down };
 }
 
 /** Simple moving average of the closes. The first `period - 1` candles have no value. */
 export function movingAverage(candles: readonly Candle[], period: number): Array<{ time: number; value: number }> {
   const out: Array<{ time: number; value: number }> = [];
   let sum = 0;
-  const closes = candles.map((c) => Number(c.c));
+  const closes = candles.map((c) => chartValue(c.c));
   for (let i = 0; i < closes.length; i += 1) {
     sum += closes[i]!;
     if (i >= period) sum -= closes[i - period]!;
@@ -57,7 +49,7 @@ export function movingAverage(candles: readonly Candle[], period: number): Array
  */
 export function priceFormat(tickSize: Decimal, locale = 'en'): { type: 'custom'; formatter: (price: number) => string; minMove: number } {
   const precision = fractionDigits(tickSize) ?? 2;
-  const move = Number(tickSize);
+  const move = chartValue(tickSize);
   const format = new Intl.NumberFormat(locale, { minimumFractionDigits: precision, maximumFractionDigits: precision });
   return {
     type: 'custom',

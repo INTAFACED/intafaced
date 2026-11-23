@@ -6,6 +6,7 @@ import {
   canonicalCompliance,
   complianceMap,
   compareAmounts,
+  corridorFor,
   destinationsFrom,
   hasLeft,
   lockDeadline,
@@ -28,6 +29,7 @@ const corridor: Corridor = {
   minAmount: '10',
   maxAmount: '1000.5',
   cutOffTime: '16:00',
+  swiftCharges: null,
   payoutMethods: ['bank'],
 };
 const draft: SendDraft = {
@@ -49,6 +51,15 @@ describe('destinations', () => {
     // Only the methods a payout partner covers are paid out; the rest are listed and say so.
     expect(destinationsFrom([corridor]).map((row) => row.paysOut)).toEqual([true, false]);
     expect(destinationsFrom([])).toEqual([]);
+  });
+});
+
+describe('a country typed by hand', () => {
+  it('is supported only when a published corridor goes there', () => {
+    expect(corridorFor([corridor], ' de ')).toEqual({ country: 'DE', state: 'supported' });
+    expect(corridorFor([corridor], 'jp')).toEqual({ country: 'JP', state: 'unsupported' });
+    expect(corridorFor([], 'DE')).toEqual({ country: 'DE', state: 'unsupported' });
+    expect(corridorFor([corridor], 'Germany')).toMatchObject({ state: 'bad' });
   });
 });
 
@@ -223,12 +234,8 @@ describe('the api', () => {
   it('calls the bank module’s global procedures and nothing else', async () => {
     const calls: string[] = [];
     const fake = {
-      query: async (module: string, procedure: string) => (
-        calls.push(`${module}.${procedure}`),
-        { ok: false as const, reason: 'error' as const, message: 'x' }
-      ),
-      mutate: async (module: string, procedure: string) => (
-        calls.push(`${module}.${procedure}`),
+      call: async (record: { module: string; path: string }) => (
+        calls.push(`${record.module}.${record.path}`),
         { ok: false as const, reason: 'error' as const, message: 'x' }
       ),
     };

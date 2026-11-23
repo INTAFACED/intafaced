@@ -1,19 +1,23 @@
 import type { Sql } from 'postgres';
+import type {
+  PayCustodyDepositReason,
+  PayCustodyDepositStatus,
+  PayCustodyOpenItem,
+  PayCustodyOpenItemsInput,
+  PayCustodyOpenItemsReply,
+} from '@intafaced/contracts';
 import {
-  router,
-  TRPCError,
   PAY_CUSTODY_DEPOSIT_HELD_STATUSES,
   payCustodyOpenItemsInputSchema,
   payCustodyOpenItemsReplySchema,
-  type PayCustodyDepositReason,
-  type PayCustodyDepositStatus,
-  type PayCustodyOpenItem,
-  type PayCustodyOpenItemsInput,
-  type PayCustodyOpenItemsReply,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/pay-custody-deposit';
+import { router, TRPCError } from '@intafaced/contracts/trpc';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { founderProcedure } from '../../namespaces/founder-procedure.js';
 import type { FounderAuthority } from '../../founder-authority.js';
+import { PAY_FOUNDER_ADMIN_DEPOSIT_OPEN_ITEMS_LIST } from '@intafaced/contracts/pay-founder-admin-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { payRefusal } from '../../record-refusal.js';
 
 /**
  * Open custody items across every customer (OPS-reconciliation-02, J-ops-console-27 #8): the deposits custody received but the
@@ -133,16 +137,17 @@ export function createDepositOpenItemsRouter(deps: DepositOpenItemsMountDeps & {
   const founder = founderProcedure(deps.founderAuthority);
   const items = new CustodyOpenItems(deps);
   return router({
-    list: founder
-      .input(payCustodyOpenItemsInputSchema)
-      .output(payCustodyOpenItemsReplySchema)
-      .query(async ({ input }) => {
+    list: mountRecord(
+      PAY_FOUNDER_ADMIN_DEPOSIT_OPEN_ITEMS_LIST,
+      async ({ input }) => {
         try {
           return await items.list(input);
         } catch (error) {
           if (error instanceof TRPCError) throw error;
           throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: 'pay.custody_open_items_unavailable', cause: error });
         }
-      }),
+      },
+      { refusalOf: payRefusal, founder },
+    ),
   });
 }

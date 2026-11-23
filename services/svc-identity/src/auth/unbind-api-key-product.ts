@@ -2,11 +2,11 @@
  * Unbind one product from an API key list. Module name after trim/lowercase.
  * The rest of the list stays. Empty after unbind stays unset (no default product).
  */
-import type { Sql } from 'postgres';
+import type { Queryable } from '@intafaced/db';
 import { ApiKeyProductError, normalizeProduct } from './api-key-product.js';
 
 export async function unbindApiKeyProductScope(
-  sql: Sql,
+  sql: Queryable,
   userId: string,
   keyId: string,
   rawProduct: string,

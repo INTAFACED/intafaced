@@ -3,11 +3,12 @@
 // hashes match what the services compute. Run: node tooling/scripts/local-test-gates.test.mjs
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { createDecipheriv } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createDecipheriv, randomBytes } from 'node:crypto';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { register } from 'tsx/esm/api';
 import {
   GuardError,
   MARKERS,
@@ -26,6 +27,8 @@ import {
   SET_FRAUD_LISTING_ACTION,
   TEST_FRAUD_LIST,
   founderSignIns,
+  founderSession,
+  tradeAudit,
   termsProposal,
   TEST_TRANSFER_TERMS,
   TEST_ASSET_ROWS,
@@ -55,7 +58,6 @@ import {
   operatorLogin,
   stepAfterRefusal,
   founderStepRefused,
-  signInOnceMore,
   TOTP_SKEW_STEPS,
   EDGE_AUTHORITY_CACHE_MAX_MS,
   POSTING_FREEZE_REASON,
@@ -67,14 +69,62 @@ import {
   stackFounderScopes,
   isCancelOf,
   TRADE_CANCELS,
+  gatesUsage,
 } from './local-test-gates.mjs';
-import { draftFounderVault } from './local-test-founders.mjs';
-import { TEST_SPOT_LISTINGS, UNQUOTED_TEST_SPOT, localTestDatabaseUrl } from './seed-spot-test-listing.mjs';
+import { FOUNDER_STEPS_NAME, FOUNDER_VAULT_NAME, draftFounderVault } from './local-test-founders.mjs';
+import { TEST_SPOT_LISTINGS, UNQUOTED_TEST_SPOT, UNTRADED_TEST_SPOT, localTestDatabaseUrl } from './seed-spot-test-listing.mjs';
 import { TEST_KYB_ENTITY_TYPES, TEST_KYB_UPLOAD_RULES } from './seed-pay-kyb-test-requirements.mjs';
+import { DEFAULT_SYMBOLS, TEST_PRICES } from './local-test-market.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const script = resolve(here, 'local-test-gates.mjs');
 const run = (home, args) => spawnSync(process.execPath, [script, ...args], { env: { ...process.env, HOME: home }, encoding: 'utf8' });
+
+// The services' own code, run from its TypeScript source, so each agreement below is checked by calling the code that
+// decides it on the same input. Every @intafaced package resolves to the src/ file its package.json maps to dist/, so
+// nothing needs a build (the Doctrine gates job runs this file unbuilt), and `server-only` resolves as Next's server
+// build resolves it.
+const root = resolve(here, '..', '..');
+const sourcePaths = {
+  '@/*': [join(root, 'apps', 'admin', 'src', '*')],
+  'server-only': [join(root, 'apps', 'admin', 'node_modules', 'server-only', 'empty.js')],
+};
+for (const dir of readdirSync(join(root, 'packages'))) {
+  const manifest = join(root, 'packages', dir, 'package.json');
+  if (!existsSync(manifest)) continue;
+  const { name, exports = {} } = JSON.parse(readFileSync(manifest, 'utf8'));
+  for (const [key, to] of Object.entries(exports)) {
+    const target = typeof to === 'string' ? to : to?.default;
+    if (!target) continue;
+    sourcePaths[name + key.slice(1)] = [join(root, 'packages', dir, target.replace(/^\.\/dist\//, 'src/').replace(/\.js$/, '.ts'))];
+  }
+}
+const sourceDir = mkdtempSync(join(tmpdir(), 'local-test-gates-source-'));
+writeFileSync(join(sourceDir, 'tsconfig.json'), JSON.stringify({ compilerOptions: { paths: sourcePaths } }));
+const source = register({ namespace: 'local-test-gates', tsconfig: join(sourceDir, 'tsconfig.json') });
+const load = (rel) => source.import(pathToFileURL(join(root, rel)).href, import.meta.url);
+const boundTo = (p) => ({
+  payloadHash: p.payloadHash,
+  targetService: p.targetService,
+  targetId: p.targetId,
+  expectedVersion: p.expectedVersion,
+});
+const askedOf = (request) => ({
+  payloadHash: request?.payloadHash,
+  targetService: request?.targetService,
+  targetId: request?.targetId,
+  expectedVersion: request?.expectedVersion,
+});
+const tokenConfig = {
+  secret: 'local-test-gates-token-secret-long-enough',
+  issuer: 'intafaced',
+  audience: 'intafaced.api',
+  accessTtlSeconds: 900,
+};
+const { issueAccessToken, verifyAccessToken } = await load('packages/auth/src/index.ts');
+const operatorToken = async (userId, scopes) =>
+  (await issueAccessToken({ userId, sessionId: '44444444-4444-4444-8444-444444444444', scopes, tier: 'none', mfa: true }, tokenConfig))
+    .token;
 
 const home = mkdtempSync(join(tmpdir(), 'local-test-gates-test-'));
 const state = join(home, '.intafaced', 'local-test-stack');
@@ -185,21 +235,34 @@ assert.equal(lifecycleIsFresh(pub, new Date('2026-11-10T10:00:00.000Z')), false,
 assert.equal(lifecycleIsFresh({ ...pub, authoritySubject: 'someone-else' }, now), false, 'never adopts a publication that is not ours');
 assert.equal(lifecycleIsFresh(null, now), false);
 
-// Hashes equal what the services compute (see services/svc-matching/src/action-approval-consume.ts and
-// services/svc-identity/src/auth/privileged-dual-control.ts).
+// Hashes equal what the services compute: each service's own hash function, on the same input.
 const { createHash } = await import('node:crypto');
 const sha = (o) => `sha256:${createHash('sha256').update(JSON.stringify(o)).digest('hex')}`;
 assert.equal(matchingPayloadHash('matching.open', { marketId: 'm-1' }), sha({ actionType: 'matching.open', marketId: 'm-1' }));
 assert.equal(identityPayloadHash('kyc.approve', { recordId: 'r-1' }), sha({ targetId: 'kyc.approve', recordId: 'r-1' }));
-const matchingSrc = readFileSync(resolve(here, '..', '..', 'services', 'svc-matching', 'src', 'action-approval-consume.ts'), 'utf8');
-assert.ok(matchingSrc.includes('JSON.stringify({ actionType, ...fields })'), 'matching hash recipe changed; update matchingPayloadHash');
-const identitySrc = readFileSync(
-  resolve(here, '..', '..', 'services', 'svc-identity', 'src', 'auth', 'privileged-dual-control.ts'),
-  'utf8',
-);
-assert.ok(identitySrc.includes('JSON.stringify({ targetId, ...fields })'), 'identity hash recipe changed; update identityPayloadHash');
+const { identityActionPayloadHash } = await load('services/svc-identity/src/auth/privileged-dual-control.ts');
+// svc-matching is Rust: its hash recipe is pinned here and in crates/svc-matching/tests/venue_doors.rs
+// (approval_the_book_doors_ask_for_exactly_the_local_stacks_book_proposal), on the same vectors.
+for (const [action, fields, hash] of [
+  ['matching.open', { marketId: 'm-1' }, 'sha256:d1b8734fa80d08dc49bab77a4e6cbd60aa49dcda1ead127042023eafdbcf214d'],
+  ['matching.halt', { marketId: 'BTC-USDT' }, 'sha256:bc67143d044abfa4bd00f20d3a104b688fd1997b078b8ec48f092da08e88328d'],
+  ['matching.resume_all', {}, 'sha256:c39d8a688d3a5879de3a9aee8fd0de2bc9c4f373979fb32b36bae01493314b77'],
+]) {
+  assert.equal(matchingPayloadHash(action, fields), hash, `${action}: matching's hash recipe changed; update matchingPayloadHash`);
+}
+for (const [target, fields] of [
+  ['kyc.approve', { recordId: 'r-1' }],
+  ['kyc.reject', { recordId: 'r-2', reasonCode: 'document_unreadable' }],
+  ['identity.freeze', {}],
+]) {
+  assert.equal(
+    identityPayloadHash(target, fields),
+    identityActionPayloadHash(target, fields),
+    `${target}: identity's hash recipe changed; update identityPayloadHash`,
+  );
+}
 
-// Proposals target exactly what the services consume.
+// Proposals target exactly what the services consume: each door is called and must ask to consume this tool's proposal.
 const open = openProposal('m-1');
 assert.deepEqual(
   [open.actionType, open.targetService, open.targetId, open.expectedVersion, open.policyVersion],
@@ -210,49 +273,107 @@ assert.deepEqual(
   [kyc.actionType, kyc.targetService, kyc.targetId, kyc.expectedVersion],
   ['kyc.approve', 'svc-identity', 'kyc.approve', '1'],
 );
-const routerSrc = readFileSync(resolve(here, '..', '..', 'services', 'svc-matching', 'src', 'router.ts'), 'utf8');
-assert.ok(routerSrc.includes("'matching.open', { marketId }, `open:${marketId}`"), 'matching open recipe changed; update openProposal');
 // Halt and resume use the same recipe as open, one action word apart.
 for (const action of ['halt', 'resume']) {
   const p = bookProposal(action, 'm-1');
   assert.deepEqual([p.actionType, p.targetId], [`matching.${action}`, `${action}:m-1`]);
   assert.equal(p.payloadHash, matchingPayloadHash(`matching.${action}`, { marketId: 'm-1' }));
-  assert.ok(
-    routerSrc.includes(`'matching.${action}', { marketId }, \`${action}:\${marketId}\``),
+}
+assert.throws(() => bookProposal('delete', 'm-1'));
+// svc-matching's book doors (POST /markets/:id/open|halt|resume, as svc-trade calls them) ask for exactly the proposal:
+// pinned here, and crates/svc-matching/tests/venue_doors.rs drives the Rust doors and requires these same fields.
+for (const [action, hash] of [
+  ['open', 'sha256:d1b8734fa80d08dc49bab77a4e6cbd60aa49dcda1ead127042023eafdbcf214d'],
+  ['halt', 'sha256:dacc3af5283c2cd7b6113459bb586e4d97f1a5af58473beda1ca8b0c65225110'],
+  ['resume', 'sha256:645fb6b2f169c96df7475dc651500fc7d36597a58acd4b9dcceb2004d723ec57'],
+]) {
+  const p = bookProposal(action, 'm-1');
+  assert.deepEqual(
+    [p.targetService, p.targetId, p.expectedVersion, p.payloadHash],
+    ['svc-matching', `${action}:m-1`, '1', hash],
     `matching ${action} recipe changed; update bookProposal`,
   );
 }
-assert.throws(() => bookProposal('delete', 'm-1'));
-const identityRouter = readFileSync(resolve(here, '..', '..', 'services', 'svc-identity', 'src', 'router.ts'), 'utf8');
-assert.ok(identityRouter.includes("'kyc.approve', { recordId: input.recordId }"), 'kyc.approve recipe changed; update kycApproveProposal');
+// svc-identity's kyc.approve asks for exactly kycApproveProposal for that record.
+{
+  const { createIdentityRouter } = await load('services/svc-identity/src/router.ts');
+  const record = '33333333-3333-4333-8333-333333333333';
+  const operator = '22222222-2222-4222-8222-222222222222';
+  const subject = '11111111-1111-4111-8111-111111111111';
+  const asked = [];
+  const actionApprovals = {
+    consume: async (_service, request) => {
+      asked.push(request);
+      throw new Error('LOCAL TEST: recorded, not consumed');
+    },
+  };
+  const auth = new Proxy({}, { get: (_, key) => (key === 'getKycRecord' ? async () => ({ id: record, userId: subject }) : undefined) });
+  const principal = await verifyAccessToken(await operatorToken(operator, ['admin:compliance']), tokenConfig);
+  const api = createIdentityRouter(auth, {}, { actionApprovals }).createCaller({
+    principal,
+    service: null,
+    region: 'DE',
+    requestId: 'req-1',
+  });
+  await assert.rejects(api.kyc.approve({ recordId: record, approvalId: 'appr-1', operationId: 'op-1' }));
+  assert.equal(asked.length, 1, 'kyc.approve never asked to consume an approval');
+  assert.deepEqual(askedOf(asked[0]), boundTo(kycApproveProposal(record)), 'kyc.approve recipe changed; update kycApproveProposal');
+}
 
-// Bank ops: fields sorted by key, the same recipe as services/svc-bank/src/action-approval-consume.ts.
+// Bank ops: fields sorted by key, the hash svc-bank's own bankActionPayloadHash computes.
 assert.equal(
   bankPayloadHash('bank.ops.publishTransferTerms', { fee: '0', assetId: 'USDT' }),
   sha({ actionType: 'bank.ops.publishTransferTerms', fields: { assetId: 'USDT', fee: '0' } }),
 );
-const bankSrc = readFileSync(resolve(here, '..', '..', 'services', 'svc-bank', 'src', 'action-approval-consume.ts'), 'utf8');
-assert.ok(bankSrc.includes('JSON.stringify({ actionType, fields: sortedCopy })'), 'bank hash recipe changed; update bankPayloadHash');
+// What svc-bank (crates/svc-bank) binds an ops approval to, as its own test writes and holds it
+// (crates/svc-bank/tests/ops_approval_golden.rs).
+const bankBinds = JSON.parse(readFileSync(join(root, 'crates/svc-bank/tests/fixtures/ops-approval.golden.json'), 'utf8'));
+for (const v of bankBinds.hashes) {
+  assert.equal(bankPayloadHash(v.actionType, v.fields), v.payloadHash, 'bank hash recipe changed; update bankPayloadHash');
+}
+const bankBound = (actionType, payloadHash) => ({
+  payloadHash,
+  targetService: bankBinds.consume.targetService,
+  targetId: actionType,
+  expectedVersion: bankBinds.consume.expectedVersion,
+});
 const terms = termsProposal(TEST_TRANSFER_TERMS[0]);
 assert.deepEqual(
   [terms.actionType, terms.targetService, terms.targetId, terms.expectedVersion, terms.policyVersion],
   ['bank.ops.publishTransferTerms', 'svc-bank', 'bank.ops.publishTransferTerms', '1', 'local-test:v1'],
 );
-const termsSrc = readFileSync(resolve(here, '..', '..', 'services', 'svc-bank', 'src', 'transfers', 'transfer-terms.ts'), 'utf8');
-assert.ok(
-  termsSrc.includes("PUBLISH_TRANSFER_TERMS_ACTION = 'bank.ops.publishTransferTerms'"),
-  'terms action renamed; update termsProposal',
+// svc-bank's publish door binds its action and the fields it normalises from the figures; each TEST row's proposal is
+// exactly what it asks to consume.
+assert.deepEqual(
+  bankBinds.transferTerms.map((t) => t.input),
+  TEST_TRANSFER_TERMS.map((t) => ({ assetId: t.assetId, perTransferLimit: t.perTransferLimit, dailyLimit: t.dailyLimit, fee: t.fee })),
+  'the TEST transfer terms changed; update crates/svc-bank/tests/ops_approval_golden.rs and rewrite its golden',
 );
+for (const [i, t] of TEST_TRANSFER_TERMS.entries()) {
+  const bound = bankBinds.transferTerms[i];
+  assert.equal(terms.actionType, bound.actionType, 'terms action renamed; update termsProposal');
+  assert.deepEqual(
+    bankBound(bound.actionType, bound.payloadHash),
+    boundTo(termsProposal(t)),
+    `${t.assetId}: the terms proposal is not what svc-bank consumes`,
+  );
+}
 // The TEST figures are canonical decimals, so the hash the stack signs is the one svc-bank recomputes.
 for (const t of TEST_TRANSFER_TERMS)
   for (const v of [t.perTransferLimit, t.dailyLimit, t.fee]) assert.match(v, /^(0|[1-9]\d*)(\.\d*[1-9])?$/, `${t.assetId} ${v}`);
 
 // The TEST fraud list (W-withdraw-03): the approval is bound to the fields svc-bank normalises (lower-case EVM address, `*` or a
 // lower-case network, the next revision, the reason), so the hash the stack signs is the one svc-bank recomputes.
-const fraudSrc = readFileSync(resolve(here, '..', '..', 'services', 'svc-bank', 'src', 'ramps', 'fraud-list.ts'), 'utf8');
-assert.ok(fraudSrc.includes(`SET_FRAUD_LISTING_ACTION = '${SET_FRAUD_LISTING_ACTION}'`), 'fraud listing action renamed; update the stack');
-for (const field of ['revision: String(input.expectedRevision + 1)', 'reason: input.reason.trim()'])
-  assert.ok(fraudSrc.includes(field), 'fraud listing approval fields changed; update fraudListingFields');
+assert.deepEqual(
+  bankBinds.fraudList.slice(2).map((f) => f.input),
+  TEST_FRAUD_LIST.map((listed) => ({ ...listed, listed: true, expectedRevision: 0 })),
+  'the TEST fraud list changed; update crates/svc-bank/tests/ops_approval_golden.rs and rewrite its golden',
+);
+for (const bound of bankBinds.fraudList) {
+  assert.equal(SET_FRAUD_LISTING_ACTION, bound.actionType, 'fraud listing action renamed; update the stack');
+  assert.deepEqual(fraudListingFields(bound.input), bound.fields, 'fraud listing approval fields changed; update fraudListingFields');
+  assert.equal(bankPayloadHash(SET_FRAUD_LISTING_ACTION, fraudListingFields(bound.input)), bound.payloadHash);
+}
 assert.deepEqual(
   fraudListingFields({
     network: '*',
@@ -278,9 +399,13 @@ for (const listed of TEST_FRAUD_LIST) {
 
 // Asset registry: the proposal names the row's revision and the action svc-ledger consumes; every TEST row is a valid
 // edit body (unique EVM networks, the default among them) and is matched again once published, so a rerun is a no-op.
-const regSrc = readFileSync(resolve(here, '..', '..', 'packages', 'contracts', 'src', 'asset-registry.ts'), 'utf8');
-assert.ok(regSrc.includes("ASSET_EDIT_ACTION_TYPE = 'ledger.asset_edit'"), 'asset edit action renamed; update assetEditProposal');
+const assetRegistry = await load('packages/contracts/src/asset-registry.ts');
 const assetProposal = assetEditProposal({ id: 'USDT' }, 3, 'sha256:x');
+assert.deepEqual(
+  [assetProposal.actionType, assetProposal.targetService],
+  [assetRegistry.ASSET_EDIT_ACTION_TYPE, assetRegistry.ASSET_EDIT_TARGET_SERVICE],
+  'asset edit action renamed; update assetEditProposal',
+);
 assert.deepEqual(
   [
     assetProposal.actionType,
@@ -306,7 +431,15 @@ for (const row of TEST_ASSET_ROWS) {
   assert.ok(!assetRowMatches({ ...published, networks: [] }, row), `${row.id} blank row taken as published`);
   assert.ok(!assetRowMatches({ ...published, precision: null }, row));
   assert.ok(!assetRowMatches(null, row));
+  // A network whose contract or links changed is published again.
+  const bare = { ...published, networks: published.networks.map((n) => ({ networkId: n.networkId, label: n.label })) };
+  const known = row.networks.some((n) => n.contract || n.links?.length);
+  assert.equal(assetRowMatches(bare, row), !known, `${row.id} a row without its contract or links taken as published`);
 }
+// USDC on TEST Ethereum is the one network with a contract and a link; both are TEST and the link is on a reserved domain.
+const usdcEthereum = TEST_ASSET_ROWS.find((row) => row.id === 'USDC').networks.find((n) => n.networkId === 'ethereum');
+assert.match(usdcEthereum.contract, /^0x7e57[0-9a-f]{36}$/);
+assert.deepEqual(usdcEthereum.links, [{ label: 'TEST explorer', url: 'https://example.com/test-explorer/usdc' }]);
 
 // The retired TEST row: named TEST, allows nothing, lists a TEST network, and is not one of the active rows deposits use.
 assert.ok(TEST_RETIRED_ASSET_ROW.id.startsWith('TEST'));
@@ -388,14 +521,14 @@ assert.deepEqual([...TEST_WITHDRAWAL_LIMITS.tiers], ['basic', 'full', 'instituti
   assert.equal(payEnv.PAY_TEST_CHAIN_SEND_DELAY_MS, '6000');
   assert.equal(payEnv.PAY_TEST_CHAIN_REFUSE_AMOUNT, '13');
 }
-// The TEST custody policy allows only wallet transfers on the crypto-native rail, labelled TEST, with no approval group, and
+// The TEST custody policy allows only wallet transfers on the TEST withdrawal networks (chain networks, not the rail id), labelled TEST, with no approval group, and
 // asks one approval of the second founder for its own config task.
 assert.equal(TEST_CUSTODY_POLICY_RULES.length, 1);
 assert.match(TEST_CUSTODY_POLICY_RULES[0].id, /^TEST-/);
 assert.deepEqual(JSON.parse(JSON.stringify(TEST_CUSTODY_POLICY_RULES[0])), {
   id: 'TEST-allow-wallet-sends',
   action: 'allow',
-  match: { networks: ['crypto-native'], destinationKinds: ['crypto'], txTypes: ['transfer'] },
+  match: { networks: ['ethereum', 'base'], destinationKinds: ['crypto'], txTypes: ['transfer'] },
 });
 assert.deepEqual({ ...TEST_CUSTODY_CONFIG_QUORUM }, { kind: 'config', requiredApprovals: 1, expirySeconds: 3600 });
 assert.deepEqual(payProposal('pay.registry_change', 'sha256:abc'), {
@@ -425,16 +558,18 @@ const picked = openableMarkets([
   { ...base, symbol: 'EUR/USD', orderable: false, schedule: 'fx-global' },
   { ...base, symbol: 'PAPER/X', paper: true },
   { ...base, symbol: 'OFF/USDT', active: false },
+  // The TEST session schedule is opened only on a TEST listing.
+  { ...base, symbol: 'TSES/USD', schedule: 'test-sunday-minute', test: true },
+  { ...base, symbol: 'REAL/USD', schedule: 'test-sunday-minute' },
 ]);
 assert.deepEqual(
   picked.map((m) => m.symbol),
-  ['BTC/USDT'],
+  ['BTC/USDT', 'TSES/USD'],
 );
 
 // TEST spot listings: labelled TEST, no dollar side needed, quoted by the market maker unless named unquoted, and opened
 // like any spot book.
 {
-  const marketSrc = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'local-test-market.mjs'), 'utf8');
   assert.ok(TEST_SPOT_LISTINGS.some((l) => l.symbol === 'ETH/BTC'));
   for (const symbol of UNQUOTED_TEST_SPOT)
     assert.ok(
@@ -446,17 +581,30 @@ assert.deepEqual(
     assert.equal(l.symbol, `${l.baseAsset}/${l.quoteAsset}`);
     if (UNQUOTED_TEST_SPOT.includes(l.symbol)) {
       // Unquoted on purpose: no TEST price and not in the market maker's defaults.
-      assert.ok(!marketSrc.includes(`'${l.symbol}': { start:`), `${l.symbol} must stay unquoted`);
-      assert.doesNotMatch(marketSrc, new RegExp(`const DEFAULT_SYMBOLS = \\[[^\\]]*'${l.symbol}'`));
+      assert.equal(Object.hasOwn(TEST_PRICES, l.symbol), false, `${l.symbol} must stay unquoted`);
+      assert.equal(DEFAULT_SYMBOLS.includes(l.symbol), false, `${l.symbol} is not in the market maker's defaults`);
     } else {
-      assert.ok(marketSrc.includes(`'${l.symbol}': { start:`), `${l.symbol} has a TEST price`);
-      assert.match(marketSrc, new RegExp(`const DEFAULT_SYMBOLS = \\[[^\\]]*'${l.symbol}'`));
+      assert.ok(TEST_PRICES[l.symbol]?.start, `${l.symbol} has a TEST price`);
+      assert.ok(DEFAULT_SYMBOLS.includes(l.symbol), `${l.symbol} is in the market maker's defaults`);
     }
     assert.deepEqual(
-      openableMarkets([{ ...base, symbol: l.symbol, test: true }]).map((m) => m.symbol),
+      openableMarkets([{ ...base, symbol: l.symbol, test: true, schedule: l.schedule ?? 'crypto-24x7' }]).map((m) => m.symbol),
       [l.symbol],
     );
   }
+  // The charts' market with no trades stays untraded: unquoted, open, and named by no journey but the charts' helper
+  // (J-charts-desk-04 #4 found every market traded once another journey traded IFC/USDC, #8509 run 43731598319).
+  assert.ok(UNQUOTED_TEST_SPOT.includes(UNTRADED_TEST_SPOT), `${UNTRADED_TEST_SPOT} stays unquoted`);
+  assert.equal(TEST_SPOT_LISTINGS.find((l) => l.symbol === UNTRADED_TEST_SPOT)?.status ?? 'active', 'active');
+  const realApp = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'apps', 'customer', 'tests', 'real-app');
+  const naming = readdirSync(realApp).filter(
+    (f) => f.endsWith('.mjs') && readFileSync(join(realApp, f), 'utf8').includes(`'${UNTRADED_TEST_SPOT}'`),
+  );
+  assert.deepEqual(
+    naming,
+    ['charts-desk-studies.mjs'],
+    `only the charts' helper names ${UNTRADED_TEST_SPOT}: a journey that trades it gives the charts' empty market a tape`,
+  );
   // The spot seed refuses production and any database that does not look local or test.
   const local = 'postgres://u:p@127.0.0.1:15460/intafaced_local_test';
   assert.equal(localTestDatabaseUrl(local, {}), local);
@@ -489,8 +637,6 @@ assert.deepEqual(
   const docs = (name) => TEST_KYB_ENTITY_TYPES.find((t) => t.entityType === name).documentKeys;
   assert.notDeepEqual(docs('private_company'), docs('sole_proprietorship'));
   assert.ok(TEST_KYB_UPLOAD_RULES.maxBytes >= 1 && TEST_KYB_UPLOAD_RULES.contentTypes.length >= 1);
-  const gatesSrc = readFileSync(script, 'utf8');
-  assert.match(gatesSrc, /await seedSpotTestListings\(ctx\);\n\s*await seedPayKybRequirements\(ctx\);/);
 }
 
 // Tier planning: nobody with an approved full or institutional record is touched.
@@ -527,23 +673,98 @@ assert.equal(refusalText({ json: null, text: 'plain' }), 'plain');
   vault.founders[1].totpConfirmed = false;
   assert.deepEqual(founderSignIns(vault), [], 'a founder without a confirmed second factor cannot sign in');
 }
-// verify submits founders' requests; populate (which approves only its friend) does not.
+// trade-audit reads as founder a alone: one login, one TOTP step, and founder b's step untouched, so a journey that has
+// founder b in the console (J-cex-spot-18 #5) never waits on the 30 s TOTP clock for b because of an audit read.
 {
-  const src = readFileSync(script, 'utf8');
-  assert.match(src, /submitOwnedAccounts\(ctx, before, \{ founders: true \}\)/);
-  const world = readFileSync(resolve(here, 'local-test-world.mjs'), 'utf8');
-  assert.match(world, /gates\.submitOwnedAccounts\(gctx, before\);/);
+  const stateDir = mkdtempSync(join(tmpdir(), 'gates-audit-'));
+  const vault = draftFounderVault();
+  vault.founders.forEach((f, i) => Object.assign(f, { userId: `user-${i}`, totpSecret: `SECRET${i}`, totpConfirmed: true }));
+  writeFileSync(join(stateDir, FOUNDER_VAULT_NAME), JSON.stringify(vault));
+  writeFileSync(join(stateDir, FOUNDER_STEPS_NAME), JSON.stringify({ a: 10, b: 20 }));
+  const logins = [];
+  const queries = [];
+  const ctx = {
+    paths: { stateDir },
+    sessionCache: {},
+    clock: () => 20 * 30_000,
+    sleep: async () => assert.fail('a fresh step was free: nothing waits on the clock'),
+    log: () => {},
+    totp: { totp: (secret, { at }) => `${secret}@${at.getTime() / 30_000}` },
+    secrets: { jwt: 'jwt' },
+    tokens: { issueAccessToken: async (claims) => ({ token: `minted:${claims.userId}:${claims.scopes.join(',')}` }) },
+    edge: {
+      mutate: async (_svc, proc, input) => {
+        logins.push([proc, input.identifier, input.totpCode]);
+        const sid = Buffer.from(JSON.stringify({ sid: 'sess-a' })).toString('base64url');
+        return { status: 200, json: { result: { data: { userId: 'user-0', accessToken: `h.${sid}.s` } } } };
+      },
+      query: async (svc, proc, input, token) => {
+        queries.push([svc, proc, input.cursor, token]);
+        const page = input.cursor ? { rows: [{ id: 'r2' }], nextCursor: null } : { rows: [{ id: 'r1' }], nextCursor: 'c1' };
+        return { status: 200, json: { result: { data: page } } };
+      },
+    },
+  };
+  const rows = await tradeAudit(ctx, { kind: 'venue_orders.get', account: 'cust-1' });
+  assert.deepEqual(
+    rows.map((r) => r.id),
+    ['r1', 'r2'],
+    'every page, oldest first',
+  );
+  assert.deepEqual(logins, [['auth.login', vault.founders[0].email, 'SECRET0@20']], 'founder a alone signs in, once');
+  assert.ok(
+    queries.every(
+      ([svc, proc, , token]) => svc === 'trade' && proc === 'admin.audit.feed' && token === 'minted:user-0:admin:read,admin:write',
+    ),
+  );
+  assert.deepEqual(JSON.parse(readFileSync(join(stateDir, FOUNDER_STEPS_NAME), 'utf8')), { a: 20, b: 20 }, "founder b's step is untouched");
+  await tradeAudit(ctx, { kind: 'venue_orders.get', account: 'cust-1' });
+  assert.equal(logins.length, 1, 'within one command the sign-in is kept');
+  assert.equal(await founderSession(ctx, 'a'), await founderSession(ctx, 'a'));
+  rmSync(stateDir, { recursive: true, force: true });
+}
+// populate (which approves only its friend) does not submit the founders' requests. That verify does is held by every
+// journeys shard: its `apply` publishes the P2P methods as the founders, which svc-p2p refuses without their verified tier.
+{
+  const { verifyFriend } = await import('./local-test-world.mjs');
+  const friend = { userId: 'friend-1' };
+  const before = { users: [], approved: new Map(), pending: [{ userId: 'friend-1', tier: 'full' }] };
+  const calls = [];
+  const gates = {
+    makeContext: async () => 'gctx',
+    listAccountsAndTiers: () => before,
+    submitOwnedAccounts: async (...args) => (calls.push(['submit', ...args]), []),
+    approvePending: async (...args) => (calls.push(['approve', ...args]), [{ ok: true }]),
+  };
+  const v = await verifyFriend({ log: () => {}, secrets: {} }, friend, gates);
+  assert.deepEqual(v, { ok: true, why: '1 approved' });
+  assert.deepEqual(
+    calls,
+    [
+      ['submit', 'gctx', before],
+      ['approve', 'gctx', null, { userIds: ['friend-1'] }],
+    ],
+    "populate submits only the owned accounts (no { founders: true }) and approves only the friend's request",
+  );
+  // Another pending request stops it before anything is approved.
+  calls.length = 0;
+  before.pending.push({ userId: 'someone-else', tier: 'full' });
+  assert.equal((await verifyFriend({ log: () => {}, secrets: {} }, friend, gates)).ok, false);
+  assert.deepEqual(
+    calls.map((c) => c[0]),
+    ['submit'],
+    'nothing approved when someone else is pending',
+  );
 }
 
 // The CLI help names every command.
-const src = readFileSync(script, 'utf8');
-for (const cmd of ['apply', 'operators', 'lifecycle', 'open', 'verify', 'status']) assert.ok(src.includes(`'${cmd}'`), cmd);
-// Nothing in the gates module writes a table directly.
-assert.equal(
-  /\b(INSERT INTO|UPDATE \w+ SET|DELETE FROM)\b/i.test(src.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '')),
-  false,
-  'gates must not write database rows',
-);
+{
+  const named = gatesUsage()
+    .replace(/^usage: local-test-gates\.mjs /, '')
+    .split(' | ')
+    .map((c) => c.split(' ')[0]);
+  for (const cmd of ['apply', 'operators', 'lifecycle', 'open', 'verify', 'status']) assert.ok(named.includes(cmd), cmd);
+}
 
 // Charts owner values (C-ops-04): the LOCAL TEST values are the documented ones, IFC/USDT is never given one, and the
 // data class approval hashes exactly as svc-trade recomputes it (the same golden vector as its router test).
@@ -553,6 +774,7 @@ assert.deepEqual(TEST_CHART_COUNTS, {
   drawingCap: 50,
   brushPointCap: 2000,
   delayedBoundarySeconds: 30,
+  staleAgeSeconds: 35,
   renderBudgetMs: 500,
   orderProtectionBps: 500,
   queueFillWindowSeconds: 300,
@@ -660,38 +882,32 @@ for (let last = 95; last <= 102; last += 1) {
   const step = nextTotpStep(last, 100);
   if (step !== null) assert.ok(step > last && step >= 100 && step <= 100 + TOTP_SKEW_STEPS, `last ${last} gave ${step}`);
 }
-const identityTotp = readFileSync(resolve(here, '../../services/svc-identity/src/auth/totp.ts'), 'utf8');
-assert.match(identityTotp, /const window = options\.window \?\? (\d+);/, 'identity still names its default skew window');
-assert.equal(
-  Number(/const window = options\.window \?\? (\d+);/.exec(identityTotp)[1]) >= TOTP_SKEW_STEPS,
-  true,
-  "the gates look ahead no further than identity's skew window",
-);
+// Identity, with its default skew window, takes a code TOTP_SKEW_STEPS steps ahead of its clock and none further: the
+// gates look ahead no further than identity accepts, and founderStepRefused counts no step past that as held.
+{
+  const identityTotp = await load('services/svc-identity/src/auth/totp.ts');
+  const secret = identityTotp.generateSecret();
+  const current = 59_000_000;
+  const at = (step) => new Date(step * 30_000);
+  const ahead = identityTotp.totp(secret, { at: at(current + TOTP_SKEW_STEPS) });
+  assert.equal(
+    identityTotp.matchTotpStep(secret, ahead, { at: at(current) }),
+    BigInt(current + TOTP_SKEW_STEPS),
+    "the gates look ahead no further than identity's skew window",
+  );
+  const beyond = identityTotp.totp(secret, { at: at(current + TOTP_SKEW_STEPS + 1) });
+  if (beyond !== ahead)
+    assert.equal(identityTotp.matchTotpStep(secret, beyond, { at: at(current) }), null, 'identity holds no step past the skew');
+}
 // `apply` waits out Edge's authority cache after verify, so svc-p2p reads the founders' new tier: pinned to Edge's cap.
-const edgeAuthority = readFileSync(resolve(here, '../../services/svc-edge/src/live-authority.ts'), 'utf8');
 assert.equal(
-  Number(/export const AUTHORITY_POSITIVE_CACHE_MAX_MS = (\d+);/.exec(edgeAuthority)?.[1]),
+  (await load('services/svc-edge/src/live-authority.ts')).AUTHORITY_POSITIVE_CACHE_MAX_MS,
   EDGE_AUTHORITY_CACHE_MAX_MS,
   "the gates wait exactly as long as Edge's authority cache can hold a session's tier",
 );
 
-// The platform posting freeze. svc-ledger's `ledgerActionPayloadHash` is TypeScript that imports
-// @intafaced/contracts, so this plain-node test cannot import it without a build; the pins below check only the
-// parts that decide whether an approval is consumable (the hash recipe, the action types and targets, the freeze
-// reason as the one hashed field, the version binding, the founder audience), not the surrounding text.
-const ledgerConsume = readFileSync(resolve(here, '../../services/svc-ledger/src/ledger/action-approval-consume.ts'), 'utf8');
-assert.ok(ledgerConsume.includes('JSON.stringify({ actionType, ...fields })'), 'ledger hash recipe changed');
-assert.ok(ledgerConsume.includes("`sha256:${createHash('sha256')"), 'ledger hash prefix changed');
-const ledgerOperator = readFileSync(resolve(here, '../../services/svc-ledger/src/operator-http.ts'), 'utf8').replace(/\s+/g, ' ');
-assert.ok(
-  ledgerOperator.includes("'ledger.freeze', 'posting_freeze', prior.changedAtPrecise, { reason: parsed.reason, }"),
-  'freeze consume changed',
-);
-assert.ok(ledgerOperator.includes("'ledger.unfreeze', 'posting_unfreeze', prior.changedAtPrecise, {}"), 'unfreeze consume changed');
-const audience = readFileSync(resolve(here, '../../services/svc-identity/src/auth/action-approval-audience.ts'), 'utf8');
-const founderLevel = /FOUNDER_LEVEL_ACTION_TYPES[^=]*=\s*\[([^\]]*)\]/.exec(audience)?.[1] ?? '';
-assert.ok(founderLevel.includes("'ledger.freeze'") && founderLevel.includes("'ledger.unfreeze'"), 'the freeze verbs are founder-level');
-// The same hash svc-ledger computes, by behaviour: sha256 over { actionType, ...fields } in that order.
+// The platform posting freeze: what svc-ledger's freeze and thaw doors ask identity to consume is exactly the
+// proposal, bound to the version the ledger reports, and identity holds both verbs for founders.
 const version = '2026-10-29 05:00:00.123456+00';
 const on = postingFreezeProposal(true, version);
 assert.deepEqual(
@@ -704,6 +920,15 @@ assert.deepEqual([off.actionType, off.targetId, off.expectedVersion], ['ledger.u
 assert.equal(off.payloadHash, sha({ actionType: 'ledger.unfreeze' }));
 assert.throws(() => postingFreezeProposal(true, undefined), /freeze version/);
 assert.throws(() => postingFreezeProposal(false, ''), /freeze version/);
+{
+  // svc-ledger is Rust: crates/svc-ledger/tests/approval_hash.rs pins `approval::payload_hash` to these two hashes, and
+  // crates/svc-ledger/tests/freeze_pg.rs holds its freeze and thaw doors to consume exactly that hash, target and the
+  // version the door read first.
+  assert.equal(on.payloadHash, 'sha256:75e03078ba5a7d6c65daafd26a9d40eb1ad8f0b1af47d76609c55bc44646b769', 'freeze consume changed');
+  assert.equal(off.payloadHash, 'sha256:465e5da4d26d18b0df079034b1ed4c1004cce88f549c4c9df87b1fa269250b3f', 'unfreeze consume changed');
+  const { audienceOfApproval } = await load('services/svc-identity/src/auth/action-approval-audience.ts');
+  for (const p of [on, off]) assert.equal(audienceOfApproval(p), 'founder', `${p.actionType} is founder-level`);
+}
 // svc-ledger wants a reason of 12 to 500 characters after trimming; the freeze carries the LOCAL TEST label.
 assert.ok(POSTING_FREEZE_REASON.trim().length >= 12 && POSTING_FREEZE_REASON.length <= 500);
 assert.ok(POSTING_FREEZE_REASON.startsWith(MARKERS.label));
@@ -757,14 +982,42 @@ for (const [args, usage] of [
   assert.equal(isCancelOf(bytes(cancel('o-2')), 'o-1'), false, "another order's cancel is handed back, never lost");
   assert.equal(isCancelOf(bytes({ ...cancel('o-1'), subject: 'intafaced.matching.order.filled' }), 'o-1'), false);
   assert.equal(isCancelOf(new TextEncoder().encode('not json'), 'o-1'), false);
-  const events = readFileSync(resolve(here, '../../services/svc-trade/src/events.ts'), 'utf8');
-  assert.match(
-    events,
-    new RegExp(`'orderCancelled'[\\s\\S]*?durable: '${TRADE_CANCELS.durable}'`),
+  // svc-trade's env module reads its settings at import; these labelled placeholders (svc-trade's own vitest ones) let it
+  // load, and nothing here opens a connection.
+  const placeholders = {
+    DATABASE_URL: 'postgres://local-test@127.0.0.1:5432/local_test_unused',
+    DATABASE_POOL_MAX: '2',
+    EDGE_PRINCIPAL_SECRET: 'test-only-edge-principal-secret-0123456789',
+    INTERNAL_SERVICE_SECRET: 'test-only-internal-service-secret-0123456789',
+  };
+  const unset = Object.keys(placeholders).filter((k) => process.env[k] === undefined);
+  for (const k of unset) process.env[k] = placeholders[k];
+  let subscribeMatchingEvents;
+  try {
+    ({ subscribeMatchingEvents } = await load('services/svc-trade/src/events.ts'));
+  } finally {
+    for (const k of unset) delete process.env[k];
+  }
+  const subscribed = [];
+  const bus = {
+    subscribe: async (name, _handler, options) => {
+      subscribed.push({ name, durable: options?.durable });
+      return { unsubscribe: async () => {} };
+    },
+  };
+  await subscribeMatchingEvents(bus, {});
+  assert.deepEqual(
+    subscribed.filter((s) => s.name === 'orderCancelled').map((s) => s.durable),
+    [TRADE_CANCELS.durable],
     "trade's cancel consumer is the one named",
   );
-  const prefix = /const STREAM_PREFIX = '([A-Z_]+)'/.exec(readFileSync(resolve(here, 'local-test-stack.mjs'), 'utf8'))?.[1];
-  assert.equal(TRADE_CANCELS.stream, `${prefix}_MATCHING`, "the stack's own matching stream");
+  // The stream prefix the stack hands svc-trade and svc-matching at start (their NATS_STREAM_PREFIX).
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const prefixes = localTestServiceEnvs()
+    .filter((d) => d.name === 'trade' || d.name === 'matching')
+    .map((d) => d.env.NATS_STREAM_PREFIX);
+  assert.equal(prefixes.length, 2, 'the stack starts trade and matching');
+  for (const prefix of prefixes) assert.equal(TRADE_CANCELS.stream, `${prefix}_MATCHING`, "the stack's own matching stream");
 }
 // scoped-session: the founder scopes come from the stack's own identity definition, never a copy, and less one only.
 {
@@ -820,20 +1073,34 @@ for (const [args, usage] of [
   assert.deepEqual(open(sealed, 'http://127.0.0.1:3100'), session);
   assert.throws(() => open(sealed, 'http://127.0.0.1:3101'), 'a cookie sealed for one origin never opens on another');
   assert.throws(() => sealConsoleSession(session, { secret: 'short', origin: 'x' }), /32-byte/);
-  const consoleSession = readFileSync(resolve(here, '../../apps/admin/src/lib/founder-session.ts'), 'utf8');
-  assert.ok(consoleSession.includes(`export const ADMIN_COOKIE = '${ADMIN_SESSION_COOKIE}';`), "the console's cookie name");
-  assert.ok(consoleSession.includes("createCipheriv('aes-256-gcm', config.key, iv)"), "the console's cipher");
-  assert.ok(consoleSession.includes('cipher.setAAD(Buffer.from(`${ADMIN_COOKIE}\\n${config.origin}\\nv1`));'), "the console's AAD");
-  assert.ok(
-    consoleSession.includes("'accessToken,csrf,expiresAt,issuedAt,refreshToken,userId'"),
-    "the console's session keys are the ones scoped-session seals",
-  );
+  // The console itself opens what scoped-session seals: its cookie name, cipher, AAD and session keys.
+  const consoleSession = await load('apps/admin/src/lib/founder-session.ts');
+  assert.equal(ADMIN_SESSION_COOKIE, consoleSession.ADMIN_COOKIE, "the console's cookie name");
+  const now = new Date();
+  // The fields scoped-session seals, with values of the kinds it seals (a 15-minute session, a 32-byte CSRF token).
+  const live = {
+    userId: '11111111-1111-4111-8111-111111111111',
+    accessToken: 'h.p.s',
+    refreshToken: 'r',
+    expiresAt: new Date(now.getTime() + 15 * 60_000).toISOString(),
+    issuedAt: new Date(now.getTime() - 1_000).toISOString(),
+    csrf: randomBytes(32).toString('base64url'),
+  };
+  const origin = 'http://127.0.0.1:3100';
+  const config = { origin, edgeUrl: 'http://127.0.0.1:14500', key };
+  const cookie = `${ADMIN_SESSION_COOKIE}=${sealConsoleSession(live, { secret, origin })}`;
+  assert.deepEqual(consoleSession.openFounderSession(cookie, config, now), live, 'the console opens the sealed session');
+  const refused = (e) => e instanceof consoleSession.AdminSessionError && e.code === 'admin.session_required';
+  assert.throws(() => consoleSession.openFounderSession(cookie, { ...config, origin: 'http://127.0.0.1:3101' }, now), refused);
+  assert.throws(() => consoleSession.openFounderSession(cookie, { ...config, key: Buffer.alloc(32, 8) }, now), refused);
+  const extra = `${ADMIN_SESSION_COOKIE}=${sealConsoleSession({ ...live, scopes: 'x' }, { secret, origin })}`;
+  assert.throws(() => consoleSession.openFounderSession(extra, config, now), refused, 'the console takes only its own session keys');
 }
 
 console.log('local-test-gates: marker, builder, hash and planning checks passed');
 
-// The founder console's sign-in, tried once more after a refusal at a step after any identity can hold (J-cex-spot-18 #4,
-// main run 42427369496), as operatorLogin does for the gates' own sign-in.
+// The founder console's refused sign-in is recorded at a step after any identity can hold, so the next sign-in cannot
+// replay it (J-cex-spot-18 #4, main run 42427369496). The refused sign-in itself fails its test.
 {
   const STEP = 30_000;
   const state = mkdtempSync(join(tmpdir(), 'local-test-gates-founder-steps-'));
@@ -848,53 +1115,12 @@ console.log('local-test-gates: marker, builder, hash and planning checks passed'
     writeFileSync(stepsFile, JSON.stringify({ a: 7, b: 99 }));
     assert.deepEqual(founderStepRefused(ctx, 'b'), { refused: 99, current: 100, next: 101 });
     assert.equal(JSON.parse(readFileSync(stepsFile, 'utf8')).b, 101, 'a refused step 99 at step 100 is recorded as 101');
-    assert.equal(nextTotpStep(101, 100), null, 'so the retry waits for the clock rather than resend a step identity may hold');
+    assert.equal(nextTotpStep(101, 100), null, 'so the next sign-in waits for the clock rather than resend a step identity may hold');
     assert.equal(nextTotpStep(101, 101), 102);
   } finally {
     rmSync(state, { recursive: true, force: true });
   }
-
-  const run = async (answers) => {
-    const calls = { attempts: 0, refused: 0, log: [] };
-    const result = await signInOnceMore({
-      attempt: async () => answers[calls.attempts++],
-      onRefused: async () => {
-        calls.refused += 1;
-        return { refused: 100 + calls.refused * 2, current: 101 + calls.refused * 2, next: 102 + calls.refused * 2 };
-      },
-      log: (l) => calls.log.push(l),
-    });
-    return { result, calls };
-  };
-  // Signed in at once: no retry, nothing recorded.
-  {
-    const { result, calls } = await run(['in']);
-    assert.deepEqual(result, { retried: false });
-    assert.deepEqual([calls.attempts, calls.refused], [1, 0]);
-  }
-  // Refused once: the step is recorded as spent, then exactly one more sign-in, which succeeds; both steps are logged.
-  {
-    const { result, calls } = await run(['refused', 'in']);
-    assert.deepEqual(result, { retried: true, refused: 102 });
-    assert.deepEqual([calls.attempts, calls.refused], [2, 1]);
-    assert.match(calls.log.join('\n'), /refused TOTP step 102 at step 103; signing in once more after step 104/);
-  }
-  // Refused twice: it fails naming both steps, after recording the second as spent too, and never tries a third time.
-  {
-    const calls = { attempts: 0, refused: 0 };
-    await assert.rejects(
-      signInOnceMore({
-        attempt: async () => {
-          calls.attempts += 1;
-          return 'refused';
-        },
-        onRefused: async () => {
-          calls.refused += 1;
-          return { refused: 100 + calls.refused * 2, current: 101 + calls.refused * 2, next: 102 + calls.refused * 2 };
-        },
-      }),
-      /refused the sign-in twice: TOTP step 102 \(at step 103\), then step 104 \(at step 105\)/,
-    );
-    assert.deepEqual([calls.attempts, calls.refused], [2, 2]);
-  }
 }
+
+await source.unregister();
+rmSync(sourceDir, { recursive: true, force: true });

@@ -6,7 +6,7 @@
  */
 
 import type { Sql } from 'postgres';
-import { TRPCError } from '@intafaced/contracts';
+import { TRPCError } from '@intafaced/contracts/trpc';
 import { requireScope, type Principal } from '@intafaced/auth';
 import { convertSettleIdsFor } from './ids.js';
 import { convertCustomerHoldKey } from './settle.js';

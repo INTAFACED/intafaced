@@ -1,6 +1,9 @@
 import { defineCopy } from '../../shared/i18n';
 
 const en = {
+  sectionsLabel: 'Direct debit sections',
+  explain:
+    'A mandate lets one company collect from your main balance. Blocking it refuses every collection it presents from then on, including the upcoming ones; a collection that was taken can be asked back once, inside the refund guarantee period.',
   title: 'Direct debits',
   description: 'Who may collect from your account, what they will collect next, and what they collected.',
   open: 'Direct debits',
@@ -55,6 +58,12 @@ const en = {
   feeNotSet: 'Not set. No fee was charged.',
   feeNone: 'None',
   refundNone: 'Nothing to refund',
+  refundFailed:
+    'Nothing was taken, so nothing needs refunding. A debit that was taken can be asked back from this list until its guarantee period ends.',
+  reason_insufficient_partner: 'The partner bank reported too little money in your main balance. Nothing was taken.',
+  reason_blocked_partner: 'The partner bank refused it because you blocked this mandate. Nothing was taken.',
+  blockSent: 'Block sent to {partner}.',
+  partnerMove: 'Taken by the partner bank, move {id}. Nothing was posted on our ledger.',
   refundAvailable: 'Request a refund',
   refundUntil: 'Until {time}',
   refundRequested: 'Requested on {time}',
@@ -79,6 +88,9 @@ const en = {
 } as const;
 
 const es: Record<keyof typeof en, string> = {
+  sectionsLabel: 'Secciones de domiciliaciones',
+  explain:
+    'Una orden de domiciliación permite a una empresa cobrar de tu saldo principal. Si la bloqueas, se rechaza cada cobro que presente a partir de entonces, incluidos los próximos; un cobro ya realizado puede reclamarse una vez dentro del periodo de garantía de reembolso.',
   title: 'Domiciliaciones',
   description: 'Quién puede cobrar de tu cuenta, qué cobrará a continuación y qué ha cobrado.',
   open: 'Domiciliaciones',
@@ -134,6 +146,12 @@ const es: Record<keyof typeof en, string> = {
   feeNotSet: 'Sin definir. No se cobró ninguna comisión.',
   feeNone: 'Ninguna',
   refundNone: 'Nada que reembolsar',
+  refundFailed:
+    'No se cobró nada, así que no hay nada que reembolsar. Un cargo cobrado se puede reclamar desde esta lista hasta que termine su periodo de garantía.',
+  reason_insufficient_partner: 'El banco asociado informó de que tu saldo principal no tenía dinero suficiente. No se cobró nada.',
+  reason_blocked_partner: 'El banco asociado lo rechazó porque bloqueaste este mandato. No se cobró nada.',
+  blockSent: 'Bloqueo enviado a {partner}.',
+  partnerMove: 'Cobrado por el banco asociado, movimiento {id}. No se registró nada en nuestro libro.',
   refundAvailable: 'Pedir un reembolso',
   refundUntil: 'Hasta el {time}',
   refundRequested: 'Pedido el {time}',
@@ -158,6 +176,9 @@ const es: Record<keyof typeof en, string> = {
 };
 
 const fr: Record<keyof typeof en, string> = {
+  sectionsLabel: 'Sections des prélèvements',
+  explain:
+    'Un mandat permet à une entreprise de prélever sur votre solde principal. Le bloquer refuse chaque prélèvement qu’elle présente ensuite, y compris ceux à venir ; un prélèvement effectué peut être réclamé une fois pendant la période de garantie de remboursement.',
   title: 'Prélèvements',
   description: 'Qui peut prélever sur votre compte, ce qui sera prélevé ensuite et ce qui a été prélevé.',
   open: 'Prélèvements',
@@ -215,6 +236,12 @@ const fr: Record<keyof typeof en, string> = {
   feeNotSet: 'Non défini. Aucuns frais n’ont été facturés.',
   feeNone: 'Aucun',
   refundNone: 'Rien à rembourser',
+  refundFailed:
+    'Rien n’a été prélevé, il n’y a donc rien à rembourser. Un prélèvement effectué peut être réclamé depuis cette liste jusqu’à la fin de sa période de garantie.',
+  reason_insufficient_partner: 'La banque partenaire a signalé un solde principal insuffisant. Rien n’a été prélevé.',
+  reason_blocked_partner: 'La banque partenaire l’a refusé parce que vous avez bloqué ce mandat. Rien n’a été prélevé.',
+  blockSent: 'Blocage envoyé à {partner}.',
+  partnerMove: 'Prélevé par la banque partenaire, mouvement {id}. Rien n’a été inscrit dans notre registre.',
   refundAvailable: 'Demander un remboursement',
   refundUntil: 'Jusqu’au {time}',
   refundRequested: 'Demandé le {time}',

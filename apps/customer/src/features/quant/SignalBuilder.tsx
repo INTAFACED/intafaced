@@ -1,9 +1,10 @@
-import { QUANT_BAR_SIZES, quantCompileOutputSchema, type QuantSignalRules } from '@intafaced/contracts/quant-algo';
+import { QUANT_BAR_SIZES, type QuantSignalRules } from '@intafaced/contracts/quant-algo';
 import { useState } from 'react';
+import { QUANT_STUDIO_COMPILE } from '@intafaced/contracts/quant-studio-procedures';
 import type { ApiResult } from '../../shared/api';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
-import { Select } from '../more/common';
-import { useApi } from '../session/session';
+import { Select } from '../more';
+import { useApi } from '../session';
 import { builderCopy } from './builder-copy';
 import { ruleRefusal, trimSignalRules, type RuleInputName, type RuleRefusal } from './signal-rules';
 
@@ -19,6 +20,7 @@ export function useRuleWords() {
     'sizing.value': t('sizingValue'),
     'exit.stopLossPercent': t('stopLoss'),
     'exit.takeProfitPercent': t('takeProfit'),
+    pyramiding: t('pyramiding'),
   };
   const refusalText = (refusal: RuleRefusal) =>
     refusal.kind === 'outOfRange' || refusal.kind === 'invalid'
@@ -50,7 +52,7 @@ export function SignalBuilder({ value, onChange }: { value: QuantSignalRules; on
     setRefusal(null);
     setFailure(null);
     const rules = trimSignalRules(value);
-    const res = await api.query('quant', 'studio.compile', { modules: rules }, quantCompileOutputSchema);
+    const res = await api.call(QUANT_STUDIO_COMPILE, { modules: rules });
     setBusy(false);
     if (res.ok) {
       setBuilt({ rules: JSON.stringify(rules), source: res.data.source });
@@ -65,7 +67,7 @@ export function SignalBuilder({ value, onChange }: { value: QuantSignalRules; on
   return (
     <fieldset className="quant-builder" data-testid="quant-signal-builder">
       <legend>{t('title')}</legend>
-      <p className="muted">{t('intro')}</p>
+      <p className="lt-muted">{t('intro')}</p>
       <Field
         label={label.symbol}
         value={value.symbol}
@@ -138,6 +140,15 @@ export function SignalBuilder({ value, onChange }: { value: QuantSignalRules; on
         maxLength={40}
         error={errorFor('exit.takeProfitPercent')}
       />
+      <Field
+        label={label.pyramiding}
+        value={value.pyramiding ?? ''}
+        onChange={(e) => set((r) => ({ ...r, pyramiding: e.target.value }))}
+        inputMode="numeric"
+        maxLength={12}
+        hint={t('pyramidingHint')}
+        error={errorFor('pyramiding')}
+      />
       <Button type="button" variant="secondary" onClick={() => void build()} disabled={busy} data-testid="quant-build-source">
         {t('build')}
       </Button>
@@ -151,11 +162,11 @@ export function SignalBuilder({ value, onChange }: { value: QuantSignalRules; on
       {built && (
         <section aria-label={t('sourceTitle')} data-testid="quant-generated-source">
           <h4>{t('sourceTitle')}</h4>
-          {built.rules !== current && <p className="muted">{t('staleSource')}</p>}
+          {built.rules !== current && <p className="lt-muted">{t('staleSource')}</p>}
           <pre lang="zxx" tabIndex={0}>
             <code>{built.source}</code>
           </pre>
-          <p className="muted">{t('sourceNote')}</p>
+          <p className="lt-muted">{t('sourceNote')}</p>
         </section>
       )}
     </fieldset>

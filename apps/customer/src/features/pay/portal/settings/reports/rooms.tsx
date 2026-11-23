@@ -1,15 +1,14 @@
-import { Button } from '@intafaced/ui';
-import { WithAccount } from '../../access/WithAccount';
 import type { RoomTable } from '../../rooms-model';
-import { useSettingsBApi } from '../b-client';
+import { LinkButton } from '../../volt/parts';
 import { reportsCopy as c } from './copy';
-import { Exports } from './Exports';
-import { Reports } from './Reports';
+import { ExportsRoom } from './Exports';
+import { ReportsRoom } from './Reports';
 
-const link = (href: string, label: string, variant: 'primary' | 'secondary' = 'secondary') => (
-  <Button variant={variant} nativeButton={false} role="link" render={<a href={href} />}>
+/** The heading's one action: a link drawn as one of the kit's buttons (both pages are on the record-list template). */
+const link = (href: string, label: string, tone: 'primary' | 'secondary' = 'secondary') => (
+  <LinkButton href={href} tone={tone}>
     {label}
-  </Button>
+  </LinkButton>
 );
 
 export const reportsRooms: RoomTable = {
@@ -19,18 +18,13 @@ export const reportsRooms: RoomTable = {
       purpose: c.t('reportsPurpose'),
       action: link('/pay/reports/exports#request', c.t('requestAction'), 'primary'),
     }),
-    render: () => <WithAccount>{({ role }) => <ReportsRoom role={role} />}</WithAccount>,
+    ownTitle: true,
+    render: () => <ReportsRoom />,
   },
   'report-exports': {
     header: () => ({ title: c.t('exportsTitle'), purpose: c.t('exportsPurpose'), action: link('#request', c.t('requestAction')) }),
     here: '/pay/reports',
-    render: () => <WithAccount>{({ role }) => <ExportsRoom role={role} />}</WithAccount>,
+    ownTitle: true,
+    render: () => <ExportsRoom />,
   },
 };
-
-function ReportsRoom({ role }: { role: string }) {
-  return <Reports api={useSettingsBApi()} role={role} />;
-}
-function ExportsRoom({ role }: { role: string }) {
-  return <Exports api={useSettingsBApi()} role={role} />;
-}

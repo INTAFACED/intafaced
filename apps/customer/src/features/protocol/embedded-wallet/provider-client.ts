@@ -1,5 +1,5 @@
 import type { EmbeddedWalletPasskey, ProtocolEmbeddedWalletProvider } from '@intafaced/contracts/protocol-embedded-wallet';
-import { base64url } from '../../session/webauthn';
+import { base64url } from '../../session';
 
 /**
  * The page's side of the embedded-wallet provider (J-wallet-22, OWNER 237). Signing, export and recovery run here,
@@ -20,7 +20,33 @@ export type ClientFailure =
   /** This browser cannot make or use a passkey here. */
   | 'unsupported'
   /** The provider gives the key out once and already did (J-dex-protocol-08 #9): this request got no key. */
-  | 'spent';
+  | 'spent'
+  /** The chain refused the transaction before it was sent (no gas, a failing call): nothing was sent (J-wallet-24 #4). */
+  | 'chain';
+
+/** The chain reads a room makes through the provider's own connection. None of them signs or sends. */
+export type ChainReadMethod =
+  | 'eth_chainId'
+  | 'eth_blockNumber'
+  | 'eth_getBlockByNumber'
+  | 'eth_getBalance'
+  | 'eth_call'
+  | 'eth_getTransactionReceipt'
+  | 'eth_getTransactionCount'
+  | 'eth_estimateGas'
+  | 'eth_gasPrice'
+  | 'eth_maxPriorityFeePerGas';
+
+/** A transaction from the wallet, as the person reviewed it: the provider prices it from the chain, signs and sends it once. */
+export interface WalletTransaction {
+  chainId: number;
+  to: string;
+  data: string;
+  /** Wei, as a 0x hex string. */
+  value: string;
+  /** The wallet's nonce read before signing: the provider sends one transaction per nonce, never a second. */
+  nonce: number;
+}
 
 export type ClientResult<T> = { ok: true; data: T } | { ok: false; failure: ClientFailure };
 
@@ -42,6 +68,13 @@ export interface EmbeddedWalletClient {
   exportKey(walletId: string): Promise<ClientResult<{ privateKey: string }>>;
   /** Adds a second passkey as a recovery method, approved with a passkey already bound to the wallet. */
   addRecoveryPasskey(walletId: string): Promise<ClientResult<{ passkeys: number }>>;
+  /**
+   * A transaction from the wallet, after the person's passkey (J-wallet-24 #4): the provider signs it with the wallet's
+   * key and sends it on the chain, once per nonce. Answers the chain's transaction hash.
+   */
+  sendTransaction(walletId: string, transaction: WalletTransaction): Promise<ClientResult<{ hash: string }>>;
+  /** A read-only chain call through the provider's own connection; null when it cannot answer. */
+  read(method: ChainReadMethod, params: unknown[]): Promise<unknown>;
 }
 
 const WEBAUTHN_TIMEOUT_MS = 60_000;
@@ -155,7 +188,7 @@ export function testProviderClient(
   const create = deps.create ?? createWalletPasskey;
   async function act<T>(
     walletId: string,
-    action: 'sign' | 'signtyped' | 'export' | 'recovery',
+    action: 'sign' | 'signtyped' | 'sendtx' | 'export' | 'recovery',
     payload: unknown,
   ): Promise<ClientResult<T>> {
     const issued = await call('challenge', { walletId, action, payload });
@@ -169,6 +202,7 @@ export function testProviderClient(
     const done = await call(action, { walletId, payload, challenge: ch.challenge, assertion: assertion.data });
     if (!done || done.status >= 500) return { ok: false, failure: 'down' };
     if (isSpent(done)) return { ok: false, failure: 'spent' };
+    if (done.status === 422) return { ok: false, failure: 'chain' };
     if (done.status !== 200) return { ok: false, failure: 'refused' };
     return { ok: true, data: done.body as T };
   }
@@ -181,6 +215,13 @@ export function testProviderClient(
       const passkey = await create();
       if (!passkey.ok) return passkey;
       return act(walletId, 'recovery', { passkey: passkey.data });
+    },
+    sendTransaction: (walletId, transaction) => act(walletId, 'sendtx', { transaction }),
+    async read(method, params) {
+      const answer = await call('rpc', { method, params });
+      if (!answer || answer.status !== 200) return null;
+      const body = answer.body as { result?: unknown } | null;
+      return body && 'result' in body ? (body.result ?? null) : null;
     },
   };
 }

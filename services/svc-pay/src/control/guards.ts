@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { merchantIdsWithLegacySettlement, type SettlementBookReader } from '../settlement-book.js';
@@ -80,7 +81,7 @@ function requireTier(control: MerchantControl): TierConfig {
   return control.tier;
 }
 
-async function requireRule(q: Sql, control: MerchantControl, merchantId: string, assetCode: string): Promise<ResolvedRule> {
+async function requireRule(q: Queryable, control: MerchantControl, merchantId: string, assetCode: string): Promise<ResolvedRule> {
   const candidates = await loadApplicableRules(q, merchantId, control.tier?.id ?? null, assetCode);
   const resolved = resolvePricingRule(candidates, assetCode);
   if (!resolved) throw new ControlRefusal('pay.pricing_unconfigured');
@@ -123,7 +124,7 @@ function intakeLimits(control: MerchantControl, assetCode: string): { perPayment
  * transaction, so it surfaces as `pay.guard_unavailable` (SERVICE_UNAVAILABLE, retry later),
  * the capture rolls back, and the retry finishes it as a recovery.
  */
-async function withCounterLockTimeout<T>(tx: Sql, fn: () => Promise<T>): Promise<T> {
+async function withCounterLockTimeout<T>(tx: Queryable, fn: () => Promise<T>): Promise<T> {
   const rows = await tx<Array<{ prev: string }>>`SELECT current_setting('lock_timeout') AS prev`;
   await tx`SELECT set_config('lock_timeout', '2s', true)`;
   const result = await fn();
@@ -143,7 +144,7 @@ class NoticeSavepointLost extends Error {
  * Insert the over-cap notice in a savepoint. A failure is thrown after the
  * savepoint is gone, so the caller can log it and keep the capture.
  */
-async function insertOverCapNotice(tx: Sql, notice: NewNotification): Promise<void> {
+async function insertOverCapNotice(tx: Queryable, notice: NewNotification): Promise<void> {
   const beginTx = tx as Sql & { savepoint?: (fn: (sql: Sql) => Promise<void>) => Promise<void> };
   if (typeof beginTx.savepoint === 'function') {
     await beginTx.savepoint(async (sp) => {
@@ -282,8 +283,9 @@ export function createControlGuards(deps: ControlGuardDeps): PartialPayGuards {
       });
       // Same transaction as the audit row, but its own savepoint: a notice-table
       // failure must not roll back a capture whose ledger post already landed.
-      // A muted `limit_threshold` preference records nothing and does not stop
-      // the metric or the span event.
+      // The notice is the business's; a person who muted `limit_threshold` does
+      // not see it (their own preference, applied when they read the feed), and
+      // neither the notice nor a mute stops the metric or the span event.
       //
       // `sql.begin` remembers every rejected statement and rolls the transaction
       // back at the end, even when the caller caught it. Its savepoint helper is

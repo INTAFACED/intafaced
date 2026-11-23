@@ -1148,11 +1148,11 @@ describe('native P2P original terms and decisions', () => {
           });
         expect(
           (
-            await legacy.sql`SELECT to_jsonb(t) - 'original_terms_claimed_at' - 'escrow_lock_attempts' - 'terms_snapshot' - 'non_instant' - 'settlement_window_seconds' - 'cash_release_seconds' - 'shared_from' - 'release_window_seconds' AS terms FROM p2p.p2p_trades t`
+            await legacy.sql`SELECT to_jsonb(t) - 'original_terms_claimed_at' - 'escrow_lock_attempts' - 'terms_snapshot' - 'non_instant' - 'settlement_window_seconds' - 'cash_release_seconds' - 'shared_from' - 'release_window_seconds' - 'escrow_kind' - 'contract_chain_id' - 'contract_token' - 'contract_units' - 'contract_buyer_wallet' - 'contract_dispute_window_seconds' - 'contract_deal_id' - 'contract_seller_wallet' AS terms FROM p2p.p2p_trades t`
           )[0]?.terms,
         ).toEqual(original);
         const row = (
-          await legacy.sql`SELECT amount::text AS amount, original_terms_claimed_at, terms_snapshot, non_instant, settlement_window_seconds, cash_release_seconds, shared_from, release_window_seconds FROM p2p.p2p_trades`
+          await legacy.sql`SELECT amount::text AS amount, original_terms_claimed_at, terms_snapshot, non_instant, settlement_window_seconds, cash_release_seconds, shared_from, release_window_seconds, escrow_kind, contract_deal_id FROM p2p.p2p_trades`
         )[0];
         // A legacy order reads as paid on an instant method: the profile columns arrive at their defaults.
         expect(row).toEqual({
@@ -1166,6 +1166,9 @@ describe('native P2P original terms and decisions', () => {
           shared_from: false,
           // P-trade-orders-15: a legacy order keeps the published release clock.
           release_window_seconds: null,
+          // RC-p2p-02: a legacy order is a ledger order with no contract deal.
+          escrow_kind: 'ledger',
+          contract_deal_id: null,
         });
         await expect(legacy.sql`UPDATE p2p.p2p_trades SET original_terms_claimed_at = now() WHERE id = ${TRADE}`).rejects.toThrow();
         const ledger = new MemoryLedger();

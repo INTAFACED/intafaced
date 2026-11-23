@@ -128,15 +128,15 @@ exists. Blank is `null` ("not set"); nothing has a default. Operator writes need
 old value, the new value, the reason and the time, written in the same transaction as the change, so a failed audit refuses the
 change (`trade.chart_owner_values_not_written`).
 
-| Procedure                    | What it does                                                                                                                                                                                                                                                                                                                                                                                                      |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `admin.chartOwnerValues.get` | the current scalars (`version`, `values`) and every listed market's data class (`dataClasses`, at most 500)                                                                                                                                                                                                                                                                                                       |
-| `admin.chartOwnerValues.set` | one key per write: `compareCap` (1-50), `chartCountLimit` (1-64), `drawingCap` (1-10000), `brushPointCap` (1-100000), `delayedBoundarySeconds` (1-86400), or `null` to clear; `expectedVersion` for optimistic concurrency. A `dataClass` write (`real_time`, `delayed`, `end_of_day`, or `null`) also takes `symbol` and an `approvalId` from a second operator (four-eyes, bound to the payload and the symbol) |
+| Procedure                    | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `admin.chartOwnerValues.get` | the current scalars (`version`, `values`) and every listed market's data class (`dataClasses`, at most 500)                                                                                                                                                                                                                                                                                                                                                                     |
+| `admin.chartOwnerValues.set` | one key per write: `compareCap` (1-50), `chartCountLimit` (1-64), `drawingCap` (1-10000), `brushPointCap` (1-100000), `delayedBoundarySeconds` (1-86400), `staleAgeSeconds` (1-86400; row d115, the owner's stale age), or `null` to clear; `expectedVersion` for optimistic concurrency. A `dataClass` write (`real_time`, `delayed`, `end_of_day`, or `null`) also takes `symbol` and an `approvalId` from a second operator (four-eyes, bound to the payload and the symbol) |
 
 Scalars are one append-only snapshot per version (`trade.chart_owner_values`); a data class is one append-only row per market and
 version (`trade.chart_data_class`). A stale `expectedVersion` refuses `chart_owner_values_stale`; a reused approval refuses
 `approval_reused`. The public read is `GET /api/v1/charts/owner-values[?symbol=BTC%2FUSDT]`: plain JSON with no envelope and no auth,
-`{ compareCap, chartCountLimit, drawingCap, brushPointCap, delayedBoundarySeconds, dataClass }`, where each count is an integer or `null`
+`{ compareCap, chartCountLimit, drawingCap, brushPointCap, delayedBoundarySeconds, staleAgeSeconds, dataClass }`, where each count is an integer or `null`
 and `dataClass` is the symbol's class, or `null` without `?symbol`. An unknown symbol is `trade.market_not_found` (404, `BadSymbol`). An
 unwired reader refuses 503 `trade.charts_owner_values_unconfigured`. Edge forwards it through the existing `/api/v1` prefix, so no Edge
 change is needed.
@@ -158,12 +158,31 @@ reads, `POST /api/v1/venue/preview`, `/prepare` and `/submit` (`src/venue/`). Th
 signs, svc-trade submits. Each prepared action and its first signature are stored under the intent's business key in
 `trade.user_venue_actions` before anything is sent, so a second prepare returns the stored action and a re-submit re-sends
 the same bytes; a submit whose answer is lost after send is `definite: false` with where to read it back. A withdrawal
-spends identity's step-up (`trade.step_up.venue.withdraw`) before it is prepared. Our builder fee comes from
+spends identity's step-up (`trade.step_up.venue.withdraw`) before it is prepared. A new or amended order needs level
+`basic` (the trading checks grant it, J-cex-spot-01 #3), refused `tier.insufficient` before anything is stored; a cancel
+and a withdrawal stay open below it, so a held account never strands its own funds on the venue. Our builder fee comes from
 `TRADE_USER_VENUE_BUILDER_ADDRESS` / `TRADE_USER_VENUE_BUILDER_FEE_BPS` (owner values); blank, orders refuse
 `builder_fee_not_published`. A TEST venue is refused unless the raw APP_ENV is dev or test. The ledger posts nothing and
 no event is sent: the venue is the record of balances, locks, fills and withdrawals.
 Venue reads are by wallet address, as on a public venue: the door does not yet bind a wallet to a user (that comes with
 B2's TEST wallet). The withdrawal step-up binds the venue account (`owner`, `subAccount`) with the amount and destination.
+A venue market order is bounded twice by owner values, on preview and on prepare: `TRADE_MARKET_SLIPPAGE_CAP_BPS` caps
+its worst price off the best price on the side it meets (blank: `trade.slippage_cap_unset`; past it:
+`trade.venue.price_outside_protection`), and `TRADE_MARKET_SPREAD_LIMIT_BPS` refuses it while the book's spread is wider
+than that share of the best bid (blank: `trade.spread_limit_unset`; wider: `trade.venue.spread_too_wide`). Never a
+default; `GET /api/v1/venue/best-prices` answers both as known or unknown, so the desk closes market orders while either is
+blank (J-cex-spot-03 #2).
+
+**The trader's account reads (J-derivatives-12).** `GET /api/v1/venue/eligible-instruments` lists every perpetual we
+show on the venue, each with its settle asset, when the account meets the owner's eligibility level
+`TRADE_USER_VENUE_ELIGIBILITY_LEVEL` (`basic`, `full` or `institutional`; `src/venue/venue-eligibility.ts`, read through
+`tradeTier`); otherwise it is empty with the reason. Blank, the list names `trade.venue_eligibility_level_unset`, the gated
+list carries it on every perpetual, and a new perpetual position refuses with it at preview and prepare (422); below the
+level is `trade.venue_eligibility_level_insufficient` (403). A reduce-only order is never checked.
+`GET /api/v1/venue/builder-fees?owner=&since=` answers our builder fee on each fill of the caller's own orders on that
+account as the poster recorded it (`trade.venue_builder_fees`, read by the caller's user id), with its status and the
+ledger transaction it posted (`ledgerTxId`, null until posted). The venue's settlement and other fees ride on the fee
+status (`VenueFeeStatus.otherFees`, absent where the venue publishes none) and reach the desk through `fee-tier`.
 
 **Convert sell quotes on the venue (J-cex-spot-17 #8).** `POST /api/v1/venue/convert/sell-quote`
 `{ owner, symbol, amount, quoteKey }` (trade:write, as the preview) prices a spot sell by the venue's own preview of a
@@ -174,6 +193,20 @@ quote; the same key for another ask refuses `trade.venue_sell_quote_key_reused` 
 `trade.venue_sell_quote_not_spot`, an unknown market `trade.venue_sell_quote_market_unknown`. Nothing is sent and the
 ledger posts nothing. Finance reads them in `admin.convertDesk.venueSellQuotes`.
 
+**Convert on the person's own venue account (J-cex-spot-11).** `src/venue/venue-convert.ts`, routes under
+`/api/v1/venue/convert/` (`pairs`, `route`, `quote`, `accept`, `limit`, `submit`, `history`). A quote holds nothing: the
+venue's best price on the side it meets, bounded by `TRADE_MARKET_SLIPPAGE_CAP_BPS` into an IOC limit price, sized so a
+buy never costs more than the typed spend, with the venue's own preview of its fee and ours (none on a buy). Nothing is
+sent or locked; the quote is stored in `trade.venue_convert_quotes` under the caller's `quoteKey`. Accepting prepares one
+venue order under `convert:<owner>:<quoteId>`, so a double press, the same quote id twice and Check again are one action;
+past `TRADE_CONVERT_ACCEPT_WINDOW_MS` (owner value; blank refuses `trade.convert_window_unset`) an unsigned action is
+refused at accept and at submit (`trade.convert_quote_expired`). A limit convert rests one GTC order under
+`convert:<owner>:limit:<limitKey>`. The door refuses a `convert:` key on its plain routes (`trade.venue_convert_only`).
+`TRADE_CONVERT_ENABLED` off refuses `trade.convert_disabled`; a cash currency refuses `trade.convert_cash_not_offered` (no
+partner is set). History reads each accepted order's fills from the venue by client id. The ledger posts nothing for the
+swap; a sell's builder fee is posted once per fill by the builder-fee poster. The older `convert.*` tRPC path settles on
+our own book and is the custodial layer, kept and switched off with it.
+
 **The person's own venue trading, for svc-tax (J-cex-spot-01 #11).** `venue.ownActivity` (tRPC mutation, svc-tax only,
 `serviceProcedureFor`; contract `packages/contracts/src/trade-venue-activity.ts`; code `src/venue/own-activity.ts`) answers
 one person's venue accounts with each one's balances and every spot fill, as the venue reports them at the moment of the
@@ -182,6 +215,38 @@ through the door (`ownerSignedAccounts` over `trade.user_venue_actions`: owner r
 signature stored after the door checked it recovers); an account read only by address is not theirs, and an agent's
 signature names none. The fee is everything the venue charged (its fee and any builder fee), in the fee coin. Nothing is
 stored. The door off answers `{ state: 'off' }`; the venue down answers `SERVICE_UNAVAILABLE`, never an empty list.
+
+### Live strategy runs (J-algo-dev-07, `src/quant/live-run/`)
+
+A saved order-block strategy (svc-quant `studio.get`, read with the person's own forwarded session) runs live on the
+person's own venue sub-account, through an agent permission their wallet signs for that run's key only
+(`agentAddressFor(seed, userId, 'quant-live:<run>')`). The ledger posts nothing: cash, positions and fills are the venue's
+own record, read with its as-of time. Routes under `/api/v1/quant/live-runs`: `GET /`, `POST /` (start: refuses a blank
+`restartAttempts`, `statePolicy` or `cap` by name, a strategy with signal rules, an unknown sub-account), `GET /:id`,
+`POST /:id/submit` (the wallet's signature), `/stop` and `/liquidate` (keyed by the press's `seq`), `/orders` (a manual
+order under the run's next `seq`; only with the live-control grant) and `/test/kill-process` (TEST venue only).
+Client order ids are `algo:order:<run>:<seq>`, `algo:liquidate:<run>:<seq>` and `algo:stop:<run>:<seq>:<order>`; the door
+reserves the `algo:` prefix to the live run (`trade.venue_live_run_only`). A supervisor pass every half heartbeat
+(`TRADE_QUANT_LIVE_HEARTBEAT_MS`, owner value, blank refuses every start) reads the person's own freeze from svc-identity
+(frozen: cancel, stop `account_frozen`, the run's key signs nothing more), steps a live run, and recovers a dead one:
+`unknown`, then the reconciler reads its orders back by their client order ids, then a restart within the person's
+attempt limit reloading open orders and positions from the venue, or `ended` with `attempts_exhausted`. Rows:
+`trade.quant_live_runs`, `trade.quant_live_run_orders` (unique per action key; the next `seq` is taken under the run's
+row lock) and `trade.quant_live_run_events`.
+
+### The owner's own freeze (J-wallet-13)
+
+On identity's `selfFreezeApplied` (`src/self-freeze-events.ts`, idempotent by `identity.self_freeze.frozen:<freezeId>`),
+svc-trade revokes every agent permission it keeps for the person at once: each live run is stopped (`account_frozen`,
+open orders cancelled once, position kept) and its permission revoked, a run still signing ends; each assistant
+connection ends as the person's own revoke does it, and each open agent account's venue agent key is dropped (its
+`revoke_agent` prepared for the wallet); each own-agent allowance is revoked (one still unsigned is abandoned). Nothing
+is restored on the lift: the person signs a new permission. While frozen, each door that makes or changes one reads the
+freeze from identity and refuses 423 `trade.account_frozen_self` with the freeze reason (agent account create, fund,
+cap, limits and their signatures; assistant connect and order; allowance grant, its signature and an agent's order);
+a run's permission signature refuses `quant.account_frozen`. A freeze that can't be read refuses 503
+`trade.freeze_unavailable` (`quant.freeze_unavailable`). Identity's admission refusal `identity.account_frozen_self`
+reaches the caller as its own code (`TradingControlError`, 403 `PermissionDenied`).
 
 ### Our builder fee in the ledger (D-venue-07, J-derivatives-17)
 
@@ -199,7 +264,8 @@ idempotency conflict, the posting freeze, an outage) stops, as before, and raise
 keeps the last complete run and the last stop, which the treasury desk shows. `admin.builderFees.recon` (`admin:read`) is
 the founder console's `/ledger/treasury`: for one period, the venue's builder fee on each fill against the ledger's under
 the fill's key, and every break listed with its venue fill id and amounts. The venue's own totals decide (OWNER 288 change
-1e): per fee asset, the ledger's earned total at the venue (owed plus paid out to our builder account) against the venue's
+1e): per fee asset, the ledger's earned total at the venue (owed plus the ledger's own payout transaction under each claim the venue records
+for us, never our builder account's balance, which the own-funds sweep draws down) against the venue's
 own earned total for our builder address (`TRADE_USER_VENUE_BUILDER_ADDRESS`), and what the ledger says is owed against the
 venue's own unclaimed figure (`UserVenue.builderTotals`). The verdict is `matched` only when every fill and both totals match
 and at least one fill was compared; no fill reads `nothing_to_compare`, and totals the venue can't give (a blank builder
@@ -274,7 +340,8 @@ full with the taker's settlement still on its way, or a second cancel may have o
 order keeps its hold and its fill (`finalizeIfComplete`) or the engine's cancel event closes it. A miss never
 releases. After `HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS` from the first miss (`engine_absent_since`) with nothing heard
 (a submit whose outcome was unknown may never have reached the engine), a cancel moves the order to
-`recovery_required` (`RECONCILIATION_REQUIRED`) with its hold, for the reconcile path to resolve.
+`recovery_required` (`RECONCILIATION_REQUIRED`) with its hold, for the reconcile path to resolve; the scheduled
+engine ↔ ledger reconcile does the same on its next tick, without waiting for a second cancel (#7025).
 
 ---
 
@@ -309,6 +376,8 @@ open has no client idempotency key — see audit residual).
 | **F8**            | seed↔seed prints never inflate public tape                                                                                           |
 
 ### Token buyback IOC buy (J-dex-protocol-17)
+
+`GET /internal/track-record/:userId` (`src/signals/track-record.ts`) answers a signal provider's own record for svc-market's provider criteria (J-copy-bots-otc-22): `{ userId, fills, firstFillAt, asOf }`, counted from `trade.fills`. Only `svc-market` may call it (`403 trade.track_record_forbidden` otherwise); an unreadable count is `503 trade.track_record_unavailable`, never zero.
 
 `POST /internal/buyback/ioc-buy` (`src/spot/buyback-door.ts`) places the token buyback's one IOC limit buy. It takes body-bound service auth, and only `svc-token` may call it; any other service gets `403 trade.buyback_forbidden`. The body is `{ symbol, qty, price, clientOrderId }` in decimal strings, with svc-token's run id as `clientOrderId`. The answer is `{ orderId, status, filledQty, heldQuote, spentQuote, releasedQuote }`.
 
@@ -859,15 +928,15 @@ Reads such as `GET /api/v1/account/balance` still answer. The mapping lives in o
 
 ## Service keys: ledger calls
 
-The ledger client signs with svc-trade's own key when `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` are set (`dual` also sends the shared secret, `keypair` the key only); unset, it signs with the shared secret as before. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
+The ledger client signs with svc-trade's own key when `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` are set (`dual` also sends the shared secret, `keypair` the key only); unset, it signs with the shared secret as before. Setup and rotation: `crates/svc-ledger/CALLER-BINDING.md`.
 
 ## Service keys: outgoing calls
 
-Every other outgoing call signs with svc-trade's own key too when `S2S_AUTH_MODE`, `S2S_KEYRING`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` are set, each for its callee: svc-identity (approval consume, operator entitlement, rank perks, sub-account ownership, affiliate accrue and payout), svc-matching (every engine call and the position close), svc-fix (drop-copy fill post) and svc-token (OTC stake read). The signature binds method, full URL, body and content type. `dual` also sends the shared secret, `keypair` the key only. Unset leaves the shared secret, exactly as before. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
+Every other outgoing call signs with svc-trade's own key too when `S2S_AUTH_MODE`, `S2S_KEYRING`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` are set, each for its callee: svc-identity (approval consume, operator entitlement, rank perks, sub-account ownership, affiliate accrue and payout), svc-matching (every engine call and the position close), svc-fix (drop-copy fill post) and svc-token (OTC stake read). The signature binds method, full URL, body and content type. `dual` also sends the shared secret, `keypair` the key only. Unset leaves the shared secret, exactly as before. Setup and rotation: `crates/svc-ledger/CALLER-BINDING.md`.
 
 ## Service keys: inbound doors
 
-The internal doors (market lifecycle publication and read, funding-rate publish, copy-leader fixtures, outcomes settle, closure check) and `/trpc` name the caller from its own service key when `S2S_AUTH_MODE`, `S2S_KEYRING` and the signing pair are set: `dual` accepts the key and the shared secret, `keypair` the key only. Unset, the shared secret works exactly as before. A key-signed call that fails is refused and never retried against the shared secret. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
+The internal doors (market lifecycle publication and read, funding-rate publish, copy-leader fixtures, outcomes settle, closure check) and `/trpc` name the caller from its own service key when `S2S_AUTH_MODE`, `S2S_KEYRING` and the signing pair are set: `dual` accepts the key and the shared secret, `keypair` the key only. Unset, the shared secret works exactly as before. A key-signed call that fails is refused and never retried against the shared secret. Setup and rotation: `crates/svc-ledger/CALLER-BINDING.md`.
 
 ## LOCAL TEST tape history
 

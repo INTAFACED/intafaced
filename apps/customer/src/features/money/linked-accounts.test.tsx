@@ -5,7 +5,8 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 import { draftProblems, ibanOk, LinkedAccountTable } from './LinkedAccounts';
-import { bankReads, linkedAccountSchema, type LinkedAccount } from './contracts';
+import { linkedAccountSchema, type LinkedAccount } from './contracts';
+import { BANK_LINKED_ACCOUNTS_LIST } from '@intafaced/contracts/bank-linked-accounts-procedures';
 
 /** BK-acct-02 screen half (J-bank-02 #6): linked bank accounts with their state, and the link form's checks. */
 
@@ -73,6 +74,6 @@ describe('linked bank accounts', () => {
   });
 
   it('reads the bank answer through the shared contract', () => {
-    expect(bankReads['linkedAccounts.list'].parse({ accounts: [row()] }).accounts[0]).toEqual(linkedAccountSchema.parse(row()));
+    expect(BANK_LINKED_ACCOUNTS_LIST.output.parse({ accounts: [row()] }).accounts[0]).toEqual(linkedAccountSchema.parse(row()));
   });
 });

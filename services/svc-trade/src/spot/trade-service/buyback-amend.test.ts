@@ -14,7 +14,7 @@ const order = {
   tif: 'GTC',
   holdAsset: 'USDT',
   price: 100n,
-} as unknown as OrderRecord;
+} as OrderRecord;
 
 /** A service that answers only findOrder and amendOutcome; reading anything else (the market, the engine, the ledger) fails the test. */
 function onlyFindAndOutcome(): { svc: object; read: string[] } {
@@ -44,7 +44,7 @@ describe('a buyback order is never amended', () => {
   it('the installed qty-up amend door refuses it the same way', async () => {
     class Fake {}
     installNativeQtyUpAmend(Fake as unknown as typeof TradeService);
-    const amend = (Fake.prototype as unknown as { amendOrder: TradeService['amendOrder'] }).amendOrder;
+    const amend = (Fake.prototype as { amendOrder: TradeService['amendOrder'] }).amendOrder;
     const { svc, read } = onlyFindAndOutcome();
     const outcome = await amend.call(svc as TradeService, principalFor(HOUSE_BUYBACK_USER_UUID), order.id, { qty: 1n } as never);
     expect(outcome).toMatchObject({ code: 'NOT_AMENDABLE', reasonCode: BUYBACK_INVALID });

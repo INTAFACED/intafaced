@@ -1,35 +1,9 @@
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { LaunchError } from './errors.js';
-
-/**
- * Token launch events (J-more-catalogue-11): the catalogue, one event with its periods, issuer state, allocation rule
- * and terms, and the holdings snapshot an allocation by holdings is based on.
- *
- * Nothing here moves value. Allocation and distribution would move tokens, and no ledger recipe is wired for them, so
- * an event stops at `closed` and the next move refuses `launch.allocation_unwired`. A snapshot row is a measurement of
- * active stake taken in the move to `snapshot`, never a claim on anything.
- *
- * A blank price, cap, ticket size or weight stays null and the reader shows "not set". Nothing is defaulted.
- */
-
-export const LAUNCH_TYPES = ['token_sale', 'whitelist_drop', 'primary_subscription'] as const;
-export const LAUNCH_STATUSES = [
-  'draft',
-  'announced',
-  'snapshot',
-  'open',
-  'closed',
-  'allocated',
-  'distributing',
-  'complete',
-  'cancelled',
-] as const;
-export const ISSUER_STATES = ['applied', 'reviewing', 'onboarded', 'suspended'] as const;
-export const ALLOCATION_METHODS = ['pro_rata', 'tickets', 'tiered'] as const;
-export const LAUNCH_STATES = ['upcoming', 'open', 'past'] as const;
+import { ISSUER_STATES, LAUNCH_TYPES, LAUNCH_STATUSES, LAUNCH_STATES, ALLOCATION_METHODS } from '@intafaced/contracts/token-call-schemas';
 
 export type LaunchType = (typeof LAUNCH_TYPES)[number];
 export type LaunchStatus = (typeof LAUNCH_STATUSES)[number];
@@ -420,7 +394,7 @@ export class LaunchService {
   constructor(private readonly sql: Sql) {}
 
   private async selectEvents(
-    db: Sql,
+    db: Queryable,
     where: { id?: string; statuses?: LaunchStatus[]; type?: LaunchType; limit?: number; forUpdate?: boolean },
   ) {
     return db<EventRow[]>`
@@ -693,7 +667,7 @@ export class LaunchService {
   }
 
   /** One row per account with active stake at `takenAt`, then the seal: count, total and hash. */
-  private async sealSnapshot(tx: Sql, eventId: string, takenAt: Date): Promise<void> {
+  private async sealSnapshot(tx: Queryable, eventId: string, takenAt: Date): Promise<void> {
     const holdings = await tx<Array<{ user_id: string; basis: string }>>`
       SELECT user_id, sum(amount)::text AS basis
         FROM token.stakes

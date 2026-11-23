@@ -8,6 +8,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { composeServiceBlock } from '@intafaced/config/compose';
 
 export const QUANT_LIVE_DEPLOY_PATH = '/api/v1/quant/live-deploy' as const;
 export const QUANT_LIVE_DEPLOY_PIN_ENV = 'TRADE_QUANT_LIVE_DEPLOY_PIN' as const;
@@ -139,9 +140,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..
 
 export function tradeComposeBlock(): string {
   const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
-  const match = compose.match(/^  svc-trade:\n(?:.*\n)*?(?=^  [a-z#]|\Z)/m);
-  if (!match) throw new Error('svc-trade service block missing from docker-compose.apps.yml');
-  return match[0];
+  return composeServiceBlock(compose, 'svc-trade');
 }
 
 export function quantLiveDeployPinComposeWired(): boolean {

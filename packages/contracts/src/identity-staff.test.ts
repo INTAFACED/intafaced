@@ -94,10 +94,17 @@ describe('refusal codes', () => {
 
   it('is published at the ./identity-staff subpath', () => {
     const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
-      exports: Record<string, { types: string; default: string }>;
+      exports: Record<string, { types: string; default: string } | null>;
     };
-    const exportsMap = pkg.exports;
-    expect(exportsMap['./identity-staff']).toEqual({ types: './dist/identity-staff.d.ts', default: './dist/identity-staff.js' });
+    // Resolve as Node does: an exact key wins (null hides the subpath), else the "./*" pattern.
+    const resolve = (subpath: string): { types: string; default: string } | null | undefined => {
+      if (subpath in pkg.exports) return pkg.exports[subpath];
+      const pattern = pkg.exports['./*'];
+      if (!pattern) return undefined;
+      const stem = subpath.slice('./'.length);
+      return { types: pattern.types.replace('*', stem), default: pattern.default.replace('*', stem) };
+    };
+    expect(resolve('./identity-staff')).toEqual({ types: './dist/identity-staff.d.ts', default: './dist/identity-staff.js' });
   });
 });
 

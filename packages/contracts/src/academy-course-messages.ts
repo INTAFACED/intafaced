@@ -19,7 +19,7 @@ export const academyCourseMessageSchema = z.object({
   id: z.string().guid(),
   from: z.enum(ACADEMY_COURSE_MESSAGE_SENDERS),
   body: z.string(),
-  sentAt: z.coerce.date(),
+  sentAt: z.iso.datetime({ offset: true }),
 });
 export type AcademyCourseMessage = z.infer<typeof academyCourseMessageSchema>;
 
@@ -28,7 +28,7 @@ export const academyCourseConversationSummarySchema = z.object({
   id: z.string().guid(),
   courseSlug: z.string(),
   courseTitle: z.string(),
-  lastMessageAt: z.coerce.date(),
+  lastMessageAt: z.iso.datetime({ offset: true }),
   unread: z.boolean(),
 });
 export type AcademyCourseConversationSummary = z.infer<typeof academyCourseConversationSummarySchema>;

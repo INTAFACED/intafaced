@@ -38,7 +38,7 @@ function trackingSql(selectRows: unknown[]) {
     },
     { json: (v: unknown) => v, begin: (_o: string, cb: (t: unknown) => unknown) => cb(sql as never) },
   );
-  return { sql: sql as unknown as Parameters<typeof unenrollPasskey>[0], written };
+  return { sql: sql as Parameters<typeof unenrollPasskey>[0], written };
 }
 
 function memChallenges(): ChallengeStorePort {

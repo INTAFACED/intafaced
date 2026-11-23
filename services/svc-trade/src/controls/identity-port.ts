@@ -1,4 +1,6 @@
-import { accountOperatorEntitlementSchema, serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { accountOperatorEntitlementSchema } from '@intafaced/contracts/account-controls';
+import { serviceCallSigner } from '@intafaced/contracts/service-auth-http';
 import type { LiveTradingOperatorPort } from './trading-controls.js';
 
 /**

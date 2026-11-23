@@ -1,11 +1,12 @@
 import { quantStrategyHeadSchema, type QuantStrategyHead } from '@intafaced/contracts/quant-algo';
 import { useState } from 'react';
 import { z } from 'zod';
-import type { ApiResult } from '../../shared/api';
+import { QUANT_STUDIO_SAVE, QUANT_STUDIO_UPDATE } from '@intafaced/contracts/quant-studio-procedures';
+import { parsesAs, type ApiResult } from '../../shared/api';
 import { signedDecimalSchema } from '../../shared/money';
 import { Button, Field, Loading } from '../../shared/ui';
 import { QuotaAwareFailure } from './quota-refusal';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { studioCopy } from './studio-copy';
 import { useRuleWords } from './SignalBuilder';
 import { ruleRefusal, signalRulesFilled, trimSignalRules } from './signal-rules';
@@ -23,6 +24,22 @@ export function savable(rules: StudioRules): boolean {
     rules.risk.maxNotional.trim() &&
     rules.risk.kill.trim(),
   );
+}
+
+/** The signal-rule inputs a save still needs, in the order the builder shows them. Blocks and the rest stay general. */
+export function missingRuleInputs(rules: StudioRules): ('symbol' | 'signal.fast' | 'signal.slow' | 'sizing.value')[] {
+  if (!rules.modules) return [];
+  const m = rules.modules;
+  return (
+    [
+      ['symbol', m.symbol],
+      ['signal.fast', m.signal.fast],
+      ['signal.slow', m.signal.slow],
+      ['sizing.value', m.sizing.value],
+    ] as const
+  )
+    .filter(([, value]) => !value.trim())
+    .map(([name]) => name);
 }
 
 /**
@@ -52,11 +69,19 @@ export function StudioSave({
   const unchanged = link.saved === current;
   const ready = savable(rules);
   // A save refused for one signal-rule input names that input, as Build source does.
-  const { refusalText } = useRuleWords();
+  const { label, refusalText } = useRuleWords();
+  const missing = missingRuleInputs(rules).map((name) => label[name]);
+  // A blank sizing rule refuses by name (AL-orders-02): pressing Save with an input missing names it; nothing is sent.
+  const [tried, setTried] = useState(false);
   const refusal = failure ? ruleRefusal(failure.message) : null;
 
   async function save() {
-    if (busy || unchanged || !ready) return;
+    if (busy || unchanged) return;
+    if (!ready) {
+      setTried(true);
+      return;
+    }
+    setTried(false);
     setBusy(true);
     setFailure(null);
     setKeptNote(null);
@@ -74,8 +99,8 @@ export function StudioSave({
     };
     const res =
       link.strategyId && link.version
-        ? await api.mutate('quant', 'studio.update', { ...body, id: link.strategyId }, savedHead)
-        : await api.mutate('quant', 'studio.save', { ...body, clientStrategyId: link.clientStrategyId }, savedHead);
+        ? await api.call(QUANT_STUDIO_UPDATE, { ...body, id: link.strategyId }, { accept: parsesAs(savedHead) })
+        : await api.call(QUANT_STUDIO_SAVE, { ...body, clientStrategyId: link.clientStrategyId }, { accept: parsesAs(savedHead) });
     setBusy(false);
     // The rules the service holds now: a replay after a lost reply may hold the first press's rules, not the form's.
     if (res.ok) {
@@ -95,14 +120,16 @@ export function StudioSave({
         onChange={(event) => setReleaseNote(event.currentTarget.value)}
         disabled={busy}
       />
-      <Button type="button" onClick={() => void save()} disabled={busy || unchanged || !ready} data-testid="quant-save-library">
+      <Button type="button" onClick={() => void save()} disabled={busy || unchanged} data-testid="quant-save-library">
         {t('save')}
       </Button>
-      <p className="muted" role="status" data-testid="quant-save-state">
+      <p className="lt-muted" role="status" data-testid="quant-save-state">
         {unchanged && link.version
           ? t('savedAs', { version: link.version })
           : !ready
-            ? t('incomplete')
+            ? missing.length > 0
+              ? t(tried ? 'refusedMissing' : 'incompleteNamed', { inputs: missing.join(', ') })
+              : t('incomplete')
             : link.version
               ? t('changedSince', { version: link.version })
               : t('notSaved')}

@@ -1,15 +1,11 @@
-import {
-  quantTemplateDetailSchema,
-  quantTemplateListOutputSchema,
-  type QuantTemplateVersion,
-  type QuantTemplateVersionSource,
-} from '@intafaced/contracts/quant-algo';
+import { type QuantTemplateVersion, type QuantTemplateVersionSource } from '@intafaced/contracts/quant-algo';
+import { QUANT_TEMPLATE_GET, QUANT_TEMPLATE_LIST } from '@intafaced/contracts/quant-template-procedures';
 import { useRef, useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, EmptyState, Failure, Loading, Panel } from '../../shared/ui';
-import { Read, Select } from '../more/common';
-import { useApi } from '../session/session';
+import { Read, Select } from '../more';
+import { useApi } from '../session';
 import { STRATEGY_PAGE } from './StrategyTable';
 import { templatesCopy } from './templates-copy';
 import './algo.css';
@@ -23,10 +19,7 @@ type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 export function StudioTemplates({ onUse }: { onUse: (template: QuantTemplateVersion) => boolean }) {
   const api = useApi();
   const { t } = templatesCopy.useCopy();
-  const first = useResource(
-    (signal) => api.query('quant', 'template.list', { limit: STRATEGY_PAGE }, quantTemplateListOutputSchema, { signal }),
-    'quant-templates',
-  );
+  const first = useResource((signal) => api.call(QUANT_TEMPLATE_LIST, { limit: STRATEGY_PAGE }, { signal }), 'quant-templates');
   const [later, setLater] = useState<{ rows: QuantTemplateVersion[]; cursor: string | null } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [failure, setFailure] = useState<{ result: Failed; retry: () => void } | null>(null);
@@ -44,7 +37,7 @@ export function StudioTemplates({ onUse }: { onUse: (template: QuantTemplateVers
     if (busy) return;
     setBusy(id);
     setFailure(null);
-    const res = await api.query('quant', 'template.get', { id }, quantTemplateDetailSchema);
+    const res = await api.call(QUANT_TEMPLATE_GET, { id });
     setBusy(null);
     if (!res.ok) return setFailure({ result: res, retry: () => void use(id) });
     const newest = res.data.versions[0]!;
@@ -57,7 +50,7 @@ export function StudioTemplates({ onUse }: { onUse: (template: QuantTemplateVers
     setBusy(id);
     setFailure(null);
     setViewing(null);
-    const res = await api.query('quant', 'template.get', { id }, quantTemplateDetailSchema);
+    const res = await api.call(QUANT_TEMPLATE_GET, { id });
     setBusy(null);
     if (!res.ok) return setFailure({ result: res, retry: () => void view(id, name) });
     setViewing({ id, name, versions: res.data.versions });
@@ -66,7 +59,7 @@ export function StudioTemplates({ onUse }: { onUse: (template: QuantTemplateVers
   async function more(cursor: string) {
     setBusy('more');
     setFailure(null);
-    const res = await api.query('quant', 'template.list', { limit: STRATEGY_PAGE, cursor }, quantTemplateListOutputSchema);
+    const res = await api.call(QUANT_TEMPLATE_LIST, { limit: STRATEGY_PAGE, cursor });
     setBusy(null);
     if (res.ok) setLater((prev) => ({ rows: [...(prev?.rows ?? []), ...res.data.templates], cursor: res.data.nextCursor }));
     else setFailure({ result: res, retry: () => void more(cursor) });
@@ -75,7 +68,7 @@ export function StudioTemplates({ onUse }: { onUse: (template: QuantTemplateVers
   return (
     <Panel title={t('title')}>
       <div data-testid="quant-templates">
-        <p className="muted">{t('intro')}</p>
+        <p className="lt-muted">{t('intro')}</p>
         <Read resource={first.resource} retry={reload}>
           {(data) => {
             const rows = [...data.templates, ...(later?.rows ?? [])];
@@ -141,7 +134,7 @@ function TemplateSource(props: { name: string; versions: QuantTemplateVersionSou
       <p lang="und" data-testid="quant-template-source-note">
         {shown.releaseNote}
       </p>
-      <p className="muted">{t('readOnly', { version: newest.version })}</p>
+      <p className="lt-muted">{t('readOnly', { version: newest.version })}</p>
       <pre lang="zxx" className="quant-source" tabIndex={0} data-testid="quant-template-source" data-version={shown.version}>
         {shown.source}
       </pre>

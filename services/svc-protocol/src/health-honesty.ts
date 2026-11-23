@@ -1,5 +1,3 @@
-import { z } from 'zod';
-
 /**
  * Health never probes the chain. `chainStatus` does.
  *
@@ -10,23 +8,10 @@ import { z } from 'zod';
  * Do not stamp a custodial literal. Health/ok is liveness, not a certified
  * non-custodial plane.
  */
-export const PROTOCOL_CHAIN_UNPROBED = 'protocol.chain_unprobed' as const;
+import { PROTOCOL_CHAIN_UNPROBED, type ProtocolHealthHonesty } from '@intafaced/contracts/protocol-blockers';
 
-export const protocolHealthHonestySchema = z.object({
-  ok: z.literal(true),
-  service: z.literal('svc-protocol'),
-  relayEnabled: z.boolean(),
-  /** Both factory and implementation env addresses are non-zero. Config, not `eth_getCode`. */
-  factoryConfigured: z.boolean(),
-  venueVaultConfigured: z.boolean().optional(),
-  chain: z.object({
-    status: z.literal('unprobed'),
-    code: z.literal(PROTOCOL_CHAIN_UNPROBED),
-    observedChainId: z.null(),
-  }),
-});
-
-export type ProtocolHealthHonesty = z.infer<typeof protocolHealthHonestySchema>;
+/** The wire shape is the `protocol.health` record's (`@intafaced/contracts/protocol-procedures`). */
+export { PROTOCOL_CHAIN_UNPROBED, type ProtocolHealthHonesty };
 
 export function protocolHealthHonesty(input: {
   relayEnabled: boolean;

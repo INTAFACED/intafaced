@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { assertVotingType, type VotingType } from './ballot-tally.js';
 import { sealFromRow, sealSnapshot } from './governance-vote.js';
@@ -201,7 +201,7 @@ function gateFromRow(
 }
 
 async function loadGate(
-  sql: Sql,
+  sql: Queryable,
 ): Promise<{ ok: true; gate: ProposerGate } | { ok: false; code: 'token.proposer_rule_unset' | 'token.proposal_limit_unset' }> {
   const rows = await sql<GateRow[]>`
     SELECT kind, min_stake::text AS min_stake, accounts, period_limit, period_ms::text AS period_ms
@@ -231,7 +231,7 @@ export function decideProposer(
   return { code: null, minStake };
 }
 
-async function countRecent(sql: Sql, authorId: string, now: Date, periodMs: bigint): Promise<number> {
+async function countRecent(sql: Queryable, authorId: string, now: Date, periodMs: bigint): Promise<number> {
   const rows = await sql<Array<{ n: string }>>`
     SELECT COUNT(*)::text AS n
       FROM token.proposals
@@ -380,7 +380,7 @@ export async function listGovernanceProposals(
   return rows.map(proposalCard);
 }
 
-export async function loadProposalRow(sql: Sql, proposalId: string): Promise<ProposalRecord | null> {
+export async function loadProposalRow(sql: Queryable, proposalId: string): Promise<ProposalRecord | null> {
   const rows = await sql<ProposalSqlRow[]>`
     SELECT p.id, p.kind, p.body, p.status, p.opens_at, p.closes_at, p.created_at,
            p.title, p.body_md, p.discussion_link, p.business_key, p.author_id, p.revision,
@@ -534,7 +534,7 @@ export async function insertGovernanceProposal(
     authorId: string;
     asAdmin: boolean;
     /** The voting window, decided after the proposer rule passes (a blank setting refuses only an allowed author). */
-    window: (tx: Sql) => Promise<{ opensAt: Date; closesAt: Date }>;
+    window: (tx: Queryable) => Promise<{ opensAt: Date; closesAt: Date }>;
     now: Date;
     handle?: string;
     title?: string;
@@ -545,7 +545,7 @@ export async function insertGovernanceProposal(
      * `unstake` locks the same `token.stakes` rows. A total from before the
      * lock is not this figure.
      */
-    lockedStake: (tx: Sql) => Promise<Amount>;
+    lockedStake: (tx: Queryable) => Promise<Amount>;
     /** `basic` unless the author picks another type (MC-token-03). */
     votingType: VotingType;
     /** Normalised choice list; null on `basic`. */
@@ -554,7 +554,7 @@ export async function insertGovernanceProposal(
      * Every account's active stake, locked and checked against its ledger pot
      * on this transaction. Stored as the proposal's voting power.
      */
-    snapshot: (tx: Sql) => Promise<ReadonlyMap<string, Amount>>;
+    snapshot: (tx: Queryable) => Promise<ReadonlyMap<string, Amount>>;
   },
 ): Promise<ProposalRecord> {
   const title = normalizeProposalTitle(input.title);

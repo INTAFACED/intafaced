@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitest/config';
+import { TEST_BUDGET } from '../../tooling/vitest/budget.mjs';
 
 /**
  * ONE DATABASE, ONE FILE AT A TIME.
@@ -43,6 +44,7 @@ import { defineConfig } from 'vitest/config';
  */
 export default defineConfig({
   test: {
+    ...TEST_BUDGET,
     env: { APP_ENV: 'test' },
     include: ['src/**/*.test.ts'],
     environment: 'node',

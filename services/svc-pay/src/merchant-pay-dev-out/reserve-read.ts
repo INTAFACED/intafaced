@@ -1,5 +1,6 @@
 import type { Sql } from 'postgres';
-import { z } from 'zod';
+import type { MerchantReserveView } from '@intafaced/contracts';
+import { RESERVE_HOLDING } from '@intafaced/contracts/merchant-control';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { ControlRefusal } from '../control/errors.js';
 import { effectiveReserve, loadMerchantControl } from '../control/store.js';
@@ -16,30 +17,6 @@ import { effectiveReserve, loadMerchantControl } from '../control/store.js';
  * `payoutsRefused` mirrors `assertPayoutReserveWired`: a merchant with an
  * effective reserve rule has fresh payouts refused until the recipe exists.
  */
-export const RESERVE_HOLDING = 'recorded_not_withheld' as const;
-
-export const merchantReserveViewSchema = z
-  .object({
-    merchantId: z.string().guid(),
-    rule: z.object({ rollingReserveBps: z.number().int(), holdDays: z.number().int() }).strict().nullable(),
-    holding: z.literal(RESERVE_HOLDING),
-    payoutsRefused: z.boolean(),
-    assets: z.array(
-      z
-        .object({
-          assetCode: z.string(),
-          /** Sum of recorded reserve still inside its hold window. Decimal string. Not held on the ledger. */
-          recordedAmount: z.string(),
-          entries: z.number().int().nonnegative(),
-          nextReleaseAt: z.string().nullable(),
-          lastReleaseAt: z.string().nullable(),
-        })
-        .strict(),
-    ),
-    readAt: z.string(),
-  })
-  .strict();
-export type MerchantReserveView = z.infer<typeof merchantReserveViewSchema>;
 
 interface Row {
   asset_code: string;

@@ -7,9 +7,7 @@ import {
   type AnnouncementKind,
   type AnnouncementWriteOutput,
 } from '@intafaced/contracts/ops-console-announcements';
-import { founderCall, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
-import { opsReadOf } from '@/lib/desk/ops-read';
-import { explainRefusal } from '@/lib/desk/refusal-copy';
+import { founderCall, type FounderCallContext, type FounderCallResult, opsReadOf, explainRefusal, founderRecordRead } from '@/lib/desk';
 import {
   readActiveAnnouncement,
   readAnnouncementsList,
@@ -17,6 +15,11 @@ import {
   type AnnouncementDeskReply,
   type AnnouncementsView,
 } from './model';
+import {
+  OPS_ANNOUNCEMENTS_ACTIVE,
+  OPS_ANNOUNCEMENTS_LIST,
+  OPS_ANNOUNCEMENTS_CHANGE,
+} from '@intafaced/contracts/ops-announcements-procedures';
 
 /** The banner read sits in front of every page, so a hung svc-ops costs a page this much at most (as maintenance mode). */
 export const ANNOUNCEMENT_READ_TIMEOUT_MS = 2_000;
@@ -26,7 +29,7 @@ const viewOf = <T>(result: FounderCallResult<T>) => opsReadOf(result, ANNOUNCEME
 /** svc-ops `announcements.active` as the signed-in founder: the one announcement showing now. Never throws. */
 export async function loadActiveAnnouncement(ctx: FounderCallContext): Promise<ActiveAnnouncementView> {
   return viewOf(
-    await founderCall(ctx, 'ops', 'announcements.active', 'GET', undefined, readActiveAnnouncement, {
+    await founderRecordRead(ctx, OPS_ANNOUNCEMENTS_ACTIVE, undefined, readActiveAnnouncement, {
       timeoutMs: ANNOUNCEMENT_READ_TIMEOUT_MS,
     }),
   );
@@ -34,7 +37,7 @@ export async function loadActiveAnnouncement(ctx: FounderCallContext): Promise<A
 
 /** svc-ops `announcements.list`: the newest announcements, drafts and withdrawn ones too, and the one showing now. */
 export async function loadAnnouncements(ctx: FounderCallContext): Promise<AnnouncementsView> {
-  return viewOf(await founderCall(ctx, 'ops', 'announcements.list', 'GET', undefined, readAnnouncementsList));
+  return viewOf(await founderRecordRead(ctx, OPS_ANNOUNCEMENTS_LIST, undefined, readAnnouncementsList));
 }
 
 export interface AnnouncementContent {
@@ -97,7 +100,7 @@ export async function saveAnnouncement(ctx: FounderCallContext, basis: string | 
 }
 
 export async function changeAnnouncement(ctx: FounderCallContext, id: string, op: 'publish' | 'withdraw') {
-  return reply(await founderCall(ctx, 'ops', 'announcements.change', 'POST', { id, op }, parseWrite), (out) =>
+  return reply(await founderRecordRead(ctx, OPS_ANNOUNCEMENTS_CHANGE, { id, op }, parseWrite), (out) =>
     out.outcome === 'noop'
       ? `it was already ${out.announcement.status}`
       : op === 'publish'

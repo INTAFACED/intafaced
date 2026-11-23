@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { formatAmount, type Amount } from '@intafaced/ledger-client';
 import { PayError, appendEvent } from '../payment-service/internal.js';
@@ -23,12 +24,12 @@ import { checkPayerNames, type PayerNameHoldReason, type PayerNameMatchRule } fr
 export const NAME_CHECKED_METHOD = 'bank_transfer';
 
 /** Store the name the payer gave, in the payment's own opening transaction. */
-export async function recordGivenPayerName(tx: Sql, paymentId: string, name: string): Promise<void> {
+export async function recordGivenPayerName(tx: Queryable, paymentId: string, name: string): Promise<void> {
   await tx`INSERT INTO pay.payer_names (payment_id, given_name) VALUES (${paymentId}, ${name})`;
 }
 
 /** The payment's open hold, if it has one: its reason only. Names never leave these tables. */
-export async function payerNameHoldOf(sql: Sql, paymentId: string): Promise<{ reason: PayerNameHoldReason; heldAt: Date } | null> {
+export async function payerNameHoldOf(sql: Queryable, paymentId: string): Promise<{ reason: PayerNameHoldReason; heldAt: Date } | null> {
   const [row] = await sql<Array<{ reason: PayerNameHoldReason; held_at: Date }>>`
     SELECT reason, held_at FROM pay.payer_name_holds WHERE payment_id = ${paymentId} AND status = 'held'`;
   return row ? { reason: row.reason, heldAt: row.held_at } : null;
@@ -43,7 +44,7 @@ export async function isHeldOpenPayment(sql: Sql, paymentId: string): Promise<bo
 }
 
 /** Refuse to authorize or capture a payment while a payer-name hold is open. Call with the payment row locked. */
-export async function assertNoPayerNameHold(tx: Sql, paymentId: string): Promise<void> {
+export async function assertNoPayerNameHold(tx: Queryable, paymentId: string): Promise<void> {
   const hold = await payerNameHoldOf(tx, paymentId);
   if (hold) {
     throw new PayError('This payment is held for a payer-name review. Nothing was authorized or captured.', 'pay.payer_name_held', {
@@ -61,7 +62,7 @@ export async function assertNoPayerNameHold(tx: Sql, paymentId: string): Promise
  * another name being counted in with a later one from the right name.
  */
 export async function holdOnPayerNames(
-  tx: Sql,
+  tx: Queryable,
   rule: PayerNameMatchRule | null,
   payment: { id: string; merchant_id: string; currency: string },
   counted: { payerNames: readonly (string | null)[] | undefined; received: Amount },

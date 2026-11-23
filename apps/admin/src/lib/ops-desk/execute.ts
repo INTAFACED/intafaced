@@ -1,12 +1,36 @@
 import 'server-only';
-import type { DeskRequest } from '@/lib/desk/approval-packet';
-import type { ExecuteFn } from '@/lib/desk/approval-steps';
-import type { ExecuteReply } from '@/lib/desk/approval-types';
-import { edgeCall, founderCall, type CallModule, type FounderCallContext, type FounderCallFailure } from '@/lib/desk/founder-call';
-import { treasuryTransport } from '@/lib/ledger/reconciliation-server';
-import { codeInText, explainRefusal, isKnownCode } from '@/lib/desk/refusal-copy';
+import {
+  edgeCall,
+  explainRefusal,
+  failureRefusal,
+  founderAskedCall,
+  founderCall,
+  founderRecordCall,
+  type DeskRequest,
+  type ExecuteFn,
+  type ExecuteReply,
+  type FounderCallContext,
+  founderRecordRead,
+} from '@/lib/desk';
+import { treasuryTransport } from '@/lib/ledger';
 import { marketTargetId, poolTargetId } from '@intafaced/contracts/protocol-ops';
-import { normaliseCostAmount } from '@/lib/venue-economics/model';
+import { MARKET_OPS_TAKEDOWN_LISTING, MARKET_VET } from '@intafaced/contracts/market-procedures';
+import { normaliseCostAmount } from '@/lib/venue-economics';
+import { isRecord } from '@intafaced/contracts/guards';
+import { ACADEMY_ADMIN_GRANT_CERT_EXCEPTION } from '@intafaced/contracts/academy-admin-records';
+import { ACADEMY_APPOINT_AMBASSADOR } from '@intafaced/contracts/academy-appoint-ambassador-procedures';
+import { ACADEMY_DECIDE_RESIDENCY } from '@intafaced/contracts/academy-decide-residency-procedures';
+import { OPS_CAPITAL_SET_THRESHOLD } from '@intafaced/contracts/ops-capital-procedures';
+import { OPS_RECORD_VENUE_COST } from '@intafaced/contracts/ops-record-venue-cost-procedures';
+import { BANK_OPS_SET_CARD_STATUS } from '@intafaced/contracts/bank-ops-procedures';
+import {
+  OPS_PROTOCOL_LISTING_POOLS_HIDE,
+  OPS_PROTOCOL_LISTING_POOLS_RESTORE,
+  OPS_PROTOCOL_LISTING_MARKETS_DELIST,
+  OPS_PROTOCOL_LISTING_MARKETS_RESTORE,
+} from '@intafaced/contracts/ops-protocol-listing-procedures';
+import { ACADEMY_FREEZE_AMBASSADOR } from '@intafaced/contracts/academy-freeze-ambassador-procedures';
+import { ACADEMY_UNFREEZE_AMBASSADOR } from '@intafaced/contracts/academy-unfreeze-ambassador-procedures';
 
 /**
  * Run an approved Market or Academy request against the owning service, as the signed-in founder.
@@ -16,22 +40,6 @@ import { normaliseCostAmount } from '@/lib/venue-economics/model';
  * service's operator scope (market:ops, admin:write) and a verified second factor; the service checks both itself and
  * its refusal is shown in words (admin-BACKEND-NEEDS.md, item 27).
  */
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
-interface VetAnswer {
-  readonly changed: boolean;
-  readonly vendorId: string;
-  readonly status: string;
-}
-
-export function readVetAnswer(raw: unknown): VetAnswer | null {
-  if (!isRecord(raw) || typeof raw.changed !== 'boolean' || !isRecord(raw.vendor)) return null;
-  const { id, status } = raw.vendor;
-  return typeof id === 'string' && typeof status === 'string' ? { changed: raw.changed, vendorId: id, status } : null;
-}
 
 interface AmbassadorAnswer {
   readonly userId: string;
@@ -51,6 +59,32 @@ interface ResidencyAnswer {
 export function readResidencyAnswer(raw: unknown): ResidencyAnswer | null {
   if (!isRecord(raw) || typeof raw.id !== 'string' || typeof raw.status !== 'string') return null;
   return { id: raw.id, status: raw.status };
+}
+
+interface CertRevocationAnswer {
+  readonly publicId: string;
+  readonly reason: string;
+  readonly revokedAt: string;
+}
+
+export function readCertRevocationAnswer(raw: unknown): CertRevocationAnswer | null {
+  if (!isRecord(raw) || typeof raw.publicId !== 'string' || typeof raw.reason !== 'string' || typeof raw.revokedAt !== 'string')
+    return null;
+  return { publicId: raw.publicId, reason: raw.reason, revokedAt: raw.revokedAt };
+}
+
+interface CertExceptionAnswer {
+  readonly publicId: string;
+  readonly userId: string;
+  readonly certId: string;
+  readonly reason: string;
+}
+
+export function readCertExceptionAnswer(raw: unknown): CertExceptionAnswer | null {
+  if (!isRecord(raw)) return null;
+  const { publicId, userId, certId, reason } = raw;
+  if (typeof publicId !== 'string' || typeof userId !== 'string' || typeof certId !== 'string' || typeof reason !== 'string') return null;
+  return { publicId, userId, certId, reason };
 }
 
 interface CardStatusAnswer {
@@ -83,16 +117,6 @@ export function readCardFundingAnswer(raw: unknown): CardFundingAnswer | null {
   if (!isRecord(raw) || typeof raw.kind !== 'string' || typeof raw.amount !== 'string' || typeof raw.partnerRef !== 'string') return null;
   if (!(raw.threshold === null || typeof raw.threshold === 'string')) return null;
   return { kind: raw.kind, amount: raw.amount, threshold: raw.threshold, partnerRef: raw.partnerRef };
-}
-
-interface TakedownAnswer {
-  readonly listingId: string;
-  readonly status: string;
-}
-
-export function readTakedownAnswer(raw: unknown): TakedownAnswer | null {
-  if (!isRecord(raw) || typeof raw.listingId !== 'string' || typeof raw.status !== 'string') return null;
-  return { listingId: raw.listingId, status: raw.status };
 }
 
 interface VenueCostAnswer {
@@ -132,34 +156,21 @@ export function readCapitalThresholdAnswer(raw: unknown): CapitalThresholdAnswer
     : null;
 }
 
-interface ListingAnswer {
-  readonly action: string;
-  readonly targetId: string;
-  readonly state: string;
-  readonly outcome: string;
-  readonly note: string | null;
-}
-
-export function readListingAnswer(raw: unknown): ListingAnswer | null {
-  if (!isRecord(raw)) return null;
-  const { action, targetId, state, outcome, note } = raw;
-  return typeof action === 'string' &&
-    typeof targetId === 'string' &&
-    typeof state === 'string' &&
-    typeof outcome === 'string' &&
-    (note === null || typeof note === 'string')
-    ? { action, targetId, state, outcome, note }
-    : null;
-}
-
 type ListingRequest = Extract<
   DeskRequest,
   { kind: 'protocol.pool.hide' | 'protocol.pool.restore' | 'protocol.market.delist' | 'protocol.market.restore' }
 >;
 
-/** The svc-ops procedure, its input (before the approval ids) and the state the answer must show for one listing request. */
+/** The svc-ops call each listing request is sent as. */
+const LISTING_CALLS = {
+  'protocol.pool.hide': { record: OPS_PROTOCOL_LISTING_POOLS_HIDE },
+  'protocol.pool.restore': { record: OPS_PROTOCOL_LISTING_POOLS_RESTORE },
+  'protocol.market.delist': { record: OPS_PROTOCOL_LISTING_MARKETS_DELIST },
+  'protocol.market.restore': { record: OPS_PROTOCOL_LISTING_MARKETS_RESTORE },
+} as const;
+
+/** The input (before the approval ids) and the state the answer must show for one listing request. */
 function listingCall(request: ListingRequest): {
-  procedure: string;
   input: Record<string, unknown>;
   targetId: string;
   state: 'hidden' | 'visible';
@@ -167,28 +178,24 @@ function listingCall(request: ListingRequest): {
   switch (request.kind) {
     case 'protocol.pool.hide':
       return {
-        procedure: 'protocolListing.pools.hide',
         input: { chainId: request.chainId, poolAddress: request.poolAddress, reasonCode: request.reasonCode, reason: request.reason },
         targetId: poolTargetId(request.chainId, request.poolAddress),
         state: 'hidden',
       };
     case 'protocol.pool.restore':
       return {
-        procedure: 'protocolListing.pools.restore',
         input: { chainId: request.chainId, poolAddress: request.poolAddress },
         targetId: poolTargetId(request.chainId, request.poolAddress),
         state: 'visible',
       };
     case 'protocol.market.delist':
       return {
-        procedure: 'protocolListing.markets.delist',
         input: { symbol: request.symbol, reasonCode: request.reasonCode, reason: request.reason },
         targetId: marketTargetId(request.symbol),
         state: 'hidden',
       };
     case 'protocol.market.restore':
       return {
-        procedure: 'protocolListing.markets.restore',
         input: { symbol: request.symbol },
         targetId: marketTargetId(request.symbol),
         state: 'visible',
@@ -201,120 +208,49 @@ const WRONG_STATE: ExecuteReply = {
   refusal: explainRefusal('admin.ops_invalid_response', 502, true),
 };
 
-const NEEDS: Readonly<Record<string, string>> = {
-  market: 'the market operator permission (market:ops) and a verified second factor',
-  academy: 'the Academy operator permission (admin:write) and a verified second factor',
-  bank: 'the bank treasury permission (admin:treasury) and a verified second factor',
-  p2p: 'moderator access (admin:compliance, or being on the moderator list) and the P2P read permission',
-  ops: 'the operator write permission (admin:write) and a verified second factor',
-};
-
-/** The permission, as the founder reads it in the refusal's headline. */
-const PERMISSION_NAME: Readonly<Record<string, string>> = {
-  market: 'market operator',
-  academy: 'Academy operator',
-  bank: 'bank treasury',
-  p2p: 'P2P moderator',
-  ops: 'operations',
-};
-
-/** A failed call as a desk refusal. A typed approval code is a definite "nothing changed"; a dropped connection is unknown. */
-export function failureRefusal(service: string, module: CallModule, failure: FounderCallFailure<unknown>): ExecuteReply {
-  switch (failure.kind) {
-    case 'forbidden': {
-      const base = explainRefusal(failure.refusal.code ?? codeInText(failure.refusal.message), failure.refusal.status, false);
-      return {
-        ok: false,
-        refusal: isKnownCode(base.code)
-          ? base
-          : {
-              ...base,
-              title: `Your console session does not have ${PERMISSION_NAME[module] ?? 'operator'} permission`,
-              body: `${service} did not accept your founder session for this. It needs ${NEEDS[module] ?? 'an operator permission'}, and founder sign-in does not carry it. Nothing was changed.`,
-              next: 'See the back-end needs note for the permission to grant.',
-            },
-      };
-    }
-    case 'refused': {
-      const code = codeInText(failure.refusal.message) ?? failure.refusal.code;
-      const view = explainRefusal(code, failure.refusal.status, false);
-      return {
-        ok: false,
-        refusal: isKnownCode(code) || failure.refusal.message === '' ? view : { ...view, body: failure.refusal.message },
-      };
-    }
-    case 'unavailable':
-      return { ok: false, refusal: explainRefusal(null, 503, failure.uncertain) };
-    case 'not_built':
-      return {
-        ok: false,
-        refusal: {
-          title: `${service} does not have this switched on`,
-          body: 'The procedure is not mounted on this deployment. Nothing was changed.',
-          next: 'Tell engineering.',
-          code: null,
-          changed: 'no',
-        },
-      };
-    case 'invalid':
-      return { ok: false, refusal: explainRefusal('admin.ops_invalid_response', 502, true) };
-  }
-}
-
 export function opsExecute(ctx: FounderCallContext): ExecuteFn {
   return async (request: DeskRequest, ids: { approvalId: string; operationId: string }): Promise<ExecuteReply> => {
     if (request.kind === 'market.vendor.vet') {
-      const result = await founderCall(
-        ctx,
-        'market',
-        'vet',
-        'POST',
-        { vendorId: request.vendorId, decision: request.decision, reason: request.reason, ...ids },
-        readVetAnswer,
-      );
+      const result = await founderRecordCall(ctx, MARKET_VET, {
+        vendorId: request.vendorId,
+        decision: request.decision,
+        reason: request.reason,
+        ...ids,
+      });
       if (result.kind !== 'ok') return failureRefusal('svc-market', 'market', result);
-      const a = result.data;
-      if (a.vendorId !== request.vendorId || a.status !== request.decision) return WRONG_STATE;
+      const { changed, vendor } = result.data;
+      if (vendor.id !== request.vendorId || vendor.status !== request.decision) return WRONG_STATE;
       return {
         ok: true,
-        detail: `svc-market answered and its returned vendor record is ${a.status}${a.changed ? '' : ' (it already was, so nothing changed)'}.`,
+        detail: `svc-market answered and its returned vendor record is ${vendor.status}${changed ? '' : ' (it already was, so nothing changed)'}.`,
       };
     }
     if (request.kind === 'academy.ambassador.freeze' || request.kind === 'academy.ambassador.unfreeze') {
       const freeze = request.kind === 'academy.ambassador.freeze';
-      const result = await founderCall(
-        ctx,
-        'academy',
-        freeze ? 'freezeAmbassador' : 'unfreezeAmbassador',
-        'POST',
-        freeze ? { userId: request.userId, reason: request.reason, ...ids } : { userId: request.userId, ...ids },
-        readAmbassadorAnswer,
-      );
+      const result = await (freeze
+        ? founderRecordRead(
+            ctx,
+            ACADEMY_FREEZE_AMBASSADOR,
+            { userId: request.userId, reason: request.reason, ...ids },
+            readAmbassadorAnswer,
+          )
+        : founderRecordRead(ctx, ACADEMY_UNFREEZE_AMBASSADOR, { userId: request.userId, ...ids }, readAmbassadorAnswer));
       if (result.kind !== 'ok') return failureRefusal('svc-academy', 'academy', result);
       const a = result.data;
       if (a.userId !== request.userId || a.status !== (freeze ? 'frozen' : 'active')) return WRONG_STATE;
       return { ok: true, detail: `svc-academy answered and its returned ambassador record is ${a.status}.` };
     }
     if (request.kind === 'academy.ambassador.appoint') {
-      const result = await founderCall(
-        ctx,
-        'academy',
-        'appointAmbassador',
-        'POST',
-        { userId: request.userId, ...ids },
-        readAmbassadorAnswer,
-      );
+      const result = await founderRecordRead(ctx, ACADEMY_APPOINT_AMBASSADOR, { userId: request.userId, ...ids }, readAmbassadorAnswer);
       if (result.kind !== 'ok') return failureRefusal('svc-academy', 'academy', result);
       const a = result.data;
       if (a.userId !== request.userId || a.status !== 'active') return WRONG_STATE;
       return { ok: true, detail: `svc-academy answered and its returned ambassador record is ${a.status}.` };
     }
     if (request.kind === 'academy.residency.decide') {
-      const result = await founderCall(
+      const result = await founderRecordRead(
         ctx,
-        'academy',
-        'decideResidency',
-        'POST',
+        ACADEMY_DECIDE_RESIDENCY,
         { id: request.id, decision: request.decision, ...ids },
         readResidencyAnswer,
       );
@@ -323,14 +259,39 @@ export function opsExecute(ctx: FounderCallContext): ExecuteFn {
       if (a.id !== request.id || a.status !== request.decision) return WRONG_STATE;
       return { ok: true, detail: `svc-academy answered and its returned application is ${a.status}.` };
     }
-    if (request.kind === 'bank.card.status') {
+    if (request.kind === 'academy.cert.revoke') {
       const result = await founderCall(
         ctx,
-        'bank',
-        'ops.setCardStatus',
+        'academy',
+        'admin.revokeCert',
         'POST',
-        // The operation id is the client key, so running the same approved request twice replays the first
-        // result at the service instead of acting twice.
+        { publicId: request.publicId, reason: request.reason, ...ids },
+        readCertRevocationAnswer,
+      );
+      if (result.kind !== 'ok') return failureRefusal('svc-academy', 'academy', result);
+      const a = result.data;
+      if (a.publicId !== request.publicId) return WRONG_STATE;
+      return { ok: true, detail: `svc-academy answered: certificate ${a.publicId} is revoked, recorded ${a.revokedAt} ("${a.reason}").` };
+    }
+    if (request.kind === 'academy.cert.exception') {
+      const result = await founderRecordRead(
+        ctx,
+        ACADEMY_ADMIN_GRANT_CERT_EXCEPTION,
+        { userId: request.userId, certId: request.certId, reason: request.reason, ...ids },
+        readCertExceptionAnswer,
+      );
+      if (result.kind !== 'ok') return failureRefusal('svc-academy', 'academy', result);
+      const a = result.data;
+      if (a.userId !== request.userId || a.certId !== request.certId) return WRONG_STATE;
+      return {
+        ok: true,
+        detail: `svc-academy answered: certificate ${a.certId} is issued to ${a.userId} as an exception, code ${a.publicId} ("${a.reason}").`,
+      };
+    }
+    if (request.kind === 'bank.card.status') {
+      const result = await founderRecordRead(
+        ctx,
+        BANK_OPS_SET_CARD_STATUS,
         { cardId: request.cardId, status: request.status, reason: request.reason, ...ids, clientRequestId: ids.operationId },
         readCardStatusAnswer,
       );
@@ -376,25 +337,21 @@ export function opsExecute(ctx: FounderCallContext): ExecuteFn {
       return { ok: true, detail: `svc-bank answered: the card partner took the instruction, reference ${a.partnerRef}.` };
     }
     if (request.kind === 'market.listing.takedown') {
-      const result = await founderCall(
-        ctx,
-        'market',
-        'ops.takedownListing',
-        'POST',
-        { listingId: request.listingId, reason: request.reason, ...ids, clientRequestId: ids.operationId },
-        readTakedownAnswer,
-      );
+      const result = await founderRecordCall(ctx, MARKET_OPS_TAKEDOWN_LISTING, {
+        listingId: request.listingId,
+        reason: request.reason,
+        ...ids,
+        clientRequestId: ids.operationId,
+      });
       if (result.kind !== 'ok') return failureRefusal('svc-market', 'market', result);
       const a = result.data;
       if (a.listingId !== request.listingId || a.status !== 'taken_down') return WRONG_STATE;
       return { ok: true, detail: 'svc-market answered and its returned listing is taken down.' };
     }
     if (request.kind === 'ops.capital.threshold.set') {
-      const result = await founderCall(
+      const result = await founderRecordRead(
         ctx,
-        'ops',
-        'capital.setThreshold',
-        'POST',
+        OPS_CAPITAL_SET_THRESHOLD,
         {
           assetId: request.assetId,
           minimum: request.minimum,
@@ -420,11 +377,9 @@ export function opsExecute(ctx: FounderCallContext): ExecuteFn {
     }
     if (request.kind === 'ops.venue_cost.record') {
       const amount = normaliseCostAmount(request.amount);
-      const result = await founderCall(
+      const result = await founderRecordRead(
         ctx,
-        'ops',
-        'recordVenueCost',
-        'POST',
+        OPS_RECORD_VENUE_COST,
         {
           period: request.period,
           category: request.category,
@@ -453,7 +408,9 @@ export function opsExecute(ctx: FounderCallContext): ExecuteFn {
       request.kind === 'protocol.market.restore'
     ) {
       const call = listingCall(request);
-      const result = await founderCall(ctx, 'ops', call.procedure, 'POST', { ...call.input, ...ids }, readListingAnswer);
+      const spec = LISTING_CALLS[request.kind];
+      // The record checks the input the request built and parses the answer svc-ops sends.
+      const result = await founderAskedCall(ctx, spec.record, { ...call.input, ...ids });
       if (result.kind !== 'ok') return failureRefusal('svc-ops', 'ops', result);
       const a = result.data;
       if (a.action !== request.kind || a.targetId !== call.targetId || a.state !== call.state) return WRONG_STATE;

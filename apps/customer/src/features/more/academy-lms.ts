@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { academyCertIssueSchema } from '@intafaced/contracts/academy-certificates';
+import type { AcademyCurriculumSummary } from '@intafaced/contracts/academy-catalogue';
+import type { AcademyCertDefinition, AcademyCertProgress } from '@intafaced/contracts/academy-learner-procedures';
 
 /**
  * Academy learning-management logic. Pure functions only: everything here is derived from what
@@ -19,20 +20,10 @@ export type AcademyPath = (typeof academyPaths)[number];
 export const isAcademyPath = (value: unknown): value is AcademyPath => academyPaths.includes(value as AcademyPath);
 
 const ref = z.string().min(1);
-export const lessonSummary = z.object({
-  slug: ref,
-  title: ref,
-  kind: z.enum(['playbook', 'workbook', 'lesson']),
-  path: z.enum(academyPaths),
-  order: z.number().int().safe(),
-  summary: z.string(),
-  estimatedMinutes: z.number().int().safe().positive(),
-});
-export type LessonSummary = z.infer<typeof lessonSummary>;
-export const lessonCatalogue = z.array(lessonSummary).max(200);
+export type LessonSummary = AcademyCurriculumSummary;
 
 /** The XP Academy publishes to the rank ladder per certificate (`certXpPlane`). Only the fields the sheet reads. */
-export const certXpPlaneRow = z.object({
+const certXpPlaneRow = z.object({
   emitEnabled: z.boolean(),
   policies: z.array(z.object({ certId: ref, xpDelta: z.number().int().safe() })),
 });
@@ -48,37 +39,18 @@ export function certificateXp(plane: CertXpPlaneRow, certId: string): { kind: 'w
   return { kind: plane.emitEnabled ? 'worth' : 'off', xp: policy.xpDelta };
 }
 
-export const certDefinition = z.object({
-  id: ref,
-  title: ref,
-  requiredItemSlugs: z.array(ref),
-});
-export type CertDefinition = z.infer<typeof certDefinition>;
+export type CertDefinition = AcademyCertDefinition;
 /** One learning path with its published certificate, or Academy's refusal for a path with no published design. */
-export const certPathRow = z.object({
+const certPathRow = z.object({
   path: z.enum(academyPaths),
   certId: ref.nullable(),
   refusal: z.literal('academy.certificate_unpublished').nullable(),
 });
 export type CertPathRow = z.infer<typeof certPathRow>;
-export const certProgressRow = z.object({
-  userId: z.string().guid(),
-  certId: ref,
-  title: ref,
-  requiredCount: z.number().int().safe().nonnegative(),
-  completedCount: z.number().int().safe().nonnegative(),
-  ratio: z.string(),
-  missingItemSlugs: z.array(ref),
-  complete: z.boolean(),
-  granted: z.boolean(),
-  grantIdempotencyKey: ref.nullable(),
-  /** How the certificate is issued (AC-certificates-02); absent from an older service, read as the learner claiming it. */
-  issue: academyCertIssueSchema.optional(),
-});
-export type CertProgressRow = z.infer<typeof certProgressRow>;
+export type CertProgressRow = AcademyCertProgress;
 /** The code anyone can paste into the public check: 32 lowercase hex characters, the same rule the service applies. */
 export const publicCertCode = z.string().regex(/^[0-9a-f]{32}$/);
-export const certGrant = z.object({
+const certGrant = z.object({
   userId: z.string().guid(),
   certId: ref,
   grantedAt: z.string().datetime({ offset: true }),
@@ -87,12 +59,28 @@ export const certGrant = z.object({
   publicId: publicCertCode.optional(),
   /** `revoked` once Academy revoked it: no sheet, no XP line, and the public check says revoked. */
   status: z.enum(['valid', 'revoked']).optional(),
+  /**
+   * The design revision this certificate prints (AC-certificates-03): the one active when it was issued, never a later
+   * edit. Null or absent when it was issued before any design was active; the sheet then prints the certificate's name.
+   */
+  design: z
+    .object({
+      revision: z.number().int().positive(),
+      title: z.string().min(1),
+      body: z.string().min(1),
+      signatories: z.array(z.object({ name: z.string().min(1), role: z.string().min(1) })),
+      disclaimer: z.string().nullable(),
+      language: z.string().min(1),
+      size: z.enum(['a4', 'letter']),
+      effortHours: z.string().nullable(),
+    })
+    .nullable()
+    .optional(),
 });
 export type CertGrant = z.infer<typeof certGrant>;
 
 /** One lesson completion Academy lists for this account. */
-export const completionRow = z.object({ itemSlug: ref, completedAt: z.string().datetime({ offset: true }) });
-export const completionPage = z.object({ items: z.array(completionRow).max(200), nextCursor: z.string().min(1).nullable() });
+const completionRow = z.object({ itemSlug: ref, completedAt: z.string().datetime({ offset: true }) });
 export type CompletionRow = z.infer<typeof completionRow>;
 
 /** What the service tells us about this account's lesson completions. */
@@ -322,6 +310,8 @@ export function certificateDocument(card: CertificateCard, owner: string) {
     /** The code anyone can check on the public verify box; null when the service sent none. */
     code: card.grant.publicId ?? null,
     requirements: card.definition.requiredItemSlugs.length,
+    /** The design revision it was issued under, or null: then the sheet prints the certificate's name and standard text. */
+    design: card.grant.design ?? null,
   };
 }
 

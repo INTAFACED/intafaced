@@ -43,7 +43,7 @@ async function setup(overrides: Record<string, boolean> = {}) {
   const store = new MemoryWaitlistStore();
   const waitlist = new WaitlistService(store, { drop: '0', overrides });
   const selfEmail = vi.fn(async (userId: string) => emails.get(userId) ?? null);
-  const router = createIdentityRouter({ selfEmail } as unknown as AuthService, {} as unknown as RankService, {
+  const router = createIdentityRouter({ selfEmail } as unknown as AuthService, {} as RankService, {
     registrationOpen: true,
     waitlist,
   });

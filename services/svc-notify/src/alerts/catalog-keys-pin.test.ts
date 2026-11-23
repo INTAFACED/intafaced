@@ -14,6 +14,8 @@ import { MESSAGE_KEYS, createTranslator } from '@intafaced/i18n';
 
 const KEYS = [
   ['notify.alert.price.crossed.title', 'notify.alert.price.crossed.body'],
+  // The stock body since J-charts-desk-10: the market by symbol and the time it fired.
+  ['notify.alert.price.crossed.title', 'notify.alert.price.fired.body'],
   ['notify.alert.funding.crossed.title', 'notify.alert.funding.crossed.body'],
   ['notify.alert.liquidation_proximity.crossed.title', 'notify.alert.liquidation_proximity.crossed.body'],
   ['notify.alert.whale.crossed.title', 'notify.alert.whale.crossed.body'],

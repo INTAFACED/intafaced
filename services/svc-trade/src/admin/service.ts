@@ -10,6 +10,7 @@ import {
   type VenueRoutingReport,
   type VenueRoutingReportWire,
 } from '../venue/routing-report.js';
+import { FeedHealthDesk } from './feed-health.js';
 import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import type { Principal } from '@intafaced/auth';
@@ -55,11 +56,14 @@ import {
   type SweepResult,
 } from './bust.js';
 import { ChartOwnerValuesAdmin } from './chart-owner-values.js';
+import { ChartFeedControlsAdmin, type ChartFeedOwnerValues } from './chart-feed-controls.js';
 import { MarketModeAdmin } from './market-mode.js';
 import { VenueMarketsAdmin } from './venue-markets.js';
 import type { VenueListingStore } from '../venue/venue-listing-store.js';
 import { NO_VENUE_DELISTING_NOTICES, type VenueDelistingNotices } from '../venue/venue-listing.js';
 import type { UserVenue } from '@intafaced/venue-contracts';
+import type { PreparedActionStore } from '../venue/prepared-action-store.js';
+import { readVenueOrder, venueOrderReadWire } from './venue-order-read.js';
 import { SeedConfigAdmin } from './seed-config.js';
 import { MakerProgrammeAdmin } from './maker-programme.js';
 import { FuturesContractsAdmin } from './futures-contracts.js';
@@ -88,6 +92,7 @@ import { VipReviewAdmin } from './vip-review.js';
 import { readMarketStatusHistory } from './status-history.js';
 import { FundingDesk } from './funding-desk.js';
 import { CopyBotsOtcAdmin } from './copy-bots-otc.js';
+import { CustomerOrdersAdmin } from './customer-orders.js';
 import type { OtcDeskLaw } from '../otc/desk-law.js';
 import { FeesConvertDesk, type ConvertOwnerValues } from './fees-convert-desk.js';
 
@@ -97,7 +102,10 @@ export interface TradeOpsDeps {
   /** Existing cancel path. The adapter builds the order owner's principal. */
   readonly cancelOrder: (orderId: string, userId: string) => Promise<void>;
   /** Existing `TradeService.reconcileOrder`; the sweep passes `{ leaveLive: true }`. */
-  readonly reconcileOrder: (orderId: string, opts?: { leaveLive?: boolean }) => Promise<ReconcileResult>;
+  readonly reconcileOrder: (
+    orderId: string,
+    opts?: { leaveLive?: boolean; engineMissFloorSeconds?: number | null; sightedBy?: string },
+  ) => Promise<ReconcileResult>;
   /** `TradeService.engineLiveOrderIds`: one market's resting order ids, from one engine list. Absent: the sweep reads no book. */
   readonly engineLiveOrderIds?: (marketId: string) => Promise<ReadonlySet<string>>;
   /** TRADE_OPERATOR_SWEEP_ENABLED: the sweep's kill switch, off unless set on. Off, the sweep refuses `reconcile_sweep_disabled`. */
@@ -143,6 +151,16 @@ export interface TradeOpsDeps {
   readonly venueMarkets?: () => Promise<VenueMarketsRead | null>;
   /** Our users' routed volume and builder fees by venue for a period (J-derivatives-28 #6). Absent: the door is off. */
   readonly venueRouting?: ((from: Date, to: Date) => Promise<VenueRoutingReport>) | null;
+  /**
+   * The support desk's read of a customer's routed order (J-cex-spot-18 #1): the user-venue door's venue (null: the door
+   * is off, and the read refuses `trade.user_venue_off`) and our record of the orders customers placed through it.
+   */
+  readonly venueOrders?: { readonly venue: (() => Promise<UserVenue>) | null; readonly store: PreparedActionStore };
+  /**
+   * The chart feed control's owner values (J-charts-desk-19): the fallback source list and the audit export row limit.
+   * Absent or null fields: not set, so a switch to a fallback and every export refuse by name.
+   */
+  readonly chartFeed?: ChartFeedOwnerValues;
   readonly now?: () => Date;
 }
 
@@ -192,6 +210,8 @@ export class TradeOpsAdmin {
   readonly agreements: AgreementsAdmin;
   /** Charts module owner values and the per-market data class (C-ops-04, LD-14). */
   readonly chartOwnerValues: ChartOwnerValuesAdmin;
+  /** Each market's chart feed source and state, changed by two operators, with its journal (J-charts-desk-19). */
+  readonly chartFeedControls: ChartFeedControlsAdmin;
   /** A market's trading mode, set by two operators (SP-developer-status-01, J-cex-spot-14 #3 #4). */
   readonly marketMode: MarketModeAdmin;
   /** The outside venue's markets we list, route and limit, set by two operators (J-cex-spot-16). Absent: unwired. */
@@ -203,11 +223,17 @@ export class TradeOpsAdmin {
   readonly vipApplications: VipReviewAdmin;
   /** Copy, bots and OTC counts, customer lookup and quote desk (CB-ops-05, CB-ops-04). */
   readonly copyBotsOtc: CopyBotsOtcAdmin;
+  /** One customer's orders for the console's customer record, audited (J-ops-console-02 #3). */
+  readonly customerOrders: CustomerOrdersAdmin;
   /** Fee tier snapshot runs, Convert's owner values and its quotes, read only (J-cex-spot-17). */
   readonly feesConvert: FeesConvertDesk;
+  /** Market feed health and the feed event journal, read only (C-ops-01, J-charts-desk-18 #1 #2). */
+  readonly feedHealth: FeedHealthDesk;
 
   constructor(private readonly deps: TradeOpsDeps) {
+    this.feedHealth = new FeedHealthDesk({ sql: deps.sql, now: () => nowOf(deps) });
     this.feesConvert = new FeesConvertDesk({ sql: deps.sql, ...(deps.convert ? { convert: deps.convert } : {}) });
+    this.customerOrders = new CustomerOrdersAdmin({ sql: deps.sql, now: () => nowOf(deps) });
     this.copyBotsOtc = new CopyBotsOtcAdmin({
       sql: deps.sql,
       otcLaw: deps.otcLaw ?? { published: false },
@@ -223,6 +249,12 @@ export class TradeOpsAdmin {
     });
     this.agreements = new AgreementsAdmin({ sql: deps.sql, approvals: deps.approvals, now: () => nowOf(deps) });
     this.chartOwnerValues = new ChartOwnerValuesAdmin({ sql: deps.sql, approvals: deps.approvals, now: () => nowOf(deps) });
+    this.chartFeedControls = new ChartFeedControlsAdmin({
+      sql: deps.sql,
+      approvals: deps.approvals,
+      owner: deps.chartFeed ?? { fallbackSources: null, exportRowLimit: null },
+      now: () => nowOf(deps),
+    });
     this.marketMode = new MarketModeAdmin({ sql: deps.sql, approvals: deps.approvals, now: () => nowOf(deps) });
     this.venueMarkets = deps.venueDesk
       ? new VenueMarketsAdmin({
@@ -354,6 +386,56 @@ export class TradeOpsAdmin {
         qty: fill.qty,
         quoteAmount: fill.quote_amount,
         feeAmount: fill.fee_amount,
+      })),
+    };
+  }
+
+  /**
+   * One customer's routed order, read from the venue by the customer's own address (J-cex-spot-18 #1 #2), audited as
+   * `venue_orders.get` (venue-order-read.ts).
+   */
+  async getVenueOrder(principal: Principal, input: { accountId: string; venueClientOrderId: string }): Promise<Record<string, unknown>> {
+    requireOperator(principal);
+    const wired = this.deps.venueOrders;
+    if (!wired) throw new TradeOpsError('trade.user_venue_off', 'the user-venue door is off: routed orders cannot be read from the venue');
+    const read = await readVenueOrder(
+      {
+        audit: (row, at) => writeOperatorAudit(this.deps.sql, row, at),
+        venue: wired.venue,
+        store: wired.store,
+        now: () => nowOf(this.deps),
+      },
+      principal,
+      input,
+    );
+    return venueOrderReadWire(read);
+  }
+
+  /**
+   * The customer's own access list (J-cex-spot-18 #5, row d115: every read logged where the customer sees it): the
+   * operator audit rows that name the signed-in person's account, newest first. Each row says what was done, by which
+   * operator and when; an operator's written reason is internal and is not shown. `limit` is required (1–200).
+   */
+  async staffAccessOf(
+    principal: Principal,
+    input: { limit: number },
+  ): Promise<{ rows: Array<{ id: string; kind: string; operatorId: string; objectId: string; occurredAt: string }> }> {
+    if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 200) {
+      throw new TradeOpsError('staff_access_limit_unset', 'limit is required (1–200); this list does not invent a page size');
+    }
+    const rows = await this.deps.sql<Array<{ id: string; kind: string; operator_id: string; object_id: string; occurred_at: Date }>>`
+      SELECT id, kind, operator_id, object_id, occurred_at
+        FROM trade.operator_audit
+       WHERE account_id = ${principal.userId}
+       ORDER BY occurred_at DESC, id DESC
+       LIMIT ${input.limit}`;
+    return {
+      rows: rows.map((row) => ({
+        id: row.id,
+        kind: row.kind,
+        operatorId: row.operator_id,
+        objectId: row.object_id,
+        occurredAt: row.occurred_at.toISOString(),
       })),
     };
   }
@@ -1205,7 +1287,11 @@ export class TradeOpsAdmin {
       });
       throw new TradeOpsError('reconcile_order_in_flight', `order ${input.orderId} hold may still be in flight; ${secondsLeft}s left`);
     }
-    const verdict = await this.deps.reconcileOrder(input.orderId);
+    // An engine miss is released only on a sighting the owner's floor old (#8560): the first reconcile records it.
+    const verdict = await this.deps.reconcileOrder(input.orderId, {
+      engineMissFloorSeconds: this.deps.sweepMinAgeSeconds ?? null,
+      sightedBy: `reconcile:${clientRequestId}`,
+    });
     await storeRequest(this.deps.sql, clientRequestId, 'reconcile', fingerprint, verdict);
     await writeOperatorAudit(this.deps.sql, {
       kind: 'orders.reconcile',
@@ -1340,7 +1426,11 @@ export class TradeOpsAdmin {
       }
       let verdict: ReconcileResult;
       try {
-        verdict = await this.deps.reconcileOrder(orderId, { leaveLive: true });
+        verdict = await this.deps.reconcileOrder(orderId, {
+          leaveLive: true,
+          engineMissFloorSeconds: run.minAge,
+          sightedBy: run.clientRequestId,
+        });
       } catch (error) {
         // Whether it acted is read from the row, not assumed: a thrown reconcile may have finalized first.
         const [row] = await this.deps.sql<Array<{ status: string }>>`SELECT status::text FROM trade.orders WHERE id = ${orderId}`;
@@ -1385,8 +1475,7 @@ export class TradeOpsAdmin {
       minAgeSeconds: run.minAge,
       ranAt: at.toISOString(),
     };
-    await this.deps.sql.begin(async (tx) => {
-      const q = tx as unknown as Sql;
+    await this.deps.sql.begin(async (q) => {
       await q`INSERT INTO trade.operator_reconcile_sweeps (id, client_request_id, occurred_at, result)
         VALUES (${randomUUID()}, ${run.clientRequestId}, ${at.toISOString()}, ${q.json(result as never)})`;
       await storeRequest(q, run.clientRequestId, 'reconcile_sweep', run.fingerprint, result);

@@ -14,8 +14,9 @@ on:
       - 'tooling/scripts/order-path-cx8-boot.mjs'
       - '.github/workflows/order-path-cx8.yml'
       - 'services/svc-trade/**'
-      - 'services/svc-matching/**'
-      - 'services/svc-ledger/**'
+      - 'crates/svc-matching/**'
+      - 'crates/svc-ledger/**'
+      - 'crates/service-kit/**'
       - 'services/svc-identity/**'
       - 'packages/contracts/**'
       - 'packages/ledger-client/**'
@@ -31,7 +32,7 @@ on:
       - 'packages/money-math/**'
       - 'packages/exchange-contract/**'
       - 'services/svc-pay/**'
-      - 'services/svc-bank/**'
+      - 'crates/svc-bank/**'
 
 concurrency:
   group: order-path-cx8-${{ github.ref }}
@@ -47,7 +48,6 @@ env:
 jobs:
   assembled:
     name: CX-8 assembled smoke
-    # ubuntu-24.04, not ubuntu-latest: the Postgres service below is 16, and ubuntu-26.04 runners carry a newer pg_dump whose dumps start with SET transaction_timeout, which a 16 server refuses (svc-notify relay.pg, svc-ops restore tests; main CI run 42969066279, #7933).
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     services:
@@ -75,10 +75,16 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      - name: Get a nats-server binary
+        uses: ./.github/actions/nats-server
+        with:
+          path: ${{ runner.temp }}/nats-server
+
       - name: Start NATS JetStream
         run: |
-          docker run -d --name cx8-nats -p 4222:4222 -p 8222:8222 \
-            nats:2.10-alpine --jetstream --http_port=8222 --store_dir=/data
+          mkdir -p "$RUNNER_TEMP/nats-js"
+          nohup "$RUNNER_TEMP/nats-server" -p 4222 --jetstream --http_port=8222 --store_dir "$RUNNER_TEMP/nats-js" \
+            > "$RUNNER_TEMP/nats.log" 2>&1 &
           for i in $(seq 1 30); do
             wget -q -O- http://127.0.0.1:8222/healthz && break
             sleep 1
@@ -102,7 +108,11 @@ jobs:
           bash tooling/infra/postgres-init/02-intafaced-test-db.sh
 
       - name: Build packages used by money path
-        run: pnpm exec turbo run build --filter=@intafaced/svc-ledger --filter=@intafaced/svc-matching --filter=@intafaced/svc-trade --filter=@intafaced/svc-identity --filter=@intafaced/contracts --filter=@intafaced/ledger-client --filter=@intafaced/events --filter=@intafaced/config --filter=@intafaced/auth --filter=@intafaced/db --filter=@intafaced/exchange-contract --filter=@intafaced/svc-pay --filter=@intafaced/svc-bank --filter=@intafaced/svc-tax --filter=@intafaced/ui --filter=@intafaced/i18n --filter=@intafaced/money-math
+        run: pnpm exec turbo run build --filter=@intafaced/svc-trade --filter=@intafaced/svc-identity --filter=@intafaced/contracts --filter=@intafaced/ledger-client --filter=@intafaced/events --filter=@intafaced/config --filter=@intafaced/auth --filter=@intafaced/db --filter=@intafaced/exchange-contract --filter=@intafaced/svc-pay --filter=@intafaced/ui --filter=@intafaced/i18n --filter=@intafaced/money-math
+
+      # svc-tax, svc-ledger, svc-matching and svc-bank are Rust (crates/): the runner's rustup installs the toolchain rust-toolchain.toml pins.
+      - name: Build svc-tax, svc-ledger, svc-matching and svc-bank (Rust)
+        run: rustup toolchain install && cargo build --release --locked -p svc-tax -p svc-ledger -p svc-matching -p svc-bank
 
       # The CX-8 smoke, then the customer trade journeys on the same stack (svc-pay boots for the withdrawal journeys, svc-bank for the wallet view).
       - name: CX-8 boot + STRICT smoke + trade journeys

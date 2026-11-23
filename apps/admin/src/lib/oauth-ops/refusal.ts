@@ -1,5 +1,5 @@
-import type { FounderCallFailure } from '@/lib/desk/founder-call';
-import { explainRefusal, type RefusalView } from '@/lib/desk/refusal-copy';
+import type { FounderCallFailure } from '@/lib/desk';
+import { explainRefusal, type RefusalView } from '@/lib/refusal-copy';
 
 /**
  * Plain-English answers for what svc-identity says back to an operator reading or deciding on an OAuth app.

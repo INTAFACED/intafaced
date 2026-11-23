@@ -1,6 +1,6 @@
 # ADR: the launch money model
 
-**Status:** Proposed. **Date:** 2026-11-10. **Area:** packages/ledger-client, svc-ledger, every service that posts or shows money.
+**Status:** Accepted. **Date:** 2026-11-10. **Area:** packages/ledger-client, svc-ledger, every service that posts or shows money.
 
 ## Decision
 

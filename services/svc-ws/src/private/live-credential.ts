@@ -9,13 +9,8 @@
  * non-OK identity response (including 401) as live.
  */
 
-import {
-  accountStateSchema,
-  apiKeyOwnershipSchema,
-  sessionOwnershipSchema,
-  type ServiceAuthMode,
-  type ServiceSigner,
-} from '@intafaced/contracts';
+import type { ServiceAuthMode, ServiceSigner } from '@intafaced/contracts';
+import { accountStateSchema, apiKeyOwnershipSchema, sessionOwnershipSchema } from '@intafaced/contracts/identity';
 import { apiKeyIpAllowed } from './caller-ip.js';
 import { apiKeyOriginAllowed } from './key-origin.js';
 import { apiKeyProductAllowed, STREAM_PRODUCT } from './key-product.js';
@@ -115,6 +110,11 @@ export type LiveCredentialInput = {
   readonly now?: Date | string | number | null;
   /** Presented account (`x-account-id`). Session seats ignore it. */
   readonly accountId?: string | null;
+  /**
+   * The seat opened with a stream token, which identity mints only for a request the edge let through: for a key that
+   * signs every request, a signed one. Such a token passes the signed-key belt below; any other key-minted token does not.
+   */
+  readonly signedMint?: boolean;
 };
 
 function unavailable(cause?: unknown): LiveCredentialError {
@@ -175,8 +175,9 @@ export async function assertLiveCredential(port: LiveCredentialPort, input: Live
     if (row.revoked) {
       throw new LiveCredentialError('API key is revoked', 'auth.api_key_revoked');
     }
-    // A key-minted JWT is not a signed raw-key request. Same belt as the edge live check.
-    if (row.requireSignature === true) {
+    // A key-minted JWT is not a signed raw-key request. Same belt as the edge live check. A stream token is the one
+    // exception: its mint was itself a request the key had to sign.
+    if (row.requireSignature === true && input.signedMint !== true) {
       throw new LiveCredentialError('API key requires a signed request', 'auth.signature_required');
     }
     if (!ipAllowlistSatisfied(row.requireNonEmptyIpAllowlist === true, row.ipAllowlist)) {

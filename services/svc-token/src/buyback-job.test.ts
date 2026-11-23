@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { MemoryLedger, formatAmount, houseFees, parseAmount as amt, recipes, type Amount } from '@intafaced/ledger-client';
+import { MemoryLedger, formatAmount, parseAmount as amt, recipes, type Amount } from '@intafaced/ledger-client';
 import { TokenError } from './token-service.js';
 import { DEFAULT_BUYBACK_PARAMS } from './economics/buyback.js';
 import { runBuybackWindow, type BuybackJobDeps } from './buyback-job.js';

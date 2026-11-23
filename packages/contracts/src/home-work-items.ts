@@ -26,6 +26,8 @@ export const WORK_LIST_ORDER_UNSET = 'home.work_list_order_unset' as const;
 export const SEARCH_RESULT_CAP_UNSET = 'home.search_result_cap_unset' as const;
 /** Home's announcement strip while its notice count is blank (HM-widgets-03): the strip says the count is not set. */
 export const NOTICE_STRIP_LIMIT_UNSET = 'home.notice_strip_limit_unset' as const;
+/** Home's Recent activity while the owner has not set how many movements it lists (HM-dashboard-04): it says "not set". */
+export const RECENT_ACTIVITY_LIMIT_UNSET = 'home.recent_activity_limit_unset' as const;
 /** Returned to the settings desk only: Home shows no margin item and no error while the level is blank. */
 export const BANK_MARGIN_WARNING_UNSET = 'bank.margin_warning_unset' as const;
 
@@ -77,7 +79,7 @@ const roomLink = z
   .string()
   .min(1)
   .max(512)
-  .regex(/^\/(?!\/)[^\\\s]*$/, 'customer room path')
+  .regex(/^\/(?:[^\\\s/][^\\\s]*)?$/, 'customer room path')
   .refine((link) => {
     const path = link.split(/[?#]/)[0] ?? '';
     return !path.includes('%') && !path.split('/').some((segment) => segment === '.' || segment === '..');
@@ -149,6 +151,19 @@ export const homeConfigOutputSchema = z.object({
   searchResultCap: z.number().int().min(1).max(20).nullable(),
   /** How many of the latest announcements Home's strip shows (HM-widgets-03). Absent from an older answer reads as blank. */
   noticeStripLimit: z.number().int().min(1).max(10).nullable().default(null),
+  /** How many of the newest movements Home's Recent activity lists (HM-dashboard-04). Absent from an older answer reads as blank. */
+  recentActivityLimit: z.number().int().min(1).max(20).nullable().default(null),
   revision: z.number().int().nonnegative(),
 });
 export type HomeConfig = z.infer<typeof homeConfigOutputSchema>;
+
+/**
+ * `home.config` as its record sends it (`OPS_HOME_CONFIG`): the same fields, with "each kind once" moved from the schema
+ * to the record's `accept`, where every caller runs it. svc-ops checks the order at boot with `homeConfigOutputSchema`.
+ */
+export const homeConfigReplySchema = homeConfigOutputSchema.extend({ workListOrder: z.array(workItemKindSchema).min(1).nullable() });
+/** True when no kind appears twice in the owners' order (blank passes). */
+export const eachWorkKindOnce = (reply: unknown): boolean => {
+  const order = homeConfigReplySchema.safeParse(reply).data?.workListOrder;
+  return order !== undefined && (order === null || new Set(order).size === order.length);
+};

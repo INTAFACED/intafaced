@@ -1,11 +1,13 @@
 import { useRef, useState } from 'react';
-import { kycPoaReadSchema, kycPoaSubmissionSchema, type KycPoaRead, type KycPoaSubmission } from '@intafaced/contracts/identity-kyc-poa';
+import { type KycPoaRead, type KycPoaSubmission } from '@intafaced/contracts/identity-kyc-poa';
 import type { ApiResult } from '../../shared/api';
 import { base64Of, kib, localToday } from '../../shared/file-base64';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
-import { Button, Failure, Field, Loading } from '../../shared/ui';
+import { Button, Field } from '@intafaced/ui/lit';
+import { Failure, Loading } from './kit-parts';
 import { verificationPoaCopy as copy } from './verification-poa-copy';
+import { IDENTITY_KYC_PROOF_OF_ADDRESS_READ, IDENTITY_KYC_PROOF_OF_ADDRESS_SUBMIT } from '@intafaced/contracts/identity-kyc-procedures';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 /** A refusal from the service keeps its typed code beside the plain words; a check made here before sending has none. */
@@ -25,7 +27,7 @@ export function VerificationProofOfAddress({ recordsKey, disabled }: { recordsKe
   const [country, setCountry] = useState<string | null>(null);
   const chosen = country && /^[A-Z]{2}$/.test(country) ? country : undefined;
   const { resource, reload } = useResource(
-    (signal) => api.query('identity', 'kyc.proofOfAddress.read', chosen ? { country: chosen } : {}, kycPoaReadSchema, { signal }),
+    (signal) => api.call(IDENTITY_KYC_PROOF_OF_ADDRESS_READ, chosen ? { country: chosen } : {}, { signal }),
     `verification-poa:${userId}:${recordsKey}:${chosen ?? ''}`,
   );
   const [type, setType] = useState('');
@@ -57,7 +59,7 @@ export function VerificationProofOfAddress({ recordsKey, disabled }: { recordsKe
     const reading = resource.status === 'loading';
     if (!requested)
       return (
-        <p className="muted" data-testid="verification__poa-state" data-state="not-requested">
+        <p className="lt-muted" data-testid="verification__poa-state" data-state="not-requested">
           <Copy k="notRequested" />
         </p>
       );
@@ -113,12 +115,13 @@ export function VerificationProofOfAddress({ recordsKey, disabled }: { recordsKe
         } catch {
           return setProblem({ kind: 'copy', text: t('unreadable') });
         }
-        const answer = await api.mutate(
-          'identity',
-          'kyc.proofOfAddress.submit',
-          { type, country: shownCountry, issuedOn, contentType: file.type, bytesBase64 },
-          kycPoaSubmissionSchema,
-        );
+        const answer = await api.call(IDENTITY_KYC_PROOF_OF_ADDRESS_SUBMIT, {
+          type,
+          country: shownCountry,
+          issuedOn,
+          contentType: file.type,
+          bytesBase64,
+        });
         if (!answer.ok) return refused(answer);
         setSent(answer.data);
         reload();
@@ -127,13 +130,13 @@ export function VerificationProofOfAddress({ recordsKey, disabled }: { recordsKe
       }
     };
     return (
-      <div className="stack">
+      <div className="lt-stack">
         {rereadFailed && <Failure result={rereadFailed} retry={reload} />}
         <p data-testid="verification__poa-rule" data-max-age-days={maxAgeDays ?? ''}>
           {maxAgeDays ? <Copy k="rule" params={{ days: String(maxAgeDays) }} /> : <Copy k="ruleUnset" />}
         </p>
         {residence && (
-          <p className="muted">
+          <p className="lt-muted">
             <Copy k="residence" params={{ country: residence }} />
           </p>
         )}
@@ -151,12 +154,12 @@ export function VerificationProofOfAddress({ recordsKey, disabled }: { recordsKe
           </p>
         )}
         {latest?.status === 'submitted' && (
-          <p className="muted" data-testid="verification__poa-one-at-a-time">
+          <p className="lt-muted" data-testid="verification__poa-one-at-a-time">
             <Copy k="oneAtATime" />
           </p>
         )}
         <form
-          className="form-stack"
+          className="lt-stack"
           onSubmit={(event) => {
             event.preventDefault();
             void send();
@@ -208,7 +211,7 @@ export function VerificationProofOfAddress({ recordsKey, disabled }: { recordsKe
             )}
           </div>
           {documents.published && (
-            <label className="field">
+            <label className="lt-field">
               <span>
                 <Copy k="typeField" />
               </span>
@@ -259,6 +262,7 @@ export function VerificationProofOfAddress({ recordsKey, disabled }: { recordsKe
             </p>
           )}
           <Button
+            tone="primary"
             type="submit"
             disabled={disabled || busy || reading || !file || !uploadCaps || !documents.accepted.some((row) => row.type === type)}
           >
@@ -282,11 +286,11 @@ export function VerificationProofOfAddress({ recordsKey, disabled }: { recordsKe
   };
 
   return (
-    <section className="verification__cases" aria-labelledby="verification-poa-title" data-testid="verification__poa">
+    <section className="lt-stack" aria-labelledby="verification-poa-title" data-testid="verification__poa">
       <h2 id="verification-poa-title">
         <Copy k="title" />
       </h2>
-      <p className="muted">
+      <p className="lt-muted">
         <Copy k="intro" />
       </p>
       {body()}

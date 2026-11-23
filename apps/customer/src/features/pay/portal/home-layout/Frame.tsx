@@ -5,12 +5,15 @@ import './home-layout.css';
 
 export function LayoutFrame({
   here,
+  heading = true,
   title,
   purpose,
   action,
   children,
 }: {
   here: string;
+  /** False when the page draws its own title on its template: no heading here, so the page keeps one. */
+  heading?: boolean;
   title: ReactNode;
   purpose?: ReactNode;
   action?: ReactNode;
@@ -22,8 +25,8 @@ export function LayoutFrame({
     <div className={`plo pfo-tabs ${dashboard ? 'plo--dashboard' : 'plo--list'} ${here === '/pay/payments' ? 'plo--payments' : ''}`}>
       <LayoutNavigation key={here} here={here} />
       <div data-testid="pp" className="plo-content pp">
-        {dashboard ? (
-          <h1 className="pp-sr">{t('overviewHeading')}</h1>
+        {!heading ? null : dashboard ? (
+          <h1 className="lt-sr">{t('overviewHeading')}</h1>
         ) : (
           <header data-testid="plo-heading" className="plo-heading">
             <div>

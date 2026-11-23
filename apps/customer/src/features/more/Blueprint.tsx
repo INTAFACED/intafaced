@@ -1,155 +1,41 @@
-import { t as copyText, Text } from './copy';
+import { birthDateOptions } from './birth-date';
+import { copy, t as copyText, Text } from './copy';
 import { useEffect, useRef, useState } from 'react';
-import { z } from 'zod';
-import { useApi, useSession } from '../session/session';
-import { useResource } from '../../shared/resource';
+import { BLUEPRINT_ERASE, BLUEPRINT_EXPORT, BLUEPRINT_SET_VISIBILITY } from '@intafaced/contracts/blueprint-procedures';
+import { useApi, useSession } from '../session';
 import { Button, Field, Panel } from '../../shared/ui';
 import { Details, Read, Select, useAction } from './common';
 import { BlueprintSharedCard, BlueprintMentorCardAction } from './BlueprintSharedCard';
 import { BlueprintCrew } from './BlueprintCrew';
+import { safeCardSvg } from './blueprint-card-svg';
 import { blueprintSessionCopy } from './blueprint-session-copy';
+import {
+  CARD_SIZES,
+  VISIBILITIES,
+  download,
+  downloaded,
+  isCardSize,
+  isVisibility,
+  useBlueprintReads,
+  type CardSize,
+} from './blueprint-reads';
+import './blueprint.css';
 
-const VISIBILITIES = ['private', 'crew', 'public'] as const;
-const CARD_SIZES = ['portrait', 'landscape'] as const;
-const uuid = z.string().guid();
-const profile = z.object({
-  decisionStyle: z.enum(['analytical', 'intuitive', 'collaborative', 'decisive']),
-  riskTemperament: z.enum(['guarded', 'measured', 'assertive', 'bold']),
-  energyRhythm: z.enum(['dawn', 'steady', 'surge', 'nocturnal']),
-  learningMode: z.enum(['visual', 'narrative', 'hands_on', 'systematic']),
-  crewRole: z.enum(['anchor', 'scout', 'builder', 'catalyst']),
-  curriculumPath: z.enum(['foundations', 'markets', 'builder', 'sovereign']),
-  toneRegister: z.enum(['direct', 'warm', 'socratic', 'terse']),
-  guardrails: z.object({
-    maxLeverage: z.number().int(),
-    dailyLossPromptPct: z.number().int(),
-    confirmBeforeMarketOrder: z.boolean(),
-    copyTradingVisible: z.boolean(),
-  }),
-});
-const blueprint = z.object({
-  id: uuid,
-  userId: uuid,
-  engineVersion: z.string(),
-  profile,
-  cardAssetUrl: z.string().nullable(),
-  visibility: z.enum(['private', 'crew', 'public']),
-  createdAt: z.string(),
-});
-const mentor = z.object({
-  studentId: uuid,
-  mentorId: uuid,
-  fitScore: z.number().int().min(0).max(10000),
-  status: z.enum(['shortlisted', 'accepted', 'declined', 'ended']),
-});
-const card = z.object({
-  size: z.enum(['portrait', 'landscape']),
-  width: z.number().int().positive(),
-  height: z.number().int().positive(),
-  svg: z.string().min(1),
-  shareMode: z.enum(['svg', 'png']),
-  raster: z.discriminatedUnion('status', [
-    z.object({
-      status: z.literal('rendered'),
-      url: z.string().url(),
-      contentType: z.literal('image/png'),
-      bytes: z.number().int().positive(),
-    }),
-    z.object({ status: z.literal('unavailable'), code: z.string(), reason: z.string() }),
-  ]),
-});
-export function safeCardSvg(svg: string) {
-  if (/<!DOCTYPE|<!ENTITY/i.test(svg)) return false;
-  const document = new DOMParser().parseFromString(svg, 'image/svg+xml');
-  if (document.querySelector('parsererror') || document.documentElement.localName !== 'svg') return false;
-  const allowed = new Set([
-    'svg',
-    'g',
-    'defs',
-    'rect',
-    'circle',
-    'ellipse',
-    'line',
-    'polyline',
-    'polygon',
-    'path',
-    'text',
-    'tspan',
-    'linearGradient',
-    'radialGradient',
-    'stop',
-    'pattern',
-    'clipPath',
-    'mask',
-    'title',
-    'desc',
-  ]);
-  for (const element of [document.documentElement, ...document.documentElement.querySelectorAll('*')]) {
-    if (!allowed.has(element.localName) || element.namespaceURI !== 'http://www.w3.org/2000/svg') return false;
-    for (const attr of element.attributes) {
-      if (/^on/i.test(attr.localName) || ['href', 'src', 'base'].includes(attr.localName)) return false;
-      if (attr.name === 'xmlns' || attr.name === 'xmlns:xlink') continue;
-      const remainder = attr.value.replace(/url\(\s*#[a-zA-Z_][a-zA-Z0-9_-]*\s*\)/g, '');
-      if (/url\s*\(|javascript:|data:|https?:|@import|expression\s*\(/i.test(remainder)) return false;
-    }
-  }
-  return true;
-}
-
-function download(name: string, text: string, type: string) {
-  const url = URL.createObjectURL(new Blob([text], { type }));
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = name;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
+/** The old view of the Blueprint room, which the /blueprint/crew section still draws; /blueprint itself is `BlueprintRoom` on the kit. */
 export function Blueprint({ path = '/blueprint' }: { path?: string }) {
   const api = useApi(),
     { userId } = useSession(),
     action = useAction('blueprint'),
-    { t: label } = blueprintSessionCopy.useCopy();
-  const [size, setSize] = useState('portrait'),
+    { t: label } = blueprintSessionCopy.useCopy(),
+    { renderedLocale } = copy.useCopy();
+  const birth = birthDateOptions(renderedLocale, copyText('blueprint.birth.not.given'), new Date().getUTCFullYear());
+  const [size, setSize] = useState<CardSize>('portrait'),
     [erase, setErase] = useState(''),
     [exporting, setExporting] = useState(false),
     [exportError, setExportError] = useState('');
-  const me = useResource(
-      (signal) =>
-        api.query(
-          'blueprint',
-          'me',
-          undefined,
-          blueprint
-            .nullable()
-            .refine((row) => !row || row.userId === userId, copyText('blueprint.blueprint.ownership.does.not.match.this.account')),
-          { signal },
-        ),
-      `blueprint:${userId}`,
-    ),
-    mentors = useResource(
-      (signal) =>
-        api.query(
-          'blueprint',
-          'mentors',
-          undefined,
-          z
-            .array(mentor)
-            .refine(
-              (rows) => rows.every((row) => row.studentId === userId),
-              copyText('blueprint.mentor.shortlist.belongs.to.another.account'),
-            ),
-          { signal },
-        ),
-      `mentors:${userId}`,
-    ),
-    share = useResource((signal) => api.query('blueprint', 'card', { size }, card, { signal }), `card:${userId}:${size}`);
+  const { me, mentors, share, reload } = useBlueprintReads(size);
   const currentMentors = useRef(mentors.resource);
   currentMentors.current = mentors.resource;
-  const reload = () => {
-    me.reload();
-    mentors.reload();
-    share.reload();
-  };
   // /blueprint/crew opens on the crew section.
   useEffect(() => {
     if (/^\/blueprint\/crew\/?$/.test(path.split(/[?#]/)[0] ?? ''))
@@ -176,7 +62,7 @@ export function Blueprint({ path = '/blueprint' }: { path?: string }) {
                       [copyText('blueprint.engine.build'), record.engineVersion],
                     ]}
                   />
-                  <a className="text-link" href={`/academy?path=${encodeURIComponent(record.profile.curriculumPath)}`}>
+                  <a className="lt-link" href={`/academy?path=${encodeURIComponent(record.profile.curriculumPath)}`}>
                     <Text k="blueprint.open.your" />
                     {record.profile.curriculumPath}
                     <Text k="blueprint.learning.path" />
@@ -185,6 +71,7 @@ export function Blueprint({ path = '/blueprint' }: { path?: string }) {
                     label={copyText('blueprint.blueprint.visibility')}
                     value={record.visibility}
                     onChange={(value) =>
+                      isVisibility(value) &&
                       action.stage({
                         title: copyText('blueprint.review.visibility.change'),
                         confirm: copyText('blueprint.change.visibility'),
@@ -198,7 +85,7 @@ export function Blueprint({ path = '/blueprint' }: { path?: string }) {
                                 : copyText('blueprint.any.signed.in.account.can.view.your')}
                           </p>
                         ),
-                        run: () => api.mutate('blueprint', 'setVisibility', { visibility: value }, blueprint),
+                        run: () => api.call(BLUEPRINT_SET_VISIBILITY, { visibility: value }),
                         done: reload,
                       })
                     }
@@ -213,7 +100,7 @@ export function Blueprint({ path = '/blueprint' }: { path?: string }) {
           <Select
             label={copyText('blueprint.card.size')}
             value={size}
-            onChange={setSize}
+            onChange={(value) => isCardSize(value) && setSize(value)}
             options={CARD_SIZES.map((value) => ({ value, label: label(value) }))}
           />
           <Read resource={share.resource} retry={share.reload}>
@@ -238,12 +125,12 @@ export function Blueprint({ path = '/blueprint' }: { path?: string }) {
                   </p>
                 )}
                 {c.raster.status === 'unavailable' ? (
-                  <p className="muted">
+                  <p className="lt-muted">
                     <Text k="blueprint.png.unavailable" />
                     {c.raster.reason}
                   </p>
                 ) : c.raster.url.startsWith('https:') ? (
-                  <a className="text-link" href={c.raster.url} target="_blank" rel="noreferrer">
+                  <a className="lt-link" href={c.raster.url} target="_blank" rel="noreferrer">
                     <Text k="blueprint.open.rendered.png" />
                   </a>
                 ) : (
@@ -251,7 +138,7 @@ export function Blueprint({ path = '/blueprint' }: { path?: string }) {
                     <Text k="blueprint.png.url.cannot.be.verified.as.a" />
                   </p>
                 )}
-                <p className="muted">
+                <p className="lt-muted">
                   <Text k="blueprint.share.mode" />
                   {c.shareMode}
                   <Text k="blueprint.card.reads.require.a.signed.viewer.and" />
@@ -285,7 +172,7 @@ export function Blueprint({ path = '/blueprint' }: { path?: string }) {
               </ul>
             )}
           </Read>
-          <p className="muted">{label('mentorLimit')}</p>
+          <p className="lt-muted">{label('mentorLimit')}</p>
         </Panel>
         <Panel title={copyText('blueprint.your.data')}>
           <Button
@@ -294,30 +181,12 @@ export function Blueprint({ path = '/blueprint' }: { path?: string }) {
             onClick={() => {
               setExporting(true);
               setExportError('');
-              void api
-                .query(
-                  'blueprint',
-                  'export',
-                  undefined,
-                  z.object({
-                    schemaVersion: z.literal(2),
-                    exportedAt: z.string(),
-                    blueprint: blueprint.nullable(),
-                    card: card.nullable(),
-                    crew: z.unknown(),
-                    membership: z.unknown(),
-                    crewmates: z.array(z.unknown()),
-                    matchRuns: z.array(z.unknown()),
-                    mentorMatches: z.array(mentor),
-                    mentoringOthers: z.array(mentor),
-                  }),
-                )
-                .then((res) => {
-                  setExporting(false);
-                  if (res.ok && action.isCurrent())
-                    download('identity-blueprint.json', JSON.stringify(res.data, null, 2), 'application/json');
-                  else if (!res.ok && action.isCurrent()) setExportError(res.message);
-                });
+              void api.call(BLUEPRINT_EXPORT, undefined).then((res) => {
+                setExporting(false);
+                if (res.ok && action.isCurrent())
+                  download('identity-blueprint.json', JSON.stringify(downloaded(res.data), null, 2), 'application/json');
+                else if (!res.ok && action.isCurrent()) setExportError(res.message);
+              });
             }}
           >
             <Text k="blueprint.export.blueprint.json" />
@@ -344,23 +213,7 @@ export function Blueprint({ path = '/blueprint' }: { path?: string }) {
                       <Text k="blueprint.this.cannot.be.undone.the.service.returns" />
                     </p>
                   ),
-                  run: () =>
-                    api.mutate(
-                      'blueprint',
-                      'erase',
-                      undefined,
-                      z.object({
-                        userId: uuid,
-                        erasedAt: z.string(),
-                        removed: z.object({
-                          blueprints: z.number().int().nonnegative(),
-                          crewMemberships: z.number().int().nonnegative(),
-                          matchRuns: z.number().int().nonnegative(),
-                          mentorMatches: z.number().int().nonnegative(),
-                          emptiedCrews: z.number().int().nonnegative(),
-                        }),
-                      }),
-                    ),
+                  run: () => api.call(BLUEPRINT_ERASE, undefined),
                   done: () => {
                     setErase('');
                     reload();
@@ -374,7 +227,7 @@ export function Blueprint({ path = '/blueprint' }: { path?: string }) {
         </Panel>
       </div>
       <Panel title={copyText('blueprint.guided.blueprint.session')}>
-        <p className="muted" id="blueprint-session-reason">
+        <p className="lt-muted" id="blueprint-session-reason">
           {label('unavailable')}
         </p>
         <form onSubmit={(e) => e.preventDefault()} aria-describedby="blueprint-session-reason">
@@ -393,7 +246,12 @@ export function Blueprint({ path = '/blueprint' }: { path?: string }) {
               <summary>
                 <Text k="blueprint.optional.birth.data" />
               </summary>
-              <Field label={copyText('blueprint.birth.date.optional')} type="date" value="" onChange={() => undefined} />
+              <fieldset>
+                <legend>{copyText('blueprint.birth.date.optional')}</legend>
+                <Select label={copyText('blueprint.birth.day')} value="" onChange={() => undefined} options={birth.days} />
+                <Select label={copyText('blueprint.birth.month')} value="" onChange={() => undefined} options={birth.months} />
+                <Select label={copyText('blueprint.birth.year')} value="" onChange={() => undefined} options={birth.years} />
+              </fieldset>
               <Field label={copyText('blueprint.birth.time.optional')} type="time" value="" onChange={() => undefined} />
               <Field label={copyText('blueprint.birth.place.optional')} value="" onChange={() => undefined} maxLength={200} />
             </details>

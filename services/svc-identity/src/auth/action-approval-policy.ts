@@ -11,14 +11,13 @@
  * default. A key that is not a governed type is ignored: an ungoverned type keeps the fixed rule.
  */
 import { createHash } from 'node:crypto';
+import type { ActionApprovalPolicy, ActionApprovalPolicyEntry, PolicyGovernedActionType } from '@intafaced/contracts';
 import {
   POLICY_GOVERNED_ACTION_TYPES,
   approvalPolicyAudienceSchema,
   governedActionTypeOf,
-  type ActionApprovalPolicy,
-  type ActionApprovalPolicyEntry,
-  type PolicyGovernedActionType,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/action-approval-policy';
+import { isRecord } from '@intafaced/contracts/guards';
 
 /** Upper bounds are shape guards, not owner values: no request lives a year, no rule needs more than 32 people. */
 const MAX_REQUIRED_APPROVALS = 32;
@@ -37,10 +36,6 @@ function wholeNumber(value: unknown, max: number): number | null {
   if (typeof value !== 'string' || !/^[1-9][0-9]{0,9}$/.test(value.trim())) return null;
   const n = Number(value.trim());
   return n <= max ? n : null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /** The version a request is bound to: a hash of the type and the row's values, in a fixed key order. */
