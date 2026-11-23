@@ -196,14 +196,14 @@ pub fn outside_withdrawals(holds: &[WithdrawalHold]) -> Vec<AccountLine> {
             .map(|l| l.amount)
             .sum();
         for line in held.iter_mut().rev() {
-            if back <= 0 {
+            if back <= Amount::ZERO {
                 break;
             }
             let take = line.amount.min(back);
             line.amount -= take;
             back -= take;
         }
-        out.extend(held.into_iter().filter(|l| l.amount > 0));
+        out.extend(held.into_iter().filter(|l| l.amount > Amount::ZERO));
     }
     out.sort_by(by_time);
     out

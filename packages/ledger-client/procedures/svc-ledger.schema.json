@@ -222,6 +222,157 @@
         }
       ]
     },
+    "ledger.operatorReverse": {
+      "service": "svc-ledger",
+      "transport": "http",
+      "method": "POST",
+      "path": "/trpc/operatorReverse",
+      "access": {
+        "caller": "service",
+        "callers": ["svc-ops"]
+      },
+      "refusals": {
+        "ledger.tx_not_found": "NOT_FOUND",
+        "ledger.invalid_entry": "BAD_REQUEST",
+        "ledger.reversal_already_reversed": "CONFLICT",
+        "ledger.insufficient_funds": "BAD_REQUEST",
+        "ledger.owner_identity_space": "BAD_REQUEST",
+        "ledger.unauthenticated": "UNAUTHORIZED",
+        "ledger.caller_forbidden": "FORBIDDEN",
+        "ledger.idempotency_conflict": "CONFLICT",
+        "ledger.frozen": "PRECONDITION_FAILED",
+        "ledger.custody_layer_off": "PRECONDITION_FAILED",
+        "ledger.writes_blocked_store_unavailable": "SERVICE_UNAVAILABLE",
+        "ledger.writes_blocked_store_disk_full": "SERVICE_UNAVAILABLE",
+        "ledger.writes_blocked_clock_skew": "SERVICE_UNAVAILABLE"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "originalTxId": {
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+          },
+          "ordinal": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,18}$"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "pattern": "\\S"
+          },
+          "caseRef": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "\\S"
+          }
+        },
+        "required": ["originalTxId", "ordinal", "reason", "caseRef"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "txId": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "pattern": "^ops:reversal:[0-9a-f-]{36}:[1-9][0-9]{0,18}$"
+          },
+          "postedAt": {
+            "type": "string"
+          },
+          "reverses": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          }
+        },
+        "required": ["txId", "idempotencyKey", "postedAt", "reverses"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "originalTxId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "ordinal": "1",
+            "reason": "LOCAL TEST wrong account",
+            "caseRef": "case-1"
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "originalTxId": "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA",
+            "ordinal": "1234567890123456789",
+            "reason": "x",
+            "caseRef": "c"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "originalTxId": "not-a-uuid",
+            "ordinal": "1",
+            "reason": "r",
+            "caseRef": "c"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "originalTxId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "ordinal": "0",
+            "reason": "r",
+            "caseRef": "c"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "originalTxId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "ordinal": "1.5",
+            "reason": "r",
+            "caseRef": "c"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "originalTxId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "ordinal": "1",
+            "reason": "   ",
+            "caseRef": "c"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "originalTxId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "ordinal": "1",
+            "reason": "r",
+            "caseRef": ""
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "originalTxId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "ordinal": "1",
+            "reason": "r",
+            "caseRef": "c",
+            "entries": []
+          }
+        }
+      ]
+    },
     "ledger.postRecipe": {
       "service": "svc-ledger",
       "transport": "http",
@@ -1102,6 +1253,916 @@
             },
             "required": ["recipe", "input"],
             "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "recipe": {
+                "type": "string",
+                "const": "loanCollateralLock"
+              },
+              "input": {
+                "type": "object",
+                "properties": {
+                  "loanId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "userId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "collateralAssetId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 16,
+                    "pattern": "^[^\\s]+$"
+                  },
+                  "amount": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                  },
+                  "sequence": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2147483647
+                  }
+                },
+                "required": ["loanId", "userId", "collateralAssetId", "amount", "sequence"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["recipe", "input"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "recipe": {
+                "type": "string",
+                "const": "loanCollateralRelease"
+              },
+              "input": {
+                "type": "object",
+                "properties": {
+                  "loanId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "userId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "collateralAssetId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 16,
+                    "pattern": "^[^\\s]+$"
+                  },
+                  "amount": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                  },
+                  "sequence": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2147483647
+                  }
+                },
+                "required": ["loanId", "userId", "collateralAssetId", "amount", "sequence"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["recipe", "input"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "recipe": {
+                "type": "string",
+                "const": "loanDraw"
+              },
+              "input": {
+                "type": "object",
+                "properties": {
+                  "loanId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "userId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "debtAssetId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 16,
+                    "pattern": "^[^\\s]+$"
+                  },
+                  "principal": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                  }
+                },
+                "required": ["loanId", "userId", "debtAssetId", "principal"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["recipe", "input"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "recipe": {
+                "type": "string",
+                "const": "loanRepay"
+              },
+              "input": {
+                "type": "object",
+                "properties": {
+                  "loanId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "userId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "debtAssetId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 16,
+                    "pattern": "^[^\\s]+$"
+                  },
+                  "principal": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                  },
+                  "interest": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                  },
+                  "sequence": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2147483647
+                  }
+                },
+                "required": ["loanId", "userId", "debtAssetId", "principal", "interest", "sequence"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["recipe", "input"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "recipe": {
+                "type": "string",
+                "const": "loanReserveFund"
+              },
+              "input": {
+                "type": "object",
+                "properties": {
+                  "fundingId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "debtAssetId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 16,
+                    "pattern": "^[^\\s]+$"
+                  },
+                  "amount": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                  }
+                },
+                "required": ["fundingId", "debtAssetId", "amount"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["recipe", "input"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "recipe": {
+                "type": "string",
+                "const": "loanLiquidate"
+              },
+              "input": {
+                "type": "object",
+                "properties": {
+                  "loanId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "userId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "tranche": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2147483647
+                  },
+                  "collateralAssetId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 16,
+                    "pattern": "^[^\\s]+$"
+                  },
+                  "collateralSold": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                  },
+                  "debtAssetId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 16,
+                    "pattern": "^[^\\s]+$"
+                  },
+                  "proceeds": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                  },
+                  "principalRepaid": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                  },
+                  "interestRepaid": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                  },
+                  "penalty": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                  },
+                  "surplusToBorrower": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                  },
+                  "buyer": {
+                    "type": "object",
+                    "properties": {
+                      "collateralTo": {
+                        "type": "object",
+                        "properties": {
+                          "ownerType": {
+                            "type": "string",
+                            "const": "house"
+                          },
+                          "ownerId": {
+                            "type": "string",
+                            "const": "market-maker"
+                          },
+                          "assetId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 16,
+                            "pattern": "^[^\\s]+$"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "const": "available"
+                          }
+                        },
+                        "required": ["ownerType", "ownerId", "assetId", "kind"],
+                        "additionalProperties": false
+                      },
+                      "proceedsFrom": {
+                        "type": "object",
+                        "properties": {
+                          "ownerType": {
+                            "type": "string",
+                            "const": "house"
+                          },
+                          "ownerId": {
+                            "type": "string",
+                            "const": "market-maker"
+                          },
+                          "assetId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 16,
+                            "pattern": "^[^\\s]+$"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "const": "available"
+                          }
+                        },
+                        "required": ["ownerType", "ownerId", "assetId", "kind"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": ["collateralTo", "proceedsFrom"],
+                    "additionalProperties": false
+                  },
+                  "markPrice": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                  }
+                },
+                "required": [
+                  "loanId",
+                  "userId",
+                  "tranche",
+                  "collateralAssetId",
+                  "collateralSold",
+                  "debtAssetId",
+                  "proceeds",
+                  "principalRepaid",
+                  "interestRepaid",
+                  "penalty",
+                  "surplusToBorrower",
+                  "buyer",
+                  "markPrice"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": ["recipe", "input"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "recipe": {
+                "type": "string",
+                "const": "loanBadDebt"
+              },
+              "input": {
+                "type": "object",
+                "properties": {
+                  "loanId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "debtAssetId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 16,
+                    "pattern": "^[^\\s]+$"
+                  },
+                  "shortfall": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                  }
+                },
+                "required": ["loanId", "debtAssetId", "shortfall"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["recipe", "input"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "recipe": {
+                "type": "string",
+                "const": "businessApprovalHold"
+              },
+              "input": {
+                "type": "object",
+                "properties": {
+                  "approvalId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "from": {
+                    "type": "object",
+                    "properties": {
+                      "ownerType": {
+                        "type": "string",
+                        "enum": ["user", "subaccount"]
+                      },
+                      "ownerId": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                      },
+                      "assetId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 16,
+                        "pattern": "^[^\\s]+$"
+                      },
+                      "kind": {
+                        "type": "string",
+                        "const": "available"
+                      }
+                    },
+                    "required": ["ownerType", "ownerId", "assetId", "kind"],
+                    "additionalProperties": false
+                  },
+                  "amount": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                  }
+                },
+                "required": ["approvalId", "from", "amount"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["recipe", "input"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "recipe": {
+                "type": "string",
+                "const": "businessApprovalRelease"
+              },
+              "input": {
+                "type": "object",
+                "properties": {
+                  "approvalId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "from": {
+                    "type": "object",
+                    "properties": {
+                      "ownerType": {
+                        "type": "string",
+                        "enum": ["user", "subaccount"]
+                      },
+                      "ownerId": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                      },
+                      "assetId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 16,
+                        "pattern": "^[^\\s]+$"
+                      },
+                      "kind": {
+                        "type": "string",
+                        "const": "available"
+                      }
+                    },
+                    "required": ["ownerType", "ownerId", "assetId", "kind"],
+                    "additionalProperties": false
+                  },
+                  "amount": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                  }
+                },
+                "required": ["approvalId", "from", "amount"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["recipe", "input"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "recipe": {
+                "type": "string",
+                "const": "businessApprovalSettle"
+              },
+              "input": {
+                "type": "object",
+                "properties": {
+                  "approvalId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "from": {
+                    "type": "object",
+                    "properties": {
+                      "ownerType": {
+                        "type": "string",
+                        "enum": ["user", "subaccount"]
+                      },
+                      "ownerId": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                      },
+                      "assetId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 16,
+                        "pattern": "^[^\\s]+$"
+                      },
+                      "kind": {
+                        "type": "string",
+                        "const": "available"
+                      }
+                    },
+                    "required": ["ownerType", "ownerId", "assetId", "kind"],
+                    "additionalProperties": false
+                  },
+                  "to": {
+                    "type": "object",
+                    "properties": {
+                      "ownerType": {
+                        "type": "string",
+                        "enum": ["user", "subaccount"]
+                      },
+                      "ownerId": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                      },
+                      "assetId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 16,
+                        "pattern": "^[^\\s]+$"
+                      },
+                      "kind": {
+                        "type": "string",
+                        "const": "available"
+                      }
+                    },
+                    "required": ["ownerType", "ownerId", "assetId", "kind"],
+                    "additionalProperties": false
+                  },
+                  "amount": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                  }
+                },
+                "required": ["approvalId", "from", "to", "amount"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["recipe", "input"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "recipe": {
+                "type": "string",
+                "const": "businessPayroll"
+              },
+              "input": {
+                "type": "object",
+                "properties": {
+                  "payrollId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+                  },
+                  "from": {
+                    "type": "object",
+                    "properties": {
+                      "ownerType": {
+                        "type": "string",
+                        "enum": ["user", "subaccount"]
+                      },
+                      "ownerId": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                      },
+                      "assetId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 16,
+                        "pattern": "^[^\\s]+$"
+                      },
+                      "kind": {
+                        "type": "string",
+                        "const": "available"
+                      }
+                    },
+                    "required": ["ownerType", "ownerId", "assetId", "kind"],
+                    "additionalProperties": false
+                  },
+                  "recipients": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "to": {
+                          "type": "object",
+                          "properties": {
+                            "ownerType": {
+                              "type": "string",
+                              "enum": ["user", "subaccount"]
+                            },
+                            "ownerId": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                            },
+                            "assetId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 16,
+                              "pattern": "^[^\\s]+$"
+                            },
+                            "kind": {
+                              "type": "string",
+                              "const": "available"
+                            }
+                          },
+                          "required": ["ownerType", "ownerId", "assetId", "kind"],
+                          "additionalProperties": false
+                        },
+                        "amount": {
+                          "type": "string",
+                          "maxLength": 64,
+                          "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                        }
+                      },
+                      "required": ["to", "amount"],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": ["payrollId", "from", "recipients"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["recipe", "input"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "recipe": {
+                "type": "string",
+                "const": "deposit"
+              },
+              "input": {
+                "type": "object",
+                "properties": {
+                  "userId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "assetId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 16,
+                    "pattern": "^[^\\s]+$"
+                  },
+                  "amount": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                  },
+                  "rail": {
+                    "type": "string",
+                    "maxLength": 123,
+                    "pattern": "^[A-Za-z0-9._-]+(:[A-Za-z0-9._-]+)*$"
+                  },
+                  "railRef": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  }
+                },
+                "required": ["userId", "assetId", "amount", "rail", "railRef"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["recipe", "input"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "recipe": {
+                "type": "string",
+                "const": "withdrawHold"
+              },
+              "input": {
+                "type": "object",
+                "properties": {
+                  "userId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "assetId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 16,
+                    "pattern": "^[^\\s]+$"
+                  },
+                  "amount": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                  },
+                  "rail": {
+                    "type": "string",
+                    "maxLength": 123,
+                    "pattern": "^[A-Za-z0-9._-]+(:[A-Za-z0-9._-]+)*$"
+                  },
+                  "withdrawalId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 119,
+                    "pattern": "^[^\\s]+$"
+                  }
+                },
+                "required": ["userId", "assetId", "amount", "rail", "withdrawalId"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["recipe", "input"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "recipe": {
+                "type": "string",
+                "const": "withdrawSettle"
+              },
+              "input": {
+                "type": "object",
+                "properties": {
+                  "userId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "assetId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 16,
+                    "pattern": "^[^\\s]+$"
+                  },
+                  "amount": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                  },
+                  "rail": {
+                    "type": "string",
+                    "maxLength": 123,
+                    "pattern": "^[A-Za-z0-9._-]+(:[A-Za-z0-9._-]+)*$"
+                  },
+                  "withdrawalId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 119,
+                    "pattern": "^[^\\s]+$"
+                  }
+                },
+                "required": ["userId", "assetId", "amount", "rail", "withdrawalId"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["recipe", "input"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "recipe": {
+                "type": "string",
+                "const": "withdrawReverse"
+              },
+              "input": {
+                "type": "object",
+                "properties": {
+                  "userId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "assetId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 16,
+                    "pattern": "^[^\\s]+$"
+                  },
+                  "amount": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                  },
+                  "rail": {
+                    "type": "string",
+                    "maxLength": 123,
+                    "pattern": "^[A-Za-z0-9._-]+(:[A-Za-z0-9._-]+)*$"
+                  },
+                  "withdrawalId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 119,
+                    "pattern": "^[^\\s]+$"
+                  }
+                },
+                "required": ["userId", "assetId", "amount", "rail", "withdrawalId"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["recipe", "input"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "recipe": {
+                "type": "string",
+                "const": "rewardPay"
+              },
+              "input": {
+                "type": "object",
+                "properties": {
+                  "rewardId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 160,
+                    "pattern": "^[^\\s]+$"
+                  },
+                  "userId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "assetId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 16,
+                    "pattern": "^[^\\s]+$"
+                  },
+                  "amount": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^[a-z0-9][a-z0-9._-]*$"
+                  }
+                },
+                "required": ["rewardId", "userId", "assetId", "amount", "reason"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["recipe", "input"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "recipe": {
+                "type": "string",
+                "const": "sweepFeesToRewards"
+              },
+              "input": {
+                "type": "object",
+                "properties": {
+                  "windowId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[^\\s]+$"
+                  },
+                  "sourceModule": {
+                    "type": "string",
+                    "const": "bank"
+                  },
+                  "assetId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 16,
+                    "pattern": "^[^\\s]+$"
+                  },
+                  "amount": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                  }
+                },
+                "required": ["windowId", "sourceModule", "assetId", "amount"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["recipe", "input"],
+            "additionalProperties": false
           }
         ]
       },
@@ -1397,6 +2458,517 @@
                   "amount": "0.5"
                 }
               ]
+            }
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "recipe": "loanCollateralLock",
+            "input": {
+              "loanId": "55555555-5555-4555-8555-555555555555",
+              "userId": "11111111-1111-4111-8111-111111111111",
+              "collateralAssetId": "BTC",
+              "amount": "0.5",
+              "sequence": 0
+            }
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "recipe": "loanCollateralRelease",
+            "input": {
+              "loanId": "55555555-5555-4555-8555-555555555555",
+              "userId": "11111111-1111-4111-8111-111111111111",
+              "collateralAssetId": "BTC",
+              "amount": "0.5",
+              "sequence": 2
+            }
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "recipe": "loanDraw",
+            "input": {
+              "loanId": "55555555-5555-4555-8555-555555555555",
+              "userId": "11111111-1111-4111-8111-111111111111",
+              "debtAssetId": "USDT",
+              "principal": "1000"
+            }
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "recipe": "loanRepay",
+            "input": {
+              "loanId": "55555555-5555-4555-8555-555555555555",
+              "userId": "11111111-1111-4111-8111-111111111111",
+              "debtAssetId": "USDT",
+              "principal": "100",
+              "interest": "1.25",
+              "sequence": 1
+            }
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "recipe": "loanReserveFund",
+            "input": {
+              "fundingId": "treasury-2026-11",
+              "debtAssetId": "USDT",
+              "amount": "50000"
+            }
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "recipe": "loanLiquidate",
+            "input": {
+              "loanId": "55555555-5555-4555-8555-555555555555",
+              "userId": "11111111-1111-4111-8111-111111111111",
+              "tranche": 0,
+              "collateralAssetId": "BTC",
+              "collateralSold": "0.1",
+              "debtAssetId": "USDT",
+              "proceeds": "6000",
+              "principalRepaid": "5000",
+              "interestRepaid": "10",
+              "penalty": "300",
+              "surplusToBorrower": "690",
+              "buyer": {
+                "collateralTo": {
+                  "ownerType": "house",
+                  "ownerId": "market-maker",
+                  "assetId": "BTC",
+                  "kind": "available"
+                },
+                "proceedsFrom": {
+                  "ownerType": "house",
+                  "ownerId": "market-maker",
+                  "assetId": "USDT",
+                  "kind": "available"
+                }
+              },
+              "markPrice": "60000"
+            }
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "recipe": "loanBadDebt",
+            "input": {
+              "loanId": "55555555-5555-4555-8555-555555555555",
+              "debtAssetId": "USDT",
+              "shortfall": "12.5"
+            }
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "recipe": "businessApprovalHold",
+            "input": {
+              "approvalId": "22222222-2222-4222-8222-222222222222",
+              "from": {
+                "ownerType": "user",
+                "ownerId": "11111111-1111-4111-8111-111111111111",
+                "assetId": "USDC",
+                "kind": "available"
+              },
+              "amount": "250"
+            }
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "recipe": "businessApprovalRelease",
+            "input": {
+              "approvalId": "22222222-2222-4222-8222-222222222222",
+              "from": {
+                "ownerType": "subaccount",
+                "ownerId": "66666666-6666-4666-8666-666666666666",
+                "assetId": "USDC",
+                "kind": "available"
+              },
+              "amount": "250"
+            }
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "recipe": "businessApprovalSettle",
+            "input": {
+              "approvalId": "22222222-2222-4222-8222-222222222222",
+              "from": {
+                "ownerType": "user",
+                "ownerId": "11111111-1111-4111-8111-111111111111",
+                "assetId": "USDC",
+                "kind": "available"
+              },
+              "amount": "250",
+              "to": {
+                "ownerType": "subaccount",
+                "ownerId": "66666666-6666-4666-8666-666666666666",
+                "assetId": "USDC",
+                "kind": "available"
+              }
+            }
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "recipe": "businessPayroll",
+            "input": {
+              "payrollId": "22222222-2222-4222-8222-222222222222",
+              "from": {
+                "ownerType": "user",
+                "ownerId": "11111111-1111-4111-8111-111111111111",
+                "assetId": "USDC",
+                "kind": "available"
+              },
+              "recipients": [
+                {
+                  "to": {
+                    "ownerType": "subaccount",
+                    "ownerId": "66666666-6666-4666-8666-666666666666",
+                    "assetId": "USDC",
+                    "kind": "available"
+                  },
+                  "amount": "100"
+                },
+                {
+                  "to": {
+                    "ownerType": "user",
+                    "ownerId": "33333333-3333-4333-8333-333333333333",
+                    "assetId": "USDC",
+                    "kind": "available"
+                  },
+                  "amount": "50"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "recipe": "deposit",
+            "input": {
+              "userId": "11111111-1111-4111-8111-111111111111",
+              "assetId": "USDC",
+              "amount": "25",
+              "rail": "bank-crypto-ledger",
+              "railRef": "tx 0xabc"
+            }
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "recipe": "withdrawHold",
+            "input": {
+              "userId": "11111111-1111-4111-8111-111111111111",
+              "assetId": "USDC",
+              "amount": "25",
+              "rail": "card-sim",
+              "withdrawalId": "cash-out:22222222-2222-4222-8222-222222222222"
+            }
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "recipe": "withdrawSettle",
+            "input": {
+              "userId": "11111111-1111-4111-8111-111111111111",
+              "assetId": "USDC",
+              "amount": "25",
+              "rail": "card-sim",
+              "withdrawalId": "cash-out:22222222-2222-4222-8222-222222222222"
+            }
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "recipe": "withdrawReverse",
+            "input": {
+              "userId": "11111111-1111-4111-8111-111111111111",
+              "assetId": "USDC",
+              "amount": "25",
+              "rail": "card-sim",
+              "withdrawalId": "cash-out:22222222-2222-4222-8222-222222222222"
+            }
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "recipe": "rewardPay",
+            "input": {
+              "rewardId": "bank.card.cashback:22222222-2222-4222-8222-222222222222",
+              "userId": "11111111-1111-4111-8111-111111111111",
+              "assetId": "USDC",
+              "amount": "0.25",
+              "reason": "bank.card.cashback"
+            }
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "recipe": "sweepFeesToRewards",
+            "input": {
+              "windowId": "bank.card:2026-11",
+              "sourceModule": "bank",
+              "assetId": "USDC",
+              "amount": "10"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "recipe": "loanCollateralLock",
+            "input": {
+              "loanId": "55555555-5555-4555-8555-555555555555",
+              "userId": "11111111-1111-4111-8111-111111111111",
+              "collateralAssetId": "BTC",
+              "amount": "0.5",
+              "sequence": "0"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "recipe": "loanCollateralLock",
+            "input": {
+              "loanId": "55555555-5555-4555-8555-555555555555",
+              "userId": "11111111-1111-4111-8111-111111111111",
+              "collateralAssetId": "BTC",
+              "amount": "0.5",
+              "sequence": -1
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "recipe": "loanDraw",
+            "input": {
+              "loanId": "55555555-5555-4555-8555-555555555555",
+              "userId": "11111111-1111-4111-8111-111111111111",
+              "debtAssetId": "USDT",
+              "principal": 1000
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "recipe": "loanRepay",
+            "input": {
+              "loanId": "55555555-5555-4555-8555-555555555555",
+              "userId": "11111111-1111-4111-8111-111111111111",
+              "debtAssetId": "USDT",
+              "principal": "100",
+              "sequence": 1
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "recipe": "loanReserveFund",
+            "input": {
+              "fundingId": "f",
+              "debtAssetId": "USDT",
+              "amount": "1",
+              "from": {
+                "ownerType": "user",
+                "ownerId": "11111111-1111-4111-8111-111111111111",
+                "assetId": "USDC",
+                "kind": "available"
+              }
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "recipe": "loanLiquidate",
+            "input": {
+              "loanId": "55555555-5555-4555-8555-555555555555",
+              "userId": "11111111-1111-4111-8111-111111111111",
+              "tranche": 0,
+              "collateralAssetId": "BTC",
+              "collateralSold": "0.1",
+              "debtAssetId": "USDT",
+              "proceeds": "6000",
+              "principalRepaid": "5000",
+              "interestRepaid": "10",
+              "penalty": "300",
+              "surplusToBorrower": "690",
+              "buyer": {
+                "collateralTo": {
+                  "ownerType": "user",
+                  "ownerId": "11111111-1111-4111-8111-111111111111",
+                  "assetId": "USDC",
+                  "kind": "available"
+                },
+                "proceedsFrom": {
+                  "ownerType": "house",
+                  "ownerId": "market-maker",
+                  "assetId": "USDT",
+                  "kind": "available"
+                }
+              },
+              "markPrice": "60000"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "recipe": "businessApprovalHold",
+            "input": {
+              "approvalId": "22222222-2222-4222-8222-222222222222",
+              "from": {
+                "ownerType": "house",
+                "ownerId": "11111111-1111-4111-8111-111111111111",
+                "assetId": "USDC",
+                "kind": "available"
+              },
+              "amount": "250"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "recipe": "businessPayroll",
+            "input": {
+              "payrollId": "run-1",
+              "from": {
+                "ownerType": "user",
+                "ownerId": "11111111-1111-4111-8111-111111111111",
+                "assetId": "USDC",
+                "kind": "available"
+              },
+              "recipients": [
+                {
+                  "to": {
+                    "ownerType": "subaccount",
+                    "ownerId": "66666666-6666-4666-8666-666666666666",
+                    "assetId": "USDC",
+                    "kind": "available"
+                  },
+                  "amount": "100"
+                },
+                {
+                  "to": {
+                    "ownerType": "user",
+                    "ownerId": "33333333-3333-4333-8333-333333333333",
+                    "assetId": "USDC",
+                    "kind": "available"
+                  },
+                  "amount": "50"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "recipe": "deposit",
+            "input": {
+              "userId": "11111111-1111-4111-8111-111111111111",
+              "assetId": "USDC",
+              "amount": "25",
+              "rail": "bank-crypto-ledger",
+              "railRef": "tx 0xabc",
+              "subAccountId": "66666666-6666-4666-8666-666666666666"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "recipe": "withdrawHold",
+            "input": {
+              "userId": "11111111-1111-4111-8111-111111111111",
+              "assetId": "USDC",
+              "amount": "25",
+              "rail": "card-sim",
+              "withdrawalId": "cash-out:22222222-2222-4222-8222-222222222222",
+              "fee": "1"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "recipe": "withdrawSettle",
+            "input": {
+              "userId": "11111111-1111-4111-8111-111111111111",
+              "assetId": "USDC",
+              "amount": "25",
+              "rail": "card sim",
+              "withdrawalId": "cash-out:22222222-2222-4222-8222-222222222222"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "recipe": "rewardPay",
+            "input": {
+              "rewardId": "bank.card.cashback:22222222-2222-4222-8222-222222222222",
+              "userId": "11111111-1111-4111-8111-111111111111",
+              "assetId": "USDC",
+              "amount": "0.25",
+              "reason": "Cash Back"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "recipe": "sweepFeesToRewards",
+            "input": {
+              "windowId": "bank.card:2026-11",
+              "sourceModule": "trade",
+              "assetId": "USDC",
+              "amount": "10"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "recipe": "tradeFill",
+            "input": {
+              "course": "perps-101",
+              "userId": "11111111-1111-4111-8111-111111111111",
+              "n": "1",
+              "assetId": "USDC",
+              "amount": "2.5",
+              "to": {
+                "kind": "treasury-wallet",
+                "walletId": "0x00000000000000000000000000000000000000aa"
+              },
+              "paymentId": "0xabababababababababababababababababababababababababababababababab"
             }
           }
         },

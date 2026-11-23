@@ -7,7 +7,6 @@ import { DataTable, Dialog, Failure, Field, Panel, Read } from './agent-room/par
 import { agentGuardrailsCopy, hasGuardrailWords } from './agent-guardrails-copy';
 import {
   OWN_AGENT_RULE_CHOICES,
-  ownAgentToolCallSchema,
   type OwnAgent,
   type OwnAgentApprovalRequest,
   type OwnAgentCatalogue,
@@ -26,6 +25,7 @@ import {
   AGENTS_OWN_CONSENTS_REVOKE,
   AGENTS_OWN_CONSENTS_GRANT,
   AGENTS_OWN_APPROVALS,
+  AGENTS_OWN_TOOL_TRY,
 } from '@intafaced/contracts/agents-own-procedures';
 
 /**
@@ -327,12 +327,13 @@ export function TryTool({
     const session = await sessionFor();
     if (session) {
       presses.current += 1;
-      const res = await api.mutate(
-        'agents',
-        'own.tool.try',
-        { id: agent.id, sessionId: session, requestId: `own-try:${session}:${visit.current}:${presses.current}`, tool, input: args },
-        ownAgentToolCallSchema,
-      );
+      const res = await api.call(AGENTS_OWN_TOOL_TRY, {
+        id: agent.id,
+        sessionId: session,
+        requestId: `own-try:${session}:${visit.current}:${presses.current}`,
+        tool,
+        input: args,
+      });
       if (res.ok) {
         setAnswer(res.data);
         if (res.data.outcome === 'waiting') setRequestsVersion((v) => v + 1);

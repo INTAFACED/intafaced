@@ -55,7 +55,7 @@ use service_kit::json::{self, Json};
 use service_kit::money::{Amount, parse_amount};
 use service_kit::s2s::{self, system_seconds};
 use service_kit::s2s_verify::BodyBind;
-use service_kit::server::Request;
+use service_kit::server::{Reply, Request};
 use service_kit::time::Instant;
 use sha3::{Digest, Keccak256};
 use svc_bank::door::{self, BankDoor, DoorConfig, Kind, ServiceAuth};
@@ -138,7 +138,7 @@ impl Book {
             .available
             .get(&(user.to_owned(), "USDT".to_owned()))
             .copied()
-            .unwrap_or(0)
+            .unwrap_or(Amount::ZERO)
     }
     fn asked(&self) -> usize {
         self.0.lock().unwrap().asked
@@ -154,7 +154,7 @@ impl Ledger for Book {
             .available
             .get(&(a.owner_id.clone(), a.asset_id.clone()))
             .copied()
-            .unwrap_or(0))
+            .unwrap_or(Amount::ZERO))
     }
     fn balances(&self, _t: &str, _o: &str) -> Result<Vec<LedgerBalance>, String> {
         Ok(Vec::new())
@@ -802,6 +802,20 @@ fn returned(door: &BankDoor, id: &str) -> Answer {
 }
 
 /// The payer approves on the TEST page.
+/// One request as the server answers it: with the content type and headers beside the body.
+fn reply(door: &BankDoor, method: &str, url: &str, headers: &[(String, String)]) -> Reply {
+    door.reply_from(
+        &Request {
+            method,
+            url,
+            headers,
+            body: "",
+        },
+        "req-ramps-onramp-db",
+        "127.0.0.1",
+    )
+}
+
 fn approve(door: &BankDoor, id: &str) -> (u16, String) {
     let headers = vec![(
         "content-type".to_owned(),
@@ -1581,7 +1595,39 @@ fn approved_on_the_page_is_pending_and_sends_the_payer_back_approving_again_chan
         opened_view(&door, &id).unwrap().return_url,
         format!("http://127.0.0.1:3210/bank/ramps/new?request={id}")
     );
-    assert_eq!(approve(&door, &id).0, 303);
+    // The page is served as a page, never as text a browser shows raw, with its policy; nothing else is a form target.
+    let page = reply(&door, "GET", &format!("/test/payin-sim/pay/{id}"), &[]);
+    assert_eq!(page.response.status, 200);
+    assert_eq!(page.content_type, Some("text/html; charset=utf-8"));
+    assert_eq!(
+        page.headers,
+        vec![
+            ("cache-control", "no-store".to_owned()),
+            (
+                "content-security-policy",
+                "default-src 'none'; form-action 'self' http://127.0.0.1:3210; frame-ancestors 'none'".to_owned()
+            ),
+        ]
+    );
+    // The approve sends the payer back to the app.
+    let form = vec![(
+        "content-type".to_owned(),
+        "application/x-www-form-urlencoded".to_owned(),
+    )];
+    let back = reply(
+        &door,
+        "POST",
+        &format!("/test/payin-sim/pay/{id}/approve"),
+        &form,
+    );
+    assert_eq!(back.response.status, 303);
+    assert_eq!(
+        back.headers,
+        vec![(
+            "location",
+            format!("http://127.0.0.1:3210/bank/ramps/new?request={id}")
+        )]
+    );
     let first = request_of(&door, ADA, &id).ok();
     matches(
         &first,
@@ -1768,7 +1814,7 @@ fn paid_with_its_on_chain_transfer_is_delivered_once_crediting_nothing_anywhere_
     assert_eq!(second, first);
     assert_eq!(third, first);
     assert!(b.ledger.journal().is_empty());
-    assert_eq!(b.ledger.available(ADA), 0);
+    assert_eq!(b.ledger.available(ADA), Amount::ZERO);
     matches(&request_of(&door, ADA, &id).ok(), &without_onramp(&first));
 }
 
@@ -2449,7 +2495,7 @@ fn with_the_custodial_layer_off_a_credit_refuses_no_partner_bank_before_svc_ledg
         "bank.no_partner_bank"
     );
     assert_eq!(b.ledger.asked(), 0);
-    assert_eq!(b.ledger.available(USER), 0);
+    assert_eq!(b.ledger.available(USER), Amount::ZERO);
 }
 
 #[test]
@@ -2522,7 +2568,7 @@ fn refuses_a_blank_or_whitespace_asset_before_any_row_or_ledger_post() {
         "BAD_REQUEST"
     );
     assert_eq!(onramp_rows(&b), 0);
-    assert_eq!(b.ledger.available(USER), 0);
+    assert_eq!(b.ledger.available(USER), Amount::ZERO);
 }
 
 #[test]

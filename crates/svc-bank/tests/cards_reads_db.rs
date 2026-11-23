@@ -42,6 +42,7 @@ use std::sync::Mutex;
 use service_kit::approvals::random_uuid;
 use service_kit::edge;
 use service_kit::json::{self, Json};
+use service_kit::money::Amount;
 use service_kit::money::parse_amount;
 use service_kit::s2s_verify::BodyBind;
 use service_kit::server::Request;
@@ -374,10 +375,11 @@ fn take_hold(
             amount: want,
             expires_at: Instant(at(now).0 + TEST_CARD_HOLD_DAYS * 86_400_000),
             conversion,
-            captured: 0,
-            released: 0,
-            refunded: 0,
+            captured: Amount::ZERO,
+            released: Amount::ZERO,
+            refunded: Amount::ZERO,
             expired: false,
+            drawn: false,
         },
     );
 }
@@ -396,7 +398,7 @@ fn capture_hold(book: &Mutex<CardHoldBook>, authorization: &str, amount: &str) {
     };
     let bk = b.books.get_mut(&id).unwrap();
     bk.held -= take;
-    if open_left == 0 {
+    if open_left == Amount::ZERO {
         bk.open.remove(&hold_key(authorization));
     }
 }

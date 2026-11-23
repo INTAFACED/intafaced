@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Button, EmptyState, Field } from '@intafaced/ui/lit';
 import { SettingsTemplate, Sheet } from '@intafaced/ui/lit/templates';
 import { useSession } from '../session';
+import { ShortReference } from '../../shared/ShortReference';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Failure, Loading } from './kit-parts';
@@ -34,9 +35,6 @@ import { VerifyEmail } from './VerifyEmail';
 import { AccountStatus } from './AccountStatus';
 import { EligibilityStatement } from '../money';
 import { accountScreenCopy } from '../../screens/account/copy';
-import { accountStatusCopy } from './account-status-copy';
-import { rankPerksCopy } from './rank-perks-copy';
-import { membershipCopy } from './membership-copy';
 import { useIdentity } from '../../screens/pay/identity-state';
 import { featureById } from '../../app/feature-registry';
 import { stamp } from '../../screens/money/time';
@@ -103,9 +101,6 @@ export function Account() {
   const { api, userId } = useSession();
   const { t, Copy, languageFor, requestedLocale } = copy.useCopy();
   const identity = useIdentity(api, userId);
-  const statusCopy = accountStatusCopy.useCopy();
-  const rankCopy = rankPerksCopy.useCopy();
-  const memberCopy = membershipCopy.useCopy();
   const { timeZone } = usePreferences();
   // Strategy subaccounts are a blocked feature (feature-registry.ts): the cards show and refuse honestly; only a row marked hidden would drop them.
   const showSubaccounts = featureById('strategy-subaccounts')?.status !== 'hidden';
@@ -353,32 +348,12 @@ export function Account() {
   }
   const unknowns = journal.records.filter((record) => !visibleReceipts.some((receipt) => receipt.record.requestId === record.requestId));
   const visibleReview = review && same(review) ? review : null;
-  const sectionLinks: readonly (readonly [string, string])[] = [
-    ['#account-id', t('owner')],
-    ['#account-status', statusCopy.t('title')],
-    ['#rank-perks', rankCopy.t('title')],
-    ['#membership', memberCopy.t('title')],
-    ...(showSubaccounts ? ([['#subaccounts', t('list')]] as const) : []),
-  ];
   return (
     <div lang={languageFor('title')}>
       <SettingsTemplate
         title={t('title')}
         description={t('description')}
         state={{ kind: 'ready' }}
-        index={
-          <nav aria-label={t('sectionsLabel')}>
-            <ul>
-              {sectionLinks.map(([href, label]) => (
-                <li key={href}>
-                  <a className="lt-link" href={href}>
-                    {label}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </nav>
-        }
         explain={<p>{t('explain')}</p>}
         sections={
           <>
@@ -458,7 +433,7 @@ export function Account() {
                                   {row.frozen ? ` · ${t('frozen')}` : ''}
                                 </span>
                                 <span data-testid="subaccounts__ref" className="lt-mono lt-hint" lang="zxx">
-                                  {row.id}
+                                  <ShortReference id={row.id} />
                                 </span>
                                 <time
                                   data-testid="subaccounts__ref"
@@ -593,14 +568,14 @@ export function Account() {
                               <div>
                                 <dt>{t('target')}</dt>
                                 <dd data-testid="subaccounts__ref" className="lt-mono" lang="zxx">
-                                  {record.target}
+                                  <ShortReference id={record.target} />
                                 </dd>
                               </div>
                             )}
                             <div>
                               <dt>{t('request')}</dt>
                               <dd data-testid="subaccounts__ref" className="lt-mono" lang="zxx">
-                                {record.requestId}
+                                <ShortReference id={record.requestId} />
                               </dd>
                             </div>
                           </dl>
@@ -656,23 +631,20 @@ export function Account() {
                             <div>
                               <dt>{t('target')}</dt>
                               <dd data-testid="subaccounts__ref" className="lt-mono" lang="zxx">
-                                {receipt.id ?? receipt.record.target}
+                                <ShortReference id={receipt.id ?? receipt.record.target} />
                               </dd>
                             </div>
                           )}
                           <div>
                             <dt>{t('request')}</dt>
                             <dd data-testid="subaccounts__ref" className="lt-mono" lang="zxx">
-                              {receipt.record.requestId}
+                              <ShortReference id={receipt.record.requestId} />
                             </dd>
                           </div>
                         </dl>
                         {!receipt.answer.ok && (
-                          <div>
+                          <div data-code={receipt.answer.code}>
                             <RefusalSentence receipt={receipt} />
-                            <p data-testid="subaccounts__ref" className="lt-mono" lang="zxx">
-                              HTTP {receipt.answer.status} · {receipt.answer.code}
-                            </p>
                           </div>
                         )}
                         <p className="lt-hint">{t('separate')}</p>
@@ -708,14 +680,14 @@ export function Account() {
                         <div>
                           <dt>{t('owner')}</dt>
                           <dd data-testid="subaccounts__ref" className="lt-mono" lang="zxx">
-                            {visibleReview.owner}
+                            <ShortReference id={visibleReview.owner} />
                           </dd>
                         </div>
                         {visibleReview.row && (
                           <div>
                             <dt>{t('target')}</dt>
                             <dd data-testid="subaccounts__ref" className="lt-mono" lang="zxx">
-                              {visibleReview.row.id}
+                              <ShortReference id={visibleReview.row.id} />
                             </dd>
                           </div>
                         )}

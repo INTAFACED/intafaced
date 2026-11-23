@@ -131,25 +131,8 @@
 </header>
 <div class="lt-body">
 <div class="lt-grid lt-grid-settings">
-<section class="lt-region" data-region="index" aria-label="Sections">
-<nav aria-label="API key sections">
-<ul>
-<li>
-<a class="lt-link" href="#api-keys-safety">Keeping a key safe</a>
-</li>
-<li>
-<a class="lt-link" href="#api-keys-cap">Keys on this account</a>
-</li>
-<li>
-<a class="lt-link" href="#api-version-title">API version</a>
-</li>
-<li>
-<a class="lt-link" href="#api-keys-apps">Connected apps</a>
-</li>
-</ul>
-</nav>
-</section>
 <section class="lt-region" data-region="sections" aria-label="Settings">
+<div class="lt-sections">
 <section data-testid="security__card" aria-labelledby="api-keys-safety">
 <h2 id="api-keys-safety">Keeping a key safe</h2>
 <ul>
@@ -161,6 +144,7 @@
 <li>No key can withdraw or move money off the platform. That needs you, signed in on a device.</li>
 </ul>
 </section>
+<div class="lt-stack">
 <div data-testid="failure" class="lt-refusal" role="status">
 <h3 class="lt-refusal-title">
 <span lang="en" dir="ltr" data-i18n="shared.ui.unreachable">Can’t connect right now</span>
@@ -169,6 +153,7 @@
 <button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">
 <span lang="en" dir="ltr" data-i18n="shared.ui.retry">Try again</span>
 </button>
+</div>
 </div>
 <section data-testid="api-version" aria-labelledby="api-version-title">
 <h2 id="api-version-title">API version</h2>
@@ -215,6 +200,7 @@
 <h2 id="api-keys-apps">Connected apps</h2>
 <p class="lt-hint">No connected apps. This platform gives no outside app access to an account, so there is none to remove. Your own programs use the API keys on this page.</p>
 </section>
+</div>
 </section>
 <section class="lt-region" data-region="explain" aria-label="What this means">
 <p>A key acts for you inside the permissions it holds and, when you list IP addresses, only from those. Revoking a key stops it at once and cannot be undone; no key can withdraw or move money off the platform.</p>

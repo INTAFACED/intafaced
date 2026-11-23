@@ -90,7 +90,9 @@ pub fn read(d: &Deps<'_>, now: Instant) -> Result<Json, Refusal> {
     let mut principal: BTreeMap<String, Amount> = BTreeMap::new();
     for (row, l) in open.iter().zip(&loans) {
         let debt = with(d.store, |c| outstanding(c, &l.id))?;
-        *principal.entry(l.debt_asset_id.clone()).or_insert(0) += debt.principal;
+        *principal
+            .entry(l.debt_asset_id.clone())
+            .or_insert(Amount::ZERO) += debt.principal;
         let (Some(mc), Some(liq)) = (row.margin_call, row.liquidation) else {
             unpriced_n += 1;
             unpriced.push(Json::obj([

@@ -72,6 +72,34 @@ export const IDENTITY_KYC_SELFIE_DECIDE = defineProcedure({
   ],
 });
 
+/**
+ * Approve one pending verification at its level (I-kyc-compliance-07): the capabilities the owner maps to the level go
+ * active in the same transaction (`IDENTITY_KYC_CAPABILITIES_BY_LEVEL`; unset grants none). MFA, never an agent, never
+ * the reviewer's own, and the four-eyes approval binds the record. A record that is not pending refuses
+ * `auth.kyc_not_pending`.
+ */
+export const IDENTITY_KYC_APPROVE = defineProcedure({
+  ...base,
+  name: 'identity.kyc.approve',
+  kind: 'mutation',
+  path: 'kyc.approve',
+  access: { caller: 'scope', scope: 'admin:compliance' },
+  refusals: {},
+  input: z.object({
+    recordId: z.string().guid(),
+    /** When the verification lapses. Null means it does not. */
+    expiresAt: z.string().datetime({ offset: true }).nullish(),
+    confirmOperatorId: z.string().max(128).nullish(),
+    approvalId: z.string().max(128).nullish(),
+    operationId: z.string().max(128).nullish(),
+  }),
+  output: kycRecordOutput,
+  samples: [
+    { verdict: 'accept', input: { recordId: '11111111-1111-4111-8111-111111111111' } },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
 /** The review queue. Without it `approve` needs a record id nobody can find. Limit required — omit never invents 50. */
 export const IDENTITY_KYC_PENDING = defineProcedure({
   ...base,

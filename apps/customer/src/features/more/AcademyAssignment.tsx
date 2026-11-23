@@ -1,10 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import {
-  academyAssignmentViewSchema,
-  type AcademyAnswerMode,
-  type AcademyAssignmentView,
-  type AcademySubmissionState,
-} from '@intafaced/contracts/academy-courses';
+import { type AcademyAnswerMode, type AcademyAssignmentView, type AcademySubmissionState } from '@intafaced/contracts/academy-courses';
 import type { ApiResult } from '../../shared/api';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
@@ -16,6 +11,9 @@ import { academyCourseHref } from './academy-lms';
 import { AcademyRefusal } from './AcademyLmsParts';
 import { AcademyPeerReview } from './AcademyPeerReview';
 import { ACADEMY_UPLOAD_ASSIGNMENT_FILE } from '@intafaced/contracts/academy-upload-assignment-file-procedures';
+import { ACADEMY_ASSIGNMENT } from '@intafaced/contracts/academy-assignment-procedures';
+import { ACADEMY_SUBMIT_ASSIGNMENT } from '@intafaced/contracts/academy-submit-assignment-procedures';
+import { ACADEMY_MARK_FEEDBACK_READ } from '@intafaced/contracts/academy-mark-feedback-read-procedures';
 
 type Failure = Extract<ApiResult<never>, { ok: false }>;
 type T = (typeof copy)['t'];
@@ -239,10 +237,7 @@ export function AssignmentBrief({ data }: { data: AcademyAssignmentView }) {
 export function AcademyAssignment({ slug, itemId }: { slug: string; itemId: string }) {
   const api = useApi();
   const { t } = copy.useCopy();
-  const view = useResource(
-    (signal) => api.query('academy', 'assignment', { itemId }, academyAssignmentViewSchema, { signal }),
-    `assignment:${itemId}`,
-  );
+  const view = useResource((signal) => api.call(ACADEMY_ASSIGNMENT, { itemId }, { signal }), `assignment:${itemId}`);
   const [text, setText] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [sending, setSending] = useState(false);
@@ -302,12 +297,7 @@ export function AcademyAssignment({ slug, itemId }: { slug: string; itemId: stri
           return setOutcome(uploaded.reason === 'uncertain' ? { kind: 'uncertain' } : { kind: 'refused', failure: uploaded });
         fileId = uploaded.data.id;
       }
-      const sent = await api.mutate(
-        'academy',
-        'submitAssignment',
-        { itemId, version, text: text.trim() ? text : null, fileId },
-        academyAssignmentViewSchema,
-      );
+      const sent = await api.call(ACADEMY_SUBMIT_ASSIGNMENT, { itemId, version, text: text.trim() ? text : null, fileId });
       setRetryVersion(!sent.ok && sent.reason === 'uncertain' ? version : null);
       if (sent.ok) {
         setOutcome({ kind: 'done', version });
@@ -326,7 +316,7 @@ export function AcademyAssignment({ slug, itemId }: { slug: string; itemId: stri
   const markRead = async (version: number, n: number) => {
     setMarking(true);
     setReadRefused(null);
-    const marked = await api.mutate('academy', 'markFeedbackRead', { itemId, version, n }, academyAssignmentViewSchema);
+    const marked = await api.call(ACADEMY_MARK_FEEDBACK_READ, { itemId, version, n });
     setMarking(false);
     if (marked.ok) setLast(marked.data);
     else if (marked.reason !== 'uncertain') setReadRefused(marked);

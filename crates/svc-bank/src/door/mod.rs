@@ -36,7 +36,7 @@ use service_kit::json::Json;
 use service_kit::s2s::Mode;
 use service_kit::s2s_verify::{self, BodyBind, Incoming, ServiceVerifier};
 use service_kit::schema::Value;
-use service_kit::server::{Door, Request, RequestIds, Response};
+use service_kit::server::{Door, Reply, Request, RequestIds, Response};
 use service_kit::time::Instant;
 use service_kit::trpc::{self, TrpcError};
 
@@ -252,10 +252,14 @@ pub struct BankDoor {
     activity: crate::activity::Wiring,
     /// Slice `global`'s ports and owner values (`global::Wiring`); every port unset until handed in.
     global: crate::global::Wiring,
+    /// Slice `card-programme`'s sanctions list, simulator switch, export secret and rates (`card_programme::Wiring`).
+    card_programme: crate::card_programme::Wiring,
     /// Slice `bank-api`'s webhook wire and its loopback hatch (`bank_api::Wiring`); production posture until handed in.
     bank_api: crate::bank_api::Wiring,
     /// `TEST_AGE_DOOR`: whether `POST /internal/test/age` ages a record.
     test_age_open: bool,
+    /// Slice `partner-account`'s parts, built from the environment.
+    partner_account: crate::partner_account::Wiring,
 }
 
 /// The system clock.
@@ -308,8 +312,10 @@ impl BankDoor {
             bills: crate::bills::Wiring::none(),
             activity: crate::activity::Wiring::none(),
             global: crate::global::Wiring::none(),
+            card_programme: crate::card_programme::Wiring::none(),
             bank_api: crate::bank_api::Wiring::none(),
             test_age_open: false,
+            partner_account: crate::partner_account::Wiring::from_env(&config.env)?,
         })
     }
 
@@ -394,6 +400,12 @@ impl BankDoor {
     /// Slice `global`'s wiring, built by the binary from the environment.
     pub fn with_global(mut self, wiring: crate::global::Wiring) -> BankDoor {
         self.global = wiring;
+        self
+    }
+
+    /// Slice `card-programme`'s wiring, built by the binary from the environment.
+    pub fn with_card_programme(mut self, wiring: crate::card_programme::Wiring) -> BankDoor {
+        self.card_programme = wiring;
         self
     }
 
@@ -592,6 +604,22 @@ impl BankDoor {
         self
     }
 
+    /// Slice `partner-account`'s parts, when a test builds them itself.
+    pub fn with_partner_account(mut self, wiring: crate::partner_account::Wiring) -> BankDoor {
+        self.partner_account = wiring;
+        self
+    }
+
+    /// What slice `partner-account`'s parts read.
+    pub fn partner_account(&self) -> crate::partner_account::Deps<'_> {
+        crate::partner_account::Deps {
+            store: &self.store,
+            partner: &self.partner,
+            wiring: &self.partner_account,
+            now: (self.now)(),
+        }
+    }
+
     /// Slice `partner`'s wiring.
     pub fn partner(&self) -> &crate::partner::router::Wiring {
         &self.partner
@@ -628,10 +656,20 @@ impl BankDoor {
             }
             Slice::Partner => crate::partner::router::answer(&self.partner, &self.store, ctx)
                 .unwrap_or_else(|| Err(not_ported(Slice::Partner))),
+            Slice::PartnerAccount => crate::partner_account::answer(&self.partner_account(), ctx)
+                .unwrap_or_else(|| Err(not_ported(Slice::PartnerAccount))),
             Slice::Spaces => {
                 let freeze = |card_id: &str, user: &str| {
                     self.cards_deps(ctx.now, |d| {
                         crate::cards::core::freeze_for_holder(d, card_id, user)
+                    })
+                };
+                // The card partner's held figure for one person and asset (`cardHolds.figures`), `None` when it gives none.
+                let card_held = |user: &str, asset: &str| {
+                    self.cards_deps(ctx.now, |d| {
+                        crate::cards::reads::test_card_holds(d, &d.w.holds).map_or(Ok(None), |h| {
+                            crate::cards::reads::HoldReads::figures(&h, user, asset).map(|f| f.held)
+                        })
                     })
                 };
                 crate::spaces::router::answer(
@@ -640,6 +678,7 @@ impl BankDoor {
                     &self.store,
                     ctx,
                     &freeze,
+                    &card_held,
                 )
                 .unwrap_or_else(|| Err(not_ported(Slice::Spaces)))
             }
@@ -699,6 +738,11 @@ impl BankDoor {
                 ctx,
             )
             .unwrap_or_else(|| Err(not_ported(Slice::Cards))),
+            Slice::CardProgramme => self
+                .with_moves(ctx, |m| {
+                    crate::card_programme::router::answer(m, &self.card_programme, ctx)
+                })
+                .unwrap_or_else(|| Err(not_ported(Slice::CardProgramme))),
             Slice::CardOps => self
                 .card_moves(ctx)
                 .or_else(|| self.cards_deps(ctx.now, |d| crate::card_ops_desk::answer(d, ctx)))
@@ -732,7 +776,31 @@ impl BankDoor {
             Slice::Activity => self
                 .activity_deps(ctx.now, |d| crate::activity::answer(d, ctx))
                 .unwrap_or_else(|| Err(not_ported(Slice::Activity))),
-            other => Err(not_ported(other)),
+            Slice::Business => self
+                .transfers_deps(|d| {
+                    let d = crate::transfers::Deps { now: ctx.now, ..*d };
+                    crate::business::router::answer(&d, ctx)
+                })
+                .unwrap_or_else(|| Err(not_ported(Slice::Business))),
+            Slice::BusinessTeam => self
+                .transfers_deps(|d| {
+                    let d = crate::transfers::Deps { now: ctx.now, ..*d };
+                    let minutes = d.w.settings.business_invite_minutes.as_deref();
+                    crate::business_team::router::answer(&d, ctx, minutes)
+                })
+                .unwrap_or_else(|| Err(not_ported(Slice::BusinessTeam))),
+            Slice::BusinessPayouts => self
+                .transfers_deps(|d| {
+                    let d = crate::transfers::Deps { now: ctx.now, ..*d };
+                    crate::business::payouts::router::answer(&d, ctx)
+                })
+                .unwrap_or_else(|| Err(not_ported(Slice::BusinessPayouts))),
+            Slice::BusinessSpend => self
+                .transfers_deps(|d| {
+                    let d = crate::transfers::Deps { now: ctx.now, ..*d };
+                    crate::business_spend::router::answer(&d, ctx)
+                })
+                .unwrap_or_else(|| Err(not_ported(Slice::BusinessSpend))),
         }
     }
 
@@ -745,6 +813,15 @@ impl BankDoor {
     /// Answers one request under the id the server already gave it, from no known peer.
     pub fn handle_as(&self, req: &Request<'_>, request_id: &str) -> Response {
         self.handle_from(req, request_id, "")
+    }
+
+    /// Answers one request as `handle_from`, with the content type and headers it sends beside the body: the pay-in
+    /// stand-in's page is HTML and its approve a redirect; every other answer is JSON with none.
+    pub fn reply_from(&self, req: &Request<'_>, request_id: &str, peer: &str) -> Reply {
+        if let Some(reply) = crate::ramps::onramp::page_reply(self, req) {
+            return reply;
+        }
+        self.handle_from(req, request_id, peer).into()
     }
 
     /// Answers one request from the TCP peer `peer` (blank when unknown): the loopback TEST doors read it.
@@ -872,10 +949,11 @@ impl BankDoor {
                         "A second factor is required",
                     ));
                 }
-                Err(forbidden(&format!(
-                    "One of {} is required",
-                    scopes.join(", ")
-                )))
+                // The typed `scope.denied` a single-scope refusal carries (`anyScopeProcedure`).
+                Err(TrpcError::guard(access::Refused {
+                    message: format!("One of {} is required", scopes.join(", ")),
+                    code: "scope.denied".to_owned(),
+                }))
             }
         }
     }
@@ -942,6 +1020,10 @@ impl Door for BankDoor {
 
     fn handle_from(&self, req: &Request<'_>, request_id: &str, peer: &str) -> Response {
         BankDoor::handle_from(self, req, request_id, peer)
+    }
+
+    fn reply_from(&self, req: &Request<'_>, request_id: &str, peer: &str) -> Reply {
+        BankDoor::reply_from(self, req, request_id, peer)
     }
 
     /// `/health` is the server's own `{ ok, service }`, as `index.ts` answers it, and `/ready` the app's fixed body,

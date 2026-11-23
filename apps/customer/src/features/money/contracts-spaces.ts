@@ -122,6 +122,4 @@ export const spaceLockStateSchema = z.object({
 export const spacesReads = {} as const;
 
 /** This area's writes to svc-bank `bank.*`, composed into `bankWrites` in contracts.ts. */
-export const spacesWrites = {
-  'sharedPots.invite': sharedPotInviteSchema.extend({ invitee: sharedPotPersonSchema }),
-} as const;
+export const spacesWrites = {} as const;

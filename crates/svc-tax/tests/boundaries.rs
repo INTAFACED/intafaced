@@ -9,6 +9,7 @@
     reason = "a test: a failure is the point"
 )]
 
+use service_kit::money::Amount;
 use std::sync::{Arc, Mutex};
 
 use svc_tax::inputs::PnlInput;
@@ -59,11 +60,11 @@ fn line(id: &str, posted_at: Instant) -> SubAccountLine {
         convert: false,
         posted_at,
         asset_id: "BTC".to_owned(),
-        qty: 1,
+        qty: Amount::from_scaled(1),
         fee: None,
         maker_rebate: None,
-        cost_basis: Some(1),
-        proceeds: Some(2),
+        cost_basis: Some(Amount::from_scaled(1)),
+        proceeds: Some(Amount::from_scaled(2)),
     }
 }
 

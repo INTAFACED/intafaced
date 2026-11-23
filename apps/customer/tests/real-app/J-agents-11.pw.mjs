@@ -270,7 +270,7 @@ test(`${J} #1 opens Team and grants creator, runner, approver, log reader and sp
   await page.reload();
   await expect(members(page).getByRole('row').locator('td code')).toHaveCount(ids.length);
   await expect(members(page).getByRole('row').filter({ hasText: NOT_A_MEMBER })).toHaveCount(0);
-  expect((await members(page).getByRole('row').locator('td code').allInnerTexts()).sort()).toEqual(ids.sort());
+  await expect.poll(async () => (await members(page).getByRole('row').locator('td code').allInnerTexts()).sort()).toEqual(ids.sort());
   await expect(rowOf(members(page), 'one').getByTestId('effective-roles')).toHaveText(ROLES.join(', '));
 });
 
@@ -350,6 +350,22 @@ test(`${J} #5 a member spends past their allocation: the next run refuses and th
   agents.run.write({ threeLedgerBefore: String(await ledgerTotal('three')), partnerBefore: String(await businessAtPartner()) });
   await openTeam(page, 'three');
   await openRun(page);
+  // After each run the page reads the team again, and its Limits by member table shows that read only when it lands.
+  // Every such read is held until the asking is over, so a read of the table that does not wait for the read after
+  // the refusal always finds the figure from before the run (the state the failing run 45093019477 read).
+  const memberUsed = () => rowOf(tableIn(main(page), 'Limits by member'), 'three').getByTestId('member-used');
+  const usedBefore = await unitsOf(memberUsed());
+  const isView = (url) => {
+    const at = new URL(url).pathname;
+    return at.startsWith('/api/agents/trpc/') && at.endsWith('/team.view');
+  };
+  let release;
+  const released = new Promise((resolve) => (release = resolve));
+  await page.route(isView, async (route) => {
+    await released;
+    // A read the page dropped for a newer one is gone by now; only the reads it still waits for go on.
+    await route.continue().catch(() => {});
+  });
   const asked = [];
   for (let n = 1; n <= 6; n++) {
     const answer = await ask(page, `TEST question ${n}`);
@@ -359,8 +375,14 @@ test(`${J} #5 a member spends past their allocation: the next run refuses and th
   // At least one run was admitted and charged, and the run after the allocation was spent is refused by its code.
   expect(asked[0].cost, JSON.stringify(asked)).toMatch(/^\d+(\.\d+)? USDT$/);
   expect(asked.at(-1).refused, JSON.stringify(asked)).toBe('agents.team.allocation_exceeded');
-  const limits = tableIn(main(page), 'Limits by member');
-  const usedAtRefusal = await unitsOf(rowOf(limits, 'three').getByTestId('member-used'));
+  expect(await unitsOf(memberUsed()), 'the table still shows the figure from before the run').toBe(usedBefore);
+  // The service's own figure at the refusal, from the read that lands once released; the table must come to show it.
+  const viewed = page.waitForResponse((r) => isView(r.url()) && r.request().method() === 'GET' && r.ok());
+  release();
+  await page.unroute(isView);
+  const view = (await (await viewed).json()).result.data;
+  const usedAtRefusal = toUnits(view.members.find((m) => m.userId === person('three').userId).used);
+  await expect.poll(async () => await unitsOf(memberUsed())).toBe(usedAtRefusal);
   await closeRun(page);
   // Read from the service again: member three stayed within 0.011, the pool within 5, and the refusal took nothing.
   await page.reload();

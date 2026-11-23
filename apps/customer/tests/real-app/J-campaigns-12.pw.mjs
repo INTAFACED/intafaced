@@ -239,7 +239,7 @@ test(`${J} #2 earns chances by activity: chances rise to the cap and no further`
   await expect(room.getByTestId('draw-odds')).toHaveAttribute('data-mine', '3');
   expect(again.commitment).toBe(commitment);
   expect(again.entryHash).not.toBe(entryHash);
-  expect((await room.getByTestId('draw-entry-hash').innerText()).trim()).toBe(again.entryHash);
+  await expect.poll(async () => (await room.getByTestId('draw-entry-hash').innerText()).trim()).toBe(again.entryHash);
 });
 
 test(`${J} #3 the draw is run: while the owner decision is open, the refusal naming it and nothing paid`, async ({ browser }) => {

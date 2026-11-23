@@ -20,7 +20,7 @@ export function EmptyDesk() {
             <SelectValue>{t('No contract')}</SelectValue>
           </SelectTrigger>
         </Select>
-        <span className="text-sm text-fg-2">{why}</span>
+        <span className="lt-hint">{why}</span>
       </section>
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_280px_360px]">
         <section

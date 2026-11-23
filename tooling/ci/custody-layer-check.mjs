@@ -89,17 +89,37 @@ export function customerRecipeCalls(text, customerRecipes) {
 }
 
 /**
- * The customer-balance recipes a Rust service's source posts: a file that sends through its client's `.post_recipe(`
- * posts each recipe a string literal names, as the ledger's caller allowlist test reads it, and each `Recipe::<Name>`
- * variant it builds (`Recipe::FeeCharge` is `feeCharge`). Its `#[cfg(test)]` module is not production. Pure, so the test can plant one.
+ * The functions a Rust file that sends through its client's `.post_recipe(` defines to post a recipe it is handed: each
+ * `fn <name>(` with a `recipe: &str` parameter (svc-bank's `loans::service::post`). Pure.
  */
-export function rustCustomerRecipeCalls(text, customerRecipes) {
+export function rustRecipeWrappers(text) {
   const live = text.split('#[cfg(test)]')[0] ?? '';
   if (!/\.post_recipe\(/.test(live)) return [];
+  return [...live.matchAll(/\bfn\s+([a-z_][a-z0-9_]*)\s*(?:<[^>]*>)?\s*\(([^)]*)\)/g)]
+    .filter((m) => /\brecipe\s*:\s*&str\b/.test(m[2]))
+    .map((m) => m[1]);
+}
+
+/**
+ * The customer-balance recipes a Rust service's source posts: a file that sends through its client's `.post_recipe(`
+ * posts each recipe a string literal names, as the ledger's caller allowlist test reads it, and each `Recipe::<Name>`
+ * variant it builds (`Recipe::FeeCharge` is `feeCharge`). A file that calls one of its crate's recipe wrappers
+ * (`rustRecipeWrappers`) posts each recipe a string literal names in that call's statement. Its `#[cfg(test)]` module is
+ * not production. Pure, so the test can plant one.
+ */
+export function rustCustomerRecipeCalls(text, customerRecipes, wrappers = []) {
+  const live = text.split('#[cfg(test)]')[0] ?? '';
   const customer = new Set(customerRecipes);
-  const literal = [...live.matchAll(/"([A-Za-z][A-Za-z0-9_]*)"/g)].map((m) => m[1]);
-  const variant = [...live.matchAll(/\bRecipe::([A-Z][A-Za-z0-9]*)/g)].map((m) => m[1][0].toLowerCase() + m[1].slice(1));
-  return [...new Set([...literal, ...variant].filter((n) => customer.has(n)))].sort();
+  const literals = (t) => [...t.matchAll(/"([A-Za-z][A-Za-z0-9_]*)"/g)].map((m) => m[1]);
+  let named = [];
+  if (/\.post_recipe\(/.test(live)) {
+    const variant = [...live.matchAll(/\bRecipe::([A-Z][A-Za-z0-9]*)/g)].map((m) => m[1][0].toLowerCase() + m[1].slice(1));
+    named = [...literals(live), ...variant];
+  } else if (wrappers.length > 0) {
+    const call = new RegExp(`(?<![.\\w])(?:${wrappers.join('|')})\\s*\\(([^;]*)`, 'g');
+    named = [...live.matchAll(call)].flatMap((m) => literals(m[1]));
+  }
+  return [...new Set(named.filter((n) => customer.has(n)))].sort();
 }
 
 function* walkRust(dir) {
@@ -126,9 +146,11 @@ export function customerPostingSites(root, customerRecipes) {
   const crates = join(root, 'crates');
   for (const crate of existsSync(crates) ? readdirSync(crates) : []) {
     if (!crate.startsWith('svc-') || crate === 'svc-ledger') continue;
-    for (const file of walkRust(join(crates, crate, 'src'))) {
+    const files = [...walkRust(join(crates, crate, 'src'))].map((file) => [file, readFileSync(file, 'utf8')]);
+    const wrappers = [...new Set(files.flatMap(([, text]) => rustRecipeWrappers(text)))];
+    for (const [file, text] of files) {
       const rel = relative(root, file).split(sep).join('/');
-      const calls = rustCustomerRecipeCalls(readFileSync(file, 'utf8'), customerRecipes);
+      const calls = rustCustomerRecipeCalls(text, customerRecipes, wrappers);
       if (calls.length > 0) sites[rel] = calls;
     }
   }

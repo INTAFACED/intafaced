@@ -125,7 +125,7 @@ fn book<'a>(d: &'a Deps<'_>) -> Book<'a> {
 fn entry(d: &Deps<'_>, user_id: &str, ask: &Ask<'_>) -> Result<Entered, Refusal> {
     let amount = parse_amount(js_trim(ask.amount))
         .map_err(|_| forms::invalid("Enter an amount with up to 18 decimals"))?;
-    if amount <= 0 {
+    if amount <= Amount::ZERO {
         return Err(forms::invalid("The amount to send must be above zero"));
     }
     let (rail, recipient) = match &ask.to {

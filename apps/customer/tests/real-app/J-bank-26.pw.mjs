@@ -1,5 +1,5 @@
 // World: restart, gates
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, createHmac, hkdfSync, randomUUID } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { DEVICE_KEY, EDGE, ORIGIN, fund, json, tool } from './stack.mjs';
@@ -225,6 +225,12 @@ const kv = (page, testId, label) =>
     .filter({ has: page.getByText(label, { exact: true }) })
     .locator('dd');
 const answerOf = (page, section) => page.getByTestId(`cp-answer-${section}`);
+/** The export's HMAC-SHA256 as svc-bank signs it: a key derived for card programme reports from the stack's service secret. */
+async function reportSignature(text) {
+  const { ctx } = await founders();
+  const key = Buffer.from(hkdfSync('sha256', ctx.secrets.internal, Buffer.alloc(0), 'svc-bank card programme report v1', 32));
+  return createHmac('sha256', key).update(Buffer.from(text, 'utf8')).digest('hex');
+}
 
 test(`${J} #1 walks the set-up checklist and the programme, product and BIN configuration: the checklist, authorisation rules, cardholder fees; a shadow-mode rule shows how many of 100 past TEST authorisations it would decline before promotion`, async ({
   browser,
@@ -507,6 +513,7 @@ test(`${J} #4 sets 3DS policy and an SCA exemption: a payment of 25.00 under an 
 
 test(`${J} #5 reads funding and balances: the programme's figures as the partner reports them; held plus captured equals the partner's figure`, async ({
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(600_000);
   const who = await person(browser, 'funds');
@@ -541,19 +548,45 @@ test(`${J} #5 reads funding and balances: the programme's figures as the partner
     Reconciliation: 'matches',
   });
   // The programme's figures, as the partner reports them: this TEST partner's own record reports none, so the desk shows
-  // "not known", never 0.
+  // "not known" for each asset, never 0. The app's USDC row (this step's captures) is there, so the table is never empty.
   expect((await partnerRecord(bank.userId, '/terms')).programmeFigures).toBeNull();
   await expect(page.getByTestId('cp-programme-figures-failed')).toHaveCount(0);
-  if ((await page.getByTestId('cp-programme-figures-empty').count()) > 0) {
-    await expect(page.getByTestId('cp-programme-figures-empty')).toHaveText('The partner reports no programme figure.');
-  } else {
-    for (const row of await tableRows(page, 'cp-programme-figures')) expect(row['Partner’s figure']).toBe('not known');
-  }
+  const silent = await tableRows(page, 'cp-programme-figures');
+  expect(silent.find((r) => r.Asset === 'USDC')).toEqual({ Asset: 'USDC', 'Partner’s figure': 'not known', 'Partner’s time': 'not known' });
+  for (const row of silent) expect(row).toMatchObject({ 'Partner’s figure': 'not known', 'Partner’s time': 'not known' });
   await page.context().close();
+
+  // The same partner reporting its programme figures, for one restart: the desk shows each as the partner's own record
+  // holds it, its held plus captured, with the partner's time.
+  restartBank('LOCAL_STACK_BANK_CARD_PARTNER', 'reported');
+  try {
+    const reported = (await partnerRecord(bank.userId, '/terms')).programmeFigures;
+    expect(Object.keys(reported).sort()).toEqual(['BTC', 'USDC']);
+    const reportedPage = await desk(browser);
+    await reportedPage.goto(`/bank-ops/cards/cardholders/${holder.id}`);
+    await expect(reportedPage.getByTestId('cp-cardholder')).toBeVisible();
+    await expect(reportedPage.getByTestId('cp-programme-figures-failed')).toHaveCount(0);
+    const shown = await tableRows(reportedPage, 'cp-programme-figures');
+    for (const asset of ['USDC', 'BTC']) {
+      const row = shown.find((r) => r.Asset === asset);
+      expect(row['Partner’s figure']).toBe(decimal(units(reported[asset].held) + units(reported[asset].captured)));
+      expect(row['Partner’s time']).not.toBe('not known');
+    }
+    expect(shown.find((r) => r.Asset === 'USDC')['Partner’s figure']).toBe('25');
+    expect(shown.find((r) => r.Asset === 'BTC')['Partner’s figure']).toBe('0.0005');
+    // The step's screen: the cardholder's funds (held plus captured equal to the partner's figure, difference zero) beside
+    // the programme's figures as the partner reports them.
+    await expect(reportedPage.getByTestId('cp-funds')).toBeVisible();
+    await stepPicture(reportedPage);
+    await reportedPage.context().close();
+  } finally {
+    restartBank('LOCAL_STACK_BANK_CARD_PARTNER', undefined);
+  }
 });
 
 test(`${J} #6 opens programme funding: who funds the programme and any reserve the partner requires, or "not known", never shown as zero; the settlement reconciliation against the partner's figures and the stablecoin conversion shown; fund, defund and auto reload where the partner offers them`, async ({
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(600_000);
   // A TEST cardholder with a USDC card: one hold of 5 left open, one of 25 captured at 20 (its 5 remainder returned).
@@ -718,6 +751,10 @@ test(`${J} #6 opens programme funding: who funds the programme and any reserve t
     expect((await fundingRead()).rows.find((r) => r.assetId === 'USDC').appFigure).toBe(
       read.rows.find((r) => r.assetId === 'USDC').appFigure,
     );
+    // The step's screen: who funds it and the reserve as the partner reports them, the reconciliation with its conversion,
+    // the funding actions and the instruction the partner took.
+    await expect(terms(page)).toBeVisible();
+    await stepPicture(page);
     await page.context().close();
   } finally {
     restartBank('LOCAL_STACK_BANK_CARD_PARTNER', undefined);
@@ -726,6 +763,7 @@ test(`${J} #6 opens programme funding: who funds the programme and any reserve t
 
 test(`${J} #7 exports a report and assigns staff roles: a signed export with its freshness time whose totals equal the screen; a viewer role cannot change settings; the audit log lists each action`, async ({
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(600_000);
   const who = await person(browser, 'report');
@@ -737,9 +775,12 @@ test(`${J} #7 exports a report and assigns staff roles: a signed export with its
   await expect(page.getByTestId('cp-export')).toBeVisible();
   const text = await page.getByTestId('cp-export-file').textContent();
   const asOf = (await page.getByTestId('cp-export-asof').textContent()).trim();
-  // Signed over its own text: the SHA-256 shown is the text's, with an HMAC signature beside it.
+  // Signed over its own text: the SHA-256 shown is the text's, and the signature is the HMAC-SHA256 of that text under
+  // svc-bank's key for card programme reports (HKDF from the stack's service secret), so a changed file would not verify.
   expect((await page.getByTestId('cp-export-sha').textContent()).trim()).toBe(createHash('sha256').update(text).digest('hex'));
-  expect((await page.getByTestId('cp-export-signature').textContent()).trim()).toMatch(/^[0-9a-f]{64}$/);
+  const signature = (await page.getByTestId('cp-export-signature').textContent()).trim();
+  expect(signature).toBe(await reportSignature(text));
+  expect(signature).not.toBe(await reportSignature(text.replace(`total,${total.Approved},`, `total,${Number(total.Approved) + 1},`)));
   // Its freshness time is in the file, and its totals equal the screen's (read just before; nothing decided between).
   expect(text).toContain(`As of (UTC): ${asOf}`);
   expect(Date.parse(asOf)).toBeGreaterThan(Date.now() - 10 * 60_000);
@@ -779,6 +820,10 @@ test(`${J} #7 exports a report and assigns staff roles: a signed export with its
     expect(role?.After, JSON.stringify(audit.slice(0, 5))).toBe('{"role":"viewer"}');
     expect(audit.find((e) => e.Action === 'report.export')).toBeTruthy();
     expect(audit.some((e) => e.Action === 'setting.bin' && e.After.includes('49999902'))).toBe(false);
+    // The step's screen: the signed export shown again beside the report, the staff list and the audit log.
+    await page.getByTestId('cp-report').getByRole('button', { name: 'Export signed report', exact: true }).click();
+    await expect(page.getByTestId('cp-export-signature')).toHaveText(/^[0-9a-f]{64}$/);
+    await stepPicture(page);
   } finally {
     await programme('ops.cardProgrammeStaffAssign', { email: emailB, role: 'manager' });
   }

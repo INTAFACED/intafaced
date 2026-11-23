@@ -28,6 +28,7 @@ use service_kit::approvals::{
 };
 use service_kit::edge;
 use service_kit::json::{self, Json};
+use service_kit::money::Amount;
 use service_kit::money::parse_amount;
 use service_kit::s2s::{self, system_seconds};
 use service_kit::s2s_verify::BodyBind;
@@ -619,7 +620,7 @@ pub fn hold(book: &Mutex<CardHoldBook>, terms: &PartnerTerms, h: &HoldMove<'_>, 
     let bk = b.book_of(terms, h.user, h.asset).unwrap();
     bk.available = bk.available - amount + released + refunded;
     bk.held += open;
-    if open > 0 {
+    if open > Amount::ZERO {
         bk.open.insert(key.clone());
     }
     b.holds.insert(
@@ -636,6 +637,7 @@ pub fn hold(book: &Mutex<CardHoldBook>, terms: &PartnerTerms, h: &HoldMove<'_>, 
             released,
             refunded,
             expired: false,
+            drawn: false,
         },
     );
 }

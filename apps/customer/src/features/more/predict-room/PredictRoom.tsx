@@ -15,153 +15,163 @@ import { EmptyNote, KitRead, ScrollTable, Section } from '../volt-parts';
 /**
  * /predict on the kit (J-more-catalogue-15 #1): the published questions with the publishing blocker, the picked
  * question's book, public trades and my fills, and the order ticket, laid out in full and switched off. The same reads
- * and words as the old room (`../Prediction.tsx`), which /predict/positions and /predict/settings still draw.
+ * and words as the old room (`../Prediction.tsx`), which /predict/positions still draws.
  */
 export function PredictRoom() {
-  const { markets, market, instrument, outcome, setOutcome, select, book, tape, fills } = usePredictionRoom();
-  const { Copy, t } = predictionCatalogueCopy.useCopy();
-  const ticket = ticketCopy.useCopy();
+  const { t } = predictionCatalogueCopy.useCopy();
   return (
     <CatalogueTemplate
       title={copyText('moreroutes.prediction')}
       description={t('scope')}
       state={{ kind: 'ready' }}
-      items={
-        <div className="lt-grid lt-grid-main-side">
-          <div className="lt-col-main">
-            <Questions resource={markets.resource} refresh={markets.reload} select={select} />
-            {market && (
-              <>
-                <Section title={market.question}>
-                  <Details
-                    items={[
-                      [copyText('prediction.close.time'), market.closeAt],
-                      [copyText('prediction.settlement.asset'), market.settlementAssetId],
-                      [copyText('prediction.result.source'), market.settlementSource],
-                      [copyText('prediction.collateralization'), copyText('prediction.full.one.settlement.unit.per.contract')],
-                    ]}
-                  />
-                  <SectionTabs
-                    items={[
-                      { value: 'Yes', label: copyText('prediction.yes') },
-                      { value: 'No', label: copyText('prediction.no') },
-                    ]}
-                    value={outcome}
-                    onChange={setOutcome}
-                    label={copyText('prediction.outcome.selection')}
-                  />
-                  <strong>{instrument?.symbol}</strong>
-                  <KitRead resource={book.resource} retry={book.reload}>
-                    {(b) =>
-                      b ? (
-                        <>
-                          <ScrollTable
-                            headers={[
-                              copyText('prediction.bid.price'),
-                              copyText('prediction.bid.quantity'),
-                              copyText('prediction.ask.price'),
-                              copyText('prediction.ask.quantity'),
-                            ]}
-                            label={copyText('prediction.outcome.order.book', { value1: outcome })}
-                          >
-                            {Array.from({ length: Math.max(b.bids.length, b.asks.length) }, (_, i) => (
-                              <tr key={i}>
-                                <td>{b.bids[i]?.[0] ?? '—'}</td>
-                                <td>{b.bids[i]?.[1] ?? '—'}</td>
-                                <td>{b.asks[i]?.[0] ?? '—'}</td>
-                                <td>{b.asks[i]?.[1] ?? '—'}</td>
-                              </tr>
-                            ))}
-                          </ScrollTable>
-                          <small className="lt-hint">
-                            <Text k="prediction.snapshot" />
-                            {b.datetime}
-                            <Text k="prediction.sequence" />
-                            {b.nonce ?? copyText('prediction.unpublished')}
-                            <Text k="prediction.limit.20" />
-                          </small>
-                        </>
-                      ) : null
-                    }
-                  </KitRead>
-                </Section>
-                <Section title={copyText('prediction.recent.outcome.trades')}>
-                  <KitRead resource={tape.resource} retry={tape.reload} empty={copyText('prediction.no.public.trades.for.this.outcome')}>
-                    {(rows) => (
-                      <ScrollTable
-                        headers={[
-                          copyText('prediction.time'),
-                          copyText('prediction.side'),
-                          copyText('prediction.price'),
-                          copyText('prediction.quantity'),
-                        ]}
-                        label={copyText('prediction.outcome.public.trades')}
-                      >
-                        {rows.map((r) => (
-                          <tr key={r.id}>
-                            <td>{r.datetime}</td>
-                            <td>{r.side}</td>
-                            <td>{r.price}</td>
-                            <td>{r.amount}</td>
-                          </tr>
-                        ))}
-                      </ScrollTable>
-                    )}
-                  </KitRead>
-                </Section>
-                <Section title={copyText('prediction.your.outcome.fills')}>
-                  <KitRead resource={fills.resource} retry={fills.reload} empty={copyText('prediction.no.fills.for.this.outcome')}>
-                    {(rows) => (
-                      <ScrollTable
-                        headers={[
-                          copyText('prediction.fill'),
-                          copyText('prediction.price'),
-                          copyText('prediction.quantity'),
-                          copyText('prediction.fee'),
-                        ]}
-                        label={copyText('prediction.your.outcome.fills')}
-                      >
-                        {rows.map((r) => (
-                          <tr key={r.id}>
-                            <td>{r.id}</td>
-                            <td>{r.price}</td>
-                            <td>{r.amount}</td>
-                            <td>{r.fee ? `${r.fee.cost} ${r.fee.currency}` : copyText('prediction.fee.unavailable')}</td>
-                          </tr>
-                        ))}
-                      </ScrollTable>
-                    )}
-                  </KitRead>
-                </Section>
-              </>
-            )}
-          </div>
-          <section className="lt-col-side" data-testid="prediction-room-review" lang={ticket.languageFor('title')}>
-            {market && instrument ? (
-              <Ticket key={`${market.id}:${instrument.symbol}`} market={market} outcome={outcome === 'No' ? 'no' : 'yes'} />
-            ) : (
-              <div>
-                <h2>
-                  <ticketCopy.Copy k="title" />
-                </h2>
-                <p className="lt-hint">
-                  <ticketCopy.Copy k="idleBody" />
-                </p>
-                <p className="lt-refusal" data-testid="prediction-ticket-blocker" role="status">
-                  <ticketCopy.Copy k="chainReason" />
-                </p>
-              </div>
-            )}
-            <a className="lt-link" href="/support">
-              <Copy k="support" />
-            </a>
-            <a className="lt-link" href="/more">
-              <Copy k="more" />
-            </a>
-          </section>
-        </div>
-      }
+      items={<PredictMarkets />}
     />
+  );
+}
+
+/**
+ * The room's body on the kit: the questions, the picked question's book, tape and my fills, and the switched-off ticket.
+ * /predict draws it on its catalogue template and /predict/settings on its settings template, until the slice that owns
+ * that section (MC-predict-05) fills it.
+ */
+export function PredictMarkets() {
+  const { markets, market, instrument, outcome, setOutcome, select, book, tape, fills } = usePredictionRoom();
+  const { Copy } = predictionCatalogueCopy.useCopy();
+  const ticket = ticketCopy.useCopy();
+  return (
+    <div className="lt-grid lt-grid-main-side">
+      <div className="lt-col-main">
+        <Questions resource={markets.resource} refresh={markets.reload} select={select} />
+        {market && (
+          <>
+            <Section title={market.question}>
+              <Details
+                items={[
+                  [copyText('prediction.close.time'), market.closeAt],
+                  [copyText('prediction.settlement.asset'), market.settlementAssetId],
+                  [copyText('prediction.result.source'), market.settlementSource],
+                  [copyText('prediction.collateralization'), copyText('prediction.full.one.settlement.unit.per.contract')],
+                ]}
+              />
+              <SectionTabs
+                items={[
+                  { value: 'Yes', label: copyText('prediction.yes') },
+                  { value: 'No', label: copyText('prediction.no') },
+                ]}
+                value={outcome}
+                onChange={setOutcome}
+                label={copyText('prediction.outcome.selection')}
+              />
+              <strong>{instrument?.symbol}</strong>
+              <KitRead resource={book.resource} retry={book.reload}>
+                {(b) =>
+                  b ? (
+                    <>
+                      <ScrollTable
+                        headers={[
+                          copyText('prediction.bid.price'),
+                          copyText('prediction.bid.quantity'),
+                          copyText('prediction.ask.price'),
+                          copyText('prediction.ask.quantity'),
+                        ]}
+                        label={copyText('prediction.outcome.order.book', { value1: outcome })}
+                      >
+                        {Array.from({ length: Math.max(b.bids.length, b.asks.length) }, (_, i) => (
+                          <tr key={i}>
+                            <td>{b.bids[i]?.[0] ?? '—'}</td>
+                            <td>{b.bids[i]?.[1] ?? '—'}</td>
+                            <td>{b.asks[i]?.[0] ?? '—'}</td>
+                            <td>{b.asks[i]?.[1] ?? '—'}</td>
+                          </tr>
+                        ))}
+                      </ScrollTable>
+                      <small className="lt-hint">
+                        <Text k="prediction.snapshot" />
+                        {b.datetime}
+                        <Text k="prediction.sequence" />
+                        {b.nonce ?? copyText('prediction.unpublished')}
+                        <Text k="prediction.limit.20" />
+                      </small>
+                    </>
+                  ) : null
+                }
+              </KitRead>
+            </Section>
+            <Section title={copyText('prediction.recent.outcome.trades')}>
+              <KitRead resource={tape.resource} retry={tape.reload} empty={copyText('prediction.no.public.trades.for.this.outcome')}>
+                {(rows) => (
+                  <ScrollTable
+                    headers={[
+                      copyText('prediction.time'),
+                      copyText('prediction.side'),
+                      copyText('prediction.price'),
+                      copyText('prediction.quantity'),
+                    ]}
+                    label={copyText('prediction.outcome.public.trades')}
+                  >
+                    {rows.map((r) => (
+                      <tr key={r.id}>
+                        <td>{r.datetime}</td>
+                        <td>{r.side}</td>
+                        <td>{r.price}</td>
+                        <td>{r.amount}</td>
+                      </tr>
+                    ))}
+                  </ScrollTable>
+                )}
+              </KitRead>
+            </Section>
+            <Section title={copyText('prediction.your.outcome.fills')}>
+              <KitRead resource={fills.resource} retry={fills.reload} empty={copyText('prediction.no.fills.for.this.outcome')}>
+                {(rows) => (
+                  <ScrollTable
+                    headers={[
+                      copyText('prediction.fill'),
+                      copyText('prediction.price'),
+                      copyText('prediction.quantity'),
+                      copyText('prediction.fee'),
+                    ]}
+                    label={copyText('prediction.your.outcome.fills')}
+                  >
+                    {rows.map((r) => (
+                      <tr key={r.id}>
+                        <td>{r.id}</td>
+                        <td>{r.price}</td>
+                        <td>{r.amount}</td>
+                        <td>{r.fee ? `${r.fee.cost} ${r.fee.currency}` : copyText('prediction.fee.unavailable')}</td>
+                      </tr>
+                    ))}
+                  </ScrollTable>
+                )}
+              </KitRead>
+            </Section>
+          </>
+        )}
+      </div>
+      <section className="lt-col-side" data-testid="prediction-room-review" lang={ticket.languageFor('title')}>
+        {market && instrument ? (
+          <Ticket key={`${market.id}:${instrument.symbol}`} market={market} outcome={outcome === 'No' ? 'no' : 'yes'} />
+        ) : (
+          <div>
+            <h2>
+              <ticketCopy.Copy k="title" />
+            </h2>
+            <p className="lt-hint">
+              <ticketCopy.Copy k="idleBody" />
+            </p>
+            <p className="lt-refusal" data-testid="prediction-ticket-blocker" role="status">
+              <ticketCopy.Copy k="chainReason" />
+            </p>
+          </div>
+        )}
+        <a className="lt-link" href="/support">
+          <Copy k="support" />
+        </a>
+        <a className="lt-link" href="/more">
+          <Copy k="more" />
+        </a>
+      </section>
+    </div>
   );
 }
 

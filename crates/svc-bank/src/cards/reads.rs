@@ -29,7 +29,7 @@ use super::{Deps, RankTier, ms, own};
 use crate::door::Ctx;
 use crate::errors::Refusal;
 use crate::partner::pay_in::{self, PayInRail};
-use crate::partner::{TestPartner, money_held_by, refuse};
+use crate::partner::{CardStep, TestPartner, money_held_by, refuse};
 use crate::spaces::space::{owner_list_limit, pg, with};
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -144,6 +144,11 @@ pub trait HoldReads {
     fn quote(&self, _asset_id: &str, _settlement: &str) -> Option<Result<Option<Quote>, Refusal>> {
         None
     }
+    /// What the partner captured for this cardholder in this asset, `Ok(None)` when it reports no book for them;
+    /// `None` for a partner without the read.
+    fn captured(&self, _user_id: &str, _asset_id: &str) -> Option<Result<Option<String>, Refusal>> {
+        None
+    }
 }
 
 /// `partnerCardKey('hold', authorizationId)`: our id, never the network's reference.
@@ -155,8 +160,17 @@ pub fn hold_key(authorization_id: &str) -> String {
 pub const TEST_CARD_HOLD_DAYS: i64 = 7;
 
 /// One cardholder's book in one asset at the TEST partner card.
+///
+/// The TEST card draws on the person's own main account at the TEST partner in the card's asset when the partner holds
+/// one for them (`drawn`): a hold leaves that account, a release, a hold time running out or a refund comes back to it,
+/// each one partner move under the instruction's key, so the partner balance the person reads is what the card spends.
+/// With no such account, the book starts at the TEST figure the TEST partner card reports for the asset. Which one a
+/// book draws on is chosen while it holds nothing, so an open hold always goes back where it came from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Book {
+    /// True when the book draws on the person's own account at the TEST partner, not on a TEST figure.
+    pub drawn: bool,
+    /// The TEST figure's book only: what is left of it. A drawn book reads the partner account instead.
     pub available: Amount,
     pub held: Amount,
     /// The keys of this book's holds that still hold something.
@@ -177,6 +191,9 @@ pub struct Hold {
     pub released: Amount,
     pub refunded: Amount,
     pub expired: bool,
+    /// Whether the book it holds from was drawn on the partner account when it was taken (`hold.book.drawn`): what it
+    /// gives back goes back there, whatever book the person has since.
+    pub drawn: bool,
 }
 
 impl Hold {
@@ -187,9 +204,9 @@ impl Hold {
     pub(crate) fn report(&self) -> HoldReport {
         let status = if self.expired {
             "expired"
-        } else if self.captured > 0 {
+        } else if self.captured > Amount::ZERO {
             "captured"
-        } else if self.released > 0 {
+        } else if self.released > Amount::ZERO {
             "released"
         } else {
             "held"
@@ -224,50 +241,211 @@ pub(crate) fn book_id(user_id: &str, asset_id: &str) -> String {
     format!("{user_id}|{asset_id}")
 }
 
+/// `TestPartnerCardFunds`: the person's own main account at the TEST partner a card draws on, for one call.
+#[derive(Clone, Copy)]
+pub struct CardFunds<'a> {
+    pub partner: Option<&'a TestPartner>,
+    pub now: Instant,
+}
+
+impl CardFunds<'_> {
+    /// No partner account to draw on: every book keeps to the TEST figure.
+    pub const NONE: CardFunds<'static> = CardFunds {
+        partner: None,
+        now: Instant(0),
+    };
+
+    /// `available`: what the person's main account in `asset_id` holds now, `None` when the partner holds none.
+    pub fn available(&self, user_id: &str, asset_id: &str) -> Option<Amount> {
+        self.partner?.lock().card_available(user_id, asset_id)
+    }
+
+    /// `move`: one card step as one partner move under `key`; a key the partner already holds moves nothing more.
+    pub fn move_funds(
+        &self,
+        key: &str,
+        step: CardStep,
+        user_id: &str,
+        asset_id: &str,
+        amount: Amount,
+    ) -> Result<(), Refusal> {
+        match self.partner {
+            Some(p) => p
+                .lock()
+                .card_move(key, step, user_id, asset_id, amount, self.now),
+            None => Ok(()),
+        }
+    }
+}
+
 impl CardHoldBook {
-    /// `bookOf`: the kept book, or one started from the TEST figure; `None` when the partner reports no figure.
+    /// `bookOf` with no partner account: the kept book, or one started from the TEST figure; `None` when the partner
+    /// reports no figure.
     pub fn book_of(
         &mut self,
         terms: &PartnerTerms,
         user_id: &str,
         asset_id: &str,
     ) -> Option<&mut Book> {
+        self.book_at(terms, user_id, asset_id, None)
+    }
+
+    /// `bookOf`: a book that holds nothing follows the partner account (`account`, `None` when the partner holds no
+    /// such account): drawn once the partner holds one, the TEST figure without. A book that holds something is kept
+    /// as it is, so an open hold always goes back where it came from.
+    pub fn book_at(
+        &mut self,
+        terms: &PartnerTerms,
+        user_id: &str,
+        asset_id: &str,
+        account: Option<Amount>,
+    ) -> Option<&mut Book> {
         let id = book_id(user_id, asset_id);
-        if !self.books.contains_key(&id) {
-            let available = parse_amount(terms.balance(asset_id)?).ok()?;
-            self.books.insert(
-                id.clone(),
-                Book {
-                    available,
-                    held: 0,
-                    open: BTreeSet::new(),
-                },
-            );
+        let has_account = account.is_some();
+        let keep = self
+            .books
+            .get(&id)
+            .is_some_and(|b| b.held > Amount::ZERO || !b.open.is_empty() || b.drawn == has_account);
+        if !keep {
+            if has_account {
+                self.books.insert(
+                    id.clone(),
+                    Book {
+                        drawn: true,
+                        available: Amount::ZERO,
+                        held: Amount::ZERO,
+                        open: BTreeSet::new(),
+                    },
+                );
+            } else if !self.books.contains_key(&id) {
+                let available = parse_amount(terms.balance(asset_id)?).ok()?;
+                self.books.insert(
+                    id.clone(),
+                    Book {
+                        drawn: false,
+                        available,
+                        held: Amount::ZERO,
+                        open: BTreeSet::new(),
+                    },
+                );
+            }
         }
         self.books.get_mut(&id)
     }
 
-    /// `runOut`: the partner gives an uncaptured hold back when its hold time runs out, or when the person's TEST
-    /// switch says so.
-    pub(crate) fn run_out(&mut self, key: &str, now: Instant, switch_expired: bool) {
-        let Some(h) = self.holds.get_mut(key) else {
-            return;
+    /// `bookOf` over the partner's own account, then what the book has: `freeIn` (the partner account's figure when
+    /// drawn, else what is left of the TEST figure), what it holds, and whether it is drawn. `None` when there is no book.
+    pub(crate) fn standing(
+        &mut self,
+        terms: &PartnerTerms,
+        funds: &CardFunds<'_>,
+        user_id: &str,
+        asset_id: &str,
+    ) -> Option<(Amount, Amount, bool)> {
+        let account = funds.available(user_id, asset_id);
+        let b = self.book_at(terms, user_id, asset_id, account)?;
+        let free = if b.drawn {
+            account.unwrap_or(Amount::ZERO)
+        } else {
+            b.available
         };
-        if h.expired || h.captured > 0 || h.open() == 0 {
-            return;
+        Some((free, b.held, b.drawn))
+    }
+
+    /// `spendable` and what is held: the book's own free figure and anything else the partner credited the cardholder;
+    /// a drawn book spends what the account holds and nothing beside it (`compose.ts`: `drawn ? 0n : ...`).
+    pub(crate) fn spendable(
+        &mut self,
+        terms: &PartnerTerms,
+        funds: &CardFunds<'_>,
+        user_id: &str,
+        asset_id: &str,
+        credited: Amount,
+    ) -> Option<(Amount, Amount)> {
+        self.standing(terms, funds, user_id, asset_id)
+            .map(|(free, held, drawn)| (if drawn { free } else { free + credited }, held))
+    }
+
+    /// `holdFrom`: money leaves the free figure into a hold under `key`: one partner move when the book is drawn, else
+    /// off the TEST figure. The caller has the book (`book_at`) and has checked it covers `amount`.
+    pub(crate) fn hold_from(
+        &mut self,
+        funds: &CardFunds<'_>,
+        user_id: &str,
+        asset_id: &str,
+        amount: Amount,
+        key: &str,
+    ) -> Result<bool, Refusal> {
+        let id = book_id(user_id, asset_id);
+        let drawn = self.books.get(&id).is_some_and(|b| b.drawn);
+        if drawn {
+            funds.move_funds(key, CardStep::Hold, user_id, asset_id, amount)?;
+        }
+        if let Some(b) = self.books.get_mut(&id) {
+            if !drawn {
+                b.available -= amount;
+            }
+            b.held += amount;
+            b.open.insert(key.to_owned());
+        }
+        Ok(drawn)
+    }
+
+    /// `giveBack`: money comes back from a hold to where it came from under `key`: one partner move when the hold was
+    /// drawn, else onto the TEST figure (of a book the TEST figure still keeps).
+    pub(crate) fn give_back(
+        &mut self,
+        funds: &CardFunds<'_>,
+        hold_key: &str,
+        amount: Amount,
+        key: &str,
+        step: CardStep,
+    ) -> Result<(), Refusal> {
+        let Some(h) = self.holds.get(hold_key) else {
+            return Ok(());
+        };
+        if h.drawn {
+            return funds.move_funds(key, step, &h.user_id, &h.asset_id, amount);
+        }
+        if let Some(b) = self.books.get_mut(&book_id(&h.user_id, &h.asset_id))
+            && !b.drawn
+        {
+            b.available += amount;
+        }
+        Ok(())
+    }
+
+    /// `runOut`: the partner gives an uncaptured hold back when its hold time runs out, or when the person's TEST
+    /// switch says so, under `<partner ref>:expired`.
+    pub(crate) fn run_out(
+        &mut self,
+        key: &str,
+        now: Instant,
+        switch_expired: bool,
+        funds: &CardFunds<'_>,
+    ) -> Result<(), Refusal> {
+        let Some(h) = self.holds.get(key) else {
+            return Ok(());
+        };
+        if h.expired || h.captured > Amount::ZERO || h.open() == Amount::ZERO {
+            return Ok(());
         }
         if now.0 < h.expires_at.0 && !switch_expired {
-            return;
+            return Ok(());
         }
         let back = h.open();
-        h.released += back;
-        h.expired = true;
+        let move_key = format!("{}:expired", h.partner_ref);
         let id = book_id(&h.user_id, &h.asset_id);
+        self.give_back(funds, key, back, &move_key, CardStep::Release)?;
+        if let Some(h) = self.holds.get_mut(key) {
+            h.released += back;
+            h.expired = true;
+        }
         if let Some(b) = self.books.get_mut(&id) {
             b.held -= back;
-            b.available += back;
             b.open.remove(key);
         }
+        Ok(())
     }
 }
 
@@ -286,6 +464,14 @@ pub struct TestCardHolds<'a> {
 }
 
 impl TestCardHolds<'_> {
+    /// The TEST partner's card funds (`testPartner.cardFunds`), at this call's time.
+    pub fn funds(&self) -> CardFunds<'_> {
+        CardFunds {
+            partner: self.partner,
+            now: self.now,
+        }
+    }
+
     pub(crate) fn switch_expired(&self, user_id: &str) -> bool {
         self.partner
             .is_some_and(|p| p.switches(user_id).card_hold == "expired")
@@ -293,7 +479,7 @@ impl TestCardHolds<'_> {
 
     /// `testCardCredited` plus `payInCredited`: what else the TEST partner credited this cardholder in this asset.
     pub(crate) fn credited(&self, user_id: &str, asset_id: &str) -> Amount {
-        let mut sum: Amount = 0;
+        let mut sum: Amount = Amount::ZERO;
         if let Some(book) = self.issuer.sim_book() {
             for (_, c) in &book.credits {
                 if c.user_id == user_id && c.asset_id == asset_id && !c.reversed {
@@ -324,6 +510,7 @@ impl HoldReads for TestCardHolds<'_> {
     fn figures(&self, user_id: &str, asset_id: &str) -> Result<Figures, Refusal> {
         let switch_expired = self.switch_expired(user_id);
         let credited = self.credited(user_id, asset_id);
+        let funds = self.funds();
         let mut book = self.lock();
         let open: Vec<String> = book
             .books
@@ -331,11 +518,11 @@ impl HoldReads for TestCardHolds<'_> {
             .map(|b| b.open.iter().cloned().collect())
             .unwrap_or_default();
         for key in open {
-            book.run_out(&key, self.now, switch_expired);
+            book.run_out(&key, self.now, switch_expired, &funds)?;
         }
         let figures = book
-            .book_of(self.terms, user_id, asset_id)
-            .map(|b| (format_amount(b.available + credited), format_amount(b.held)));
+            .spendable(self.terms, &funds, user_id, asset_id, credited)
+            .map(|(available, held)| (format_amount(available), format_amount(held)));
         Ok(Figures {
             test: true,
             mode: self.terms.custody_mode.clone(),
@@ -345,14 +532,34 @@ impl HoldReads for TestCardHolds<'_> {
         })
     }
 
+    /// `captured`: every hold's captured part, once the partner keeps a book for this cardholder and asset.
+    fn captured(&self, user_id: &str, asset_id: &str) -> Option<Result<Option<String>, Refusal>> {
+        let funds = self.funds();
+        let mut book = self.lock();
+        if book
+            .standing(self.terms, &funds, user_id, asset_id)
+            .is_none()
+        {
+            return Some(Ok(None));
+        }
+        let sum: Amount = book
+            .holds
+            .values()
+            .filter(|h| h.user_id == user_id && h.asset_id == asset_id)
+            .map(|h| h.captured)
+            .sum();
+        Some(Ok(Some(format_amount(sum))))
+    }
+
     fn hold_state(&self, hold_key: &str) -> Result<Option<HoldReport>, Refusal> {
         let user = self.lock().holds.get(hold_key).map(|h| h.user_id.clone());
         let Some(user) = user else {
             return Ok(None);
         };
         let switch_expired = self.switch_expired(&user);
+        let funds = self.funds();
         let mut book = self.lock();
-        book.run_out(hold_key, self.now, switch_expired);
+        book.run_out(hold_key, self.now, switch_expired, &funds)?;
         Ok(book.holds.get(hold_key).map(Hold::report))
     }
 
@@ -490,7 +697,7 @@ pub const CONVERSION_MAX_AGE_SECONDS: i64 = 60;
 /// `acceptableForMarking` under the card conversion policy: above zero, no older than its window, no more than 30 s in
 /// the future.
 pub fn acceptable_for_marking(price: Amount, as_of: Instant, now: Instant) -> bool {
-    if price <= 0 {
+    if price <= Amount::ZERO {
         return false;
     }
     let age_ms = now.0 - as_of.0;
@@ -1266,11 +1473,27 @@ mod tests {
     #[test]
     fn a_quote_is_fresh_for_its_window_and_never_from_more_than_30_s_ahead() {
         let now = Instant(1_000_000_000);
-        assert!(acceptable_for_marking(1, Instant(now.0 - 60_000), now));
-        assert!(!acceptable_for_marking(1, Instant(now.0 - 61_000), now));
-        assert!(!acceptable_for_marking(1, Instant(now.0 + 120_000), now));
-        assert!(acceptable_for_marking(1, Instant(now.0 + 30_000), now));
-        assert!(!acceptable_for_marking(0, now, now));
+        assert!(acceptable_for_marking(
+            Amount::from_scaled(1),
+            Instant(now.0 - 60_000),
+            now
+        ));
+        assert!(!acceptable_for_marking(
+            Amount::from_scaled(1),
+            Instant(now.0 - 61_000),
+            now
+        ));
+        assert!(!acceptable_for_marking(
+            Amount::from_scaled(1),
+            Instant(now.0 + 120_000),
+            now
+        ));
+        assert!(acceptable_for_marking(
+            Amount::from_scaled(1),
+            Instant(now.0 + 30_000),
+            now
+        ));
+        assert!(!acceptable_for_marking(Amount::ZERO, now, now));
     }
 
     #[test]
@@ -1339,10 +1562,11 @@ mod tests {
                     amount: parse_amount("40").unwrap(),
                     expires_at: Instant(t0.0 + TEST_CARD_HOLD_DAYS * 86_400_000),
                     conversion: None,
-                    captured: 0,
-                    released: 0,
-                    refunded: 0,
+                    captured: Amount::ZERO,
+                    released: Amount::ZERO,
+                    refunded: Amount::ZERO,
                     expired: false,
+                    drawn: false,
                 },
             );
         }
@@ -1377,5 +1601,302 @@ mod tests {
         assert!(at(later).hold_state(&hold_key("b")).unwrap().is_none());
         assert_eq!(at(t0).figures("u", "BTC").unwrap().available, None);
         assert!(CUSTODY_MODES.contains(&f.mode.unwrap().as_str()));
+    }
+
+    // partner-card-holds.test.ts, "the TEST card draws on the person's own partner account (#10227)": the book side.
+    mod drawn {
+        use super::*;
+        use crate::cards::terms::PartnerTerms;
+        use crate::partner::{Funding, card_holds_account};
+
+        const ADA: &str = "ada";
+
+        fn amt(s: &str) -> Amount {
+            parse_amount(s).unwrap()
+        }
+
+        fn terms() -> PartnerTerms {
+            PartnerTerms {
+                custody_mode: Some("partner_holds".to_owned()),
+                spend_from: Some(vec!["USDC".to_owned()]),
+                balances: Some(vec![("USDC".to_owned(), "100".to_owned())]),
+                ..PartnerTerms::nothing_reported()
+            }
+        }
+
+        fn fund(p: &TestPartner, id: &str, amount: &str) {
+            p.lock()
+                .fund(
+                    ADA,
+                    &Funding {
+                        fund_id: id.to_owned(),
+                        asset_id: "USDC".to_owned(),
+                        amount: amt(amount),
+                    },
+                    Instant(1_700_000_000_000),
+                )
+                .unwrap();
+        }
+
+        fn main_of(p: &TestPartner) -> Option<Amount> {
+            p.lock().card_available(ADA, "USDC")
+        }
+
+        /// The hold instruction's book side (`partner_book::take`): the book chosen, the money held, the hold kept.
+        fn hold(
+            book: &Mutex<CardHoldBook>,
+            terms: &PartnerTerms,
+            funds: &CardFunds<'_>,
+            key: &str,
+            amount: &str,
+        ) {
+            let mut b = book.lock().unwrap();
+            b.standing(terms, funds, ADA, "USDC").unwrap();
+            let drawn = b.hold_from(funds, ADA, "USDC", amt(amount), key).unwrap();
+            b.holds.insert(
+                key.to_owned(),
+                Hold {
+                    partner_ref: format!("TEST-card-partner:{key}"),
+                    user_id: ADA.to_owned(),
+                    asset_id: "USDC".to_owned(),
+                    mode: "partner_holds".to_owned(),
+                    amount: amt(amount),
+                    expires_at: Instant(funds.now.0 + TEST_CARD_HOLD_DAYS * 86_400_000),
+                    conversion: None,
+                    captured: Amount::ZERO,
+                    released: Amount::ZERO,
+                    refunded: Amount::ZERO,
+                    expired: false,
+                    drawn,
+                },
+            );
+        }
+
+        /// The release instruction's book side: whatever is still open goes back where it came from, under `key`.
+        fn release(book: &Mutex<CardHoldBook>, funds: &CardFunds<'_>, hold_key: &str, key: &str) {
+            let mut b = book.lock().unwrap();
+            let back = b.holds.get(hold_key).unwrap().open();
+            b.give_back(funds, hold_key, back, key, CardStep::Release)
+                .unwrap();
+            b.holds.get_mut(hold_key).unwrap().released += back;
+            let bk = b.books.get_mut(&book_id(ADA, "USDC")).unwrap();
+            bk.held -= back;
+            bk.open.remove(hold_key);
+        }
+
+        fn figures(holds: &TestCardHolds<'_>) -> (Option<String>, Option<String>) {
+            let f = holds.figures(ADA, "USDC").unwrap();
+            (f.available, f.held)
+        }
+
+        fn pair(a: &str, h: &str) -> (Option<String>, Option<String>) {
+            (Some(a.to_owned()), Some(h.to_owned()))
+        }
+
+        #[test]
+        fn a_drawn_card_reads_the_persons_partner_main_account_and_holds_from_it_once_per_key() {
+            let terms = terms();
+            let issuer = Issuer::sim(terms.clone());
+            let partner = TestPartner::new().unwrap();
+            fund(&partner, "f-400", "400");
+            let book = Mutex::new(CardHoldBook::default());
+            let holds = TestCardHolds {
+                book: &book,
+                terms: &terms,
+                partner: Some(&partner),
+                issuer: &issuer,
+                pay_in: None,
+                now: Instant(1_700_000_000_000),
+            };
+            // The partner main account, never the TEST figure of 100.
+            assert_eq!(figures(&holds), pair("400", "0"));
+            let funds = holds.funds();
+            hold(&book, &terms, &funds, "card.partner.hold:a", "20");
+            assert_eq!(main_of(&partner), Some(amt("380")));
+            assert_eq!(figures(&holds), pair("380", "20"));
+            // The same key again moves nothing more at the partner.
+            funds
+                .move_funds(
+                    "card.partner.hold:a",
+                    CardStep::Hold,
+                    ADA,
+                    "USDC",
+                    amt("20"),
+                )
+                .unwrap();
+            assert_eq!(main_of(&partner), Some(amt("380")));
+            assert_eq!(
+                partner.lock().book.amount(&card_holds_account("USDC")),
+                amt("20")
+            );
+            release(
+                &book,
+                &funds,
+                "card.partner.hold:a",
+                "card.partner.release:a",
+            );
+            release(
+                &book,
+                &funds,
+                "card.partner.hold:a",
+                "card.partner.release:a",
+            );
+            assert_eq!(main_of(&partner), Some(amt("400")));
+            assert_eq!(figures(&holds), pair("400", "0"));
+            assert_eq!(
+                partner.lock().book.amount(&card_holds_account("USDC")),
+                Amount::ZERO
+            );
+        }
+
+        #[test]
+        fn a_drawn_card_spends_what_the_account_holds_and_nothing_beside_it() {
+            let terms = terms();
+            let partner = TestPartner::new().unwrap();
+            fund(&partner, "f-1000", "1000");
+            let funds = CardFunds {
+                partner: Some(&partner),
+                now: Instant(1_700_000_000_000),
+            };
+            let mut b = CardHoldBook::default();
+            // compose.ts: `credited: (userId, assetId, drawn) => drawn ? 0n : ...`.
+            assert_eq!(
+                b.spendable(&terms, &funds, ADA, "USDC", amt("7")),
+                Some((amt("1000"), Amount::ZERO))
+            );
+            // With no partner account the TEST figure and the credit both count.
+            assert_eq!(
+                b.spendable(&terms, &funds, "bob", "USDC", amt("7")),
+                Some((amt("107"), Amount::ZERO))
+            );
+        }
+
+        #[test]
+        fn with_no_account_at_the_partner_the_card_keeps_the_test_figure() {
+            let terms = terms();
+            let issuer = Issuer::sim(terms.clone());
+            let partner = TestPartner::new().unwrap();
+            let book = Mutex::new(CardHoldBook::default());
+            let holds = TestCardHolds {
+                book: &book,
+                terms: &terms,
+                partner: Some(&partner),
+                issuer: &issuer,
+                pay_in: None,
+                now: Instant(1_700_000_000_000),
+            };
+            assert_eq!(figures(&holds), pair("100", "0"));
+            hold(&book, &terms, &holds.funds(), "card.partner.hold:a", "10");
+            assert_eq!(figures(&holds), pair("90", "10"));
+            assert_eq!(main_of(&partner), None);
+            assert_eq!(partner.lock().book.moves_held(), 0);
+            assert!(!book.lock().unwrap().books[&book_id(ADA, "USDC")].drawn);
+        }
+
+        #[test]
+        fn a_book_that_holds_nothing_follows_the_account_and_an_open_hold_goes_back_where_it_came_from()
+         {
+            let terms = terms();
+            let issuer = Issuer::sim(terms.clone());
+            let partner = TestPartner::new().unwrap();
+            let book = Mutex::new(CardHoldBook::default());
+            let holds = TestCardHolds {
+                book: &book,
+                terms: &terms,
+                partner: Some(&partner),
+                issuer: &issuer,
+                pay_in: None,
+                now: Instant(1_700_000_000_000),
+            };
+            let funds = holds.funds();
+            assert_eq!(figures(&holds), pair("100", "0"));
+            hold(&book, &terms, &funds, "card.partner.hold:a", "10");
+            // The account opens while the TEST figure's hold is open: the book keeps to the figure until it holds nothing.
+            fund(&partner, "f-40", "40");
+            assert_eq!(figures(&holds), pair("90", "10"));
+            release(
+                &book,
+                &funds,
+                "card.partner.hold:a",
+                "card.partner.release:a",
+            );
+            // The hold went back to the TEST figure, never into the partner account.
+            assert_eq!(main_of(&partner), Some(amt("40")));
+            assert_eq!(figures(&holds), pair("40", "0"));
+            assert!(book.lock().unwrap().books[&book_id(ADA, "USDC")].drawn);
+            // A drawn hold open while the account is emptied elsewhere still comes back to the account.
+            hold(&book, &terms, &funds, "card.partner.hold:b", "15");
+            assert_eq!(main_of(&partner), Some(amt("25")));
+            assert_eq!(figures(&holds), pair("25", "15"));
+            release(
+                &book,
+                &funds,
+                "card.partner.hold:b",
+                "card.partner.release:b",
+            );
+            assert_eq!(main_of(&partner), Some(amt("40")));
+            // An empty drawn book whose account the partner no longer reports is kept drawn (the TypeScript's `if (kept)`).
+            let other = TestPartner::new().unwrap();
+            let gone = CardFunds {
+                partner: Some(&other),
+                now: funds.now,
+            };
+            assert_eq!(
+                book.lock().unwrap().standing(&terms, &gone, ADA, "USDC"),
+                Some((Amount::ZERO, Amount::ZERO, true))
+            );
+            // And a TEST figure book that holds nothing turns drawn once the account opens.
+            let mut fresh = CardHoldBook::default();
+            assert_eq!(
+                fresh.standing(&terms, &CardFunds::NONE, ADA, "USDC"),
+                Some((amt("100"), Amount::ZERO, false))
+            );
+            assert_eq!(
+                fresh.standing(&terms, &funds, ADA, "USDC"),
+                Some((amt("40"), Amount::ZERO, true))
+            );
+        }
+
+        #[test]
+        fn a_drawn_hold_whose_time_ran_out_comes_back_to_the_account_once() {
+            let terms = terms();
+            let issuer = Issuer::sim(terms.clone());
+            let partner = TestPartner::new().unwrap();
+            fund(&partner, "f-50", "50");
+            let book = Mutex::new(CardHoldBook::default());
+            let t0 = Instant(1_700_000_000_000);
+            let at = |now: Instant| TestCardHolds {
+                book: &book,
+                terms: &terms,
+                partner: Some(&partner),
+                issuer: &issuer,
+                pay_in: None,
+                now,
+            };
+            hold(&book, &terms, &at(t0).funds(), "card.partner.hold:a", "30");
+            assert_eq!(main_of(&partner), Some(amt("20")));
+            let later = Instant(t0.0 + TEST_CARD_HOLD_DAYS * 86_400_000);
+            assert_eq!(figures(&at(later)), pair("50", "0"));
+            assert_eq!(figures(&at(later)), pair("50", "0"));
+            assert_eq!(main_of(&partner), Some(amt("50")));
+            let r = at(later)
+                .hold_state("card.partner.hold:a")
+                .unwrap()
+                .unwrap();
+            assert_eq!((r.status.as_str(), r.released.as_str()), ("expired", "30"));
+            let p = partner.lock();
+            let expired = p
+                .book
+                .by_key("TEST-card-partner:card.partner.hold:a:expired")
+                .unwrap();
+            assert_eq!(
+                (
+                    expired.from.user_id.as_str(),
+                    expired.to.user_id.as_str(),
+                    expired.amount
+                ),
+                ("partner:card-holds", ADA, amt("30"))
+            );
+        }
     }
 }

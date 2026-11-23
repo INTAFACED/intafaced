@@ -477,7 +477,7 @@ export function RoomFrame(props: RoomFrameProps) {
           </div>
         ) : null}
         {props.bar}
-        <header className="lt-title-row">
+        <header {...props.headingMarks} className="lt-title-row">
           <div>
             <h1 className="lt-title" lang={props.titleLang} ref={props.titleRef} tabIndex={props.titleRef ? -1 : undefined}>
               {title}
@@ -486,6 +486,7 @@ export function RoomFrame(props: RoomFrameProps) {
           </div>
           {roomAction ? <div className="lt-room-action">{roomAction}</div> : null}
         </header>
+        {props.section ? <div className="lt-room-section">{props.section}</div> : null}
         {state.kind === 'ready' && state.stale ? (
           <div className="lt-stale" data-region="stale" role="status">
             <p>

@@ -96,22 +96,22 @@
 </header>
 <main id="main" tabindex="-1">
 <div class="flex min-w-0 flex-col" data-screen="margin">
-<nav data-slot="sub-nav" aria-label="Trading rooms" class="flex flex-wrap items-center gap-1 border-b border-line px-(--if-gutter) py-2">
-<a href="/trade/spot/BTC-USDT" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Spot</a>
-<a href="/trade/margin" aria-current="page" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Margin</a>
-<a href="/trade/futures" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Futures</a>
-<a href="/trade/options" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Options</a>
-<a href="/trade/copy" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Copy</a>
-<a href="/trade/bots" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Bots</a>
-<a href="/trade/convert" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Convert</a>
-<a href="/execution" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Execution</a>
-<a href="/otc" class="inline-flex h-8 items-center rounded-full px-3 text-sm font-medium text-fg-2 transition-colors duration-(--if-t-fast) ease-if hover:bg-hover hover:text-fg aria-[current=page]:bg-raised aria-[current=page]:text-fg outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus">Quote desk</a>
-</nav>
 <div class="mx-auto flex w-full max-w-(--if-w-content,1224px) flex-col gap-8 px-(--if-gutter) py-6">
-<header class="flex flex-col gap-2">
+<header class="lt-stack">
 <h1 class="text-xl font-semibold text-fg">Margin account</h1>
 <p class="max-w-3xl text-base text-fg-2">Futures margin is isolated: each position carries its own margin and can lose only that. This page shows how much you have at risk and how close each position is.</p>
 </header>
+<nav class="lt-tabs" aria-label="Trading rooms" data-region="section-tabs">
+<a href="/trade/spot/BTC-USDT" class="lt-tab">Spot</a>
+<a href="/trade/margin" class="lt-tab" aria-current="page">Margin</a>
+<a href="/trade/futures" class="lt-tab">Futures</a>
+<a href="/trade/options" class="lt-tab">Options</a>
+<a href="/trade/copy" class="lt-tab">Copy</a>
+<a href="/trade/bots" class="lt-tab">Bots</a>
+<a href="/trade/convert" class="lt-tab">Convert</a>
+<a href="/execution" class="lt-tab">Execution</a>
+<a href="/otc" class="lt-tab">Quote desk</a>
+</nav>
 <section aria-label="Margin account" class="grid grid-cols-2 gap-6 md:grid-cols-5">
 <div role="group" aria-labelledby="_r_3_-label" aria-describedby="_r_3_-hint" data-slot="stat" data-density="comfortable" data-size="md" class="flex min-w-0 flex-col gap-1 items-start" data-freshness="live">
 <span id="_r_3_-label" class="text-fg-2 text-xs">Free balance</span>
@@ -189,20 +189,20 @@
 </div>
 </div>
 </section>
-<section aria-labelledby="margin-health" class="flex flex-col gap-3">
+<section aria-labelledby="margin-health" class="lt-stack">
 <h2 id="margin-health" class="text-md font-medium text-fg">Position health</h2>
 <div data-slot="table" data-density="dense" data-status="ready" class="relative w-full">
 <div data-slot="table-scroll" class="w-full overflow-x-auto">
 <table class="w-full table-fixed border-separate border-spacing-0 text-fg">
 <caption class="sr-only">Margin health of your open positions</caption>
 <colgroup>
-<col style="width: 240px;">
+<col style="width: 200px;">
 <col>
 <col>
-<col style="width: 210px;">
+<col style="width: 150px;">
 <col>
 <col>
-<col style="width: 210px;">
+<col style="width: 150px;">
 <col style="width: 130px;">
 </colgroup>
 <thead>
@@ -248,7 +248,7 @@
 <p class="text-xs text-fg-2">Margin ratio is maintenance margin divided by margin plus unrealised PnL. The Healthy, Watch and Danger words are our reading of it (50%, 80%, 100%), not the platform’s liquidation trigger. A position shows — until the service publishes the inputs.</p>
 </section>
 <section aria-labelledby="margin-rules" class="grid gap-6 lg:grid-cols-2">
-<div class="flex flex-col gap-3">
+<div class="lt-stack">
 <h2 id="margin-rules" class="text-md font-medium text-fg">Margin rules</h2>
 <dl data-slot="key-value" data-layout="stacked" data-density="comfortable" class="m-0 grid grid-cols-1">
 <div data-slot="key-value-row" class="border-b border-line py-1 last:border-b-0 min-h-10 flex flex-col justify-center gap-0.5">
@@ -289,7 +289,7 @@
 </div>
 </div>
 </div>
-<div class="flex flex-col gap-3">
+<div class="lt-stack">
 <h2 class="text-md font-medium text-fg">Spot margin and borrowing</h2>
 <div data-slot="empty-state" data-variant="unavailable" data-size="inline" role="status" class="flex flex-row flex-wrap items-center gap-x-3 gap-y-2 px-3 py-3 text-left">
 <span data-slot="empty-state-icon" aria-hidden="true" class="flex shrink-0 text-fg-3">

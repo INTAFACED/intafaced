@@ -250,7 +250,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/pay/:page/:child': 'fallback',
   '/more': { template: 'overview' },
   '/academy/learning': { template: 'catalogue' },
-  '/academy/certificates': { template: 'record-list' },
+  '/academy/certificates': { template: 'catalogue' },
   '/academy/rooms': { template: 'catalogue' },
   '/academy/videos': { template: 'catalogue' },
   '/academy/programmes': { template: 'catalogue' },

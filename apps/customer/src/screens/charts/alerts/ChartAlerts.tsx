@@ -206,7 +206,7 @@ export function ChartAlerts({
       : null;
 
   return (
-    <div className="ct-bar" data-testid="chart-alerts">
+    <div className="lt-toolbar" data-testid="chart-alerts">
       {overlay}
       <ul className="ct-alerts" aria-label={t('Chart alerts list')}>
         {shown.map((alert) => (

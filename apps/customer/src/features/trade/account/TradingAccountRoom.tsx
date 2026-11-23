@@ -30,6 +30,7 @@ import { useOwner, useVenueApi } from '../venue/VenueKit';
 import { TestMark, VenueFrame, WalletBar } from '../venue/volt/VoltVenue';
 import { tradingAccountCopy } from './trading-account-copy';
 import { AccountModePanel } from './AccountMode';
+import { TradingStatement } from './TradingStatement';
 import { depositRoute, routeOf } from './move-route';
 import { BANK_CARDS_LIST, BANK_CARDS_PARTNER_HELD } from '@intafaced/contracts/bank-cards-procedures';
 import { BANK_OWN_MOVES_LIST, BANK_OWN_MOVES_MESSAGE } from '@intafaced/contracts/bank-own-moves-procedures';
@@ -64,9 +65,7 @@ export function TradingAccountRoom() {
   const { t } = tradingAccountCopy.useCopy();
   const mode = useVenueMode();
   const { userId } = useSession();
-  const off = (state: RoomState) => (
-    <MonitorTemplate title={t('title')} state={state} mode="pro" figures={[]} explain={<p className="lt-hint">{t('eyebrow')}</p>} />
-  );
+  const off = (state: RoomState) => <MonitorTemplate title={t('title')} state={state} mode="pro" figures={[]} />;
   if (!userId)
     return off({
       kind: 'empty',
@@ -98,12 +97,7 @@ export function TradingAccountRoom() {
             <Owned>{(owner) => <Room owner={owner} status={status} />}</Owned>
           </div>
         }
-        explain={
-          <div className="lt-stack">
-            <p className="lt-hint">{t('eyebrow')}</p>
-            <p className="lt-hint">{t('ledgerNote')}</p>
-          </div>
-        }
+        explain={<p className="lt-hint">{t('ledgerNote')}</p>}
       />
     </VenueFrame>
   );
@@ -159,6 +153,8 @@ function Room({ owner, status }: { owner: string; status: VenueUp }) {
               onMoveIn={openMoveIn}
             />
           ))}
+          {/* The trading account's statement, from the venue's own records: its liquidations and fees too (J-derivatives-26 #7). */}
+          <TradingStatement status={status} owner={owner} />
         </section>
         <SpendingGroup revision={revision} spaces={spaces} />
       </div>

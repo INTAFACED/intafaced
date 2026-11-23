@@ -61,8 +61,8 @@ export function BlotterTab({ parents }: { parents: readonly ParentRead[] }) {
   const set = <K extends keyof BlotterFilter>(key: K, value: BlotterFilter[K]) => setFilter((f) => ({ ...f, [key]: value }));
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-end gap-3">
+    <div className="lt-stack">
+      <div className="lt-field-row">
         <div className="w-44">
           <Pick
             label={t('Market')}
@@ -124,8 +124,8 @@ export function BlotterTab({ parents }: { parents: readonly ParentRead[] }) {
           {t('Export what you see')}
         </Button>
       </div>
-      <p className="m-0 text-sm text-fg-2">{t('How rows are matched')}</p>
-      <p className="m-0 text-sm text-fg-2">{t('CSV is not a statement')}</p>
+      <p className="lt-hint">{t('How rows are matched')}</p>
+      <p className="lt-hint">{t('CSV is not a statement')}</p>
       {partial && open.status === 'ready' ? <Why>{t('History partly unread')}</Why> : null}
       {groups.length > 0 ? (
         <ul className="m-0 flex list-none flex-wrap gap-x-4 gap-y-1 p-0 text-sm text-fg-2" aria-label={t('Scaled groups')}>

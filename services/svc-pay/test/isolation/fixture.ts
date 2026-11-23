@@ -438,9 +438,10 @@ export async function createWorld(): Promise<World> {
       INSERT INTO pay.merchant_invoices (merchant_id, status, asset_id, amount, customer_ref, description, created_by)
       VALUES (${merchantId}, 'draft', 'USDT', 99, ${customerRef}, 'isolation invoice', ${userId})
       RETURNING id`;
+    // A ready job as the runner leaves it (exports.ts `process`): its file, size, row count and the file's sha256.
     const exportRows = await sql<Array<{ id: string }>>`
-      INSERT INTO pay.merchant_export_jobs (merchant_id, request_id, requested_by, kind, status, file_name, content_type, content, size_bytes, row_count, as_of)
-      VALUES (${merchantId}, ${randomUUID()}, ${userId}, 'payments', 'ready', ${`payments-${tag}.csv`}, 'text/csv; charset=utf-8', 'id\n', 3, 0, now())
+      INSERT INTO pay.merchant_export_jobs (merchant_id, request_id, requested_by, kind, status, file_name, content_type, content, size_bytes, row_count, sha256, as_of)
+      VALUES (${merchantId}, ${randomUUID()}, ${userId}, 'payments', 'ready', ${`payments-${tag}.csv`}, 'text/csv; charset=utf-8', 'id\n', 3, 0, '984a644ec3b56d32b0404777e1eb73390c4b0742a6a0e183f07861056b6746de', now())
       RETURNING id`;
     const notificationId = await recordMerchantNotification(sql, { merchantId, kind: 'export_ready', title: `isolation ${tag}` });
     const memberRows = await sql<Array<{ id: string }>>`

@@ -19,6 +19,7 @@ use crate::cards::reads::{
     TestCardHolds, book_id,
 };
 use crate::errors::Refusal;
+use crate::partner::CardStep;
 use crate::partner::custody::{Freeze, assert_posting_enabled, assert_stop_open};
 use crate::partner::refuse;
 
@@ -125,8 +126,14 @@ impl Book<'_> {
         credited: Amount,
     ) -> Figures {
         let figures = book
-            .book_of(self.holds.terms, user_id, asset_id)
-            .map(|b| (format_amount(b.available + credited), format_amount(b.held)));
+            .spendable(
+                self.holds.terms,
+                &self.holds.funds(),
+                user_id,
+                asset_id,
+                credited,
+            )
+            .map(|(available, held)| (format_amount(available), format_amount(held)));
         Figures {
             test: true,
             mode: self.holds.terms.custody_mode.clone(),
@@ -176,7 +183,12 @@ impl Book<'_> {
             ));
         };
         let switch_expired = self.holds.switch_expired(&user);
-        book.run_out(hold_key, self.holds.now, switch_expired);
+        book.run_out(
+            hold_key,
+            self.holds.now,
+            switch_expired,
+            &self.holds.funds(),
+        )?;
         book.holds
             .get_mut(hold_key)
             .ok_or_else(|| PartnerErr::Other(Refusal::Other(format!("{hold_key} vanished"))))
@@ -208,12 +220,8 @@ impl Book<'_> {
         mode: String,
         want: Amount,
         conversion: Option<HoldConversion>,
-    ) -> HoldReport {
-        if let Some(b) = book.books.get_mut(&book_id(user_id, asset_id)) {
-            b.available -= want;
-            b.held += want;
-            b.open.insert(key.to_owned());
-        }
+    ) -> Result<HoldReport, PartnerErr> {
+        let drawn = book.hold_from(&self.holds.funds(), user_id, asset_id, want, key)?;
         let h = Hold {
             partner_ref: hold_ref(key),
             user_id: user_id.to_owned(),
@@ -224,14 +232,15 @@ impl Book<'_> {
                 self.holds.now.0 + TEST_CARD_HOLD_DAYS * 86_400_000,
             ),
             conversion,
-            captured: 0,
-            released: 0,
-            refunded: 0,
+            captured: Amount::ZERO,
+            released: Amount::ZERO,
+            refunded: Amount::ZERO,
             expired: false,
+            drawn,
         };
         let report = h.report();
         book.holds.insert(key.to_owned(), h);
-        report
+        Ok(report)
     }
 
     /// `hold`: hold `amount` from the partner balance, once under `key`.
@@ -250,10 +259,13 @@ impl Book<'_> {
             body(&[("op", "hold"), ("userId", user_id), ("assetId", asset_id), ("amount", amount)]),
             |book| {
                 let mode = self.mode()?;
-                let Some(available) = book
-                    .book_of(self.holds.terms, user_id, asset_id)
-                    .map(|b| b.available)
-                else {
+                let Some((spendable, _)) = book.spendable(
+                    self.holds.terms,
+                    &self.holds.funds(),
+                    user_id,
+                    asset_id,
+                    credited,
+                ) else {
                     return Err(partner_no(
                         "bank.card_partner_balance_not_known",
                         format!(
@@ -267,12 +279,12 @@ impl Book<'_> {
                         reason: UNLISTED_DECLINE.to_owned(),
                     }));
                 }
-                if want > available + credited {
+                if want > spendable {
                     return Ok(Kept::Hold(HoldAnswer::Declined {
                         reason: "bank.card_partner_insufficient_funds".to_owned(),
                     }));
                 }
-                let hold = self.take(book, key, user_id, asset_id, mode, want, None);
+                let hold = self.take(book, key, user_id, asset_id, mode, want, None)?;
                 let figures = self.figures_of(book, user_id, asset_id, credited);
                 Ok(Kept::Hold(HoldAnswer::Approved { hold, figures }))
             },
@@ -331,7 +343,11 @@ impl Book<'_> {
                     if !spend_from.contains(asset_id) {
                         continue;
                     }
-                    if book.book_of(self.holds.terms, user_id, asset_id).is_none() {
+                    let funds = self.holds.funds();
+                    if book
+                        .standing(self.holds.terms, &funds, user_id, asset_id)
+                        .is_none()
+                    {
                         continue;
                     }
                     let Some((rate, as_of)) = quote.clone() else {
@@ -343,16 +359,15 @@ impl Book<'_> {
                         .map(|b| b.open.clone())
                         .unwrap_or_default();
                     for k in open {
-                        book.run_out(&k, self.holds.now, switch_expired);
+                        book.run_out(&k, self.holds.now, switch_expired, &funds)?;
                     }
                     let Ok(want) = funding_for(merchant, rate) else {
                         continue;
                     };
-                    let available = book
-                        .books
-                        .get(&book_id(user_id, asset_id))
-                        .map_or(0, |b| b.available);
-                    if want <= 0 || want > available + credited {
+                    let spendable = book
+                        .spendable(self.holds.terms, &funds, user_id, asset_id, credited)
+                        .map_or(Amount::ZERO, |(s, _)| s);
+                    if want <= Amount::ZERO || want > spendable {
                         continue;
                     }
                     let conversion = HoldConversion {
@@ -362,7 +377,7 @@ impl Book<'_> {
                         rate_as_of: as_of,
                     };
                     let hold =
-                        self.take(book, key, user_id, asset_id, mode, want, Some(conversion));
+                        self.take(book, key, user_id, asset_id, mode, want, Some(conversion))?;
                     let figures = self.figures_of(book, user_id, asset_id, credited);
                     return Ok(Kept::Hold(HoldAnswer::Approved { hold, figures }));
                 }
@@ -395,7 +410,7 @@ impl Book<'_> {
 
     fn credited_for(&self, hold_key: &str) -> Amount {
         self.owner_of(hold_key)
-            .map_or(0, |(u, a)| self.holds.credited(&u, &a))
+            .map_or(Amount::ZERO, |(u, a)| self.holds.credited(&u, &a))
     }
 
     /// `capture`: capture `amount` of the hold, once under `key`. Above what is held, the partner refuses.
@@ -412,10 +427,10 @@ impl Book<'_> {
             body(&[("op", "capture"), ("holdKey", hold_key), ("amount", amount)]),
             |book| {
                 let h = self.hold_for(book, hold_key)?;
-                if h.captured > 0 || h.released > 0 {
+                if h.captured > Amount::ZERO || h.released > Amount::ZERO {
                     let state = if h.expired {
                         "expired"
-                    } else if h.captured > 0 {
+                    } else if h.captured > Amount::ZERO {
                         "captured"
                     } else {
                         "released"
@@ -426,7 +441,7 @@ impl Book<'_> {
                     ));
                 }
                 let take = amount_of(amount)?;
-                if take <= 0 || take > h.open() {
+                if take <= Amount::ZERO || take > h.open() {
                     return Err(partner_no(
                         "bank.card_partner_capture_exceeds_hold",
                         format!(
@@ -435,12 +450,22 @@ impl Book<'_> {
                         ),
                     ));
                 }
+                let (user, asset, drawn) = (h.user_id.clone(), h.asset_id.clone(), h.drawn);
+                if drawn {
+                    self.holds
+                        .funds()
+                        .move_funds(key, CardStep::Capture, &user, &asset, take)?;
+                }
+                let h = book
+                    .holds
+                    .get_mut(hold_key)
+                    .ok_or_else(|| PartnerErr::Other(Refusal::Other(format!("{hold_key} vanished"))))?;
                 h.captured = take;
-                let (user, asset, left) = (h.user_id.clone(), h.asset_id.clone(), h.open());
+                let left = h.open();
                 let report = h.report();
                 if let Some(b) = book.books.get_mut(&book_id(&user, &asset)) {
                     b.held -= take;
-                    if left == 0 {
+                    if left == Amount::ZERO {
                         b.open.remove(hold_key);
                     }
                 }
@@ -484,7 +509,7 @@ impl Book<'_> {
                     }));
                 }
                 let back = h.open();
-                if back == 0 {
+                if back == Amount::ZERO {
                     return Err(partner_no(
                         "bank.card_partner_hold_closed",
                         format!(
@@ -492,11 +517,14 @@ impl Book<'_> {
                         ),
                     ));
                 }
+                book.give_back(&self.holds.funds(), hold_key, back, key, CardStep::Release)?;
+                let h = book.holds.get_mut(hold_key).ok_or_else(|| {
+                    PartnerErr::Other(Refusal::Other(format!("{hold_key} vanished")))
+                })?;
                 h.released += back;
                 let report = h.report();
                 if let Some(b) = book.books.get_mut(&book_id(&user, &asset)) {
                     b.held -= back;
-                    b.available += back;
                     b.open.remove(hold_key);
                 }
                 let figures = self.figures_of(book, &user, &asset, credited);
@@ -527,7 +555,7 @@ impl Book<'_> {
             |book| {
                 let h = self.hold_for(book, hold_key)?;
                 let back = amount_of(amount)?;
-                if back <= 0 || back > h.captured - h.refunded {
+                if back <= Amount::ZERO || back > h.captured - h.refunded {
                     return Err(partner_no(
                         "bank.card_partner_refund_exceeds_capture",
                         format!(
@@ -536,12 +564,14 @@ impl Book<'_> {
                         ),
                     ));
                 }
-                h.refunded += back;
                 let (user, asset) = (h.user_id.clone(), h.asset_id.clone());
+                book.give_back(&self.holds.funds(), hold_key, back, key, CardStep::Refund)?;
+                let h = book
+                    .holds
+                    .get_mut(hold_key)
+                    .ok_or_else(|| PartnerErr::Other(Refusal::Other(format!("{hold_key} vanished"))))?;
+                h.refunded += back;
                 let report = h.report();
-                if let Some(b) = book.books.get_mut(&book_id(&user, &asset)) {
-                    b.available += back;
-                }
                 let figures = self.figures_of(book, &user, &asset, credited);
                 Ok(Kept::Move(MoveAnswer {
                     partner_ref: hold_ref(key),

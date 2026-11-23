@@ -242,6 +242,35 @@ const MUTANTS = [
     why: 'a URL carrying user:password@ is not a file path even when it ends in an extension',
   },
 
+  {
+    id: 'json-tokens-index-pair',
+    file: 'packages/venue-hyperliquid/recordings/order-btc-perp.json',
+    content: '{\n  "universe": [{ "tokens": [1, 0], "name": "PURR/USDC", "index": 0 }]\n}\n',
+    catch: false,
+    why: "a venue's spot pair naming its two tokens by index is two small numbers, not a credential",
+  },
+  {
+    id: 'json-tokens-long-number-list',
+    file: 'conf/settings.json',
+    content: '{\n  "tokens": [12345678, 0]\n}\n',
+    catch: true,
+    why: 'the index-pair carve-out takes numbers of at most five digits: a longer one may be a PIN or a numeric secret',
+  },
+  {
+    id: 'json-tokens-number-and-secret',
+    file: 'conf/settings.json',
+    content: `{\n  "tokens": [1, "${V}"]\n}\n`,
+    catch: true,
+    why: 'ONE string element is enough to keep the list a finding',
+  },
+  {
+    id: 'json-password-index-pair',
+    file: 'conf/settings.json',
+    content: '{\n  "password": [1, 0]\n}\n',
+    catch: true,
+    why: 'the index-pair carve-out is for the key `tokens` only',
+  },
+
   // ── source: everything below was invisible to the gate before 2026-08-03 ─────
   {
     id: 'java-credential-literal',

@@ -8,7 +8,7 @@ import { KeyValue } from '@intafaced/ui/lit/templates';
 import { useSession } from '../session';
 import { Failure, Loading } from './kit-parts';
 
-export const keyUsageCopy = defineCopy('api-key-usage', {
+const keyUsageCopy = defineCopy('api-key-usage', {
   title: 'Usage',
   lead: 'What this key spent from its rate limit, as the server counted it. Reading this costs the key nothing.',
   used: 'Used',

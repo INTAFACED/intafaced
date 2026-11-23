@@ -9,8 +9,8 @@ import { useSession } from '../session';
 import { apiKeysCopy as copy, type ApiKeysPlainKey } from './api-keys-copy';
 import { RevokedReason, stateOf } from './ApiKeys';
 import { Failure, Loading } from './kit-parts';
-import { KeyCallLog, keyCallLogCopy } from './KeyCallLog';
-import { KeyUsage, keyUsageCopy } from './KeyUsage';
+import { KeyCallLog } from './KeyCallLog';
+import { KeyUsage } from './KeyUsage';
 import { RotateKey } from './RotateKey';
 import { RotationRequest } from './RotationRequest';
 import {
@@ -105,8 +105,6 @@ function ExpiryForm({ detail, onSaved }: { detail: Detail; onSaved: (next: Detai
  */
 export function ApiKeyDetail({ keyId }: { keyId: string }) {
   const { t, languageFor, requestedLocale } = copy.useCopy();
-  const usageTitle = keyUsageCopy.useCopy().t('title');
-  const callLogTitle = keyCallLogCopy.useCopy().t('title');
   const { api, userId } = useSession();
   const { resource, reload } = useResource((signal) => readDeveloperKey(api, keyId, signal), `developer-key:${userId}:${keyId}`);
   const [updated, setUpdated] = useState<Detail | null>(null);
@@ -207,13 +205,6 @@ export function ApiKeyDetail({ keyId }: { keyId: string }) {
       )}
     </>
   );
-  const index: readonly (readonly [string, string])[] = [
-    ['api-key-detail', t('detailRegion')],
-    ['api-key-usage', usageTitle],
-    ['api-key-expiry-form', t('setExpiryTitle')],
-    ['api-key-call-log', callLogTitle],
-  ];
-
   return (
     <div lang={languageFor('detailTitle')}>
       <SettingsTemplate
@@ -223,19 +214,6 @@ export function ApiKeyDetail({ keyId }: { keyId: string }) {
           <a className="lt-link" href="/uc/safe/api-keys">
             {t('backToKeys')}
           </a>
-        }
-        index={
-          <nav aria-label={t('detailSectionsLabel')}>
-            <ul>
-              {index.map(([id, label]) => (
-                <li key={id}>
-                  <a className="lt-link" href={`#${id}`}>
-                    {label}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </nav>
         }
         sections={sections}
         explain={<p>{t('detailExplain')}</p>}

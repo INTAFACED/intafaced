@@ -31,7 +31,7 @@ export function LoansRoom({ open }: { open: (spec: ActionSpec) => void }) {
     <CatalogueTemplate
       {...bankRoomProps('Loans', copyText('rooms.configured.borrowing.terms.ledger.collateral.and.authoritative'))}
       state={{ kind: 'ready' }}
-      filters={<BankTabs current="Loans" />}
+      section={<BankTabs />}
       items={
         <div className="lt-body">
           <BankSection title={copyText('rooms.loan.health')}>

@@ -6,7 +6,7 @@ import {
 } from '@intafaced/contracts/ledger-reconciliation';
 import { COST_AMOUNT, COST_ASSET, PERIOD, isCategory, type CostCategory } from '@/lib/venue-economics';
 import { OPS_CAPITAL_ASSET, OPS_CAPITAL_CONTACT_MAX, OPS_CAPITAL_MINIMUM } from '@intafaced/contracts/ops-capital';
-import { DEPOSIT_ADDRESS, METADATA_KEY, NETWORK_ID, REASON_MAX, REASON_MIN, UUID } from '@/lib/approval-fields';
+import { CASE_REF, DEPOSIT_ADDRESS, METADATA_KEY, NETWORK_ID, REASON_MAX, REASON_MIN, UUID } from '@/lib/approval-fields';
 import { GOVERNANCE_ROLES, MS, ROLE_USER, durationWords, type GovernanceRole } from '@/lib/token-governance';
 import {
   LAUNCH_ID,
@@ -243,6 +243,18 @@ export type DeskRequest =
    */
   | { readonly kind: 'ops.reconciliation_alert.accept'; readonly alertId: string; readonly evidenceHash: string; readonly reason: string }
   /**
+   * Reverse one posted ledger transaction (svc-ops `ledgerReversals.execute`, OPS-ledger-desk-02, J-ops-console-05 #1-#3). The
+   * request was stored first as svc-ops' intent row `requestNo`; the approval binds that row, the original, the reason and the
+   * case reference. The ledger builds the compensating transaction from the stored original.
+   */
+  | {
+      readonly kind: 'ops.ledger.reverse';
+      readonly requestNo: string;
+      readonly originalTxId: string;
+      readonly reason: string;
+      readonly caseRef: string;
+    }
+  /**
    * Set or clear one asset's minimum buffer on the capital monitor (svc-ops `capital.setThreshold`, J-ops-console-24 #1).
    * `minimum` blank clears it (the asset is not monitored again) and then `contact` is blank too. Both founders sign the
    * asset, the minimum, the contact a breach is escalated to and the reason.
@@ -291,6 +303,11 @@ export type DeskRequest =
    */
   | { readonly kind: 'identity.kyc_selfie.decide'; readonly selfieId: string; readonly decision: SelfieDecision }
   /**
+   * Approve one pending verification at the level it asks for (svc-identity `kyc.approve`, I-kyc-compliance-07). Identity binds the
+   * record to the approval; neither founder may be the person.
+   */
+  | { readonly kind: 'identity.kyc.approve'; readonly recordId: string }
+  /**
    * The joint restore desk (svc-ops `restore.record` and `restore.finalize`, OPS-ledger-desk-05). A stamp binds the service, what
    * its position counts and the watermark the operator read; finalize binds the run and its cut-off. svc-ops spends each once.
    */
@@ -322,6 +339,8 @@ const CERT_ID = /^[a-z0-9:_-]{1,64}$/;
 const EVIDENCE_HASH = /^[0-9a-f]{64}$/;
 /** svc-ops' staff hold number: one global sequence. */
 const HOLD_NO = /^[1-9][0-9]{0,18}$/;
+/** svc-ops' reversal request number. */
+const REVERSAL_NO = /^[1-9][0-9]{0,18}$/;
 /**
  * svc-ops' stamp kind (`parseWatermarkInput`'s NAME, lower case as it stores it), and a watermark: printable with no spaces, at
  * most 256 characters. Every service reports its position as a decimal string (contracts `restoreWatermarkReadSchema`), and a
@@ -533,6 +552,11 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
     if (typeof raw.documentId !== 'string' || !UUID.test(raw.documentId)) return null;
     return { kind: 'identity.kyc_document.open', documentId: raw.documentId };
   }
+  if (raw.kind === 'identity.kyc.approve') {
+    if (keys !== 'kind,recordId') return null;
+    if (typeof raw.recordId !== 'string' || !UUID.test(raw.recordId)) return null;
+    return { kind: 'identity.kyc.approve', recordId: raw.recordId };
+  }
   if (raw.kind === 'identity.kyc_selfie.decide') {
     if (keys !== 'decision,kind,selfieId') return null;
     if (typeof raw.selfieId !== 'string' || !UUID.test(raw.selfieId)) return null;
@@ -713,6 +737,20 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
     if (typeof raw.evidenceHash !== 'string' || !EVIDENCE_HASH.test(raw.evidenceHash)) return null;
     if (raw.reason !== '' && !validReason(raw.reason)) return null;
     return { kind: 'ops.reconciliation_alert.accept', alertId: raw.alertId, evidenceHash: raw.evidenceHash, reason: raw.reason as string };
+  }
+  // svc-ops binds the request number, the original, the reason and the case reference to the approval.
+  if (raw.kind === 'ops.ledger.reverse') {
+    if (keys !== 'caseRef,kind,originalTxId,reason,requestNo') return null;
+    if (typeof raw.requestNo !== 'string' || !REVERSAL_NO.test(raw.requestNo)) return null;
+    if (typeof raw.originalTxId !== 'string' || !UUID.test(raw.originalTxId)) return null;
+    if (typeof raw.caseRef !== 'string' || !CASE_REF.test(raw.caseRef) || !validReason(raw.reason)) return null;
+    return {
+      kind: 'ops.ledger.reverse',
+      requestNo: raw.requestNo,
+      originalTxId: raw.originalTxId,
+      reason: raw.reason,
+      caseRef: raw.caseRef,
+    };
   }
   // svc-ops binds the asset, minimum, contact and reason to the approval: a changed figure is a different request.
   if (raw.kind === 'ops.capital.threshold.set') {
@@ -938,6 +976,8 @@ export function confirmPhrase(request: DeskRequest): string {
       return `CONFIRM HOLD ${request.holdNo}`;
     case 'ops.reconciliation_alert.accept':
       return `ACCEPT ALERT ${request.alertId.slice(0, 8)}`;
+    case 'ops.ledger.reverse':
+      return `REVERSE REQUEST ${request.requestNo}`;
     case 'protocol.pool.hide':
       return `HIDE POOL ${request.poolAddress.slice(0, 10)}`;
     case 'protocol.pool.restore':
@@ -954,6 +994,8 @@ export function confirmPhrase(request: DeskRequest): string {
       return `OPEN DOCUMENT ${request.documentId.slice(0, 8)}`;
     case 'identity.kyc_selfie.decide':
       return `${request.decision === 'accepted' ? 'ACCEPT' : 'REJECT'} SELFIE ${request.selfieId.slice(0, 8)}`;
+    case 'identity.kyc.approve':
+      return `APPROVE VERIFICATION ${request.recordId.slice(0, 8)}`;
     case 'ops.restore.record':
       return `STAMP ${request.service.toUpperCase()} ${request.watermark.slice(0, 16)}`;
     case 'ops.restore.finalize':
@@ -1067,6 +1109,8 @@ export function describeRequest(request: DeskRequest): string {
       return `Confirm staff hold ${request.holdNo} on customer ${request.userId} ("${request.reason}"): whatever ${request.assetId} is still held when it runs moves out of the customer's balance to the owner-named account. It cannot be undone from this console. svc-ops refuses while the owner has named no such account (owner.decision).`;
     case 'ops.reconciliation_alert.accept':
       return `Accept the discrepancy on reconciliation alert ${request.alertId} ("${request.reason}"). The alert closes as accepted and its evidence is frozen at hash ${request.evidenceHash}: a later failure with the same figures changes nothing, and different figures open a new alert. svc-ops refuses if the evidence no longer has that hash. No balance or freeze changes, and nothing is posted to the ledger.`;
+    case 'ops.ledger.reverse':
+      return `Reverse ledger transaction ${request.originalTxId} (reversal request ${request.requestNo}, case ${request.caseRef}: "${request.reason}"). svc-ledger books one linked compensating transaction built from the stored original: every leg flipped, the same amount, so the pair nets to zero per asset. The original stays in the book and shows it is reversed. svc-ops refuses if the transaction is already reversed; a transaction is reversed once.`;
     case 'ops.capital.threshold.set':
       return request.minimum === ''
         ? `Clear the minimum buffer for ${request.assetId} ("${request.reason}"): the capital monitor shows it as not monitored again, and no breach alert opens for it. No money moves.`
@@ -1091,6 +1135,8 @@ export function describeRequest(request: DeskRequest): string {
       return request.decision === 'accepted'
         ? `Accept selfie ${request.selfieId}: the operator compared it with the account's ID photo and they match. Identity marks the selfie accepted and records when.`
         : `Reject selfie ${request.selfieId}: it does not match the account's ID photo or cannot be compared. Identity marks the selfie rejected and records when; the person can take a new one.`;
+    case 'identity.kyc.approve':
+      return `Approve verification ${request.recordId} at the level it asks for. Identity marks it approved, and the capabilities the owner maps to that level go active at once; with no mapping set it grants none. No money moves.`;
     case 'ops.restore.record':
       return `Record a joint-restore stamp for svc-${request.service}: its ${request.stampKind} position is ${request.watermark}. The stamp is what the restore compares that service's live position with; a later stamp for the same service takes its place, and the earlier one stays listed. Nothing is restored and no money moves.`;
     case 'ops.restore.finalize':
@@ -1114,6 +1160,7 @@ export function requestReason(request: DeskRequest): string | null {
     case 'ops.console_mode.off':
     case 'identity.kyc_document.open':
     case 'identity.kyc_selfie.decide':
+    case 'identity.kyc.approve':
     case 'token.launch.issuer.set':
     case 'token.launch.event.create':
     case 'token.launch.event.move':

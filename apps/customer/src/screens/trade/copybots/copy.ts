@@ -78,7 +78,7 @@ const messages = {
   'Before this record': 'Before this record',
   'Being checked': 'Being checked',
   Bot: 'Bot',
-  'Bot ID': 'Bot ID',
+  'Bot reference': 'Bot reference',
   'Bot catalogue': 'Bot catalogue',
   'Bot leaders': 'Bot leaders',
   'Bot running': 'Bot running',
@@ -256,7 +256,7 @@ const messages = {
   'Fixed amount per copied order ({asset})': 'Fixed amount per copied order ({asset})',
   Follow: 'Follow',
   'Follow a leader': 'Follow a leader',
-  'Follow by leader ID': 'Follow by leader ID',
+  'Follow with a leader’s code': 'Follow with a leader’s code',
   'Follow of {leader}': 'Follow of {leader}',
   'Follow {name}': 'Follow {name}',
   Free: 'Free',
@@ -319,7 +319,7 @@ const messages = {
   'Lead trade history': 'Lead trade history',
   'Lead trades': 'Lead trades',
   Leader: 'Leader',
-  'Leader ID': 'Leader ID',
+  'Leader’s code': 'Leader’s code',
   'Leader directory': 'Leader directory',
   'Leader profit share': 'Leader profit share',
   'Leader trades': 'Leader trades',
@@ -388,8 +388,8 @@ const messages = {
   'Multiplier sizing is not offered: the platform has not decided it.':
     'Multiplier sizing is not offered: the platform has not decided it.',
   'My bots': 'My bots',
-  'My bots lists the bots you started in the last 3 months. Open an older one by its ID.':
-    'My bots lists the bots you started in the last 3 months. Open an older one by its ID.',
+  'My bots lists the bots you started in the last 3 months. Open an older one below with its reference.':
+    'My bots lists the bots you started in the last 3 months. Open an older one below with its reference.',
   'My follows': 'My follows',
   'My grid bots': 'My grid bots',
   'My lead': 'My lead',
@@ -497,7 +497,7 @@ const messages = {
   Open: 'Open',
   'Open My signals': 'Open My signals',
   'Open Quant Studio': 'Open Quant Studio',
-  'Open a bot by ID': 'Open a bot by ID',
+  'Open a bot that isn’t listed': 'Open a bot that isn’t listed',
   'Open my recurring buys': 'Open my recurring buys',
   'Open order': 'Open order',
   'Open order history': 'Open order history',
@@ -734,7 +734,7 @@ const messages = {
   'That request belongs to the spot desk or another room. Check it there; it stays locked until then.':
     'That request belongs to the spot desk or another room. Check it there; it stays locked until then.',
   'The 6-digit code from your authenticator app': 'The 6-digit code from your authenticator app',
-  'The ID the leader shares with you': 'The ID the leader shares with you',
+  'The code the leader gave you': 'The code the leader gave you',
   'The amount is below one lot after it is split into slices': 'The amount is below one lot after it is split into slices',
   'The asset you trade and are paid in, such as USDT.': 'The asset you trade and are paid in, such as USDT.',
   'The bot may use more of your free {asset}: its investment rises by the amount and its levels are planned again. Nothing is moved.':
@@ -878,6 +878,8 @@ const messages = {
   'Within {percent}% of the market price': 'Within {percent}% of the market price',
   'Write and save a strategy in Quant Studio and it appears here.': 'Write and save a strategy in Quant Studio and it appears here.',
   'Yearly return (APR)': 'Yearly return (APR)',
+  'You asked to close {qty} of {market}; {open} is open. Nothing was sent.':
+    'You asked to close {qty} of {market}; {open} is open. Nothing was sent.',
   'You are not a listed leader': 'You are not a listed leader',
   'You are signed out': 'You are signed out',
   'You aren’t following anyone': 'You aren’t following anyone',

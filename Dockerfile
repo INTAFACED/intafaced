@@ -55,6 +55,8 @@ WORKDIR /app
 FROM base AS deps
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+# The lockfile names these patches; `--frozen-lockfile` fails without them.
+COPY patches ./patches
 
 COPY apps/admin/package.json                 apps/admin/
 COPY apps/customer/package.json              apps/customer/
@@ -90,7 +92,6 @@ COPY packages/venue-contracts/package.json   packages/venue-contracts/
 COPY packages/venue-sim/package.json         packages/venue-sim/
 COPY packages/venue-hyperliquid/package.json packages/venue-hyperliquid/
 
-COPY services/svc-bank/package.json          services/svc-bank/
 COPY services/svc-blueprint/package.json     services/svc-blueprint/
 COPY services/svc-identity/package.json      services/svc-identity/
 COPY services/svc-mining-pool/package.json  services/svc-mining-pool/
@@ -153,6 +154,9 @@ FROM base AS runtime
 ENV NODE_ENV=production
 
 COPY --from=build --chown=node:node /app /app
+# /app itself is root's (WORKDIR made it); a service's own state directory, `.data` (svc-edge's kill-switch file,
+# EDGE_KILL_STATE_PATH), is the node user's, or the service could never write it.
+RUN mkdir -p /app/.data && chown node:node /app/.data
 
 USER node
 

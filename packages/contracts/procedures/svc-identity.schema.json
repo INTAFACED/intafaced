@@ -1113,6 +1113,465 @@
         }
       ]
     },
+    "identity.accountControls.archiveHistory": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "accountControls.archiveHistory",
+      "access": {
+        "caller": "signedIn"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": ["userId", "limit"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "auditId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "requestId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "userId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "reasonCode": {
+                  "type": "string",
+                  "enum": ["dormant", "customer_request", "duplicate", "other"]
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 255
+                },
+                "occurredAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "outcome": {
+                  "type": "string",
+                  "const": "changed"
+                },
+                "changed": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "actorUserId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "approverUserId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "before": {
+                  "type": "object",
+                  "properties": {
+                    "userId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                    },
+                    "version": {
+                      "type": "string",
+                      "maxLength": 40,
+                      "pattern": "^(?:0|[1-9]\\d*)$"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": ["active", "frozen", "closed"]
+                    },
+                    "archivedAt": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "archiveReasonCode": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": ["dormant", "customer_request", "duplicate", "other"]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["userId", "version", "status", "archivedAt", "archiveReasonCode"],
+                  "additionalProperties": false
+                },
+                "after": {
+                  "type": "object",
+                  "properties": {
+                    "userId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                    },
+                    "version": {
+                      "type": "string",
+                      "maxLength": 40,
+                      "pattern": "^(?:0|[1-9]\\d*)$"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": ["active", "frozen", "closed"]
+                    },
+                    "archivedAt": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "archiveReasonCode": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": ["dormant", "customer_request", "duplicate", "other"]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["userId", "version", "status", "archivedAt", "archiveReasonCode"],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "auditId",
+                "requestId",
+                "userId",
+                "reasonCode",
+                "reason",
+                "occurredAt",
+                "outcome",
+                "changed",
+                "actorUserId",
+                "approverUserId",
+                "before",
+                "after"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "auditId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "requestId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "userId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "reasonCode": {
+                  "type": "string",
+                  "enum": ["dormant", "customer_request", "duplicate", "other"]
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 255
+                },
+                "occurredAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "outcome": {
+                  "type": "string",
+                  "const": "refused"
+                },
+                "changed": {
+                  "type": "boolean",
+                  "const": false
+                },
+                "actorUserId": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "operator.denied",
+                    "mfa.required",
+                    "target.not_found",
+                    "request.conflict",
+                    "identity.archive_founder_forbidden",
+                    "identity.archive_self_forbidden",
+                    "identity.archive_blocked_open_account",
+                    "identity.account_archived",
+                    "identity.archive_requires_approver",
+                    "identity.archive_approval_mismatch",
+                    "identity.archive_approval_consumed"
+                  ]
+                },
+                "current": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "userId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        },
+                        "version": {
+                          "type": "string",
+                          "maxLength": 40,
+                          "pattern": "^(?:0|[1-9]\\d*)$"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": ["active", "frozen", "closed"]
+                        },
+                        "archivedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "archiveReasonCode": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": ["dormant", "customer_request", "duplicate", "other"]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": ["userId", "version", "status", "archivedAt", "archiveReasonCode"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "auditId",
+                "requestId",
+                "userId",
+                "reasonCode",
+                "reason",
+                "occurredAt",
+                "outcome",
+                "changed",
+                "actorUserId",
+                "code",
+                "current"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "auditId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "requestId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "userId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "reasonCode": {
+                  "type": "string",
+                  "enum": ["dormant", "customer_request", "duplicate", "other"]
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 255
+                },
+                "occurredAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "outcome": {
+                  "type": "string",
+                  "const": "conflict"
+                },
+                "changed": {
+                  "type": "boolean",
+                  "const": false
+                },
+                "actorUserId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "code": {
+                  "type": "string",
+                  "const": "restriction.version_conflict"
+                },
+                "current": {
+                  "type": "object",
+                  "properties": {
+                    "userId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                    },
+                    "version": {
+                      "type": "string",
+                      "maxLength": 40,
+                      "pattern": "^(?:0|[1-9]\\d*)$"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": ["active", "frozen", "closed"]
+                    },
+                    "archivedAt": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "archiveReasonCode": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": ["dormant", "customer_request", "duplicate", "other"]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["userId", "version", "status", "archivedAt", "archiveReasonCode"],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "auditId",
+                "requestId",
+                "userId",
+                "reasonCode",
+                "reason",
+                "occurredAt",
+                "outcome",
+                "changed",
+                "actorUserId",
+                "code",
+                "current"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "outputChecks": {
+        "account_archive_result_holds": {
+          "at": "output[]",
+          "says": "Unauthorized attempts cannot disclose target state; State belongs to a different account; Outcome and archive state disagree"
+        },
+        "account_archive_state_holds": {
+          "at": ["output[]|0.before", "output[]|0.after", "output[]|1.current", "output[]|2.current"],
+          "says": "Only a closed account is archived; An archive carries its reason code"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "userId": "11111111-1111-4111-8111-111111111111",
+            "limit": 1
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "identity.accountControls.archiveProposals": {
       "service": "svc-identity",
       "module": "identity",
@@ -1189,6 +1648,1128 @@
         {
           "verdict": "refuse",
           "input": 42
+        }
+      ]
+    },
+    "identity.accountControls.archiveState": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "accountControls.archiveState",
+      "access": {
+        "caller": "signedIn"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["userId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "userId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "version": {
+                "type": "string",
+                "maxLength": 40,
+                "pattern": "^(?:0|[1-9]\\d*)$"
+              },
+              "status": {
+                "type": "string",
+                "enum": ["active", "frozen", "closed"]
+              },
+              "archivedAt": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "archiveReasonCode": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": ["dormant", "customer_request", "duplicate", "other"]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["userId", "version", "status", "archivedAt", "archiveReasonCode"],
+            "additionalProperties": false
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "outputChecks": {
+        "account_archive_state_holds": {
+          "at": "output",
+          "says": "Only a closed account is archived; An archive carries its reason code"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "userId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "identity.accountControls.change": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "accountControls.change",
+      "access": {
+        "caller": "signedIn"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "target": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "area": {
+                    "type": "string",
+                    "const": "identity"
+                  },
+                  "userId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  }
+                },
+                "required": ["area", "userId"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "area": {
+                    "type": "string",
+                    "const": "trading"
+                  },
+                  "userId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  }
+                },
+                "required": ["area", "userId"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "area": {
+                    "type": "string",
+                    "const": "merchant"
+                  },
+                  "merchantId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  }
+                },
+                "required": ["area", "merchantId"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "action": {
+            "type": "string",
+            "enum": ["restrict", "restore"]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 500
+          },
+          "expectedVersion": {
+            "type": "string",
+            "maxLength": 40,
+            "pattern": "^(?:0|[1-9]\\d*)$"
+          },
+          "approvalId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "reasonCode": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{1,63}$"
+          }
+        },
+        "required": ["requestId", "target", "action", "reason", "expectedVersion"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "auditId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "requestId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "target": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "area": {
+                        "type": "string",
+                        "const": "identity"
+                      },
+                      "userId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      }
+                    },
+                    "required": ["area", "userId"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "area": {
+                        "type": "string",
+                        "const": "trading"
+                      },
+                      "userId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      }
+                    },
+                    "required": ["area", "userId"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "area": {
+                        "type": "string",
+                        "const": "merchant"
+                      },
+                      "merchantId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      }
+                    },
+                    "required": ["area", "merchantId"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "action": {
+                "type": "string",
+                "enum": ["restrict", "restore"]
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 500
+              },
+              "occurredAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              "actorUserId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "approverUserId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "before": {
+                "type": "object",
+                "properties": {
+                  "target": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "area": {
+                            "type": "string",
+                            "const": "identity"
+                          },
+                          "userId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                          }
+                        },
+                        "required": ["area", "userId"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "area": {
+                            "type": "string",
+                            "const": "trading"
+                          },
+                          "userId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                          }
+                        },
+                        "required": ["area", "userId"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "area": {
+                            "type": "string",
+                            "const": "merchant"
+                          },
+                          "merchantId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                          }
+                        },
+                        "required": ["area", "merchantId"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "version": {
+                    "type": "string",
+                    "maxLength": 40,
+                    "pattern": "^(?:0|[1-9]\\d*)$"
+                  },
+                  "restricted": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["target", "version", "restricted"],
+                "additionalProperties": false
+              },
+              "after": {
+                "type": "object",
+                "properties": {
+                  "target": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "area": {
+                            "type": "string",
+                            "const": "identity"
+                          },
+                          "userId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                          }
+                        },
+                        "required": ["area", "userId"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "area": {
+                            "type": "string",
+                            "const": "trading"
+                          },
+                          "userId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                          }
+                        },
+                        "required": ["area", "userId"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "area": {
+                            "type": "string",
+                            "const": "merchant"
+                          },
+                          "merchantId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                          }
+                        },
+                        "required": ["area", "merchantId"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "version": {
+                    "type": "string",
+                    "maxLength": 40,
+                    "pattern": "^(?:0|[1-9]\\d*)$"
+                  },
+                  "restricted": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["target", "version", "restricted"],
+                "additionalProperties": false
+              },
+              "outcome": {
+                "type": "string",
+                "const": "changed"
+              },
+              "changed": {
+                "type": "boolean",
+                "const": true
+              }
+            },
+            "required": [
+              "auditId",
+              "requestId",
+              "target",
+              "action",
+              "reason",
+              "occurredAt",
+              "actorUserId",
+              "before",
+              "after",
+              "outcome",
+              "changed"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "auditId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "requestId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "target": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "area": {
+                        "type": "string",
+                        "const": "identity"
+                      },
+                      "userId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      }
+                    },
+                    "required": ["area", "userId"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "area": {
+                        "type": "string",
+                        "const": "trading"
+                      },
+                      "userId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      }
+                    },
+                    "required": ["area", "userId"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "area": {
+                        "type": "string",
+                        "const": "merchant"
+                      },
+                      "merchantId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      }
+                    },
+                    "required": ["area", "merchantId"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "action": {
+                "type": "string",
+                "enum": ["restrict", "restore"]
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 500
+              },
+              "occurredAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              "actorUserId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "approverUserId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "before": {
+                "type": "object",
+                "properties": {
+                  "target": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "area": {
+                            "type": "string",
+                            "const": "identity"
+                          },
+                          "userId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                          }
+                        },
+                        "required": ["area", "userId"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "area": {
+                            "type": "string",
+                            "const": "trading"
+                          },
+                          "userId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                          }
+                        },
+                        "required": ["area", "userId"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "area": {
+                            "type": "string",
+                            "const": "merchant"
+                          },
+                          "merchantId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                          }
+                        },
+                        "required": ["area", "merchantId"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "version": {
+                    "type": "string",
+                    "maxLength": 40,
+                    "pattern": "^(?:0|[1-9]\\d*)$"
+                  },
+                  "restricted": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["target", "version", "restricted"],
+                "additionalProperties": false
+              },
+              "after": {
+                "type": "object",
+                "properties": {
+                  "target": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "area": {
+                            "type": "string",
+                            "const": "identity"
+                          },
+                          "userId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                          }
+                        },
+                        "required": ["area", "userId"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "area": {
+                            "type": "string",
+                            "const": "trading"
+                          },
+                          "userId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                          }
+                        },
+                        "required": ["area", "userId"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "area": {
+                            "type": "string",
+                            "const": "merchant"
+                          },
+                          "merchantId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                          }
+                        },
+                        "required": ["area", "merchantId"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "version": {
+                    "type": "string",
+                    "maxLength": 40,
+                    "pattern": "^(?:0|[1-9]\\d*)$"
+                  },
+                  "restricted": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["target", "version", "restricted"],
+                "additionalProperties": false
+              },
+              "outcome": {
+                "type": "string",
+                "const": "noop"
+              },
+              "changed": {
+                "type": "boolean",
+                "const": false
+              }
+            },
+            "required": [
+              "auditId",
+              "requestId",
+              "target",
+              "action",
+              "reason",
+              "occurredAt",
+              "actorUserId",
+              "before",
+              "after",
+              "outcome",
+              "changed"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "auditId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "requestId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "target": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "area": {
+                        "type": "string",
+                        "const": "identity"
+                      },
+                      "userId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      }
+                    },
+                    "required": ["area", "userId"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "area": {
+                        "type": "string",
+                        "const": "trading"
+                      },
+                      "userId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      }
+                    },
+                    "required": ["area", "userId"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "area": {
+                        "type": "string",
+                        "const": "merchant"
+                      },
+                      "merchantId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      }
+                    },
+                    "required": ["area", "merchantId"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "action": {
+                "type": "string",
+                "enum": ["restrict", "restore"]
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 500
+              },
+              "occurredAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              "outcome": {
+                "type": "string",
+                "const": "refused"
+              },
+              "changed": {
+                "type": "boolean",
+                "const": false
+              },
+              "actorUserId": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "code": {
+                "type": "string",
+                "enum": [
+                  "operator.denied",
+                  "mfa.required",
+                  "authority.unavailable",
+                  "target.not_found",
+                  "restore.not_permitted",
+                  "request.conflict",
+                  "restriction_no_four_eyes",
+                  "restriction_approval_mismatch",
+                  "restriction_approval_consumed",
+                  "identity.account_archived",
+                  "restriction.reason_unlisted",
+                  "restriction.reason_in_force"
+                ]
+              },
+              "current": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "target": {
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "area": {
+                                "type": "string",
+                                "const": "identity"
+                              },
+                              "userId": {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                              }
+                            },
+                            "required": ["area", "userId"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "area": {
+                                "type": "string",
+                                "const": "trading"
+                              },
+                              "userId": {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                              }
+                            },
+                            "required": ["area", "userId"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "area": {
+                                "type": "string",
+                                "const": "merchant"
+                              },
+                              "merchantId": {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                              }
+                            },
+                            "required": ["area", "merchantId"],
+                            "additionalProperties": false
+                          }
+                        ]
+                      },
+                      "version": {
+                        "type": "string",
+                        "maxLength": 40,
+                        "pattern": "^(?:0|[1-9]\\d*)$"
+                      },
+                      "restricted": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": ["target", "version", "restricted"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "auditId",
+              "requestId",
+              "target",
+              "action",
+              "reason",
+              "occurredAt",
+              "outcome",
+              "changed",
+              "actorUserId",
+              "code",
+              "current"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "auditId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "requestId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "target": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "area": {
+                        "type": "string",
+                        "const": "identity"
+                      },
+                      "userId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      }
+                    },
+                    "required": ["area", "userId"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "area": {
+                        "type": "string",
+                        "const": "trading"
+                      },
+                      "userId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      }
+                    },
+                    "required": ["area", "userId"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "area": {
+                        "type": "string",
+                        "const": "merchant"
+                      },
+                      "merchantId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      }
+                    },
+                    "required": ["area", "merchantId"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "action": {
+                "type": "string",
+                "enum": ["restrict", "restore"]
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 500
+              },
+              "occurredAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              "outcome": {
+                "type": "string",
+                "const": "conflict"
+              },
+              "changed": {
+                "type": "boolean",
+                "const": false
+              },
+              "actorUserId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "code": {
+                "type": "string",
+                "const": "restriction.version_conflict"
+              },
+              "current": {
+                "type": "object",
+                "properties": {
+                  "target": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "area": {
+                            "type": "string",
+                            "const": "identity"
+                          },
+                          "userId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                          }
+                        },
+                        "required": ["area", "userId"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "area": {
+                            "type": "string",
+                            "const": "trading"
+                          },
+                          "userId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                          }
+                        },
+                        "required": ["area", "userId"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "area": {
+                            "type": "string",
+                            "const": "merchant"
+                          },
+                          "merchantId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                          }
+                        },
+                        "required": ["area", "merchantId"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "version": {
+                    "type": "string",
+                    "maxLength": 40,
+                    "pattern": "^(?:0|[1-9]\\d*)$"
+                  },
+                  "restricted": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["target", "version", "restricted"],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "auditId",
+              "requestId",
+              "target",
+              "action",
+              "reason",
+              "occurredAt",
+              "outcome",
+              "changed",
+              "actorUserId",
+              "code",
+              "current"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "checks": {
+        "answer_holds": {
+          "at": "input",
+          "says": "Identity or trading target required"
+        }
+      },
+      "outputChecks": {
+        "account_control_result_holds": {
+          "at": "output",
+          "says": "Unauthorized attempts cannot disclose target state; State belongs to a different target; Outcome, action and state versions disagree"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "requestId": "11111111-1111-4111-8111-111111111111",
+            "target": {
+              "area": "identity",
+              "userId": "11111111-1111-4111-8111-111111111111"
+            },
+            "action": "restrict",
+            "reason": "USDC",
+            "expectedVersion": "1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        },
+        {
+          "verdict": "refuse",
+          "by": "answer_holds",
+          "input": {
+            "requestId": "11111111-1111-4111-8111-111111111111",
+            "target": {
+              "area": "merchant",
+              "merchantId": "11111111-1111-4111-8111-111111111111"
+            },
+            "action": "restrict",
+            "reason": "USDC",
+            "expectedVersion": "1"
+          }
         }
       ]
     },
@@ -2348,6 +3929,2312 @@
               "additionalProperties": false
             }
           ]
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "userId": "11111111-1111-4111-8111-111111111111",
+            "limit": 1
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "identity.accountControls.getState": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "accountControls.getState",
+      "access": {
+        "caller": "signedIn"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "target": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "area": {
+                    "type": "string",
+                    "const": "identity"
+                  },
+                  "userId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  }
+                },
+                "required": ["area", "userId"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "area": {
+                    "type": "string",
+                    "const": "trading"
+                  },
+                  "userId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  }
+                },
+                "required": ["area", "userId"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "area": {
+                    "type": "string",
+                    "const": "merchant"
+                  },
+                  "merchantId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  }
+                },
+                "required": ["area", "merchantId"],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": ["target"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "target": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "area": {
+                        "type": "string",
+                        "const": "identity"
+                      },
+                      "userId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      }
+                    },
+                    "required": ["area", "userId"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "area": {
+                        "type": "string",
+                        "const": "trading"
+                      },
+                      "userId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      }
+                    },
+                    "required": ["area", "userId"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "area": {
+                        "type": "string",
+                        "const": "merchant"
+                      },
+                      "merchantId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      }
+                    },
+                    "required": ["area", "merchantId"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "version": {
+                "type": "string",
+                "maxLength": 40,
+                "pattern": "^(?:0|[1-9]\\d*)$"
+              },
+              "restricted": {
+                "type": "boolean"
+              }
+            },
+            "required": ["target", "version", "restricted"],
+            "additionalProperties": false
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "checks": {
+        "answer_holds": {
+          "at": "input",
+          "says": "Identity target required"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "target": {
+              "area": "identity",
+              "userId": "11111111-1111-4111-8111-111111111111"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        },
+        {
+          "verdict": "refuse",
+          "by": "answer_holds",
+          "input": {
+            "target": {
+              "area": "trading",
+              "userId": "11111111-1111-4111-8111-111111111111"
+            }
+          }
+        }
+      ]
+    },
+    "identity.accountControls.history": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "accountControls.history",
+      "access": {
+        "caller": "signedIn"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "target": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "area": {
+                    "type": "string",
+                    "const": "identity"
+                  },
+                  "userId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  }
+                },
+                "required": ["area", "userId"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "area": {
+                    "type": "string",
+                    "const": "trading"
+                  },
+                  "userId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  }
+                },
+                "required": ["area", "userId"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "area": {
+                    "type": "string",
+                    "const": "merchant"
+                  },
+                  "merchantId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  }
+                },
+                "required": ["area", "merchantId"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": ["target", "limit"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "auditId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "requestId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "target": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "area": {
+                          "type": "string",
+                          "const": "identity"
+                        },
+                        "userId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        }
+                      },
+                      "required": ["area", "userId"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "area": {
+                          "type": "string",
+                          "const": "trading"
+                        },
+                        "userId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        }
+                      },
+                      "required": ["area", "userId"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "area": {
+                          "type": "string",
+                          "const": "merchant"
+                        },
+                        "merchantId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        }
+                      },
+                      "required": ["area", "merchantId"],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "action": {
+                  "type": "string",
+                  "enum": ["restrict", "restore"]
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 500
+                },
+                "occurredAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "actorUserId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "approverUserId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "before": {
+                  "type": "object",
+                  "properties": {
+                    "target": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "area": {
+                              "type": "string",
+                              "const": "identity"
+                            },
+                            "userId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                            }
+                          },
+                          "required": ["area", "userId"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "area": {
+                              "type": "string",
+                              "const": "trading"
+                            },
+                            "userId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                            }
+                          },
+                          "required": ["area", "userId"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "area": {
+                              "type": "string",
+                              "const": "merchant"
+                            },
+                            "merchantId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                            }
+                          },
+                          "required": ["area", "merchantId"],
+                          "additionalProperties": false
+                        }
+                      ]
+                    },
+                    "version": {
+                      "type": "string",
+                      "maxLength": 40,
+                      "pattern": "^(?:0|[1-9]\\d*)$"
+                    },
+                    "restricted": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["target", "version", "restricted"],
+                  "additionalProperties": false
+                },
+                "after": {
+                  "type": "object",
+                  "properties": {
+                    "target": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "area": {
+                              "type": "string",
+                              "const": "identity"
+                            },
+                            "userId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                            }
+                          },
+                          "required": ["area", "userId"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "area": {
+                              "type": "string",
+                              "const": "trading"
+                            },
+                            "userId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                            }
+                          },
+                          "required": ["area", "userId"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "area": {
+                              "type": "string",
+                              "const": "merchant"
+                            },
+                            "merchantId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                            }
+                          },
+                          "required": ["area", "merchantId"],
+                          "additionalProperties": false
+                        }
+                      ]
+                    },
+                    "version": {
+                      "type": "string",
+                      "maxLength": 40,
+                      "pattern": "^(?:0|[1-9]\\d*)$"
+                    },
+                    "restricted": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["target", "version", "restricted"],
+                  "additionalProperties": false
+                },
+                "outcome": {
+                  "type": "string",
+                  "const": "changed"
+                },
+                "changed": {
+                  "type": "boolean",
+                  "const": true
+                }
+              },
+              "required": [
+                "auditId",
+                "requestId",
+                "target",
+                "action",
+                "reason",
+                "occurredAt",
+                "actorUserId",
+                "before",
+                "after",
+                "outcome",
+                "changed"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "auditId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "requestId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "target": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "area": {
+                          "type": "string",
+                          "const": "identity"
+                        },
+                        "userId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        }
+                      },
+                      "required": ["area", "userId"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "area": {
+                          "type": "string",
+                          "const": "trading"
+                        },
+                        "userId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        }
+                      },
+                      "required": ["area", "userId"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "area": {
+                          "type": "string",
+                          "const": "merchant"
+                        },
+                        "merchantId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        }
+                      },
+                      "required": ["area", "merchantId"],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "action": {
+                  "type": "string",
+                  "enum": ["restrict", "restore"]
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 500
+                },
+                "occurredAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "actorUserId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "approverUserId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "before": {
+                  "type": "object",
+                  "properties": {
+                    "target": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "area": {
+                              "type": "string",
+                              "const": "identity"
+                            },
+                            "userId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                            }
+                          },
+                          "required": ["area", "userId"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "area": {
+                              "type": "string",
+                              "const": "trading"
+                            },
+                            "userId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                            }
+                          },
+                          "required": ["area", "userId"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "area": {
+                              "type": "string",
+                              "const": "merchant"
+                            },
+                            "merchantId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                            }
+                          },
+                          "required": ["area", "merchantId"],
+                          "additionalProperties": false
+                        }
+                      ]
+                    },
+                    "version": {
+                      "type": "string",
+                      "maxLength": 40,
+                      "pattern": "^(?:0|[1-9]\\d*)$"
+                    },
+                    "restricted": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["target", "version", "restricted"],
+                  "additionalProperties": false
+                },
+                "after": {
+                  "type": "object",
+                  "properties": {
+                    "target": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "area": {
+                              "type": "string",
+                              "const": "identity"
+                            },
+                            "userId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                            }
+                          },
+                          "required": ["area", "userId"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "area": {
+                              "type": "string",
+                              "const": "trading"
+                            },
+                            "userId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                            }
+                          },
+                          "required": ["area", "userId"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "area": {
+                              "type": "string",
+                              "const": "merchant"
+                            },
+                            "merchantId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                            }
+                          },
+                          "required": ["area", "merchantId"],
+                          "additionalProperties": false
+                        }
+                      ]
+                    },
+                    "version": {
+                      "type": "string",
+                      "maxLength": 40,
+                      "pattern": "^(?:0|[1-9]\\d*)$"
+                    },
+                    "restricted": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["target", "version", "restricted"],
+                  "additionalProperties": false
+                },
+                "outcome": {
+                  "type": "string",
+                  "const": "noop"
+                },
+                "changed": {
+                  "type": "boolean",
+                  "const": false
+                }
+              },
+              "required": [
+                "auditId",
+                "requestId",
+                "target",
+                "action",
+                "reason",
+                "occurredAt",
+                "actorUserId",
+                "before",
+                "after",
+                "outcome",
+                "changed"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "auditId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "requestId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "target": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "area": {
+                          "type": "string",
+                          "const": "identity"
+                        },
+                        "userId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        }
+                      },
+                      "required": ["area", "userId"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "area": {
+                          "type": "string",
+                          "const": "trading"
+                        },
+                        "userId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        }
+                      },
+                      "required": ["area", "userId"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "area": {
+                          "type": "string",
+                          "const": "merchant"
+                        },
+                        "merchantId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        }
+                      },
+                      "required": ["area", "merchantId"],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "action": {
+                  "type": "string",
+                  "enum": ["restrict", "restore"]
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 500
+                },
+                "occurredAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "outcome": {
+                  "type": "string",
+                  "const": "refused"
+                },
+                "changed": {
+                  "type": "boolean",
+                  "const": false
+                },
+                "actorUserId": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "operator.denied",
+                    "mfa.required",
+                    "authority.unavailable",
+                    "target.not_found",
+                    "restore.not_permitted",
+                    "request.conflict",
+                    "restriction_no_four_eyes",
+                    "restriction_approval_mismatch",
+                    "restriction_approval_consumed",
+                    "identity.account_archived",
+                    "restriction.reason_unlisted",
+                    "restriction.reason_in_force"
+                  ]
+                },
+                "current": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "target": {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "area": {
+                                  "type": "string",
+                                  "const": "identity"
+                                },
+                                "userId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                                }
+                              },
+                              "required": ["area", "userId"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "area": {
+                                  "type": "string",
+                                  "const": "trading"
+                                },
+                                "userId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                                }
+                              },
+                              "required": ["area", "userId"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "area": {
+                                  "type": "string",
+                                  "const": "merchant"
+                                },
+                                "merchantId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                                }
+                              },
+                              "required": ["area", "merchantId"],
+                              "additionalProperties": false
+                            }
+                          ]
+                        },
+                        "version": {
+                          "type": "string",
+                          "maxLength": 40,
+                          "pattern": "^(?:0|[1-9]\\d*)$"
+                        },
+                        "restricted": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": ["target", "version", "restricted"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "auditId",
+                "requestId",
+                "target",
+                "action",
+                "reason",
+                "occurredAt",
+                "outcome",
+                "changed",
+                "actorUserId",
+                "code",
+                "current"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "auditId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "requestId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "target": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "area": {
+                          "type": "string",
+                          "const": "identity"
+                        },
+                        "userId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        }
+                      },
+                      "required": ["area", "userId"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "area": {
+                          "type": "string",
+                          "const": "trading"
+                        },
+                        "userId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        }
+                      },
+                      "required": ["area", "userId"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "area": {
+                          "type": "string",
+                          "const": "merchant"
+                        },
+                        "merchantId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        }
+                      },
+                      "required": ["area", "merchantId"],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "action": {
+                  "type": "string",
+                  "enum": ["restrict", "restore"]
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 500
+                },
+                "occurredAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "outcome": {
+                  "type": "string",
+                  "const": "conflict"
+                },
+                "changed": {
+                  "type": "boolean",
+                  "const": false
+                },
+                "actorUserId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "code": {
+                  "type": "string",
+                  "const": "restriction.version_conflict"
+                },
+                "current": {
+                  "type": "object",
+                  "properties": {
+                    "target": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "area": {
+                              "type": "string",
+                              "const": "identity"
+                            },
+                            "userId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                            }
+                          },
+                          "required": ["area", "userId"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "area": {
+                              "type": "string",
+                              "const": "trading"
+                            },
+                            "userId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                            }
+                          },
+                          "required": ["area", "userId"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "area": {
+                              "type": "string",
+                              "const": "merchant"
+                            },
+                            "merchantId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                            }
+                          },
+                          "required": ["area", "merchantId"],
+                          "additionalProperties": false
+                        }
+                      ]
+                    },
+                    "version": {
+                      "type": "string",
+                      "maxLength": 40,
+                      "pattern": "^(?:0|[1-9]\\d*)$"
+                    },
+                    "restricted": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["target", "version", "restricted"],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "auditId",
+                "requestId",
+                "target",
+                "action",
+                "reason",
+                "occurredAt",
+                "outcome",
+                "changed",
+                "actorUserId",
+                "code",
+                "current"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "checks": {
+        "answer_holds": {
+          "at": "input",
+          "says": "Identity target required"
+        }
+      },
+      "outputChecks": {
+        "account_control_result_holds": {
+          "at": "output[]",
+          "says": "Unauthorized attempts cannot disclose target state; State belongs to a different target; Outcome, action and state versions disagree"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "target": {
+              "area": "identity",
+              "userId": "11111111-1111-4111-8111-111111111111"
+            },
+            "limit": 1
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        },
+        {
+          "verdict": "refuse",
+          "by": "answer_holds",
+          "input": {
+            "target": {
+              "area": "trading",
+              "userId": "11111111-1111-4111-8111-111111111111"
+            },
+            "limit": 1
+          }
+        }
+      ]
+    },
+    "identity.accountControls.limits": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "accountControls.limits",
+      "access": {
+        "caller": "signedIn"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["userId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "userId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "overrides": {
+                "maxItems": 100,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "userId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                    },
+                    "rail": {
+                      "type": "string",
+                      "enum": ["withdrawal"]
+                    },
+                    "assetId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 16,
+                      "pattern": "^[A-Z0-9]+$"
+                    },
+                    "version": {
+                      "type": "string",
+                      "maxLength": 40,
+                      "pattern": "^(?:0|[1-9]\\d*)$"
+                    },
+                    "perTx": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 40,
+                          "pattern": "^(?:0|[1-9]\\d{0,19})(?:\\.\\d{1,18})?$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "rolling24h": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 40,
+                          "pattern": "^(?:0|[1-9]\\d{0,19})(?:\\.\\d{1,18})?$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "expiresAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": ["active", "expired", "cleared"]
+                    },
+                    "setBy": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                    },
+                    "approvedBy": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "setAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                    },
+                    "reason": {
+                      "type": "string",
+                      "minLength": 12,
+                      "maxLength": 255
+                    },
+                    "clearedBy": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "clearedAt": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "userId",
+                    "rail",
+                    "assetId",
+                    "version",
+                    "perTx",
+                    "rolling24h",
+                    "expiresAt",
+                    "status",
+                    "setBy",
+                    "approvedBy",
+                    "setAt",
+                    "reason",
+                    "clearedBy",
+                    "clearedAt"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "policy": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "configured": {
+                        "type": "boolean",
+                        "const": true
+                      },
+                      "maxLifetimeHours": {
+                        "type": "string",
+                        "pattern": "^[1-9]\\d{0,3}$"
+                      },
+                      "ceilings": {
+                        "minItems": 1,
+                        "maxItems": 100,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "rail": {
+                              "type": "string",
+                              "enum": ["withdrawal"]
+                            },
+                            "assetId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 16,
+                              "pattern": "^[A-Z0-9]+$"
+                            },
+                            "ceiling": {
+                              "type": "string",
+                              "maxLength": 40,
+                              "pattern": "^(?:0|[1-9]\\d{0,19})(?:\\.\\d{1,18})?$"
+                            }
+                          },
+                          "required": ["rail", "assetId", "ceiling"],
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "required": ["configured", "maxLifetimeHours", "ceilings"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "configured": {
+                        "type": "boolean",
+                        "const": false
+                      },
+                      "code": {
+                        "type": "string",
+                        "const": "identity.limit_ceiling_unset"
+                      }
+                    },
+                    "required": ["configured", "code"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "closed": {
+                "type": "boolean"
+              },
+              "archived": {
+                "type": "boolean"
+              }
+            },
+            "required": ["userId", "overrides", "policy", "closed", "archived"],
+            "additionalProperties": false
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "outputChecks": {
+        "account_limits_state_holds": {
+          "at": "output",
+          "says": "An override belongs to another account"
+        },
+        "account_limit_amount_holds": {
+          "at": ["output.overrides[].perTx", "output.overrides[].rolling24h", "output.policy|0.ceilings[].ceiling"],
+          "says": "A limit figure is above zero"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "userId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "identity.accountControls.limitsHistory": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "accountControls.limitsHistory",
+      "access": {
+        "caller": "signedIn"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": ["userId", "limit"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "auditId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "requestId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "userId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "action": {
+                  "type": "string",
+                  "enum": ["set", "clear"]
+                },
+                "rail": {
+                  "type": "string",
+                  "enum": ["withdrawal"]
+                },
+                "assetId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 16,
+                  "pattern": "^[A-Z0-9]+$"
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 12,
+                  "maxLength": 255
+                },
+                "occurredAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "outcome": {
+                  "type": "string",
+                  "const": "changed"
+                },
+                "changed": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "actorUserId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "approverUserId": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "before": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "userId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        },
+                        "rail": {
+                          "type": "string",
+                          "enum": ["withdrawal"]
+                        },
+                        "assetId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 16,
+                          "pattern": "^[A-Z0-9]+$"
+                        },
+                        "version": {
+                          "type": "string",
+                          "maxLength": 40,
+                          "pattern": "^(?:0|[1-9]\\d*)$"
+                        },
+                        "perTx": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 40,
+                              "pattern": "^(?:0|[1-9]\\d{0,19})(?:\\.\\d{1,18})?$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "rolling24h": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 40,
+                              "pattern": "^(?:0|[1-9]\\d{0,19})(?:\\.\\d{1,18})?$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "expiresAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": ["active", "expired", "cleared"]
+                        },
+                        "setBy": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        },
+                        "approvedBy": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "setAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "minLength": 12,
+                          "maxLength": 255
+                        },
+                        "clearedBy": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "clearedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "userId",
+                        "rail",
+                        "assetId",
+                        "version",
+                        "perTx",
+                        "rolling24h",
+                        "expiresAt",
+                        "status",
+                        "setBy",
+                        "approvedBy",
+                        "setAt",
+                        "reason",
+                        "clearedBy",
+                        "clearedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "after": {
+                  "type": "object",
+                  "properties": {
+                    "userId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                    },
+                    "rail": {
+                      "type": "string",
+                      "enum": ["withdrawal"]
+                    },
+                    "assetId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 16,
+                      "pattern": "^[A-Z0-9]+$"
+                    },
+                    "version": {
+                      "type": "string",
+                      "maxLength": 40,
+                      "pattern": "^(?:0|[1-9]\\d*)$"
+                    },
+                    "perTx": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 40,
+                          "pattern": "^(?:0|[1-9]\\d{0,19})(?:\\.\\d{1,18})?$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "rolling24h": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 40,
+                          "pattern": "^(?:0|[1-9]\\d{0,19})(?:\\.\\d{1,18})?$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "expiresAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": ["active", "expired", "cleared"]
+                    },
+                    "setBy": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                    },
+                    "approvedBy": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "setAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                    },
+                    "reason": {
+                      "type": "string",
+                      "minLength": 12,
+                      "maxLength": 255
+                    },
+                    "clearedBy": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "clearedAt": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "userId",
+                    "rail",
+                    "assetId",
+                    "version",
+                    "perTx",
+                    "rolling24h",
+                    "expiresAt",
+                    "status",
+                    "setBy",
+                    "approvedBy",
+                    "setAt",
+                    "reason",
+                    "clearedBy",
+                    "clearedAt"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "auditId",
+                "requestId",
+                "userId",
+                "action",
+                "rail",
+                "assetId",
+                "reason",
+                "occurredAt",
+                "outcome",
+                "changed",
+                "actorUserId",
+                "approverUserId",
+                "before",
+                "after"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "auditId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "requestId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "userId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "action": {
+                  "type": "string",
+                  "enum": ["set", "clear"]
+                },
+                "rail": {
+                  "type": "string",
+                  "enum": ["withdrawal"]
+                },
+                "assetId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 16,
+                  "pattern": "^[A-Z0-9]+$"
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 12,
+                  "maxLength": 255
+                },
+                "occurredAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "outcome": {
+                  "type": "string",
+                  "const": "refused"
+                },
+                "changed": {
+                  "type": "boolean",
+                  "const": false
+                },
+                "actorUserId": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "operator.denied",
+                    "mfa.required",
+                    "target.not_found",
+                    "request.conflict",
+                    "identity.limit_ceiling_unset",
+                    "identity.limit_expiry_past",
+                    "identity.limit_lifetime_exceeded",
+                    "identity.limit_unchanged",
+                    "identity.limit_self_forbidden",
+                    "identity.limit_account_closed",
+                    "identity.account_archived",
+                    "identity.limit_requires_approver",
+                    "identity.limit_approval_mismatch",
+                    "identity.limit_approval_consumed",
+                    "identity.limit_override_not_found",
+                    "identity.limit_override_expired"
+                  ]
+                },
+                "current": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "userId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        },
+                        "rail": {
+                          "type": "string",
+                          "enum": ["withdrawal"]
+                        },
+                        "assetId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 16,
+                          "pattern": "^[A-Z0-9]+$"
+                        },
+                        "version": {
+                          "type": "string",
+                          "maxLength": 40,
+                          "pattern": "^(?:0|[1-9]\\d*)$"
+                        },
+                        "perTx": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 40,
+                              "pattern": "^(?:0|[1-9]\\d{0,19})(?:\\.\\d{1,18})?$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "rolling24h": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 40,
+                              "pattern": "^(?:0|[1-9]\\d{0,19})(?:\\.\\d{1,18})?$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "expiresAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": ["active", "expired", "cleared"]
+                        },
+                        "setBy": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        },
+                        "approvedBy": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "setAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "minLength": 12,
+                          "maxLength": 255
+                        },
+                        "clearedBy": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "clearedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "userId",
+                        "rail",
+                        "assetId",
+                        "version",
+                        "perTx",
+                        "rolling24h",
+                        "expiresAt",
+                        "status",
+                        "setBy",
+                        "approvedBy",
+                        "setAt",
+                        "reason",
+                        "clearedBy",
+                        "clearedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "ceiling": {
+                  "type": "string",
+                  "maxLength": 40,
+                  "pattern": "^(?:0|[1-9]\\d{0,19})(?:\\.\\d{1,18})?$"
+                }
+              },
+              "required": [
+                "auditId",
+                "requestId",
+                "userId",
+                "action",
+                "rail",
+                "assetId",
+                "reason",
+                "occurredAt",
+                "outcome",
+                "changed",
+                "actorUserId",
+                "code",
+                "current"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "auditId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "requestId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "userId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "action": {
+                  "type": "string",
+                  "enum": ["set", "clear"]
+                },
+                "rail": {
+                  "type": "string",
+                  "enum": ["withdrawal"]
+                },
+                "assetId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 16,
+                  "pattern": "^[A-Z0-9]+$"
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 12,
+                  "maxLength": 255
+                },
+                "occurredAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "outcome": {
+                  "type": "string",
+                  "const": "conflict"
+                },
+                "changed": {
+                  "type": "boolean",
+                  "const": false
+                },
+                "actorUserId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "code": {
+                  "type": "string",
+                  "const": "restriction.version_conflict"
+                },
+                "current": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "userId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        },
+                        "rail": {
+                          "type": "string",
+                          "enum": ["withdrawal"]
+                        },
+                        "assetId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 16,
+                          "pattern": "^[A-Z0-9]+$"
+                        },
+                        "version": {
+                          "type": "string",
+                          "maxLength": 40,
+                          "pattern": "^(?:0|[1-9]\\d*)$"
+                        },
+                        "perTx": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 40,
+                              "pattern": "^(?:0|[1-9]\\d{0,19})(?:\\.\\d{1,18})?$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "rolling24h": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 40,
+                              "pattern": "^(?:0|[1-9]\\d{0,19})(?:\\.\\d{1,18})?$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "expiresAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": ["active", "expired", "cleared"]
+                        },
+                        "setBy": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        },
+                        "approvedBy": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "setAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "minLength": 12,
+                          "maxLength": 255
+                        },
+                        "clearedBy": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "clearedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "userId",
+                        "rail",
+                        "assetId",
+                        "version",
+                        "perTx",
+                        "rolling24h",
+                        "expiresAt",
+                        "status",
+                        "setBy",
+                        "approvedBy",
+                        "setAt",
+                        "reason",
+                        "clearedBy",
+                        "clearedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "auditId",
+                "requestId",
+                "userId",
+                "action",
+                "rail",
+                "assetId",
+                "reason",
+                "occurredAt",
+                "outcome",
+                "changed",
+                "actorUserId",
+                "code",
+                "current"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "outputChecks": {
+        "account_limit_result_holds": {
+          "at": "output[]",
+          "says": "Unauthorized attempts cannot disclose target state; Override belongs to another account, rail or asset; The ceiling comes with limit_requires_approver only; Outcome, action and versions disagree"
+        },
+        "account_limit_amount_holds": {
+          "at": [
+            "output[]|0.before.perTx",
+            "output[]|0.before.rolling24h",
+            "output[]|0.after.perTx",
+            "output[]|0.after.rolling24h",
+            "output[]|1.current.perTx",
+            "output[]|1.current.rolling24h",
+            "output[]|1.ceiling",
+            "output[]|2.current.perTx",
+            "output[]|2.current.rolling24h"
+          ],
+          "says": "A limit figure is above zero"
         }
       },
       "samples": [
@@ -10339,6 +14226,125 @@
         }
       ]
     },
+    "identity.kyc.approve": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "kyc.approve",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:compliance"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "recordId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "expiresAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "confirmOperatorId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "approvalId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "operationId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["recordId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "tier": {
+            "type": "string",
+            "enum": ["none", "basic", "full", "institutional"]
+          },
+          "jurisdiction": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "approved", "rejected", "expired"]
+          },
+          "reviewedAt": {
+            "type": ["string", "null"]
+          },
+          "expiresAt": {
+            "type": ["string", "null"]
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": ["id", "userId", "tier", "jurisdiction", "status", "reviewedAt", "expiresAt", "createdAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "recordId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "identity.kyc.attempts.read": {
       "service": "svc-identity",
       "module": "identity",
@@ -16723,6 +20729,36 @@
         }
       ]
     },
+    "identity.serverTime": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "serverTime",
+      "access": {
+        "caller": "public"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "now": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          }
+        },
+        "required": ["now"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
     "identity.sessionSettings": {
       "service": "svc-identity",
       "module": "identity",
@@ -16837,6 +20873,199 @@
         {
           "verdict": "accept",
           "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "identity.setApiKeyRequestSigning": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "setApiKeyRequestSigning",
+      "access": {
+        "caller": "scope",
+        "scope": "identity:write"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "keyId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "requireSignature": {
+            "type": "boolean"
+          },
+          "requireNonEmptyIpAllowlist": {
+            "type": "boolean"
+          },
+          "factorProof": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "totpCode": {
+                    "type": "string",
+                    "pattern": "^\\d{6}$"
+                  }
+                },
+                "required": ["totpCode"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "webauthn": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "rawId": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "type": {
+                        "type": "string",
+                        "const": "public-key"
+                      },
+                      "response": {
+                        "type": "object",
+                        "properties": {
+                          "clientDataJSON": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "authenticatorData": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "signature": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "userHandle": {
+                            "type": ["string", "null"]
+                          }
+                        },
+                        "required": ["clientDataJSON", "authenticatorData", "signature"]
+                      },
+                      "clientExtensionResults": {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "additionalProperties": {
+                          "$ref": "#/$defs/__schema0"
+                        }
+                      }
+                    },
+                    "required": ["id", "rawId", "type", "response"]
+                  }
+                },
+                "required": ["webauthn"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "proofId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  }
+                },
+                "required": ["proofId"],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": ["keyId"],
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "requireSignature": {
+            "type": "boolean"
+          },
+          "requireNonEmptyIpAllowlist": {
+            "type": "boolean"
+          },
+          "signingSecret": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["id", "requireSignature", "requireNonEmptyIpAllowlist", "signingSecret"],
+        "additionalProperties": false
+      },
+      "checks": {
+        "auth.signing_change_unset": {
+          "at": "input",
+          "says": "requireSignature or requireNonEmptyIpAllowlist is given"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "keyId": "11111111-1111-4111-8111-111111111111",
+            "requireNonEmptyIpAllowlist": true
+          }
+        },
+        {
+          "verdict": "refuse",
+          "by": "auth.signing_change_unset",
+          "input": {
+            "keyId": "11111111-1111-4111-8111-111111111111"
+          }
         },
         {
           "verdict": "refuse",

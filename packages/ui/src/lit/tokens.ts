@@ -299,7 +299,9 @@ const voltDark: Partial<RoleMap> = {
   'text-1': '#F3F2EC',
   'text-2': '#AAA9A1',
   'text-3': '#8F8E87',
-  'text-disabled': '#4E4D49',
+  // A disabled label still reads: 4.5:1 on every solid surface (lit.test.ts), quieter than text-3. It was #4E4D49
+  // (2.0:1 to 2.4:1), which the look gate refused (run 45029211940: a disabled "Lock" at 2.17:1).
+  'text-disabled': '#86857F',
   line: 'rgba(243, 242, 236, 0.07)',
   'line-strong': 'rgba(243, 242, 236, 0.13)',
   accent: '#E0F83A',
@@ -380,7 +382,7 @@ const volt = {
     'text-1': '#0D0D0C',
     'text-2': '#44433E',
     'text-3': '#575650',
-    'text-disabled': '#9C9B94',
+    'text-disabled': '#605F5A',
     line: 'rgba(13, 13, 12, 0.08)',
     'line-strong': 'rgba(13, 13, 12, 0.15)',
     'accent-text': '#4A5800',

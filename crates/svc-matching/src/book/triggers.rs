@@ -58,7 +58,7 @@ fn rejected(code: &str, message: &str) -> SubmitResult {
 }
 
 fn positive(v: &Opt<Amount>) -> Option<Amount> {
-    v.get().filter(|a| *a > 0)
+    v.get().filter(|a| *a > Amount::ZERO)
 }
 
 /// `namedId`: a trimmed, non-empty id, else none.
@@ -148,7 +148,7 @@ fn tightened(side: Side, next: Amount, current: Amount) -> bool {
 /// `markRefuse`: none, or not positive, is no mark.
 pub fn mark_refuse(mark: Option<Amount>) -> Option<Reject> {
     match mark {
-        Some(m) if m > 0 => None,
+        Some(m) if m > Amount::ZERO => None,
         _ => Some(Reject::new(
             MARK_MISSING,
             "a trailing stop walks with the mark; the engine does not invent a mark",
@@ -258,7 +258,8 @@ impl OrderBook {
             return SubmitResult::refused(r);
         }
         let mark = mark.unwrap_or_default();
-        let Some(stop_price) = walk_stop(order.side, mark, trail).filter(|p| *p > 0) else {
+        let Some(stop_price) = walk_stop(order.side, mark, trail).filter(|p| *p > Amount::ZERO)
+        else {
             return rejected(
                 "invalid_price",
                 "trailing stop would not be a positive trigger; the engine does not invent a mark",
@@ -312,7 +313,8 @@ impl OrderBook {
                 continue;
             };
             let peak = ratchet_peak(stop.side, Some(stop.peak), mark);
-            let Some(next) = walk_stop(stop.side, peak, stop.trail).filter(|n| *n > 0) else {
+            let Some(next) = walk_stop(stop.side, peak, stop.trail).filter(|n| *n > Amount::ZERO)
+            else {
                 continue;
             };
             if !tightened(stop.side, next, stop.stop_price) {
@@ -362,7 +364,7 @@ impl OrderBook {
             return self.pull_live_stop(result, &armed_before);
         }
         // `entryRefuse`: a market entry needs no price; any other needs a positive one.
-        if order.order_type != OrderType::Market && order.price.is_none_or(|p| p <= 0) {
+        if order.order_type != OrderType::Market && order.price.is_none_or(|p| p <= Amount::ZERO) {
             return rejected(
                 "missing_price",
                 "a bracket entry is missing; the engine does not invent a trigger",
@@ -402,7 +404,7 @@ impl OrderBook {
             sl_id,
             side: order.side,
             qty: order.qty,
-            traded: 0,
+            traded: Amount::ZERO,
             account_id: order.account_id.clone(),
             tif: order.tif,
         };
@@ -443,7 +445,7 @@ impl OrderBook {
             .filter(|f| touches(f, &rec.tp_id))
             .map(|f| f.qty)
             .sum();
-        let stop_qty = if sold > 0 && sold < rec.qty {
+        let stop_qty = if sold > Amount::ZERO && sold < rec.qty {
             rec.qty - sold
         } else {
             rec.qty
@@ -572,7 +574,7 @@ impl OrderBook {
                     continue;
                 }
                 self.triggers.pending.retain(|(id, _)| *id != order_id);
-                if !filled_this_wave.contains(&order_id) || rec.traded <= 0 {
+                if !filled_this_wave.contains(&order_id) || rec.traded <= Amount::ZERO {
                     continue;
                 }
                 let traded = PendingBracket {
@@ -668,7 +670,7 @@ impl OrderBook {
         let tp_id = id_or(&x.take_profit_order_id, "tp");
         let sl_id = id_or(&x.stop_loss_order_id, "sl");
         // A limit that is present but not positive refuses: a market stop would drop the worst price asked for.
-        if x.stop_loss_limit.get().is_some_and(|l| l <= 0) {
+        if x.stop_loss_limit.get().is_some_and(|l| l <= Amount::ZERO) {
             return rejected(
                 "invalid_price",
                 "an OCO stop-loss limit must be positive; the engine does not fall back to a market stop",
