@@ -1,6 +1,6 @@
 // volt-room: /trade/orders
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Button, EmptyState } from '@intafaced/ui/lit';
+import { Button, EmptyState, DateInput } from '@intafaced/ui/lit';
 import { navigate } from '../../../app/location';
 import { useDataEnv } from '../../../data/hooks';
 import type { ApiResult } from '../../../shared/api';
@@ -154,11 +154,11 @@ export function OrderHistoryRoom({ path }: { path: string }) {
             />
             <label className="lt-field">
               <span>{t('filterFrom')}</span>
-              <input type="date" value={params.from} onChange={(event) => setParams({ ...params, from: event.target.value })} />
+              <DateInput type="date" value={params.from} onChange={(event) => setParams({ ...params, from: event.target.value })} />
             </label>
             <label className="lt-field">
               <span>{t('filterTo')}</span>
-              <input type="date" value={params.to} onChange={(event) => setParams({ ...params, to: event.target.value })} />
+              <DateInput type="date" value={params.to} onChange={(event) => setParams({ ...params, to: event.target.value })} />
             </label>
             <label className="lt-field">
               <span>{t('filterSize')}</span>

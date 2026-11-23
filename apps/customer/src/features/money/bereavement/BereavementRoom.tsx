@@ -1,6 +1,6 @@
 // volt-room: /bank/safety/bereavement
 import { useState, type FormEvent } from 'react';
-import { Button } from '@intafaced/ui/lit';
+import { Button, DateInput } from '@intafaced/ui/lit';
 import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import type { SupportBereavementRelation } from '@intafaced/contracts/support-safety';
 import { useSession } from '../../session';
@@ -88,7 +88,7 @@ export function BereavementRoom() {
             </label>
             <label className="lt-field">
               <span>{t('dateOfDeathLabel')}</span>
-              <input name="dateOfDeath" type="date" max={today} value={form.dateOfDeath} onChange={set('dateOfDeath')} />
+              <DateInput name="dateOfDeath" type="date" max={today} value={form.dateOfDeath} onChange={set('dateOfDeath')} />
             </label>
             <label className="lt-field">
               <span>{t('relationLabel')}</span>
