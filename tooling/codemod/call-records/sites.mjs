@@ -89,7 +89,11 @@ export function findSites(repo) {
           }
         }
         if (name === 'founderCall' && a[2]?.type === 'MemberExpression' && !a[2].computed && a[2].property.name === 'procedure')
-          Object.assign(site, { shape: 'ops-dispatch', problem: 'sends the call its table entry names: it moves with the table' });
+          Object.assign(site, {
+            shape: 'ops-dispatch',
+            problem:
+              "sends the call its table entry names: it moves with the table once the table sits in this file, read as `const spec = TABLE[key]; founderCall(ctx, '<service>', spec.procedure, ...)`",
+          });
         // A call named by its wrapper's parameter or spec: a site per caller's string, or the wrapper named with why (wrapper.mjs).
         const w = !site.problem && site.module && !site.path ? wrapperOut(p, site, files, wrappers) : undefined;
         if (Array.isArray(w)) out.push(...w);

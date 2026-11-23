@@ -8,7 +8,7 @@ import { AcademyRoomsRoom } from './academy-catalogue/AcademyRoomsRoom';
 import { AcademyVideosRoom } from './academy-catalogue/AcademyVideosRoom';
 import { AcademyProgrammesRoom } from './academy-catalogue/AcademyProgrammesRoom';
 import { AcademyProgrammeRoom } from './academy-catalogue/AcademyProgrammeRoom';
-import { AcademyDiscussionThreadRoom } from './AcademyDiscussion';
+import { AcademyDiscussionListRoom, AcademyDiscussionThreadRoom } from './AcademyDiscussion';
 import { AcademyCourseConversationRoom } from './AcademyCourseMessages';
 import { AcademyCourseRoom } from './AcademyCourseRoom';
 import { AcademyReaderRoom } from './academy-reader/AcademyReaderRoom';
@@ -96,6 +96,8 @@ function MoreRooms({ path }: { path: string }) {
   const academy = p === '/academy' || p.startsWith('/academy/') ? academyRoute(p) : null;
   if (userId && academy?.kind === 'discussion' && academy.postId) {
     volt = <AcademyDiscussionThreadRoom key={academy.postId} courseSlug={academy.courseSlug} postId={academy.postId} />;
+  } else if (userId && academy?.kind === 'discussion') {
+    volt = <AcademyDiscussionListRoom key={academy.courseSlug} courseSlug={academy.courseSlug} />;
   } else if (userId && academy?.kind === 'messages' && academy.conversationId) {
     volt = <AcademyCourseConversationRoom key={academy.conversationId} conversationId={academy.conversationId} />;
   } else if (academy?.kind === 'reader' && academy.slug) {

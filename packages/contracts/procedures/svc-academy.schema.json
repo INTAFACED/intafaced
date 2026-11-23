@@ -900,8 +900,9 @@
         "module": "academy"
       },
       "refusals": {
+        "academy.permission_denied": "FORBIDDEN",
         "academy.reason_required": "BAD_REQUEST",
-        "academy.permission_denied": "FORBIDDEN"
+        "academy.revision_stale": "CONFLICT"
       },
       "input": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -947,18 +948,14 @@
         {
           "verdict": "accept",
           "input": {
-            "userId": "22222222-2222-4222-8222-222222222222",
-            "body": "A note",
-            "key": "sample"
+            "userId": "33333333-3333-4333-8333-333333333333",
+            "body": "placeholder",
+            "key": "placeholder"
           }
         },
         {
           "verdict": "refuse",
-          "input": {
-            "userId": "22222222-2222-4222-8222-222222222222",
-            "body": "",
-            "key": "sample"
-          }
+          "input": 42
         }
       ]
     },
@@ -8990,9 +8987,10 @@
         "module": "academy"
       },
       "refusals": {
-        "academy.reason_required": "BAD_REQUEST",
+        "academy.grant_expired": "FORBIDDEN",
         "academy.permission_denied": "FORBIDDEN",
-        "academy.grant_expired": "FORBIDDEN"
+        "academy.reason_required": "BAD_REQUEST",
+        "academy.window_invalid": "BAD_REQUEST"
       },
       "input": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -9048,20 +9046,15 @@
         {
           "verdict": "accept",
           "input": {
-            "userId": "22222222-2222-4222-8222-222222222222",
+            "userId": "33333333-3333-4333-8333-333333333333",
             "pathSlug": "foundations",
-            "reason": "a reason",
+            "reason": "placeholder",
             "expiresAt": null
           }
         },
         {
           "verdict": "refuse",
-          "input": {
-            "userId": "22222222-2222-4222-8222-222222222222",
-            "pathSlug": "no-such-course",
-            "reason": "a reason",
-            "expiresAt": null
-          }
+          "input": 42
         }
       ]
     },
@@ -9379,9 +9372,11 @@
         "module": "academy"
       },
       "refusals": {
-        "academy.reason_required": "BAD_REQUEST",
+        "academy.curriculum_not_found": "NOT_FOUND",
         "academy.permission_denied": "FORBIDDEN",
-        "academy.curriculum_not_found": "NOT_FOUND"
+        "academy.reason_required": "BAD_REQUEST",
+        "academy.slug_reserved": "BAD_REQUEST",
+        "academy.window_invalid": "BAD_REQUEST"
       },
       "input": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -9436,22 +9431,16 @@
         {
           "verdict": "accept",
           "input": {
-            "userId": "22222222-2222-4222-8222-222222222222",
-            "itemSlug": "an-item",
-            "until": "2030-01-01T00:00:00.000Z",
-            "reason": "a reason",
-            "key": "sample"
+            "userId": "33333333-3333-4333-8333-333333333333",
+            "itemSlug": "placeholder",
+            "until": "2026-01-01T00:00:00.000Z",
+            "reason": "placeholder",
+            "key": "placeholder"
           }
         },
         {
           "verdict": "refuse",
-          "input": {
-            "userId": "22222222-2222-4222-8222-222222222222",
-            "itemSlug": "an-item",
-            "until": "tomorrow",
-            "reason": "a reason",
-            "key": "sample"
-          }
+          "input": 42
         }
       ]
     },
@@ -12224,8 +12213,10 @@
         "module": "academy"
       },
       "refusals": {
+        "academy.curriculum_not_found": "NOT_FOUND",
+        "academy.permission_denied": "FORBIDDEN",
         "academy.reason_required": "BAD_REQUEST",
-        "academy.permission_denied": "FORBIDDEN"
+        "academy.slug_reserved": "BAD_REQUEST"
       },
       "input": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -12275,20 +12266,15 @@
         {
           "verdict": "accept",
           "input": {
-            "userId": "22222222-2222-4222-8222-222222222222",
-            "itemSlug": "an-item",
-            "reason": "a reason",
-            "key": "sample"
+            "userId": "33333333-3333-4333-8333-333333333333",
+            "itemSlug": "placeholder",
+            "reason": "placeholder",
+            "key": "placeholder"
           }
         },
         {
           "verdict": "refuse",
-          "input": {
-            "userId": "not-an-id",
-            "itemSlug": "an-item",
-            "reason": "a reason",
-            "key": "sample"
-          }
+          "input": 42
         }
       ]
     },
@@ -14151,11 +14137,12 @@
         "module": "academy"
       },
       "refusals": {
-        "academy.reason_required": "BAD_REQUEST",
-        "academy.permission_denied": "FORBIDDEN",
-        "academy.grant_not_found": "NOT_FOUND",
         "academy.grant_active": "CONFLICT",
-        "academy.revision_stale": "CONFLICT"
+        "academy.grant_not_found": "NOT_FOUND",
+        "academy.permission_denied": "FORBIDDEN",
+        "academy.reason_required": "BAD_REQUEST",
+        "academy.revision_stale": "CONFLICT",
+        "academy.window_invalid": "BAD_REQUEST"
       },
       "input": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -14217,22 +14204,16 @@
         {
           "verdict": "accept",
           "input": {
-            "userId": "22222222-2222-4222-8222-222222222222",
-            "grantId": "22222222-2222-4222-8222-222222222222",
-            "reason": "a reason",
+            "userId": "33333333-3333-4333-8333-333333333333",
+            "grantId": "33333333-3333-4333-8333-333333333333",
+            "reason": "placeholder",
             "expiresAt": null,
             "n": 1
           }
         },
         {
           "verdict": "refuse",
-          "input": {
-            "userId": "22222222-2222-4222-8222-222222222222",
-            "grantId": "22222222-2222-4222-8222-222222222222",
-            "reason": "a reason",
-            "expiresAt": null,
-            "n": 0
-          }
+          "input": 42
         }
       ]
     },
@@ -19827,8 +19808,8 @@
         "module": "academy"
       },
       "refusals": {
-        "academy.reason_required": "BAD_REQUEST",
-        "academy.permission_denied": "FORBIDDEN"
+        "academy.permission_denied": "FORBIDDEN",
+        "academy.reason_required": "BAD_REQUEST"
       },
       "input": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -19872,18 +19853,14 @@
         {
           "verdict": "accept",
           "input": {
-            "userId": "22222222-2222-4222-8222-222222222222",
-            "tag": "cohort-1",
-            "reason": "a reason"
+            "userId": "33333333-3333-4333-8333-333333333333",
+            "tag": "placeholder",
+            "reason": "placeholder"
           }
         },
         {
           "verdict": "refuse",
-          "input": {
-            "userId": "22222222-2222-4222-8222-222222222222",
-            "tag": "Not A Tag",
-            "reason": "a reason"
-          }
+          "input": 42
         }
       ]
     },
@@ -20137,9 +20114,10 @@
         "module": "academy"
       },
       "refusals": {
-        "academy.reason_required": "BAD_REQUEST",
+        "academy.attempt_not_found": "NOT_FOUND",
         "academy.permission_denied": "FORBIDDEN",
-        "academy.attempt_not_found": "NOT_FOUND"
+        "academy.reason_required": "BAD_REQUEST",
+        "academy.slug_reserved": "BAD_REQUEST"
       },
       "input": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -20184,18 +20162,14 @@
         {
           "verdict": "accept",
           "input": {
-            "userId": "22222222-2222-4222-8222-222222222222",
-            "attemptId": "22222222-2222-4222-8222-222222222222",
-            "reason": "a reason"
+            "userId": "33333333-3333-4333-8333-333333333333",
+            "attemptId": "33333333-3333-4333-8333-333333333333",
+            "reason": "placeholder"
           }
         },
         {
           "verdict": "refuse",
-          "input": {
-            "userId": "22222222-2222-4222-8222-222222222222",
-            "attemptId": "not-an-id",
-            "reason": "a reason"
-          }
+          "input": 42
         }
       ]
     },

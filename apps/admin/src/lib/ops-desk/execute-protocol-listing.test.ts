@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DeskRequest } from '@/lib/desk';
-import { opsExecute, readListingAnswer } from './execute';
+import { opsExecute } from './execute';
 
 const ctx = {
   session: {
@@ -31,7 +31,6 @@ const poolAnswer = (state: string, outcome = 'applied') => ({
   state,
   outcome,
   note: null,
-  // svc-ops' own answer names the key its retry is stored under; the record holds the console to that whole answer.
   idempotencyKey: `protocol.pool.hide:84532:${POOL.toLowerCase()}:appr_1`,
 });
 
@@ -69,6 +68,7 @@ describe('protocol listing execution', () => {
       poolAnswer('visible'),
       { ...poolAnswer('hidden'), targetId: 'other' },
       { ...poolAnswer('hidden'), action: 'protocol.pool.restore' },
+      { action: 'x' },
     ]) {
       vi.stubGlobal(
         'fetch',
@@ -76,7 +76,6 @@ describe('protocol listing execution', () => {
       );
       expect(await opsExecute(ctx)(hide, ids)).toMatchObject({ ok: false, refusal: { changed: 'unknown' } });
     }
-    expect(readListingAnswer({ action: 'x' })).toBeNull();
   });
 
   it('says a second approval on a hidden pool changed nothing', async () => {

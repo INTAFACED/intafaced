@@ -62,6 +62,12 @@ mod ops_desk_db;
 mod partner_db;
 #[path = "partner_probe.rs"]
 mod partner_probe;
+#[path = "ramps_book_db.rs"]
+mod ramps_book_db;
+#[path = "ramps_offramp_db.rs"]
+mod ramps_offramp_db;
+#[path = "ramps_onramp_db.rs"]
+mod ramps_onramp_db;
 #[path = "spaces_db.rs"]
 mod spaces_db;
 #[path = "store_pg.rs"]

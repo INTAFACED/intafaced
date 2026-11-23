@@ -3,13 +3,13 @@ import {
   edgeCall,
   explainRefusal,
   failureRefusal,
+  founderAskedCall,
   founderCall,
   founderRecordCall,
   type DeskRequest,
   type ExecuteFn,
   type ExecuteReply,
   type FounderCallContext,
-  type FounderCallResult,
   founderRecordRead,
 } from '@/lib/desk';
 import { treasuryTransport } from '@/lib/ledger';
@@ -154,74 +154,47 @@ export function readCapitalThresholdAnswer(raw: unknown): CapitalThresholdAnswer
     : null;
 }
 
-interface ListingAnswer {
-  readonly action: string;
-  readonly targetId: string;
-  readonly state: string;
-  readonly outcome: string;
-  readonly note: string | null;
-}
-
-export function readListingAnswer(raw: unknown): ListingAnswer | null {
-  if (!isRecord(raw)) return null;
-  const { action, targetId, state, outcome, note } = raw;
-  return typeof action === 'string' &&
-    typeof targetId === 'string' &&
-    typeof state === 'string' &&
-    typeof outcome === 'string' &&
-    (note === null || typeof note === 'string')
-    ? { action, targetId, state, outcome, note }
-    : null;
-}
-
 type ListingRequest = Extract<
   DeskRequest,
   { kind: 'protocol.pool.hide' | 'protocol.pool.restore' | 'protocol.market.delist' | 'protocol.market.restore' }
 >;
 
-/** The svc-ops call for one listing request, sent with the approval ids, and the state its answer must show. */
-function listingCall(
-  ctx: FounderCallContext,
-  request: ListingRequest,
-  ids: { approvalId: string; operationId: string },
-): { sent: Promise<FounderCallResult<ListingAnswer>>; targetId: string; state: 'hidden' | 'visible' } {
+/** The svc-ops call each listing request is sent as. */
+const LISTING_CALLS = {
+  'protocol.pool.hide': { record: OPS_PROTOCOL_LISTING_POOLS_HIDE },
+  'protocol.pool.restore': { record: OPS_PROTOCOL_LISTING_POOLS_RESTORE },
+  'protocol.market.delist': { record: OPS_PROTOCOL_LISTING_MARKETS_DELIST },
+  'protocol.market.restore': { record: OPS_PROTOCOL_LISTING_MARKETS_RESTORE },
+} as const;
+
+/** The input (before the approval ids) and the state the answer must show for one listing request. */
+function listingCall(request: ListingRequest): {
+  input: Record<string, unknown>;
+  targetId: string;
+  state: 'hidden' | 'visible';
+} {
   switch (request.kind) {
     case 'protocol.pool.hide':
       return {
-        sent: founderRecordRead(
-          ctx,
-          OPS_PROTOCOL_LISTING_POOLS_HIDE,
-          { chainId: request.chainId, poolAddress: request.poolAddress, reasonCode: request.reasonCode, reason: request.reason, ...ids },
-          readListingAnswer,
-        ),
+        input: { chainId: request.chainId, poolAddress: request.poolAddress, reasonCode: request.reasonCode, reason: request.reason },
         targetId: poolTargetId(request.chainId, request.poolAddress),
         state: 'hidden',
       };
     case 'protocol.pool.restore':
       return {
-        sent: founderRecordRead(
-          ctx,
-          OPS_PROTOCOL_LISTING_POOLS_RESTORE,
-          { chainId: request.chainId, poolAddress: request.poolAddress, ...ids },
-          readListingAnswer,
-        ),
+        input: { chainId: request.chainId, poolAddress: request.poolAddress },
         targetId: poolTargetId(request.chainId, request.poolAddress),
         state: 'visible',
       };
     case 'protocol.market.delist':
       return {
-        sent: founderRecordRead(
-          ctx,
-          OPS_PROTOCOL_LISTING_MARKETS_DELIST,
-          { symbol: request.symbol, reasonCode: request.reasonCode, reason: request.reason, ...ids },
-          readListingAnswer,
-        ),
+        input: { symbol: request.symbol, reasonCode: request.reasonCode, reason: request.reason },
         targetId: marketTargetId(request.symbol),
         state: 'hidden',
       };
     case 'protocol.market.restore':
       return {
-        sent: founderRecordRead(ctx, OPS_PROTOCOL_LISTING_MARKETS_RESTORE, { symbol: request.symbol, ...ids }, readListingAnswer),
+        input: { symbol: request.symbol },
         targetId: marketTargetId(request.symbol),
         state: 'visible',
       };
@@ -432,8 +405,10 @@ export function opsExecute(ctx: FounderCallContext): ExecuteFn {
       request.kind === 'protocol.market.delist' ||
       request.kind === 'protocol.market.restore'
     ) {
-      const call = listingCall(ctx, request, ids);
-      const result = await call.sent;
+      const call = listingCall(request);
+      const spec = LISTING_CALLS[request.kind];
+      // The record checks the input the request built and parses the answer svc-ops sends.
+      const result = await founderAskedCall(ctx, spec.record, { ...call.input, ...ids });
       if (result.kind !== 'ok') return failureRefusal('svc-ops', 'ops', result);
       const a = result.data;
       if (a.action !== request.kind || a.targetId !== call.targetId || a.state !== call.state) return WRONG_STATE;

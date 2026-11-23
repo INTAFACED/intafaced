@@ -1,6 +1,7 @@
 //! The wallet's proof for one own move: the words it signs (`ownMoveMessage`) and the address that signed them
 //! (`ramps/wallet-ownership.ts` `recoverPersonalSignAddress`: EIP-191 `personal_sign`, a 65-byte `r || s || v`
-//! signature, `v` 27/28 or 0/1). The ramps slice's wallet proofs will share [`recover_personal_sign_address`].
+//! signature, `v` 27/28 or 0/1). The ramps slice's wallet proofs and buy-to-wallet requests share
+//! [`recover_personal_sign_address`].
 
 use k256::ecdsa::{RecoveryId, Signature, VerifyingKey};
 use sha3::{Digest, Keccak256};

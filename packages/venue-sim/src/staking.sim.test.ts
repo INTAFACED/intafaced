@@ -102,6 +102,12 @@ describe('J-cex-spot-21 staking on the TEST venue', () => {
     expect(terms.discountTiers!.map((t) => t.discountBps)).toEqual([500, 1_000, 1_500, 2_000, 3_000, 4_000]);
     sim.testStakingPublished({ rewardRate: false });
     expect((await sim.staking()).value.rewardRateBps).toBeNull();
+    expect((await sim.staking()).value.discountTiers).not.toBeNull();
+    sim.testStakingPublished({ tiers: false });
+    expect((await sim.staking()).value.discountTiers).toBeNull();
+    sim.testStakingPublished({ rewardRate: true, tiers: true });
+    expect((await sim.staking()).value).toMatchObject({ rewardRateBps: 230 });
+    expect((await sim.staking()).value.discountTiers).toHaveLength(6);
   });
 
   it('moves spot to staking and delegates, each once; the coins stay in the balance as locked, split as the venue holds them', async () => {

@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { ACADEMY_ADMIN_TAG_LEARNERS } from '@intafaced/contracts/academy-admin-procedures';
 import { isLearnerOp, learnerChange } from './learners-ops';
 
 // The exact bodies apps/admin/src/components/academy-learner-desk.tsx sends: each form's body, with the page's `userId`
@@ -35,7 +34,6 @@ describe('learner page changes (J-academy-14)', () => {
 
   it('a tag goes to the many-learner call as a list of one, with no stray learner field', () => {
     expect(learnerChange('tag', { userId: USER, ...bodies.tag })).toEqual({
-      record: ACADEMY_ADMIN_TAG_LEARNERS,
       input: { userIds: [USER], tag: 'test-tag', reason: 'TEST' },
       what: 'tag added',
     });

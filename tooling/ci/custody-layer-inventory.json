@@ -86,6 +86,8 @@
     "crates/svc-agents/src/metering/meter.rs": ["feeCharge"],
     "crates/svc-bank/src/earn/service.rs": ["earnDeposit", "earnInterest", "earnPoolFund", "earnWithdraw"],
     "crates/svc-bank/src/loans/service.rs": ["loanCollateralLock", "loanCollateralRelease", "loanDraw", "loanRepay", "loanReserveFund"],
+    "crates/svc-bank/src/ramps/offramp.rs": ["withdrawHold", "withdrawSettle"],
+    "crates/svc-bank/src/ramps/onramp/service.rs": ["deposit"],
     "crates/svc-bank/src/transfers/holds.rs": ["payReceivedHold", "payReceivedRelease", "payReceivedReturn"],
     "crates/svc-bank/src/transfers/moves.rs": ["bankTransfer"],
     "services/svc-bank/src/auto-invest/auto-invest-service.ts": ["bankTransfer"],

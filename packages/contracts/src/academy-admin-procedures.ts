@@ -54,18 +54,7 @@ import {
   academyTopicListSchema,
   academyUpdateCourseInputSchema,
 } from './academy-courses.js';
-import {
-  academyAddLearnerNoteInputSchema,
-  academyGrantAccessInputSchema,
-  academyGrantLearnerExtensionInputSchema,
-  academyLearnerChangeSchema,
-  academyLearnerTagsSchema,
-  academyMarkCompleteForInputSchema,
-  academyReinstateAccessInputSchema,
-  academyTagLearnersInputSchema,
-  academyUntagLearnerInputSchema,
-  academyVoidQuizAttemptInputSchema,
-} from './academy-learner-desk.js';
+import { academyLearnerTagsSchema, academyTagLearnersInputSchema } from './academy-learner-desk.js';
 import {
   academyBulkEmailDetailSchema,
   academyBulkEmailInputSchema,
@@ -840,124 +829,6 @@ export const ACADEMY_ADMIN_TAG_LEARNERS = defineProcedure({
   samples: [
     { verdict: 'accept', input: { userIds: [ID], tag: 'cohort-1', reason: REASON } },
     { verdict: 'refuse', input: { userIds: [], tag: 'cohort-1', reason: REASON } },
-  ],
-});
-
-// The learner desk's other changes (community/learner_desk.rs, learner/desk.rs, learner/service.rs,
-// assessment/extensions.rs): each answers the learner it changed and what was done, in svc-academy's words.
-const LEARNER_CHANGE = {
-  'academy.reason_required': 'BAD_REQUEST',
-  'academy.permission_denied': 'FORBIDDEN',
-} as const;
-const UNTIL = '2030-01-01T00:00:00.000Z';
-
-export const ACADEMY_ADMIN_ADD_LEARNER_NOTE = defineProcedure({
-  ...base,
-  name: 'academy.admin.addLearnerNote',
-  kind: 'mutation',
-  path: 'admin.addLearnerNote',
-  access: READ,
-  refusals: LEARNER_CHANGE,
-  input: academyAddLearnerNoteInputSchema,
-  output: academyLearnerChangeSchema,
-  samples: [
-    { verdict: 'accept', input: { userId: ID, body: 'A note', key: 'sample' } },
-    { verdict: 'refuse', input: { userId: ID, body: '', key: 'sample' } },
-  ],
-});
-
-export const ACADEMY_ADMIN_MARK_COMPLETE_FOR = defineProcedure({
-  ...base,
-  name: 'academy.admin.markCompleteFor',
-  kind: 'mutation',
-  path: 'admin.markCompleteFor',
-  access: READ,
-  refusals: LEARNER_CHANGE,
-  input: academyMarkCompleteForInputSchema,
-  output: academyLearnerChangeSchema,
-  samples: [
-    { verdict: 'accept', input: { userId: ID, itemSlug: 'an-item', reason: REASON, key: 'sample' } },
-    { verdict: 'refuse', input: { userId: NOT_ID, itemSlug: 'an-item', reason: REASON, key: 'sample' } },
-  ],
-});
-
-export const ACADEMY_ADMIN_VOID_QUIZ_ATTEMPT = defineProcedure({
-  ...base,
-  name: 'academy.admin.voidQuizAttempt',
-  kind: 'mutation',
-  path: 'admin.voidQuizAttempt',
-  access: READ,
-  refusals: { ...LEARNER_CHANGE, 'academy.attempt_not_found': 'NOT_FOUND' },
-  input: academyVoidQuizAttemptInputSchema,
-  output: academyLearnerChangeSchema,
-  samples: [
-    { verdict: 'accept', input: { userId: ID, attemptId: ID, reason: REASON } },
-    { verdict: 'refuse', input: { userId: ID, attemptId: NOT_ID, reason: REASON } },
-  ],
-});
-
-export const ACADEMY_ADMIN_GRANT_LEARNER_EXTENSION = defineProcedure({
-  ...base,
-  name: 'academy.admin.grantLearnerExtension',
-  kind: 'mutation',
-  path: 'admin.grantLearnerExtension',
-  access: READ,
-  refusals: { ...LEARNER_CHANGE, 'academy.curriculum_not_found': 'NOT_FOUND' },
-  input: academyGrantLearnerExtensionInputSchema,
-  output: academyLearnerChangeSchema,
-  samples: [
-    { verdict: 'accept', input: { userId: ID, itemSlug: 'an-item', until: UNTIL, reason: REASON, key: 'sample' } },
-    { verdict: 'refuse', input: { userId: ID, itemSlug: 'an-item', until: 'tomorrow', reason: REASON, key: 'sample' } },
-  ],
-});
-
-export const ACADEMY_ADMIN_GRANT_ACCESS = defineProcedure({
-  ...base,
-  name: 'academy.admin.grantAccess',
-  kind: 'mutation',
-  path: 'admin.grantAccess',
-  access: READ,
-  refusals: { ...LEARNER_CHANGE, 'academy.grant_expired': 'FORBIDDEN' },
-  input: academyGrantAccessInputSchema,
-  output: academyLearnerChangeSchema,
-  samples: [
-    { verdict: 'accept', input: { userId: ID, pathSlug: 'foundations', reason: REASON, expiresAt: null } },
-    { verdict: 'refuse', input: { userId: ID, pathSlug: 'no-such-course', reason: REASON, expiresAt: null } },
-  ],
-});
-
-export const ACADEMY_ADMIN_REINSTATE_ACCESS = defineProcedure({
-  ...base,
-  name: 'academy.admin.reinstateAccess',
-  kind: 'mutation',
-  path: 'admin.reinstateAccess',
-  access: READ,
-  refusals: {
-    ...LEARNER_CHANGE,
-    'academy.grant_not_found': 'NOT_FOUND',
-    'academy.grant_active': 'CONFLICT',
-    'academy.revision_stale': 'CONFLICT',
-  },
-  input: academyReinstateAccessInputSchema,
-  output: academyLearnerChangeSchema,
-  samples: [
-    { verdict: 'accept', input: { userId: ID, grantId: ID, reason: REASON, expiresAt: null, n: 1 } },
-    { verdict: 'refuse', input: { userId: ID, grantId: ID, reason: REASON, expiresAt: null, n: 0 } },
-  ],
-});
-
-export const ACADEMY_ADMIN_UNTAG_LEARNER = defineProcedure({
-  ...base,
-  name: 'academy.admin.untagLearner',
-  kind: 'mutation',
-  path: 'admin.untagLearner',
-  access: READ,
-  refusals: LEARNER_CHANGE,
-  input: academyUntagLearnerInputSchema,
-  output: academyLearnerChangeSchema,
-  samples: [
-    { verdict: 'accept', input: { userId: ID, tag: 'cohort-1', reason: REASON } },
-    { verdict: 'refuse', input: { userId: ID, tag: 'Not A Tag', reason: REASON } },
   ],
 });
 
