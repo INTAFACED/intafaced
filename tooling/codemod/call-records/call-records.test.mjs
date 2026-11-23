@@ -2119,6 +2119,7 @@ test("a door's calls.rs rows read as kind, the record's access (or why none) and
       scoped('own.tool.try', 'agents:execute', false, true, 'Pre::PersonOnly("agents.execute_person_only")'),
       scoped('region.free', 'agents:read', false, false, 'Pre::None'),
       scoped('coach.runSession', 'agents:read', false, true, 'Pre::CoachRun'),
+      scoped('odd.pre', 'agents:read', false, true, 'Pre::Odd(3)'),
       scoped('settle', '', false, false, 'Pre::None', 'Access::Settle'),
     ].join('\n'),
   );
@@ -2130,7 +2131,12 @@ test("a door's calls.rs rows read as kind, the record's access (or why none) and
       guarded: null,
     },
     'region.free': { kind: 'query', access: { caller: 'scope', scope: 'agents:read' }, guarded: null },
-    'coach.runSession': { kind: 'query', access: null, why: 'its own middleware Pre::CoachRun, which a record cannot name', guarded: null },
+    'coach.runSession': {
+      kind: 'query',
+      access: { caller: 'scope', scope: 'agents:read', module: 'agents', check: 'coachRun' },
+      guarded: null,
+    },
+    'odd.pre': { kind: 'query', access: null, why: 'its own middleware Pre::Odd(3), which a record cannot name', guarded: null },
     settle: { kind: 'query', access: null, why: "access Access::Settle, which this reader does not map to a record's", guarded: null },
   });
   assert.equal(
