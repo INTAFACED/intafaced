@@ -4,10 +4,11 @@ import { Requires } from '../access/MerchantAccess';
 import { WithAccount } from '../access/WithAccount';
 import { extensionCopy, paymentsCopy, portalCopy, w3cCopy } from './copy';
 import type { RoomDef, RoomTable } from '../rooms-model';
-import { Customers, CustomerDetailPage } from './Customers';
+import { CustomerRoom, CustomersRoom } from './Customers';
 import { Dashboard } from './Dashboard';
-import { Disputes, DisputeDetailPage } from './Disputes';
-import { Invoices } from './Invoices';
+import { DisputeRoom, DisputesRoom } from './Disputes';
+import { InvoiceCreate } from './InvoiceCreate';
+import { InvoiceRoom, InvoicesRoom } from './Invoices';
 import { Links } from './Links';
 import { LinksRoom } from './LinkList';
 import { LinkButton } from '../volt/parts';
@@ -65,16 +66,23 @@ const invoices: RoomDef = {
         ? { title: paymentsCopy.t('inv_createTitle'), purpose: paymentsCopy.t('invoiceNewPurpose') }
         : { title: paymentsCopy.t('invoiceTitle'), purpose: paymentsCopy.t('invoicePurpose') },
   here: '/pay/invoices',
-  render: (route, { portal }) => (
-    <WithAccount>
-      {({ merchantId }) => (
-        <Requires need={route.room === 'invoice-new' ? 'invoices.write' : 'invoices.read'}>
-          <Invoices portal={portal} route={route} merchantId={merchantId} />
-        </Requires>
-      )}
-    </WithAccount>
-  ),
+  render: (route, { portal }) =>
+    route.room === 'invoice-new' ? (
+      <WithAccount>
+        {({ merchantId }) => (
+          <Requires need="invoices.write">
+            <InvoiceCreate portal={portal} merchantId={merchantId} />
+          </Requires>
+        )}
+      </WithAccount>
+    ) : route.room === 'invoice' && route.param ? (
+      <InvoiceRoom portal={portal} invoiceId={route.param} />
+    ) : (
+      <InvoicesRoom portal={portal} />
+    ),
 };
+/** The list and a record's own page draw their title row on the record-list template; the create form keeps the frame's. */
+const invoicesOnVolt: RoomDef = { ...invoices, ownTitle: true };
 /** `/pay/links` and `/pay/links/:linkId` on the record-list template (`./LinkList`), which draws their heading. */
 const links: RoomDef = {
   header: (route) =>
@@ -111,8 +119,8 @@ export const paymentsRooms: RoomTable = {
   subscriptions,
   subscription: subscriptions,
   'subscription-new': subscriptionNew,
-  invoices,
-  invoice: invoices,
+  invoices: invoicesOnVolt,
+  invoice: invoicesOnVolt,
   links,
   'link-new': linkNew,
   link: links,
@@ -128,21 +136,25 @@ export const paymentsRooms: RoomTable = {
   },
   disputes: {
     header: () => ({ title: t('pageDisputes'), purpose: t('purposeDisputes') }),
-    render: (_route, { portal }) => <Disputes portal={portal} />,
+    ownTitle: true,
+    render: (_route, { portal }) => <DisputesRoom portal={portal} />,
   },
   dispute: {
     header: () => ({ title: t('pageDispute'), purpose: t('purposeDispute') }),
     here: '/pay/disputes',
-    render: (route, { portal }) => <DisputeDetailPage portal={portal} disputeId={route.param!} />,
+    ownTitle: true,
+    render: (route, { portal }) => <DisputeRoom portal={portal} disputeId={route.param!} />,
   },
   customers: {
     header: () => ({ title: t('pageCustomers'), purpose: t('purposeCustomers') }),
-    render: (_route, { portal }) => <Customers portal={portal} />,
+    ownTitle: true,
+    render: (_route, { portal }) => <CustomersRoom portal={portal} />,
   },
   customer: {
     header: () => ({ title: t('pageCustomer'), purpose: t('purposeCustomer') }),
     here: '/pay/customers',
-    render: (route, { portal }) => <CustomerDetailPage portal={portal} customerRef={route.param!} />,
+    ownTitle: true,
+    render: (route, { portal }) => <CustomerRoom portal={portal} customerRef={route.param!} />,
   },
   payments: {
     header: () => ({

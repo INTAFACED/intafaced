@@ -23,13 +23,13 @@ import { uiCopy } from '../ui/copy';
 import { DateTime, formatDateTime } from '../ui/DateTime';
 import { useExactMoneyScope } from '../ui/ExactMoneyScope';
 import { formatMoney, isRounded } from '../ui/format';
+import { countText, type ListFilters } from '../ui/FilterRow';
 import { ageSeconds } from '../ui/Freshness';
 import type { KpiTileProps } from '../ui/Kpi';
 import type { ChipKind } from '../ui/status-vocabulary';
 import { statusWords, type StatusEntity, type StatusTone } from '../ui/StatusChip';
 import { STALE_AFTER_SECONDS, activeHalts, lagParts, staleness } from '../model';
 import type { TimelineEvent } from '../ui/Timeline';
-import { countText, type ListFilters } from '../ui/FilterRow';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -427,6 +427,210 @@ export function KpiStrip({ label, tiles }: { label: string; tiles: readonly KpiT
   );
 }
 
+/** One figure that opens no list (`Kpi` in `../components`): a record's own lifetime totals, say. */
+export function Kpi({ label, period, value, note }: { label: string; period?: string; value: ReactNode; note?: ReactNode }) {
+  return (
+    <li>
+      <span>
+        {label}
+        {period && (
+          <>
+            {' '}
+            <em>{period}</em>
+          </>
+        )}
+      </span>{' '}
+      <strong data-testid="pp-kpi-value">{value}</strong>
+      {note && (
+        <>
+          {' '}
+          <small className="lt-hint">{note}</small>
+        </>
+      )}
+    </li>
+  );
+}
+
+/** A named group of `Kpi` figures (`KpiGrid` in `../components`). */
+export function KpiGrid({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <ul className="lt-kv" role="group" aria-label={label}>
+      {children}
+    </ul>
+  );
+}
+
+/** The way back to the list a record belongs to (`BackLink` in `../components`). */
+export function BackLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <a className="lt-link" href={href}>
+      ← {children}
+    </a>
+  );
+}
+
+/**
+ * The top of a record's own page (`DetailHeader` in `../ui/DetailHeader`): the way back, the title (for money, the amount
+ * and its status), one line on what it is and at most one primary action.
+ */
+export function DetailHeader({
+  back,
+  title,
+  status,
+  subtitle,
+  action,
+}: {
+  back: { href: string; label: string };
+  title: ReactNode;
+  status?: ReactNode;
+  subtitle?: ReactNode;
+  action?: ReactNode;
+}) {
+  return (
+    <header data-testid="pp-detail-head" className="lt-stack">
+      <a className="lt-link" href={back.href}>
+        {back.label}
+      </a>
+      <div className="lt-actions">
+        <div>
+          <h2>
+            {title}
+            {status && <> {status}</>}
+          </h2>
+          {subtitle && <p className="lt-hint">{subtitle}</p>}
+        </div>
+        {action}
+      </div>
+    </header>
+  );
+}
+
+/** Where a record leads (`RelatedLinks` in `../ui/RelatedLinks`): only links the page can follow. */
+export function RelatedLinks({ links }: { links: ReadonlyArray<{ href: string; label: string }> }) {
+  const { t } = uiCopy.useCopy();
+  if (links.length === 0) return null;
+  return (
+    <nav aria-label={t('related')}>
+      <h3>{t('related')}</h3>
+      <ul className="lt-list">
+        {links.map((link) => (
+          <li key={link.href}>
+            <a className="lt-link" href={link.href}>
+              {link.label}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  );
+}
+
+/**
+ * The list's one row of filters (`FilterRow` in `../ui/FilterRow`, which keeps the state and the date windows): Search,
+ * Status, Date (Today, 7d, 30d, custom), Asset and More filters. A filter shows only when the page passes its options, so
+ * a list never offers a control its service cannot apply. The count says "Newest N" unless the service gave a total.
+ */
+export function FilterRow({
+  filters,
+  statuses,
+  assets,
+  more,
+  searchHint,
+  shown,
+  hasMore,
+  total,
+  label,
+}: {
+  filters: ListFilters;
+  statuses?: ReadonlyArray<readonly [value: string, label: string]>;
+  assets?: readonly string[];
+  more?: ReactNode;
+  searchHint?: string;
+  shown?: number;
+  hasMore?: boolean;
+  total?: number | null;
+  label: string;
+}) {
+  const { t } = uiCopy.useCopy();
+  const [open, setOpen] = useState(false);
+  const active = Boolean(filters.search || filters.status || filters.date || filters.asset);
+  return (
+    <div className="lt-stack" role="search" aria-label={label}>
+      <div className="lt-field-row">
+        <Field
+          label={t('search')}
+          value={filters.search}
+          onChange={(e) => filters.setSearch(e.target.value)}
+          {...(searchHint ? { hint: searchHint } : {})}
+        />
+        {statuses && (
+          <SelectField
+            label={t('status')}
+            value={filters.status}
+            onChange={filters.setStatus}
+            options={[['', t('allStatuses')] as const, ...statuses]}
+          />
+        )}
+        <SelectField
+          label={t('date')}
+          value={filters.date}
+          onChange={filters.setDate}
+          options={[
+            ['', t('anyDate')],
+            ['today', t('today')],
+            ['7d', t('last7')],
+            ['30d', t('last30')],
+            ['custom', t('custom')],
+          ]}
+        />
+        {assets && assets.length > 0 && (
+          <SelectField
+            label={t('asset')}
+            value={filters.asset}
+            onChange={filters.setAsset}
+            options={[['', t('allAssets')] as const, ...assets.map((a) => [a, a] as const)]}
+          />
+        )}
+      </div>
+      {filters.date === 'custom' && (
+        <div className="lt-field-row">
+          <Field label={t('from')} type="date" value={filters.from} onChange={(e) => filters.setFrom(e.target.value)} />
+          <Field label={t('to')} type="date" value={filters.to} onChange={(e) => filters.setTo(e.target.value)} />
+        </div>
+      )}
+      {more && (
+        <div>
+          <Button tone="quiet" aria-expanded={open} onClick={() => setOpen(!open)}>
+            {t('moreFilters')}
+          </Button>
+          {open && <div className="lt-field-row">{more}</div>}
+        </div>
+      )}
+      <p className="lt-hint" role="status">
+        {shown !== undefined ? countText(t, shown, Boolean(hasMore), total) : ''}
+        {active && (
+          <>
+            {' '}
+            <Button
+              tone="quiet"
+              onClick={() => {
+                filters.setSearch('');
+                filters.setStatus('');
+                filters.setDate('');
+                filters.setFrom('');
+                filters.setTo('');
+                filters.setAsset('');
+              }}
+            >
+              {t('clearFilters')}
+            </Button>
+          </>
+        )}
+      </p>
+    </div>
+  );
+}
+
 /** "Updated 2 min ago", once per page. Past the stale line it adds a calm note. */
 export function Freshness({ asOf, lagSeconds = 0 }: { asOf: string | null; lagSeconds?: number }) {
   const { t } = uiCopy.useCopy();
@@ -708,114 +912,6 @@ export function MoneyAction({ kind, act, children }: { kind: MoneyKind; act?: Pa
       <small id={reasonId} className="lt-hint">
         {reason}
       </small>
-    </div>
-  );
-}
-
-/**
- * A list's filters in one row (`FilterRow` in `../ui/FilterRow`): Search, Status, Date (Today, 7d, 30d, custom), Asset
- * and More filters, all kept in the address by `useListFilters`. A filter is shown only when the page passes the options
- * for it, so a list never offers a control its service cannot apply. The count under it is honest: "N results" only
- * when the service gave a total.
- */
-export function FilterRow({
-  filters,
-  statuses,
-  assets,
-  more,
-  searchHint,
-  shown,
-  hasMore,
-  total,
-  label,
-}: {
-  filters: ListFilters;
-  statuses?: ReadonlyArray<readonly [value: string, label: string]>;
-  assets?: readonly string[];
-  more?: ReactNode;
-  /** One line under Search saying what it matches, when it matches less than a person would guess. */
-  searchHint?: string;
-  shown?: number;
-  hasMore?: boolean;
-  total?: number | null;
-  label: string;
-}) {
-  const { t } = uiCopy.useCopy();
-  const [open, setOpen] = useState(false);
-  const active = Boolean(filters.search || filters.status || filters.date || filters.asset);
-  return (
-    <div className="lt-stack" role="search" aria-label={label}>
-      <div className="lt-field-row">
-        <Field
-          label={t('search')}
-          value={filters.search}
-          onChange={(e) => filters.setSearch(e.target.value)}
-          {...(searchHint ? { hint: searchHint } : {})}
-        />
-        {statuses && (
-          <SelectField
-            label={t('status')}
-            value={filters.status}
-            onChange={filters.setStatus}
-            options={[['', t('allStatuses')] as const, ...statuses]}
-          />
-        )}
-        <SelectField
-          label={t('date')}
-          value={filters.date}
-          onChange={filters.setDate}
-          options={[
-            ['', t('anyDate')],
-            ['today', t('today')],
-            ['7d', t('last7')],
-            ['30d', t('last30')],
-            ['custom', t('custom')],
-          ]}
-        />
-        {assets && assets.length > 0 && (
-          <SelectField
-            label={t('asset')}
-            value={filters.asset}
-            onChange={filters.setAsset}
-            options={[['', t('allAssets')] as const, ...assets.map((a) => [a, a] as const)]}
-          />
-        )}
-      </div>
-      {filters.date === 'custom' && (
-        <div className="lt-field-row">
-          <Field label={t('from')} type="date" value={filters.from} onChange={(e) => filters.setFrom(e.target.value)} />
-          <Field label={t('to')} type="date" value={filters.to} onChange={(e) => filters.setTo(e.target.value)} />
-        </div>
-      )}
-      {more && (
-        <div className="lt-stack">
-          <Button tone="quiet" aria-expanded={open} onClick={() => setOpen(!open)}>
-            {t('moreFilters')}
-          </Button>
-          {open && <div className="lt-field-row">{more}</div>}
-        </div>
-      )}
-      <p className="lt-muted" role="status">
-        {shown !== undefined ? countText(t, shown, Boolean(hasMore), total) : ''}
-        {active && (
-          <>
-            {' '}
-            <Button
-              tone="quiet"
-              onClick={() => {
-                filters.setSearch('');
-                filters.setStatus('');
-                filters.setDate('');
-                filters.setFrom('');
-                filters.setTo('');
-                filters.setAsset('');
-              }}
-            >
-              {t('clearFilters')}
-            </Button>
-          </>
-        )}
-      </p>
     </div>
   );
 }

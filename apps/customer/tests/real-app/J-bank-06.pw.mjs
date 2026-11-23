@@ -568,7 +568,9 @@ test(`${J} #4 blocks a direct debit mandate: the block is sent to the partner, n
   const failed = page.getByTestId(`dd-collection-${tag}-ten`);
   await expect(failed).toContainText('Failed');
   await expect(failed).toContainText('The partner bank reported too little money in your main balance. Nothing was taken.');
-  await expect(failed).toContainText('bank.partner_insufficient_funds');
+  // A Bank refusal no step names ends in plain words; its code stays on data-code.
+  await expect(failed.locator('[data-code="bank.partner_insufficient_funds"]')).toBeAttached();
+  await expect(failed).not.toContainText('bank.partner_insufficient_funds');
   await expect(failed).toContainText('Not set. No fee was charged.');
   // Its refund path: nothing was taken, and a debit that was taken is asked back from this list.
   await expect(failed).toContainText('Nothing was taken, so nothing needs refunding.');
@@ -790,7 +792,7 @@ test(`${J} #6 saves a payment reminder rule under its business key: a replay is 
   // A rule that moves money: every field there, and saving it is refused with the missing terms. Nothing is stored.
   await page.reload();
   const money = page.getByTestId('rules-money');
-  await expect(page.getByTestId('rules-money-not-set')).toContainText('bank.rule_terms_unset');
+  await expect(page.getByTestId('rules-money-not-set').locator('[data-code="bank.rule_terms_unset"]')).toBeAttached();
   const rows = await spaces(who);
   await money.getByLabel('Rule name').fill('Sweep TEST');
   await money.getByRole('combobox', { name: /^From/ }).selectOption(main(rows).id);
@@ -800,7 +802,7 @@ test(`${J} #6 saves a payment reminder rule under its business key: a replay is 
   await money.getByLabel('Amount to move').fill('10');
   await money.getByRole('button', { name: 'Save rule' }).click();
   await expect(money.getByRole('alert')).toContainText('Not saved: rules that move money by themselves are not open');
-  await expect(money.getByRole('alert')).toContainText('bank.rule_terms_unset');
+  await expect(money.getByRole('alert')).not.toContainText('bank.rule_terms_unset');
   const refused = await api.mutate('rules.createMoneyRule', {
     name: 'Sweep TEST',
     fromSpaceId: main(rows).id,
