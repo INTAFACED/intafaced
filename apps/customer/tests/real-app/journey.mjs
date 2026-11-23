@@ -12,6 +12,7 @@ import { localStackState } from '../../../../tooling/scripts/local-test-state.mj
 import { LEDGER, ROOT, recordSignIn } from './stack.mjs';
 import { enterFile } from './world-restore.mjs';
 import { beforeRequest, noteResponse, partnerFile } from './partner-start.mjs';
+import { fromTop } from './step-picture.mjs';
 
 // Every journey imports `test` (and `expect`) from here, never from '@playwright/test' directly
 // (tooling/scripts/journey-freeze-guard.test.mjs fails a file that does), and so does every helper that asserts, so a
@@ -396,7 +397,9 @@ const extended = base.extend({
   // the menu, goes on to another room) calls it before it leaves, or the end picture shows the page it went on to and the
   // reader answers NOT SHOWN (garden/step-picture-before-leaving). The first picture taken is the step's: a later call
   // takes none, and one that could not be taken leaves the end picture to try. A full page, since `screenshot: 'on'` alone
-  // left the reader the 900-pixel window. A test with no page of its own and no call (an API-only step, or one on its own
+  // left the reader the 900-pixel window, taken from the top with no link focused (step-picture.mjs fromTop: a picture of a
+  // scrolled page drew the bar that stays at the top over the content), unless that would close what the step shows open.
+  // A test with no page of its own and no call (an API-only step, or one on its own
   // browser.newContext() pages) attaches none and keeps the end pictures. A picture never fails a test.
   // It takes `context`, so it ends before the test's own context closes; its own time, apart from the test's.
   stepPicture: [
@@ -405,6 +408,8 @@ const extended = base.extend({
       const take = async (page) => {
         if (taken || !page || page.isClosed()) return;
         try {
+          // What readying did, kept on the test, so a picture read BROKEN says whether the page was left scrolled and why.
+          testInfo.annotations.push({ type: 'step picture', description: await fromTop(page) });
           const file = testInfo.outputPath('step-picture.png');
           await page.screenshot({ path: file, fullPage: true, timeout: 15_000 });
           await testInfo.attach(STEP_PICTURE, { path: file, contentType: 'image/png' });

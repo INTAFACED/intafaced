@@ -356,6 +356,7 @@
   { "path": "ops.customerBalanceEntries", "type": "query", "caller": "scope" },
   { "path": "ops.customerBalances", "type": "query", "caller": "scope" },
   { "path": "ops.customerCards", "type": "query", "caller": "scope" },
+  { "path": "ops.customerTransfers", "type": "query", "caller": "scope" },
   { "path": "ops.decideLimitRequest", "type": "mutation", "caller": "scope" },
   { "path": "ops.destinationFraudList", "type": "query", "caller": "scope" },
   { "path": "ops.directDebitMandates", "type": "query", "caller": "scope" },
