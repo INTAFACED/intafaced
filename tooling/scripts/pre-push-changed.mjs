@@ -92,7 +92,9 @@ export function plan({ changed, present, formatExts, registries, has }) {
       });
   // The test checks build with turbo and run vitest: without this worktree's install the lint ratchet refuses first.
   const tests = has('node_modules/.bin/turbo');
-  const customer = tests && under(changed, /^apps\/customer\//);
+  // Volt count, recorded calls and the render record read apps/customer/src (the render sweep also a helper beside the
+  // journeys), never a journey file: a push of journey files alone builds nothing (project-state#3912).
+  const customer = tests && under(changed, /^apps\/customer\/(?!tests\/real-app\/[^/]+\.pw\.mjs$)/);
   const ui = tests && under(changed, /^packages\/ui\//);
   const contracts = tests && under(changed, /^packages\/contracts\/src\//);
   const vitest = (id, pkg, file, fix, extra = []) => ({

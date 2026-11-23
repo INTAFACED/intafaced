@@ -30,7 +30,7 @@ import { WatchlistAlert, type BlockedReason } from './WatchlistAlert';
 import { FollowListAlert } from './FollowListAlert';
 import { useAlertQuota } from './use-quota';
 import { useTriggers } from './use-triggers';
-import { Button, EmptyState } from '@intafaced/ui/lit';
+import { Button, EmptyState, DateInput } from '@intafaced/ui/lit';
 import { LoadFailed, Loading, StateTag } from './parts';
 import {
   ALERT_CONDITIONS,
@@ -752,7 +752,7 @@ export default function AlertsPage() {
           </label>
           <label className="lt-field">
             <span>{copy.t('expiresLabel')}</span>
-            <input
+            <DateInput
               type="datetime-local"
               value={expires}
               disabled={priceFormLocked}

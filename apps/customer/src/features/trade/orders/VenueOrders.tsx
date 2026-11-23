@@ -15,6 +15,7 @@ import { venueCopy } from '../venue/venue-copy';
 import { ProductSwitch } from './FuturesOrdersRoom';
 import { venueOrdersCopy } from './venue-orders-copy';
 import './orders.css';
+import { DateInput } from '@intafaced/ui/lit';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -249,11 +250,11 @@ function VenueHistory({ path, owner, test }: { path: string; owner: string; test
         )}
         <label className="lt-field">
           <span>{t('from')}</span>
-          <input type="date" aria-label={t('from')} value={params.from} onChange={(e) => set({ from: e.target.value })} />
+          <DateInput type="date" aria-label={t('from')} value={params.from} onChange={(e) => set({ from: e.target.value })} />
         </label>
         <label className="lt-field">
           <span>{t('to')}</span>
-          <input type="date" aria-label={t('to')} value={params.to} onChange={(e) => set({ to: e.target.value })} />
+          <DateInput type="date" aria-label={t('to')} value={params.to} onChange={(e) => set({ to: e.target.value })} />
         </label>
         {select(
           t('perPage'),

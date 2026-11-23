@@ -129,6 +129,8 @@ import { createIdentityFreezeRead, createQuantStrategySource } from './quant/liv
 import { SqlLiveRunStore } from './quant/live-run/sql-store.js';
 import { VenueProtections } from './venue/protections.js';
 import { SqlEngineProtectionStore } from './venue/protection-store.js';
+import { VenueAutoTopUp } from './venue/auto-top-up.js';
+import { SqlAutoTopUpStore } from './venue/auto-top-up-store.js';
 import { VenueSpotConditionals } from './venue/spot-conditionals.js';
 import { SqlSpotConditionalStore } from './venue/spot-conditional-store.js';
 import { routingReport } from './venue/routing-report.js';
@@ -533,6 +535,18 @@ const venueSpotConditionals = userVenue
       now: () => new Date(),
     })
   : null;
+// Auto top-up of an isolated position's margin on the person's own venue account (J-derivatives-06 #4): one agent-signed
+// margin change per crossing of the person's level, within the position's cap and the permission's own cap, ticked with
+// the protections. Off with the door.
+const venueAutoTopUp = userVenue
+  ? new VenueAutoTopUp({
+      door: userVenue,
+      store: new SqlAutoTopUpStore(sql),
+      keySeed: env.TRADE_AGENT_KEY_SEED,
+      freeze: createIdentityFreezeRead(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
+      now: () => new Date(),
+    })
+  : null;
 const protectionEngineMs = /^\d+$/.test(env.TRADE_PROTECTION_ENGINE_INTERVAL_MS.trim())
   ? Number(env.TRADE_PROTECTION_ENGINE_INTERVAL_MS.trim())
   : 0;
@@ -541,7 +555,7 @@ if (venueProtections && protectionEngineMs > 0) {
   setInterval(() => {
     if (busy) return;
     busy = true;
-    Promise.all([venueProtections.tick(), venueSpotConditionals?.tick()])
+    Promise.all([venueProtections.tick(), venueSpotConditionals?.tick(), venueAutoTopUp?.tick()])
       .catch((err: unknown) =>
         process.stderr.write(`${JSON.stringify({ level: 'warn', msg: 'trade.protection_engine.tick_failed', message: String(err) })}\n`),
       )
@@ -926,6 +940,7 @@ export const appRouter = createTradeRouter(
   quantHalts,
   venueGrid,
   recurringBuys,
+  venueAutoTopUp,
   // A founder's read of one person's venue accounts and ratio history (J-derivatives-26 #8); off: the door is off.
   {
     audit: (row, at) => writeOperatorAudit(sql, row, at),

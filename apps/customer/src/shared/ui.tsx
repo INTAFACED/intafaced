@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, type ReactNode, type ButtonHTMLAttributes, type InputHTMLAttributes } from 'react';
 import { BrandIris, Panel } from '@intafaced/ui';
+import { DateOrInput } from '@intafaced/ui/lit';
 import { isServiceNotConnected, type ApiResult } from './api';
 import { uiCopy, uiMessage } from './ui-copy';
 import { refusalCopy } from '../data/refusals';
@@ -26,7 +27,7 @@ export function Field({
   return (
     <label className="lt-field" htmlFor={id}>
       <span id={`${id}-label`}>{label}</span>
-      <input
+      <DateOrInput
         {...input}
         id={id}
         aria-labelledby={input['aria-label'] ? undefined : `${id}-label`}

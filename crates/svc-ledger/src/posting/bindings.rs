@@ -9,7 +9,7 @@
 use std::cmp::Ordering;
 
 use service_kit::json::Json;
-use service_kit::money::{Amount, cmp_products, parse_amount};
+use service_kit::money::{Amount, cmp_times, parse_amount};
 
 use crate::errors::Failure;
 use crate::posting::PostError;
@@ -98,11 +98,8 @@ fn is_floor_bps(amount: Amount, paid: Amount, bps: f64) -> bool {
         reason = "a whole, non-negative rate; past i128 it saturates, far above any rate below a stored taker rate"
     )]
     let bps = bps as i128;
-    // A rate and 10^4 are plain factors, not money: they go in as raw integers so `cmp_products` forms each product
-    // exactly, in 256 bits.
-    let (bps, bps_base) = (Amount::from_scaled(bps), Amount::from_scaled(10_000));
-    cmp_products(amount, bps_base, paid, bps) != Ordering::Greater
-        && cmp_products(paid, bps, amount + Amount::UNIT, bps_base) == Ordering::Less
+    cmp_times(amount, 10_000, paid, bps) != Ordering::Greater
+        && cmp_times(paid, bps, amount + Amount::UNIT, 10_000) == Ordering::Less
 }
 
 /// `assertMakerRebateBound`: a maker rebate is paid only against the fill it rebates (SP-fees-vip-01).

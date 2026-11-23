@@ -18,6 +18,17 @@ const ctx = {
 };
 const ids = { approvalId: 'appr_1', operationId: 'op_1' };
 const ok = (data: unknown) => Response.json({ result: { data } });
+// svc-academy's whole answer for one ambassador (ACADEMY_FREEZE_AMBASSADOR's output), in the state named.
+const ambassadorRow = (status: 'frozen' | 'active') => ({
+  userId: USER,
+  status,
+  appointedBy: FOUNDER,
+  appointedAt: '2026-01-01T00:00:00.000Z',
+  frozenAt: status === 'frozen' ? '2026-01-02T00:00:00.000Z' : null,
+  frozenBy: status === 'frozen' ? FOUNDER : null,
+  freezeReason: status === 'frozen' ? 'conduct complaint under review' : null,
+  confirmOperatorId: 'x',
+});
 const err = (status: number, message: string, code?: string) =>
   Response.json(
     { error: { message, code: -32603, data: { code: 'X', httpStatus: status, ...(code ? { cause: { code } } : {}) } } },
@@ -132,7 +143,7 @@ describe('academy ambassador freeze and unfreeze', () => {
   const freeze: DeskRequest = { kind: 'academy.ambassador.freeze', userId: USER, reason: 'conduct complaint under review' };
   const unfreeze: DeskRequest = { kind: 'academy.ambassador.unfreeze', userId: USER };
   it('freeze sends the reason and ids and needs the record to say frozen', async () => {
-    const fn = vi.fn(async (_u: string, _i?: RequestInit) => ok({ userId: USER, status: 'frozen', confirmOperatorId: 'x' }));
+    const fn = vi.fn(async (_u: string, _i?: RequestInit) => ok(ambassadorRow('frozen')));
     vi.stubGlobal('fetch', fn);
     expect(await opsExecute(ctx)(freeze, ids)).toMatchObject({ ok: true });
     const [url, init] = fn.mock.calls[0]!;
@@ -140,7 +151,7 @@ describe('academy ambassador freeze and unfreeze', () => {
     expect(JSON.parse(String(init!.body))).toEqual({ userId: USER, reason: 'conduct complaint under review', ...ids });
   });
   it('unfreeze sends no reason and needs the record to say active', async () => {
-    const fn = vi.fn(async (_u: string, _i?: RequestInit) => ok({ userId: USER, status: 'active' }));
+    const fn = vi.fn(async (_u: string, _i?: RequestInit) => ok(ambassadorRow('active')));
     vi.stubGlobal('fetch', fn);
     expect(await opsExecute(ctx)(unfreeze, ids)).toMatchObject({ ok: true });
     const [url, init] = fn.mock.calls[0]!;

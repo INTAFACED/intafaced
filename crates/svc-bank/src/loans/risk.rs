@@ -13,7 +13,9 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use service_kit::money::{Amount, Rounding, mul_div, mul_rounded, parse_amount};
+use service_kit::money::{
+    Amount, Rounding, mul_div, mul_ratio, mul_rounded, parse_amount, ratio_of,
+};
 use service_kit::time::Instant;
 
 /// 100% in basis points. LTV, thresholds and penalties are all integer bps.
@@ -103,11 +105,10 @@ pub(crate) fn mul_bps(amount: Amount, bps: i64, rounding: Rounding) -> Result<Am
             "bps must be a non-negative integer, got {bps}"
         )));
     }
-    // `amount * bps / BPS`: both are counts of basis points, carried as scaled factors.
-    Ok(mul_div(
+    Ok(mul_ratio(
         amount,
-        Amount::from_scaled(i128::from(bps)),
-        Amount::from_scaled(i128::from(BPS)),
+        i128::from(bps),
+        i128::from(BPS),
         rounding,
     ))
 }
@@ -167,15 +168,12 @@ pub fn ltv_bps(debt_value: Amount, collateral_value: Amount) -> Result<i64, Risk
     if collateral_value == Amount::ZERO {
         return Ok(MAX_SAFE_INTEGER);
     }
-    // debt / collateral in basis points: a ratio of two amounts times a count, so the quotient's scaled integer is the
-    // count of basis points itself.
-    let bps = mul_div(
+    let bps = ratio_of(
         debt_value,
-        Amount::from_scaled(i128::from(BPS)),
         collateral_value,
+        i128::from(BPS),
         Rounding::Ceil,
-    )
-    .scaled();
+    );
     Ok(i64::try_from(bps)
         .unwrap_or(MAX_SAFE_INTEGER)
         .min(MAX_SAFE_INTEGER))

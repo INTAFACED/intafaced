@@ -1,6 +1,8 @@
 import type { VenueGrid } from './grid/venue-grid.js';
 import type { RecurringBuys } from './recurring/recurring-buys.js';
 import { recurringRouter } from './recurring/router.js';
+import type { VenueAutoTopUp } from './venue/auto-top-up.js';
+import { autoTopUpRouter } from './venue/auto-top-up-router.js';
 import { builderFeeAdminRouter, type BuilderFeeReconReader } from './builder-fee/builder-fee-admin.js';
 import { agentDeskAdminRouter } from './venue/agent-desk-admin.js';
 import { venueAccountAdminRouter } from './admin/venue-account-admin.js';
@@ -794,6 +796,7 @@ export function createTradeRouter(
   quantHalts?: StrategyHaltDesk | null,
   venueGrid?: VenueGrid | null,
   recurring?: RecurringBuys | null,
+  autoTopUp?: VenueAutoTopUp | null,
   venueAccounts?: VenueAccountReadDeps | null,
 ) {
   const placeAttempts = new PlaceAttemptBook();
@@ -876,6 +879,8 @@ export function createTradeRouter(
     /** `bots.grid.*`: the spot grid bot (grid/router.ts). Unmounted, every door answers `trade.grid_unavailable`.
      * `bots.recurring.*`: the recurring buy of a basket on the person's own venue account (recurring/router.ts). */
     bots: router({ grid: gridRouter(grid, venueGrid), recurring: recurringRouter(recurring) }),
+    /** `autoTopUp.*`: auto top-up of an isolated position's margin on the person's own venue account (venue/auto-top-up-router.ts). */
+    autoTopUp: autoTopUpRouter(autoTopUp),
     health: publicProcedure
       .output(z.object({ ok: z.boolean(), service: z.literal('svc-trade') }))
       .query(() => ({ ok: true, service: 'svc-trade' as const })),

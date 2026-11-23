@@ -181,7 +181,9 @@ function plan(opts) {
   const existing = [];
   for (const [path, list] of byPath) {
     if (opts.skip?.[path]) {
-      for (const s of list) hand.push({ site: s, why: `its record can't be exported as the router writes it: ${opts.skip[path]}` });
+      const skipped = opts.skip[path];
+      const why = typeof skipped === 'object' ? skipped.why : `its record can't be exported as the router writes it: ${skipped}`;
+      for (const s of list) hand.push({ site: s, why });
       continue;
     }
     const proc = procs.get(path);
@@ -310,14 +312,21 @@ function noInput(s) {
 function recordFile(opts, path, depth = 1) {
   if (opts.file && depth === 1) return join(CONTRACTS, `${opts.file.replace(/\.ts$/, '')}.ts`);
   const segs = path.split('.');
-  const seg = depth > 1 && segs.length <= depth ? `${kebab(segs[0])}-2` : segs.slice(0, depth).map(kebab).join('-');
+  // A call with no sub-area left at this depth overflows into its area's numbered file: `loans-2`, then `loans-3`.
+  const seg =
+    depth > 1 && segs.length <= depth ? `${kebab(segs[0])}-${depth - segs.length + 2}` : segs.slice(0, depth).map(kebab).join('-');
   const primary = join(CONTRACTS, `${opts.module}-${seg}-procedures.ts`);
   if (!existsSync(primary) || readFileSync(primary, 'utf8').includes(MARK)) return primary;
   return join(CONTRACTS, `${opts.module}-${seg}-records.ts`);
 }
 
-/** A record's file: its area's, or, once a helper name it needs is taken there, its own sub-area's (`fileDepth` 2). */
+/**
+ * A record's file: its area's, or, once a helper name it needs is taken there, its own sub-area's (`fileDepth` 2), and
+ * once taken there too, the next one (`fileDepth` 3): svc-bank's loans writes need a third `amountString`.
+ */
 const fileOf = (opts, r) => recordFile(opts, r.path, r.fileDepth ?? 1);
+const MAX_FILE_DEPTH = 3;
+const deeper = (r) => (r.fileDepth ?? 1) < MAX_FILE_DEPTH;
 
 /**
  * What each top-level name of a file (its text) is bound to: `{ decl: true }` for a declaration, `{ from, imported }`
@@ -424,7 +433,7 @@ function build(opts, planned) {
     // message, some without; svc-pay's registries and deposit freezes each their own `networkIdSchema`) cannot land in
     // one file. Keep the records whose helpers agree; the rest go to their own sub-area's file in this same run
     // (`founderAdmin.depositFreezes.*` to pay-founder-admin-deposit-freezes-procedures.ts), where the name is free. A
-    // record already in its sub-area's file that still clashes stays by name, named.
+    // record that still clashes goes one file deeper (`loans-3`), and past the last stays by name, named.
     // Mid-port, and for a door (its router read from the commit before its deletion), the router is never edited, so two
     // of its files declaring one helper the same way (svc-agents' `idInput` in own/routes.ts and own/automation-routes.ts)
     // give contracts one copy; elsewhere each declaration is its file's.
@@ -452,7 +461,7 @@ function build(opts, planned) {
         const trial = new Map(seen);
         const bad = clashing(c.moved, trial);
         if (bad && keep.length) {
-          if (!r.fileDepth) {
+          if (deeper(r)) {
             moved.push(r);
             continue;
           }
@@ -469,7 +478,7 @@ function build(opts, planned) {
         records: planned.records
           .filter((r) => keep.includes(r) || moved.includes(r) || fileOf(opts, r) !== file)
           .map((r) => {
-            if (moved.includes(r)) r.fileDepth = 2;
+            if (moved.includes(r)) r.fileDepth = (r.fileDepth ?? 1) + 1;
             return r;
           }),
       });
@@ -531,7 +540,7 @@ function build(opts, planned) {
         takenIn(file, textOf(file), [], [...fromContracts, ...fromHomes(shared)]));
     const fileTaken = sharedTaken && takenIn(file, textOf(file), names, [...fromContracts, ...fromHomes(file)]);
     if (fileTaken) {
-      // Neither file has the name free: the group goes to its sub-area's file, or, already there, stays by name.
+      // Neither file has the name free: the group goes one file deeper, or, past the last, stays by name.
       // Only the records that need the name move: the rest of the group stays in its file.
       for (const m of reused) movedTo.delete(keyOf(m));
       const needs = recs.filter((r) => {
@@ -542,7 +551,7 @@ function build(opts, planned) {
         return c.moved.some((m) => m.name === fileTaken) || c.fromContracts.has(fileTaken);
       });
       const offenders = needs.length ? needs : recs;
-      const stay = offenders.filter((r) => r.fileDepth);
+      const stay = offenders.filter((r) => !deeper(r));
       for (const r of stay)
         for (const site of r.sites)
           planned.hand.push({ site, why: `helper ${fileTaken} clashes with another ${fileTaken} in this record file and its sub-area's` });
@@ -551,7 +560,7 @@ function build(opts, planned) {
         records: planned.records
           .filter((r) => !stay.includes(r))
           .map((r) => {
-            if (offenders.includes(r)) r.fileDepth = 2;
+            if (offenders.includes(r) && !stay.includes(r)) r.fileDepth = (r.fileDepth ?? 1) + 1;
             return r;
           }),
       });
@@ -779,11 +788,17 @@ export function answerChecks(p, node, seen = new Set()) {
     });
   };
   // A schema built by the caller's own function (`verificationStatus(userId, limit)`) checks against what it captures:
-  // whatever its body says, its answer check is the caller's, so the call stays for that check to move to accept.
+  // whatever its body says, its answer check is the caller's, so the call stays for that check to move to accept. A
+  // builder imported from contracts (`payPageSchema(row)`) is the one the routers use, not the caller's: its arguments are
+  // read like any schema.
   let top = node;
   while (top?.type === 'TSAsExpression' || top?.type === 'TSSatisfiesExpression' || top?.type === 'ParenthesizedExpression')
     top = top.expression;
-  if (top?.type === 'CallExpression' && top.callee.type === 'Identifier')
+  if (
+    top?.type === 'CallExpression' &&
+    top.callee.type === 'Identifier' &&
+    !/^@intafaced\/contracts(\/|$)/.test(bindingOf(p, top.callee, top.callee.name).from ?? '')
+  )
     found.push(`${top.callee.name}() builds the schema (${relative(REPO, p.file)}:${p.src.slice(0, top.start).split('\n').length})`);
   visit(p, node);
   return [...new Set(found)];
@@ -1509,6 +1524,11 @@ function report(opts) {
     records: result.done.map((r) => r.name),
     existing: planned.existing.map((e) => e.name),
     rewritten: new Set([...result.done, ...planned.existing].flatMap((r) => r.sites.map((s) => s.node))).size,
+    // Each moved call's path and the files its callers are in (run.mjs leaves a path whose caller then fails the typecheck).
+    moved: [...result.done, ...planned.existing].map((r) => ({
+      path: r.path,
+      files: [...new Set(r.sites.map((s) => relative(REPO, s.file)))],
+    })),
     hand: planned.hand.map((h) => ({
       at: `${relative(REPO, h.site.file)}:${h.site.line}`,
       call: `${h.site.module ?? '?'} ${h.site.path ?? '?'}`,
