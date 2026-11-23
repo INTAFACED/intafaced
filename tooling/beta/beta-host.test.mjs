@@ -360,6 +360,10 @@ test('reserved names never reach a service, so they pass; a real host that only 
   assert.deepEqual(found, []);
 });
 
+test("the beta's Customer build shows only rooms finished in Volt; the switch is the beta's alone", () => {
+  assert.equal(stackEnv(betaPaths('/home/x'), {}).INTAFACED_BETA_VOLT_ONLY, '1');
+});
+
 test("the beta runs its TEST chain with the journeys' pinned anvil image, so the indexer starts and the protocol has a node (#10305)", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'beta-anvil-'));
   const paths = betaPaths(dir);

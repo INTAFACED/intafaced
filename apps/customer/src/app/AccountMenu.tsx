@@ -11,6 +11,7 @@ import { LanguageMenu } from '../shared/LanguageMenu';
 import { savePreferences, useResolvedTheme, usePreferences } from '../shared/preferences';
 import { useResource } from '../shared/resource';
 import { accountMenuCopy } from './account-menu-copy';
+import { isHiddenPath } from './feature-registry';
 import { navigate } from './location';
 import { shellCopy } from './shell-copy';
 import { proCopy } from '../screens/home/pro-copy';
@@ -110,7 +111,7 @@ function Profiles({ close }: { close: () => void }) {
           {t('businessGone')}
         </li>
       ) : null}
-      {profiles.status === 'ready' && profiles.businesses.length === 0 ? (
+      {profiles.status === 'ready' && profiles.businesses.length === 0 && !isHiddenPath('/pay/onboarding') ? (
         <li>
           <a className="tb-account-item" href="/pay/onboarding" onClick={close} data-testid="open-business">
             {t('openBusiness')}
@@ -154,14 +155,15 @@ export function AccountMenuBody({ close, onSignOut }: { close: () => void; onSig
   const { theme } = usePreferences();
   const status = useAccountViewStatus();
   const id = useId();
-  const row = (href: string, label: string, value?: string) => (
-    <li>
-      <a className="tb-account-item" href={href} onClick={close}>
-        {label}
-        {value ? <span className="tb-account-value">{value}</span> : null}
-      </a>
-    </li>
-  );
+  const row = (href: string, label: string, value?: string) =>
+    isHiddenPath(href) ? null : (
+      <li>
+        <a className="tb-account-item" href={href} onClick={close}>
+          {label}
+          {value ? <span className="tb-account-value">{value}</span> : null}
+        </a>
+      </li>
+    );
   const drawn = useResolvedTheme(theme);
   return (
     <ul aria-labelledby={id}>
