@@ -3,7 +3,7 @@
 // volt-room: /quant/optimise
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
-import { ChevronDown, ChevronRight, Circle, CircleDot } from 'lucide-react';
+import { ChevronDown, ChevronRight, CircleDot } from 'lucide-react';
 import { Button, Tag } from '@intafaced/ui/lit';
 import { DeskTemplate } from '@intafaced/ui/lit/templates';
 import { preservePaperHref } from '../more';
@@ -93,7 +93,7 @@ function PreviewShell({
     <div data-testid="quant-preview" data-room={room}>
       <DeskTemplate
         title={t(TITLE[room])}
-        description={t('label')}
+        description={t('sampleNote')}
         mode="pro"
         state={{ kind: 'ready' }}
         section={<QuantRooms paper={paper} />}
@@ -104,7 +104,6 @@ function PreviewShell({
                 <strong>{t('label')}</strong>
               </Tag>
             </p>
-            <p className="lt-hint">{t('sampleNote')}</p>
             <PreviewRefusalAlert refusal={refusal} />
           </div>
         }
@@ -225,7 +224,8 @@ export function EditorRoom({ paper }: { paper: boolean }) {
                       {state.breakpoints.includes(line) ? (
                         <CircleDot size={16} aria-hidden="true" />
                       ) : (
-                        <Circle size={16} aria-hidden="true" />
+                        // An unset gutter shows its line number.
+                        <span aria-hidden="true">{line}</span>
                       )}
                     </Button>
                     {opens && (
