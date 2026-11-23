@@ -17,6 +17,7 @@ import { useResource } from '../../shared/resource';
 import { useVenueApi } from '../../features/trade/venue/VenueKit';
 import type { VenueStakingAccount, VenueVaultHoldings } from '../../features/trade/venue-api';
 import { formatAmount, parseAmount } from '../../shared/money';
+import { isTestBuild } from '../../shared/test-build';
 import { readWallet, venueRows, type NodeRead, type VenueRow, type WalletRead, type WalletToken } from './where-it-sits';
 import { standing, type PartRead } from './standing';
 
@@ -186,7 +187,9 @@ export function useStanding(
   const { prices, failed } = useValuationPrices();
   const result = standing(
     [
-      { id: 'wallet', label: names.network, read: walletPart(wallet) },
+      // On a test build the wallet's chain and the partner are the stack's TEST adapters (J-home-ia-11 #3): their figures are
+      // TEST figures, as every amount on a test build is. The venue says so itself.
+      { id: 'wallet', label: names.network, read: walletPart(wallet), test: isTestBuild() },
       { id: 'venue', label: names.venue, read: venuePart(venue), test: names.venueTest },
       ...(partner.state === 'none'
         ? []
@@ -194,6 +197,7 @@ export function useStanding(
             {
               id: 'partner' as const,
               label: partner.state === 'read' ? partner.label : '',
+              test: isTestBuild(),
               read: partner.state === 'read' ? { state: 'read' as const, asOf: partner.asOf, rows: partner.rows } : partner,
             },
           ]),
