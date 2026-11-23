@@ -2,10 +2,11 @@ import type { SettingsBTools } from '../b-client';
 import { tolerantPage } from '../b-shared';
 import { pagedResult } from '../../ui/page';
 import * as s from './schemas';
+import { PAY_MERCHANT_OPS_EXPORTS_DOWNLOAD } from '@intafaced/contracts/pay-merchant-ops-procedures';
 
 export type ExportFilter = { kind?: string; status?: string; from?: string; to?: string; search?: string };
 
-export const reportsApi = ({ query, mutate }: SettingsBTools) => ({
+export const reportsApi = ({ query, mutate, queryRecord }: SettingsBTools) => ({
   reportJobs: async (cursor: string | undefined, f: ExportFilter, signal?: AbortSignal) =>
     pagedResult(
       await query(
@@ -29,7 +30,7 @@ export const reportsApi = ({ query, mutate }: SettingsBTools) => ({
     filters: { from?: string; to?: string; status?: string; assetId?: string };
     columns?: string[];
   }) => mutate('merchantOps.exports.create', input, s.exportJobSchema),
-  reportDownload: (jobId: string) => query('merchantOps.exports.download', { jobId }, s.exportDownloadSchema),
+  reportDownload: (jobId: string) => queryRecord(PAY_MERCHANT_OPS_EXPORTS_DOWNLOAD, { jobId }),
   reportDelete: (jobId: string) => mutate('merchantOps.exports.expire', { jobId }, s.exportJobSchema),
   /** Names for "requested by": the team list gives a label per person. */
   reportPeople: async (signal?: AbortSignal) =>

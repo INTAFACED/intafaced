@@ -1,18 +1,12 @@
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import { payPageSchema } from '@intafaced/contracts/pay-merchant-reads';
-import {
-  PAY_EXPORT_KINDS,
-  payActivityItemSchema,
-  payExportDownloadSchema,
-  payExportJobSchema,
-  payPayoutListItemSchema,
-} from '@intafaced/contracts/pay-portal-reads';
+import { PAY_EXPORT_KINDS, payExportJobSchema, payPayoutListItemSchema } from '@intafaced/contracts/pay-portal-reads';
 import { router, TRPCError } from '@intafaced/contracts/trpc';
 import { defaultDisputeCaseStore, type DisputeCaseStore } from '../fraud/dispute-case.js';
 import type { FounderAuthority } from '../founder-authority.js';
 import { founderProcedure } from '../namespaces/founder-procedure.js';
-import { ACTIVITY_OBJECT_TYPES, ActivityFeed } from './activity.js';
+import { ActivityFeed } from './activity.js';
 import { CustomerDirectory } from './customers.js';
 import { DisputeOpsService, EVIDENCE_KINDS } from './disputes.js';
 import { EVIDENCE_UPLOAD_OFF, type DisputeEvidenceGate } from './dispute-evidence-policy.js';
@@ -55,7 +49,19 @@ import {
 } from '@intafaced/contracts/pay-founder-admin-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { payRefusal } from '../record-refusal.js';
-import { PAY_MERCHANT_OPS_CUSTOMERS_SERIES, PAY_MERCHANT_OPS_ACTIVATION_GET } from '@intafaced/contracts/pay-merchant-ops-procedures';
+import {
+  PAY_MERCHANT_OPS_CUSTOMERS_SERIES,
+  PAY_MERCHANT_OPS_ACTIVATION_GET,
+  iso,
+  PAY_MERCHANT_OPS_ACTIVITY_LIST,
+  PAY_MERCHANT_OPS_TEAM_LIST,
+  PAY_MERCHANT_OPS_KYB_HISTORY,
+  PAY_MERCHANT_OPS_TEAM_HISTORY,
+  PAY_MERCHANT_OPS_EXPORTS_LIST,
+  PAY_MERCHANT_OPS_EXPORTS_DOWNLOAD,
+  PAY_MERCHANT_OPS_NOTIFICATIONS_LIST,
+  PAY_MERCHANT_OPS_NOTIFICATIONS_PREFERENCES_HISTORY,
+} from '@intafaced/contracts/pay-merchant-ops-procedures';
 
 /**
  * `merchantOps.*`   - the merchant's own operations pages (W15). Scoped to the
@@ -105,7 +111,6 @@ export interface MerchantOpsDeps {
   readonly receiptPlaces?: ReceiptAssetPlaces;
 }
 
-const iso = z.string().datetime({ offset: true });
 const assetIdIn = z.string().trim().min(1).max(32);
 const note = z.string().trim().min(1).max(2000);
 
@@ -350,20 +355,16 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
       }),
 
       team: router({
-        list: read
-          .input(
-            z.object({
-              limit: limitInput,
-              cursor: cursorInput,
-              status: z.enum(['active', 'invited', 'removed']).optional(),
-              role: z.enum(['owner', 'admin', 'finance', 'developer', 'viewer']).optional(),
-              search: z.string().trim().min(1).max(200).optional(),
-            }),
-          )
-          .query(({ ctx, input }) => wrapOps(async () => need().team.list(await callerOf(ctx), input))),
-        history: read
-          .input(z.object({ limit: limitInput, cursor: cursorInput }))
-          .query(({ ctx, input }) => wrapOps(async () => need().team.history(await callerOf(ctx), input))),
+        list: mountRecord(
+          PAY_MERCHANT_OPS_TEAM_LIST,
+          ({ ctx, input }) => wrapOps(async () => need().team.list(await callerOf(ctx), input)),
+          payRefusal,
+        ),
+        history: mountRecord(
+          PAY_MERCHANT_OPS_TEAM_HISTORY,
+          ({ ctx, input }) => wrapOps(async () => need().team.history(await callerOf(ctx), input)),
+          payRefusal,
+        ),
         /** Which role the caller holds, so the portal can hide what they cannot do. */
         me: read.input(z.object({}).strict()).query(({ ctx }) =>
           wrapOps(async () => {
@@ -436,9 +437,11 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
         current: onboardOrRead
           .input(z.object({}).strict())
           .query(({ ctx }) => wrapOps(async () => need().kyb.current(await callerOf(ctx)))),
-        history: onboardOrRead
-          .input(z.object({ limit: limitInput, cursor: cursorInput }))
-          .query(({ ctx, input }) => wrapOps(async () => need().kyb.history(await callerOf(ctx), input))),
+        history: mountRecord(
+          PAY_MERCHANT_OPS_KYB_HISTORY,
+          ({ ctx, input }) => wrapOps(async () => need().kyb.history(await callerOf(ctx), input)),
+          payRefusal,
+        ),
       }),
 
       /**
@@ -499,47 +502,30 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
           ),
         /** M-rep-01: per kind, the date basis and the columns this caller's role may pick; formats offered. */
         options: read.input(z.object({}).strict()).query(({ ctx }) => wrapOps(async () => reportOptions(await callerOf(ctx)))),
-        list: read
-          .input(
-            z.object({
-              limit: limitInput,
-              cursor: cursorInput,
-              kind: z.enum(PAY_EXPORT_KINDS).optional(),
-              status: z.enum(['queued', 'running', 'ready', 'failed', 'expired']).optional(),
-              search: z.string().trim().min(1).max(200).optional(),
-              from: iso.optional(),
-              to: iso.optional(),
-            }),
-          )
-          .query(({ ctx, input }) => wrapOps(async () => need().exports.list(await callerOf(ctx), input))),
+        list: mountRecord(
+          PAY_MERCHANT_OPS_EXPORTS_LIST,
+          ({ ctx, input }) => wrapOps(async () => need().exports.list(await callerOf(ctx), input)),
+          payRefusal,
+        ),
         expire: memberWrite
           .input(z.object({ jobId: id }))
           .mutation(({ ctx, input }) => wrapOps(async () => need().exports.expire(await callerOf(ctx), input.jobId))),
         get: read
           .input(z.object({ jobId: id }))
           .query(({ ctx, input }) => wrapOps(async () => need().exports.get(await callerOf(ctx), input.jobId))),
-        download: read
-          .input(z.object({ jobId: id }))
-          .output(payExportDownloadSchema)
-          .query(({ ctx, input }) => wrapOps(async () => need().exports.download(await callerOf(ctx), input.jobId))),
+        download: mountRecord(
+          PAY_MERCHANT_OPS_EXPORTS_DOWNLOAD,
+          ({ ctx, input }) => wrapOps(async () => need().exports.download(await callerOf(ctx), input.jobId)),
+          payRefusal,
+        ),
       }),
 
       activity: router({
-        list: read
-          .input(
-            z.object({
-              limit: limitInput,
-              cursor: cursorInput,
-              objectType: z.enum(ACTIVITY_OBJECT_TYPES).optional(),
-              action: z.string().trim().min(1).max(64).optional(),
-              actorId: z.string().trim().min(1).max(128).optional(),
-              from: iso.optional(),
-              to: iso.optional(),
-              search: z.string().trim().min(1).max(200).optional(),
-            }),
-          )
-          .output(payPageSchema(payActivityItemSchema))
-          .query(({ ctx, input }) => wrapOps(async () => need().activity.list(await callerOf(ctx), input))),
+        list: mountRecord(
+          PAY_MERCHANT_OPS_ACTIVITY_LIST,
+          ({ ctx, input }) => wrapOps(async () => need().activity.list(await callerOf(ctx), input)),
+          payRefusal,
+        ),
       }),
 
       payouts: router({
@@ -622,16 +608,11 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
       }),
 
       notifications: router({
-        list: read
-          .input(
-            z.object({
-              limit: limitInput,
-              cursor: cursorInput,
-              unreadOnly: z.boolean().optional(),
-              kind: z.enum(NOTIFICATION_KINDS).optional(),
-            }),
-          )
-          .query(({ ctx, input }) => wrapOps(async () => need().notifications.list(await callerOf(ctx), input))),
+        list: mountRecord(
+          PAY_MERCHANT_OPS_NOTIFICATIONS_LIST,
+          ({ ctx, input }) => wrapOps(async () => need().notifications.list(await callerOf(ctx), input)),
+          payRefusal,
+        ),
         unreadCount: read
           .input(z.object({}).strict())
           .query(({ ctx }) => wrapOps(async () => need().notifications.unreadCount(await callerOf(ctx)))),
@@ -645,9 +626,11 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
           list: read
             .input(z.object({}).strict())
             .query(({ ctx }) => wrapOps(async () => need().notifications.preferences(await callerOf(ctx)))),
-          history: read
-            .input(z.object({ limit: limitInput, cursor: cursorInput }))
-            .query(({ ctx, input }) => wrapOps(async () => need().notifications.preferenceHistory(await callerOf(ctx), input))),
+          history: mountRecord(
+            PAY_MERCHANT_OPS_NOTIFICATIONS_PREFERENCES_HISTORY,
+            ({ ctx, input }) => wrapOps(async () => need().notifications.preferenceHistory(await callerOf(ctx), input)),
+            payRefusal,
+          ),
           set: ownPreference
             .input(
               z.object({

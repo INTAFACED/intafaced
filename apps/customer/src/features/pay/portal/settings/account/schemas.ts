@@ -104,7 +104,7 @@ export const termsAcceptedSchema = z.object({ merchantId: z.string(), version: z
 // ---- activity ----------------------------------------------------------------------------------------------
 export const ACTIVITY_TYPES = ['payment', 'team', 'kyb', 'dispute', 'export', 'approval', 'webhook'] as const;
 export type ActivityType = (typeof ACTIVITY_TYPES)[number];
-export const activityItemSchema = z.object({
+const activityItemSchema = z.object({
   id: z.string(),
   occurredAt: timestamp,
   actorId: z.string(),

@@ -11,13 +11,13 @@ import { subscriptionSchema, mandateSchema, executionSchema, listed } from '../.
 import * as pay from './schemas';
 import { PAGE_SIZE, type PortalTools } from '../api-tools';
 import { PAY_PAYMENT_VIEWS_LIST, PAY_PAYMENT_HISTORY } from '@intafaced/contracts/pay-payment-procedures';
-import { PAY_MERCHANT_OPS_CUSTOMERS_SERIES } from '@intafaced/contracts/pay-merchant-ops-procedures';
+import { PAY_MERCHANT_OPS_CUSTOMERS_SERIES, PAY_MERCHANT_OPS_ACTIVITY_LIST } from '@intafaced/contracts/pay-merchant-ops-procedures';
 import { PAY_SUBSCRIPTION_PRODUCT_READY, PAY_SUBSCRIPTION_CYCLES } from '@intafaced/contracts/pay-subscription-procedures';
 import { PAY_MERCHANT_LIST_LINKS } from '@intafaced/contracts/pay-merchant-procedures';
 
 const REFUND_PAGES = 5;
 
-export const paymentsApi = ({ query, mutate, list, queryRecord }: PortalTools) => ({
+export const paymentsApi = ({ query, mutate, list, queryRecord, listRecord }: PortalTools) => ({
   subscriptions: (merchantId: string, limit: number, signal?: AbortSignal) =>
     query(
       'subscription.list',
@@ -161,7 +161,7 @@ export const paymentsApi = ({ query, mutate, list, queryRecord }: PortalTools) =
     return { ok: true as const, data: { rows, complete: false } };
   },
   paymentActivity: (paymentId: string, signal?: AbortSignal) =>
-    list('merchantOps.activity.list', pay.activityItemSchema, { objectType: 'payment', search: paymentId, limit: 100 }, signal),
+    queryRecord(PAY_MERCHANT_OPS_ACTIVITY_LIST, { objectType: 'payment', search: paymentId, limit: 100 }, signal),
   checkoutSettings: (merchantId: string, signal?: AbortSignal) =>
     query('merchant.checkoutSettings.get', { merchantId }, pay.checkoutSettingsSchema, signal),
   ownTier: (merchantId: string, signal?: AbortSignal) => query('merchantControl.tiers.list', { merchantId }, pay.ownTierSchema, signal),

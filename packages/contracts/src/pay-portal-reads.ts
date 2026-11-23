@@ -161,7 +161,7 @@ export type PayExportDownload = z.infer<typeof payExportDownloadSchema>;
 /** One row of the merchant's activity feed, as `merchantOps.activity.list` answers it. Details are an allowlist of short labels and amounts. */
 export const payActivityItemSchema = z.object({
   id: z.string(),
-  occurredAt: z.string(),
+  occurredAt: payTimestampSchema,
   actorId: z.string(),
   action: z.string(),
   objectType: z.string(),

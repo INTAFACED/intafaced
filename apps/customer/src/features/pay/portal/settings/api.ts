@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { ProcedureInput } from '@intafaced/contracts/procedure';
 import * as p from '../schemas';
 import { type PortalTools } from '../api-tools';
 import type { DestinationProof } from '../access/destination-step-up';
@@ -11,9 +12,19 @@ import {
   PAY_MERCHANT_SAVE_ONBOARDING_DRAFT,
   PAY_MERCHANT_SUBMIT_KYB,
 } from '@intafaced/contracts/pay-merchant-procedures';
-import { PAY_MERCHANT_OPS_ACTIVATION_GET } from '@intafaced/contracts/pay-merchant-ops-procedures';
+import {
+  PAY_MERCHANT_OPS_ACTIVATION_GET,
+  PAY_MERCHANT_OPS_TEAM_LIST,
+  PAY_MERCHANT_OPS_KYB_HISTORY,
+  PAY_MERCHANT_OPS_TEAM_HISTORY,
+  PAY_MERCHANT_OPS_EXPORTS_LIST,
+  PAY_MERCHANT_OPS_EXPORTS_DOWNLOAD,
+  PAY_MERCHANT_OPS_NOTIFICATIONS_LIST,
+  PAY_MERCHANT_OPS_NOTIFICATIONS_PREFERENCES_HISTORY,
+} from '@intafaced/contracts/pay-merchant-ops-procedures';
 
-const baseSettingsApi = ({ query, mutate, list, confirmDestinationStepUp, queryRecord, mutateRecord }: PortalTools) => ({
+/** A filter is the page's text, sent as before: the service checks it against its own list and refuses any other. */
+const baseSettingsApi = ({ query, mutate, confirmDestinationStepUp, queryRecord, mutateRecord, listRecord }: PortalTools) => ({
   /** The names are the merchant's own, stored on the account the service derives from the session (never from this call). */
   createMerchant: (feeBps: number, businessDetails: Record<string, string>, names: { legalName: string; displayName?: string }) =>
     mutate(
@@ -40,11 +51,18 @@ const baseSettingsApi = ({ query, mutate, list, confirmDestinationStepUp, queryR
   kybCurrent: (signal?: AbortSignal) => query('merchantOps.kyb.current', {}, p.kybCurrentSchema, signal),
   activation: (signal?: AbortSignal) => queryRecord(PAY_MERCHANT_OPS_ACTIVATION_GET, {}, signal),
   kybHistory: (cursor: string | undefined, signal?: AbortSignal) =>
-    list('merchantOps.kyb.history', p.kybEventSchema, { ...(cursor ? { cursor } : {}) }, signal),
+    listRecord(PAY_MERCHANT_OPS_KYB_HISTORY, { ...(cursor ? { cursor } : {}) }, signal),
   teamList: (cursor: string | undefined, status: string, signal?: AbortSignal) =>
-    list('merchantOps.team.list', p.memberSchema, { ...(cursor ? { cursor } : {}), ...(status ? { status } : {}) }, signal),
+    listRecord(
+      PAY_MERCHANT_OPS_TEAM_LIST,
+      {
+        ...(cursor ? { cursor } : {}),
+        ...(status ? { status: status as ProcedureInput<typeof PAY_MERCHANT_OPS_TEAM_LIST>['status'] } : {}),
+      },
+      signal,
+    ),
   teamHistory: (cursor: string | undefined, signal?: AbortSignal) =>
-    list('merchantOps.team.history', p.teamEventSchema, { ...(cursor ? { cursor } : {}) }, signal),
+    listRecord(PAY_MERCHANT_OPS_TEAM_HISTORY, { ...(cursor ? { cursor } : {}) }, signal),
   myInvitations: (signal?: AbortSignal) => query('merchantOps.team.myInvitations', {}, p.invitationSchema, signal),
   invite: (input: { userId?: string; email?: string; role: p.TeamRole; label?: string }) =>
     mutate('merchantOps.team.invite', input, p.memberSchema),
@@ -54,10 +72,13 @@ const baseSettingsApi = ({ query, mutate, list, confirmDestinationStepUp, queryR
   permissionCatalogue: (signal?: AbortSignal) => query('merchantOps.permissions.catalogue', {}, p.permissionCatalogueSchema, signal),
   declineInvite: (memberId: string) => mutate('merchantOps.team.declineInvite', { memberId }, z.object({ declined: z.literal(true) })),
   exportsList: (cursor: string | undefined, kind: string, status: string, signal?: AbortSignal) =>
-    list(
-      'merchantOps.exports.list',
-      p.exportJobSchema,
-      { ...(cursor ? { cursor } : {}), ...(kind ? { kind } : {}), ...(status ? { status } : {}) },
+    listRecord(
+      PAY_MERCHANT_OPS_EXPORTS_LIST,
+      {
+        ...(cursor ? { cursor } : {}),
+        ...(kind ? { kind: kind as ProcedureInput<typeof PAY_MERCHANT_OPS_EXPORTS_LIST>['kind'] } : {}),
+        ...(status ? { status: status as ProcedureInput<typeof PAY_MERCHANT_OPS_EXPORTS_LIST>['status'] } : {}),
+      },
       signal,
     ),
   createExport: (input: {
@@ -65,12 +86,15 @@ const baseSettingsApi = ({ query, mutate, list, confirmDestinationStepUp, queryR
     kind: p.ExportKind;
     filters: { from?: string; to?: string; status?: string; assetId?: string };
   }) => mutate('merchantOps.exports.create', input, p.exportJobSchema),
-  exportDownload: (jobId: string) => query('merchantOps.exports.download', { jobId }, p.exportDownloadSchema),
+  exportDownload: (jobId: string) => queryRecord(PAY_MERCHANT_OPS_EXPORTS_DOWNLOAD, { jobId }),
   notifications: (cursor: string | undefined, unreadOnly: boolean, kind: string, signal?: AbortSignal) =>
-    list(
-      'merchantOps.notifications.list',
-      p.notificationSchema,
-      { ...(cursor ? { cursor } : {}), ...(unreadOnly ? { unreadOnly } : {}), ...(kind ? { kind } : {}) },
+    listRecord(
+      PAY_MERCHANT_OPS_NOTIFICATIONS_LIST,
+      {
+        ...(cursor ? { cursor } : {}),
+        ...(unreadOnly ? { unreadOnly } : {}),
+        ...(kind ? { kind: kind as ProcedureInput<typeof PAY_MERCHANT_OPS_NOTIFICATIONS_LIST>['kind'] } : {}),
+      },
       signal,
     ),
   unreadCount: (signal?: AbortSignal) => query('merchantOps.notifications.unreadCount', {}, p.unreadSchema, signal),
@@ -78,7 +102,7 @@ const baseSettingsApi = ({ query, mutate, list, confirmDestinationStepUp, queryR
   markAllRead: () => mutate('merchantOps.notifications.markAllRead', {}, p.markedSchema),
   preferences: (signal?: AbortSignal) => query('merchantOps.notifications.preferences.list', {}, z.array(p.preferenceSchema), signal),
   preferenceHistory: (cursor: string | undefined, signal?: AbortSignal) =>
-    list('merchantOps.notifications.preferences.history', p.preferenceChangeSchema, { ...(cursor ? { cursor } : {}) }, signal),
+    listRecord(PAY_MERCHANT_OPS_NOTIFICATIONS_PREFERENCES_HISTORY, { ...(cursor ? { cursor } : {}) }, signal),
   setPreference: (input: { kind: p.NotificationKind; inApp: boolean; threshold?: string | null }) =>
     mutate('merchantOps.notifications.preferences.set', input, p.preferenceSchema),
 });

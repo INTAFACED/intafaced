@@ -76,7 +76,7 @@ export const paymentRefundRowSchema = z.object({
 export type PaymentRefundRow = z.infer<typeof paymentRefundRowSchema>;
 
 /** `merchantOps.activity.list` on main (#4826). Details are an allowlist of short labels and amounts. */
-export const activityItemSchema = z.object({
+const activityItemSchema = z.object({
   id: z.string(),
   occurredAt: timestamp,
   actorId: z.string(),
