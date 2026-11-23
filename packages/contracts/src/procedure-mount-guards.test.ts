@@ -4,7 +4,16 @@ import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from './index.js';
 import { defineProcedure, NO_INPUT, type Access } from './procedure.js';
 import { mountRecords, type ServiceParts } from './procedure-mount.js';
-import { personProcedure, router, scopedProcedure, TRPCError, type GuardOptions, type ServiceCheck } from './trpc.js';
+import {
+  anyScopeProcedure,
+  personProcedure,
+  protectedProcedure,
+  router,
+  scopedProcedure,
+  TRPCError,
+  type GuardOptions,
+  type ServiceCheck,
+} from './trpc.js';
 
 /**
  * A guard a service wrote by hand, and the record the call-records codemod copies it onto, refuse exactly the same
@@ -51,8 +60,8 @@ const output = z.object({ ok: z.literal(true) });
 
 /** The record for `access`, mounted as `guarded`, and the hand guard's procedure at the same path. */
 function both(
-  access: Access & { caller: 'scope' | 'person' },
-  hand: ReturnType<typeof scopedProcedure> | ReturnType<typeof personProcedure>,
+  access: Access & { caller: 'scope' | 'person' | 'anyScope' | 'signedIn' },
+  hand: ReturnType<typeof scopedProcedure> | ReturnType<typeof personProcedure> | typeof protectedProcedure,
   parts: ServiceParts = () => undefined,
 ) {
   const RECORD = defineProcedure({
@@ -240,6 +249,59 @@ describe('a guard copied onto its record refuses as the hand guard did', () => {
     expect(await verdict(fromRecord, { scopes: ['p2p:read'], kid: KEY })).toEqual({ refused: 'FORBIDDEN', message });
     standing = true;
     expect(await verdict(fromRecord, { scopes: ['p2p:read'], kid: KEY })).toEqual({ ok: true });
+  });
+
+  it("svc-pay's team-member write (anyScopeProcedure and a check): a session on pay:onboard alone is refused unless it is a member, through the record", async () => {
+    // The service reads membership live (an active member of a verified business that is not shut); here, `member` says.
+    let member = true;
+    const refused = { refused: 'FORBIDDEN', message: 'Scope "pay:write" is required' };
+    const teamMember: ServiceCheck = ({ principal }) => {
+      if (!principal.scopes.includes('pay:write') && !member) throw new TRPCError({ code: 'FORBIDDEN', message: refused.message });
+    };
+    // svc-pay team-member-write.ts before the record could say it: the same check in a `.use()` after the scopes.
+    const hand = anyScopeProcedure(['pay:write', 'pay:onboard'], { module: 'pay' }).use(async ({ ctx, next }) => {
+      await teamMember(ctx);
+      return next();
+    });
+    const { fromRecord, byHand } = both(
+      { caller: 'anyScope', scopes: ['pay:write', 'pay:onboard'], module: 'pay', check: 'teamMember' },
+      hand,
+      { refusalOf: () => undefined, checks: { teamMember } },
+    );
+    const callers: Caller[] = [
+      { scopes: ['pay:write'] },
+      { scopes: ['pay:onboard'] },
+      { scopes: ['pay:read'] },
+      { scopes: ['pay:onboard'], region: 'KP' },
+    ];
+    for (const m of [true, false]) {
+      member = m;
+      for (const c of callers) expect(await verdict(fromRecord, c), `${m} ${JSON.stringify(c)}`).toEqual(await verdict(byHand, c));
+    }
+    member = false;
+    expect(await verdict(fromRecord, { scopes: ['pay:onboard'] })).toEqual(refused);
+    expect(await verdict(fromRecord, { scopes: ['pay:write'] })).toEqual({ ok: true });
+    member = true;
+    expect(await verdict(fromRecord, { scopes: ['pay:onboard'] })).toEqual({ ok: true });
+  });
+
+  it("svc-pay's membership exit (signedInProcedure and a check): no pay scope is refused by the service's own check, through the record", async () => {
+    const message = 'Scope "pay:write" is required';
+    const membershipExit: ServiceCheck = ({ principal }) => {
+      if (!principal.scopes.some((s) => s === 'pay:write' || s === 'pay:onboard')) throw new TRPCError({ code: 'FORBIDDEN', message });
+    };
+    const hand = protectedProcedure.use(async ({ ctx, next }) => {
+      await membershipExit(ctx);
+      return next();
+    });
+    const { fromRecord, byHand } = both({ caller: 'signedIn', check: 'membershipExit' }, hand, {
+      refusalOf: () => undefined,
+      checks: { membershipExit },
+    });
+    for (const c of [{ scopes: ['pay:onboard'] }, { scopes: ['pay:read'] }] satisfies Caller[])
+      expect(await verdict(fromRecord, c), JSON.stringify(c)).toEqual(await verdict(byHand, c));
+    expect(await verdict(fromRecord, { scopes: ['pay:read'] })).toEqual({ refused: 'FORBIDDEN', message });
+    expect(await verdict(fromRecord, { scopes: ['pay:onboard'] })).toEqual({ ok: true });
   });
 
   it('a record naming a check its service did not hand over fails at mount, not at the first call', () => {

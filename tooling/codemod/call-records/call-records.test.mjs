@@ -1353,6 +1353,80 @@ test("a guard behind the service's own function or const options is copied whole
   assert.equal(reasonOf(access.audited), 'guard chained with .use()');
 });
 
+test("an anyScope or signedIn guard handed the service's own check as its option names it; the mount is handed it by name, and the old .use() shape stays", async () => {
+  const { procedures, chainOf } = await import('./router.mjs');
+  const { partsFor } = await import('./guard-check.mjs');
+  const { reasonOf } = await import('./report.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-option-check-'));
+  const { mkdirSync } = await import('node:fs');
+  mkdirSync(join(dir, 'src'));
+  writeFileSync(
+    join(dir, 'src/guards.ts'),
+    [
+      "export const PAY_OR_ONBOARD = ['pay:write', 'pay:onboard'] as const;",
+      'export function teamMemberCheck(sql) { return async (ctx) => {}; }',
+      'export const membershipExit = (ctx) => {};',
+      '',
+    ].join('\n'),
+  );
+  writeFileSync(
+    join(dir, 'src/router.ts'),
+    [
+      "import { anyScopeProcedure, signedInProcedure, router } from '@intafaced/contracts/trpc';",
+      "import { membershipExit, PAY_OR_ONBOARD, teamMemberCheck } from './guards.js';",
+      'export function createSvcRouter(sql) {',
+      '  const teamMember = teamMemberCheck(sql);',
+      "  const write = anyScopeProcedure(PAY_OR_ONBOARD, { module: 'pay', check: teamMember });",
+      '  const exit = signedInProcedure({ check: membershipExit });',
+      // svc-pay's guard before: the check and its database reads in a .use() of many statements.
+      "  const old = anyScopeProcedure(PAY_OR_ONBOARD, { module: 'pay' }).use(async ({ ctx, next }) => { const db = await sql(); if (!db) throw new Error('x'); return next(); });",
+      '  const shadowed = (teamMember) => router({ inner: write.output(o).mutation(h) });',
+      '  return router({',
+      '    save: write.output(o).mutation(h),',
+      '    decline: exit.output(o).mutation(h),',
+      '    old: old.output(o).mutation(h),',
+      '    nested: shadowed(1),',
+      '  });',
+      '}',
+      '',
+    ].join('\n'),
+  );
+  const { procedures: found } = procedures(dir);
+  const chains = new Map([...found].map(([path, proc]) => [path, chainOf(proc)]));
+  const access = Object.fromEntries([...chains].map(([path, c]) => [path, c.problems.length ? c.problems.join('; ') : c.guard.text]));
+  assert.deepEqual(access, {
+    save: "{ caller: 'anyScope', scopes: ['pay:write', 'pay:onboard'], module: 'pay', check: 'teamMember' }",
+    decline: "{ caller: 'signedIn', check: 'membershipExit' }",
+    old: 'guard use() chained: not one a record names',
+    // Where the record would mount, \`teamMember\` is another function's parameter: the mount would hand it something else.
+    'nested.inner': 'guard check teamMember means something else where the record mounts',
+  });
+  assert.equal(reasonOf(access.old), 'guard chained with .use()');
+  assert.equal(reasonOf(access['nested.inner']), 'guard a record cannot name');
+  // The mount is handed each check by name beside the router file's refusal reader: a local as it stands, an import added.
+  const file = join(dir, 'src/router.ts');
+  const reader = { name: 'payRefusal', file: join(dir, 'src/refusal.ts'), exported: true };
+  assert.deepEqual(
+    partsFor([], file, chains.get('save').guard, () => reader),
+    {
+      name: '{ refusalOf: payRefusal, checks: { teamMember } }',
+      file,
+      imports: [{ file: reader.file, name: 'payRefusal' }],
+    },
+  );
+  assert.deepEqual(
+    partsFor([], file, chains.get('decline').guard, () => reader),
+    {
+      name: '{ refusalOf: payRefusal, checks: { membershipExit } }',
+      file,
+      imports: [
+        { file: reader.file, name: 'payRefusal' },
+        { file: join(dir, 'src/guards.ts'), name: 'membershipExit' },
+      ],
+    },
+  );
+});
+
 test("a guard whose one check runs inside the service's own error mapper names its check; the mount is handed it without next(), and a near shape stays", async () => {
   const { procedures, chainOf } = await import('./router.mjs');
   const { partsFor } = await import('./guard-check.mjs');
