@@ -233,7 +233,7 @@ test(`${J} #5 History filters by coin and status and pages past 200; an empty re
   const ids = await rows.evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-withdrawal-id')));
   expect(ids).toHaveLength(205);
   expect(new Set(ids).size).toBe(205);
-  expect(new Set(await rows.locator('[data-withdrawal-status]').allTextContents())).toEqual(new Set(['Requested']));
+  await expect.poll(async () => new Set(await rows.locator('[data-withdrawal-status]').allTextContents())).toEqual(new Set(['Requested']));
 
   // A coin and status nothing matches: an honest empty state, not a made-up row.
   await coin.selectOption('USDC');

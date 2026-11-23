@@ -26,6 +26,7 @@ import type { MiningHealth } from '../mining-journey';
 import { miningDepthCopy } from '../mining-depth-copy';
 import { CONNECTION_UNSET, OVERVIEW_UNSET, PROBE_REFUSALS, SECTIONS } from '../mining-pool-codes';
 import { miningPoolCopy } from '../mining-pool-copy';
+import { isPlaceholderAddress, shortReference } from '../../../shared/reference';
 import { preservePaperHref } from '../trade-context';
 import { EmptyNote, FailureNote, Section, Waiting } from '../volt-parts';
 
@@ -174,7 +175,7 @@ function OverviewView({ read }: { read: Read<PoolOverview> }) {
 }
 
 /** How to point a rig at the pool: each value with its copy button, and the worker name for the rig typed here. */
-function ConnectView({ read }: { read: Read<PoolConnection> }) {
+export function ConnectView({ read }: { read: Read<PoolConnection> }) {
   const { t } = miningPoolCopy.useCopy();
   const [rig, setRig] = useState('');
   const { resource } = read;
@@ -198,14 +199,22 @@ function ConnectView({ read }: { read: Read<PoolConnection> }) {
               label={t('poolAddress')}
               copyLabel={t('copyPoolAddress')}
               value={`${resource.data.host}:${resource.data.port}`}
+              shown={isPlaceholderAddress(resource.data.host) ? t('testAddress') : undefined}
             />
-            <CopyLine id="mining-account-id" label={t('accountId')} copyLabel={t('copyAccountId')} value={resource.data.accountId} />
+            <CopyLine
+              id="mining-account-id"
+              label={t('accountId')}
+              copyLabel={t('copyAccountId')}
+              value={resource.data.accountId}
+              shown={shortReference(resource.data.accountId)}
+            />
             {resource.data.secureUrl === null ? null : (
               <CopyLine
                 id="mining-secure-address"
                 label={t('secureAddress')}
                 copyLabel={t('copySecureAddress')}
                 value={resource.data.secureUrl}
+                shown={isPlaceholderAddress(resource.data.secureUrl) ? t('testAddress') : undefined}
               />
             )}
             <CopyLine
@@ -287,12 +296,16 @@ function CopyLine({
   label,
   copyLabel,
   value,
+  shown,
   empty,
 }: {
   id: string;
   label: string;
   copyLabel: string;
   value: string | null;
+  /** What the line reads when the value itself is no text for a person (a long id, a test machine's address); the copy
+   *  button still copies `value`. */
+  shown?: string;
   /** What shows in place of a missing value; "Not set" unless said. */
   empty?: string;
 }) {
@@ -302,8 +315,8 @@ function CopyLine({
     <div>
       <dt>{label}</dt>
       <dd>
-        <code className="lt-mono" data-testid={id} lang="und" dir="ltr">
-          {value ?? empty ?? t('notSet')}
+        <code className="lt-mono" data-testid={id} lang="und" dir="ltr" title={shown && value ? value : undefined}>
+          {value === null ? (empty ?? t('notSet')) : (shown ?? value)}
         </code>{' '}
         <Button tone="secondary" aria-label={copyLabel} disabled={value === null} onClick={() => void copy()}>
           {state === 'done' ? t('copied') : copyLabel}

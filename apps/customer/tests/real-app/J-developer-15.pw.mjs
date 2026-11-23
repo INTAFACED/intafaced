@@ -111,7 +111,7 @@ test(`${J} #1 the master creates a key for the second sub-account: it reaches on
   const options = page.getByLabel('Sub-account', { exact: true }).locator('option');
   await expect(options).toHaveCount(3);
   await expect(options.first()).toHaveText('None: a key for this account');
-  expect((await options.allTextContents()).slice(1).sort()).toEqual(['Sub A', 'Sub B']);
+  await expect.poll(async () => (await options.allTextContents()).slice(1).sort()).toEqual(['Sub A', 'Sub B']);
   await createOnForm({ name: 'sub-b-reader', account: 'Sub B' });
   subKey = await takeShownKey();
   expect(subKey).toMatch(/^ifc_/);

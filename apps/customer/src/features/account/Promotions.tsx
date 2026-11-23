@@ -33,6 +33,7 @@ import {
 } from './promotions-guards';
 import { PromotionTabs, promotionsViewFor } from './promotion-tabs';
 import { callAs } from '../../shared/api';
+import { ShortReference } from '../../shared/ShortReference';
 import { IDENTITY_AFFILIATES_CREATE_SHARE, IDENTITY_AFFILIATES_REVOKE_SHARE } from '@intafaced/contracts/identity-affiliates-procedures';
 
 type Intent = {
@@ -370,7 +371,7 @@ export function Promotions({ path = '/uc/promotion' }: { path?: string }) {
         rooms={<PromotionTabs view={view} />}
         hero={
           <p data-testid="promotions-owner">
-            <Copy k="owner" /> · <span lang="zxx">{userId}</span>
+            <Copy k="owner" /> · <ShortReference id={userId} />
           </p>
         }
         needsYou={
