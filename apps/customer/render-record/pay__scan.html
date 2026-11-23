@@ -95,30 +95,44 @@
 </div>
 </header>
 <main id="main" tabindex="-1">
-<div class="if-pay" data-testid="pay-room">
-<div class="pay-grid">
-<header data-testid="pay-hero" class="pay-hero">
-<h1>Scan to pay</h1>
-<p>Pay a person or a shop from a QR code.</p>
+<div data-testid="pay-room">
+<div class="lt-room" data-template="flow" data-state="ready" data-mode="simple">
+<header class="lt-title-row">
+<div>
+<h1 class="lt-title">Scan to pay</h1>
+<p class="lt-description">Pay a person or a shop from a QR code.</p>
+</div>
 </header>
-<section data-testid="pay-card" class="pay-card" aria-label="Scan to pay">
+<div class="lt-body">
+<div class="lt-grid lt-grid-flow">
+<div class="lt-col-main">
+<section class="lt-region" data-region="step" aria-label="This step">
 <div class="lt-stack">
 <div class="lt-actions">
-<button type="button" tabindex="0" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill">Scan with the camera</button>
-<a href="/pay/receive" role="button" tabindex="0" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-10 px-5 text-base rounded-pill">Show my QR code</a>
+<button type="button" class="lit-button" data-slot="button" data-variant="secondary" data-tone="secondary" data-size="md">Scan with the camera</button>
+<a class="lt-button lt-button-secondary" href="/pay/receive">Show my QR code</a>
 </div>
-<div class="pay-field">
-<label class="lt-hint" for="pay-scan-file">Choose an image of a QR code</label>
-<input id="pay-scan-file" class="pay-text" accept="image/*" data-testid="pay-scan-file" type="file">
+<div class="lt-field">
+<label for="pay-scan-file">Choose an image of a QR code</label>
+<input accept="image/*" data-testid="pay-scan-file" id="pay-scan-file" type="file">
 </div>
-<div class="pay-reason" id="pay-room-reason" role="note" data-testid="pay-reason" data-slice="PP-send-request-11">
-<p class="pay-reason__title">Not connected</p>
-<p class="pay-reason__body">A payment code or link from this app opens Send, filled in for you to check, from the camera or an image. A shop or in-store code is not read here, so it opens nothing.</p>
+<div id="pay-room-reason" role="note" data-testid="pay-reason" data-slice="PP-send-request-11">
+<div class="lit-note" data-tone="neutral" role="status">
+<p data-part="title">Not connected</p>
+<div data-part="body">A payment code or link from this app opens Send, filled in for you to check, from the camera or an image. A shop or in-store code is not read here, so it opens nothing.</div>
 </div>
-<a class="pay-recent__link" href="/pay" data-testid="pay-room-back">Back to Pay</a>
+</div>
+<a class="lt-link" href="/pay" data-testid="pay-room-back">Back to Pay</a>
 </div>
 </section>
 </div>
+<div class="lt-col-side">
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="lit-toasts" role="status" aria-live="polite" data-slot="toast-region">
 </div>
 </main>
 <nav class="mobile-doors" data-obscures="bottom" aria-label="Customer doors on phone">
