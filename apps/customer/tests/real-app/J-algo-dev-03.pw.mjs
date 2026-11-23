@@ -48,6 +48,23 @@ async function saveSignalStrategy(page, name) {
   await expect(page.getByTestId('quant-save-state')).toHaveText('Saved as version 1.');
 }
 
+/**
+ * Whether a block of code reads whole: the start of its first line (its padding corner) lies inside the block's rounded
+ * corner, as the browser draws it (a radius larger than half the block is scaled down to fit). A pill's radius cuts the
+ * start of every line off. Returns what it measured, so a failure says why.
+ */
+async function codeCorner(block) {
+  return block.evaluate((el) => {
+    const style = getComputedStyle(el);
+    const box = el.getBoundingClientRect();
+    const r = Math.min(parseFloat(style.borderStartStartRadius) || 0, box.width / 2, box.height / 2);
+    const x = parseFloat(style.paddingInlineStart) || 0;
+    const y = parseFloat(style.paddingBlockStart) || 0;
+    const inside = x >= r || y >= r || (r - x) ** 2 + (r - y) ** 2 <= r ** 2;
+    return { inside, radius: r, padding: [x, y] };
+  });
+}
+
 /** The saved list's row for a strategy, found by its id so a rename does not lose it. */
 function rowOf(page, id) {
   return page.getByTestId('quant-strategies').locator(`[data-testid="quant-strategy-row"][data-id="${id}"]`);
@@ -198,6 +215,9 @@ test(`${J} #3 edits, saves and writes release notes on two versions, then compar
   await expect(source).toContainText(/const slow = \w+\(closes, 3\);/);
   await expect(source).not.toContainText(/const slow = \w+\(closes, 4\);/);
   await expect(code.locator('textarea, [contenteditable="true"]')).toHaveCount(0);
+  // Both blocks of code read whole: the diff's rules and the run's source keep the start of each line inside their corner.
+  expect(await codeCorner(rules.locator('pre'))).toMatchObject({ inside: true });
+  expect(await codeCorner(source.locator('pre'))).toMatchObject({ inside: true });
   await stepPicture();
 });
 
