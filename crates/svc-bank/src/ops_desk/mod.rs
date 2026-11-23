@@ -1,12 +1,13 @@
 //! Slice `ops-desk`: the operator desk's calls (`router/ops.router.ts`: `heldSends`, `releaseHeldSend`,
 //! `rejectHeldSend`, `limitRequests`, `decideLimitRequest`, `publishTransferTerms`, `transferHealth`, `failedTransfers`,
-//! `transferDetail`, `customerBalances`, `customerBalanceEntries`, `assetPauses`, `setAssetPause`, `partnerStops`,
+//! `transferDetail`, `customerTransfers`, `customerBalances`, `customerBalanceEntries`, `assetPauses`, `setAssetPause`, `partnerStops`,
 //! `setPartnerStop`, `partnerRefusals`), each checked as the TypeScript checks it.
 //!
 //! - `pauses`: the per-asset pause of new borrow and new supply, read and changed (`ops/asset-pause.ts`).
 //! - `stops`: the partner stop as the desk reads and changes it, and the refusals counted (`partner/partner-stops.ts`,
 //!   `partner-refusals.ts`).
-//! - `transfer_reads`: health, the failed list and one transfer (`ops/transfer-*.ts`, `failed-transfers.ts`).
+//! - `transfer_reads`: health, the failed list, one transfer and one customer's sends (`ops/transfer-*.ts`,
+//!   `failed-transfers.ts`, `customer-transfers.ts`).
 //! - `balances`: a customer's balances and the entries behind one (`ops/customer-balances.ts`).
 //!
 //! The held sends, the limit requests and the published terms are slice `transfers`' own functions
@@ -369,6 +370,15 @@ fn call(d: &Deps<'_>, ctx: &Ctx<'_>) -> Option<Result<Json, Refusal>> {
             let owner = text(input, "userId");
             balances::audit(user, owner, "breakdown")
                 .and_then(|()| balances::breakdown(d.store, d.ledger, &d.money(), owner))
+        }
+        "ops.customerTransfers" => {
+            let owner = text(input, "userId");
+            let limit = int_of(input, "limit").unwrap_or_default();
+            transfer_reads::customer_transfers_audit(user, owner).and_then(|()| {
+                with(d.store, |c| {
+                    transfer_reads::customer_transfers(c, owner, limit)
+                })
+            })
         }
         "ops.customerBalanceEntries" => {
             let owner = text(input, "userId");
