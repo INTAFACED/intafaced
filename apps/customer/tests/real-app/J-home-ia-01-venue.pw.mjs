@@ -199,7 +199,9 @@ test(`${J} #1 Home's total adds what the wallet, the venue account and the partn
   await expect(partner).toHaveAttribute('data-state', 'read');
   await expect(partner.getByTestId('standing-part-label')).toHaveText(`Your account at ${PARTNER_BANK}`);
   await expect(partner.getByTestId('standing-part-source')).toHaveText('the partner’s own figures');
-  expect(Date.parse(await partner.getByTestId('standing-part-as-of').getAttribute('datetime'))).toBeLessThanOrEqual(Date.now());
+  await expect
+    .poll(async () => Date.parse(await partner.getByTestId('standing-part-as-of').getAttribute('datetime')))
+    .toBeLessThanOrEqual(Date.now());
   await expect(partner.getByTestId('standing-part-value')).toHaveText(cents(parts.partner));
 
   // Unpriced assets are named, never counted as zero: the wallet's TEST ETH and TEST USD have no published price.

@@ -5,7 +5,9 @@ import { fundedTrader, signIn } from './desk.mjs';
 import { HOLD_MAX_MS } from '../../../../tooling/scripts/local-test-market.mjs';
 
 // J-derivatives-06, in the running app (docs/roadmap/journeys.json): watch and top up the margin on an isolated position.
-// One test per step, titled "J-derivatives-06 #<n>", run in order on one TEST account funded with TEST USDT. The contract
+// At launch #1 to #4 run on the person's own venue account (J-derivatives-06-venue.pw.mjs); the first two tests here are
+// the custodial branch, which waits for later, on our own futures engine, kept and titled as no step's, and #5 is its step.
+// Run in order on one TEST account funded with TEST USDT. The contract
 // is the TEST perpetual `local-test-gates.mjs futures` lists; its maintenance tiers are the stack's LOCAL TEST ladder. The
 // mark follows the stack's TEST book, which the TEST market maker walks, so every figure that needs the mark is compared
 // with the service's own answer read at the same moment. Not here yet: #3, #4, #6 and #7 (each lands with its own
@@ -113,7 +115,9 @@ const expected = (s) => ({
   ratio: exactPct(s.marginRatio),
 });
 
-test(`${J} #1 opens Account metrics: equity, available, used margin and margin ratio as exact decimals`, async ({ page }) => {
+test(`${J}, the custodial Later branch, checked on our own book: Account metrics show equity, available, used margin and margin ratio as exact decimals`, async ({
+  page,
+}) => {
   const who = await fundedTrader(page, 'jd6', '1000');
   run.reset({ account: who });
   const me = await api(who);
@@ -176,7 +180,9 @@ test(`${J} #1 opens Account metrics: equity, available, used margin and margin r
   await expect(region.getByRole('status')).toHaveCount(0);
 });
 
-test(`${J} #2 adds margin to a position: the margin and liquidation price after, from the service`, async ({ page }) => {
+test(`${J}, the custodial Later branch, checked on our own book: adding margin to a position shows the margin and liquidation price after, from the service`, async ({
+  page,
+}) => {
   const who = account();
   const me = await api(who);
   const { positionId } = run.read();

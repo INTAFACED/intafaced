@@ -164,7 +164,7 @@ test(`${J} #3 opens Collateral: what the venue accepts as margin with its haircu
     await expect.poll(async () => plain(await row.locator('[data-cell="free"]').innerText()), { timeout: 20_000 }).toBe(bal.free);
     expect(c.haircut.known, `${c.asset}'s haircut is published, so its buying power is known`).toBe(true);
     const counts = (toUnits(bal.free) * (toUnits('1') - toUnits(c.haircut.value))) / toUnits('1');
-    expect(sameDecimal(plain(await row.locator('[data-cell="counts"]').innerText()), fromUnits(counts))).toBe(true);
+    await expect.poll(async () => sameDecimal(plain(await row.locator('[data-cell="counts"]').innerText()), fromUnits(counts))).toBe(true);
     power += counts;
   }
   // Buying power is what the venue takes, less its haircut: the TEST BTC adds nothing.
