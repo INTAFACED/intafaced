@@ -1958,6 +1958,24 @@ fn the_door_answers_409_while_another_run_holds_the_lock_and_503_when_it_cannot_
     let _ = slow.store();
 }
 
+#[test]
+fn a_reconcile_submitted_by_the_approver_names_the_proposer_as_the_confirming_operator() {
+    let Some(b) = book() else { return };
+    b.deposit().unwrap();
+    let door = LedgerDoor::new(door_config(
+        &b.db,
+        Arc::new(MemoryBus::default()),
+        Box::new(support::operator::Shared(stub(Some(OPERATOR), Some(true)))),
+    ))
+    .unwrap();
+    let (status, body) = call(&door, "POST", "/operator/reconcile", treasury(), APPROVED);
+    assert_eq!(status, 200, "{body:?}");
+    assert_eq!(
+        body.get("confirmOperatorId"),
+        Some(&Json::str("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"))
+    );
+}
+
 /// A drift between opposite-sign balances near the top of `numeric(38,18)` reports its true difference, never a clamped one.
 #[test]
 fn balance_drift_reports_exact_difference_across_opposite_sign_bounds() {

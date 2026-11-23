@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { assertProductionPosture } from './production-posture.js';
+import { assertBetaPosture } from './beta-posture.js';
 
 /**
  * Typed environment loader.
@@ -194,6 +195,8 @@ export class EnvError extends Error {
 export function loadEnv<T extends z.ZodTypeAny>(schema: T, source: Record<string, unknown> = process.env): z.infer<T> {
   // Before the schema: a server on dev keys must refuse with that reason, not a schema error.
   assertProductionPosture(source);
+  // The beta posture (staging on TEST networks) refuses with any mainnet, real bank or real card route configured.
+  assertBetaPosture(source);
   const result = schema.safeParse(source);
   if (result.success) return result.data;
 

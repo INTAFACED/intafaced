@@ -2002,3 +2002,51 @@ fn every_seeded_set_is_distinct() {
     let set: BTreeSet<_> = [a.0, b.0].into_iter().collect();
     assert_eq!(set.len(), 2);
 }
+
+/// intafaced#10084, the hunt's own test: the meter records the charge, then the bus refuses `agentUsageSettled`; a
+/// retry of the same window took the already-settled branch and never published it, so the billed settlement's event
+/// was lost. The event is now written with the charge's record (`meter::record_charge`) and owed in the outbox until
+/// the bus takes it, so the settle no longer fails on the bus (its first answer is not asserted) and the retry sends it.
+#[test]
+fn retry_publishes_a_settlement_lost_before_bus_acceptance() {
+    struct FailOnce(AtomicUsize, FakeBus);
+
+    impl Bus for FailOnce {
+        fn publish(&self, subject: &str, key: &str, envelope: &Json) -> Result<(), String> {
+            if self.0.fetch_add(1, Ordering::SeqCst) == 0 {
+                return Err("TEST bus unavailable before publish".to_owned());
+            }
+            self.1.publish(subject, key, envelope)
+        }
+    }
+
+    let mut w = world_or_skip!(custodial_world());
+    w.m.bus = Box::new(FailOnce(AtomicUsize::new(0), w.bus.clone()));
+    let (session, window) = w.ran(USER);
+
+    let _first = w.settle(&session, &window);
+    assert!(w.bus.0.lock().unwrap().is_empty());
+    let owed: i64 = w
+        .db
+        .client()
+        .query_one(
+            "SELECT count(*) FROM agents.event_outbox WHERE published_at IS NULL AND last_error IS NOT NULL",
+            &[],
+        )
+        .unwrap()
+        .get(0);
+    assert_eq!(
+        owed, 1,
+        "the refused event stays owed in the outbox with its error"
+    );
+    w.settle(&session, &window).unwrap();
+
+    assert_eq!(w.ledger.reasons(), ["agents.usage.metered"]);
+    assert_eq!(w.bus.0.lock().unwrap().len(), 1);
+    // A third settle finds it sent and sends nothing more.
+    w.settle(&session, &window).unwrap();
+    assert_eq!(w.bus.0.lock().unwrap().len(), 1);
+    let (subject, key, _) = w.bus.0.lock().unwrap()[0].clone();
+    assert_eq!(subject, settle::USAGE_SETTLED);
+    assert_eq!(key, charge_key_for(&session, &window));
+}

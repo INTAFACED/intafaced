@@ -952,6 +952,11 @@ export function createIdentityRouter(
      */
     registrationOpen?: boolean;
     /**
+     * Invited addresses (lowercase) that may still sign up while `registrationOpen` is false. Ignored while open;
+     * unset or empty leaves a closed registration closed to everyone.
+     */
+    registrationAllowlist?: ReadonlySet<string>;
+    /**
      * The code-less `auth.register` door, kept for the dev and test stacks' own tools (TEST market accounts,
      * fixtures). True only when APP_ENV is exactly dev or test (index.ts). Off, every call refuses
      * `identity.register_replaced`: people sign up through `auth.signUpStart` and the mailed code.
@@ -1131,8 +1136,16 @@ export function createIdentityRouter(
   const waitlist = options.waitlist;
   const handleLookupLimiter = options.handleLookupLimiter ?? new HandleLookupLimiter();
 
-  /** The owner's registration switch. Unset refuses as unset; closed says so with its own code. */
-  function assertRegistrationOpen(): void {
+  const registrationAllowlist = options.registrationAllowlist?.size ? options.registrationAllowlist : undefined;
+  const registrationClosed = () =>
+    new TRPCError({ code: 'FORBIDDEN', message: 'Registration is not open yet', cause: { code: 'identity.registration_closed' } });
+
+  /**
+   * The owner's registration switch. Unset refuses as unset; closed says so with its own code. Closed with an
+   * invited list lets a listed `email` through; a door that has no address yet (`email` omitted) passes, and the
+   * address is checked where it is known (signUpConfirm checks the draft's own address before making the account).
+   */
+  function assertRegistrationOpen(email?: string | null): void {
     if (options.registrationOpen === undefined) {
       throw new TRPCError({
         code: 'PRECONDITION_FAILED',
@@ -1140,9 +1153,14 @@ export function createIdentityRouter(
         cause: { code: 'identity.registration_open_unset' },
       });
     }
-    if (!options.registrationOpen) {
-      throw new TRPCError({ code: 'FORBIDDEN', message: 'Registration is not open yet', cause: { code: 'identity.registration_closed' } });
-    }
+    if (options.registrationOpen) return;
+    if (!registrationAllowlist) throw registrationClosed();
+    if (email !== undefined) assertInvitedEmail(email);
+  }
+
+  /** Closed with an invited list: only a listed address may make an account. */
+  function assertInvitedEmail(email: string | null): void {
+    if (!email || !registrationAllowlist?.has(email.trim().toLowerCase())) throw registrationClosed();
   }
 
   function requireReferral(): ReferralService {
@@ -1475,7 +1493,7 @@ export function createIdentityRouter(
       register: mountRecord(
         IDENTITY_AUTH_REGISTER,
         async ({ input, ctx }) => {
-          assertRegistrationOpen();
+          assertRegistrationOpen(input.email);
           if (options.directRegister !== true) {
             throw new TRPCError({
               code: 'FORBIDDEN',
@@ -1523,7 +1541,7 @@ export function createIdentityRouter(
       signUpStart: mountRecord(
         IDENTITY_AUTH_SIGN_UP_START,
         async ({ input }) => {
-          assertRegistrationOpen();
+          assertRegistrationOpen(input.email ?? null);
           try {
             if (input.channel === 'phone') {
               throw new SignUpError(
@@ -1567,7 +1585,14 @@ export function createIdentityRouter(
         .mutation(async ({ input, ctx }) => {
           assertRegistrationOpen();
           try {
-            const done = await auth.signUpConfirm({ ...input, ip: requestIpAls.getStore(), deviceKey: presentedDeviceKey(ctx, undefined) });
+            const done = await auth.signUpConfirm({
+              ...input,
+              ip: requestIpAls.getStore(),
+              deviceKey: presentedDeviceKey(ctx, undefined),
+              // Closed with an invited list: a code asked for while registration was open makes no account for an
+              // address not on the list. Checked inside the confirm, so the refusal makes nothing and spends nothing.
+              ...(options.registrationOpen === false ? { admit: (email: string) => assertInvitedEmail(email) } : {}),
+            });
             if (done.referrerId) {
               // Attribution never blocks the account (it is already made); a refusal, or no referral tree, is logged.
               try {

@@ -1,4 +1,4 @@
-import { isExplicitDevOrTest, isUserAssignedRegionCode } from './app-env.js';
+import { isBetaPostureEnv, isExplicitDevOrTest, isUserAssignedRegionCode } from './app-env.js';
 import { SCREENING_FAIL_CLOSED_ENV, TEST_BUSINESS_BLOCKS_ENV, screeningFailClosedIsExplicitlyOff } from './jurisdiction.js';
 import { envScreeningList, screeningLooksLikeFixture, type ScreeningList } from './screening.js';
 
@@ -16,6 +16,9 @@ import { envScreeningList, screeningLooksLikeFixture, type ScreeningList } from 
  *      stand-in, and every service that calls this guard refuses it.
  *   4. `INTAFACED_TEST_BUSINESS_BLOCKS` must not be set (a TEST business block;
  *      `checkAccess` also ignores it outside dev/test).
+ *
+ * In the beta posture (`isBetaPosture`: staging on TEST networks) check 2 is skipped: the labelled TEST list is the
+ * beta's list. Checks 1, 3 and 4 still refuse there, so screening stays fail-closed.
  *
  * It does NOT say the list is complete or counsel-approved; that stays with
  * `assertScreeningConfigured` and the owner. It only refuses the stand-ins.
@@ -63,7 +66,8 @@ export function localTestFixtureIssues(env: Record<string, string | undefined> =
   if (screeningFailClosedIsExplicitlyOff(env)) {
     issues.push(`${SCREENING_FAIL_CLOSED_ENV} is set to an explicit off value (screening would let unscreened regions through)`);
   }
-  issues.push(...screeningListStandInIssues(envScreeningList(env)));
+  // The beta posture (app-env.ts) may screen against the labelled TEST list; screening still fails closed there.
+  if (!isBetaPostureEnv(env)) issues.push(...screeningListStandInIssues(envScreeningList(env)));
   const testBlocks = env[TEST_BUSINESS_BLOCKS_ENV];
   if (typeof testBlocks === 'string' && testBlocks.trim() !== '') {
     issues.push(`${TEST_BUSINESS_BLOCKS_ENV} is set (a TEST business block)`);
