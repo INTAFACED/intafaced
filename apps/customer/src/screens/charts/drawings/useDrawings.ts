@@ -102,6 +102,17 @@ function paneBoxes(host: ChartHost): PaneBox[] {
   return boxes;
 }
 
+/**
+ * Where a pointer is in the chart element's pixels, read as the chart reads it: the chart takes its pointer from mouse
+ * events, whose page position the browser gives in whole pixels, while a pointer event's can be fractional (a host whose
+ * height is not a whole pixel puts a centred click at y 131.25, which the chart reads at 131). Reading the same whole
+ * pixel stores a point at the bar and price the chart shows under the pointer.
+ */
+function chartPixel(e: { clientX: number; clientY: number }, element: HTMLElement): { x: number; y: number } {
+  const r = element.getBoundingClientRect();
+  return { x: Math.floor(e.clientX) - r.left, y: Math.floor(e.clientY) - r.top };
+}
+
 /** The pane under a height in the chart element: the price pane above the first pane's top, the last one below the end. */
 function paneAt(boxes: readonly PaneBox[], y: number): PaneBox {
   for (const box of boxes) if (y >= box.top && y < box.top + box.height) return box;
@@ -533,10 +544,7 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
     | { mode: 'brush' };
   type Press = { drag: Drag | null; downAt: { x: number; y: number } | null };
   type Gesture = FollowContext<ChartHost['chart'], Press>;
-  const local = (g: Gesture, e: PointerEvent) => {
-    const r = g.element.getBoundingClientRect();
-    return { x: e.clientX - r.left, y: e.clientY - r.top };
-  };
+  const local = (g: Gesture, e: PointerEvent) => chartPixel(e, g.element);
   const freeze = (g: Gesture, on: boolean) => g.owner.applyOptions({ handleScroll: !on, handleScale: !on });
 
   const finishBrush = (g: Gesture) => {
@@ -654,7 +662,10 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
         suppressClickRef.current = true;
         setSelectedId(hit.id);
         if (d.locked) {
+          // A press on a locked drawing moves nothing: neither the drawing nor, under it, the chart's view.
           showRefusal('locked');
+          freeze(g, true);
+          g.follow();
           return;
         }
         const pane = d.pane ?? 0;
@@ -717,8 +728,7 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
   // Pointer moves over the chart update the preview of a drawing being placed. They are read in the chart element's pixels,
   // like the clicks, so a preview on an indicator pane is read on that pane.
   useEventListener<PointerEvent>(host?.element, 'pointermove', (e) => {
-    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    cursorRef.current = { x: e.clientX - r.left, y: e.clientY - r.top };
+    cursorRef.current = chartPixel(e, e.currentTarget as HTMLElement);
     if (draftRef.current.length > 0) refreshPrimitive();
   });
   useEventListener(host?.element, 'pointerleave', () => {
