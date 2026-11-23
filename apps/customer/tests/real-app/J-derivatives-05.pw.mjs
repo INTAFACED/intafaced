@@ -321,8 +321,12 @@ test(`${J} #4 changes leverage: allowed up to the published cap shown; the margi
   ).value;
   expect(same(venueSays.marginNow, before.margin)).toBe(true);
   expect(toUnits(venueSays.difference)).toBeGreaterThan(0n);
-  expect(same((await review.locator('[data-line="margin-now"]').innerText()).trim(), venueSays.marginNow)).toBe(true);
-  expect(same((await review.locator('[data-line="margin-after"]').innerText()).trim(), venueSays.marginAfter)).toBe(true);
+  await expect
+    .poll(async () => same((await review.locator('[data-line="margin-now"]').innerText()).trim(), venueSays.marginNow))
+    .toBe(true);
+  await expect
+    .poll(async () => same((await review.locator('[data-line="margin-after"]').innerText()).trim(), venueSays.marginAfter))
+    .toBe(true);
   await expect(review.locator('[data-line="difference"]')).toHaveText(`Posted from your free balance: ${venueSays.difference}`);
   await expect(review).toContainText('Nothing has changed: the venue changes the leverage only when you confirm and sign.');
   expect(door.of('prepare')).toHaveLength(0);

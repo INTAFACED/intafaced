@@ -217,7 +217,7 @@ test(`${J} #3 presses the reachability test on an unreachable host: "Timed out" 
     await expect(result).toHaveAttribute('data-result', 'timed_out');
     await expect(result).toHaveText(/^Timed out after \d+ ms: the pool address did not answer$/);
     // The measured wait is the round trip, at least the published 1000 ms.
-    expect(Number((await result.textContent()).match(/after (\d+) ms/)[1])).toBeGreaterThanOrEqual(1000);
+    await expect.poll(async () => Number((await result.textContent()).match(/after (\d+) ms/)[1])).toBeGreaterThanOrEqual(1000);
     await expect(page.getByText('Tested from the pool’s own network, not from your rig.')).toBeVisible();
     await expect(page.getByRole('alert')).toHaveCount(0);
     await expect(page.getByText(/^Reached in/)).toHaveCount(0);
