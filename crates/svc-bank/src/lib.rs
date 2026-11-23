@@ -13,6 +13,7 @@ pub mod activity;
 pub mod automations;
 pub mod bank_api;
 pub mod bills;
+pub mod card_ops_desk;
 pub mod cards;
 pub mod credit_previews;
 pub mod db;

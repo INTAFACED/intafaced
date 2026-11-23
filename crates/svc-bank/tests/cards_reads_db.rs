@@ -835,7 +835,11 @@ fn refuses_an_order_naming_an_asset_the_partner_cannot_spend_from_twice_or_none_
                 holds: Default::default(),
                 settings: d.settings().clone(),
             };
-            let d2 = Deps { t: d.t, w: &w };
+            let d2 = Deps {
+                t: d.t,
+                w: &w,
+                rates: d.rates,
+            };
             reads::set_pay_from_order(&d2, None, ADA, assets)
         })
     };

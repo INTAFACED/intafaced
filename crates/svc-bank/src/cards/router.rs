@@ -15,6 +15,7 @@ pub fn answer(
     spaces: &crate::spaces::Wiring,
     partner: &PartnerWiring,
     store: &Store,
+    rates: &dyn crate::loans::prices::PriceSource,
     ctx: &Ctx<'_>,
 ) -> Option<Result<Option<service_kit::json::Json>, TrpcError>> {
     let custody = partner.custody(store);
@@ -27,7 +28,7 @@ pub fn answer(
         w: transfers,
         now: ctx.now,
     };
-    let d = Deps { t: &t, w };
+    let d = Deps { t: &t, w, rates };
     let out = super::core::answer(&d, ctx)
         .or_else(|| super::orders::answer(&d, ctx))
         .or_else(|| super::secrets::answer(&d, ctx))
