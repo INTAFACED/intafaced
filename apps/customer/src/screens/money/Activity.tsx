@@ -377,7 +377,7 @@ function Row({ group, copy, hidden }: { group: ActivityGroup; copy: Copy; hidden
               {title}
             </a>
             {sub ? (
-              <span data-testid="money-act__sub" className="money-act__sub">
+              <span data-testid="money-act__sub" className="lt-hint">
                 {sub}
               </span>
             ) : null}

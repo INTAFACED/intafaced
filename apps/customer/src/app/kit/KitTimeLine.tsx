@@ -22,7 +22,7 @@ const KEYS = 'Use the left and right arrow keys to read each point';
 /** The kit's line over time: placed by time, its zero line, its readout, and its empty line. */
 export function TimeLines() {
   return (
-    <div className="vk-grid">
+    <div className="lt-stack">
       <TimeLine
         label="TEST profit and loss over two days"
         keys={KEYS}

@@ -486,7 +486,7 @@ function EvidenceSection({ portal, dispute, reload }: { portal: PortalApi; dispu
                 <small className="lt-hint">{e.contentType}</small>
               </td>
               <td className="lt-num">{formatBytes(e.sizeBytes)}</td>
-              <td data-testid="pp-mono" className="pp-mono" title={e.sha256}>
+              <td data-testid="pp-mono" className="lt-mono" title={e.sha256}>
                 {e.sha256.slice(0, 12)}…
               </td>
               <td>{e.note ?? '—'}</td>
@@ -555,7 +555,7 @@ function EvidenceSection({ portal, dispute, reload }: { portal: PortalApi; dispu
                     [t('colSize'), formatBytes(String(picked.sizeBytes))],
                     [
                       t('colFingerprint'),
-                      <span data-testid="pp-mono" className="pp-mono">
+                      <span data-testid="pp-mono" className="lt-mono">
                         {picked.sha256}
                       </span>,
                     ],
