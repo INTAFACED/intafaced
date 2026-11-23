@@ -14894,6 +14894,995 @@
         }
       ]
     },
+    "trade.riskAlerts.get": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "riskAlerts.get",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:read",
+        "module": "trade"
+      },
+      "refusals": {
+        "trade.risk_alerts_unavailable": "SERVICE_UNAVAILABLE",
+        "trade.risk_alerts_request_invalid": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "symbol": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 64
+          }
+        },
+        "required": ["owner", "symbol"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "venue": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "test": {
+                "type": "boolean"
+              }
+            },
+            "required": ["id", "name", "test"],
+            "additionalProperties": false
+          },
+          "owner": {
+            "type": "string"
+          },
+          "symbol": {
+            "type": "string"
+          },
+          "asset": {
+            "type": "string"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "marginWithResult": {
+                    "type": "string",
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                  },
+                  "maintenance": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "marginRatio": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "asOf": {
+                    "type": "string"
+                  }
+                },
+                "required": ["marginWithResult", "maintenance", "marginRatio", "asOf"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "setting": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "on": {
+                    "type": "boolean"
+                  },
+                  "marginLevel": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "ratioLevel": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "armed": {
+                    "type": "object",
+                    "properties": {
+                      "margin": {
+                        "type": "boolean"
+                      },
+                      "marginCall": {
+                        "type": "boolean"
+                      },
+                      "liquidation": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": ["margin", "marginCall", "liquidation"],
+                    "additionalProperties": false
+                  }
+                },
+                "required": ["on", "marginLevel", "ratioLevel", "armed"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "alerts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "sequence": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "alertKey": {
+                  "type": "string"
+                },
+                "symbol": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["margin", "margin_call", "liquidation"]
+                },
+                "asset": {
+                  "type": "string"
+                },
+                "level": {
+                  "type": "string",
+                  "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                },
+                "marginWithResult": {
+                  "type": "string",
+                  "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                },
+                "maintenance": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "marginRatio": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "asked": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "at": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "sequence",
+                "alertKey",
+                "symbol",
+                "kind",
+                "asset",
+                "level",
+                "marginWithResult",
+                "maintenance",
+                "marginRatio",
+                "asked",
+                "at"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["venue", "owner", "symbol", "asset", "position", "setting", "alerts"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "owner": "0x1111111111111111111111111111111111111111",
+            "symbol": "BTC-PERP"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "owner": "0x1111111111111111111111111111111111111111",
+            "symbol": ""
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    },
+    "trade.riskAlerts.list": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "riskAlerts.list",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:read",
+        "module": "trade"
+      },
+      "refusals": {
+        "trade.risk_alerts_unavailable": "SERVICE_UNAVAILABLE",
+        "trade.risk_alerts_request_invalid": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "required": ["owner"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "venue": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "test": {
+                "type": "boolean"
+              }
+            },
+            "required": ["id", "name", "test"],
+            "additionalProperties": false
+          },
+          "owner": {
+            "type": "string"
+          },
+          "alerts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "sequence": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "alertKey": {
+                  "type": "string"
+                },
+                "symbol": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["margin", "margin_call", "liquidation"]
+                },
+                "asset": {
+                  "type": "string"
+                },
+                "level": {
+                  "type": "string",
+                  "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                },
+                "marginWithResult": {
+                  "type": "string",
+                  "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                },
+                "maintenance": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "marginRatio": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "asked": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "at": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "sequence",
+                "alertKey",
+                "symbol",
+                "kind",
+                "asset",
+                "level",
+                "marginWithResult",
+                "maintenance",
+                "marginRatio",
+                "asked",
+                "at"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["venue", "owner", "alerts"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "owner": "0x1111111111111111111111111111111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "owner": 7
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    },
+    "trade.riskAlerts.off": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "riskAlerts.off",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:write",
+        "module": "trade"
+      },
+      "refusals": {
+        "trade.risk_alerts_unavailable": "SERVICE_UNAVAILABLE",
+        "trade.risk_alerts_request_invalid": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "symbol": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 64
+          }
+        },
+        "required": ["owner", "symbol"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "venue": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "test": {
+                "type": "boolean"
+              }
+            },
+            "required": ["id", "name", "test"],
+            "additionalProperties": false
+          },
+          "owner": {
+            "type": "string"
+          },
+          "symbol": {
+            "type": "string"
+          },
+          "asset": {
+            "type": "string"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "marginWithResult": {
+                    "type": "string",
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                  },
+                  "maintenance": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "marginRatio": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "asOf": {
+                    "type": "string"
+                  }
+                },
+                "required": ["marginWithResult", "maintenance", "marginRatio", "asOf"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "setting": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "on": {
+                    "type": "boolean"
+                  },
+                  "marginLevel": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "ratioLevel": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "armed": {
+                    "type": "object",
+                    "properties": {
+                      "margin": {
+                        "type": "boolean"
+                      },
+                      "marginCall": {
+                        "type": "boolean"
+                      },
+                      "liquidation": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": ["margin", "marginCall", "liquidation"],
+                    "additionalProperties": false
+                  }
+                },
+                "required": ["on", "marginLevel", "ratioLevel", "armed"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "alerts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "sequence": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "alertKey": {
+                  "type": "string"
+                },
+                "symbol": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["margin", "margin_call", "liquidation"]
+                },
+                "asset": {
+                  "type": "string"
+                },
+                "level": {
+                  "type": "string",
+                  "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                },
+                "marginWithResult": {
+                  "type": "string",
+                  "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                },
+                "maintenance": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "marginRatio": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "asked": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "at": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "sequence",
+                "alertKey",
+                "symbol",
+                "kind",
+                "asset",
+                "level",
+                "marginWithResult",
+                "maintenance",
+                "marginRatio",
+                "asked",
+                "at"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["venue", "owner", "symbol", "asset", "position", "setting", "alerts"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "owner": "0x1111111111111111111111111111111111111111",
+            "symbol": "BTC-PERP"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "owner": "0x1111111111111111111111111111111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    },
+    "trade.riskAlerts.set": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "riskAlerts.set",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:write",
+        "module": "trade"
+      },
+      "refusals": {
+        "trade.risk_alerts_unavailable": "SERVICE_UNAVAILABLE",
+        "trade.risk_alerts_request_invalid": "BAD_REQUEST",
+        "trade.risk_alerts_field_invalid": "BAD_REQUEST",
+        "trade.risk_alerts_no_position": "CONFLICT"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "symbol": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 64
+          },
+          "marginLevel": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ratioLevel": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["owner", "symbol"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "venue": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "test": {
+                "type": "boolean"
+              }
+            },
+            "required": ["id", "name", "test"],
+            "additionalProperties": false
+          },
+          "owner": {
+            "type": "string"
+          },
+          "symbol": {
+            "type": "string"
+          },
+          "asset": {
+            "type": "string"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "marginWithResult": {
+                    "type": "string",
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                  },
+                  "maintenance": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "marginRatio": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "asOf": {
+                    "type": "string"
+                  }
+                },
+                "required": ["marginWithResult", "maintenance", "marginRatio", "asOf"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "setting": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "on": {
+                    "type": "boolean"
+                  },
+                  "marginLevel": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "ratioLevel": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "armed": {
+                    "type": "object",
+                    "properties": {
+                      "margin": {
+                        "type": "boolean"
+                      },
+                      "marginCall": {
+                        "type": "boolean"
+                      },
+                      "liquidation": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": ["margin", "marginCall", "liquidation"],
+                    "additionalProperties": false
+                  }
+                },
+                "required": ["on", "marginLevel", "ratioLevel", "armed"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "alerts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "sequence": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "alertKey": {
+                  "type": "string"
+                },
+                "symbol": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["margin", "margin_call", "liquidation"]
+                },
+                "asset": {
+                  "type": "string"
+                },
+                "level": {
+                  "type": "string",
+                  "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                },
+                "marginWithResult": {
+                  "type": "string",
+                  "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                },
+                "maintenance": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "marginRatio": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "asked": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "at": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "sequence",
+                "alertKey",
+                "symbol",
+                "kind",
+                "asset",
+                "level",
+                "marginWithResult",
+                "maintenance",
+                "marginRatio",
+                "asked",
+                "at"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["venue", "owner", "symbol", "asset", "position", "setting", "alerts"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "owner": "0x1111111111111111111111111111111111111111",
+            "symbol": "BTC-PERP",
+            "marginLevel": "100",
+            "ratioLevel": "50"
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "owner": "0x1111111111111111111111111111111111111111",
+            "symbol": "BTC-PERP"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "owner": "0x1111111111111111111111111111111111111111",
+            "symbol": ""
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    },
     "trade.signals.webhooks.create": {
       "service": "svc-trade",
       "module": "trade",
