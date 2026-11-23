@@ -80,7 +80,7 @@ export interface ReversalStore {
   due(before: string, limit: number): Promise<string[]>;
 }
 
-export const reversalKey = (originalTxId: string, ordinal: string) => `ops:reversal:${originalTxId}:${ordinal}`;
+const reversalKey = (originalTxId: string, ordinal: string) => `ops:reversal:${originalTxId}:${ordinal}`;
 
 const firstOf = (rows: readonly ReversalRow[], originalTxId: string, except?: string): FirstReversal | null => {
   const mine = rows.filter((r) => r.originalTxId === originalTxId && r.requestNo !== except);

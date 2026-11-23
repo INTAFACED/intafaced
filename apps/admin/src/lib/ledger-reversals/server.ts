@@ -109,7 +109,7 @@ export async function requestReversal(
 }
 
 /** What svc-ops' row says after a run, in the desk's words. Only `posted` is a success. */
-export function reversalReply(reversal: OpsLedgerReversal, requestNo: string, originalTxId: string): ExecuteReply {
+function reversalReply(reversal: OpsLedgerReversal, requestNo: string, originalTxId: string): ExecuteReply {
   if (reversal.requestNo !== requestNo || reversal.originalTxId !== originalTxId)
     return { ok: false, refusal: explainRefusal('admin.ops_invalid_response', 502, true) };
   if (reversal.state === 'posted' && reversal.reversingTxId)

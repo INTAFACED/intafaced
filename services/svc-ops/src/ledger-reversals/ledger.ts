@@ -21,7 +21,7 @@ export interface ReversalLedger {
 }
 
 /** Answers the ledger gives before it books anything under the key: the request is settled as refused. */
-export const PROVEN_REFUSALS: ReadonlySet<string> = new Set([
+const PROVEN_REFUSALS: ReadonlySet<string> = new Set([
   'ledger.tx_not_found',
   'ledger.reversal_already_reversed',
   'ledger.insufficient_funds',
@@ -32,8 +32,8 @@ export const PROVEN_REFUSALS: ReadonlySet<string> = new Set([
 ]);
 
 /** A send whose reply never came back, or came back in a shape this service does not read. */
-export const LEDGER_REPLY_LOST = 'ledger.reply_lost' as const;
-export const LEDGER_REPLY_INVALID = 'ledger.reply_invalid' as const;
+const LEDGER_REPLY_LOST = 'ledger.reply_lost' as const;
+const LEDGER_REPLY_INVALID = 'ledger.reply_invalid' as const;
 
 const TIMEOUT_MS = 15_000;
 /** The fields of a refusal body this service reads; anything else in it is ignored. */
