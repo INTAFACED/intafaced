@@ -33,13 +33,17 @@ let upstream: Server | null = null;
 let base = '';
 const reached: string[] = [];
 
-/** Resolves on the edge's own "listening" log line; rejects if the process exits first. */
-function waitForListening(proc: ChildProcess): Promise<void> {
+/** A probed port can be taken by a parallel worker before the child binds it; the boot then retries on a fresh one. */
+const BOOT_ATTEMPTS = 5;
+
+/** Resolves on THIS child's own "listening" line for `port`; rejects if the process exits first. */
+function waitForListening(proc: ChildProcess, port: number): Promise<void> {
+  const listening = `listening at http://127.0.0.1:${port}`;
   return new Promise((resolve, reject) => {
     let output = '';
     const onData = (d: Buffer) => {
       output += d.toString();
-      if (/listening/i.test(output)) resolve();
+      if (output.includes(listening)) resolve();
     };
     proc.stdout?.on('data', onData);
     proc.stderr?.on('data', onData);
@@ -47,18 +51,8 @@ function waitForListening(proc: ChildProcess): Promise<void> {
   });
 }
 
-beforeAll(async () => {
-  upstream = createServer((req, res) => {
-    reached.push(req.url ?? '');
-    res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ REACHED: req.url, peer: req.socket.remoteAddress }));
-  });
-  await new Promise<void>((resolve) => upstream!.listen(0, '127.0.0.1', resolve));
-  const bankPort = (upstream.address() as AddressInfo).port;
-
-  const port = await freePort();
-  base = `http://127.0.0.1:${port}`;
-  child = spawn(process.execPath, ['--import', 'tsx', ENTRYPOINT], {
+function spawnEdge(port: number, bankPort: number): ChildProcess {
+  return spawn(process.execPath, ['--import', 'tsx', ENTRYPOINT], {
     cwd: join(HERE, '..'),
     env: {
       ...process.env,
@@ -80,7 +74,32 @@ beforeAll(async () => {
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  await waitForListening(child);
+}
+
+beforeAll(async () => {
+  upstream = createServer((req, res) => {
+    reached.push(req.url ?? '');
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ REACHED: req.url, peer: req.socket.remoteAddress }));
+  });
+  await new Promise<void>((resolve) => upstream!.listen(0, '127.0.0.1', resolve));
+  const bankPort = (upstream.address() as AddressInfo).port;
+
+  for (let attempt = 1; ; attempt++) {
+    const port = await freePort();
+    child = spawnEdge(port, bankPort);
+    try {
+      await waitForListening(child, port);
+      base = `http://127.0.0.1:${port}`;
+      return;
+    } catch (err) {
+      child.kill();
+      child = null;
+      // Only a lost race for the port is retried; any other exit is the service failing to boot.
+      if (attempt < BOOT_ATTEMPTS && err instanceof Error && err.message.includes('EADDRINUSE')) continue;
+      throw err;
+    }
+  }
 }, 90_000);
 
 afterAll(async () => {

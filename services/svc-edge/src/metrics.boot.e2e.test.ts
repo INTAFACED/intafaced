@@ -63,37 +63,33 @@ async function freePort(): Promise<number> {
 let child: ChildProcess | null = null;
 let base = '';
 
-/** Poll until the process is listening, or give up loudly. */
-async function waitForBoot(url: string, log: () => string): Promise<void> {
-  const deadline = Date.now() + 60_000;
-  let last = '';
-  while (Date.now() < deadline) {
-    if (child?.exitCode !== null && child?.exitCode !== undefined) {
-      throw new Error(`svc-edge exited with ${child.exitCode} before listening:\n${log()}`);
-    }
-    try {
-      const res = await fetch(`${url}/health`);
-      if (res.ok) return;
-      last = `status ${res.status}`;
-    } catch (err) {
-      last = err instanceof Error ? err.message : String(err);
-    }
-    await new Promise((r) => setTimeout(r, 250));
-  }
-  throw new Error(`svc-edge never became reachable (${last}):\n${log()}`);
+/** A probed port can be taken by a parallel worker before the child binds it; the boot then retries on a fresh one. */
+const BOOT_ATTEMPTS = 5;
+
+/**
+ * Resolves on THIS child's own Fastify "listening" line for `port`, so a different process that happens to hold the
+ * port can never pass for the edge. Rejects if the child exits first; the error carries everything it printed.
+ */
+function waitForListening(proc: ChildProcess, port: number): Promise<void> {
+  const listening = `listening at http://127.0.0.1:${port}`;
+  return new Promise((resolve, reject) => {
+    let output = '';
+    const onData = (d: Buffer) => {
+      output += d.toString();
+      if (output.includes(listening)) resolve();
+    };
+    proc.stdout?.on('data', onData);
+    proc.stderr?.on('data', onData);
+    proc.once('exit', (code) => reject(new Error(`svc-edge exited with ${code} before listening:\n${output}`)));
+    setTimeout(() => reject(new Error(`svc-edge never logged "${listening}" within 60s:\n${output}`)), 60_000).unref();
+  });
 }
 
-beforeAll(async () => {
-  const port = await freePort();
-  base = `http://127.0.0.1:${port}`;
-
-  let output = '';
-  const log = () => output;
-
+function spawnEdge(port: number): ChildProcess {
   // `--import tsx` keeps this to ONE process, so the kill in `afterAll` cannot
   // leave an orphan holding the port. `tsx src/index.ts` would spawn a grandchild
   // that survives killing its parent on Windows.
-  child = spawn(process.execPath, ['--import', 'tsx', ENTRYPOINT], {
+  return spawn(process.execPath, ['--import', 'tsx', ENTRYPOINT], {
     cwd: join(HERE, '..'),
     env: {
       ...process.env,
@@ -102,7 +98,8 @@ beforeAll(async () => {
       SERVICE_NAME: 'svc-edge',
       HTTP_HOST: '127.0.0.1',
       HTTP_PORT: String(port),
-      LOG_LEVEL: 'fatal',
+      // `info`, not quieter: the boot waits for Fastify's own "listening" line.
+      LOG_LEVEL: 'info',
       // No collector in a unit-test run; a provider that cannot export would
       // only add retry noise to this process's stderr.
       OTEL_ENABLED: 'false',
@@ -119,15 +116,24 @@ beforeAll(async () => {
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
+}
 
-  child.stdout?.on('data', (d: Buffer) => {
-    output += d.toString();
-  });
-  child.stderr?.on('data', (d: Buffer) => {
-    output += d.toString();
-  });
-
-  await waitForBoot(base, log);
+beforeAll(async () => {
+  for (let attempt = 1; ; attempt++) {
+    const port = await freePort();
+    child = spawnEdge(port);
+    try {
+      await waitForListening(child, port);
+      base = `http://127.0.0.1:${port}`;
+      return;
+    } catch (err) {
+      child.kill();
+      child = null;
+      // Only a lost race for the port is retried; any other exit is the service failing to boot.
+      if (attempt < BOOT_ATTEMPTS && err instanceof Error && err.message.includes('EADDRINUSE')) continue;
+      throw err;
+    }
+  }
 }, 90_000);
 
 afterAll(async () => {
