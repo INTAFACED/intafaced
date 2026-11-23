@@ -255,6 +255,16 @@ impl Held<'_> {
         self.partner.lock().purchase_holds(user_id, now)
     }
 
+    /// `openCurrency`: the partner opens the person's currency account. Moves nothing, so it asks no guard.
+    pub fn open_currency(
+        &self,
+        user_id: &str,
+        asset_id: &str,
+        now: Instant,
+    ) -> Result<Balance, Refusal> {
+        self.partner.lock().open_currency(user_id, asset_id, now)
+    }
+
     /// `openOrders`.
     pub fn open_orders(&self, user_id: &str) -> Vec<super::OpenOrder> {
         self.partner.lock().open_orders(user_id)

@@ -528,6 +528,11 @@ pub fn currencies_add(
     if !allowed(owner_list)?.contains(&id) {
         return Err(asset_unknown(&id));
     }
+    // For a person the partner holds money for, the currency account is the partner's: it opens it first (once, however
+    // often asked), so a refusal there leaves no label here (J-bank-01 #3).
+    if let Some(bank) = money.custody.bank_for(user_id) {
+        bank.open_currency(user_id, &id, money.now)?;
+    }
     let space = with(pool, |c| {
         let s = space::ensure_primary(c, user_id, &id)?;
         space::restore_currency(c, user_id, &id)?;

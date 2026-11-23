@@ -413,6 +413,8 @@ mod tests {
                     at,
                 )
                 .unwrap();
+            state.open_currency(ADA, "USDC", at).unwrap();
+            state.open_currency(ADA, "USDC", at).unwrap();
             let mut space = AccountRef::main(ADA, "USDT");
             space.space_id = Some("s1".to_owned());
             state
@@ -432,8 +434,24 @@ mod tests {
             post(&partner, "/accounts", &person("")),
             (
                 200,
-                r#"{"label":"TEST","value":[{"asset":"USDT","spaceId":null,"amount":"80"},{"asset":"USDT","spaceId":"s1","amount":"20"}]}"#.to_owned()
+                r#"{"label":"TEST","value":[{"asset":"USDT","spaceId":null,"amount":"80"},{"asset":"USDC","spaceId":null,"amount":"0"},{"asset":"USDT","spaceId":"s1","amount":"20"}]}"#.to_owned()
             )
+        );
+    }
+
+    #[test]
+    fn a_partner_that_is_down_opens_no_currency_account() {
+        let partner = TestPartner::new().unwrap();
+        switch(&partner, r#"{"down":true}"#);
+        let at = Instant::start_of_year(2026);
+        assert!(matches!(
+            partner.lock().open_currency(ADA, "USDC", at),
+            Err(Refusal::Bank(e)) if e.row.code == "bank.partner_unavailable"
+        ));
+        switch(&partner, r#"{"down":false}"#);
+        assert_eq!(
+            post(&partner, "/accounts", &person("")),
+            (200, r#"{"label":"TEST","value":[]}"#.to_owned())
         );
     }
 
