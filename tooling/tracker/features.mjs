@@ -1148,7 +1148,7 @@ export const FEATURES = [
     phase: '5',
     status: 'done',
     dependsOn: ['ledger.double-entry'],
-    requires: ['services/svc-bank'],
+    requires: ['crates/svc-bank'],
     note: 'svc-bank on main; self-mounts /trpc with an edge-verified principal; UX product may expand',
   }),
   f('bank.loans', 'Collateralised loans, LTV, margin calls, liquidation', {
@@ -1156,7 +1156,7 @@ export const FEATURES = [
     phase: '5',
     status: 'done',
     dependsOn: ['bank.accounts', 'trade.spot'],
-    requires: ['services/svc-bank', 'packages/ledger-client/src/recipes/loans.ts'],
+    requires: ['crates/svc-bank/src/loans/service.rs', 'packages/ledger-client/src/recipes/loans.ts'],
     note: 'DONE on main #202 (2026-07-30). Collateral is purposed per loan (assertPurposedLocks covers collateral) so two loans in one asset cannot unsecure each other. Principal draws from loanReserve (module account, hard non-negative — underfunded reserve fails to lend rather than printing). No stored outstanding column — debt event-sourced. Liquidation ladder + accrual with per-(loan,day) idempotency. Value only via ledger-client recipes; amounts decimal strings / scaled bigint, never money-as-number for principal. Residual product: bank.earn / bank.cards / live go-live policy still separate.',
   }),
   f('bank.earn', 'Flexible + fixed yield pools', {
@@ -1164,7 +1164,7 @@ export const FEATURES = [
     phase: '5',
     status: 'done',
     dependsOn: ['bank.accounts', 'token.staking'],
-    requires: ['services/svc-bank/src/earn/earn-service.ts', 'packages/ledger-client/src/recipes/bank.ts'],
+    requires: ['crates/svc-bank/src/earn/service.rs', 'packages/ledger-client/src/recipes/bank.ts'],
     note:
       '**Reclaimed 2026-08-04** from Shehzad M6 — Nitro agents thin ledger-true. Class M. ' +
       'DONE 2026-08-04 against the bar in docs/adr/2026-08-04-bank-vertical-law.md (Accepted; correction 1 there says this row was stale, ' +
@@ -1186,11 +1186,7 @@ export const FEATURES = [
     phase: '5',
     status: 'done',
     dependsOn: ['bank.accounts'],
-    requires: [
-      'services/svc-bank/src/cards/card-service.ts',
-      'services/svc-bank/src/cards/issuer.ts',
-      'services/svc-bank/src/cards/cards-auth-product.test.ts',
-    ],
+    requires: ['crates/svc-bank/src/cards/core.rs', 'crates/svc-bank/src/cards/issuer.rs', 'crates/svc-bank/tests/cards_core_db.rs'],
     note:
       '**D26-P1-B2 public-door proof 2026-08-12 (#1765):** `cards-auth-product.test.ts` — auth path via mounted router + ledger half reachable; live-issuer latency stays socket.live-issuer. ' +
       '**SPLIT 2026-08-06** per docs/adr/2026-08-04-bank-vertical-law.md correction 3. This row is the LEDGER HALF, which is what the ' +
@@ -1221,10 +1217,10 @@ export const FEATURES = [
     status: 'done',
     dependsOn: ['bank.cards', 'protocol.smart-accounts'],
     requires: [
-      'services/svc-bank/src/cards/conversion.ts',
-      'services/svc-bank/src/cards/card-service.ts',
-      'services/svc-bank/src/cards/sovereign-card-product.test.ts',
-      'services/svc-bank/drizzle/0007_card_jit_conversion.sql',
+      'crates/svc-bank/src/cards/moves/conversion.rs',
+      'crates/svc-bank/src/cards/moves/decide.rs',
+      'crates/svc-bank/tests/card_ops_ledger_db.rs',
+      'crates/svc-bank/migrations/0007_card_jit_conversion.sql',
     ],
     note:
       '**Custodial half DONE #1174** (2026-08-09) · **D26-P1-B3 refuse-invent seal** (mounted-router product suite): ' +
@@ -1239,10 +1235,10 @@ export const FEATURES = [
     status: 'done',
     dependsOn: ['pay.rails'],
     requires: [
-      'services/svc-bank/src/ramps/ramp-service.ts',
-      'services/svc-bank/src/ramps/rails.ts',
-      'services/svc-bank/src/ramps/pay-fiat-adapter.ts',
-      'services/svc-bank/src/ramps/ramps-fiat-product.test.ts',
+      'crates/svc-bank/src/ramps/onramp/service.rs',
+      'crates/svc-bank/src/ramps/onramp/rails.rs',
+      'crates/svc-bank/src/ramps/offramp.rs',
+      'crates/svc-bank/tests/ramps_onramp_db.rs',
     ],
     note:
       '**D26-P1-B4 COMPLETE #1773** — Fiat on/off via PayFiatRampPort (svc-pay RailAdapter plane) on public doors ' +
@@ -1814,10 +1810,9 @@ export const FEATURES = [
     owner: 'nitro-bank-roundup',
     dependsOn: ['bank.accounts', 'bank.cards', 'bank.earn', 'trade.convert', 'protocol.smart-accounts'],
     requires: [
-      'services/svc-bank/src/auto-invest/mount-vs-tracker.ts',
-      'services/svc-bank/src/auto-invest/mount-vs-tracker.test.ts',
-      'services/svc-bank/src/auto-invest/auto-invest-policy.ts',
-      'services/svc-bank/src/auto-invest/auto-invest.reachable.test.ts',
+      'crates/svc-bank/src/automations/auto_invest/service.rs',
+      'crates/svc-bank/src/automations/auto_invest/convert.rs',
+      'crates/svc-bank/tests/automations_auto_invest_db.rs',
     ],
     note:
       '**D26-P1-B4 Done 2026-08-21:** threshold sweep + card round-up mounted (`mount-vs-tracker.ts`). ' +
@@ -1831,8 +1826,8 @@ export const FEATURES = [
     status: 'done',
     // Path-narrowed 2026-08-12 (D26-P1-B4): was `services/svc-bank` (same over-fence as auto-invest).
     requires: [
-      'services/svc-bank/src/business/business-service.ts',
-      'services/svc-bank/src/business/business.test.ts',
+      'crates/svc-bank/src/business/service.rs',
+      'crates/svc-bank/tests/business_dual_control_db.rs',
       'packages/ledger-client/src/recipes/bank.ts',
     ],
     dependsOn: ['bank.accounts', 'bank.cards', 'pay.gateway'],
@@ -2294,7 +2289,7 @@ export const FEATURES = [
     dependsOn: ['bank.cards'],
     note:
       '§13 — a card-scheme sponsor and an issuing BIN are a commercial relationship, not code: no amount of engineering time produces a ' +
-      'licence or a contract. The seam exists and is named — the `CardIssuerAdapter` port in services/svc-bank/src/cards/issuer.ts, whose ' +
+      'licence or a contract. The seam exists and is named — the `CardIssuerAdapter` port in crates/svc-bank/src/cards/issuer.rs, whose ' +
       'default `noCardIssuer` REFUSES with bank.no_card_issuer rather than falling back to the simulator, because a deployment somebody ' +
       'believes is live must not approve authorisations against a counterparty that does not exist. The ledger half of bank.cards is DONE ' +
       'behind this port (#770); what a live implementation adds is transport, credentials, signature verification and a latency budget — ' +

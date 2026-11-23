@@ -1054,7 +1054,7 @@ export async function publishLifecycles(ctx) {
   return out;
 }
 
-/** Same hash services/svc-bank/src/action-approval-consume.ts computes for a bank ops action (fields sorted by key). */
+/** Same hash svc-bank computes for a bank ops action (fields sorted by key: crates/svc-bank/src/transfers/step_up.rs `payload_hash`). */
 export function bankPayloadHash(actionType, fields) {
   const sorted = Object.fromEntries(
     Object.keys(fields)
@@ -1922,7 +1922,7 @@ export const TEST_FRAUD_LIST = Object.freeze([
 ]);
 export const SET_FRAUD_LISTING_ACTION = 'bank.ops.setDestinationFraudListing';
 
-/** The fields svc-bank binds a fraud listing's approval to (`fraudListingFields` in services/svc-bank/src/ramps/fraud-list.ts). */
+/** The fields svc-bank binds a fraud listing's approval to (`fields` in crates/svc-bank/src/ramps/book/fraud.rs). */
 export function fraudListingFields({ network, address, listed, expectedRevision, reason }) {
   const key = /^0x[0-9a-fA-F]{40}$/.test(address) ? address.toLowerCase() : address;
   return {
