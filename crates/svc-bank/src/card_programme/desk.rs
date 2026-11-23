@@ -6,8 +6,8 @@ use service_kit::json::Json;
 use service_kit::money::{Amount, format_amount, parse_amount};
 use service_kit::time::Instant;
 
-use super::rules::{RuleInput, rule_declines, rule_words};
 use super::{Deps, LIST, assert_may_change, audit, is_uuid, js_len, jsonb, safe_parse};
+use crate::cards::moves::decide::RuleParams;
 use crate::cards::ms;
 use crate::errors::Refusal;
 use crate::partner::refuse;
@@ -250,12 +250,22 @@ fn rule_cols() -> String {
     )
 }
 
+/// Params the rule schema accepted, as the authorise path reads them (`cards::moves::decide`, slice `card-ops`).
+fn rule_of(params: &Json) -> Result<RuleParams, Refusal> {
+    RuleParams::parse(params).ok_or_else(|| {
+        Refusal::Other(format!(
+            "rule params the schema accepted do not parse: {}",
+            params.compact()
+        ))
+    })
+}
+
 /// One rule as the desk shows it, or `None` when its stored params do not parse.
 fn rule_json(r: &Row) -> Result<Option<Json>, Refusal> {
     let Ok(params) = safe_parse(RULE_PARAMS, &jsonb(&r.get::<_, String>(4))?)? else {
         return Ok(None);
     };
-    let words = rule_words(&params);
+    let words = rule_of(&params)?.words();
     Ok(Some(Json::obj([
         ("id", Json::str(r.get::<_, String>(0))),
         ("ruleKey", Json::str(r.get::<_, String>(1))),
@@ -341,21 +351,14 @@ pub fn create_rule(
         )
         .map_err(|e| pg(&e))
     })?;
+    let rule = rule_of(&parsed)?;
     let mut would_decline: i64 = 0;
     for a in &sample {
         let asset: String = a.get(0);
         let amount = parse_amount(&a.get::<_, String>(1)).map_err(Refusal::Other)?;
         let channel: String = a.get(2);
         let mc: Option<String> = a.get(3);
-        if rule_declines(
-            &parsed,
-            &RuleInput {
-                asset_id: &asset,
-                amount,
-                channel: &channel,
-                merchant_category: mc.as_deref(),
-            },
-        ) {
+        if rule.declines(&asset, amount, &channel, mc.as_deref()) {
             would_decline += 1;
         }
     }

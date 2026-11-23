@@ -5,19 +5,18 @@
 //! the router is a door call here; a call on `CardDisputeService` or `CardSafety` is the Rust function it became, handed
 //! the dependencies the door gives it (`BankDoor::cards_deps`), as when the TypeScript test moves the clock.
 //!
-//! What the TypeScript drives through slice `card-ops` (not ported) is written here as the rows that slice writes:
-//! `ops.cardAuthorize` and `ops.cardCapture` are a `card_authorizations` row and its settled `card_settlements` capture;
-//! `ops.cardThreeDSChallenge` is `safety::open`, the function it reaches; support's `submitRepresentment` is the case's
-//! state, and `grantProvisionalCredit` the TEST partner's credit and the case's columns it writes. The right 3D Secure code
-//! drives `CardService.authorize`, which is `card-ops`': these tests hold that the challenge is approved with no
-//! authorisation and the answer is that slice's "not ported", and, once an authorisation is on the row (as `card-ops`
-//! writes it), every later answer returns that one.
+//! What the TypeScript drives through `ops.cardAuthorize` and `ops.cardCapture` before a dispute or a fraud report is
+//! written here as the rows those calls write: a `card_authorizations` row and its settled `card_settlements` capture
+//! (the disputes and fraud reports read them, and move no money of their own); `ops.cardThreeDSChallenge` is
+//! `safety::open`, the function it reaches; support's `submitRepresentment` is the case's state, and
+//! `grantProvisionalCredit` the TEST partner's credit and the case's columns it writes. The right 3D Secure code drives
+//! the real authorisation (`card-ops`' `authorize`, on a door with slice `card-ops`' stand-in ledger, `paying_bank`):
+//! the hold is made once and every later answer returns that one authorisation.
 //!
 //! Not ported, with the reason: the rest of `card-disputes.money.test.ts` (the queue, representment, arbitration, the
 //! provisional credit, the loss bearer, the cap, the partner mismatch, the step keys, two opens at once from support,
-//! the cap parser) is support's `ops.cardDispute*`, slice `card-ops`; the ledger balance checks of the 3D Secure test
-//! (the hold the authorisation makes) are `authorize`'s, slice `card-ops`. Without `TEST_DATABASE_URL` each test skips;
-//! with `REQUIRE_POSTGRES=1` it fails.
+//! the cap parser) is support's `ops.cardDispute*`, slice `card-ops`' desk. Without `TEST_DATABASE_URL` each test
+//! skips; with `REQUIRE_POSTGRES=1` it fails.
 
 #![allow(
     clippy::unwrap_used,
@@ -47,7 +46,8 @@ use svc_bank::cards::{NoRankTier, Settings, Wiring, disputes, safety};
 use svc_bank::door::{self, BankDoor, DoorConfig, Kind, ServiceAuth};
 use svc_bank::errors::Refusal;
 
-const SECRET: &str = "a-bank-cards-safety-edge-secret-long-enough";
+/// The card-ops kit's, so one signed caller reaches both doors.
+const SECRET: &str = crate::card_ops_kit::SECRET;
 const INTERNAL: &str = "a-bank-cards-safety-internal-secret-long-ok";
 const HOLDER: &str = "11111111-1111-4111-8111-111111111111";
 const STRANGER: &str = "33333333-3333-4333-8333-333333333333";
@@ -119,6 +119,29 @@ fn bank(db: &TestDb, terms: PartnerTerms, three_ds_try_limit: Option<i64>) -> Ba
     Bank { door }
 }
 
+/// A door that holds money (slice `card-ops`' stand-in ledger, the holder funded with 100 USDT), for a 3D Secure answer
+/// that goes on to authorise the purchase.
+fn paying_bank(
+    terms: PartnerTerms,
+    three_ds_try_limit: Option<i64>,
+) -> Option<(TestDb, Bank, crate::card_ops_kit::Book)> {
+    let k = crate::card_ops_kit::kit(crate::card_ops_kit::Opts {
+        issuer: Issuer::sim(terms),
+        settings: Settings {
+            pin_try_limit: Some(3),
+            three_ds_try_limit,
+            dispute_cap: Some(vec![("USDT".to_owned(), "100".to_owned())]),
+            ..Settings::default()
+        },
+        ..crate::card_ops_kit::Opts::default()
+    })?;
+    k.ledger.fund(HOLDER, "USDT", "100");
+    let crate::card_ops_kit::Kit {
+        db, ledger, door, ..
+    } = k;
+    Some((db, Bank { door }, ledger))
+}
+
 fn db() -> Option<TestDb> {
     let db = TestDb::new()?;
     db.migrated();
@@ -183,12 +206,6 @@ impl Answer {
             (200, _, _) => "ok".to_owned(),
             (_, Some(Json::String(c)), _) | (_, None, Some(Json::String(c))) => c.clone(),
             (status, _, _) => panic!("no refusal code: {status} {}", self.1.compact()),
-        }
-    }
-    fn message(&self) -> String {
-        match self.1.get("error").and_then(|e| e.get("message")) {
-            Some(Json::String(m)) => m.clone(),
-            _ => String::new(),
         }
     }
 }
@@ -378,16 +395,15 @@ fn other_code(code: &str) -> &'static str {
     if code == "000000" { "111111" } else { "000000" }
 }
 
-const NOT_PORTED: &str = "svc-bank in Rust: the card-ops slice is not ported";
-
 // ---------------------------------------------------------------------------------------------------------------
 // 3D Secure and fraud reports (cards-procedures.test.ts)
 
 #[test]
 fn completes_a_3d_secure_purchase_once_on_the_right_code_and_locks_a_challenge_at_the_owner_count_of_wrong_codes()
  {
-    let Some(db) = db() else { return };
-    let b = bank(&db, secrets(), Some(3));
+    let Some((db, b, ledger)) = paying_bank(secrets(), Some(3)) else {
+        return;
+    };
     let card = issue(&b, HOLDER, "100");
 
     let opened_id = uuid();
@@ -434,36 +450,31 @@ fn completes_a_3d_secure_purchase_once_on_the_right_code_and_locks_a_challenge_a
         ),
         ("open".to_owned(), "2".to_owned(), "null".to_owned())
     );
-    // The right code approves it; the purchase's authorisation is `card-ops`' move, owed until it is ported.
-    let approved = answer(&b, &card, &opened_id, Some(&right));
-    assert_eq!(approved.0, 500, "{:?}", approved.1.compact());
-    assert_eq!(approved.message(), NOT_PORTED);
+    // The right code approves it and authorises the purchase once, under the challenge's business key: the hold is made.
+    let approved = answer(&b, &card, &opened_id, Some(&right)).ok();
+    assert_eq!(s(&approved, "state"), "approved");
+    assert_eq!(s(&approved, "decision"), "approved");
+    let auth = s(&approved, "authorizationId");
     let row = db
         .client()
         .query_one(
-            "SELECT state, authorization_id::text, wrong_codes::int8 FROM bank.card_3ds_challenges WHERE id = $1::text::uuid",
+            "SELECT c.state, c.authorization_id::text, c.wrong_codes::int8, a.authorization_ref \
+               FROM bank.card_3ds_challenges c JOIN bank.card_authorizations a ON a.id = c.authorization_id \
+              WHERE c.id = $1::text::uuid",
             &[&opened_id],
         )
         .unwrap();
     assert_eq!(row.get::<_, String>(0), "approved");
-    assert_eq!(row.get::<_, Option<String>>(1), None);
+    assert_eq!(row.get::<_, Option<String>>(1), Some(auth.clone()));
     assert_eq!(row.get::<_, i64>(2), 1);
-
-    // `card-ops` writes the one authorisation under the challenge's business key: every answer after returns it,
-    // whatever code is typed, with its decision and no TEST code.
-    let auth = authorize(
-        &db,
-        &card,
-        &safety::three_ds_authorization_ref("3ds-ok"),
-        "7",
-        None,
+    assert_eq!(
+        row.get::<_, String>(3),
+        safety::three_ds_authorization_ref("3ds-ok")
     );
-    db.client()
-        .execute(
-            "UPDATE bank.card_3ds_challenges SET authorization_id = $2::text::uuid WHERE id = $1::text::uuid",
-            &[&opened_id, &auth],
-        )
-        .unwrap();
+    assert_eq!(ledger.held(&auth, HOLDER, "USDT"), "7");
+    assert_eq!(ledger.available(HOLDER, "USDT"), "93");
+
+    // Every answer after returns that one authorisation, whatever code is typed, with its decision and no TEST code.
     let done = answer(&b, &card, &opened_id, Some(&right)).ok();
     assert_eq!(s(&done, "state"), "approved");
     assert_eq!(s(&done, "decision"), "approved");
@@ -477,6 +488,8 @@ fn completes_a_3d_secure_purchase_once_on_the_right_code_and_locks_a_challenge_a
     });
     assert_eq!(s(&again, "authorizationId"), auth);
     assert_eq!(s(&racing, "authorizationId"), auth);
+    assert_eq!(ledger.booked("withdraw.hold:"), 1);
+    assert_eq!(ledger.available(HOLDER, "USDT"), "93");
 
     // Three wrong codes lock the next challenge: no authorisation, and the right code no longer helps.
     let locked_id = uuid();
@@ -514,47 +527,43 @@ fn completes_a_3d_secure_purchase_once_on_the_right_code_and_locks_a_challenge_a
 #[test]
 fn finishes_an_approved_3d_secure_challenge_whose_authorisation_was_never_written_and_refuses_by_name_without_the_owner_count_or_a_partner()
  {
-    let Some(db) = db() else { return };
-    let b = bank(&db, secrets(), Some(3));
+    let Some((db, b, ledger)) = paying_bank(secrets(), Some(3)) else {
+        return;
+    };
     let card = issue(&b, HOLDER, "100");
     let crash = uuid();
     challenge(&b, &card, &crash, "3ds-crash", "5").unwrap();
     // A crash between the approval and the authorisation: the row says approved and holds no authorisation. Answered
-    // with no code it is finished through `authorize`, which is `card-ops`': owed, and nothing is changed here.
+    // with no code it is finished through `authorize`, once.
     db.client()
         .execute(
             "UPDATE bank.card_3ds_challenges SET state = 'approved' WHERE id = $1::text::uuid",
             &[&crash],
         )
         .unwrap();
-    let finished = answer(&b, &card, &crash, None);
-    assert_eq!(finished.0, 500);
-    assert_eq!(finished.message(), NOT_PORTED);
+    let finished = answer(&b, &card, &crash, None).ok();
+    assert_eq!(s(&finished, "state"), "approved");
+    assert_eq!(s(&finished, "decision"), "approved");
+    let crash_auth = s(&finished, "authorizationId");
+    assert_eq!(ledger.held(&crash_auth, HOLDER, "USDT"), "5");
+    assert_eq!(
+        s(&answer(&b, &card, &crash, None).ok(), "authorizationId"),
+        crash_auth
+    );
     assert_eq!(
         db.count("SELECT count(*)::int8 FROM bank.card_authorizations"),
-        0
+        1
     );
 
-    // A right code on a purchase the card then declines shows the decline, not success.
+    // A right code on a purchase the card then declines shows the decline, not success, and holds nothing.
     let big = uuid();
     challenge(&b, &card, &big, "3ds-over-cap", "150").unwrap();
-    let declined = authorize(
-        &db,
-        &card,
-        "3ds:3ds-over-cap",
-        "150",
-        Some("bank.card_limit_exceeded"),
-    );
-    db.client()
-        .execute(
-            "UPDATE bank.card_3ds_challenges SET state = 'approved', authorization_id = $2::text::uuid WHERE id = $1::text::uuid",
-            &[&big, &declined],
-        )
-        .unwrap();
-    let shown = answer(&b, &card, &big, Some("123456")).ok();
+    let code = s(&listed(&b, &card, &big), "testCode");
+    let shown = answer(&b, &card, &big, Some(&code)).ok();
     assert_eq!(s(&shown, "state"), "approved");
     assert_eq!(s(&shown, "decision"), "declined");
     assert_eq!(s(&shown, "declineCode"), "bank.card_limit_exceeded");
+    assert_eq!(ledger.available(HOLDER, "USDT"), "95");
 
     // An open challenge answered with no code refuses by name and counts nothing.
     let blank = uuid();

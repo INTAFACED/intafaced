@@ -1,20 +1,14 @@
 //! Slice `card-programme` against the Rust slice on a real Postgres. Ports the checks of the TypeScript's two suites
 //! that fall on the slice's calls, each test named after the TypeScript test's words:
 //! `cards/programme/programme-ops.db.test.ts` (the card programme desk) and `cards/programme-funding.money.test.ts`
-//! (programme funding). A call on `CardProgrammeOps` or `CardService` is the slice's own function
-//! (`svc_bank::card_programme`), given the dependencies the door gives it (`BankDoor::cards_deps`) and the slice's wiring.
+//! (programme funding). A call on `CardProgrammeOps` is the slice's own function (`svc_bank::card_programme`), and a call
+//! on `CardService`'s `authorize`, `capture` or `reverse` is slice `card-ops`' own move (`cards::moves`), each given the
+//! dependencies the door gives it (`BankDoor::cards_deps`, `Moves::bare`), against svc-ledger's stand-in
+//! (`card_ops_kit::Book`, the TypeScript's `MemoryLedger`).
 //!
-//! The authorisations, captures and reversals the TypeScript makes through `authorize`, `capture` and `reverse` (slice
-//! `card-ops`, not ported) are written straight into `bank.card_authorizations`, `card_settlements` and
-//! `card_authorization_traces` here, as those moves leave them.
-//!
-//! Not ported, with the reason: that a promoted rule declines a new authorisation, that a 3DS policy challenges or
-//! exempts one, and that the simulator's TEST events drive the authorise and capture path are `card-ops`' (the
-//! authorise path reads the rules and the policy); here the rule's shadow count, its promotion and roll back, the
-//! exemption count over the traces, and the simulator's gate are tested. The ledger-journal assertions ("nothing
-//! posts") hold by construction: no ledger is wired to these doors, so any post would refuse. A partner that fails
-//! once after the approval is the TypeScript's hand-made issuer; the Rust issuer is a closed set, so the retry is
-//! tested from the state that failure leaves (an approved row with no partner reference).
+//! Not ported, with the reason: a partner that fails once after the approval is the TypeScript's hand-made issuer; the
+//! Rust issuer is a closed set, so the retry is tested from the state that failure leaves (an approved row with no
+//! partner reference).
 //! Without `TEST_DATABASE_URL` each test skips; with `REQUIRE_POSTGRES=1` it fails.
 #![allow(
     clippy::unwrap_used,
@@ -25,6 +19,7 @@
     reason = "a test: a failure is the point"
 )]
 
+use crate::card_ops_kit::Book;
 use crate::support;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -43,6 +38,8 @@ use svc_bank::card_programme::holders::{self, HolderAsk, Owner, uuid_from_key};
 use svc_bank::card_programme::{Deps, Wiring, desk, funding};
 use svc_bank::cards::core::{IssueAsk, issue};
 use svc_bank::cards::issuer::Issuer;
+use svc_bank::cards::moves::decide::{self, Ask};
+use svc_bank::cards::moves::{Auth, Moves, settle};
 use svc_bank::cards::terms::{PartnerTerms, sim_partner_for};
 use svc_bank::cards::{Settings, Wiring as CardsWiring};
 use svc_bank::door::{BankDoor, DoorConfig, ServiceAuth};
@@ -314,6 +311,8 @@ impl Freeze for Open {
 struct Bank {
     door: BankDoor,
     db: TestDb,
+    /// svc-ledger's stand-in, which books what the card moves post.
+    ledger: Book,
     people: People,
     desk: Desk,
     /// `sanctions`, `simulatorAllowed` and the export secret, as the slice's wiring holds them.
@@ -322,13 +321,20 @@ struct Bank {
     export_secret: Option<String>,
 }
 
-fn door_for(db: &TestDb, people: &People, desk: &Desk, partner: PartnerTerms) -> BankDoor {
+fn door_for(
+    db: &TestDb,
+    ledger: &Book,
+    people: &People,
+    desk: &Desk,
+    partner: PartnerTerms,
+) -> BankDoor {
     let env: BTreeMap<String, String> = [("APP_ENV", "test"), ("NODE_ENV", "test")]
         .iter()
         .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
         .collect();
     let mut spaces = SpacesWiring::none();
     spaces.directory = Box::new(people.clone());
+    spaces.ledger = Box::new(ledger.clone());
     let mut transfers = TransfersWiring::none();
     transfers.recipients = Box::new(people.clone());
     transfers.approvals = Box::new(desk.clone());
@@ -374,10 +380,12 @@ fn bank() -> Option<Bank> {
     db.migrated();
     let people = People::default();
     let desk = Desk::default();
-    let door = door_for(&db, &people, &desk, reported());
+    let ledger = Book::default();
+    let door = door_for(&db, &ledger, &people, &desk, reported());
     Some(Bank {
         door,
         db,
+        ledger,
         people,
         desk,
         sanctions: Some(LISTED.to_owned()),
@@ -389,7 +397,7 @@ fn bank() -> Option<Bank> {
 impl Bank {
     /// The same database, people and approvals, with the card partner answering `partner`.
     fn with_partner(&mut self, partner: PartnerTerms) {
-        self.door = door_for(&self.db, &self.people, &self.desk, partner);
+        self.door = door_for(&self.db, &self.ledger, &self.people, &self.desk, partner);
     }
 
     /// `f` given the slice's dependencies, as the door hands them over.
@@ -400,8 +408,17 @@ impl Bank {
             export_secret: self.export_secret.clone(),
             rates: Box::new(Rates),
         };
-        self.door
-            .cards_deps(door_now(), |cards| f(&Deps { cards, w: &w }))
+        self.door.cards_deps(door_now(), |cards| {
+            let moves = Moves::bare(cards);
+            f(&Deps::new(&moves, &w))
+        })
+    }
+
+    /// `person(tier)`: a verified person the directory finds by email, with 1000 USDT on the ledger.
+    fn person(&self, tier: &str) -> (String, String) {
+        let (user, email) = self.people.person(tier);
+        self.ledger.fund(&user, "USDT", "1000");
+        (user, email)
     }
 
     fn sql(&self, q: &str) {
@@ -466,72 +483,35 @@ impl Bank {
     }
 }
 
-/// An authorisation as `authorize` leaves it (slice `card-ops`): its id.
-struct Auth<'a> {
-    card: &'a str,
-    reference: &'a str,
-    amount: &'a str,
-    channel: &'a str,
-    merchant: Option<&'a str>,
-    /// `None` approves; a decline names its code.
-    decline: Option<&'a str>,
-    trace: Option<&'a str>,
-}
-
-impl Default for Auth<'_> {
-    fn default() -> Self {
-        Auth {
-            card: "",
-            reference: "",
-            amount: "1",
-            channel: "card-present",
-            merchant: None,
-            decline: None,
-            trace: None,
-        }
-    }
-}
-
-fn authorize(b: &Bank, a: &Auth<'_>) -> String {
-    let id = uuid();
-    let decision = if a.decline.is_some() {
-        "declined"
-    } else {
-        "approved"
+/// \`cards.authorize\` (slice \`card-ops\`' own move): one authorisation of \`amount\` on the card, \`edit\` setting the rest.
+fn authorize(
+    b: &Bank,
+    card: &str,
+    reference: &str,
+    amount: &str,
+    edit: impl FnOnce(&mut Ask),
+) -> Auth {
+    let mut ask = Ask {
+        card_id: card.to_owned(),
+        authorization_ref: reference.to_owned(),
+        amount: parse_amount(amount).unwrap(),
+        ..Ask::default()
     };
-    let status = if a.decline.is_some() {
-        "rejected"
-    } else {
-        "settled"
-    };
-    let hold = a.decline.is_none().then(|| format!("tx-{id}"));
-    let mut c = b.db.client();
-    c.execute(
-        "INSERT INTO bank.card_authorizations (id, card_id, authorization_ref, amount, merchant_category, decision, \
-           decline_code, status, hold_ledger_tx_id, channel, decided_at) \
-         VALUES ($1::text::uuid, $2::text::uuid, $3, $4::text::numeric, $5, $6::text::bank.card_decision, $7, \
-           $8::text::bank.loan_event_status, $9, $10, $11::text::timestamptz)",
-        &[&id, &a.card, &a.reference, &a.amount, &a.merchant, &decision, &a.decline, &status, &hold, &a.channel, &AT],
-    )
-    .unwrap();
-    if let Some(steps) = a.trace {
-        c.execute(
-            "INSERT INTO bank.card_authorization_traces (authorization_id, steps) VALUES ($1::text::uuid, $2::text::jsonb)",
-            &[&id, &steps],
-        )
-        .unwrap();
-    }
-    id
+    edit(&mut ask);
+    b.ops(|d| decide::authorize(d.moves, &ask)).unwrap()
 }
 
-/// A settled capture or reversal on an authorisation, as `capture` and `reverse` leave it.
-fn settle(b: &Bank, auth: &str, sequence: i32, kind: &str, amount: &str) {
-    b.db.client()
-        .execute(
-            "INSERT INTO bank.card_settlements (authorization_id, sequence, kind, amount, status, ledger_tx_id, settled_at) \
-             VALUES ($1::text::uuid, $2, $3::text::bank.card_settlement_kind, $4::text::numeric, 'settled', $5, $6::text::timestamptz)",
-            &[&auth, &sequence, &kind, &amount, &format!("tx-{auth}-{sequence}"), &AT],
-        )
+fn category(c: &'static str) -> impl FnOnce(&mut Ask) {
+    move |a| a.merchant_category = Some(c.to_owned())
+}
+
+fn online(a: &mut Ask) {
+    a.channel = Some("online".to_owned());
+}
+
+/// \`cards.capture\` (slice \`card-ops\`).
+fn capture(b: &Bank, card: &str, reference: &str, amount: &str) {
+    b.ops(|d| settle::capture(d.moves, card, reference, parse_amount(amount).unwrap()))
         .unwrap();
 }
 
@@ -552,20 +532,18 @@ fn version(rules: &Json, v: f64) -> Json {
 // programme-ops.db.test.ts
 
 #[test]
-fn a_shadow_rule_counts_what_it_would_decline_over_past_test_authorisations_decides_nothing_and_roll_back_restores_the_version_before()
+fn a_shadow_rule_counts_what_it_would_decline_over_past_test_authorisations_decides_nothing_and_declines_only_new_ones_once_promoted_roll_back_restores_the_version_before()
  {
     let Some(b) = bank() else { return };
-    let (p, _) = b.people.person("full");
+    let (p, _) = b.person("full");
     let (card, _) = b.card_for(&p);
     for i in 0..10 {
         authorize(
             &b,
-            &Auth {
-                card: &card,
-                reference: &format!("past-{i}"),
-                merchant: Some(if i < 3 { "gambling" } else { "groceries" }),
-                ..Auth::default()
-            },
+            &card,
+            &format!("past-{i}"),
+            "1",
+            category(if i < 3 { "gambling" } else { "groceries" }),
         );
     }
     let gambling = params("merchant_category", &[("category", "gambling")]);
@@ -579,32 +557,52 @@ fn a_shadow_rule_counts_what_it_would_decline_over_past_test_authorisations_deci
         (n(counted, "evaluated"), n(counted, "wouldDecline")),
         (10.0, 3.0)
     );
-    // In shadow it decides nothing: no past decision changed.
-    let approved =
-        "SELECT count(*)::int8 FROM bank.card_authorizations WHERE decision = 'approved'";
-    assert_eq!(b.count(approved), 10);
+    // In shadow it decides nothing.
+    assert_eq!(
+        authorize(&b, &card, "during-shadow", "1", category("gambling")).decision,
+        "approved"
+    );
     b.ops(|d| desk::promote_rule(d, OPERATOR, &s(&shadow, "id").unwrap()))
         .unwrap();
+    let declined = authorize(&b, &card, "after-promote", "1", category("gambling"));
     assert_eq!(
-        b.count(approved),
-        10,
-        "promoting a rule changes no past decision"
+        (declined.decision.as_str(), declined.decline_code.as_deref()),
+        ("declined", Some("bank.card_rule_declined"))
     );
-    let active = desk::rules(&mut b.db.client()).unwrap();
-    let v1 = list(&Json::Array(active))
+    let detail = b.ops(|d| desk::authorization(d, &declined.id)).unwrap();
+    let step = field_list(&detail, "trace")
         .into_iter()
-        .find(|r| n(r, "version") == 1.0)
+        .find(|t| s(t, "check").as_deref() == Some("Programme rules"))
         .unwrap();
-    assert_eq!(s(&v1, "state").as_deref(), Some("active"));
+    assert_eq!(s(&step, "result").as_deref(), Some("decline"));
+    assert_eq!(
+        s(&step, "detail").as_deref(),
+        Some(
+            "Declined by rule \u{201c}No gambling\u{201d} version 1: it declines merchant category gambling."
+        )
+    );
+    // Past decisions are unchanged: the shadow-time approval is still approved.
+    let past: String = b
+        .db
+        .client()
+        .query_one("SELECT decision::text FROM bank.card_authorizations WHERE authorization_ref = 'during-shadow'", &[])
+        .unwrap()
+        .get(0);
+    assert_eq!(past, "approved");
 
     // Version 2 (a stricter amount rule under the same key) replaces version 1; rolling back puts version 1 back.
     let stricter = params("amount_above", &[("assetId", "USDT"), ("amount", "0.5")]);
     let v2 = b
         .ops(|d| desk::create_rule(d, OPERATOR, "no-gambling", "No gambling v2", &stricter))
         .unwrap();
-    assert_eq!(n(counted_of(&v2), "wouldDecline"), 10.0);
     let v2_id = s(&v2, "id").unwrap();
     b.ops(|d| desk::promote_rule(d, OPERATOR, &v2_id)).unwrap();
+    assert_eq!(
+        authorize(&b, &card, "v2", "1", category("groceries"))
+            .decline_code
+            .as_deref(),
+        Some("bank.card_rule_declined")
+    );
     let rolled = b
         .ops(|d| desk::rollback_rule(d, OPERATOR, "no-gambling"))
         .unwrap();
@@ -617,6 +615,10 @@ fn a_shadow_rule_counts_what_it_would_decline_over_past_test_authorisations_deci
         Some("retired")
     );
     assert_eq!(
+        authorize(&b, &card, "after-rollback", "1", category("groceries")).decision,
+        "approved"
+    );
+    assert_eq!(
         refused(b.ops(|d| desk::promote_rule(d, OPERATOR, &v2_id))),
         "bank.card_rule_state"
     );
@@ -626,18 +628,13 @@ fn a_shadow_rule_counts_what_it_would_decline_over_past_test_authorisations_deci
         refused(b.ops(|d| desk::rollback_rule(d, OPERATOR, "no-gambling"))),
         "bank.card_rule_state"
     );
-    assert_eq!(b.count(approved), 10);
-}
-
-fn counted_of(rule: &Json) -> &Json {
-    rule.get("shadow").unwrap()
 }
 
 #[test]
-fn three_ds_an_online_payment_under_the_exemption_limit_is_counted_and_clearing_the_policy_asks_no_challenge_again()
+fn three_ds_an_online_payment_of_25_under_an_exemption_limit_of_30_skips_the_challenge_and_the_trace_says_why_above_it_no_challenge_passed_declines()
  {
     let Some(b) = bank() else { return };
-    let (p, _) = b.people.person("full");
+    let (p, _) = b.person("full");
     let (card, _) = b.card_for(&p);
     let policy = Json::Object(vec![
         ("mode".to_owned(), Json::str("challenge_all")),
@@ -651,50 +648,16 @@ fn three_ds_an_online_payment_under_the_exemption_limit_is_counted_and_clearing_
     ]);
     b.ops(|d| desk::configure(d, OPERATOR, "threeds", &policy))
         .unwrap();
-    let held = |j: &Json| {
-        desk::settings(&mut b.db.client())
-            .unwrap()
-            .get("threeds")
-            .and_then(|v| v.get("value"))
-            .map(Json::compact)
-            == Some(j.compact())
-    };
-    assert!(held(&policy), "the policy is stored as given");
     // A policy out of shape refuses and stores nothing.
     let bad = Json::obj([("mode", Json::str("sometimes"))]);
     assert_eq!(
         refused(b.ops(|d| desk::configure(d, OPERATOR, "threeds", &bad))),
         "bank.card_programme_invalid"
     );
-    assert!(held(&policy));
-    let skip = r#"[{"check":"3DS policy","result":"skip","detail":"SCA low-value exemption: 25 USDT is under the exemption limit of 30.00 USDT, so the challenge was skipped."}]"#;
-    let exempt = authorize(
-        &b,
-        &Auth {
-            card: &card,
-            reference: "online-25",
-            amount: "25.00",
-            channel: "online",
-            trace: Some(skip),
-            ..Auth::default()
-        },
-    );
-    authorize(
-        &b,
-        &Auth {
-            card: &card,
-            reference: "online-40",
-            amount: "40",
-            channel: "online",
-            decline: Some("bank.card_3ds_required"),
-            trace: Some(
-                r#"[{"check":"3DS policy","result":"decline","detail":"challenge required"}]"#,
-            ),
-            ..Auth::default()
-        },
-    );
+    let exempt = authorize(&b, &card, "online-25", "25.00", online);
+    assert_eq!(exempt.decision, "approved");
     let trace = field_list(
-        &b.ops(|d| desk::authorization(d, &exempt)).unwrap(),
+        &b.ops(|d| desk::authorization(d, &exempt.id)).unwrap(),
         "trace",
     );
     let step = trace
@@ -714,11 +677,25 @@ fn three_ds_an_online_payment_under_the_exemption_limit_is_counted_and_clearing_
         .compact()
     );
     assert_eq!(desk::exemption_count(&mut b.db.client()).unwrap(), 1);
+    let high = authorize(&b, &card, "online-40", "40", online);
+    assert_eq!(
+        (high.decision.as_str(), high.decline_code.as_deref()),
+        ("declined", Some("bank.card_3ds_required"))
+    );
+    let passed = authorize(&b, &card, "online-40b", "40", |a| {
+        online(a);
+        a.three_ds = Some("authenticated".to_owned());
+    });
+    assert_eq!(passed.decision, "approved");
+    // Card-present payments are not asked; clearing the policy asks no challenge again.
+    assert_eq!(
+        authorize(&b, &card, "shop-40", "40", |_| {}).decision,
+        "approved"
+    );
     b.ops(|d| desk::clear_three_ds(d, OPERATOR)).unwrap();
-    let cleared = desk::settings(&mut b.db.client()).unwrap();
-    assert!(
-        matches!(cleared.get("threeds"), None | Some(Json::Null)),
-        "{cleared:?}"
+    assert_eq!(
+        authorize(&b, &card, "online-40c", "40", online).decision,
+        "approved"
     );
 }
 
@@ -726,23 +703,11 @@ fn three_ds_an_online_payment_under_the_exemption_limit_is_counted_and_clearing_
 fn lifecycle_and_capture_variance_a_25_hold_captured_at_20_shows_20_captured_5_given_back_and_a_variance_of_minus_5()
  {
     let Some(b) = bank() else { return };
-    let (p, _) = b.people.person("full");
+    let (p, _) = b.person("full");
     let (card, _) = b.card_for(&p);
-    let a = authorize(
-        &b,
-        &Auth {
-            card: &card,
-            reference: "cap",
-            amount: "25",
-            trace: Some(
-                r#"[{"check":"Card status","result":"pass","detail":"active"},{"check":"Hold","result":"pass","detail":"25 USDT held"}]"#,
-            ),
-            ..Auth::default()
-        },
-    );
-    settle(&b, &a, 1, "capture", "20");
-    settle(&b, &a, 2, "reversal", "5");
-    let d = b.ops(|d| desk::authorization(d, &a)).unwrap();
+    let a = authorize(&b, &card, "cap", "25", |_| {});
+    capture(&b, &card, "cap", "20");
+    let d = b.ops(|d| desk::authorization(d, &a.id)).unwrap();
     assert_eq!(
         d.get("variance").unwrap().compact(),
         r#"{"authorised":"25","captured":"20","returned":"5","stillHeld":"0","captureVariance":"-5"}"#
@@ -798,7 +763,7 @@ fn the_kyc_and_kyb_gate_a_business_with_no_beneficial_owner_lands_in_the_review_
         "bank.cardholder_conflict"
     );
     // With a verified owner the business passes.
-    let (_, owner) = b.people.person("full");
+    let (_, owner) = b.person("full");
     let ok = b
         .business(
             "biz-owner-1",
@@ -811,12 +776,12 @@ fn the_kyc_and_kyb_gate_a_business_with_no_beneficial_owner_lands_in_the_review_
         .unwrap();
     assert_eq!(s(&ok, "status").as_deref(), Some("verified"));
     // An individual below the full level is unverified; a name on the list is under review.
-    let (_, low) = b.people.person("basic");
+    let (_, low) = b.person("basic");
     assert_eq!(
         refused(b.individual("low-tier-1", "Low", &low)),
         "bank.cardholder_unverified"
     );
-    let (_, listed) = b.people.person("full");
+    let (_, listed) = b.person("full");
     assert_eq!(
         refused(b.individual("listed-1", "local test sanctioned  cardholder", &listed)),
         "bank.cardholder_under_review"
@@ -837,7 +802,7 @@ fn the_kyc_and_kyb_gate_a_business_with_no_beneficial_owner_lands_in_the_review_
     );
     // Directory search by a card's last four digits.
     b.sanctions = Some(LISTED.to_owned());
-    let (holder, email) = b.people.person("full");
+    let (holder, email) = b.person("full");
     let ch = b.individual("search-1", "TEST Searcher", &email).unwrap();
     let (_, tail) = b.card_for(&holder);
     let found = list(&holders::cardholders(&mut b.db.client(), Some(&tail)).unwrap());
@@ -850,7 +815,7 @@ fn the_kyc_and_kyb_gate_a_business_with_no_beneficial_owner_lands_in_the_review_
 #[test]
 fn a_viewer_reads_and_changes_nothing_every_change_is_in_the_audit_log_which_cannot_be_edited() {
     let Some(b) = bank() else { return };
-    let (viewer, email) = b.people.person("full");
+    let (viewer, email) = b.person("full");
     b.ops(|d| desk::assign_staff(d, OPERATOR, &email, "viewer"))
         .unwrap();
     let bin = |n: &str, range: &str| {
@@ -900,8 +865,8 @@ fn a_viewer_reads_and_changes_nothing_every_change_is_in_the_audit_log_which_can
 fn bulk_issue_a_file_with_one_bad_row_lists_it_and_issues_nothing_the_good_rows_issued_twice_make_their_cards_once()
  {
     let Some(b) = bank() else { return };
-    let (_, a) = b.people.person("full");
-    let (_, bb) = b.people.person("full");
+    let (_, a) = b.person("full");
+    let (_, bb) = b.person("full");
     let ha = s(&b.individual("bulk-holder-a", "A", &a).unwrap(), "id").unwrap();
     let hb = s(&b.individual("bulk-holder-b", "B", &bb).unwrap(), "id").unwrap();
     let good = [
@@ -965,28 +930,22 @@ fn bulk_issue_a_file_with_one_bad_row_lists_it_and_issues_nothing_the_good_rows_
 fn reassign_moves_a_card_with_no_open_hold_to_a_verified_cardholder_and_refuses_one_with_an_open_hold_nothing_posts()
  {
     let Some(b) = bank() else { return };
-    let (a, _) = b.people.person("full");
-    let (bu, bmail) = b.people.person("full");
+    let (a, _) = b.person("full");
+    let (bu, bmail) = b.person("full");
     let hb = s(
         &b.individual("reassign-holder-b", "B", &bmail).unwrap(),
         "id",
     )
     .unwrap();
     let (card, _) = b.card_for(&a);
-    let open = authorize(
-        &b,
-        &Auth {
-            card: &card,
-            reference: "open-hold",
-            amount: "5",
-            ..Auth::default()
-        },
-    );
+    authorize(&b, &card, "open-hold", "5", |_| {});
     assert_eq!(
         refused(b.ops(|d| holders::reassign(d, OPERATOR, &card, &hb))),
         "bank.card_reassign_open_hold"
     );
-    settle(&b, &open, 1, "reversal", "5");
+    b.ops(|d| settle::reverse(d.moves, &card, "open-hold"))
+        .unwrap();
+    let posted = b.ledger.journal_len();
     let moved = b
         .ops(|d| holders::reassign(d, OPERATOR, &card, &hb))
         .unwrap();
@@ -1000,10 +959,7 @@ fn reassign_moves_a_card_with_no_open_hold_to_a_verified_cardholder_and_refuses_
             .unwrap()
             .get(0);
     assert_eq!(owner, bu);
-    assert_eq!(
-        b.count("SELECT count(*)::int8 FROM bank.card_reassignments"),
-        1
-    );
+    assert_eq!(b.ledger.journal_len(), posted, "a reassign posts nothing");
     // Back to the same holder refuses; an unknown cardholder is not found.
     assert_eq!(
         refused(b.ops(|d| holders::reassign(d, OPERATOR, &card, &hb))),
@@ -1016,54 +972,70 @@ fn reassign_moves_a_card_with_no_open_hold_to_a_verified_cardholder_and_refuses_
 }
 
 #[test]
-fn the_simulator_runs_on_a_test_stack_only_and_its_events_are_card_ops() {
+fn the_simulator_is_labelled_test_runs_on_a_test_stack_only_and_drives_the_real_authorise_and_capture_path()
+ {
     let Some(mut b) = bank() else { return };
-    let (p, email) = b.people.person("full");
+    let (p, email) = b.person("full");
     let (card, _) = b.card_for(&p);
-    // On a test stack the gate passes, and the event itself is slice card-ops' (not ported), writing nothing.
-    let not_ported = refused(b.ops(|d| holders::simulate(d, OPERATOR, &card)));
-    assert!(not_ported.contains("card-ops"), "{not_ported}");
+    let event = |kind: &str, reference: &str, amount: Option<&str>| {
+        let mut f = vec![
+            ("kind".to_owned(), Json::str(kind)),
+            ("cardId".to_owned(), Json::str(card.clone())),
+            ("authorizationRef".to_owned(), Json::str(reference)),
+        ];
+        f.extend(amount.map(|a| ("amount".to_owned(), Json::str(a))));
+        Value::from_json(&Json::Object(f))
+    };
+    let auth = b
+        .ops(|d| holders::simulate(d, OPERATOR, &event("authorize", "sim-1", Some("12"))))
+        .unwrap();
+    assert_eq!(auth.get("test"), Some(&Json::Bool(true)));
     assert_eq!(
-        b.count("SELECT count(*)::int8 FROM bank.card_programme_audit"),
-        0
+        (s(&auth, "kind"), s(&auth, "decision")),
+        (Some("authorize".to_owned()), Some("approved".to_owned()))
     );
+    let cap = b
+        .ops(|d| holders::simulate(d, OPERATOR, &event("capture", "sim-1", Some("10"))))
+        .unwrap();
+    assert_eq!(cap.get("test"), Some(&Json::Bool(true)));
+    assert_eq!(
+        (s(&cap, "captured"), s(&cap, "returned")),
+        (Some("10".to_owned()), Some("2".to_owned()))
+    );
+    // Each TEST event is kept in the audit table, and left out of the desk's audit list (the decision log lists it).
+    assert_eq!(
+        b.count(
+            "SELECT count(*)::int8 FROM bank.card_programme_audit WHERE action LIKE 'simulator.%'"
+        ),
+        2
+    );
+    let log = list(&desk::audit_log(&mut b.db.client()).unwrap());
+    assert!(
+        log.iter()
+            .all(|e| !s(e, "action").unwrap().starts_with("simulator."))
+    );
+    // A viewer changes nothing, the simulator included.
     b.ops(|d| desk::assign_staff(d, OPERATOR, &email, "viewer"))
         .unwrap();
     assert_eq!(
-        refused(b.ops(|d| holders::simulate(d, &p, &card))),
+        refused(b.ops(|d| holders::simulate(d, &p, &event("authorize", "sim-v", Some("1"))))),
         "bank.card_programme_viewer"
     );
     b.simulator_allowed = false;
     assert_eq!(
-        refused(b.ops(|d| holders::simulate(d, OPERATOR, &card))),
+        refused(b.ops(|d| holders::simulate(d, OPERATOR, &event("authorize", "sim-2", Some("1"))))),
         "bank.card_sim_not_live"
     );
+    assert_eq!(b.count("SELECT count(*)::int8 FROM bank.card_authorizations WHERE authorization_ref IN ('sim-v', 'sim-2')"), 0);
 }
 
 #[test]
 fn the_export_is_signed_over_its_text_carries_its_freshness_time_and_its_totals_equal_the_report() {
     let Some(mut b) = bank() else { return };
-    let (p, _) = b.people.person("full");
+    let (p, _) = b.person("full");
     let (card, _) = b.card_for(&p);
-    authorize(
-        &b,
-        &Auth {
-            card: &card,
-            reference: "r1",
-            amount: "3",
-            ..Auth::default()
-        },
-    );
-    authorize(
-        &b,
-        &Auth {
-            card: &card,
-            reference: "r2",
-            amount: "900",
-            decline: Some("bank.card_limit_exceeded"),
-            ..Auth::default()
-        },
-    );
+    authorize(&b, &card, "r1", "3", |_| {});
+    authorize(&b, &card, "r2", "900", |_| {});
     let report = b.ops(|d| desk::report(d, &mut b.db.client())).unwrap();
     assert_eq!(
         report.json().get("totals").unwrap().compact(),
@@ -1136,27 +1108,11 @@ fn reconciles_open_holds_and_captures_against_the_partner_matches_a_break_and_no
  {
     let Some(mut b) = bank() else { return };
     let user = uuid();
+    b.ledger.fund(&user, "USDT", "100");
     let (card, _) = b.card_for(&user);
-    authorize(
-        &b,
-        &Auth {
-            card: &card,
-            reference: "r-open",
-            amount: "5",
-            ..Auth::default()
-        },
-    );
-    let cap = authorize(
-        &b,
-        &Auth {
-            card: &card,
-            reference: "r-cap",
-            amount: "25",
-            ..Auth::default()
-        },
-    );
-    settle(&b, &cap, 1, "capture", "20");
-    settle(&b, &cap, 2, "reversal", "5");
+    authorize(&b, &card, "r-open", "5", |_| {});
+    authorize(&b, &card, "r-cap", "25", |_| {});
+    capture(&b, &card, "r-cap", "20");
 
     let view = field_list(&b.ops(funding::view).unwrap(), "rows");
     // 5 open, 20 captured (the 5 remainder returned): 25, equal to the partner's 5 + 20.
@@ -1324,6 +1280,11 @@ fn sends_an_offered_instruction_once_with_its_approval_used_once_and_nothing_pos
     let again = b.ops(|d| funding::request(d, &input)).unwrap();
     assert_eq!(again.compact(), first.compact());
     assert_eq!(b.desk.consumed(), 1);
+    assert_eq!(
+        b.ledger.journal_len(),
+        0,
+        "a funding instruction posts nothing"
+    );
     assert_eq!(
         requests(&b).iter().map(Json::compact).collect::<Vec<_>>(),
         [first.compact()]

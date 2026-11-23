@@ -12,6 +12,7 @@
 pub mod activity;
 pub mod automations;
 pub mod bills;
+pub mod card_ops_desk;
 pub mod card_programme;
 pub mod cards;
 pub mod credit_previews;

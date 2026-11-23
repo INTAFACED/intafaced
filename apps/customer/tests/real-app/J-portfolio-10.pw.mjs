@@ -97,8 +97,8 @@ test(`${J} #1 opens /coin/BTC: price chart, range pills, stats, holding, about a
   await expect
     .poll(async () => {
       const t = await tickerNow();
-      const high = dollars(await stats.getByTestId('stat-high').locator('.coin-stats__value').innerText());
-      const low = dollars(await stats.getByTestId('stat-low').locator('.coin-stats__value').innerText());
+      const high = dollars(await stats.getByTestId('stat-high').getByTestId('coin-stats__value').innerText());
+      const low = dollars(await stats.getByTestId('stat-low').getByTestId('coin-stats__value').innerText());
       return Math.abs(high - Number(t.high)) <= 0.005 && Math.abs(low - Number(t.low)) <= 0.005 && high >= low;
     })
     .toBe(true);
@@ -130,7 +130,9 @@ test(`${J} #2 picks the 6M range: about six months of daily candles, the pills k
   await openCoin(page);
   const pills = page.getByTestId('coin-ranges').locator('button');
   await expect(pills.filter({ hasText: /^6M$/ })).toBeVisible();
-  expect(await pills.allInnerTexts()).toEqual(['1D', '1W', '1M', '6M', '1Y', 'All']);
+  // The pills' own words, in order. The kit's Segmented sets its labels in capitals by CSS, which innerText would
+  // report (ALL); the words the page holds are what the step's order is about.
+  expect(await pills.allTextContents()).toEqual(['1D', '1W', '1M', '6M', '1Y', 'All']);
   // Six months of daily candles: the chart asks for daily candles, 180 of them, and draws what came back.
   const asked = page.waitForResponse(
     (res) => res.url().includes('/ohlcv/') && /timeframe=1d/.test(res.url()) && /limit=180\b/.test(res.url()),
@@ -154,7 +156,9 @@ test(`${J} #2 picks the 6M range: about six months of daily candles, the pills k
   // Drawn: two or more candles draw the chart (fewer fall back to finer candles, which the page then draws).
   await expect(page.getByTestId('coin-chart')).toBeVisible();
   await expect(page.getByTestId('chart-empty')).toHaveCount(0);
-  expect(await pills.allInnerTexts()).toEqual(['1D', '1W', '1M', '6M', '1Y', 'All']);
+  // The pills' own words, in order. The kit's Segmented sets its labels in capitals by CSS, which innerText would
+  // report (ALL); the words the page holds are what the step's order is about.
+  expect(await pills.allTextContents()).toEqual(['1D', '1W', '1M', '6M', '1Y', 'All']);
   // Arrow keys move between the pills.
   await pills.filter({ hasText: /^6M$/ }).focus();
   await page.keyboard.press('ArrowRight');
@@ -186,7 +190,7 @@ test(`${J} #3 reads stats and network details: market cap reads "not published" 
   const cap = stats.getByTestId('stat-market-cap');
   await expect(cap).toBeVisible();
   await expect(cap).toContainText('Market cap');
-  await expect(cap.locator('.coin-stats__value')).toHaveText('not published');
+  await expect(cap.getByTestId('coin-stats__value')).toHaveText('not published');
   // The networks are the platform's asset registry's, read back from svc-bank: the networks of BTC's row when it is
   // active and a customer may deposit or withdraw it, joined in the registry's order; a coin with none says "not listed".
   const registry = (await (await api(who)).get('/api/bank/trpc/assets.list')).body.result.data.assets;
@@ -198,7 +202,7 @@ test(`${J} #3 reads stats and network details: market cap reads "not published" 
   );
   const network = page.getByTestId('coin-network');
   await expect(network).toContainText('Networks');
-  await expect(network.locator('.coin-stats__value')).toHaveText(
+  await expect(network.getByTestId('coin-stats__value')).toHaveText(
     btc && btc.networks.length > 0 ? btc.networks.map((row) => row.label).join(', ') : 'not listed',
   );
   // Contract and links "where known": the registry is where the page knows them. BTC's row (when it has one) knows no
@@ -222,7 +226,7 @@ test(`${J} #3 reads stats and network details: market cap reads "not published" 
   expect(known.length, 'and not on every network, so the page must leave one out').toBeLessThan(usdc.networks.length);
   await page.goto('/coin/USDC');
   const usdcStats = page.getByTestId('coin-stats');
-  await expect(usdcStats.getByTestId('coin-network').locator('.coin-stats__value')).toHaveText(
+  await expect(usdcStats.getByTestId('coin-network').getByTestId('coin-stats__value')).toHaveText(
     usdc.networks.map((net) => net.label).join(', '),
   );
   const details = usdcStats.getByTestId('coin-network-detail');
@@ -273,7 +277,7 @@ test(`${J} #4 reads "Your position": quantity, average price, cost basis and res
   await expect
     .poll(async () => {
       const [value, result] = await Promise.all([
-        page.getByTestId('your-coin').locator('.coin-yours__value').first().innerText(),
+        page.getByTestId('your-coin').getByTestId('coin-yours__value').first().innerText(),
         position.locator('[data-figure="result"]').innerText(),
       ]);
       const expected = units(value) - cents(toUnits(asset.openCostUsd));

@@ -82,18 +82,18 @@ fn call(d: &Deps<'_>, ctx: &Ctx<'_>) -> Option<Result<Json, Refusal>> {
             text(input, "cardId"),
             text(input, "toCardholderId"),
         ),
-        "ops.cardProgrammeSimulate" => holders::simulate(d, actor, text(input, "cardId")),
+        "ops.cardProgrammeSimulate" => holders::simulate(d, actor, input),
         _ => return None,
     })
 }
 
 /// The slice's answer at the door; `None` for a path outside it.
 pub fn answer(
-    cards: &crate::cards::Deps<'_>,
+    moves: &crate::cards::moves::Moves<'_>,
     w: &super::Wiring,
     ctx: &Ctx<'_>,
 ) -> Option<Result<Option<Json>, TrpcError>> {
-    let d = Deps { cards, w };
+    let d = Deps::new(moves, w);
     let out = call(&d, ctx)?;
     Some(out.map(Some).map_err(|r| {
         to_trpc(r, || {

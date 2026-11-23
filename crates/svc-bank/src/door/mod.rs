@@ -23,6 +23,7 @@
 //! (`scripts/record-door.mjs`). `tests/wire_replay.rs` holds the door to the TypeScript's recorded answers.
 
 pub mod calls;
+mod card_moves;
 pub mod inputs;
 pub mod jobs;
 pub mod rest;
@@ -487,6 +488,7 @@ impl BankDoor {
         f(&crate::cards::Deps {
             t: &t,
             w: &self.cards,
+            rates: self.loans.prices.as_ref(),
         })
     }
 
@@ -586,6 +588,13 @@ impl BankDoor {
             ]))),
             Slice::CreditPreviews => crate::credit_previews::answer(ctx)
                 .unwrap_or_else(|| Err(not_ported(Slice::CreditPreviews))),
+            // The TEST merchant's refund of a partner-held card capture is a card move (`card_moves`); with the TEST
+            // partner off it is the partner slice's refusal.
+            Slice::Partner
+                if ctx.call.path == "testPartner.cardRefund" && self.partner.partner.is_some() =>
+            {
+                self.card_refund(ctx)
+            }
             Slice::Partner => crate::partner::router::answer(&self.partner, &self.store, ctx)
                 .unwrap_or_else(|| Err(not_ported(Slice::Partner))),
             Slice::Spaces => {
@@ -655,14 +664,19 @@ impl BankDoor {
                 &self.spaces,
                 &self.partner,
                 &self.store,
+                self.loans.prices.as_ref(),
                 ctx,
             )
             .unwrap_or_else(|| Err(not_ported(Slice::Cards))),
             Slice::CardProgramme => self
-                .cards_deps(ctx.now, |c| {
-                    crate::card_programme::router::answer(c, &self.card_programme, ctx)
+                .with_moves(ctx, |m| {
+                    crate::card_programme::router::answer(m, &self.card_programme, ctx)
                 })
                 .unwrap_or_else(|| Err(not_ported(Slice::CardProgramme))),
+            Slice::CardOps => self
+                .card_moves(ctx)
+                .or_else(|| self.cards_deps(ctx.now, |d| crate::card_ops_desk::answer(d, ctx)))
+                .unwrap_or_else(|| Err(not_ported(Slice::CardOps))),
             Slice::Loans => {
                 let user = ctx
                     .principal
@@ -727,6 +741,9 @@ impl BankDoor {
             }
         }
         if let Some(res) = crate::ramps::onramp::doors(self, req, peer) {
+            return res;
+        }
+        if let Some(res) = crate::card_ops_desk::record::door(self, req, peer) {
             return res;
         }
         if let Some(res) = rest::answer(self, req) {

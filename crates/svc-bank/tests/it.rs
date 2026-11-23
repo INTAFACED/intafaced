@@ -30,6 +30,20 @@ mod bills_direct_debits_db;
 mod bills_pay_db;
 #[path = "bills_rail_sends_db.rs"]
 mod bills_rail_sends_db;
+#[path = "card_ops_desk_disputes_db.rs"]
+mod card_ops_desk_disputes_db;
+#[path = "card_ops_desk_programme_db.rs"]
+mod card_ops_desk_programme_db;
+#[path = "card_ops_desk_reads_db.rs"]
+mod card_ops_desk_reads_db;
+#[path = "card_ops_desk_record_db.rs"]
+mod card_ops_desk_record_db;
+#[path = "card_ops_ledger_db.rs"]
+mod card_ops_ledger_db;
+#[path = "card_ops_partner_db.rs"]
+mod card_ops_partner_db;
+#[path = "card_ops_product_db.rs"]
+mod card_ops_product_db;
 #[path = "card_programme_db.rs"]
 mod card_programme_db;
 #[path = "cards_core_db.rs"]
@@ -100,6 +114,8 @@ mod transfers_withdrawal_db;
 mod wire_replay;
 
 // The helpers the files share: `use crate::<helper>;`, never a `mod` of their own.
+mod card_ops_desk_kit;
+mod card_ops_kit;
 mod loans_kit;
 mod support;
 

@@ -4,15 +4,15 @@
 //!
 //! Nothing here holds a balance or posts to the ledger. Card money is the card partner's: a funding instruction is told
 //! to the partner and recorded, a reassign moves a card and never money, and the TEST card event simulator drives slice
-//! `card-ops`' authorise, capture and reverse (which answer "not ported" until it is). Every change on the desk writes one
+//! `card-ops`' own authorise, capture and reverse (`cards::moves`), which post what they post. The rule a desk
+//! promotes is read by that authorise (`cards::moves::decide::RuleParams`), the one place a rule's meaning lives. Every change on the desk writes one
 //! audit row, which the database refuses to edit; a staff member with the viewer role reads everything and changes
 //! nothing.
 //!
-//! - `rules`: an authorisation rule's words and whether it would decline one authorisation (`programme/rules.ts`).
 //! - `desk`: settings and the checklist, the rules (shadow, promote, roll back), staff and the audit log, the decision
 //!   log and one authorisation, the report and its signed export, and the desk's first paint.
 //! - `holders`: cardholders behind the KYC and KYB gate with screening, their cards and funds, bulk issue, reassign and
-//!   the simulator's gate.
+//!   the TEST card event simulator.
 //! - `funding`: the programme read, programme funding and a funding instruction.
 //! - `router`: the calls.
 
@@ -20,7 +20,6 @@ pub mod desk;
 pub mod funding;
 pub mod holders;
 pub mod router;
-pub mod rules;
 
 use postgres::GenericClient;
 use service_kit::json::{self, Json};
@@ -64,10 +63,23 @@ impl Wiring {
     }
 }
 
-/// What every part of the slice is handed for one call: the cards slice's dependencies and this slice's wiring.
+/// What every part of the slice is handed for one call: the cards slice's dependencies, its card moves (for the
+/// simulator) and this slice's wiring.
 pub struct Deps<'a> {
     pub cards: &'a crate::cards::Deps<'a>,
+    pub moves: &'a crate::cards::moves::Moves<'a>,
     pub w: &'a Wiring,
+}
+
+impl<'a> Deps<'a> {
+    /// The slice's dependencies over one set of card moves.
+    pub fn new(moves: &'a crate::cards::moves::Moves<'a>, w: &'a Wiring) -> Deps<'a> {
+        Deps {
+            cards: moves.d,
+            moves,
+            w,
+        }
+    }
 }
 
 impl Deps<'_> {

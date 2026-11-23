@@ -7,10 +7,12 @@ use icu_normalizer::ComposingNormalizerBorrowed;
 use postgres::{GenericClient, Row};
 use service_kit::json::Json;
 use service_kit::money::{Amount, format_amount, is_js_whitespace, js_trim, parse_amount};
+use service_kit::schema::Value;
 use service_kit::time::Instant;
 use sha2::{Digest, Sha256};
 
 use super::{Deps, LIST, assert_may_change, audit, is_uuid, js_len, jsonb};
+use crate::cards::moves::{decide, settle};
 use crate::cards::reads::{HoldReads, test_card_holds};
 use crate::cards::{CARD_COLS, Card, core, ms};
 use crate::errors::Refusal;
@@ -996,11 +998,12 @@ pub fn reassign(d: &Deps<'_>, actor: &str, card_id: &str, to: &str) -> Result<Js
     ]))
 }
 
-/// `simulate`'s gate: the card, then a dev or test stack and a simulated card, then the viewer check. The event itself
-/// (an authorisation, capture or reversal through the issuer's own path) is slice `card-ops`', which answers "not
-/// ported" until it is; nothing is written before it.
-pub fn simulate(d: &Deps<'_>, actor: &str, card_id: &str) -> Result<Json, Refusal> {
-    let card = crate::cards::read_card(d.cards, card_id)?;
+/// `simulate`: one TEST card event on a simulated card, on a dev or test stack, through slice `card-ops`' own
+/// authorise, capture or reverse (`cards::moves`), then its audit row (`simulator.<kind>`, which the audit list leaves
+/// out and the decision log shows).
+pub fn simulate(d: &Deps<'_>, actor: &str, input: &Value) -> Result<Json, Refusal> {
+    let text = |k: &str| input.get(k).as_str().unwrap_or_default().to_owned();
+    let card = crate::cards::read_card(d.cards, &text("cardId"))?;
     if !d.w.simulator_allowed || !card.simulated {
         return Err(refuse(
             "bank.card_sim_not_live",
@@ -1008,9 +1011,65 @@ pub fn simulate(d: &Deps<'_>, actor: &str, card_id: &str) -> Result<Json, Refusa
         ));
     }
     with(d.store(), |c| assert_may_change(c, actor))?;
-    Err(Refusal::Trpc(crate::door::not_ported(
-        crate::door::Slice::CardOps,
-    )))
+    let kind = text("kind");
+    let reference = text("authorizationRef");
+    let amount = || parse_amount(&text("amount")).map_err(Refusal::Other);
+    let answer: Vec<(String, Json)> = match kind.as_str() {
+        "authorize" => {
+            let a = decide::authorize(
+                d.moves,
+                &decide::Ask {
+                    card_id: card.id.clone(),
+                    authorization_ref: reference.clone(),
+                    amount: amount()?,
+                    channel: input.get("channel").as_str().map(str::to_owned),
+                    merchant_category: input
+                        .get("merchantCategory")
+                        .as_str()
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_owned),
+                    three_ds: input.get("threeDs").as_str().map(str::to_owned),
+                    ..decide::Ask::default()
+                },
+            )?;
+            vec![
+                ("authorizationId".to_owned(), Json::str(a.id)),
+                ("decision".to_owned(), Json::str(a.decision)),
+                (
+                    "declineCode".to_owned(),
+                    a.decline_code.map_or(Json::Null, Json::str),
+                ),
+            ]
+        }
+        "capture" => {
+            let c = settle::capture(d.moves, &card.id, &reference, amount()?)?;
+            vec![
+                ("captured".to_owned(), Json::str(format_amount(c.captured))),
+                ("returned".to_owned(), Json::str(format_amount(c.returned))),
+            ]
+        }
+        _ => {
+            let r = settle::reverse(d.moves, &card.id, &reference)?;
+            vec![("returned".to_owned(), Json::str(format_amount(r.returned)))]
+        }
+    };
+    let after = Json::Object(answer.clone());
+    with(d.store(), |c| {
+        audit(
+            c,
+            actor,
+            &format!("simulator.{kind}"),
+            &format!("card {} {reference}", card.pan_tail),
+            None,
+            Some(&after),
+        )
+    })?;
+    let mut out = vec![
+        ("test".to_owned(), Json::Bool(true)),
+        ("kind".to_owned(), Json::str(kind)),
+    ];
+    out.extend(answer);
+    Ok(Json::Object(out))
 }
 
 #[cfg(test)]
