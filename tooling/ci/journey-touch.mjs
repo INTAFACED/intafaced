@@ -380,7 +380,6 @@ export const STACK_HELPERS = [
   'merchant.mjs',
   'notices.mjs',
   'p2p.mjs',
-  'qr-read.mjs',
   'real-app.playwright.config.mjs',
   'services.mjs',
   'stack.mjs',
