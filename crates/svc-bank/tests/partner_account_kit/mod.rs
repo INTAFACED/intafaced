@@ -270,6 +270,10 @@ pub struct Setup {
     pub partner: Option<Partner>,
     /// The TEST partner bank (partner-held cases); none elsewhere, so every other case is the ledger path.
     pub partner_bank: bool,
+    /// The pool's size and its session-lock gate's (`DATABASE_POOL_MAX`).
+    pub pool_max: usize,
+    /// The owner's security lock in place of the test's `Lock`.
+    pub security_lock: Option<Box<dyn SecurityLock>>,
 }
 
 impl Default for Setup {
@@ -279,6 +283,8 @@ impl Default for Setup {
             cooling: Some("24"),
             partner: None,
             partner_bank: false,
+            pool_max: 2,
+            security_lock: None,
         }
     }
 }
@@ -298,9 +304,9 @@ pub fn door(db: &TestDb, ledger: &MemLedger, lock: &Lock, s: Setup) -> BankDoor 
     wiring.cash_out = CashOutWiring {
         partner: s.partner,
         receipt_secret: Some(RECEIPTS.to_owned()),
-        security_lock: Box::new(lock.clone()),
+        security_lock: s.security_lock.unwrap_or_else(|| Box::new(lock.clone())),
         ledger: Box::new(ledger.clone()),
-        gate: Gate::new(2),
+        gate: Gate::new(s.pool_max),
     };
     BankDoor::new(DoorConfig {
         edge_secret: SECRET.to_owned(),
@@ -311,7 +317,7 @@ pub fn door(db: &TestDb, ledger: &MemLedger, lock: &Lock, s: Setup) -> BankDoor 
         },
         env,
         now: door::system_now,
-        store: db.store(),
+        store: svc_bank::db::open(&db.url, "svc-bank", s.pool_max, false).unwrap(),
     })
     .unwrap()
     .with_partner(PartnerWiring {

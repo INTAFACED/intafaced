@@ -77,17 +77,6 @@
     "why": "Calls TradeOpsLayout with tradeops off (redirects, guard asked for tradeops) and on (renders its children)."
   },
   {
-    "file": "apps/admin/src/lib/ops-desk/catalog.test.ts",
-    "target": "../../../../../services/svc-bank/src/personal-pay/router.ts",
-    "verdict": "rewrite",
-    "asserts": "Each bills.ops.* and global.ops.* read on the pay desk names a query svc-bank serves.",
-    "guard": {
-      "kind": "test",
-      "ref": "apps/admin/src/lib/ops-desk/catalog.test.ts#every read names a QUERY that exists in the owning router (drift guard)"
-    },
-    "why": "Looks the read up in svc-bank's recorded calls (wire-replay.golden/callers.json, written from the live router by procedureCallers and held equal to it by svc-bank's wire-replay test) and asserts it is a query."
-  },
-  {
     "file": "apps/admin/src/lib/trade-ops/maker-programme-model.test.ts",
     "target": "maker-programme-model.ts",
     "verdict": "rewrite",
